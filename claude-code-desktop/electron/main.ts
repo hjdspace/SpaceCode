@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, shell, dialog, net } from 'electron'
-import { join, dirname, resolve } from 'path'
-import { readFileSync, readdirSync, statSync, existsSync } from 'fs'
+import { join, resolve } from 'path'
+import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSync } from 'fs'
 import { config } from 'dotenv'
 import { initQueryEngineIntegration, attemptFullIntegration } from './queryEngineIntegration'
 import { TerminalManager } from './terminalManager'
@@ -39,7 +39,8 @@ function createWindow() {
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      partition: 'persist:claude-code-desktop'
     }
   })
 
@@ -335,11 +336,108 @@ ipcMain.on('terminal:runCommand', (_event, id: string, command: string) => {
   terminalManager.write(id, command + '\r')
 })
 
-// Get the path to claude-code CLI for launching it in terminal
+// Get the command to launch claude-code CLI in terminal
 ipcMain.handle('app:getClaudeCliPath', async () => {
-  // Use openai-launcher.js which wraps cli.js with fetch interception
-  // to support OpenAI-compatible APIs (OpenRouter, etc.)
-  // Structure: claude-code-desktop/dist-electron/main.js -> ../../claude-code/openai-launcher.js
-  const launcherPath = resolve(__dirname, '../../claude-code/openai-launcher.js')
-  return launcherPath
+  const cliProjectRoot = resolve(__dirname, '../../claude-code')
+
+  // 1. Check for built CLI (dist/cli.js) — can run with node
+  const distCliPath = resolve(cliProjectRoot, 'dist/cli.js')
+  if (existsSync(distCliPath)) {
+    return `node "${distCliPath}"`
+  }
+
+  // 2. Check for source CLI (src/entrypoints/cli.tsx) — needs bun
+  const srcCliPath = resolve(cliProjectRoot, 'src/entrypoints/cli.tsx')
+  if (existsSync(srcCliPath)) {
+    // Check if bun is available
+    const { execSync } = await import('child_process')
+    try {
+      execSync('bun --version', { stdio: 'ignore' })
+      const devScript = resolve(cliProjectRoot, 'scripts/dev.ts')
+      return `bun "${devScript}"`
+    } catch {
+      // bun not available, fall through
+    }
+  }
+
+  // 3. Check if ccb or claude-code-best is globally installed
+  try {
+    const { execSync } = await import('child_process')
+    const cmd = process.platform === 'win32' ? 'where ccb' : 'which ccb'
+    execSync(cmd, { stdio: 'ignore' })
+    return 'ccb'
+  } catch {
+    // not found
+  }
+
+  // 4. No CLI found
+  return null
+})
+
+// ============================================================================
+// Settings Injection: write GUI models to ~/.claude/settings.json
+// ============================================================================
+function getClaudeSettingsPath(): string {
+  return join(app.getPath('home'), '.claude', 'settings.json')
+}
+
+ipcMain.handle('settings:injectGuiModels', async (_event, models: { primaryModel: string; haikuModel?: string; sonnetModel?: string; opusModel?: string }) => {
+  try {
+    const settingsPath = getClaudeSettingsPath()
+    let settings: any = {}
+
+    // Read existing settings if file exists
+    if (existsSync(settingsPath)) {
+      try {
+        const raw = readFileSync(settingsPath, 'utf-8')
+        settings = JSON.parse(raw)
+      } catch {
+        settings = {}
+      }
+    }
+
+    // Build modelSettings from GUI config (these show up in /model list)
+    const modelSettings: Record<string, any> = {}
+
+    if (models.haikuModel) {
+      modelSettings[models.haikuModel] = {}
+    }
+    if (models.sonnetModel) {
+      modelSettings[models.sonnetModel] = {}
+    }
+    if (models.opusModel) {
+      modelSettings[models.opusModel] = {}
+    }
+
+    // Merge modelSettings: keep existing entries, add/update GUI ones
+    if (Object.keys(modelSettings).length > 0) {
+      settings.modelSettings = { ...(settings.modelSettings || {}), ...modelSettings }
+    }
+
+    // NOTE: We intentionally do NOT set settings.model here.
+    // Previously, writing settings.model caused the CLI to always use that value
+    // as the default model (via getUserSpecifiedModelSetting()), which prevented
+    // users from switching models with /model. The model is now passed via
+    // --model CLI flag instead, which sets mainLoopModelOverride (highest priority
+    // in getUserSpecifiedModelSetting) and can be freely overridden by /model.
+    // Clear any stale settings.model that may have been set by a previous version.
+    delete settings.model
+
+    // Write back
+    const dirPath = join(app.getPath('home'), '.claude')
+    if (!existsSync(dirPath)) {
+      mkdirSync(dirPath, { recursive: true })
+    }
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8')
+
+    console.log('[Settings] Injected GUI models to', settingsPath, {
+      modelSettingsKeys: Object.keys(modelSettings),
+      modelCleared: true
+    })
+
+    return { success: true }
+  } catch (error: any) {
+    console.error('[Settings] Failed to inject GUI models:', error)
+    return { success: false, error: String(error) }
+  }
 })

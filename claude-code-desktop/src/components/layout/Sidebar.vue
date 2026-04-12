@@ -166,7 +166,7 @@ function handleOpenTerminal() {
 }
 
 async function handleOpenClaudeCLI() {
-  const launcherPath = await api.getClaudeCliPath()
+  const cliCommand = await api.getClaudeCliPath()
   const env = settingsStore.buildEnvVars()
 
   // Set CLAUDE_CODE_SIMPLE=1 to skip OAuth/preflight checks that connect to api.anthropic.com
@@ -176,12 +176,26 @@ async function handleOpenClaudeCLI() {
     env.CLAUDE_CODE_SIMPLE = '1'
   }
 
-  if (launcherPath) {
-    appStore.openTerminalTab(`node "${launcherPath}"`, env)
-  } else {
-    // Fallback: try running 'claude' assuming it's in PATH
-    appStore.openTerminalTab('claude', env)
+  // Inject GUI model names into ~/.claude/settings.json modelSettings,
+  // so they appear in /model list for easy switching.
+  // We do NOT set settings.model (handled in main.ts injectGuiModels).
+  await api.injectGuiModelsToSettings({
+    primaryModel: settingsStore.getPrimaryModel() || '',
+    haikuModel: settingsStore.getHaikuModel(),
+    sonnetModel: settingsStore.getSonnetModel(),
+    opusModel: settingsStore.getOpusModel()
+  })
+
+  // Pass the user's chosen model via --model flag.
+  // This sets mainLoopModelOverride in CLI (highest priority in getUserSpecifiedModelSetting),
+  // but /model can still override it at runtime since onChangeAppState updates mainLoopModelOverride.
+  let fullCommand = cliCommand || 'claude'
+  const primaryModel = settingsStore.getPrimaryModel()
+  if (primaryModel) {
+    fullCommand += ` --model "${primaryModel}"`
   }
+
+  appStore.openTerminalTab(fullCommand, env, appStore.projectRoot || undefined)
 }
 
 async function handleFileSelect(node: TreeNode) {

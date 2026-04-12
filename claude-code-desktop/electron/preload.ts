@@ -63,6 +63,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getCwd: () => ipcRenderer.invoke('system:getCwd'),
   getClaudeCliPath: () => ipcRenderer.invoke('app:getClaudeCliPath'),
 
+  // Inject GUI model settings into ~/.claude/settings.json
+  injectGuiModelsToSettings: (models: { primaryModel: string; haikuModel?: string; sonnetModel?: string; opusModel?: string }) =>
+    ipcRenderer.invoke('settings:injectGuiModels', models),
+
   // Terminal API
   terminal: {
     create: (options?: { cwd?: string; command?: string; env?: Record<string, string> }): Promise<{ id: string | null; shell?: string; error?: string }> =>

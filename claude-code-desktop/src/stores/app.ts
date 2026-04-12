@@ -29,6 +29,8 @@ export const useAppStore = defineStore('app', () => {
   const activeCenterTab = ref<string>('chat')
   const terminalAutoCommand = ref<string | undefined>(undefined)
   const terminalEnv = ref<Record<string, string> | undefined>(undefined)
+  const terminalKey = ref(0)
+  const terminalCwd = ref<string | undefined>(undefined)
   const projectRoot = ref<string>('')
   
   const isDark = computed(() => theme.value === 'dark')
@@ -55,7 +57,7 @@ export const useAppStore = defineStore('app', () => {
     currentFile.value = file
   }
 
-  function openTerminalTab(autoCommand?: string, env?: Record<string, string>) {
+  function openTerminalTab(autoCommand?: string, env?: Record<string, string>, cwd?: string) {
     const existing = centerTabs.value.find(t => t.id === 'terminal')
     if (!existing) {
       centerTabs.value.push({
@@ -67,6 +69,11 @@ export const useAppStore = defineStore('app', () => {
     }
     terminalAutoCommand.value = autoCommand
     terminalEnv.value = env
+    terminalCwd.value = cwd
+    // If env is provided, force recreate the terminal to apply new environment variables
+    if (env) {
+      terminalKey.value++
+    }
     activeCenterTab.value = 'terminal'
   }
 
@@ -142,6 +149,8 @@ export const useAppStore = defineStore('app', () => {
     activeCenterTab,
     terminalAutoCommand,
     terminalEnv,
+    terminalKey,
+    terminalCwd,
     projectRoot,
     isDark,
     toggleTheme,

@@ -17,7 +17,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { AlertCircle, Check } from 'lucide-vue-next'
@@ -255,6 +255,13 @@ function clear() {
 const themeObserver = new MutationObserver(() => {
   if (terminal) {
     terminal.options.theme = getTheme()
+  }
+})
+
+// Watch for autoCommand changes after terminal is ready (e.g. when terminal tab already exists)
+watch(() => props.autoCommand, (newCommand) => {
+  if (newCommand && isReady.value && terminalId) {
+    api.terminal.runCommand(terminalId, newCommand)
   }
 })
 

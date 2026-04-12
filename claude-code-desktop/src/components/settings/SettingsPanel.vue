@@ -114,7 +114,7 @@
             <input
               type="text"
               v-model="openaiConfig.haikuModel"
-              placeholder="e.g., deepseek/deepseek-chat-v3-1:free"
+              placeholder="e.g., meta-llama/llama-4-scout:free"
             />
           </div>
           <div class="form-group">

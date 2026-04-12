@@ -219,7 +219,45 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   })
 
+  // Get individual models from GUI config (for injecting into settings.json)
+  function getHaikuModel(): string | undefined {
+    switch (authMethod.value) {
+      case 'anthropic_compatible': return anthropicConfig.value.haikuModel || undefined
+      case 'openai_compatible': return openaiConfig.value.haikuModel || undefined
+      case 'gemini_api': return geminiConfig.value.haikuModel || undefined
+      default: return undefined
+    }
+  }
+
+  function getSonnetModel(): string | undefined {
+    switch (authMethod.value) {
+      case 'anthropic_compatible': return anthropicConfig.value.sonnetModel || undefined
+      case 'openai_compatible': return openaiConfig.value.sonnetModel || undefined
+      case 'gemini_api': return geminiConfig.value.sonnetModel || undefined
+      default: return undefined
+    }
+  }
+
+  function getOpusModel(): string | undefined {
+    switch (authMethod.value) {
+      case 'anthropic_compatible': return anthropicConfig.value.opusModel || undefined
+      case 'openai_compatible': return openaiConfig.value.opusModel || undefined
+      case 'gemini_api': return geminiConfig.value.opusModel || undefined
+      default: return undefined
+    }
+  }
+
+  // Get the primary model from GUI config (legacy, kept for compatibility)
+  function getPrimaryModel(): string | undefined {
+    return getSonnetModel()
+  }
+
   // Build environment variables for the CLI process
+  // NOTE: We intentionally do NOT set OPENAI_DEFAULT_SONNET_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL,
+  // ANTHROPIC_MODEL, etc. Those env vars are used by the CLI's getDefaultSonnetModel() as the
+  // "default model", which effectively locks the model and prevents /model from working correctly.
+  // Instead, we pass the user's chosen model via --model CLI flag (see Sidebar.vue handleOpenClaudeCLI),
+  // which sets mainLoopModelOverride and can be freely overridden by /model at runtime.
   function buildEnvVars(): Record<string, string> {
     const env: Record<string, string> = {}
 
@@ -228,27 +266,20 @@ export const useSettingsStore = defineStore('settings', () => {
         const c = anthropicConfig.value
         if (c.baseUrl) env.ANTHROPIC_BASE_URL = c.baseUrl
         if (c.apiKey) env.ANTHROPIC_AUTH_TOKEN = c.apiKey
-        if (c.haikuModel) env.ANTHROPIC_DEFAULT_FAST_MODEL = c.haikuModel
-        if (c.sonnetModel) env.ANTHROPIC_DEFAULT_MODEL = c.sonnetModel
-        if (c.opusModel) env.ANTHROPIC_DEFAULT_OPUS_MODEL = c.opusModel
         break
       }
       case 'openai_compatible': {
         const c = openaiConfig.value
+        env.CLAUDE_CODE_USE_OPENAI = '1'
         if (c.baseUrl) env.OPENAI_BASE_URL = c.baseUrl
         if (c.apiKey) env.OPENAI_API_KEY = c.apiKey
-        if (c.haikuModel) env.OPENAI_DEFAULT_FAST_MODEL = c.haikuModel
-        if (c.sonnetModel) env.OPENAI_DEFAULT_MODEL = c.sonnetModel
-        if (c.opusModel) env.OPENAI_DEFAULT_OPUS_MODEL = c.opusModel
         break
       }
       case 'gemini_api': {
         const c = geminiConfig.value
+        env.CLAUDE_CODE_USE_GEMINI = '1'
         if (c.baseUrl) env.GEMINI_BASE_URL = c.baseUrl
         if (c.apiKey) env.GEMINI_API_KEY = c.apiKey
-        if (c.haikuModel) env.GEMINI_DEFAULT_FAST_MODEL = c.haikuModel
-        if (c.sonnetModel) env.GEMINI_DEFAULT_MODEL = c.sonnetModel
-        if (c.opusModel) env.GEMINI_DEFAULT_OPUS_MODEL = c.opusModel
         break
       }
       case 'claudeai': {
@@ -298,24 +329,29 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   async function loadFromEnv() {
+    // Only load from env if user has no saved settings at all
+    // This prevents env vars from overwriting user's GUI preferences
+    if (saved.authMethod) {
+      // User has saved settings, don't override with env vars
+      return
+    }
+
     const envSettings = await loadEnvSettings()
-    // Only override authMethod if user has no saved preference
-    if (envSettings.authMethod && !saved.authMethod) {
+    if (envSettings.authMethod) {
       authMethod.value = envSettings.authMethod
     }
-    // Merge env configs, but only override with non-empty values
-    // to prevent empty strings from overwriting saved model names
-    if (envSettings.anthropicConfig) {
+    // Only set config values from env if user has no saved config
+    if (envSettings.anthropicConfig && !saved.anthropicConfig) {
       for (const [key, value] of Object.entries(envSettings.anthropicConfig)) {
         if (value) (anthropicConfig.value as any)[key] = value
       }
     }
-    if (envSettings.openaiConfig) {
+    if (envSettings.openaiConfig && !saved.openaiConfig) {
       for (const [key, value] of Object.entries(envSettings.openaiConfig)) {
         if (value) (openaiConfig.value as any)[key] = value
       }
     }
-    if (envSettings.geminiConfig) {
+    if (envSettings.geminiConfig && !saved.geminiConfig) {
       for (const [key, value] of Object.entries(envSettings.geminiConfig)) {
         if (value) (geminiConfig.value as any)[key] = value
       }
@@ -336,6 +372,10 @@ export const useSettingsStore = defineStore('settings', () => {
     config,
     isConfigured,
     buildEnvVars,
+    getPrimaryModel,
+    getHaikuModel,
+    getSonnetModel,
+    getOpusModel,
     saveSettings,
     updateFromSettingsPanel,
     loadFromEnv

@@ -62,6 +62,12 @@ export const api = {
     }
     return Promise.resolve(null)
   },
+  injectGuiModelsToSettings: (models: { primaryModel: string; haikuModel?: string | undefined; sonnetModel?: string | undefined; opusModel?: string | undefined }): Promise<{ success: boolean; error?: string }> => {
+    if (electronAPI?.injectGuiModelsToSettings) {
+      return electronAPI.injectGuiModelsToSettings(models)
+    }
+    return Promise.resolve({ success: false, error: 'injectGuiModelsToSettings not available' })
+  },
 
   // Terminal API
   terminal: {

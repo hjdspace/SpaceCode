@@ -37,8 +37,10 @@
           <TerminalPanel
             v-if="appStore.centerTabs.some(t => t.id === 'terminal')"
             v-show="appStore.activeCenterTab === 'terminal'"
+            :key="appStore.terminalKey"
             :auto-command="appStore.terminalAutoCommand"
             :env="appStore.terminalEnv"
+            :cwd="appStore.terminalCwd"
             @ready="handleTerminalReady"
             @error="handleTerminalError"
             @exit="handleTerminalExit"
