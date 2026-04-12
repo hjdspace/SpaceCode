@@ -38,6 +38,28 @@ interface Window {
     onToolResult: (callback: (result: any) => void) => void
     onMenuNewChat: (callback: () => void) => void
     openExternal: (url: string) => Promise<void>
+    git: {
+      isRepo: (cwd: string) => Promise<boolean>
+      getRoot: (cwd: string) => Promise<string | null>
+      getStatus: (cwd: string) => Promise<any>
+      stage: (cwd: string, paths: string[]) => Promise<boolean>
+      unstage: (cwd: string, paths: string[]) => Promise<boolean>
+      stageAll: (cwd: string) => Promise<boolean>
+      unstageAll: (cwd: string) => Promise<boolean>
+      commit: (cwd: string, message: string, amend?: boolean) => Promise<{ success: boolean; hash?: string; error?: string }>
+      getDiff: (cwd: string, path: string, staged?: boolean) => Promise<any>
+      getBranches: (cwd: string) => Promise<any[]>
+      checkout: (cwd: string, ref: string) => Promise<{ success: boolean; error?: string }>
+      createBranch: (cwd: string, name: string, checkoutTo?: boolean) => Promise<{ success: boolean; error?: string }>
+      deleteBranch: (cwd: string, name: string, force?: boolean) => Promise<{ success: boolean; error?: string }>
+      getLog: (cwd: string, count?: number) => Promise<any[]>
+      discardChanges: (cwd: string, paths: string[]) => Promise<boolean>
+      pull: (cwd: string) => Promise<{ success: boolean; error?: string }>
+      push: (cwd: string) => Promise<{ success: boolean; error?: string }>
+      stash: (cwd: string) => Promise<{ success: boolean; error?: string }>
+      stashPop: (cwd: string) => Promise<{ success: boolean; error?: string }>
+      fetchAll: (cwd: string) => Promise<{ success: boolean; error?: string }>
+    }
     terminal: {
       create: (options?: { cwd?: string; command?: string; env?: Record<string, string> }) => Promise<{ id: string | null; shell?: string; error?: string }>
       write: (id: string, data: string) => void

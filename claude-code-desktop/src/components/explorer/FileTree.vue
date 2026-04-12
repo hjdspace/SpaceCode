@@ -63,7 +63,7 @@ async function loadDirectory(path: string): Promise<TreeNode[]> {
 
 async function initTree() {
   try {
-    const rootPath = appStore.projectRoot || await api.getEnv('PROJECT_ROOT') || 'D:\\AI\\claude-code-python'
+    const rootPath = appStore.projectRoot
     if (!rootPath) {
       treeData.value = []
       return

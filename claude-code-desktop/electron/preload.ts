@@ -91,6 +91,50 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
+  // Git/SCM API
+  git: {
+    isRepo: (cwd: string): Promise<boolean> =>
+      ipcRenderer.invoke('git:isRepo', cwd),
+    getRoot: (cwd: string): Promise<string | null> =>
+      ipcRenderer.invoke('git:getRoot', cwd),
+    getStatus: (cwd: string): Promise<any> =>
+      ipcRenderer.invoke('git:getStatus', cwd),
+    stage: (cwd: string, paths: string[]): Promise<boolean> =>
+      ipcRenderer.invoke('git:stage', cwd, paths),
+    unstage: (cwd: string, paths: string[]): Promise<boolean> =>
+      ipcRenderer.invoke('git:unstage', cwd, paths),
+    stageAll: (cwd: string): Promise<boolean> =>
+      ipcRenderer.invoke('git:stageAll', cwd),
+    unstageAll: (cwd: string): Promise<boolean> =>
+      ipcRenderer.invoke('git:unstageAll', cwd),
+    commit: (cwd: string, message: string, amend?: boolean): Promise<{ success: boolean; hash?: string; error?: string }> =>
+      ipcRenderer.invoke('git:commit', cwd, message, amend),
+    getDiff: (cwd: string, path: string, staged?: boolean): Promise<any> =>
+      ipcRenderer.invoke('git:getDiff', cwd, path, staged),
+    getBranches: (cwd: string): Promise<any[]> =>
+      ipcRenderer.invoke('git:getBranches', cwd),
+    checkout: (cwd: string, ref: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('git:checkout', cwd, ref),
+    createBranch: (cwd: string, name: string, checkoutTo?: boolean): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('git:createBranch', cwd, name, checkoutTo),
+    deleteBranch: (cwd: string, name: string, force?: boolean): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('git:deleteBranch', cwd, name, force),
+    getLog: (cwd: string, count?: number): Promise<any[]> =>
+      ipcRenderer.invoke('git:getLog', cwd, count),
+    discardChanges: (cwd: string, paths: string[]): Promise<boolean> =>
+      ipcRenderer.invoke('git:discardChanges', cwd, paths),
+    pull: (cwd: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('git:pull', cwd),
+    push: (cwd: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('git:push', cwd),
+    stash: (cwd: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('git:stash', cwd),
+    stashPop: (cwd: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('git:stashPop', cwd),
+    fetchAll: (cwd: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('git:fetchAll', cwd),
+  },
+
   queryEngine: (() => {
     const listeners = new Map<(...args: any[]) => void, { channel: string; wrapper: (...args: any[]) => void }>()
 

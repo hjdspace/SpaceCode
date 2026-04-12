@@ -12,6 +12,16 @@
       </button>
       <button
         class="icon-btn"
+        :class="{ active: activeTab === 'scm' }"
+        @click="handleTabClick('scm')"
+        title="Source Control"
+      >
+        <GitBranch :size="20" />
+        <span class="scm-badge" v-if="scmStore.totalChanges > 0">{{ scmStore.totalChanges }}</span>
+        <span class="icon-label">Source Control</span>
+      </button>
+      <button
+        class="icon-btn"
         :class="{ active: activeTab === 'history' }"
         @click="handleTabClick('history')"
         title="History"
@@ -54,6 +64,16 @@
           <span class="panel-title">EXPLORER</span>
         </div>
         <FileTree @select="handleFileSelect" />
+      </div>
+
+      <div v-show="activeTab === 'scm'" class="panel scm-panel-wrapper animate-fade-in">
+        <div class="panel-header">
+          <span class="panel-title">SOURCE CONTROL</span>
+          <div class="panel-actions" v-if="scmStore.branch">
+            <span class="branch-badge">{{ scmStore.branch }}</span>
+          </div>
+        </div>
+        <ScmPanel />
       </div>
 
       <div v-show="activeTab === 'history'" class="panel history-panel animate-fade-in">
@@ -115,13 +135,15 @@ import { ref } from 'vue'
 import { useChatStore } from '@/stores/chat'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore } from '@/stores/settings'
-import { Plus, FolderTree, Clock, Settings, Boxes, Terminal as TerminalIcon, Play } from 'lucide-vue-next'
+import { Plus, FolderTree, Clock, Settings, Boxes, Terminal as TerminalIcon, Play, GitBranch } from 'lucide-vue-next'
 import SessionList from '../explorer/SessionList.vue'
 import FileTree from '../explorer/FileTree.vue'
 import SettingsPanel from '../settings/SettingsPanel.vue'
 import ConfigPanel from './ConfigPanel.vue'
+import ScmPanel from '../scm/ScmPanel.vue'
 import { initLLMService } from '@/services/llm'
 import { api } from '@/services/electronAPI'
+import { useScmStore } from '@/stores/scm'
 
 interface TreeNode {
   name: string
@@ -136,11 +158,12 @@ defineProps<{
 const chatStore = useChatStore()
 const appStore = useAppStore()
 const settingsStore = useSettingsStore()
+const scmStore = useScmStore()
 
-const activeTab = ref<'explorer' | 'history' | 'config' | 'terminal'>('explorer')
+const activeTab = ref<'explorer' | 'scm' | 'history' | 'config' | 'terminal'>('explorer')
 const showSettings = ref(false)
 
-function handleTabClick(tab: 'explorer' | 'history' | 'config' | 'terminal') {
+function handleTabClick(tab: 'explorer' | 'scm' | 'history' | 'config' | 'terminal') {
   if (activeTab.value === tab && !appStore.sidebarCollapsed) {
     // 如果点击的是当前已激活的标签且侧边栏未折叠，则折叠侧边栏
     appStore.toggleSidebar()
@@ -350,6 +373,24 @@ function handleSettingsSave(_settings: any) {
     &:hover {
       color: var(--accent-secondary);
     }
+  }
+
+  .scm-badge {
+    position: absolute;
+    top: 4px;
+    right: 2px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: var(--radius-full);
+    background: var(--accent-primary);
+    color: white;
+    font-size: 9px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
   }
 }
 

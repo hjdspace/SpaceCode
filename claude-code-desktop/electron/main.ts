@@ -4,6 +4,7 @@ import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSy
 import { config } from 'dotenv'
 import { initQueryEngineIntegration, attemptFullIntegration } from './queryEngineIntegration'
 import { TerminalManager } from './terminalManager'
+import { registerGitIPCHandlers } from './gitService'
 
 const isDev = process.env.NODE_ENV !== 'production' && !app.isPackaged
 
@@ -173,6 +174,9 @@ function createTray() {
 app.whenReady().then(() => {
   createWindow()
   
+  // Register Git IPC handlers
+  registerGitIPCHandlers()
+
   // Initialize QueryEngine integration
   try {
     initQueryEngineIntegration()

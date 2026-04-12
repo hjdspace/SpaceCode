@@ -16,6 +16,8 @@ export interface CenterTab {
   closable: boolean
 }
 
+const PROJECT_ROOT_STORAGE_KEY = 'app_project_root'
+
 export const useAppStore = defineStore('app', () => {
   // 默认使用亮色主题以提供更好的可读性和现代感
   const theme = ref<'light' | 'dark'>('light')
@@ -31,7 +33,13 @@ export const useAppStore = defineStore('app', () => {
   const terminalEnv = ref<Record<string, string> | undefined>(undefined)
   const terminalKey = ref(0)
   const terminalCwd = ref<string | undefined>(undefined)
-  const projectRoot = ref<string>('')
+
+  // Restore persisted project root from localStorage on init
+  let _initialProjectRoot = ''
+  try {
+    _initialProjectRoot = localStorage.getItem(PROJECT_ROOT_STORAGE_KEY) || ''
+  } catch { /* ignore */ }
+  const projectRoot = ref<string>(_initialProjectRoot)
   
   const isDark = computed(() => theme.value === 'dark')
   
@@ -89,10 +97,16 @@ export const useAppStore = defineStore('app', () => {
 
   function setProjectRoot(path: string) {
     projectRoot.value = path
+    try {
+      localStorage.setItem(PROJECT_ROOT_STORAGE_KEY, path)
+    } catch { /* ignore */ }
   }
 
   function closeProject() {
     projectRoot.value = ''
+    try {
+      localStorage.removeItem(PROJECT_ROOT_STORAGE_KEY)
+    } catch { /* ignore */ }
     currentFile.value = null
     infoPanelVisible.value = false
   }
