@@ -1,0 +1,254 @@
+$font-display: 'Space Grotesk', 'SF Pro Display', system-ui, -apple-system, sans-serif;
+$font-body: 'IBM Plex Sans', 'SF Pro Text', system-ui, -apple-system, sans-serif;
+$font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Consolas', monospace;
+
+$transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+$transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+$transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+$transition-spring: 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
+
+$radius-xs: 4px;
+$radius-sm: 6px;
+$radius-md: 10px;
+$radius-lg: 14px;
+$radius-xl: 20px;
+$radius-full: 9999px;
+
+$surface-glass: rgba(0, 0, 0, 0.02);
+$surface-glass-hover: rgba(0, 0, 0, 0.04);
+$surface-glass-active: rgba(0, 0, 0, 0.06);
+$surface-border: rgba(0, 0, 0, 0.06);
+$surface-border-strong: rgba(0, 0, 0, 0.12);
+
+$accent-primary: #2563eb;
+$accent-primary-hover: #3b82f6;
+$accent-primary-glow: rgba(37, 99, 235, 0.15);
+
+$accent-secondary: #64748b;
+$accent-secondary-hover: #475569;
+$accent-secondary-glow: rgba(100, 116, 139, 0.15);
+
+$accent-tertiary: #7c3aed;
+$accent-tertiary-hover: #8b5cf6;
+
+$success: #16a34a;
+$success-glow: rgba(22, 163, 74, 0.15);
+$warning: #d97706;
+$warning-glow: rgba(217, 119, 6, 0.15);
+$error: #dc2626;
+$error-glow: rgba(220, 38, 38, 0.15);
+
+$border-subtle: rgba(0, 0, 0, 0.04);
+$border-default: rgba(0, 0, 0, 0.08);
+$border-strong: rgba(0, 0, 0, 0.15);
+
+$shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+$shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+$shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+$shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.16);
+$shadow-glow: 0 0 15px $accent-primary-glow;
+
+$noise-opacity: 0.015;
+$grid-opacity: 0.01;
+
+:root {
+  --font-display: #{$font-display};
+  --font-body: #{$font-body};
+  --font-mono: #{$font-mono};
+  
+  --transition-fast: #{$transition-fast};
+  --transition-normal: #{$transition-normal};
+  --transition-slow: #{$transition-slow};
+  --transition-spring: #{$transition-spring};
+  
+  --radius-xs: #{$radius-xs};
+  --radius-sm: #{$radius-sm};
+  --radius-md: #{$radius-md};
+  --radius-lg: #{$radius-lg};
+  --radius-xl: #{$radius-xl};
+  --radius-full: #{$radius-full};
+  
+  /* Light Theme - Pure Colors, Modern Minimal */
+  --bg-primary: #ffffff;
+  --bg-secondary: #fafafa;
+  --bg-tertiary: #f5f5f5;
+  --bg-elevated: #ffffff;
+  --bg-hover: #f0f0f0;
+  --bg-active: #e8e8e8;
+  
+  --surface-glass: #{$surface-glass};
+  --surface-glass-hover: #{$surface-glass-hover};
+  --surface-glass-active: #{$surface-glass-active};
+  --surface-border: #{$surface-border};
+  --surface-border-strong: #{$surface-border-strong};
+  
+  --text-primary: #171717;
+  --text-secondary: #525252;
+  --text-muted: #737373;
+  --text-disabled: #a3a3a3;
+  
+  /* Single accent color - clean blue */
+  --accent-primary: #{$accent-primary};
+  --accent-primary-hover: #{$accent-primary-hover};
+  --accent-primary-glow: #{$accent-primary-glow};
+  
+  --accent-secondary: #{$accent-secondary};
+  --accent-secondary-hover: #{$accent-secondary-hover};
+  --accent-secondary-glow: #{$accent-secondary-glow};
+  
+  --accent-tertiary: #{$accent-tertiary};
+  --accent-tertiary-hover: #{$accent-tertiary-hover};
+  
+  --success: #{$success};
+  --success-glow: #{$success-glow};
+  --warning: #{$warning};
+  --warning-glow: #{$warning-glow};
+  --error: #{$error};
+  --error-glow: #{$error-glow};
+  
+  --border-subtle: #{$border-subtle};
+  --border-default: #{$border-default};
+  --border-strong: #{$border-strong};
+  
+  --shadow-sm: #{$shadow-sm};
+  --shadow-md: #{$shadow-md};
+  --shadow-lg: #{$shadow-lg};
+  --shadow-xl: #{$shadow-xl};
+  --shadow-glow: #{$shadow-glow};
+  
+  --noise-opacity: #{$noise-opacity};
+  --grid-opacity: #{$grid-opacity};
+}
+
+[data-theme='dark'] {
+  /* Dark Theme - Pure Colors, Modern Minimal */
+  --bg-primary: #0d0d0d;
+  --bg-secondary: #141414;
+  --bg-tertiary: #1a1a1a;
+  --bg-elevated: #1f1f1f;
+  --bg-hover: #262626;
+  --bg-active: #2e2e2e;
+  
+  --surface-glass: rgba(255, 255, 255, 0.03);
+  --surface-glass-hover: rgba(255, 255, 255, 0.05);
+  --surface-glass-active: rgba(255, 255, 255, 0.08);
+  --surface-border: rgba(255, 255, 255, 0.06);
+  --surface-border-strong: rgba(255, 255, 255, 0.12);
+  
+  --text-primary: #f5f5f5;
+  --text-secondary: #a3a3a3;
+  --text-muted: #737373;
+  --text-disabled: #525252;
+  
+  /* Single accent color - clean blue */
+  --accent-primary: #3b82f6;
+  --accent-primary-hover: #60a5fa;
+  --accent-primary-glow: rgba(59, 130, 246, 0.25);
+  
+  --accent-secondary: #64748b;
+  --accent-secondary-hover: #94a3b8;
+  --accent-secondary-glow: rgba(100, 116, 139, 0.2);
+  
+  --accent-tertiary: #8b5cf6;
+  --accent-tertiary-hover: #a78bfa;
+  
+  --success: #22c55e;
+  --success-glow: rgba(34, 197, 94, 0.2);
+  --warning: #f59e0b;
+  --warning-glow: rgba(245, 158, 11, 0.2);
+  --error: #ef4444;
+  --error-glow: rgba(239, 68, 68, 0.2);
+  
+  --border-subtle: rgba(255, 255, 255, 0.04);
+  --border-default: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.15);
+  
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.6);
+  --shadow-glow: 0 0 20px var(--accent-primary-glow);
+  
+  --noise-opacity: 0.01;
+  --grid-opacity: 0.015;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes typing {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-4px); }
+}
