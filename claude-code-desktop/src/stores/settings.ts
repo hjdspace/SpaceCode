@@ -133,7 +133,7 @@ async function loadEnvSettings(): Promise<Partial<AuthSettings>> {
 }
 
 export const useSettingsStore = defineStore('settings', () => {
-  const saved = loadSavedSettings() || loadLegacySettings()
+  const saved = { ...loadLegacySettings(), ...loadSavedSettings() }
 
   const authMethod = ref<AuthMethod>(saved.authMethod || 'openai_compatible')
   const anthropicConfig = ref<ProviderConfig>({
@@ -299,17 +299,26 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function loadFromEnv() {
     const envSettings = await loadEnvSettings()
-    if (!authMethod.value || authMethod.value === 'openai_compatible') {
-      if (envSettings.authMethod) authMethod.value = envSettings.authMethod
+    // Only override authMethod if user has no saved preference
+    if (envSettings.authMethod && !saved.authMethod) {
+      authMethod.value = envSettings.authMethod
     }
+    // Merge env configs, but only override with non-empty values
+    // to prevent empty strings from overwriting saved model names
     if (envSettings.anthropicConfig) {
-      Object.assign(anthropicConfig.value, envSettings.anthropicConfig)
+      for (const [key, value] of Object.entries(envSettings.anthropicConfig)) {
+        if (value) (anthropicConfig.value as any)[key] = value
+      }
     }
     if (envSettings.openaiConfig) {
-      Object.assign(openaiConfig.value, envSettings.openaiConfig)
+      for (const [key, value] of Object.entries(envSettings.openaiConfig)) {
+        if (value) (openaiConfig.value as any)[key] = value
+      }
     }
     if (envSettings.geminiConfig) {
-      Object.assign(geminiConfig.value, envSettings.geminiConfig)
+      for (const [key, value] of Object.entries(envSettings.geminiConfig)) {
+        if (value) (geminiConfig.value as any)[key] = value
+      }
     }
   }
 
