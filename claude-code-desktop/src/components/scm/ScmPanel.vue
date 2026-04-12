@@ -60,22 +60,24 @@
 
     <!-- Commit input section -->
     <div class="commit-section">
-      <textarea
-        v-model="scmStore.commitMessage"
-        class="commit-input"
-        :placeholder="'Message (Ctrl+Enter to commit on ' + (scmStore.branch || 'HEAD') + ')'"
-        rows="2"
-        @keydown.ctrl.enter="handleCommit"
-      ></textarea>
-      <div class="commit-actions">
+      <div class="commit-input-wrapper">
+        <textarea
+          v-model="scmStore.commitMessage"
+          class="commit-input"
+          :placeholder="'Message (Ctrl+Enter to commit on ' + (scmStore.branch || 'HEAD') + ')'"
+          rows="2"
+          @keydown.ctrl.enter="handleCommit"
+        ></textarea>
         <button
           class="ai-commit-btn"
-          title="AI 生成提交消息 (分析更改并生成符合规范的提交消息)"
+          title="AI 生成提交消息"
           @click="handleGenerateCommitMessage"
           :class="{ generating: scmStore.isGeneratingCommitMessage }"
         >
           <Sparkles :size="14" :class="{ spin: scmStore.isGeneratingCommitMessage }" />
         </button>
+      </div>
+      <div class="commit-actions">
         <button
           class="commit-btn primary"
           @click="handleCommit()"
@@ -749,9 +751,13 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--surface-border);
 }
 
+.commit-input-wrapper {
+  position: relative;
+}
+
 .commit-input {
   width: 100%;
-  padding: 6px 8px;
+  padding: 6px 36px 6px 8px; /* right padding to avoid overlap with Sparkles button */
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-sm);
   background: var(--bg-primary);
@@ -777,22 +783,24 @@ onUnmounted(() => {
 
 .ai-commit-btn {
   @include reset-button;
+  position: absolute;
+  bottom: 6px;
+  right: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-muted);
-  border: 1px solid var(--surface-border);
   transition: all var(--transition-fast);
   cursor: pointer;
+  z-index: 1;
 
   &:hover {
-    background: rgba(var(--accent-primary-rgb, 59,130,246), 0.08);
+    background: rgba(var(--accent-primary-rgb, 59,130,246), 0.1);
     color: var(--accent-primary);
-    border-color: var(--accent-primary);
   }
 
   &.generating {
