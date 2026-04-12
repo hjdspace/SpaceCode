@@ -424,7 +424,7 @@ async function getBranches(cwd: string): Promise<GitBranch[]> {
     if (!trimmed) continue
 
     const current = line.startsWith('*')
-    const match = trimmed.replace(/^\*\s+/, '').match(/^(\S+)\s+([0-9a-f]+)(?:\s+\[(.*?)\])?\s+(.*)/)
+    const match = trimmed.replace(/^\*\s+/, '').match(/^([^\s]+)\s+([0-9a-f]{7,40})(?:\s+\[(.*?)\])?\s+(.*)/)
     if (match) {
       const name = match[1]
       const isRemote = name.startsWith('remotes/')
