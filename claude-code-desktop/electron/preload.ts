@@ -214,5 +214,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Folder selection dialog
   selectFolder: (): Promise<{ canceled: boolean; filePaths: string[] }> =>
-    ipcRenderer.invoke('dialog:selectFolder')
+    ipcRenderer.invoke('dialog:selectFolder'),
+
+  // File selection dialog
+  selectFiles: (): Promise<{ canceled: boolean; filePaths: string[] }> =>
+    ipcRenderer.invoke('dialog:selectFiles')
 })

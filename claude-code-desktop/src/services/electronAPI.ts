@@ -77,6 +77,14 @@ export const api = {
     return Promise.resolve({ canceled: true, filePaths: [] })
   },
 
+  // File selection dialog
+  selectFiles: (): Promise<{ canceled: boolean; filePaths: string[] }> => {
+    if (electronAPI?.selectFiles) {
+      return electronAPI.selectFiles()
+    }
+    return Promise.resolve({ canceled: true, filePaths: [] })
+  },
+
   // Git/SCM API
   git: {
     isRepo: (cwd: string): Promise<boolean> =>

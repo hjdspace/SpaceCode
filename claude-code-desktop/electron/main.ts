@@ -316,6 +316,16 @@ ipcMain.handle('dialog:selectFolder', async () => {
   return result
 })
 
+// File selection dialog handler
+ipcMain.handle('dialog:selectFiles', async () => {
+  if (!mainWindow) return { canceled: true, filePaths: [] }
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile', 'multiSelections'],
+    title: 'Select Files'
+  })
+  return result
+})
+
 // ============================================================================
 // Terminal IPC Handlers
 // ============================================================================

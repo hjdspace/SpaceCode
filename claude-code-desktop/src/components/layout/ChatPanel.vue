@@ -24,6 +24,8 @@
     <ChatInput 
       @send="handleSend" 
       :disabled="chatStore.isLoading"
+      :is-sending="chatStore.isLoading"
+      placeholder="Ask anything, @ to add files, / for commands"
     />
   </main>
 </template>
@@ -32,7 +34,7 @@
 import { computed, onMounted } from 'vue'
 import { useChatStore } from '@/stores/chat'
 import MessageList from '../chat/MessageList.vue'
-import ChatInput from '../chat/ChatInput.vue'
+import ChatInput, { type Attachment } from '../chat/ChatInput.vue'
 import { initLLMService, llmState } from '@/services/llm'
 
 const chatStore = useChatStore()
@@ -45,9 +47,25 @@ onMounted(async () => {
   await initLLMService()
 })
 
-async function handleSend(content: string) {
-  if (!content.trim()) return
-  await chatStore.sendMessage(content.trim())
+async function handleSend(content: string, attachments: Attachment[]) {
+  if (!content.trim() && attachments.length === 0) return
+
+  // 构建包含附件信息的消息内容
+  let messageContent = content.trim()
+
+  if (attachments.length > 0) {
+    const attachmentInfo = attachments.map(att =>
+      att.isFolder ? `[Folder: ${att.name}]` : `[File: ${att.name}]`
+    ).join(', ')
+
+    if (messageContent) {
+      messageContent += `\n\nAttachments: ${attachmentInfo}`
+    } else {
+      messageContent = `Attachments: ${attachmentInfo}`
+    }
+  }
+
+  await chatStore.sendMessage(messageContent)
 }
 </script>
 

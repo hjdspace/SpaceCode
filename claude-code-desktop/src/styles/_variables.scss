@@ -81,6 +81,8 @@ $grid-opacity: 0.01;
   --surface-glass-active: #{$surface-glass-active};
   --surface-border: #{$surface-border};
   --surface-border-strong: #{$surface-border-strong};
+  --surface-hover: var(--bg-hover);
+  --surface-active: var(--bg-active);
   
   --text-primary: #171717;
   --text-secondary: #525252;
@@ -134,6 +136,8 @@ $grid-opacity: 0.01;
   --surface-glass-active: rgba(255, 255, 255, 0.08);
   --surface-border: rgba(255, 255, 255, 0.06);
   --surface-border-strong: rgba(255, 255, 255, 0.12);
+  --surface-hover: var(--bg-hover);
+  --surface-active: var(--bg-active);
   
   --text-primary: #f5f5f5;
   --text-secondary: #a3a3a3;

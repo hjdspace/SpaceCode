@@ -113,9 +113,9 @@ export function useShortcuts(handlers: ShortcutHandlers = {}) {
     for (const category of shortcuts.value) {
       for (const shortcut of category.shortcuts) {
         if (matchShortcut(event, shortcut.keys)) {
-          // Skip some shortcuts when in input (except Enter, Escape, etc.)
+          // Skip some shortcuts when in input (except specific allowed shortcuts)
           if (isInInput) {
-            const allowedInInput = ['send_message', 'new_line']
+            const allowedInInput = ['send_message', 'new_line', 'close_dialog', 'close_dropdown']
             if (!allowedInInput.includes(shortcut.id)) {
               continue
             }

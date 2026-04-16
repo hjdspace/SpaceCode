@@ -4,6 +4,10 @@
       class="select-trigger"
       :class="{ open: isOpen }"
       @click="toggleOpen"
+      role="combobox"
+      :aria-expanded="isOpen"
+      :aria-haspopup="true"
+      :aria-label="selectedLabel"
     >
       <span class="selected-text">{{ selectedLabel }}</span>
       <ChevronDown :size="16" class="chevron" :class="{ open: isOpen }" />
@@ -18,6 +22,8 @@
             v-model="searchQuery"
             type="text"
             placeholder="Search models..."
+            aria-label="Search models"
+            :aria-describedby="filteredOptions.length === 0 ? 'no-results' : undefined"
             @click.stop
             @keydown.stop
           />
@@ -29,7 +35,10 @@
         <div class="options-list" ref="optionsList">
           <div
             v-if="filteredOptions.length === 0"
+            id="no-results"
             class="no-results"
+            role="status"
+            aria-live="polite"
           >
             No models found
           </div>
