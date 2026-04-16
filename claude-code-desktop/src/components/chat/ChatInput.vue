@@ -226,7 +226,7 @@ const selectedModelLabel = computed(() => {
 })
 
 const hasContent = computed(() => inputText.value.trim().length > 0)
-const canSend = computed(() => hasContent.value && !props.isSending)
+const canSend = computed(() => (hasContent.value || attachedFiles.value.length > 0) && !props.isSending)
 
 function handleSend() {
   if ((!canSend.value && attachedFiles.value.length === 0) || props.disabled) return
