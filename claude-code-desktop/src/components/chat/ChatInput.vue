@@ -569,14 +569,15 @@ const vClickOutside = {
   border-radius: 8px;
   font-size: 13px;
   color: var(--text-primary);
+  background: var(--bg-primary);
   transition: background 0.15s ease;
 
   &:hover {
-    background: var(--surface-hover);
+    background: var(--bg-primary);
   }
 
   &.active {
-    background: var(--surface-active);
+    background: var(--bg-primary);
   }
 
   .item-name {
@@ -654,10 +655,11 @@ const vClickOutside = {
   border-radius: 8px;
   font-size: 13px;
   color: var(--text-primary);
+  background: var(--bg-primary);
   transition: background 0.15s ease;
 
   &:hover {
-    background: var(--surface-hover);
+    background: var(--bg-primary);
   }
 
   svg {
