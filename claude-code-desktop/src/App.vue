@@ -73,9 +73,34 @@ import InfoPanel from './components/layout/InfoPanel.vue'
 import TerminalPanel from './components/terminal/TerminalPanel.vue'
 import { api } from '@/services/electronAPI'
 import { X } from 'lucide-vue-next'
+import { useShortcuts } from '@/composables/useShortcuts'
 
 const appStore = useAppStore()
 const chatStore = useChatStore()
+
+// Initialize shortcuts
+const { register } = useShortcuts({
+  'new_chat': () => { chatStore.createSession() },
+  'close_chat': () => {
+    if (chatStore.currentSessionId) {
+      chatStore.deleteSession(chatStore.currentSessionId)
+    }
+  },
+  'toggle_sidebar': () => appStore.toggleSidebar(),
+  'new_terminal': () => appStore.openTerminalTab(),
+  'close_terminal': () => appStore.closeCenterTab('terminal'),
+  'focus_input': () => {
+    // Focus chat input - will be handled by ChatPanel
+    const input = document.querySelector('.chat-input textarea') as HTMLTextAreaElement
+    if (input) input.focus()
+  },
+  'clear_chat': () => {
+    if (chatStore.currentSessionId) {
+      chatStore.deleteSession(chatStore.currentSessionId)
+      chatStore.createSession('New Chat')
+    }
+  }
+})
 
 const mainContent = ref<HTMLElement | null>(null)
 const leftWidth = ref(260)

@@ -123,8 +123,7 @@
     </div>
 
     <SettingsPanel
-      v-if="showSettings"
-      @close="showSettings = false"
+      v-model="showSettings"
       @save="handleSettingsSave"
     />
   </aside>
@@ -243,7 +242,7 @@ async function handleFileSelect(node: TreeNode) {
   }
 }
 
-function handleSettingsSave(_settings: any) {
+function handleSettingsSave() {
   // Settings are already saved to store via updateFromSettingsPanel
   // Map AuthSettings to LLMConfig format and reinitialize LLM
   const config = settingsStore.config

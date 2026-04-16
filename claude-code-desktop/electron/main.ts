@@ -306,6 +306,16 @@ ipcMain.handle('system:getCwd', async () => {
   return process.cwd()
 })
 
+// Folder selection dialog handler
+ipcMain.handle('dialog:selectFolder', async () => {
+  if (!mainWindow) return { canceled: true, filePaths: [] }
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+    title: 'Select Project Folder'
+  })
+  return result
+})
+
 // ============================================================================
 // Terminal IPC Handlers
 // ============================================================================

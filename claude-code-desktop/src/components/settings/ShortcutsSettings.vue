@@ -1,0 +1,605 @@
+<template>
+  <div class="settings-section">
+    <h2 class="section-title">Keyboard Shortcuts</h2>
+
+    <div class="section-content">
+      <p class="section-desc">
+        Customize keyboard shortcuts for common actions. Click on a shortcut to edit it.
+      </p>
+
+      <!-- Search -->
+      <div class="search-box">
+        <Search :size="16" />
+        <input
+          v-model="searchQuery"
+          placeholder="Search shortcuts..."
+          class="search-input"
+        />
+      </div>
+
+      <!-- Shortcuts List -->
+      <div class="shortcuts-list">
+        <div
+          v-for="category in filteredCategories"
+          :key="category.id"
+          class="category-section"
+        >
+          <h3 class="category-title">{{ category.name }}</h3>
+
+          <div class="shortcuts-group">
+            <div
+              v-for="shortcut in category.shortcuts"
+              :key="shortcut.id"
+              class="shortcut-item"
+              :class="{ editing: editingShortcut === shortcut.id }"
+              @click="startEdit(shortcut)"
+            >
+              <div class="shortcut-info">
+                <span class="shortcut-name">{{ shortcut.name }}</span>
+                <span class="shortcut-desc">{{ shortcut.description }}</span>
+              </div>
+              <div class="shortcut-keys">
+                <template v-if="editingShortcut === shortcut.id">
+                  <span class="editing-hint">Press keys...</span>
+                  <button class="cancel-edit" @click.stop="cancelEdit">Cancel</button>
+                </template>
+                <template v-else>
+                  <kbd
+                    v-for="(key, index) in formatShortcut(shortcut.keys)"
+                    :key="index"
+                    class="key-badge"
+                  >{{ key }}</kbd>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Empty State -->
+      <div v-if="filteredCategories.length === 0" class="empty-state">
+        <SearchX :size="48" />
+        <h4>No shortcuts found</h4>
+        <p>Try a different search term</p>
+      </div>
+
+      <!-- Reset Button -->
+      <div class="shortcuts-footer">
+        <button class="btn btn-secondary" @click="resetShortcuts">
+          <RotateCcw :size="14" />
+          Reset to Defaults
+        </button>
+      </div>
+    </div>
+
+    <!-- Key Capture Overlay -->
+    <div v-if="editingShortcut" class="key-capture-overlay" tabindex="0" @keydown.capture.prevent="onKeyDown">
+      <div class="key-capture-modal">
+        <h3>Enter New Shortcut</h3>
+        <p>Press the key combination you want to use</p>
+        <div class="captured-keys">
+          <kbd v-for="key in capturedKeys" :key="key" class="key-badge large">{{ key }}</kbd>
+        </div>
+        <div class="capture-actions">
+          <button class="btn btn-secondary" @click="cancelEdit">Cancel</button>
+          <button class="btn btn-primary" @click="saveShortcut" :disabled="capturedKeys.length === 0">
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { Search, SearchX, RotateCcw } from 'lucide-vue-next'
+import { debounce } from '@/utils/debounce'
+
+export interface Shortcut {
+  id: string
+  name: string
+  description: string
+  keys: string[]
+  defaultKeys: string[]
+}
+
+export interface ShortcutCategory {
+  id: string
+  name: string
+  shortcuts: Shortcut[]
+}
+
+export interface ShortcutsConfig {
+  categories: ShortcutCategory[]
+}
+
+const props = defineProps<{
+  modelValue?: ShortcutsConfig
+}>()
+
+const emit = defineEmits<{
+  'update:modelValue': [value: ShortcutsConfig]
+  'change': []
+}>()
+
+const STORAGE_KEY = 'keyboard_shortcuts'
+
+// Default shortcuts configuration
+const defaultShortcuts: ShortcutCategory[] = [
+  {
+    id: 'general',
+    name: 'General',
+    shortcuts: [
+      { id: 'new_chat', name: 'New Chat', description: 'Start a new conversation', keys: ['Ctrl', 'N'], defaultKeys: ['Ctrl', 'N'] },
+      { id: 'close_chat', name: 'Close Chat', description: 'Close current conversation', keys: ['Ctrl', 'W'], defaultKeys: ['Ctrl', 'W'] },
+      { id: 'search_chats', name: 'Search Chats', description: 'Search through chat history', keys: ['Ctrl', 'K'], defaultKeys: ['Ctrl', 'K'] },
+      { id: 'settings', name: 'Settings', description: 'Open settings', keys: ['Ctrl', ','], defaultKeys: ['Ctrl', ','] }
+    ]
+  },
+  {
+    id: 'editor',
+    name: 'Editor',
+    shortcuts: [
+      { id: 'send_message', name: 'Send Message', description: 'Send the current message', keys: ['Enter'], defaultKeys: ['Enter'] },
+      { id: 'new_line', name: 'New Line', description: 'Insert a new line', keys: ['Shift', 'Enter'], defaultKeys: ['Shift', 'Enter'] },
+      { id: 'clear_chat', name: 'Clear Chat', description: 'Clear the conversation', keys: ['Ctrl', 'Shift', 'K'], defaultKeys: ['Ctrl', 'Shift', 'K'] }
+    ]
+  },
+  {
+    id: 'navigation',
+    name: 'Navigation',
+    shortcuts: [
+      { id: 'focus_input', name: 'Focus Input', description: 'Focus the chat input', keys: ['Ctrl', 'L'], defaultKeys: ['Ctrl', 'L'] },
+      { id: 'toggle_sidebar', name: 'Toggle Sidebar', description: 'Show or hide sidebar', keys: ['Ctrl', 'B'], defaultKeys: ['Ctrl', 'B'] },
+      { id: 'next_chat', name: 'Next Chat', description: 'Switch to next conversation', keys: ['Ctrl', 'Tab'], defaultKeys: ['Ctrl', 'Tab'] },
+      { id: 'prev_chat', name: 'Previous Chat', description: 'Switch to previous conversation', keys: ['Ctrl', 'Shift', 'Tab'], defaultKeys: ['Ctrl', 'Shift', 'Tab'] }
+    ]
+  },
+  {
+    id: 'terminal',
+    name: 'Terminal',
+    shortcuts: [
+      { id: 'new_terminal', name: 'New Terminal', description: 'Open a new terminal', keys: ['Ctrl', 'Shift', '`'], defaultKeys: ['Ctrl', 'Shift', '`'] },
+      { id: 'close_terminal', name: 'Close Terminal', description: 'Close current terminal', keys: ['Ctrl', 'Shift', 'W'], defaultKeys: ['Ctrl', 'Shift', 'W'] },
+      { id: 'clear_terminal', name: 'Clear Terminal', description: 'Clear terminal output', keys: ['Ctrl', 'K'], defaultKeys: ['Ctrl', 'K'] }
+    ]
+  }
+]
+
+// 使用惰性加载，避免在组件初始化时立即读取localStorage
+let savedShortcutsLoaded = false
+let cachedSavedShortcuts: ShortcutCategory[] | null = null
+
+function loadSavedShortcuts(): ShortcutCategory[] {
+  if (savedShortcutsLoaded && cachedSavedShortcuts) {
+    return cachedSavedShortcuts
+  }
+
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      // Merge saved keys with default shortcuts to handle new shortcuts
+      const mergedShortcuts = defaultShortcuts.map(defaultCat => {
+        const savedCat = parsed.categories?.find((c: ShortcutCategory) => c.id === defaultCat.id)
+        if (savedCat) {
+          return {
+            ...defaultCat,
+            shortcuts: defaultCat.shortcuts.map(defaultShortcut => {
+              const savedShortcut = savedCat.shortcuts.find((s: Shortcut) => s.id === defaultShortcut.id)
+              if (savedShortcut) {
+                return { ...defaultShortcut, keys: savedShortcut.keys }
+              }
+              return defaultShortcut
+            })
+          }
+        }
+        return defaultCat
+      })
+      cachedSavedShortcuts = mergedShortcuts
+      savedShortcutsLoaded = true
+      return cachedSavedShortcuts
+    }
+  } catch (e) {
+    console.error('[Shortcuts] Failed to load saved shortcuts')
+  }
+  
+  savedShortcutsLoaded = true
+  cachedSavedShortcuts = JSON.parse(JSON.stringify(defaultShortcuts))
+  return cachedSavedShortcuts as ShortcutCategory[]
+}
+
+const shortcutCategories = ref<ShortcutCategory[]>(loadSavedShortcuts())
+const searchQuery = ref('')
+const editingShortcut = ref<string | null>(null)
+const capturedKeys = ref<string[]>([])
+
+// 使用computed缓存过滤结果
+const filteredCategories = computed(() => {
+  if (!searchQuery.value) return shortcutCategories.value
+
+  const query = searchQuery.value.toLowerCase()
+  return shortcutCategories.value
+    .map(cat => ({
+      ...cat,
+      shortcuts: cat.shortcuts.filter(s =>
+        s.name.toLowerCase().includes(query) ||
+        s.description.toLowerCase().includes(query) ||
+        s.keys.some(k => k.toLowerCase().includes(query))
+      )
+    }))
+    .filter(cat => cat.shortcuts.length > 0)
+})
+
+const config = computed<ShortcutsConfig>({
+  get: () => ({
+    categories: shortcutCategories.value,
+    ...props.modelValue
+  }),
+  set: (val) => {
+    emit('update:modelValue', val)
+  }
+})
+
+// 使用防抖保存到localStorage
+const debouncedSave = debounce((newValue: ShortcutCategory[]) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ categories: newValue }))
+    // Update config for parent component
+    config.value = { categories: newValue }
+    // Emit change event for parent
+    emit('change')
+  } catch (e) {
+    console.error('[Shortcuts] Failed to save shortcuts')
+  }
+}, 300)
+
+// Save to localStorage whenever shortcuts change - 使用防抖
+watch(shortcutCategories, (newValue) => {
+  debouncedSave(newValue)
+}, { deep: true })
+
+function formatShortcut(keys: string[]) {
+  return keys
+}
+
+function startEdit(shortcut: Shortcut) {
+  editingShortcut.value = shortcut.id
+  capturedKeys.value = [...shortcut.keys]
+}
+
+function cancelEdit() {
+  editingShortcut.value = null
+  capturedKeys.value = []
+}
+
+function onKeyDown(e: KeyboardEvent) {
+  const keys: string[] = []
+
+  if (e.ctrlKey) keys.push('Ctrl')
+  if (e.altKey) keys.push('Alt')
+  if (e.shiftKey) keys.push('Shift')
+  if (e.metaKey) keys.push('Cmd')
+
+  const key = e.key
+  if (key && !['Control', 'Alt', 'Shift', 'Meta'].includes(key)) {
+    keys.push(key.length === 1 ? key.toUpperCase() : key)
+  }
+
+  capturedKeys.value = keys
+}
+
+function saveShortcut() {
+  if (!editingShortcut.value) return
+
+  for (const category of shortcutCategories.value) {
+    const shortcut = category.shortcuts.find(s => s.id === editingShortcut.value)
+    if (shortcut) {
+      shortcut.keys = [...capturedKeys.value]
+      break
+    }
+  }
+
+  cancelEdit()
+}
+
+function resetShortcuts() {
+  if (confirm('Reset all shortcuts to default values?')) {
+    shortcutCategories.value = JSON.parse(JSON.stringify(defaultShortcuts))
+  }
+}
+
+// Initialize on mount
+onMounted(() => {
+  // Emit initial config
+  config.value = { categories: shortcutCategories.value }
+})
+</script>
+
+<style lang="scss" scoped>
+.settings-section {
+  max-width: 720px;
+}
+
+.section-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.section-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 24px;
+  line-height: 1.5;
+}
+
+.section-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  color: var(--text-muted);
+
+  &:focus-within {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb), 0.1);
+  }
+}
+
+.search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 14px;
+
+  &:focus {
+    outline: none;
+  }
+
+  &::placeholder {
+    color: var(--text-muted);
+  }
+}
+
+.shortcuts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.category-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.category-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0;
+}
+
+.shortcuts-group {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.shortcut-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all 0.15s;
+  border-bottom: 1px solid var(--border-color);
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &:hover {
+    background: var(--bg-hover);
+  }
+
+  &.editing {
+    background: rgba(var(--accent-primary-rgb), 0.05);
+  }
+}
+
+.shortcut-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.shortcut-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.shortcut-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.shortcut-keys {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.key-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+
+  &.large {
+    height: 32px;
+    font-size: 14px;
+  }
+}
+
+.editing-hint {
+  font-size: 13px;
+  color: var(--accent-primary);
+  font-style: italic;
+}
+
+.cancel-edit {
+  @include reset-button;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 4px 8px;
+  border-radius: 4px;
+
+  &:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+  }
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--text-muted);
+
+  h4 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+  }
+
+  p {
+    font-size: 13px;
+    margin: 0;
+  }
+}
+
+.shortcuts-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.btn {
+  @include reset-button;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
+
+  &.btn-primary {
+    background: var(--accent-primary);
+    color: white;
+
+    &:hover:not(:disabled) {
+      background: var(--accent-primary-hover);
+    }
+  }
+
+  &.btn-secondary {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+
+    &:hover:not(:disabled) {
+      background: var(--bg-hover);
+      border-color: var(--accent-primary);
+    }
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+.key-capture-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.key-capture-modal {
+  background: var(--bg-primary);
+  border-radius: 16px;
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  min-width: 320px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+
+  h3 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+  }
+
+  p {
+    font-size: 14px;
+    color: var(--text-muted);
+    margin: 0;
+  }
+}
+
+.captured-keys {
+  display: flex;
+  gap: 8px;
+  padding: 24px;
+  min-height: 80px;
+  align-items: center;
+  justify-content: center;
+}
+
+.capture-actions {
+  display: flex;
+  gap: 12px;
+}
+</style>

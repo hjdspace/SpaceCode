@@ -69,6 +69,14 @@ export const api = {
     return Promise.resolve({ success: false, error: 'injectGuiModelsToSettings not available' })
   },
 
+  // Folder selection dialog
+  selectFolder: (): Promise<{ canceled: boolean; filePaths: string[] }> => {
+    if (electronAPI?.selectFolder) {
+      return electronAPI.selectFolder()
+    }
+    return Promise.resolve({ canceled: true, filePaths: [] })
+  },
+
   // Git/SCM API
   git: {
     isRepo: (cwd: string): Promise<boolean> =>

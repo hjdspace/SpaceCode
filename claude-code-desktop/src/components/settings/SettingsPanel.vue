@@ -1,558 +1,309 @@
 <template>
-  <div class="settings-overlay" @click.self="handleClose">
-    <div class="settings-panel">
-      <div class="settings-header">
-        <h2>Settings</h2>
-        <button class="close-btn" @click="handleClose">
-          <X :size="18" />
-        </button>
-      </div>
-
-      <div class="settings-content">
-        <!-- Auth Method Selection -->
-        <div class="settings-section">
-          <h3>Login Method</h3>
-          <div class="auth-methods">
-            <div
-              v-for="method in authMethods"
-              :key="method.id"
-              class="auth-method-card"
-              :class="{ active: authMethod === method.id }"
-              @click="selectAuthMethod(method.id)"
-            >
-              <div class="method-icon">
-                <component :is="method.icon" :size="20" />
-              </div>
-              <div class="method-info">
-                <div class="method-title">{{ method.title }}</div>
-                <div class="method-desc">{{ method.desc }}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Anthropic Compatible Config -->
-        <div v-if="authMethod === 'anthropic_compatible'" class="settings-section">
-          <h3>Anthropic Compatible</h3>
-          <div class="form-group">
-            <label>Base URL</label>
-            <input
-              type="text"
-              v-model="anthropicConfig.baseUrl"
-              placeholder="https://api.anthropic.com"
-            />
-            <span class="hint">Leave empty for default Anthropic endpoint</span>
-          </div>
-          <div class="form-group">
-            <label>API Key</label>
-            <div class="api-key-input">
-              <input
-                :type="showApiKeys.anthropic ? 'text' : 'password'"
-                v-model="anthropicConfig.apiKey"
-                placeholder="sk-ant-..."
-              />
-              <button class="toggle-btn" @click="showApiKeys.anthropic = !showApiKeys.anthropic">
-                <Eye v-if="!showApiKeys.anthropic" :size="16" />
-                <EyeOff v-else :size="16" />
+  <Teleport to="body">
+    <Transition name="settings-overlay">
+      <div v-if="modelValue" class="settings-overlay" @click.self="handleClose">
+        <Transition name="settings-container">
+          <div v-if="modelValue" class="settings-container">
+            <!-- Header -->
+            <div class="settings-header">
+              <button class="back-btn" @click="handleClose">
+                <ArrowLeft :size="16" />
+                <span>Back to app</span>
+              </button>
+              <h1 class="settings-title">Settings</h1>
+              <button class="close-btn" @click="handleClose">
+                <X :size="20" />
               </button>
             </div>
-          </div>
-          <div class="form-group">
-            <label>Haiku Model</label>
-            <input
-              type="text"
-              v-model="anthropicConfig.haikuModel"
-              placeholder="claude-haiku-4-20250514"
-            />
-          </div>
-          <div class="form-group">
-            <label>Sonnet Model</label>
-            <input
-              type="text"
-              v-model="anthropicConfig.sonnetModel"
-              placeholder="claude-sonnet-4-20250514"
-            />
-          </div>
-          <div class="form-group">
-            <label>Opus Model</label>
-            <input
-              type="text"
-              v-model="anthropicConfig.opusModel"
-              placeholder="claude-opus-4-20250514"
-            />
-          </div>
-        </div>
 
-        <!-- OpenAI Compatible Config -->
-        <div v-if="authMethod === 'openai_compatible'" class="settings-section">
-          <h3>OpenAI Compatible</h3>
-          <span class="section-desc">Ollama, DeepSeek, vLLM, One API, etc.</span>
-          <div class="form-group">
-            <label>Base URL</label>
-            <input
-              type="text"
-              v-model="openaiConfig.baseUrl"
-              placeholder="https://api.openai.com/v1 or https://openrouter.ai/api/v1"
-            />
-          </div>
-          <div class="form-group">
-            <label>API Key</label>
-            <div class="api-key-input">
-              <input
-                :type="showApiKeys.openai ? 'text' : 'password'"
-                v-model="openaiConfig.apiKey"
-                placeholder="sk-..."
-              />
-              <button class="toggle-btn" @click="showApiKeys.openai = !showApiKeys.openai">
-                <Eye v-if="!showApiKeys.openai" :size="16" />
-                <EyeOff v-else :size="16" />
-              </button>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Haiku Model</label>
-            <input
-              type="text"
-              v-model="openaiConfig.haikuModel"
-              placeholder="e.g., meta-llama/llama-4-scout:free"
-            />
-          </div>
-          <div class="form-group">
-            <label>Sonnet Model</label>
-            <input
-              type="text"
-              v-model="openaiConfig.sonnetModel"
-              placeholder="e.g., openai/gpt-4o"
-            />
-          </div>
-          <div class="form-group">
-            <label>Opus Model</label>
-            <input
-              type="text"
-              v-model="openaiConfig.opusModel"
-              placeholder="e.g., anthropic/claude-opus-4"
-            />
-          </div>
-          <div class="form-group model-fetch-group">
-            <label>Fetch Models</label>
-            <div class="model-select">
-              <input
-                type="text"
-                v-model="modelSearch"
-                @focus="showModelDropdown = true"
-                @input="filterModels"
-                placeholder="Search or enter model name..."
-                class="model-input"
-              />
-              <button class="refresh-btn" @click="fetchModels" :disabled="loadingModels">
-                <RefreshCw :size="14" :class="{ spinning: loadingModels }" />
-              </button>
-              <div v-if="showModelDropdown && filteredModels.length > 0" class="model-dropdown">
-                <div
-                  v-for="model in filteredModels"
-                  :key="model.id"
-                  class="model-option"
-                  @mousedown.prevent="selectModel(model.id)"
+            <!-- Body -->
+            <div class="settings-body">
+              <!-- Left Navigation -->
+              <nav class="settings-nav">
+                <button
+                  v-for="item in menuItems"
+                  :key="item.id"
+                  class="nav-item"
+                  :class="{ active: activeTab === item.id }"
+                  @click="switchTab(item.id)"
                 >
-                  <span class="model-name">{{ model.name || model.id }}</span>
-                  <span class="model-id">{{ model.id }}</span>
+                  <component :is="item.icon" :size="18" />
+                  <span>{{ item.label }}</span>
+                </button>
+              </nav>
+
+              <!-- Right Content -->
+              <main class="settings-content">
+                <div class="content-scroll">
+                  <!-- 使用KeepAlive缓存已访问的标签页 -->
+                  <KeepAlive :include="cachedTabs">
+                    <GeneralSettings
+                      v-if="activeTab === 'general'"
+                      v-model="settingsData"
+                    />
+                    <McpSettings
+                      v-else-if="activeTab === 'mcp'"
+                      @change="onSettingsChange"
+                    />
+                    <ToolsSettings
+                      v-else-if="activeTab === 'tools'"
+                      @change="onSettingsChange"
+                    />
+                    <AppearanceSettings
+                      v-else-if="activeTab === 'appearance'"
+                      @change="onSettingsChange"
+                    />
+                    <ShortcutsSettings
+                      v-else-if="activeTab === 'shortcuts'"
+                      @change="onSettingsChange"
+                    />
+                  </KeepAlive>
                 </div>
+              </main>
+            </div>
+
+            <!-- Footer -->
+            <div class="settings-footer">
+              <div class="footer-status">
+                <span v-if="hasChanges" class="unsaved-indicator">Unsaved changes</span>
+              </div>
+              <div class="footer-actions">
+                <button class="btn btn-secondary" @click="handleClose">Cancel</button>
+                <button class="btn btn-primary" @click="handleSave" :disabled="!hasChanges">
+                  <Save :size="16" v-if="!saving" />
+                  <Loader2 :size="16" class="spin" v-else />
+                  {{ saving ? 'Saving...' : 'Save Changes' }}
+                </button>
               </div>
             </div>
-            <div v-if="modelError" class="model-error">{{ modelError }}</div>
           </div>
-        </div>
-
-        <!-- Gemini API Config -->
-        <div v-if="authMethod === 'gemini_api'" class="settings-section">
-          <h3>Gemini API</h3>
-          <span class="section-desc">Google Gemini native REST/SSE</span>
-          <div class="form-group">
-            <label>Base URL</label>
-            <input
-              type="text"
-              v-model="geminiConfig.baseUrl"
-              placeholder="https://generativelanguage.googleapis.com/v1beta"
-            />
-            <span class="hint">Leave empty for Google's default v1beta API</span>
-          </div>
-          <div class="form-group">
-            <label>API Key</label>
-            <div class="api-key-input">
-              <input
-                :type="showApiKeys.gemini ? 'text' : 'password'"
-                v-model="geminiConfig.apiKey"
-                placeholder="AIza..."
-              />
-              <button class="toggle-btn" @click="showApiKeys.gemini = !showApiKeys.gemini">
-                <Eye v-if="!showApiKeys.gemini" :size="16" />
-                <EyeOff v-else :size="16" />
-              </button>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Haiku Model</label>
-            <input
-              type="text"
-              v-model="geminiConfig.haikuModel"
-              placeholder="gemini-2.0-flash"
-            />
-          </div>
-          <div class="form-group">
-            <label>Sonnet Model</label>
-            <input
-              type="text"
-              v-model="geminiConfig.sonnetModel"
-              placeholder="gemini-2.5-flash"
-            />
-          </div>
-          <div class="form-group">
-            <label>Opus Model</label>
-            <input
-              type="text"
-              v-model="geminiConfig.opusModel"
-              placeholder="gemini-2.5-pro"
-            />
-          </div>
-        </div>
-
-        <!-- Claude Account (OAuth) -->
-        <div v-if="authMethod === 'claudeai'" class="settings-section">
-          <h3>Claude Account with Subscription</h3>
-          <span class="section-desc">Pro, Max, Team, or Enterprise</span>
-          <div class="oauth-info">
-            <div class="oauth-icon">
-              <Crown :size="32" />
-            </div>
-            <p>Sign in with your Claude account to use your subscription plan.</p>
-            <p class="hint">This will open a browser for OAuth authentication.</p>
-            <button class="btn btn-primary btn-oauth" @click="startOAuthLogin(true)" :disabled="oauthLoading">
-              <LogIn :size="16" />
-              {{ oauthLoading ? 'Connecting...' : 'Sign in with Claude' }}
-            </button>
-            <div v-if="oauthAccount" class="oauth-account">
-              <CheckCircle :size="16" class="success-icon" />
-              <span>Logged in as <strong>{{ oauthAccount.email }}</strong></span>
-              <span class="subscription-badge">{{ oauthAccount.subscription }}</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Anthropic Console (OAuth) -->
-        <div v-if="authMethod === 'console'" class="settings-section">
-          <h3>Anthropic Console Account</h3>
-          <span class="section-desc">API usage billing</span>
-          <div class="oauth-info">
-            <div class="oauth-icon">
-              <Key :size="32" />
-            </div>
-            <p>Sign in with your Anthropic Console account for API usage billing.</p>
-            <p class="hint">This will open a browser for OAuth authentication.</p>
-            <button class="btn btn-primary btn-oauth" @click="startOAuthLogin(false)" :disabled="oauthLoading">
-              <LogIn :size="16" />
-              {{ oauthLoading ? 'Connecting...' : 'Sign in with Console' }}
-            </button>
-            <div v-if="oauthAccount && authMethod === 'console'" class="oauth-account">
-              <CheckCircle :size="16" class="success-icon" />
-              <span>Logged in as <strong>{{ oauthAccount.email }}</strong></span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Project Config -->
-        <div class="settings-section">
-          <h3>Project</h3>
-          <div class="form-group">
-            <label>Project Root</label>
-            <input type="text" v-model="projectRoot" placeholder="D:\AI\claude-code-python" />
-          </div>
-        </div>
+        </Transition>
       </div>
-
-      <div class="settings-footer">
-        <button class="btn btn-secondary" @click="handleClose">Cancel</button>
-        <button class="btn btn-primary" @click="handleSave">Save</button>
-      </div>
-    </div>
-  </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, reactive, shallowRef, defineAsyncComponent } from 'vue'
 import {
-  X, Eye, EyeOff, RefreshCw,
-  Server, Bot, Sparkles, Crown, Key, LogIn, CheckCircle
+  ArrowLeft, X, Save, Loader2,
+  Settings, Boxes, Palette, Wrench, Keyboard
 } from 'lucide-vue-next'
-import { api } from '@/services/electronAPI'
-import { useSettingsStore, type AuthMethod, type AuthSettings, type OAuthAccountInfo } from '@/stores/settings'
+import { useSettingsStore, type AuthMethod, type OAuthAccountInfo } from '@/stores/settings'
+
+// 异步加载非首屏组件，减少首屏bundle大小
+const GeneralSettings = defineAsyncComponent(() => import('./GeneralSettings.vue'))
+const McpSettings = defineAsyncComponent(() => import('./McpSettings.vue'))
+const AppearanceSettings = defineAsyncComponent(() => import('./AppearanceSettings.vue'))
+const ToolsSettings = defineAsyncComponent(() => import('./ToolsSettings.vue'))
+const ShortcutsSettings = defineAsyncComponent(() => import('./ShortcutsSettings.vue'))
+
+const props = defineProps<{
+  modelValue: boolean
+}>()
+
+const emit = defineEmits<{
+  'update:modelValue': [value: boolean]
+  save: []
+}>()
 
 const settingsStore = useSettingsStore()
 
-const emit = defineEmits<{
-  close: []
-  save: [settings: AuthSettings]
-}>()
-
-interface ModelInfo {
-  id: string
-  name?: string
-}
-
-const authMethods = [
-  {
-    id: 'anthropic_compatible' as AuthMethod,
-    title: 'Anthropic Compatible',
-    desc: 'Configure your own API endpoint',
-    icon: Server
-  },
-  {
-    id: 'openai_compatible' as AuthMethod,
-    title: 'OpenAI Compatible',
-    desc: 'Ollama, DeepSeek, vLLM, One API, etc.',
-    icon: Bot
-  },
-  {
-    id: 'gemini_api' as AuthMethod,
-    title: 'Gemini API',
-    desc: 'Google Gemini native REST/SSE',
-    icon: Sparkles
-  },
-  {
-    id: 'claudeai' as AuthMethod,
-    title: 'Claude Account with Subscription',
-    desc: 'Pro, Max, Team, or Enterprise',
-    icon: Crown
-  },
-  {
-    id: 'console' as AuthMethod,
-    title: 'Anthropic Console Account',
-    desc: 'API usage billing',
-    icon: Key
-  }
+const menuItems = [
+  { id: 'general', label: 'General', icon: Settings },
+  { id: 'mcp', label: 'MCP Servers', icon: Boxes },
+  { id: 'tools', label: 'Tools', icon: Wrench },
+  { id: 'appearance', label: 'Appearance', icon: Palette },
+  { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard }
 ]
 
-// Auth method state — init from store
-const authMethod = ref<AuthMethod>(settingsStore.authMethod)
+const activeTab = ref('general')
+const saving = ref(false)
+const hasChanges = ref(false)
 
-// Config states — init from store
-const anthropicConfig = reactive({ ...settingsStore.anthropicConfig })
-const openaiConfig = reactive({ ...settingsStore.openaiConfig })
-const geminiConfig = reactive({ ...settingsStore.geminiConfig })
-
-// Show/hide API keys
-const showApiKeys = reactive({
-  anthropic: false,
-  openai: false,
-  gemini: false
+// 使用shallowRef优化大型响应式对象
+const settingsData = shallowRef({
+  authMethod: 'openai_compatible' as AuthMethod,
+  anthropic: { baseUrl: '', apiKey: '' },
+  openai: { baseUrl: '', apiKey: '' },
+  gemini: { baseUrl: '', apiKey: '' },
+  haikuModel: '',
+  sonnetModel: '',
+  opusModel: '',
+  projectRoot: '',
+  oauthAccount: null as OAuthAccountInfo | null
 })
 
-// Project root
-const projectRoot = ref(settingsStore.projectRoot || '')
+// 缓存已访问的标签页，避免重复渲染
+const visitedTabs = ref<Set<string>>(new Set(['general']))
+const cachedTabs = computed(() => Array.from(visitedTabs.value))
 
-// OAuth state
-const oauthLoading = ref(false)
-const oauthAccount = ref<OAuthAccountInfo | null>(settingsStore.oauthAccount)
-
-// Model list for OpenAI
-const modelList = ref<ModelInfo[]>([])
-const loadingModels = ref(false)
-const modelSearch = ref('')
-const showModelDropdown = ref(false)
-const searchQuery = ref('')
-const modelError = ref('')
-
-const filteredModels = ref<ModelInfo[]>([])
-
-function selectAuthMethod(method: AuthMethod) {
-  authMethod.value = method
+// 切换标签页时记录访问历史
+function switchTab(tabId: string) {
+  activeTab.value = tabId
+  visitedTabs.value.add(tabId)
 }
 
-function selectModel(modelId: string) {
-  openaiConfig.sonnetModel = modelId
-  modelSearch.value = modelId
-  showModelDropdown.value = false
-}
+// Flag to prevent watch from triggering during load
+let isLoadingSettings = false
 
-function filterModels() {
-  searchQuery.value = modelSearch.value
-  const search = searchQuery.value.toLowerCase()
-  filteredModels.value = search
-    ? modelList.value.filter(m =>
-        m.id.toLowerCase().includes(search) ||
-        (m.name && m.name.toLowerCase().includes(search))
-      )
-    : modelList.value
-  showModelDropdown.value = true
-}
-
-async function fetchModels() {
-  modelError.value = ''
-  if (!openaiConfig.baseUrl) {
-    modelError.value = 'Please enter Base URL first'
-    return
+// 使用浅比较优化watch性能
+watch(settingsData, () => {
+  if (!isLoadingSettings) {
+    hasChanges.value = true
   }
-  if (!openaiConfig.apiKey) {
-    modelError.value = 'Please enter API Key first'
-    return
-  }
-  loadingModels.value = true
-  modelList.value = []
-  filteredModels.value = []
+}, { deep: false })
 
-  try {
-    const url = `${openaiConfig.baseUrl.replace(/\/+$/, '')}/models`
-    const result = await api.httpFetch(url, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${openaiConfig.apiKey}`,
-        'Content-Type': 'application/json'
-      }
-    })
-
-    if (!result) {
-      modelError.value = 'HTTP proxy not available - please restart the app'
-      return
-    }
-
-    if (result.ok) {
-      const data = JSON.parse(result.data)
-      let models: any[] = []
-      if (Array.isArray(data)) {
-        models = data
-      } else if (data.data && Array.isArray(data.data)) {
-        models = data.data
-      } else if (data.models && Array.isArray(data.models)) {
-        models = data.models
-      }
-
-      if (models.length === 0) {
-        modelError.value = 'No models found from this endpoint'
-      } else {
-        modelList.value = models.map((m: any) => ({
-          id: m.id || m.name || String(m),
-          name: m.name || m.id || String(m)
-        }))
-        filteredModels.value = modelList.value
-        showModelDropdown.value = true
-      }
-    } else {
-      modelError.value = `Request failed (${result.status}): ${(result.error || result.data || '').slice(0, 200)}`
-    }
-  } catch (error) {
-    modelError.value = error instanceof Error ? error.message : 'Network error - unable to connect to the endpoint'
-  } finally {
-    loadingModels.value = false
-  }
+// Handle changes from child components (Appearance, Shortcuts, etc.)
+function onSettingsChange() {
+  hasChanges.value = true
 }
 
-function handleClickOutside(e: MouseEvent) {
-  const target = e.target as HTMLElement
-  if (!target.closest('.model-select')) {
-    showModelDropdown.value = false
+// Load settings when panel opens
+watch(() => props.modelValue, (isOpen) => {
+  if (isOpen) {
+    loadSettings()
+  } else {
+    // 关闭时重置状态
+    activeTab.value = 'general'
+    visitedTabs.value.clear()
+    visitedTabs.value.add('general')
   }
-}
+})
 
-async function startOAuthLogin(loginWithClaudeAi: boolean) {
-  oauthLoading.value = true
-  try {
-    // Open the OAuth URL in the default browser
-    const baseUrl = loginWithClaudeAi
-      ? 'https://claude.com/cai/oauth/authorize'
-      : 'https://platform.claude.com/oauth/authorize'
-
-    const clientId = '9d1c250a-e61b-44d9-88ed-5944d1962f5e'
-    const redirectUri = 'https://platform.claude.com/oauth/code/callback'
-    const scopes = loginWithClaudeAi
-      ? 'user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload'
-      : 'org:create_api_key user:profile'
-    const state = crypto.randomUUID()
-
-    const authUrl = `${baseUrl}?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scopes)}&state=${state}`
-
-    await api.openExternal(authUrl)
-
-    // For now, we show a hint that the user needs to complete auth in the browser
-    // In a full implementation, we'd start a local server to receive the callback
-    oauthAccount.value = {
-      email: 'Completing login in browser...',
-      subscription: loginWithClaudeAi ? 'Subscription' : 'Console'
-    }
-  } catch (error) {
-    console.error('[Settings] OAuth login failed:', error)
-  } finally {
-    oauthLoading.value = false
+function loadSettings() {
+  isLoadingSettings = true
+  
+  // 批量更新减少渲染次数
+  settingsData.value = {
+    authMethod: settingsStore.authMethod,
+    anthropic: { ...settingsStore.anthropicConfig },
+    openai: { ...settingsStore.openaiConfig },
+    gemini: { ...settingsStore.geminiConfig },
+    haikuModel: settingsStore.getHaikuModel() || '',
+    sonnetModel: settingsStore.getSonnetModel() || '',
+    opusModel: settingsStore.getOpusModel() || '',
+    projectRoot: settingsStore.projectRoot || '',
+    oauthAccount: settingsStore.oauthAccount
   }
-}
-
-async function loadSettings() {
-  // Load from settings store (which handles localStorage + env)
-  authMethod.value = settingsStore.authMethod
-  Object.assign(anthropicConfig, settingsStore.anthropicConfig)
-  Object.assign(openaiConfig, settingsStore.openaiConfig)
-  Object.assign(geminiConfig, settingsStore.geminiConfig)
-  projectRoot.value = settingsStore.projectRoot || ''
-  oauthAccount.value = settingsStore.oauthAccount
+  
+  // Reset hasChanges after loading, and re-enable the watch
+  hasChanges.value = false
+  
+  // Use requestAnimationFrame确保DOM更新完成后再重置标志
+  requestAnimationFrame(() => {
+    isLoadingSettings = false
+  })
 }
 
 function handleClose() {
-  emit('close')
-}
-
-function buildSettingsPayload(): AuthSettings {
-  const settings: AuthSettings = {
-    authMethod: authMethod.value,
-    anthropicConfig: { ...anthropicConfig },
-    openaiConfig: { ...openaiConfig },
-    geminiConfig: { ...geminiConfig },
-    oauthAccount: oauthAccount.value,
-    projectRoot: projectRoot.value
+  if (hasChanges.value) {
+    const confirmed = confirm('You have unsaved changes. Are you sure you want to close?')
+    if (!confirmed) return
   }
-  return settings
+  emit('update:modelValue', false)
 }
 
 async function handleSave() {
-  const settings = buildSettingsPayload()
+  saving.value = true
 
-  // Update the settings store
-  settingsStore.updateFromSettingsPanel(settings)
+  // Build settings payload with full ProviderConfig
+  const payload = {
+    authMethod: settingsData.value.authMethod,
+    anthropicConfig: {
+      baseUrl: settingsData.value.anthropic.baseUrl,
+      apiKey: settingsData.value.anthropic.apiKey,
+      haikuModel: settingsData.value.haikuModel,
+      sonnetModel: settingsData.value.sonnetModel,
+      opusModel: settingsData.value.opusModel
+    },
+    openaiConfig: {
+      baseUrl: settingsData.value.openai.baseUrl,
+      apiKey: settingsData.value.openai.apiKey,
+      haikuModel: settingsData.value.haikuModel,
+      sonnetModel: settingsData.value.sonnetModel,
+      opusModel: settingsData.value.opusModel
+    },
+    geminiConfig: {
+      baseUrl: settingsData.value.gemini.baseUrl,
+      apiKey: settingsData.value.gemini.apiKey,
+      haikuModel: settingsData.value.haikuModel,
+      sonnetModel: settingsData.value.sonnetModel,
+      opusModel: settingsData.value.opusModel
+    },
+    oauthAccount: settingsData.value.oauthAccount,
+    projectRoot: settingsData.value.projectRoot
+  }
 
-  emit('save', settings)
-  emit('close')
+  // Update store
+  settingsStore.updateFromSettingsPanel(payload)
+
+  // Simulate save delay
+  await new Promise(r => setTimeout(r, 500))
+
+  saving.value = false
+  hasChanges.value = false
+  emit('save')
+  emit('update:modelValue', false)
+}
+</script>
+
+<style lang="scss">
+// Transition animations
+.settings-overlay-enter-active,
+.settings-overlay-leave-active {
+  transition: opacity 0.3s ease;
 }
 
-onMounted(async () => {
-  await loadSettings()
-  document.addEventListener('mousedown', handleClickOutside)
-})
+.settings-overlay-enter-from,
+.settings-overlay-leave-to {
+  opacity: 0;
+}
 
-onBeforeUnmount(() => {
-  document.removeEventListener('mousedown', handleClickOutside)
-})
-</script>
+.settings-container-enter-active {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.settings-container-leave-active {
+  transition: all 0.2s ease-in;
+}
+
+.settings-container-enter-from {
+  opacity: 0;
+  transform: scale(0.95) translateY(20px);
+}
+
+.settings-container-leave-to {
+  opacity: 0;
+  transform: scale(0.98);
+}
+</style>
 
 <style lang="scss" scoped>
 .settings-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  padding: 40px;
 }
 
-.settings-panel {
-  width: 600px;
-  max-height: 85vh;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--surface-border);
+.settings-container {
+  width: 100%;
+  max-width: 1100px;
+  height: 85vh;
+  max-height: 800px;
+  background: var(--bg-primary);
+  border-radius: 16px;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
 }
 
 .settings-header {
@@ -560,382 +311,235 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--surface-border);
-
-  h2 {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
 }
 
-.close-btn {
+.back-btn {
   @include reset-button;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
   color: var(--text-muted);
-  padding: 4px;
-  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
 
   &:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
+  }
+}
+
+.settings-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.close-btn {
+  @include reset-button;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--text-muted);
+  transition: all 0.2s;
+
+  &:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+}
+
+.settings-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.settings-nav {
+  width: 220px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+}
+
+.nav-item {
+  @include reset-button;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.15s;
+  text-align: left;
+
+  &:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  &.active {
+    background: rgba(var(--accent-primary-rgb), 0.1);
+    color: var(--accent-primary);
   }
 }
 
 .settings-content {
   flex: 1;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+.content-scroll {
+  height: 100%;
   overflow-y: auto;
-  padding: 20px;
+  padding: 32px 40px;
   @include scrollbar;
-}
-
-.settings-section {
-  margin-bottom: 24px;
-
-  &:last-child {
-    margin-bottom: 0;
-  }
-
-  h3 {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    margin-bottom: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .section-desc {
-    display: block;
-    font-size: 12px;
-    color: var(--text-muted);
-    margin-bottom: 16px;
-    margin-top: -8px;
-  }
-}
-
-.auth-methods {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.auth-method-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  background: var(--bg-primary);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all 0.2s;
-
-  &:hover {
-    border-color: var(--accent-primary);
-    background: var(--bg-hover);
-  }
-
-  &.active {
-    border-color: var(--accent-primary);
-    background: var(--bg-tertiary);
-    box-shadow: 0 0 0 1px var(--accent-primary);
-  }
-
-  .method-icon {
-    width: 36px;
-    height: 36px;
-    border-radius: var(--radius-md);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--bg-secondary);
-    color: var(--text-muted);
-    flex-shrink: 0;
-
-    .auth-method-card.active & {
-      color: var(--accent-primary);
-      background: var(--accent-primary-glow);
-    }
-  }
-
-  .method-info {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .method-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  .method-desc {
-    font-size: 11px;
-    color: var(--text-muted);
-    margin-top: 2px;
-  }
-}
-
-.form-group {
-  margin-bottom: 16px;
-
-  label {
-    display: block;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-primary);
-    margin-bottom: 6px;
-  }
-
-  input, select {
-    width: 100%;
-    padding: 10px 12px;
-    background: var(--bg-primary);
-    border: 1px solid var(--surface-border);
-    border-radius: var(--radius-md);
-    color: var(--text-primary);
-    font-size: 13px;
-
-    &:focus {
-      outline: none;
-      border-color: var(--accent-primary);
-    }
-
-    &::placeholder {
-      color: var(--text-muted);
-    }
-  }
-
-  select {
-    cursor: pointer;
-  }
-
-  .hint {
-    display: block;
-    font-size: 11px;
-    color: var(--text-muted);
-    margin-top: 4px;
-  }
-}
-
-.api-key-input {
-  display: flex;
-  gap: 8px;
-
-  input {
-    flex: 1;
-  }
-
-  .toggle-btn {
-    @include reset-button;
-    padding: 8px 12px;
-    background: var(--bg-primary);
-    border: 1px solid var(--surface-border);
-    border-radius: var(--radius-md);
-    color: var(--text-muted);
-
-    &:hover {
-      color: var(--text-primary);
-    }
-  }
-}
-
-.model-fetch-group {
-  position: relative;
-  overflow: visible;
-}
-
-.model-select {
-  display: flex;
-  gap: 8px;
-  position: relative;
-
-  .model-input {
-    flex: 1;
-  }
-
-  .refresh-btn {
-    @include reset-button;
-    padding: 8px 12px;
-    background: var(--bg-primary);
-    border: 1px solid var(--surface-border);
-    border-radius: var(--radius-md);
-    color: var(--text-muted);
-    flex-shrink: 0;
-
-    &:hover:not(:disabled) {
-      color: var(--text-primary);
-    }
-
-    &:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    .spinning {
-      animation: spin 1s linear infinite;
-    }
-  }
-}
-
-.model-dropdown {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 48px;
-  max-height: 240px;
-  overflow-y: auto;
-  background: var(--bg-primary);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-md);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  z-index: 1000;
-  margin-top: 4px;
-}
-
-.model-option {
-  padding: 8px 12px;
-  cursor: pointer;
-  transition: background 0.15s;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-
-  &:hover {
-    background: var(--bg-hover);
-  }
-
-  .model-name {
-    font-size: 12px;
-    color: var(--text-primary);
-  }
-
-  .model-id {
-    font-size: 10px;
-    color: var(--text-muted);
-  }
-}
-
-.model-error {
-  margin-top: 4px;
-  padding: 6px 10px;
-  font-size: 11px;
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.1);
-  border-radius: var(--radius-sm);
-}
-
-.oauth-info {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  padding: 24px 16px;
-  gap: 12px;
-
-  .oauth-icon {
-    width: 56px;
-    height: 56px;
-    border-radius: var(--radius-lg);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--bg-tertiary);
-    color: var(--accent-primary);
-    margin-bottom: 4px;
-  }
-
-  p {
-    font-size: 13px;
-    color: var(--text-secondary);
-    max-width: 360px;
-    line-height: 1.5;
-
-    &.hint {
-      font-size: 11px;
-      color: var(--text-muted);
-    }
-  }
-}
-
-.btn-oauth {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  padding: 12px 24px;
-  font-size: 14px;
-}
-
-.oauth-account {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  background: var(--bg-primary);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-md);
-  font-size: 12px;
-  color: var(--text-secondary);
-
-  .success-icon {
-    color: var(--success, #22c55e);
-  }
-
-  .subscription-badge {
-    padding: 2px 8px;
-    background: var(--accent-primary);
-    color: white;
-    border-radius: var(--radius-sm);
-    font-size: 10px;
-    font-weight: 600;
-  }
 }
 
 .settings-footer {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.footer-status {
+  display: flex;
+  align-items: center;
+}
+
+.unsaved-indicator {
+  font-size: 13px;
+  color: var(--accent-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  &::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    background: var(--accent-primary);
+    border-radius: 50%;
+  }
+}
+
+.footer-actions {
+  display: flex;
   gap: 12px;
-  padding: 16px 20px;
-  border-top: 1px solid var(--surface-border);
 }
 
 .btn {
+  @include reset-button;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 10px 20px;
-  border-radius: var(--radius-md);
+  border-radius: 8px;
   font-size: 13px;
   font-weight: 500;
-  cursor: pointer;
   transition: all 0.2s;
 
   &.btn-primary {
     background: var(--accent-primary);
     color: white;
-    border: none;
 
-    &:hover {
-      opacity: 0.9;
+    &:hover:not(:disabled) {
+      background: var(--accent-primary-hover);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(var(--accent-primary-rgb), 0.3);
     }
 
-    &:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
+    &:active:not(:disabled) {
+      transform: translateY(0);
     }
   }
 
   &.btn-secondary {
-    background: transparent;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
     color: var(--text-primary);
-    border: 1px solid var(--surface-border);
 
     &:hover {
       background: var(--bg-hover);
+      border-color: var(--accent-primary);
     }
   }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
 }
 
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+// Responsive adjustments
+@media (max-width: 900px) {
+  .settings-container {
+    max-width: 100%;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+
+  .settings-overlay {
+    padding: 0;
+  }
+
+  .settings-nav {
+    width: 180px;
+  }
+
+  .content-scroll {
+    padding: 24px;
+  }
+}
+
+@media (max-width: 640px) {
+  .settings-body {
+    flex-direction: column;
+  }
+
+  .settings-nav {
+    width: 100%;
+    flex-direction: row;
+    padding: 8px;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+    overflow-x: auto;
+
+    .nav-item {
+      white-space: nowrap;
+
+      span {
+        display: none;
+      }
+    }
+  }
 }
 </style>
