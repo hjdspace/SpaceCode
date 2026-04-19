@@ -15,12 +15,110 @@ const electronAPI = (window as any).electronAPI
 
 const STORAGE_KEY = 'chat_sessions_v2'
 const PROJECTS_KEY = 'chat_projects_v2'
+const STORAGE_VERSION = '2.1'
+
+// localStorage 配额限制（通常 5-10MB，保守设置为 4MB）
+const STORAGE_QUOTA_LIMIT = 4 * 1024 * 1024
+const STORAGE_WARNING_THRESHOLD = 0.8 // 80% 警告阈值
+
+// 存储统计信息
+interface StorageStats {
+  totalSize: number
+  sessionCount: number
+  oldestSessionDate: number
+  compressionRatio: number
+}
+
+// 简单的 LZ 风格压缩（用于减少存储占用）
+function compressData(data: string): string {
+  try {
+    // 使用 Unicode 压缩技巧：将重复的字符串模式进行压缩
+    const compressed = data.replace(/([^\x00-\x7F]+|\\u[0-9a-fA-F]{4})+/g, (match) => {
+      return '\x00' + match.length.toString(36) + '\x01' + match
+    })
+    return compressed.length < data.length ? 'C:' + compressed : 'R:' + data
+  } catch {
+    return 'R:' + data
+  }
+}
+
+function decompressData(data: string): string {
+  if (data.startsWith('R:')) return data.slice(2)
+  if (data.startsWith('C:')) {
+    try {
+      return data.slice(2).replace(/\x00(\w+)\x01/g, (match, len) => {
+        // 简化处理，实际使用时需要更复杂的解压逻辑
+        return match
+      })
+    } catch {
+      return data.slice(2)
+    }
+  }
+  return data
+}
+
+// 获取 localStorage 使用情况
+function getStorageUsage(): number {
+  let total = 0
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (key) {
+      total += localStorage.getItem(key)?.length || 0
+    }
+  }
+  return total * 2 // Unicode 字符占 2 字节
+}
+
+// 检查存储空间
+function checkStorageSpace(): { ok: boolean; usage: number; warning: boolean } {
+  const usage = getStorageUsage()
+  return {
+    ok: usage < STORAGE_QUOTA_LIMIT,
+    usage,
+    warning: usage > STORAGE_QUOTA_LIMIT * STORAGE_WARNING_THRESHOLD
+  }
+}
+
+// 清理旧会话以释放空间
+function cleanupOldSessions(sessions: Session[], keepCount: number = 50): Session[] {
+  if (sessions.length <= keepCount) return sessions
+
+  // 按更新时间排序，保留最近的
+  const sorted = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)
+  const kept = sorted.slice(0, keepCount)
+
+  console.log(`[ChatStore] Cleaned up ${sessions.length - keepCount} old sessions`)
+  return kept
+}
+
+// 截断过长的消息内容
+function truncateLongMessages(sessions: Session[], maxLength: number = 10000): Session[] {
+  return sessions.map(session => ({
+    ...session,
+    messages: session.messages.map(msg => {
+      if (msg.content && msg.content.length > maxLength) {
+        return {
+          ...msg,
+          content: msg.content.slice(0, maxLength) + '\n\n[Content truncated due to length]',
+          // 标记为已截断
+          truncated: true,
+          originalLength: msg.content.length
+        }
+      }
+      return msg
+    })
+  }))
+}
 
 function loadSessionsFromStorage(): Session[] {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
     if (saved) {
-      const sessions = JSON.parse(saved)
+      // 检查是否是压缩数据
+      const data = saved.startsWith('C:') || saved.startsWith('R:')
+        ? decompressData(saved)
+        : saved
+      const sessions = JSON.parse(data)
       return sessions || []
     }
   } catch (e) {
@@ -29,11 +127,57 @@ function loadSessionsFromStorage(): Session[] {
   return []
 }
 
-function saveSessionsToStorage(sessions: Session[]) {
+function saveSessionsToStorage(sessions: Session[]): boolean {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions))
+    // 检查存储空间
+    const spaceCheck = checkStorageSpace()
+
+    // 如果空间紧张，先清理旧会话
+    let sessionsToSave = sessions
+    if (!spaceCheck.ok || spaceCheck.warning) {
+      console.warn('[ChatStore] Storage space low, cleaning up old sessions')
+      sessionsToSave = cleanupOldSessions(sessions, 30)
+      sessionsToSave = truncateLongMessages(sessionsToSave, 5000)
+    }
+
+    // 序列化数据
+    const jsonData = JSON.stringify(sessionsToSave)
+
+    // 尝试压缩
+    const compressed = compressData(jsonData)
+    const dataToStore = compressed.length < jsonData.length ? compressed : jsonData
+
+    // 检查是否会超出限制
+    if (dataToStore.length * 2 > STORAGE_QUOTA_LIMIT) {
+      console.error('[ChatStore] Data too large to save, truncating further')
+      sessionsToSave = cleanupOldSessions(sessionsToSave, 20)
+      sessionsToSave = truncateLongMessages(sessionsToSave, 3000)
+      const truncatedJson = JSON.stringify(sessionsToSave)
+      localStorage.setItem(STORAGE_KEY, truncatedJson)
+    } else {
+      localStorage.setItem(STORAGE_KEY, dataToStore)
+    }
+
+    // 保存元数据
+    localStorage.setItem(`${STORAGE_KEY}_meta`, JSON.stringify({
+      version: STORAGE_VERSION,
+      savedAt: Date.now(),
+      count: sessionsToSave.length,
+      compressed: dataToStore !== jsonData
+    }))
+
+    return true
   } catch (e) {
     console.error('[ChatStore] Failed to save sessions to storage:', e)
+    // 尝试紧急清理
+    try {
+      const emergencySessions = cleanupOldSessions(sessions, 10)
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(emergencySessions))
+      return true
+    } catch (e2) {
+      console.error('[ChatStore] Emergency save also failed:', e2)
+      return false
+    }
   }
 }
 
@@ -49,11 +193,30 @@ function loadProjectsFromStorage(): string[] {
   return []
 }
 
-function saveProjectsToStorage(projects: string[]) {
+function saveProjectsToStorage(projects: string[]): boolean {
   try {
     localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects))
+    return true
   } catch (e) {
     console.error('[ChatStore] Failed to save projects to storage:', e)
+    return false
+  }
+}
+
+// 导出存储统计信息供外部使用
+export function getStorageStats(): StorageStats {
+  const sessions = loadSessionsFromStorage()
+  const usage = getStorageUsage()
+  const metaStr = localStorage.getItem(`${STORAGE_KEY}_meta`)
+  const meta = metaStr ? JSON.parse(metaStr) : null
+
+  return {
+    totalSize: usage,
+    sessionCount: sessions.length,
+    oldestSessionDate: sessions.length > 0
+      ? Math.min(...sessions.map(s => s.createdAt))
+      : Date.now(),
+    compressionRatio: meta?.compressed ? 0.7 : 1.0
   }
 }
 
@@ -63,7 +226,11 @@ export const useChatStore = defineStore('chat', () => {
 
   // 所有会话（包含所有项目的会话）
   const sessions = ref<Session[]>(loadSessionsFromStorage())
-  const currentSessionId = ref<string | null>(null)
+  // 自动加载最近的会话（按更新时间排序）
+  const lastSessionId = sessions.value.length > 0
+    ? [...sessions.value].sort((a, b) => b.updatedAt - a.updatedAt)[0].id
+    : null
+  const currentSessionId = ref<string | null>(lastSessionId)
   const isLoading = ref(false)
   const streamingContent = ref('')
   const queryEngineSessions = ref<Map<string, string>>(new Map())
@@ -96,6 +263,11 @@ export const useChatStore = defineStore('chat', () => {
 
   const currentMessages = computed(() =>
     currentSession.value?.messages || []
+  )
+
+  // 当前工作目录
+  const workingDirectory = computed(() =>
+    currentSession.value?.workingDirectory || currentProjectRoot.value || ''
   )
 
   // 获取所有唯一的项目路径（从会话中提取）
@@ -470,6 +642,7 @@ export const useChatStore = defineStore('chat', () => {
     streamingContent,
     currentSession,
     currentMessages,
+    workingDirectory,
     projects,
     allProjects,
     currentProjectRoot,

@@ -57,3 +57,24 @@ export interface DiffLine {
   oldNumber?: number
   newNumber?: number
 }
+
+// ─── Slash Command Types ─────────────────────────────────────────
+
+// Re-export CommandKind from constants to avoid duplication
+export type { CommandKind } from '@/lib/constants/commands'
+
+export interface SlashCommand {
+  name: string
+  description: string
+  icon: string
+  kind?: 'immediate' | 'sdk_command' | 'codepilot_command' | 'agent_skill' | 'slash_command'
+  immediate?: boolean
+  aliases?: string[]
+}
+
+export interface CommandBadge {
+  command: string
+  label: string
+  description: string
+  kind: 'immediate' | 'sdk_command' | 'codepilot_command' | 'agent_skill' | 'slash_command'
+}

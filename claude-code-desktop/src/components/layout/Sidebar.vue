@@ -108,7 +108,7 @@
           <div class="feature-nav">
             <button
               class="feature-nav-item"
-              :class="{ active: showSkillsManager }"
+              :class="{ active: appStore.showSkillsManager }"
               @click="handleOpenSkills"
             >
               <Zap :size="14" />
@@ -238,7 +238,7 @@
 
     <!-- Skills Manager Modal -->
     <SkillsManager
-      v-model="showSkillsManager"
+      v-model="appStore.showSkillsManager"
     />
 
     <!-- MCP Manager Modal -->
@@ -296,7 +296,6 @@ const scmStore = useScmStore()
 
 const activeTab = ref<'explorer' | 'scm' | 'history' | 'terminal'>('history')
 const showSettings = ref(false)
-const showSkillsManager = ref(false)
 const showMcpManager = ref(false)
 
 // Enhanced state for CodePilot-like features
@@ -318,7 +317,7 @@ function handleTabClick(tab: 'explorer' | 'scm' | 'history' | 'terminal') {
 }
 
 function handleOpenSkills() {
-  showSkillsManager.value = true
+  appStore.showSkillsManager = true
 }
 
 function handleOpenMcp() {
@@ -554,6 +553,11 @@ onMounted(() => {
     if (detail?.sessionId) {
       pendingApprovalSessions.value.delete(detail.sessionId)
     }
+  })
+
+  // Listen for open settings event
+  window.addEventListener('open-settings', () => {
+    showSettings.value = true
   })
 })
 </script>

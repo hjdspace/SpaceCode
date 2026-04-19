@@ -25,12 +25,15 @@
       :loading="chatStore.isLoading"
     />
     
-    <ChatInput 
-      @send="handleSend" 
+    <ChatInput
+      @send="handleSend"
+      @slash-command="handleSlashCommand"
       @update:model="handleModelChange"
+      @open-skills="handleOpenSkills"
       :disabled="chatStore.isLoading"
       :is-sending="chatStore.isLoading"
       :model-value="currentModel"
+      :working-directory="chatStore.workingDirectory"
       placeholder="Ask anything, @ to add files, / for commands"
     />
   </main>
@@ -40,12 +43,14 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
+import { useAppStore } from '@/stores/app'
 import MessageList from '../chat/MessageList.vue'
 import ChatInput, { type Attachment } from '../chat/ChatInput.vue'
 import { initLLMService, llmState, updateConfig } from '@/services/llm'
 
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
+const appStore = useAppStore()
 
 const currentSession = computed(() => chatStore.currentSession)
 const provider = computed(() => llmState.provider.value)
@@ -107,7 +112,17 @@ function formatModelName(model: string): string {
   return model
 }
 
-async function handleSend(content: string, attachments: Attachment[]) {
+interface SendOptions {
+  badge?: {
+    command: string
+    label: string
+    description: string
+    kind: string
+  }
+  displayLabel?: string
+}
+
+async function handleSend(content: string, attachments: Attachment[], options?: SendOptions) {
   if (!content.trim() && attachments.length === 0) return
 
   // 构建包含附件信息的消息内容
@@ -125,7 +140,185 @@ async function handleSend(content: string, attachments: Attachment[]) {
     }
   }
 
+  if (options?.displayLabel && options.displayLabel !== messageContent) {
+    await chatStore.addMessage({
+      role: 'user',
+      content: options.displayLabel
+    })
+  }
+
   await chatStore.sendMessage(messageContent)
+}
+
+// 处理斜杠命令
+async function handleSlashCommand(command: string, args: string, attachments: Attachment[]) {
+  console.log('[ChatPanel] Slash command:', command, args)
+
+  // 添加用户输入的命令到消息列表
+  const commandText = `/${command}${args ? ' ' + args : ''}`
+  await chatStore.addMessage({
+    role: 'user',
+    content: commandText
+  })
+
+  // 执行命令
+  const result = await executeSlashCommand(command, args)
+
+  // 添加命令执行结果
+  await chatStore.addMessage({
+    role: 'assistant',
+    content: result
+  })
+}
+
+// 导入新的命令系统
+import { BUILT_IN_COMMANDS, COMMAND_PROMPTS, findCommand, type CommandKind } from '@/lib/constants/commands'
+
+// 执行斜杠命令
+async function executeSlashCommand(command: string, args: string): Promise<string> {
+  const workingDir = chatStore.workingDirectory
+  const cmd = findCommand(command)
+
+  // 使用新的命令系统处理
+  switch (command.toLowerCase()) {
+    case 'help':
+      return generateHelpMessage()
+
+    case 'clear':
+    case 'reset':
+    case 'new':
+      // 清除当前会话的消息
+      if (chatStore.currentSession) {
+        chatStore.currentSession.messages = []
+        chatStore.currentSession.title = 'New Chat'
+      }
+      return '对话已清除。'
+
+    case 'cost':
+      return generateCostMessage()
+
+    case 'context':
+      return generateContextMessage()
+
+    case 'terminal':
+      // 打开终端标签
+      appStore.openTerminalTab(args || undefined)
+      return '已打开终端。'
+
+    case 'settings':
+      // 打开设置面板
+      window.dispatchEvent(new CustomEvent('open-settings'))
+      return '已打开设置面板。'
+
+    case 'skills':
+      // 打开技能管理器
+      window.dispatchEvent(new CustomEvent('open-skills-manager'))
+      return '已打开技能管理器。'
+
+    case 'mcp':
+      // 打开 MCP 管理器
+      window.dispatchEvent(new CustomEvent('open-mcp-manager'))
+      return '已打开 MCP 服务器管理器。'
+
+    default:
+      return `未知命令: /${command}\n输入 /help 查看可用命令。`
+  }
+}
+
+// 生成帮助信息
+function generateHelpMessage(): string {
+  const immediate = BUILT_IN_COMMANDS.filter((c) => c.immediate || c.kind === 'immediate')
+  const sdk = BUILT_IN_COMMANDS.filter((c) => c.kind === 'sdk_command')
+  const codepilot = BUILT_IN_COMMANDS.filter((c) => c.kind === 'codepilot_command')
+
+  return `## Available Commands
+
+### Instant Commands
+${immediate.map((c) => `- **/${c.name}** — ${c.description}`).join('\n')}
+
+### SDK Commands (sent to Claude Code)
+${sdk.map((c) => `- **/${c.name}** — ${c.description}`).join('\n')}
+
+### CodePilot Commands (expanded before sending)
+${codepilot.map((c) => `- **/${c.name}** — ${c.description}`).join('\n')}
+
+### Custom Skills
+Skills from \`~/.claude/commands/\` and project \`.claude/commands/\` are also available via \`/\`.
+
+**Tips:**
+- Type \`/\` to browse commands and skills
+- Type \`@\` to mention files
+- Use Shift+Enter for new line
+- Select a project folder to enable file operations`
+}
+
+// 生成 Token 用量信息
+function generateCostMessage(): string {
+  const messages = chatStore.currentMessages
+  let totalInput = 0
+  let totalOutput = 0
+  let turnCount = 0
+
+  for (const msg of messages) {
+    // Estimate tokens (rough approximation: 1 token ≈ 4 characters)
+    const content = msg.content || ''
+    const estimatedTokens = Math.ceil(content.length / 4)
+
+    if (msg.role === 'user') {
+      totalInput += estimatedTokens
+    } else if (msg.role === 'assistant') {
+      totalOutput += estimatedTokens
+      turnCount++
+    }
+  }
+
+  const totalTokens = totalInput + totalOutput
+
+  if (turnCount === 0) {
+    return `## Token Usage\n\nNo messages yet. Send a message to see token usage estimates.`
+  }
+
+  return `## Token Usage (Estimated)
+
+| Metric | Count |
+|--------|-------|
+| Input tokens | ${totalInput.toLocaleString()} |
+| Output tokens | ${totalOutput.toLocaleString()} |
+| **Total tokens** | **${totalTokens.toLocaleString()}** |
+| Turns | ${turnCount} |
+
+*Note: These are rough estimates based on character count. Actual token counts may vary.*`
+}
+
+// 生成上下文信息
+function generateContextMessage(): string {
+  const session = chatStore.currentSession
+  if (!session) return '当前没有活动会话。'
+
+  const messageCount = session.messages.length
+  const userMessages = session.messages.filter((m) => m.role === 'user').length
+  const assistantMessages = session.messages.filter((m) => m.role === 'assistant').length
+
+  let context = `## Current Context
+
+| Metric | Value |
+|--------|-------|
+| Total messages | ${messageCount} |
+| User messages | ${userMessages} |
+| Assistant messages | ${assistantMessages} |
+`
+
+  if (session.workingDirectory) {
+    context += `| Working directory | \`${session.workingDirectory}\` |`
+  }
+
+  return context
+}
+
+// 处理打开技能管理器
+function handleOpenSkills() {
+  // 通过事件总线或全局状态打开技能管理器
+  window.dispatchEvent(new CustomEvent('open-skills-manager'))
 }
 </script>
 

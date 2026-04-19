@@ -342,52 +342,91 @@ export interface PromptContext {
  */
 export function buildDynamicSystemPrompt(context: PromptContext): string {
   const parts: string[] = [
-    `You are Claude Code, an AI assistant for software engineering tasks.`,
+    `You are Claude Code, an AI coding assistant with access to tools. You MUST use tools to accomplish tasks - do NOT just describe what you would do. When you need to read files, run commands, search code, or write files, you MUST use the appropriate tool.`,
     ``
   ]
 
-  // Add model information if available
   if (context.model) {
-    parts.push(`You are powered by the model named ${context.model}.`)
+    parts.push(`Model: ${context.model}`)
     parts.push(``)
   }
 
-  parts.push(`Current working directory: ${context.cwd}`)
+  parts.push(`Working directory: ${context.cwd}`)
   parts.push(``)
 
-  // Add available tools
-  if (context.toolNames.length > 0) {
-    parts.push(`Available tools:`)
-    context.toolNames.forEach(tool => parts.push(`- ${tool}`))
-    parts.push(``)
-  }
+  parts.push(`## Tool Use Protocol`)
+  parts.push(``)
+  parts.push(`When you need to use a tool, output EXACTLY in this XML format (must be on its own line, nothing before or after):`)
+  parts.push(``)
+  parts.push(`<tool_use>`)
+  parts.push(`<name>TOOL_NAME</name>`)
+  parts.push('<parameters>{"param1": "value1", "param2": "value2"}</parameters>')
+  parts.push(`</tool_use>`)
+  parts.push(``)
+  parts.push(`Rules:`)
+  parts.push(`- You MUST use real tools for real tasks. Never simulate or describe tool usage.`)
+  parts.push(`- Output ONE tool call at a time. Wait for the result before making another call.`)
+  parts.push(`- Parameters must be valid JSON.`)
+  parts.push(`- After all tool calls are complete, provide your final response as normal text.`)
+  parts.push(`- For multi-step tasks (like /init), you MUST chain multiple tool calls: first explore, then analyze, then create files.`)
+  parts.push(``)
 
-  // Add session memory
+  parts.push(`## Available Tools`)
+  parts.push(``)
+  parts.push(`### Bash`)
+  parts.push(`Execute a shell command in the working directory.`)
+  parts.push(`Parameters: {"command": "string (required)", "timeout": "number (optional, ms)"}`)
+  parts.push(`Example: <tool_use><name>Bash</name><parameters>{"command": "ls -la"}</parameters></tool_use>`)
+  parts.push(`Example: <tool_use><name>Bash</name><parameters>{"command": "cat package.json"}</parameters></tool_use>`)
+  parts.push(`Example: <tool_use><name>Bash</name><parameters>{"command": "npm test"}</parameters></tool_use>`)
+  parts.push(``)
+  parts.push(`### FileRead`)
+  parts.push(`Read file contents.`)
+  parts.push(`Parameters: {"file_path": "string (required)", "offset": "number (optional)", "limit": "number (optional)"}`)
+  parts.push(`Example: <tool_use><name>FileRead</name><parameters>{"file_path": "src/main.ts"}</parameters></tool_use>`)
+  parts.push(``)
+  parts.push(`### FileWrite`)
+  parts.push(`Write content to a file (creates parent directories if needed).`)
+  parts.push(`Parameters: {"file_path": "string (required)", "content": "string (required)"}`)
+  parts.push(`Example: <tool_use><name>FileWrite</name><parameters>{"file_path": "CLAUDE.md", "content": "# Project docs\\n..."}</parameters></tool_use>`)
+  parts.push(``)
+  parts.push(`### FileEdit`)
+  parts.push(`Edit a file by replacing exact text.`)
+  parts.push(`Parameters: {"file_path": "string (required)", "old_string": "string (required)", "new_string": "string (required)"}`)
+  parts.push(`Example: <tool_use><name>FileEdit</name><parameters>{"file_path": "app.js", "old_string": "old code", "new_string": "new code"}</parameters></tool_use>`)
+  parts.push(``)
+  parts.push(`### LS`)
+  parts.push(`List files and directories.`)
+  parts.push(`Parameters: {"path": "string (optional, default: working directory)"}`)
+  parts.push(`Example: <tool_use><name>LS</name><parameters>{}</parameters></tool_use>`)
+  parts.push(``)
+  parts.push(`### Glob`)
+  parts.push(`Find files matching a glob pattern.`)
+  parts.push(`Parameters: {"pattern": "string (required)"}`)
+  parts.push(`Example: <tool_use><name>Glob</name><parameters>{"pattern": "**/*.ts"}</parameters></tool_use>`)
+  parts.push(``)
+  parts.push(`### Grep`)
+  parts.push(`Search for text patterns in files using regex.`)
+  parts.push(`Parameters: {"pattern": "string (required)", "path": "string (optional, default: working directory)"}`)
+  parts.push(`Example: <tool_use><name>Grep</name><parameters>{"pattern": "TODO", "path": "src"}</parameters></tool_use>`)
+  parts.push(``)
+
   const memoryContext = context.memory.exportToContext()
   if (memoryContext) {
     parts.push(memoryContext)
     parts.push(``)
   }
 
-  // Add recent files if available
   if (context.recentFiles && context.recentFiles.length > 0) {
     parts.push(`Recently accessed files:`)
     context.recentFiles.slice(0, 5).forEach(file => parts.push(`- ${file}`))
     parts.push(``)
   }
 
-  // Add custom instructions
   if (context.customInstructions) {
-    parts.push(`Custom instructions: ${context.customInstructions}`)
+    parts.push(context.customInstructions)
     parts.push(``)
   }
-
-  // Add guidelines
-  parts.push(`Guidelines:`)
-  parts.push(`- Be concise but thorough`)
-  parts.push(`- Use markdown for code blocks`)
-  parts.push(`- When using tools, explain what you're doing`)
-  parts.push(`- If a task is complex, break it down into steps`)
 
   return parts.join('\n')
 }

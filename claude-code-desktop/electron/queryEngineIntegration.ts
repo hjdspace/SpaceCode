@@ -499,8 +499,11 @@ async function* streamWithTools(
     // Parse and execute tool calls
     const toolCalls = parseToolCalls(fullResponse)
     
+    const assistantMsg = { id: randomUUID(), role: 'assistant' as const, content: fullResponse, timestamp: Date.now() }
+    messages.push(assistantMsg)
+    conversationMessages.push(assistantMsg)
+    
     if (toolCalls.length === 0) {
-      // No tool calls, we're done
       break
     }
     
@@ -516,22 +519,7 @@ async function* streamWithTools(
     }
   }
 
-  const finalContent = fullResponse
-  messages.push({
-    id: randomUUID(),
-    role: 'assistant',
-    content: finalContent,
-    timestamp: Date.now()
-  })
-
-  conversationMessages.push({
-    id: randomUUID(),
-    role: 'assistant',
-    content: finalContent,
-    timestamp: Date.now()
-  })
   
-  // Save context manager state
   contextManager.save()
 }
 

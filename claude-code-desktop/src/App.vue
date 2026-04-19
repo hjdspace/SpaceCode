@@ -181,6 +181,11 @@ onMounted(() => {
   if (initialProjectRoot) {
     chatStore.addProject(initialProjectRoot)
   }
+
+  // 监听打开技能管理器事件
+  window.addEventListener('open-skills-manager', () => {
+    appStore.showSkillsManager = true
+  })
 })
 
 function handleTerminalReady(id: string) {

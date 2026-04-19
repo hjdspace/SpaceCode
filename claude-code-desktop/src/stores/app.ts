@@ -49,6 +49,9 @@ export const useAppStore = defineStore('app', () => {
   } catch { /* ignore */ }
   const projectRoot = ref<string>(_initialProjectRoot)
 
+  // Skills manager modal visibility
+  const showSkillsManager = ref(false)
+
   const isDark = computed(() => theme.value === 'dark')
 
   // Get terminal instance by tab id
@@ -203,6 +206,7 @@ export const useAppStore = defineStore('app', () => {
     activeCenterTab,
     terminalInstances,
     projectRoot,
+    showSkillsManager,
     isDark,
     toggleTheme,
     toggleSidebar,
