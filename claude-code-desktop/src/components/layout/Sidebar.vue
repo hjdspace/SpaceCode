@@ -31,15 +31,6 @@
       </button>
       <button
         class="icon-btn"
-        :class="{ active: activeTab === 'config' }"
-        @click="handleTabClick('config')"
-        title="Configuration"
-      >
-        <Boxes :size="20" />
-        <span class="icon-label">Config</span>
-      </button>
-      <button
-        class="icon-btn"
         :class="{ active: activeTab === 'terminal' }"
         @click="handleTerminalClick"
         title="Terminal"
@@ -91,10 +82,6 @@
         />
       </div>
 
-      <div v-show="activeTab === 'config'" class="panel config-panel animate-fade-in">
-        <ConfigPanel />
-      </div>
-
       <div v-show="activeTab === 'terminal'" class="panel terminal-panel-wrapper animate-fade-in">
         <div class="panel-header">
           <span class="panel-title">TERMINAL</span>
@@ -134,11 +121,10 @@ import { ref } from 'vue'
 import { useChatStore } from '@/stores/chat'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore } from '@/stores/settings'
-import { Plus, FolderTree, Clock, Settings, Boxes, Terminal as TerminalIcon, Play, GitBranch } from 'lucide-vue-next'
+import { Plus, FolderTree, Clock, Settings, Terminal as TerminalIcon, Play, GitBranch } from 'lucide-vue-next'
 import SessionList from '../explorer/SessionList.vue'
 import FileTree from '../explorer/FileTree.vue'
 import SettingsPanel from '../settings/SettingsPanel.vue'
-import ConfigPanel from './ConfigPanel.vue'
 import ScmPanel from '../scm/ScmPanel.vue'
 import { initLLMService } from '@/services/llm'
 import { api } from '@/services/electronAPI'
@@ -159,10 +145,10 @@ const appStore = useAppStore()
 const settingsStore = useSettingsStore()
 const scmStore = useScmStore()
 
-const activeTab = ref<'explorer' | 'scm' | 'history' | 'config' | 'terminal'>('explorer')
+const activeTab = ref<'explorer' | 'scm' | 'history' | 'terminal'>('explorer')
 const showSettings = ref(false)
 
-function handleTabClick(tab: 'explorer' | 'scm' | 'history' | 'config' | 'terminal') {
+function handleTabClick(tab: 'explorer' | 'scm' | 'history' | 'terminal') {
   if (activeTab.value === tab && !appStore.sidebarCollapsed) {
     // 如果点击的是当前已激活的标签且侧边栏未折叠，则折叠侧边栏
     appStore.toggleSidebar()

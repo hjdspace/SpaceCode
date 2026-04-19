@@ -171,7 +171,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { 
   ArrowUp, Plus, ChevronDown, Check, FileText, Folder, Square, X, 
   Search, Loader2, RefreshCw, AlertCircle 
@@ -410,11 +410,8 @@ async function fetchModelsFromBaseUrl() {
       
       if (models.length > 0) {
         fetchedModels.value = models.map((m: any) => ({
-          id: m.id || m.name || String(m),
-          name: m.name || m.id || String(m)
-        })).map((m: any) => ({
-          label: m.name,
-          value: m.id
+          label: m.name || m.id || String(m),
+          value: m.id || m.name || String(m)
         }))
       }
     } else {
@@ -625,6 +622,10 @@ const vClickOutside = {
 // 监听键盘事件
 onMounted(() => {
   document.addEventListener('keydown', handleModelKeydown)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleModelKeydown)
 })
 
 // 清理事件监听
