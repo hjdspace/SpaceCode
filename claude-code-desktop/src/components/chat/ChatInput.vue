@@ -345,7 +345,9 @@ const vClickOutside = {
   padding: 16px 20px 20px;
   background: var(--bg-primary);
   flex-shrink: 0;
+  flex-grow: 0;
   position: relative;
+  border-top: 1px solid var(--surface-border);
 }
 
 // 附件栏样式

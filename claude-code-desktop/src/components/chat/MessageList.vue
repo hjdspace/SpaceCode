@@ -1,5 +1,5 @@
 <template>
-  <div class="message-list" ref="listRef">
+  <div class="message-list" ref="listRef" :class="{ 'has-messages': messages.length > 0 || loading }">
     <div class="messages-container">
       <div v-if="messages.length === 0 && !loading" class="empty-state">        
         <MessageSquare :size="48" />
@@ -48,8 +48,11 @@ watch(() => [messages, loading], () => {
 .message-list {
   flex: 1;
   min-height: 0;
+  max-height: 100%;
   overflow-y: auto;
   @include scrollbar;
+  display: flex;
+  flex-direction: column;
 }
 
 .messages-container {
@@ -57,6 +60,8 @@ watch(() => [messages, loading], () => {
   max-width: 900px;
   margin: 0 auto;
   width: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .empty-state {
@@ -64,10 +69,10 @@ watch(() => [messages, loading], () => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100%;
-  min-height: 300px;
   color: var(--text-muted);
   gap: 12px;
+  flex: 1;
+  min-height: 300px;
 
   p {
     font-size: 18px;

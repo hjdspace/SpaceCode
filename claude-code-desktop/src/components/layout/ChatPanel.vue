@@ -79,6 +79,7 @@ async function handleSend(content: string, attachments: Attachment[]) {
   overflow: hidden;
   background: transparent;
   position: relative;
+  height: 100%;
 }
 
 .chat-header {
