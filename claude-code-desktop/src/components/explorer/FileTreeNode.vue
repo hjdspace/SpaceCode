@@ -5,43 +5,65 @@
   >
     <div
       class="node-content"
-      :class="{ selected: isSelected, 'is-directory': node.type === 'directory' }"
+      :class="[
+        { selected: isSelected, 'is-directory': node.type === 'directory' },
+        { 'file-tree-flash': isHighlighted }
+      ]"
+      :id="isHighlighted ? 'file-tree-highlight' : undefined"
       @click="handleClick"
     >
+      <!-- Expand/Collapse Button for Directories -->
       <button
         v-if="node.type === 'directory'"
         class="expand-btn"
         @click.stop="handleToggle"
       >
-        <ChevronRight :size="14" :class="{ expanded: node.isExpanded }" />
+        <ChevronRight
+          :size="14"
+          :class="{ expanded: isExpanded }"
+        />
       </button>
-      <span v-else class="spacer"></span>
-      
+      <span v-else class="spacer" />
+
+      <!-- File/Folder Icon -->
       <component
-        :is="getIcon(node)"
+        :is="getIconComponent()"
         :size="16"
         class="node-icon"
-        :class="getIconClass(node)"
+        :class="[getIconClass(), { 'icon-folder': node.type === 'directory' }]"
       />
-      
-      <span class="node-name">{{ node.name }}</span>
+
+      <!-- Node Name -->
+      <span class="node-name" :class="{ highlighted: isSearchMatch }">
+        {{ node.name }}
+      </span>
     </div>
-    
-    <div v-if="node.isExpanded && node.children" class="node-children">
-      <FileTreeNode
-        v-for="child in node.children"
-        :key="child.path"
-        :node="child"
-        :depth="depth + 1"
-        @select="$emit('select', $event)"
-        @toggle="$emit('toggle', $event)"
-      />
-    </div>
+
+    <!-- Children (only show if directory and expanded) -->
+    <Transition name="expand">
+      <div
+        v-if="node.type === 'directory' && isExpanded && node.children"
+        class="node-children"
+      >
+        <FileTreeNode
+          v-for="child in node.children"
+          :key="child.path"
+          :node="child"
+          :depth="depth + 1"
+          :search-query="searchQuery"
+          :highlight-path="highlightPath"
+          :expanded-paths="expandedPaths"
+          @select="$emit('select', $event)"
+          @toggle="$emit('toggle', $event)"
+          @expand-path="$emit('expand-path', $event)"
+        />
+      </div>
+    </Transition>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import {
   ChevronRight,
   File,
@@ -50,7 +72,8 @@ import {
   FileCode,
   FileText,
   FileJson,
-  Braces
+  Braces,
+  FileType
 } from 'lucide-vue-next'
 
 interface TreeNode {
@@ -58,81 +81,100 @@ interface TreeNode {
   path: string
   type: 'file' | 'directory'
   children?: TreeNode[]
-  isExpanded?: boolean
-  isLoaded?: boolean
+  extension?: string
 }
 
-const props = defineProps<{
+interface Props {
   node: TreeNode
   depth: number
-}>()
+  searchQuery?: string
+  highlightPath?: string
+  expandedPaths?: Set<string>
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  searchQuery: '',
+  highlightPath: '',
+  expandedPaths: () => new Set()
+})
 
 const emit = defineEmits<{
   select: [node: TreeNode]
   toggle: [node: TreeNode]
+  'expand-path': [path: string]
 }>()
 
-const isSelected = ref(false)
+// Computed
+const isExpanded = computed(() => {
+  return props.expandedPaths.has(props.node.path)
+})
 
+const isHighlighted = computed(() => {
+  return props.node.path === props.highlightPath
+})
+
+const isSearchMatch = computed(() => {
+  if (!props.searchQuery) return false
+  return props.node.name.toLowerCase().includes(props.searchQuery.toLowerCase())
+})
+
+const isSelected = ref(false) // Could be controlled by parent in future
+
+// Methods
 function handleClick() {
-  isSelected.value = true
   if (props.node.type === 'directory') {
-    emit('toggle', props.node)
+    handleToggle()
   } else {
     emit('select', props.node)
   }
 }
 
 function handleToggle() {
+  // Emit expand-path event to parent for path tracking
+  emit('expand-path', props.node.path)
   emit('toggle', props.node)
 }
 
-function getIcon(node: TreeNode) {
-  if (node.type === 'directory') {
-    return node.isExpanded ? FolderOpen : Folder
+function getIconComponent() {
+  if (props.node.type === 'directory') {
+    return isExpanded.value ? FolderOpen : Folder
   }
-  
-  const ext = node.name.split('.').pop()?.toLowerCase()
-  const codeExts = ['ts', 'tsx', 'js', 'jsx', 'py', 'rs', 'go', 'java', 'vue', 'svelte']
+
+  const ext = props.node.extension?.toLowerCase()
+
+  const codeExts = ['ts', 'tsx', 'js', 'jsx', 'py', 'rs', 'go', 'java', 'vue', 'svelte', 'c', 'cpp', 'h', 'hpp', 'cs', 'swift', 'kt', 'dart', 'lua', 'php', 'zig']
   const configExts = ['json', 'yaml', 'yml', 'toml']
   const styleExts = ['css', 'scss', 'sass', 'less']
-  
-  if (ext && configExts.includes(ext)) {
-    return FileJson
-  }
-  if (ext && codeExts.includes(ext)) {
-    return FileCode
-  }
-  if (ext && styleExts.includes(ext)) {
-    return Braces
-  }
-  if (ext && ['md', 'txt', 'rst'].includes(ext)) {
-    return FileText
-  }
+  const textExts = ['md', 'mdx', 'txt', 'csv', 'rst']
+
+  if (ext && codeExts.includes(ext)) return FileCode
+  if (ext && configExts.includes(ext)) return FileType
+  if (ext && styleExts.includes(ext)) return Braces
+  if (ext && textExts.includes(ext)) return FileText
+
   return File
 }
 
-function getIconClass(node: TreeNode) {
-  if (node.type === 'directory') {
-    return 'icon-folder'
+function getIconClass(): string {
+  if (props.node.type === 'directory') return ''
+
+  const ext = props.node.extension?.toLowerCase()
+  
+  const iconMap: Record<string, string> = {
+    'ts': 'icon-typescript',
+    'tsx': 'icon-typescript',
+    'js': 'icon-javascript',
+    'jsx': 'icon-javascript',
+    'vue': 'icon-vue',
+    'py': 'icon-python',
+    'json': 'icon-json',
+    'css': 'icon-style',
+    'scss': 'icon-style',
+    'sass': 'icon-style',
+    'less': 'icon-style'
   }
-  
-  const ext = node.name.split('.').pop()?.toLowerCase()
-  const tsExts = ['ts', 'tsx']
-  const jsExts = ['js', 'jsx']
-  const vueExts = ['vue']
-  const pyExts = ['py']
-  const jsonExts = ['json']
-  const styleExts = ['css', 'scss', 'sass', 'less']
-  
-  if (ext && tsExts.includes(ext)) return 'icon-typescript'
-  if (ext && jsExts.includes(ext)) return 'icon-javascript'
-  if (ext && vueExts.includes(ext)) return 'icon-vue'
-  if (ext && pyExts.includes(ext)) return 'icon-python'
-  if (ext && jsonExts.includes(ext)) return 'icon-json'
-  if (ext && styleExts.includes(ext)) return 'icon-style'
-  
-  return ''
+
+  return iconMap[ext || ''] || ''
 }
 </script>
 
@@ -145,47 +187,47 @@ function getIconClass(node: TreeNode) {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px;
-  border-radius: var(--radius-md);
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all var(--transition-fast);
   position: relative;
-  
+
   &::before {
     content: '';
     position: absolute;
     left: 0;
     top: 50%;
     transform: translateY(-50%);
-    width: 3px;
+    width: 2px;
     height: 0;
     background: var(--accent-primary);
     border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
     transition: height var(--transition-fast);
   }
-  
+
   &:hover {
     background: var(--surface-glass-hover);
-    
+
     &::before {
-      height: 12px;
+      height: 10px;
     }
   }
-  
+
   &.selected {
     background: var(--surface-glass-active);
-    
-    &::before {
-      height: 20px;
-      box-shadow: 0 0 8px var(--accent-primary-glow);
-    }
-    
+
     .node-name {
       color: var(--text-primary);
       font-weight: 500;
     }
+
+    &::before {
+      height: 18px;
+      box-shadow: 0 0 6px rgba(var(--accent-primary-rgb), 0.4);
+    }
   }
-  
+
   &.is-directory {
     .node-icon {
       color: var(--accent-secondary);
@@ -194,85 +236,103 @@ function getIconClass(node: TreeNode) {
 }
 
 .expand-btn {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   background: transparent;
   color: var(--text-muted);
-  @include flex-center;
-  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
   transition: all var(--transition-fast);
-  
+
   &:hover {
     background: var(--surface-glass-hover);
     color: var(--text-primary);
   }
-  
+
   svg {
-    transition: transform var(--transition-fast);
-  }
-  
-  .expanded {
-    transform: rotate(90deg);
+    transition: transform 0.15s ease-out;
+
+    &.expanded {
+      transform: rotate(90deg);
+    }
   }
 }
 
 .spacer {
-  width: 18px;
+  width: 16px;
+  display: inline-block;
 }
 
 .node-icon {
   flex-shrink: 0;
-  transition: all var(--transition-fast);
-  
-  &.icon-folder {
-    color: var(--accent-secondary);
-  }
-  
+  transition: color var(--transition-fast);
+
   &.icon-typescript {
     color: #3178c6;
   }
-  
+
   &.icon-javascript {
     color: #f7df1e;
   }
-  
+
   &.icon-vue {
     color: #42b883;
   }
-  
+
   &.icon-python {
     color: #3776ab;
   }
-  
+
   &.icon-json {
     color: #cbcb41;
   }
-  
+
   &.icon-style {
     color: var(--accent-tertiary);
+  }
+
+  &.icon-folder {
+    color: var(--accent-secondary);
   }
 }
 
 .node-name {
   font-size: 13px;
   color: var(--text-secondary);
-  @include truncate;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   transition: color var(--transition-fast);
+
+  &.highlighted {
+    font-weight: 500;
+    
+    // Highlight matched text (could use a more sophisticated approach)
+    background: linear-gradient(
+      to bottom,
+      transparent 50%,
+      rgba(var(--accent-primary-rgb), 0.15) 50%,
+      rgba(var(--accent-primary-rgb), 0.15) 100%
+    );
+  }
 }
 
 .node-children {
-  animation: expand var(--transition-fast) ease-out;
+  overflow: hidden;
 }
 
-@keyframes expand {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+// Expand/Collapse Animation
+.expand-enter-active,
+.expand-leave-active {
+  transition: all 0.15s ease-out;
+}
+
+.expand-enter-from,
+.expand-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 </style>

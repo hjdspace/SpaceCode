@@ -1,6 +1,6 @@
 /**
  * Chat Store with QueryEngine Integration
- * 
+ *
  * This store integrates with the QueryEngine running in Electron Main process.
  * Supports project-specific chat sessions.
  */
@@ -13,66 +13,73 @@ import { useAppStore } from './app'
 
 const electronAPI = (window as any).electronAPI
 
-const STORAGE_KEY_PREFIX = 'chat_sessions_'
+const STORAGE_KEY = 'chat_sessions_v2'
+const PROJECTS_KEY = 'chat_projects_v2'
 
-function getStorageKey(projectRoot: string): string {
-  if (!projectRoot) {
-    return `${STORAGE_KEY_PREFIX}default`
-  }
-  // 将路径中的特殊字符替换，确保键名合法
-  const safePath = projectRoot.replace(/[\\/:*?"<>|]/g, '_')
-  return `${STORAGE_KEY_PREFIX}${safePath}`
-}
-
-function loadSessionsFromStorage(projectRoot: string): { sessions: Session[]; currentId: string | null } {
+function loadSessionsFromStorage(): Session[] {
   try {
-    const key = getStorageKey(projectRoot)
-    const saved = localStorage.getItem(key)
+    const saved = localStorage.getItem(STORAGE_KEY)
     if (saved) {
-      const data = JSON.parse(saved)
-      return {
-        sessions: data.sessions || [],
-        currentId: data.currentId || null
-      }
+      const sessions = JSON.parse(saved)
+      return sessions || []
     }
   } catch (e) {
     console.error('[ChatStore] Failed to load sessions from storage:', e)
   }
-  return { sessions: [], currentId: null }
+  return []
 }
 
-function saveSessionsToStorage(projectRoot: string, sessions: Session[], currentId: string | null) {
+function saveSessionsToStorage(sessions: Session[]) {
   try {
-    const key = getStorageKey(projectRoot)
-    localStorage.setItem(key, JSON.stringify({
-      sessions,
-      currentId
-    }))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions))
   } catch (e) {
     console.error('[ChatStore] Failed to save sessions to storage:', e)
+  }
+}
+
+function loadProjectsFromStorage(): string[] {
+  try {
+    const saved = localStorage.getItem(PROJECTS_KEY)
+    if (saved) {
+      return JSON.parse(saved) || []
+    }
+  } catch (e) {
+    console.error('[ChatStore] Failed to load projects from storage:', e)
+  }
+  return []
+}
+
+function saveProjectsToStorage(projects: string[]) {
+  try {
+    localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects))
+  } catch (e) {
+    console.error('[ChatStore] Failed to save projects to storage:', e)
   }
 }
 
 export const useChatStore = defineStore('chat', () => {
   const appStore = useAppStore()
   const settingsStore = useSettingsStore()
-  
-  // 当前项目路径
-  const currentProjectRoot = ref<string>('')
-  
-  const sessions = ref<Session[]>([])
+
+  // 所有会话（包含所有项目的会话）
+  const sessions = ref<Session[]>(loadSessionsFromStorage())
   const currentSessionId = ref<string | null>(null)
   const isLoading = ref(false)
   const streamingContent = ref('')
   const queryEngineSessions = ref<Map<string, string>>(new Map())
-  
+
+  // 项目列表
+  const projects = ref<string[]>(loadProjectsFromStorage())
+  // 当前选中的项目（空字符串表示没有特定项目）
+  const currentProjectRoot = ref<string>('')
+
   // Track config changes to invalidate stale QueryEngine sessions
   let lastConfigKey = ''
   function getConfigKey(): string {
     const c = settingsStore.config
     return `${c.provider}|${c.apiKey}|${c.model}|${c.apiUrl}`
   }
-  
+
   // When config changes, clear all QueryEngine session mappings so they get recreated with new config
   watch(() => settingsStore.config, () => {
     const newKey = getConfigKey()
@@ -82,14 +89,29 @@ export const useChatStore = defineStore('chat', () => {
     }
     lastConfigKey = newKey
   }, { deep: true })
-  
-  const currentSession = computed(() => 
+
+  const currentSession = computed(() =>
     sessions.value.find(s => s.id === currentSessionId.value) || null
   )
-  
-  const currentMessages = computed(() => 
+
+  const currentMessages = computed(() =>
     currentSession.value?.messages || []
   )
+
+  // 获取所有唯一的项目路径（从会话中提取）
+  const allProjects = computed(() => {
+    const projectSet = new Set<string>()
+    for (const session of sessions.value) {
+      if (session.workingDirectory) {
+        projectSet.add(session.workingDirectory)
+      }
+    }
+    // 合并手动添加的项目
+    for (const project of projects.value) {
+      projectSet.add(project)
+    }
+    return Array.from(projectSet)
+  })
 
   // Get current API config for passing to CLI terminal
   function getCurrentConfig() {
@@ -97,69 +119,62 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function saveToStorage() {
-    // 使用 != null 检查同时排除 null 和 undefined
-    // 空字符串是有效的（表示默认项目）
-    if (currentProjectRoot.value != null) {
-      saveSessionsToStorage(currentProjectRoot.value, sessions.value, currentSessionId.value)
-    }
+    saveSessionsToStorage(sessions.value)
   }
 
-  // 是否已经初始化过（用于判断是否需要保存当前会话）
-  let isInitialized = false
-
-  // 加载指定项目的会话
-  function loadProjectSessions(projectRoot: string) {
-    console.log('[ChatStore] Loading project sessions for:', projectRoot || '(default)')
-    // Initialize config tracking
-    lastConfigKey = getConfigKey()
-    
-    // 先保存当前项目的会话（如果已经初始化过且有数据）
-    if (isInitialized && sessions.value.length > 0) {
-      console.log('[ChatStore] Saving current project sessions:', currentProjectRoot.value || '(default)')
-      saveToStorage()
-    }
-    
-    // 标记为已初始化
-    isInitialized = true
-    
-    // 切换到新项目
-    currentProjectRoot.value = projectRoot
-    const storageKey = getStorageKey(projectRoot)
-    console.log('[ChatStore] Storage key:', storageKey)
-    
-    const { sessions: newSessions, currentId: newCurrentId } = loadSessionsFromStorage(projectRoot)
-    console.log('[ChatStore] Loaded sessions count:', newSessions.length)
-    
-    sessions.value = newSessions
-    currentSessionId.value = newCurrentId
-    
-    // 如果没有会话，自动创建一个
-    if (sessions.value.length === 0) {
-      console.log('[ChatStore] No sessions found, creating new one')
-      createSession('New Chat')
-    }
+  function saveProjects() {
+    saveProjectsToStorage(projects.value)
   }
 
   watch(
-    () => [sessions.value, currentSessionId.value],
+    () => sessions.value,
     () => {
       saveToStorage()
     },
     { deep: true }
   )
-  
-  function createSession(title = 'New Chat'): Session {
+
+  // 添加项目
+  function addProject(projectPath: string) {
+    if (!projects.value.includes(projectPath)) {
+      projects.value.push(projectPath)
+      saveProjects()
+    }
+    // 切换到新项目
+    currentProjectRoot.value = projectPath
+  }
+
+  // 移除项目
+  function removeProject(projectPath: string) {
+    const index = projects.value.indexOf(projectPath)
+    if (index > -1) {
+      projects.value.splice(index, 1)
+      saveProjects()
+    }
+    // 如果当前选中的是这个项目，清空当前项目
+    if (currentProjectRoot.value === projectPath) {
+      currentProjectRoot.value = ''
+    }
+  }
+
+  // 切换当前项目
+  function switchProject(projectPath: string) {
+    currentProjectRoot.value = projectPath
+  }
+
+  function createSession(title = 'New Chat', workingDirectory?: string): Session {
     const session: Session = {
       id: crypto.randomUUID(),
       title,
       messages: [],
       createdAt: Date.now(),
-      updatedAt: Date.now()
+      updatedAt: Date.now(),
+      workingDirectory: workingDirectory || currentProjectRoot.value || undefined
     }
     sessions.value.unshift(session)
     currentSessionId.value = session.id
     saveToStorage()
-    
+
     return session
   }
 
@@ -185,25 +200,25 @@ export const useChatStore = defineStore('chat', () => {
         model: config.model,
         baseUrl: config.apiUrl
       })
-      
+
       queryEngineSessions.value.set(sessionId, result.sessionId)
       console.log('[ChatStore] QueryEngine session created:', result.sessionId)
     } catch (error) {
       console.error('[ChatStore] Failed to create QueryEngine session:', error)
     }
   }
-  
+
   function addMessage(message: Omit<Message, 'id' | 'timestamp'> & { id?: string }): Message {
     if (!currentSessionId.value) {
       createSession()
     }
-    
+
     const newMessage: Message = {
       ...message,
       id: message.id || crypto.randomUUID(),
       timestamp: Date.now()
     }
-    
+
     const session = sessions.value.find(s => s.id === currentSessionId.value)
     if (session) {
       const existingIndex = session.messages.findIndex(m => m.id === newMessage.id)
@@ -213,13 +228,13 @@ export const useChatStore = defineStore('chat', () => {
         session.messages.push(newMessage)
       }
       session.updatedAt = Date.now()
-      
+
       if (session.messages.length === 1 && newMessage.role === 'user') {
         session.title = newMessage.content.slice(0, 50) + (newMessage.content.length > 50 ? '...' : '')
       }
       saveToStorage()
     }
-    
+
     return newMessage
   }
 
@@ -288,10 +303,10 @@ export const useChatStore = defineStore('chat', () => {
         // Double-filter by both sessionId AND requestId to ensure isolation
         if (data.sessionId !== queryEngineSessionId) return
         if (data.requestId && data.requestId !== requestId) return
-        
+
         accumulatedContent += data.chunk
         streamingContent.value = accumulatedContent
-        
+
         nextTick(() => {
           updateMessage(assistantMessageId, { content: accumulatedContent })
         })
@@ -300,28 +315,28 @@ export const useChatStore = defineStore('chat', () => {
       const handleComplete = (data: { sessionId: string; requestId?: string }) => {
         if (data.sessionId !== queryEngineSessionId) return
         if (data.requestId && data.requestId !== requestId) return
-        
+
         streamingContent.value = ''
         isLoading.value = false
-        
+
         updateMessage(assistantMessageId, { content: accumulatedContent })
         saveToStorage()
-        
+
         resolve()
       }
 
       const handleError = (data: { sessionId: string; error: string; requestId?: string }) => {
         if (data.sessionId !== queryEngineSessionId) return
         if (data.requestId && data.requestId !== requestId) return
-        
+
         isLoading.value = false
         streamingContent.value = ''
-        
-        updateMessage(assistantMessageId, { 
-          content: `Error: ${data.error}` 
+
+        updateMessage(assistantMessageId, {
+          content: `Error: ${data.error}`
         })
         saveToStorage()
-        
+
         reject(new Error(data.error))
       }
 
@@ -350,13 +365,13 @@ export const useChatStore = defineStore('chat', () => {
       console.error('[ChatStore] Error sending message:', error)
       isLoading.value = false
       streamingContent.value = ''
-      
+
       updateMessage(assistantMessageId, {
         content: `Error: ${error instanceof Error ? error.message : String(error)}`
       })
     })
   }
-  
+
   function updateToolCall(messageId: string, toolCallId: string, status: ToolCall['status']) {
     const session = sessions.value.find(s => s.id === currentSessionId.value)
     if (session) {
@@ -386,12 +401,16 @@ export const useChatStore = defineStore('chat', () => {
       }
     }
   }
-  
+
   function selectSession(sessionId: string) {
     currentSessionId.value = sessionId
-    saveToStorage()
+    // 同时切换当前项目到该会话所属的项目
+    const session = sessions.value.find(s => s.id === sessionId)
+    if (session?.workingDirectory) {
+      currentProjectRoot.value = session.workingDirectory
+    }
   }
-  
+
   async function deleteSession(sessionId: string) {
     const index = sessions.value.findIndex(s => s.id === sessionId)
     if (index > -1) {
@@ -404,7 +423,7 @@ export const useChatStore = defineStore('chat', () => {
         }
       }
       queryEngineSessions.value.delete(sessionId)
-      
+
       sessions.value.splice(index, 1)
       if (currentSessionId.value === sessionId) {
         currentSessionId.value = sessions.value[0]?.id || null
@@ -412,7 +431,38 @@ export const useChatStore = defineStore('chat', () => {
       saveToStorage()
     }
   }
-  
+
+  // 迁移旧数据（如果有）
+  function migrateOldData() {
+    try {
+      // 尝试从旧格式加载
+      const oldKeys = Object.keys(localStorage).filter(k => k.startsWith('chat_sessions_'))
+      if (oldKeys.length > 0 && sessions.value.length === 0) {
+        console.log('[ChatStore] Migrating old data...')
+        for (const key of oldKeys) {
+          const saved = localStorage.getItem(key)
+          if (saved) {
+            const data = JSON.parse(saved)
+            if (data.sessions) {
+              const projectRoot = key.replace('chat_sessions_', '').replace(/_/g, '/')
+              for (const session of data.sessions) {
+                session.workingDirectory = projectRoot
+                sessions.value.push(session)
+              }
+            }
+          }
+        }
+        saveToStorage()
+        console.log('[ChatStore] Migration complete, sessions:', sessions.value.length)
+      }
+    } catch (e) {
+      console.error('[ChatStore] Migration failed:', e)
+    }
+  }
+
+  // 初始化时迁移旧数据
+  migrateOldData()
+
   return {
     sessions,
     currentSessionId,
@@ -420,6 +470,9 @@ export const useChatStore = defineStore('chat', () => {
     streamingContent,
     currentSession,
     currentMessages,
+    projects,
+    allProjects,
+    currentProjectRoot,
     createSession,
     addMessage,
     sendMessage,
@@ -428,6 +481,9 @@ export const useChatStore = defineStore('chat', () => {
     selectSession,
     deleteSession,
     getCurrentConfig,
-    loadProjectSessions
+    saveToStorage,
+    addProject,
+    removeProject,
+    switchProject
   }
 })

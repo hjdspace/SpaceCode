@@ -114,7 +114,7 @@ const { register } = useShortcuts({
 })
 
 const mainContent = ref<HTMLElement | null>(null)
-const leftWidth = ref(260)
+const leftWidth = ref(280)
 const rightWidth = ref(400)
 
 const minWidth = 150
@@ -166,19 +166,21 @@ onMounted(() => {
   // 监听菜单事件
   api.onMenuOpenFolder((path: string) => {
     appStore.setProjectRoot(path)
-    // 加载该项目的聊天记录
-    chatStore.loadProjectSessions(path)
+    // 添加项目并切换到该项目
+    chatStore.addProject(path)
   })
 
   api.onMenuCloseFolder(() => {
     appStore.closeProject()
-    // 切换到默认聊天记录
-    chatStore.loadProjectSessions('')
+    // 清空当前项目
+    chatStore.switchProject('')
   })
 
-  // 初始化时加载当前项目的聊天记录（如果有）
-  const initialProjectRoot = appStore.projectRoot || ''
-  chatStore.loadProjectSessions(initialProjectRoot)
+  // 初始化时如果有项目，添加到列表
+  const initialProjectRoot = appStore.projectRoot
+  if (initialProjectRoot) {
+    chatStore.addProject(initialProjectRoot)
+  }
 })
 
 function handleTerminalReady(id: string) {

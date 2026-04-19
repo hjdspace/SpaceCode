@@ -218,5 +218,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // File selection dialog
   selectFiles: (): Promise<{ canceled: boolean; filePaths: string[] }> =>
-    ipcRenderer.invoke('dialog:selectFiles')
+    ipcRenderer.invoke('dialog:selectFiles'),
+
+  // Skills API
+  skills: {
+    getSkills: (cwd?: string) => ipcRenderer.invoke('skills:getSkills', cwd),
+    createSkill: (name: string, scope: 'global' | 'project', content: string, cwd?: string) =>
+      ipcRenderer.invoke('skills:createSkill', name, scope, content, cwd),
+    saveSkill: (skill: any, content: string) => ipcRenderer.invoke('skills:saveSkill', skill, content),
+    deleteSkill: (filePath: string) => ipcRenderer.invoke('skills:deleteSkill', filePath),
+    searchMarketplace: (query: string) => ipcRenderer.invoke('skills:searchMarketplace', query),
+    installMarketplaceSkill: (source: string, skillId: string, global: boolean) => ipcRenderer.invoke('skills:installMarketplaceSkill', source, skillId, global),
+    uninstallMarketplaceSkill: (skillName: string, global: boolean) => ipcRenderer.invoke('skills:uninstallMarketplaceSkill', skillName, global),
+    fetchMarketplaceReadme: (source: string, skillId: string) => ipcRenderer.invoke('skills:fetchMarketplaceReadme', source, skillId),
+  }
 })

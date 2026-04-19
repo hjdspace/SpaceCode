@@ -1,0 +1,437 @@
+<template>
+  <div class="skill-editor">
+    <!-- Toolbar -->
+    <div class="editor-toolbar">
+      <div class="toolbar-left">
+        <span class="skill-name">/{{ skill.name }}</span>
+        <span v-if="isDirty" class="dirty-indicator" title="Unsaved changes" />
+        <span class="source-badge" :class="skill.source">
+          <Globe v-if="skill.source === 'global'" :size="10" />
+          <FolderOpen v-else-if="skill.source === 'installed'" :size="10" />
+          <FolderOpen v-else :size="10" />
+          {{ sourceLabel }}
+        </span>
+      </div>
+
+      <div class="toolbar-right">
+        <!-- View mode toggles -->
+        <button
+          class="toolbar-btn"
+          :class="{ active: viewMode === 'edit' }"
+          @click="viewMode = 'edit'"
+          title="Edit"
+        >
+          <Pencil :size="12" />
+        </button>
+        <button
+          class="toolbar-btn"
+          :class="{ active: viewMode === 'preview' }"
+          @click="viewMode = 'preview'"
+          title="Preview"
+        >
+          <Eye :size="12" />
+        </button>
+        <button
+          class="toolbar-btn"
+          :class="{ active: viewMode === 'split' }"
+          @click="viewMode = 'split'"
+          title="Split view"
+        >
+          <Columns :size="12" />
+        </button>
+
+        <div class="toolbar-divider" />
+
+        <!-- Save -->
+        <button
+          class="btn btn-primary save-btn"
+          :disabled="!isDirty || saving"
+          @click="handleSave"
+        >
+          <Loader2 v-if="saving" :size="12" class="spin" />
+          <Save v-else :size="12" />
+          {{ saving ? 'Saving' : saved ? 'Saved' : 'Save' }}
+        </button>
+
+        <!-- Delete -->
+        <button
+          class="toolbar-btn"
+          :class="{ 'btn-danger': confirmDelete }"
+          @click="handleDelete"
+        >
+          <Trash2 :size="12" />
+        </button>
+      </div>
+    </div>
+
+    <!-- Content area -->
+    <div class="editor-content">
+      <template v-if="viewMode === 'edit'">
+        <textarea
+          v-model="content"
+          class="editor-textarea"
+          placeholder="Enter skill content in Markdown..."
+          @keydown="handleKeyDown"
+        />
+      </template>
+
+      <template v-else-if="viewMode === 'preview'">
+        <div class="preview-content" v-html="renderedContent" />
+      </template>
+
+      <template v-else-if="viewMode === 'split'">
+        <div class="split-view">
+          <textarea
+            v-model="content"
+            class="editor-textarea split-left"
+            placeholder="Enter skill content in Markdown..."
+            @keydown="handleKeyDown"
+          />
+          <div class="preview-content split-right" v-html="renderedContent" />
+        </div>
+      </template>
+    </div>
+
+    <!-- Footer -->
+    <div class="editor-footer">
+      <span class="file-path">{{ skill.filePath }}</span>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, watch, nextTick } from 'vue'
+import {
+  Save, Trash2, Pencil, Eye, Columns, Loader2, Globe, FolderOpen
+} from 'lucide-vue-next'
+import type { Skill } from '@/stores/skills'
+import { marked } from 'marked'
+
+interface Props {
+  skill: Skill
+}
+
+const props = defineProps<Props>()
+const emit = defineEmits<{
+  save: [skill: Skill, content: string]
+  delete: [skill: Skill]
+}>()
+
+type ViewMode = 'edit' | 'preview' | 'split'
+
+const content = ref(props.skill.content)
+const viewMode = ref<ViewMode>('edit')
+const saving = ref(false)
+const saved = ref(false)
+const confirmDelete = ref(false)
+
+const isDirty = computed(() => content.value !== props.skill.content)
+
+const sourceLabel = computed(() => {
+  if (props.skill.source === 'installed' && props.skill.installedSource) {
+    return `installed:${props.skill.installedSource}`
+  }
+  return props.skill.source
+})
+
+const renderedContent = computed(() => {
+  return marked(content.value || '', { gfm: true })
+})
+
+watch(() => props.skill, (newSkill) => {
+  content.value = newSkill.content
+  confirmDelete.value = false
+  saved.value = false
+}, { deep: true })
+
+async function handleSave() {
+  saving.value = true
+  try {
+    await emit('save', props.skill, content.value)
+    saved.value = true
+    setTimeout(() => saved.value = false, 2000)
+  } finally {
+    saving.value = false
+  }
+}
+
+function handleDelete() {
+  if (confirmDelete.value) {
+    emit('delete', props.skill)
+    confirmDelete.value = false
+  } else {
+    confirmDelete.value = true
+    setTimeout(() => confirmDelete.value = false, 3000)
+  }
+}
+
+function handleKeyDown(e: KeyboardEvent) {
+  // Tab indentation
+  if (e.key === 'Tab') {
+    e.preventDefault()
+    const target = e.target as HTMLTextAreaElement
+    const start = target.selectionStart
+    const end = target.selectionEnd
+    content.value = content.value.substring(0, start) + '  ' + content.value.substring(end)
+    nextTick(() => {
+      target.selectionStart = start + 2
+      target.selectionEnd = start + 2
+    })
+  }
+
+  // Ctrl/Cmd + S to save
+  if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+    e.preventDefault()
+    if (isDirty.value) handleSave()
+  }
+}
+</script>
+
+<style lang="scss" scoped>
+.skill-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.skill-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dirty-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f59e0b;
+  flex-shrink: 0;
+}
+
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  flex-shrink: 0;
+
+  &.global {
+    border-color: #10b981;
+    color: #10b981;
+  }
+
+  &.installed {
+    border-color: #f59e0b;
+    color: #f59e0b;
+  }
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.toolbar-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+
+  &:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  &.active {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+  }
+
+  &.btn-danger {
+    background: #dc3545;
+    color: white;
+
+    &:hover {
+      background: #c82333;
+    }
+  }
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border-color);
+  margin: 0 4px;
+}
+
+.save-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 4px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s;
+
+  &.btn-primary {
+    background: var(--accent-primary);
+    color: white;
+
+    &:hover:not(:disabled) {
+      background: var(--accent-primary-hover);
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.editor-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.editor-textarea {
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+  border: none;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 13px;
+  line-height: 1.6;
+  resize: none;
+  outline: none;
+
+  &::placeholder {
+    color: var(--text-muted);
+  }
+}
+
+.preview-content {
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+  overflow: auto;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.6;
+
+  :deep(h1), :deep(h2), :deep(h3), :deep(h4), :deep(h5), :deep(h6) {
+    margin-top: 16px;
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+
+  :deep(p) {
+    margin-bottom: 12px;
+  }
+
+  :deep(ul), :deep(ol) {
+    margin-bottom: 12px;
+    padding-left: 24px;
+  }
+
+  :deep(code) {
+    padding: 2px 6px;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    font-family: var(--font-mono, monospace);
+    font-size: 12px;
+  }
+
+  :deep(pre) {
+    padding: 12px;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    overflow: auto;
+    margin-bottom: 12px;
+
+    code {
+      padding: 0;
+      background: transparent;
+    }
+  }
+}
+
+.split-view {
+  display: flex;
+  height: 100%;
+}
+
+.split-left {
+  flex: 1;
+  border-right: 1px solid var(--border-color);
+}
+
+.split-right {
+  flex: 1;
+}
+
+.editor-footer {
+  padding: 8px 16px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.file-path {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+}
+</style>

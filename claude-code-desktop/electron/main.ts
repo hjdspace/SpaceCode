@@ -5,6 +5,7 @@ import { config } from 'dotenv'
 import { initQueryEngineIntegration, attemptFullIntegration } from './queryEngineIntegration'
 import { TerminalManager } from './terminalManager'
 import { registerGitIPCHandlers } from './gitService'
+import { registerSkillsIPCHandlers } from './skillsService'
 
 const isDev = process.env.NODE_ENV !== 'production' && !app.isPackaged
 
@@ -173,9 +174,12 @@ function createTray() {
 
 app.whenReady().then(() => {
   createWindow()
-  
+
   // Register Git IPC handlers
   registerGitIPCHandlers()
+
+  // Register Skills IPC handlers
+  registerSkillsIPCHandlers()
 
   // Initialize QueryEngine integration
   try {

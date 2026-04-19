@@ -26,6 +26,7 @@ export interface Session {
   messages: Message[]
   createdAt: number
   updatedAt: number
+  workingDirectory?: string  // 会话所属的项目路径
 }
 
 export interface FileNode {
