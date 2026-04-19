@@ -2,11 +2,11 @@
   <div class="app-container" :data-theme="appStore.theme">
     <TitleBar />
     <div class="main-content" ref="mainContent">
-      <Sidebar 
-        :collapsed="appStore.sidebarCollapsed" 
+      <Sidebar
+        :collapsed="appStore.sidebarCollapsed"
         :style="{ width: appStore.sidebarCollapsed ? '48px' : leftWidth + 'px' }"
       />
-      <div 
+      <div
         class="resize-handle vertical"
         @mousedown="startResize($event, 'left')"
         :class="{ active: isResizing && resizeTarget === 'left' }"
@@ -35,25 +35,25 @@
         <div class="center-content">
           <ChatPanel v-show="appStore.activeCenterTab === 'chat'" />
           <TerminalPanel
-            v-if="appStore.centerTabs.some(t => t.id === 'terminal')"
-            v-show="appStore.activeCenterTab === 'terminal'"
-            :key="appStore.terminalKey"
-            :auto-command="appStore.terminalAutoCommand"
-            :env="appStore.terminalEnv"
-            :cwd="appStore.terminalCwd"
-            @ready="handleTerminalReady"
-            @error="handleTerminalError"
-            @exit="handleTerminalExit"
+            v-for="instance in appStore.terminalInstances"
+            :key="instance.id"
+            v-show="appStore.activeCenterTab === instance.id"
+            :auto-command="instance.autoCommand"
+            :env="instance.env"
+            :cwd="instance.cwd"
+            @ready="handleTerminalReady(instance.id)"
+            @error="handleTerminalError(instance.id, $event)"
+            @exit="handleTerminalExit(instance.id, $event)"
           />
         </div>
       </div>
-      <div 
+      <div
         v-if="appStore.infoPanelVisible"
         class="resize-handle vertical"
         @mousedown="startResize($event, 'right')"
         :class="{ active: isResizing && resizeTarget === 'right' }"
       ></div>
-      <InfoPanel 
+      <InfoPanel
         v-if="appStore.infoPanelVisible"
         :mode="appStore.infoPanelMode"
         :style="{ width: rightWidth + 'px' }"
@@ -88,7 +88,18 @@ const { register } = useShortcuts({
   },
   'toggle_sidebar': () => appStore.toggleSidebar(),
   'new_terminal': () => appStore.openTerminalTab(),
-  'close_terminal': () => appStore.closeCenterTab('terminal'),
+  'close_terminal': () => {
+    // Close the currently active terminal tab, or any terminal if none is active
+    if (appStore.activeCenterTab.startsWith('terminal-')) {
+      appStore.closeCenterTab(appStore.activeCenterTab)
+    } else {
+      // Find and close the last terminal tab
+      const lastTerminal = appStore.centerTabs.find(t => t.id.startsWith('terminal-'))
+      if (lastTerminal) {
+        appStore.closeCenterTab(lastTerminal.id)
+      }
+    }
+  },
   'focus_input': () => {
     // Focus chat input - will be handled by ChatPanel
     const input = document.querySelector('.chat-input textarea') as HTMLTextAreaElement
@@ -119,7 +130,7 @@ function startResize(e: MouseEvent, target: 'left' | 'right') {
   resizeTarget.value = target
   startX = e.clientX
   startWidth = target === 'left' ? leftWidth.value : rightWidth.value
-  
+
   document.addEventListener('mousemove', handleResize)
   document.addEventListener('mouseup', stopResize)
   document.body.style.cursor = 'col-resize'
@@ -128,9 +139,9 @@ function startResize(e: MouseEvent, target: 'left' | 'right') {
 
 function handleResize(e: MouseEvent) {
   if (!isResizing.value) return
-  
+
   const diff = e.clientX - startX
-  
+
   if (resizeTarget.value === 'left') {
     const newWidth = startWidth + diff
     leftWidth.value = Math.min(Math.max(newWidth, minWidth), maxWidth)
@@ -170,16 +181,18 @@ onMounted(() => {
   chatStore.loadProjectSessions(initialProjectRoot)
 })
 
-function handleTerminalReady() {
-  console.log('[App] Terminal ready')
+function handleTerminalReady(id: string) {
+  console.log('[App] Terminal ready:', id)
 }
 
-function handleTerminalError(message: string) {
-  console.error('[App] Terminal error:', message)
+function handleTerminalError(id: string, message: string) {
+  console.error('[App] Terminal error:', id, message)
 }
 
-function handleTerminalExit(code: number) {
-  console.log('[App] Terminal exited:', code)
+function handleTerminalExit(id: string, code: number) {
+  console.log('[App] Terminal exited:', id, code)
+  // Optionally auto-close the tab when terminal exits
+  // appStore.closeCenterTab(id)
 }
 
 onUnmounted(() => {
@@ -201,126 +214,96 @@ onUnmounted(() => {
 }
 
 .main-content {
-  display: flex;
   flex: 1;
+  display: flex;
   overflow: hidden;
-  height: calc(100vh - 36px);
-  position: relative;
-  z-index: 1;
-}
-
-.resize-handle {
-  flex-shrink: 0;
-  background: var(--border-subtle);
-  transition: all var(--transition-fast);
-  
-  &.vertical {
-    width: 2px;
-    cursor: col-resize;
-    
-    &:hover,
-    &.active {
-      background: var(--accent-primary);
-      box-shadow: 0 0 12px var(--accent-primary-glow);
-    }
-  }
-  
-  &.horizontal {
-    height: 4px;
-    cursor: row-resize;
-    
-    &:hover,
-    &.active {
-      background: var(--accent-primary);
-    }
-  }
 }
 
 .center-panel {
   flex: 1;
-  min-width: 300px;
-  overflow: hidden;
-  position: relative;
-  z-index: 1;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
 }
 
 .center-tabs {
   display: flex;
-  align-items: center;
-  height: 36px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-default);
   padding: 0 8px;
-  background: var(--surface-glass);
-  border-bottom: 1px solid var(--surface-border);
-  gap: 2px;
-  flex-shrink: 0;
+  gap: 4px;
 }
 
 .center-tab {
-  @include reset-button;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 12px;
-  height: 28px;
-  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: 500;
-  color: var(--text-muted);
-  transition: all var(--transition-fast);
-  position: relative;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s ease;
 
   &:hover {
-    background: var(--surface-glass-hover);
     color: var(--text-primary);
+    background: var(--bg-hover);
   }
 
   &.active {
-    background: var(--surface-glass-active);
-    color: var(--text-primary);
-
-    &::after {
-      content: '';
-      position: absolute;
-      bottom: -4px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 16px;
-      height: 2px;
-      background: var(--accent-primary);
-      border-radius: var(--radius-full);
-    }
+    color: var(--accent-primary);
+    border-bottom-color: var(--accent-primary);
+    background: var(--bg-active);
   }
 }
 
 .tab-close {
-  @include reset-button;
-  width: 16px;
-  height: 16px;
-  border-radius: var(--radius-xs);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-muted);
+  padding: 2px;
   margin-left: 4px;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--text-muted);
+  cursor: pointer;
   opacity: 0;
-  transition: all var(--transition-fast);
-
-  &:hover {
-    background: var(--error-glow);
-    color: var(--error);
-  }
+  transition: all 0.2s ease;
 
   .center-tab:hover & {
     opacity: 1;
+  }
+
+  &:hover {
+    background: var(--error-bg);
+    color: var(--error);
   }
 }
 
 .center-content {
   flex: 1;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
+  position: relative;
+}
+
+.resize-handle {
+  flex-shrink: 0;
+
+  &.vertical {
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+    transition: background 0.2s;
+
+    &:hover,
+    &.active {
+      background: var(--accent-primary);
+    }
+  }
 }
 </style>
