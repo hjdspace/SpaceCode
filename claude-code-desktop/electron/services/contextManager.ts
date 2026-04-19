@@ -334,6 +334,7 @@ export interface PromptContext {
   toolNames: string[]
   recentFiles?: string[]
   customInstructions?: string
+  model?: string
 }
 
 /**
@@ -342,10 +343,17 @@ export interface PromptContext {
 export function buildDynamicSystemPrompt(context: PromptContext): string {
   const parts: string[] = [
     `You are Claude Code, an AI assistant for software engineering tasks.`,
-    ``,
-    `Current working directory: ${context.cwd}`,
     ``
   ]
+
+  // Add model information if available
+  if (context.model) {
+    parts.push(`You are powered by the model named ${context.model}.`)
+    parts.push(``)
+  }
+
+  parts.push(`Current working directory: ${context.cwd}`)
+  parts.push(``)
 
   // Add available tools
   if (context.toolNames.length > 0) {

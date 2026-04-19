@@ -5,6 +5,10 @@
         <h2>{{ currentSession?.title || 'New Conversation' }}</h2>
       </div>
       <div class="header-actions">
+        <span class="model-badge" v-if="currentModel" :title="currentModel">
+          <span class="badge-dot"></span>
+          {{ formatModelName(currentModel) }}
+        </span>
         <span class="provider-badge" v-if="provider">
           <span class="badge-dot"></span>
           {{ provider.toUpperCase() }}
@@ -23,29 +27,85 @@
     
     <ChatInput 
       @send="handleSend" 
+      @update:model="handleModelChange"
       :disabled="chatStore.isLoading"
       :is-sending="chatStore.isLoading"
+      :model-value="currentModel"
       placeholder="Ask anything, @ to add files, / for commands"
     />
   </main>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useChatStore } from '@/stores/chat'
+import { useSettingsStore } from '@/stores/settings'
 import MessageList from '../chat/MessageList.vue'
 import ChatInput, { type Attachment } from '../chat/ChatInput.vue'
-import { initLLMService, llmState } from '@/services/llm'
+import { initLLMService, llmState, updateConfig } from '@/services/llm'
 
 const chatStore = useChatStore()
+const settingsStore = useSettingsStore()
 
 const currentSession = computed(() => chatStore.currentSession)
 const provider = computed(() => llmState.provider.value)
 const isConfigured = computed(() => llmState.isConfigured.value)
 
+// 当前选中的模型
+const currentModel = ref('')
+
+// 初始化时从 settings 加载模型
 onMounted(async () => {
   await initLLMService()
+  currentModel.value = settingsStore.config.model || ''
 })
+
+// 监听 settings 变化同步模型
+watch(() => settingsStore.config.model, (newModel) => {
+  if (newModel && newModel !== currentModel.value) {
+    currentModel.value = newModel
+  }
+})
+
+// 处理模型变更 - 同步到 Agent 系统
+function handleModelChange(model: string) {
+  currentModel.value = model
+  
+  // 同步到 settings store
+  const config = settingsStore.config
+  switch (settingsStore.authMethod) {
+    case 'anthropic_compatible':
+      settingsStore.anthropicConfig.sonnetModel = model
+      break
+    case 'openai_compatible':
+      settingsStore.openaiConfig.sonnetModel = model
+      break
+    case 'gemini_api':
+      settingsStore.geminiConfig.sonnetModel = model
+      break
+  }
+  settingsStore.saveSettings()
+  
+  // 同步到 LLM 服务
+  updateConfig({
+    provider: config.provider as any,
+    apiKey: config.apiKey || '',
+    baseUrl: config.apiUrl,
+    model: model
+  })
+  
+  console.log('[ChatPanel] Model changed to:', model)
+}
+
+// 格式化模型名称显示
+function formatModelName(model: string): string {
+  if (!model) return ''
+  // 如果名称太长，截断显示
+  if (model.length > 25) {
+    return model.slice(0, 22) + '...'
+  }
+  return model
+}
 
 async function handleSend(content: string, attachments: Attachment[]) {
   if (!content.trim() && attachments.length === 0) return
@@ -122,9 +182,10 @@ async function handleSend(content: string, attachments: Attachment[]) {
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
+.model-badge,
 .provider-badge {
   display: flex;
   align-items: center;
@@ -133,10 +194,28 @@ async function handleSend(content: string, attachments: Attachment[]) {
   font-weight: 600;
   padding: 4px 10px;
   border-radius: var(--radius-full);
-  background: var(--accent-primary);
-  color: white;
   letter-spacing: 0.5px;
   text-transform: uppercase;
+}
+
+.model-badge {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--surface-border);
+  max-width: 150px;
+  
+  .badge-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-primary);
+    flex-shrink: 0;
+  }
+}
+
+.provider-badge {
+  background: var(--accent-primary);
+  color: white;
   
   .badge-dot {
     width: 6px;
@@ -180,6 +259,15 @@ async function handleSend(content: string, attachments: Attachment[]) {
     .status-text {
       color: var(--success);
     }
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
   }
 }
 </style>

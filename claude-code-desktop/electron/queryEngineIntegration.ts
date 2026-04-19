@@ -173,7 +173,8 @@ function buildSystemPrompt(session: Session): string {
     cwd: session.cwd,
     toolNames: TOOLS.map(t => t.name),
     recentFiles: session.recentFiles,
-    customInstructions: undefined
+    customInstructions: undefined,
+    model: session.config.model
   })
 }
 
