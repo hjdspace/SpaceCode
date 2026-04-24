@@ -261,14 +261,14 @@
           </div>
         </div>
 
-        <!-- 发送按钮 -->
+        <!-- 发送/停止按钮 -->
         <button
           class="send-btn"
-          :class="{ 'has-content': hasContent || attachedFiles.length > 0, 'is-sending': isSending }"
-          :disabled="(!canSend && attachedFiles.length === 0) || disabled"
-          @click.stop.prevent="handleSend"
+          :class="{ 'has-content': hasContent || attachedFiles.length > 0, 'is-sending': props.isSending }"
+          :disabled="disabled && !props.isSending"
+          @click.stop.prevent="handleSendOrStop"
         >
-          <ArrowUp v-if="!isSending" :size="18" />
+          <ArrowUp v-if="!props.isSending" :size="18" />
           <Square v-else :size="14" />
         </button>
       </div>
@@ -339,6 +339,7 @@ const emit = defineEmits<{
   'slash-command': [command: string, args: string, attachments: Attachment[]]
   'update:model': [model: string]
   'open-skills': []
+  stop: []
 }>()
 
 const props = defineProps<{
@@ -1121,6 +1122,17 @@ function handleTextareaClick() {
     checkSlashTrigger()
     checkContextTrigger()
   }, 0)
+}
+
+function handleSendOrStop() {
+  console.log('[ChatInput] handleSendOrStop called, isSending:', props.isSending)
+  // 如果正在发送中，点击按钮应该停止
+  if (props.isSending) {
+    console.log('[ChatInput] Emitting stop event')
+    emit('stop')
+    return
+  }
+  handleSend()
 }
 
 function handleSend() {

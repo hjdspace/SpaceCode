@@ -450,6 +450,7 @@ export const useChatStore = defineStore('chat', () => {
         
         // 处理 reasoning 增量
         if (event.type === 'content_block_delta' && event.delta?.type === 'reasoning_delta' && event.delta?.reasoning) {
+          console.log('[ChatStore] Reasoning delta received:', event.delta.reasoning.substring(0, 100))
           const session = sessions.value.find(s => s.id === currentSessionId.value)
           if (session) {
             const msg = session.messages.find(m => m.id === assistantMessageId)
@@ -469,6 +470,7 @@ export const useChatStore = defineStore('chat', () => {
       }
 
       const handleAssistant = (assistant: any) => {
+        console.log('[ChatStore] Assistant message received:', JSON.stringify(assistant, null, 2).substring(0, 500))
         if (isCompleted) return
         // 从 assistant.message.content 中提取文本
         if (assistant.message?.content) {
@@ -480,6 +482,55 @@ export const useChatStore = defineStore('chat', () => {
               .map((c: any) => c.text)
               .join('')
             accumulatedContent = text
+            
+            // 从 content 中提取 reasoning 类型的内容
+            const reasoningContent = content
+              .filter((c: any) => c.type === 'reasoning')
+              .map((c: any) => c.reasoning || c.text)
+              .join('')
+            
+            if (reasoningContent) {
+              const session = sessions.value.find(s => s.id === currentSessionId.value)
+              if (session) {
+                const msg = session.messages.find(m => m.id === assistantMessageId)
+                if (msg) {
+                  if (!msg.reasoning) {
+                    msg.reasoning = {
+                      content: '',
+                      startTime: Date.now(),
+                      isExpanded: true
+                    }
+                  }
+                  msg.reasoning.content += reasoningContent
+                  msg.reasoning.endTime = Date.now()
+                  saveToStorage()
+                }
+              }
+            }
+            
+            // 从 content 中提取 tool_use 类型的内容
+            const toolUses = content.filter((c: any) => c.type === 'tool_use')
+            for (const toolUse of toolUses) {
+              const session = sessions.value.find(s => s.id === currentSessionId.value)
+              if (session) {
+                const msg = session.messages.find(m => m.id === assistantMessageId)
+                if (msg) {
+                  const existingTool = msg.toolCalls?.find(tc => tc.id === toolUse.id)
+                  if (!existingTool) {
+                    // 创建新的工具调用数组以触发响应式更新
+                    msg.toolCalls = [...(msg.toolCalls || []), {
+                      id: toolUse.id,
+                      name: toolUse.name,
+                      input: toolUse.input || {},
+                      status: 'running',
+                      startTime: Date.now()
+                    }]
+                    console.log('[ChatStore] Tool call added from assistant message:', toolUse.id, toolUse.name)
+                    saveToStorage()
+                  }
+                }
+              }
+            }
           } else if (typeof content === 'string') {
             accumulatedContent = content
           }
@@ -491,36 +542,69 @@ export const useChatStore = defineStore('chat', () => {
       }
 
       const handleToolUse = (toolUse: any) => {
+        console.log('[ChatStore] Tool use received:', JSON.stringify(toolUse, null, 2))
         const session = sessions.value.find(s => s.id === currentSessionId.value)
         if (session) {
           const msg = session.messages.find(m => m.id === assistantMessageId)
           if (msg) {
-            if (!msg.toolCalls) msg.toolCalls = []
-            msg.toolCalls.push({
-              id: toolUse.id || crypto.randomUUID(),
-              name: toolUse.name,
-              input: toolUse.input || {},
+            // 从 tool_use 事件中提取工具调用信息
+            // 数据结构可能是: { type: 'tool_use', id: '...', name: '...', input: {...} }
+            // 或者: { type: 'tool_use', tool_use: { id: '...', name: '...', input: {...} } }
+            const toolId = toolUse.id || toolUse.tool_use?.id || crypto.randomUUID()
+            const toolName = toolUse.name || toolUse.tool_use?.name || 'Unknown Tool'
+            const toolInput = toolUse.input || toolUse.tool_use?.input || {}
+            
+            // 创建新的工具调用数组以触发响应式更新
+            msg.toolCalls = [...(msg.toolCalls || []), {
+              id: toolId,
+              name: toolName,
+              input: toolInput,
               status: 'running',
               startTime: Date.now()
-            })
+            }]
+            console.log('[ChatStore] Tool call added:', toolId, toolName)
             saveToStorage()
           }
         }
       }
 
       const handleToolResult = (toolResult: any) => {
+        console.log('[ChatStore] Tool result received:', JSON.stringify(toolResult, null, 2))
         const session = sessions.value.find(s => s.id === currentSessionId.value)
         if (session) {
           const msg = session.messages.find(m => m.id === assistantMessageId)
           if (msg?.toolCalls) {
-            const toolCall = msg.toolCalls.find(tc => tc.id === toolResult.tool_use_id)
-            if (toolCall) {
-              toolCall.status = toolResult.is_error ? 'error' : 'completed'
-              toolCall.output = toolResult.output
-              toolCall.endTime = Date.now()
+            // 从 tool_result 事件中提取结果信息
+            // 数据结构可能是: { type: 'tool_result', tool_use_id: '...', output: '...' }
+            // 或者: { type: 'tool_result', tool_result: { tool_use_id: '...', output: '...' } }
+            const resultToolUseId = toolResult.tool_use_id || toolResult.tool_result?.tool_use_id
+            const resultOutput = toolResult.output || toolResult.tool_result?.output
+            const resultIsError = toolResult.is_error || toolResult.tool_result?.is_error
+            
+            console.log('[ChatStore] Looking for tool call with ID:', resultToolUseId)
+            console.log('[ChatStore] Available tool calls:', msg.toolCalls.map(tc => ({ id: tc.id, name: tc.name, status: tc.status })))
+            
+            const toolCallIndex = msg.toolCalls.findIndex(tc => tc.id === resultToolUseId)
+            if (toolCallIndex >= 0) {
+              // 创建新的工具调用数组以触发响应式更新
+              const updatedToolCalls = [...msg.toolCalls]
+              updatedToolCalls[toolCallIndex] = {
+                ...updatedToolCalls[toolCallIndex],
+                status: resultIsError ? 'error' : 'completed',
+                output: resultOutput,
+                endTime: Date.now()
+              }
+              msg.toolCalls = updatedToolCalls
+              console.log('[ChatStore] Tool call completed:', resultToolUseId)
               saveToStorage()
+            } else {
+              console.log('[ChatStore] Tool call not found for result:', resultToolUseId)
             }
+          } else {
+            console.log('[ChatStore] No tool calls found in message')
           }
+        } else {
+          console.log('[ChatStore] No session found')
         }
       }
 
@@ -552,6 +636,36 @@ export const useChatStore = defineStore('chat', () => {
         resolve()
       }
 
+      const handleUser = (userMsg: any) => {
+        console.log('[ChatStore] User message received:', JSON.stringify(userMsg, null, 2).substring(0, 500))
+        // 处理 user 消息中的 tool_result
+        if (userMsg.message?.content && Array.isArray(userMsg.message.content)) {
+          const toolResults = userMsg.message.content.filter((c: any) => c.type === 'tool_result')
+          for (const toolResult of toolResults) {
+            const session = sessions.value.find(s => s.id === currentSessionId.value)
+            if (session) {
+              const msg = session.messages.find(m => m.id === assistantMessageId)
+              if (msg?.toolCalls) {
+                const toolCallIndex = msg.toolCalls.findIndex(tc => tc.id === toolResult.tool_use_id)
+                if (toolCallIndex >= 0) {
+                  // 创建新的工具调用数组以触发响应式更新
+                  const updatedToolCalls = [...msg.toolCalls]
+                  updatedToolCalls[toolCallIndex] = {
+                    ...updatedToolCalls[toolCallIndex],
+                    status: toolResult.is_error ? 'error' : 'completed',
+                    output: typeof toolResult.content === 'string' ? toolResult.content : JSON.stringify(toolResult.content),
+                    endTime: Date.now()
+                  }
+                  msg.toolCalls = updatedToolCalls
+                  console.log('[ChatStore] Tool call completed from user message:', toolResult.tool_use_id)
+                  saveToStorage()
+                }
+              }
+            }
+          }
+        }
+      }
+
       const handleLog = (log: string) => {
         // 可选：将 CLI 日志输出到控制台
         // console.log('[ClaudeCode]', log)
@@ -571,6 +685,7 @@ export const useChatStore = defineStore('chat', () => {
 
       // Set up listeners and store unsubscribe functions
       const unsubscribeAssistant = claudeCode.onAssistant(handleAssistant)
+      const unsubscribeUser = claudeCode.onUser(handleUser)
       const unsubscribeStreamEvent = claudeCode.onStreamEvent(handleStreamEvent)
       const unsubscribeToolUse = claudeCode.onToolUse(handleToolUse)
       const unsubscribeToolResult = claudeCode.onToolResult(handleToolResult)
@@ -586,6 +701,7 @@ export const useChatStore = defineStore('chat', () => {
 
       const cleanup = () => {
         unsubscribeAssistant?.()
+        unsubscribeUser?.()
         unsubscribeStreamEvent?.()
         unsubscribeToolUse?.()
         unsubscribeToolResult?.()
@@ -604,6 +720,25 @@ export const useChatStore = defineStore('chat', () => {
       isLoading.value = false
       streamingContent.value = ''
     })
+  }
+
+  async function abort(): Promise<void> {
+    console.log('[ChatStore] Abort called, isLoading:', isLoading.value)
+    const claudeCode = electronAPI?.claudeCode
+    if (claudeCode) {
+      try {
+        console.log('[ChatStore] Calling claudeCode.abort()')
+        await claudeCode.abort()
+        console.log('[ChatStore] claudeCode.abort() completed')
+      } catch (error) {
+        console.error('[ChatStore] Error aborting:', error)
+      }
+    } else {
+      console.log('[ChatStore] claudeCode not available')
+    }
+    console.log('[ChatStore] Resetting isLoading and streamingContent')
+    isLoading.value = false
+    streamingContent.value = ''
   }
 
   function updateToolCall(messageId: string, toolCallId: string, status: ToolCall['status']) {
@@ -695,6 +830,7 @@ export const useChatStore = defineStore('chat', () => {
     initClaudeCodeSession,
     addMessage,
     sendMessage,
+    abort,
     updateToolCall,
     updateMessage,
     selectSession,

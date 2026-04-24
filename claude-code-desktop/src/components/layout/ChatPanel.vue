@@ -30,6 +30,7 @@
       @slash-command="handleSlashCommand"
       @update:model="handleModelChange"
       @open-skills="handleOpenSkills"
+      @stop="handleStop"
       :disabled="chatStore.isLoading"
       :is-sending="chatStore.isLoading"
       :model-value="currentModel"
@@ -151,6 +152,17 @@ async function handleSend(content: string, attachments: Attachment[], options?: 
   console.log('[ChatPanel] Calling chatStore.sendMessage...')
   await chatStore.sendMessage(messageContent)
   console.log('[ChatPanel] chatStore.sendMessage done')
+}
+
+// 处理停止/中断
+async function handleStop() {
+  console.log('[ChatPanel] Stopping...')
+  try {
+    await chatStore.abort()
+    console.log('[ChatPanel] Stop requested successfully')
+  } catch (error) {
+    console.error('[ChatPanel] Error stopping:', error)
+  }
 }
 
 // 处理斜杠命令
