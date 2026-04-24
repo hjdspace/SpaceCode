@@ -36,3 +36,10 @@ Desktop.ini
 .trae/
 .assistant/
 .pytest_cache/
+
+superpowers/
+
+release/
+
+# Bun binaries (downloaded during build)
+engine/bin/

@@ -38,6 +38,42 @@ export class ClaudeCodeProcessManager extends EventEmitter {
     }
   }
 
+  /**
+   * 解析 Bun 可执行文件路径
+   * 优先级：1. 捆绑的 bun 二进制 > 2. 系统 PATH 中的 bun
+   */
+  private resolveBunPath(): string {
+    const platform = process.platform
+    const bunName = platform === 'win32' ? 'bun.exe' : 'bun'
+
+    // 1. 优先使用捆绑的 bun 二进制
+    const bundledBun = path.join(
+      this.cliRoot, 'bin', bunName
+    )
+
+    if (fs.existsSync(bundledBun)) {
+      console.log('[Engine] Using bundled bun:', bundledBun)
+      return bundledBun
+    }
+
+    // 2. 检查用户是否通过 npm/yarn 全局安装了 bun
+    try {
+      const { execSync } = require('child_process')
+      const cmd = platform === 'win32' ? 'where bun' : 'which bun'
+      const globalBun = execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim().split('\n')[0]
+      if (globalBun && fs.existsSync(globalBun)) {
+        console.log('[Engine] Using global bun:', globalBun)
+        return globalBun
+      }
+    } catch {
+      // not found, fall through
+    }
+
+    // 3. 回退到 PATH 中的 bun
+    console.log('[Engine] Using bun from PATH')
+    return 'bun'
+  }
+
   isSessionActive(): boolean {
     return this.process !== null && !this.process.killed
   }
@@ -163,29 +199,43 @@ export class ClaudeCodeProcessManager extends EventEmitter {
   }
 
   private resolveCliCommand(): { command: string; args: string[] } {
-    // 1. 构建产物 (生产环境)
-    // 注意：dist/cli.js 是用 Bun 构建的，shebang 是 #!/usr/bin/env bun
-    // 需要使用 bun 运行，而不是 node
-    const distCli = path.join(this.cliRoot, 'dist/cli.js')
-    if (fs.existsSync(distCli)) {
-      return { command: 'bun', args: ['run', distCli] }
-    }
+    const isDev = !app.isPackaged
 
-    // 2. 源码 (开发环境, 需要 bun)
-    // 直接使用 bun 运行 cli.tsx，而不是通过 dev.ts
-    // dev.ts 使用 Bun.spawnSync 会导致 stdio 继承问题
-    const cliPath = path.join(this.cliRoot, 'src/entrypoints/cli.tsx')
-    if (fs.existsSync(cliPath)) {
-      // 设置基本的环境变量
-      const defineArgs = this.getMacroDefines()
-      const featureArgs = this.getFeatureArgs()
-      return {
-        command: 'bun',
-        args: ['run', ...defineArgs, ...featureArgs, cliPath]
+    // 开发模式：优先使用源码（更快迭代，无需等待构建）
+    if (isDev) {
+      const srcCliPath = path.join(this.cliRoot, 'src/entrypoints/cli.tsx')
+      if (fs.existsSync(srcCliPath)) {
+        console.log('[Engine] Using source code (dev mode):', srcCliPath)
+        const defineArgs = this.getMacroDefines()
+        const featureArgs = this.getFeatureArgs()
+        return {
+          command: this.resolveBunPath(),
+          args: ['run', ...defineArgs, ...featureArgs, srcCliPath]
+        }
       }
     }
 
-    // 3. 全局安装
+    // 生产模式：优先使用构建产物（启动更快）
+    const distCli = path.join(this.cliRoot, 'dist/cli.js')
+    if (fs.existsSync(distCli)) {
+      console.log('[Engine] Using built distribution:', distCli)
+      return { command: this.resolveBunPath(), args: ['run', distCli] }
+    }
+
+    // 回退到源码（生产环境但无构建产物时）
+    const srcCliPath = path.join(this.cliRoot, 'src/entrypoints/cli.tsx')
+    if (fs.existsSync(srcCliPath)) {
+      console.log('[Engine] Using source code (fallback):', srcCliPath)
+      const defineArgs = this.getMacroDefines()
+      const featureArgs = this.getFeatureArgs()
+      return {
+        command: this.resolveBunPath(),
+        args: ['run', ...defineArgs, ...featureArgs, srcCliPath]
+      }
+    }
+
+    // 最后回退到全局安装的 claude 命令
+    console.warn('[Engine] No local engine found, falling back to global claude command')
     return { command: 'claude', args: [] }
   }
 

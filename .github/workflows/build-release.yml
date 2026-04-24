@@ -1,0 +1,186 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [main, master]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+            arch: x64
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+          - os: macos-latest
+            platform: mac
+            arch: x64
+          - os: macos-latest
+            platform: mac
+            arch: arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install system dependencies (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm unzip
+
+      - name: Download Bun (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          mkdir -p engine/bin
+          cp ~/.bun/bin/bun engine/bin/bun-linux-x64
+          chmod +x engine/bin/bun-linux-x64
+
+      - name: Download Bun (macOS x64)
+        if: matrix.platform == 'mac' && matrix.arch == 'x64'
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          mkdir -p engine/bin
+          cp ~/.bun/bin/bun engine/bin/bun-darwin-x64
+          chmod +x engine/bin/bun-darwin-x64
+
+      - name: Download Bun (macOS arm64)
+        if: matrix.platform == 'mac' && matrix.arch == 'arm64'
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          mkdir -p engine/bin
+          cp ~/.bun/bin/bun engine/bin/bun-darwin-arm64
+          chmod +x engine/bin/bun-darwin-arm64
+
+      - name: Download Bun (Windows)
+        if: matrix.platform == 'win'
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path engine/bin
+          Invoke-WebRequest -Uri "https://github.com/oven-sh/bun/releases/latest/download/bun-windows-x64.zip" -OutFile "bun-windows-x64.zip"
+          Expand-Archive -Path "bun-windows-x64.zip" -DestinationPath "engine/bin" -Force
+          Move-Item -Path "engine/bin/bun.exe" -Destination "engine/bin/bun-windows-x64.exe" -Force
+          Remove-Item -Path "bun-windows-x64.zip" -Force
+
+      - name: Build application
+        run: npm run build
+
+      - name: Build Electron (Windows)
+        if: matrix.platform == 'win'
+        run: npx electron-builder --win --x64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Electron (Linux)
+        if: matrix.platform == 'linux'
+        run: npx electron-builder --linux --x64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Electron (macOS x64)
+        if: matrix.platform == 'mac' && matrix.arch == 'x64'
+        run: npx electron-builder --mac --x64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Electron (macOS arm64)
+        if: matrix.platform == 'mac' && matrix.arch == 'arm64'
+        run: npx electron-builder --mac --arm64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts (Windows)
+        if: matrix.platform == 'win'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: |
+            release/*.exe
+            release/*.exe.blockmap
+
+      - name: Upload artifacts (Linux)
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: |
+            release/*.AppImage
+            release/*.deb
+            release/*.rpm
+
+      - name: Upload artifacts (macOS x64)
+        if: matrix.platform == 'mac' && matrix.arch == 'x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-x64-build
+          path: |
+            release/*.dmg
+            release/*.dmg.blockmap
+            release/*.zip
+
+      - name: Upload artifacts (macOS arm64)
+        if: matrix.platform == 'mac' && matrix.arch == 'arm64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-build
+          path: |
+            release/*-arm64.dmg
+            release/*-arm64.dmg.blockmap
+            release/*-arm64.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: |
+          echo "Downloaded artifacts:"
+          find artifacts -type f -name "*" | head -50
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.AppImage
+            artifacts/**/*.deb
+            artifacts/**/*.rpm
+            artifacts/**/*.dmg
+            artifacts/**/*.zip
+            artifacts/**/*.blockmap
+          draft: false
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
