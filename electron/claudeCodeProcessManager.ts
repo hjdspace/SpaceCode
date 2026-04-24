@@ -3,6 +3,7 @@ import { EventEmitter } from 'events'
 import * as path from 'path'
 import * as fs from 'fs'
 import { randomUUID } from 'crypto'
+import { app } from 'electron'
 
 export interface SessionConfig {
   cwd: string
@@ -26,9 +27,15 @@ export class ClaudeCodeProcessManager extends EventEmitter {
 
   constructor() {
     super()
-    // 从 electron 目录向上找到 claude-code 目录
-    // electron/claudeCodeProcessManager.ts -> electron/ -> claude-code-desktop/ -> root/
-    this.cliRoot = path.resolve(__dirname, '../../claude-code')
+    // 根据是否打包选择 engine 目录路径
+    // 开发环境: electron/ -> root/engine/
+    // 生产环境: resources/engine/
+    const isPackaged = app.isPackaged
+    if (isPackaged) {
+      this.cliRoot = path.join(process.resourcesPath, 'engine')
+    } else {
+      this.cliRoot = path.resolve(__dirname, '../engine')
+    }
   }
 
   isSessionActive(): boolean {

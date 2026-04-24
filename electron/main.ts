@@ -11,9 +11,9 @@ const isDev = process.env.NODE_ENV !== 'production' && !app.isPackaged
 
 let envPath: string
 if (isDev) {
-  envPath = resolve(__dirname, '../../.env')
-} else {
   envPath = resolve(__dirname, '../.env')
+} else {
+  envPath = resolve(process.resourcesPath, '.env')
 }
 
 if (existsSync(envPath)) {
@@ -357,12 +357,22 @@ ipcMain.on('terminal:runCommand', (_event, id: string, command: string) => {
 
 // Get the command to launch claude-code CLI in terminal
 ipcMain.handle('app:getClaudeCliPath', async () => {
-  const cliProjectRoot = resolve(__dirname, '../../claude-code')
+  // 根据是否打包选择 engine 目录路径
+  const cliProjectRoot = app.isPackaged
+    ? resolve(process.resourcesPath, 'engine')
+    : resolve(__dirname, '../engine')
 
-  // 1. Check for built CLI (dist/cli.js) — can run with node
+  // 1. Check for built CLI (dist/cli.js) — needs bun to run
   const distCliPath = resolve(cliProjectRoot, 'dist/cli.js')
   if (existsSync(distCliPath)) {
-    return `node "${distCliPath}"`
+    // Check if bun is available
+    const { execSync } = await import('child_process')
+    try {
+      execSync('bun --version', { stdio: 'ignore' })
+      return `bun "${distCliPath}"`
+    } catch {
+      // bun not available, fall through to other options
+    }
   }
 
   // 2. Check for source CLI (src/entrypoints/cli.tsx) — needs bun
