@@ -89,6 +89,7 @@ async function loadEnvSettings(): Promise<Partial<AuthSettings>> {
   try {
     if (!electronAPI?.getEnv) return {}
 
+    const llmProvider = await electronAPI.getEnv('LLM_PROVIDER')
     const anthropicKey = await electronAPI.getEnv('ANTHROPIC_API_KEY')
     const openaiKey = await electronAPI.getEnv('OPENAI_API_KEY')
     const openaiBaseUrl = await electronAPI.getEnv('OPENAI_BASE_URL')
@@ -97,6 +98,44 @@ async function loadEnvSettings(): Promise<Partial<AuthSettings>> {
     const geminiKey = await electronAPI.getEnv('GEMINI_API_KEY')
     const geminiBaseUrl = await electronAPI.getEnv('GEMINI_BASE_URL')
 
+    // 优先根据 LLM_PROVIDER 环境变量判断
+    if (llmProvider === 'openai' || llmProvider === 'openai_compatible') {
+      if (openaiKey || openaiBaseUrl) {
+        return {
+          authMethod: 'openai_compatible',
+          openaiConfig: {
+            ...createDefaultProviderConfig(),
+            baseUrl: openaiBaseUrl || '',
+            apiKey: openaiKey || '',
+            sonnetModel: openaiModel || ''
+          }
+        }
+      }
+    } else if (llmProvider === 'anthropic' || llmProvider === 'anthropic_compatible') {
+      if (anthropicKey || anthropicBaseUrl) {
+        return {
+          authMethod: 'anthropic_compatible',
+          anthropicConfig: {
+            ...createDefaultProviderConfig(),
+            baseUrl: anthropicBaseUrl || '',
+            apiKey: anthropicKey || ''
+          }
+        }
+      }
+    } else if (llmProvider === 'gemini' || llmProvider === 'gemini_api') {
+      if (geminiKey || geminiBaseUrl) {
+        return {
+          authMethod: 'gemini_api',
+          geminiConfig: {
+            ...createDefaultProviderConfig(),
+            baseUrl: geminiBaseUrl || '',
+            apiKey: geminiKey || ''
+          }
+        }
+      }
+    }
+
+    // 如果没有 LLM_PROVIDER，按原有逻辑自动检测
     if (geminiKey || geminiBaseUrl) {
       return {
         authMethod: 'gemini_api',
@@ -329,29 +368,24 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   async function loadFromEnv() {
-    // Only load from env if user has no saved settings at all
-    // This prevents env vars from overwriting user's GUI preferences
-    if (saved.authMethod) {
-      // User has saved settings, don't override with env vars
-      return
-    }
-
     const envSettings = await loadEnvSettings()
+
+    // 始终从 .env 加载 baseUrl 和 apiKey（如果 .env 中有定义）
+    // 这确保 API 端点配置始终来自 .env
     if (envSettings.authMethod) {
       authMethod.value = envSettings.authMethod
     }
-    // Only set config values from env if user has no saved config
-    if (envSettings.anthropicConfig && !saved.anthropicConfig) {
+    if (envSettings.anthropicConfig) {
       for (const [key, value] of Object.entries(envSettings.anthropicConfig)) {
         if (value) (anthropicConfig.value as any)[key] = value
       }
     }
-    if (envSettings.openaiConfig && !saved.openaiConfig) {
+    if (envSettings.openaiConfig) {
       for (const [key, value] of Object.entries(envSettings.openaiConfig)) {
         if (value) (openaiConfig.value as any)[key] = value
       }
     }
-    if (envSettings.geminiConfig && !saved.geminiConfig) {
+    if (envSettings.geminiConfig) {
       for (const [key, value] of Object.entries(envSettings.geminiConfig)) {
         if (value) (geminiConfig.value as any)[key] = value
       }

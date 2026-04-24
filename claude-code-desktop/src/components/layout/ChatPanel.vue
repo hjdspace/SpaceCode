@@ -123,6 +123,7 @@ interface SendOptions {
 }
 
 async function handleSend(content: string, attachments: Attachment[], options?: SendOptions) {
+  console.log('[ChatPanel] handleSend called:', content.slice(0, 50))
   if (!content.trim() && attachments.length === 0) return
 
   // 构建包含附件信息的消息内容
@@ -147,7 +148,9 @@ async function handleSend(content: string, attachments: Attachment[], options?: 
     })
   }
 
+  console.log('[ChatPanel] Calling chatStore.sendMessage...')
   await chatStore.sendMessage(messageContent)
+  console.log('[ChatPanel] chatStore.sendMessage done')
 }
 
 // 处理斜杠命令

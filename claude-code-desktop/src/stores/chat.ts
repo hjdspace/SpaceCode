@@ -1,8 +1,8 @@
 /**
- * Chat Store with QueryEngine Integration
+ * Chat Store with Claude Code CLI Integration
  *
- * This store integrates with the QueryEngine running in Electron Main process.
- * Supports project-specific chat sessions.
+ * This store integrates with the Claude Code CLI running in Electron Main process
+ * via ClaudeCodeProcessManager. Supports project-specific chat sessions.
  */
 
 import { defineStore } from 'pinia'
@@ -233,29 +233,11 @@ export const useChatStore = defineStore('chat', () => {
   const currentSessionId = ref<string | null>(lastSessionId)
   const isLoading = ref(false)
   const streamingContent = ref('')
-  const queryEngineSessions = ref<Map<string, string>>(new Map())
 
   // 项目列表
   const projects = ref<string[]>(loadProjectsFromStorage())
   // 当前选中的项目（空字符串表示没有特定项目）
   const currentProjectRoot = ref<string>('')
-
-  // Track config changes to invalidate stale QueryEngine sessions
-  let lastConfigKey = ''
-  function getConfigKey(): string {
-    const c = settingsStore.config
-    return `${c.provider}|${c.apiKey}|${c.model}|${c.apiUrl}`
-  }
-
-  // When config changes, clear all QueryEngine session mappings so they get recreated with new config
-  watch(() => settingsStore.config, () => {
-    const newKey = getConfigKey()
-    if (lastConfigKey && newKey !== lastConfigKey) {
-      console.log('[ChatStore] Config changed, clearing QueryEngine sessions. Old:', lastConfigKey, 'New:', newKey)
-      queryEngineSessions.value.clear()
-    }
-    lastConfigKey = newKey
-  }, { deep: true })
 
   const currentSession = computed(() =>
     sessions.value.find(s => s.id === currentSessionId.value) || null
@@ -350,33 +332,32 @@ export const useChatStore = defineStore('chat', () => {
     return session
   }
 
-  async function initQueryEngineSession(sessionId: string) {
-    if (!electronAPI?.queryEngine) {
-      console.warn('[ChatStore] QueryEngine not available')
+  async function initClaudeCodeSession() {
+    const claudeCode = electronAPI?.claudeCode
+    if (!claudeCode) {
+      // ClaudeCode 不可用
       return
     }
 
     try {
+      // 检查是否已经有活跃的会话
+      const isActive = await claudeCode.isSessionActive()
+      if (isActive) {
+        // 复用已存在的会话
+        return
+      }
+
       const config = settingsStore.config
-      const cwd = await electronAPI.getCwd?.() || '/'
-      console.log('[ChatStore] Creating QueryEngine session with config:', {
-        provider: config.provider,
-        model: config.model,
-        hasApiKey: !!config.apiKey,
-        baseUrl: config.apiUrl
-      })
-      const result = await electronAPI.queryEngine.createSession({
+      const cwd = workingDirectory.value || await electronAPI.getCwd?.() || '/'
+      // 启动 ClaudeCode 会话
+      await claudeCode.startSession({
         cwd,
         apiKey: config.apiKey,
-        provider: config.provider,
         model: config.model,
-        baseUrl: config.apiUrl
+        permissionMode: 'bypassPermissions' // 自动批准所有权限请求
       })
-
-      queryEngineSessions.value.set(sessionId, result.sessionId)
-      console.log('[ChatStore] QueryEngine session created:', result.sessionId)
     } catch (error) {
-      console.error('[ChatStore] Failed to create QueryEngine session:', error)
+      console.error('[ChatStore] Failed to start ClaudeCode session:', error)
     }
   }
 
@@ -423,44 +404,26 @@ export const useChatStore = defineStore('chat', () => {
       content
     })
 
-    if (!electronAPI?.queryEngine) {
+    const claudeCode = electronAPI?.claudeCode
+    if (!claudeCode) {
       isLoading.value = true
       setTimeout(() => {
         addMessage({
           role: 'assistant',
-          content: 'QueryEngine is not available. Please check your configuration.'
+          content: 'Claude Code CLI is not available. Please check your configuration.'
         })
         isLoading.value = false
       }, 500)
       return
     }
 
-    let queryEngineSessionId = queryEngineSessions.value.get(session.id)
-    if (!queryEngineSessionId) {
-      await initQueryEngineSession(session.id)
-      queryEngineSessionId = queryEngineSessions.value.get(session.id)
-    }
-
-    if (!queryEngineSessionId) {
-      addMessage({
-        role: 'assistant',
-        content: 'Failed to initialize QueryEngine session.'
-      })
-      return
-    }
-
-    // CRITICAL FIX: Clean up any previous streaming listeners BEFORE setting up new ones
-    // This prevents the "second message updates first message" bug where old listeners
-    // were still active and receiving chunks for the new sessionId (since both share the same queryEngineSessionId)
-    electronAPI.queryEngine.offChunk(() => {})
-    electronAPI.queryEngine.offComplete(() => {})
-    electronAPI.queryEngine.onError(() => {})
+    // Ensure session is started
+    await initClaudeCodeSession()
 
     isLoading.value = true
     streamingContent.value = ''
 
     const assistantMessageId = crypto.randomUUID()
-    const requestId = crypto.randomUUID() // Unique request ID to isolate this response
 
     addMessage({
       id: assistantMessageId,
@@ -470,77 +433,138 @@ export const useChatStore = defineStore('chat', () => {
 
     await new Promise<void>((resolve, reject) => {
       let accumulatedContent = ''
+      let isCompleted = false
 
-      const handleChunk = (data: { sessionId: string; chunk: string; requestId?: string }) => {
-        // Double-filter by both sessionId AND requestId to ensure isolation
-        if (data.sessionId !== queryEngineSessionId) return
-        if (data.requestId && data.requestId !== requestId) return
-
-        accumulatedContent += data.chunk
-        streamingContent.value = accumulatedContent
-
-        nextTick(() => {
-          updateMessage(assistantMessageId, { content: accumulatedContent })
-        })
+      const handleStreamEvent = (streamEvent: any) => {
+        if (isCompleted) return
+        // stream_event 格式: { type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '...' } } }
+        const event = streamEvent.event || streamEvent
+        if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta?.text) {
+          accumulatedContent += event.delta.text
+          streamingContent.value = accumulatedContent
+          nextTick(() => {
+            updateMessage(assistantMessageId, { content: accumulatedContent })
+          })
+        }
       }
 
-      const handleComplete = (data: { sessionId: string; requestId?: string }) => {
-        if (data.sessionId !== queryEngineSessionId) return
-        if (data.requestId && data.requestId !== requestId) return
+      const handleAssistant = (assistant: any) => {
+        if (isCompleted) return
+        // 从 assistant.message.content 中提取文本
+        if (assistant.message?.content) {
+          const content = assistant.message.content
+          if (Array.isArray(content)) {
+            // content 是数组，提取所有 text 类型的文本
+            const text = content
+              .filter((c: any) => c.type === 'text')
+              .map((c: any) => c.text)
+              .join('')
+            accumulatedContent = text
+          } else if (typeof content === 'string') {
+            accumulatedContent = content
+          }
+          streamingContent.value = accumulatedContent
+          nextTick(() => {
+            updateMessage(assistantMessageId, { content: accumulatedContent })
+          })
+        }
+      }
 
+      const handleToolUse = (toolUse: any) => {
+        const session = sessions.value.find(s => s.id === currentSessionId.value)
+        if (session) {
+          const msg = session.messages.find(m => m.id === assistantMessageId)
+          if (msg) {
+            if (!msg.toolCalls) msg.toolCalls = []
+            msg.toolCalls.push({
+              id: toolUse.id || crypto.randomUUID(),
+              name: toolUse.name,
+              input: toolUse.input,
+              status: 'running'
+            })
+            saveToStorage()
+          }
+        }
+      }
+
+      const handleToolResult = (toolResult: any) => {
+        const session = sessions.value.find(s => s.id === currentSessionId.value)
+        if (session) {
+          const msg = session.messages.find(m => m.id === assistantMessageId)
+          if (msg?.toolCalls) {
+            const toolCall = msg.toolCalls.find(tc => tc.id === toolResult.tool_use_id)
+            if (toolCall) {
+              toolCall.status = 'completed'
+              toolCall.output = toolResult.output
+              saveToStorage()
+            }
+          }
+        }
+      }
+
+      const handleResult = (result: any) => {
+        if (isCompleted) return
+        isCompleted = true
         streamingContent.value = ''
         isLoading.value = false
-
-        updateMessage(assistantMessageId, { content: accumulatedContent })
+        // result 事件只用于标记完成，不更新内容（避免重复）
+        // 内容已经在 handleAssistant 中更新
         saveToStorage()
-
+        cleanup()
         resolve()
       }
 
-      const handleError = (data: { sessionId: string; error: string; requestId?: string }) => {
-        if (data.sessionId !== queryEngineSessionId) return
-        if (data.requestId && data.requestId !== requestId) return
+      const handleLog = (log: string) => {
+        // 可选：将 CLI 日志输出到控制台
+        // console.log('[ClaudeCode]', log)
+      }
 
+      const handleError = (error: any) => {
+        if (isCompleted) return
+        isCompleted = true
         isLoading.value = false
         streamingContent.value = ''
-
         updateMessage(assistantMessageId, {
-          content: `Error: ${data.error}`
+          content: `Error: ${error instanceof Error ? error.message : String(error)}`
         })
-        saveToStorage()
-
-        reject(new Error(data.error))
-      }
-
-      const cleanup = () => {
-        electronAPI.queryEngine.offChunk(handleChunk)
-        electronAPI.queryEngine.offComplete(handleComplete)
-        electronAPI.queryEngine.offError(handleError)
-      }
-
-      electronAPI.queryEngine.onChunk(handleChunk)
-      electronAPI.queryEngine.onComplete(handleComplete)
-      electronAPI.queryEngine.onError(handleError)
-
-      try {
-        electronAPI.queryEngine.streamMessage({
-          sessionId: queryEngineSessionId,
-          content,
-          options: {},
-          requestId
-        })
-      } catch (error) {
         cleanup()
         reject(error)
       }
+
+      // Set up listeners and store unsubscribe functions
+      const unsubscribeAssistant = claudeCode.onAssistant(handleAssistant)
+      const unsubscribeStreamEvent = claudeCode.onStreamEvent(handleStreamEvent)
+      const unsubscribeToolUse = claudeCode.onToolUse(handleToolUse)
+      const unsubscribeToolResult = claudeCode.onToolResult(handleToolResult)
+      const unsubscribeResult = claudeCode.onResult(handleResult)
+      const unsubscribeLog = claudeCode.onLog(handleLog)
+      const unsubscribeExit = claudeCode.onExit((code: number | null) => {
+        if (code !== null && code !== 0) {
+          handleError(new Error(`Process exited with code ${code}`))
+        } else {
+          handleResult({})
+        }
+      })
+
+      const cleanup = () => {
+        unsubscribeAssistant?.()
+        unsubscribeStreamEvent?.()
+        unsubscribeToolUse?.()
+        unsubscribeToolResult?.()
+        unsubscribeResult?.()
+        unsubscribeLog?.()
+        unsubscribeExit?.()
+      }
+
+      // Send message
+      claudeCode.sendMessage(content).catch((error: any) => {
+        cleanup()
+        handleError(error)
+      })
     }).catch((error) => {
       console.error('[ChatStore] Error sending message:', error)
       isLoading.value = false
       streamingContent.value = ''
-
-      updateMessage(assistantMessageId, {
-        content: `Error: ${error instanceof Error ? error.message : String(error)}`
-      })
     })
   }
 
@@ -586,16 +610,6 @@ export const useChatStore = defineStore('chat', () => {
   async function deleteSession(sessionId: string) {
     const index = sessions.value.findIndex(s => s.id === sessionId)
     if (index > -1) {
-      const queryEngineSessionId = queryEngineSessions.value.get(sessionId)
-      if (queryEngineSessionId && electronAPI?.queryEngine) {
-        try {
-          await electronAPI.queryEngine.deleteSession({ sessionId: queryEngineSessionId })
-        } catch (error) {
-          console.error('[ChatStore] Failed to delete QueryEngine session:', error)
-        }
-      }
-      queryEngineSessions.value.delete(sessionId)
-
       sessions.value.splice(index, 1)
       if (currentSessionId.value === sessionId) {
         currentSessionId.value = sessions.value[0]?.id || null
@@ -610,25 +624,18 @@ export const useChatStore = defineStore('chat', () => {
       // 尝试从旧格式加载
       const oldKeys = Object.keys(localStorage).filter(k => k.startsWith('chat_sessions_'))
       if (oldKeys.length > 0 && sessions.value.length === 0) {
-        console.log('[ChatStore] Migrating old data...')
         for (const key of oldKeys) {
-          const saved = localStorage.getItem(key)
-          if (saved) {
-            const data = JSON.parse(saved)
-            if (data.sessions) {
-              const projectRoot = key.replace('chat_sessions_', '').replace(/_/g, '/')
-              for (const session of data.sessions) {
-                session.workingDirectory = projectRoot
-                sessions.value.push(session)
-              }
-            }
+          try {
+            const oldSessions = JSON.parse(localStorage.getItem(key) || '[]')
+            sessions.value = [...sessions.value, ...oldSessions]
+            localStorage.removeItem(key)
+          } catch {
+            // 迁移失败时继续处理下一个 key
           }
         }
-        saveToStorage()
-        console.log('[ChatStore] Migration complete, sessions:', sessions.value.length)
       }
-    } catch (e) {
-      console.error('[ChatStore] Migration failed:', e)
+    } catch {
+      // 迁移失败时静默处理
     }
   }
 
@@ -647,6 +654,7 @@ export const useChatStore = defineStore('chat', () => {
     allProjects,
     currentProjectRoot,
     createSession,
+    initClaudeCodeSession,
     addMessage,
     sendMessage,
     updateToolCall,

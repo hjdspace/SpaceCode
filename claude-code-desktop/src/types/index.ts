@@ -12,6 +12,7 @@ export interface ToolCall {
   name: string
   input: Record<string, any>
   status: 'pending' | 'running' | 'completed' | 'error'
+  output?: string
 }
 
 export interface ToolResult {

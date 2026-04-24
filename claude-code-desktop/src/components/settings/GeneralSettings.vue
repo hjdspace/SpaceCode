@@ -62,7 +62,7 @@
       </template>
 
       <!-- OpenAI Compatible Config -->
-      <template v-if="authMethod === 'openai_compatible'">
+      <template v-else-if="authMethod === 'openai_compatible'">
         <h3 class="subsection-title">OpenAI Configuration</h3>
         <div class="form-group">
           <label class="form-label">Base URL</label>
@@ -111,7 +111,7 @@
       </template>
 
       <!-- Gemini API Config -->
-      <template v-if="authMethod === 'gemini_api'">
+      <template v-else-if="authMethod === 'gemini_api'">
         <h3 class="subsection-title">Gemini Configuration</h3>
         <div class="form-group">
           <label class="form-label">Base URL</label>
@@ -141,7 +141,7 @@
       </template>
 
       <!-- Claude Account OAuth -->
-      <template v-if="authMethod === 'claudeai'">
+      <template v-else-if="authMethod === 'claudeai'">
         <h3 class="subsection-title">Claude Account</h3>
         <div class="oauth-section">
           <div class="oauth-icon">
@@ -162,7 +162,7 @@
       </template>
 
       <!-- Console Account OAuth -->
-      <template v-if="authMethod === 'console'">
+      <template v-else-if="authMethod === 'console'">
         <h3 class="subsection-title">Anthropic Console</h3>
         <div class="oauth-section">
           <div class="oauth-icon">
@@ -262,6 +262,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: typeof props.modelValue]
+  'change': []
 }>()
 
 const appStore = useAppStore()
@@ -276,7 +277,10 @@ const authMethods = [
 
 const config = computed({
   get: () => props.modelValue,
-  set: (val) => emit('update:modelValue', val)
+  set: (val) => {
+    emit('update:modelValue', val)
+    emit('change')
+  }
 })
 
 const authMethod = computed({
@@ -294,19 +298,47 @@ const connectionStatus = ref<{ type: 'success' | 'error' | 'warning'; message: s
 
 const availableModels = ref<{ id: string; name?: string }[]>([])
 
-// Default models as fallback
-const defaultModels = [
-  { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
-  { id: 'gpt-4o', name: 'GPT-4o' },
-  { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
-  { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku' },
-  { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet' },
-  { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' }
-]
+// 根据当前认证方式获取默认模型
+const defaultModels = computed(() => {
+  const models: { id: string; name?: string }[] = []
+
+  switch (authMethod.value) {
+    case 'anthropic_compatible':
+    case 'claudeai':
+    case 'console':
+      models.push(
+        { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet' },
+        { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku' },
+        { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' },
+        { id: 'claude-3-sonnet-20240229', name: 'Claude 3 Sonnet' },
+        { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku' }
+      )
+      break
+    case 'openai_compatible':
+      models.push(
+        { id: 'gpt-4o', name: 'GPT-4o' },
+        { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+        { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
+        { id: 'gpt-4', name: 'GPT-4' },
+        { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' }
+      )
+      break
+    case 'gemini_api':
+      models.push(
+        { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' },
+        { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
+        { id: 'gemini-pro', name: 'Gemini Pro' },
+        { id: 'gemini-pro-vision', name: 'Gemini Pro Vision' }
+      )
+      break
+  }
+
+  return models
+})
 
 onMounted(() => {
-  // Initialize with default models
-  availableModels.value = [...defaultModels]
+  // Initialize with default models based on auth method
+  availableModels.value = [...defaultModels.value]
   
   // Sync project root with app store
   if (appStore.projectRoot && !config.value.projectRoot) {
@@ -316,6 +348,8 @@ onMounted(() => {
 
 function selectAuthMethod(method: AuthMethod) {
   authMethod.value = method
+  // 切换认证方式时更新默认模型列表
+  availableModels.value = [...defaultModels.value]
 }
 
 async function testConnection() {

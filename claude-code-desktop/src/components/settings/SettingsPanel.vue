@@ -40,6 +40,7 @@
                     <GeneralSettings
                       v-if="activeTab === 'general'"
                       v-model="settingsData"
+                      @change="onSettingsChange"
                     />
                     <McpSettings
                       v-else-if="activeTab === 'mcp'"
@@ -84,7 +85,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, reactive, shallowRef, defineAsyncComponent } from 'vue'
+import { ref, computed, watch, reactive, defineAsyncComponent } from 'vue'
 import {
   ArrowLeft, X, Save, Loader2,
   Settings, Boxes, Palette, Wrench, Keyboard
@@ -121,8 +122,8 @@ const activeTab = ref('general')
 const saving = ref(false)
 const hasChanges = ref(false)
 
-// 使用shallowRef优化大型响应式对象
-const settingsData = shallowRef({
+// 使用ref创建响应式对象，确保深层变更能被检测到
+const settingsData = ref({
   authMethod: 'openai_compatible' as AuthMethod,
   anthropic: { baseUrl: '', apiKey: '' },
   openai: { baseUrl: '', apiKey: '' },
@@ -147,12 +148,12 @@ function switchTab(tabId: string) {
 // Flag to prevent watch from triggering during load
 let isLoadingSettings = false
 
-// 使用浅比较优化watch性能
+// 使用深比较监听所有嵌套属性变更
 watch(settingsData, () => {
   if (!isLoadingSettings) {
     hasChanges.value = true
   }
-}, { deep: false })
+}, { deep: true })
 
 // Handle changes from child components (Appearance, Shortcuts, etc.)
 function onSettingsChange() {

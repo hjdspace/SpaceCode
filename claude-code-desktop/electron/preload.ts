@@ -135,82 +135,53 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('git:fetchAll', cwd),
   },
 
-  queryEngine: (() => {
-    const listeners = new Map<(...args: any[]) => void, { channel: string; wrapper: (...args: any[]) => void }>()
-
-    return {
-      createSession: (options?: { cwd?: string; apiKey?: string; provider?: 'anthropic' | 'openai' | 'gemini'; model?: string; baseUrl?: string }) =>
-        ipcRenderer.invoke('queryengine:createSession', options),
-      sendMessage: (params: { sessionId: string; content: string; options?: any }) =>
-        ipcRenderer.invoke('queryengine:sendMessage', params),
-      streamMessage: (params: { sessionId: string; content: string; options?: any; requestId?: string }) =>
-        ipcRenderer.send('queryengine:streamMessage', params),
-      getMessages: (params: { sessionId: string }) =>
-        ipcRenderer.invoke('queryengine:getMessages', params),
-      deleteSession: (params: { sessionId: string }) =>
-        ipcRenderer.invoke('queryengine:deleteSession', params),
-      onChunk: (callback: (data: { sessionId: string; chunk: string }) => void) => {
-        const wrapper = (_: any, data: { sessionId: string; chunk: string }) => callback(data)
-        listeners.set(callback, { channel: 'queryengine:chunk', wrapper })
-        ipcRenderer.on('queryengine:chunk', wrapper)
-      },
-      offChunk: (callback: (...args: any[]) => void) => {
-        const entry = listeners.get(callback)
-        if (entry) {
-          ipcRenderer.removeListener(entry.channel, entry.wrapper)
-          listeners.delete(callback)
-        }
-      },
-      onComplete: (callback: (data: { sessionId: string }) => void) => {
-        const wrapper = (_: any, data: { sessionId: string }) => callback(data)
-        listeners.set(callback, { channel: 'queryengine:complete', wrapper })
-        ipcRenderer.on('queryengine:complete', wrapper)
-      },
-      offComplete: (callback: (...args: any[]) => void) => {
-        const entry = listeners.get(callback)
-        if (entry) {
-          ipcRenderer.removeListener(entry.channel, entry.wrapper)
-          listeners.delete(callback)
-        }
-      },
-      onError: (callback: (data: { sessionId: string; error: string }) => void) => {
-        const wrapper = (_: any, data: { sessionId: string; error: string }) => callback(data)
-        listeners.set(callback, { channel: 'queryengine:error', wrapper })
-        ipcRenderer.on('queryengine:error', wrapper)
-      },
-      offError: (callback: (...args: any[]) => void) => {
-        const entry = listeners.get(callback)
-        if (entry) {
-          ipcRenderer.removeListener(entry.channel, entry.wrapper)
-          listeners.delete(callback)
-        }
-      },
-      onCompactStart: (callback: (data: { sessionId: string }) => void) => {
-        const wrapper = (_: any, data: { sessionId: string }) => callback(data)
-        listeners.set(callback, { channel: 'queryengine:compact_start', wrapper })
-        ipcRenderer.on('queryengine:compact_start', wrapper)
-      },
-      offCompactStart: (callback: (...args: any[]) => void) => {
-        const entry = listeners.get(callback)
-        if (entry) {
-          ipcRenderer.removeListener(entry.channel, entry.wrapper)
-          listeners.delete(callback)
-        }
-      },
-      onCompactComplete: (callback: (data: { sessionId: string; removedCount: number; tokenReduction: number }) => void) => {
-        const wrapper = (_: any, data: { sessionId: string; removedCount: number; tokenReduction: number }) => callback(data)
-        listeners.set(callback, { channel: 'queryengine:compact_complete', wrapper })
-        ipcRenderer.on('queryengine:compact_complete', wrapper)
-      },
-      offCompactComplete: (callback: (...args: any[]) => void) => {
-        const entry = listeners.get(callback)
-        if (entry) {
-          ipcRenderer.removeListener(entry.channel, entry.wrapper)
-          listeners.delete(callback)
-        }
-      },
-    }
-  })(),
+  claudeCode: {
+    startSession: (config: any) => ipcRenderer.invoke('claude-code:startSession', config),
+    sendMessage: (content: string) => ipcRenderer.invoke('claude-code:sendMessage', content),
+    abort: () => ipcRenderer.invoke('claude-code:abort'),
+    stop: () => ipcRenderer.invoke('claude-code:stop'),
+    isSessionActive: () => ipcRenderer.invoke('claude-code:isSessionActive'),
+    onAssistant: (callback: (data: any) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
+      ipcRenderer.on('claude-code:assistant', wrapper)
+      return () => ipcRenderer.removeListener('claude-code:assistant', wrapper)
+    },
+    onUser: (callback: (data: any) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
+      ipcRenderer.on('claude-code:user', wrapper)
+      return () => ipcRenderer.removeListener('claude-code:user', wrapper)
+    },
+    onToolUse: (callback: (data: any) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
+      ipcRenderer.on('claude-code:tool_use', wrapper)
+      return () => ipcRenderer.removeListener('claude-code:tool_use', wrapper)
+    },
+    onToolResult: (callback: (data: any) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
+      ipcRenderer.on('claude-code:tool_result', wrapper)
+      return () => ipcRenderer.removeListener('claude-code:tool_result', wrapper)
+    },
+    onResult: (callback: (data: any) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
+      ipcRenderer.on('claude-code:result', wrapper)
+      return () => ipcRenderer.removeListener('claude-code:result', wrapper)
+    },
+    onStreamEvent: (callback: (data: any) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
+      ipcRenderer.on('claude-code:stream_event', wrapper)
+      return () => ipcRenderer.removeListener('claude-code:stream_event', wrapper)
+    },
+    onLog: (callback: (data: string) => void) => {
+      const wrapper = (_: any, data: string) => callback(data)
+      ipcRenderer.on('claude-code:log', wrapper)
+      return () => ipcRenderer.removeListener('claude-code:log', wrapper)
+    },
+    onExit: (callback: (code: number | null) => void) => {
+      const wrapper = (_: any, code: number | null) => callback(code)
+      ipcRenderer.on('claude-code:exit', wrapper)
+      return () => ipcRenderer.removeListener('claude-code:exit', wrapper)
+    },
+  },
 
   // Folder selection dialog
   selectFolder: (): Promise<{ canceled: boolean; filePaths: string[] }> =>

@@ -2,10 +2,10 @@ import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, shell, dialog, ne
 import { join, resolve } from 'path'
 import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSync } from 'fs'
 import { config } from 'dotenv'
-import { initQueryEngineIntegration, attemptFullIntegration } from './queryEngineIntegration'
 import { TerminalManager } from './terminalManager'
 import { registerGitIPCHandlers } from './gitService'
 import { registerSkillsIPCHandlers } from './skillsService'
+import { registerClaudeCodeIPC, setMainWindow } from './claudeCodeIPC'
 
 const isDev = process.env.NODE_ENV !== 'production' && !app.isPackaged
 
@@ -68,6 +68,7 @@ function createWindow() {
     }
   })
 
+  setMainWindow(mainWindow)
   createMenu()
 }
 
@@ -181,18 +182,8 @@ app.whenReady().then(() => {
   // Register Skills IPC handlers
   registerSkillsIPCHandlers()
 
-  // Initialize QueryEngine integration
-  try {
-    initQueryEngineIntegration()
-    // Attempt full integration with claude-code modules
-    attemptFullIntegration().then(success => {
-      if (success) {
-        console.log('[Main] QueryEngine full integration ready')
-      }
-    })
-  } catch (error) {
-    console.error('[Main] Failed to initialize QueryEngine integration:', error)
-  }
+  // Register Claude Code IPC handlers
+  registerClaudeCodeIPC()
   
   if (process.platform === 'darwin') {
     createTray()
