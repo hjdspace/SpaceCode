@@ -437,14 +437,34 @@ export const useChatStore = defineStore('chat', () => {
 
       const handleStreamEvent = (streamEvent: any) => {
         if (isCompleted) return
-        // stream_event 格式: { type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '...' } } }
         const event = streamEvent.event || streamEvent
+        
+        // 处理文本增量
         if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta?.text) {
           accumulatedContent += event.delta.text
           streamingContent.value = accumulatedContent
           nextTick(() => {
             updateMessage(assistantMessageId, { content: accumulatedContent })
           })
+        }
+        
+        // 处理 reasoning 增量
+        if (event.type === 'content_block_delta' && event.delta?.type === 'reasoning_delta' && event.delta?.reasoning) {
+          const session = sessions.value.find(s => s.id === currentSessionId.value)
+          if (session) {
+            const msg = session.messages.find(m => m.id === assistantMessageId)
+            if (msg) {
+              if (!msg.reasoning) {
+                msg.reasoning = {
+                  content: '',
+                  startTime: Date.now(),
+                  isExpanded: true
+                }
+              }
+              msg.reasoning.content += event.delta.reasoning
+              saveToStorage()
+            }
+          }
         }
       }
 
@@ -479,8 +499,9 @@ export const useChatStore = defineStore('chat', () => {
             msg.toolCalls.push({
               id: toolUse.id || crypto.randomUUID(),
               name: toolUse.name,
-              input: toolUse.input,
-              status: 'running'
+              input: toolUse.input || {},
+              status: 'running',
+              startTime: Date.now()
             })
             saveToStorage()
           }
@@ -494,8 +515,9 @@ export const useChatStore = defineStore('chat', () => {
           if (msg?.toolCalls) {
             const toolCall = msg.toolCalls.find(tc => tc.id === toolResult.tool_use_id)
             if (toolCall) {
-              toolCall.status = 'completed'
+              toolCall.status = toolResult.is_error ? 'error' : 'completed'
               toolCall.output = toolResult.output
+              toolCall.endTime = Date.now()
               saveToStorage()
             }
           }
@@ -507,9 +529,25 @@ export const useChatStore = defineStore('chat', () => {
         isCompleted = true
         streamingContent.value = ''
         isLoading.value = false
-        // result 事件只用于标记完成，不更新内容（避免重复）
-        // 内容已经在 handleAssistant 中更新
-        saveToStorage()
+        
+        // 标记 reasoning 完成并添加元数据
+        const session = sessions.value.find(s => s.id === currentSessionId.value)
+        if (session) {
+          const msg = session.messages.find(m => m.id === assistantMessageId)
+          if (msg) {
+            if (msg.reasoning && !msg.reasoning.endTime) {
+              msg.reasoning.endTime = Date.now()
+              msg.reasoning.isExpanded = false
+            }
+            // 添加元数据
+            msg.metadata = {
+              model: settingsStore.config.model,
+              duration: Date.now() - msg.timestamp
+            }
+            saveToStorage()
+          }
+        }
+        
         cleanup()
         resolve()
       }
