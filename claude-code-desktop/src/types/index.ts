@@ -3,22 +3,40 @@ export interface Message {
   role: 'user' | 'assistant' | 'system'
   content: string
   timestamp: number
+  reasoning?: ReasoningBlock
   toolCalls?: ToolCall[]
   toolResults?: ToolResult[]
+  metadata?: MessageMetadata
+}
+
+export interface ReasoningBlock {
+  content: string
+  startTime: number
+  endTime?: number
+  isExpanded?: boolean
 }
 
 export interface ToolCall {
   id: string
   name: string
   input: Record<string, any>
-  status: 'pending' | 'running' | 'completed' | 'error'
   output?: string
+  status: 'pending' | 'running' | 'completed' | 'error'
+  startTime?: number
+  endTime?: number
 }
 
 export interface ToolResult {
   id: string
   output: string
   isError?: boolean
+}
+
+export interface MessageMetadata {
+  model?: string
+  inputTokens?: number
+  outputTokens?: number
+  duration?: number
 }
 
 export interface Session {
