@@ -1,8 +1,8 @@
 <template>
   <div v-if="showMetadata" class="message-metadata">
-    <span v-if="metadata.model">{{ metadata.model }}</span>
+    <span v-if="metadata?.model">{{ metadata.model }}</span>
     <span v-if="tokenText">{{ tokenText }}</span>
-    <span v-if="metadata.duration">{{ (metadata.duration / 1000).toFixed(1) }}s</span>
+    <span v-if="metadata?.duration">{{ (metadata.duration / 1000).toFixed(1) }}s</span>
   </div>
 </template>
 
