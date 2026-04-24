@@ -11,6 +11,13 @@
         <span class="timestamp">{{ formatTime(message.timestamp) }}</span>
       </div>
       
+      <!-- 思考过程 -->
+      <ReasoningCard v-if="message.reasoning" :reasoning="message.reasoning" />
+      
+      <!-- 工具调用 -->
+      <ToolCallList v-if="message.toolCalls?.length" :tool-calls="message.toolCalls" />
+      
+      <!-- 消息内容 -->
       <div class="message-content">
         <MarkdownRenderer 
           v-if="message.role === 'assistant'" 
@@ -19,26 +26,19 @@
         <p v-else>{{ message.content }}</p>
       </div>
       
-      <div v-if="message.toolCalls?.length" class="tool-calls">
-        <div 
-          v-for="tool in message.toolCalls" 
-          :key="tool.id" 
-          class="tool-call-item"
-          :class="tool.status"
-        >
-          <Terminal :size="12" />
-          <span class="tool-name">{{ tool.name }}</span>
-          <span class="tool-status">{{ tool.status }}</span>
-        </div>
-      </div>
+      <!-- 元数据 -->
+      <MessageMetadata v-if="message.role === 'assistant'" :metadata="message.metadata" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import type { Message } from '@/types'
-import { User, Bot, Terminal } from 'lucide-vue-next'
+import { User, Bot } from 'lucide-vue-next'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
+import ReasoningCard from './ReasoningCard.vue'
+import ToolCallList from './ToolCallList.vue'
+import MessageMetadata from './MessageMetadata.vue'
 
 defineProps<{
   message: Message
@@ -142,43 +142,32 @@ function formatTime(timestamp: number): string {
   }
 }
 
-.tool-calls {
-  margin-top: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.tool-call-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-glass);
-  border: 1px solid var(--surface-border);
-  font-size: 12px;
-
-  .tool-name {
-    font-weight: 500;
-    color: var(--text-primary);
+// 响应式布局
+@media (max-width: 768px) {
+  .message-item {
+    gap: 8px;
+    padding: 12px 0;
   }
 
-  .tool-status {
-    color: var(--text-muted);
-    text-transform: capitalize;
+  .message-avatar {
+    width: 24px;
+    height: 24px;
   }
 
-  &.running .tool-status {
-    color: var(--warning);
+  .message-content {
+    font-size: 14px;
   }
 
-  &.completed .tool-status {
-    color: var(--success);
-  }
+  .message-header {
+    margin-bottom: 4px;
 
-  &.error .tool-status {
-    color: var(--error);
+    .role-label {
+      font-size: 12px;
+    }
+
+    .timestamp {
+      font-size: 10px;
+    }
   }
 }
 </style>
