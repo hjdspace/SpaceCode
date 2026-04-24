@@ -76,7 +76,21 @@
       },
       {
         "from": "engine/node_modules",
-        "to": "engine/node_modules"
+        "to": "engine/node_modules",
+        "filter": [
+          "**/*",
+          "!**/test/**",
+          "!**/tests/**",
+          "!**/*.test.js",
+          "!**/*.test.ts",
+          "!**/*.spec.js",
+          "!**/*.spec.ts",
+          "!**/.github/**",
+          "!**/docs/**",
+          "!**/examples/**",
+          "!**/benchmark/**",
+          "!**/scripts/**"
+        ]
       },
       {
         "from": "engine/bin",

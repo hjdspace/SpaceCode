@@ -54,26 +54,32 @@ jobs:
       - name: Download Bun (Linux)
         if: matrix.platform == 'linux'
         run: |
-          curl -fsSL https://bun.sh/install | bash
           mkdir -p engine/bin
-          cp ~/.bun/bin/bun engine/bin/bun-linux-x64
+          curl -fsSL -o bun-linux-x64.zip "https://github.com/oven-sh/bun/releases/latest/download/bun-linux-x64.zip"
+          unzip -o bun-linux-x64.zip -d engine/bin/
+          mv engine/bin/bun-linux-x64/bun engine/bin/bun-linux-x64
           chmod +x engine/bin/bun-linux-x64
+          rm -rf bun-linux-x64.zip engine/bin/bun-linux-x64/
 
       - name: Download Bun (macOS x64)
         if: matrix.platform == 'mac' && matrix.arch == 'x64'
         run: |
-          curl -fsSL https://bun.sh/install | bash
           mkdir -p engine/bin
-          cp ~/.bun/bin/bun engine/bin/bun-darwin-x64
+          curl -fsSL -o bun-darwin-x64.zip "https://github.com/oven-sh/bun/releases/latest/download/bun-darwin-x64.zip"
+          unzip -o bun-darwin-x64.zip -d engine/bin/
+          mv engine/bin/bun-darwin-x64/bun engine/bin/bun-darwin-x64
           chmod +x engine/bin/bun-darwin-x64
+          rm -rf bun-darwin-x64.zip engine/bin/bun-darwin-x64/
 
       - name: Download Bun (macOS arm64)
         if: matrix.platform == 'mac' && matrix.arch == 'arm64'
         run: |
-          curl -fsSL https://bun.sh/install | bash
           mkdir -p engine/bin
-          cp ~/.bun/bin/bun engine/bin/bun-darwin-arm64
+          curl -fsSL -o bun-darwin-aarch64.zip "https://github.com/oven-sh/bun/releases/latest/download/bun-darwin-aarch64.zip"
+          unzip -o bun-darwin-aarch64.zip -d engine/bin/
+          mv engine/bin/bun-darwin-aarch64/bun engine/bin/bun-darwin-arm64
           chmod +x engine/bin/bun-darwin-arm64
+          rm -rf bun-darwin-aarch64.zip engine/bin/bun-darwin-aarch64/
 
       - name: Download Bun (Windows)
         if: matrix.platform == 'win'

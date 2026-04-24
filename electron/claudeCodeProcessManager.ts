@@ -59,8 +59,17 @@ export class ClaudeCodeProcessManager extends EventEmitter {
     // 2. 检查用户是否通过 npm/yarn 全局安装了 bun
     try {
       const { execSync } = require('child_process')
-      const cmd = platform === 'win32' ? 'where bun' : 'which bun'
-      const globalBun = execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim().split('\n')[0]
+      let globalBun: string | null = null
+      
+      if (platform === 'win32') {
+        // Windows: 使用 PowerShell Get-Command 获取 bun 路径
+        const cmd = 'powershell -NoProfile -Command "Get-Command bun -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source"'
+        globalBun = execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim()
+      } else {
+        // macOS/Linux: 使用 which 命令
+        globalBun = execSync('which bun', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim().split('\n')[0]
+      }
+      
       if (globalBun && fs.existsSync(globalBun)) {
         console.log('[Engine] Using global bun:', globalBun)
         return globalBun
