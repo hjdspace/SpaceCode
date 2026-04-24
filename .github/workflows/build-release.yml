@@ -56,30 +56,30 @@ jobs:
         run: |
           mkdir -p engine/bin
           curl -fsSL -o bun-linux-x64.zip "https://github.com/oven-sh/bun/releases/latest/download/bun-linux-x64.zip"
-          unzip -o bun-linux-x64.zip -d engine/bin/
-          mv engine/bin/bun-linux-x64/bun engine/bin/bun-linux-x64
+          unzip -o bun-linux-x64.zip -d /tmp/
+          mv /tmp/bun-linux-x64/bun engine/bin/bun-linux-x64
           chmod +x engine/bin/bun-linux-x64
-          rm -rf bun-linux-x64.zip engine/bin/bun-linux-x64/
+          rm -rf bun-linux-x64.zip /tmp/bun-linux-x64/
 
       - name: Download Bun (macOS x64)
         if: matrix.platform == 'mac' && matrix.arch == 'x64'
         run: |
           mkdir -p engine/bin
           curl -fsSL -o bun-darwin-x64.zip "https://github.com/oven-sh/bun/releases/latest/download/bun-darwin-x64.zip"
-          unzip -o bun-darwin-x64.zip -d engine/bin/
-          mv engine/bin/bun-darwin-x64/bun engine/bin/bun-darwin-x64
+          unzip -o bun-darwin-x64.zip -d /tmp/
+          mv /tmp/bun-darwin-x64/bun engine/bin/bun-darwin-x64
           chmod +x engine/bin/bun-darwin-x64
-          rm -rf bun-darwin-x64.zip engine/bin/bun-darwin-x64/
+          rm -rf bun-darwin-x64.zip /tmp/bun-darwin-x64/
 
       - name: Download Bun (macOS arm64)
         if: matrix.platform == 'mac' && matrix.arch == 'arm64'
         run: |
           mkdir -p engine/bin
           curl -fsSL -o bun-darwin-aarch64.zip "https://github.com/oven-sh/bun/releases/latest/download/bun-darwin-aarch64.zip"
-          unzip -o bun-darwin-aarch64.zip -d engine/bin/
-          mv engine/bin/bun-darwin-aarch64/bun engine/bin/bun-darwin-arm64
+          unzip -o bun-darwin-aarch64.zip -d /tmp/
+          mv /tmp/bun-darwin-aarch64/bun engine/bin/bun-darwin-arm64
           chmod +x engine/bin/bun-darwin-arm64
-          rm -rf bun-darwin-aarch64.zip engine/bin/bun-darwin-aarch64/
+          rm -rf bun-darwin-aarch64.zip /tmp/bun-darwin-aarch64/
 
       - name: Download Bun (Windows)
         if: matrix.platform == 'win'
@@ -87,8 +87,15 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path engine/bin
           Invoke-WebRequest -Uri "https://github.com/oven-sh/bun/releases/latest/download/bun-windows-x64.zip" -OutFile "bun-windows-x64.zip"
-          Expand-Archive -Path "bun-windows-x64.zip" -DestinationPath "engine/bin" -Force
-          Move-Item -Path "engine/bin/bun.exe" -Destination "engine/bin/bun-windows-x64.exe" -Force
+          Expand-Archive -Path "bun-windows-x64.zip" -DestinationPath "$env:TEMP\bun-temp" -Force
+          $bunExe = Get-ChildItem -Path "$env:TEMP\bun-temp" -Filter "bun.exe" -Recurse | Select-Object -First 1
+          if ($bunExe) {
+            Move-Item -Path $bunExe.FullName -Destination "engine/bin/bun-windows-x64.exe" -Force
+          } else {
+            Write-Error "bun.exe not found in archive"
+            exit 1
+          }
+          Remove-Item -Path "$env:TEMP\bun-temp" -Recurse -Force
           Remove-Item -Path "bun-windows-x64.zip" -Force
 
       - name: Build application
