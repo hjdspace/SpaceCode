@@ -2,6 +2,10 @@
   "name": "claude-code-desktop",
   "version": "0.1.0",
   "homepage": "https://github.com/hjdspace/claude-code-gui",
+  "author": {
+    "name": "hjdspace",
+    "email": "hjdspace1990@gmail.com"
+  },
   "description": "AI Agent Desktop Application - Electron + Vue 3",
   "main": "dist-electron/main.js",
   "scripts": {
