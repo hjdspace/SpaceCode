@@ -18,6 +18,8 @@ export interface SessionConfig {
   maxBudgetUsd?: number
   apiKey?: string
   verbose?: boolean
+  /** Agent type for the session (e.g. 'general-purpose', 'Explore', 'Plan'). Passed as --agent flag. */
+  agent?: string
 }
 
 export class ClaudeCodeProcessManager extends EventEmitter {
@@ -164,7 +166,16 @@ export class ClaudeCodeProcessManager extends EventEmitter {
 
   async abort(): Promise<void> {
     if (this.process?.stdin?.writable) {
-      this.process.stdin.write(JSON.stringify({ type: 'abort' }) + '\n')
+      // 发送正确的 control_request 消息格式来中断当前对话轮次
+      // 引擎期望的格式: { type: 'control_request', request_id: '...', request: { subtype: 'interrupt' } }
+      const abortMessage = {
+        type: 'control_request',
+        request_id: randomUUID(),
+        request: {
+          subtype: 'interrupt'
+        }
+      }
+      this.process.stdin.write(JSON.stringify(abortMessage) + '\n')
     }
   }
 
@@ -199,6 +210,7 @@ export class ClaudeCodeProcessManager extends EventEmitter {
     if (config.appendSystemPrompt) args.push('--append-system-prompt', config.appendSystemPrompt)
     if (config.maxTurns) args.push('--max-turns', String(config.maxTurns))
     if (config.maxBudgetUsd) args.push('--max-budget-usd', String(config.maxBudgetUsd))
+    if (config.agent) args.push('--agent', config.agent)
     return args
   }
 
@@ -207,6 +219,8 @@ export class ClaudeCodeProcessManager extends EventEmitter {
     if (config.apiKey) env.ANTHROPIC_API_KEY = config.apiKey
     // 确保 bun 能找到正确的项目根目录
     env.CLaude_CODE_ROOT = this.cliRoot
+    //// 强制禁用 Todo V2，恢复 TodoWrite 工具
+    //env.CLAUDE_CODE_ENABLE_TASKS = 'false'
     return env
   }
 

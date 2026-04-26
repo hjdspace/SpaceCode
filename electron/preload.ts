@@ -144,6 +144,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     abort: () => ipcRenderer.invoke('claude-code:abort'),
     stop: () => ipcRenderer.invoke('claude-code:stop'),
     isSessionActive: () => ipcRenderer.invoke('claude-code:isSessionActive'),
+    listAgents: (cwd?: string) => ipcRenderer.invoke('claude-code:listAgents', cwd),
     onAssistant: (callback: (data: any) => void) => {
       const wrapper = (_: any, data: any) => callback(data)
       ipcRenderer.on('claude-code:assistant', wrapper)

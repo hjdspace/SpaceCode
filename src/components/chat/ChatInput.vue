@@ -242,6 +242,71 @@
               </div>
             </Transition>
           </div>
+
+          <!-- Agent 选择器 -->
+          <div class="agent-selector" ref="agentSelectorRef">
+            <button
+              class="toolbar-btn agent-btn"
+              @click="toggleAgentDropdown"
+              :class="{ 'has-agent': selectedAgent }"
+            >
+              <Cpu :size="14" />
+              <span class="agent-name">{{ selectedAgentLabel }}</span>
+              <ChevronDown :size="14" class="dropdown-icon" :class="{ open: showAgentDropdown }" />
+            </button>
+            <Transition name="dropdown">
+              <div v-if="showAgentDropdown" class="agent-dropdown" v-click-outside="closeAgentDropdown">
+                <div class="dropdown-header">
+                  <span>Agent</span>
+                </div>
+                <div class="dropdown-list" ref="agentListRef">
+                  <!-- Default (no agent) -->
+                  <button
+                    class="dropdown-item"
+                    :class="{ active: !selectedAgent }"
+                    @click="selectAgent('')"
+                    @mouseenter="highlightedAgent = ''"
+                  >
+                    <span class="item-name">Default</span>
+                    <span class="item-desc">Standard Claude Code session</span>
+                    <Check v-if="!selectedAgent" :size="14" class="check-icon" />
+                  </button>
+                  <!-- Built-in agents -->
+                  <template v-if="builtInAgents.length">
+                    <div class="dropdown-section-label">Built-in</div>
+                    <button
+                      v-for="agent in builtInAgents"
+                      :key="agent.agentType"
+                      class="dropdown-item"
+                      :class="{ active: selectedAgent === agent.agentType, highlighted: highlightedAgent === agent.agentType }"
+                      @click="selectAgent(agent.agentType)"
+                      @mouseenter="highlightedAgent = agent.agentType"
+                    >
+                      <span class="item-name">{{ agent.agentType }}</span>
+                      <span class="item-desc">{{ agent.description }}</span>
+                      <Check v-if="selectedAgent === agent.agentType" :size="14" class="check-icon" />
+                    </button>
+                  </template>
+                  <!-- Custom agents -->
+                  <template v-if="customAgents.length">
+                    <div class="dropdown-section-label">Custom</div>
+                    <button
+                      v-for="agent in customAgents"
+                      :key="agent.agentType"
+                      class="dropdown-item"
+                      :class="{ active: selectedAgent === agent.agentType, highlighted: highlightedAgent === agent.agentType }"
+                      @click="selectAgent(agent.agentType)"
+                      @mouseenter="highlightedAgent = agent.agentType"
+                    >
+                      <span class="item-name">{{ agent.agentType }}</span>
+                      <span class="item-desc">{{ agent.description }}</span>
+                      <Check v-if="selectedAgent === agent.agentType" :size="14" class="check-icon" />
+                    </button>
+                  </template>
+                </div>
+              </div>
+            </Transition>
+          </div>
         </div>
 
         <!-- 发送/停止按钮 -->
@@ -284,6 +349,8 @@ import {
 import { useSettingsStore } from '@/stores/settings'
 import { useSkillsStore } from '@/stores/skills'
 import { useAppStore } from '@/stores/app'
+import { useChatStore } from '@/stores/chat'
+import type { AgentInfo } from '@/types'
 import { api } from '@/services/electronAPI'
 
 export interface Attachment {
@@ -323,6 +390,7 @@ const emit = defineEmits<{
   'slash-command': [command: string, args: string, attachments: Attachment[]]
   'update:model': [model: string]
   'update:effort': [effort: string]
+  'update:agent': [agent: string]
   'open-skills': []
   stop: []
 }>()
@@ -367,6 +435,22 @@ const fetchedModels = ref<ModelOption[]>([])
 const availableModes = ['low', 'medium', 'high', 'max'] as const
 type EffortMode = typeof availableModes[number]
 const selectedMode = ref<EffortMode>(settingsStore.effortLevel || 'high')
+
+// Agent selector state
+const chatStore = useChatStore()
+const showAgentDropdown = ref(false)
+const agentSelectorRef = ref<HTMLElement | null>(null)
+const agentListRef = ref<HTMLElement | null>(null)
+const highlightedAgent = ref<string>('')
+const selectedAgent = ref<string>(chatStore.currentAgent || '')
+
+// Computed: split agents into built-in and custom
+const builtInAgents = computed(() => chatStore.availableAgents.filter(a => a.source === 'built-in'))
+const customAgents = computed(() => chatStore.availableAgents.filter(a => a.source !== 'built-in'))
+const selectedAgentLabel = computed(() => {
+  if (!selectedAgent.value) return 'Agent'
+  return selectedAgent.value
+})
 
 // 斜杠命令相关
 const showSlashCommandMenu = ref(false)
@@ -543,6 +627,9 @@ onMounted(() => {
 
   // 加载技能列表
   skillsStore.fetchSkills(props.workingDirectory)
+
+  // 加载可用的 Agent 列表
+  chatStore.loadAgents()
 })
 
 // 监听外部 modelValue 变化
@@ -1432,6 +1519,7 @@ function handleSend() {
   showModelDropdown.value = false
   showModeDropdown.value = false
   showAttachmentMenu.value = false
+  showAgentDropdown.value = false
   closeSlashCommandMenu()
   closeContextMenu()
   modelSearchQuery.value = ''
@@ -1510,6 +1598,22 @@ function selectMode(mode: EffortMode) {
 
 function closeModeDropdown() {
   showModeDropdown.value = false
+}
+
+// Agent selector functions
+function toggleAgentDropdown() {
+  showAgentDropdown.value = !showAgentDropdown.value
+}
+
+function selectAgent(agentType: string) {
+  selectedAgent.value = agentType
+  showAgentDropdown.value = false
+  // Sync to parent and chat store
+  emit('update:agent', agentType)
+}
+
+function closeAgentDropdown() {
+  showAgentDropdown.value = false
 }
 
 function handleAddClick() {
@@ -1809,16 +1913,19 @@ watch([() => props.disabled, () => props.isSending], ([disabled, sending]) => {
 }
 
 .model-selector,
-.mode-selector {
+.mode-selector,
+.agent-selector {
   position: relative;
 }
 
 .model-btn,
-.mode-btn {
+.mode-btn,
+.agent-btn {
   background: transparent;
 
   .model-name,
-  .mode-name {
+  .mode-name,
+  .agent-name {
     font-weight: 500;
     max-width: 120px;
     @include truncate;
@@ -1841,6 +1948,10 @@ watch([() => props.disabled, () => props.isSending], ([disabled, sending]) => {
   &.has-error {
     color: var(--error-color, #dc2626);
   }
+
+  &.has-agent {
+    color: var(--accent-primary, #6366f1);
+  }
 }
 
 .loading-icon {
@@ -1858,7 +1969,8 @@ watch([() => props.disabled, () => props.isSending], ([disabled, sending]) => {
 
 // 下拉菜单通用样式
 .model-dropdown,
-.mode-dropdown {
+.mode-dropdown,
+.agent-dropdown {
   position: absolute;
   bottom: 100%;
   left: 0;
@@ -1874,6 +1986,37 @@ watch([() => props.disabled, () => props.isSending], ([disabled, sending]) => {
 
 .model-dropdown {
   min-width: 280px;
+}
+
+.agent-dropdown {
+  min-width: 300px;
+
+  .dropdown-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .item-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .dropdown-section-label {
+    padding: 6px 16px 4px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    opacity: 0.7;
+  }
 }
 
 .dropdown-header {

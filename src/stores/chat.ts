@@ -7,9 +7,12 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed, nextTick, watch } from 'vue'
-import type { Session, Message, ToolCall } from '@/types'
+import type { Session, Message, ToolCall, AgentInfo } from '@/types'
 import { useSettingsStore } from './settings'
 import { useAppStore } from './app'
+import { useTaskManager } from '@/composables/useTaskManager'
+
+const taskManager = useTaskManager()
 
 const electronAPI = (window as any).electronAPI
 
@@ -220,6 +223,85 @@ export function getStorageStats(): StorageStats {
   }
 }
 
+/**
+ * 从工具调用结果中解析并更新全局任务状态（Todo V2）
+ */
+function updateTaskStateFromToolResult(
+  toolCalls: ToolCall[],
+  resultToolUseId: string,
+  resultOutput: string
+) {
+  const toolCall = toolCalls.find(tc => tc.id === resultToolUseId)
+  if (!toolCall) return
+
+  const toolName = toolCall.name
+
+  if (toolName === 'TaskCreate') {
+    // 解析: "Task #1 created successfully: subject"
+    const match = resultOutput.match(/^Task #(\d+) created successfully: (.+)$/m)
+    if (match) {
+      taskManager.createTask(match[1], match[2], toolCall.input?.description)
+    }
+  } else if (toolName === 'TaskUpdate') {
+    // 解析: "Updated task #1 ..." 或完整输出
+    const idMatch = resultOutput.match(/^Updated task #(\d+)/)
+    if (idMatch) {
+      const taskId = idMatch[1]
+      const updates: { status?: 'pending' | 'in_progress' | 'completed', owner?: string } = {}
+
+      // 尝试解析状态变化
+      const statusMatch = resultOutput.match(/status\w*:\s*(\w+)\s*->\s*(\w+)/i)
+      if (statusMatch) {
+        const newStatus = statusMatch[2]
+        if (['pending', 'in_progress', 'completed'].includes(newStatus)) {
+          updates.status = newStatus as TaskStatus
+        }
+      }
+
+      // 尝试解析 owner 变化
+      const ownerMatch = resultOutput.match(/owner\w*:\s*([^,\n]+)/i)
+      if (ownerMatch) {
+        updates.owner = ownerMatch[1].trim()
+      }
+
+      taskManager.updateTask(taskId, updates)
+    }
+  } else if (toolName === 'TaskList') {
+    // 解析完整列表输出
+    if (resultOutput === 'No tasks found') {
+      taskManager.clearTasks()
+      return
+    }
+
+    const tasks: Array<{
+      id: string
+      content: string
+      status: 'pending' | 'in_progress' | 'completed'
+      owner?: string
+      blockedBy?: string[]
+    }> = []
+
+    // 解析每一行: "#1 [pending] subject (owner) [blocked by ...]"
+    const lines = resultOutput.split('\n')
+    for (const line of lines) {
+      const match = line.match(/^#([^\s]+) \[(pending|in_progress|completed)\] (.*?)(?: \(([^)]+)\))?(?: \[blocked by (.+)\])?$/)
+      if (!match) continue
+
+      tasks.push({
+        id: match[1],
+        status: match[2] as TaskStatus,
+        content: match[3],
+        owner: match[4],
+        blockedBy: match[5]?.split(', ').filter(Boolean) || []
+      })
+    }
+
+    taskManager.syncTasksFromList(tasks)
+  }
+}
+
+type TaskStatus = 'pending' | 'in_progress' | 'completed'
+
 export const useChatStore = defineStore('chat', () => {
   const appStore = useAppStore()
   const settingsStore = useSettingsStore()
@@ -233,6 +315,10 @@ export const useChatStore = defineStore('chat', () => {
   const currentSessionId = ref<string | null>(lastSessionId)
   const isLoading = ref(false)
   const streamingContent = ref('')
+
+  // Agent state
+  const currentAgent = ref<string>('')  // empty = default (no --agent flag)
+  const availableAgents = ref<AgentInfo[]>([])
 
   // 项目列表
   const projects = ref<string[]>(loadProjectsFromStorage())
@@ -355,7 +441,8 @@ export const useChatStore = defineStore('chat', () => {
         apiKey: config.apiKey,
         model: config.model,
         effortLevel: config.effortLevel,
-        permissionMode: 'bypassPermissions' // 自动批准所有权限请求
+        permissionMode: 'bypassPermissions', // 自动批准所有权限请求
+        agent: currentAgent.value || undefined,  // pass --agent flag if selected
       })
     } catch (error) {
       console.error('[ChatStore] Failed to start ClaudeCode session:', error)
@@ -439,6 +526,16 @@ export const useChatStore = defineStore('chat', () => {
       const handleStreamEvent = (streamEvent: any) => {
         if (isCompleted) return
         const event = streamEvent.event || streamEvent
+
+        if (event.type === 'content_block_start' && event.content_block?.type === 'text') {
+          if (accumulatedContent.length > 0 && !accumulatedContent.endsWith('\n')) {
+            accumulatedContent += '\n\n'
+            streamingContent.value = accumulatedContent
+            nextTick(() => {
+              updateMessage(assistantMessageId, { content: accumulatedContent })
+            })
+          }
+        }
 
         // 处理文本增量
         if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta?.text) {
@@ -535,6 +632,11 @@ export const useChatStore = defineStore('chat', () => {
             const toolName = toolUse.name || toolUse.tool_use?.name || 'Unknown Tool'
             const toolInput = toolUse.input || toolUse.tool_use?.input || {}
 
+            const existingTool = msg.toolCalls?.find(tc => tc.id === toolId)
+            if (existingTool) {
+              return
+            }
+
             // 创建新的工具调用数组以触发响应式更新
             msg.toolCalls = [...(msg.toolCalls || []), {
               id: toolId,
@@ -558,6 +660,9 @@ export const useChatStore = defineStore('chat', () => {
             const rawResultOutput = toolResult.output ?? toolResult.content ?? toolResult.tool_result?.output ?? toolResult.tool_result?.content
             const resultOutput = typeof rawResultOutput === 'string' ? rawResultOutput : JSON.stringify(rawResultOutput)
             const resultIsError = toolResult.is_error || toolResult.tool_result?.is_error
+
+            // 更新全局任务状态（Todo V2）
+            updateTaskStateFromToolResult(msg.toolCalls, resultToolUseId, resultOutput)
 
             const toolCallIndex = msg.toolCalls.findIndex(tc => tc.id === resultToolUseId)
             if (toolCallIndex >= 0) {
@@ -778,6 +883,34 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  // Load available agents from main process
+  async function loadAgents() {
+    const claudeCode = electronAPI?.claudeCode
+    if (!claudeCode?.listAgents) return
+    try {
+      const cwd = workingDirectory.value || currentProjectRoot.value || undefined
+      availableAgents.value = await claudeCode.listAgents(cwd)
+    } catch (error) {
+      console.error('[ChatStore] Failed to load agents:', error)
+    }
+  }
+
+  // Switch agent — requires restarting the CLI session
+  async function switchAgent(agentType: string) {
+    const previousAgent = currentAgent.value
+    currentAgent.value = agentType
+
+    // If there's an active session, restart it with the new agent
+    const claudeCode = electronAPI?.claudeCode
+    if (claudeCode && await claudeCode.isSessionActive()) {
+      await claudeCode.stop()
+      // Re-init with new agent
+      await initClaudeCodeSession()
+    }
+
+    console.log('[ChatStore] Agent switched to:', agentType || '(default)')
+  }
+
   // 初始化时迁移旧数据
   migrateOldData()
 
@@ -792,6 +925,8 @@ export const useChatStore = defineStore('chat', () => {
     projects,
     allProjects,
     currentProjectRoot,
+    currentAgent,
+    availableAgents,
     createSession,
     initClaudeCodeSession,
     addMessage,
@@ -805,6 +940,8 @@ export const useChatStore = defineStore('chat', () => {
     saveToStorage,
     addProject,
     removeProject,
-    switchProject
+    switchProject,
+    loadAgents,
+    switchAgent,
   }
 })

@@ -143,6 +143,16 @@ export const api = {
       electronAPI?.git?.fetchAll(cwd) || Promise.resolve({ success: false, error: 'Git API not available' }),
   },
 
+  // Agent API
+  agents: {
+    listAgents: (cwd?: string): Promise<Array<{ agentType: string; description: string; source: string; model?: string; color?: string }>> => {
+      if (electronAPI?.claudeCode?.listAgents) {
+        return electronAPI.claudeCode.listAgents(cwd)
+      }
+      return Promise.resolve([])
+    },
+  },
+
   // Terminal API
   terminal: {
     create: (options?: { cwd?: string; command?: string; env?: Record<string, string> }): Promise<{ id: string | null; shell?: string; error?: string }> => {

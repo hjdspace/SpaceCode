@@ -20,7 +20,11 @@
           <Loader2 v-else-if="task.status === 'in_progress'" :size="15" class="spin-icon" />
           <Circle v-else :size="15" />
         </span>
-        <span class="task-content">{{ task.content }}</span>
+        <span class="task-content">{{ task.id ? `#${task.id} ` : '' }}{{ task.content }}</span>
+        <span v-if="task.blockedBy?.length" class="task-blocked-by">
+          <Lock :size="12" />
+          #{{ task.blockedBy.join(', #') }}
+        </span>
         <span v-if="task.owner" class="task-owner">{{ task.owner }}</span>
       </div>
     </div>
@@ -29,13 +33,14 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { CheckCircle2, ChevronDown, Circle, ListChecks, Loader2 } from 'lucide-vue-next'
+import { CheckCircle2, ChevronDown, Circle, ListChecks, Loader2, Lock } from 'lucide-vue-next'
 
 export interface TaskListItem {
   id?: string
   content: string
   status: 'pending' | 'in_progress' | 'completed'
   owner?: string
+  blockedBy?: string[]
 }
 
 const props = defineProps<{
@@ -156,6 +161,18 @@ function toggleExpand() {
   flex-shrink: 0;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.task-blocked-by {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--warning);
+  font-size: 11px;
+  padding: 1px 5px;
+  background: var(--warning-bg, rgba(255, 193, 7, 0.1));
+  border-radius: 3px;
 }
 
 .spin-icon {

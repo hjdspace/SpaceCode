@@ -97,3 +97,13 @@ export interface CommandBadge {
   description: string
   kind: 'immediate' | 'sdk_command' | 'codepilot_command' | 'agent_skill' | 'slash_command'
 }
+
+// ─── Agent Types ──────────────────────────────────────────────────
+
+export interface AgentInfo {
+  agentType: string
+  description: string
+  source: 'built-in' | 'user' | 'project' | 'plugin'
+  model?: string
+  color?: string
+}

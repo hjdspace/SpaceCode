@@ -5,6 +5,10 @@
         <h2>{{ currentSession?.title || 'New Conversation' }}</h2>
       </div>
       <div class="header-actions">
+        <span class="agent-badge" v-if="chatStore.currentAgent" :title="chatStore.currentAgent">
+          <span class="badge-dot agent-dot"></span>
+          {{ chatStore.currentAgent }}
+        </span>
         <span class="model-badge" v-if="currentModel" :title="currentModel">
           <span class="badge-dot"></span>
           {{ formatModelName(currentModel) }}
@@ -30,6 +34,7 @@
       @slash-command="handleSlashCommand"
       @update:model="handleModelChange"
       @update:effort="handleEffortChange"
+      @update:agent="handleAgentChange"
       @open-skills="handleOpenSkills"
       @stop="handleStop"
       :disabled="chatStore.isLoading"
@@ -126,6 +131,12 @@ async function handleEffortChange(effort: string) {
   }
 
   console.log('[ChatPanel] Effort changed to:', level)
+}
+
+// 处理 Agent 变更 - 切换 Agent 需要重启 CLI 会话
+async function handleAgentChange(agent: string) {
+  await chatStore.switchAgent(agent)
+  console.log('[ChatPanel] Agent changed to:', agent || '(default)')
 }
 
 // 格式化模型名称显示
@@ -419,7 +430,8 @@ function handleOpenSkills() {
 }
 
 .model-badge,
-.provider-badge {
+.provider-badge,
+.agent-badge {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -436,12 +448,26 @@ function handleOpenSkills() {
   color: var(--text-secondary);
   border: 1px solid var(--surface-border);
   max-width: 150px;
-  
+
   .badge-dot {
     width: 6px;
     height: 6px;
     border-radius: 50%;
     background: var(--accent-primary);
+    flex-shrink: 0;
+  }
+}
+
+.agent-badge {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--accent-primary, #6366f1);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+
+  .badge-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-primary, #6366f1);
     flex-shrink: 0;
   }
 }
