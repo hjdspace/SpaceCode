@@ -219,8 +219,8 @@ export class ClaudeCodeProcessManager extends EventEmitter {
     if (config.apiKey) env.ANTHROPIC_API_KEY = config.apiKey
     // 确保 bun 能找到正确的项目根目录
     env.CLaude_CODE_ROOT = this.cliRoot
-    //// 强制禁用 Todo V2，恢复 TodoWrite 工具
-    //env.CLAUDE_CODE_ENABLE_TASKS = 'false'
+    // TODO: 保留此代码以备后续需要强制禁用 Todo V2 功能时启用
+    // env.CLAUDE_CODE_ENABLE_TASKS = 'false'
     return env
   }
 

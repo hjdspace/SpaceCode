@@ -129,7 +129,7 @@ function parseTaskListOutput(output?: string): TaskListItem[] {
 function parseTaskCreateOutput(output?: string): TaskListItem[] {
   if (!output) return []
 
-  const match = output.match(/^Task #(\\d+) created successfully: (.+)$/)
+  const match = output.match(/^Task #(\d+) created successfully: (.+)$/)
   if (!match) return []
 
   return [{

@@ -134,11 +134,13 @@ function formatTime(timestamp: number): string {
   font-size: 14px;
   line-height: 1.6;
   color: var(--text-primary);
+  user-select: text;
 
   p {
     white-space: pre-wrap;
     word-break: break-word;
     margin: 0;
+    user-select: text;
   }
 }
 
