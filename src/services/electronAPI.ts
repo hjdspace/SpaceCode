@@ -14,6 +14,14 @@ export interface FileStat {
   mtime: number
 }
 
+export interface FileSearchEntry {
+  name: string
+  path: string
+  relativePath: string
+  isDirectory: boolean
+  isFile: boolean
+}
+
 export const api = {
   sendMessage: (text: string) => electronAPI?.sendMessage(text) || Promise.resolve({ success: false }),
   onMessage: (callback: (msg: any) => void) => electronAPI?.onMessage(callback),
@@ -21,6 +29,12 @@ export const api = {
   readDir: (dirPath: string): Promise<FileEntry[]> => electronAPI?.readDir(dirPath) || Promise.resolve([]),
   readFile: (filePath: string): Promise<string | null> => electronAPI?.readFile(filePath) || Promise.resolve(null),
   stat: (filePath: string): Promise<FileStat | null> => electronAPI?.stat(filePath) || Promise.resolve(null),
+  searchFiles: (dirPath: string, query: string, options?: { maxResults?: number }): Promise<FileSearchEntry[]> => {
+    if (electronAPI?.searchFiles) {
+      return electronAPI.searchFiles(dirPath, query, options)
+    }
+    return Promise.resolve([])
+  },
   getEnv: (key: string): Promise<string | undefined> => {
     if (electronAPI?.getEnv) {
       return electronAPI.getEnv(key)

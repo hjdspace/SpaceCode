@@ -18,7 +18,7 @@
       <ToolCallList v-if="message.toolCalls?.length" :tool-calls="message.toolCalls" />
       
       <!-- 消息内容 -->
-      <div class="message-content">
+      <div class="message-content" v-if="message.content">
         <MarkdownRenderer 
           v-if="message.role === 'assistant'" 
           :content="message.content" 
@@ -27,7 +27,7 @@
       </div>
       
       <!-- 元数据 -->
-      <MessageMetadata v-if="message.role === 'assistant'" :metadata="message.metadata" />
+      <MessageMetadata v-if="message.role === 'assistant' && message.metadata" :metadata="message.metadata" />
     </div>
   </div>
 </template>

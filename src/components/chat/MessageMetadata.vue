@@ -38,16 +38,21 @@ const tokenText = computed(() => {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 8px;
-  padding-top: 8px;
-  font-size: 12px;
-  color: #9ca3af;
-  border-top: 1px solid var(--surface-border);
+  margin-top: 6px;
+  padding-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.7;
+  transition: opacity var(--transition-fast);
+
+  &:hover {
+    opacity: 1;
+  }
 
   span:not(:last-child)::after {
     content: '·';
     margin-left: 8px;
-    opacity: 0.6;
+    opacity: 0.5;
   }
 }
 </style>

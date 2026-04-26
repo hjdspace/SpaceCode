@@ -252,6 +252,106 @@ ipcMain.handle('fs:stat', async (_event, filePath: string) => {
   }
 })
 
+// Recursive file search — returns files and directories matching a query
+ipcMain.handle('fs:searchFiles', async (_event, dirPath: string, query: string, options?: { maxResults?: number }) => {
+  try {
+    const maxResults = options?.maxResults || 100
+    const results: Array<{ name: string; path: string; relativePath: string; isDirectory: boolean; isFile: boolean }> = []
+    const ignoreDirs = new Set(['node_modules', '.git', 'dist', 'dist-electron', '.next', '.nuxt', '.cache', '__pycache__', '.venv', 'vendor', 'build', 'out', '.tox', 'target'])
+
+    if (!query) {
+      // No query: return top-level entries (like current readDir but with relativePath)
+      const entries = readdirSync(dirPath, { withFileTypes: true })
+      for (const entry of entries) {
+        if (entry.name.startsWith('.') && entry.name !== '.claude') continue
+        if (ignoreDirs.has(entry.name)) continue
+        results.push({
+          name: entry.name,
+          path: join(dirPath, entry.name),
+          relativePath: entry.name,
+          isDirectory: entry.isDirectory(),
+          isFile: entry.isFile()
+        })
+      }
+      // Sort: directories first
+      results.sort((a, b) => {
+        if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
+        return a.name.localeCompare(b.name)
+      })
+      return results.slice(0, maxResults)
+    }
+
+    // With query: recursive search with fuzzy matching
+    const q = query.toLowerCase()
+    const visited = new Set<string>()
+
+    async function walkDir(currentPath: string, depth: number): Promise<void> {
+      if (results.length >= maxResults) return
+      if (depth > 8) return
+
+      let entries
+      try {
+        entries = readdirSync(currentPath, { withFileTypes: true })
+      } catch {
+        return
+      }
+
+      // Sort entries for consistent ordering: directories first, then alphabetical
+      const sorted = entries
+        .filter(e => !e.name.startsWith('.') && !ignoreDirs.has(e.name))
+        .sort((a, b) => {
+          if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1
+          return a.name.localeCompare(b.name)
+        })
+
+      for (const entry of sorted) {
+        if (results.length >= maxResults) return
+
+        const fullPath = join(currentPath, entry.name)
+        const relativePath = fullPath.slice(dirPath.length + 1).replace(/\\/g, '/')
+        const nameLower = entry.name.toLowerCase()
+        const relativeLower = relativePath.toLowerCase()
+
+        // Fuzzy match: query appears in filename or path
+        if (nameLower.includes(q) || relativeLower.includes(q)) {
+          // Deduplicate by path
+          if (!visited.has(fullPath)) {
+            visited.add(fullPath)
+            results.push({
+              name: entry.name,
+              path: fullPath,
+              relativePath,
+              isDirectory: entry.isDirectory(),
+              isFile: entry.isFile()
+            })
+          }
+        }
+
+        // Recurse into directories
+        if (entry.isDirectory()) {
+          await walkDir(fullPath, depth + 1)
+        }
+      }
+    }
+
+    await walkDir(dirPath, 0)
+
+    // Re-sort: exact name match first, then starts-with, then contains, directories first
+    results.sort((a, b) => {
+      const aNameMatch = a.name.toLowerCase() === q ? 0 : a.name.toLowerCase().startsWith(q) ? 1 : 2
+      const bNameMatch = b.name.toLowerCase() === q ? 0 : b.name.toLowerCase().startsWith(q) ? 1 : 2
+      if (aNameMatch !== bNameMatch) return aNameMatch - bNameMatch
+      if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
+      return a.relativePath.localeCompare(b.relativePath)
+    })
+
+    return results
+  } catch (error) {
+    console.error('[fs:searchFiles] Error:', error)
+    return []
+  }
+})
+
 ipcMain.handle('env:get', async (_event, key: string) => {
   return process.env[key]
 })
@@ -410,7 +510,7 @@ function getClaudeSettingsPath(): string {
   return join(app.getPath('home'), '.claude', 'settings.json')
 }
 
-ipcMain.handle('settings:injectGuiModels', async (_event, models: { primaryModel: string; haikuModel?: string; sonnetModel?: string; opusModel?: string }) => {
+ipcMain.handle('settings:injectGuiModels', async (_event, models: { primaryModel: string; haikuModel?: string; sonnetModel?: string; opusModel?: string; effortLevel?: 'low' | 'medium' | 'high' | 'max' }) => {
   try {
     const settingsPath = getClaudeSettingsPath()
     let settings: any = {}
@@ -451,6 +551,13 @@ ipcMain.handle('settings:injectGuiModels', async (_event, models: { primaryModel
     // in getUserSpecifiedModelSetting) and can be freely overridden by /model.
     // Clear any stale settings.model that may have been set by a previous version.
     delete settings.model
+
+    // Inject effortLevel into settings so CLI reads it on startup
+    if (models.effortLevel) {
+      settings.effortLevel = models.effortLevel
+    } else {
+      delete settings.effortLevel
+    }
 
     // Write back
     const dirPath = join(app.getPath('home'), '.claude')

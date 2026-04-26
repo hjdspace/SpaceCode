@@ -10,6 +10,8 @@ export interface SessionConfig {
   model?: string
   /** CLI 支持的权限模式: acceptEdits, bypassPermissions, default, dontAsk, plan */
   permissionMode?: 'acceptEdits' | 'bypassPermissions' | 'default' | 'dontAsk' | 'plan'
+  /** 推理深度: low, medium, high, max */
+  effortLevel?: 'low' | 'medium' | 'high' | 'max'
   systemPrompt?: string
   appendSystemPrompt?: string
   maxTurns?: number
@@ -192,6 +194,7 @@ export class ClaudeCodeProcessManager extends EventEmitter {
     ]
     if (config.model) args.push('--model', config.model)
     if (config.permissionMode) args.push('--permission-mode', config.permissionMode)
+    if (config.effortLevel) args.push('--effort', config.effortLevel)
     if (config.systemPrompt) args.push('--system-prompt', config.systemPrompt)
     if (config.appendSystemPrompt) args.push('--append-system-prompt', config.appendSystemPrompt)
     if (config.maxTurns) args.push('--max-turns', String(config.maxTurns))
@@ -280,18 +283,62 @@ export class ClaudeCodeProcessManager extends EventEmitter {
 
   private handleSDKMessage(msg: any) {
     switch (msg.type) {
-      case 'assistant':
+      case 'assistant': {
+        // Agent 完整响应（包含思考过程、工具调用等）
+        const content = msg.message?.content
+        let textPreview = ''
+        let reasoningPreview = ''
+        let toolNames: string[] = []
+
+        if (Array.isArray(content)) {
+          const textItem = content.find((c: any) => c.type === 'text')
+          const reasoningItem = content.find((c: any) => c.type === 'reasoning')
+          const toolUses = content.filter((c: any) => c.type === 'tool_use')
+
+          if (textItem?.text) textPreview = textItem.text.slice(0, 200)
+          if (reasoningItem?.reasoning || reasoningItem?.text) {
+            reasoningPreview = (reasoningItem.reasoning || reasoningItem.text).slice(0, 200)
+          }
+          toolNames = toolUses.map((t: any) => t.name)
+        } else if (typeof content === 'string') {
+          textPreview = content.slice(0, 200)
+        }
+
+        console.log('[LLM] Assistant response:', {
+          text: textPreview || '(no text)',
+          reasoning: reasoningPreview || '(no reasoning)',
+          tools: toolNames.length > 0 ? toolNames : '(no tools)'
+        })
         this.emit('assistant', msg)
         break
-      case 'user':
+      }
+      case 'user': {
+        // 用户输入消息
+        const userContent = msg.message?.content
+        const userText = typeof userContent === 'string'
+          ? userContent
+          : JSON.stringify(userContent)
+        console.log('[LLM] User message:', userText.slice(0, 200))
         this.emit('user', msg)
         break
-      case 'tool_use':
+      }
+      case 'tool_use': {
+        // 工具调用开始
+        const toolName = msg.name || msg.tool_use?.name
+        const toolInput = msg.input || msg.tool_use?.input
+        console.log('[LLM] Tool call:', toolName, '| Input:', JSON.stringify(toolInput).slice(0, 300))
         this.emit('tool_use', msg)
         break
-      case 'tool_result':
+      }
+      case 'tool_result': {
+        // 工具调用结果
+        const toolUseId = msg.tool_use_id || msg.tool_result?.tool_use_id
+        const output = msg.output || msg.tool_result?.output
+        const isError = msg.is_error || msg.tool_result?.is_error
+        console.log('[LLM] Tool result:', toolUseId, '| Status:', isError ? 'ERROR' : 'OK', '| Output:', String(output).slice(0, 300))
         this.emit('tool_result', msg)
         break
+      }
       case 'system':
         if (msg.subtype === 'compact_boundary')
           this.emit('compact', msg)
@@ -300,11 +347,22 @@ export class ClaudeCodeProcessManager extends EventEmitter {
         else
           this.emit('system', msg)
         break
-      case 'result':
-        this.emit('result', msg)
-        break
-      case 'stream_event':
+      case 'stream_event': {
+        // 流式事件（思考过程、文本增量）
+        const delta = msg.event?.delta
+        if (delta?.reasoning) {
+          console.log('[LLM] Thinking:', delta.reasoning.slice(0, 200))
+        } else if (delta?.text) {
+          // 流式文本增量（可选，可能会很多）
+          // console.log('[LLM] Stream text:', delta.text.slice(0, 100))
+        }
         this.emit('stream_event', msg)
+        break
+      }
+      case 'result':
+        // 对话结束
+        console.log('[LLM] Response complete')
+        this.emit('result', msg)
         break
       default:
         this.emit('unknown', msg)

@@ -1,19 +1,19 @@
 <template>
   <div class="reasoning-card" :class="{ 'is-thinking': isThinking, 'is-expanded': isExpanded }">
     <div class="reasoning-header" @click="toggleExpand">
-      <Lightbulb :size="16" class="reasoning-icon" />
+      <Brain :size="14" class="reasoning-icon" :class="{ 'pulse': isThinking }" />
       <span class="reasoning-title">
         <template v-if="isThinking">
-          思考中...
-          <span class="thinking-time">({{ elapsedTime }}s)</span>
+          Thinking
+          <span class="thinking-dots">{{ dots }}</span>
         </template>
         <template v-else>
-          思考了 {{ duration }} 秒
+          Thought for {{ duration }}s
         </template>
       </span>
-      <ChevronDown v-if="!isThinking" :size="16" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
+      <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
     </div>
-    <div v-show="isExpanded || isThinking" class="reasoning-content">
+    <div v-show="isExpanded" class="reasoning-content">
       <MarkdownRenderer :content="reasoning.content" />
     </div>
   </div>
@@ -21,22 +21,16 @@
 
 <script setup lang="ts">
 import type { ReasoningBlock } from '@/types'
-import { Lightbulb, ChevronDown } from 'lucide-vue-next'
+import { Brain, ChevronDown } from 'lucide-vue-next'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
-import { computed, ref, watch, onUnmounted } from 'vue'
+import { computed, ref, onUnmounted, onMounted } from 'vue'
 
 const props = defineProps<{
   reasoning: ReasoningBlock
 }>()
 
-const isExpanded = ref(props.reasoning.isExpanded ?? true)
+const isExpanded = ref(props.reasoning.isExpanded ?? false)
 const isThinking = computed(() => !props.reasoning.endTime)
-
-const elapsedTime = computed(() => {
-  const now = Date.now()
-  const start = props.reasoning.startTime
-  return ((now - start) / 1000).toFixed(1)
-})
 
 const duration = computed(() => {
   if (!props.reasoning.endTime) return '0.0'
@@ -49,80 +43,110 @@ function toggleExpand() {
   }
 }
 
-// 思考中时自动刷新时间
-let interval: number | null = null
-watch(isThinking, (thinking) => {
-  if (thinking) {
-    interval = window.setInterval(() => {}, 100)
-  } else if (interval) {
-    clearInterval(interval)
-    interval = null
+// 动画dots
+const dots = ref('')
+let dotsInterval: number | null = null
+
+onMounted(() => {
+  if (isThinking.value) {
+    let count = 0
+    dotsInterval = window.setInterval(() => {
+      count = (count + 1) % 4
+      dots.value = '.'.repeat(count)
+    }, 500)
   }
-}, { immediate: true })
+})
 
 onUnmounted(() => {
-  if (interval) {
-    clearInterval(interval)
+  if (dotsInterval) {
+    clearInterval(dotsInterval)
   }
 })
 </script>
 
 <style lang="scss" scoped>
 .reasoning-card {
-  margin: 8px 0;
-  border-radius: 8px;
-  border-left: 3px solid #6366f1;
-  background: rgba(99, 102, 241, 0.05);
+  margin: 6px 0;
+  border-radius: 6px;
+  background: var(--surface-glass);
+  border: 1px solid var(--surface-border);
   overflow: hidden;
+  font-size: 13px;
 }
 
 .reasoning-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   cursor: pointer;
   user-select: none;
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
 
   &:hover {
-    background: rgba(99, 102, 241, 0.08);
+    background: var(--surface-glass-hover);
+    color: var(--text-secondary);
   }
 }
 
 .reasoning-icon {
-  color: #6366f1;
   flex-shrink: 0;
+  opacity: 0.7;
+
+  &.pulse {
+    animation: pulse 1.5s ease-in-out infinite;
+  }
 }
 
 .reasoning-title {
   flex: 1;
-  font-size: 14px;
-  color: #4b5563;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 450;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
-.thinking-time {
-  color: #6b7280;
-  font-weight: normal;
+.thinking-dots {
+  font-family: var(--font-mono);
+  opacity: 0.7;
+  min-width: 24px;
 }
 
 .expand-icon {
-  color: #9ca3af;
-  transition: transform 0.3s ease;
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: transform var(--transition-fast), opacity var(--transition-fast);
 
   &.is-expanded {
     transform: rotate(180deg);
   }
 }
 
+.reasoning-header:hover .expand-icon {
+  opacity: 0.8;
+}
+
 .reasoning-content {
-  padding: 0 12px 12px 36px;
-  font-size: 14px;
-  color: #4b5563;
+  padding: 8px 12px 12px 34px;
+  font-size: 13px;
+  color: var(--text-secondary);
   line-height: 1.6;
+  border-top: 1px solid var(--surface-border);
+  background: var(--bg-secondary);
 }
 
 .is-thinking .reasoning-header {
   cursor: default;
+
+  &:hover {
+    background: transparent;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
 }
 </style>

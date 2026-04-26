@@ -438,7 +438,7 @@ export const useChatStore = defineStore('chat', () => {
       const handleStreamEvent = (streamEvent: any) => {
         if (isCompleted) return
         const event = streamEvent.event || streamEvent
-        
+
         // 处理文本增量
         if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta?.text) {
           accumulatedContent += event.delta.text
@@ -447,10 +447,9 @@ export const useChatStore = defineStore('chat', () => {
             updateMessage(assistantMessageId, { content: accumulatedContent })
           })
         }
-        
-        // 处理 reasoning 增量
+
+        // 处理 reasoning 增量（思考过程）
         if (event.type === 'content_block_delta' && event.delta?.type === 'reasoning_delta' && event.delta?.reasoning) {
-          console.log('[ChatStore] Reasoning delta received:', event.delta.reasoning.substring(0, 100))
           const session = sessions.value.find(s => s.id === currentSessionId.value)
           if (session) {
             const msg = session.messages.find(m => m.id === assistantMessageId)
@@ -470,25 +469,16 @@ export const useChatStore = defineStore('chat', () => {
       }
 
       const handleAssistant = (assistant: any) => {
-        console.log('[ChatStore] Assistant message received:', JSON.stringify(assistant, null, 2).substring(0, 500))
         if (isCompleted) return
-        // 从 assistant.message.content 中提取文本
         if (assistant.message?.content) {
           const content = assistant.message.content
           if (Array.isArray(content)) {
-            // content 是数组，提取所有 text 类型的文本
-            const text = content
-              .filter((c: any) => c.type === 'text')
-              .map((c: any) => c.text)
-              .join('')
-            accumulatedContent = text
-            
             // 从 content 中提取 reasoning 类型的内容
             const reasoningContent = content
               .filter((c: any) => c.type === 'reasoning')
               .map((c: any) => c.reasoning || c.text)
               .join('')
-            
+
             if (reasoningContent) {
               const session = sessions.value.find(s => s.id === currentSessionId.value)
               if (session) {
@@ -507,7 +497,7 @@ export const useChatStore = defineStore('chat', () => {
                 }
               }
             }
-            
+
             // 从 content 中提取 tool_use 类型的内容
             const toolUses = content.filter((c: any) => c.type === 'tool_use')
             for (const toolUse of toolUses) {
@@ -525,35 +515,25 @@ export const useChatStore = defineStore('chat', () => {
                       status: 'running',
                       startTime: Date.now()
                     }]
-                    console.log('[ChatStore] Tool call added from assistant message:', toolUse.id, toolUse.name)
                     saveToStorage()
                   }
                 }
               }
             }
-          } else if (typeof content === 'string') {
-            accumulatedContent = content
           }
-          streamingContent.value = accumulatedContent
-          nextTick(() => {
-            updateMessage(assistantMessageId, { content: accumulatedContent })
-          })
         }
       }
 
       const handleToolUse = (toolUse: any) => {
-        console.log('[ChatStore] Tool use received:', JSON.stringify(toolUse, null, 2))
         const session = sessions.value.find(s => s.id === currentSessionId.value)
         if (session) {
           const msg = session.messages.find(m => m.id === assistantMessageId)
           if (msg) {
             // 从 tool_use 事件中提取工具调用信息
-            // 数据结构可能是: { type: 'tool_use', id: '...', name: '...', input: {...} }
-            // 或者: { type: 'tool_use', tool_use: { id: '...', name: '...', input: {...} } }
             const toolId = toolUse.id || toolUse.tool_use?.id || crypto.randomUUID()
             const toolName = toolUse.name || toolUse.tool_use?.name || 'Unknown Tool'
             const toolInput = toolUse.input || toolUse.tool_use?.input || {}
-            
+
             // 创建新的工具调用数组以触发响应式更新
             msg.toolCalls = [...(msg.toolCalls || []), {
               id: toolId,
@@ -562,28 +542,21 @@ export const useChatStore = defineStore('chat', () => {
               status: 'running',
               startTime: Date.now()
             }]
-            console.log('[ChatStore] Tool call added:', toolId, toolName)
             saveToStorage()
           }
         }
       }
 
       const handleToolResult = (toolResult: any) => {
-        console.log('[ChatStore] Tool result received:', JSON.stringify(toolResult, null, 2))
         const session = sessions.value.find(s => s.id === currentSessionId.value)
         if (session) {
           const msg = session.messages.find(m => m.id === assistantMessageId)
           if (msg?.toolCalls) {
             // 从 tool_result 事件中提取结果信息
-            // 数据结构可能是: { type: 'tool_result', tool_use_id: '...', output: '...' }
-            // 或者: { type: 'tool_result', tool_result: { tool_use_id: '...', output: '...' } }
             const resultToolUseId = toolResult.tool_use_id || toolResult.tool_result?.tool_use_id
             const resultOutput = toolResult.output || toolResult.tool_result?.output
             const resultIsError = toolResult.is_error || toolResult.tool_result?.is_error
-            
-            console.log('[ChatStore] Looking for tool call with ID:', resultToolUseId)
-            console.log('[ChatStore] Available tool calls:', msg.toolCalls.map(tc => ({ id: tc.id, name: tc.name, status: tc.status })))
-            
+
             const toolCallIndex = msg.toolCalls.findIndex(tc => tc.id === resultToolUseId)
             if (toolCallIndex >= 0) {
               // 创建新的工具调用数组以触发响应式更新
@@ -595,16 +568,9 @@ export const useChatStore = defineStore('chat', () => {
                 endTime: Date.now()
               }
               msg.toolCalls = updatedToolCalls
-              console.log('[ChatStore] Tool call completed:', resultToolUseId)
               saveToStorage()
-            } else {
-              console.log('[ChatStore] Tool call not found for result:', resultToolUseId)
             }
-          } else {
-            console.log('[ChatStore] No tool calls found in message')
           }
-        } else {
-          console.log('[ChatStore] No session found')
         }
       }
 
@@ -613,7 +579,7 @@ export const useChatStore = defineStore('chat', () => {
         isCompleted = true
         streamingContent.value = ''
         isLoading.value = false
-        
+
         // 标记 reasoning 完成并添加元数据
         const session = sessions.value.find(s => s.id === currentSessionId.value)
         if (session) {
@@ -631,13 +597,12 @@ export const useChatStore = defineStore('chat', () => {
             saveToStorage()
           }
         }
-        
+
         cleanup()
         resolve()
       }
 
       const handleUser = (userMsg: any) => {
-        console.log('[ChatStore] User message received:', JSON.stringify(userMsg, null, 2).substring(0, 500))
         // 处理 user 消息中的 tool_result
         if (userMsg.message?.content && Array.isArray(userMsg.message.content)) {
           const toolResults = userMsg.message.content.filter((c: any) => c.type === 'tool_result')
@@ -657,7 +622,6 @@ export const useChatStore = defineStore('chat', () => {
                     endTime: Date.now()
                   }
                   msg.toolCalls = updatedToolCalls
-                  console.log('[ChatStore] Tool call completed from user message:', toolResult.tool_use_id)
                   saveToStorage()
                 }
               }

@@ -1,38 +1,5 @@
 <template>
   <div ref="containerRef" class="chat-input-container">
-    <!-- 附件列表显示在输入框上方 -->
-    <Transition name="attachments">
-      <div v-if="attachedFiles.length > 0" class="attachments-bar">
-        <div class="attachment-list">
-          <div
-            v-for="(file, index) in attachedFiles"
-            :key="file.path"
-            class="attachment-chip"
-            :class="{ 'is-folder': file.isFolder }"
-          >
-            <component :is="file.isFolder ? Folder : FileText" :size="14" />
-            <span class="attachment-name">{{ file.name }}</span>
-            <button class="remove-btn" @click="removeAttachment(index)">
-              <X :size="12" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </Transition>
-
-    <!-- 命令 Badge 显示 -->
-    <Transition name="badge">
-      <div v-if="activeBadge" class="command-badge-bar">
-        <div class="command-badge" :class="`badge-kind-${activeBadge.kind}`">
-          <span class="badge-label">/{{ activeBadge.label }}</span>
-          <span class="badge-description">{{ activeBadge.description }}</span>
-          <button class="badge-remove" @click="clearBadge">
-            <X :size="12" />
-          </button>
-        </div>
-      </div>
-    </Transition>
-
     <!-- 斜杠命令弹窗 -->
     <Transition name="dropdown">
       <div
@@ -107,7 +74,11 @@
         </div>
         <div class="dropdown-section-title">添加上下文</div>
         <div class="dropdown-list" ref="contextListRef">
-          <div v-if="filteredContextItems.length === 0" class="dropdown-empty">
+          <div v-if="isLoadingContext" class="dropdown-loading">
+            <Loader2 :size="16" class="spin" />
+            <span>搜索中...</span>
+          </div>
+          <div v-else-if="filteredContextItems.length === 0" class="dropdown-empty">
             <span>未找到匹配的文件或文件夹</span>
           </div>
           <button
@@ -126,7 +97,7 @@
             />
             <div class="item-content">
               <span class="item-name">{{ item.name }}</span>
-              <span class="item-path">{{ item.path }}</span>
+              <span class="item-path">{{ item.relativePath }}</span>
             </div>
           </button>
         </div>
@@ -139,19 +110,31 @@
     </Transition>
 
     <div class="input-wrapper" :class="{ 'has-content': hasContent, 'is-sending': isSending }">
-      <!-- 文本输入区域 -->
+      <!-- 命令 Badge — 嵌入输入框内部 -->
+      <Transition name="badge">
+        <div v-if="activeBadge" class="command-badge-bar">
+          <div class="command-badge" :class="`badge-kind-${activeBadge.kind}`">
+            <span class="badge-label">/{{ activeBadge.label }}</span>
+            <span class="badge-description">{{ activeBadge.description }}</span>
+            <button class="badge-remove" @click="clearBadge">
+              <X :size="12" />
+            </button>
+          </div>
+        </div>
+      </Transition>
+
+      <!-- 文本输入区域 — contenteditable 支持内联 chip -->
       <div class="textarea-wrapper">
-        <textarea
-          ref="textareaRef"
-          v-model="inputText"
-          :placeholder="placeholder"
-          rows="1"
-          :disabled="disabled || isSending"
-          @keydown.enter.exact.prevent="handleSend"
-          @input="handleInput"
-          @keydown="handleTextareaKeydown"
-          @click="handleTextareaClick"
-        ></textarea>
+        <div
+          ref="editorRef"
+          class="inline-editor"
+          contenteditable="true"
+          :data-placeholder="placeholder"
+          @input="handleEditorInput"
+          @keydown="handleEditorKeydown"
+          @click="handleEditorClick"
+          @paste="handleEditorPaste"
+        ></div>
       </div>
 
       <!-- 底部工具栏：+ 号、模型选择、发送按钮 -->
@@ -235,7 +218,7 @@
             </Transition>
           </div>
 
-          <!-- 模式选择器 (类似 Medium) -->
+          <!-- 推理深度选择器 -->
           <div class="mode-selector">
             <button class="toolbar-btn mode-btn" @click="showModeDropdown = !showModeDropdown">
               <span class="mode-name">{{ selectedMode }}</span>
@@ -264,7 +247,7 @@
         <!-- 发送/停止按钮 -->
         <button
           class="send-btn"
-          :class="{ 'has-content': hasContent || attachedFiles.length > 0, 'is-sending': props.isSending }"
+          :class="{ 'has-content': hasContent, 'is-sending': props.isSending }"
           :disabled="disabled && !props.isSending"
           @click.stop.prevent="handleSendOrStop"
         >
@@ -326,6 +309,7 @@ interface SlashCommand {
 interface ContextItem {
   name: string
   path: string
+  relativePath: string
   type: 'file' | 'directory'
 }
 
@@ -338,6 +322,7 @@ const emit = defineEmits<{
   send: [content: string, attachments: Attachment[], options?: SendOptions]
   'slash-command': [command: string, args: string, attachments: Attachment[]]
   'update:model': [model: string]
+  'update:effort': [effort: string]
   'open-skills': []
   stop: []
 }>()
@@ -355,7 +340,7 @@ const skillsStore = useSkillsStore()
 const appStore = useAppStore()
 
 const inputText = ref('')
-const textareaRef = ref<HTMLTextAreaElement | null>(null)
+const editorRef = ref<HTMLElement | null>(null)
 const containerRef = ref<HTMLElement | null>(null)
 const showModelDropdown = ref(false)
 const showModeDropdown = ref(false)
@@ -378,9 +363,9 @@ const isLoadingModels = ref(false)
 const modelLoadError = ref<string | null>(null)
 const fetchedModels = ref<ModelOption[]>([])
 
-// 模式列表
-const availableModes = ['Speed', 'Balance', 'Quality']
-const selectedMode = ref('Balance')
+// 推理深度 (effort level)
+const availableModes = ['low', 'medium', 'high', 'max']
+const selectedMode = ref('high')
 
 // 斜杠命令相关
 const showSlashCommandMenu = ref(false)
@@ -450,14 +435,9 @@ const filteredSlashCommands = computed<SlashCommand[]>(() => {
   )
 })
 
-// 过滤后的上下文项
+// 过滤后的上下文项（服务端已搜索，客户端直接使用）
 const filteredContextItems = computed<ContextItem[]>(() => {
-  if (!contextSearchQuery.value) return contextItems.value
-  const query = contextSearchQuery.value.toLowerCase()
-  return contextItems.value.filter(item =>
-    item.name.toLowerCase().includes(query) ||
-    item.path.toLowerCase().includes(query)
-  )
+  return contextItems.value
 })
 
 // 硬编码的默认模型（作为后备）
@@ -583,8 +563,175 @@ const selectedModelLabel = computed(() => {
   return model?.label || selectedModel.value || 'Select Model'
 })
 
-const hasContent = computed(() => inputText.value.trim().length > 0)
-const canSend = computed(() => (hasContent.value || attachedFiles.value.length > 0) && !props.isSending)
+const hasContent = computed(() => {
+  const editor = editorRef.value
+  if (!editor) return false
+  // Check if there's any text or chip nodes
+  if (editor.textContent?.trim()) return true
+  return editor.querySelectorAll('.mention-chip').length > 0
+})
+const canSend = computed(() => (hasContent.value) && !props.isSending)
+
+// ─── ContentEditable Utilities ───────────────────────────────
+
+/** Extract plain text from contenteditable, replacing chips with @path markers */
+function getEditorPlainText(): string {
+  const editor = editorRef.value
+  if (!editor) return ''
+
+  function walkNodes(parent: Node): string {
+    let text = ''
+    for (const node of Array.from(parent.childNodes)) {
+      if (node instanceof Element && node.classList.contains('mention-chip')) {
+        const path = node.getAttribute('data-path') || ''
+        const isFolder = node.getAttribute('data-is-folder') === 'true'
+        text += isFolder ? `@folder:"${path}" ` : `@file:"${path}" `
+      } else if (node.nodeType === Node.TEXT_NODE) {
+        text += node.textContent || ''
+      } else if (node instanceof Element && node.tagName === 'BR') {
+        text += '\n'
+      } else if (node instanceof Element) {
+        // Recursively handle nested elements (e.g., <div> from Enter key)
+        text += walkNodes(node)
+        // Add newline after block elements (except last)
+        if (node.tagName === 'DIV' && node.nextSibling) {
+          text += '\n'
+        }
+      }
+    }
+    return text
+  }
+
+  return walkNodes(editor)
+}
+
+/** Extract text before cursor in the contenteditable */
+function getTextBeforeCursor(): string {
+  const sel = window.getSelection()
+  if (!sel || !sel.rangeCount) return ''
+
+  const range = sel.getRangeAt(0)
+  const preRange = range.cloneRange()
+  preRange.selectNodeContents(editorRef.value!)
+  preRange.setEnd(range.startContainer, range.startOffset)
+  return preRange.toString()
+}
+
+/** Get cursor offset relative to editor text content start */
+function getCursorOffset(): number {
+  return getTextBeforeCursor().length
+}
+
+/** Set cursor to end of editor content */
+function setCursorToEnd() {
+  const editor = editorRef.value
+  if (!editor) return
+  const sel = window.getSelection()
+  if (!sel) return
+  const range = document.createRange()
+  range.selectNodeContents(editor)
+  range.collapse(false)
+  sel.removeAllRanges()
+  sel.addRange(range)
+}
+
+/** Insert an inline mention chip at current cursor position */
+function insertMentionChip(name: string, path: string, isFolder: boolean) {
+  const editor = editorRef.value
+  if (!editor) return
+
+  const sel = window.getSelection()
+  if (!sel || !sel.rangeCount) return
+
+  const range = sel.getRangeAt(0)
+
+  // Create the chip span
+  const chip = document.createElement('span')
+  chip.className = `mention-chip${isFolder ? ' is-folder' : ''}`
+  chip.setAttribute('contenteditable', 'false')
+  chip.setAttribute('data-path', path)
+  chip.setAttribute('data-is-folder', String(isFolder))
+
+  // Inner structure: icon + name
+  const icon = document.createElement('span')
+  icon.className = 'chip-icon'
+  // Use a simple text marker; Vue can't hydrate inside contenteditable
+  icon.textContent = isFolder ? '📁' : '📄'
+
+  const nameSpan = document.createElement('span')
+  nameSpan.className = 'chip-name'
+  nameSpan.textContent = name
+
+  chip.appendChild(icon)
+  chip.appendChild(nameSpan)
+
+  // Insert chip and a trailing space
+  range.deleteContents()
+  range.insertNode(chip)
+
+  // Move cursor after chip
+  const afterRange = document.createRange()
+  afterRange.setStartAfter(chip)
+  afterRange.collapse(true)
+  sel.removeAllRanges()
+  sel.addRange(afterRange)
+
+  // Insert trailing space
+  const spaceNode = document.createTextNode('\u00A0')
+  afterRange.insertNode(spaceNode)
+
+  // Move cursor after space
+  const finalRange = document.createRange()
+  finalRange.setStartAfter(spaceNode)
+  finalRange.collapse(true)
+  sel.removeAllRanges()
+  sel.addRange(finalRange)
+
+  // Sync plain text
+  inputText.value = getEditorPlainText()
+}
+
+/** Remove a chip when its close button is clicked (not used inline — backspace handles it) */
+function removeChipAtElement(chipEl: Element) {
+  const editor = editorRef.value
+  if (!editor) return
+
+  // Remove trailing space if exists
+  const next = chipEl.nextSibling
+  if (next && next.nodeType === Node.TEXT_NODE && next.textContent === '\u00A0') {
+    next.remove()
+  }
+  chipEl.remove()
+  inputText.value = getEditorPlainText()
+}
+
+/** Set editor content from plain text (used for clearing) */
+function setEditorContent(text: string) {
+  const editor = editorRef.value
+  if (!editor) return
+  editor.textContent = text
+  inputText.value = text
+}
+
+/** Clear editor content */
+function clearEditor() {
+  const editor = editorRef.value
+  if (!editor) return
+  editor.innerHTML = ''
+  inputText.value = ''
+}
+
+/** Collect all mention chips data from editor */
+function collectMentions(): Attachment[] {
+  const editor = editorRef.value
+  if (!editor) return []
+  const chips = editor.querySelectorAll('.mention-chip')
+  return Array.from(chips).map(chip => ({
+    name: chip.querySelector('.chip-name')?.textContent || '',
+    path: chip.getAttribute('data-path') || '',
+    isFolder: chip.getAttribute('data-is-folder') === 'true'
+  }))
+}
 
 // 从 BASE_URL 获取模型列表
 async function fetchModelsFromBaseUrl() {
@@ -678,7 +825,8 @@ function toggleModelDropdown() {
 }
 
 // 处理输入
-function handleInput() {
+function handleEditorInput() {
+  inputText.value = getEditorPlainText()
   autoResize()
   checkSlashTrigger()
   checkContextTrigger()
@@ -686,19 +834,20 @@ function handleInput() {
 
 // 自动调整高度
 function autoResize() {
-  if (textareaRef.value) {
-    textareaRef.value.style.height = 'auto'
-    textareaRef.value.style.height = Math.min(textareaRef.value.scrollHeight, 200) + 'px'
+  const editor = editorRef.value
+  if (editor) {
+    // Reset height to auto to get correct scrollHeight
+    editor.style.height = 'auto'
+    editor.style.height = Math.min(editor.scrollHeight, 200) + 'px'
   }
 }
 
 // 检查斜杠触发
 function checkSlashTrigger() {
-  const textarea = textareaRef.value
-  if (!textarea) return
+  const editor = editorRef.value
+  if (!editor) return
 
-  const cursorPosition = textarea.selectionStart
-  const textBeforeCursor = inputText.value.slice(0, cursorPosition)
+  const textBeforeCursor = getTextBeforeCursor()
 
   // 检查是否在一行的开始处输入了 /
   const lastNewLine = textBeforeCursor.lastIndexOf('\n')
@@ -713,11 +862,10 @@ function checkSlashTrigger() {
     slashSearchQuery.value = slashMatch[1] || ''
     highlightedSlashCommand.value = filteredSlashCommands.value[0]?.name || null
 
-    // 计算菜单位置，保持焦点在 textarea
+    // 计算菜单位置，保持焦点在 editor
     nextTick(() => {
       updateSlashMenuPosition()
-      // 保持焦点在 textarea，不自动聚焦到搜索框
-      textareaRef.value?.focus()
+      editorRef.value?.focus()
     })
   } else if (!textAfterLastNewLine.startsWith('/')) {
     closeSlashCommandMenu()
@@ -732,11 +880,10 @@ function checkSlashTrigger() {
 
 // 检查 @ 上下文触发
 function checkContextTrigger() {
-  const textarea = textareaRef.value
-  if (!textarea) return
+  const editor = editorRef.value
+  if (!editor) return
 
-  const cursorPosition = textarea.selectionStart
-  const textBeforeCursor = inputText.value.slice(0, cursorPosition)
+  const textBeforeCursor = getTextBeforeCursor()
 
   // 查找最近的 @ 符号
   const lastAtIndex = textBeforeCursor.lastIndexOf('@')
@@ -755,45 +902,54 @@ function checkContextTrigger() {
   }
 
   // 显示上下文菜单
+  const wasClosed = !showContextMenu.value
+  const previousQuery = contextSearchQuery.value
   contextTriggerPosition.value = lastAtIndex
   showContextMenu.value = true
   contextSearchQuery.value = textAfterAt
 
-  // 加载上下文项目
-  loadContextItems()
+  // Search when: menu just opened, or query changed
+  if (wasClosed || textAfterAt !== previousQuery) {
+    loadContextItems()
+  }
 
   nextTick(() => {
     updateContextMenuPosition()
-    // 保持焦点在 textarea，不自动聚焦到搜索框
-    textareaRef.value?.focus()
+    editorRef.value?.focus()
   })
 }
 
-// 加载上下文项目（文件和文件夹）
+// 加载上下文项目（文件和文件夹）- 递归搜索整个工作区
+let searchAbortController: AbortController | null = null
+
 async function loadContextItems() {
   if (!props.workingDirectory) return
 
+  // Cancel previous search if still in flight
+  if (searchAbortController) {
+    searchAbortController = null
+  }
+
   isLoadingContext.value = true
   try {
-    // 使用 readDir API 获取文件列表
-    const entries = await api.readDir(props.workingDirectory)
+    const query = contextSearchQuery.value
+    const entries = await api.searchFiles(props.workingDirectory, query, { maxResults: 100 })
+
+    // Check if this search is still current (user hasn't closed the menu)
+    if (!showContextMenu.value) return
+
     const items: ContextItem[] = entries.map(entry => ({
       name: entry.name,
-      path: entry.name,
+      path: entry.path,
+      relativePath: entry.relativePath,
       type: entry.isDirectory ? 'directory' : 'file'
     }))
 
-    // 文件夹排在前面，然后按名称排序
-    items.sort((a, b) => {
-      if (a.type === b.type) {
-        return a.name.localeCompare(b.name)
-      }
-      return a.type === 'directory' ? -1 : 1
-    })
-
-    contextItems.value = items.slice(0, 50) // 限制显示数量
+    contextItems.value = items
     if (items.length > 0) {
       highlightedContextItem.value = items[0].path
+    } else {
+      highlightedContextItem.value = null
     }
   } catch (error) {
     console.error('Failed to load context items:', error)
@@ -806,15 +962,15 @@ async function loadContextItems() {
 // 更新斜杠菜单位置 - 在输入框上方弹出，与容器左对齐
 function updateSlashMenuPosition() {
   const container = containerRef.value
-  const textarea = textareaRef.value
-  if (!container || !textarea) return
+  const editor = editorRef.value
+  if (!container || !editor) return
 
   const containerRect = container.getBoundingClientRect()
-  const textareaRect = textarea.getBoundingClientRect()
+  const editorRect = editor.getBoundingClientRect()
 
   // 菜单从输入框顶部向上弹出，与容器左边缘对齐
   slashMenuPosition.value = {
-    bottom: `${window.innerHeight - textareaRect.top + 8}px`,
+    bottom: `${window.innerHeight - editorRect.top + 8}px`,
     left: `${containerRect.left}px`
   }
 }
@@ -822,15 +978,15 @@ function updateSlashMenuPosition() {
 // 更新上下文菜单位置 - 在输入框上方弹出，与容器左对齐
 function updateContextMenuPosition() {
   const container = containerRef.value
-  const textarea = textareaRef.value
-  if (!container || !textarea) return
+  const editor = editorRef.value
+  if (!container || !editor) return
 
   const containerRect = container.getBoundingClientRect()
-  const textareaRect = textarea.getBoundingClientRect()
+  const editorRect = editor.getBoundingClientRect()
 
   // 菜单从输入框顶部向上弹出，与容器左边缘对齐
   contextMenuPosition.value = {
-    bottom: `${window.innerHeight - textareaRect.top + 8}px`,
+    bottom: `${window.innerHeight - editorRect.top + 8}px`,
     left: `${containerRect.left}px`
   }
 }
@@ -839,14 +995,14 @@ function updateContextMenuPosition() {
 function selectSlashCommand(cmd: SlashCommand) {
   if (cmd.immediate || cmd.kind === 'immediate') {
     closeSlashCommandMenu()
-    inputText.value = ''
+    clearEditor()
     emit('slash-command', cmd.name, '', attachedFiles.value)
     return
   }
 
   // 非立即执行命令：直接设置为 badge
   closeSlashCommandMenu()
-  inputText.value = ''
+  clearEditor()
 
   activeBadge.value = {
     command: `/${cmd.name}`,
@@ -855,32 +1011,93 @@ function selectSlashCommand(cmd: SlashCommand) {
     kind: cmd.kind || 'slash_command'
   }
 
-  // 聚焦回 textarea
+  // 聚焦回 editor
   nextTick(() => {
-    textareaRef.value?.focus()
+    editorRef.value?.focus()
     autoResize()
   })
 }
 
-// 选择上下文项
+// 选择上下文项 — 在光标位置插入 inline mention chip
 function selectContextItem(item: ContextItem) {
-  const beforeTrigger = inputText.value.slice(0, contextTriggerPosition.value)
-  const afterTrigger = inputText.value.slice(textareaRef.value?.selectionStart || 0)
+  const editor = editorRef.value
+  if (!editor) return
 
-  // 使用特殊格式嵌入上下文
-  const contextTag = item.type === 'directory'
-    ? `@folder:"${item.path}"`
-    : `@file:"${item.path}"`
+  // First, remove the @trigger and search text from the editor
+  removeTriggerText(contextTriggerPosition.value, contextSearchQuery.value.length + 1) // +1 for @ char
 
-  inputText.value = beforeTrigger + contextTag + ' ' + afterTrigger
   closeContextMenu()
 
-  // 聚焦回 textarea
+  // Insert inline chip at current cursor position
+  insertMentionChip(item.relativePath || item.name, item.path, item.type === 'directory')
+
+  // Also add to attachedFiles for the send logic
+  if (!attachedFiles.value.some(f => f.path === item.path)) {
+    attachedFiles.value.push({
+      name: item.relativePath || item.name,
+      path: item.path,
+      isFolder: item.type === 'directory'
+    })
+  }
+
+  // 聚焦回 editor
   nextTick(() => {
-    textareaRef.value?.focus()
-    const newCursorPos = beforeTrigger.length + contextTag.length + 1
-    textareaRef.value?.setSelectionRange(newCursorPos, newCursorPos)
+    editorRef.value?.focus()
+    setCursorToEnd()
   })
+}
+
+/** Remove trigger text (@query or /query) from contenteditable by character offset
+ *  Offset is relative to ALL plain text content (including mention-chip text)
+ *  After removal, places cursor at the position where trigger was removed */
+function removeTriggerText(triggerOffset: number, length: number) {
+  const editor = editorRef.value
+  if (!editor) return
+
+  // Walk text nodes to find the trigger position and remove it
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null)
+  let charCount = 0
+  let node: Text | null
+  let remaining = length
+  let cursorNode: Text | null = null
+  let cursorOffset = 0
+
+  while ((node = walker.nextNode() as Text | null)) {
+    const nodeLen = node.textContent?.length || 0
+
+    if (charCount + nodeLen > triggerOffset && remaining > 0) {
+      const startInNode = Math.max(0, triggerOffset - charCount)
+      const deleteLen = Math.min(remaining, nodeLen - startInNode)
+
+      if (node.textContent) {
+        const before = node.textContent.slice(0, startInNode)
+        const after = node.textContent.slice(startInNode + deleteLen)
+        node.textContent = before + after
+        remaining -= deleteLen
+      }
+
+      // Record where to place cursor after deletion (at the start of removed text)
+      if (!cursorNode) {
+        cursorNode = node
+        cursorOffset = startInNode
+      }
+
+      if (remaining <= 0) break
+    }
+    charCount += nodeLen
+  }
+
+  // Place cursor at the position where trigger was removed
+  if (cursorNode) {
+    const sel = window.getSelection()
+    if (sel) {
+      const range = document.createRange()
+      range.setStart(cursorNode, cursorOffset)
+      range.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(range)
+    }
+  }
 }
 
 // 关闭斜杠命令菜单
@@ -899,25 +1116,40 @@ function closeContextMenu() {
   highlightedContextItem.value = null
 }
 
+// Handle paste — strip HTML, paste as plain text
+function handleEditorPaste(e: ClipboardEvent) {
+  e.preventDefault()
+  const text = e.clipboardData?.getData('text/plain') || ''
+  document.execCommand('insertText', false, text)
+}
+
+// Handle click in editor
+function handleEditorClick() {
+  setTimeout(() => {
+    checkSlashTrigger()
+    checkContextTrigger()
+  }, 0)
+}
+
 // 清除斜杠搜索 - 同时清除输入框中的 /
 function clearSlashSearch() {
+  const queryLen = slashSearchQuery.value.length
   slashSearchQuery.value = ''
   if (slashTriggerPosition.value >= 0) {
-    const beforeTrigger = inputText.value.slice(0, slashTriggerPosition.value)
-    const afterTrigger = inputText.value.slice(slashTriggerPosition.value + 1)
-    inputText.value = beforeTrigger + afterTrigger
-    textareaRef.value?.focus()
+    removeTriggerText(slashTriggerPosition.value, queryLen + 1) // +1 for /
+    inputText.value = getEditorPlainText()
+    editorRef.value?.focus()
   }
 }
 
 // 清除上下文搜索 - 同时清除输入框中的 @
 function clearContextSearch() {
+  const queryLen = contextSearchQuery.value.length
   contextSearchQuery.value = ''
   if (contextTriggerPosition.value >= 0) {
-    const beforeTrigger = inputText.value.slice(0, contextTriggerPosition.value)
-    const afterTrigger = inputText.value.slice(contextTriggerPosition.value + 1)
-    inputText.value = beforeTrigger + afterTrigger
-    textareaRef.value?.focus()
+    removeTriggerText(contextTriggerPosition.value, queryLen + 1) // +1 for @
+    inputText.value = getEditorPlainText()
+    editorRef.value?.focus()
   }
 }
 
@@ -929,7 +1161,7 @@ function handleSlashKeydown(event: KeyboardEvent) {
     case 'Escape':
       event.preventDefault()
       closeSlashCommandMenu()
-      textareaRef.value?.focus()
+      editorRef.value?.focus()
       break
     case 'ArrowDown':
       event.preventDefault()
@@ -964,7 +1196,7 @@ function handleContextKeydown(event: KeyboardEvent) {
     case 'Escape':
       event.preventDefault()
       closeContextMenu()
-      textareaRef.value?.focus()
+      editorRef.value?.focus()
       break
     case 'ArrowDown':
       event.preventDefault()
@@ -1042,15 +1274,20 @@ async function handleBrowseFiles() {
     const result = await api.selectFiles()
     if (!result.canceled && result.filePaths.length > 0) {
       for (const filePath of result.filePaths) {
-        const relativePath = props.workingDirectory
+        const name = props.workingDirectory
           ? filePath.replace(props.workingDirectory, '').replace(/^[/\\]/, '')
-          : filePath
+          : filePath.split(/[/\\]/).pop() || filePath
 
-        const beforeTrigger = inputText.value.slice(0, contextTriggerPosition.value)
-        const afterTrigger = inputText.value.slice(textareaRef.value?.selectionStart || 0)
-        const contextTag = `@file:"${relativePath}"`
-
-        inputText.value = beforeTrigger + contextTag + ' ' + afterTrigger
+        // 避免重复添加
+        if (!attachedFiles.value.some(f => f.path === filePath)) {
+          attachedFiles.value.push({
+            name,
+            path: filePath,
+            isFolder: false
+          })
+          // Insert inline chip
+          insertMentionChip(name, filePath, false)
+        }
       }
     }
   } catch (error) {
@@ -1058,8 +1295,8 @@ async function handleBrowseFiles() {
   }
 }
 
-// 处理 textarea 键盘事件
-function handleTextareaKeydown(event: KeyboardEvent) {
+// 处理 editor 键盘事件
+function handleEditorKeydown(event: KeyboardEvent) {
   // 处理斜杠命令菜单的键盘导航
   if (showSlashCommandMenu.value) {
     switch (event.key) {
@@ -1113,15 +1350,53 @@ function handleTextareaKeydown(event: KeyboardEvent) {
         return
     }
   }
-}
 
-// 处理 textarea 点击
-function handleTextareaClick() {
-  // 延迟检查，确保光标位置已更新
-  setTimeout(() => {
-    checkSlashTrigger()
-    checkContextTrigger()
-  }, 0)
+  // Enter without Shift = send
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
+    handleSend()
+    return
+  }
+
+  // Shift+Enter = newline (default contenteditable behavior)
+
+  // Backspace: if cursor is right after a chip, delete the whole chip
+  if (event.key === 'Backspace') {
+    const sel = window.getSelection()
+    if (sel && sel.isCollapsed && sel.rangeCount) {
+      const range = sel.getRangeAt(0)
+      const container = range.startContainer
+      const offset = range.startOffset
+
+      // Check if cursor is right after a mention-chip
+      let nodeBefore: Node | null = null
+      if (container.nodeType === Node.TEXT_NODE && offset === 0) {
+        // Cursor at start of text node, check previous sibling
+        nodeBefore = container.previousSibling
+      } else if (container.nodeType === Node.ELEMENT_NODE && offset > 0) {
+        // Cursor inside element, check child at offset-1
+        nodeBefore = container.childNodes[offset - 1]
+      }
+
+      if (nodeBefore && nodeBefore instanceof Element && nodeBefore.classList.contains('mention-chip')) {
+        event.preventDefault()
+        // Also remove trailing space
+        const nextSib = nodeBefore.nextSibling
+        if (nextSib && nextSib.nodeType === Node.TEXT_NODE && nextSib.textContent === '\u00A0') {
+          nextSib.remove()
+        }
+        nodeBefore.remove()
+        inputText.value = getEditorPlainText()
+
+        // Also remove from attachedFiles
+        const path = nodeBefore.getAttribute('data-path')
+        if (path) {
+          const idx = attachedFiles.value.findIndex(f => f.path === path)
+          if (idx >= 0) attachedFiles.value.splice(idx, 1)
+        }
+      }
+    }
+  }
 }
 
 function handleSendOrStop() {
@@ -1136,7 +1411,8 @@ function handleSendOrStop() {
 }
 
 function handleSend() {
-  if ((!canSend.value && attachedFiles.value.length === 0 && !hasActiveBadge.value) || props.disabled) return
+  const mentions = collectMentions()
+  if ((!canSend.value && mentions.length === 0 && !hasActiveBadge.value) || props.disabled) return
 
   // 如果有打开的斜杠命令菜单或上下文菜单，不执行发送（让菜单处理回车事件）
   if (showSlashCommandMenu.value || showContextMenu.value) return
@@ -1149,26 +1425,22 @@ function handleSend() {
   closeContextMenu()
   modelSearchQuery.value = ''
 
-  const content = inputText.value.trim()
+  const content = getEditorPlainText().trim()
 
   // 如果有活跃的 Badge，使用 dispatchBadge 展开
   if (hasActiveBadge.value && activeBadge.value) {
     const result = dispatchBadge(activeBadge.value, content)
 
     // 发送展开后的提示词
-    emit('send', result.prompt, attachedFiles.value, {
+    emit('send', result.prompt, mentions, {
       badge: activeBadge.value,
       displayLabel: result.displayLabel
     })
 
     // 清除状态
-    inputText.value = ''
+    clearEditor()
     attachedFiles.value = []
     activeBadge.value = null
-
-    if (textareaRef.value) {
-      textareaRef.value.style.height = 'auto'
-    }
     return
   }
 
@@ -1179,39 +1451,29 @@ function handleSend() {
     // 立即执行命令
     const commandName = content.slice(1).split(/\s+/)[0]
     const commandArgs = content.slice(1 + commandName.length).trim()
-    inputText.value = ''
-    emit('slash-command', commandName, commandArgs, attachedFiles.value)
+    clearEditor()
+    emit('slash-command', commandName, commandArgs, mentions)
   } else if (slashResult.action === 'set_badge' && slashResult.badge) {
     // 设置为 Badge，等待用户添加上下文
     activeBadge.value = slashResult.badge
-    inputText.value = ''
-    if (textareaRef.value) {
-      textareaRef.value.style.height = 'auto'
-    }
+    clearEditor()
   } else if (slashResult.action === 'unknown_slash_badge' && slashResult.badge) {
     // 未知命令也作为 Badge 处理
     activeBadge.value = slashResult.badge
-    inputText.value = ''
-    if (textareaRef.value) {
-      textareaRef.value.style.height = 'auto'
-    }
+    clearEditor()
   } else {
     // 普通消息
-    emit('send', content, attachedFiles.value)
+    emit('send', content, mentions)
   }
 
-  inputText.value = ''
+  clearEditor()
   attachedFiles.value = []
-
-  if (textareaRef.value) {
-    textareaRef.value.style.height = 'auto'
-  }
 }
 
 // 清除 Badge
 function clearBadge() {
   activeBadge.value = null
-  textareaRef.value?.focus()
+  editorRef.value?.focus()
 }
 
 function selectModel(modelValue: string) {
@@ -1231,6 +1493,8 @@ function closeModelDropdown() {
 function selectMode(mode: string) {
   selectedMode.value = mode
   showModeDropdown.value = false
+  // 同步推理深度到父组件和后端
+  emit('update:effort', mode)
 }
 
 function closeModeDropdown() {
@@ -1259,6 +1523,7 @@ async function handleAttachFile() {
             path: filePath,
             isFolder: false
           })
+          insertMentionChip(name, filePath, false)
         }
       }
     }
@@ -1281,15 +1546,12 @@ async function handleAttachFolder() {
           path: folderPath,
           isFolder: true
         })
+        insertMentionChip(name, folderPath, true)
       }
     }
   } catch (error) {
     console.error('Failed to select folder:', error)
   }
-}
-
-function removeAttachment(index: number) {
-  attachedFiles.value.splice(index, 1)
 }
 
 // 键盘导航
@@ -1382,6 +1644,14 @@ watch(showModelDropdown, (open) => {
     modelSearchQuery.value = ''
   }
 })
+
+// Watch disabled/isSending to toggle contenteditable
+watch([() => props.disabled, () => props.isSending], ([disabled, sending]) => {
+  const editor = editorRef.value
+  if (editor) {
+    editor.contentEditable = (!disabled || sending) ? 'true' : 'false'
+  }
+}, { immediate: true })
 </script>
 
 <style lang="scss" scoped>
@@ -1392,62 +1662,6 @@ watch(showModelDropdown, (open) => {
   flex-grow: 0;
   position: relative;
   border-top: 1px solid var(--surface-border);
-}
-
-// 附件栏样式
-.attachments-bar {
-  margin-bottom: 12px;
-  padding: 0 4px;
-}
-
-.attachment-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.attachment-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--surface-border);
-  border-radius: 8px;
-  font-size: 13px;
-  color: var(--text-primary);
-  transition: all 0.15s ease;
-
-  &.is-folder {
-    background: var(--accent-primary-glow);
-    border-color: var(--accent-primary);
-  }
-
-  svg {
-    color: var(--text-secondary);
-    flex-shrink: 0;
-  }
-
-  .attachment-name {
-    max-width: 200px;
-    @include truncate;
-  }
-
-  .remove-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    color: var(--text-muted);
-    transition: all 0.15s ease;
-
-    &:hover {
-      background: var(--surface-hover);
-      color: var(--text-primary);
-    }
-  }
 }
 
 .input-wrapper {
@@ -1475,7 +1689,7 @@ watch(showModelDropdown, (open) => {
   min-height: 24px;
   margin-bottom: 12px;
 
-  textarea {
+  .inline-editor {
     width: 100%;
     resize: none;
     border: none;
@@ -1486,13 +1700,51 @@ watch(showModelDropdown, (open) => {
     line-height: 1.5;
     max-height: 200px;
     padding: 0;
+    overflow-y: auto;
+    word-wrap: break-word;
+    white-space: pre-wrap;
 
-    &::placeholder {
+    &:empty::before {
+      content: attr(data-placeholder);
       color: var(--text-muted);
+      pointer-events: none;
     }
 
-    &:disabled {
-      opacity: 0.6;
+    // Inline mention chip styles
+    .mention-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      margin: 0 2px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--surface-border);
+      border-radius: 4px;
+      font-size: 12px;
+      line-height: 1.4;
+      vertical-align: baseline;
+      cursor: default;
+      user-select: none;
+      font-family: var(--font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace);
+
+      .chip-icon {
+        font-size: 12px;
+        line-height: 1;
+        flex-shrink: 0;
+      }
+
+      .chip-name {
+        max-width: 260px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      &.is-folder {
+        background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.08);
+        border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.3);
+        color: var(--accent-primary);
+      }
     }
   }
 }
@@ -1978,10 +2230,11 @@ watch(showModelDropdown, (open) => {
   }
 }
 
-// 命令 Badge 样式
+// 命令 Badge 样式 — 嵌入输入框内部
 .command-badge-bar {
-  margin-bottom: 12px;
-  padding: 0 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--surface-border);
+  margin-bottom: 8px;
 }
 
 .command-badge {
@@ -2078,16 +2331,5 @@ watch(showModelDropdown, (open) => {
 .dropdown-leave-to {
   opacity: 0;
   transform: translateY(4px);
-}
-
-.attachments-enter-active,
-.attachments-leave-active {
-  transition: all 0.2s ease;
-}
-
-.attachments-enter-from,
-.attachments-leave-to {
-  opacity: 0;
-  transform: translateY(-8px);
 }
 </style>

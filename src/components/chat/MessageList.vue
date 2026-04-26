@@ -23,7 +23,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, onMounted } from 'vue'
 import type { Message } from '@/types'
 import MessageItem from './MessageItem.vue'
 import { MessageSquare } from 'lucide-vue-next'
@@ -35,13 +35,23 @@ const { messages, loading } = defineProps<{
 
 const listRef = ref<HTMLElement | null>(null)
 
-watch(() => [messages, loading], () => {
+function scrollToBottom() {
   nextTick(() => {
     if (listRef.value) {
       listRef.value.scrollTop = listRef.value.scrollHeight
     }
   })
+}
+
+watch(() => [messages, loading], () => {
+  scrollToBottom()
 }, { deep: true })
+
+onMounted(() => {
+  if (messages.length > 0) {
+    scrollToBottom()
+  }
+})
 </script>
 
 <style lang="scss" scoped>

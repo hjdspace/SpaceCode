@@ -28,6 +28,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   stat: (filePath: string): Promise<FileStat | null> =>
     ipcRenderer.invoke('fs:stat', filePath),
 
+  searchFiles: (dirPath: string, query: string, options?: { maxResults?: number }): Promise<Array<{ name: string; path: string; relativePath: string; isDirectory: boolean; isFile: boolean }>> =>
+    ipcRenderer.invoke('fs:searchFiles', dirPath, query, options),
+
   getEnv: (key: string): Promise<string | undefined> =>
     ipcRenderer.invoke('env:get', key),
 
@@ -64,7 +67,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getClaudeCliPath: () => ipcRenderer.invoke('app:getClaudeCliPath'),
 
   // Inject GUI model settings into ~/.claude/settings.json
-  injectGuiModelsToSettings: (models: { primaryModel: string; haikuModel?: string; sonnetModel?: string; opusModel?: string }) =>
+  injectGuiModelsToSettings: (models: { primaryModel: string; haikuModel?: string; sonnetModel?: string; opusModel?: string; effortLevel?: 'low' | 'medium' | 'high' | 'max' }) =>
     ipcRenderer.invoke('settings:injectGuiModels', models),
 
   // Terminal API
