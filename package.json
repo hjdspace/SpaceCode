@@ -1,12 +1,12 @@
 {
-  "name": "claude-code-desktop",
-  "version": "0.1.0",
+  "name": "spacecode",
+  "version": "0.2.0",
   "homepage": "https://github.com/hjdspace/claude-code-gui",
   "author": {
     "name": "hjdspace",
     "email": "hjdspace1990@gmail.com"
   },
-  "description": "AI Agent Desktop Application - Electron + Vue 3",
+  "description": "SpaceCode - AI Agent Desktop Application (Electron + Vue 3)",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -14,7 +14,11 @@
     "preview": "vite preview",
     "electron:dev": "vite",
     "electron:build": "npm run build && electron-builder",
-    "typecheck": "vue-tsc --noEmit"
+    "typecheck": "vue-tsc --noEmit",
+    "changelog": "conventional-changelog -p conventionalcommits -i CHANGELOG.md -s",
+    "changelog:all": "conventional-changelog -p conventionalcommits -i CHANGELOG.md -s -r 0",
+    "version": "npm run changelog && git add CHANGELOG.md",
+    "postversion": "git push && git push --tags"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",
@@ -34,6 +38,7 @@
   "devDependencies": {
     "@types/diff": "^5.0.9",
     "@vitejs/plugin-vue": "^5.0.4",
+    "conventional-changelog-cli": "^5.0.0",
     "electron": "^29.1.0",
     "electron-builder": "^24.13.3",
     "sass": "^1.71.1",
@@ -44,8 +49,8 @@
     "vue-tsc": "^2.0.6"
   },
   "build": {
-    "appId": "com.claude-code.desktop",
-    "productName": "Claude Code Desktop",
+    "appId": "com.spacecode.desktop",
+    "productName": "SpaceCode",
     "directories": {
       "output": "release"
     },
