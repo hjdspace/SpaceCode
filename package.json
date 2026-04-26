@@ -93,7 +93,17 @@
           "!**/docs/**",
           "!**/examples/**",
           "!**/benchmark/**",
-          "!**/scripts/**"
+          "!**/scripts/**",
+          "!**/@types/**",
+          "!**/biome/**",
+          "!**/knip*/**",
+          "!**/marked/**",
+          "!**/highlight.js/**",
+          "!**/qrcode/**",
+          "!**/yaml/**",
+          "!**/semver/**",
+          "!**/tree-kill/**",
+          "!**/srt/**"
         ]
       },
       {

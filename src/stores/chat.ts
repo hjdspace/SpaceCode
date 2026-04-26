@@ -439,6 +439,8 @@ export const useChatStore = defineStore('chat', () => {
       await claudeCode.startSession({
         cwd,
         apiKey: config.apiKey,
+        baseUrl: config.apiUrl,
+        provider: config.provider,
         model: config.model,
         effortLevel: config.effortLevel,
         permissionMode: 'bypassPermissions', // 自动批准所有权限请求
@@ -747,8 +749,16 @@ export const useChatStore = defineStore('chat', () => {
         isCompleted = true
         isLoading.value = false
         streamingContent.value = ''
+
+        const errorMsg = error instanceof Error ? error.message : String(error)
+
+        let userMessage = `Error: ${errorMsg}`
+        if (errorMsg.includes('Process exited with code 1')) {
+          userMessage = `❌ 引擎启动失败\n\n可能原因：\n• API Key 无效或未配置\n• API Base URL 无法访问\n• 网络连接问题\n\n请检查设置页面的配置是否正确。`
+        }
+
         updateMessage(assistantMessageId, {
-          content: `Error: ${error instanceof Error ? error.message : String(error)}`
+          content: userMessage
         })
         cleanup()
         reject(error)

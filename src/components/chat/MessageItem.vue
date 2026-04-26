@@ -77,13 +77,14 @@ function formatTime(timestamp: number): string {
     }
     
     .message-content {
-      background: var(--accent-primary);
-      color: white;
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
       border-radius: var(--radius-lg);
       padding: 12px 16px;
+      border: 1px solid var(--surface-border);
       
       p {
-        color: white;
+        color: var(--text-primary);
       }
     }
   }
