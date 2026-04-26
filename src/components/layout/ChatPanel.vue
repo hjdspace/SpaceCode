@@ -29,6 +29,7 @@
       @send="handleSend"
       @slash-command="handleSlashCommand"
       @update:model="handleModelChange"
+      @update:effort="handleEffortChange"
       @open-skills="handleOpenSkills"
       @stop="handleStop"
       :disabled="chatStore.isLoading"
@@ -52,6 +53,8 @@ import { initLLMService, llmState, updateConfig } from '@/services/llm'
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 const appStore = useAppStore()
+
+const electronAPI = (window as any).electronAPI
 
 const currentSession = computed(() => chatStore.currentSession)
 const provider = computed(() => llmState.provider.value)
@@ -101,6 +104,28 @@ function handleModelChange(model: string) {
   })
   
   console.log('[ChatPanel] Model changed to:', model)
+}
+
+// 处理推理深度变更 - 同步到 settings store 和 ~/.claude/settings.json
+async function handleEffortChange(effort: string) {
+  const level = effort as 'low' | 'medium' | 'high' | 'max'
+  settingsStore.effortLevel = level
+  settingsStore.saveSettings()
+
+  // 同步到 ~/.claude/settings.json 以便 CLI 读取
+  try {
+    await electronAPI?.injectGuiModelsToSettings?.({
+      primaryModel: settingsStore.getPrimaryModel() || '',
+      haikuModel: settingsStore.getHaikuModel(),
+      sonnetModel: settingsStore.getSonnetModel(),
+      opusModel: settingsStore.getOpusModel(),
+      effortLevel: level
+    })
+  } catch (error) {
+    console.error('[ChatPanel] Failed to sync effort to Claude settings:', error)
+  }
+
+  console.log('[ChatPanel] Effort changed to:', level)
 }
 
 // 格式化模型名称显示

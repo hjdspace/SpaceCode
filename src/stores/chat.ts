@@ -354,6 +354,7 @@ export const useChatStore = defineStore('chat', () => {
         cwd,
         apiKey: config.apiKey,
         model: config.model,
+        effortLevel: config.effortLevel,
         permissionMode: 'bypassPermissions' // 自动批准所有权限请求
       })
     } catch (error) {
@@ -554,7 +555,8 @@ export const useChatStore = defineStore('chat', () => {
           if (msg?.toolCalls) {
             // 从 tool_result 事件中提取结果信息
             const resultToolUseId = toolResult.tool_use_id || toolResult.tool_result?.tool_use_id
-            const resultOutput = toolResult.output || toolResult.tool_result?.output
+            const rawResultOutput = toolResult.output ?? toolResult.content ?? toolResult.tool_result?.output ?? toolResult.tool_result?.content
+            const resultOutput = typeof rawResultOutput === 'string' ? rawResultOutput : JSON.stringify(rawResultOutput)
             const resultIsError = toolResult.is_error || toolResult.tool_result?.is_error
 
             const toolCallIndex = msg.toolCalls.findIndex(tc => tc.id === resultToolUseId)

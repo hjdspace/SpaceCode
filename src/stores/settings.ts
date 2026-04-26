@@ -189,6 +189,7 @@ export const useSettingsStore = defineStore('settings', () => {
   })
   const oauthAccount = ref<OAuthAccountInfo | null>(saved.oauthAccount || null)
   const projectRoot = ref(saved.projectRoot || '')
+  const effortLevel = ref<'low' | 'medium' | 'high' | 'max'>((saved as any).effortLevel || 'high')
 
   // Computed: current provider for LLM service compatibility
   const provider = computed(() => {
@@ -238,7 +239,8 @@ export const useSettingsStore = defineStore('settings', () => {
       provider: provider.value,
       apiKey,
       apiUrl: baseUrl || undefined,
-      model: model || undefined
+      model: model || undefined,
+      effortLevel: effortLevel.value
     }
   })
 
@@ -335,13 +337,14 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function saveSettings() {
-    const data: AuthSettings = {
+    const data: AuthSettings & { effortLevel?: string } = {
       authMethod: authMethod.value,
       anthropicConfig: { ...anthropicConfig.value },
       openaiConfig: { ...openaiConfig.value },
       geminiConfig: { ...geminiConfig.value },
       oauthAccount: oauthAccount.value,
-      projectRoot: projectRoot.value
+      projectRoot: projectRoot.value,
+      effortLevel: effortLevel.value
     }
 
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(data))
@@ -402,6 +405,7 @@ export const useSettingsStore = defineStore('settings', () => {
     geminiConfig,
     oauthAccount,
     projectRoot,
+    effortLevel,
     provider,
     config,
     isConfigured,

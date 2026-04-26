@@ -364,8 +364,9 @@ const modelLoadError = ref<string | null>(null)
 const fetchedModels = ref<ModelOption[]>([])
 
 // 推理深度 (effort level)
-const availableModes = ['low', 'medium', 'high', 'max']
-const selectedMode = ref('high')
+const availableModes = ['low', 'medium', 'high', 'max'] as const
+type EffortMode = typeof availableModes[number]
+const selectedMode = ref<EffortMode>(settingsStore.effortLevel || 'high')
 
 // 斜杠命令相关
 const showSlashCommandMenu = ref(false)
@@ -558,15 +559,25 @@ watch(() => settingsStore.authMethod, () => {
   fetchModelsFromBaseUrl()
 })
 
+// 监听 settings store effortLevel 变化，同步到 selectedMode
+watch(() => settingsStore.effortLevel, (newLevel) => {
+  if (newLevel && newLevel !== selectedMode.value) {
+    selectedMode.value = newLevel
+  }
+}, { immediate: true })
+
 const selectedModelLabel = computed(() => {
   const model = availableModels.value.find(m => m.value === selectedModel.value)
   return model?.label || selectedModel.value || 'Select Model'
 })
 
 const hasContent = computed(() => {
+  if (inputText.value.trim().length > 0) return true
+  if (attachedFiles.value.length > 0) return true
+  if (hasActiveBadge.value) return true
+
   const editor = editorRef.value
   if (!editor) return false
-  // Check if there's any text or chip nodes
   if (editor.textContent?.trim()) return true
   return editor.querySelectorAll('.mention-chip').length > 0
 })
@@ -1490,7 +1501,7 @@ function closeModelDropdown() {
   modelSearchQuery.value = ''
 }
 
-function selectMode(mode: string) {
+function selectMode(mode: EffortMode) {
   selectedMode.value = mode
   showModeDropdown.value = false
   // 同步推理深度到父组件和后端

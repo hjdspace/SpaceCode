@@ -42,7 +42,11 @@ function createWindow() {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      partition: 'persist:claude-code-desktop'
+      partition: 'persist:claude-code-desktop',
+      // Suppress Chromium console warnings
+      devTools: isDev,
+      // Disable features that cause console warnings
+      spellcheck: false
     }
   })
 

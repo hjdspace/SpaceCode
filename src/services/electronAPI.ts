@@ -76,7 +76,7 @@ export const api = {
     }
     return Promise.resolve(null)
   },
-  injectGuiModelsToSettings: (models: { primaryModel: string; haikuModel?: string | undefined; sonnetModel?: string | undefined; opusModel?: string | undefined }): Promise<{ success: boolean; error?: string }> => {
+  injectGuiModelsToSettings: (models: { primaryModel: string; haikuModel?: string | undefined; sonnetModel?: string | undefined; opusModel?: string | undefined; effortLevel?: 'low' | 'medium' | 'high' | 'max' }): Promise<{ success: boolean; error?: string }> => {
     if (electronAPI?.injectGuiModelsToSettings) {
       return electronAPI.injectGuiModelsToSettings(models)
     }

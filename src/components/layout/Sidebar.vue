@@ -122,10 +122,6 @@
               <Plug :size="14" />
               <span>MCP</span>
             </button>
-            <button class="feature-nav-item">
-              <TerminalIcon :size="14" />
-              <span>CLI Tools</span>
-            </button>
           </div>
 
           <!-- Separator -->
@@ -351,7 +347,8 @@ async function handleOpenClaudeCLI() {
     primaryModel: settingsStore.getPrimaryModel() || '',
     haikuModel: settingsStore.getHaikuModel(),
     sonnetModel: settingsStore.getSonnetModel(),
-    opusModel: settingsStore.getOpusModel()
+    opusModel: settingsStore.getOpusModel(),
+    effortLevel: settingsStore.effortLevel
   })
 
   let fullCommand = cliCommand || 'claude'
