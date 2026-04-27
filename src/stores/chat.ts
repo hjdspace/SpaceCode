@@ -481,7 +481,7 @@ export const useChatStore = defineStore('chat', () => {
     return newMessage
   }
 
-  async function sendMessage(content: string): Promise<void> {
+  async function sendMessage(content: string, userMessageContent?: string): Promise<void> {
     if (!currentSessionId.value) {
       createSession()
     }
@@ -491,7 +491,7 @@ export const useChatStore = defineStore('chat', () => {
 
     addMessage({
       role: 'user',
-      content
+      content: userMessageContent ?? content
     })
 
     const claudeCode = electronAPI?.claudeCode

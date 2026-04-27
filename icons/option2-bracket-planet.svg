@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0d1117"/>
+      <stop offset="100%" style="stop-color:#161b22"/>
+    </linearGradient>
+    <linearGradient id="bracket2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#58a6ff"/>
+      <stop offset="100%" style="stop-color:#a371f7"/>
+    </linearGradient>
+    <linearGradient id="ring2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f78166"/>
+      <stop offset="50%" style="stop-color:#ffd33d"/>
+      <stop offset="100%" style="stop-color:#f78166"/>
+    </linearGradient>
+    <filter id="glow2">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="108" fill="url(#bg2)"/>
+
+  <!-- Planetary ring -->
+  <ellipse cx="256" cy="276" rx="195" ry="65" fill="none" stroke="url(#ring2)" stroke-width="6"
+           transform="rotate(-18 256 276)" opacity="0.85"/>
+  <ellipse cx="256" cy="276" rx="215" ry="50" fill="none" stroke="#f78166" stroke-width="2"
+           transform="rotate(-18 256 276)" opacity="0.25"/>
+
+  <!-- Left curly brace { -->
+  <path d="M175,170
+           Q145,170 145,210
+           L145,235
+           Q145,260 125,276
+           Q145,292 145,317
+           L145,342
+           Q145,382 175,382"
+        fill="none" stroke="url(#bracket2)" stroke-width="22" stroke-linecap="round" filter="url(#glow2)"/>
+
+  <!-- Right curly brace } -->
+  <path d="M337,170
+           Q367,170 367,210
+           L367,235
+           Q367,260 387,276
+           Q367,292 367,317
+           L367,342
+           Q367,382 337,382"
+        fill="none" stroke="url(#bracket2)" stroke-width="22" stroke-linecap="round" filter="url(#glow2)"/>
+
+  <!-- Center AI spark / node -->
+  <circle cx="256" cy="276" r="26" fill="#161b22" stroke="url(#ring2)" stroke-width="4"/>
+  <circle cx="256" cy="276" r="12" fill="url(#ring2)" opacity="0.9"/>
+
+  <!-- Connection dots on the ring -->
+  <circle cx="105" cy="240" r="5" fill="#58a6ff" opacity="0.8"/>
+  <circle cx="407" cy="310" r="5" fill="#a371f7" opacity="0.8"/>
+  <circle cx="180" cy="355" r="4" fill="#ffd33d" opacity="0.6"/>
+  <circle cx="340" cy="198" r="4" fill="#f78166" opacity="0.6"/>
+
+  <!-- Subtle grid dots background -->
+  <g opacity="0.08" fill="#58a6ff">
+    <circle cx="70" cy="70" r="2"/><circle cx="150" cy="70" r="2"/><circle cx="230" cy="70" r="2"/>
+    <circle cx="310" cy="70" r="2"/><circle cx="390" cy="70" r="2"/><circle cx="450" cy="70" r="2"/>
+    <circle cx="70" cy="150" r="2"/><circle cx="450" cy="150" r="2"/>
+    <circle cx="70" cy="230" r="2"/><circle cx="450" cy="230" r="2"/>
+    <circle cx="70" cy="310" r="2"/><circle cx="450" cy="310" r="2"/>
+    <circle cx="70" cy="390" r="2"/><circle cx="150" cy="390" r="2"/><circle cx="230" cy="390" r="2"/>
+    <circle cx="310" cy="390" r="2"/><circle cx="390" cy="390" r="2"/><circle cx="450" cy="390" r="2"/>
+    <circle cx="70" cy="450" r="2"/><circle cx="150" cy="450" r="2"/><circle cx="230" cy="450" r="2"/>
+    <circle cx="310" cy="450" r="2"/><circle cx="390" cy="450" r="2"/><circle cx="450" cy="450" r="2"/>
+  </g>
+</svg>

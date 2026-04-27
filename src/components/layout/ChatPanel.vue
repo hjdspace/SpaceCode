@@ -178,15 +178,12 @@ async function handleSend(content: string, attachments: Attachment[], options?: 
     }
   }
 
-  if (options?.displayLabel && options.displayLabel !== messageContent) {
-    await chatStore.addMessage({
-      role: 'user',
-      content: options.displayLabel
-    })
-  }
+  const userContent = (options?.displayLabel && options.displayLabel !== messageContent)
+    ? options.displayLabel
+    : undefined
 
   console.log('[ChatPanel] Calling chatStore.sendMessage...')
-  await chatStore.sendMessage(messageContent)
+  await chatStore.sendMessage(messageContent, userContent)
   console.log('[ChatPanel] chatStore.sendMessage done')
 }
 

@@ -35,8 +35,9 @@ function createWindow() {
     height: 900,
     minWidth: 1000,
     minHeight: 700,
-    title: 'Claude Code Desktop',
-    backgroundColor: '#1e1e1e',
+    title: 'SpaceCode',
+    icon: join(__dirname, '../icons/icon.png'),
+    backgroundColor: '#0c0c1d',
     show: false,
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
@@ -149,7 +150,7 @@ function createMenu() {
 }
 
 function createTray() {
-  const iconPath = join(__dirname, '../dist/icon.png')
+  const iconPath = join(__dirname, '../icons/icon.png')
   let icon: Electron.NativeImage
   
   try {

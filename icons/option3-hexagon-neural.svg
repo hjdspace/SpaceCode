@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0c0c1d"/>
+      <stop offset="100%" style="stop-color:#1a1a3e"/>
+    </linearGradient>
+    <linearGradient id="hex3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1"/>
+      <stop offset="100%" style="stop-color:#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="core3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#06b6d4"/>
+      <stop offset="100%" style="stop-color:#22d3ee"/>
+    </linearGradient>
+    <linearGradient id="accent3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f472b6"/>
+      <stop offset="100%" style="stop-color:#fb7185"/>
+    </linearGradient>
+    <filter id="glow3">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="108" fill="url(#bg3)"/>
+
+  <!-- Outer hexagon -->
+  <polygon points="256,64 430,156 430,356 256,448 82,356 82,156"
+           fill="none" stroke="url(#hex3)" stroke-width="4" opacity="0.3"/>
+
+  <!-- Main hexagon -->
+  <polygon points="256,94 404,174 404,338 256,418 108,338 108,174"
+           fill="#0c0c1d" stroke="url(#hex3)" stroke-width="5" opacity="0.9"/>
+
+  <!-- Inner circuit pattern - AI neural network -->
+  <g filter="url(#glow3)" opacity="0.85">
+
+    <!-- Center core -->
+    <circle cx="256" cy="256" r="32" fill="url(#core3)" opacity="0.25"/>
+    <circle cx="256" cy="256" r="18" fill="url(#core3)"/>
+
+    <!-- Inner nodes -->
+    <circle cx="256" cy="178" r="10" fill="url(#core3)" opacity="0.8"/>
+    <circle cx="256" cy="334" r="10" fill="url(#core3)" opacity="0.8"/>
+    <circle cx="184" cy="217" r="10" fill="url(#core3)" opacity="0.8"/>
+    <circle cx="328" cy="217" r="10" fill="url(#core3)" opacity="0.8"/>
+    <circle cx="184" cy="295" r="10" fill="url(#core3)" opacity="0.8"/>
+    <circle cx="328" cy="295" r="10" fill="url(#core3)" opacity="0.8"/>
+
+    <!-- Connections to center -->
+    <line x1="256" y1="194" x2="256" y2="234" stroke="url(#core3)" stroke-width="2.5" opacity="0.6"/>
+    <line x1="256" y1="278" x2="256" y2="318" stroke="url(#core3)" stroke-width="2.5" opacity="0.6"/>
+    <line x1="196" y1="222" x2="236" y2="245" stroke="url(#core3)" stroke-width="2.5" opacity="0.6"/>
+    <line x1="316" y1="222" x2="276" y2="245" stroke="url(#core3)" stroke-width="2.5" opacity="0.6"/>
+    <line x1="196" y1="290" x2="236" y2="267" stroke="url(#core3)" stroke-width="2.5" opacity="0.6"/>
+    <line x1="316" y1="290" x2="276" y2="267" stroke="url(#core3)" stroke-width="2.5" opacity="0.6"/>
+
+    <!-- Cross connections (neural network feel) -->
+    <line x1="191" y1="211" x2="249" y2="183" stroke="url(#accent3)" stroke-width="1.5" opacity="0.35"/>
+    <line x1="321" y1="211" x2="263" y2="183" stroke="url(#accent3)" stroke-width="1.5" opacity="0.35"/>
+    <line x1="191" y1="301" x2="249" y2="329" stroke="url(#accent3)" stroke-width="1.5" opacity="0.35"/>
+    <line x1="321" y1="301" x2="263" y2="329" stroke="url(#accent3)" stroke-width="1.5" opacity="0.35"/>
+  </g>
+
+  <!-- Corner accents -->
+  <circle cx="148" cy="186" r="4" fill="url(#accent3)" opacity="0.7"/>
+  <circle cx="364" cy="186" r="4" fill="url(#accent3)" opacity="0.7"/>
+  <circle cx="148" cy="326" r="4" fill="url(#accent3)" opacity="0.7"/>
+  <circle cx="364" cy="326" r="4" fill="url(#accent3)" opacity="0.7"/>
+
+  <!-- Small decorative stars -->
+  <g fill="#fff" opacity="0.4">
+    <circle cx="68" cy="88" r="1.5"/>
+    <circle cx="444" cy="98" r="2"/>
+    <circle cx="56" cy="420" r="1.5"/>
+    <circle cx="456" cy="400" r="2"/>
+    <circle cx="256" cy="52" r="1.5"/>
+  </g>
+</svg>

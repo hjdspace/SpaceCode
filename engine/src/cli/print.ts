@@ -1493,7 +1493,7 @@ function runHeadlessStreaming(
       }
     }
     const mainThreadAgentType = getMainThreadAgentType()
-    if (mainThreadAgentType) {
+    if (mainThreadAgentType && currentAgents) {
       const mainThreadAgent = currentAgents.find(a => a.agentType === mainThreadAgentType)
       if (mainThreadAgent?.disallowedTools && mainThreadAgent.disallowedTools.length > 0) {
         const disallowedSet = new Set(mainThreadAgent.disallowedTools)

@@ -350,7 +350,6 @@ import { useSettingsStore } from '@/stores/settings'
 import { useSkillsStore } from '@/stores/skills'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
-import type { AgentInfo } from '@/types'
 import { api } from '@/services/electronAPI'
 
 export interface Attachment {
@@ -2024,6 +2023,7 @@ watch([() => props.disabled, () => props.isSending], ([disabled, sending]) => {
     overflow: hidden;
     text-overflow: ellipsis;
     display: -webkit-box;
+    line-clamp: 2;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
   }
