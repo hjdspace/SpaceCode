@@ -1,3 +1,24 @@
+## [0.2.1](https://github.com/hjdspace/claude-code-gui/compare/v0.2.0...v0.2.1) (2026-04-28)
+
+### Features
+
+* **icons:** 添加应用图标及生成脚本 ([1f75d45](https://github.com/hjdspace/claude-code-gui/commit/1f75d45))
+* **chat:** 添加点击输入框自动聚焦功能 ([5235696](https://github.com/hjdspace/claude-code-gui/commit/5235696))
+* **工具卡片:** 添加多种工具卡片组件及工具注册系统 ([4b3cf7e](https://github.com/hjdspace/claude-code-gui/commit/4b3cf7e))
+
+### Bug Fixes
+
+* 移除对内置代理的系统提示限制 ([a03951f](https://github.com/hjdspace/claude-code-gui/commit/a03951f))
+
+### Refactor
+
+* 移除调试日志和未使用的取消功能 ([3a0bde3](https://github.com/hjdspace/claude-code-gui/commit/3a0bde3))
+
+### Build
+
+* 更新 build-release.yml 构建配置 ([fef3345](https://github.com/hjdspace/claude-code-gui/commit/fef3345))
+* 将 node-pty 添加到打包文件和 asarUnpack 配置中 ([bbfc7db](https://github.com/hjdspace/claude-code-gui/commit/bbfc7db))
+
 ## [0.2.0](https://github.com/hjdspace/claude-code-gui/compare/v0.1.1...v0.2.0) (2026-04-26)
 
 ### Features
