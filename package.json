@@ -56,7 +56,11 @@
     },
     "files": [
       "dist/**/*",
-      "dist-electron/**/*"
+      "dist-electron/**/*",
+      "node_modules/node-pty/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/node-pty/**/*.node"
     ],
     "extraResources": [
       {
