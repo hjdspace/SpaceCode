@@ -124,7 +124,7 @@
       </Transition>
 
       <!-- 文本输入区域 — contenteditable 支持内联 chip -->
-      <div class="textarea-wrapper">
+      <div class="textarea-wrapper" @click="focusEditor">
         <div
           ref="editorRef"
           class="inline-editor"
@@ -443,6 +443,18 @@ const agentSelectorRef = ref<HTMLElement | null>(null)
 const agentListRef = ref<HTMLElement | null>(null)
 const highlightedAgent = ref<string>('')
 const selectedAgent = ref<string>(chatStore.currentAgent || '')
+
+function focusEditor() {
+  nextTick(() => {
+    const editor = editorRef.value
+    if (!editor || props.disabled) return
+    editor.focus()
+    if (!window.getSelection()?.rangeCount) {
+      setCursorToEnd()
+    }
+    autoResize()
+  })
+}
 
 // Computed: split agents into built-in and custom
 const builtInAgents = computed(() => chatStore.availableAgents.filter(a => a.source === 'built-in'))
@@ -1747,10 +1759,12 @@ const vClickOutside = {
 // 监听键盘事件
 onMounted(() => {
   document.addEventListener('keydown', handleModelKeydown)
+  window.addEventListener('session-created', focusEditor)
 })
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleModelKeydown)
+  window.removeEventListener('session-created', focusEditor)
 })
 
 // 清理事件监听
@@ -1758,6 +1772,10 @@ watch(showModelDropdown, (open) => {
   if (!open) {
     modelSearchQuery.value = ''
   }
+})
+
+watch(() => chatStore.currentSessionId, () => {
+  focusEditor()
 })
 
 // Watch disabled/isSending to toggle contenteditable
@@ -1803,9 +1821,11 @@ watch([() => props.disabled, () => props.isSending], ([disabled, sending]) => {
   flex: 1;
   min-height: 24px;
   margin-bottom: 12px;
+  cursor: text;
 
   .inline-editor {
     width: 100%;
+    min-height: 24px;
     resize: none;
     border: none;
     outline: none;
