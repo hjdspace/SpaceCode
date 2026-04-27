@@ -708,8 +708,8 @@ export async function runHeadless(
     )
     if (restoredAgent) {
       setAppState(prev => ({ ...prev, agent: restoredAgent.agentType }))
-      // Apply the agent's system prompt for non-built-in agents (mirrors main.tsx initial --agent path)
-      if (!options.systemPrompt && !isBuiltInAgent(restoredAgent)) {
+      // Apply the agent's system prompt (mirrors main.tsx initial --agent path)
+      if (!options.systemPrompt) {
         const agentSystemPrompt = restoredAgent.getSystemPrompt()
         if (agentSystemPrompt) {
           options.systemPrompt = agentSystemPrompt
@@ -1490,6 +1490,14 @@ function runHeadlessStreaming(
       const syntheticOutputResult = createSyntheticOutputTool(initJsonSchema)
       if ('tool' in syntheticOutputResult) {
         allTools = [...allTools, syntheticOutputResult.tool]
+      }
+    }
+    const mainThreadAgentType = getMainThreadAgentType()
+    if (mainThreadAgentType) {
+      const mainThreadAgent = currentAgents.find(a => a.agentType === mainThreadAgentType)
+      if (mainThreadAgent?.disallowedTools && mainThreadAgent.disallowedTools.length > 0) {
+        const disallowedSet = new Set(mainThreadAgent.disallowedTools)
+        allTools = allTools.filter(tool => !disallowedSet.has(tool.name))
       }
     }
     return allTools
@@ -4408,8 +4416,7 @@ async function handleInitializeRequest(
       setMainThreadAgentType(mainThreadAgent.agentType)
 
       // Apply the agent's system prompt if user hasn't specified a custom one
-      // SDK agents are always custom agents (not built-in), so getSystemPrompt() takes no args
-      if (!options.systemPrompt && !isBuiltInAgent(mainThreadAgent)) {
+      if (!options.systemPrompt) {
         const agentSystemPrompt = mainThreadAgent.getSystemPrompt()
         if (agentSystemPrompt) {
           options.systemPrompt = agentSystemPrompt
