@@ -61,7 +61,6 @@ export class ClaudeCodeProcessManager extends EventEmitter {
     )
 
     if (fs.existsSync(bundledBun)) {
-      console.log('[Engine] Using bundled bun:', bundledBun)
       return bundledBun
     }
 
@@ -80,7 +79,6 @@ export class ClaudeCodeProcessManager extends EventEmitter {
       }
       
       if (globalBun && fs.existsSync(globalBun)) {
-        console.log('[Engine] Using global bun:', globalBun)
         return globalBun
       }
     } catch {
@@ -88,7 +86,6 @@ export class ClaudeCodeProcessManager extends EventEmitter {
     }
 
     // 3. 回退到 PATH 中的 bun
-    console.log('[Engine] Using bun from PATH')
     return 'bun'
   }
 
@@ -113,24 +110,6 @@ export class ClaudeCodeProcessManager extends EventEmitter {
 
     this.currentConfig = config
 
-    console.log('[Engine] Starting session', {
-      cwd: config.cwd,
-      command,
-      args,
-      hasApiKey: Boolean(config.apiKey),
-      model: config.model,
-      permissionMode: config.permissionMode,
-      effortLevel: config.effortLevel,
-      agent: config.agent,
-    })
-
-    console.log('[Engine] Spawning process...', {
-      pid: 'pending',
-      provider: config.provider,
-      baseUrl: config.baseUrl,
-      apiKeyPrefix: config.apiKey ? config.apiKey.slice(0, 8) + '...' : '(none)',
-    })
-
     this.process = spawn(command, args, {
       cwd: config.cwd,
       env: { ...process.env, ...env },
@@ -139,23 +118,14 @@ export class ClaudeCodeProcessManager extends EventEmitter {
       windowsHide: true
     })
 
-    console.log('[Engine] Process spawned, pid:', this.process.pid, 'killed:', this.process.killed)
-
     // 进程启动失败时立即触发
     this.process.on('error', (err) => {
-      console.error('[Engine] Process spawn error:', err)
       this.emit('error', err)
     })
 
     // 解析 stdout 的 NDJSON stream
-    let stdoutByteCount = 0
-    let stderrByteCount = 0
     this.process.stdout!.on('data', (data) => {
       const dataStr = data.toString()
-      stdoutByteCount += dataStr.length
-      if (stdoutByteCount <= 500) {
-        console.log('[Engine] stdout first bytes:', JSON.stringify(dataStr.slice(0, 200)))
-      }
       this.buffer += dataStr
       const bufferedLines = this.buffer.split('\n')
       this.buffer = bufferedLines.pop() || ''
@@ -165,12 +135,7 @@ export class ClaudeCodeProcessManager extends EventEmitter {
             const msg = JSON.parse(line)
             this.handleSDKMessage(msg)
           } catch (e) {
-            const preview = line.length > 300 ? `${line.slice(0, 300)}...` : line
-            console.warn('[Engine] Failed to parse CLI stream-json line', {
-              error: e instanceof Error ? e.message : String(e),
-              preview,
-            })
-            this.emit('log', `[Engine] JSON parse error: ${e instanceof Error ? e.message : String(e)} | preview=${preview}`)
+            // JSON 解析错误时静默处理
           }
         }
       }
@@ -178,16 +143,10 @@ export class ClaudeCodeProcessManager extends EventEmitter {
 
     // stderr 用于日志
     this.process.stderr!.on('data', (data) => {
-      const str = data.toString()
-      stderrByteCount += str.length
-      if (stderrByteCount <= 1000) {
-        console.log('[Engine] stderr:', str.slice(0, 300))
-      }
-      this.emit('log', str)
+      this.emit('log', data.toString())
     })
 
     this.process.on('exit', (code, signal) => {
-      console.log('[Engine] Process exited', { code, signal, stdoutBytes: stdoutByteCount, stderrBytes: stderrByteCount })
       this.emit('exit', code)
       this.process = null
     })
@@ -197,10 +156,6 @@ export class ClaudeCodeProcessManager extends EventEmitter {
 
   async sendMessage(content: string): Promise<void> {
     if (!this.process) throw new Error('No active session')
-    console.log('[Engine] sendMessage', {
-      bytes: Buffer.byteLength(content, 'utf8'),
-      preview: content.slice(0, 120),
-    })
     // CLI 期望的消息格式: { type: 'user', message: { role: 'user', content } }
     const msg = JSON.stringify({
       type: 'user',
@@ -210,7 +165,6 @@ export class ClaudeCodeProcessManager extends EventEmitter {
       }
     }) + '\n'
     this.process.stdin!.write(msg)
-    console.log('[Engine] sendMessage write completed')
   }
 
   async abort(): Promise<void> {
@@ -269,7 +223,6 @@ export class ClaudeCodeProcessManager extends EventEmitter {
       if (config.model) settingsContent.model = config.model
       fs.writeFileSync(settingsPath, JSON.stringify(settingsContent, null, 2), 'utf8')
       args.push('--settings', settingsPath)
-      console.log('[Engine] Wrote temp settings.json:', settingsPath, JSON.stringify(settingsContent))
     }
 
     if (config.model) args.push('--model', config.model)
@@ -326,7 +279,6 @@ export class ClaudeCodeProcessManager extends EventEmitter {
     if (isDev) {
       const srcCliPath = path.join(this.cliRoot, 'src/entrypoints/cli.tsx')
       if (fs.existsSync(srcCliPath)) {
-        console.log('[Engine] Using source code (dev mode):', srcCliPath)
         const defineArgs = this.getMacroDefines()
         const featureArgs = this.getFeatureArgs()
         return {
@@ -339,14 +291,12 @@ export class ClaudeCodeProcessManager extends EventEmitter {
     // 生产模式：优先使用构建产物（启动更快）
     const distCli = path.join(this.cliRoot, 'dist/cli.js')
     if (fs.existsSync(distCli)) {
-      console.log('[Engine] Using built distribution:', distCli)
       return { command: this.resolveBunPath(), args: ['run', distCli] }
     }
 
     // 回退到源码（生产环境但无构建产物时）
     const srcCliPath = path.join(this.cliRoot, 'src/entrypoints/cli.tsx')
     if (fs.existsSync(srcCliPath)) {
-      console.log('[Engine] Using source code (fallback):', srcCliPath)
       const defineArgs = this.getMacroDefines()
       const featureArgs = this.getFeatureArgs()
       return {
@@ -356,7 +306,6 @@ export class ClaudeCodeProcessManager extends EventEmitter {
     }
 
     // 最后回退到全局安装的 claude 命令
-    console.warn('[Engine] No local engine found, falling back to global claude command')
     return { command: 'claude', args: [] }
   }
 
@@ -386,8 +335,8 @@ export class ClaudeCodeProcessManager extends EventEmitter {
       'WORKFLOW_SCRIPTS', 'HISTORY_SNIP', 'CONTEXT_COLLAPSE',
       'MONITOR_TOOL', 'FORK_SUBAGENT', 'UDS_INBOX', 'KAIROS',
       'COORDINATOR_MODE', 'LAN_PIPES', 'POOR',
-      'PROACTIVE', 'REVIEW_ARTIFACT', 'WEB_BROWSER_TOOL',
-      'BUILDING_CLAUDE_APPS', 'RUN_SKILL_GENERATOR',
+      'PROACTIVE', //'REVIEW_ARTIFACT', // API 请求无响应，需进一步排查 schema 兼容性
+      'WEB_BROWSER_TOOL', 'BUILDING_CLAUDE_APPS', /*'RUN_SKILL_GENERATOR',*/
     ]
     return features.flatMap(f => ['--feature', f])
   }

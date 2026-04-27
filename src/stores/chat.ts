@@ -315,7 +315,6 @@ export const useChatStore = defineStore('chat', () => {
   const currentSessionId = ref<string | null>(lastSessionId)
   const isLoading = ref(false)
   const streamingContent = ref('')
-  const activeRequestCancel = ref<null | (() => void)>(null)
 
   // Agent state
   const currentAgent = ref<string>('')  // empty = default (no --agent flag)
@@ -427,22 +426,25 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     try {
+      // 检查是否已经有活跃的会话
       const isActive = await claudeCode.isSessionActive()
       if (isActive) {
+        // 复用已存在的会话
         return
       }
 
       const config = settingsStore.config
       const cwd = workingDirectory.value || await electronAPI.getCwd?.() || '/'
+      // 启动 ClaudeCode 会话
       await claudeCode.startSession({
         cwd,
         apiKey: config.apiKey,
-        baseUrl: config.apiUrl,
+        apiUrl: config.apiUrl,
         provider: config.provider,
         model: config.model,
         effortLevel: config.effortLevel,
-        permissionMode: 'bypassPermissions',
-        agent: currentAgent.value || undefined,
+        permissionMode: 'bypassPermissions', // 自动批准所有权限请求
+        agent: currentAgent.value || undefined,  // pass --agent flag if selected
       })
     } catch (error) {
       console.error('[ChatStore] Failed to start ClaudeCode session:', error)
@@ -480,11 +482,6 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function sendMessage(content: string): Promise<void> {
-    if (activeRequestCancel.value) {
-      activeRequestCancel.value()
-      activeRequestCancel.value = null
-    }
-
     if (!currentSessionId.value) {
       createSession()
     }
@@ -527,39 +524,10 @@ export const useChatStore = defineStore('chat', () => {
     await new Promise<void>((resolve, reject) => {
       let accumulatedContent = ''
       let isCompleted = false
-      let eventCount = 0
-      let lastEventAt = Date.now()
-      const startedAt = Date.now()
-      const STALL_WARNING_MS = 20000
-
-      const touchEvent = (source: string) => {
-        eventCount += 1
-        lastEventAt = Date.now()
-        if (eventCount <= 5 || eventCount % 50 === 0) {
-          console.log('[ChatStore] ClaudeCode event:', source, { eventCount })
-        }
-      }
-
-      const stallTimer = setInterval(() => {
-        if (isCompleted) return
-        if (!isLoading.value) {
-          clearInterval(stallTimer)
-          return
-        }
-        const idleMs = Date.now() - lastEventAt
-        if (idleMs >= STALL_WARNING_MS) {
-          console.warn('[ChatStore] Waiting for ClaudeCode response...', {
-            idleMs,
-            elapsedMs: Date.now() - startedAt,
-            assistantMessageId,
-          })
-        }
-      }, 5000)
 
       const handleStreamEvent = (streamEvent: any) => {
         if (isCompleted) return
         const event = streamEvent.event || streamEvent
-        touchEvent(`stream_event:${event?.type || 'unknown'}`)
 
         if (event.type === 'content_block_start' && event.content_block?.type === 'text') {
           if (accumulatedContent.length > 0 && !accumulatedContent.endsWith('\n')) {
@@ -602,25 +570,9 @@ export const useChatStore = defineStore('chat', () => {
 
       const handleAssistant = (assistant: any) => {
         if (isCompleted) return
-        touchEvent('assistant')
         if (assistant.message?.content) {
           const content = assistant.message.content
           if (Array.isArray(content)) {
-            // 兜底：某些场景下不会推送 text_delta，只在 assistant 完整消息里给出文本
-            const textContent = content
-              .filter((c: any) => c.type === 'text')
-              .map((c: any) => c.text)
-              .filter((t: any) => typeof t === 'string' && t.length > 0)
-              .join('')
-
-            if (textContent && textContent !== accumulatedContent) {
-              accumulatedContent = textContent
-              streamingContent.value = accumulatedContent
-              nextTick(() => {
-                updateMessage(assistantMessageId, { content: accumulatedContent })
-              })
-            }
-
             // 从 content 中提取 reasoning 类型的内容
             const reasoningContent = content
               .filter((c: any) => c.type === 'reasoning')
@@ -668,18 +620,11 @@ export const useChatStore = defineStore('chat', () => {
                 }
               }
             }
-          } else if (typeof content === 'string' && content && content !== accumulatedContent) {
-            accumulatedContent = content
-            streamingContent.value = accumulatedContent
-            nextTick(() => {
-              updateMessage(assistantMessageId, { content: accumulatedContent })
-            })
           }
         }
       }
 
       const handleToolUse = (toolUse: any) => {
-        touchEvent('tool_use')
         const session = sessions.value.find(s => s.id === currentSessionId.value)
         if (session) {
           const msg = session.messages.find(m => m.id === assistantMessageId)
@@ -708,7 +653,6 @@ export const useChatStore = defineStore('chat', () => {
       }
 
       const handleToolResult = (toolResult: any) => {
-        touchEvent('tool_result')
         const session = sessions.value.find(s => s.id === currentSessionId.value)
         if (session) {
           const msg = session.messages.find(m => m.id === assistantMessageId)
@@ -741,7 +685,6 @@ export const useChatStore = defineStore('chat', () => {
 
       const handleResult = (result: any) => {
         if (isCompleted) return
-        touchEvent('result')
         isCompleted = true
         streamingContent.value = ''
         isLoading.value = false
@@ -769,7 +712,6 @@ export const useChatStore = defineStore('chat', () => {
       }
 
       const handleUser = (userMsg: any) => {
-        touchEvent('user')
         // 处理 user 消息中的 tool_result
         if (userMsg.message?.content && Array.isArray(userMsg.message.content)) {
           const toolResults = userMsg.message.content.filter((c: any) => c.type === 'tool_result')
@@ -798,13 +740,12 @@ export const useChatStore = defineStore('chat', () => {
       }
 
       const handleLog = (log: string) => {
-        touchEvent('log')
-        console.log('[ClaudeCode]', log)
+        // 可选：将 CLI 日志输出到控制台
+        // console.log('[ClaudeCode]', log)
       }
 
       const handleError = (error: any) => {
         if (isCompleted) return
-        touchEvent('error')
         isCompleted = true
         isLoading.value = false
         streamingContent.value = ''
@@ -840,7 +781,6 @@ export const useChatStore = defineStore('chat', () => {
       })
 
       const cleanup = () => {
-        clearInterval(stallTimer)
         unsubscribeAssistant?.()
         unsubscribeUser?.()
         unsubscribeStreamEvent?.()
@@ -849,22 +789,7 @@ export const useChatStore = defineStore('chat', () => {
         unsubscribeResult?.()
         unsubscribeLog?.()
         unsubscribeExit?.()
-        if (activeRequestCancel.value === cancelCurrentRequest) {
-          activeRequestCancel.value = null
-        }
       }
-
-      const cancelCurrentRequest = () => {
-        if (isCompleted) return
-        touchEvent('cancel')
-        isCompleted = true
-        isLoading.value = false
-        streamingContent.value = ''
-        cleanup()
-        resolve()
-      }
-
-      activeRequestCancel.value = cancelCurrentRequest
 
       // Send message
       claudeCode.sendMessage(content).catch((error: any) => {
@@ -880,8 +805,6 @@ export const useChatStore = defineStore('chat', () => {
 
   async function abort(): Promise<void> {
     console.log('[ChatStore] Abort called, isLoading:', isLoading.value)
-    activeRequestCancel.value?.()
-    activeRequestCancel.value = null
     const claudeCode = electronAPI?.claudeCode
     if (claudeCode) {
       try {
