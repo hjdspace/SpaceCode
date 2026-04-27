@@ -10,6 +10,11 @@
         v-if="tool.taskItems.length && !shouldShowTaskBoard"
         :tasks="tool.taskItems"
       />
+      <component
+        v-else-if="specialComponents[tool.id]"
+        :is="specialComponents[tool.id]"
+        :tool-call="tool"
+      />
       <ToolCallCard
         v-else-if="!TASK_LIST_ONLY_TOOL_NAMES.has(tool.name)"
         :tool-call="tool"
@@ -20,10 +25,12 @@
 
 <script setup lang="ts">
 import type { ToolCall } from '@/types'
+import type { Component } from 'vue'
 import ToolCallCard from './ToolCallCard.vue'
 import TaskListCard, { type TaskListItem } from './TaskListCard.vue'
 import { useTaskManager } from '@/composables/useTaskManager'
-import { computed } from 'vue'
+import { computed, onMounted, reactive, watch } from 'vue'
+import { hasToolComponent, resolveToolComponent } from '@/components/chat/tools/index'
 
 const taskManager = useTaskManager()
 
@@ -142,12 +149,12 @@ function parseTaskCreateOutput(output?: string): TaskListItem[] {
 function parseTaskUpdateOutput(output?: string): TaskListItem[] {
   if (!output) return []
 
-  const updatedMatch = output.match(/^Updated task #(\\d+)/)
+  const updatedMatch = output.match(/^Updated task #(\d+)/)
   if (!updatedMatch) return []
 
   const taskId = updatedMatch[1]
 
-  const statusChangeMatch = output.match(/statusChange: (\\w+) -> (\\w+)/)
+  const statusChangeMatch = output.match(/statusChange: (\w+) -> (\w+)/)
   const status = statusChangeMatch ? statusChangeMatch[2] : undefined
 
   return [{
@@ -156,6 +163,23 @@ function parseTaskUpdateOutput(output?: string): TaskListItem[] {
     status: (status as TaskListItem['status']) || 'pending'
   }]
 }
+
+const specialComponents = reactive<Record<string, Component>>({})
+
+async function loadSpecialComponents() {
+  for (const tool of props.toolCalls) {
+    if (hasToolComponent(tool.name) && !specialComponents[tool.id]) {
+      const comp = await resolveToolComponent(tool.name)
+      if (comp) specialComponents[tool.id] = comp
+    }
+  }
+}
+
+onMounted(loadSpecialComponents)
+
+watch(() => props.toolCalls, () => {
+  loadSpecialComponents()
+}, { deep: true })
 </script>
 
 <style lang="scss" scoped>

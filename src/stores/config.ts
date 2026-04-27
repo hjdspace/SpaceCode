@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
+import { TOOL_REGISTRY } from '@/lib/tool-registry'
 
 export interface MCPServer {
   id: string
@@ -52,18 +53,15 @@ export const useConfigStore = defineStore('config', () => {
     ])
   )
 
+  function getDefaultToolConfigs(): ToolConfig[] {
+    return TOOL_REGISTRY.map(tool => ({
+      name: tool.name,
+      enabled: tool.availability === 'always',
+    }))
+  }
+
   const toolConfigs = ref<ToolConfig[]>(
-    loadFromStorage(TOOLS_STORAGE_KEY, [
-      { name: 'Bash', enabled: true },
-      { name: 'FileRead', enabled: true },
-      { name: 'FileWrite', enabled: true },
-      { name: 'FileEdit', enabled: true },
-      { name: 'LS', enabled: true },
-      { name: 'Glob', enabled: true },
-      { name: 'Grep', enabled: true },
-      { name: 'WebFetch', enabled: true },
-      { name: 'WebSearch', enabled: true }
-    ])
+    loadFromStorage(TOOLS_STORAGE_KEY, getDefaultToolConfigs())
   )
 
   const showMcpPanel = ref(false)

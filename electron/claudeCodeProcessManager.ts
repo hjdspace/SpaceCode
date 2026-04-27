@@ -2,12 +2,15 @@ import { ChildProcess, spawn } from 'child_process'
 import { EventEmitter } from 'events'
 import * as path from 'path'
 import * as fs from 'fs'
+import * as os from 'os'
 import { randomUUID } from 'crypto'
 import { app } from 'electron'
 
 export interface SessionConfig {
   cwd: string
   model?: string
+  provider?: 'anthropic' | 'openai' | 'gemini' | string
+  baseUrl?: string
   /** CLI 支持的权限模式: acceptEdits, bypassPermissions, default, dontAsk, plan */
   permissionMode?: 'acceptEdits' | 'bypassPermissions' | 'default' | 'dontAsk' | 'plan'
   /** 推理深度: low, medium, high, max */
@@ -20,6 +23,8 @@ export interface SessionConfig {
   verbose?: boolean
   /** Agent type for the session (e.g. 'general-purpose', 'Explore', 'Plan'). Passed as --agent flag. */
   agent?: string
+  /** 允许的工具列表（传给 CLI --allowedTools），空数组或 undefined 表示允许全部 */
+  allowedTools?: string[]
 }
 
 export class ClaudeCodeProcessManager extends EventEmitter {
@@ -108,6 +113,24 @@ export class ClaudeCodeProcessManager extends EventEmitter {
 
     this.currentConfig = config
 
+    console.log('[Engine] Starting session', {
+      cwd: config.cwd,
+      command,
+      args,
+      hasApiKey: Boolean(config.apiKey),
+      model: config.model,
+      permissionMode: config.permissionMode,
+      effortLevel: config.effortLevel,
+      agent: config.agent,
+    })
+
+    console.log('[Engine] Spawning process...', {
+      pid: 'pending',
+      provider: config.provider,
+      baseUrl: config.baseUrl,
+      apiKeyPrefix: config.apiKey ? config.apiKey.slice(0, 8) + '...' : '(none)',
+    })
+
     this.process = spawn(command, args, {
       cwd: config.cwd,
       env: { ...process.env, ...env },
@@ -116,9 +139,23 @@ export class ClaudeCodeProcessManager extends EventEmitter {
       windowsHide: true
     })
 
+    console.log('[Engine] Process spawned, pid:', this.process.pid, 'killed:', this.process.killed)
+
+    // 进程启动失败时立即触发
+    this.process.on('error', (err) => {
+      console.error('[Engine] Process spawn error:', err)
+      this.emit('error', err)
+    })
+
     // 解析 stdout 的 NDJSON stream
+    let stdoutByteCount = 0
+    let stderrByteCount = 0
     this.process.stdout!.on('data', (data) => {
       const dataStr = data.toString()
+      stdoutByteCount += dataStr.length
+      if (stdoutByteCount <= 500) {
+        console.log('[Engine] stdout first bytes:', JSON.stringify(dataStr.slice(0, 200)))
+      }
       this.buffer += dataStr
       const bufferedLines = this.buffer.split('\n')
       this.buffer = bufferedLines.pop() || ''
@@ -128,7 +165,12 @@ export class ClaudeCodeProcessManager extends EventEmitter {
             const msg = JSON.parse(line)
             this.handleSDKMessage(msg)
           } catch (e) {
-            // JSON 解析错误时静默处理
+            const preview = line.length > 300 ? `${line.slice(0, 300)}...` : line
+            console.warn('[Engine] Failed to parse CLI stream-json line', {
+              error: e instanceof Error ? e.message : String(e),
+              preview,
+            })
+            this.emit('log', `[Engine] JSON parse error: ${e instanceof Error ? e.message : String(e)} | preview=${preview}`)
           }
         }
       }
@@ -136,16 +178,18 @@ export class ClaudeCodeProcessManager extends EventEmitter {
 
     // stderr 用于日志
     this.process.stderr!.on('data', (data) => {
-      this.emit('log', data.toString())
+      const str = data.toString()
+      stderrByteCount += str.length
+      if (stderrByteCount <= 1000) {
+        console.log('[Engine] stderr:', str.slice(0, 300))
+      }
+      this.emit('log', str)
     })
 
     this.process.on('exit', (code, signal) => {
+      console.log('[Engine] Process exited', { code, signal, stdoutBytes: stdoutByteCount, stderrBytes: stderrByteCount })
       this.emit('exit', code)
       this.process = null
-    })
-
-    this.process.on('error', (error) => {
-      this.emit('error', error)
     })
 
     return this.sessionId = randomUUID()
@@ -153,6 +197,10 @@ export class ClaudeCodeProcessManager extends EventEmitter {
 
   async sendMessage(content: string): Promise<void> {
     if (!this.process) throw new Error('No active session')
+    console.log('[Engine] sendMessage', {
+      bytes: Buffer.byteLength(content, 'utf8'),
+      preview: content.slice(0, 120),
+    })
     // CLI 期望的消息格式: { type: 'user', message: { role: 'user', content } }
     const msg = JSON.stringify({
       type: 'user',
@@ -162,6 +210,7 @@ export class ClaudeCodeProcessManager extends EventEmitter {
       }
     }) + '\n'
     this.process.stdin!.write(msg)
+    console.log('[Engine] sendMessage write completed')
   }
 
   async abort(): Promise<void> {
@@ -203,6 +252,26 @@ export class ClaudeCodeProcessManager extends EventEmitter {
       '--verbose',
       '--include-partial-messages', // 启用流式消息输出
     ]
+
+    // 引擎通过 settings.json 的 modelType 字段判断 API provider
+    // 我们写入临时 settings.json 并通过 --settings 传入
+    const provider = (config.provider || 'anthropic').toLowerCase()
+    const modelType = provider === 'openai' ? 'openai'
+      : provider === 'gemini' ? 'gemini'
+      : provider === 'grok' ? 'grok'
+      : undefined
+
+    if (modelType) {
+      const settingsDir = path.join(os.tmpdir(), 'claude-code-gui')
+      try { fs.mkdirSync(settingsDir, { recursive: true }) } catch {}
+      const settingsPath = path.join(settingsDir, `settings-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`)
+      const settingsContent: Record<string, unknown> = { modelType }
+      if (config.model) settingsContent.model = config.model
+      fs.writeFileSync(settingsPath, JSON.stringify(settingsContent, null, 2), 'utf8')
+      args.push('--settings', settingsPath)
+      console.log('[Engine] Wrote temp settings.json:', settingsPath, JSON.stringify(settingsContent))
+    }
+
     if (config.model) args.push('--model', config.model)
     if (config.permissionMode) args.push('--permission-mode', config.permissionMode)
     if (config.effortLevel) args.push('--effort', config.effortLevel)
@@ -211,14 +280,40 @@ export class ClaudeCodeProcessManager extends EventEmitter {
     if (config.maxTurns) args.push('--max-turns', String(config.maxTurns))
     if (config.maxBudgetUsd) args.push('--max-budget-usd', String(config.maxBudgetUsd))
     if (config.agent) args.push('--agent', config.agent)
+    if (config.allowedTools && config.allowedTools.length > 0) {
+      args.push('--allowedTools', ...config.allowedTools)
+    }
     return args
   }
 
   private buildEnv(config: SessionConfig): Record<string, string> {
     const env: Record<string, string> = {}
-    if (config.apiKey) env.ANTHROPIC_API_KEY = config.apiKey
+    const provider = (config.provider || 'anthropic').toLowerCase()
+
+    // 统一设置 provider，供引擎按供应商选择 API 适配器
+    env.LLM_PROVIDER = provider
+
+    if (provider === 'openai') {
+      if (config.apiKey) env.OPENAI_API_KEY = config.apiKey
+      if (config.baseUrl) env.OPENAI_BASE_URL = config.baseUrl
+      if (config.model) env.OPENAI_MODEL = config.model
+    } else if (provider === 'gemini') {
+      if (config.apiKey) env.GEMINI_API_KEY = config.apiKey
+      if (config.baseUrl) env.GEMINI_BASE_URL = config.baseUrl
+      if (config.model) env.GEMINI_MODEL = config.model
+    } else {
+      // 默认走 Anthropic 兼容路径
+      if (config.apiKey) env.ANTHROPIC_API_KEY = config.apiKey
+      if (config.baseUrl) env.ANTHROPIC_BASE_URL = config.baseUrl
+    }
+
+    // 兼容部分网关/适配器读取 Anthropic 变量的场景
+    if (config.apiKey && !env.ANTHROPIC_API_KEY) {
+      env.ANTHROPIC_API_KEY = config.apiKey
+    }
+
     // 确保 bun 能找到正确的项目根目录
-    env.CLaude_CODE_ROOT = this.cliRoot
+    env.CLAUDE_CODE_ROOT = this.cliRoot
     // TODO: 保留此代码以备后续需要强制禁用 Todo V2 功能时启用
     // env.CLAUDE_CODE_ENABLE_TASKS = 'false'
     return env
@@ -291,6 +386,8 @@ export class ClaudeCodeProcessManager extends EventEmitter {
       'WORKFLOW_SCRIPTS', 'HISTORY_SNIP', 'CONTEXT_COLLAPSE',
       'MONITOR_TOOL', 'FORK_SUBAGENT', 'UDS_INBOX', 'KAIROS',
       'COORDINATOR_MODE', 'LAN_PIPES', 'POOR',
+      'PROACTIVE', 'REVIEW_ARTIFACT', 'WEB_BROWSER_TOOL',
+      'BUILDING_CLAUDE_APPS', 'RUN_SKILL_GENERATOR',
     ]
     return features.flatMap(f => ['--feature', f])
   }

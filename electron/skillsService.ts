@@ -89,6 +89,32 @@ function readSkillsFromDir(dirPath: string, source: Skill['source']): Skill[] {
 }
 
 /**
+ * CLI Engine 内置的 bundled skills（与 engine/src/skills/bundled/index.ts 保持一致）
+ * 这些技能编译在 CLI 二进制中，无需磁盘上的 .md 文件
+ */
+export const BUNDLED_SKILLS: Array<{ name: string; description: string }> = [
+  { name: 'update-config', description: 'Update Claude Code configuration' },
+  { name: 'keybindings-help', description: 'Show keyboard shortcuts help' },
+  { name: 'verify', description: 'Verify implementation against requirements' },
+  { name: 'debug', description: 'Debug issues with systematic analysis' },
+  { name: 'lorem-ipsum', description: 'Generate lorem ipsum placeholder text' },
+  { name: 'skillify', description: 'Convert a workflow into a reusable skill' },
+  { name: 'remember', description: 'Remember context for future conversations' },
+  { name: 'simplify', description: 'Simplify complex code or explanations' },
+  { name: 'batch', description: 'Process multiple items in batch operations' },
+  { name: 'stuck', description: 'Get unstuck when progress is blocked' },
+  { name: 'loop', description: 'Iterate on a task until completion' },
+  { name: 'cron-list', description: 'List scheduled cron jobs' },
+  { name: 'cron-delete', description: 'Delete a cron job' },
+  { name: 'dream', description: 'Generate creative ideas or solutions' },
+  { name: 'hunter', description: 'Review code artifacts for quality (requires REVIEW_ARTIFACT)' },
+  { name: 'schedule-remote-agents', description: 'Schedule remote agent triggers (requires AGENT_TRIGGERS_REMOTE)' },
+  { name: 'claude-api', description: 'Build Claude API applications (requires BUILDING_CLAUDE_APPS)' },
+  { name: 'claude-in-chrome', description: 'Use Claude in Chrome browser (when enabled)' },
+  { name: 'run-skill-generator', description: 'Generate new skills from examples (requires RUN_SKILL_GENERATOR)' },
+]
+
+/**
  * Default marketplace skills - used when online marketplace is not available
  */
 const DEFAULT_MARKETPLACE_SKILLS: MarketplaceSkill[] = [
@@ -204,6 +230,11 @@ export function registerSkillsIPCHandlers(): void {
       console.error('[Skills] Failed to get skills:', err)
       return { skills: [] }
     }
+  })
+
+  // Get bundled skills (built into CLI engine binary)
+  ipcMain.handle('skills:getBundledSkills', async () => {
+    return { skills: BUNDLED_SKILLS }
   })
 
   // Create a new skill
