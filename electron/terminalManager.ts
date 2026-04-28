@@ -6,13 +6,26 @@
  * with the renderer process via IPC.
  */
 
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, app } from 'electron'
 import { randomUUID } from 'crypto'
+import * as path from 'path'
 
 // Use require for node-pty since it's a native module
 let pty: any
 try {
-  pty = require('node-pty')
+  // 在打包环境中，需要确保能正确找到原生模块
+  if (app.isPackaged) {
+    // 尝试从 app.asar.unpacked 路径加载
+    const unpackedPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'node-pty')
+    try {
+      pty = require(unpackedPath)
+    } catch {
+      // 如果失败，回退到正常 require
+      pty = require('node-pty')
+    }
+  } else {
+    pty = require('node-pty')
+  }
 } catch (error) {
   console.warn('[TerminalManager] node-pty not available, terminal feature will be disabled:', error)
 }
