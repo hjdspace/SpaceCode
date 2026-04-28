@@ -13,6 +13,9 @@ on:
 jobs:
   del_runs:
     runs-on: ubuntu-latest
+    permissions:
+      actions: write # 允许读取和删除 workflow runs
+      contents: read # 允许读取仓库内容（通常也需要）
     steps:
       - name: Delete Build and Release
         uses: Mattraks/delete-workflow-runs@v2
