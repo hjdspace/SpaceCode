@@ -42,6 +42,11 @@ jobs:
           node-version: 20
           cache: 'npm'
 
+      - name: Setup Python (for node-gyp)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Install dependencies
         run: npm ci
 
@@ -100,9 +105,63 @@ jobs:
 
       - name: Rebuild native modules
         run: npx electron-rebuild
-        
+
       - name: Build application
         run: npm run build
+
+      - name: Build engine (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          cd engine
+          # 使用下载的 bun 安装依赖
+          ../engine/bin/bun-linux-x64 install || npm install
+          # 构建引擎（如果存在构建脚本）
+          if [ -f package.json ] && grep -q '"build"' package.json; then
+            ../engine/bin/bun-linux-x64 run build || npm run build
+          fi
+          # 确保 dist 目录存在（如果没有构建脚本，直接运行源码）
+          mkdir -p dist
+          cd ..
+
+      - name: Build engine (macOS x64)
+        if: matrix.platform == 'mac' && matrix.arch == 'x64'
+        run: |
+          cd engine
+          ./bin/bun-darwin-x64 install || npm install
+          if [ -f package.json ] && grep -q '"build"' package.json; then
+            ./bin/bun-darwin-x64 run build || npm run build
+          fi
+          mkdir -p dist
+          cd ..
+
+      - name: Build engine (macOS arm64)
+        if: matrix.platform == 'mac' && matrix.arch == 'arm64'
+        run: |
+          cd engine
+          ./bin/bun-darwin-arm64 install || npm install
+          if [ -f package.json ] && grep -q '"build"' package.json; then
+            ./bin/bun-darwin-arm64 run build || npm run build
+          fi
+          mkdir -p dist
+          cd ..
+
+      - name: Build engine (Windows)
+        if: matrix.platform == 'win'
+        shell: powershell
+        run: |
+          cd engine
+          # 使用 npm 安装依赖（Windows 上 bun 可能不稳定）
+          npm install
+          # 构建引擎（如果存在构建脚本）
+          if (Test-Path package.json) {
+            $hasBuild = Get-Content package.json | Select-String '"build"'
+            if ($hasBuild) {
+              npm run build
+            }
+          }
+          # 确保 dist 目录存在
+          New-Item -ItemType Directory -Force -Path dist
+          cd ..
 
       - name: Build Electron (Windows)
         if: matrix.platform == 'win'
