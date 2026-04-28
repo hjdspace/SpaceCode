@@ -113,11 +113,16 @@ jobs:
         if: matrix.platform == 'linux'
         run: |
           cd engine
+          # 将 bun 添加到 PATH
+          export PATH="$(pwd)/../engine/bin:$PATH"
           # 使用下载的 bun 安装依赖
-          ../engine/bin/bun-linux-x64 install || npm install
+          bun-linux-x64 install || npm install
           # 构建引擎（如果存在构建脚本）
           if [ -f package.json ] && grep -q '"build"' package.json; then
-            ../engine/bin/bun-linux-x64 run build || npm run build
+            # 创建 bun 符号链接，使 npm run build 能找到 bun
+            ln -sf $(pwd)/../engine/bin/bun-linux-x64 $(pwd)/../engine/bin/bun || true
+            export PATH="$(pwd)/../engine/bin:$PATH"
+            bun run build || npm run build
           fi
           # 确保 dist 目录存在（如果没有构建脚本，直接运行源码）
           mkdir -p dist
@@ -127,9 +132,13 @@ jobs:
         if: matrix.platform == 'mac' && matrix.arch == 'x64'
         run: |
           cd engine
+          # 将 bun 添加到 PATH
+          export PATH="$(pwd)/bin:$PATH"
+          # 创建 bun 符号链接
+          ln -sf $(pwd)/bin/bun-darwin-x64 $(pwd)/bin/bun || true
           ./bin/bun-darwin-x64 install || npm install
           if [ -f package.json ] && grep -q '"build"' package.json; then
-            ./bin/bun-darwin-x64 run build || npm run build
+            bun run build || npm run build
           fi
           mkdir -p dist
           cd ..
@@ -138,9 +147,13 @@ jobs:
         if: matrix.platform == 'mac' && matrix.arch == 'arm64'
         run: |
           cd engine
+          # 将 bun 添加到 PATH
+          export PATH="$(pwd)/bin:$PATH"
+          # 创建 bun 符号链接
+          ln -sf $(pwd)/bin/bun-darwin-arm64 $(pwd)/bin/bun || true
           ./bin/bun-darwin-arm64 install || npm install
           if [ -f package.json ] && grep -q '"build"' package.json; then
-            ./bin/bun-darwin-arm64 run build || npm run build
+            bun run build || npm run build
           fi
           mkdir -p dist
           cd ..
@@ -150,13 +163,27 @@ jobs:
         shell: powershell
         run: |
           cd engine
-          # 使用 npm 安装依赖（Windows 上 bun 可能不稳定）
-          npm install
+          # 将 bun 添加到 PATH
+          $env:PATH = "$PWD\bin;$env:PATH"
+          # 创建 bun.exe 副本（Windows 不支持符号链接，直接复制）
+          if (Test-Path "bin\bun-windows-x64.exe") {
+            Copy-Item "bin\bun-windows-x64.exe" "bin\bun.exe" -Force
+          }
+          # 使用 bun 安装依赖（如果可用），否则使用 npm
+          if (Get-Command bun -ErrorAction SilentlyContinue) {
+            bun install
+          } else {
+            npm install
+          }
           # 构建引擎（如果存在构建脚本）
           if (Test-Path package.json) {
             $hasBuild = Get-Content package.json | Select-String '"build"'
             if ($hasBuild) {
-              npm run build
+              if (Get-Command bun -ErrorAction SilentlyContinue) {
+                bun run build
+              } else {
+                npm run build
+              }
             }
           }
           # 确保 dist 目录存在
