@@ -1,0 +1,39 @@
+name: Delete old workflow runs
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      root_sol:
+        description: "Workflow Title"
+        required: true
+        default: "Delete old workflow runs"
+
+jobs:
+  del_runs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete Build and Release
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 1
+          keep_minimum_runs: 1
+          delete_workflow_pattern: 'Build and Release'
+
+      - name: Delete Cleanup workflow
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 1
+          keep_minimum_runs: 1
+          delete_workflow_pattern: 'Delete old workflow runs'
+
+      - name: Delete all artifacts
+        uses: geekyeggo/delete-artifact@v4
+        with:
+          name: '*'
+          failOnError: false
