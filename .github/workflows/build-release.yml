@@ -13,26 +13,8 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            platform: win
-            arch: x64
-          - os: ubuntu-latest
-            platform: linux
-            arch: x64
-          # macOS 构建暂时注释
-          # - os: macos-latest
-          #   platform: mac
-          #   arch: x64
-          # - os: macos-latest
-          #   platform: mac
-          #   arch: arm64
-
+  build-windows:
+    runs-on: windows-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -51,48 +33,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install system dependencies (Linux)
-        if: matrix.platform == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y unzip build-essential python3 g++ make
-          # rpm 包构建暂时不需要
-          # sudo apt-get install -y rpm
-
-      - name: Download Bun (Linux)
-        if: matrix.platform == 'linux'
-        run: |
-          mkdir -p engine/bin
-          curl -fsSL -o bun-linux-x64.zip "https://github.com/oven-sh/bun/releases/latest/download/bun-linux-x64.zip"
-          unzip -o bun-linux-x64.zip -d /tmp/
-          mv /tmp/bun-linux-x64/bun engine/bin/bun-linux-x64
-          chmod +x engine/bin/bun-linux-x64
-          rm -rf bun-linux-x64.zip /tmp/bun-linux-x64/
-
-      # macOS x64 Bun 下载暂时注释
-      # - name: Download Bun (macOS x64)
-      #   if: matrix.platform == 'mac' && matrix.arch == 'x64'
-      #   run: |
-      #     mkdir -p engine/bin
-      #     curl -fsSL -o bun-darwin-x64.zip "https://github.com/oven-sh/bun/releases/latest/download/bun-darwin-x64.zip"
-      #     unzip -o bun-darwin-x64.zip -d /tmp/
-      #     mv /tmp/bun-darwin-x64/bun engine/bin/bun-darwin-x64
-      #     chmod +x engine/bin/bun-darwin-x64
-      #     rm -rf bun-darwin-x64.zip /tmp/bun-darwin-x64/
-
-      # macOS arm64 Bun 下载暂时注释
-      # - name: Download Bun (macOS arm64)
-      #   if: matrix.platform == 'mac' && matrix.arch == 'arm64'
-      #   run: |
-      #     mkdir -p engine/bin
-      #     curl -fsSL -o bun-darwin-aarch64.zip "https://github.com/oven-sh/bun/releases/latest/download/bun-darwin-aarch64.zip"
-      #     unzip -o bun-darwin-aarch64.zip -d /tmp/
-      #     mv /tmp/bun-darwin-aarch64/bun engine/bin/bun-darwin-arm64
-      #     chmod +x engine/bin/bun-darwin-arm64
-      #     rm -rf bun-darwin-aarch64.zip /tmp/bun-darwin-aarch64/
-
       - name: Download Bun (Windows)
-        if: matrix.platform == 'win'
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path engine/bin
@@ -114,75 +55,19 @@ jobs:
       - name: Build application
         run: npm run build
 
-      - name: Build engine (Linux)
-        if: matrix.platform == 'linux'
-        run: |
-          cd engine
-          # 将 bun 添加到 PATH
-          export PATH="$(pwd)/../engine/bin:$PATH"
-          # 使用下载的 bun 安装依赖
-          bun-linux-x64 install || npm install
-          # 构建引擎（如果存在构建脚本）
-          if [ -f package.json ] && grep -q '"build"' package.json; then
-            # 创建 bun 符号链接，使 npm run build 能找到 bun
-            ln -sf $(pwd)/../engine/bin/bun-linux-x64 $(pwd)/../engine/bin/bun || true
-            export PATH="$(pwd)/../engine/bin:$PATH"
-            bun run build || npm run build
-          fi
-          # 确保 dist 目录存在（如果没有构建脚本，直接运行源码）
-          mkdir -p dist
-          cd ..
-
-      # macOS x64 引擎构建暂时注释
-      # - name: Build engine (macOS x64)
-      #   if: matrix.platform == 'mac' && matrix.arch == 'x64'
-      #   run: |
-      #     cd engine
-      #     # 将 bun 添加到 PATH
-      #     export PATH="$(pwd)/bin:$PATH"
-      #     # 创建 bun 符号链接
-      #     ln -sf $(pwd)/bin/bun-darwin-x64 $(pwd)/bin/bun || true
-      #     ./bin/bun-darwin-x64 install || npm install
-      #     if [ -f package.json ] && grep -q '"build"' package.json; then
-      #       bun run build || npm run build
-      #     fi
-      #     mkdir -p dist
-      #     cd ..
-
-      # macOS arm64 引擎构建暂时注释
-      # - name: Build engine (macOS arm64)
-      #   if: matrix.platform == 'mac' && matrix.arch == 'arm64'
-      #   run: |
-      #     cd engine
-      #     # 将 bun 添加到 PATH
-      #     export PATH="$(pwd)/bin:$PATH"
-      #     # 创建 bun 符号链接
-      #     ln -sf $(pwd)/bin/bun-darwin-arm64 $(pwd)/bin/bun || true
-      #     ./bin/bun-darwin-arm64 install || npm install
-      #     if [ -f package.json ] && grep -q '"build"' package.json; then
-      #       bun run build || npm run build
-      #     fi
-      #     mkdir -p dist
-      #     cd ..
-
       - name: Build engine (Windows)
-        if: matrix.platform == 'win'
         shell: powershell
         run: |
           cd engine
-          # 将 bun 添加到 PATH
           $env:PATH = "$PWD\bin;$env:PATH"
-          # 创建 bun.exe 副本（Windows 不支持符号链接，直接复制）
           if (Test-Path "bin\bun-windows-x64.exe") {
             Copy-Item "bin\bun-windows-x64.exe" "bin\bun.exe" -Force
           }
-          # 使用 bun 安装依赖（如果可用），否则使用 npm
           if (Get-Command bun -ErrorAction SilentlyContinue) {
             bun install
           } else {
             npm install
           }
-          # 构建引擎（如果存在构建脚本）
           if (Test-Path package.json) {
             $hasBuild = Get-Content package.json | Select-String '"build"'
             if ($hasBuild) {
@@ -193,103 +78,99 @@ jobs:
               }
             }
           }
-          # 确保 dist 目录存在
           New-Item -ItemType Directory -Force -Path dist
           cd ..
 
       - name: Build Electron (Windows)
-        if: matrix.platform == 'win'
         run: npx electron-builder --win --x64
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Upload Windows build to Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.exe
+            release/*.blockmap
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Setup Python (for node-gyp)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install system dependencies (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip build-essential python3 g++ make
+
+      - name: Download Bun (Linux)
+        run: |
+          mkdir -p engine/bin
+          curl -fsSL -o bun-linux-x64.zip "https://github.com/oven-sh/bun/releases/latest/download/bun-linux-x64.zip"
+          unzip -o bun-linux-x64.zip -d /tmp/
+          mv /tmp/bun-linux-x64/bun engine/bin/bun-linux-x64
+          chmod +x engine/bin/bun-linux-x64
+          rm -rf bun-linux-x64.zip /tmp/bun-linux-x64/
+
+      - name: Rebuild native modules
+        run: npx electron-rebuild
+
+      - name: Build application
+        run: npm run build
+
+      - name: Build engine (Linux)
+        run: |
+          cd engine
+          export PATH="$(pwd)/../engine/bin:$PATH"
+          bun-linux-x64 install || npm install
+          if [ -f package.json ] && grep -q '"build"' package.json; then
+            ln -sf $(pwd)/../engine/bin/bun-linux-x64 $(pwd)/../engine/bin/bun || true
+            export PATH="$(pwd)/../engine/bin:$PATH"
+            bun run build || npm run build
+          fi
+          mkdir -p dist
+          cd ..
+
       - name: Build Electron (Linux)
-        if: matrix.platform == 'linux'
-        run: npx electron-builder --linux --x64
+        run: npx electron-builder --linux AppImage
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # macOS x64 Electron 构建暂时注释
-      # - name: Build Electron (macOS x64)
-      #   if: matrix.platform == 'mac' && matrix.arch == 'x64'
-      #   run: npx electron-builder --mac --x64
-      #   env:
-      #     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # macOS arm64 Electron 构建暂时注释
-      # - name: Build Electron (macOS arm64)
-      #   if: matrix.platform == 'mac' && matrix.arch == 'arm64'
-      #   run: npx electron-builder --mac --arm64
-      #   env:
-      #     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload artifacts (Windows)
-        if: matrix.platform == 'win'
-        uses: actions/upload-artifact@v4
+      - name: Upload Linux build to Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
         with:
-          name: windows-build
-          path: |
-            release/*.exe
-            release/*.exe.blockmap
+          files: release/*.AppImage
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload artifacts (Linux)
-        if: matrix.platform == 'linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-build
-          path: |
-            release/*.AppImage
-          # deb 和 rpm 格式暂时注释
-          # release/*.deb
-          # release/*.rpm
-
-      # macOS x64 artifact 上传暂时注释
-      # - name: Upload artifacts (macOS x64)
-      #   if: matrix.platform == 'mac' && matrix.arch == 'x64'
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: macos-x64-build
-      #     path: |
-      #       release/*.dmg
-      #       release/*.dmg.blockmap
-      #       release/*.zip
-      #     retention-days: 1
-      #     if-no-files-found: warn
-
-      # macOS arm64 artifact 上传暂时注释
-      # - name: Upload artifacts (macOS arm64)
-      #   if: matrix.platform == 'mac' && matrix.arch == 'arm64'
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: macos-arm64-build
-      #     path: |
-      #       release/*-arm64.dmg
-      #       release/*-arm64.dmg.blockmap
-      #       release/*-arm64.zip
-      #     retention-days: 1
-      #     if-no-files-found: warn
-
-  release:
-    needs: build
+  release-notes:
+    needs: [build-windows, build-linux]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
-
-      - name: List artifacts
-        run: |
-          echo "Downloaded artifacts:"
-          find artifacts -type f -name "*" | head -50
 
       - name: Extract version from tag
         id: get_version
@@ -301,9 +182,7 @@ jobs:
           VERSION=${{ steps.get_version.outputs.VERSION }}
           echo "Generating release notes for version $VERSION"
 
-          # 尝试从 CHANGELOG.md 提取当前版本的发布说明
           if [ -f CHANGELOG.md ]; then
-            # 提取当前版本到下一个版本标题之间的内容
             RELEASE_NOTES=$(awk '/^## \['$VERSION'\]/{flag=1;next}/^## \[/{flag=0}flag' CHANGELOG.md | sed '/^$/N;/^\n$/d')
             if [ -n "$RELEASE_NOTES" ]; then
               echo "Found release notes in CHANGELOG.md"
@@ -314,7 +193,6 @@ jobs:
             fi
           fi
 
-          # 如果 CHANGELOG 中没有，使用 git log 生成
           echo "Generating release notes from git log..."
           PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
           if [ -n "$PREVIOUS_TAG" ]; then
@@ -335,21 +213,9 @@ jobs:
             echo "notes=" >> $GITHUB_OUTPUT
           fi
 
-      - name: Create Release
+      - name: Update Release with Notes
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            artifacts/**/*.exe
-            artifacts/**/*.AppImage
-            # macOS 和 deb/rpm 格式暂时注释
-            # artifacts/**/*.deb
-            # artifacts/**/*.rpm
-            # artifacts/**/*.dmg
-            # artifacts/**/*.zip
-            artifacts/**/*.blockmap
-          draft: false
-          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
           body: ${{ steps.release_notes.outputs.notes }}
-          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
