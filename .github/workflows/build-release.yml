@@ -8,6 +8,16 @@ on:
   pull_request:
     branches: [main, master]
   workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (例如: 0.2.2)'
+        required: true
+        default: '0.2.1'
+      create_release:
+        description: '是否创建 Release'
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: write
