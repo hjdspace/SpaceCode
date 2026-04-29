@@ -66,10 +66,6 @@
     ],
     "extraResources": [
       {
-        "from": ".env",
-        "to": ".env"
-      },
-      {
         "from": "engine/src",
         "to": "engine/src",
         "filter": [
