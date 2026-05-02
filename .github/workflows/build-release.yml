@@ -50,6 +50,10 @@ jobs:
         if: matrix.platform == 'mac'
         run: pip3 install setuptools --break-system-packages
 
+      - name: Install Python setuptools (Windows)
+        if: matrix.platform == 'win'
+        run: pip install setuptools
+
       - name: Install app dependencies
         run: npm ci
 
