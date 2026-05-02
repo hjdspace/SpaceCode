@@ -9,11 +9,16 @@
   "description": "SpaceCode - AI Agent Desktop Application (Electron + Vue 3)",
   "main": "dist-electron/main.js",
   "scripts": {
+    "engine:install": "cd engine && bun install",
+    "postinstall": "npm run engine:install",
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "electron:dev": "vite",
     "electron:build": "npm run build && electron-builder",
+    "electron:build:win": "npm run build && electron-builder --win",
+    "electron:build:mac": "npm run build && electron-builder --mac",
+    "electron:build:linux": "npm run build && electron-builder --linux",
     "typecheck": "vue-tsc --noEmit",
     "changelog": "conventional-changelog -p conventionalcommits -i CHANGELOG.md -s",
     "changelog:all": "conventional-changelog -p conventionalcommits -i CHANGELOG.md -s -r 0",
@@ -24,8 +29,10 @@
     "@anthropic-ai/sdk": "^0.27.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
+    "cors": "^2.8.6",
     "diff": "^5.2.0",
     "dotenv": "^16.4.5",
+    "express": "^5.2.1",
     "glob": "^13.0.6",
     "highlight.js": "^11.9.0",
     "lucide-vue-next": "^0.344.0",
@@ -36,7 +43,9 @@
     "vue": "^3.4.21"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
     "@types/diff": "^5.0.9",
+    "@types/express": "^5.0.6",
     "@vitejs/plugin-vue": "^5.0.4",
     "conventional-changelog-cli": "^5.0.0",
     "electron": "^29.1.0",
@@ -86,6 +95,10 @@
         "to": "engine/bunfig.toml"
       },
       {
+        "from": "engine/tsconfig.json",
+        "to": "engine/tsconfig.json"
+      },
+      {
         "from": "engine/node_modules",
         "to": "engine/node_modules",
         "filter": [
@@ -125,8 +138,16 @@
     "win": {
       "target": [
         {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "signAndEditExecutable": false
@@ -140,13 +161,13 @@
     "linux": {
       "target": [
         "AppImage",
-        "deb",
-        "rpm"
+        "deb"
       ]
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false
     },
     "compression": "store"
   }

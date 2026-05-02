@@ -25,6 +25,8 @@ export interface SessionConfig {
   agent?: string
   /** 允许的工具列表（传给 CLI --allowedTools），空数组或 undefined 表示允许全部 */
   allowedTools?: string[]
+  /** 是否启用 thinking 模式 (extended thinking) */
+  thinkingEnabled?: boolean
 }
 
 export class ClaudeCodeProcessManager extends EventEmitter {
@@ -214,13 +216,15 @@ export class ClaudeCodeProcessManager extends EventEmitter {
   }
 
   private buildArgs(config: SessionConfig): string[] {
-    const args = [
-      '-p',
+    const args: string[] = []
+
+    // CLI 入口由 resolveCliCommand 提供，这里只添加通用参数
+    args.push(
       '--output-format', 'stream-json',
       '--input-format', 'stream-json',
       '--verbose',
       '--include-partial-messages', // 启用流式消息输出
-    ]
+    )
 
     // 引擎通过 settings.json 的 modelType 字段判断 API provider
     // 我们写入临时 settings.json 并通过 --settings 传入
@@ -251,6 +255,19 @@ export class ClaudeCodeProcessManager extends EventEmitter {
     if (config.allowedTools && config.allowedTools.length > 0) {
       args.push('--allowedTools', ...config.allowedTools)
     }
+
+    // 批次1新增：权限提示工具输出方式
+    args.push('--permission-prompt-tool', 'stdio')
+
+    // 批次1新增：添加 Claude 配置目录 (~/.claude)
+    const claudeDir = path.join(os.homedir(), '.claude')
+    if (fs.existsSync(claudeDir)) {
+      args.push('--add-dir', claudeDir)
+    }
+
+    // 批次1新增：thinking 模式开关
+    args.push('--thinking', config.thinkingEnabled ? 'enabled' : 'disabled')
+
     return args
   }
 
@@ -282,9 +299,51 @@ export class ClaudeCodeProcessManager extends EventEmitter {
 
     // 确保 bun 能找到正确的项目根目录
     env.CLAUDE_CODE_ROOT = this.cliRoot
+
+    // 批次1新增：Windows Git Bash 路径检测与设置
+    const gitBashPath = this.findGitBashPath()
+    if (gitBashPath && !process.env.CLAUDE_CODE_GIT_BASH_PATH) {
+      env.CLAUDE_CODE_GIT_BASH_PATH = gitBashPath
+    }
+
+    // 批次1新增：提升 Read 工具的每文件 token 上限
+    if (!process.env.CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS) {
+      env.CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS = '80000'
+    }
+
     // TODO: 保留此代码以备后续需要强制禁用 Todo V2 功能时启用
     // env.CLAUDE_CODE_ENABLE_TASKS = 'false'
     return env
+  }
+
+  /**
+   * 检测 Windows 上的 Git Bash 路径（Claude Code SDK 需要）
+   */
+  private findGitBashPath(): string | null {
+    if (process.platform !== 'win32') return null
+    if (process.env.CLAUDE_CODE_GIT_BASH_PATH && fs.existsSync(process.env.CLAUDE_CODE_GIT_BASH_PATH)) {
+      return process.env.CLAUDE_CODE_GIT_BASH_PATH
+    }
+    const candidates = [
+      'C:\\Program Files\\Git\\bin\\bash.exe',
+      'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+      path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'Git', 'bin', 'bash.exe'),
+      process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe'),
+      process.env.ProgramW6432 && path.join(process.env.ProgramW6432, 'Git', 'bin', 'bash.exe'),
+    ].filter(Boolean) as string[]
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) return candidate
+    }
+    // Fallback: try `where git` and derive bash path from it
+    try {
+      const out = require('child_process').execSync('where git', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      const gitExe = out.split(/\r?\n/).map((s: string) => s.trim()).filter(Boolean)[0]
+      if (gitExe) {
+        const bashFromGit = path.join(path.dirname(path.dirname(gitExe)), 'bin', 'bash.exe')
+        if (fs.existsSync(bashFromGit)) return bashFromGit
+      }
+    } catch (_) {}
+    return null
   }
 
   private resolveCliCommand(): { command: string; args: string[] } {
@@ -296,9 +355,20 @@ export class ClaudeCodeProcessManager extends EventEmitter {
       if (fs.existsSync(srcCliPath)) {
         const defineArgs = this.getMacroDefines()
         const featureArgs = this.getFeatureArgs()
+        const bunArgs = ['run', ...defineArgs, ...featureArgs]
+        // 开发模式：添加 preload 和 env-file（Bun 选项，必须放在 run 和入口文件之间）
+        const preloadPath = path.join(this.cliRoot, 'preload.ts')
+        if (fs.existsSync(preloadPath)) {
+          bunArgs.push('--preload', preloadPath)
+        }
+        const envFilePath = path.join(this.cliRoot, '.env')
+        if (fs.existsSync(envFilePath)) {
+          bunArgs.push('--env-file=' + envFilePath)
+        }
+        bunArgs.push(srcCliPath)
         return {
           command: this.resolveBunPath(),
-          args: ['run', ...defineArgs, ...featureArgs, srcCliPath]
+          args: bunArgs
         }
       }
     }
@@ -314,9 +384,20 @@ export class ClaudeCodeProcessManager extends EventEmitter {
     if (fs.existsSync(srcCliPath)) {
       const defineArgs = this.getMacroDefines()
       const featureArgs = this.getFeatureArgs()
+      const bunArgs = ['run', ...defineArgs, ...featureArgs]
+      // 回退到源码时也添加 preload 和 env-file
+      const preloadPath = path.join(this.cliRoot, 'preload.ts')
+      if (fs.existsSync(preloadPath)) {
+        bunArgs.push('--preload', preloadPath)
+      }
+      const envFilePath = path.join(this.cliRoot, '.env')
+      if (fs.existsSync(envFilePath)) {
+        bunArgs.push('--env-file=' + envFilePath)
+      }
+      bunArgs.push(srcCliPath)
       return {
         command: this.resolveBunPath(),
-        args: ['run', ...defineArgs, ...featureArgs, srcCliPath]
+        args: bunArgs
       }
     }
 

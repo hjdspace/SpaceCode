@@ -1,238 +1,83 @@
-name: Build and Release
+name: Build & Release
 
 on:
   push:
-    branches: [main, master]
     tags:
       - 'v*'
-  pull_request:
-    branches: [main, master]
   workflow_dispatch:
-    inputs:
-      version:
-        description: '版本号 (例如: 0.2.2)'
-        required: true
-        default: '0.2.1'
-      create_release:
-        description: '是否创建 Release'
-        required: true
-        default: true
-        type: boolean
-
-permissions:
-  contents: write
 
 jobs:
-  # build-windows:
-  #   runs-on: windows-latest
-  #   steps:
-  #     - name: Checkout code
-  #       uses: actions/checkout@v4
-
-  #     - name: Setup Node.js
-  #       uses: actions/setup-node@v4
-  #       with:
-  #         node-version: 20
-  #         cache: 'npm'
-
-  #     - name: Setup Python (for node-gyp)
-  #       uses: actions/setup-python@v5
-  #       with:
-  #         python-version: '3.11'
-
-  #     - name: Install dependencies
-  #       run: npm ci
-
-  #     - name: Download Bun (Windows)
-  #       shell: powershell
-  #       run: |
-  #         New-Item -ItemType Directory -Force -Path engine/bin
-  #         Invoke-WebRequest -Uri "https://github.com/oven-sh/bun/releases/latest/download/bun-windows-x64.zip" -OutFile "bun-windows-x64.zip"
-  #         Expand-Archive -Path "bun-windows-x64.zip" -DestinationPath "$env:TEMP\bun-temp" -Force
-  #         $bunExe = Get-ChildItem -Path "$env:TEMP\bun-temp" -Filter "bun.exe" -Recurse | Select-Object -First 1
-  #         if ($bunExe) {
-  #           Move-Item -Path $bunExe.FullName -Destination "engine/bin/bun-windows-x64.exe" -Force
-  #         } else {
-  #           Write-Error "bun.exe not found in archive"
-  #           exit 1
-  #         }
-  #         Remove-Item -Path "$env:TEMP\bun-temp" -Recurse -Force
-  #         Remove-Item -Path "bun-windows-x64.zip" -Force
-
-  #     - name: Rebuild native modules
-  #       run: npx electron-rebuild
-
-  #     - name: Build application
-  #       run: npm run build
-
-  #     - name: Build engine (Windows)
-  #       shell: powershell
-  #       run: |
-  #         cd engine
-  #         $env:PATH = "$PWD\bin;$env:PATH"
-  #         if (Test-Path "bin\bun-windows-x64.exe") {
-  #           Copy-Item "bin\bun-windows-x64.exe" "bin\bun.exe" -Force
-  #         }
-  #         if (Get-Command bun -ErrorAction SilentlyContinue) {
-  #           bun install
-  #         } else {
-  #           npm install
-  #         }
-  #         if (Test-Path package.json) {
-  #           $hasBuild = Get-Content package.json | Select-String '"build"'
-  #           if ($hasBuild) {
-  #             if (Get-Command bun -ErrorAction SilentlyContinue) {
-  #               bun run build
-  #             } else {
-  #               npm run build
-  #             }
-  #           }
-  #         }
-  #         New-Item -ItemType Directory -Force -Path dist
-  #         cd ..
-
-  #     - name: Build Electron (Windows)
-  #       run: npx electron-builder --win --x64
-  #       env:
-  #         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  #     - name: Upload Windows build to Release
-  #       if: startsWith(github.ref, 'refs/tags/v')
-  #       uses: softprops/action-gh-release@v2
-  #       with:
-  #         files: release/*.exe
-  #       env:
-  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  build-linux:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+            bun_ext: .exe
+          - os: macos-latest
+            platform: mac
+            bun_ext: ""
+          - os: ubuntu-latest
+            platform: linux
+            bun_ext: ""
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
-      - name: Setup Python (for node-gyp)
-        uses: actions/setup-python@v5
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: npm ci
+          bun-version: latest
 
       - name: Install system dependencies (Linux)
+        if: matrix.platform == 'linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y unzip build-essential python3 g++ make
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq unzip build-essential python3 g++ make
 
-      - name: Download Bun (Linux)
+      - name: Install app dependencies
+        run: npm ci
+
+      - name: Install engine dependencies
+        run: cd engine && bun install
+
+      - name: Copy Bun binary to engine/bin
+        shell: bash
         run: |
           mkdir -p engine/bin
-          curl -fsSL -o bun-linux-x64.zip "https://github.com/oven-sh/bun/releases/latest/download/bun-linux-x64.zip"
-          unzip -o bun-linux-x64.zip -d /tmp/
-          mv /tmp/bun-linux-x64/bun engine/bin/bun-linux-x64
-          chmod +x engine/bin/bun-linux-x64
-          rm -rf bun-linux-x64.zip /tmp/bun-linux-x64/
+          BUN_PATH=$(which bun)
+          cp "$BUN_PATH" "engine/bin/bun${{ matrix.bun_ext }}"
+          chmod +x "engine/bin/bun${{ matrix.bun_ext }}" 2>/dev/null || true
+          ls -lh engine/bin/
 
       - name: Rebuild native modules
         run: npx electron-rebuild
 
-      - name: Build application
+      - name: Build frontend
         run: npm run build
 
-      - name: Build engine (Linux)
-        run: |
-          cd engine
-          export PATH="$(pwd)/../engine/bin:$PATH"
-          bun-linux-x64 install || npm install
-          if [ -f package.json ] && grep -q '"build"' package.json; then
-            ln -sf $(pwd)/../engine/bin/bun-linux-x64 $(pwd)/../engine/bin/bun || true
-            export PATH="$(pwd)/../engine/bin:$PATH"
-            bun run build || npm run build
-          fi
-          mkdir -p dist
-          cd ..
-
-      - name: Build Electron (Linux)
-        run: npx electron-builder --linux AppImage
+      - name: Build & Publish (Windows)
+        if: matrix.platform == 'win'
+        run: npx electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Linux build to Release
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.create_release)
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release/*.AppImage
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version && format('v{0}', inputs.version) || '' }}
-          name: ${{ github.event_name == 'workflow_dispatch' && format('SpaceCode v{0}', inputs.version) || '' }}
-          draft: ${{ github.event_name == 'workflow_dispatch' }}
+      - name: Build & Publish (Mac)
+        if: matrix.platform == 'mac'
+        run: npx electron-builder --mac --publish always
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  release-notes:
-    needs: [build-linux]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.create_release)
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Extract version from tag
-        id: get_version
-        run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "VERSION=${{ inputs.version }}" >> $GITHUB_OUTPUT
-          else
-            echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Generate Release Notes
-        id: release_notes
-        run: |
-          VERSION=${{ steps.get_version.outputs.VERSION }}
-          echo "Generating release notes for version $VERSION"
-
-          if [ -f CHANGELOG.md ]; then
-            RELEASE_NOTES=$(awk '/^## \['$VERSION'\]/{flag=1;next}/^## \[/{flag=0}flag' CHANGELOG.md | sed '/^$/N;/^\n$/d')
-            if [ -n "$RELEASE_NOTES" ]; then
-              echo "Found release notes in CHANGELOG.md"
-              echo "notes<<EOF" >> $GITHUB_OUTPUT
-              echo "$RELEASE_NOTES" >> $GITHUB_OUTPUT
-              echo "EOF" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-          fi
-
-          echo "Generating release notes from git log..."
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
-          if [ -n "$PREVIOUS_TAG" ]; then
-            NOTES=$(git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD | grep -E "^-( feat|fix|perf|refactor|docs)" || echo "")
-          else
-            NOTES=$(git log --pretty=format:"- %s (%h)" | head -30 | grep -E "^-( feat|fix|perf|refactor|docs)" || echo "")
-          fi
-
-          if [ -n "$NOTES" ]; then
-            echo "notes<<EOF" >> $GITHUB_OUTPUT
-            echo "## SpaceCode v$VERSION" >> $GITHUB_OUTPUT
-            echo "" >> $GITHUB_OUTPUT
-            echo "$NOTES" >> $GITHUB_OUTPUT
-            echo "" >> $GITHUB_OUTPUT
-            echo "**完整更新日志**: 参见 [CHANGELOG.md](./CHANGELOG.md)" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          else
-            echo "notes=" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Update Release with Notes
-        uses: softprops/action-gh-release@v2
-        with:
-          body: ${{ steps.release_notes.outputs.notes }}
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version && format('v{0}', inputs.version) || '' }}
+      - name: Build & Publish (Linux)
+        if: matrix.platform == 'linux'
+        run: npx electron-builder --linux AppImage deb --publish always
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

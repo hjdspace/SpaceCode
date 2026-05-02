@@ -1,225 +1,322 @@
 # Claude Code GUI
 
-> An AI-powered coding assistant with both CLI and Desktop GUI interfaces, built on top of the [Claude Code Best](https://github.com/claude-code-best/claude-code) reverse-engineered CLI.
+> AI 驱动的智能编程助手，提供 CLI 终端界面和桌面 GUI 两种使用方式。基于 [Claude Code Best](https://github.com/claude-code-best/claude-code) 逆向工程构建的 CLI 引擎。
 
 [![Bun](https://img.shields.io/badge/runtime-Bun-black?style=flat-square&logo=bun)](https://bun.sh/)
 [![Electron](https://img.shields.io/badge/framework-Electron-47848F?style=flat-square&logo=electron)](https://www.electronjs.org/)
 [![Vue 3](https://img.shields.io/badge/framework-Vue%203-4FC08D?style=flat-square&logo=vue.js)](https://vuejs.org/)
 [![TypeScript](https://img.shields.io/badge/language-TypeScript-3178C6?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
 
-## Overview
+## 项目概述
 
-This monorepo contains two complementary projects:
+### 核心目标
 
-| Project | Description | Tech Stack |
-|---------|-------------|------------|
-| **claude-code** | CLI-based interactive AI coding assistant (terminal) | Bun, TypeScript, React/Ink |
-| **claude-code-desktop** | Desktop GUI application wrapping the CLI engine | Electron, Vue 3, Vite, TypeScript |
+SpaceCode 致力于打造**新一代 AI 辅助编程工具**，通过深度整合大语言模型能力，为开发者提供智能化的代码编写、调试、重构和项目管理体验。本项目采用 Monorepo 架构，同时提供：
 
-## Features
+1. **CLI 命令行版本** (`claude-code`) — 面向终端用户的高效交互式编程助手
+2. **桌面 GUI 版本** (`claude-code-desktop`) — 面向可视化用户的现代化桌面应用
 
-### CLI (`claude-code`)
+### 主要价值
 
-- 45+ built-in tools (Bash, FileEdit, Grep, Glob, WebFetch, WebSearch, LSP, MCP, etc.)
-- 60+ slash commands (`/help`, `/model`, `/config`, `/compact`, `/diff`, `/review`, etc.)
-- Multi-provider support (Anthropic, OpenAI, Gemini, Grok compatible)
-- Pipe IPC multi-instance collaboration with LAN discovery
-- Computer Use / Chrome Use for screen and browser control
-- Voice Mode (Push-to-Talk)
-- Extended thinking mode
-- Session history and cost tracking
-- MCP (Model Context Protocol) client with stdio/SSE/HTTP/WebSocket transports
-- Custom model suppliers via `/login`
+- **提升开发效率**：45+ 内置工具覆盖文件操作、代码搜索、Web 抓取、API 调用等场景
+- **降低学习成本**：60+ 斜杠命令提供直观的操作入口，无需记忆复杂参数
+- **多模型支持**：兼容 Anthropic、OpenAI、Gemini、Grok 等主流 LLM 服务商
+- **灵活部署方式**：支持本地终端、桌面应用、远程协作等多种使用模式
+- **企业级可靠性**：完善的测试体系（100+ 测试用例）、CI/CD 流程、错误处理机制
 
-### Desktop (`claude-code-desktop`)
+## 项目架构
 
-- Three-panel layout (Sidebar + Chat + Info Panel) inspired by VSCode
-- Dark/Light theme with CSS Variables
-- Markdown rendering with syntax highlighting
-- Inline code diff viewer
-- Integrated terminal (xterm.js + node-pty)
-- File tree explorer
-- Session history management
-- Multi-LLM provider support (OpenAI, Anthropic, Gemini)
-- QueryEngine integration from the CLI core
-- Resizable panels with drag handles
-- Native menu and system tray support
+本仓库采用 **Monorepo** 结构，包含两个互补的子项目：
 
-## Architecture
+| 子项目 | 定位 | 技术栈 | 目标用户 |
+|--------|------|--------|----------|
+| **engine/** (CLI) | 终端交互式 AI 编程助手 | Bun + TypeScript + React/Ink | 终端爱好者、DevOps 工程师 |
+| **根目录** (Desktop) | 桌面 GUI 应用 | Electron + Vue 3 + Vite | 可视化用户、初学者 |
 
 ```
 claude-code-gui/
-├── claude-code/                    # CLI Project
-│   ├── src/
-│   │   ├── main.tsx                # CLI entry (Commander + React/Ink REPL)
-│   │   ├── QueryEngine.ts          # Core query orchestration engine
-│   │   ├── query.ts                # Query loop (API call → tool exec → re-query)
-│   │   ├── Tool.ts                 # Tool interface definition
-│   │   ├── tools.ts                # Tool registry (45+ tools)
-│   │   ├── commands.ts             # Command registry (60+ commands)
-│   │   ├── tools/                  # Tool implementations
-│   │   │   ├── BashTool/           # Shell command execution
-│   │   │   ├── AgentTool/          # Sub-agent spawning
-│   │   │   ├── FileReadTool/       # File reading
-│   │   │   ├── FileEditTool/       # File editing
-│   │   │   ├── GrepTool/           # Content search (ripgrep)
-│   │   │   ├── GlobTool/           # File globbing
-│   │   │   ├── WebFetchTool/       # URL fetching
-│   │   │   ├── WebSearchTool/      # Web search
-│   │   │   ├── LSPTool/            # Language Server Protocol
-│   │   │   ├── MCPTool/            # MCP tool proxy
-│   │   │   └── ... (30+ more)
-│   │   ├── commands/               # Command implementations
-│   │   ├── services/
-│   │   │   ├── api/                # Claude API client (streaming, retry, caching)
-│   │   │   ├── mcp/                # MCP client (stdio/SSE/HTTP/WS)
-│   │   │   ├── oauth/              # OAuth authentication
-│   │   │   ├── lsp/                # Language Server management
-│   │   │   └── ...
-│   │   ├── components/             # React/Ink terminal UI components
-│   │   ├── hooks/                  # React hooks
-│   │   ├── state/                  # State management (Zustand)
-│   │   ├── types/                  # TypeScript type definitions
-│   │   └── utils/                  # Utility functions (200+ files)
-│   └── packages/                   # Workspace packages
-│       ├── @ant/claude-for-chrome-mcp/
-│       ├── @ant/computer-use-*/
-│       └── @ant/ink/
+├── engine/                          # CLI 核心引擎
+│   ├── src/                         # 源代码
+│   │   ├── main.tsx                 # 入口文件 (Commander + React/Ink REPL)
+│   │   ├── QueryEngine.ts           # 查询编排引擎
+│   │   ├── tools/                   # 45+ 工具实现
+│   │   ├── commands/                # 60+ 命令实现
+│   │   └── services/                # API/MCP/LSP 服务层
+│   ├── tests/                       # 测试套件
+│   └── packages/                    # 工作区包
 │
-└── claude-code-desktop/            # Desktop GUI Project
-    ├── electron/
-    │   ├── main.ts                 # Electron main process
-    │   ├── preload.ts              # Context bridge (IPC API)
-    │   ├── queryEngineIntegration.ts  # CLI QueryEngine adapter
-    │   ├── queryEngineBridge.ts    # IPC bridge for QueryEngine
-    │   ├── terminalManager.ts      # PTY terminal manager
-    │   └── services/               # Main process services
-    ├── src/
-    │   ├── App.vue                 # Root component (three-panel layout)
-    │   ├── components/
-    │   │   ├── layout/             # Sidebar, ChatPanel, InfoPanel, TitleBar
-    │   │   ├── chat/               # Message rendering, input, Markdown
-    │   │   ├── explorer/           # File tree browser
-    │   │   ├── common/             # DiffViewer, CodeViewer
-    │   │   ├── terminal/           # Integrated terminal (xterm.js)
-    │   │   └── settings/           # Settings panel
-    │   ├── stores/                 # Pinia state management
-    │   │   ├── app.ts              # App-wide state (theme, panels)
-    │   │   └── chat.ts             # Chat state (messages, sessions)
-    │   ├── services/
-    │   │   ├── llm.ts              # Multi-provider LLM client
-    │   │   └── electronAPI.ts      # Renderer-side IPC wrapper
-    │   └── styles/                 # SCSS + CSS Variables (dark/light)
-    └── package.json
+├── electron/                        # Electron 主进程
+│   ├── main.ts                      # 主进程入口
+│   ├── preload.ts                   # Context Bridge (IPC API)
+│   └── terminalManager.ts           # PTY 终端管理器
+│
+├── src/                             # Vue 3 渲染进程
+│   ├── App.vue                      # 根组件（三栏布局）
+│   ├── components/                  # UI 组件库
+│   ├── stores/                      # Pinia 状态管理
+│   └── services/                    # LLM 客户端服务
+│
+├── CHANGELOG.md                     # 更新日志
+├── README.md                        # 本文档
+└── package.json                     # Desktop 项目配置
 ```
 
-## Quick Start
+## 功能特性
 
-### Prerequisites
+### CLI 功能（`engine/`）
 
-- [Bun](https://bun.sh/) >= 1.3.11 (for CLI)
-- [Node.js](https://nodejs.org/) >= 18 (for Desktop)
-- An Anthropic-compatible API key
+#### 核心工具集（45+）
 
-### CLI Setup
+| 类别 | 工具示例 | 说明 |
+|------|----------|------|
+| **文件操作** | FileRead, FileEdit, Glob, Grep | 读取、编辑、搜索文件 |
+| **Shell 执行** | BashTool, PowerShellTool | 执行系统命令 |
+| **Web 能力** | WebFetch, WebSearch | 抓取网页、搜索引擎查询 |
+| **IDE 集成** | LSPTool | Language Server Protocol 支持 |
+| **扩展协议** | MCPTool | Model Context Protocol 代理 |
+| **子代理** | AgentTool | 多代理协作任务分发 |
+
+#### 斜杠命令（60+）
+
+常用命令速查：
+
+| 命令 | 说明 | 使用场景 |
+|------|------|----------|
+| `/help` | 显示帮助信息 | 初次使用、查看可用命令 |
+| `/login` | 配置 API 提供商 | 首次启动、切换服务商 |
+| `/model` | 切换模型 | 选择 Haiku/Sonnet/Opus |
+| `/config` | 编辑配置文件 | 调整参数、自定义行为 |
+| `/compact` | 压缩对话上下文 | 对话过长时优化 Token 用量 |
+| `/diff` | 查看代码差异 | 代码审查、变更对比 |
+| `/review` | 代码审查 | 提交前质量检查 |
+| `/cost` | 显示用量成本 | 监控 API 费用 |
+| `/doctor` | 运行诊断 | 排查问题、健康检查 |
+| `/mcp` | 管理 MCP 服务器 | 扩展工具能力 |
+| `/voice` | 切换语音输入 | 免手写操作 |
+| `/theme` | 切换主题 | 明暗模式切换 |
+
+#### 高级特性
+
+- **多实例协作**：基于 Pipe IPC 的多实例通信 + LAN 局域网发现
+- **计算机控制**：Computer Use / Chrome Use 屏幕和浏览器操控
+- **语音模式**：Push-to-Talk 按键通话
+- **扩展思考**：Extended Thinking 深度推理模式
+- **会话历史**：完整的对话记录和费用追踪
+- **MCP 协议**：支持 stdio/SSE/HTTP/WebSocket 四种传输方式
+
+### Desktop 功能（根目录）
+
+#### 界面设计
+
+- **三栏布局**：侧边栏 + 聊天面板 + 信息面板（灵感来自 VSCode）
+- **主题系统**：Dark/Light 双主题，CSS Variables 动态切换
+- **响应式设计**：可拖拽调整面板大小
+
+#### 核心组件
+
+| 组件 | 功能 | 技术实现 |
+|------|------|----------|
+| Markdown 渲染器 | 富文本展示 | marked + highlight.js |
+| 代码差异查看器 | 行级 Diff 对比 | diff 库 + 自定义 UI |
+| 集成终端 | Shell 交互环境 | xterm.js + node-pty |
+| 文件树浏览器 | 项目结构导航 | 自定义递归组件 |
+| 会话管理器 | 历史记录切换 | Pinia Store 持久化 |
+
+#### 平台支持
+
+- ✅ Windows (NSIS 安装包 + Portable 便携版)
+- ✅ macOS (DMG + ZIP)
+- ✅ Linux (AppImage + DEB + RPM)
+
+## 快速开始
+
+### 环境要求
+
+| 环境 | 最低版本 | 推荐版本 | 用途 |
+|------|----------|----------|------|
+| **Bun** | >= 1.2.0 | >= 1.3.11 | CLI 运行时 |
+| **Node.js** | >= 18 | >= 20 | Desktop 构建 |
+| **npm** | >= 9 | 最新版 | 包管理器 |
+| **Git** | >= 2.x | 最新版 | 版本控制 |
+
+### 依赖安装
+
+#### 全局工具准备
 
 ```bash
-cd claude-code
+# 安装 Bun（如未安装）
+powershell -c "irm bun.sh/install.ps1 | iex"
 
-# Install dependencies
-bun install
-
-# Run in development mode
-bun run dev
-
-# Build
-bun run build
-
-# Run the built version
-ccb
+# 验证安装
+bun --version  # 应显示 >= 1.2.0
+node --version  # 应显示 >= 18
 ```
 
-### Desktop Setup
+#### 克隆项目
 
 ```bash
-cd claude-code-desktop
+git clone https://github.com/hjdspace/claude-code-gui.git
+cd claude-code-gui
+```
 
-# Install dependencies
+#### 安装依赖
+
+```bash
+# 安装 Desktop 项目依赖（根目录）
 npm install
 
-# Run in development mode
-npm run electron:dev
+# 安装 CLI 引擎依赖（engine 目录）
+cd engine && bun install && cd ..
+```
 
-# Build for production
+### 开发环境启动
+
+#### 方式一：启动 CLI 开发模式
+
+```bash
+cd engine
+
+# 启动开发服务器（热重载）
+bun run dev
+
+# 或启用调试模式（Inspector）
+bun run dev:inspect
+```
+
+启动后即可在终端中使用 `ccb` 命令与 AI 助手交互。
+
+#### 方式二：启动 Desktop 开发模式
+
+```bash
+# 回到项目根目录
+cd ..
+
+# 启动 Electron + Vite 开发服务器
+npm run electron:dev
+```
+
+此命令会同时启动：
+- Vite 前端开发服务器（热更新）
+- Electron 主进程（自动重载）
+- IPC 通信桥接层
+
+### 生产环境构建
+
+#### 构建 CLI
+
+```bash
+cd engine
+
+# 执行构建（生成 dist/ 目录）
+bun run build
+
+# 运行构建产物
+./dist/cli.js  # 或全局安装后使用 ccb 命令
+```
+
+#### 构建 Desktop 应用
+
+```bash
+# 类型检查 + Vite 构建
+npm run build
+
+# 打包 Electron 应用（生成 release/ 目录）
 npm run electron:build
 ```
 
-### Configuration
+打包输出：
+- **Windows**: `release/SpaceCode Setup x.x.x.exe`（安装包）+ `SpaceCode x.x.x.exe`（便携版）
+- **macOS**: `release/SpaceCode-x.x.x.dmg` + `SpaceCode-x.x.x-mac.zip`
+- **Linux**: `release/SpaceCode-x.x.x.AppImage` + `.deb` + `.rpm`
 
-On first launch, use the `/login` command in the CLI or the Settings panel in the Desktop app to configure your LLM provider:
+### 配置说明
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| Base URL | API service endpoint | `https://api.anthropic.com/v1` |
-| API Key | Authentication key | `sk-xxx` |
-| Haiku Model | Fast model ID | `claude-haiku-4-5-20251001` |
-| Sonnet Model | Balanced model ID | `claude-sonnet-4-6` |
-| Opus Model | High-performance model ID | `claude-opus-4-6` |
+首次启动时，需要配置 LLM 提供商：
 
-Supports all Anthropic API-compatible services (OpenRouter, AWS Bedrock proxies, etc.).
+**CLI 方式**（在终端中执行）：
+```bash
+/login
+```
 
-## CLI Commands Reference
+**Desktop 方式**（在设置面板中填写）：
 
-| Command | Description |
-|---------|-------------|
-| `/help` | Show available commands |
-| `/login` | Configure API provider and credentials |
-| `/model` | Switch between models |
-| `/config` | Edit configuration |
-| `/compact` | Compress conversation context |
-| `/diff` | View code diffs |
-| `/review` | Code review |
-| `/cost` | Show usage costs |
-| `/clear` | Clear conversation |
-| `/doctor` | Run diagnostics |
-| `/mcp` | Manage MCP servers |
-| `/voice` | Toggle voice input |
-| `/theme` | Switch theme |
+| 配置项 | 说明 | 示例值 |
+|--------|------|--------|
+| Base URL | API 服务端点 | `https://api.anthropic.com/v1` |
+| API Key | 认证密钥 | `sk-ant-xxxxx` |
+| 快速模型 | 轻量级模型 ID | `claude-haiku-4-5-20251001` |
+| 均衡模型 | 平衡型模型 ID | `claude-sonnet-4-6` |
+| 高性能模型 | 旗舰模型 ID | `claude-opus-4-6` |
 
-## Tech Stack Details
+兼容所有 Anthropic API 规范的服务商（OpenRouter、AWS Bedrock 代理、Azure OpenAI 等）。
 
-### CLI
+## 技术栈详解
 
-- **Runtime**: Bun (with Node.js compatibility)
-- **Language**: TypeScript
-- **UI Framework**: React + Ink (terminal rendering)
-- **State Management**: Zustand
-- **API Client**: @anthropic-ai/sdk with streaming
-- **Build**: Custom Bun bundler (code splitting, ~450 chunks)
-- **Linting**: Biome
-- **Testing**: Bun test
+### CLI 引擎（`engine/`）
 
-### Desktop
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| **Bun** | >= 1.2.0 | JavaScript 运行时、包管理器、构建工具 |
+| **TypeScript** | 6.x | 类型安全、编译时检查 |
+| **React** | 19.x | 终端 UI 渲染（配合 Ink） |
+| **Ink** | workspace:* | React 终端渲染库 |
+| **Zustand** | - | 轻量状态管理 |
+| **Commander.js** | 14.x | CLI 参数解析 |
+| **Biome** | 2.x | 代码格式化 + Lint |
+| **@anthropic-ai/sdk** | 0.80.x | Anthropic API 客户端（流式） |
+| **OpenAI SDK** | 6.x | OpenAI 兼容接口适配 |
+| **MCP SDK** | 1.29.x | Model Context Protocol 实现 |
 
-- **Framework**: Electron 29+
-- **Frontend**: Vue 3 (Composition API + `<script setup>`)
-- **Build Tool**: Vite 5
-- **Language**: TypeScript (strict mode)
-- **Styling**: SCSS + CSS Variables (dark/light theme)
-- **State Management**: Pinia
-- **Terminal**: xterm.js + node-pty
-- **Markdown**: marked + highlight.js
-- **Icons**: Lucide Icons
-- **LLM SDKs**: @anthropic-ai/sdk, openai
-- **Packaging**: electron-builder (Windows/macOS/Linux)
+### Desktop 应用（根目录）
 
-## Project Structure Conventions
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| **Electron** | 29.x | 跨平台桌面应用框架 |
+| **Vue 3** | 3.4.x | 前端框架（Composition API） |
+| **Vite** | 5.x | 构建工具（极速热更新） |
+| **TypeScript** | 5.x | 类型安全（strict 模式） |
+| **Pinia** | 2.x | Vue 状态管理 |
+| **SCSS** | 1.7.x | CSS 预处理器 |
+| **xterm.js** | 6.x | 终端模拟器渲染 |
+| **node-pty** | 1.x | 伪终端（PTY）管理 |
+| **marked** | 12.x | Markdown 解析 |
+| **highlight.js** | 11.x | 语法高亮 |
+| **Lucide Icons** | 0.344.x | 图标库 |
+| **electron-builder** | 24.x | 应用打包工具 |
 
-- CLI uses React/Ink for terminal UI — its component styles are terminal-specific and not reused in the Desktop app
-- Desktop reuses CLI's business logic and rendering algorithms (Markdown config, Diff algorithms, message types), but implements its own UI layer with Vue
-- IPC communication between Electron main process and renderer follows the preload context bridge pattern
-- QueryEngine from the CLI is integrated into the Desktop app via an adapter layer in the main process
+## 项目约定
 
-## License
+### 代码规范
 
-See individual project directories for license information.
+- **UI 复用原则**：CLI 的 React/Ink 组件仅用于终端渲染，不与 Desktop 共享；Desktop 复用 CLI 的业务逻辑（Markdown 配置、Diff 算法、消息类型），但实现独立的 Vue UI 层
+- **IPC 通信**：Electron 主进程与渲染进程遵循 preload context bridge 安全模式
+- **QueryEngine 集成**：Desktop 通过主进程适配层调用 CLI 的 QueryEngine，避免重复实现
+
+### 目录职责划分
+
+| 目录 | 职责 | 说明 |
+|------|------|------|
+| `electron/` | Electron 主进程 | 窗口管理、IPC 服务、系统集成 |
+| `src/components/layout/` | 布局组件 | Sidebar、ChatPanel、InfoPanel、TitleBar |
+| `src/components/chat/` | 聊天组件 | 消息渲染、输入框、Markdown 展示 |
+| `src/components/explorer/` | 文件浏览器 | 项目树状导航 |
+| `src/components/terminal/` | 终端组件 | xterm.js 封装 |
+| `src/stores/` | 状态管理 | Pinia Store（app.ts、chat.ts） |
+| `src/services/` | 业务服务 | LLM 客户端、Electron API 封装 |
+| `src/styles/` | 样式资源 | SCSS 变量、主题定义 |
+
+## 相关文档
+
+- [更新日志](./CHANGELOG.md) — 版本迭代记录
+- [贡献指南](./CONTRIBUTING.md) — 如何参与开发
+- [安全说明](./SECURITY.md) — 安全策略与漏洞报告
+- [英文文档](./README_EN.md) — English Version
+
+## 许可证
+
+详见各子项目的许可证文件。
+
+---
+
+**项目主页**: https://github.com/hjdspace/claude-code-gui
+**问题反馈**: https://github.com/hjdspace/claude-code-gui/issues
