@@ -14,6 +14,7 @@ export interface SessionStatusInfo {
 export class ClaudeCodeProcessPool {
   private processes: Map<string, SessionProcess> = new Map()
   private mainWindow: BrowserWindow | null = null
+  private poolHandlers: Map<string, { message: (msg: any) => void; log: (data: string) => void; exit: (code: number | null) => void; error: (err: Error) => void }> = new Map()
 
   setMainWindow(window: BrowserWindow) {
     this.mainWindow = window
@@ -34,21 +35,7 @@ export class ClaudeCodeProcessPool {
     const proc = new SessionProcess(sessionId, config)
     this.processes.set(sessionId, proc)
 
-    proc.on('message', (msg: any) => {
-      this.routeEvent(sessionId, msg.type, msg)
-    })
-
-    proc.on('log', (data: string) => {
-      this.routeEvent(sessionId, 'log', data)
-    })
-
-    proc.on('exit', (code: number | null) => {
-      this.routeEvent(sessionId, 'exit', code)
-    })
-
-    proc.on('error', (err: Error) => {
-      this.routeEvent(sessionId, 'error', { message: err.message })
-    })
+    this.attachPoolHandlers(sessionId, proc)
 
     await proc.start()
   }
@@ -60,20 +47,8 @@ export class ClaudeCodeProcessPool {
 
     this.evictIfNeeded()
 
-    proc.removeAllListeners()
-
-    proc.on('message', (msg: any) => {
-      this.routeEvent(sessionId, msg.type, msg)
-    })
-    proc.on('log', (data: string) => {
-      this.routeEvent(sessionId, 'log', data)
-    })
-    proc.on('exit', (code: number | null) => {
-      this.routeEvent(sessionId, 'exit', code)
-    })
-    proc.on('error', (err: Error) => {
-      this.routeEvent(sessionId, 'error', { message: err.message })
-    })
+    this.detachPoolHandlers(sessionId, proc)
+    this.attachPoolHandlers(sessionId, proc)
 
     await proc.resume()
   }
@@ -99,6 +74,7 @@ export class ClaudeCodeProcessPool {
   killSession(sessionId: string): void {
     const proc = this.processes.get(sessionId)
     if (!proc) return
+    this.detachPoolHandlers(sessionId, proc)
     proc.kill()
     this.processes.delete(sessionId)
   }
@@ -128,10 +104,12 @@ export class ClaudeCodeProcessPool {
   }
 
   killAll(): void {
-    for (const proc of this.processes.values()) {
+    for (const [sessionId, proc] of this.processes.entries()) {
+      this.detachPoolHandlers(sessionId, proc)
       proc.kill()
     }
     this.processes.clear()
+    this.poolHandlers.clear()
   }
 
   private evictIfNeeded(): void {
@@ -178,6 +156,30 @@ export class ClaudeCodeProcessPool {
         })
       })
     }
+  }
+
+  private attachPoolHandlers(sessionId: string, proc: SessionProcess): void {
+    const handlers = {
+      message: (msg: any) => this.routeEvent(sessionId, msg.type, msg),
+      log: (data: string) => this.routeEvent(sessionId, 'log', data),
+      exit: (code: number | null) => this.routeEvent(sessionId, 'exit', code),
+      error: (err: Error) => this.routeEvent(sessionId, 'error', { message: err.message }),
+    }
+    this.poolHandlers.set(sessionId, handlers)
+    proc.on('message', handlers.message)
+    proc.on('log', handlers.log)
+    proc.on('exit', handlers.exit)
+    proc.on('error', handlers.error)
+  }
+
+  private detachPoolHandlers(sessionId: string, proc: SessionProcess): void {
+    const handlers = this.poolHandlers.get(sessionId)
+    if (!handlers) return
+    proc.removeListener('message', handlers.message)
+    proc.removeListener('log', handlers.log)
+    proc.removeListener('exit', handlers.exit)
+    proc.removeListener('error', handlers.error)
+    this.poolHandlers.delete(sessionId)
   }
 
   private routeEvent(sessionId: string, eventType: string, data: any) {

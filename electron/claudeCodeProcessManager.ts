@@ -49,60 +49,13 @@ export class ClaudeCodeProcessManager extends EventEmitter {
     }
   }
 
-  /**
-   * 解析 Bun 可执行文件路径
-   * 优先级：1. 捆绑的 bun 二进制（平台特定命名）> 2. 捆绑的 bun 二进制（通用命名）> 3. 系统 PATH 中的 bun
-   */
   private resolveBunPath(): string {
-    const platform = process.platform
-    const arch = process.arch
-
-    // 1. 优先使用捆绑的 bun 二进制（平台特定命名，与 GitHub Actions 下载的一致）
-    const platformSuffix = platform === 'win32' ? 'windows-x64'
-      : platform === 'darwin' ? (arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64')
-      : 'linux-x64'
-    const platformSpecificBun = path.join(this.cliRoot, 'bin', `bun-${platformSuffix}`)
-    if (fs.existsSync(platformSpecificBun)) {
-      return platformSpecificBun
-    }
-
-    // Windows 平台检查 .exe 后缀
-    if (platform === 'win32') {
-      const platformSpecificBunExe = path.join(this.cliRoot, 'bin', `bun-${platformSuffix}.exe`)
-      if (fs.existsSync(platformSpecificBunExe)) {
-        return platformSpecificBunExe
-      }
-    }
-
-    // 2. 回退到通用命名的 bun 二进制
-    const bunName = platform === 'win32' ? 'bun.exe' : 'bun'
-    const bundledBun = path.join(this.cliRoot, 'bin', bunName)
-    if (fs.existsSync(bundledBun)) {
-      return bundledBun
-    }
-
-    // 3. 检查用户是否通过 npm/yarn 全局安装了 bun
-    try {
-      const { execSync } = require('child_process')
-      let globalBun: string | null = null
-
-      if (platform === 'win32') {
-        // Windows: 使用 PowerShell Get-Command 获取 bun 路径
-        const cmd = 'powershell -NoProfile -Command "Get-Command bun -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source"'
-        globalBun = execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim()
-      } else {
-        // macOS/Linux: 使用 which 命令
-        globalBun = execSync('which bun', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim().split('\n')[0]
-      }
-
-      if (globalBun && fs.existsSync(globalBun)) {
-        return globalBun
-      }
-    } catch {
-      // not found, fall through
-    }
-
-    // 4. 回退到 PATH 中的 bun
+    const bundled = path.join(this.cliRoot, 'bin', process.platform === 'win32' ? 'bun.exe' : 'bun')
+    if (fs.existsSync(bundled)) return bundled
+    const userInstalled = process.platform === 'win32'
+      ? path.join(os.homedir(), '.bun', 'bin', 'bun.exe')
+      : path.join(os.homedir(), '.bun', 'bin', 'bun')
+    if (fs.existsSync(userInstalled)) return userInstalled
     return 'bun'
   }
 

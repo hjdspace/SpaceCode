@@ -71,7 +71,9 @@ export class SessionProcess extends EventEmitter {
           try {
             const msg = JSON.parse(line)
             this.handleSDKMessage(msg)
-          } catch {}
+          } catch (e) {
+            console.warn('[SessionProcess] Failed to parse SDK message:', e, line)
+          }
         }
       }
     })
