@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, markRaw } from 'vue'
 import { MessageSquare, Terminal as TerminalIcon } from 'lucide-vue-next'
+import { useChatStore } from './chat'
 
 export interface FileInfo {
   path: string
@@ -14,6 +15,7 @@ export interface CenterTab {
   label: string
   icon: any
   closable: boolean
+  sessionId?: string
 }
 
 export interface TerminalInstance {
@@ -110,20 +112,61 @@ export const useAppStore = defineStore('app', () => {
   function closeCenterTab(tabId: string) {
     const index = centerTabs.value.findIndex(t => t.id === tabId)
     if (index > -1 && centerTabs.value[index].closable) {
+      const tab = centerTabs.value[index]
       centerTabs.value.splice(index, 1)
 
-      // Remove terminal instance if it's a terminal tab
       const termIndex = terminalInstances.value.findIndex(t => t.id === tabId)
       if (termIndex > -1) {
         terminalInstances.value.splice(termIndex, 1)
       }
 
       if (activeCenterTab.value === tabId) {
-        activeCenterTab.value = centerTabs.value[0]?.id || 'chat'
+        const nextSessionTab = centerTabs.value.find(t => t.sessionId)
+        activeCenterTab.value = nextSessionTab?.id || centerTabs.value[0]?.id || 'chat'
       }
 
-      // Renumber remaining terminal labels
       renumberTerminals()
+    }
+  }
+
+  function openSessionTab(sessionId: string, title: string) {
+    const existingTab = centerTabs.value.find(t => t.sessionId === sessionId)
+    if (existingTab) {
+      activeCenterTab.value = existingTab.id
+      return
+    }
+    const tabId = `session-${sessionId}`
+    centerTabs.value.push({
+      id: tabId,
+      label: title || 'New Chat',
+      icon: markRaw(MessageSquare),
+      closable: true,
+      sessionId
+    })
+    activeCenterTab.value = tabId
+  }
+
+  function closeSessionTab(tabId: string) {
+    closeCenterTab(tabId)
+  }
+
+  function switchToSessionTab(sessionId: string) {
+    const tab = centerTabs.value.find(t => t.sessionId === sessionId)
+    if (tab) {
+      activeCenterTab.value = tab.id
+    } else {
+      // Get the actual session title from chatStore
+      const chatStore = useChatStore()
+      const session = chatStore.sessions.find(s => s.id === sessionId)
+      const sessionTitle = session?.title || 'New Chat'
+      openSessionTab(sessionId, sessionTitle)
+    }
+  }
+
+  function updateSessionTabTitle(sessionId: string, title: string) {
+    const tab = centerTabs.value.find(t => t.sessionId === sessionId)
+    if (tab) {
+      tab.label = title
     }
   }
 
@@ -216,6 +259,10 @@ export const useAppStore = defineStore('app', () => {
     getLanguageFromPath,
     openTerminalTab,
     closeCenterTab,
+    openSessionTab,
+    closeSessionTab,
+    switchToSessionTab,
+    updateSessionTabTitle,
     getTerminalInstance,
     setProjectRoot,
     closeProject

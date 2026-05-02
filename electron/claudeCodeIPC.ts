@@ -1,7 +1,8 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
-import { ClaudeCodeProcessManager, SessionConfig } from './claudeCodeProcessManager'
+import { ClaudeCodeProcessPool } from './claudeCodeProcessPool'
+import { SessionConfig } from './claudeCodeProcessManager'
 
 export interface AgentInfo {
   agentType: string
@@ -11,7 +12,6 @@ export interface AgentInfo {
   color?: string
 }
 
-// Built-in agents that are always available when feature flags are enabled
 const BUILTIN_AGENTS: AgentInfo[] = [
   {
     agentType: 'general-purpose',
@@ -41,59 +41,75 @@ const BUILTIN_AGENTS: AgentInfo[] = [
   },
 ]
 
-let manager: ClaudeCodeProcessManager | null = null
+let pool: ClaudeCodeProcessPool | null = null
 let mainWindow: BrowserWindow | null = null
 
 export function setMainWindow(window: BrowserWindow) {
   mainWindow = window
+  if (pool) pool.setMainWindow(window)
 }
 
 export function registerClaudeCodeIPC() {
-  manager = new ClaudeCodeProcessManager()
+  pool = new ClaudeCodeProcessPool()
+  if (mainWindow) pool.setMainWindow(mainWindow)
 
-  // 转发 manager 事件到 renderer
-  const forwardEvents = ['assistant', 'user', 'tool_use', 'tool_result', 'result', 'compact', 'stream_event', 'log', 'exit', 'error']
-  for (const event of forwardEvents) {
-    manager.on(event, (data) => {
-      if (mainWindow) {
-        mainWindow.webContents.send(`claude-code:${event}`, data)
-      }
-    })
-  }
-
-  ipcMain.handle('claude-code:startSession', async (_, config: SessionConfig) => {
-    if (!manager) throw new Error('Manager not initialized')
-    return manager.startSession(config)
+  ipcMain.handle('claude-code:startSession', async (_, sessionId: string, config: SessionConfig) => {
+    if (!pool) throw new Error('Pool not initialized')
+    await pool.startSession(sessionId, config)
+    return pool.getSessionStatus(sessionId)
   })
 
-  ipcMain.handle('claude-code:sendMessage', async (_, content: string) => {
-    if (!manager) throw new Error('Manager not initialized')
-    return manager.sendMessage(content)
+  ipcMain.handle('claude-code:sendMessage', async (_, sessionId: string, content: string) => {
+    if (!pool) throw new Error('Pool not initialized')
+    pool.sendMessage(sessionId, content)
   })
 
-  ipcMain.handle('claude-code:abort', async () => {
-    if (!manager) throw new Error('Manager not initialized')
-    return manager.abort()
+  ipcMain.handle('claude-code:abort', async (_, sessionId: string) => {
+    if (!pool) throw new Error('Pool not initialized')
+    pool.abortSession(sessionId)
   })
 
-  ipcMain.handle('claude-code:stop', async () => {
-    if (!manager) throw new Error('Manager not initialized')
-    return manager.stop()
+  ipcMain.handle('claude-code:stop', async (_, sessionId: string) => {
+    if (!pool) throw new Error('Pool not initialized')
+    pool.killSession(sessionId)
   })
 
-  ipcMain.handle('claude-code:isSessionActive', async () => {
-    if (!manager) return false
-    return manager.isSessionActive()
+  ipcMain.handle('claude-code:suspendSession', async (_, sessionId: string) => {
+    if (!pool) throw new Error('Pool not initialized')
+    pool.suspendSession(sessionId)
+  })
+
+  ipcMain.handle('claude-code:resumeSession', async (_, sessionId: string) => {
+    if (!pool) throw new Error('Pool not initialized')
+    await pool.resumeSession(sessionId)
+    return pool.getSessionStatus(sessionId)
+  })
+
+  ipcMain.handle('claude-code:getSessionStatus', async (_, sessionId: string) => {
+    if (!pool) return null
+    return pool.getSessionStatus(sessionId)
+  })
+
+  ipcMain.handle('claude-code:getActiveSessions', async () => {
+    if (!pool) return []
+    return pool.getActiveSessions()
+  })
+
+  ipcMain.handle('claude-code:isSessionActive', async (_, sessionId?: string) => {
+    if (!pool) return false
+    if (sessionId) {
+      const status = pool.getSessionStatus(sessionId)
+      return status?.isRunning ?? false
+    }
+    return pool.getActiveSessions().length > 0
   })
 
   ipcMain.handle('claude-code:log', async () => {
-    // 调试日志已禁用
   })
 
   ipcMain.handle('claude-code:listAgents', async (_, cwd?: string) => {
     const agents: AgentInfo[] = [...BUILTIN_AGENTS]
 
-    // Discover custom agents from .claude/agents/ directories
     const searchDirs: string[] = []
     if (cwd) {
       searchDirs.push(path.join(cwd, '.claude', 'agents'))
@@ -128,19 +144,15 @@ export function registerClaudeCodeIPC() {
                 color: colorMatch?.[1]?.trim(),
               })
             }
-          } catch {
-            // skip unreadable files
-          }
+          } catch {}
         }
-      } catch {
-        // skip inaccessible directories
-      }
+      } catch {}
     }
 
     return agents
   })
 }
 
-export function getManager(): ClaudeCodeProcessManager | null {
-  return manager
+export function getPool(): ClaudeCodeProcessPool | null {
+  return pool
 }

@@ -139,51 +139,75 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   claudeCode: {
-    startSession: (config: any) => ipcRenderer.invoke('claude-code:startSession', config),
-    sendMessage: (content: string) => ipcRenderer.invoke('claude-code:sendMessage', content),
-    abort: () => ipcRenderer.invoke('claude-code:abort'),
-    stop: () => ipcRenderer.invoke('claude-code:stop'),
-    isSessionActive: () => ipcRenderer.invoke('claude-code:isSessionActive'),
-    listAgents: (cwd?: string) => ipcRenderer.invoke('claude-code:listAgents', cwd),
-    onAssistant: (callback: (data: any) => void) => {
+    startSession: (sessionId: string, config: any) =>
+      ipcRenderer.invoke('claude-code:startSession', sessionId, config),
+    sendMessage: (sessionId: string, content: string) =>
+      ipcRenderer.invoke('claude-code:sendMessage', sessionId, content),
+    abort: (sessionId: string) =>
+      ipcRenderer.invoke('claude-code:abort', sessionId),
+    stop: (sessionId: string) =>
+      ipcRenderer.invoke('claude-code:stop', sessionId),
+    suspendSession: (sessionId: string) =>
+      ipcRenderer.invoke('claude-code:suspendSession', sessionId),
+    resumeSession: (sessionId: string) =>
+      ipcRenderer.invoke('claude-code:resumeSession', sessionId),
+    getSessionStatus: (sessionId: string) =>
+      ipcRenderer.invoke('claude-code:getSessionStatus', sessionId),
+    getActiveSessions: () =>
+      ipcRenderer.invoke('claude-code:getActiveSessions'),
+    isSessionActive: (sessionId?: string) =>
+      ipcRenderer.invoke('claude-code:isSessionActive', sessionId),
+    listAgents: (cwd?: string) =>
+      ipcRenderer.invoke('claude-code:listAgents', cwd),
+    onAssistant: (callback: (data: { sessionId: string; data: any }) => void) => {
       const wrapper = (_: any, data: any) => callback(data)
       ipcRenderer.on('claude-code:assistant', wrapper)
       return () => ipcRenderer.removeListener('claude-code:assistant', wrapper)
     },
-    onUser: (callback: (data: any) => void) => {
+    onUser: (callback: (data: { sessionId: string; data: any }) => void) => {
       const wrapper = (_: any, data: any) => callback(data)
       ipcRenderer.on('claude-code:user', wrapper)
       return () => ipcRenderer.removeListener('claude-code:user', wrapper)
     },
-    onToolUse: (callback: (data: any) => void) => {
+    onToolUse: (callback: (data: { sessionId: string; data: any }) => void) => {
       const wrapper = (_: any, data: any) => callback(data)
       ipcRenderer.on('claude-code:tool_use', wrapper)
       return () => ipcRenderer.removeListener('claude-code:tool_use', wrapper)
     },
-    onToolResult: (callback: (data: any) => void) => {
+    onToolResult: (callback: (data: { sessionId: string; data: any }) => void) => {
       const wrapper = (_: any, data: any) => callback(data)
       ipcRenderer.on('claude-code:tool_result', wrapper)
       return () => ipcRenderer.removeListener('claude-code:tool_result', wrapper)
     },
-    onResult: (callback: (data: any) => void) => {
+    onResult: (callback: (data: { sessionId: string; data: any }) => void) => {
       const wrapper = (_: any, data: any) => callback(data)
       ipcRenderer.on('claude-code:result', wrapper)
       return () => ipcRenderer.removeListener('claude-code:result', wrapper)
     },
-    onStreamEvent: (callback: (data: any) => void) => {
+    onStreamEvent: (callback: (data: { sessionId: string; data: any }) => void) => {
       const wrapper = (_: any, data: any) => callback(data)
       ipcRenderer.on('claude-code:stream_event', wrapper)
       return () => ipcRenderer.removeListener('claude-code:stream_event', wrapper)
     },
-    onLog: (callback: (data: string) => void) => {
-      const wrapper = (_: any, data: string) => callback(data)
+    onLog: (callback: (data: { sessionId: string; data: string }) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
       ipcRenderer.on('claude-code:log', wrapper)
       return () => ipcRenderer.removeListener('claude-code:log', wrapper)
     },
-    onExit: (callback: (code: number | null) => void) => {
-      const wrapper = (_: any, code: number | null) => callback(code)
+    onExit: (callback: (data: { sessionId: string; data: number | null }) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
       ipcRenderer.on('claude-code:exit', wrapper)
       return () => ipcRenderer.removeListener('claude-code:exit', wrapper)
+    },
+    onSuspended: (callback: (data: { sessionId: string; data: { reason: string } }) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
+      ipcRenderer.on('claude-code:suspended', wrapper)
+      return () => ipcRenderer.removeListener('claude-code:suspended', wrapper)
+    },
+    onEvictionBlocked: (callback: (data: { sessionId: string; data: { reason: string; pendingTools: number } }) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
+      ipcRenderer.on('claude-code:eviction_blocked', wrapper)
+      return () => ipcRenderer.removeListener('claude-code:eviction_blocked', wrapper)
     },
   },
 

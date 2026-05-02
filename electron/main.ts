@@ -170,7 +170,7 @@ function createTray() {
     { label: 'Quit', click: () => app.quit() }
   ])
   
-  tray.setToolTip('Claude Code Desktop')
+  tray.setToolTip('SpaceCode')
   tray.setContextMenu(contextMenu)
   
   tray.on('click', () => {

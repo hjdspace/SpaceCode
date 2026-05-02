@@ -39,13 +39,19 @@ export interface MessageMetadata {
   duration?: number
 }
 
+export type ProcessStatus = 'none' | 'starting' | 'active' | 'idle' | 'suspended' | 'exited'
+
 export interface Session {
   id: string
   title: string
   messages: Message[]
   createdAt: number
   updatedAt: number
-  workingDirectory?: string  // 会话所属的项目路径
+  workingDirectory?: string
+  engineSessionId?: string
+  processStatus: ProcessStatus
+  isTabOpen: boolean
+  lastActivityAt: number
 }
 
 export interface FileNode {

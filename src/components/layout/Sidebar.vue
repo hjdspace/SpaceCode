@@ -399,13 +399,15 @@ async function handleNewChat() {
   creatingChat.value = true
 
   try {
-    // 使用当前项目创建新会话，如果没有当前项目则使用最后使用的项目
     const workingDirectory = chatStore.currentProjectRoot || chatStore.currentSession?.workingDirectory
 
-    // 在当前选中的项目下创建新会话
-    chatStore.createSession('New Chat', workingDirectory)
+    if (chatStore.currentSessionId && chatStore.currentSession) {
+      appStore.openSessionTab(chatStore.currentSessionId, chatStore.currentSession.title)
+    }
 
-    // Dispatch custom event for other components to react
+    const session = chatStore.createSession('New Chat', workingDirectory)
+    appStore.openSessionTab(session.id, session.title)
+
     window.dispatchEvent(new CustomEvent('session-created'))
   } catch (error) {
     console.error('Failed to create session:', error)
@@ -417,6 +419,7 @@ async function handleNewChat() {
 
 async function handleSelectSession(sessionId: string) {
   chatStore.selectSession(sessionId)
+  appStore.switchToSessionTab(sessionId)
 }
 
 async function handleDeleteSession(e: MouseEvent, sessionId: string) {
@@ -426,12 +429,10 @@ async function handleDeleteSession(e: MouseEvent, sessionId: string) {
   if (!confirm('Delete this conversation?')) return
 
   try {
-    await chatStore.deleteSession(sessionId)
+    const tab = appStore.centerTabs.find(t => t.sessionId === sessionId)
+    if (tab) appStore.closeSessionTab(tab.id)
 
-    // If deleted the current session, navigate away
-    if (chatStore.currentSessionId === sessionId) {
-      // Could navigate to first available session or empty state
-    }
+    await chatStore.deleteSession(sessionId)
   } catch (error) {
     console.error('Failed to delete session:', error)
   }
@@ -443,6 +444,8 @@ async function handleRenameSession(sessionId: string, newTitle: string) {
     const session = chatStore.sessions.find(s => s.id === sessionId)
     if (session) {
       session.title = newTitle
+      // Sync tab label with session title
+      appStore.updateSessionTabTitle(sessionId, newTitle)
       // Save to storage (method exists on chatStore)
       chatStore.saveToStorage()
 
@@ -458,9 +461,9 @@ function handleCreateSessionInProject(e: MouseEvent, workingDirectory: string) {
   e.stopPropagation()
 
   try {
-    // 切换到指定项目并创建会话
     chatStore.switchProject(workingDirectory)
-    chatStore.createSession('New Chat', workingDirectory)
+    const session = chatStore.createSession('New Chat', workingDirectory)
+    appStore.openSessionTab(session.id, session.title)
     window.dispatchEvent(new CustomEvent('session-created'))
   } catch (error) {
     console.error('Failed to create session in project:', error)
@@ -493,9 +496,9 @@ async function handleOpenFolderPicker() {
     const result = await api.selectFolder()
     if (result && !result.canceled && result.filePaths && result.filePaths.length > 0) {
       const folderPath = result.filePaths[0]
-      // 添加项目并在该项目下创建会话
       chatStore.addProject(folderPath)
-      chatStore.createSession('New Chat', folderPath)
+      const session = chatStore.createSession('New Chat', folderPath)
+      appStore.openSessionTab(session.id, session.title)
       window.dispatchEvent(new CustomEvent('session-created'))
     }
   } catch (error) {

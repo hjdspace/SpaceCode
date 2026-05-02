@@ -5,7 +5,7 @@
         <Menu :size="16" />
       </button>
       <div class="title-wrapper">
-        <span class="title">Claude Code</span>
+        <span class="title">SpaceCode</span>
         <span class="title-badge">Desktop</span>
       </div>
     </div>

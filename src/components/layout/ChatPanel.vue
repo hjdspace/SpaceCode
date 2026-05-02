@@ -1,5 +1,10 @@
 <template>
   <main class="chat-panel">
+    <SessionTabBar
+      @new-session="handleNewSession"
+      @switch-session="handleSwitchSession"
+      @close-tab="handleCloseTab"
+    />
     <div class="chat-header">
       <div class="header-left">
         <h2>{{ currentSession?.title || 'New Conversation' }}</h2>
@@ -53,6 +58,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useAppStore } from '@/stores/app'
 import MessageList from '../chat/MessageList.vue'
 import ChatInput, { type Attachment } from '../chat/ChatInput.vue'
+import SessionTabBar from '../chat/SessionTabBar.vue'
 import { initLLMService, llmState, updateConfig } from '@/services/llm'
 
 const chatStore = useChatStore()
@@ -365,8 +371,28 @@ function generateContextMessage(): string {
 
 // 处理打开技能管理器
 function handleOpenSkills() {
-  // 通过事件总线或全局状态打开技能管理器
   window.dispatchEvent(new CustomEvent('open-skills-manager'))
+}
+
+async function handleNewSession() {
+  if (chatStore.currentSessionId && chatStore.currentSession) {
+    appStore.openSessionTab(chatStore.currentSessionId, chatStore.currentSession.title)
+  }
+
+  const session = chatStore.createSession('New Chat')
+  appStore.openSessionTab(session.id, session.title)
+}
+
+function handleSwitchSession(sessionId: string) {
+  chatStore.selectSession(sessionId)
+}
+
+function handleCloseTab(tabId: string) {
+  const tab = appStore.centerTabs.find(t => t.id === tabId)
+  if (tab?.sessionId) {
+    chatStore.deactivateSession(tab.sessionId)
+  }
+  appStore.closeSessionTab(tabId)
 }
 </script>
 

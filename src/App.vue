@@ -13,27 +13,8 @@
         :style="{ display: appStore.sidebarCollapsed ? 'none' : 'block' }"
       ></div>
       <div class="center-panel">
-        <div class="center-tabs" v-if="appStore.centerTabs.length > 1">
-          <button
-            v-for="tab in appStore.centerTabs"
-            :key="tab.id"
-            class="center-tab"
-            :class="{ active: appStore.activeCenterTab === tab.id }"
-            @click="appStore.activeCenterTab = tab.id"
-          >
-            <component :is="tab.icon" :size="14" />
-            <span>{{ tab.label }}</span>
-            <button
-              v-if="tab.closable"
-              class="tab-close"
-              @click.stop="appStore.closeCenterTab(tab.id)"
-            >
-              <X :size="12" />
-            </button>
-          </button>
-        </div>
         <div class="center-content">
-          <ChatPanel v-show="appStore.activeCenterTab === 'chat'" />
+          <ChatPanel v-show="!isTerminalActive" />
           <TerminalPanel
             v-for="instance in appStore.terminalInstances"
             :key="instance.id"
@@ -63,7 +44,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import TitleBar from './components/layout/TitleBar.vue'
@@ -77,6 +58,10 @@ import { useShortcuts } from '@/composables/useShortcuts'
 
 const appStore = useAppStore()
 const chatStore = useChatStore()
+
+const isTerminalActive = computed(() =>
+  appStore.activeCenterTab.startsWith('terminal-')
+)
 
 // Initialize shortcuts
 const { register } = useShortcuts({

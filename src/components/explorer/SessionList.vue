@@ -48,6 +48,7 @@
                 :is-deleting="deletingSession === session.id"
                 :is-streaming="activeStreamingSessions?.has(session.id)"
                 :needs-approval="pendingApprovalSessions?.has(session.id)"
+                :process-status="session.processStatus || 'none'"
                 :format-relative-time="formatRelativeTime"
                 @mouseenter="hoveredSession = session.id"
                 @mouseleave="hoveredSession = null"

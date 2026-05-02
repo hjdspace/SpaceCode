@@ -11,12 +11,23 @@
     >
       <!-- Left Icon Area - Status Indicators (CodePilot-style) -->
       <div class="status-indicator">
-        <!-- Streaming Indicator with ping animation -->
-        <span v-if="isStreaming" class="streaming-indicator">
+        <!-- Active/Starting: Spinning circle -->
+        <span v-if="processStatus === 'active' || processStatus === 'starting'" class="spinning-indicator">
+          <span class="spinner"></span>
+        </span>
+        <!-- Idle: Green dot -->
+        <span v-else-if="processStatus === 'idle'" class="idle-indicator">
+          <span class="dot"></span>
+        </span>
+        <!-- Suspended: Yellow dot -->
+        <span v-else-if="processStatus === 'suspended'" class="suspended-indicator">
+          <span class="dot"></span>
+        </span>
+        <!-- Streaming Indicator with ping animation (legacy) -->
+        <span v-else-if="isStreaming" class="streaming-indicator">
           <span class="ping" />
           <span class="dot" />
         </span>
-
         <!-- Approval Indicator -->
         <span v-else-if="needsApproval" class="approval-badge">
           <Bell :size="10" />
@@ -137,6 +148,7 @@ interface Props {
   isDeleting: boolean
   isStreaming: boolean
   needsApproval: boolean
+  processStatus: 'none' | 'starting' | 'active' | 'idle' | 'suspended' | 'exited'
   formatRelativeTime: (dateStr: string) => string
 }
 
@@ -320,6 +332,57 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.spinning-indicator {
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  .spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--accent-primary, #3b82f6);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.idle-indicator {
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--status-success, #22c55e);
+  }
+}
+
+.suspended-indicator {
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--status-warning, #eab308);
+  }
 }
 
 // Streaming indicator with ping animation (CodePilot-style)
