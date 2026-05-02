@@ -46,6 +46,10 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq unzip build-essential python3 g++ make
 
+      - name: Install Python setuptools (macOS)
+        if: matrix.platform == 'mac'
+        run: pip3 install setuptools
+
       - name: Install app dependencies
         run: npm ci
 
