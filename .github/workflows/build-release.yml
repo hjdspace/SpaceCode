@@ -69,6 +69,9 @@ jobs:
           chmod +x "engine/bin/bun${{ matrix.bun_ext }}" 2>/dev/null || true
           ls -lh engine/bin/
 
+      - name: Build engine
+        run: cd engine && bun run build
+
       - name: Write build-time secrets
         shell: bash
         env:
