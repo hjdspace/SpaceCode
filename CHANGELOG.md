@@ -1,3 +1,21 @@
+## [0.2.2](https://github.com/hjdspace/claude-code-gui/compare/v0.2.1...v0.2.2) (2026-05-02)
+
+### Features
+
+* **build:** 完善 GitHub Actions 构建配置，添加 bun_target 矩阵变量 ([build-release.yml](https://github.com/hjdspace/claude-code-gui/commit/build-release))
+* **build:** 添加 build-time secrets 注入支持 GitHub OAuth 功能
+* **build:** 添加 sync-updates job 自动同步 release 到成都更新服务器
+
+### Bug Fixes
+
+* **sessionProcess:** 修复 JSON 解析错误处理缺失异常信息的问题 ([sessionProcess.ts](https://github.com/hjdspace/claude-code-gui/commit/sessionProcess))
+* **claudeCodeProcessPool:** 修复会话恢复时事件监听器重复注册导致的内存泄漏风险
+
+### Refactor
+
+* **claudeCodeProcessPool:** 重构事件监听器管理机制，使用命名引用精确管理
+* **claudeCodeProcessManager:** 简化 resolveBunPath 逻辑，三级回退更可靠
+
 ## [0.2.1](https://github.com/hjdspace/claude-code-gui/compare/v0.2.0...v0.2.1) (2026-04-28)
 
 ### Features
