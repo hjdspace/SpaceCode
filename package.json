@@ -1,6 +1,6 @@
 {
   "name": "spacecode",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "homepage": "https://github.com/hjdspace/claude-code-gui",
   "author": {
     "name": "hjdspace",
@@ -64,7 +64,7 @@
   "build": {
     "appId": "com.spacecode.desktop",
     "productName": "SpaceCode",
-    "icon": "icons/icon.ico",
+    "icon": "icons/icon-512.png",
     "directories": {
       "output": "release"
     },
@@ -96,6 +96,7 @@
       }
     ],
     "win": {
+      "icon": "icons/icon.ico",
       "target": [
         {
           "target": "nsis",
