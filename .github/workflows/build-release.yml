@@ -82,6 +82,11 @@ jobs:
       - name: Install app dependencies
         run: npm ci
 
+      # Windows: 构建 engine
+      - name: Build engine (Windows)
+        if: matrix.platform == 'win'
+        run: cd engine && bun run build
+
       # Linux/macOS: 安装 engine 依赖并构建
       - name: Install engine dependencies (Linux/macOS)
         if: matrix.platform != 'win'
