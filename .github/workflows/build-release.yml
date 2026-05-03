@@ -35,10 +35,30 @@ jobs:
         with:
           node-version: 20
 
-      - name: Setup Bun
+      # Linux/macOS: 使用 setup-bun
+      - name: Setup Bun (Linux/macOS)
+        if: matrix.platform != 'win'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+
+      # Windows: 手动下载 Bun (v0.2.0 方式)
+      - name: Download Bun (Windows)
+        if: matrix.platform == 'win'
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path engine/bin
+          Invoke-WebRequest -Uri "https://github.com/oven-sh/bun/releases/latest/download/bun-windows-x64.zip" -OutFile "bun-windows-x64.zip"
+          Expand-Archive -Path "bun-windows-x64.zip" -DestinationPath "$env:TEMP\bun-temp" -Force
+          $bunExe = Get-ChildItem -Path "$env:TEMP\bun-temp" -Filter "bun.exe" -Recurse | Select-Object -First 1
+          if ($bunExe) {
+            Move-Item -Path $bunExe.FullName -Destination "engine/bin/bun.exe" -Force
+          } else {
+            Write-Error "bun.exe not found in archive"
+            exit 1
+          }
+          Remove-Item -Path "$env:TEMP\bun-temp" -Recurse -Force
+          Remove-Item -Path "bun-windows-x64.zip" -Force
 
       - name: Install system dependencies (Linux)
         if: matrix.platform == 'linux'
@@ -57,10 +77,13 @@ jobs:
       - name: Install app dependencies
         run: npm ci
 
-      - name: Install engine dependencies
+      # Linux/macOS: 安装 engine 依赖并构建
+      - name: Install engine dependencies (Linux/macOS)
+        if: matrix.platform != 'win'
         run: cd engine && bun install
 
-      - name: Copy Bun binary to engine/bin
+      - name: Copy Bun binary to engine/bin (Linux/macOS)
+        if: matrix.platform != 'win'
         shell: bash
         run: |
           mkdir -p engine/bin
@@ -69,7 +92,8 @@ jobs:
           chmod +x "engine/bin/bun${{ matrix.bun_ext }}" 2>/dev/null || true
           ls -lh engine/bin/
 
-      - name: Build engine
+      - name: Build engine (Linux/macOS)
+        if: matrix.platform != 'win'
         run: cd engine && bun run build
 
       - name: Write build-time secrets
@@ -85,15 +109,20 @@ jobs:
             console.log('secrets.json written, keys:', Object.keys(secrets));
           "
 
-      - name: Rebuild native modules
+      # Linux/macOS: 重建原生模块
+      - name: Rebuild native modules (Linux/macOS)
+        if: matrix.platform != 'win'
         run: npx electron-rebuild
 
-      - name: Build frontend
+      # Linux/macOS: 使用 vite build
+      - name: Build frontend (Linux/macOS)
+        if: matrix.platform != 'win'
         run: npx vite build
 
-      - name: Enable Windows long paths
+      # Windows: 使用 npm run build (v0.2.0 方式)
+      - name: Build application (Windows)
         if: matrix.platform == 'win'
-        run: New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+        run: npm run build
 
       - name: Build & Publish (Windows)
         if: matrix.platform == 'win'
@@ -142,10 +171,10 @@ jobs:
           echo "Release published."
 
           echo "Uploading to Chengdu server..."
-          sshpass -p "$CHENGDU_PASS" scp -o StrictHostKeyChecking=no updates/* root@${CHENGDU_HOST}:/www/wwwroot/claude-app/updates/
+          sshpass -p "$CHENGDU_SSH_PASS" scp -o StrictHostKeyChecking=no updates/* root@${CHENGDU_HOST}:/www/wwwroot/claude-app/updates/
 
           echo "Cleaning old files..."
-          sshpass -p "$CHENGDU_PASS" ssh -o StrictHostKeyChecking=no root@${CHENGDU_HOST} "
+          sshpass -p "$CHENGDU_SSH_PASS" ssh -o StrictHostKeyChecking=no root@${CHENGDU_HOST} "
             cd /www/wwwroot/claude-app/updates/
             for f in *.exe *.exe.blockmap *.zip *.zip.blockmap *.dmg *.dmg.blockmap *.AppImage *.deb; do
               if [ -f \"\$f\" ] && ! echo \"\$f\" | grep -q '${VERSION}'; then
