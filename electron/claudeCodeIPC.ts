@@ -3,6 +3,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { ClaudeCodeProcessPool } from './claudeCodeProcessPool'
 import { SessionConfig } from './claudeCodeProcessManager'
+import { info, warn, error, debug } from './logger'
 
 export interface AgentInfo {
   agentType: string
@@ -52,50 +53,83 @@ export function setMainWindow(window: BrowserWindow) {
 export function registerClaudeCodeIPC() {
   pool = new ClaudeCodeProcessPool()
   if (mainWindow) pool.setMainWindow(mainWindow)
+  info('ClaudeCodeIPC', 'Process pool initialized')
 
   ipcMain.handle('claude-code:startSession', async (_, sessionId: string, config: SessionConfig) => {
-    if (!pool) throw new Error('Pool not initialized')
-    await pool.startSession(sessionId, config)
-    return pool.getSessionStatus(sessionId)
+    info('ClaudeCodeIPC', `→ startSession | sessionId=${sessionId.slice(0, 8)} | cwd=${config.cwd} | provider=${config.provider} | model=${config.model} | agent=${config.agent || '(none)'}`)
+    const startMs = Date.now()
+    try {
+      if (!pool) throw new Error('Pool not initialized')
+      await pool.startSession(sessionId, config)
+      const status = pool.getSessionStatus(sessionId)
+      info('ClaudeCodeIPC', `← startSession | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms | status=${status?.status} | isRunning=${status?.isRunning}`)
+      return status
+    } catch (err) {
+      error('ClaudeCodeIPC', `✗ startSession | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms`, { error: String(err) })
+      throw err
+    }
   })
 
   ipcMain.handle('claude-code:sendMessage', async (_, sessionId: string, content: string) => {
-    if (!pool) throw new Error('Pool not initialized')
-    pool.sendMessage(sessionId, content)
+    info('ClaudeCodeIPC', `→ sendMessage | sessionId=${sessionId.slice(0, 8)} | contentLen=${content.length} | preview="${content.slice(0, 80)}"`)
+    const startMs = Date.now()
+    try {
+      if (!pool) throw new Error('Pool not initialized')
+      pool.sendMessage(sessionId, content)
+      info('ClaudeCodeIPC', `← sendMessage | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms | forwarded to process`)
+    } catch (err) {
+      error('ClaudeCodeIPC', `✗ sendMessage | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms`, { error: String(err) })
+      throw err
+    }
   })
 
   ipcMain.handle('claude-code:abort', async (_, sessionId: string) => {
+    info('ClaudeCodeIPC', `→ abort | sessionId=${sessionId.slice(0, 8)}`)
     if (!pool) throw new Error('Pool not initialized')
     pool.abortSession(sessionId)
   })
 
   ipcMain.handle('claude-code:stop', async (_, sessionId: string) => {
+    info('ClaudeCodeIPC', `→ stop | sessionId=${sessionId.slice(0, 8)}`)
     if (!pool) throw new Error('Pool not initialized')
     pool.killSession(sessionId)
   })
 
   ipcMain.handle('claude-code:suspendSession', async (_, sessionId: string) => {
+    info('ClaudeCodeIPC', `→ suspendSession | sessionId=${sessionId.slice(0, 8)}`)
     if (!pool) throw new Error('Pool not initialized')
     pool.suspendSession(sessionId)
   })
 
   ipcMain.handle('claude-code:resumeSession', async (_, sessionId: string) => {
-    if (!pool) throw new Error('Pool not initialized')
-    await pool.resumeSession(sessionId)
-    return pool.getSessionStatus(sessionId)
+    info('ClaudeCodeIPC', `→ resumeSession | sessionId=${sessionId.slice(0, 8)}`)
+    const startMs = Date.now()
+    try {
+      if (!pool) throw new Error('Pool not initialized')
+      await pool.resumeSession(sessionId)
+      const status = pool.getSessionStatus(sessionId)
+      info('ClaudeCodeIPC', `← resumeSession | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms | status=${status?.status}`)
+      return status
+    } catch (err) {
+      error('ClaudeCodeIPC', `✗ resumeSession | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms`, { error: String(err) })
+      throw err
+    }
   })
 
   ipcMain.handle('claude-code:getSessionStatus', async (_, sessionId: string) => {
+    debug('ClaudeCodeIPC', `→ getSessionStatus | sessionId=${sessionId.slice(0, 8)}`)
     if (!pool) return null
     return pool.getSessionStatus(sessionId)
   })
 
   ipcMain.handle('claude-code:getActiveSessions', async () => {
+    debug('ClaudeCodeIPC', '→ getActiveSessions')
     if (!pool) return []
     return pool.getActiveSessions()
   })
 
   ipcMain.handle('claude-code:isSessionActive', async (_, sessionId?: string) => {
+    debug('ClaudeCodeIPC', `→ isSessionActive | sessionId=${sessionId?.slice(0, 8) || '(all)'}`)
     if (!pool) return false
     if (sessionId) {
       const status = pool.getSessionStatus(sessionId)
@@ -108,6 +142,7 @@ export function registerClaudeCodeIPC() {
   })
 
   ipcMain.handle('claude-code:listAgents', async (_, cwd?: string) => {
+    debug('ClaudeCodeIPC', `→ listAgents | cwd=${cwd || '(none)'}`)
     const agents: AgentInfo[] = [...BUILTIN_AGENTS]
 
     const searchDirs: string[] = []
@@ -149,6 +184,7 @@ export function registerClaudeCodeIPC() {
       } catch {}
     }
 
+    debug('ClaudeCodeIPC', `← listAgents | count=${agents.length}`)
     return agents
   })
 }

@@ -9,6 +9,28 @@ const taskManager = useTaskManager()
 
 const electronAPI = (window as any).electronAPI
 
+// ============================================================
+// Renderer Logger — 将日志转发到主进程写入 ~/.claude/debug/
+// ============================================================
+const logger = {
+  debug: (scope: string, message: string, data?: any) => {
+    console.debug(`[${scope}] ${message}`, data ?? '')
+    electronAPI?.logger?.debug?.(scope, message, data)
+  },
+  info: (scope: string, message: string, data?: any) => {
+    console.log(`[${scope}] ${message}`, data ?? '')
+    electronAPI?.logger?.info?.(scope, message, data)
+  },
+  warn: (scope: string, message: string, data?: any) => {
+    console.warn(`[${scope}] ${message}`, data ?? '')
+    electronAPI?.logger?.warn?.(scope, message, data)
+  },
+  error: (scope: string, message: string, data?: any) => {
+    console.error(`[${scope}] ${message}`, data ?? '')
+    electronAPI?.logger?.error?.(scope, message, data)
+  },
+}
+
 const STORAGE_KEY = 'chat_sessions_v2'
 const PROJECTS_KEY = 'chat_projects_v2'
 const STORAGE_VERSION = '2.1'
@@ -367,13 +389,22 @@ export const useChatStore = defineStore('chat', () => {
 
   async function initClaudeCodeSession(sessionId: string): Promise<void> {
     const claudeCode = electronAPI?.claudeCode
-    if (!claudeCode) return
+    if (!claudeCode) {
+      logger.warn('ChatStore', `initClaudeCodeSession: claudeCode API not available`)
+      return
+    }
 
     const session = sessions.value.find(s => s.id === sessionId)
-    if (!session) return
+    if (!session) {
+      logger.warn('ChatStore', `initClaudeCodeSession: session not found | id=${sessionId.slice(0, 8)}`)
+      return
+    }
 
     const status = await claudeCode.getSessionStatus(sessionId)
-    if (status?.isRunning) return
+    if (status?.isRunning) {
+      logger.info('ChatStore', `initClaudeCodeSession: session already running | id=${sessionId.slice(0, 8)}`)
+      return
+    }
 
     try {
       const config = settingsStore.config
@@ -382,10 +413,12 @@ export const useChatStore = defineStore('chat', () => {
       session.processStatus = 'starting'
       saveToStorage()
 
+      logger.info('ChatStore', `initClaudeCodeSession: starting session | id=${sessionId.slice(0, 8)} | cwd=${cwd} | provider=${config.provider} | model=${config.model} | agent=${currentAgent.value || '(none)'}`)
+
       await claudeCode.startSession(sessionId, {
         cwd,
         apiKey: config.apiKey,
-        apiUrl: config.apiUrl,
+        baseUrl: config.apiUrl,
         provider: config.provider,
         model: config.model,
         effortLevel: config.effortLevel,
@@ -394,8 +427,10 @@ export const useChatStore = defineStore('chat', () => {
         thinkingEnabled: settingsStore.thinkingEnabled,
       })
 
+      logger.info('ChatStore', `initClaudeCodeSession: session started successfully | id=${sessionId.slice(0, 8)}`)
+
     } catch (error) {
-      console.error('[ChatStore] Failed to start session:', error)
+      logger.error('ChatStore', `initClaudeCodeSession: failed to start session | id=${sessionId.slice(0, 8)}`, { error: String(error) })
       session.processStatus = 'exited'
       saveToStorage()
     }
@@ -445,6 +480,8 @@ export const useChatStore = defineStore('chat', () => {
     const session = sessions.value.find(s => s.id === targetSessionId)
     if (!session) return
 
+    logger.info('ChatStore', `sendMessage: user message | sessionId=${targetSessionId.slice(0, 8)} | contentLen=${content.length} | preview="${content.slice(0, 80)}"`)
+
     addMessage({
       role: 'user',
       content: userMessageContent ?? content
@@ -452,6 +489,7 @@ export const useChatStore = defineStore('chat', () => {
 
     const claudeCode = electronAPI?.claudeCode
     if (!claudeCode) {
+      logger.error('ChatStore', `sendMessage: claudeCode API not available | sessionId=${targetSessionId.slice(0, 8)}`)
       loadingSessions.value.set(targetSessionId, true)
       setTimeout(() => {
         addMessage({
@@ -470,6 +508,9 @@ export const useChatStore = defineStore('chat', () => {
     session.processStatus = 'active'
 
     const assistantMessageId = crypto.randomUUID()
+    const sendStartTime = Date.now()
+
+    logger.info('ChatStore', `sendMessage: calling IPC sendMessage | sessionId=${targetSessionId.slice(0, 8)} | assistantMsgId=${assistantMessageId.slice(0, 8)}`)
 
     addMessage({
       id: assistantMessageId,
@@ -487,6 +528,7 @@ export const useChatStore = defineStore('chat', () => {
         const ev = streamEvent.event || streamEvent
 
         if (ev.type === 'content_block_start' && ev.content_block?.type === 'text') {
+          logger.debug('ChatStore', `[${targetSessionId.slice(0, 8)}] stream_event: content_block_start(text) | accLen=${accumulatedContent.length}`)
           if (accumulatedContent.length > 0 && !accumulatedContent.endsWith('\n')) {
             accumulatedContent += '\n\n'
             streamingContents.value.set(targetSessionId, accumulatedContent)
@@ -497,6 +539,7 @@ export const useChatStore = defineStore('chat', () => {
         }
 
         if (ev.type === 'content_block_start' && ev.content_block?.type === 'thinking') {
+          logger.debug('ChatStore', `[${targetSessionId.slice(0, 8)}] stream_event: content_block_start(thinking)`)
           const s = sessions.value.find(s => s.id === targetSessionId)
           if (s) {
             const msg = s.messages.find(m => m.id === assistantMessageId)
@@ -532,6 +575,7 @@ export const useChatStore = defineStore('chat', () => {
       const handleAssistant = (event: { sessionId: string; data: any }) => {
         if (event.sessionId !== targetSessionId || isCompleted) return
         const assistant = event.data
+        logger.info('ChatStore', `[${targetSessionId.slice(0, 8)}] assistant event received`)
         if (assistant.message?.content) {
           const content = assistant.message.content
           if (Array.isArray(content)) {
@@ -579,6 +623,8 @@ export const useChatStore = defineStore('chat', () => {
       const handleToolUse = (event: { sessionId: string; data: any }) => {
         if (event.sessionId !== targetSessionId) return
         const toolUse = event.data
+        const toolName = toolUse.name || toolUse.tool_use?.name || 'Unknown Tool'
+        logger.info('ChatStore', `[${targetSessionId.slice(0, 8)}] tool_use event | name=${toolName}`)
         const s = sessions.value.find(s => s.id === targetSessionId)
         if (s) {
           const msg = s.messages.find(m => m.id === assistantMessageId)
@@ -601,6 +647,9 @@ export const useChatStore = defineStore('chat', () => {
       const handleToolResult = (event: { sessionId: string; data: any }) => {
         if (event.sessionId !== targetSessionId) return
         const toolResult = event.data
+        const resultToolUseId = toolResult.tool_use_id || toolResult.tool_result?.tool_use_id
+        const resultIsError = toolResult.is_error || toolResult.tool_result?.is_error
+        logger.info('ChatStore', `[${targetSessionId.slice(0, 8)}] tool_result event | toolUseId=${resultToolUseId?.slice(0, 8)} | error=${!!resultIsError}`)
         const s = sessions.value.find(s => s.id === targetSessionId)
         if (s) {
           const msg = s.messages.find(m => m.id === assistantMessageId)
@@ -631,6 +680,8 @@ export const useChatStore = defineStore('chat', () => {
       const handleResult = (event: { sessionId: string; data: any }) => {
         if (event.sessionId !== targetSessionId || isCompleted) return
         isCompleted = true
+        const elapsed = Date.now() - sendStartTime
+        logger.info('ChatStore', `[${targetSessionId.slice(0, 8)}] result event (LLM response complete) | totalElapsed=${elapsed}ms | accContentLen=${accumulatedContent.length}`)
         streamingContents.value.set(targetSessionId, '')
         loadingSessions.value.set(targetSessionId, false)
 
@@ -684,6 +735,8 @@ export const useChatStore = defineStore('chat', () => {
       const handleError = (error: any) => {
         if (isCompleted) return
         isCompleted = true
+        const elapsed = Date.now() - sendStartTime
+        logger.error('ChatStore', `[${targetSessionId.slice(0, 8)}] error in message flow | elapsed=${elapsed}ms`, { error: String(error) })
         loadingSessions.value.set(targetSessionId, false)
         streamingContents.value.set(targetSessionId, '')
 
@@ -713,6 +766,7 @@ export const useChatStore = defineStore('chat', () => {
       const unsubscribeResult = claudeCode.onResult(handleResult)
       const unsubscribeExit = claudeCode.onExit((event: { sessionId: string; data: number | null }) => {
         if (event.sessionId !== targetSessionId) return
+        logger.warn('ChatStore', `[${targetSessionId.slice(0, 8)}] process exit event | code=${event.data}`)
         if (event.data !== null && event.data !== 0) {
           handleError(new Error(`Process exited with code ${event.data}`))
         } else {
@@ -731,11 +785,12 @@ export const useChatStore = defineStore('chat', () => {
       }
 
       claudeCode.sendMessage(targetSessionId, content).catch((error: any) => {
+        logger.error('ChatStore', `[${targetSessionId.slice(0, 8)}] IPC sendMessage rejected`, { error: String(error) })
         cleanup()
         handleError(error)
       })
     }).catch((error) => {
-      console.error('[ChatStore] Error sending message:', error)
+      logger.error('ChatStore', `[${targetSessionId.slice(0, 8)}] sendMessage outer catch`, { error: String(error) })
       loadingSessions.value.set(targetSessionId, false)
       streamingContents.value.set(targetSessionId, '')
     })
@@ -743,12 +798,13 @@ export const useChatStore = defineStore('chat', () => {
 
   async function abort(): Promise<void> {
     const sid = currentSessionId.value
+    logger.info('ChatStore', `abort | sessionId=${sid?.slice(0, 8) || '(none)'}`)
     const claudeCode = electronAPI?.claudeCode
     if (claudeCode && sid) {
       try {
         await claudeCode.abort(sid)
       } catch (error) {
-        console.error('[ChatStore] Error aborting:', error)
+        logger.error('ChatStore', `abort failed | sessionId=${sid.slice(0, 8)}`, { error: String(error) })
       }
     }
     if (sid) {

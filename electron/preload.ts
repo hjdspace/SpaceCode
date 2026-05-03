@@ -14,6 +14,20 @@ export interface FileStat {
   mtime: number
 }
 
+// ============================================================
+// Renderer Logger — 将前端日志转发到主进程写入文件
+// ============================================================
+const rendererLogger = {
+  debug: (scope: string, message: string, data?: any) =>
+    ipcRenderer.send('log:debug', scope, message, data),
+  info: (scope: string, message: string, data?: any) =>
+    ipcRenderer.send('log:info', scope, message, data),
+  warn: (scope: string, message: string, data?: any) =>
+    ipcRenderer.send('log:warn', scope, message, data),
+  error: (scope: string, message: string, data?: any) =>
+    ipcRenderer.send('log:error', scope, message, data),
+}
+
 contextBridge.exposeInMainWorld('electronAPI', {
   // Platform info for titlebar rendering
   platform: process.platform,
@@ -232,5 +246,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     installMarketplaceSkill: (source: string, skillId: string, global: boolean) => ipcRenderer.invoke('skills:installMarketplaceSkill', source, skillId, global),
     uninstallMarketplaceSkill: (skillName: string, global: boolean) => ipcRenderer.invoke('skills:uninstallMarketplaceSkill', skillName, global),
     fetchMarketplaceReadme: (source: string, skillId: string) => ipcRenderer.invoke('skills:fetchMarketplaceReadme', source, skillId),
-  }
+  },
+
+  // 渲染进程日志桥接
+  logger: rendererLogger,
 })

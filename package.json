@@ -10,15 +10,17 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "engine:install": "cd engine && bun install",
+    "engine:build:desktop": "cd engine && bun run build-desktop.ts",
     "postinstall": "npm run engine:install",
+    "copy-bun": "node scripts/copy-bun.cjs",
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "electron:dev": "vite",
-    "electron:build": "npm run build && electron-builder",
-    "electron:build:win": "npm run build && electron-builder --win",
-    "electron:build:mac": "npm run build && electron-builder --mac",
-    "electron:build:linux": "npm run build && electron-builder --linux",
+    "electron:build": "npm run copy-bun && npm run engine:build:desktop && npm run build && electron-builder",
+    "electron:build:win": "npm run copy-bun && npm run engine:build:desktop && npm run build && electron-builder --win",
+    "electron:build:mac": "npm run copy-bun && npm run engine:build:desktop && npm run build && electron-builder --mac",
+    "electron:build:linux": "npm run copy-bun && npm run engine:build:desktop && npm run build && electron-builder --linux",
     "typecheck": "vue-tsc --noEmit",
     "changelog": "conventional-changelog -p conventionalcommits -i CHANGELOG.md -s",
     "changelog:all": "conventional-changelog -p conventionalcommits -i CHANGELOG.md -s -r 0",
@@ -85,65 +87,12 @@
         ]
       },
       {
-        "from": "engine/src",
-        "to": "engine/src",
-        "filter": [
-          "**/*.ts",
-          "**/*.tsx",
-          "**/*.js",
-          "**/*.json",
-          "**/*.txt",
-          "**/*.md"
-        ]
-      },
-      {
-        "from": "engine/package.json",
-        "to": "engine/package.json"
-      },
-      {
-        "from": "engine/bunfig.toml",
-        "to": "engine/bunfig.toml"
-      },
-      {
-        "from": "engine/tsconfig.json",
-        "to": "engine/tsconfig.json"
-      },
-      {
-        "from": "engine/node_modules",
-        "to": "engine/node_modules",
-        "filter": [
-          "**/*",
-          "!**/.bun/**",
-          "!**/test/**",
-          "!**/tests/**",
-          "!**/*.test.js",
-          "!**/*.test.ts",
-          "!**/*.spec.js",
-          "!**/*.spec.ts",
-          "!**/.github/**",
-          "!**/docs/**",
-          "!**/examples/**",
-          "!**/benchmark/**",
-          "!**/scripts/**",
-          "!**/@types/**",
-          "!**/biome/**",
-          "!**/knip*/**",
-          "!**/marked/**",
-          "!**/highlight.js/**",
-          "!**/qrcode/**",
-          "!**/yaml/**",
-          "!**/semver/**",
-          "!**/tree-kill/**",
-          "!**/srt/**"
-        ]
-      },
-      {
         "from": "engine/bin",
         "to": "engine/bin"
       },
       {
-        "from": "engine/dist",
-        "to": "engine/dist"
+        "from": "engine/dist-desktop",
+        "to": "engine/dist-desktop"
       }
     ],
     "win": {
@@ -176,9 +125,18 @@
       ]
     },
     "nsis": {
-      "oneClick": true,
+      "oneClick": false,
       "perMachine": false,
-      "deleteAppDataOnUninstall": false
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "installerLanguages": [
+        "zh-CN",
+        "en-US"
+      ],
+      "language": "2052",
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     },
     "compression": "store"
   }

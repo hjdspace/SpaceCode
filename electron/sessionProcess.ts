@@ -6,6 +6,7 @@ import * as os from 'os'
 import { randomUUID } from 'crypto'
 import { app } from 'electron'
 import { SessionConfig } from './claudeCodeProcessManager'
+import { info, warn, error, debug, processRaw, setSessionLogPath } from './logger'
 
 export type ProcessStatus = 'starting' | 'active' | 'idle' | 'suspended' | 'exited'
 
@@ -40,6 +41,7 @@ export class SessionProcess extends EventEmitter {
     } else {
       this.cliRoot = path.resolve(__dirname, '../engine')
     }
+    debug('SessionProcess', `Constructed | sessionId=${sessionId.slice(0, 8)} | cwd=${config.cwd} | provider=${config.provider} | model=${config.model}`)
   }
 
   async start(): Promise<void> {
@@ -47,6 +49,12 @@ export class SessionProcess extends EventEmitter {
     const { command, args: cliArgs } = this.resolveCliCommand()
     const args = [...cliArgs, ...this.buildArgs(this.config)]
     const env = this.buildEnv(this.config)
+
+    // 创建会话级日志文件
+    setSessionLogPath(this.sessionId)
+
+    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Starting process | command=${command} | args=${args.join(' ')} | cwd=${this.config.cwd}`)
+    debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process env keys=[${Object.keys(env).join(',')}] | provider=${this.config.provider} | model=${this.config.model}`)
 
     this.process = spawn(command, args, {
       cwd: this.config.cwd,
@@ -56,13 +64,19 @@ export class SessionProcess extends EventEmitter {
       windowsHide: true
     })
 
+    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process spawned | pid=${this.process.pid}`)
+
     this.process.on('error', (err) => {
       this.status = 'exited'
+      error('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process error | pid=${this.process?.pid}`, { error: err.message, stack: err.stack })
       this.emit('error', err)
     })
 
     this.process.stdout!.on('data', (data) => {
       const dataStr = data.toString()
+      // 记录原始 stdout
+      processRaw(this.sessionId, 'stdout', dataStr)
+
       this.buffer += dataStr
       const bufferedLines = this.buffer.split('\n')
       this.buffer = bufferedLines.pop() || ''
@@ -72,17 +86,21 @@ export class SessionProcess extends EventEmitter {
             const msg = JSON.parse(line)
             this.handleSDKMessage(msg)
           } catch (e) {
-            console.warn('[SessionProcess] Failed to parse SDK message:', e, line)
+            warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to parse SDK message`, { line: line.slice(0, 200), error: String(e) })
           }
         }
       }
     })
 
     this.process.stderr!.on('data', (data) => {
-      this.emit('log', data.toString())
+      const dataStr = data.toString()
+      // 记录 stderr
+      processRaw(this.sessionId, 'stderr', dataStr)
+      this.emit('log', dataStr)
     })
 
     this.process.on('exit', (code, signal) => {
+      info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process exited | code=${code} | signal=${signal} | pid=${this.process?.pid}`)
       if (this.status !== 'suspended') {
         this.status = 'exited'
       }
@@ -98,19 +116,28 @@ export class SessionProcess extends EventEmitter {
     if (!this.engineSessionId) {
       throw new Error('Cannot resume: no engineSessionId')
     }
+    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Resuming session | engineSessionId=${this.engineSessionId}`)
     await this.start()
   }
 
   sendMessage(content: string): void {
     if (!this.process) throw new Error('No active process')
+    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Sending user message | contentLen=${content.length} | preview="${content.slice(0, 100)}"`)
     const msg = JSON.stringify({
       type: 'user',
       message: { role: 'user', content }
     }) + '\n'
-    this.process.stdin!.write(msg)
+    try {
+      this.process.stdin!.write(msg)
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Message written to stdin successfully`)
+    } catch (err) {
+      error('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to write to stdin`, { error: String(err) })
+      throw err
+    }
   }
 
   abort(): void {
+    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Sending abort/interrupt control_request`)
     if (this.process?.stdin?.writable) {
       const abortMessage = {
         type: 'control_request',
@@ -123,6 +150,7 @@ export class SessionProcess extends EventEmitter {
 
   suspend(): void {
     if (!this.process) return
+    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Suspending process | pid=${this.process.pid} | pendingTools=${this.pendingToolCalls.size}`)
     this.status = 'suspended'
     try {
       this.process.kill()
@@ -132,6 +160,7 @@ export class SessionProcess extends EventEmitter {
 
   kill(): void {
     if (this.process) {
+      info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Killing process | pid=${this.process.pid}`)
       try {
         this.process.kill()
       } catch {}
@@ -146,23 +175,17 @@ export class SessionProcess extends EventEmitter {
 
   /**
    * 检查会话是否可以安全挂起
-   * 返回 true 表示可以安全挂起（没有进行中的工具调用或处理）
    */
   canSafelySuspend(): boolean {
-    // 如果有未完成的工具调用，不能挂起
     if (this.pendingToolCalls.size > 0) {
       return false
     }
-    // 如果正在处理中（收到 assistant/stream_event 但还没收到 result），不能挂起
     if (this.isProcessing && this.status === 'active') {
       return false
     }
     return true
   }
 
-  /**
-   * 获取当前待处理的工具调用数量
-   */
   getPendingToolCount(): number {
     return this.pendingToolCalls.size
   }
@@ -173,23 +196,26 @@ export class SessionProcess extends EventEmitter {
     if (msg.type === 'result') {
       this.status = 'idle'
       this.isProcessing = false
+      info('SessionProcess', `[${this.sessionId.slice(0, 8)}] LLM response complete (result) | costUsd=${msg.cost_usd} | durationMs=${msg.duration_ms} | numTurns=${msg.num_turns}`)
     } else if (msg.type === 'assistant' || msg.type === 'tool_use' || msg.type === 'stream_event') {
       this.status = 'active'
       this.isProcessing = true
     }
 
-
-
     // 追踪工具调用状态
     if (msg.type === 'tool_use') {
       const toolId = msg.id || msg.tool_use?.id
+      const toolName = msg.name || msg.tool_use?.name
       if (toolId) {
         this.pendingToolCalls.add(toolId)
+        info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Tool call started | id=${toolId} | name=${toolName} | pendingCount=${this.pendingToolCalls.size}`)
       }
     } else if (msg.type === 'tool_result') {
       const toolId = msg.tool_use_id || msg.tool_result?.tool_use_id
+      const isError = msg.is_error || msg.tool_result?.is_error
       if (toolId) {
         this.pendingToolCalls.delete(toolId)
+        info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Tool result received | id=${toolId} | error=${!!isError} | pendingCount=${this.pendingToolCalls.size}`)
       }
     }
 
@@ -197,6 +223,29 @@ export class SessionProcess extends EventEmitter {
       const sid = msg.session_id
       if (sid) {
         this.engineSessionId = sid
+        info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Engine session initialized | engineSessionId=${sid} | tools=${JSON.stringify(msg.tools || []).slice(0, 200)}`)
+      }
+    }
+
+    if (msg.type === 'stream_event') {
+      const ev = msg.event || msg
+      if (ev.type === 'message_start') {
+        info('SessionProcess', `[${this.sessionId.slice(0, 8)}] stream_event: message_start | model=${ev.message?.model}`)
+      } else if (ev.type === 'message_stop') {
+        info('SessionProcess', `[${this.sessionId.slice(0, 8)}] stream_event: message_stop`)
+      }
+    }
+
+    // assistant 消息的详细日志
+    if (msg.type === 'assistant') {
+      const content = msg.message?.content
+      if (Array.isArray(content)) {
+        const textItem = content.find((c: any) => c.type === 'text')
+        const thinkingItem = content.find((c: any) => c.type === 'thinking')
+        const toolUses = content.filter((c: any) => c.type === 'tool_use')
+        info('SessionProcess', `[${this.sessionId.slice(0, 8)}] assistant message | textLen=${textItem?.text?.length || 0} | thinkingLen=${thinkingItem?.thinking?.length || thinkingItem?.text?.length || 0} | toolCalls=${toolUses.length} | toolNames=[${toolUses.map((t: any) => t.name).join(',')}]`)
+      } else if (typeof content === 'string') {
+        info('SessionProcess', `[${this.sessionId.slice(0, 8)}] assistant message (string) | contentLen=${content.length}`)
       }
     }
 
@@ -206,6 +255,7 @@ export class SessionProcess extends EventEmitter {
   private buildArgs(config: SessionConfig): string[] {
     const args: string[] = []
     args.push(
+      '--print',
       '--output-format', 'stream-json',
       '--input-format', 'stream-json',
       '--verbose',
@@ -226,6 +276,7 @@ export class SessionProcess extends EventEmitter {
       if (config.model) settingsContent.model = config.model
       fs.writeFileSync(settingsPath, JSON.stringify(settingsContent, null, 2), 'utf8')
       args.push('--settings', settingsPath)
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Created temp settings file | path=${settingsPath} | modelType=${modelType}`)
     }
 
     if (config.model) args.push('--model', config.model)
@@ -251,6 +302,7 @@ export class SessionProcess extends EventEmitter {
 
     if (this.engineSessionId && this.status === 'suspended') {
       args.push('--resume', this.engineSessionId)
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Added --resume flag | engineSessionId=${this.engineSessionId}`)
     }
 
     return args
@@ -283,6 +335,7 @@ export class SessionProcess extends EventEmitter {
     const gitBashPath = this.findGitBashPath()
     if (gitBashPath && !process.env.CLAUDE_CODE_GIT_BASH_PATH) {
       env.CLAUDE_CODE_GIT_BASH_PATH = gitBashPath
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Git Bash path detected | path=${gitBashPath}`)
     }
 
     if (!process.env.CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS) {
@@ -336,10 +389,21 @@ export class SessionProcess extends EventEmitter {
           bunArgs.push('--env-file=' + envFilePath)
         }
         bunArgs.push(srcCliPath)
-        return { command: this.resolveBunPath(), args: bunArgs }
+        const bunPath = this.resolveBunPath()
+        debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (dev): bun at ${bunPath} | entry=${srcCliPath}`)
+        return { command: bunPath, args: bunArgs }
       }
     }
 
+    // Prefer the desktop single-bundle (dist-desktop/cli.js) for packaged builds
+    const desktopCli = path.join(this.cliRoot, 'dist-desktop/cli.js')
+    if (fs.existsSync(desktopCli)) {
+      const bunPath = this.resolveBunPath()
+      info('SessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (desktop bundle): bun at ${bunPath} | entry=${desktopCli}`)
+      return { command: bunPath, args: ['run', desktopCli] }
+    }
+
+    // Fallback: split dist build
     const distCli = path.join(this.cliRoot, 'dist/cli.js')
     if (fs.existsSync(distCli)) {
       return { command: this.resolveBunPath(), args: ['run', distCli] }
@@ -359,38 +423,61 @@ export class SessionProcess extends EventEmitter {
         bunArgs.push('--env-file=' + envFilePath)
       }
       bunArgs.push(srcCliPath)
-      return { command: this.resolveBunPath(), args: bunArgs }
+      const bunPath = this.resolveBunPath()
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (src fallback): bun at ${bunPath} | entry=${srcCliPath}`)
+      return { command: bunPath, args: bunArgs }
     }
 
+    warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] No CLI found, falling back to global 'claude' command`)
     return { command: 'claude', args: [] }
   }
 
   private resolveBunPath(): string {
     const platform = process.platform
     const arch = process.arch
+
+    // 1. Check bundled bun first (instant fs check, no subprocess overhead)
+    const bunName = platform === 'win32' ? 'bun.exe' : 'bun'
+    const bundledBun = path.join(this.cliRoot, 'bin', bunName)
+    if (fs.existsSync(bundledBun)) {
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using bundled bun: ${bundledBun}`)
+      return bundledBun
+    }
+
+    // 2. Check platform-specific bundled bun
     const platformSuffix = platform === 'win32' ? 'windows-x64'
       : platform === 'darwin' ? (arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64')
       : 'linux-x64'
     const platformSpecificBun = path.join(this.cliRoot, 'bin', `bun-${platformSuffix}`)
-    if (fs.existsSync(platformSpecificBun)) return platformSpecificBun
+    if (fs.existsSync(platformSpecificBun)) {
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using platform-specific bun: ${platformSpecificBun}`)
+      return platformSpecificBun
+    }
     if (platform === 'win32') {
       const exe = platformSpecificBun + '.exe'
-      if (fs.existsSync(exe)) return exe
+      if (fs.existsSync(exe)) {
+        debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using platform-specific bun.exe: ${exe}`)
+        return exe
+      }
     }
-    const bunName = platform === 'win32' ? 'bun.exe' : 'bun'
-    const bundledBun = path.join(this.cliRoot, 'bin', bunName)
-    if (fs.existsSync(bundledBun)) return bundledBun
+
+    // 3. Fallback: find global bun (slower - spawns subprocess)
     try {
       const { execSync } = require('child_process')
       let globalBun: string | null = null
       if (platform === 'win32') {
-        const cmd = 'powershell -NoProfile -Command "Get-Command bun -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source"'
-        globalBun = execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim()
+        // Use 'where' instead of PowerShell for speed (~100ms vs ~2s)
+        globalBun = execSync('where bun', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim().split('\r\n')[0]
       } else {
-        globalBun = execSync('which bun', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim().split('\n')[0]
+        globalBun = execSync('which bun', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim().split('\n')[0]
       }
-      if (globalBun && fs.existsSync(globalBun)) return globalBun
+      if (globalBun && fs.existsSync(globalBun)) {
+        debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using global bun: ${globalBun}`)
+        return globalBun
+      }
     } catch {}
+
+    warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] No bun binary found, falling back to PATH`)
     return 'bun'
   }
 
