@@ -160,48 +160,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  sync-updates:
+  publish-release:
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Get version from tag
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
-
-      - name: Download release assets and sync to Chengdu
+      - name: Publish release
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-          CHENGDU_HOST: 47.108.25.68
-          CHENGDU_PASS: ${{ secrets.CHENGDU_SSH_PASS }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq sshpass
-
-          mkdir -p updates
-          gh release download "${GITHUB_REF_NAME}" -D updates/
-          echo "Downloaded assets:"
-          ls -lh updates/
-
           gh release edit "${GITHUB_REF_NAME}" --draft=false
           echo "Release published."
-
-          echo "Uploading to Chengdu server..."
-          sshpass -p "$CHENGDU_PASS" scp -o StrictHostKeyChecking=no updates/* root@${CHENGDU_HOST}:/www/wwwroot/claude-app/updates/
-
-          echo "Cleaning old files..."
-          sshpass -p "$CHENGDU_PASS" ssh -o StrictHostKeyChecking=no root@${CHENGDU_HOST} "
-            cd /www/wwwroot/claude-app/updates/
-            for f in *.exe *.exe.blockmap *.zip *.zip.blockmap *.dmg *.dmg.blockmap *.AppImage *.deb; do
-              if [ -f \"\$f\" ] && ! echo \"\$f\" | grep -q '${VERSION}'; then
-                echo \"Removing old: \$f\"
-                rm -f \"\$f\"
-              fi
-            done
-            chown -R www:www /www/wwwroot/claude-app/updates/
-            echo 'Files on server:'
-            ls -lh /www/wwwroot/claude-app/updates/
-          "
-          echo "Done!"

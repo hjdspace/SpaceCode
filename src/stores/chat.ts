@@ -444,6 +444,8 @@ export const useChatStore = defineStore('chat', () => {
     const session = sessions.value.find(s => s.id === targetSessionId)
     if (!session) return
 
+    console.log(`[ChatStore] sendMessage: sessionId=${targetSessionId}, thinkingEnabled=${settingsStore.thinkingEnabled}, content_length=${content.length}`)
+
     addMessage({
       role: 'user',
       content: userMessageContent ?? content
