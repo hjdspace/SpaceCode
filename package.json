@@ -103,6 +103,7 @@
         "to": "engine/node_modules",
         "filter": [
           "**/*",
+          "!**/.bun/**",
           "!**/test/**",
           "!**/tests/**",
           "!**/*.test.js",
