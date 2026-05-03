@@ -30,12 +30,22 @@ export interface CreateTerminalOptions {
   label?: string
 }
 
+export interface EmbeddedTerminalInstance {
+  id: string
+  toolCallId: string
+  terminalId: string
+  isAlive: boolean
+  cwd?: string
+}
+
 export const useTerminalStore = defineStore('terminal', () => {
   const tabs = ref<TerminalTab[]>([])
   const instances = ref<Map<string, TerminalInstance>>(new Map())
   const activeTabId = ref<string | null>(null)
   const counter = ref(1)
   const maxTabs = ref(10)
+
+  const embeddedInstances = ref<Map<string, EmbeddedTerminalInstance>>(new Map())
 
   const activeTab = computed(() =>
     tabs.value.find(t => t.id === activeTabId.value) || null
@@ -193,6 +203,57 @@ export const useTerminalStore = defineStore('terminal', () => {
     activeTabId.value = null
   }
 
+  // ===== 内嵌终端管理方法 =====
+
+  function createEmbeddedInstance(toolCallId: string, cwd?: string): string | null {
+    const id = `embedded-${toolCallId}`
+
+    const instance: EmbeddedTerminalInstance = {
+      id,
+      toolCallId,
+      terminalId: '',
+      isAlive: false,
+      cwd
+    }
+
+    embeddedInstances.value.set(toolCallId, instance)
+    return id
+  }
+
+  function setEmbeddedTerminalId(toolCallId: string, terminalId: string): void {
+    const instance = embeddedInstances.value.get(toolCallId)
+    if (instance) {
+      instance.terminalId = terminalId
+      instance.isAlive = true
+    }
+  }
+
+  function markEmbeddedInstanceDead(toolCallId: string): void {
+    const instance = embeddedInstances.value.get(toolCallId)
+    if (instance) {
+      instance.isAlive = false
+    }
+  }
+
+  function destroyEmbeddedInstance(toolCallId: string): void {
+    const instance = embeddedInstances.value.get(toolCallId)
+    if (instance && instance.terminalId) {
+      try {
+        const electronAPI = (window as any).electronAPI
+        if (electronAPI?.terminal?.kill) {
+          electronAPI.terminal.kill(instance.terminalId)
+        }
+      } catch (e) {
+        console.warn('[TerminalStore] Failed to kill embedded terminal:', e)
+      }
+    }
+    embeddedInstances.value.delete(toolCallId)
+  }
+
+  function getEmbeddedInstance(toolCallId: string): EmbeddedTerminalInstance | null {
+    return embeddedInstances.value.get(toolCallId) || null
+  }
+
   return {
     tabs,
     instances,
@@ -211,6 +272,13 @@ export const useTerminalStore = defineStore('terminal', () => {
     setTabReady,
     setInstanceTerminalId,
     markInstanceDead,
-    closeAllTabs
+    closeAllTabs,
+    // 内嵌终端
+    embeddedInstances,
+    createEmbeddedInstance,
+    setEmbeddedTerminalId,
+    markEmbeddedInstanceDead,
+    destroyEmbeddedInstance,
+    getEmbeddedInstance
   }
 })

@@ -24,6 +24,8 @@ export interface ToolCall {
   status: 'pending' | 'running' | 'completed' | 'error'
   startTime?: number
   endTime?: number
+  terminalId?: string
+  isInteractive?: boolean
 }
 
 export interface ToolResult {
