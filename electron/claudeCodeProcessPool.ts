@@ -183,18 +183,6 @@ export class ClaudeCodeProcessPool {
   }
 
   private routeEvent(sessionId: string, eventType: string, data: any) {
-    if (eventType === 'stream_event') {
-      const ev = data?.event
-      if (ev?.type === 'content_block_delta') {
-        console.log(`[ProcessPool] routeEvent: sessionId=${sessionId}, type=stream_event, delta_type=${ev.delta?.type}`)
-      } else if (ev?.type === 'content_block_start') {
-        console.log(`[ProcessPool] routeEvent: sessionId=${sessionId}, type=stream_event, block_type=${ev.content_block?.type}`)
-      }
-    } else if (eventType === 'assistant') {
-      const content = data?.message?.content
-      const blockTypes = Array.isArray(content) ? content.map((c: any) => c.type).join(',') : typeof content
-      console.log(`[ProcessPool] routeEvent: sessionId=${sessionId}, type=assistant, blockTypes=[${blockTypes}]`)
-    }
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send(`claude-code:${eventType}`, { sessionId, data })
     }

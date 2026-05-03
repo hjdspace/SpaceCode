@@ -393,6 +393,7 @@ export const useChatStore = defineStore('chat', () => {
         agent: currentAgent.value || undefined,
         thinkingEnabled: settingsStore.thinkingEnabled,
       })
+
     } catch (error) {
       console.error('[ChatStore] Failed to start session:', error)
       session.processStatus = 'exited'
@@ -444,8 +445,6 @@ export const useChatStore = defineStore('chat', () => {
     const session = sessions.value.find(s => s.id === targetSessionId)
     if (!session) return
 
-    console.log(`[ChatStore] sendMessage: sessionId=${targetSessionId}, thinkingEnabled=${settingsStore.thinkingEnabled}, content_length=${content.length}`)
-
     addMessage({
       role: 'user',
       content: userMessageContent ?? content
@@ -483,18 +482,9 @@ export const useChatStore = defineStore('chat', () => {
       let isCompleted = false
 
       const handleStreamEvent = (event: { sessionId: string; data: any }) => {
-        console.log(`[ChatStore] handleStreamEvent called: event.sessionId=${event.sessionId}, targetSessionId=${targetSessionId}, dataType=${event.data?.type}, match=${event.sessionId === targetSessionId}`)
         if (event.sessionId !== targetSessionId || isCompleted) return
         const streamEvent = event.data
         const ev = streamEvent.event || streamEvent
-
-        if (ev.type === 'content_block_start') {
-          console.log(`[ChatStore] stream_event content_block_start: block_type=${ev.content_block?.type}, index=${ev.index}`)
-        }
-
-        if (ev.type === 'content_block_delta') {
-          console.log(`[ChatStore] stream_event content_block_delta: delta_type=${ev.delta?.type}, has_thinking=${!!ev.delta?.thinking}, has_text=${!!ev.delta?.text}`)
-        }
 
         if (ev.type === 'content_block_start' && ev.content_block?.type === 'text') {
           if (accumulatedContent.length > 0 && !accumulatedContent.endsWith('\n')) {
@@ -507,7 +497,6 @@ export const useChatStore = defineStore('chat', () => {
         }
 
         if (ev.type === 'content_block_start' && ev.content_block?.type === 'thinking') {
-          console.log(`[ChatStore] thinking block started, initializing reasoning object`)
           const s = sessions.value.find(s => s.id === targetSessionId)
           if (s) {
             const msg = s.messages.find(m => m.id === assistantMessageId)
@@ -526,48 +515,30 @@ export const useChatStore = defineStore('chat', () => {
         }
 
         if (ev.type === 'content_block_delta' && ev.delta?.type === 'thinking_delta' && ev.delta?.thinking) {
-          console.log(`[ChatStore] thinking_delta received: thinking_length=${ev.delta.thinking.length}, first_50=${ev.delta.thinking.slice(0, 50)}`)
           const s = sessions.value.find(s => s.id === targetSessionId)
           if (s) {
             const msg = s.messages.find(m => m.id === assistantMessageId)
             if (msg) {
               if (!msg.reasoning) {
                 msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
-                console.log(`[ChatStore] reasoning object created for message ${assistantMessageId}`)
               }
               msg.reasoning.content += ev.delta.thinking
               saveToStorage()
-            } else {
-              console.warn(`[ChatStore] thinking_delta: assistant message ${assistantMessageId} not found in session`)
             }
           }
-        }
-
-        if (ev.type === 'content_block_delta' && ev.delta?.type === 'thinking_delta' && !ev.delta?.thinking) {
-          console.warn(`[ChatStore] thinking_delta with empty thinking field:`, JSON.stringify(ev.delta).slice(0, 200))
-        }
-
-        if (ev.type === 'content_block_stop') {
-          console.log(`[ChatStore] content_block_stop: index=${ev.index}`)
         }
       }
 
       const handleAssistant = (event: { sessionId: string; data: any }) => {
-        console.log(`[ChatStore] handleAssistant called: event.sessionId=${event.sessionId}, targetSessionId=${targetSessionId}, match=${event.sessionId === targetSessionId}`)
         if (event.sessionId !== targetSessionId || isCompleted) return
         const assistant = event.data
         if (assistant.message?.content) {
           const content = assistant.message.content
           if (Array.isArray(content)) {
-            const blockTypes = content.map((c: any) => c.type)
-            const hasThinking = content.some((c: any) => c.type === 'thinking')
-            console.log(`[ChatStore] assistant message: blockTypes=[${blockTypes.join(',')}], hasThinking=${hasThinking}`)
             const reasoningContent = content
               .filter((c: any) => c.type === 'thinking')
               .map((c: any) => c.thinking || c.text || '')
               .join('')
-
-            console.log(`[ChatStore] assistant reasoning: reasoningContent_length=${reasoningContent.length}`)
 
             if (reasoningContent) {
               const s = sessions.value.find(s => s.id === targetSessionId)
@@ -922,6 +893,19 @@ export const useChatStore = defineStore('chat', () => {
     console.log('[ChatStore] Agent switched to:', agentType || '(default)')
   }
 
+  async function switchModel(model: string) {
+    const sid = currentSessionId.value
+    const claudeCode = electronAPI?.claudeCode
+    if (claudeCode && sid) {
+      const status = await claudeCode.getSessionStatus(sid)
+      if (status?.isRunning) {
+        await claudeCode.stop(sid)
+        await initClaudeCodeSession(sid)
+      }
+    }
+    console.log('[ChatStore] Model switched to:', model)
+  }
+
   sessions.value.forEach(s => {
     if (s.processStatus !== 'none' && s.processStatus !== 'exited') {
       s.processStatus = 'none'
@@ -961,5 +945,6 @@ export const useChatStore = defineStore('chat', () => {
     switchProject,
     loadAgents,
     switchAgent,
+    switchModel,
   }
 })

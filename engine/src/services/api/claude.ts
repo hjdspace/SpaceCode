@@ -1644,6 +1644,10 @@ async function* queryModel(
       !isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_THINKING)
     let thinking: BetaMessageStreamParams['thinking'] | undefined = undefined
 
+    if (hasThinking && !modelSupportsThinking(options.model)) {
+      console.warn(`[API] Thinking is enabled but model "${options.model}" does not support thinking. Thinking will be disabled for this request.`)
+    }
+
     // IMPORTANT: Do not change the adaptive-vs-budget thinking selection below
     // without notifying the model launch DRI and research. This is a sensitive
     // setting that can greatly affect model quality and bashing.

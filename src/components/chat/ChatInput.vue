@@ -244,14 +244,19 @@
           </div>
 
           <!-- Thinking 模式开关 -->
-          <button
-            class="toolbar-btn thinking-btn"
-            :class="{ active: thinkingEnabled }"
-            @click="toggleThinking"
-            :title="thinkingEnabled ? 'Thinking: ON' : 'Thinking: OFF'"
-          >
-            <Brain :size="14" />
-          </button>
+          <div class="thinking-toggle-wrapper">
+            <button
+              class="toolbar-btn thinking-btn"
+              :class="{ active: thinkingEnabled, 'not-supported': thinkingEnabled && !modelSupportsThinking }"
+              @click="toggleThinking"
+              :title="thinkingEnabled ? (modelSupportsThinking ? 'Thinking: ON' : 'Thinking: ON (当前模型可能不支持)') : 'Thinking: OFF'"
+            >
+              <Brain :size="14" />
+            </button>
+            <span v-if="thinkingEnabled && !modelSupportsThinking" class="thinking-warning" @click="toggleThinking">
+              ⚠️
+            </span>
+          </div>
 
           <!-- Agent 选择器 -->
           <div class="agent-selector" ref="agentSelectorRef">
@@ -447,6 +452,12 @@ const selectedMode = ref<EffortMode>(settingsStore.effortLevel || 'high')
 
 // Thinking 模式
 const thinkingEnabled = ref(settingsStore.thinkingEnabled)
+
+const modelSupportsThinking = computed(() => {
+  const model = (settingsStore.config.model || '').toLowerCase()
+  if (!model) return false
+  return model.includes('claude') || model.includes('sonnet') || model.includes('opus') || model.includes('haiku')
+})
 
 function toggleThinking() {
   thinkingEnabled.value = !thinkingEnabled.value
@@ -1992,22 +2003,12 @@ watch([() => props.disabled, () => props.isSending], ([disabled, sending]) => {
   }
 }
 
-.thinking-btn {
-  background: transparent;
-  color: var(--text-muted);
-
-  &.active {
-    color: var(--accent-primary, #6366f1);
-  }
-
-  &:hover {
-    color: var(--accent-primary, #6366f1);
-  }
+.thinking-toggle-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
-.loading-icon {
-  color: var(--accent-primary);
-}
 
 .spin {
   animation: spin 1s linear infinite;

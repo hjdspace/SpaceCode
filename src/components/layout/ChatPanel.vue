@@ -87,8 +87,8 @@ watch(() => settingsStore.config.model, (newModel) => {
   }
 })
 
-// 处理模型变更 - 同步到 Agent 系统
-function handleModelChange(model: string) {
+// 处理模型变更 - 同步到 Agent 系统并重启 CLI 会话
+async function handleModelChange(model: string) {
   currentModel.value = model
   
   // 同步到 settings store
@@ -113,6 +113,9 @@ function handleModelChange(model: string) {
     baseUrl: config.apiUrl,
     model: model
   })
+  
+  // 重启 CLI 会话以使新模型生效
+  await chatStore.switchModel(model)
   
   console.log('[ChatPanel] Model changed to:', model)
 }
