@@ -18,6 +18,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { useI18n } from 'vue-i18n'
 import { X } from 'lucide-vue-next'
 import DiffViewer from '../common/DiffViewer.vue'
 import CodeViewer from '../common/CodeViewer.vue'
@@ -28,13 +29,14 @@ const props = defineProps<{
 }>()
 
 const appStore = useAppStore()
+const { t } = useI18n()
 
 const panelTitle = computed(() => {
   switch (props.mode) {
-    case 'diff': return 'Changes'
-    case 'file': return 'File Viewer'
-    case 'markdown': return 'Preview'
-    default: return 'Info'
+    case 'diff': return t('infoPanel.changes')
+    case 'file': return t('infoPanel.fileViewer')
+    case 'markdown': return t('infoPanel.preview')
+    default: return t('infoPanel.info')
   }
 })
 </script>

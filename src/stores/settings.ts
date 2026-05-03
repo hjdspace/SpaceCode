@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { type Locale, detectSystemLanguage } from '@/i18n'
+import { api } from '@/services/electronAPI'
 
 export type AuthMethod = 'anthropic_compatible' | 'openai_compatible' | 'gemini_api' | 'claudeai' | 'console'
 
@@ -24,6 +26,7 @@ export interface AuthSettings {
   oauthAccount: OAuthAccountInfo | null
   projectRoot: string
   thinkingEnabled?: boolean
+  language?: Locale
 }
 
 const SETTINGS_STORAGE_KEY = 'claude_desktop_settings'
@@ -53,6 +56,14 @@ function loadSavedSettings(): Partial<AuthSettings> {
   return {}
 }
 
+function parseSavedSettings(saved: string | null | undefined): Partial<AuthSettings> {
+  if (!saved) return {}
+  try {
+    return JSON.parse(saved)
+  } catch {
+    return {}
+  }
+}
 function loadLegacySettings(): Partial<AuthSettings> {
   try {
     const saved = localStorage.getItem(LEGACY_STORAGE_KEY)
@@ -192,6 +203,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const projectRoot = ref(saved.projectRoot || '')
   const effortLevel = ref<'low' | 'medium' | 'high' | 'max'>((saved as any).effortLevel || 'high')
   const thinkingEnabled = ref<boolean>((saved as any).thinkingEnabled !== undefined ? (saved as any).thinkingEnabled : true)
+  const language = ref<Locale>((saved as any).language || detectSystemLanguage())
 
   // Computed: current provider for LLM service compatibility
   const provider = computed(() => {
@@ -339,7 +351,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function saveSettings() {
-    const data: AuthSettings & { effortLevel?: string } = {
+    const data: AuthSettings & { effortLevel?: string; language?: Locale } = {
       authMethod: authMethod.value,
       anthropicConfig: { ...anthropicConfig.value },
       openaiConfig: { ...openaiConfig.value },
@@ -347,10 +359,13 @@ export const useSettingsStore = defineStore('settings', () => {
       oauthAccount: oauthAccount.value,
       projectRoot: projectRoot.value,
       effortLevel: effortLevel.value,
-      thinkingEnabled: thinkingEnabled.value
+      thinkingEnabled: thinkingEnabled.value,
+      language: language.value
     }
 
-    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(data))
+    const serialized = JSON.stringify(data)
+    localStorage.setItem(SETTINGS_STORAGE_KEY, serialized)
+    api.saveGuiSettings(serialized).catch(() => {})
 
     // Also save legacy format for backward compatibility
     const legacyConfig = config.value
@@ -371,6 +386,26 @@ export const useSettingsStore = defineStore('settings', () => {
     oauthAccount.value = settings.oauthAccount
     projectRoot.value = settings.projectRoot
     saveSettings()
+  }
+
+  function applySettings(settings: Partial<AuthSettings> & { effortLevel?: 'low' | 'medium' | 'high' | 'max'; language?: Locale }) {
+    if (settings.authMethod) authMethod.value = settings.authMethod
+    if (settings.anthropicConfig) anthropicConfig.value = { ...createDefaultProviderConfig(), ...settings.anthropicConfig }
+    if (settings.openaiConfig) openaiConfig.value = { ...createDefaultProviderConfig(), ...settings.openaiConfig }
+    if (settings.geminiConfig) geminiConfig.value = { ...createDefaultProviderConfig(), ...settings.geminiConfig }
+    if (settings.oauthAccount !== undefined) oauthAccount.value = settings.oauthAccount
+    if (settings.projectRoot !== undefined) projectRoot.value = settings.projectRoot
+    if (settings.effortLevel) effortLevel.value = settings.effortLevel
+    if (settings.thinkingEnabled !== undefined) thinkingEnabled.value = settings.thinkingEnabled
+    if (settings.language) language.value = settings.language
+  }
+
+  async function loadFromGuiSettingsFile() {
+    const result = await api.loadGuiSettings()
+    if (result.success && result.data) {
+      applySettings(parseSavedSettings(result.data) as Partial<AuthSettings> & { effortLevel?: 'low' | 'medium' | 'high' | 'max'; language?: Locale })
+      localStorage.setItem(SETTINGS_STORAGE_KEY, result.data)
+    }
   }
 
   async function loadFromEnv() {
@@ -398,8 +433,8 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  // Auto-load from env on init
-  loadFromEnv()
+  // Auto-load persisted file settings first, then allow .env to override in development/packaged resource env scenarios
+  loadFromGuiSettingsFile().finally(() => loadFromEnv())
 
   return {
     authMethod,
@@ -410,6 +445,7 @@ export const useSettingsStore = defineStore('settings', () => {
     projectRoot,
     effortLevel,
     thinkingEnabled,
+    language,
     provider,
     config,
     isConfigured,
@@ -420,6 +456,7 @@ export const useSettingsStore = defineStore('settings', () => {
     getOpusModel,
     saveSettings,
     updateFromSettingsPanel,
-    loadFromEnv
+    loadFromEnv,
+    loadFromGuiSettingsFile
   }
 })

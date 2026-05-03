@@ -160,9 +160,23 @@ export class SessionProcess extends EventEmitter {
 
   kill(): void {
     if (this.process) {
-      info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Killing process | pid=${this.process.pid}`)
+      const pid = this.process.pid
+      info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Killing process | pid=${pid}`)
       try {
-        this.process.kill()
+        // Windows 上使用 taskkill /F /T 强制终止整个进程树
+        if (process.platform === 'win32' && pid) {
+          try {
+            const { execSync } = require('child_process')
+            execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore', timeout: 5000 })
+            info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process tree killed via taskkill | pid=${pid}`)
+          } catch {
+            // taskkill 失败时回退到默认 kill
+            this.process.kill('SIGKILL')
+          }
+        } else {
+          // Unix/Linux/macOS 使用 SIGKILL
+          this.process.kill('SIGKILL')
+        }
       } catch {}
       this.process = null
     }

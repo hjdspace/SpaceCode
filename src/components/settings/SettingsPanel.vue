@@ -8,9 +8,9 @@
             <div class="settings-header">
               <button class="back-btn" @click="handleClose">
                 <ArrowLeft :size="16" />
-                <span>Back to app</span>
+                <span>{{ $t('settings.backToApp') }}</span>
               </button>
-              <h1 class="settings-title">Settings</h1>
+              <h1 class="settings-title">{{ $t('settings.title') }}</h1>
               <button class="close-btn" @click="handleClose">
                 <X :size="20" />
               </button>
@@ -66,14 +66,14 @@
             <!-- Footer -->
             <div class="settings-footer">
               <div class="footer-status">
-                <span v-if="hasChanges" class="unsaved-indicator">Unsaved changes</span>
+                <span v-if="hasChanges" class="unsaved-indicator">{{ $t('settings.unsavedChanges') }}</span>
               </div>
               <div class="footer-actions">
-                <button class="btn btn-secondary" @click="handleClose">Cancel</button>
+                <button class="btn btn-secondary" @click="handleClose">{{ $t('common.cancel') }}</button>
                 <button class="btn btn-primary" @click="handleSave" :disabled="!hasChanges">
                   <Save :size="16" v-if="!saving" />
                   <Loader2 :size="16" class="spin" v-else />
-                  {{ saving ? 'Saving...' : 'Save Changes' }}
+                  {{ saving ? $t('settings.saving') : $t('settings.saveChanges') }}
                 </button>
               </div>
             </div>
@@ -90,6 +90,7 @@ import {
   ArrowLeft, X, Save, Loader2,
   Settings, Boxes, Palette, Wrench, Keyboard
 } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
 import { useSettingsStore, type AuthMethod, type OAuthAccountInfo } from '@/stores/settings'
 
 // 异步加载非首屏组件，减少首屏bundle大小
@@ -109,14 +110,15 @@ const emit = defineEmits<{
 }>()
 
 const settingsStore = useSettingsStore()
+const { t } = useI18n()
 
-const menuItems = [
-  { id: 'general', label: 'General', icon: Settings },
-  { id: 'mcp', label: 'MCP Servers', icon: Boxes },
-  { id: 'tools', label: 'Tools', icon: Wrench },
-  { id: 'appearance', label: 'Appearance', icon: Palette },
-  { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard }
-]
+const menuItems = computed(() => [
+  { id: 'general', label: t('settings.general'), icon: Settings },
+  { id: 'mcp', label: t('settings.mcpServers'), icon: Boxes },
+  { id: 'tools', label: t('settings.tools'), icon: Wrench },
+  { id: 'appearance', label: t('settings.appearance'), icon: Palette },
+  { id: 'shortcuts', label: t('settings.shortcuts'), icon: Keyboard }
+])
 
 const activeTab = ref('general')
 const saving = ref(false)
@@ -199,7 +201,7 @@ function loadSettings() {
 
 function handleClose() {
   if (hasChanges.value) {
-    const confirmed = confirm('You have unsaved changes. Are you sure you want to close?')
+    const confirmed = confirm(t('settings.confirmClose'))
     if (!confirmed) return
   }
   emit('update:modelValue', false)

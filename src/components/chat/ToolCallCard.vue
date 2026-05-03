@@ -14,12 +14,12 @@
     
     <div v-show="isExpanded" class="tool-call-details">
       <div class="tool-section">
-        <div class="section-label">Input</div>
+        <div class="section-label">{{ t('chat.input') }}</div>
         <pre class="code-block"><code>{{ formattedInput }}</code></pre>
       </div>
       
       <div v-if="toolCall.output || hasUnifiedDiff" class="tool-section">
-        <div class="section-label">Output</div>
+        <div class="section-label">{{ t('chat.output') }}</div>
         <div v-if="hasUnifiedDiff" class="diff-output">
           <div v-for="(file, fileIndex) in unifiedDiffFiles" :key="`${toolCall.id}-${file.path}-${fileIndex}`" class="diff-file">
             <div class="diff-file-header">
@@ -39,7 +39,7 @@
                 :class="`line-${line.type}`"
               >
                 <template v-if="line.type === 'collapsed'">
-                  <span class="collapsed-label">{{ line.hiddenCount }} hidden lines</span>
+                  <span class="collapsed-label">{{ t('chat.hiddenLines', { count: line.hiddenCount }) }}</span>
                 </template>
                 <template v-else>
                   <span class="diff-prefix">{{ linePrefix(line) }}</span>
@@ -59,6 +59,9 @@
 import type { ToolCall } from '@/types'
 import { Loader2, Check, X, Terminal, ChevronDown } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 type DiffLineType = 'add' | 'remove' | 'context' | 'hunk' | 'meta' | 'collapsed'
 

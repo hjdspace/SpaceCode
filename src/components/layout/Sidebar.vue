@@ -10,7 +10,7 @@
         title="New Conversation"
       >
         <Plus :size="20" />
-        <span class="icon-label">New</span>
+        <span class="icon-label">{{ t('sidebar.new') }}</span>
       </button>
 
       <div class="icon-divider"></div>
@@ -20,10 +20,10 @@
         class="icon-btn"
         :class="{ active: activeTab === 'history' }"
         @click="handleTabClick('history')"
-        title="Chat History"
+        :title="t('sidebar.chatHistory')"
       >
         <MessageSquare :size="20" />
-        <span class="icon-label">Chats</span>
+        <span class="icon-label">{{ t('sidebar.chats') }}</span>
       </button>
 
       <!-- Explorer Tab -->
@@ -31,10 +31,10 @@
         class="icon-btn"
         :class="{ active: activeTab === 'explorer' }"
         @click="handleTabClick('explorer')"
-        title="Explorer"
+        :title="t('sidebar.explorer')"
       >
         <FolderTree :size="20" />
-        <span class="icon-label">Explorer</span>
+        <span class="icon-label">{{ t('sidebar.explorer') }}</span>
       </button>
 
       <!-- Source Control Tab -->
@@ -42,13 +42,13 @@
         class="icon-btn"
         :class="{ active: activeTab === 'scm' }"
         @click="handleTabClick('scm')"
-        title="Source Control"
+        :title="t('sidebar.sourceControl')"
       >
         <GitBranch :size="20" />
         <span v-if="scmStore.totalChanges > 0" class="scm-badge">
           {{ scmStore.totalChanges }}
         </span>
-        <span class="icon-label">Source Control</span>
+        <span class="icon-label">{{ t('sidebar.sourceControl') }}</span>
       </button>
 
       <!-- Terminal Tab -->
@@ -56,10 +56,10 @@
         class="icon-btn"
         :class="{ active: activeTab === 'terminal' }"
         @click="handleTerminalClick"
-        title="Terminal"
+        :title="t('sidebar.terminal')"
       >
         <TerminalIcon :size="20" />
-        <span class="icon-label">Terminal</span>
+        <span class="icon-label">{{ t('sidebar.terminal') }}</span>
       </button>
 
       <!-- Spacer to push settings to bottom -->
@@ -69,10 +69,10 @@
       <button
         class="icon-btn settings-btn"
         @click="showSettings = true"
-        title="Settings"
+        :title="t('sidebar.settings')"
       >
         <Settings :size="20" />
-        <span class="icon-label">Settings</span>
+        <span class="icon-label">{{ t('sidebar.settings') }}</span>
       </button>
     </div>
 
@@ -93,11 +93,11 @@
               title="New conversation"
             >
               <Plus :size="14" />
-              <span>New Conversation</span>
+              <span>{{ t('sidebar.newConversation') }}</span>
             </button>
             <button
               class="search-btn"
-              title="Search conversations"
+              :title="t('sidebar.searchConversations')"
               @click="handleOpenSearch"
             >
               <Search :size="14" />
@@ -112,7 +112,7 @@
               @click="handleOpenSkills"
             >
               <Zap :size="14" />
-              <span>Skills</span>
+              <span>{{ t('sidebar.skills') }}</span>
             </button>
             <button
               class="feature-nav-item"
@@ -129,14 +129,14 @@
 
           <!-- Section Title + Add Project Button -->
           <div class="section-header">
-            <span class="section-title">THREADS</span>
+            <span class="section-title">{{ t('sidebar.threads') }}</span>
             <button
               class="add-folder-btn"
-              title="Add project folder"
+              :title="t('sidebar.addProject')"
               @click="handleOpenFolderPicker"
             >
               <FolderPlus :size="12" />
-              <span>Add Project</span>
+              <span>{{ t('sidebar.addProject') }}</span>
             </button>
           </div>
 
@@ -168,7 +168,7 @@
         <div v-show="activeTab === 'explorer'" key="explorer" class="panel explorer-panel">
           <div class="traffic-lights-spacer" :class="{ 'mac-spacer': isMac }"></div>
           <div class="panel-header">
-            <span class="panel-title">EXPLORER</span>
+            <span class="panel-title">{{ t('sidebar.explorer') }}</span>
           </div>
           <FileTree
             @select="handleFileSelect"
@@ -183,7 +183,7 @@
         <div v-show="activeTab === 'scm'" key="scm" class="panel scm-panel-wrapper">
           <div class="traffic-lights-spacer" :class="{ 'mac-spacer': isMac }"></div>
           <div class="panel-header">
-            <span class="panel-title">SOURCE CONTROL</span>
+            <span class="panel-title">{{ t('sidebar.sourceControl') }}</span>
             <div class="panel-actions" v-if="scmStore.branch">
               <span class="branch-badge">{{ scmStore.branch }}</span>
             </div>
@@ -197,12 +197,12 @@
         <div v-show="activeTab === 'terminal'" key="terminal" class="panel terminal-panel-wrapper">
           <div class="traffic-lights-spacer" :class="{ 'mac-spacer': isMac }"></div>
           <div class="panel-header">
-            <span class="panel-title">TERMINAL</span>
+            <span class="panel-title">{{ t('sidebar.terminal') }}</span>
             <div class="terminal-actions">
               <button
                 class="terminal-action-btn"
                 @click="handleNewTerminal"
-                title="New Terminal"
+                :title="t('sidebar.terminal')"
               >
                 <Plus :size="14" />
               </button>
@@ -212,15 +212,15 @@
             <div class="terminal-info-icon">
               <TerminalIcon :size="28" />
             </div>
-            <h4>Integrated Terminal</h4>
-            <p>Run commands and interact with Claude CLI directly in the terminal.</p>
+            <h4>{{ t('sidebar.integratedTerminal') }}</h4>
+            <p>{{ t('sidebar.terminalDesc') }}</p>
             <button class="open-terminal-btn" @click="handleOpenTerminal">
               <Play :size="14" />
-              Open Terminal
+              {{ t('sidebar.openTerminal') }}
             </button>
             <button class="open-terminal-btn secondary" @click="handleOpenClaudeCLI">
               <TerminalIcon :size="14" />
-              Start Claude CLI
+              {{ t('sidebar.startClaudeCLI') }}
             </button>
           </div>
         </div>
@@ -247,6 +247,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useChatStore } from '@/stores/chat'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore } from '@/stores/settings'
@@ -290,6 +291,7 @@ const chatStore = useChatStore()
 const appStore = useAppStore()
 const settingsStore = useSettingsStore()
 const scmStore = useScmStore()
+const { t } = useI18n()
 
 const activeTab = ref<'explorer' | 'scm' | 'history' | 'terminal'>('history')
 const showSettings = ref(false)
@@ -412,7 +414,7 @@ async function handleNewChat() {
       appStore.openSessionTab(chatStore.currentSessionId, chatStore.currentSession.title)
     }
 
-    const session = chatStore.createSession('New Chat', workingDirectory)
+    const session = chatStore.createSession(t('common.newChat'), workingDirectory)
     appStore.openSessionTab(session.id, session.title)
 
     window.dispatchEvent(new CustomEvent('session-created'))
@@ -436,7 +438,7 @@ async function handleDeleteSession(e: MouseEvent, sessionId: string) {
   e.preventDefault()
   e.stopPropagation()
 
-  if (!confirm('Delete this conversation?')) return
+  if (!confirm(t('sidebar.deleteConversation'))) return
 
   try {
     const tab = appStore.centerTabs.find(t => t.sessionId === sessionId)
@@ -472,7 +474,7 @@ function handleCreateSessionInProject(e: MouseEvent, workingDirectory: string) {
 
   try {
     chatStore.switchProject(workingDirectory)
-    const session = chatStore.createSession('New Chat', workingDirectory)
+    const session = chatStore.createSession(t('common.newChat'), workingDirectory)
     appStore.openSessionTab(session.id, session.title)
     window.dispatchEvent(new CustomEvent('session-created'))
   } catch (error) {
@@ -481,7 +483,7 @@ function handleCreateSessionInProject(e: MouseEvent, workingDirectory: string) {
 }
 
 async function handleRemoveProject(workingDirectory: string) {
-  if (!confirm(`Remove project and all its conversations?`)) return
+  if (!confirm(t('sidebar.removeProject'))) return
 
   try {
     const sessionsToRemove = chatStore.sessions.filter(s => s.workingDirectory === workingDirectory)
@@ -508,7 +510,7 @@ async function handleOpenFolderPicker() {
       const folderPath = result.filePaths[0]
       appStore.setProjectRoot(folderPath)
       chatStore.addProject(folderPath)
-      const session = chatStore.createSession('New Chat', folderPath)
+      const session = chatStore.createSession(t('common.newChat'), folderPath)
       appStore.openSessionTab(session.id, session.title)
       window.dispatchEvent(new CustomEvent('session-created'))
     }

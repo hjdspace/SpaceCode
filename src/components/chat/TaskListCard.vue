@@ -34,6 +34,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { CheckCircle2, ChevronDown, Circle, ListChecks, Loader2, Lock } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 export interface TaskListItem {
   id?: string
@@ -52,7 +55,7 @@ const isExpanded = ref(true)
 const title = computed(() => {
   const total = props.tasks.length
   const completed = props.tasks.filter((task) => task.status === 'completed').length
-  return `进度更新 ${completed}/${total}`
+  return t('chat.progressUpdate', { completed, total })
 })
 
 function toggleExpand() {

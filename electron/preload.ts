@@ -86,6 +86,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   injectGuiModelsToSettings: (models: { primaryModel: string; haikuModel?: string; sonnetModel?: string; opusModel?: string; effortLevel?: 'low' | 'medium' | 'high' | 'max' }) =>
     ipcRenderer.invoke('settings:injectGuiModels', models),
 
+  // GUI Settings persistence (file-based, ~/.claude/gui-settings.json)
+  saveGuiSettings: (data: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('settings:saveGuiSettings', data),
+  loadGuiSettings: (): Promise<{ success: boolean; data: string | null; error?: string }> =>
+    ipcRenderer.invoke('settings:loadGuiSettings'),
+
   // Terminal API
   terminal: {
     create: (options?: { cwd?: string; command?: string; env?: Record<string, string> }): Promise<{ id: string | null; shell?: string; error?: string }> =>

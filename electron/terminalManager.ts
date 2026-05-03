@@ -128,8 +128,22 @@ export class TerminalManager {
     const instance = this.terminals.get(id)
     if (instance) {
       instance.isAlive = false
+      const pid = instance.ptyProcess?.pid
       try {
-        instance.ptyProcess.kill()
+        // Windows 上使用 taskkill /F /T 强制终止整个进程树
+        if (process.platform === 'win32' && pid) {
+          try {
+            const { execSync } = require('child_process')
+            execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore', timeout: 5000 })
+            console.log('[Terminal] Process tree killed via taskkill:', id, 'pid:', pid)
+          } catch {
+            // taskkill 失败时回退到默认 kill
+            instance.ptyProcess.kill()
+          }
+        } else {
+          // Unix/Linux/macOS 使用默认 kill
+          instance.ptyProcess.kill()
+        }
       } catch (error) {
         console.error('[Terminal] Failed to kill process:', error)
       }

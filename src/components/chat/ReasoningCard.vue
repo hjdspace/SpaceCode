@@ -3,14 +3,14 @@
     <div class="reasoning-header" @click="toggleExpand">
       <Brain :size="14" class="reasoning-icon" :class="{ 'pulse': isThinking }" />
       <span class="reasoning-title">
-        <template v-if="isThinking">
-          Thinking
-          <span class="thinking-dots">{{ dots }}</span>
-        </template>
-        <template v-else>
-          Thought for {{ duration }}s
-        </template>
-      </span>
+          <template v-if="isThinking">
+            {{ t('chat.thinking') }}
+            <span class="thinking-dots">{{ dots }}</span>
+          </template>
+          <template v-else>
+            {{ t('chat.thoughtFor', { duration: duration }) }}
+          </template>
+        </span>
       <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
     </div>
     <div v-show="isExpanded" class="reasoning-content">
@@ -24,6 +24,9 @@ import type { ReasoningBlock } from '@/types'
 import { Brain, ChevronDown } from 'lucide-vue-next'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
 import { computed, ref, onUnmounted, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   reasoning: ReasoningBlock

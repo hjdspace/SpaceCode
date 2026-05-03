@@ -5,7 +5,7 @@
 
     <!-- Left section -->
     <div class="titlebar-left" style="-webkit-app-region: no-drag">
-      <button class="sidebar-toggle" @click="appStore.toggleSidebar" title="Toggle Sidebar">
+      <button class="sidebar-toggle" @click="appStore.toggleSidebar" :title="t('titleBar.toggleSidebar')">
         <Menu :size="16" />
       </button>
       <div class="title-wrapper">
@@ -13,7 +13,7 @@
       </div>
 
       <!-- Session title (when in a session) -->
-      <template v-if="chatStore.currentSession?.title && chatStore.currentSession.title !== 'New Chat'">
+      <template v-if="chatStore.currentSession?.title && chatStore.currentSession.title !== t('common.newChat')">
         <span class="title-separator">/</span>
         <span class="session-title">{{ chatStore.currentSession.title }}</span>
       </template>
@@ -25,7 +25,7 @@
     <!-- Right section -->
     <div class="titlebar-right" style="-webkit-app-region: no-drag">
       <!-- Theme toggle -->
-      <button class="titlebar-btn" @click="appStore.toggleTheme" :title="appStore.isDark ? 'Light Mode' : 'Dark Mode'">
+      <button class="titlebar-btn" @click="appStore.toggleTheme" :title="appStore.isDark ? t('titleBar.lightMode') : t('titleBar.darkMode')">
         <Sun v-if="appStore.isDark" :size="15" />
         <Moon v-else :size="15" />
       </button>
@@ -39,10 +39,12 @@
 <script setup lang="ts">
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
+import { useI18n } from 'vue-i18n'
 import { Menu, Sun, Moon } from 'lucide-vue-next'
 
 const appStore = useAppStore()
 const chatStore = useChatStore()
+const { t } = useI18n()
 
 const platform = typeof window !== 'undefined' && window.electronAPI?.platform
   ? window.electronAPI.platform

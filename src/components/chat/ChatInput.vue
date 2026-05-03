@@ -14,7 +14,7 @@
             ref="slashSearchInput"
             v-model="slashSearchQuery"
             type="text"
-            placeholder="搜索命令..."
+            :placeholder="t('chatInput.searchCommands')"
             readonly
             tabindex="-1"
           />
@@ -22,10 +22,10 @@
             <X :size="12" />
           </button>
         </div>
-        <div class="dropdown-section-title">Commands</div>
+        <div class="dropdown-section-title">{{ t('chatInput.commands') }}</div>
         <div class="dropdown-list" ref="slashListRef">
           <div v-if="filteredSlashCommands.length === 0" class="dropdown-empty">
-            <span>未找到匹配的命令</span>
+            <span>{{ t('chatInput.noMatchingCommands') }}</span>
           </div>
           <button
             v-for="cmd in filteredSlashCommands"
@@ -45,7 +45,7 @@
         <div class="dropdown-section-divider"></div>
         <button class="dropdown-footer-item" @click="openSkillsManager">
           <Zap :size="14" class="item-icon" />
-          <span>管理技能</span>
+          <span>{{ t('chatInput.manageSkills') }}</span>
         </button>
       </div>
     </Transition>
@@ -64,7 +64,7 @@
             ref="contextSearchInput"
             v-model="contextSearchQuery"
             type="text"
-            placeholder="搜索文件或文件夹..."
+            :placeholder="t('chatInput.searchFiles')"
             readonly
             tabindex="-1"
           />
@@ -72,14 +72,14 @@
             <X :size="12" />
           </button>
         </div>
-        <div class="dropdown-section-title">添加上下文</div>
+        <div class="dropdown-section-title">{{ t('chatInput.addContext') }}</div>
         <div class="dropdown-list" ref="contextListRef">
           <div v-if="isLoadingContext" class="dropdown-loading">
             <Loader2 :size="16" class="spin" />
-            <span>搜索中...</span>
+            <span>{{ t('chatInput.searching') }}</span>
           </div>
           <div v-else-if="filteredContextItems.length === 0" class="dropdown-empty">
-            <span>未找到匹配的文件或文件夹</span>
+            <span>{{ t('chatInput.noMatchingFiles') }}</span>
           </div>
           <button
             v-for="item in filteredContextItems"
@@ -104,7 +104,7 @@
         <div class="dropdown-section-divider"></div>
         <button class="dropdown-footer-item" @click="handleBrowseFiles">
           <FolderOpen :size="14" class="item-icon" />
-          <span>浏览文件...</span>
+          <span>{{ t('chatInput.browseFiles') }}</span>
         </button>
       </div>
     </Transition>
@@ -141,7 +141,7 @@
       <div class="input-toolbar">
         <div class="toolbar-left">
           <!-- + 号按钮 -->
-          <button class="toolbar-btn add-btn" @click="handleAddClick" title="添加附件">
+          <button class="toolbar-btn add-btn" @click="handleAddClick" :title="t('chatInput.addAttachment')">
             <Plus :size="18" />
           </button>
 
@@ -160,13 +160,13 @@
             <Transition name="dropdown">
               <div v-if="showModelDropdown" class="model-dropdown" v-click-outside="closeModelDropdown">
                 <div class="dropdown-header">
-                  <span>Model</span>
+                  <span>{{ t('auth.model') }}</span>
                   <button
                     v-if="canRefreshModels"
                     class="refresh-btn"
                     @click="refreshModels"
                     :disabled="isLoadingModels"
-                    title="刷新模型列表"
+                    :title="t('chatInput.refreshModels')"
                   >
                     <RefreshCw :size="12" :class="{ spin: isLoadingModels }" />
                   </button>
@@ -178,7 +178,7 @@
                     ref="modelSearchInput"
                     v-model="modelSearchQuery"
                     type="text"
-                    placeholder="搜索模型..."
+                    :placeholder="t('chatInput.searchModels')"
                     @click.stop
                     @keydown.stop
                   />
@@ -190,17 +190,17 @@
                 <div class="dropdown-list" ref="modelListRef">
                   <div v-if="isLoadingModels && filteredModels.length === 0" class="dropdown-loading">
                     <Loader2 :size="16" class="spin" />
-                    <span>加载中...</span>
+                    <span>{{ t('common.loading') }}</span>
                   </div>
                   <div v-else-if="modelLoadError && filteredModels.length === 0" class="dropdown-error">
                     <AlertCircle :size="16" />
                     <span>{{ modelLoadError }}</span>
                     <button v-if="canRefreshModels" class="retry-btn" @click="refreshModels">
-                      重试
+                      {{ t('chatInput.retry') }}
                     </button>
                   </div>
                   <div v-else-if="filteredModels.length === 0" class="dropdown-empty">
-                    <span>未找到匹配的模型</span>
+                    <span>{{ t('chatInput.noMatchingModels') }}</span>
                   </div>
                   <button
                     v-for="model in filteredModels"
@@ -249,7 +249,7 @@
               class="toolbar-btn thinking-btn"
               :class="{ active: thinkingEnabled }"
               @click="toggleThinking"
-              :title="thinkingEnabled ? 'Thinking: ON' : 'Thinking: OFF'"
+              :title="thinkingEnabled ? t('chatInput.thinkingOn') : t('chatInput.thinkingOff')"
             >
               <Brain :size="14" />
             </button>
@@ -269,7 +269,7 @@
             <Transition name="dropdown">
               <div v-if="showAgentDropdown" class="agent-dropdown" v-click-outside="closeAgentDropdown">
                 <div class="dropdown-header">
-                  <span>Agent</span>
+                  <span>{{ t('chatInput.agent') }}</span>
                 </div>
                 <div class="dropdown-list" ref="agentListRef">
                   <!-- Default (no agent) -->
@@ -279,13 +279,13 @@
                     @click="selectAgent('')"
                     @mouseenter="highlightedAgent = ''"
                   >
-                    <span class="item-name">Default</span>
-                    <span class="item-desc">Standard Claude Code session</span>
+                    <span class="item-name">{{ t('chatInput.default') }}</span>
+                    <span class="item-desc">{{ t('chatInput.defaultAgentDesc') }}</span>
                     <Check v-if="!selectedAgent" :size="14" class="check-icon" />
                   </button>
                   <!-- Built-in agents -->
                   <template v-if="builtInAgents.length">
-                    <div class="dropdown-section-label">Built-in</div>
+                    <div class="dropdown-section-label">{{ t('chatInput.builtIn') }}</div>
                     <button
                       v-for="agent in builtInAgents"
                       :key="agent.agentType"
@@ -301,7 +301,7 @@
                   </template>
                   <!-- Custom agents -->
                   <template v-if="customAgents.length">
-                    <div class="dropdown-section-label">Custom</div>
+                    <div class="dropdown-section-label">{{ t('chatInput.custom') }}</div>
                     <button
                       v-for="agent in customAgents"
                       :key="agent.agentType"
@@ -339,11 +339,11 @@
       <div v-if="showAttachmentMenu" class="attachment-menu" v-click-outside="closeAttachmentMenu">
         <button class="attachment-item" @click="handleAttachFile">
           <FileText :size="16" />
-          <span>Attach files</span>
+          <span>{{ t('chatInput.attachFiles') }}</span>
         </button>
         <button class="attachment-item" @click="handleAttachFolder">
           <Folder :size="16" />
-          <span>Add folder to context</span>
+          <span>{{ t('chatInput.addFolderContext') }}</span>
         </button>
       </div>
     </Transition>
@@ -363,6 +363,7 @@ import { useSkillsStore } from '@/stores/skills'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { api } from '@/services/electronAPI'
+import { useI18n } from 'vue-i18n'
 
 export interface Attachment {
   name: string
@@ -417,6 +418,7 @@ const props = defineProps<{
 const settingsStore = useSettingsStore()
 const skillsStore = useSkillsStore()
 const appStore = useAppStore()
+const { t } = useI18n()
 
 const inputText = ref('')
 const editorRef = ref<HTMLElement | null>(null)
@@ -480,7 +482,7 @@ function focusEditor() {
 const builtInAgents = computed(() => chatStore.availableAgents.filter(a => a.source === 'built-in'))
 const customAgents = computed(() => chatStore.availableAgents.filter(a => a.source !== 'built-in'))
 const selectedAgentLabel = computed(() => {
-  if (!selectedAgent.value) return 'Agent'
+  if (!selectedAgent.value) return t('chatInput.agent')
   return selectedAgent.value
 })
 
@@ -531,7 +533,7 @@ const builtinSlashCommands = computed<SlashCommand[]>(() => {
 const skillCommands = computed<SlashCommand[]>(() => {
   return skillsStore.skills.map(skill => ({
     name: skill.name,
-    description: skill.description || `技能: /${skill.name}`,
+    description: skill.description || `${t('chatInput.skillLabel')}: /${skill.name}`,
     icon: Zap
   }))
 })
@@ -687,7 +689,7 @@ watch(() => settingsStore.effortLevel, (newLevel) => {
 
 const selectedModelLabel = computed(() => {
   const model = availableModels.value.find(m => m.value === selectedModel.value)
-  return model?.label || selectedModel.value || 'Select Model'
+  return model?.label || selectedModel.value || t('model.selectModel')
 })
 
 const hasContent = computed(() => {
@@ -890,7 +892,7 @@ async function fetchModelsFromBaseUrl() {
     }
 
     if (!apiKey) {
-      modelLoadError.value = '请先配置 API Key'
+      modelLoadError.value = t('chatInput.configureApiKeyFirst')
       return
     }
 
@@ -904,7 +906,7 @@ async function fetchModelsFromBaseUrl() {
     })
 
     if (!result) {
-      modelLoadError.value = 'HTTP 代理不可用'
+      modelLoadError.value = t('chatInput.httpProxyUnavailable')
       return
     }
 
@@ -928,11 +930,11 @@ async function fetchModelsFromBaseUrl() {
         }))
       }
     } else {
-      modelLoadError.value = `获取失败 (${result.status})`
+      modelLoadError.value = t('chatInput.fetchFailed', { status: result.status })
     }
   } catch (error) {
     console.error('[ChatInput] Failed to fetch models:', error)
-    modelLoadError.value = error instanceof Error ? error.message : '网络错误'
+    modelLoadError.value = error instanceof Error ? error.message : t('auth.networkError')
   } finally {
     isLoadingModels.value = false
   }

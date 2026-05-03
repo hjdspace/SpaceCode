@@ -1,11 +1,32 @@
 <template>
   <div class="settings-section">
-    <h2 class="section-title">General</h2>
+    <h2 class="section-title">{{ $t('settings.general') }}</h2>
     
     <div class="section-content">
+      <!-- Language Selection -->
+      <div class="form-group">
+        <label class="form-label">{{ $t('settings.language') }}</label>
+        <div class="language-options">
+          <button
+            v-for="lang in languages"
+            :key="lang.id"
+            class="language-card"
+            :class="{ active: currentLanguage === lang.id }"
+            @click="selectLanguage(lang.id)"
+          >
+            <span class="language-flag">{{ lang.flag }}</span>
+            <span class="language-name">{{ lang.name }}</span>
+            <Check v-if="currentLanguage === lang.id" class="language-check" :size="16" />
+          </button>
+        </div>
+        <span class="form-hint">{{ $t('settings.languageDesc') }}</span>
+      </div>
+
+      <div class="divider"></div>
+
       <!-- Login Method Selection -->
       <div class="form-group">
-        <label class="form-label">Login Method</label>
+        <label class="form-label">{{ $t('settings.loginMethod') }}</label>
         <div class="auth-methods-grid">
           <div
             v-for="method in authMethods"
@@ -33,19 +54,19 @@
       
       <!-- Anthropic Compatible Config -->
       <template v-if="authMethod === 'anthropic_compatible'">
-        <h3 class="subsection-title">Anthropic Configuration</h3>
+        <h3 class="subsection-title">{{ $t('auth.anthropicConfig') }}</h3>
         <div class="form-group">
-          <label class="form-label">Base URL</label>
+          <label class="form-label">{{ $t('auth.baseUrl') }}</label>
           <input
             type="text"
             v-model="config.anthropic.baseUrl"
             placeholder="https://api.anthropic.com"
             class="form-input"
           />
-          <span class="form-hint">Leave empty for default Anthropic endpoint</span>
+          <span class="form-hint">{{ $t('auth.leaveEmptyDefault') }}</span>
         </div>
         <div class="form-group">
-          <label class="form-label">API Key</label>
+          <label class="form-label">{{ $t('auth.apiKey') }}</label>
           <div class="input-with-action">
             <input
               :type="showApiKey ? 'text' : 'password'"
@@ -63,9 +84,9 @@
 
       <!-- OpenAI Compatible Config -->
       <template v-else-if="authMethod === 'openai_compatible'">
-        <h3 class="subsection-title">OpenAI Configuration</h3>
+        <h3 class="subsection-title">{{ $t('auth.openaiConfig') }}</h3>
         <div class="form-group">
-          <label class="form-label">Base URL</label>
+          <label class="form-label">{{ $t('auth.baseUrl') }}</label>
           <input
             type="text"
             v-model="config.openai.baseUrl"
@@ -74,7 +95,7 @@
           />
         </div>
         <div class="form-group">
-          <label class="form-label">API Key</label>
+          <label class="form-label">{{ $t('auth.apiKey') }}</label>
           <div class="input-with-action">
             <input
               :type="showApiKey ? 'text' : 'password'"
@@ -92,12 +113,12 @@
           <button class="btn btn-secondary" @click="testConnection" :disabled="testing">
             <Loader2 v-if="testing" :size="14" class="spin" />
             <Plug v-else :size="14" />
-            {{ testing ? 'Testing...' : 'Test Connection' }}
+            {{ testing ? $t('auth.testing') : $t('auth.testConnection') }}
           </button>
           <button class="btn btn-secondary" @click="fetchModels" :disabled="fetchingModels">
             <RefreshCw v-if="fetchingModels" :size="14" class="spin" />
             <Download v-else :size="14" />
-            {{ fetchingModels ? 'Fetching...' : 'Fetch Models' }}
+            {{ fetchingModels ? $t('auth.fetching') : $t('auth.fetchModels') }}
           </button>
         </div>
         
@@ -112,19 +133,19 @@
 
       <!-- Gemini API Config -->
       <template v-else-if="authMethod === 'gemini_api'">
-        <h3 class="subsection-title">Gemini Configuration</h3>
+        <h3 class="subsection-title">{{ $t('auth.geminiConfig') }}</h3>
         <div class="form-group">
-          <label class="form-label">Base URL</label>
+          <label class="form-label">{{ $t('auth.baseUrl') }}</label>
           <input
             type="text"
             v-model="config.gemini.baseUrl"
             placeholder="https://generativelanguage.googleapis.com/v1beta"
             class="form-input"
           />
-          <span class="form-hint">Leave empty for Google's default v1beta API</span>
+          <span class="form-hint">{{ $t('auth.leaveEmptyGoogleDefault') }}</span>
         </div>
         <div class="form-group">
-          <label class="form-label">API Key</label>
+          <label class="form-label">{{ $t('auth.apiKey') }}</label>
           <div class="input-with-action">
             <input
               :type="showApiKey ? 'text' : 'password'"
@@ -142,20 +163,20 @@
 
       <!-- Claude Account OAuth -->
       <template v-else-if="authMethod === 'claudeai'">
-        <h3 class="subsection-title">Claude Account</h3>
+        <h3 class="subsection-title">{{ $t('auth.claudeAccount') }}</h3>
         <div class="oauth-section">
           <div class="oauth-icon">
             <Crown :size="32" />
           </div>
-          <p class="oauth-text">Sign in with your Claude account to use your subscription plan.</p>
-          <p class="oauth-hint">This will open a browser for OAuth authentication.</p>
+          <p class="oauth-text">{{ $t('auth.signInClaudeDesc') }}</p>
+          <p class="oauth-hint">{{ $t('auth.oauthHint') }}</p>
           <button class="btn btn-primary btn-oauth" @click="startOAuthLogin(true)" :disabled="oauthLoading">
             <LogIn :size="16" />
-            {{ oauthLoading ? 'Connecting...' : 'Sign in with Claude' }}
+            {{ oauthLoading ? $t('auth.connecting') : $t('auth.signInWithClaude') }}
           </button>
           <div v-if="oauthAccount" class="oauth-status">
             <CheckCircle :size="16" class="success-icon" />
-            <span>Logged in as <strong>{{ oauthAccount.email }}</strong></span>
+            <span>{{ $t('auth.loggedInAs') }} <strong>{{ oauthAccount.email }}</strong></span>
             <span class="subscription-badge">{{ oauthAccount.subscription }}</span>
           </div>
         </div>
@@ -163,61 +184,61 @@
 
       <!-- Console Account OAuth -->
       <template v-else-if="authMethod === 'console'">
-        <h3 class="subsection-title">Anthropic Console</h3>
+        <h3 class="subsection-title">{{ $t('auth.anthropicConsole') }}</h3>
         <div class="oauth-section">
           <div class="oauth-icon">
             <Key :size="32" />
           </div>
-          <p class="oauth-text">Sign in with your Anthropic Console account for API usage billing.</p>
-          <p class="oauth-hint">This will open a browser for OAuth authentication.</p>
+          <p class="oauth-text">{{ $t('auth.signInConsoleDesc') }}</p>
+          <p class="oauth-hint">{{ $t('auth.oauthHint') }}</p>
           <button class="btn btn-primary btn-oauth" @click="startOAuthLogin(false)" :disabled="oauthLoading">
             <LogIn :size="16" />
-            {{ oauthLoading ? 'Connecting...' : 'Sign in with Console' }}
+            {{ oauthLoading ? $t('auth.connecting') : $t('auth.signInWithConsole') }}
           </button>
           <div v-if="oauthAccount" class="oauth-status">
             <CheckCircle :size="16" class="success-icon" />
-            <span>Logged in as <strong>{{ oauthAccount.email }}</strong></span>
+            <span>{{ $t('auth.loggedInAs') }} <strong>{{ oauthAccount.email }}</strong></span>
           </div>
         </div>
       </template>
 
       <!-- Model Configuration -->
       <div class="divider"></div>
-      <h3 class="subsection-title">Model Configuration</h3>
+      <h3 class="subsection-title">{{ $t('model.configuration') }}</h3>
       
       <div class="form-group">
-        <label class="form-label">Haiku Model <span class="model-tag">Fast</span></label>
+        <label class="form-label">{{ $t('model.haikuModel') }} <span class="model-tag">{{ $t('model.fast') }}</span></label>
         <SearchableSelect
           v-model="config.haikuModel"
           :options="availableModels"
-          placeholder="Select model..."
+          :placeholder="$t('model.selectModel')"
         />
       </div>
 
       <div class="form-group">
-        <label class="form-label">Sonnet Model <span class="model-tag recommended">Balanced</span></label>
+        <label class="form-label">{{ $t('model.sonnetModel') }} <span class="model-tag recommended">{{ $t('model.balanced') }}</span></label>
         <SearchableSelect
           v-model="config.sonnetModel"
           :options="availableModels"
-          placeholder="Select model..."
+          :placeholder="$t('model.selectModel')"
         />
       </div>
 
       <div class="form-group">
-        <label class="form-label">Opus Model <span class="model-tag powerful">Powerful</span></label>
+        <label class="form-label">{{ $t('model.opusModel') }} <span class="model-tag powerful">{{ $t('model.powerful') }}</span></label>
         <SearchableSelect
           v-model="config.opusModel"
           :options="availableModels"
-          placeholder="Select model..."
+          :placeholder="$t('model.selectModel')"
         />
       </div>
 
       <!-- Project Settings -->
       <div class="divider"></div>
-      <h3 class="subsection-title">Project Settings</h3>
+      <h3 class="subsection-title">{{ $t('project.settings') }}</h3>
       
       <div class="form-group">
-        <label class="form-label">Project Root</label>
+        <label class="form-label">{{ $t('project.projectRoot') }}</label>
         <div class="input-with-action">
           <input
             type="text"
@@ -225,7 +246,7 @@
             placeholder="D:\Projects\my-project"
             class="form-input"
           />
-          <button class="input-action-btn" @click="browseProjectRoot" title="Select Folder">
+          <button class="input-action-btn" @click="browseProjectRoot" :title="$t('project.selectFolder')">
             <FolderOpen :size="16" />
           </button>
         </div>
@@ -241,9 +262,12 @@ import {
   Eye, EyeOff, RefreshCw, Plug, Loader2, Download, Check,
   FolderOpen, XCircle, AlertCircle
 } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
 import { useAppStore } from '@/stores/app'
+import { useSettingsStore } from '@/stores/settings'
 import type { AuthMethod, OAuthAccountInfo } from '@/stores/settings'
+import type { Locale } from '@/i18n'
 import SearchableSelect from './SearchableSelect.vue'
 
 const props = defineProps<{
@@ -266,14 +290,35 @@ const emit = defineEmits<{
 }>()
 
 const appStore = useAppStore()
+const settingsStore = useSettingsStore()
+const { t, locale } = useI18n()
 
-const authMethods = [
-  { id: 'anthropic_compatible' as AuthMethod, title: 'Anthropic', desc: 'Compatible API', icon: Server },
-  { id: 'openai_compatible' as AuthMethod, title: 'OpenAI', desc: 'Compatible API', icon: Bot },
-  { id: 'gemini_api' as AuthMethod, title: 'Gemini', desc: 'Google API', icon: Sparkles },
-  { id: 'claudeai' as AuthMethod, title: 'Claude', desc: 'Account OAuth', icon: Crown },
-  { id: 'console' as AuthMethod, title: 'Console', desc: 'API Billing', icon: Key }
+const languages = [
+  { id: 'zh-CN' as Locale, name: '简体中文', flag: '🇨🇳' },
+  { id: 'en-US' as Locale, name: 'English', flag: '🇺🇸' },
 ]
+
+const currentLanguage = computed({
+  get: () => locale.value as Locale,
+  set: (val: Locale) => {
+    locale.value = val
+    settingsStore.language = val
+    settingsStore.saveSettings()
+    emit('change')
+  }
+})
+
+function selectLanguage(langId: Locale) {
+  currentLanguage.value = langId
+}
+
+const authMethods = computed(() => [
+  { id: 'anthropic_compatible' as AuthMethod, title: 'Anthropic', desc: t('auth.compatibleApi'), icon: Server },
+  { id: 'openai_compatible' as AuthMethod, title: 'OpenAI', desc: t('auth.compatibleApi'), icon: Bot },
+  { id: 'gemini_api' as AuthMethod, title: 'Gemini', desc: t('auth.googleApi'), icon: Sparkles },
+  { id: 'claudeai' as AuthMethod, title: 'Claude', desc: t('auth.accountOAuth'), icon: Crown },
+  { id: 'console' as AuthMethod, title: 'Console', desc: t('auth.apiBilling'), icon: Key }
+])
 
 const config = computed({
   get: () => props.modelValue,
@@ -856,5 +901,48 @@ async function browseProjectRoot() {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+.language-options {
+  display: flex;
+  gap: 12px;
+}
+
+.language-card {
+  @include reset-button;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    background: var(--bg-hover);
+  }
+
+  &.active {
+    border-color: var(--accent-primary);
+    background: rgba(var(--accent-primary-rgb), 0.05);
+  }
+}
+
+.language-flag {
+  font-size: 20px;
+}
+
+.language-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.language-check {
+  color: var(--accent-primary);
 }
 </style>

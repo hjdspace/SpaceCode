@@ -7,7 +7,7 @@
     
     <div class="message-body">
       <div class="message-header">
-        <span class="role-label">{{ message.role === 'user' ? 'You' : 'Claude' }}</span>
+        <span class="role-label">{{ message.role === 'user' ? t('chat.you') : t('chat.claude') }}</span>
         <span class="timestamp">{{ formatTime(message.timestamp) }}</span>
       </div>
       
@@ -35,10 +35,13 @@
 <script setup lang="ts">
 import type { Message } from '@/types'
 import { User, Bot } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
 import ReasoningCard from './ReasoningCard.vue'
 import ToolCallList from './ToolCallList.vue'
 import MessageMetadata from './MessageMetadata.vue'
+
+const { t } = useI18n()
 
 defineProps<{
   message: Message

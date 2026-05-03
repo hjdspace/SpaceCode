@@ -7,7 +7,7 @@
     />
     <div class="chat-header">
       <div class="header-left">
-        <h2>{{ currentSession?.title || 'New Conversation' }}</h2>
+        <h2>{{ currentSession?.title || t('common.newConversation') }}</h2>
       </div>
       <div class="header-actions">
         <span class="agent-badge" v-if="chatStore.currentAgent" :title="chatStore.currentAgent">
@@ -24,7 +24,7 @@
         </span>
         <span class="status-indicator" :class="{ configured: isConfigured }">
           <span class="status-dot"></span>
-          <span class="status-text">{{ isConfigured ? 'Ready' : 'Not Configured' }}</span>
+          <span class="status-text">{{ isConfigured ? t('chat.ready') : t('chat.notConfigured') }}</span>
         </span>
       </div>
     </div>
@@ -46,13 +46,14 @@
       :is-sending="chatStore.isLoading"
       :model-value="currentModel"
       :working-directory="chatStore.workingDirectory"
-      placeholder="Ask anything, @ to add files, / for commands"
+      :placeholder="t('chat.askAnything')"
     />
   </main>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import { useAppStore } from '@/stores/app'
@@ -64,6 +65,7 @@ import { initLLMService, llmState, updateConfig } from '@/services/llm'
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 const appStore = useAppStore()
+const { t } = useI18n()
 
 const electronAPI = (window as any).electronAPI
 
@@ -247,7 +249,7 @@ async function executeSlashCommand(command: string, args: string): Promise<strin
       // 清除当前会话的消息
       if (chatStore.currentSession) {
         chatStore.currentSession.messages = []
-        chatStore.currentSession.title = 'New Chat'
+        chatStore.currentSession.title = t('common.newChat')
       }
       return '对话已清除。'
 
@@ -382,7 +384,7 @@ async function handleNewSession() {
     appStore.openSessionTab(chatStore.currentSessionId, chatStore.currentSession.title)
   }
 
-  const session = chatStore.createSession('New Chat')
+  const session = chatStore.createSession(t('common.newChat'))
   appStore.openSessionTab(session.id, session.title)
 }
 

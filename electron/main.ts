@@ -54,6 +54,13 @@ app.commandLine.appendSwitch('no-sandbox')
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
+function destroyTray() {
+  if (tray) {
+    tray.destroy()
+    tray = null
+  }
+}
+
 // Resolve icon path: dev mode uses project root icons/, production uses extraResources
 function getIconPath(): string {
   const iconExt = process.platform === 'win32' ? 'ico' : 'png'
@@ -134,8 +141,26 @@ function createWindow() {
     })
   }
 
-  mainWindow.on('closed', () => {
+  mainWindow.on('closed', async () => {
     info('Window', 'Main window closed')
+    // 清理所有终端进程
+    try {
+      info('App', 'Killing all terminal processes on window close')
+      terminalManager.killAll()
+    } catch (err) {
+      warn('App', 'Error killing terminal processes on window close', err)
+    }
+    // 清理所有 Claude Code 会话进程
+    try {
+      info('App', 'Killing all Claude Code sessions on window close')
+      const { getPool } = await import('./claudeCodeIPC')
+      const pool = getPool()
+      if (pool) {
+        pool.killAll()
+      }
+    } catch (err) {
+      warn('App', 'Error killing Claude Code sessions on window close', err)
+    }
     mainWindow = null
   })
 
@@ -350,15 +375,33 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   info('App', 'All windows closed')
-  if (!tray) {
-    app.quit()
-  }
+  destroyTray()
+  app.quit()
 })
 
-app.on('before-quit', () => {
+app.on('before-quit', async () => {
   info('App', 'App quitting')
+  destroyTray()
   // 注销全局快捷键
   try { globalShortcut.unregisterAll() } catch {}
+  // 清理所有终端进程
+  try {
+    info('App', 'Killing all terminal processes')
+    terminalManager.killAll()
+  } catch (err) {
+    warn('App', 'Error killing terminal processes', err)
+  }
+  // 清理所有 Claude Code 会话进程
+  try {
+    info('App', 'Killing all Claude Code sessions')
+    const { getPool } = await import('./claudeCodeIPC')
+    const pool = getPool()
+    if (pool) {
+      pool.killAll()
+    }
+  } catch (err) {
+    warn('App', 'Error killing Claude Code sessions', err)
+  }
 })
 
 // ============================================================
@@ -696,6 +739,49 @@ ipcMain.handle('app:getClaudeCliPath', async () => {
   // 4. No CLI found
   warn('CLI', 'No CLI found! All options exhausted')
   return null
+})
+
+// ============================================================================
+// GUI Settings Persistence (file-based, survives localStorage loss)
+// ============================================================================
+function getGuiSettingsPath(): string {
+  return join(app.getPath('home'), '.claude', 'gui-settings.json')
+}
+
+function ensureClaudeDir(): void {
+  const dirPath = join(app.getPath('home'), '.claude')
+  if (!existsSync(dirPath)) {
+    mkdirSync(dirPath, { recursive: true })
+  }
+}
+
+ipcMain.handle('settings:saveGuiSettings', async (_event, data: string) => {
+  try {
+    ensureClaudeDir()
+    const settingsPath = getGuiSettingsPath()
+    writeFileSync(settingsPath, data, 'utf-8')
+    debug('Settings', `GUI settings saved to ${settingsPath}`)
+    return { success: true }
+  } catch (err: any) {
+    error('Settings', 'Failed to save GUI settings', err)
+    return { success: false, error: String(err) }
+  }
+})
+
+ipcMain.handle('settings:loadGuiSettings', async () => {
+  try {
+    const settingsPath = getGuiSettingsPath()
+    if (existsSync(settingsPath)) {
+      const raw = readFileSync(settingsPath, 'utf-8')
+      debug('Settings', `GUI settings loaded from ${settingsPath}`)
+      return { success: true, data: raw }
+    }
+    debug('Settings', `No GUI settings file at ${settingsPath}`)
+    return { success: true, data: null }
+  } catch (err: any) {
+    error('Settings', 'Failed to load GUI settings', err)
+    return { success: false, data: null, error: String(err) }
+  }
 })
 
 // ============================================================================

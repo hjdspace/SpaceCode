@@ -82,6 +82,18 @@ export const api = {
     }
     return Promise.resolve({ success: false, error: 'injectGuiModelsToSettings not available' })
   },
+  saveGuiSettings: (data: string): Promise<{ success: boolean; error?: string }> => {
+    if (electronAPI?.saveGuiSettings) {
+      return electronAPI.saveGuiSettings(data)
+    }
+    return Promise.resolve({ success: false, error: 'saveGuiSettings not available' })
+  },
+  loadGuiSettings: (): Promise<{ success: boolean; data: string | null; error?: string }> => {
+    if (electronAPI?.loadGuiSettings) {
+      return electronAPI.loadGuiSettings()
+    }
+    return Promise.resolve({ success: false, data: null, error: 'loadGuiSettings not available' })
+  },
 
   // Folder selection dialog
   selectFolder: (): Promise<{ canceled: boolean; filePaths: string[] }> => {

@@ -3,8 +3,8 @@
     <div class="messages-container">
       <div v-if="messages.length === 0 && !loading" class="empty-state">        
         <MessageSquare :size="48" />
-        <p>Start a conversation</p>
-        <span>Type a message to begin working with Claude Code</span>
+        <p>{{ t('chat.startConversation') }}</p>
+        <span>{{ t('chat.startConversationDesc') }}</span>
       </div>
 
       <MessageItem
@@ -27,6 +27,9 @@ import { ref, watch, nextTick, onMounted } from 'vue'
 import type { Message } from '@/types'
 import MessageItem from './MessageItem.vue'
 import { MessageSquare } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const { messages, loading } = defineProps<{
   messages: Message[]

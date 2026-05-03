@@ -11,13 +11,13 @@
         <span class="tab-status" :class="getStatusClass(tab.sessionId)">
           <span v-if="getStatusClass(tab.sessionId) === 'active'" class="spinner"></span>
         </span>
-        <span class="tab-label">{{ tab.label || 'New Chat' }}</span>
-        <button class="tab-close" @click.stop="handleClose(tab.id)" title="Close tab">
+        <span class="tab-label">{{ tab.label || t('common.newChat') }}</span>
+        <button class="tab-close" @click.stop="handleClose(tab.id)" :title="t('sessionTab.closeTab')">
           <X :size="12" />
         </button>
       </div>
     </div>
-    <button class="new-tab-btn" @click="$emit('new-session')" title="New session">
+    <button class="new-tab-btn" @click="$emit('new-session')" :title="t('sessionTab.newSession')">
       <Plus :size="14" />
     </button>
   </div>
@@ -27,10 +27,12 @@
 import { computed } from 'vue'
 import { useAppStore, type CenterTab } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
+import { useI18n } from 'vue-i18n'
 import { X, Plus } from 'lucide-vue-next'
 
 const appStore = useAppStore()
 const chatStore = useChatStore()
+const { t } = useI18n()
 
 const emit = defineEmits<{
   'new-session': []
