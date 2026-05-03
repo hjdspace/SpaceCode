@@ -189,10 +189,10 @@ jobs:
           echo "Release published."
 
           echo "Uploading to Chengdu server..."
-          sshpass -p "$CHENGDU_SSH_PASS" scp -o StrictHostKeyChecking=no updates/* root@${CHENGDU_HOST}:/www/wwwroot/claude-app/updates/
+          sshpass -p "$CHENGDU_PASS" scp -o StrictHostKeyChecking=no updates/* root@${CHENGDU_HOST}:/www/wwwroot/claude-app/updates/
 
           echo "Cleaning old files..."
-          sshpass -p "$CHENGDU_SSH_PASS" ssh -o StrictHostKeyChecking=no root@${CHENGDU_HOST} "
+          sshpass -p "$CHENGDU_PASS" ssh -o StrictHostKeyChecking=no root@${CHENGDU_HOST} "
             cd /www/wwwroot/claude-app/updates/
             for f in *.exe *.exe.blockmap *.zip *.zip.blockmap *.dmg *.dmg.blockmap *.AppImage *.deb; do
               if [ -f \"\$f\" ] && ! echo \"\$f\" | grep -q '${VERSION}'; then

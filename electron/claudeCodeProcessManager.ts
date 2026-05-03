@@ -401,12 +401,12 @@ export class ClaudeCodeProcessManager extends EventEmitter {
 
         if (Array.isArray(content)) {
           const textItem = content.find((c: any) => c.type === 'text')
-          const reasoningItem = content.find((c: any) => c.type === 'reasoning')
+          const reasoningItem = content.find((c: any) => c.type === 'thinking')
           const toolUses = content.filter((c: any) => c.type === 'tool_use')
 
           if (textItem?.text) textPreview = textItem.text.slice(0, 200)
-          if (reasoningItem?.reasoning || reasoningItem?.text) {
-            reasoningPreview = (reasoningItem.reasoning || reasoningItem.text).slice(0, 200)
+          if (reasoningItem?.thinking || reasoningItem?.text) {
+            reasoningPreview = (reasoningItem.thinking || reasoningItem.text).slice(0, 200)
           }
           toolNames = toolUses.map((t: any) => t.name)
         } else if (typeof content === 'string') {
@@ -457,13 +457,9 @@ export class ClaudeCodeProcessManager extends EventEmitter {
           this.emit('system', msg)
         break
       case 'stream_event': {
-        // 流式事件（思考过程、文本增量）
         const delta = msg.event?.delta
-        if (delta?.reasoning) {
-          console.log('[LLM] Thinking:', delta.reasoning.slice(0, 200))
-        } else if (delta?.text) {
-          // 流式文本增量（可选，可能会很多）
-          // console.log('[LLM] Stream text:', delta.text.slice(0, 100))
+        if (delta?.thinking) {
+          console.log('[LLM] Thinking:', delta.thinking.slice(0, 200))
         }
         this.emit('stream_event', msg)
         break
