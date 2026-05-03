@@ -14,18 +14,7 @@
       ></div>
       <div class="center-panel">
         <div class="center-content">
-          <ChatPanel v-show="!isTerminalActive" />
-          <TerminalPanel
-            v-for="instance in appStore.terminalInstances"
-            :key="instance.id"
-            v-show="appStore.activeCenterTab === instance.id"
-            :auto-command="instance.autoCommand"
-            :env="instance.env"
-            :cwd="instance.cwd"
-            @ready="handleTerminalReady(instance.id)"
-            @error="handleTerminalError(instance.id, $event)"
-            @exit="handleTerminalExit(instance.id, $event)"
-          />
+          <ChatPanel />
         </div>
       </div>
       <div
@@ -44,24 +33,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import TitleBar from './components/layout/TitleBar.vue'
 import Sidebar from './components/layout/Sidebar.vue'
 import ChatPanel from './components/layout/ChatPanel.vue'
 import InfoPanel from './components/layout/InfoPanel.vue'
-import TerminalPanel from './components/terminal/TerminalPanel.vue'
 import { api } from '@/services/electronAPI'
-import { X } from 'lucide-vue-next'
 import { useShortcuts } from '@/composables/useShortcuts'
 
 const appStore = useAppStore()
 const chatStore = useChatStore()
-
-const isTerminalActive = computed(() =>
-  appStore.activeCenterTab.startsWith('terminal-')
-)
 
 // Initialize shortcuts
 const { register } = useShortcuts({
@@ -174,20 +157,6 @@ onMounted(() => {
     appStore.showSkillsManager = true
   })
 })
-
-function handleTerminalReady(id: string) {
-  console.log('[App] Terminal ready:', id)
-}
-
-function handleTerminalError(id: string, message: string) {
-  console.error('[App] Terminal error:', id, message)
-}
-
-function handleTerminalExit(id: string, code: number) {
-  console.log('[App] Terminal exited:', id, code)
-  // Optionally auto-close the tab when terminal exits
-  // appStore.closeCenterTab(id)
-}
 
 onUnmounted(() => {
   document.removeEventListener('mousemove', handleResize)

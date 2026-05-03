@@ -41,7 +41,7 @@ const emit = defineEmits<{
 }>()
 
 const tabs = computed<CenterTab[]>(() =>
-  appStore.centerTabs.filter(t => !!t.sessionId)
+  appStore.centerTabs.filter(t => t.id !== 'chat')
 )
 
 const activeTabId = computed(() => appStore.activeCenterTab)
@@ -59,9 +59,13 @@ function getStatusClass(sessionId?: string): string {
   }
 }
 
+function isTerminalTab(tab: CenterTab): boolean {
+  return tab.id.startsWith('terminal-')
+}
+
 function handleTabClick(tab: CenterTab) {
+  appStore.activeCenterTab = tab.id
   if (tab.sessionId) {
-    appStore.activeCenterTab = tab.id
     chatStore.selectSession(tab.sessionId)
     emit('switch-session', tab.sessionId)
   }

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed, markRaw } from 'vue'
 import { MessageSquare, Terminal as TerminalIcon } from 'lucide-vue-next'
 import { useChatStore } from './chat'
+import { useTerminalStore } from './terminal'
 
 export interface FileInfo {
   path: string
@@ -18,14 +19,6 @@ export interface CenterTab {
   sessionId?: string
 }
 
-export interface TerminalInstance {
-  id: string
-  label: string
-  autoCommand?: string
-  env?: Record<string, string>
-  cwd?: string
-}
-
 const PROJECT_ROOT_STORAGE_KEY = 'app_project_root'
 
 export const useAppStore = defineStore('app', () => {
@@ -40,10 +33,6 @@ export const useAppStore = defineStore('app', () => {
   ])
   const activeCenterTab = ref<string>('chat')
 
-  // Terminal instances management
-  const terminalInstances = ref<TerminalInstance[]>([])
-  const terminalCounter = ref(1)
-
   // Restore persisted project root from localStorage on init
   let _initialProjectRoot = ''
   try {
@@ -55,11 +44,6 @@ export const useAppStore = defineStore('app', () => {
   const showSkillsManager = ref(false)
 
   const isDark = computed(() => theme.value === 'dark')
-
-  // Get terminal instance by tab id
-  const getTerminalInstance = (tabId: string): TerminalInstance | undefined => {
-    return terminalInstances.value.find(t => t.id === tabId)
-  }
 
   function toggleTheme() {
     theme.value = theme.value === 'dark' ? 'light' : 'dark'
@@ -84,48 +68,37 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function openTerminalTab(autoCommand?: string, env?: Record<string, string>, cwd?: string) {
-    const terminalId = `terminal-${terminalCounter.value++}`
-    const terminalLabel = `Terminal ${terminalInstances.value.length + 1}`
-
-    // Create new terminal instance
-    const instance: TerminalInstance = {
-      id: terminalId,
-      label: terminalLabel,
-      autoCommand,
-      env,
-      cwd
+    const terminalStore = useTerminalStore()
+    const tabId = terminalStore.createTab({ autoCommand, env, cwd })
+    if (tabId) {
+      const tab = terminalStore.tabs.find(t => t.id === tabId)
+      if (tab) {
+        centerTabs.value.push({
+          id: tabId,
+          label: tab.label,
+          icon: markRaw(TerminalIcon),
+          closable: true
+        })
+      }
+      activeCenterTab.value = tabId
     }
-
-    terminalInstances.value.push(instance)
-
-    // Add tab
-    centerTabs.value.push({
-      id: terminalId,
-      label: terminalLabel,
-      icon: markRaw(TerminalIcon),
-      closable: true
-    })
-
-    activeCenterTab.value = terminalId
   }
 
   function closeCenterTab(tabId: string) {
     const index = centerTabs.value.findIndex(t => t.id === tabId)
     if (index > -1 && centerTabs.value[index].closable) {
-      const tab = centerTabs.value[index]
       centerTabs.value.splice(index, 1)
 
-      const termIndex = terminalInstances.value.findIndex(t => t.id === tabId)
-      if (termIndex > -1) {
-        terminalInstances.value.splice(termIndex, 1)
+      // If it's a terminal tab, notify terminal store
+      if (tabId.startsWith('terminal-')) {
+        const terminalStore = useTerminalStore()
+        terminalStore.closeTab(tabId)
       }
 
       if (activeCenterTab.value === tabId) {
         const nextSessionTab = centerTabs.value.find(t => t.sessionId)
         activeCenterTab.value = nextSessionTab?.id || centerTabs.value[0]?.id || 'chat'
       }
-
-      renumberTerminals()
     }
   }
 
@@ -168,17 +141,6 @@ export const useAppStore = defineStore('app', () => {
     if (tab) {
       tab.label = title
     }
-  }
-
-  function renumberTerminals() {
-    const terminalTabs = centerTabs.value.filter(t => t.id.startsWith('terminal-'))
-    terminalTabs.forEach((tab, index) => {
-      tab.label = `Terminal ${index + 1}`
-      const instance = terminalInstances.value.find(t => t.id === tab.id)
-      if (instance) {
-        instance.label = tab.label
-      }
-    })
   }
 
   function setProjectRoot(path: string) {
@@ -247,7 +209,6 @@ export const useAppStore = defineStore('app', () => {
     currentFile,
     centerTabs,
     activeCenterTab,
-    terminalInstances,
     projectRoot,
     showSkillsManager,
     isDark,
@@ -263,7 +224,6 @@ export const useAppStore = defineStore('app', () => {
     closeSessionTab,
     switchToSessionTab,
     updateSessionTabTitle,
-    getTerminalInstance,
     setProjectRoot,
     closeProject
   }

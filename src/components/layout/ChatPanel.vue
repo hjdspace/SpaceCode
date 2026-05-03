@@ -5,49 +5,58 @@
       @switch-session="handleSwitchSession"
       @close-tab="handleCloseTab"
     />
-    <div class="chat-header">
-      <div class="header-left">
-        <h2>{{ currentSession?.title || t('common.newConversation') }}</h2>
-      </div>
-      <div class="header-actions">
-        <span class="agent-badge" v-if="chatStore.currentAgent" :title="chatStore.currentAgent">
-          <span class="badge-dot agent-dot"></span>
-          {{ chatStore.currentAgent }}
-        </span>
-        <span class="model-badge" v-if="currentModel" :title="currentModel">
-          <span class="badge-dot"></span>
-          {{ formatModelName(currentModel) }}
-        </span>
-        <span class="provider-badge" v-if="provider">
-          <span class="badge-dot"></span>
-          {{ provider.toUpperCase() }}
-        </span>
-        <span class="status-indicator" :class="{ configured: isConfigured }">
-          <span class="status-dot"></span>
-          <span class="status-text">{{ isConfigured ? t('chat.ready') : t('chat.notConfigured') }}</span>
-        </span>
-      </div>
+    
+    <!-- Terminal Panel -->
+    <div v-if="isTerminalTab" class="terminal-wrapper">
+      <TerminalPanel />
     </div>
     
-    <MessageList 
-      :messages="chatStore.currentMessages" 
-      :loading="chatStore.isLoading"
-    />
-    
-    <ChatInput
-      @send="handleSend"
-      @slash-command="handleSlashCommand"
-      @update:model="handleModelChange"
-      @update:effort="handleEffortChange"
-      @update:agent="handleAgentChange"
-      @open-skills="handleOpenSkills"
-      @stop="handleStop"
-      :disabled="chatStore.isLoading"
-      :is-sending="chatStore.isLoading"
-      :model-value="currentModel"
-      :working-directory="chatStore.workingDirectory"
-      :placeholder="t('chat.askAnything')"
-    />
+    <!-- Chat Content -->
+    <template v-else>
+      <div class="chat-header">
+        <div class="header-left">
+          <h2>{{ currentSession?.title || t('common.newConversation') }}</h2>
+        </div>
+        <div class="header-actions">
+          <span class="agent-badge" v-if="chatStore.currentAgent" :title="chatStore.currentAgent">
+            <span class="badge-dot agent-dot"></span>
+            {{ chatStore.currentAgent }}
+          </span>
+          <span class="model-badge" v-if="currentModel" :title="currentModel">
+            <span class="badge-dot"></span>
+            {{ formatModelName(currentModel) }}
+          </span>
+          <span class="provider-badge" v-if="provider">
+            <span class="badge-dot"></span>
+            {{ provider.toUpperCase() }}
+          </span>
+          <span class="status-indicator" :class="{ configured: isConfigured }">
+            <span class="status-dot"></span>
+            <span class="status-text">{{ isConfigured ? t('chat.ready') : t('chat.notConfigured') }}</span>
+          </span>
+        </div>
+      </div>
+      
+      <MessageList 
+        :messages="chatStore.currentMessages" 
+        :loading="chatStore.isLoading"
+      />
+      
+      <ChatInput
+        @send="handleSend"
+        @slash-command="handleSlashCommand"
+        @update:model="handleModelChange"
+        @update:effort="handleEffortChange"
+        @update:agent="handleAgentChange"
+        @open-skills="handleOpenSkills"
+        @stop="handleStop"
+        :disabled="chatStore.isLoading"
+        :is-sending="chatStore.isLoading"
+        :model-value="currentModel"
+        :working-directory="chatStore.workingDirectory"
+        :placeholder="t('chat.askAnything')"
+      />
+    </template>
   </main>
 </template>
 
@@ -60,6 +69,7 @@ import { useAppStore } from '@/stores/app'
 import MessageList from '../chat/MessageList.vue'
 import ChatInput, { type Attachment } from '../chat/ChatInput.vue'
 import SessionTabBar from '../chat/SessionTabBar.vue'
+import TerminalPanel from '../terminal/TerminalPanel.vue'
 import { initLLMService, llmState, updateConfig } from '@/services/llm'
 
 const chatStore = useChatStore()
@@ -72,6 +82,11 @@ const electronAPI = (window as any).electronAPI
 const currentSession = computed(() => chatStore.currentSession)
 const provider = computed(() => llmState.provider.value)
 const isConfigured = computed(() => llmState.isConfigured.value)
+
+// Check if current tab is a terminal tab
+const isTerminalTab = computed(() =>
+  appStore.activeCenterTab.startsWith('terminal-')
+)
 
 // 当前选中的模型
 const currentModel = ref('')
@@ -415,6 +430,13 @@ function handleCloseTab(tabId: string) {
   background: transparent;
   position: relative;
   height: 100%;
+}
+
+.terminal-wrapper {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .chat-header {
