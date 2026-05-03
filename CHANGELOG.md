@@ -1,3 +1,26 @@
+## [0.2.5](https://github.com/hjdspace/claude-code-gui/compare/v0.2.4...v0.2.5) (2026-05-03)
+
+### Features
+
+* **i18n:** 添加国际化支持并集成到所有组件 ([be8e496](https://github.com/hjdspace/claude-code-gui/commit/be8e496))
+  - 实现多语言支持，包含英语和简体中文翻译
+  - 添加 vue-i18n 依赖并配置基础设置
+  - 修改所有组件使用翻译文本替代硬编码字符串
+  - 添加 GUI 设置持久化功能防止本地存储丢失
+
+### Bug Fixes
+
+* **settings:** 改进设置存储序列化和终端进程终止方式 ([502e795](https://github.com/hjdspace/claude-code-gui/commit/502e795))
+  - 将设置存储的JSON序列化添加格式化参数，提高可读性
+  - 修改Unix/Linux/macOS终端进程终止方式为SIGKILL，确保强制终止
+* **terminal:** 改进 Windows 平台进程终止方式确保彻底清理
+
+### Build
+
+* **installer:** 添加NSIS安装脚本并更新.gitignore ([9ae50db](https://github.com/hjdspace/claude-code-gui/commit/9ae50db))
+  - 添加Windows Defender排除项的NSIS安装脚本，提升首次启动速度
+  - 从.gitignore中移除build/目录，因现在需要跟踪build目录下的安装脚本
+
 ## [0.2.2](https://github.com/hjdspace/claude-code-gui/compare/v0.2.1...v0.2.2) (2026-05-02)
 
 ### Features
