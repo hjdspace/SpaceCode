@@ -1,7 +1,7 @@
 <template>
   <aside class="sidebar" :class="{ collapsed: props.collapsed }" :data-collapsed="props.collapsed">
     <!-- Icon Navigation Rail (CodePilot-style) -->
-    <div class="sidebar-icons">
+    <div class="sidebar-icons" :class="{ 'mac-icons': isMac }">
       <!-- New Chat Button (Top) -->
       <button
         class="icon-btn new-chat-icon"
@@ -82,7 +82,7 @@
       <Transition name="fade" mode="out-in">
         <div v-show="activeTab === 'history'" key="history" class="panel history-panel">
           <!-- macOS Traffic Lights Spacing -->
-          <div class="traffic-lights-spacer"></div>
+          <div class="traffic-lights-spacer" :class="{ 'mac-spacer': isMac }"></div>
 
           <!-- Top Action Bar: New Conversation + Search -->
           <div class="chat-toolbar">
@@ -166,12 +166,13 @@
       <!-- Explorer Panel -->
       <Transition name="fade" mode="out-in">
         <div v-show="activeTab === 'explorer'" key="explorer" class="panel explorer-panel">
-          <div class="traffic-lights-spacer"></div>
+          <div class="traffic-lights-spacer" :class="{ 'mac-spacer': isMac }"></div>
           <div class="panel-header">
             <span class="panel-title">EXPLORER</span>
           </div>
           <FileTree
             @select="handleFileSelect"
+            :working-directory="chatStore.workingDirectory"
             :highlight-path="highlightedFilePath"
           />
         </div>
@@ -180,7 +181,7 @@
       <!-- SCM Panel -->
       <Transition name="fade" mode="out-in">
         <div v-show="activeTab === 'scm'" key="scm" class="panel scm-panel-wrapper">
-          <div class="traffic-lights-spacer"></div>
+          <div class="traffic-lights-spacer" :class="{ 'mac-spacer': isMac }"></div>
           <div class="panel-header">
             <span class="panel-title">SOURCE CONTROL</span>
             <div class="panel-actions" v-if="scmStore.branch">
@@ -194,7 +195,7 @@
       <!-- Terminal Panel -->
       <Transition name="fade" mode="out-in">
         <div v-show="activeTab === 'terminal'" key="terminal" class="panel terminal-panel-wrapper">
-          <div class="traffic-lights-spacer"></div>
+          <div class="traffic-lights-spacer" :class="{ 'mac-spacer': isMac }"></div>
           <div class="panel-header">
             <span class="panel-title">TERMINAL</span>
             <div class="terminal-actions">
@@ -293,6 +294,12 @@ const scmStore = useScmStore()
 const activeTab = ref<'explorer' | 'scm' | 'history' | 'terminal'>('history')
 const showSettings = ref(false)
 const showMcpManager = ref(false)
+
+// Platform detection for titlebar spacing
+const platform = typeof window !== 'undefined' && window.electronAPI?.platform
+  ? window.electronAPI.platform
+  : (typeof navigator !== 'undefined' ? navigator.platform : '')
+const isMac = platform === 'darwin' || /^Mac/i.test(platform)
 
 // Enhanced state for CodePilot-like features
 const creatingChat = ref(false)
@@ -420,6 +427,9 @@ async function handleNewChat() {
 async function handleSelectSession(sessionId: string) {
   chatStore.selectSession(sessionId)
   appStore.switchToSessionTab(sessionId)
+  if (chatStore.workingDirectory && chatStore.workingDirectory !== appStore.projectRoot) {
+    appStore.setProjectRoot(chatStore.workingDirectory)
+  }
 }
 
 async function handleDeleteSession(e: MouseEvent, sessionId: string) {
@@ -474,17 +484,17 @@ async function handleRemoveProject(workingDirectory: string) {
   if (!confirm(`Remove project and all its conversations?`)) return
 
   try {
-    // 删除该项目下的所有会话
     const sessionsToRemove = chatStore.sessions.filter(s => s.workingDirectory === workingDirectory)
 
     for (const session of sessionsToRemove) {
       await chatStore.deleteSession(session.id)
     }
 
-    // 从项目列表中移除
     chatStore.removeProject(workingDirectory)
 
-    console.log(`Removed project ${workingDirectory} with ${sessionsToRemove.length} conversations`)
+    if (appStore.projectRoot === workingDirectory) {
+      appStore.closeProject()
+    }
   } catch (error) {
     console.error('Failed to remove project:', error)
     alert('Failed to remove project. Please try again.')
@@ -496,6 +506,7 @@ async function handleOpenFolderPicker() {
     const result = await api.selectFolder()
     if (result && !result.canceled && result.filePaths && result.filePaths.length > 0) {
       const folderPath = result.filePaths[0]
+      appStore.setProjectRoot(folderPath)
       chatStore.addProject(folderPath)
       const session = chatStore.createSession('New Chat', folderPath)
       appStore.openSessionTab(session.id, session.title)
@@ -632,6 +643,11 @@ onMounted(() => {
   background: var(--surface-glass);
   flex-shrink: 0;
 
+  // macOS: extra top padding to avoid traffic lights overlap
+  &.mac-icons {
+    padding-top: 40px;
+  }
+
   .icon-spacer {
     flex: 1;
     min-height: 20px;
@@ -761,10 +777,16 @@ onMounted(() => {
   overflow: hidden;
 }
 
-// macOS Traffic Lights Spacer (CodePilot-style)
+// macOS Traffic Lights Spacer — when titleBarStyle: hiddenInset is used,
+// traffic light buttons overlap into the sidebar content area.
+// A larger spacer is needed on macOS to prevent overlap.
 .traffic-lights-spacer {
   height: 20px;
   flex-shrink: 0;
+
+  &.mac-spacer {
+    height: 36px;
+  }
 }
 
 // Panel Header

@@ -297,8 +297,7 @@ async function scrollToHighlight() {
 }
 
 // Watchers
-watch(() => props.workingDirectory, () => {
-  // Clear stale data when switching projects
+watch([() => props.workingDirectory, () => appStore.projectRoot], () => {
   treeData.value = []
   error.value = null
   seekKeyRef.value = null

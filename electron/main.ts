@@ -23,20 +23,34 @@ if (existsSync(envPath)) {
   console.log('[Main] .env not found at:', envPath)
 }
 
+// Windows: set AppUserModelId so taskbar shows the correct icon instead of Electron default
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.spacecode.desktop')
+}
+
 app.disableHardwareAcceleration()
 app.commandLine.appendSwitch('no-sandbox')
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
+// Resolve icon path: dev mode uses project root icons/, production uses extraResources
+function getIconPath(): string {
+  const iconExt = process.platform === 'win32' ? 'ico' : 'png'
+  if (app.isPackaged) {
+    return join(process.resourcesPath, 'icons', `icon.${iconExt}`)
+  }
+  return join(__dirname, `../icons/icon.${iconExt}`)
+}
+
 function createWindow() {
-  mainWindow = new BrowserWindow({
+  const windowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 1400,
     height: 900,
     minWidth: 1000,
     minHeight: 700,
     title: 'SpaceCode',
-    icon: join(__dirname, '../icons/icon.png'),
+    icon: getIconPath(),
     backgroundColor: '#0c0c1d',
     show: false,
     webPreferences: {
@@ -49,7 +63,26 @@ function createWindow() {
       // Disable features that cause console warnings
       spellcheck: false
     }
-  })
+  }
+
+  // Platform-specific titlebar configuration
+  if (process.platform === 'darwin') {
+    // macOS: hide title bar but keep traffic lights (close/minimize/maximize)
+    windowOptions.titleBarStyle = 'hiddenInset'
+    // Enable vibrancy effect for sidebar (frosted glass)
+    windowOptions.vibrancy = 'sidebar'
+  } else if (process.platform === 'win32') {
+    // Windows: hide title bar but keep system overlay controls
+    windowOptions.titleBarStyle = 'hidden'
+    windowOptions.titleBarOverlay = {
+      color: '#00000000',    // Transparent background to blend with UI
+      symbolColor: '#888888', // Gray icons for min/max/close
+      height: 44,
+    }
+  }
+  // Linux: keep default frame (titleBarOverlay not supported)
+
+  mainWindow = new BrowserWindow(windowOptions)
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show()
@@ -150,22 +183,37 @@ function createMenu() {
 }
 
 function createTray() {
-  const iconPath = join(__dirname, '../icons/icon.png')
+  const iconPath = getIconPath()
   let icon: Electron.NativeImage
   
+  console.log('[Tray] Loading icon from:', iconPath)
+  console.log('[Tray] Icon exists:', existsSync(iconPath))
+  
   try {
-    icon = nativeImage.createFromPath(iconPath)
-    if (icon.isEmpty()) {
+    if (existsSync(iconPath)) {
+      icon = nativeImage.createFromPath(iconPath)
+      if (icon.isEmpty()) {
+        console.log('[Tray] Icon is empty, creating from empty')
+        icon = nativeImage.createEmpty()
+      } else {
+        // Resize icon for tray (16x16 for Windows, 18x18 for macOS)
+        const trayIconSize = process.platform === 'darwin' ? 18 : 16
+        icon = icon.resize({ width: trayIconSize, height: trayIconSize })
+        console.log('[Tray] Icon loaded and resized to', trayIconSize, 'x', trayIconSize)
+      }
+    } else {
+      console.log('[Tray] Icon file not found at:', iconPath)
       icon = nativeImage.createEmpty()
     }
-  } catch {
+  } catch (error) {
+    console.error('[Tray] Error loading icon:', error)
     icon = nativeImage.createEmpty()
   }
   
   tray = new Tray(icon)
   
   const contextMenu = Menu.buildFromTemplate([
-    { label: 'Show App', click: () => mainWindow?.show() },
+    { label: 'Show SpaceCode', click: () => { mainWindow?.show(); mainWindow?.focus() } },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() }
   ])
@@ -173,8 +221,10 @@ function createTray() {
   tray.setToolTip('SpaceCode')
   tray.setContextMenu(contextMenu)
   
+  // macOS: click shows window; Windows: double-click shows window
   tray.on('click', () => {
     mainWindow?.show()
+    mainWindow?.focus()
   })
 }
 
@@ -190,9 +240,8 @@ app.whenReady().then(() => {
   // Register Claude Code IPC handlers
   registerClaudeCodeIPC()
   
-  if (process.platform === 'darwin') {
-    createTray()
-  }
+  // Create system tray for all platforms
+  createTray()
   
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -204,7 +253,10 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  // On macOS, keep app running in tray even when all windows are closed
+  // On Windows/Linux, also keep in tray (user can quit from tray context menu)
+  // Only truly quit if there's no tray
+  if (!tray) {
     app.quit()
   }
 })

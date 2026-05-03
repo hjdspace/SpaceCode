@@ -1337,7 +1337,7 @@ async function* queryModel(
   // media stripping) but before Anthropic-specific logic (betas, thinking, caching).
   if (getAPIProvider() === 'openai') {
     const { queryModelOpenAI } = await import('./openai/index.js')
-    yield* queryModelOpenAI(messagesForAPI, systemPrompt, filteredTools, signal, options)
+    yield* queryModelOpenAI(messagesForAPI, systemPrompt, filteredTools, signal, options, thinkingConfig)
     return
   }
 

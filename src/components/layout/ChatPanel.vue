@@ -388,6 +388,9 @@ async function handleNewSession() {
 
 function handleSwitchSession(sessionId: string) {
   chatStore.selectSession(sessionId)
+  if (chatStore.workingDirectory && chatStore.workingDirectory !== appStore.projectRoot) {
+    appStore.setProjectRoot(chatStore.workingDirectory)
+  }
 }
 
 function handleCloseTab(tabId: string) {

@@ -247,15 +247,12 @@
           <div class="thinking-toggle-wrapper">
             <button
               class="toolbar-btn thinking-btn"
-              :class="{ active: thinkingEnabled, 'not-supported': thinkingEnabled && !modelSupportsThinking }"
+              :class="{ active: thinkingEnabled }"
               @click="toggleThinking"
-              :title="thinkingEnabled ? (modelSupportsThinking ? 'Thinking: ON' : 'Thinking: ON (当前模型可能不支持)') : 'Thinking: OFF'"
+              :title="thinkingEnabled ? 'Thinking: ON' : 'Thinking: OFF'"
             >
               <Brain :size="14" />
             </button>
-            <span v-if="thinkingEnabled && !modelSupportsThinking" class="thinking-warning" @click="toggleThinking">
-              ⚠️
-            </span>
           </div>
 
           <!-- Agent 选择器 -->
@@ -452,12 +449,6 @@ const selectedMode = ref<EffortMode>(settingsStore.effortLevel || 'high')
 
 // Thinking 模式
 const thinkingEnabled = ref(settingsStore.thinkingEnabled)
-
-const modelSupportsThinking = computed(() => {
-  const model = (settingsStore.config.model || '').toLowerCase()
-  if (!model) return false
-  return model.includes('claude') || model.includes('sonnet') || model.includes('opus') || model.includes('haiku')
-})
 
 function toggleThinking() {
   thinkingEnabled.value = !thinkingEnabled.value
@@ -2007,8 +1998,14 @@ watch([() => props.disabled, () => props.isSending], ([disabled, sending]) => {
   display: flex;
   align-items: center;
   gap: 2px;
-}
 
+  .thinking-btn {
+    &.active {
+      color: var(--accent-primary);
+      background: rgba(var(--accent-primary-rgb), 0.1);
+    }
+  }
+}
 
 .spin {
   animation: spin 1s linear infinite;

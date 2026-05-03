@@ -151,8 +151,10 @@ onMounted(() => {
   // 监听菜单事件
   api.onMenuOpenFolder((path: string) => {
     appStore.setProjectRoot(path)
-    // 添加项目并切换到该项目
     chatStore.addProject(path)
+    const session = chatStore.createSession('New Chat', path)
+    appStore.openSessionTab(session.id, session.title)
+    window.dispatchEvent(new CustomEvent('session-created'))
   })
 
   api.onMenuCloseFolder(() => {

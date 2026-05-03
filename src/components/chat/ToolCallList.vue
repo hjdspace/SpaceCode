@@ -29,7 +29,7 @@ import type { Component } from 'vue'
 import ToolCallCard from './ToolCallCard.vue'
 import TaskListCard, { type TaskListItem } from './TaskListCard.vue'
 import { useTaskManager } from '@/composables/useTaskManager'
-import { computed, onMounted, reactive, watch } from 'vue'
+import { computed, markRaw, onMounted, reactive, watch } from 'vue'
 import { hasToolComponent, resolveToolComponent } from '@/components/chat/tools/index'
 
 const taskManager = useTaskManager()
@@ -170,7 +170,7 @@ async function loadSpecialComponents() {
   for (const tool of props.toolCalls) {
     if (hasToolComponent(tool.name) && !specialComponents[tool.id]) {
       const comp = await resolveToolComponent(tool.name)
-      if (comp) specialComponents[tool.id] = comp
+      if (comp) specialComponents[tool.id] = markRaw(comp)
     }
   }
 }

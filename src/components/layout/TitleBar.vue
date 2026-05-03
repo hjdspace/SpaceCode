@@ -1,44 +1,73 @@
 <template>
-  <div class="titlebar">
-    <div class="titlebar-left">
-      <button class="sidebar-toggle" @click="appStore.toggleSidebar">
+  <div class="titlebar" :class="{ 'is-mac': isMac, 'is-windows': isWindows }">
+    <!-- macOS: left spacer for traffic lights -->
+    <div v-if="isMac" class="titlebar-traffic-lights-spacer"></div>
+
+    <!-- Left section -->
+    <div class="titlebar-left" style="-webkit-app-region: no-drag">
+      <button class="sidebar-toggle" @click="appStore.toggleSidebar" title="Toggle Sidebar">
         <Menu :size="16" />
       </button>
       <div class="title-wrapper">
         <span class="title">SpaceCode</span>
-        <span class="title-badge">Desktop</span>
       </div>
+
+      <!-- Session title (when in a session) -->
+      <template v-if="chatStore.currentSession?.title && chatStore.currentSession.title !== 'New Chat'">
+        <span class="title-separator">/</span>
+        <span class="session-title">{{ chatStore.currentSession.title }}</span>
+      </template>
     </div>
+
+    <!-- Center: drag region spacer -->
     <div class="titlebar-center"></div>
-    <div class="titlebar-right">
-      <button class="theme-toggle" @click="appStore.toggleTheme">
-        <Sun v-if="appStore.isDark" :size="16" />
-        <Moon v-else :size="16" />
+
+    <!-- Right section -->
+    <div class="titlebar-right" style="-webkit-app-region: no-drag">
+      <!-- Theme toggle -->
+      <button class="titlebar-btn" @click="appStore.toggleTheme" :title="appStore.isDark ? 'Light Mode' : 'Dark Mode'">
+        <Sun v-if="appStore.isDark" :size="15" />
+        <Moon v-else :size="15" />
       </button>
+
+      <!-- Windows: spacer for system overlay controls (min/max/close ~138px) -->
+      <div v-if="isWindows" class="windows-controls-spacer"></div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { useAppStore } from '@/stores/app'
+import { useChatStore } from '@/stores/chat'
 import { Menu, Sun, Moon } from 'lucide-vue-next'
 
 const appStore = useAppStore()
+const chatStore = useChatStore()
+
+const platform = typeof window !== 'undefined' && window.electronAPI?.platform
+  ? window.electronAPI.platform
+  : (typeof navigator !== 'undefined' ? navigator.platform : '')
+
+const isMac = platform === 'darwin' || /^Mac/i.test(platform)
+const isWindows = platform === 'win32' || /^Win/i.test(platform)
 </script>
 
 <style lang="scss" scoped>
 .titlebar {
-  height: 40px;
+  height: 44px;
   background: var(--surface-glass);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--surface-border);
-  @include flex-between;
-  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
   -webkit-app-region: drag;
   position: relative;
   z-index: 100;
-  
+  user-select: none;
+  flex-shrink: 0;
+
   &::after {
     content: '';
     position: absolute;
@@ -46,52 +75,68 @@ const appStore = useAppStore()
     left: 0;
     right: 0;
     height: 1px;
-    background: linear-gradient(90deg, 
-      transparent 0%, 
-      var(--accent-primary-glow) 20%, 
+    background: linear-gradient(90deg,
+      transparent 0%,
+      var(--accent-primary-glow) 20%,
       var(--accent-secondary-glow) 50%,
-      var(--accent-primary-glow) 80%, 
+      var(--accent-primary-glow) 80%,
       transparent 100%
     );
     opacity: 0.5;
   }
-  
-  button {
-    -webkit-app-region: no-drag;
+
+  // macOS: shift content right to avoid traffic lights
+  &.is-mac {
+    padding-left: 78px; // Space for close/minimize/maximize buttons
   }
+
+  // Windows: add right padding for overlay controls
+  &.is-windows {
+    padding-right: 0; // Overlay controls handle their own padding
+  }
+}
+
+// macOS traffic lights area spacer (when not using hiddenInset padding)
+.titlebar-traffic-lights-spacer {
+  display: none; // hiddenInset handles spacing automatically
 }
 
 .titlebar-left {
   display: flex;
   align-items: center;
-  gap: 12px;
-  
+  gap: 10px;
+  min-width: 0;
+
   .sidebar-toggle {
     width: 32px;
     height: 32px;
     border-radius: var(--radius-md);
     background: transparent;
+    border: none;
     color: var(--text-secondary);
-    @include flex-center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
     transition: all var(--transition-fast);
-    
+
     &:hover {
       background: var(--surface-glass-hover);
       color: var(--text-primary);
       transform: scale(1.05);
     }
-    
+
     &:active {
       transform: scale(0.95);
     }
   }
-  
+
   .title-wrapper {
     display: flex;
     align-items: center;
     gap: 8px;
   }
-  
+
   .title {
     font-family: var(--font-display);
     font-size: 14px;
@@ -100,49 +145,64 @@ const appStore = useAppStore()
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+    white-space: nowrap;
   }
-  
-  .title-badge {
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    padding: 2px 8px;
-    border-radius: var(--radius-full);
-    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-    color: white;
+
+  .title-separator {
+    color: var(--text-muted);
+    font-size: 12px;
+    opacity: 0.5;
+    flex-shrink: 0;
+  }
+
+  .session-title {
+    font-size: 13px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
   }
 }
 
 .titlebar-center {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
+  flex: 1;
+  min-width: 20px;
 }
 
 .titlebar-right {
   display: flex;
   align-items: center;
-  gap: 8px;
-  
-  .theme-toggle {
-    width: 32px;
-    height: 32px;
-    border-radius: var(--radius-md);
-    background: transparent;
-    color: var(--text-secondary);
-    @include flex-center;
-    transition: all var(--transition-fast);
-    
-    &:hover {
-      background: var(--surface-glass-hover);
-      color: var(--accent-secondary);
-      transform: scale(1.05) rotate(15deg);
-    }
-    
-    &:active {
-      transform: scale(0.95);
-    }
+  gap: 4px;
+}
+
+.titlebar-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+
+  &:hover {
+    background: var(--surface-glass-hover);
+    color: var(--accent-secondary);
+    transform: scale(1.05);
   }
+
+  &:active {
+    transform: scale(0.95);
+  }
+}
+
+// Windows: spacer for system overlay window controls (min/max/close)
+.windows-controls-spacer {
+  width: 138px;
+  flex-shrink: 0;
 }
 </style>

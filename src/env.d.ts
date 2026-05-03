@@ -22,6 +22,7 @@ interface FileStat {
 
 interface Window {
   electronAPI: {
+    platform: string
     sendMessage: (text: string) => Promise<any>
     onMessage: (callback: (msg: any) => void) => void
     getAppState: () => Promise<any>

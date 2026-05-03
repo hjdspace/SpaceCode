@@ -50,6 +50,7 @@
     "conventional-changelog-cli": "^5.0.0",
     "electron": "^29.1.0",
     "electron-builder": "^24.13.3",
+    "png-to-ico": "^3.0.1",
     "sass": "^1.71.1",
     "sharp": "^0.34.5",
     "typescript": "^5.4.3",
@@ -61,7 +62,7 @@
   "build": {
     "appId": "com.spacecode.desktop",
     "productName": "SpaceCode",
-    "icon": "icons/icon.png",
+    "icon": "icons/icon.ico",
     "directories": {
       "output": "release"
     },
@@ -74,6 +75,15 @@
       "node_modules/node-pty/**/*.node"
     ],
     "extraResources": [
+      {
+        "from": "icons",
+        "to": "icons",
+        "filter": [
+          "**/*.png",
+          "**/*.ico",
+          "**/*.icns"
+        ]
+      },
       {
         "from": "engine/src",
         "to": "engine/src",

@@ -33,6 +33,7 @@ import { calculateUSDCost } from '../../../utils/modelCost.js'
 import { isEnvTruthy, isEnvDefinedFalsy } from '../../../utils/envUtils.js'
 import { getModelMaxOutputTokens } from '../../../utils/context.js'
 import type { Options } from '../claude.js'
+import type { ThinkingConfig } from '../../../utils/thinking.js'
 import { randomUUID } from 'crypto'
 import {
   createAssistantAPIErrorMessage,
@@ -186,6 +187,7 @@ export async function* queryModelOpenAI(
   tools: Tools,
   signal: AbortSignal,
   options: Options,
+  thinkingConfig?: ThinkingConfig,
 ): AsyncGenerator<
   StreamEvent | AssistantMessage | SystemAPIErrorMessage,
   void
@@ -255,7 +257,8 @@ export async function* queryModelOpenAI(
     )
 
     // 8. Convert messages and tools to OpenAI format
-    const enableThinking = isOpenAIThinkingEnabled(openaiModel)
+    // thinkingConfig from frontend: if explicitly disabled, disable thinking; otherwise use auto-detection
+    const enableThinking = (thinkingConfig?.type !== 'disabled') && isOpenAIThinkingEnabled(openaiModel)
     const openaiMessages = anthropicMessagesToOpenAI(messagesForAPI, systemPrompt, {
       enableThinking,
     })

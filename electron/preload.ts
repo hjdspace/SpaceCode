@@ -15,6 +15,8 @@ export interface FileStat {
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  // Platform info for titlebar rendering
+  platform: process.platform,
   sendMessage: (text: string) => ipcRenderer.invoke('cli:sendMessage', text),
   onMessage: (callback: (msg: any) => void) =>
     ipcRenderer.on('cli:message', (_, msg) => callback(msg)),
