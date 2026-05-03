@@ -141,8 +141,8 @@ export class TerminalManager {
             instance.ptyProcess.kill()
           }
         } else {
-          // Unix/Linux/macOS 使用默认 kill
-          instance.ptyProcess.kill()
+          // Unix/Linux/macOS 使用 SIGKILL 强制终止
+          instance.ptyProcess.kill('SIGKILL')
         }
       } catch (error) {
         console.error('[Terminal] Failed to kill process:', error)

@@ -363,7 +363,7 @@ export const useSettingsStore = defineStore('settings', () => {
       language: language.value
     }
 
-    const serialized = JSON.stringify(data)
+    const serialized = JSON.stringify(data, null, 2)
     localStorage.setItem(SETTINGS_STORAGE_KEY, serialized)
     api.saveGuiSettings(serialized).catch(() => {})
 
