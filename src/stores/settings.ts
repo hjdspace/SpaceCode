@@ -23,6 +23,7 @@ export interface AuthSettings {
   geminiConfig: ProviderConfig
   oauthAccount: OAuthAccountInfo | null
   projectRoot: string
+  thinkingEnabled?: boolean
 }
 
 const SETTINGS_STORAGE_KEY = 'claude_desktop_settings'
@@ -190,6 +191,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const oauthAccount = ref<OAuthAccountInfo | null>(saved.oauthAccount || null)
   const projectRoot = ref(saved.projectRoot || '')
   const effortLevel = ref<'low' | 'medium' | 'high' | 'max'>((saved as any).effortLevel || 'high')
+  const thinkingEnabled = ref<boolean>((saved as any).thinkingEnabled !== undefined ? (saved as any).thinkingEnabled : true)
 
   // Computed: current provider for LLM service compatibility
   const provider = computed(() => {
@@ -344,7 +346,8 @@ export const useSettingsStore = defineStore('settings', () => {
       geminiConfig: { ...geminiConfig.value },
       oauthAccount: oauthAccount.value,
       projectRoot: projectRoot.value,
-      effortLevel: effortLevel.value
+      effortLevel: effortLevel.value,
+      thinkingEnabled: thinkingEnabled.value
     }
 
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(data))
@@ -406,6 +409,7 @@ export const useSettingsStore = defineStore('settings', () => {
     oauthAccount,
     projectRoot,
     effortLevel,
+    thinkingEnabled,
     provider,
     config,
     isConfigured,

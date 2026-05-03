@@ -243,6 +243,16 @@
             </Transition>
           </div>
 
+          <!-- Thinking 模式开关 -->
+          <button
+            class="toolbar-btn thinking-btn"
+            :class="{ active: thinkingEnabled }"
+            @click="toggleThinking"
+            :title="thinkingEnabled ? 'Thinking: ON' : 'Thinking: OFF'"
+          >
+            <Brain :size="14" />
+          </button>
+
           <!-- Agent 选择器 -->
           <div class="agent-selector" ref="agentSelectorRef">
             <button
@@ -344,7 +354,7 @@ import {
   ArrowUp, Plus, ChevronDown, Check, FileText, Folder, Square, X,
   Search, Loader2, RefreshCw, AlertCircle, HelpCircle, Trash2, Coins,
   Minimize2, Stethoscope, FilePlus, Zap, FolderOpen, Terminal, Settings,
-  Code, GitBranch, Bug, Bookmark, Layers, MessageSquare, Eye, Cpu
+  Code, GitBranch, Bug, Bookmark, Layers, MessageSquare, Eye, Cpu, Brain
 } from 'lucide-vue-next'
 import { useSettingsStore } from '@/stores/settings'
 import { useSkillsStore } from '@/stores/skills'
@@ -434,6 +444,15 @@ const fetchedModels = ref<ModelOption[]>([])
 const availableModes = ['low', 'medium', 'high', 'max'] as const
 type EffortMode = typeof availableModes[number]
 const selectedMode = ref<EffortMode>(settingsStore.effortLevel || 'high')
+
+// Thinking 模式
+const thinkingEnabled = ref(settingsStore.thinkingEnabled)
+
+function toggleThinking() {
+  thinkingEnabled.value = !thinkingEnabled.value
+  settingsStore.thinkingEnabled = thinkingEnabled.value
+  settingsStore.saveSettings()
+}
 
 // Agent selector state
 const chatStore = useChatStore()
@@ -1969,6 +1988,19 @@ watch([() => props.disabled, () => props.isSending], ([disabled, sending]) => {
   }
 
   &.has-agent {
+    color: var(--accent-primary, #6366f1);
+  }
+}
+
+.thinking-btn {
+  background: transparent;
+  color: var(--text-muted);
+
+  &.active {
+    color: var(--accent-primary, #6366f1);
+  }
+
+  &:hover {
     color: var(--accent-primary, #6366f1);
   }
 }

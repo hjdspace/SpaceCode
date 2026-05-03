@@ -134,6 +134,13 @@ jobs:
         if: matrix.platform == 'win'
         run: npm run build
 
+      - name: Enable Windows long paths
+        if: matrix.platform == 'win'
+        shell: powershell
+        run: |
+          reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
+          git config --system core.longpaths true
+
       - name: Build & Publish (Windows)
         if: matrix.platform == 'win'
         run: npx electron-builder --win --x64

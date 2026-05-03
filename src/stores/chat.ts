@@ -391,6 +391,7 @@ export const useChatStore = defineStore('chat', () => {
         effortLevel: config.effortLevel,
         permissionMode: 'bypassPermissions',
         agent: currentAgent.value || undefined,
+        thinkingEnabled: settingsStore.thinkingEnabled,
       })
     } catch (error) {
       console.error('[ChatStore] Failed to start session:', error)
@@ -484,6 +485,14 @@ export const useChatStore = defineStore('chat', () => {
         const streamEvent = event.data
         const ev = streamEvent.event || streamEvent
 
+        if (ev.type === 'content_block_start') {
+          console.log(`[ChatStore] stream_event content_block_start: block_type=${ev.content_block?.type}, index=${ev.index}`)
+        }
+
+        if (ev.type === 'content_block_delta') {
+          console.log(`[ChatStore] stream_event content_block_delta: delta_type=${ev.delta?.type}, has_thinking=${!!ev.delta?.thinking}, has_text=${!!ev.delta?.text}`)
+        }
+
         if (ev.type === 'content_block_start' && ev.content_block?.type === 'text') {
           if (accumulatedContent.length > 0 && !accumulatedContent.endsWith('\n')) {
             accumulatedContent += '\n\n'
@@ -491,6 +500,17 @@ export const useChatStore = defineStore('chat', () => {
             nextTick(() => {
               updateMessage(assistantMessageId, { content: accumulatedContent }, targetSessionId)
             })
+          }
+        }
+
+        if (ev.type === 'content_block_start' && ev.content_block?.type === 'thinking') {
+          console.log(`[ChatStore] thinking block started, initializing reasoning object`)
+          const s = sessions.value.find(s => s.id === targetSessionId)
+          if (s) {
+            const msg = s.messages.find(m => m.id === assistantMessageId)
+            if (msg && !msg.reasoning) {
+              msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
+            }
           }
         }
 
@@ -502,18 +522,30 @@ export const useChatStore = defineStore('chat', () => {
           })
         }
 
-        if (ev.type === 'content_block_delta' && ev.delta?.type === 'reasoning_delta' && ev.delta?.reasoning) {
+        if (ev.type === 'content_block_delta' && ev.delta?.type === 'thinking_delta' && ev.delta?.thinking) {
+          console.log(`[ChatStore] thinking_delta received: thinking_length=${ev.delta.thinking.length}, first_50=${ev.delta.thinking.slice(0, 50)}`)
           const s = sessions.value.find(s => s.id === targetSessionId)
           if (s) {
             const msg = s.messages.find(m => m.id === assistantMessageId)
             if (msg) {
               if (!msg.reasoning) {
                 msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
+                console.log(`[ChatStore] reasoning object created for message ${assistantMessageId}`)
               }
-              msg.reasoning.content += ev.delta.reasoning
+              msg.reasoning.content += ev.delta.thinking
               saveToStorage()
+            } else {
+              console.warn(`[ChatStore] thinking_delta: assistant message ${assistantMessageId} not found in session`)
             }
           }
+        }
+
+        if (ev.type === 'content_block_delta' && ev.delta?.type === 'thinking_delta' && !ev.delta?.thinking) {
+          console.warn(`[ChatStore] thinking_delta with empty thinking field:`, JSON.stringify(ev.delta).slice(0, 200))
+        }
+
+        if (ev.type === 'content_block_stop') {
+          console.log(`[ChatStore] content_block_stop: index=${ev.index}`)
         }
       }
 
@@ -523,10 +555,15 @@ export const useChatStore = defineStore('chat', () => {
         if (assistant.message?.content) {
           const content = assistant.message.content
           if (Array.isArray(content)) {
+            const blockTypes = content.map((c: any) => c.type)
+            const hasThinking = content.some((c: any) => c.type === 'thinking')
+            console.log(`[ChatStore] assistant message: blockTypes=[${blockTypes.join(',')}], hasThinking=${hasThinking}`)
             const reasoningContent = content
-              .filter((c: any) => c.type === 'reasoning')
-              .map((c: any) => c.reasoning || c.text)
+              .filter((c: any) => c.type === 'thinking')
+              .map((c: any) => c.thinking || c.text || '')
               .join('')
+
+            console.log(`[ChatStore] assistant reasoning: reasoningContent_length=${reasoningContent.length}`)
 
             if (reasoningContent) {
               const s = sessions.value.find(s => s.id === targetSessionId)

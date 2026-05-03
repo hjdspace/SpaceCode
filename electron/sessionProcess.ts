@@ -178,6 +178,28 @@ export class SessionProcess extends EventEmitter {
       this.isProcessing = true
     }
 
+    if (msg.type === 'stream_event') {
+      const ev = msg.event
+      if (ev?.type === 'content_block_start') {
+        console.log(`[SessionProcess] stream_event content_block_start: block_type=${ev.content_block?.type}, index=${ev.index}`)
+      } else if (ev?.type === 'content_block_delta') {
+        console.log(`[SessionProcess] stream_event content_block_delta: delta_type=${ev.delta?.type}, has_thinking=${!!ev.delta?.thinking}, has_text=${!!ev.delta?.text}`)
+      } else if (ev?.type === 'message_start' || ev?.type === 'message_delta' || ev?.type === 'message_stop' || ev?.type === 'content_block_stop') {
+        // skip verbose logging for these common events
+      } else {
+        console.log(`[SessionProcess] stream_event: event_type=${ev?.type}`)
+      }
+    } else if (msg.type === 'assistant') {
+      const content = msg.message?.content
+      if (Array.isArray(content)) {
+        const blockTypes = content.map((c: any) => c.type)
+        const hasThinking = content.some((c: any) => c.type === 'thinking')
+        console.log(`[SessionProcess] assistant message: content_block_types=[${blockTypes.join(',')}], hasThinking=${hasThinking}`)
+      } else {
+        console.log(`[SessionProcess] assistant message: content type=${typeof content}`)
+      }
+    }
+
     // 追踪工具调用状态
     if (msg.type === 'tool_use') {
       const toolId = msg.id || msg.tool_use?.id
