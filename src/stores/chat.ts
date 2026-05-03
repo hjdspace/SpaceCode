@@ -481,6 +481,7 @@ export const useChatStore = defineStore('chat', () => {
       let isCompleted = false
 
       const handleStreamEvent = (event: { sessionId: string; data: any }) => {
+        console.log(`[ChatStore] handleStreamEvent called: event.sessionId=${event.sessionId}, targetSessionId=${targetSessionId}, dataType=${event.data?.type}, match=${event.sessionId === targetSessionId}`)
         if (event.sessionId !== targetSessionId || isCompleted) return
         const streamEvent = event.data
         const ev = streamEvent.event || streamEvent
@@ -550,6 +551,7 @@ export const useChatStore = defineStore('chat', () => {
       }
 
       const handleAssistant = (event: { sessionId: string; data: any }) => {
+        console.log(`[ChatStore] handleAssistant called: event.sessionId=${event.sessionId}, targetSessionId=${targetSessionId}, match=${event.sessionId === targetSessionId}`)
         if (event.sessionId !== targetSessionId || isCompleted) return
         const assistant = event.data
         if (assistant.message?.content) {
