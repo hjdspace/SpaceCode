@@ -91,6 +91,10 @@ jobs:
       - name: Build frontend
         run: npx vite build
 
+      - name: Enable Windows long paths
+        if: matrix.platform == 'win'
+        run: New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+
       - name: Build & Publish (Windows)
         if: matrix.platform == 'win'
         run: npx electron-builder --win --publish always
