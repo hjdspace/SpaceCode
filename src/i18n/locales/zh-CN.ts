@@ -93,6 +93,9 @@ export default {
     searchConversations: '搜索对话',
     newConversation: '新对话',
     chatHistory: '对话历史',
+    openFolder: '打开文件夹',
+    copyPath: '复制路径',
+    removeFromList: '从列表移除',
   },
 
   auth: {
@@ -151,6 +154,15 @@ export default {
     settings: '项目设置',
     projectRoot: '项目根目录',
     selectFolder: '选择文件夹',
+  },
+
+  welcomeNoProject: {
+    projectChatTitle: '项目对话',
+    projectChatDesc: '打开项目文件夹，AI 帮你编码、调试和重构',
+    selectFolder: '选择文件夹',
+    hint: '项目对话在代码目录中工作。',
+    recentHeading: '最近的项目',
+    recentEmpty: '暂无记录。打开过项目后会显示在这里，方便下次进入。',
   },
 
   terminal: {
@@ -212,11 +224,38 @@ export default {
     refreshModels: '刷新模型列表',
     attachFiles: '附加文件',
     addFolderContext: '添加文件夹到上下文',
+    openProjectFolder: '打开项目',
     agent: '智能体',
     default: '默认',
     defaultAgentDesc: '标准 Claude Code 会话',
     builtIn: '内置',
     custom: '自定义',
+    agents: {
+      'general-purpose': {
+        name: '通用',
+        description: '用于研究复杂问题、搜索代码和执行多步骤任务的通用智能体',
+      },
+      'Explore': {
+        name: '探索',
+        description: '专门用于探索代码库的快速只读智能体 - 查找文件、搜索代码、分析结构',
+      },
+      'Plan': {
+        name: '规划',
+        description: '用于设计实现方案的软件架构师智能体 - 探索代码库并创建详细计划',
+      },
+      'verification': {
+        name: '验证',
+        description: '用于在报告完成前验证实现工作是否正确',
+      },
+      'claude-code-guide': {
+        name: 'Claude 指南',
+        description: '回答关于 Claude Code CLI、Agent SDK 和 Claude API 的问题',
+      },
+      'statusline-setup': {
+        name: '状态栏设置',
+        description: '为 Neovim 设置状态栏集成',
+      },
+    },
     thinkingOn: '思考模式: 开',
     thinkingOff: '思考模式: 关',
     searchCommands: '搜索命令...',

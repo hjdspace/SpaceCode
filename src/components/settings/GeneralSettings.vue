@@ -265,6 +265,7 @@ import {
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
 import { useAppStore } from '@/stores/app'
+import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
 import { useSettingsStore } from '@/stores/settings'
 import type { AuthMethod, OAuthAccountInfo } from '@/stores/settings'
 import type { Locale } from '@/i18n'
@@ -543,6 +544,7 @@ async function browseProjectRoot() {
       config.value.projectRoot = result.filePaths[0]
       // Also update app store
       appStore.setProjectRoot(result.filePaths[0])
+      recordRecentProjectRoot(result.filePaths[0])
     }
   } catch (error) {
     console.error('Failed to browse folder:', error)
@@ -551,6 +553,7 @@ async function browseProjectRoot() {
     if (path) {
       config.value.projectRoot = path
       appStore.setProjectRoot(path)
+      recordRecentProjectRoot(path)
     }
   }
 }

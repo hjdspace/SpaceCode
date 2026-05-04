@@ -69,6 +69,8 @@ onMounted(() => {
 }
 
 .messages-container {
+  flex: 1;
+  min-height: 0;
   padding: 16px 20px;
   max-width: 900px;
   margin: 0 auto;
@@ -85,7 +87,7 @@ onMounted(() => {
   color: var(--text-muted);
   gap: 12px;
   flex: 1;
-  min-height: 300px;
+  min-height: 0;
 
   p {
     font-size: 18px;

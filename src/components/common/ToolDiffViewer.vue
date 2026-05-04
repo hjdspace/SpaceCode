@@ -208,7 +208,8 @@ function getHighlightedLine(line: DiffLineView): string {
 const highlightedCode = computed(() => {
   const data = diffData.value
   if (!data) return ''
-  if (data.type !== 'read' && !isActionCompleted.value) return ''
+  if (data.type !== 'read' && data.type !== 'write' && data.type !== 'edit') return ''
+  if (!isActionCompleted.value && data.type !== 'read') return ''
   try {
     const language = data.language
     const content = data.modifiedContent

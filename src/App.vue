@@ -42,9 +42,12 @@ import ChatPanel from './components/layout/ChatPanel.vue'
 import InfoPanel from './components/layout/InfoPanel.vue'
 import { api } from '@/services/electronAPI'
 import { useShortcuts } from '@/composables/useShortcuts'
+import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
+import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
 
 const appStore = useAppStore()
 const chatStore = useChatStore()
+const { openProjectByPath } = useOpenProjectWorkflow()
 
 // Initialize shortcuts
 const { register } = useShortcuts({
@@ -133,11 +136,7 @@ onMounted(() => {
 
   // 监听菜单事件
   api.onMenuOpenFolder((path: string) => {
-    appStore.setProjectRoot(path)
-    chatStore.addProject(path)
-    const session = chatStore.createSession('New Chat', path)
-    appStore.openSessionTab(session.id, session.title)
-    window.dispatchEvent(new CustomEvent('session-created'))
+    openProjectByPath(path, { forceNewSession: true })
   })
 
   api.onMenuCloseFolder(() => {
@@ -150,6 +149,7 @@ onMounted(() => {
   const initialProjectRoot = appStore.projectRoot
   if (initialProjectRoot) {
     chatStore.addProject(initialProjectRoot)
+    recordRecentProjectRoot(initialProjectRoot)
   }
 
   // 监听打开技能管理器事件

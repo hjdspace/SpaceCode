@@ -145,6 +145,16 @@
             <Plus :size="18" />
           </button>
 
+          <button
+            v-if="showOpenProjectAction"
+            type="button"
+            class="toolbar-btn open-project-btn"
+            :title="t('chatInput.openProjectFolder')"
+            @click="handleOpenProjectFolder"
+          >
+            <FolderOpen :size="18" />
+          </button>
+
           <!-- 模型选择器 - 使用可搜索下拉 -->
           <div class="model-selector" ref="modelSelectorRef">
             <button
@@ -294,8 +304,8 @@
                       @click="selectAgent(agent.agentType)"
                       @mouseenter="highlightedAgent = agent.agentType"
                     >
-                      <span class="item-name">{{ agent.agentType }}</span>
-                      <span class="item-desc">{{ agent.description }}</span>
+                      <span class="item-name">{{ getAgentName(agent.agentType) }}</span>
+                      <span class="item-desc">{{ getAgentDescription(agent.agentType, agent.description) }}</span>
                       <Check v-if="selectedAgent === agent.agentType" :size="14" class="check-icon" />
                     </button>
                   </template>
@@ -345,6 +355,15 @@
           <Folder :size="16" />
           <span>{{ t('chatInput.addFolderContext') }}</span>
         </button>
+        <button
+          v-if="showOpenProjectAction"
+          type="button"
+          class="attachment-item"
+          @click="handleOpenProjectFolder"
+        >
+          <FolderOpen :size="16" />
+          <span>{{ t('chatInput.openProjectFolder') }}</span>
+        </button>
       </div>
     </Transition>
   </div>
@@ -364,6 +383,7 @@ import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { api } from '@/services/electronAPI'
 import { useI18n } from 'vue-i18n'
+import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 
 export interface Attachment {
   name: string
@@ -413,12 +433,15 @@ const props = defineProps<{
   placeholder?: string
   modelValue?: string
   workingDirectory?: string
+  /** Show toolbar + menu actions to open app project folder (same as welcome card). */
+  showOpenProjectAction?: boolean
 }>()
 
 const settingsStore = useSettingsStore()
 const skillsStore = useSkillsStore()
 const appStore = useAppStore()
 const { t } = useI18n()
+const { openProjectFromPicker } = useOpenProjectWorkflow()
 
 const inputText = ref('')
 const editorRef = ref<HTMLElement | null>(null)
@@ -483,8 +506,22 @@ const builtInAgents = computed(() => chatStore.availableAgents.filter(a => a.sou
 const customAgents = computed(() => chatStore.availableAgents.filter(a => a.source !== 'built-in'))
 const selectedAgentLabel = computed(() => {
   if (!selectedAgent.value) return t('chatInput.agent')
-  return selectedAgent.value
+  // Try to get translated name for built-in agents
+  const translatedName = t(`chatInput.agents.${selectedAgent.value}.name`)
+  return translatedName !== `chatInput.agents.${selectedAgent.value}.name` ? translatedName : selectedAgent.value
 })
+
+// Helper function to get agent display name
+function getAgentName(agentType: string): string {
+  const translatedName = t(`chatInput.agents.${agentType}.name`)
+  return translatedName !== `chatInput.agents.${agentType}.name` ? translatedName : agentType
+}
+
+// Helper function to get agent description
+function getAgentDescription(agentType: string, originalDescription: string): string {
+  const translatedDesc = t(`chatInput.agents.${agentType}.description`)
+  return translatedDesc !== `chatInput.agents.${agentType}.description` ? translatedDesc : originalDescription
+}
 
 // 斜杠命令相关
 const showSlashCommandMenu = ref(false)
@@ -1679,6 +1716,11 @@ async function handleAttachFile() {
   } catch (error) {
     console.error('Failed to select files:', error)
   }
+}
+
+async function handleOpenProjectFolder() {
+  closeAttachmentMenu()
+  await openProjectFromPicker()
 }
 
 async function handleAttachFolder() {

@@ -93,6 +93,9 @@ export default {
     searchConversations: 'Search conversations',
     newConversation: 'New conversation',
     chatHistory: 'Chat History',
+    openFolder: 'Open Folder',
+    copyPath: 'Copy Path',
+    removeFromList: 'Remove Project',
   },
 
   auth: {
@@ -151,6 +154,15 @@ export default {
     settings: 'Project Settings',
     projectRoot: 'Project Root',
     selectFolder: 'Select Folder',
+  },
+
+  welcomeNoProject: {
+    projectChatTitle: 'Project chat',
+    projectChatDesc: 'Open a project folder and let the AI help you code, debug, and refactor.',
+    selectFolder: 'Select folder',
+    hint: 'Project chat runs inside your code folder.',
+    recentHeading: 'Recent projects',
+    recentEmpty: 'No recent folders yet. They appear here after you open a project.',
   },
 
   terminal: {
@@ -212,11 +224,38 @@ export default {
     refreshModels: 'Refresh model list',
     attachFiles: 'Attach files',
     addFolderContext: 'Add folder to context',
+    openProjectFolder: 'Open project',
     agent: 'Agent',
     default: 'Default',
     defaultAgentDesc: 'Standard Claude Code session',
     builtIn: 'Built-in',
     custom: 'Custom',
+    agents: {
+      'general-purpose': {
+        name: 'General-purpose',
+        description: 'General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks',
+      },
+      'Explore': {
+        name: 'Explore',
+        description: 'Fast read-only agent specialized for exploring codebases — finding files, searching code, analyzing structure',
+      },
+      'Plan': {
+        name: 'Plan',
+        description: 'Software architect agent for designing implementation plans — explores codebase and creates detailed plans',
+      },
+      'verification': {
+        name: 'Verification',
+        description: 'Verify that implementation work is correct before reporting completion',
+      },
+      'claude-code-guide': {
+        name: 'Claude Guide',
+        description: 'Answer questions about Claude Code CLI, Agent SDK, and Claude API',
+      },
+      'statusline-setup': {
+        name: 'Statusline Setup',
+        description: 'Setup statusline integration for Neovim',
+      },
+    },
     thinkingOn: 'Thinking: ON',
     thinkingOff: 'Thinking: OFF',
     searchCommands: 'Search commands...',

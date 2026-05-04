@@ -37,11 +37,16 @@
         </div>
       </div>
       
-      <MessageList 
-        :messages="chatStore.currentMessages" 
-        :loading="chatStore.isLoading"
-      />
-      
+      <div class="chat-panel-body">
+        <NoProjectHome v-if="showNoProjectWelcome" />
+
+        <MessageList
+          v-else
+          :messages="chatStore.currentMessages"
+          :loading="chatStore.isLoading"
+        />
+      </div>
+
       <ChatInput
         @send="handleSend"
         @slash-command="handleSlashCommand"
@@ -55,6 +60,7 @@
         :model-value="currentModel"
         :working-directory="chatStore.workingDirectory"
         :placeholder="t('chat.askAnything')"
+        :show-open-project-action="showNoProjectWelcome"
       />
     </template>
   </main>
@@ -70,6 +76,7 @@ import MessageList from '../chat/MessageList.vue'
 import ChatInput, { type Attachment } from '../chat/ChatInput.vue'
 import SessionTabBar from '../chat/SessionTabBar.vue'
 import TerminalPanel from '../terminal/TerminalPanel.vue'
+import NoProjectHome from './NoProjectHome.vue'
 import { initLLMService, llmState, updateConfig } from '@/services/llm'
 
 const chatStore = useChatStore()
@@ -86,6 +93,39 @@ const isConfigured = computed(() => llmState.isConfigured.value)
 // Check if current tab is a terminal tab
 const isTerminalTab = computed(() =>
   appStore.activeCenterTab.startsWith('terminal-')
+)
+
+/** At least one conversation is bound to a real folder (sidebar / CLI cwd), not only default chat */
+const hasWorkspaceContext = computed(() =>
+  chatStore.sessions.some((s) => !!(s.workingDirectory && String(s.workingDirectory).trim()))
+)
+
+/** No folder context in chat/projects list, or app has not bound a project root yet */
+const showNoProjectWelcome = computed(() => {
+  if (isTerminalTab.value) return false
+  if (!hasWorkspaceContext.value) return true
+  return !(appStore.projectRoot || '').trim()
+})
+
+watch(
+  () => ({
+    has: hasWorkspaceContext.value,
+    root: (appStore.projectRoot || '').trim(),
+    terminal: isTerminalTab.value,
+  }),
+  ({ has, root, terminal }) => {
+    if (terminal) return
+    if (!has) {
+      if (root) {
+        appStore.closeProject()
+        chatStore.switchProject('')
+      }
+      for (const p of [...chatStore.projects]) {
+        if (p) chatStore.removeProject(p)
+      }
+    }
+  },
+  { flush: 'post' }
 )
 
 // 当前选中的模型
@@ -437,6 +477,14 @@ function handleCloseTab(tabId: string) {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.chat-panel-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .chat-header {

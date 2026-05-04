@@ -276,6 +276,8 @@ import McpManager from '../mcp/McpManagerModal.vue'
 
 import { initLLMService } from '@/services/llm'
 import { api } from '@/services/electronAPI'
+import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
+import { pathsEqual } from '@/utils/recentProjectRoots'
 
 interface TreeNode {
   name: string
@@ -292,6 +294,7 @@ const appStore = useAppStore()
 const settingsStore = useSettingsStore()
 const scmStore = useScmStore()
 const { t } = useI18n()
+const { openProjectFromPicker } = useOpenProjectWorkflow()
 
 const activeTab = ref<'explorer' | 'scm' | 'history' | 'terminal'>('history')
 const showSettings = ref(false)
@@ -494,7 +497,13 @@ async function handleRemoveProject(workingDirectory: string) {
 
     chatStore.removeProject(workingDirectory)
 
-    if (appStore.projectRoot === workingDirectory) {
+    const stillHasFolderSessions = chatStore.sessions.some(
+      (s) => !!(s.workingDirectory && String(s.workingDirectory).trim())
+    )
+    if (!stillHasFolderSessions) {
+      appStore.closeProject()
+      chatStore.switchProject('')
+    } else if (pathsEqual(appStore.projectRoot, workingDirectory)) {
       appStore.closeProject()
     }
   } catch (error) {
@@ -504,20 +513,7 @@ async function handleRemoveProject(workingDirectory: string) {
 }
 
 async function handleOpenFolderPicker() {
-  try {
-    const result = await api.selectFolder()
-    if (result && !result.canceled && result.filePaths && result.filePaths.length > 0) {
-      const folderPath = result.filePaths[0]
-      appStore.setProjectRoot(folderPath)
-      chatStore.addProject(folderPath)
-      const session = chatStore.createSession(t('common.newChat'), folderPath)
-      appStore.openSessionTab(session.id, session.title)
-      window.dispatchEvent(new CustomEvent('session-created'))
-    }
-  } catch (error) {
-    console.error('Failed to select folder:', error)
-    alert('Failed to select folder. Please try again.')
-  }
+  await openProjectFromPicker()
 }
 
 function handleOpenSearch() {

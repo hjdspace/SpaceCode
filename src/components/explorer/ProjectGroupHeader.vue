@@ -52,17 +52,17 @@
           <div v-if="menuOpen" class="dropdown-menu" @click.stop>
             <button class="menu-item" @click="handleOpenFolder">
               <ExternalLink :size="14" />
-              <span>Open Folder</span>
+              <span>{{ t('sidebar.openFolder') }}</span>
             </button>
             <button class="menu-item" @click="handleCopyPath">
               <Copy :size="14" />
-              <span>Copy Path</span>
+              <span>{{ t('sidebar.copyPath') }}</span>
             </button>
             <template v-if="showRemoveButton && workingDirectory !== ''">
               <div class="menu-divider" />
               <button class="menu-item destructive" @click="handleRemoveProject">
                 <FolderMinus :size="14" />
-                <span>Remove Project</span>
+                <span>{{ t('sidebar.removeFromList') }}</span>
               </button>
             </template>
           </div>
@@ -74,6 +74,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   ChevronRight,
   ChevronDown,
@@ -85,6 +86,8 @@ import {
   ExternalLink,
   FolderMinus
 } from 'lucide-vue-next'
+
+const { t } = useI18n()
 
 interface Props {
   workingDirectory: string
