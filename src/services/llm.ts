@@ -59,29 +59,21 @@ export function isLLMConfigured(): boolean {
 }
 
 function buildApiUrl(baseUrl: string | undefined, defaultBase: string, endpoint: string): string {
-  console.log('[LLM] buildApiUrl called:', { baseUrl, defaultBase, endpoint })
   if (!baseUrl) {
-    const result = `${defaultBase}${endpoint}`
-    console.log('[LLM] No baseUrl, using default:', result)
-    return result
+    return `${defaultBase}${endpoint}`
   }
   // Normalize baseUrl: remove trailing slash
   const normalized = baseUrl.replace(/\/$/, '')
   // If baseUrl already ends with the endpoint path, use it as-is
   if (normalized.endsWith(endpoint)) {
-    console.log('[LLM] baseUrl ends with endpoint, using as-is:', normalized)
     return normalized
   }
   // If baseUrl ends with /v1, append the rest of the endpoint
   if (normalized.endsWith('/v1')) {
-    const result = `${normalized}${endpoint.replace('/v1', '')}`
-    console.log('[LLM] baseUrl ends with /v1, result:', result)
-    return result
+    return `${normalized}${endpoint.replace('/v1', '')}`
   }
   // Otherwise, append the full endpoint
-  const result = `${normalized}${endpoint}`
-  console.log('[LLM] Appended full endpoint, result:', result)
-  return result
+  return `${normalized}${endpoint}`
 }
 
 export async function sendMessage(messages: Array<{ role: string; content: string }>): Promise<string> {
