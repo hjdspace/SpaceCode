@@ -138,6 +138,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('git:commit', cwd, message, amend),
     getDiff: (cwd: string, path: string, staged?: boolean): Promise<any> =>
       ipcRenderer.invoke('git:getDiff', cwd, path, staged),
+    showFile: (cwd: string, path: string): Promise<string | null> =>
+      ipcRenderer.invoke('git:showFile', cwd, path),
     getBranches: (cwd: string): Promise<any[]> =>
       ipcRenderer.invoke('git:getBranches', cwd),
     checkout: (cwd: string, ref: string): Promise<{ success: boolean; error?: string }> =>

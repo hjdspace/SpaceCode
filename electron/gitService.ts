@@ -501,6 +501,14 @@ async function getLog(cwd: string, count: number = 50): Promise<GitLogEntry[]> {
   return entries
 }
 
+async function showFile(cwd: string, path: string): Promise<string | null> {
+  const result = await gitExec(['show', `HEAD:${path}`], cwd)
+  if (result.code !== 0) {
+    return null
+  }
+  return result.stdout
+}
+
 async function discardChanges(cwd: string, paths: string[]): Promise<boolean> {
   // For tracked files, checkout HEAD version
   // For untracked files, clean them
@@ -572,6 +580,10 @@ export function registerGitIPCHandlers() {
 
   ipcMain.handle('git:getDiff', async (_event, cwd: string, path: string, staged?: boolean) => {
     return getDiff(cwd, path, staged)
+  })
+
+  ipcMain.handle('git:showFile', async (_event, cwd: string, path: string) => {
+    return showFile(cwd, path)
   })
 
   ipcMain.handle('git:getBranches', async (_event, cwd: string) => {

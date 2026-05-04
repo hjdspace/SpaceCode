@@ -67,12 +67,12 @@ async function openInPanel() {
     const projectRoot = appStore.projectRoot
     if (projectRoot) {
       const relativePath = fp.replace(projectRoot, '').replace(/^[/\\]/, '')
-      const diffResult = await api.git.getDiff(projectRoot, relativePath)
-      if (diffResult?.hunks?.length) {
-        originalContent = reconstructOriginal(diffResult, modifiedContent)
+      const headContent = await api.git.showFile(projectRoot, relativePath)
+      if (headContent !== null) {
+        originalContent = headContent
       }
     }
-  } catch { /* not in git repo */ }
+  } catch { /* not in git repo or file not tracked */ }
 
   const language = appStore.getLanguageFromPath(fp)
   appStore.showToolDiff({
@@ -83,29 +83,6 @@ async function openInPanel() {
     toolCallId: props.toolCall.id,
     language,
   })
-}
-
-function reconstructOriginal(diffResult: any, modifiedContent: string): string {
-  let original = modifiedContent
-  if (diffResult.hunks) {
-    for (const hunk of [...diffResult.hunks].reverse()) {
-      if (hunk.content) {
-        const lines = hunk.content.split('\n')
-        const addLines: string[] = []
-        const removeLines: string[] = []
-        for (const line of lines) {
-          if (line.startsWith('+')) addLines.push(line.substring(1))
-          else if (line.startsWith('-')) removeLines.push(line.substring(1))
-        }
-        const addBlock = addLines.join('\n')
-        const removeBlock = removeLines.join('\n')
-        if (addBlock && original.includes(addBlock)) {
-          original = original.replace(addBlock, removeBlock)
-        }
-      }
-    }
-  }
-  return original
 }
 </script>
 
