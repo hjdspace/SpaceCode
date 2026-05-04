@@ -67,9 +67,11 @@ async function openInPanel() {
     const projectRoot = appStore.projectRoot
     if (projectRoot) {
       const relativePath = fp.replace(projectRoot, '').replace(/^[/\\]/, '')
-      const headContent = await api.git.showFile(projectRoot, relativePath)
-      if (headContent !== null) {
-        originalContent = headContent
+      if (relativePath) {
+        const headContent = await api.git.showFile(projectRoot, relativePath)
+        if (headContent !== null) {
+          originalContent = headContent
+        }
       }
     }
   } catch { /* not in git repo or file not tracked */ }

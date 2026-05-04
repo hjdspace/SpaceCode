@@ -6,7 +6,7 @@
       <span class="language-badge" v-if="diffData?.language">
         {{ diffData.language }}
       </span>
-      <div class="diff-stats" v-if="stats.additions || stats.deletions">
+      <div class="diff-stats" v-if="!isActionCompleted && (stats.additions || stats.deletions)">
         <span class="stat-additions">+{{ stats.additions }}</span>
         <span class="stat-deletions">-{{ stats.deletions }}</span>
       </div>
@@ -22,7 +22,7 @@
       </div>
     </div>
 
-    <div class="diff-content" v-if="diffData?.type === 'read'">
+    <div class="diff-content" v-if="diffData?.type === 'read' || (isActionCompleted && (diffData?.type === 'write' || diffData?.type === 'edit'))">
       <pre><code :class="`language-${diffData.language}`" v-html="highlightedCode"></code></pre>
     </div>
 
@@ -74,6 +74,8 @@ const appStore = useAppStore()
 const { t } = useI18n()
 
 const diffData = computed(() => appStore.toolDiffData)
+
+const isActionCompleted = computed(() => diffData.value?.actionCompleted === true)
 
 const hasActions = computed(() => {
   const data = diffData.value
@@ -205,13 +207,15 @@ function getHighlightedLine(line: DiffLineView): string {
 
 const highlightedCode = computed(() => {
   const data = diffData.value
-  if (!data || data.type !== 'read') return ''
+  if (!data) return ''
+  if (data.type !== 'read' && !isActionCompleted.value) return ''
   try {
     const language = data.language
+    const content = data.modifiedContent
     if (language && hljs.getLanguage(language)) {
-      return hljs.highlight(data.modifiedContent, { language }).value
+      return hljs.highlight(content, { language }).value
     }
-    return hljs.highlightAuto(data.modifiedContent).value
+    return hljs.highlightAuto(content).value
   } catch {
     return escapeHtml(data.modifiedContent)
   }
