@@ -1,4 +1,5 @@
 <template>
+  <div v-if="metadata?.warning" class="message-warning">{{ metadata.warning }}</div>
   <div v-if="showMetadata" class="message-metadata">
     <span v-if="metadata?.model">{{ metadata.model }}</span>
     <span v-if="tokenText">{{ tokenText }}</span>
@@ -33,6 +34,17 @@ const tokenText = computed(() => {
 </script>
 
 <style lang="scss" scoped>
+.message-warning {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: var(--radius-md);
+  background: rgba(245, 158, 11, 0.08);
+  color: #d97706;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .message-metadata {
   display: flex;
   align-items: center;

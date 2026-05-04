@@ -579,6 +579,17 @@ export const useChatStore = defineStore('chat', () => {
         if (assistant.message?.content) {
           const content = assistant.message.content
           if (Array.isArray(content)) {
+            const textContent = content
+              .filter((c: any) => c.type === 'text')
+              .map((c: any) => c.text || '')
+              .join('')
+
+            if (textContent && textContent.length > accumulatedContent.length) {
+              accumulatedContent = textContent
+              streamingContents.value.set(targetSessionId, accumulatedContent)
+              updateMessage(assistantMessageId, { content: accumulatedContent }, targetSessionId)
+            }
+
             const reasoningContent = content
               .filter((c: any) => c.type === 'thinking')
               .map((c: any) => c.thinking || c.text || '')
@@ -680,8 +691,9 @@ export const useChatStore = defineStore('chat', () => {
       const handleResult = (event: { sessionId: string; data: any }) => {
         if (event.sessionId !== targetSessionId || isCompleted) return
         isCompleted = true
+        const result = event.data || {}
         const elapsed = Date.now() - sendStartTime
-        logger.info('ChatStore', `[${targetSessionId.slice(0, 8)}] result event (LLM response complete) | totalElapsed=${elapsed}ms | accContentLen=${accumulatedContent.length}`)
+        logger.info('ChatStore', `[${targetSessionId.slice(0, 8)}] result event (LLM response complete) | totalElapsed=${elapsed}ms | accContentLen=${accumulatedContent.length} | stopReason=${result.stop_reason || '(none)'}`)
         streamingContents.value.set(targetSessionId, '')
         loadingSessions.value.set(targetSessionId, false)
 
@@ -691,11 +703,25 @@ export const useChatStore = defineStore('chat', () => {
           s.lastActivityAt = Date.now()
           const msg = s.messages.find(m => m.id === assistantMessageId)
           if (msg) {
+            const finalText = typeof result.result === 'string' ? result.result : ''
+            if (finalText && finalText.length > msg.content.length) {
+              msg.content = finalText
+            }
             if (msg.reasoning && !msg.reasoning.endTime) {
               msg.reasoning.endTime = Date.now()
               msg.reasoning.isExpanded = false
             }
-            msg.metadata = { model: settingsStore.config.model, duration: Date.now() - msg.timestamp }
+            const hasRunningTools = !!msg.toolCalls?.some(tool => tool.status === 'running' || tool.status === 'pending')
+            const suspiciousToolStop = result.stop_reason === 'tool_use'
+            msg.metadata = {
+              model: settingsStore.config.model,
+              duration: Date.now() - msg.timestamp,
+              warning: suspiciousToolStop
+                ? 'Agent 在工具调用状态下提前结束，当前模型可能没有稳定支持多轮工具调用协议。建议重试或切换为更强的工具调用模型。'
+                : hasRunningTools
+                  ? 'Agent 已结束，但仍有工具调用未返回结果。'
+                  : undefined
+            }
             saveToStorage()
           }
         }

@@ -39,6 +39,7 @@ export interface MessageMetadata {
   inputTokens?: number
   outputTokens?: number
   duration?: number
+  warning?: string
 }
 
 export type ProcessStatus = 'none' | 'starting' | 'active' | 'idle' | 'suspended' | 'exited'

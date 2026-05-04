@@ -257,6 +257,11 @@ export class SessionProcess extends EventEmitter {
         const textItem = content.find((c: any) => c.type === 'text')
         const thinkingItem = content.find((c: any) => c.type === 'thinking')
         const toolUses = content.filter((c: any) => c.type === 'tool_use')
+        for (const toolUse of toolUses) {
+          if (toolUse.id) {
+            this.pendingToolCalls.add(toolUse.id)
+          }
+        }
         info('SessionProcess', `[${this.sessionId.slice(0, 8)}] assistant message | textLen=${textItem?.text?.length || 0} | thinkingLen=${thinkingItem?.thinking?.length || thinkingItem?.text?.length || 0} | toolCalls=${toolUses.length} | toolNames=[${toolUses.map((t: any) => t.name).join(',')}]`)
       } else if (typeof content === 'string') {
         info('SessionProcess', `[${this.sessionId.slice(0, 8)}] assistant message (string) | contentLen=${content.length}`)

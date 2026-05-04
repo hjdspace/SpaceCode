@@ -1,5 +1,9 @@
 <template>
   <div class="tool-call-list">
+    <div v-if="displayToolCalls.length" class="tool-call-summary">
+      <span class="summary-dot" :class="summaryStatus"></span>
+      <span>{{ summaryText }}</span>
+    </div>
     <!-- 全局任务看板：当存在累积任务时显示 -->
     <TaskListCard
       v-if="allTasks.length && shouldShowTaskBoard"
@@ -58,6 +62,21 @@ const shouldShowTaskBoard = computed(() => {
   return allTasks.value.length > 1
 })
 
+const summaryStatus = computed(() => {
+  if (props.toolCalls.some(tool => tool.status === 'running' || tool.status === 'pending')) return 'running'
+  if (props.toolCalls.some(tool => tool.status === 'error')) return 'error'
+  return 'completed'
+})
+
+const summaryText = computed(() => {
+  const visibleTools = displayToolCalls.value.filter(tool => !TASK_LIST_ONLY_TOOL_NAMES.has(tool.name))
+  const runningTool = visibleTools.find(tool => tool.status === 'running' || tool.status === 'pending')
+  if (runningTool) return `Agent 正在执行 ${formatToolName(runningTool)}`
+  const failedCount = visibleTools.filter(tool => tool.status === 'error').length
+  if (failedCount > 0) return `${failedCount} 个工具调用失败`
+  return `已完成 ${visibleTools.length} 个工具调用`
+})
+
 const displayToolCalls = computed(() => {
   const parsed = props.toolCalls.map((tool) => ({
     ...tool,
@@ -81,6 +100,19 @@ function findLatestTaskListIndex(tools: Array<ToolCall & { taskItems: TaskListIt
     }
   }
   return -1
+}
+
+function formatToolName(tool: ToolCall): string {
+  const target = getToolTarget(tool)
+  return target ? `${tool.name} · ${target}` : tool.name
+}
+
+function getToolTarget(tool: ToolCall): string {
+  const input = tool.input || {}
+  const value = input.file_path || input.path || input.command || input.pattern || input.query
+  if (typeof value !== 'string') return ''
+  const normalized = value.replace(/\\/g, '/')
+  return normalized.length > 70 ? `...${normalized.slice(-67)}` : normalized
 }
 
 function getTaskListItems(toolCall: ToolCall): TaskListItem[] {
@@ -187,8 +219,49 @@ watch(() => props.toolCalls, () => {
   margin: 4px 0 8px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding-left: 4px;
+  gap: 4px;
+  padding-left: 10px;
   border-left: 2px solid var(--surface-border);
+}
+
+.tool-call-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.summary-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+
+  &.running {
+    background: var(--accent-primary);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+
+  &.completed {
+    background: #22c55e;
+  }
+
+  &.error {
+    background: #ef4444;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.45;
+    transform: scale(0.9);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
 }
 </style>
