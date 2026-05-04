@@ -58,17 +58,46 @@ export function isLLMConfigured(): boolean {
   return !!currentConfig?.apiKey
 }
 
+function buildApiUrl(baseUrl: string | undefined, defaultBase: string, endpoint: string): string {
+  console.log('[LLM] buildApiUrl called:', { baseUrl, defaultBase, endpoint })
+  if (!baseUrl) {
+    const result = `${defaultBase}${endpoint}`
+    console.log('[LLM] No baseUrl, using default:', result)
+    return result
+  }
+  // Normalize baseUrl: remove trailing slash
+  const normalized = baseUrl.replace(/\/$/, '')
+  // If baseUrl already ends with the endpoint path, use it as-is
+  if (normalized.endsWith(endpoint)) {
+    console.log('[LLM] baseUrl ends with endpoint, using as-is:', normalized)
+    return normalized
+  }
+  // If baseUrl ends with /v1, append the rest of the endpoint
+  if (normalized.endsWith('/v1')) {
+    const result = `${normalized}${endpoint.replace('/v1', '')}`
+    console.log('[LLM] baseUrl ends with /v1, result:', result)
+    return result
+  }
+  // Otherwise, append the full endpoint
+  const result = `${normalized}${endpoint}`
+  console.log('[LLM] Appended full endpoint, result:', result)
+  return result
+}
+
 export async function sendMessage(messages: Array<{ role: string; content: string }>): Promise<string> {
   if (!currentConfig?.apiKey) {
     throw new Error('LLM not configured')
   }
 
   const { provider, apiKey, baseUrl, model } = currentConfig
+  console.log('[LLM] sendMessage called:', { provider, baseUrl, model, hasApiKey: !!apiKey })
 
   // Simple implementation for commit message generation and other non-Agent tasks
   // This is NOT used for the main chat Agent (which uses ClaudeCodeProcessManager)
   if (provider === 'anthropic' || provider === 'anthropic_compatible') {
-    const response = await fetch(baseUrl || 'https://api.anthropic.com/v1/messages', {
+    const url = buildApiUrl(baseUrl, 'https://api.anthropic.com', '/v1/messages')
+    console.log('[LLM] Anthropic URL:', url)
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -86,15 +115,26 @@ export async function sendMessage(messages: Array<{ role: string; content: strin
     })
 
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`)
+      const text = await response.text()
+      console.log('[LLM] Anthropic API error response:', text.slice(0, 500))
+      throw new Error(`API error: ${response.status} ${response.statusText} - ${text.slice(0, 200)}`)
     }
 
-    const data = await response.json()
+    const responseText = await response.text()
+    console.log('[LLM] Anthropic raw response:', responseText.slice(0, 500))
+    let data
+    try {
+      data = JSON.parse(responseText)
+    } catch (e: any) {
+      throw new Error(`Invalid JSON response from API. Please check your Base URL setting. Error: ${e.message}`)
+    }
     return data.content?.[0]?.text || ''
   }
 
   // OpenAI-compatible fallback
-  const response = await fetch(baseUrl || 'https://api.openai.com/v1/chat/completions', {
+  const url = buildApiUrl(baseUrl, 'https://api.openai.com', '/v1/chat/completions')
+  console.log('[LLM] OpenAI URL:', url)
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -107,9 +147,18 @@ export async function sendMessage(messages: Array<{ role: string; content: strin
   })
 
   if (!response.ok) {
-    throw new Error(`API error: ${response.status} ${response.statusText}`)
+    const text = await response.text()
+    console.log('[LLM] OpenAI API error response:', text.slice(0, 500))
+    throw new Error(`API error: ${response.status} ${response.statusText} - ${text.slice(0, 200)}`)
   }
 
-  const data = await response.json()
+  const responseText = await response.text()
+  console.log('[LLM] OpenAI raw response:', responseText.slice(0, 500))
+  let data
+  try {
+    data = JSON.parse(responseText)
+  } catch (e: any) {
+    throw new Error(`Invalid JSON response from API. Please check your Base URL setting. Error: ${e.message}`)
+  }
   return data.choices?.[0]?.message?.content || ''
 }

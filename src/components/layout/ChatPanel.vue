@@ -78,6 +78,7 @@ import SessionTabBar from '../chat/SessionTabBar.vue'
 import TerminalPanel from '../terminal/TerminalPanel.vue'
 import NoProjectHome from './NoProjectHome.vue'
 import { initLLMService, llmState, updateConfig } from '@/services/llm'
+import { pathsEqual } from '@/utils/recentProjectRoots'
 
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
@@ -116,12 +117,15 @@ watch(
   ({ has, root, terminal }) => {
     if (terminal) return
     if (!has) {
-      if (root) {
+      // 只移除当前项目相关的会话
+      const sessionsToRemove = chatStore.sessions.filter(s =>
+        pathsEqual(s.workingDirectory || '', root)
+      )
+      sessionsToRemove.forEach(s => chatStore.deleteSession(s.id))
+
+      if (pathsEqual(appStore.projectRoot, root)) {
         appStore.closeProject()
         chatStore.switchProject('')
-      }
-      for (const p of [...chatStore.projects]) {
-        if (p) chatStore.removeProject(p)
       }
     }
   },
