@@ -446,6 +446,17 @@ ipcMain.handle('fs:readFile', async (_event, filePath: string) => {
   }
 })
 
+ipcMain.handle('fs:writeFile', async (_event, filePath: string, content: string) => {
+  debug('IPC', 'fs:writeFile', { filePath })
+  try {
+    writeFileSync(filePath, content, 'utf-8')
+    return { success: true }
+  } catch (err: any) {
+    error('IPC', 'fs:writeFile failed', { filePath, err })
+    return { success: false, error: err.message }
+  }
+})
+
 ipcMain.handle('fs:stat', async (_event, filePath: string) => {
   debug('IPC', 'fs:stat', { filePath })
   try {

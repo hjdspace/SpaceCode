@@ -11,6 +11,18 @@ export interface FileInfo {
   language: string
 }
 
+export interface ToolDiffData {
+  type: 'edit' | 'write' | 'read' | 'webfetch' | 'grep'
+  filePath: string
+  originalContent: string
+  modifiedContent: string
+  toolCallId: string
+  language: string
+  displayContent?: string
+  searchQuery?: string
+  actionCompleted?: boolean
+}
+
 export interface CenterTab {
   id: string
   label: string
@@ -26,8 +38,10 @@ export const useAppStore = defineStore('app', () => {
   const theme = ref<'light' | 'dark'>('light')
   const sidebarCollapsed = ref(false)
   const infoPanelVisible = ref(false)
-  const infoPanelMode = ref<'diff' | 'file' | 'markdown'>('diff')
+  const infoPanelMode = ref<'diff' | 'file' | 'markdown' | 'tool-diff'>('diff')
   const currentFile = ref<FileInfo | null>(null)
+  const toolDiffData = ref<ToolDiffData | null>(null)
+  const completedToolActions = ref<Set<string>>(new Set())
   const centerTabs = ref<CenterTab[]>([
     { id: 'chat', label: 'Chat', icon: markRaw(MessageSquare), closable: false }
   ])
@@ -54,13 +68,27 @@ export const useAppStore = defineStore('app', () => {
     sidebarCollapsed.value = !sidebarCollapsed.value
   }
 
-  function showInfoPanel(mode: 'diff' | 'file' | 'markdown') {
+  function showInfoPanel(mode: 'diff' | 'file' | 'markdown' | 'tool-diff') {
     infoPanelMode.value = mode
     infoPanelVisible.value = true
   }
 
   function hideInfoPanel() {
     infoPanelVisible.value = false
+    toolDiffData.value = null
+  }
+
+  function showToolDiff(data: ToolDiffData) {
+    if (completedToolActions.value.has(data.toolCallId)) {
+      data.actionCompleted = true
+    }
+    toolDiffData.value = data
+    infoPanelMode.value = 'tool-diff'
+    infoPanelVisible.value = true
+  }
+
+  function markToolActionCompleted(toolCallId: string) {
+    completedToolActions.value.add(toolCallId)
   }
 
   function setCurrentFile(file: FileInfo | null) {
@@ -173,7 +201,8 @@ export const useAppStore = defineStore('app', () => {
       'cxx': 'cpp',
       'h': 'c',
       'hpp': 'cpp',
-      'sv': 'systemverilog',
+      'sv': 'verilog',
+      'svh': 'verilog',
       'v': 'verilog',
       'vh': 'verilog',
       'md': 'markdown',
@@ -207,6 +236,7 @@ export const useAppStore = defineStore('app', () => {
     infoPanelVisible,
     infoPanelMode,
     currentFile,
+    toolDiffData,
     centerTabs,
     activeCenterTab,
     projectRoot,
@@ -216,6 +246,8 @@ export const useAppStore = defineStore('app', () => {
     toggleSidebar,
     showInfoPanel,
     hideInfoPanel,
+    showToolDiff,
+    markToolActionCompleted,
     setCurrentFile,
     getLanguageFromPath,
     openTerminalTab,

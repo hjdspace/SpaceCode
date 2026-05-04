@@ -32,7 +32,7 @@ interface Window {
     getEnv: (key: string) => Promise<string | undefined>
     showDiff: (diff: any) => void
     onDiffRequested: (callback: (diff: any) => void) => void
-    showInfoPanel: (mode: 'diff' | 'file' | 'markdown') => void
+    showInfoPanel: (mode: 'diff' | 'file' | 'markdown' | 'tool-diff') => void
     hideInfoPanel: () => void
     onShowInfoPanel: (callback: (mode: string) => void) => void
     onHideInfoPanel: (callback: () => void) => void

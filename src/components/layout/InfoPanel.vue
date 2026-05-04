@@ -11,6 +11,7 @@
       <DiffViewer v-if="mode === 'diff'" />
       <CodeViewer v-else-if="mode === 'file'" />
       <MarkdownRenderer v-else-if="mode === 'markdown'" :content="appStore.currentFile?.content || ''" />
+      <ToolDiffViewer v-else-if="mode === 'tool-diff'" />
     </div>
   </aside>
 </template>
@@ -23,9 +24,10 @@ import { X } from 'lucide-vue-next'
 import DiffViewer from '../common/DiffViewer.vue'
 import CodeViewer from '../common/CodeViewer.vue'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
+import ToolDiffViewer from '../common/ToolDiffViewer.vue'
 
 const props = defineProps<{
-  mode: 'diff' | 'file' | 'markdown'
+  mode: 'diff' | 'file' | 'markdown' | 'tool-diff'
 }>()
 
 const appStore = useAppStore()
@@ -36,6 +38,7 @@ const panelTitle = computed(() => {
     case 'diff': return t('infoPanel.changes')
     case 'file': return t('infoPanel.fileViewer')
     case 'markdown': return t('infoPanel.preview')
+    case 'tool-diff': return t('infoPanel.toolDiff')
     default: return t('infoPanel.info')
   }
 })

@@ -181,6 +181,15 @@ export default {
     fileViewer: 'File Viewer',
     preview: 'Preview',
     info: 'Info',
+    toolDiff: 'Code Changes',
+    accept: 'Accept',
+    revert: 'Revert',
+    acceptSuccess: 'Changes accepted',
+    revertSuccess: 'Changes reverted',
+    revertFailed: 'Revert failed',
+    openInPanel: 'View in panel',
+    additions: 'Additions',
+    deletions: 'Deletions',
   },
 
   titleBar: {

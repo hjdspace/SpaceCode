@@ -181,6 +181,15 @@ export default {
     fileViewer: '文件查看器',
     preview: '预览',
     info: '信息',
+    toolDiff: '代码变更',
+    accept: '接受',
+    revert: '撤回',
+    acceptSuccess: '已接受更改',
+    revertSuccess: '已撤回更改',
+    revertFailed: '撤回失败',
+    openInPanel: '在面板中查看',
+    additions: '新增',
+    deletions: '删除',
   },
 
   titleBar: {

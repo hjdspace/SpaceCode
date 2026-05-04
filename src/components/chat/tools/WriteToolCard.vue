@@ -5,6 +5,13 @@
       <span class="write-label">Write</span>
       <span class="write-path">{{ filePath }}</span>
       <span v-if="outputSummary" class="write-summary">{{ outputSummary }}</span>
+      <button
+        class="panel-btn"
+        @click.stop="openInPanel"
+        :title="t('infoPanel.openInPanel')"
+      >
+        <ExternalLink :size="13" />
+      </button>
       <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
     </div>
     <div v-show="isExpanded" class="write-body">
@@ -22,11 +29,16 @@
 
 <script setup lang="ts">
 import type { ToolCall } from '@/types'
-import { FilePlus, ChevronDown } from 'lucide-vue-next'
+import { FilePlus, ChevronDown, ExternalLink } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
+import { useAppStore } from '@/stores/app'
+import { useI18n } from 'vue-i18n'
+import { api } from '@/services/electronAPI'
 
 const props = defineProps<{ toolCall: ToolCall }>()
 const isExpanded = ref(false)
+const appStore = useAppStore()
+const { t } = useI18n()
 
 const statusClass = computed(() => `status-${props.toolCall.status}`)
 const filePath = computed(() => props.toolCall.input?.file_path || props.toolCall.input?.path || 'unknown')
@@ -42,6 +54,59 @@ const contentPreview = computed(() => {
   return c.length > PREVIEW_MAX ? c.slice(0, PREVIEW_MAX) + '\n... (truncated)' : c
 })
 function toggleExpand() { isExpanded.value = !isExpanded.value }
+
+async function openInPanel() {
+  const fp = props.toolCall.input?.file_path || props.toolCall.input?.path
+  if (!fp) return
+
+  const modifiedContent = await api.readFile(fp)
+  if (modifiedContent === null) return
+
+  let originalContent = ''
+  try {
+    const projectRoot = appStore.projectRoot
+    if (projectRoot) {
+      const relativePath = fp.replace(projectRoot, '').replace(/^[/\\]/, '')
+      const diffResult = await api.git.getDiff(projectRoot, relativePath)
+      if (diffResult?.hunks?.length) {
+        originalContent = reconstructOriginal(diffResult, modifiedContent)
+      }
+    }
+  } catch { /* not in git repo */ }
+
+  const language = appStore.getLanguageFromPath(fp)
+  appStore.showToolDiff({
+    type: 'write',
+    filePath: fp,
+    originalContent,
+    modifiedContent,
+    toolCallId: props.toolCall.id,
+    language,
+  })
+}
+
+function reconstructOriginal(diffResult: any, modifiedContent: string): string {
+  let original = modifiedContent
+  if (diffResult.hunks) {
+    for (const hunk of [...diffResult.hunks].reverse()) {
+      if (hunk.content) {
+        const lines = hunk.content.split('\n')
+        const addLines: string[] = []
+        const removeLines: string[] = []
+        for (const line of lines) {
+          if (line.startsWith('+')) addLines.push(line.substring(1))
+          else if (line.startsWith('-')) removeLines.push(line.substring(1))
+        }
+        const addBlock = addLines.join('\n')
+        const removeBlock = removeLines.join('\n')
+        if (addBlock && original.includes(addBlock)) {
+          original = original.replace(addBlock, removeBlock)
+        }
+      }
+    }
+  }
+  return original
+}
 </script>
 
 <style lang="scss" scoped>
@@ -51,6 +116,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
 .write-label { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #fb923c; flex-shrink: 0; }
 .write-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-secondary); }
 .write-summary { font-size: 11px; flex-shrink: 0; }
+.panel-btn { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; border: none; background: transparent; color: var(--text-tertiary); cursor: pointer; flex-shrink: 0; transition: all 0.15s; &:hover { background: rgba(255,255,255,0.1); color: var(--text-primary); } }
 .expand-icon { color: var(--text-tertiary); transition: transform 0.15s; &.is-expanded { transform: rotate(180deg); } }
 .write-body { border-top: 1px solid var(--surface-border); }
 .content-preview, .result-block { padding: 10px 12px; }

@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('fs:readDir', dirPath),
   readFile: (filePath: string): Promise<string | null> =>
     ipcRenderer.invoke('fs:readFile', filePath),
+  writeFile: (filePath: string, content: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('fs:writeFile', filePath, content),
   stat: (filePath: string): Promise<FileStat | null> =>
     ipcRenderer.invoke('fs:stat', filePath),
 

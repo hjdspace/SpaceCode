@@ -28,6 +28,8 @@ export const api = {
   getAppState: () => electronAPI?.getAppState() || Promise.resolve({ sessions: [], currentSessionId: null, theme: 'dark' }),
   readDir: (dirPath: string): Promise<FileEntry[]> => electronAPI?.readDir(dirPath) || Promise.resolve([]),
   readFile: (filePath: string): Promise<string | null> => electronAPI?.readFile(filePath) || Promise.resolve(null),
+  writeFile: (filePath: string, content: string): Promise<{ success: boolean; error?: string }> =>
+    electronAPI?.writeFile(filePath, content) || Promise.resolve({ success: false, error: 'writeFile not available' }),
   stat: (filePath: string): Promise<FileStat | null> => electronAPI?.stat(filePath) || Promise.resolve(null),
   searchFiles: (dirPath: string, query: string, options?: { maxResults?: number }): Promise<FileSearchEntry[]> => {
     if (electronAPI?.searchFiles) {
@@ -43,7 +45,7 @@ export const api = {
   },
   showDiff: (diff: any) => electronAPI?.showDiff(diff),
   onDiffRequested: (callback: (diff: any) => void) => electronAPI?.onDiffRequested(callback),
-  showInfoPanel: (mode: 'diff' | 'file' | 'markdown') => electronAPI?.showInfoPanel(mode),
+  showInfoPanel: (mode: 'diff' | 'file' | 'markdown' | 'tool-diff') => electronAPI?.showInfoPanel(mode),
   hideInfoPanel: () => electronAPI?.hideInfoPanel(),
   onShowInfoPanel: (callback: (mode: string) => void) => electronAPI?.onShowInfoPanel(callback),
   onHideInfoPanel: (callback: () => void) => electronAPI?.onHideInfoPanel(callback),
