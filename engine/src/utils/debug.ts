@@ -227,12 +227,18 @@ export function logForDebugging(
   getDebugWriter().write(output)
 }
 
-export function getDebugLogPath(): string {
+// Cache the debug log path at module load time so it doesn't change
+// when session ID is regenerated (e.g., after /clear)
+const cachedDebugLogPath = (() => {
   return (
     getDebugFilePath() ??
     process.env.CLAUDE_CODE_DEBUG_LOGS_DIR ??
     join(getClaudeConfigHomeDir(), 'debug', `${getSessionId()}.txt`)
   )
+})()
+
+export function getDebugLogPath(): string {
+  return cachedDebugLogPath
 }
 
 /**
