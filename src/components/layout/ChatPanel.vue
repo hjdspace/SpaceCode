@@ -63,6 +63,7 @@
         :show-open-project-action="showNoProjectWelcome"
       />
     </template>
+    <ToastNotification />
   </main>
 </template>
 
@@ -77,6 +78,7 @@ import ChatInput, { type Attachment } from '../chat/ChatInput.vue'
 import SessionTabBar from '../chat/SessionTabBar.vue'
 import TerminalPanel from '../terminal/TerminalPanel.vue'
 import NoProjectHome from './NoProjectHome.vue'
+import ToastNotification from '../common/ToastNotification.vue'
 import { initLLMService, llmState, updateConfig } from '@/services/llm'
 import { pathsEqual } from '@/utils/recentProjectRoots'
 
