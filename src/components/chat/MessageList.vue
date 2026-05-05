@@ -17,6 +17,7 @@
         <AgentTimeline
           v-else
           :messages="group.messages"
+          :loading="loading && group.id === messageGroups[messageGroups.length - 1]?.id"
         />
       </template>
 

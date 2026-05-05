@@ -305,6 +305,8 @@ async function executeSlashCommand(command: string, args: string): Promise<strin
     case 'clear':
     case 'reset':
     case 'new':
+      // 先中断任何正在进行的请求，重置 loading 状态
+      await chatStore.abort()
       // 清除当前会话的消息
       if (chatStore.currentSession) {
         chatStore.currentSession.messages = []

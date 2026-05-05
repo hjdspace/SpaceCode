@@ -129,6 +129,7 @@ interface TimelineEvent {
 
 const props = defineProps<{
   messages: Message[]
+  loading?: boolean
 }>()
 
 const expandedEvents = reactive<Record<string, boolean>>({})
@@ -307,7 +308,7 @@ const timelineEvents = computed<TimelineEvent[]>(() => {
 const overallStatus = computed(() => {
   const lastMsg = props.messages[props.messages.length - 1]
   // Still streaming: no metadata means response hasn't finished yet
-  const isStreaming = lastMsg && !lastMsg.metadata
+  const isStreaming = props.loading && lastMsg && !lastMsg.metadata
   if (isStreaming) return 'running'
   if (timelineEvents.value.some(e => e.status === 'running' || e.status === 'pending')) return 'running'
   if (timelineEvents.value.some(e => e.status === 'error')) return 'error'
