@@ -62,8 +62,8 @@
         :placeholder="t('chat.askAnything')"
         :show-open-project-action="showNoProjectWelcome"
       />
+      <ToastNotification />
     </template>
-    <ToastNotification />
   </main>
 </template>
 
