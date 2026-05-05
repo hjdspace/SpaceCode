@@ -5,7 +5,7 @@
       <div class="timeline-avatar">
         <Bot :size="16" />
       </div>
-      <span class="timeline-agent-name">Claude</span>
+      <span class="timeline-agent-name">Agent</span>
       <span class="timeline-status-badge" :class="overallStatus">
         <Loader2 v-if="overallStatus === 'running'" :size="10" class="spin-icon" />
         {{ statusLabel }}
@@ -190,12 +190,16 @@ const timelineEvents = computed<TimelineEvent[]>(() => {
   const events: TimelineEvent[] = []
 
   for (const msg of props.messages) {
-    if (msg.timelineEvents?.length) {
-      for (const event of msg.timelineEvents) {
+    const timelineToolCallIds = new Set<string>()
+    const hasTimeline = msg.timelineEvents?.length
+
+    if (hasTimeline) {
+      for (const event of msg.timelineEvents!) {
         if (event.type === 'text' && !event.content) continue
         if (event.type === 'tool_call') {
           const tool = msg.toolCalls?.find(toolCall => toolCall.id === event.toolCallId)
           if (!tool) continue
+          timelineToolCallIds.add(tool.id)
           const icon = TOOL_ICON_MAP[tool.name] || Code
           events.push({
             id: event.id,
@@ -234,50 +238,11 @@ const timelineEvents = computed<TimelineEvent[]>(() => {
           continue
         }
       }
-
-      if (msg.metadata && (msg.metadata.model || msg.metadata.inputTokens || msg.metadata.duration)) {
-        events.push({
-          id: `${msg.id}-meta`,
-          type: 'metadata',
-          status: 'completed',
-          icon: markRaw(Info),
-          label: 'Info',
-          content: '',
-          metadata: msg.metadata,
-        })
-      }
-      continue
-    }
-
-    if (msg.reasoning) {
-      const isThinking = !msg.reasoning.endTime
-      const duration = msg.reasoning.endTime
-        ? ((msg.reasoning.endTime - msg.reasoning.startTime) / 1000).toFixed(1)
-        : null
-      events.push({
-        id: `${msg.id}-reasoning`,
-        type: 'reasoning',
-        status: isThinking ? 'running' : 'completed',
-        icon: markRaw(Brain),
-        label: 'Thinking',
-        content: msg.reasoning.content || '',
-        duration: duration || undefined,
-      })
-    }
-
-    if (msg.content) {
-      events.push({
-        id: `${msg.id}-text`,
-        type: 'text',
-        status: 'completed',
-        icon: markRaw(MessageCircle),
-        label: 'Response',
-        content: msg.content,
-      })
     }
 
     if (msg.toolCalls?.length) {
       for (const tool of msg.toolCalls) {
+        if (timelineToolCallIds.has(tool.id)) continue
         const icon = TOOL_ICON_MAP[tool.name] || Code
         events.push({
           id: tool.id,
@@ -290,6 +255,35 @@ const timelineEvents = computed<TimelineEvent[]>(() => {
           duration: getToolDuration(tool) || undefined,
           toolCall: tool,
           specialComponent: specialComponents[tool.id] ? markRaw(specialComponents[tool.id]) : undefined,
+        })
+      }
+    }
+
+    if (!hasTimeline) {
+      if (msg.reasoning) {
+        const isThinking = !msg.reasoning.endTime
+        const duration = msg.reasoning.endTime
+          ? ((msg.reasoning.endTime - msg.reasoning.startTime) / 1000).toFixed(1)
+          : null
+        events.push({
+          id: `${msg.id}-reasoning`,
+          type: 'reasoning',
+          status: isThinking ? 'running' : 'completed',
+          icon: markRaw(Brain),
+          label: 'Thinking',
+          content: msg.reasoning.content || '',
+          duration: duration || undefined,
+        })
+      }
+
+      if (msg.content) {
+        events.push({
+          id: `${msg.id}-text`,
+          type: 'text',
+          status: 'completed',
+          icon: markRaw(MessageCircle),
+          label: 'Response',
+          content: msg.content,
         })
       }
     }
