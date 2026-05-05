@@ -22,6 +22,42 @@ export interface FileSearchEntry {
   isFile: boolean
 }
 
+export interface DebugFileEntry {
+  name: string
+  path: string
+  size: number
+  modifiedAt: number
+  kind: 'app' | 'session' | 'trace'
+}
+
+export interface TraceSessionEntry {
+  sessionId: string
+  path: string
+  size: number
+  modifiedAt: number
+  eventCount: number
+}
+
+export interface AgentTraceEvent {
+  id?: string
+  sessionId: string
+  engineSessionId?: string
+  turnId?: string
+  messageId?: string
+  timestamp?: string
+  source?: 'renderer' | 'electron' | 'engine'
+  actor?: 'user' | 'assistant' | 'tool' | 'system'
+  type: string
+  status?: 'started' | 'running' | 'completed' | 'failed'
+  title?: string
+  input?: unknown
+  output?: unknown
+  artifacts?: Array<{ kind: string; path?: string; content?: string }>
+  evidence?: Array<{ kind: string; result?: string; detail: string }>
+  error?: { message: string; stack?: string }
+  metadata?: Record<string, unknown>
+}
+
 export const api = {
   sendMessage: (text: string) => electronAPI?.sendMessage(text) || Promise.resolve({ success: false }),
   onMessage: (callback: (msg: any) => void) => electronAPI?.onMessage(callback),
@@ -167,6 +203,21 @@ export const api = {
       }
       return Promise.resolve([])
     },
+  },
+
+  // Debug API
+  debug: {
+    listFiles: (): Promise<DebugFileEntry[]> => electronAPI?.debug?.listFiles() || Promise.resolve([]),
+    readFile: (filePath: string, maxBytes?: number): Promise<{ success: boolean; content?: string; error?: string }> =>
+      electronAPI?.debug?.readFile(filePath, maxBytes) || Promise.resolve({ success: false, error: 'Debug API not available' }),
+    listTraceSessions: (): Promise<TraceSessionEntry[]> => electronAPI?.debug?.listTraceSessions() || Promise.resolve([]),
+    readTraceEvents: (sessionId: string, maxEvents?: number): Promise<{ success: boolean; events?: AgentTraceEvent[]; error?: string }> =>
+      electronAPI?.debug?.readTraceEvents(sessionId, maxEvents) || Promise.resolve({ success: false, error: 'Debug API not available' }),
+  },
+
+  // Trace API
+  trace: {
+    event: (event: AgentTraceEvent) => electronAPI?.trace?.event(event),
   },
 
   // Terminal API

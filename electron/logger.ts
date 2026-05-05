@@ -1,5 +1,5 @@
 import { join } from 'path'
-import { existsSync, mkdirSync, appendFileSync, readdirSync, unlinkSync, statSync } from 'fs'
+import { existsSync, mkdirSync, appendFileSync, readdirSync, unlinkSync, statSync, readFileSync } from 'fs'
 import { app } from 'electron'
 import * as os from 'os'
 
@@ -15,8 +15,29 @@ const MAX_DATA_PREVIEW = 800    // data 字段预览最大长度
 
 let logDir: string
 let logFilePath: string
-let sessionLogFile: string | null = null
+let traceDir: string
+const sessionLogFiles = new Map<string, string>()
 let _debugMode = false
+
+export type AgentTraceEvent = {
+  id?: string
+  sessionId: string
+  engineSessionId?: string
+  turnId?: string
+  messageId?: string
+  timestamp?: string
+  source?: 'renderer' | 'electron' | 'engine'
+  actor?: 'user' | 'assistant' | 'tool' | 'system'
+  type: string
+  status?: 'started' | 'running' | 'completed' | 'failed'
+  title?: string
+  input?: unknown
+  output?: unknown
+  artifacts?: Array<{ kind: string; path?: string; content?: string }>
+  evidence?: Array<{ kind: string; result?: string; detail: string }>
+  error?: { message: string; stack?: string }
+  metadata?: Record<string, unknown>
+}
 
 /**
  * 返回本地时间的 ISO 格式字符串（带时区偏移），如 2026-05-03T18:37:51.123+08:00
@@ -43,10 +64,14 @@ function toLocalISOString(date: Date = new Date()): string {
 export function initLogger(): void {
   const homeDir = app.getPath('home') || os.homedir()
   logDir = join(homeDir, '.claude', 'debug')
+  traceDir = join(logDir, 'traces')
 
   // 确保目录存在
   if (!existsSync(logDir)) {
     mkdirSync(logDir, { recursive: true })
+  }
+  if (!existsSync(traceDir)) {
+    mkdirSync(traceDir, { recursive: true })
   }
 
   // 按本地日期命名主日志文件
@@ -72,7 +97,8 @@ export function setSessionLogPath(sessionId: string): void {
   const now = new Date()
   const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
   const timeStr = `${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`
-  sessionLogFile = join(logDir, `session-${shortId}-${dateStr}-${timeStr}.log`)
+  const sessionLogFile = join(logDir, `session-${shortId}-${dateStr}-${timeStr}.log`)
+  sessionLogFiles.set(sessionId, sessionLogFile)
   debug('Logger', `Session log file created: ${sessionLogFile}`)
 }
 
@@ -121,6 +147,7 @@ export function sdkMessage(sessionId: string, msgType: string, msg: any): void {
   writeLine(line, true)
 
   // 如果有会话日志文件，也写入
+  const sessionLogFile = sessionLogFiles.get(sessionId)
   if (sessionLogFile) {
     const sessionLine = formatLine('INFO', 'SDK', `${msgType} | ${preview}`)
     try { appendFileSync(sessionLogFile, sessionLine) } catch {}
@@ -137,9 +164,114 @@ export function processRaw(sessionId: string, stream: 'stdout' | 'stderr', data:
   const line = formatLine(level, 'PROCESS', `[${shortSid}] ${stream} | ${preview}`)
   writeLine(line, stream === 'stdout' ? true : _debugMode)
 
+  const sessionLogFile = sessionLogFiles.get(sessionId)
   if (sessionLogFile) {
     const sessionLine = formatLine(level, 'PROCESS', `${stream} | ${preview}`)
     try { appendFileSync(sessionLogFile, sessionLine) } catch {}
+  }
+}
+
+export function traceEvent(event: AgentTraceEvent): void {
+  if (!event?.sessionId || !event.type) return
+  ensureTraceDir()
+  const safeSessionId = sanitizeFilePart(event.sessionId)
+  const fullEvent = {
+    id: event.id || randomId(),
+    timestamp: event.timestamp || toLocalISOString(),
+    source: event.source || 'electron',
+    ...redactSensitive(event),
+  }
+  const line = safeStringify(fullEvent) + '\n'
+  const filePath = join(traceDir, `session-${safeSessionId}.jsonl`)
+  try {
+    appendFileSync(filePath, line, { mode: 0o600 })
+  } catch {
+    try {
+      ensureTraceDir()
+      appendFileSync(filePath, line, { mode: 0o600 })
+    } catch {}
+  }
+}
+
+export function listDebugFiles(): Array<{ name: string; path: string; size: number; modifiedAt: number; kind: 'app' | 'session' | 'trace' }> {
+  if (!logDir) return []
+  const files: Array<{ name: string; path: string; size: number; modifiedAt: number; kind: 'app' | 'session' | 'trace' }> = []
+  try {
+    for (const name of readdirSync(logDir)) {
+      const path = join(logDir, name)
+      const stat = statSync(path)
+      if (!stat.isFile()) continue
+      if (!name.endsWith('.log')) continue
+      files.push({
+        name,
+        path,
+        size: stat.size,
+        modifiedAt: stat.mtime.getTime(),
+        kind: name.startsWith('session-') ? 'session' : 'app',
+      })
+    }
+  } catch {}
+  try {
+    ensureTraceDir()
+    for (const name of readdirSync(traceDir)) {
+      const path = join(traceDir, name)
+      const stat = statSync(path)
+      if (!stat.isFile() || !name.endsWith('.jsonl')) continue
+      files.push({ name, path, size: stat.size, modifiedAt: stat.mtime.getTime(), kind: 'trace' })
+    }
+  } catch {}
+  return files.sort((a, b) => b.modifiedAt - a.modifiedAt)
+}
+
+export function readDebugFile(filePath: string, maxBytes = 1024 * 1024): { success: boolean; content?: string; error?: string } {
+  try {
+    if (!isAllowedDebugPath(filePath)) {
+      return { success: false, error: 'Path is outside debug directory' }
+    }
+    const stat = statSync(filePath)
+    const start = Math.max(0, stat.size - maxBytes)
+    const content = readFileSync(filePath).subarray(start).toString('utf8')
+    return { success: true, content }
+  } catch (err) {
+    return { success: false, error: String(err) }
+  }
+}
+
+export function listTraceSessions(): Array<{ sessionId: string; path: string; size: number; modifiedAt: number; eventCount: number }> {
+  ensureTraceDir()
+  const sessions: Array<{ sessionId: string; path: string; size: number; modifiedAt: number; eventCount: number }> = []
+  try {
+    for (const name of readdirSync(traceDir)) {
+      if (!name.startsWith('session-') || !name.endsWith('.jsonl')) continue
+      const path = join(traceDir, name)
+      const stat = statSync(path)
+      const content = readFileSync(path, 'utf8')
+      sessions.push({
+        sessionId: name.slice('session-'.length, -'.jsonl'.length),
+        path,
+        size: stat.size,
+        modifiedAt: stat.mtime.getTime(),
+        eventCount: content.split(/\r?\n/).filter(Boolean).length,
+      })
+    }
+  } catch {}
+  return sessions.sort((a, b) => b.modifiedAt - a.modifiedAt)
+}
+
+export function readTraceEvents(sessionId: string, maxEvents = 1000): { success: boolean; events?: AgentTraceEvent[]; error?: string } {
+  try {
+    ensureTraceDir()
+    const filePath = join(traceDir, `session-${sanitizeFilePart(sessionId)}.jsonl`)
+    if (!isAllowedDebugPath(filePath) || !existsSync(filePath)) {
+      return { success: false, error: 'Trace session not found' }
+    }
+    const lines = readFileSync(filePath, 'utf8').split(/\r?\n/).filter(Boolean)
+    const events = lines.slice(Math.max(0, lines.length - maxEvents)).map(line => {
+      try { return JSON.parse(line) as AgentTraceEvent } catch { return null }
+    }).filter(Boolean) as AgentTraceEvent[]
+    return { success: true, events }
+  } catch (err) {
+    return { success: false, error: String(err) }
   }
 }
 
@@ -211,6 +343,15 @@ function cleanOldLogs(): void {
   } catch {}
 }
 
+function ensureTraceDir(): void {
+  if (!traceDir && logDir) {
+    traceDir = join(logDir, 'traces')
+  }
+  if (traceDir && !existsSync(traceDir)) {
+    mkdirSync(traceDir, { recursive: true })
+  }
+}
+
 function safeStringify(obj: any): string {
   if (obj === undefined) return 'undefined'
   if (obj === null) return 'null'
@@ -245,4 +386,19 @@ function redactSensitive(obj: any): any {
 function truncate(str: string, max: number): string {
   if (str.length <= max) return str
   return str.slice(0, max - 3) + '...'
+}
+
+function sanitizeFilePart(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_.-]/g, '_')
+}
+
+function randomId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function isAllowedDebugPath(filePath: string): boolean {
+  if (!logDir) return false
+  const normalized = filePath.replace(/\\/g, '/')
+  const normalizedLogDir = logDir.replace(/\\/g, '/')
+  return normalized.startsWith(normalizedLogDir + '/')
 }

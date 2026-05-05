@@ -62,6 +62,17 @@
         <span class="icon-label">{{ t('sidebar.terminal') }}</span>
       </button>
 
+      <!-- Debug/Trace Tab -->
+      <button
+        class="icon-btn"
+        :class="{ active: appStore.showTraceViewer }"
+        @click="toggleTraceViewer"
+        :title="t('sidebar.debugTrace')"
+      >
+        <Activity :size="20" />
+        <span class="icon-label">{{ t('sidebar.debugTrace') }}</span>
+      </button>
+
       <!-- Spacer to push settings to bottom -->
       <div class="icon-spacer"></div>
 
@@ -263,7 +274,8 @@ import {
   Search,
   FolderPlus,
   Zap,
-  Plug
+  Plug,
+  Activity
 } from 'lucide-vue-next'
 
 // Enhanced Components
@@ -322,6 +334,10 @@ function handleTabClick(tab: 'explorer' | 'scm' | 'history' | 'terminal') {
       appStore.toggleSidebar()
     }
   }
+}
+
+function toggleTraceViewer() {
+  appStore.showTraceViewer = !appStore.showTraceViewer
 }
 
 function handleOpenSkills() {

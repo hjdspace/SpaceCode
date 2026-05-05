@@ -34,12 +34,15 @@ const logger = {
 
 function traceEvent(event: {
   sessionId: string
+  messageId?: string
   actor: 'user' | 'assistant' | 'tool' | 'system'
   type: string
   status?: 'started' | 'running' | 'completed' | 'failed'
   title?: string
   input?: unknown
   output?: unknown
+  artifacts?: Array<{ kind: string; path?: string; content?: string }>
+  evidence?: Array<{ kind: string; result?: string; detail: string }>
   metadata?: Record<string, unknown>
   error?: { message: string; stack?: string }
 }) {
@@ -594,7 +597,7 @@ export const useChatStore = defineStore('chat', () => {
       type: 'assistant_turn',
       status: 'started',
       title: 'Assistant turn started',
-    } as any)
+    })
 
     addMessage({
       id: assistantMessageId,
@@ -867,10 +870,22 @@ export const useChatStore = defineStore('chat', () => {
                 id: toolId, name: toolName, input: toolInput,
                 status: 'running', startTime: Date.now()
               }]
+              const FILE_TOOLS = new Set(['Write', 'FileWrite', 'Edit', 'FileEdit', 'MultiEdit'])
+              const COMMAND_TOOLS = new Set(['Bash'])
+              const VERIFICATION_PATTERNS = [/^\s*(npm\s+test|bun\s+test|pnpm\s+test|yarn\s+test|pytest|cargo\s+test|go\s+test|jest|vitest|mocha|npx\s+playwright|ruff|eslint|biome|prettier|tsc|vue-tsc|npm\s+run\s+(test|lint|check|build|typecheck))/i]
+
+              let traceType: string = 'tool_call'
+              if (FILE_TOOLS.has(toolName)) traceType = 'file_change'
+              else if (COMMAND_TOOLS.has(toolName)) {
+                const cmd = typeof toolInput.command === 'string' ? toolInput.command : ''
+                const isVerification = VERIFICATION_PATTERNS.some(p => p.test(cmd))
+                traceType = isVerification ? 'verification' : 'command_run'
+              }
+
               traceEvent({
                 sessionId: targetSessionId,
                 actor: 'tool',
-                type: 'tool_call',
+                type: traceType,
                 status: 'started',
                 title: toolName,
                 input: toolInput,
@@ -910,13 +925,44 @@ export const useChatStore = defineStore('chat', () => {
                 endTime: Date.now()
               }
               msg.toolCalls = updatedToolCalls
+              const FILE_TOOLS = new Set(['Write', 'FileWrite', 'Edit', 'FileEdit', 'MultiEdit'])
+              const COMMAND_TOOLS = new Set(['Bash'])
+              const VERIFICATION_PATTERNS = [/^\s*(npm\s+test|bun\s+test|pnpm\s+test|yarn\s+test|pytest|cargo\s+test|go\s+test|jest|vitest|mocha|npx\s+playwright|ruff|eslint|biome|prettier|tsc|vue-tsc|npm\s+run\s+(test|lint|check|build|typecheck))/i]
+
+              const toolName = updatedToolCalls[toolCallIndex].name
+              let traceType: string = 'tool_result'
+              let evidence: Array<{ kind: string; result?: string; detail: string }> | undefined
+              if (FILE_TOOLS.has(toolName)) {
+                traceType = 'file_change'
+              } else if (COMMAND_TOOLS.has(toolName)) {
+                const cmd = typeof updatedToolCalls[toolCallIndex].input?.command === 'string'
+                  ? updatedToolCalls[toolCallIndex].input.command : ''
+                const isVerification = VERIFICATION_PATTERNS.some(p => p.test(cmd))
+                if (isVerification) {
+                  traceType = 'verification'
+                  const passKeywords = ['passed', 'pass', '0 failures', '0 errors', 'all tests passed', 'success']
+                  const failKeywords = ['failed', 'fail', 'error', 'failure', 'failing']
+                  const lowerOutput = resultOutput.toLowerCase()
+                  const isPass = !resultIsError && passKeywords.some(k => lowerOutput.includes(k))
+                  const isFail = resultIsError || failKeywords.some(k => lowerOutput.includes(k))
+                  evidence = [{
+                    kind: cmd.match(/test/i) ? 'test' : cmd.match(/(lint|eslint|biome|ruff)/i) ? 'lint' : cmd.match(/(build|tsc|typecheck)/i) ? 'build' : 'manual',
+                    result: isFail ? 'fail' : isPass ? 'pass' : 'unknown',
+                    detail: resultOutput.slice(0, 500),
+                  }]
+                } else {
+                  traceType = 'command_run'
+                }
+              }
+
               traceEvent({
                 sessionId: targetSessionId,
                 actor: 'tool',
-                type: 'tool_result',
+                type: traceType,
                 status: resultIsError ? 'failed' : 'completed',
-                title: updatedToolCalls[toolCallIndex].name,
+                title: toolName,
                 output: resultOutput,
+                evidence,
                 metadata: { toolId: resultToolUseId, assistantMessageId },
               })
               updateTimelineEvent(`tool-${resultToolUseId}`, {
@@ -987,7 +1033,48 @@ export const useChatStore = defineStore('chat', () => {
                 stopReason: result.stop_reason || '',
                 warning: msg.metadata.warning || '',
               },
-            } as any)
+            })
+
+            const fileChanges = msg.toolCalls
+              ?.filter(tc => ['Write', 'FileWrite', 'Edit', 'FileEdit', 'MultiEdit'].includes(tc.name))
+              .map(tc => ({
+                kind: tc.name,
+                path: tc.input?.file_path || tc.input?.path || '',
+              })) || []
+            const verifications = msg.toolCalls
+              ?.filter(tc => tc.name === 'Bash' && tc.output)
+              .filter(tc => {
+                const cmd = typeof tc.input?.command === 'string' ? tc.input.command : ''
+                return /^\s*(npm\s+test|bun\s+test|pnpm\s+test|yarn\s+test|pytest|cargo\s+test|go\s+test|jest|vitest|mocha|ruff|eslint|biome|prettier|tsc|vue-tsc|npm\s+run\s+(test|lint|check|build|typecheck))/i.test(cmd)
+              })
+              .map(tc => ({
+                kind: 'verification',
+                result: tc.status === 'completed' ? 'pass' : 'fail',
+                detail: (tc.output || '').slice(0, 300),
+              })) || []
+            const errors = msg.toolCalls
+              ?.filter(tc => tc.status === 'error')
+              .map(tc => ({ kind: tc.name, detail: (tc.output || '').slice(0, 300) })) || []
+
+            traceEvent({
+              sessionId: targetSessionId,
+              messageId: assistantMessageId,
+              actor: 'system',
+              type: 'final_summary',
+              status: errors.length > 0 ? 'failed' : 'completed',
+              title: 'Session turn summary',
+              artifacts: fileChanges.length > 0 ? fileChanges : undefined,
+              evidence: verifications.length > 0 ? verifications : undefined,
+              error: errors.length > 0 ? { message: errors.map(e => `${e.kind}: ${e.detail}`).join('; ') } : undefined,
+              metadata: {
+                toolCallCount: msg.toolCalls?.length || 0,
+                fileChangeCount: fileChanges.length,
+                verificationCount: verifications.length,
+                errorCount: errors.length,
+                contentLength: msg.content.length,
+              },
+            })
+
             saveToStorage()
           }
         }
@@ -1051,7 +1138,7 @@ export const useChatStore = defineStore('chat', () => {
           status: 'failed',
           title: 'Assistant turn failed',
           error: { message: classified.technicalDetail },
-        } as any)
+        })
 
         updateMessage(assistantMessageId, {
           content: classified.message,

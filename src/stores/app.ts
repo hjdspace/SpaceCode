@@ -56,6 +56,7 @@ export const useAppStore = defineStore('app', () => {
 
   // Skills manager modal visibility
   const showSkillsManager = ref(false)
+  const showTraceViewer = ref(false)
 
   const isDark = computed(() => theme.value === 'dark')
 
@@ -241,6 +242,7 @@ export const useAppStore = defineStore('app', () => {
     activeCenterTab,
     projectRoot,
     showSkillsManager,
+    showTraceViewer,
     isDark,
     toggleTheme,
     toggleSidebar,

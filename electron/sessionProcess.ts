@@ -6,7 +6,7 @@ import * as os from 'os'
 import { randomUUID } from 'crypto'
 import { app } from 'electron'
 import { SessionConfig } from './claudeCodeProcessManager'
-import { info, warn, error, debug, processRaw, setSessionLogPath } from './logger'
+import { info, warn, error, debug, processRaw, setSessionLogPath, sdkMessage, traceEvent } from './logger'
 
 export type ProcessStatus = 'starting' | 'active' | 'idle' | 'suspended' | 'exited'
 
@@ -48,6 +48,20 @@ export class SessionProcess extends EventEmitter {
     this.status = 'starting'
     // 创建会话级日志文件
     setSessionLogPath(this.sessionId)
+    traceEvent({
+      sessionId: this.sessionId,
+      actor: 'system',
+      type: 'session_start',
+      status: 'started',
+      title: 'Claude Code session starting',
+      input: {
+        cwd: this.config.cwd,
+        provider: this.config.provider,
+        model: this.config.model,
+        agent: this.config.agent,
+        permissionMode: this.config.permissionMode,
+      },
+    })
 
     const builtArgs = this.buildArgs(this.config)
     const baseEnv = this.buildEnv(this.config)
@@ -80,6 +94,14 @@ export class SessionProcess extends EventEmitter {
         this.process = proc
         this.attachProcessListeners(proc)
         info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process spawned | pid=${proc.pid}`)
+        traceEvent({
+          sessionId: this.sessionId,
+          actor: 'system',
+          type: 'process_spawn',
+          status: 'completed',
+          title: 'Engine process spawned',
+          metadata: { pid: proc.pid, command: launch.command, cwd: this.config.cwd },
+        })
         this.status = 'active'
         this.lastActivityAt = Date.now()
         return
@@ -114,6 +136,14 @@ export class SessionProcess extends EventEmitter {
       this.attachProcessListeners(proc)
       this.status = 'exited'
       error('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process error | pid=${proc.pid}`, { error: err.message, stack: err.stack })
+      traceEvent({
+        sessionId: this.sessionId,
+        actor: 'system',
+        type: 'process_error',
+        status: 'failed',
+        title: 'Engine process failed to start',
+        error: { message: err.message, stack: err.stack },
+      })
       this.emit('error', err)
       throw err
     }
@@ -131,6 +161,14 @@ export class SessionProcess extends EventEmitter {
     proc.on('error', (err) => {
       this.status = 'exited'
       error('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process error | pid=${proc.pid}`, { error: err.message, stack: err.stack })
+      traceEvent({
+        sessionId: this.sessionId,
+        actor: 'system',
+        type: 'process_error',
+        status: 'failed',
+        title: 'Engine process error',
+        error: { message: err.message, stack: err.stack },
+      })
       this.emit('error', err)
     })
 
@@ -161,6 +199,14 @@ export class SessionProcess extends EventEmitter {
 
     proc.on('exit', (code, signal) => {
       info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process exited | code=${code} | signal=${signal} | pid=${this.process?.pid}`)
+      traceEvent({
+        sessionId: this.sessionId,
+        actor: 'system',
+        type: 'process_exit',
+        status: code === 0 || code === null ? 'completed' : 'failed',
+        title: 'Engine process exited',
+        metadata: { code, signal, pid: this.process?.pid },
+      })
       if (this.status !== 'suspended') {
         this.status = 'exited'
       }
@@ -180,6 +226,14 @@ export class SessionProcess extends EventEmitter {
   sendMessage(content: string): void {
     if (!this.process) throw new Error('No active process')
     info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Sending user message | contentLen=${content.length} | preview="${content.slice(0, 100)}"`)
+    traceEvent({
+      sessionId: this.sessionId,
+      actor: 'user',
+      type: 'user_message',
+      status: 'completed',
+      title: 'User message sent to engine',
+      input: { content },
+    })
     const msg = JSON.stringify({
       type: 'user',
       message: { role: 'user', content }
@@ -263,11 +317,22 @@ export class SessionProcess extends EventEmitter {
 
   private handleSDKMessage(msg: SDKMessage) {
     this.lastActivityAt = Date.now()
+    sdkMessage(this.sessionId, msg.type, msg)
 
     if (msg.type === 'result') {
       this.status = 'idle'
       this.isProcessing = false
       info('SessionProcess', `[${this.sessionId.slice(0, 8)}] LLM response complete (result) | costUsd=${msg.cost_usd} | durationMs=${msg.duration_ms} | numTurns=${msg.num_turns}`)
+      traceEvent({
+        sessionId: this.sessionId,
+        engineSessionId: this.engineSessionId || undefined,
+        actor: 'assistant',
+        type: 'result',
+        status: 'completed',
+        title: 'Agent response completed',
+        output: { result: msg.result, stop_reason: msg.stop_reason },
+        metadata: { costUsd: msg.cost_usd, durationMs: msg.duration_ms, numTurns: msg.num_turns },
+      })
     } else if (msg.type === 'assistant' || msg.type === 'tool_use' || msg.type === 'stream_event') {
       this.status = 'active'
       this.isProcessing = true
@@ -280,6 +345,16 @@ export class SessionProcess extends EventEmitter {
       if (toolId) {
         this.pendingToolCalls.add(toolId)
         info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Tool call started | id=${toolId} | name=${toolName} | pendingCount=${this.pendingToolCalls.size}`)
+        traceEvent({
+          sessionId: this.sessionId,
+          engineSessionId: this.engineSessionId || undefined,
+          actor: 'tool',
+          type: 'tool_call',
+          status: 'started',
+          title: String(toolName || 'Tool call'),
+          input: msg.input || msg.tool_use?.input || {},
+          metadata: { toolId, toolName, pendingCount: this.pendingToolCalls.size },
+        })
       }
     } else if (msg.type === 'tool_result') {
       const toolId = msg.tool_use_id || msg.tool_result?.tool_use_id
@@ -287,6 +362,16 @@ export class SessionProcess extends EventEmitter {
       if (toolId) {
         this.pendingToolCalls.delete(toolId)
         info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Tool result received | id=${toolId} | error=${!!isError} | pendingCount=${this.pendingToolCalls.size}`)
+        traceEvent({
+          sessionId: this.sessionId,
+          engineSessionId: this.engineSessionId || undefined,
+          actor: 'tool',
+          type: 'tool_result',
+          status: isError ? 'failed' : 'completed',
+          title: 'Tool result',
+          output: msg.output ?? msg.content ?? msg.tool_result?.output ?? msg.tool_result?.content,
+          metadata: { toolId, isError: !!isError, pendingCount: this.pendingToolCalls.size },
+        })
       }
     }
 
@@ -295,6 +380,15 @@ export class SessionProcess extends EventEmitter {
       if (sid) {
         this.engineSessionId = sid
         info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Engine session initialized | engineSessionId=${sid} | tools=${JSON.stringify(msg.tools || []).slice(0, 200)}`)
+        traceEvent({
+          sessionId: this.sessionId,
+          engineSessionId: sid,
+          actor: 'system',
+          type: 'engine_session_init',
+          status: 'completed',
+          title: 'Engine session initialized',
+          metadata: { tools: msg.tools || [] },
+        })
       }
     }
 
@@ -320,8 +414,27 @@ export class SessionProcess extends EventEmitter {
           }
         }
         info('SessionProcess', `[${this.sessionId.slice(0, 8)}] assistant message | textLen=${textItem?.text?.length || 0} | thinkingLen=${thinkingItem?.thinking?.length || thinkingItem?.text?.length || 0} | toolCalls=${toolUses.length} | toolNames=[${toolUses.map((t: any) => t.name).join(',')}]`)
+        traceEvent({
+          sessionId: this.sessionId,
+          engineSessionId: this.engineSessionId || undefined,
+          actor: 'assistant',
+          type: 'assistant_message',
+          status: 'completed',
+          title: 'Assistant message',
+          output: { text: textItem?.text, thinking: thinkingItem?.thinking || thinkingItem?.text },
+          metadata: { toolCalls: toolUses.length, toolNames: toolUses.map((t: any) => t.name) },
+        })
       } else if (typeof content === 'string') {
         info('SessionProcess', `[${this.sessionId.slice(0, 8)}] assistant message (string) | contentLen=${content.length}`)
+        traceEvent({
+          sessionId: this.sessionId,
+          engineSessionId: this.engineSessionId || undefined,
+          actor: 'assistant',
+          type: 'assistant_message',
+          status: 'completed',
+          title: 'Assistant message',
+          output: { text: content },
+        })
       }
     }
 

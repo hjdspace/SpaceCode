@@ -6,7 +6,7 @@ import { TerminalManager } from './terminalManager'
 import { registerGitIPCHandlers } from './gitService'
 import { registerSkillsIPCHandlers } from './skillsService'
 import { registerClaudeCodeIPC, setMainWindow } from './claudeCodeIPC'
-import { initLogger, info, warn, error, debug, isDebugMode, ipc as logIpc } from './logger'
+import { initLogger, info, warn, error, debug, isDebugMode, ipc as logIpc, traceEvent, listDebugFiles, readDebugFile, listTraceSessions, readTraceEvents } from './logger'
 
 // ============================================================
 // App Startup
@@ -870,4 +870,24 @@ ipcMain.on('log:warn', (_event, scope: string, message: string, data?: any) => {
 })
 ipcMain.on('log:error', (_event, scope: string, message: string, data?: any) => {
   error(`RENDERER:${scope}`, message, data)
+})
+
+ipcMain.on('trace:event', (_event, event: any) => {
+  traceEvent({ ...event, source: event?.source || 'renderer' })
+})
+
+ipcMain.handle('debug:listFiles', async () => {
+  return listDebugFiles()
+})
+
+ipcMain.handle('debug:readFile', async (_event, filePath: string, maxBytes?: number) => {
+  return readDebugFile(filePath, maxBytes)
+})
+
+ipcMain.handle('debug:listTraceSessions', async () => {
+  return listTraceSessions()
+})
+
+ipcMain.handle('debug:readTraceEvents', async (_event, sessionId: string, maxEvents?: number) => {
+  return readTraceEvents(sessionId, maxEvents)
 })

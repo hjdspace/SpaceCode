@@ -28,6 +28,19 @@ const rendererLogger = {
     ipcRenderer.send('log:error', scope, message, data),
 }
 
+const debugApi = {
+  listFiles: () => ipcRenderer.invoke('debug:listFiles'),
+  readFile: (filePath: string, maxBytes?: number) =>
+    ipcRenderer.invoke('debug:readFile', filePath, maxBytes),
+  listTraceSessions: () => ipcRenderer.invoke('debug:listTraceSessions'),
+  readTraceEvents: (sessionId: string, maxEvents?: number) =>
+    ipcRenderer.invoke('debug:readTraceEvents', sessionId, maxEvents),
+}
+
+const traceApi = {
+  event: (event: any) => ipcRenderer.send('trace:event', event),
+}
+
 contextBridge.exposeInMainWorld('electronAPI', {
   // Platform info for titlebar rendering
   platform: process.platform,
@@ -260,4 +273,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 渲染进程日志桥接
   logger: rendererLogger,
+  debug: debugApi,
+  trace: traceApi,
 })

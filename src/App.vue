@@ -14,7 +14,8 @@
       ></div>
       <div class="center-panel">
         <div class="center-content">
-          <ChatPanel />
+          <ChatPanel v-if="!appStore.showTraceViewer" />
+          <TraceViewer v-else />
         </div>
       </div>
       <div
@@ -40,6 +41,7 @@ import TitleBar from './components/layout/TitleBar.vue'
 import Sidebar from './components/layout/Sidebar.vue'
 import ChatPanel from './components/layout/ChatPanel.vue'
 import InfoPanel from './components/layout/InfoPanel.vue'
+import TraceViewer from './components/debug/TraceViewer.vue'
 import { api } from '@/services/electronAPI'
 import { useShortcuts } from '@/composables/useShortcuts'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
