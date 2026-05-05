@@ -56,7 +56,7 @@ export function registerClaudeCodeIPC() {
   info('ClaudeCodeIPC', 'Process pool initialized')
 
   ipcMain.handle('claude-code:startSession', async (_, sessionId: string, config: SessionConfig) => {
-    info('ClaudeCodeIPC', `→ startSession | sessionId=${sessionId.slice(0, 8)} | cwd=${config.cwd} | provider=${config.provider} | model=${config.model} | agent=${config.agent || '(none)'}`)
+    info('ClaudeCodeIPC', `→ startSession | sessionId=${sessionId.slice(0, 8)} | cwd=${config.cwd} | provider=${config.provider} | model=${config.model} | baseUrl=${config.baseUrl || '(empty)'} | agent=${config.agent || '(none)'}`)
     const startMs = Date.now()
     try {
       if (!pool) throw new Error('Pool not initialized')

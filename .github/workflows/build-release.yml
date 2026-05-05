@@ -82,6 +82,9 @@ jobs:
       - name: Build engine
         run: cd engine && bun run build
 
+      - name: Build engine desktop bundle (dist-desktop for Electron extraResources)
+        run: cd engine && bun run build-desktop.ts
+
       - name: Write build-time secrets
         shell: bash
         env:

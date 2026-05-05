@@ -413,7 +413,7 @@ export const useChatStore = defineStore('chat', () => {
       session.processStatus = 'starting'
       saveToStorage()
 
-      logger.info('ChatStore', `initClaudeCodeSession: starting session | id=${sessionId.slice(0, 8)} | cwd=${cwd} | provider=${config.provider} | model=${config.model} | agent=${currentAgent.value || '(none)'}`)
+      logger.info('ChatStore', `initClaudeCodeSession: starting session | id=${sessionId.slice(0, 8)} | cwd=${cwd} | provider=${config.provider} | model=${config.model} | baseUrl=${config.apiUrl || '(empty)'} | apiKey=${config.apiKey ? '***set' : '(empty)'} | agent=${currentAgent.value || '(none)'}`)
 
       await claudeCode.startSession(sessionId, {
         cwd,

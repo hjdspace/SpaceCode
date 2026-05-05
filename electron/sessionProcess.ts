@@ -46,35 +46,96 @@ export class SessionProcess extends EventEmitter {
 
   async start(): Promise<void> {
     this.status = 'starting'
-    const { command, args: cliArgs } = this.resolveCliCommand()
-    const args = [...cliArgs, ...this.buildArgs(this.config)]
-    const env = this.buildEnv(this.config)
-
     // 创建会话级日志文件
     setSessionLogPath(this.sessionId)
 
-    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Starting process | command=${command} | args=${args.join(' ')} | cwd=${this.config.cwd}`)
-    debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process env keys=[${Object.keys(env).join(',')}] | provider=${this.config.provider} | model=${this.config.model}`)
+    const builtArgs = this.buildArgs(this.config)
+    const baseEnv = this.buildEnv(this.config)
+    const desktopCli = path.join(this.cliRoot, 'dist-desktop/cli.js')
+    let launch = this.resolveCliCommand()
+    let canRetryENOENT =
+      app.isPackaged &&
+      fs.existsSync(desktopCli) &&
+      launch.command !== process.execPath &&
+      launch.launcherEnv?.ELECTRON_RUN_AS_NODE !== '1'
 
-    this.process = spawn(command, args, {
-      cwd: this.config.cwd,
-      env: { ...process.env, ...env },
-      stdio: ['pipe', 'pipe', 'pipe'],
-      shell: false,
-      windowsHide: true
-    })
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const env = { ...process.env, ...baseEnv, ...(launch.launcherEnv ?? {}) }
+      const args = [...launch.args, ...builtArgs]
 
-    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process spawned | pid=${this.process.pid}`)
+      info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Starting process | command=${launch.command} | args=${args.join(' ')} | cwd=${this.config.cwd}`)
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process env keys=[${Object.keys(env).join(',')}] | provider=${this.config.provider} | model=${this.config.model}`)
 
-    this.process.on('error', (err) => {
+      const proc = spawn(launch.command, args, {
+        cwd: this.config.cwd,
+        env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: false,
+        windowsHide: true,
+      })
+
+      const outcome = await this.waitForSpawnOrError(proc)
+
+      if (outcome === 'spawn') {
+        this.process = proc
+        this.attachProcessListeners(proc)
+        info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process spawned | pid=${proc.pid}`)
+        this.status = 'active'
+        this.lastActivityAt = Date.now()
+        return
+      }
+
+      const err = outcome
+      proc.removeAllListeners()
+
+      if (err.code === 'ENOENT' && canRetryENOENT && attempt === 0) {
+        const bunPath = launch.command
+        let bunDiag = ''
+        try {
+          const st = fs.statSync(bunPath)
+          bunDiag = `exists=true | isFile=${st.isFile()} | size=${st.size}`
+        } catch {
+          bunDiag = 'exists=false'
+        }
+        warn(
+          'SessionProcess',
+          `[${this.sessionId.slice(0, 8)}] CLI spawn ENOENT (${err.message}); retrying with ELECTRON_RUN_AS_NODE + dist-desktop/cli.js | originalCommand=${bunPath} | ${bunDiag}`,
+        )
+        canRetryENOENT = false
+        launch = {
+          command: process.execPath,
+          args: [desktopCli],
+          launcherEnv: { ELECTRON_RUN_AS_NODE: '1' },
+        }
+        continue
+      }
+
+      this.process = proc
+      this.attachProcessListeners(proc)
       this.status = 'exited'
-      error('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process error | pid=${this.process?.pid}`, { error: err.message, stack: err.stack })
+      error('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process error | pid=${proc.pid}`, { error: err.message, stack: err.stack })
+      this.emit('error', err)
+      throw err
+    }
+  }
+
+  /** Resolves when the child either successfully spawns or fails synchronously (e.g. ENOENT). */
+  private waitForSpawnOrError(proc: ChildProcess): Promise<'spawn' | NodeJS.ErrnoException> {
+    return new Promise((resolve) => {
+      proc.once('spawn', () => resolve('spawn'))
+      proc.once('error', (e: NodeJS.ErrnoException) => resolve(e))
+    })
+  }
+
+  private attachProcessListeners(proc: ChildProcess): void {
+    proc.on('error', (err) => {
+      this.status = 'exited'
+      error('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process error | pid=${proc.pid}`, { error: err.message, stack: err.stack })
       this.emit('error', err)
     })
 
-    this.process.stdout!.on('data', (data) => {
+    proc.stdout!.on('data', (data) => {
       const dataStr = data.toString()
-      // 记录原始 stdout
       processRaw(this.sessionId, 'stdout', dataStr)
 
       this.buffer += dataStr
@@ -92,14 +153,13 @@ export class SessionProcess extends EventEmitter {
       }
     })
 
-    this.process.stderr!.on('data', (data) => {
+    proc.stderr!.on('data', (data) => {
       const dataStr = data.toString()
-      // 记录 stderr
       processRaw(this.sessionId, 'stderr', dataStr)
       this.emit('log', dataStr)
     })
 
-    this.process.on('exit', (code, signal) => {
+    proc.on('exit', (code, signal) => {
       info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process exited | code=${code} | signal=${signal} | pid=${this.process?.pid}`)
       if (this.status !== 'suspended') {
         this.status = 'exited'
@@ -107,9 +167,6 @@ export class SessionProcess extends EventEmitter {
       this.emit('exit', code)
       this.process = null
     })
-
-    this.status = 'active'
-    this.lastActivityAt = Date.now()
   }
 
   async resume(): Promise<void> {
@@ -333,10 +390,12 @@ export class SessionProcess extends EventEmitter {
     env.LLM_PROVIDER = provider
 
     if (provider === 'openai') {
+      env.CLAUDE_CODE_USE_OPENAI = '1'
       if (config.apiKey) env.OPENAI_API_KEY = config.apiKey
       if (config.baseUrl) env.OPENAI_BASE_URL = config.baseUrl
       if (config.model) env.OPENAI_MODEL = config.model
     } else if (provider === 'gemini') {
+      env.CLAUDE_CODE_USE_GEMINI = '1'
       if (config.apiKey) env.GEMINI_API_KEY = config.apiKey
       if (config.baseUrl) env.GEMINI_BASE_URL = config.baseUrl
       if (config.model) env.GEMINI_MODEL = config.model
@@ -360,6 +419,8 @@ export class SessionProcess extends EventEmitter {
     if (!process.env.CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS) {
       env.CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS = '80000'
     }
+
+    debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] buildEnv | provider=${provider} | baseUrl=${config.baseUrl || '(empty)'} | apiKey=${config.apiKey ? '***set' : '(empty)'} | envKeys=[${Object.keys(env).join(',')}]`)
 
     return env
   }
@@ -390,7 +451,7 @@ export class SessionProcess extends EventEmitter {
     return null
   }
 
-  private resolveCliCommand(): { command: string; args: string[] } {
+  private resolveCliCommand(): { command: string; args: string[]; launcherEnv?: Record<string, string> } {
     const isDev = !app.isPackaged
 
     if (isDev) {
@@ -417,9 +478,21 @@ export class SessionProcess extends EventEmitter {
     // Prefer the desktop single-bundle (dist-desktop/cli.js) for packaged builds
     const desktopCli = path.join(this.cliRoot, 'dist-desktop/cli.js')
     if (fs.existsSync(desktopCli)) {
-      const bunPath = this.resolveBunPath()
-      info('SessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (desktop bundle): bun at ${bunPath} | entry=${desktopCli}`)
-      return { command: bunPath, args: ['run', desktopCli] }
+      const bunPath = this.resolveBunPathForPackagedDesktop()
+      if (bunPath) {
+        info('SessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (desktop bundle): bun at ${bunPath} | entry=${desktopCli}`)
+        return { command: bunPath, args: ['run', desktopCli] }
+      }
+      warn(
+        'SessionProcess',
+        `[${this.sessionId.slice(0, 8)}] Bundled bun missing or unusable; running dist-desktop/cli.js via Electron Node (ELECTRON_RUN_AS_NODE).`,
+      )
+      info('SessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (desktop bundle): execPath=${process.execPath} | entry=${desktopCli}`)
+      return {
+        command: process.execPath,
+        args: [desktopCli],
+        launcherEnv: { ELECTRON_RUN_AS_NODE: '1' },
+      }
     }
 
     // Fallback: split dist build
@@ -451,6 +524,68 @@ export class SessionProcess extends EventEmitter {
     return { command: 'claude', args: [] }
   }
 
+  /**
+   * Reject placeholders / broken copies (existsSync alone is not enough on portable builds).
+   * Real bun binaries are multi‑MB; empty or LFS-pointer files cause spawn ENOENT or instant failure.
+   */
+  private isProbableBunExecutable(absPath: string): boolean {
+    try {
+      const st = fs.statSync(absPath)
+      const valid = st.isFile() && st.size >= 256 * 1024
+      if (!valid) {
+        warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] isProbableBunExecutable: rejected | path=${absPath} | exists=${st.isFile()} | size=${st.size} | minRequired=${256 * 1024}`)
+      }
+      return valid
+    } catch (e) {
+      warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] isProbableBunExecutable: stat failed | path=${absPath} | error=${String(e)}`)
+      return false
+    }
+  }
+
+  /** For dist-desktop: only return bun if the binary looks real; otherwise null so we can fall back to Electron-as-Node. */
+  private resolveBunPathForPackagedDesktop(): string | null {
+    const platform = process.platform
+    const arch = process.arch
+    const bunName = platform === 'win32' ? 'bun.exe' : 'bun'
+    const bundledBun = path.join(this.cliRoot, 'bin', bunName)
+    if (this.isProbableBunExecutable(bundledBun)) {
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using bundled bun: ${bundledBun}`)
+      return bundledBun
+    }
+
+    const platformSuffix = platform === 'win32' ? 'windows-x64'
+      : platform === 'darwin' ? (arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64')
+      : 'linux-x64'
+    const platformSpecificBun = path.join(this.cliRoot, 'bin', `bun-${platformSuffix}`)
+    if (this.isProbableBunExecutable(platformSpecificBun)) {
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using platform-specific bun: ${platformSpecificBun}`)
+      return platformSpecificBun
+    }
+    if (platform === 'win32') {
+      const exe = `${platformSpecificBun}.exe`
+      if (this.isProbableBunExecutable(exe)) {
+        debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using platform-specific bun.exe: ${exe}`)
+        return exe
+      }
+    }
+
+    try {
+      const { execSync } = require('child_process')
+      let globalBun: string | null = null
+      if (platform === 'win32') {
+        globalBun = execSync('where bun', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim().split(/\r\n/)[0]?.trim() || null
+      } else {
+        globalBun = execSync('which bun', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim().split('\n')[0]?.trim() || null
+      }
+      if (globalBun && this.isProbableBunExecutable(globalBun)) {
+        debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using global bun: ${globalBun}`)
+        return globalBun
+      }
+    } catch {}
+
+    return null
+  }
+
   private resolveBunPath(): string {
     const platform = process.platform
     const arch = process.arch
@@ -458,7 +593,7 @@ export class SessionProcess extends EventEmitter {
     // 1. Check bundled bun first (instant fs check, no subprocess overhead)
     const bunName = platform === 'win32' ? 'bun.exe' : 'bun'
     const bundledBun = path.join(this.cliRoot, 'bin', bunName)
-    if (fs.existsSync(bundledBun)) {
+    if (this.isProbableBunExecutable(bundledBun)) {
       debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using bundled bun: ${bundledBun}`)
       return bundledBun
     }
@@ -468,13 +603,13 @@ export class SessionProcess extends EventEmitter {
       : platform === 'darwin' ? (arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64')
       : 'linux-x64'
     const platformSpecificBun = path.join(this.cliRoot, 'bin', `bun-${platformSuffix}`)
-    if (fs.existsSync(platformSpecificBun)) {
+    if (this.isProbableBunExecutable(platformSpecificBun)) {
       debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using platform-specific bun: ${platformSpecificBun}`)
       return platformSpecificBun
     }
     if (platform === 'win32') {
       const exe = platformSpecificBun + '.exe'
-      if (fs.existsSync(exe)) {
+      if (this.isProbableBunExecutable(exe)) {
         debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using platform-specific bun.exe: ${exe}`)
         return exe
       }
@@ -486,11 +621,11 @@ export class SessionProcess extends EventEmitter {
       let globalBun: string | null = null
       if (platform === 'win32') {
         // Use 'where' instead of PowerShell for speed (~100ms vs ~2s)
-        globalBun = execSync('where bun', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim().split('\r\n')[0]
+        globalBun = execSync('where bun', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim().split(/\r\n/)[0]?.trim() || null
       } else {
-        globalBun = execSync('which bun', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim().split('\n')[0]
+        globalBun = execSync('which bun', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim().split('\n')[0]?.trim() || null
       }
-      if (globalBun && fs.existsSync(globalBun)) {
+      if (globalBun && this.isProbableBunExecutable(globalBun)) {
         debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using global bun: ${globalBun}`)
         return globalBun
       }
