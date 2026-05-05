@@ -4,6 +4,7 @@ import type { Session, Message, ToolCall, AgentInfo, ProcessStatus } from '@/typ
 import { useSettingsStore } from './settings'
 import { useAppStore } from './app'
 import { useTaskManager } from '@/composables/useTaskManager'
+import { errorHandler } from '@/services/errorHandler'
 
 const taskManager = useTaskManager()
 
@@ -29,6 +30,23 @@ const logger = {
     console.error(`[${scope}] ${message}`, data ?? '')
     electronAPI?.logger?.error?.(scope, message, data)
   },
+}
+
+function traceEvent(event: {
+  sessionId: string
+  actor: 'user' | 'assistant' | 'tool' | 'system'
+  type: string
+  status?: 'started' | 'running' | 'completed' | 'failed'
+  title?: string
+  input?: unknown
+  output?: unknown
+  metadata?: Record<string, unknown>
+  error?: { message: string; stack?: string }
+}) {
+  electronAPI?.trace?.event?.({
+    source: 'renderer',
+    ...event,
+  })
 }
 
 const STORAGE_KEY = 'chat_sessions_v2'
@@ -384,6 +402,14 @@ export const useChatStore = defineStore('chat', () => {
     sessions.value.unshift(session)
     currentSessionId.value = session.id
     saveToStorage()
+    traceEvent({
+      sessionId: session.id,
+      actor: 'system',
+      type: 'session_created',
+      status: 'completed',
+      title: 'Chat session created',
+      metadata: { title: session.title, workingDirectory: session.workingDirectory },
+    })
     return session
   }
 
@@ -414,6 +440,20 @@ export const useChatStore = defineStore('chat', () => {
       saveToStorage()
 
       logger.info('ChatStore', `initClaudeCodeSession: starting session | id=${sessionId.slice(0, 8)} | cwd=${cwd} | provider=${config.provider} | model=${config.model} | baseUrl=${config.apiUrl || '(empty)'} | apiKey=${config.apiKey ? '***set' : '(empty)'} | agent=${currentAgent.value || '(none)'}`)
+      traceEvent({
+        sessionId,
+        actor: 'system',
+        type: 'engine_session_start',
+        status: 'started',
+        title: 'Starting engine session',
+        metadata: {
+          cwd,
+          provider: config.provider,
+          model: config.model,
+          baseUrl: config.apiUrl || '',
+          agent: currentAgent.value || '',
+        },
+      })
 
       await claudeCode.startSession(sessionId, {
         cwd,
@@ -428,9 +468,31 @@ export const useChatStore = defineStore('chat', () => {
       })
 
       logger.info('ChatStore', `initClaudeCodeSession: session started successfully | id=${sessionId.slice(0, 8)}`)
+      traceEvent({
+        sessionId,
+        actor: 'system',
+        type: 'engine_session_start',
+        status: 'completed',
+        title: 'Engine session started',
+      })
 
     } catch (error) {
-      logger.error('ChatStore', `initClaudeCodeSession: failed to start session | id=${sessionId.slice(0, 8)}`, { error: String(error) })
+      const classified = errorHandler.handleError(error, {
+        sessionId,
+        provider: settingsStore.config.provider,
+        model: settingsStore.config.model,
+        baseUrl: settingsStore.config.apiUrl,
+        phase: 'init',
+      })
+      logger.error('ChatStore', `initClaudeCodeSession: failed to start session | id=${sessionId.slice(0, 8)}`, { error: String(error), category: classified.category })
+      traceEvent({
+        sessionId,
+        actor: 'system',
+        type: 'engine_session_start',
+        status: 'failed',
+        title: 'Engine session failed to start',
+        error: { message: classified.technicalDetail },
+      })
       session.processStatus = 'exited'
       saveToStorage()
     }
@@ -481,6 +543,15 @@ export const useChatStore = defineStore('chat', () => {
     if (!session) return
 
     logger.info('ChatStore', `sendMessage: user message | sessionId=${targetSessionId.slice(0, 8)} | contentLen=${content.length} | preview="${content.slice(0, 80)}"`)
+    traceEvent({
+      sessionId: targetSessionId,
+      actor: 'user',
+      type: 'user_message',
+      status: 'completed',
+      title: 'User submitted message',
+      input: { content: userMessageContent ?? content },
+      metadata: { contentLength: content.length },
+    })
 
     addMessage({
       role: 'user',
@@ -490,11 +561,16 @@ export const useChatStore = defineStore('chat', () => {
     const claudeCode = electronAPI?.claudeCode
     if (!claudeCode) {
       logger.error('ChatStore', `sendMessage: claudeCode API not available | sessionId=${targetSessionId.slice(0, 8)}`)
+      const classified = errorHandler.handleError(new Error('Claude Code CLI is not available. Please check your configuration.'), {
+        sessionId: targetSessionId,
+        phase: 'init',
+      })
       loadingSessions.value.set(targetSessionId, true)
       setTimeout(() => {
         addMessage({
           role: 'assistant',
-          content: 'Claude Code CLI is not available. Please check your configuration.'
+          content: classified.message,
+          metadata: { error: classified }
         }, targetSessionId)
         loadingSessions.value.set(targetSessionId, false)
       }, 500)
@@ -511,6 +587,14 @@ export const useChatStore = defineStore('chat', () => {
     const sendStartTime = Date.now()
 
     logger.info('ChatStore', `sendMessage: calling IPC sendMessage | sessionId=${targetSessionId.slice(0, 8)} | assistantMsgId=${assistantMessageId.slice(0, 8)}`)
+    traceEvent({
+      sessionId: targetSessionId,
+      messageId: assistantMessageId,
+      actor: 'assistant',
+      type: 'assistant_turn',
+      status: 'started',
+      title: 'Assistant turn started',
+    } as any)
 
     addMessage({
       id: assistantMessageId,
@@ -576,6 +660,7 @@ export const useChatStore = defineStore('chat', () => {
 
       const handleStreamEvent = (event: { sessionId: string; data: any }) => {
         if (event.sessionId !== targetSessionId || isCompleted) return
+        resetTimeout()
         const streamEvent = event.data
         const ev = streamEvent.event || streamEvent
 
@@ -782,6 +867,15 @@ export const useChatStore = defineStore('chat', () => {
                 id: toolId, name: toolName, input: toolInput,
                 status: 'running', startTime: Date.now()
               }]
+              traceEvent({
+                sessionId: targetSessionId,
+                actor: 'tool',
+                type: 'tool_call',
+                status: 'started',
+                title: toolName,
+                input: toolInput,
+                metadata: { toolId, assistantMessageId },
+              })
               addToolTimelineEvent(toolId)
               saveToStorage()
             }
@@ -816,6 +910,15 @@ export const useChatStore = defineStore('chat', () => {
                 endTime: Date.now()
               }
               msg.toolCalls = updatedToolCalls
+              traceEvent({
+                sessionId: targetSessionId,
+                actor: 'tool',
+                type: 'tool_result',
+                status: resultIsError ? 'failed' : 'completed',
+                title: updatedToolCalls[toolCallIndex].name,
+                output: resultOutput,
+                metadata: { toolId: resultToolUseId, assistantMessageId },
+              })
               updateTimelineEvent(`tool-${resultToolUseId}`, {
                 status: resultIsError ? 'error' : 'completed'
               })
@@ -870,6 +973,21 @@ export const useChatStore = defineStore('chat', () => {
                   ? 'Agent 已结束，但仍有工具调用未返回结果。'
                   : undefined
             }
+            traceEvent({
+              sessionId: targetSessionId,
+              messageId: assistantMessageId,
+              actor: 'assistant',
+              type: 'assistant_turn',
+              status: 'completed',
+              title: 'Assistant turn completed',
+              output: { content: msg.content },
+              metadata: {
+                duration: msg.metadata.duration,
+                model: msg.metadata.model,
+                stopReason: result.stop_reason || '',
+                warning: msg.metadata.warning || '',
+              },
+            } as any)
             saveToStorage()
           }
         }
@@ -917,13 +1035,32 @@ export const useChatStore = defineStore('chat', () => {
         loadingSessions.value.set(targetSessionId, false)
         streamingContents.value.set(targetSessionId, '')
 
-        const errorMsg = error instanceof Error ? error.message : String(error)
-        let userMessage = `Error: ${errorMsg}`
-        if (errorMsg.includes('Process exited with code 1')) {
-          userMessage = `❌ 引擎启动失败\n\n可能原因：\n• API Key 无效或未配置\n• API Base URL 无法访问\n• 网络连接问题\n\n请检查设置页面的配置是否正确。`
-        }
+        const classified = errorHandler.handleError(error, {
+          sessionId: targetSessionId,
+          provider: settingsStore.config.provider,
+          model: settingsStore.config.model,
+          baseUrl: settingsStore.config.apiUrl,
+          phase: 'stream',
+        })
 
-        updateMessage(assistantMessageId, { content: userMessage }, targetSessionId)
+        traceEvent({
+          sessionId: targetSessionId,
+          messageId: assistantMessageId,
+          actor: 'assistant',
+          type: 'assistant_turn',
+          status: 'failed',
+          title: 'Assistant turn failed',
+          error: { message: classified.technicalDetail },
+        } as any)
+
+        updateMessage(assistantMessageId, {
+          content: classified.message,
+          metadata: {
+            model: settingsStore.config.model,
+            duration: Date.now() - sendStartTime,
+            error: classified,
+          }
+        }, targetSessionId)
 
         const s = sessions.value.find(s => s.id === targetSessionId)
         if (s) {
@@ -933,6 +1070,22 @@ export const useChatStore = defineStore('chat', () => {
 
         cleanup()
         reject(error)
+      }
+
+      const REQUEST_TIMEOUT = 5 * 60 * 1000
+      let requestTimeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+        if (!isCompleted) {
+          handleError(new Error(`请求超时（${REQUEST_TIMEOUT / 1000}秒无响应）`))
+        }
+      }, REQUEST_TIMEOUT)
+
+      const resetTimeout = () => {
+        if (requestTimeoutId) clearTimeout(requestTimeoutId)
+        requestTimeoutId = setTimeout(() => {
+          if (!isCompleted) {
+            handleError(new Error(`请求超时（${REQUEST_TIMEOUT / 1000}秒无响应）`))
+          }
+        }, REQUEST_TIMEOUT)
       }
 
       const unsubscribeAssistant = claudeCode.onAssistant(handleAssistant)
@@ -952,6 +1105,7 @@ export const useChatStore = defineStore('chat', () => {
       })
 
       const cleanup = () => {
+        if (requestTimeoutId) clearTimeout(requestTimeoutId)
         unsubscribeAssistant?.()
         unsubscribeUser?.()
         unsubscribeStreamEvent?.()
@@ -987,6 +1141,23 @@ export const useChatStore = defineStore('chat', () => {
     if (sid) {
       loadingSessions.value.set(sid, false)
       streamingContents.value.set(sid, '')
+    }
+  }
+
+  async function retryLastMessage(): Promise<void> {
+    const sid = currentSessionId.value
+    if (!sid) return
+    errorHandler.clearInlineError(sid)
+    const session = sessions.value.find(s => s.id === sid)
+    if (!session) return
+    const lastUserMsg = [...session.messages].reverse().find(m => m.role === 'user')
+    if (lastUserMsg) {
+      const lastAssistantMsg = [...session.messages].reverse().find(m => m.role === 'assistant' && m.metadata?.error)
+      if (lastAssistantMsg) {
+        const idx = session.messages.findIndex(m => m.id === lastAssistantMsg.id)
+        if (idx >= 0) session.messages.splice(idx, 1)
+      }
+      await sendMessage(lastUserMsg.content)
     }
   }
 
@@ -1165,6 +1336,7 @@ export const useChatStore = defineStore('chat', () => {
     addMessage,
     sendMessage,
     abort,
+    retryLastMessage,
     updateToolCall,
     updateMessage,
     selectSession,
