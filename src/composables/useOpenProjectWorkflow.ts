@@ -1,6 +1,7 @@
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
+import { useSettingsStore } from '@/stores/settings'
 import { api } from '@/services/electronAPI'
 import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
 
@@ -20,6 +21,12 @@ export function useOpenProjectWorkflow() {
   const { t } = useI18n()
   const appStore = useAppStore()
   const chatStore = useChatStore()
+  const settingsStore = useSettingsStore()
+
+  function syncProjectRootToSettings(path: string) {
+    settingsStore.projectRoot = path
+    settingsStore.saveSettings()
+  }
 
   async function openProjectFromPicker(): Promise<void> {
     try {
@@ -30,6 +37,7 @@ export function useOpenProjectWorkflow() {
       appStore.setProjectRoot(folderPath)
       recordRecentProjectRoot(folderPath)
       chatStore.addProject(folderPath)
+      syncProjectRootToSettings(folderPath)
       const session = chatStore.createSession(t('common.newChat'), folderPath)
       appStore.openSessionTab(session.id, session.title)
       dispatchSessionCreated()
@@ -50,6 +58,7 @@ export function useOpenProjectWorkflow() {
       recordRecentProjectRoot(path)
       chatStore.addProject(path)
       chatStore.switchProject(path)
+      syncProjectRootToSettings(path)
 
       if (options?.forceNewSession) {
         const session = chatStore.createSession(t('common.newChat'), path)

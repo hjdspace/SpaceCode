@@ -453,6 +453,8 @@ function handleSwitchSession(sessionId: string) {
   chatStore.selectSession(sessionId)
   if (chatStore.workingDirectory && chatStore.workingDirectory !== appStore.projectRoot) {
     appStore.setProjectRoot(chatStore.workingDirectory)
+    settingsStore.projectRoot = chatStore.workingDirectory
+    settingsStore.saveSettings()
   }
 }
 

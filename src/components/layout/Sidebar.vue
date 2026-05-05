@@ -434,6 +434,8 @@ async function handleSelectSession(sessionId: string) {
   appStore.switchToSessionTab(sessionId)
   if (chatStore.workingDirectory && chatStore.workingDirectory !== appStore.projectRoot) {
     appStore.setProjectRoot(chatStore.workingDirectory)
+    settingsStore.projectRoot = chatStore.workingDirectory
+    settingsStore.saveSettings()
   }
 }
 
