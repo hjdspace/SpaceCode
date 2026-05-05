@@ -196,8 +196,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('claude-code:getActiveSessions'),
     isSessionActive: (sessionId?: string) =>
       ipcRenderer.invoke('claude-code:isSessionActive', sessionId),
-    listAgents: (cwd?: string) =>
-      ipcRenderer.invoke('claude-code:listAgents', cwd),
+    listAgents: (cwd?: string, engineType?: string) =>
+      ipcRenderer.invoke('claude-code:listAgents', cwd, engineType),
     onAssistant: (callback: (data: { sessionId: string; data: any }) => void) => {
       const wrapper = (_: any, data: any) => callback(data)
       ipcRenderer.on('claude-code:assistant', wrapper)
