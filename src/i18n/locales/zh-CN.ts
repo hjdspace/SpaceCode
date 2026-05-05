@@ -209,6 +209,8 @@ export default {
     toggleSidebar: '切换侧边栏',
     lightMode: '浅色模式',
     darkMode: '深色模式',
+    anthropicMode: 'Anthropic 主题',
+    anthropicDarkMode: 'Anthropic 暗色主题',
   },
 
   sessionTab: {

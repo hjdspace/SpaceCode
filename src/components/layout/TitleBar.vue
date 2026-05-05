@@ -25,7 +25,7 @@
     <!-- Right section -->
     <div class="titlebar-right" style="-webkit-app-region: no-drag">
       <!-- Theme toggle -->
-      <button class="titlebar-btn" @click="appStore.toggleTheme" :title="appStore.isDark ? t('titleBar.lightMode') : t('titleBar.darkMode')">
+      <button class="titlebar-btn" @click="appStore.toggleTheme" :title="themeTooltip">
         <Sun v-if="appStore.isDark" :size="15" />
         <Moon v-else :size="15" />
       </button>
@@ -41,10 +41,26 @@ import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { useI18n } from 'vue-i18n'
 import { Menu, Sun, Moon } from 'lucide-vue-next'
+import { computed } from 'vue'
+import type { ThemeId } from '@/stores/app'
 
 const appStore = useAppStore()
 const chatStore = useChatStore()
 const { t } = useI18n()
+
+const THEME_LABELS: Record<ThemeId, string> = {
+  light: t('titleBar.lightMode'),
+  dark: t('titleBar.darkMode'),
+  anthropic: t('titleBar.anthropicMode'),
+  'anthropic-dark': t('titleBar.anthropicDarkMode')
+}
+
+const themeTooltip = computed(() => {
+  const currentIndex = (['light', 'dark', 'anthropic', 'anthropic-dark'] as ThemeId[]).indexOf(appStore.theme)
+  const nextIndex = (currentIndex + 1) % 4
+  const nextTheme = (['light', 'dark', 'anthropic', 'anthropic-dark'] as ThemeId[])[nextIndex]
+  return `Switch to ${THEME_LABELS[nextTheme]}`
+})
 
 const platform = typeof window !== 'undefined' && window.electronAPI?.platform
   ? window.electronAPI.platform

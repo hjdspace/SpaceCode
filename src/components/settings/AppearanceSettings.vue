@@ -136,7 +136,7 @@ import { useAppStore } from '@/stores/app'
 import { debounce } from '@/utils/debounce'
 
 export interface AppearanceConfig {
-  theme: 'system' | 'light' | 'dark'
+  theme: 'system' | 'light' | 'dark' | 'anthropic' | 'anthropic-dark'
   fontSize: number
   fontFamily: string
   codeFontFamily: string
@@ -162,7 +162,9 @@ const appStore = useAppStore()
 const themes = [
   { id: 'system', name: 'System' },
   { id: 'light', name: 'Light' },
-  { id: 'dark', name: 'Dark' }
+  { id: 'dark', name: 'Dark' },
+  { id: 'anthropic', name: 'Anthropic' },
+  { id: 'anthropic-dark', name: 'Anthropic Dark' }
 ]
 
 const fontSizes = [12, 13, 14, 15, 16, 18, 20]
@@ -194,7 +196,10 @@ const accentColors = [
   { id: 'green', hex: '#22c55e' },
   { id: 'orange', hex: '#f97316' },
   { id: 'pink', hex: '#ec4899' },
-  { id: 'cyan', hex: '#06b6d4' }
+  { id: 'cyan', hex: '#06b6d4' },
+  { id: 'anthropic-orange', hex: '#d97757' },
+  { id: 'anthropic-blue', hex: '#6a9bcc' },
+  { id: 'anthropic-green', hex: '#788c5d' }
 ]
 
 // Default config
@@ -251,8 +256,7 @@ function applyTheme(theme: string) {
     effectiveTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
   }
   document.documentElement.setAttribute('data-theme', effectiveTheme)
-  // Also update app store theme
-  appStore.theme = effectiveTheme as 'light' | 'dark'
+  appStore.setTheme(effectiveTheme as 'light' | 'dark' | 'anthropic' | 'anthropic-dark')
 }
 
 // Apply accent color
@@ -377,7 +381,7 @@ onUnmounted(() => {
 })
 
 function selectTheme(themeId: string) {
-  config.value.theme = themeId as 'system' | 'light' | 'dark'
+  config.value.theme = themeId as 'system' | 'light' | 'dark' | 'anthropic' | 'anthropic-dark'
 }
 
 function selectDensity(densityId: string) {
@@ -549,6 +553,18 @@ function selectAccent(colorId: string) {
     .preview-content {
       background: linear-gradient(to right, #ffffff 50%, #1e293b 50%);
     }
+  }
+
+  &.anthropic {
+    .preview-header { background: #eeedea; }
+    .preview-sidebar { background: #f5f3ed; }
+    .preview-content { background: #faf9f5; }
+  }
+
+  &.anthropic-dark {
+    .preview-header { background: #242322; }
+    .preview-sidebar { background: #1c1b1a; }
+    .preview-content { background: #141413; }
   }
 }
 

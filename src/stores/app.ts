@@ -33,12 +33,15 @@ export interface CenterTab {
 
 const PROJECT_ROOT_STORAGE_KEY = 'app_project_root'
 
+export type ThemeId = 'light' | 'dark' | 'anthropic' | 'anthropic-dark'
+
+const THEME_CYCLE: ThemeId[] = ['light', 'dark', 'anthropic', 'anthropic-dark']
+
 export const useAppStore = defineStore('app', () => {
-  // 默认使用亮色主题以提供更好的可读性和现代感
-  const theme = ref<'light' | 'dark'>('light')
+  const theme = ref<ThemeId>('light')
   const sidebarCollapsed = ref(false)
   const infoPanelVisible = ref(false)
-  const infoPanelMode = ref<'diff' | 'file' | 'markdown' | 'tool-diff'>('diff')
+  const infoPanelMode = ref<'diff' | 'file' | 'markdown' | 'tool-diff' | 'webview'>('diff')
   const currentFile = ref<FileInfo | null>(null)
   const toolDiffData = ref<ToolDiffData | null>(null)
   const completedToolActions = ref<Set<string>>(new Set())
@@ -58,18 +61,32 @@ export const useAppStore = defineStore('app', () => {
   const showSkillsManager = ref(false)
   const showTraceViewer = ref(false)
 
-  const isDark = computed(() => theme.value === 'dark')
+  // Webview 相关状态
+  const webviewUrl = ref<string>('')
+  const webviewHistory = ref<string[]>([])
+  const currentHistoryIndex = ref<number>(-1)
+  const webviewTitle = ref<string>('')
+  const isLoading = ref<boolean>(false)
+
+  const isDark = computed(() => theme.value === 'dark' || theme.value === 'anthropic-dark')
 
   function toggleTheme() {
-    theme.value = theme.value === 'dark' ? 'light' : 'dark'
+    const currentIndex = THEME_CYCLE.indexOf(theme.value)
+    const nextIndex = (currentIndex + 1) % THEME_CYCLE.length
+    theme.value = THEME_CYCLE[nextIndex]
     document.documentElement.setAttribute('data-theme', theme.value)
+  }
+
+  function setTheme(newTheme: ThemeId) {
+    theme.value = newTheme
+    document.documentElement.setAttribute('data-theme', newTheme)
   }
 
   function toggleSidebar() {
     sidebarCollapsed.value = !sidebarCollapsed.value
   }
 
-  function showInfoPanel(mode: 'diff' | 'file' | 'markdown' | 'tool-diff') {
+  function showInfoPanel(mode: 'diff' | 'file' | 'markdown' | 'tool-diff' | 'webview') {
     infoPanelMode.value = mode
     infoPanelVisible.value = true
   }
@@ -188,6 +205,75 @@ export const useAppStore = defineStore('app', () => {
     infoPanelVisible.value = false
   }
 
+  function openWebview(url: string) {
+    let normalizedUrl = url.trim()
+    if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
+      normalizedUrl = 'https://' + normalizedUrl
+    }
+
+    if (webviewHistory.value.length === 0 || currentHistoryIndex.value === -1) {
+      webviewHistory.value = [normalizedUrl]
+      currentHistoryIndex.value = 0
+    } else {
+      webviewHistory.value = webviewHistory.value.slice(0, currentHistoryIndex.value + 1)
+      webviewHistory.value.push(normalizedUrl)
+      currentHistoryIndex.value = webviewHistory.value.length - 1
+    }
+
+    webviewUrl.value = normalizedUrl
+    infoPanelMode.value = 'webview'
+    infoPanelVisible.value = true
+
+    console.log('[AppStore] Webview opened:', normalizedUrl)
+  }
+
+  function navigateWebview(url: string) {
+    let normalizedUrl = url.trim()
+    if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
+      normalizedUrl = 'https://' + normalizedUrl
+    }
+
+    webviewHistory.value.push(normalizedUrl)
+    currentHistoryIndex.value = webviewHistory.value.length - 1
+    webviewUrl.value = normalizedUrl
+
+    console.log('[AppStore] Webview navigated to:', normalizedUrl)
+  }
+
+  function goBackWebview() {
+    if (currentHistoryIndex.value > 0) {
+      currentHistoryIndex.value--
+      webviewUrl.value = webviewHistory.value[currentHistoryIndex.value]
+      console.log('[AppStore] Webview go back to:', webviewUrl.value)
+    }
+  }
+
+  function goForwardWebview() {
+    if (currentHistoryIndex.value < webviewHistory.value.length - 1) {
+      currentHistoryIndex.value++
+      webviewUrl.value = webviewHistory.value[currentHistoryIndex.value]
+      console.log('[AppStore] Webview go forward to:', webviewUrl.value)
+    }
+  }
+
+  function closeWebview() {
+    webviewUrl.value = ''
+    webviewHistory.value = []
+    currentHistoryIndex.value = -1
+    webviewTitle.value = ''
+    isLoading.value = false
+    hideInfoPanel()
+    console.log('[AppStore] Webview closed')
+  }
+
+  function setWebviewLoading(loading: boolean) {
+    isLoading.value = loading
+  }
+
+  function setWebviewTitle(title: string) {
+    webviewTitle.value = title
+  }
+
   function getLanguageFromPath(path: string): string {
     const ext = path.split('.').pop()?.toLowerCase() || ''
     const languageMap: Record<string, string> = {
@@ -243,8 +329,14 @@ export const useAppStore = defineStore('app', () => {
     projectRoot,
     showSkillsManager,
     showTraceViewer,
+    webviewUrl,
+    webviewHistory,
+    currentHistoryIndex,
+    webviewTitle,
+    isLoading,
     isDark,
     toggleTheme,
+    setTheme,
     toggleSidebar,
     showInfoPanel,
     hideInfoPanel,
@@ -259,6 +351,13 @@ export const useAppStore = defineStore('app', () => {
     switchToSessionTab,
     updateSessionTabTitle,
     setProjectRoot,
-    closeProject
+    closeProject,
+    openWebview,
+    navigateWebview,
+    goBackWebview,
+    goForwardWebview,
+    closeWebview,
+    setWebviewLoading,
+    setWebviewTitle
   }
 })

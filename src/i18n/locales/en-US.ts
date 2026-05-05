@@ -209,6 +209,8 @@ export default {
     toggleSidebar: 'Toggle Sidebar',
     lightMode: 'Light Mode',
     darkMode: 'Dark Mode',
+    anthropicMode: 'Anthropic',
+    anthropicDarkMode: 'Anthropic Dark',
   },
 
   sessionTab: {
