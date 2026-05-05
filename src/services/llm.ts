@@ -6,6 +6,7 @@
  */
 
 import { ref } from 'vue'
+import { errorHandler } from '@/services/errorHandler'
 
 export interface LLMConfig {
   provider: string
@@ -109,7 +110,11 @@ export async function sendMessage(messages: Array<{ role: string; content: strin
     if (!response.ok) {
       const text = await response.text()
       console.log('[LLM] Anthropic API error response:', text.slice(0, 500))
-      throw new Error(`API error: ${response.status} ${response.statusText} - ${text.slice(0, 200)}`)
+      const classified = errorHandler.handleError(
+        new Error(`API error: ${response.status} ${response.statusText} - ${text.slice(0, 200)}`),
+        { provider, baseUrl, phase: 'send' }
+      )
+      throw new Error(classified.technicalDetail)
     }
 
     const responseText = await response.text()
@@ -141,7 +146,11 @@ export async function sendMessage(messages: Array<{ role: string; content: strin
   if (!response.ok) {
     const text = await response.text()
     console.log('[LLM] OpenAI API error response:', text.slice(0, 500))
-    throw new Error(`API error: ${response.status} ${response.statusText} - ${text.slice(0, 200)}`)
+    const classified = errorHandler.handleError(
+      new Error(`API error: ${response.status} ${response.statusText} - ${text.slice(0, 200)}`),
+      { provider, baseUrl, phase: 'send' }
+    )
+    throw new Error(classified.technicalDetail)
   }
 
   const responseText = await response.text()
