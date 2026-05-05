@@ -18,6 +18,8 @@ export interface OAuthAccountInfo {
   subscription?: string
 }
 
+export type EngineType = 'claude-code' | 'pi'
+
 export interface AuthSettings {
   authMethod: AuthMethod
   anthropicConfig: ProviderConfig
@@ -27,6 +29,7 @@ export interface AuthSettings {
   projectRoot: string
   thinkingEnabled?: boolean
   language?: Locale
+  engineType?: EngineType
 }
 
 const SETTINGS_STORAGE_KEY = 'claude_desktop_settings'
@@ -204,6 +207,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const effortLevel = ref<'low' | 'medium' | 'high' | 'max'>((saved as any).effortLevel || 'high')
   const thinkingEnabled = ref<boolean>((saved as any).thinkingEnabled !== undefined ? (saved as any).thinkingEnabled : true)
   const language = ref<Locale>((saved as any).language || detectSystemLanguage())
+  const engineType = ref<EngineType>((saved as any).engineType || 'claude-code')
 
   // Computed: current provider for LLM service compatibility
   const provider = computed(() => {
@@ -351,7 +355,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function saveSettings() {
-    const data: AuthSettings & { effortLevel?: string; language?: Locale } = {
+    const data: AuthSettings & { effortLevel?: string; language?: Locale; engineType?: EngineType } = {
       authMethod: authMethod.value,
       anthropicConfig: { ...anthropicConfig.value },
       openaiConfig: { ...openaiConfig.value },
@@ -360,7 +364,8 @@ export const useSettingsStore = defineStore('settings', () => {
       projectRoot: projectRoot.value,
       effortLevel: effortLevel.value,
       thinkingEnabled: thinkingEnabled.value,
-      language: language.value
+      language: language.value,
+      engineType: engineType.value
     }
 
     const serialized = JSON.stringify(data, null, 2)
@@ -385,10 +390,11 @@ export const useSettingsStore = defineStore('settings', () => {
     geminiConfig.value = { ...settings.geminiConfig }
     oauthAccount.value = settings.oauthAccount
     projectRoot.value = settings.projectRoot
+    if (settings.engineType) engineType.value = settings.engineType
     saveSettings()
   }
 
-  function applySettings(settings: Partial<AuthSettings> & { effortLevel?: 'low' | 'medium' | 'high' | 'max'; language?: Locale }) {
+  function applySettings(settings: Partial<AuthSettings> & { effortLevel?: 'low' | 'medium' | 'high' | 'max'; language?: Locale; engineType?: EngineType }) {
     if (settings.authMethod) authMethod.value = settings.authMethod
     if (settings.anthropicConfig) anthropicConfig.value = { ...createDefaultProviderConfig(), ...settings.anthropicConfig }
     if (settings.openaiConfig) openaiConfig.value = { ...createDefaultProviderConfig(), ...settings.openaiConfig }
@@ -398,6 +404,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (settings.effortLevel) effortLevel.value = settings.effortLevel
     if (settings.thinkingEnabled !== undefined) thinkingEnabled.value = settings.thinkingEnabled
     if (settings.language) language.value = settings.language
+    if (settings.engineType) engineType.value = settings.engineType
   }
 
   async function loadFromGuiSettingsFile() {
@@ -446,6 +453,7 @@ export const useSettingsStore = defineStore('settings', () => {
     effortLevel,
     thinkingEnabled,
     language,
+    engineType,
     provider,
     config,
     isConfigured,
