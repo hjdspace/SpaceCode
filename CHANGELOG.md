@@ -1,3 +1,38 @@
+## [0.3.1](https://github.com/hjdspace/SpaceCode/compare/v0.3.0...v0.3.1) (2026-05-06)
+
+### Features
+
+* **error-handling:** 添加完整的错误处理体系 ([a5539fe](https://github.com/hjdspace/SpaceCode/commit/a5539fe))
+  - 集中化错误处理服务 ErrorHandler ([1149d9c](https://github.com/hjdspace/SpaceCode/commit/1149d9c))
+  - 错误类型定义和国际化翻译（zh-CN/en-US）([7f66699](https://github.com/hjdspace/SpaceCode/commit/7f66699))
+  - ErrorCard 内联错误组件 ([c8f2308](https://github.com/hjdspace/SpaceCode/commit/c8f2308))
+  - ToastNotification 通知组件 ([225db22](https://github.com/hjdspace/SpaceCode/commit/225db22))
+  - 集成到 chat store 支持超时检测 ([2646ba5](https://github.com/hjdspace/SpaceCode/commit/2646ba5))
+  - 集成到 LLM 服务层 ([996d6c9](https://github.com/hjdspace/SpaceCode/commit/996d6c9))
+  - 在 AgentTimeline 中渲染错误卡片 ([f0ce6fb](https://github.com/hjdspace/SpaceCode/commit/f0ce6fb))
+  - 在 ChatPanel 中挂载通知组件 ([014d523](https://github.com/hjdspace/SpaceCode/commit/014d523))
+* **webview:** 添加网页预览功能及相关导航控制 ([bd281d6](https://github.com/hjdspace/SpaceCode/commit/bd281d6))
+* **主题:** 新增 Anthropic 主题和暗色主题 ([3e58bc5](https://github.com/hjdspace/SpaceCode/commit/3e58bc5))
+* **debug:** 添加调试追踪功能 ([23736c3](https://github.com/hjdspace/SpaceCode/commit/23736c3))
+* **engine:** 添加桌面版构建任务并增强会话进程可靠性 ([69a343a](https://github.com/hjdspace/SpaceCode/commit/69a343a))
+
+### Bug Fixes
+
+* **InfoPanel:** 添加 URL 验证并处理无效 URL 情况 ([f1cec94](https://github.com/hjdspace/SpaceCode/commit/f1cec94))
+* **聊天:** 修复 ToastNotification 在终端模式下的显示问题，移至聊天内容区域内 ([f365bd5](https://github.com/hjdspace/SpaceCode/commit/f365bd5))
+* **聊天:** 修复消息流加载状态显示问题 ([50c94c2](https://github.com/hjdspace/SpaceCode/commit/50c94c2))
+* **会话管理:** 同步项目根目录到设置并保存 ([5b8b804](https://github.com/hjdspace/SpaceCode/commit/5b8b804))
+
+### Refactor
+
+* **InfoPanel:** 优化导航 URL 处理逻辑 ([0fb9391](https://github.com/hjdspace/SpaceCode/commit/0fb9391))
+* 将项目名称从 claude-code-gui 统一更改为 SpaceCode ([0c8114a](https://github.com/hjdspace/SpaceCode/commit/0c8114a))
+
+### Documentation
+
+* 添加 LLM Agent 错误处理设计规格 ([550d7b0](https://github.com/hjdspace/SpaceCode/commit/550d7b0))
+* 添加 LLM 错误处理实现计划 ([143f0b9](https://github.com/hjdspace/SpaceCode/commit/143f0b9))
+
 ## [0.3.0](https://github.com/hjdspace/SpaceCode/compare/v0.2.5...v0.3.0) (2026-05-05)
 
 ### Features
