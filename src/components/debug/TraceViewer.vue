@@ -1,114 +1,150 @@
 <template>
-  <div class="trace-viewer">
+  <div class="trace-viewer" role="region" :aria-label="t('trace.title')">
     <div class="trace-header">
       <div class="trace-title-row">
-        <Activity :size="18" />
+        <Activity :size="18" aria-hidden="true" />
         <span class="trace-title">{{ t('trace.title') }}</span>
       </div>
       <div class="trace-header-actions">
-        <button class="header-btn" @click="loadData" :disabled="loading" :title="t('trace.refresh')">
-          <RefreshCw :size="14" :class="{ spin: loading }" />
+        <button
+          class="header-btn"
+          @click="loadData"
+          :disabled="loading"
+          :aria-label="t('trace.refresh')"
+        >
+          <RefreshCw :size="14" :class="{ spin: loading }" aria-hidden="true" />
         </button>
-        <button class="header-btn close-btn" @click="closeViewer" :title="t('trace.close')">
-          <X :size="14" />
+        <button
+          class="header-btn close-btn"
+          @click="closeViewer"
+          :aria-label="t('trace.close')"
+        >
+          <X :size="14" aria-hidden="true" />
         </button>
       </div>
     </div>
 
-    <div class="trace-tabs">
+    <div class="trace-tabs" role="tablist">
       <button
         class="trace-tab"
+        role="tab"
+        :aria-selected="activeView === 'sessions'"
         :class="{ active: activeView === 'sessions' }"
         @click="activeView = 'sessions'"
       >{{ t('trace.sessions') }}</button>
       <button
         class="trace-tab"
+        role="tab"
+        :aria-selected="activeView === 'logs'"
         :class="{ active: activeView === 'logs' }"
         @click="activeView = 'logs'"
       >{{ t('trace.rawLogs') }}</button>
     </div>
 
-    <div class="trace-body">
+    <div class="trace-body" role="tabpanel">
       <div v-if="activeView === 'sessions'" class="sessions-layout">
         <div class="sessions-sidebar">
-          <div v-if="loading && traceSessions.length === 0" class="trace-empty">
-            <Loader2 :size="20" class="spin" />
+          <div v-if="loading && traceSessions.length === 0" class="trace-empty" aria-live="polite">
+            <Loader2 :size="20" class="spin" aria-hidden="true" />
             <span>{{ t('trace.loading') }}</span>
           </div>
           <div v-else-if="traceSessions.length === 0" class="trace-empty">
-            <FileX :size="20" />
+            <FileX :size="20" aria-hidden="true" />
             <span>{{ t('trace.noSessions') }}</span>
           </div>
-          <div v-else class="session-list">
-            <div
+          <ul v-else class="session-list" role="listbox" :aria-label="t('trace.sessions')">
+            <li
               v-for="session in traceSessions"
               :key="session.sessionId"
               class="session-item"
+              role="option"
+              :aria-selected="selectedSessionId === session.sessionId"
               :class="{ active: selectedSessionId === session.sessionId }"
+              tabindex="0"
               @click="selectSession(session.sessionId)"
+              @keydown.enter="selectSession(session.sessionId)"
+              @keydown.space.prevent="selectSession(session.sessionId)"
             >
               <div class="session-info">
                 <span class="session-id">{{ session.sessionId.slice(0, 16) }}</span>
                 <span class="session-meta">{{ session.eventCount }} {{ t('trace.events') }}</span>
               </div>
               <span class="session-time">{{ formatTime(session.modifiedAt) }}</span>
-            </div>
-          </div>
+            </li>
+          </ul>
         </div>
 
         <div class="events-panel">
           <div v-if="!selectedSessionId" class="trace-empty">
-            <ClipboardList :size="32" />
+            <ClipboardList :size="32" aria-hidden="true" />
             <span>{{ t('trace.selectSession') }}</span>
           </div>
-          <div v-else-if="traceEvents.length === 0" class="trace-empty">
-            <FileX :size="24" />
+          <div v-else-if="traceEvents.length === 0" class="trace-empty" aria-live="polite">
+            <FileX :size="24" aria-hidden="true" />
             <span>{{ t('trace.noEvents') }}</span>
           </div>
           <template v-else>
             <div class="events-toolbar">
               <span class="events-count">{{ filteredEvents.length }} / {{ traceEvents.length }} {{ t('trace.events') }}</span>
-              <div class="events-filters">
+              <div class="events-filters" role="group" :aria-label="t('trace.eventTimeline')">
                 <button
                   v-for="f in filterOptions"
                   :key="f.value"
                   class="filter-chip"
                   :class="{ active: activeFilters.has(f.value) }"
+                  :aria-pressed="activeFilters.has(f.value)"
                   @click="toggleFilter(f.value)"
                 >
-                  <component :is="f.icon" :size="11" />
+                  <component :is="f.icon" :size="11" aria-hidden="true" />
                   {{ f.label }}
                 </button>
               </div>
             </div>
-            <div class="events-timeline">
+            <div class="events-timeline" role="list" :aria-label="t('trace.eventTimeline')">
               <div
                 v-for="event in filteredEvents"
                 :key="event.id || event.timestamp"
                 class="trace-event"
                 :class="[`type-${event.type}`, `status-${event.status}`]"
+                role="listitem"
               >
-                <div class="event-indicator">
+                <div class="event-indicator" aria-hidden="true">
                   <div class="event-dot" :class="[`type-${event.type}`, `status-${event.status}`]"></div>
                   <div class="event-line"></div>
                 </div>
                 <div class="event-content">
-                  <div class="event-header-row" @click="toggleEventExpand(event.id || event.timestamp || '')">
+                  <button
+                    v-if="hasExpandableContent(event)"
+                    class="event-header-row"
+                    :aria-expanded="!!expandedEvents[event.id || event.timestamp || '']"
+                    @click="toggleEventExpand(event.id || event.timestamp || '')"
+                  >
                     <span class="event-type-badge" :class="`type-${event.type}`">{{ formatEventType(event.type) }}</span>
                     <span v-if="event.title" class="event-title-text">{{ event.title }}</span>
                     <span v-if="event.status" class="event-status" :class="`status-${event.status}`">
-                      <Check v-if="event.status === 'completed'" :size="10" />
-                      <X v-else-if="event.status === 'failed'" :size="10" />
-                      <Loader2 v-else-if="event.status === 'running'" :size="10" class="spin" />
+                      <Check v-if="event.status === 'completed'" :size="10" aria-hidden="true" />
+                      <X v-else-if="event.status === 'failed'" :size="10" aria-hidden="true" />
+                      <Loader2 v-else-if="event.status === 'running'" :size="10" class="spin" aria-hidden="true" />
                       {{ event.status }}
                     </span>
                     <span class="event-time">{{ formatTimestamp(event.timestamp) }}</span>
                     <ChevronDown
-                      v-if="hasExpandableContent(event)"
                       :size="12"
                       class="expand-chevron"
                       :class="{ expanded: expandedEvents[event.id || event.timestamp || ''] }"
+                      aria-hidden="true"
                     />
+                  </button>
+                  <div v-else class="event-header-row event-header-static">
+                    <span class="event-type-badge" :class="`type-${event.type}`">{{ formatEventType(event.type) }}</span>
+                    <span v-if="event.title" class="event-title-text">{{ event.title }}</span>
+                    <span v-if="event.status" class="event-status" :class="`status-${event.status}`">
+                      <Check v-if="event.status === 'completed'" :size="10" aria-hidden="true" />
+                      <X v-else-if="event.status === 'failed'" :size="10" aria-hidden="true" />
+                      <Loader2 v-else-if="event.status === 'running'" :size="10" class="spin" aria-hidden="true" />
+                      {{ event.status }}
+                    </span>
+                    <span class="event-time">{{ formatTimestamp(event.timestamp) }}</span>
                   </div>
                   <div v-if="expandedEvents[event.id || event.timestamp || '']" class="event-details">
                     <div v-if="event.input" class="detail-block">
@@ -123,7 +159,7 @@
                       <span class="detail-label">{{ t('trace.artifacts') }}</span>
                       <div class="artifact-list">
                         <div v-for="(a, i) in event.artifacts" :key="i" class="artifact-item">
-                          <FileEdit :size="12" />
+                          <FileEdit :size="12" aria-hidden="true" />
                           <span>{{ a.kind }}</span>
                           <span v-if="a.path" class="artifact-path">{{ a.path }}</span>
                         </div>
@@ -133,7 +169,7 @@
                       <span class="detail-label">{{ t('trace.evidence') }}</span>
                       <div class="evidence-list">
                         <div v-for="(e, i) in event.evidence" :key="i" class="evidence-item" :class="`result-${e.result}`">
-                          <component :is="e.kind === 'test' ? Beaker : e.kind === 'lint' ? Shield : e.kind === 'build' ? Hammer : CheckCircle" :size="12" />
+                          <component :is="e.kind === 'test' ? Beaker : e.kind === 'lint' ? Shield : e.kind === 'build' ? Hammer : CheckCircle" :size="12" aria-hidden="true" />
                           <span class="evidence-kind">{{ e.kind }}</span>
                           <span class="evidence-result">{{ e.result || 'unknown' }}</span>
                         </div>
@@ -158,34 +194,39 @@
 
       <div v-if="activeView === 'logs'" class="logs-layout">
         <div class="logs-sidebar">
-          <div v-if="loading && debugFiles.length === 0" class="trace-empty">
-            <Loader2 :size="20" class="spin" />
+          <div v-if="loading && debugFiles.length === 0" class="trace-empty" aria-live="polite">
+            <Loader2 :size="20" class="spin" aria-hidden="true" />
             <span>{{ t('trace.loading') }}</span>
           </div>
           <div v-else-if="debugFiles.length === 0" class="trace-empty">
-            <FileX :size="20" />
+            <FileX :size="20" aria-hidden="true" />
             <span>{{ t('trace.noLogs') }}</span>
           </div>
-          <div v-else class="log-file-list">
-            <div
+          <ul v-else class="log-file-list" role="listbox" :aria-label="t('trace.rawLogs')">
+            <li
               v-for="file in debugFiles"
               :key="file.path"
               class="log-file-item"
+              role="option"
+              :aria-selected="selectedLogPath === file.path"
               :class="{ active: selectedLogPath === file.path }"
+              tabindex="0"
               @click="selectLogFile(file.path)"
+              @keydown.enter="selectLogFile(file.path)"
+              @keydown.space.prevent="selectLogFile(file.path)"
             >
-              <FileText :size="14" />
+              <FileText :size="14" aria-hidden="true" />
               <div class="log-file-info">
                 <span class="log-file-name">{{ file.name }}</span>
                 <span class="log-file-meta">{{ formatSize(file.size) }} · {{ formatTime(file.modifiedAt) }}</span>
               </div>
               <span class="log-file-kind" :class="file.kind">{{ file.kind }}</span>
-            </div>
-          </div>
+            </li>
+          </ul>
         </div>
         <div class="log-content-panel">
           <div v-if="!logContent" class="trace-empty">
-            <FileText :size="32" />
+            <FileText :size="32" aria-hidden="true" />
             <span>{{ t('trace.selectLog') }}</span>
           </div>
           <div v-else class="log-content">
@@ -338,8 +379,11 @@ function formatEventType(type: string): string {
 function formatTimestamp(ts?: string): string {
   if (!ts) return ''
   try {
-    const d = new Date(ts)
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    return new Intl.DateTimeFormat(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).format(new Date(ts))
   } catch {
     return ts
   }
@@ -350,15 +394,27 @@ function formatTime(ms: number): string {
   const now = new Date()
   const isToday = d.toDateString() === now.toDateString()
   if (isToday) {
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    return new Intl.DateTimeFormat(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(d)
   }
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(d)
 }
+
+const sizeFormatter = new Intl.NumberFormat(undefined, {
+  maximumFractionDigits: 1,
+})
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return bytes + ' B'
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+  if (bytes < 1024 * 1024) return sizeFormatter.format(bytes / 1024) + ' KB'
+  return sizeFormatter.format(bytes / (1024 * 1024)) + ' MB'
 }
 
 function formatJson(data: unknown): string {
@@ -371,7 +427,7 @@ function formatJson(data: unknown): string {
 
 function truncateStr(str: string, max: number): string {
   if (str.length <= max) return str
-  return str.slice(0, max) + '\n... (' + (str.length - max) + ' more chars)'
+  return str.slice(0, max) + '\n… (' + (str.length - max) + ' more chars)'
 }
 
 onMounted(loadData)
@@ -384,6 +440,7 @@ onMounted(loadData)
   height: 100%;
   overflow: hidden;
   background: var(--bg-primary);
+  overscroll-behavior: contain;
 }
 
 .trace-header {
@@ -420,11 +477,17 @@ onMounted(loadData)
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+  touch-action: manipulation;
 
   &:hover:not(:disabled) {
     background: var(--surface-glass-hover);
     color: var(--text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 1px;
   }
 
   &:disabled {
@@ -457,11 +520,17 @@ onMounted(loadData)
   color: var(--text-muted);
   cursor: pointer;
   border-radius: var(--radius-sm);
-  transition: all var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast);
+  touch-action: manipulation;
 
   &:hover {
     background: var(--surface-glass-hover);
     color: var(--text-secondary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 1px;
   }
 
   &.active {
@@ -501,12 +570,15 @@ onMounted(loadData)
   flex-direction: column;
   overflow: hidden;
   border-right: 1px solid var(--surface-border);
+  overscroll-behavior: contain;
 }
 
 .session-list, .log-file-list {
   flex: 1;
   overflow-y: auto;
   padding: 4px 8px;
+  list-style: none;
+  margin: 0;
 
   &::-webkit-scrollbar {
     width: 6px;
@@ -531,9 +603,21 @@ onMounted(loadData)
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background var(--transition-fast);
+  touch-action: manipulation;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  font-size: inherit;
+  color: inherit;
 
   &:hover {
     background: var(--surface-glass-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: -1px;
   }
 
   &.active {
@@ -611,6 +695,7 @@ onMounted(loadData)
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  overscroll-behavior: contain;
 }
 
 .events-toolbar {
@@ -628,6 +713,7 @@ onMounted(loadData)
   color: var(--text-muted);
   flex-shrink: 0;
   font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 .events-filters {
@@ -647,11 +733,17 @@ onMounted(loadData)
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+  touch-action: manipulation;
 
   &:hover {
     border-color: var(--accent-primary);
     color: var(--text-secondary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 1px;
   }
 
   &.active {
@@ -665,6 +757,8 @@ onMounted(loadData)
   flex: 1;
   overflow-y: auto;
   padding: 8px 16px 16px;
+  list-style: none;
+  margin: 0;
 
   &::-webkit-scrollbar {
     width: 6px;
@@ -702,18 +796,18 @@ onMounted(loadData)
   border-radius: 50%;
   flex-shrink: 0;
 
-  &.type-user_message { background: #3b82f6; }
-  &.type-assistant_text, &.type-assistant_turn { background: #8b5cf6; }
-  &.type-tool_call, &.type-tool_result { background: #64748b; }
-  &.type-file_change { background: #f59e0b; }
-  &.type-command_run { background: #06b6d4; }
-  &.type-verification { background: #22c55e; }
-  &.type-error { background: #ef4444; }
-  &.type-final_summary { background: #ec4899; }
-  &.type-session_created, &.type-engine_session_start { background: #64748b; }
+  &.type-user_message { background: var(--trace-user, #3b82f6); }
+  &.type-assistant_text, &.type-assistant_turn { background: var(--trace-assistant, #8b5cf6); }
+  &.type-tool_call, &.type-tool_result { background: var(--trace-tool, #64748b); }
+  &.type-file_change { background: var(--trace-file, #f59e0b); }
+  &.type-command_run { background: var(--trace-command, #06b6d4); }
+  &.type-verification { background: var(--trace-verify, #22c55e); }
+  &.type-error { background: var(--trace-error, #ef4444); }
+  &.type-final_summary { background: var(--trace-summary, #ec4899); }
+  &.type-session_created, &.type-engine_session_start { background: var(--trace-system, #64748b); }
 
-  &.status-failed { background: #ef4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.4); }
-  &.status-running { background: #3b82f6; box-shadow: 0 0 6px rgba(59, 130, 246, 0.4); }
+  &.status-failed { background: var(--trace-error, #ef4444); box-shadow: 0 0 6px color-mix(in srgb, var(--trace-error, #ef4444) 40%, transparent); }
+  &.status-running { background: var(--trace-user, #3b82f6); box-shadow: 0 0 6px color-mix(in srgb, var(--trace-user, #3b82f6) 40%, transparent); }
 }
 
 .event-line {
@@ -737,9 +831,30 @@ onMounted(loadData)
   border-radius: 6px;
   cursor: pointer;
   transition: background var(--transition-fast);
+  touch-action: manipulation;
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  text-align: left;
+  font-size: inherit;
+  color: inherit;
+  font-family: inherit;
 
   &:hover {
     background: var(--surface-glass-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: -1px;
+  }
+
+  &.event-header-static {
+    cursor: default;
+
+    &:hover {
+      background: transparent;
+    }
   }
 }
 
@@ -751,15 +866,15 @@ onMounted(loadData)
   text-transform: uppercase;
   flex-shrink: 0;
 
-  &.type-user_message { background: rgba(59, 130, 246, 0.12); color: #3b82f6; }
-  &.type-assistant_text, &.type-assistant_turn { background: rgba(139, 92, 246, 0.12); color: #8b5cf6; }
-  &.type-tool_call, &.type-tool_result { background: rgba(100, 116, 139, 0.12); color: #64748b; }
-  &.type-file_change { background: rgba(245, 158, 11, 0.12); color: #f59e0b; }
-  &.type-command_run { background: rgba(6, 182, 212, 0.12); color: #06b6d4; }
-  &.type-verification { background: rgba(34, 197, 94, 0.12); color: #22c55e; }
-  &.type-error { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
-  &.type-final_summary { background: rgba(236, 72, 153, 0.12); color: #ec4899; }
-  &.type-session_created, &.type-engine_session_start { background: rgba(100, 116, 139, 0.12); color: #64748b; }
+  &.type-user_message { background: color-mix(in srgb, var(--trace-user, #3b82f6) 12%, transparent); color: var(--trace-user, #3b82f6); }
+  &.type-assistant_text, &.type-assistant_turn { background: color-mix(in srgb, var(--trace-assistant, #8b5cf6) 12%, transparent); color: var(--trace-assistant, #8b5cf6); }
+  &.type-tool_call, &.type-tool_result { background: color-mix(in srgb, var(--trace-tool, #64748b) 12%, transparent); color: var(--trace-tool, #64748b); }
+  &.type-file_change { background: color-mix(in srgb, var(--trace-file, #f59e0b) 12%, transparent); color: var(--trace-file, #f59e0b); }
+  &.type-command_run { background: color-mix(in srgb, var(--trace-command, #06b6d4) 12%, transparent); color: var(--trace-command, #06b6d4); }
+  &.type-verification { background: color-mix(in srgb, var(--trace-verify, #22c55e) 12%, transparent); color: var(--trace-verify, #22c55e); }
+  &.type-error { background: color-mix(in srgb, var(--trace-error, #ef4444) 12%, transparent); color: var(--trace-error, #ef4444); }
+  &.type-final_summary { background: color-mix(in srgb, var(--trace-summary, #ec4899) 12%, transparent); color: var(--trace-summary, #ec4899); }
+  &.type-session_created, &.type-engine_session_start { background: color-mix(in srgb, var(--trace-system, #64748b) 12%, transparent); color: var(--trace-system, #64748b); }
 }
 
 .event-title-text {
@@ -791,6 +906,7 @@ onMounted(loadData)
   font-family: var(--font-mono);
   color: var(--text-muted);
   flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .expand-chevron {
@@ -938,6 +1054,10 @@ onMounted(loadData)
 
 .spin {
   animation: spin 1s linear infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
 }
 
 @keyframes spin {

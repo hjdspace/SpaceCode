@@ -43,6 +43,7 @@ import { useI18n } from 'vue-i18n'
 import { Menu, Sun, Moon } from 'lucide-vue-next'
 import { computed } from 'vue'
 import type { ThemeId } from '@/stores/app'
+import { THEME_CYCLE } from '@/stores/app'
 
 const appStore = useAppStore()
 const chatStore = useChatStore()
@@ -56,9 +57,9 @@ const THEME_LABELS: Record<ThemeId, string> = {
 }
 
 const themeTooltip = computed(() => {
-  const currentIndex = (['light', 'dark', 'anthropic', 'anthropic-dark'] as ThemeId[]).indexOf(appStore.theme)
-  const nextIndex = (currentIndex + 1) % 4
-  const nextTheme = (['light', 'dark', 'anthropic', 'anthropic-dark'] as ThemeId[])[nextIndex]
+  const currentIndex = THEME_CYCLE.indexOf(appStore.theme)
+  const nextIndex = (currentIndex + 1) % THEME_CYCLE.length
+  const nextTheme = THEME_CYCLE[nextIndex]
   return `Switch to ${THEME_LABELS[nextTheme]}`
 })
 

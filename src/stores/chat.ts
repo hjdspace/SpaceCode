@@ -32,6 +32,10 @@ const logger = {
   },
 }
 
+const FILE_TOOLS = new Set(['Write', 'FileWrite', 'Edit', 'FileEdit', 'MultiEdit'])
+const COMMAND_TOOLS = new Set(['Bash'])
+const VERIFICATION_PATTERNS = [/^\s*(npm\s+test|bun\s+test|pnpm\s+test|yarn\s+test|pytest|cargo\s+test|go\s+test|jest|vitest|mocha|npx\s+playwright|ruff|eslint|biome|prettier|tsc|vue-tsc|npm\s+run\s+(test|lint|check|build|typecheck))/i]
+
 function traceEvent(event: {
   sessionId: string
   messageId?: string
@@ -870,10 +874,6 @@ export const useChatStore = defineStore('chat', () => {
                 id: toolId, name: toolName, input: toolInput,
                 status: 'running', startTime: Date.now()
               }]
-              const FILE_TOOLS = new Set(['Write', 'FileWrite', 'Edit', 'FileEdit', 'MultiEdit'])
-              const COMMAND_TOOLS = new Set(['Bash'])
-              const VERIFICATION_PATTERNS = [/^\s*(npm\s+test|bun\s+test|pnpm\s+test|yarn\s+test|pytest|cargo\s+test|go\s+test|jest|vitest|mocha|npx\s+playwright|ruff|eslint|biome|prettier|tsc|vue-tsc|npm\s+run\s+(test|lint|check|build|typecheck))/i]
-
               let traceType: string = 'tool_call'
               if (FILE_TOOLS.has(toolName)) traceType = 'file_change'
               else if (COMMAND_TOOLS.has(toolName)) {
@@ -925,9 +925,6 @@ export const useChatStore = defineStore('chat', () => {
                 endTime: Date.now()
               }
               msg.toolCalls = updatedToolCalls
-              const FILE_TOOLS = new Set(['Write', 'FileWrite', 'Edit', 'FileEdit', 'MultiEdit'])
-              const COMMAND_TOOLS = new Set(['Bash'])
-              const VERIFICATION_PATTERNS = [/^\s*(npm\s+test|bun\s+test|pnpm\s+test|yarn\s+test|pytest|cargo\s+test|go\s+test|jest|vitest|mocha|npx\s+playwright|ruff|eslint|biome|prettier|tsc|vue-tsc|npm\s+run\s+(test|lint|check|build|typecheck))/i]
 
               const toolName = updatedToolCalls[toolCallIndex].name
               let traceType: string = 'tool_result'

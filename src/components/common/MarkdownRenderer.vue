@@ -1,14 +1,21 @@
 <template>
-  <div class="markdown-renderer" v-html="renderedContent"></div>
+  <div 
+    class="markdown-renderer" 
+    v-html="renderedContent" 
+    @click="handleLinkClick"
+  ></div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import { marked } from 'marked'
+import { useAppStore } from '@/stores/app'
 
 const props = defineProps<{
   content: string
 }>()
+
+const appStore = useAppStore()
 
 const renderer = new marked.Renderer()
 
@@ -51,6 +58,50 @@ const renderedContent = computed(() => {
     return props.content
   }
 })
+
+function isExternalURL(url: string): boolean {
+  try {
+    if (url.startsWith('#') || url.startsWith('/') || url.startsWith('./') || url.startsWith('../')) {
+      return false
+    }
+    
+    const parsed = new URL(url, window.location.origin)
+    
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return false
+    }
+    
+    if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+      return false
+    }
+    
+    return true
+  } catch {
+    return false
+  }
+}
+
+function handleLinkClick(event: MouseEvent) {
+  const target = event.target as HTMLElement
+  
+  const anchor = target.tagName === 'A' 
+    ? target as HTMLAnchorElement 
+    : target.closest('a') as HTMLAnchorElement
+  
+  if (!anchor) return
+  
+  const href = anchor.getAttribute('href')
+  if (!href) return
+  
+  if (isExternalURL(href)) {
+    event.preventDefault()
+    event.stopPropagation()
+    
+    appStore.openWebview(href)
+    
+    console.log('[MarkdownRenderer] External link opened in webview:', href)
+  }
+}
 </script>
 
 <style lang="scss" scoped>
@@ -127,6 +178,21 @@ const renderedContent = computed(() => {
     
     &:hover {
       color: var(--accent-secondary);
+    }
+    
+    &[href^="http"] {
+      position: relative;
+      
+      &::after {
+        content: '↗';
+        font-size: 10px;
+        margin-left: 3px;
+        opacity: 0.6;
+      }
+      
+      &:hover::after {
+        opacity: 1;
+      }
     }
   }
   

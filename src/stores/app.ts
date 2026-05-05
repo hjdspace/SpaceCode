@@ -35,7 +35,7 @@ const PROJECT_ROOT_STORAGE_KEY = 'app_project_root'
 
 export type ThemeId = 'light' | 'dark' | 'anthropic' | 'anthropic-dark'
 
-const THEME_CYCLE: ThemeId[] = ['light', 'dark', 'anthropic', 'anthropic-dark']
+export const THEME_CYCLE: ThemeId[] = ['light', 'dark', 'anthropic', 'anthropic-dark']
 
 export const useAppStore = defineStore('app', () => {
   const theme = ref<ThemeId>('light')
@@ -233,6 +233,7 @@ export const useAppStore = defineStore('app', () => {
       normalizedUrl = 'https://' + normalizedUrl
     }
 
+    webviewHistory.value = webviewHistory.value.slice(0, currentHistoryIndex.value + 1)
     webviewHistory.value.push(normalizedUrl)
     currentHistoryIndex.value = webviewHistory.value.length - 1
     webviewUrl.value = normalizedUrl

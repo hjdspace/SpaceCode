@@ -89,7 +89,8 @@ function createWindow() {
       partition: 'persist:claude-code-desktop',
       // 允许在 --debug 模式或开发模式下使用 DevTools
       devTools: isDev || debugMode,
-      spellcheck: false
+      spellcheck: false,
+      webviewTag: true
     }
   }
 
@@ -194,6 +195,37 @@ function createWindow() {
   })
 
   setMainWindow(mainWindow)
+  
+  // Webview 安全配置
+  mainWindow.webContents.session.setPermissionRequestHandler(
+    (_webContents, permission, callback) => {
+      const allowedPermissions = [
+        'media',
+        'geolocation',
+        'notifications',
+        'clipboard-sanitized-write'
+      ]
+      
+      if (allowedPermissions.includes(permission)) {
+        callback(true)
+      } else {
+        console.warn(`[Security] Permission denied: ${permission}`)
+        callback(false)
+      }
+    }
+  )
+  
+  // 处理主窗口导航（防止外部链接覆盖 GUI）
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    const parsedUrl = new URL(navigationUrl)
+    
+    if (parsedUrl.protocol === 'file:' || parsedUrl.origin === 'http://localhost:5173') {
+      return
+    }
+    
+    console.log('[Navigation] External navigation intercepted:', navigationUrl)
+  })
+  
   createMenu()
 }
 
