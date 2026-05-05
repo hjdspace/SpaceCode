@@ -188,9 +188,9 @@ watch(() => props.messages, () => { loadSpecialComponents() }, { deep: true })
 
 const timelineEvents = computed<TimelineEvent[]>(() => {
   const events: TimelineEvent[] = []
+  const timelineToolCallIds = new Set<string>()
 
   for (const msg of props.messages) {
-    const timelineToolCallIds = new Set<string>()
     const hasTimeline = msg.timelineEvents?.length
 
     if (hasTimeline) {
