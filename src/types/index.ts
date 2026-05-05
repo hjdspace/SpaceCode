@@ -1,3 +1,55 @@
+export enum ErrorCategory {
+  RATE_LIMIT = 'rate_limit',
+  SERVER_ERROR = 'server_error',
+  AUTH_ERROR = 'auth_error',
+  NETWORK_ERROR = 'network_error',
+  TIMEOUT = 'timeout',
+  PROCESS_ERROR = 'process_error',
+  DATA_ERROR = 'data_error',
+  CONFIG_ERROR = 'config_error',
+  BASE_URL_ERROR = 'base_url_error',
+  UNKNOWN = 'unknown',
+}
+
+export interface ClassifiedError {
+  category: ErrorCategory
+  title: string
+  message: string
+  technicalDetail: string
+  retryable: boolean
+  retryDelay?: number
+  originalError: any
+  timestamp: number
+}
+
+export interface ErrorContext {
+  sessionId?: string
+  provider?: string
+  model?: string
+  baseUrl?: string
+  phase?: 'init' | 'send' | 'stream' | 'tool'
+}
+
+export interface ToastItem {
+  id: string
+  category: ErrorCategory
+  title: string
+  message: string
+  autoDismiss: boolean
+  dismissAfter: number
+  createdAt: number
+}
+
+export interface ErrorLogEntry {
+  id: string
+  category: ErrorCategory
+  title: string
+  technicalDetail: string
+  timestamp: number
+  sessionId?: string
+  resolved: boolean
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant' | 'system'
@@ -50,6 +102,7 @@ export interface MessageMetadata {
   outputTokens?: number
   duration?: number
   warning?: string
+  error?: ClassifiedError
 }
 
 export type ProcessStatus = 'none' | 'starting' | 'active' | 'idle' | 'suspended' | 'exited'
