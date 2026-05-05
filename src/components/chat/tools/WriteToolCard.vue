@@ -21,7 +21,10 @@
     <div v-show="isExpanded" class="write-body">
       <div v-if="toolCall.input.content" class="content-preview">
         <div class="block-label">Content Preview</div>
-        <pre class="code-block"><code>{{ contentPreview }}</code></pre>
+        <pre class="code-block"><code v-html="highlightedPreview"></code></pre>
+        <div v-if="previewTruncated" class="truncated-notice">
+          ... (truncated, {{ (toolCall.input.content || '').length }} total chars)
+        </div>
       </div>
       <div v-if="toolCall.output" class="result-block">
         <div class="block-label">Result</div>
@@ -38,6 +41,7 @@ import { computed, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
+import hljs from 'highlight.js'
 
 const props = defineProps<{ toolCall: ToolCall }>()
 const isExpanded = ref(false)
@@ -53,10 +57,40 @@ const outputSummary = computed(() => {
   return null
 })
 const PREVIEW_MAX = 800
-const contentPreview = computed(() => {
+const rawPreview = computed(() => {
   const c = props.toolCall.input?.content || ''
-  return c.length > PREVIEW_MAX ? c.slice(0, PREVIEW_MAX) + '\n... (truncated)' : c
+  return c.length > PREVIEW_MAX ? c.slice(0, PREVIEW_MAX) : c
 })
+
+const highlightedPreview = computed(() => {
+  const content = rawPreview.value
+  if (!content) return ''
+
+  const language = appStore.getLanguageFromPath(filePath.value)
+
+  try {
+    if (language && hljs.getLanguage(language)) {
+      return hljs.highlight(content, { language }).value
+    }
+    return hljs.highlightAuto(content).value
+  } catch (error) {
+    console.error('Highlight error:', error)
+    return escapeHtml(content)
+  }
+})
+
+const previewTruncated = computed(() => {
+  const c = props.toolCall.input?.content || ''
+  return c.length > PREVIEW_MAX
+})
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
 function toggleExpand() { isExpanded.value = !isExpanded.value }
 
 async function openInPanel() {
@@ -106,7 +140,40 @@ async function openInPanel() {
 .write-body { border-top: 1px solid var(--surface-border); }
 .content-preview, .result-block { padding: 10px 12px; border-top: 1px solid var(--surface-border); }
 .block-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-tertiary); margin-bottom: 6px; font-weight: 500; }
-.code-block { margin: 0; padding: 10px 12px; border-radius: 4px; background: #0d1117; color: #c9d1d9; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.5; overflow: auto; max-height: 300px; white-space: pre-wrap; }
+.code-block {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 4px;
+  background: #0d1117;
+  color: #c9d1d9;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: auto;
+  max-height: 300px;
+  white-space: pre-wrap;
+
+  /* highlight.js 主题 */
+  :deep(.hljs) { color: #c9d1d9; background: transparent; }
+  :deep(.hljs-comment), :deep(.hljs-quote) { color: #6a737d; font-style: italic; }
+  :deep(.hljs-keyword), :deep(.hljs-selector-tag) { color: #ff7b72; }
+  :deep(.hljs-string), :deep(.hljs-regexp) { color: #a5d6ff; }
+  :deep(.hljs-title), :deep(.hljs-section), :deep(.hljs-name), :deep(.hljs-selector-id), :deep(.hljs-selector-class) { color: #d2a8ff; }
+  :deep(.hljs-attribute), :deep(.hljs-attr), :deep(.hljs-variable), :deep(.hljs-template-variable), :deep(.hljs-class .hljs-title), :deep(.hljs-type) { color: #79c0ff; }
+  :deep(.hljs-built_in) { color: #ffa657; }
+  :deep(.hljs-literal) { color: #79c0ff; }
+  :deep(.hljs-addition) { color: #aff5b4; }
+  :deep(.hljs-deletion) { color: #ffd8d3; }
+}
+
+.truncated-notice {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: #6e7681;
+  font-style: italic;
+  text-align: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
 .spin-icon { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>

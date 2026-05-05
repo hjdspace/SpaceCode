@@ -24,7 +24,7 @@
         <span class="meta-item" v-if="limit"><ArrowDown :size="11" /> {{ limit }} lines</span>
         <span class="meta-item"><FileOutput :size="11" /> {{ outputLines }} lines</span>
       </div>
-      <pre class="code-content"><code>{{ toolCall.output || '(empty file)' }}</code></pre>
+      <pre class="code-content"><code v-html="highlightedOutput"></code></pre>
     </div>
   </div>
 </template>
@@ -36,6 +36,7 @@ import { computed, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
+import hljs from 'highlight.js'
 
 const props = defineProps<{ toolCall: ToolCall }>()
 const isExpanded = ref(false)
@@ -47,6 +48,32 @@ const filePath = computed(() => props.toolCall.input?.file_path || props.toolCal
 const offset = computed(() => props.toolCall.input?.offset)
 const limit = computed(() => props.toolCall.input?.limit)
 const outputLines = computed(() => (props.toolCall.output || '').split('\n').length)
+
+const highlightedOutput = computed(() => {
+  const content = props.toolCall.output || ''
+  if (!content) return '(empty file)'
+
+  const language = appStore.getLanguageFromPath(filePath.value)
+
+  try {
+    if (language && hljs.getLanguage(language)) {
+      return hljs.highlight(content, { language }).value
+    }
+    return hljs.highlightAuto(content).value
+  } catch (error) {
+    console.error('Highlight error:', error)
+    return escapeHtml(content)
+  }
+})
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
 function toggleExpand() { isExpanded.value = !isExpanded.value }
 
 async function openInPanel() {
@@ -81,7 +108,36 @@ async function openInPanel() {
 .read-body { border-top: 1px solid var(--surface-border); }
 .read-meta-row { display: flex; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--surface-border); }
 .meta-item { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--text-tertiary); }
-.code-content { margin: 0; padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6; overflow-x: auto; white-space: pre; tab-size: 2; max-height: 500px; overflow-y: auto; background: #0d1117; color: #f0f6fc; border-radius: 4px; }
+.code-content {
+  margin: 0;
+  padding: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre;
+  tab-size: 2;
+  max-height: 500px;
+  overflow-y: auto;
+  background: #0d1117;
+  color: #f0f6fc;
+  border-radius: 4px;
+
+  /* highlight.js 主题（适配更亮的文字色） */
+  code {
+    :deep(.hljs) { color: #f0f6fc; background: transparent; }
+    :deep(.hljs-comment), :deep(.hljs-quote) { color: #6a737d; font-style: italic; }
+    :deep(.hljs-keyword), :deep(.hljs-selector-tag) { color: #ff7b72; }
+    :deep(.hljs-string), :deep(.hljs-regexp) { color: #a5d6ff; }
+    :deep(.hljs-title), :deep(.hljs-section), :deep(.hljs-name), :deep(.hljs-selector-id), :deep(.hljs-selector-class) { color: #d2a8ff; }
+    :deep(.hljs-attribute), :deep(.hljs-attr), :deep(.hljs-variable), :deep(.hljs-template-variable), :deep(.hljs-class .hljs-title), :deep(.hljs-type) { color: #79c0ff; }
+    :deep(.hljs-built_in) { color: #ffa657; }
+    :deep(.hljs-literal) { color: #79c0ff; }
+    :deep(.hljs-number) { color: #79c0ff; }
+    :deep(.hljs-function .hljs-title) { color: #d2a8ff; }
+    :deep(.hljs-params) { color: #ffa657; }
+  }
+}
 .spin-icon { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>
