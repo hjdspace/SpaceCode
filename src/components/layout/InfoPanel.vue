@@ -160,15 +160,16 @@ function handleRefresh() {
 
 function handleNavigate() {
   const url = urlInput.value.trim()
-  if (url) {
-    appStore.navigateWebview(url)
-    if (webviewRef.value) {
-      let finalUrl = url
-      if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
-        finalUrl = 'https://' + finalUrl
-      }
-      webviewRef.value.loadURL(finalUrl)
-    }
+  if (!url) return
+
+  let finalUrl = url
+  if (!/^https?:\/\//.test(url)) {
+    finalUrl = 'https://' + url
+  }
+
+  appStore.navigateWebview(finalUrl)
+  if (webviewRef.value) {
+    webviewRef.value.loadURL(finalUrl)
   }
 }
 
