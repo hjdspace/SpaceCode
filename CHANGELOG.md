@@ -1,3 +1,28 @@
+## [0.3.0](https://github.com/hjdspace/claude-code-gui/compare/v0.2.5...v0.3.0) (2026-05-05)
+
+### Features
+
+* **terminal:** 添加内嵌终端功能支持交互式命令执行 ([32ccd42](https://github.com/hjdspace/claude-code-gui/commit/32ccd42))
+  - 重构终端模块，支持多标签页管理 ([092fba0](https://github.com/hjdspace/claude-code-gui/commit/092fba0))
+  - 缓存调试日志路径以避免重复计算 ([7fc71f7](https://github.com/hjdspace/claude-code-gui/commit/7fc71f7))
+* **工具卡片:** 添加在面板中查看功能并实现工具差异查看器 ([0375864](https://github.com/hjdspace/claude-code-gui/commit/0375864))
+  - 为工具卡片添加语法高亮和统一diff视图 ([191044d](https://github.com/hjdspace/claude-code-gui/commit/191044d))
+  - 添加显示文件内容的API ([745effd](https://github.com/hjdspace/claude-code-gui/commit/745effd))
+  - 增加工具调用状态显示和警告提示 ([bf29d3c](https://github.com/hjdspace/claude-code-gui/commit/bf29d3c))
+* **chat:** 添加消息时间线功能并优化工具卡片状态显示 ([9651f8f](https://github.com/hjdspace/claude-code-gui/commit/9651f8f))
+* **项目工作流:** 实现统一的项目打开流程和最近项目记录 ([ffa27c5](https://github.com/hjdspace/claude-code-gui/commit/ffa27c5))
+
+### Bug Fixes
+
+* **chat:** 修复项目关闭时会话清理不彻底的问题 ([d03e1b9](https://github.com/hjdspace/claude-code-gui/commit/d03e1b9))
+* **组件:** 修复工具卡片和差异查看器的条件渲染问题 ([dbee942](https://github.com/hjdspace/claude-code-gui/commit/dbee942))
+
+### Refactor
+
+* **chat:** 将timelineToolCallIds移到循环外部以避免重复创建 ([ec7b4b3](https://github.com/hjdspace/claude-code-gui/commit/ec7b4b3))
+* **AgentTimeline:** 优化时间线事件处理逻辑并重命名代理名称 ([8573654](https://github.com/hjdspace/claude-code-gui/commit/8573654))
+* **llm:** 移除buildApiUrl函数中的调试日志 ([2406743](https://github.com/hjdspace/claude-code-gui/commit/2406743))
+
 ## [0.2.5](https://github.com/hjdspace/claude-code-gui/compare/v0.2.4...v0.2.5) (2026-05-03)
 
 ### Features
