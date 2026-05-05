@@ -6,7 +6,17 @@ export interface Message {
   reasoning?: ReasoningBlock
   toolCalls?: ToolCall[]
   toolResults?: ToolResult[]
+  timelineEvents?: MessageTimelineEvent[]
   metadata?: MessageMetadata
+}
+
+export interface MessageTimelineEvent {
+  id: string
+  type: 'reasoning' | 'text' | 'tool_call' | 'metadata'
+  timestamp: number
+  status: 'pending' | 'running' | 'completed' | 'error'
+  content?: string
+  toolCallId?: string
 }
 
 export interface ReasoningBlock {

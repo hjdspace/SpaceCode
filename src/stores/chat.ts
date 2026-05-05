@@ -521,6 +521,58 @@ export const useChatStore = defineStore('chat', () => {
     await new Promise<void>((resolve, reject) => {
       let accumulatedContent = ''
       let isCompleted = false
+      let currentTextEventId: string | null = null
+      let currentReasoningEventId: string | null = null
+
+      const getAssistantMessage = () => {
+        const s = sessions.value.find(s => s.id === targetSessionId)
+        return s?.messages.find(m => m.id === assistantMessageId)
+      }
+
+      const addTimelineEvent = (event: NonNullable<Message['timelineEvents']>[number]) => {
+        const msg = getAssistantMessage()
+        if (!msg) return
+        if (msg.timelineEvents?.some(e => e.id === event.id)) return
+        msg.timelineEvents = [...(msg.timelineEvents || []), event]
+      }
+
+      const updateTimelineEvent = (eventId: string, updates: Partial<NonNullable<Message['timelineEvents']>[number]>) => {
+        const msg = getAssistantMessage()
+        if (!msg?.timelineEvents) return
+        msg.timelineEvents = msg.timelineEvents.map(event =>
+          event.id === eventId ? { ...event, ...updates } : event
+        )
+      }
+
+      const ensureTextTimelineEvent = () => {
+        if (currentTextEventId) return currentTextEventId
+        currentTextEventId = crypto.randomUUID()
+        addTimelineEvent({
+          id: currentTextEventId,
+          type: 'text',
+          timestamp: Date.now(),
+          status: 'running',
+          content: ''
+        })
+        return currentTextEventId
+      }
+
+      const completeCurrentTextEvent = () => {
+        if (!currentTextEventId) return
+        updateTimelineEvent(currentTextEventId, { status: 'completed' })
+        currentTextEventId = null
+      }
+
+      const addToolTimelineEvent = (toolCallId: string) => {
+        completeCurrentTextEvent()
+        addTimelineEvent({
+          id: `tool-${toolCallId}`,
+          type: 'tool_call',
+          timestamp: Date.now(),
+          status: 'running',
+          toolCallId
+        })
+      }
 
       const handleStreamEvent = (event: { sessionId: string; data: any }) => {
         if (event.sessionId !== targetSessionId || isCompleted) return
@@ -529,6 +581,8 @@ export const useChatStore = defineStore('chat', () => {
 
         if (ev.type === 'content_block_start' && ev.content_block?.type === 'text') {
           logger.debug('ChatStore', `[${targetSessionId.slice(0, 8)}] stream_event: content_block_start(text) | accLen=${accumulatedContent.length}`)
+          currentTextEventId = null
+          ensureTextTimelineEvent()
           if (accumulatedContent.length > 0 && !accumulatedContent.endsWith('\n')) {
             accumulatedContent += '\n\n'
             streamingContents.value.set(targetSessionId, accumulatedContent)
@@ -545,13 +599,28 @@ export const useChatStore = defineStore('chat', () => {
             const msg = s.messages.find(m => m.id === assistantMessageId)
             if (msg && !msg.reasoning) {
               msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
+              currentReasoningEventId = crypto.randomUUID()
+              addTimelineEvent({
+                id: currentReasoningEventId,
+                type: 'reasoning',
+                timestamp: msg.reasoning.startTime,
+                status: 'running',
+                content: ''
+              })
             }
           }
         }
 
         if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta?.text) {
+          const textEventId = ensureTextTimelineEvent()
           accumulatedContent += ev.delta.text
           streamingContents.value.set(targetSessionId, accumulatedContent)
+          const msg = getAssistantMessage()
+          const textEvent = msg?.timelineEvents?.find(event => event.id === textEventId)
+          updateTimelineEvent(textEventId, {
+            content: `${textEvent?.content || ''}${ev.delta.text}`,
+            status: 'running'
+          })
           nextTick(() => {
             updateMessage(assistantMessageId, { content: accumulatedContent }, targetSessionId)
           })
@@ -566,6 +635,21 @@ export const useChatStore = defineStore('chat', () => {
                 msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
               }
               msg.reasoning.content += ev.delta.thinking
+              if (!currentReasoningEventId) {
+                currentReasoningEventId = crypto.randomUUID()
+                addTimelineEvent({
+                  id: currentReasoningEventId,
+                  type: 'reasoning',
+                  timestamp: msg.reasoning.startTime,
+                  status: 'running',
+                  content: ''
+                })
+              }
+              const reasoningEvent = msg.timelineEvents?.find(event => event.id === currentReasoningEventId)
+              updateTimelineEvent(currentReasoningEventId, {
+                content: `${reasoningEvent?.content || ''}${ev.delta.thinking}`,
+                status: 'running'
+              })
               saveToStorage()
             }
           }
@@ -585,9 +669,42 @@ export const useChatStore = defineStore('chat', () => {
               .join('')
 
             if (textContent && textContent.length > accumulatedContent.length) {
+              const deltaText = textContent.slice(accumulatedContent.length)
               accumulatedContent = textContent
               streamingContents.value.set(targetSessionId, accumulatedContent)
+              if (!getAssistantMessage()?.timelineEvents?.some(event => event.type === 'text')) {
+                const textEventId = ensureTextTimelineEvent()
+                const msg = getAssistantMessage()
+                const textEvent = msg?.timelineEvents?.find(event => event.id === textEventId)
+                updateTimelineEvent(textEventId, {
+                  content: `${textEvent?.content || ''}${deltaText}`,
+                  status: 'running'
+                })
+              }
               updateMessage(assistantMessageId, { content: accumulatedContent }, targetSessionId)
+            }
+
+            if (!getAssistantMessage()?.timelineEvents?.length) {
+              let fallbackText = ''
+              for (const block of content) {
+                if (block.type === 'text' && block.text) {
+                  const textEventId = ensureTextTimelineEvent()
+                  fallbackText += block.text
+                  const msg = getAssistantMessage()
+                  const textEvent = msg?.timelineEvents?.find(event => event.id === textEventId)
+                  updateTimelineEvent(textEventId, {
+                    content: `${textEvent?.content || ''}${block.text}`,
+                    status: 'running'
+                  })
+                } else if (block.type === 'tool_use' && block.id) {
+                  addToolTimelineEvent(block.id)
+                }
+              }
+              if (fallbackText && fallbackText.length > accumulatedContent.length) {
+                accumulatedContent = fallbackText
+                streamingContents.value.set(targetSessionId, accumulatedContent)
+                updateMessage(assistantMessageId, { content: accumulatedContent }, targetSessionId)
+              }
             }
 
             const reasoningContent = content
@@ -605,6 +722,21 @@ export const useChatStore = defineStore('chat', () => {
                   }
                   msg.reasoning.content += reasoningContent
                   msg.reasoning.endTime = Date.now()
+                  if (!currentReasoningEventId) {
+                    currentReasoningEventId = crypto.randomUUID()
+                    addTimelineEvent({
+                      id: currentReasoningEventId,
+                      type: 'reasoning',
+                      timestamp: msg.reasoning.startTime,
+                      status: 'running',
+                      content: ''
+                    })
+                  }
+                  const reasoningEvent = msg.timelineEvents?.find(event => event.id === currentReasoningEventId)
+                  updateTimelineEvent(currentReasoningEventId, {
+                    content: `${reasoningEvent?.content || ''}${reasoningContent}`,
+                    status: 'completed'
+                  })
                   saveToStorage()
                 }
               }
@@ -622,6 +754,7 @@ export const useChatStore = defineStore('chat', () => {
                       id: toolUse.id, name: toolUse.name, input: toolUse.input || {},
                       status: 'running', startTime: Date.now()
                     }]
+                    addToolTimelineEvent(toolUse.id)
                     saveToStorage()
                   }
                 }
@@ -649,6 +782,7 @@ export const useChatStore = defineStore('chat', () => {
                 id: toolId, name: toolName, input: toolInput,
                 status: 'running', startTime: Date.now()
               }]
+              addToolTimelineEvent(toolId)
               saveToStorage()
             }
           }
@@ -682,6 +816,9 @@ export const useChatStore = defineStore('chat', () => {
                 endTime: Date.now()
               }
               msg.toolCalls = updatedToolCalls
+              updateTimelineEvent(`tool-${resultToolUseId}`, {
+                status: resultIsError ? 'error' : 'completed'
+              })
               saveToStorage()
             }
           }
@@ -705,11 +842,22 @@ export const useChatStore = defineStore('chat', () => {
           if (msg) {
             const finalText = typeof result.result === 'string' ? result.result : ''
             if (finalText && finalText.length > msg.content.length) {
+              const textEventId = ensureTextTimelineEvent()
+              const deltaText = finalText.slice(msg.content.length)
               msg.content = finalText
+              const textEvent = msg.timelineEvents?.find(event => event.id === textEventId)
+              updateTimelineEvent(textEventId, {
+                content: `${textEvent?.content || ''}${deltaText}`,
+                status: 'completed'
+              })
             }
+            completeCurrentTextEvent()
             if (msg.reasoning && !msg.reasoning.endTime) {
               msg.reasoning.endTime = Date.now()
               msg.reasoning.isExpanded = false
+            }
+            if (currentReasoningEventId) {
+              updateTimelineEvent(currentReasoningEventId, { status: 'completed' })
             }
             const hasRunningTools = !!msg.toolCalls?.some(tool => tool.status === 'running' || tool.status === 'pending')
             const suspiciousToolStop = result.stop_reason === 'tool_use'
@@ -750,6 +898,9 @@ export const useChatStore = defineStore('chat', () => {
                     endTime: Date.now()
                   }
                   msg.toolCalls = updatedToolCalls
+                  updateTimelineEvent(`tool-${toolResult.tool_use_id}`, {
+                    status: toolResult.is_error ? 'error' : 'completed'
+                  })
                   saveToStorage()
                 }
               }

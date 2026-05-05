@@ -7,11 +7,18 @@
         <span>{{ t('chat.startConversationDesc') }}</span>
       </div>
 
-      <MessageItem
-        v-for="message in messages"
-        :key="message.id"
-        :message="message"
-      />
+      <template v-for="group in messageGroups" :key="group.id">
+        <!-- User message bubble -->
+        <MessageItem
+          v-if="group.type === 'user'"
+          :message="group.messages[0]"
+        />
+        <!-- Assistant timeline (unified) -->
+        <AgentTimeline
+          v-else
+          :messages="group.messages"
+        />
+      </template>
 
       <div v-if="loading" class="typing-indicator">
         <div class="dot"></div>
@@ -23,9 +30,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted } from 'vue'
+import { ref, watch, nextTick, onMounted, computed } from 'vue'
 import type { Message } from '@/types'
 import MessageItem from './MessageItem.vue'
+import AgentTimeline from './AgentTimeline.vue'
 import { MessageSquare } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 
@@ -35,6 +43,34 @@ const { messages, loading } = defineProps<{
   messages: Message[]
   loading: boolean
 }>()
+
+interface MessageGroup {
+  id: string
+  type: 'user' | 'assistant'
+  messages: Message[]
+}
+
+const messageGroups = computed<MessageGroup[]>(() => {
+  const groups: MessageGroup[] = []
+  let currentGroup: MessageGroup | null = null
+
+  for (const msg of messages) {
+    const groupType = msg.role === 'user' ? 'user' : 'assistant'
+
+    if (!currentGroup || currentGroup.type !== groupType) {
+      currentGroup = {
+        id: msg.id,
+        type: groupType,
+        messages: [msg]
+      }
+      groups.push(currentGroup)
+    } else {
+      currentGroup.messages.push(msg)
+    }
+  }
+
+  return groups
+})
 
 const listRef = ref<HTMLElement | null>(null)
 

@@ -1,7 +1,11 @@
 <template>
   <div class="read-tool-card" :class="[statusClass]">
     <div class="read-header" @click="toggleExpand">
-      <div class="read-icon-wrapper"><FileText :size="14" /></div>
+      <div class="read-icon-wrapper">
+        <Loader2 v-if="toolCall.status === 'running'" :size="14" class="spin-icon" />
+        <X v-else-if="toolCall.status === 'error'" :size="14" />
+        <FileText v-else :size="14" />
+      </div>
       <span class="read-label">Read</span>
       <span class="read-file-path">{{ filePath }}</span>
       <button
@@ -27,7 +31,7 @@
 
 <script setup lang="ts">
 import type { ToolCall } from '@/types'
-import { FileText, ChevronDown, ArrowUp, ArrowDown, FileOutput, ExternalLink } from 'lucide-vue-next'
+import { FileText, ChevronDown, ArrowUp, ArrowDown, FileOutput, ExternalLink, Loader2, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useI18n } from 'vue-i18n'
@@ -68,6 +72,8 @@ async function openInPanel() {
 .read-tool-card { border-radius: 6px; background: var(--surface-glass); border: 1px solid var(--surface-border); overflow: hidden; font-size: 13px; }
 .read-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; &:hover { background: rgba(255,255,255,0.03); } }
 .read-icon-wrapper { width: 22px; height: 22px; border-radius: 4px; background: rgba(59, 130, 246, 0.12); color: #60a5fa; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.status-running .read-icon-wrapper { background: rgba(59, 130, 246, 0.12); color: #60a5fa; }
+.status-error .read-icon-wrapper { background: rgba(239, 68, 68, 0.12); color: #f87171; }
 .read-label { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #60a5fa; flex-shrink: 0; }
 .read-file-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-secondary); }
 .panel-btn { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; border: none; background: transparent; color: var(--text-tertiary); cursor: pointer; flex-shrink: 0; transition: all 0.15s; &:hover { background: rgba(255,255,255,0.1); color: var(--text-primary); } }
@@ -76,4 +82,6 @@ async function openInPanel() {
 .read-meta-row { display: flex; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--surface-border); }
 .meta-item { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--text-tertiary); }
 .code-content { margin: 0; padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6; overflow-x: auto; white-space: pre; tab-size: 2; max-height: 500px; overflow-y: auto; background: #0d1117; color: #f0f6fc; border-radius: 4px; }
+.spin-icon { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>

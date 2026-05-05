@@ -1,7 +1,11 @@
 <template>
   <div class="bash-tool-card" :class="[statusClass, { 'has-terminal': showTerminal }]">
     <div class="bash-header" @click="toggleExpand">
-      <div class="bash-icon-wrapper"><Terminal :size="14" /></div>
+      <div class="bash-icon-wrapper">
+        <Loader2 v-if="toolCall.status === 'running'" :size="14" class="spin-icon" />
+        <X v-else-if="toolCall.status === 'error'" :size="14" />
+        <Terminal v-else :size="14" />
+      </div>
       <span class="bash-label">Bash</span>
       <span v-if="commandPreview" class="bash-cmd-preview">{{ commandPreview }}</span>
       <span v-if="duration" class="bash-duration">{{ duration }}s</span>
@@ -55,7 +59,7 @@
 
 <script setup lang="ts">
 import type { ToolCall } from '@/types'
-import { Terminal, ChevronDown, Monitor } from 'lucide-vue-next'
+import { Terminal, ChevronDown, Monitor, Loader2, X } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useChatStore } from '@/stores/chat'
 import EmbeddedTerminal from '@/components/terminal/EmbeddedTerminal.vue'
@@ -180,8 +184,9 @@ watch(() => props.toolCall.status, (status) => {
 .output-text { background: #0d1117; color: #c9d1d9; max-height: 400px; overflow-y: auto; }
 .error-output { color: #f87171; background: rgba(248,113,113,0.08); }
 
-.status-running .bash-icon-wrapper { background: rgba(59, 130, 246, 0.12); color: #60a5fa; animation: spin 1s linear infinite; }
+.status-running .bash-icon-wrapper { background: rgba(59, 130, 246, 0.12); color: #60a5fa; }
 .status-error .bash-icon-wrapper { background: rgba(239, 68, 68, 0.12); color: #f87171; }
+.spin-icon { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .header-actions {

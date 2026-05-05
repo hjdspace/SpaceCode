@@ -1,7 +1,11 @@
 <template>
   <div class="edit-tool-card" :class="[statusClass]">
     <div class="edit-header" @click="toggleExpand">
-      <div class="edit-icon-wrapper"><FileEdit :size="14" /></div>
+      <div class="edit-icon-wrapper">
+        <Loader2 v-if="toolCall.status === 'running'" :size="14" class="spin-icon" />
+        <X v-else-if="toolCall.status === 'error'" :size="14" />
+        <FileEdit v-else :size="14" />
+      </div>
       <span class="edit-label">Edit</span>
       <span class="edit-path">{{ filePath }}</span>
       <button
@@ -32,7 +36,7 @@
 
 <script setup lang="ts">
 import type { ToolCall } from '@/types'
-import { FileEdit, ChevronDown, ExternalLink } from 'lucide-vue-next'
+import { FileEdit, ChevronDown, ExternalLink, Loader2, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useI18n } from 'vue-i18n'
@@ -77,6 +81,8 @@ async function openInPanel() {
 .edit-tool-card { border-radius: 6px; background: var(--surface-glass); border: 1px solid var(--surface-border); overflow: hidden; font-size: 13px; }
 .edit-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; &:hover { background: rgba(255,255,255,0.03); } }
 .edit-icon-wrapper { width: 22px; height: 22px; border-radius: 4px; background: rgba(249, 115, 22, 0.12); color: #fb923c; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.status-running .edit-icon-wrapper { background: rgba(59, 130, 246, 0.12); color: #60a5fa; }
+.status-error .edit-icon-wrapper { background: rgba(239, 68, 68, 0.12); color: #f87171; }
 .edit-label { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #fb923c; flex-shrink: 0; }
 .edit-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-secondary); }
 .panel-btn { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; border: none; background: transparent; color: var(--text-tertiary); cursor: pointer; flex-shrink: 0; transition: all 0.15s; &:hover { background: rgba(255,255,255,0.1); color: var(--text-primary); } }
@@ -90,4 +96,6 @@ async function openInPanel() {
 .old-text { background: rgba(248,113,113,0.12); color: #fca5a5; }
 .new-text { background: rgba(74,222,128,0.12); color: #86efac; }
 .result-text { background: #0d1117; color: #c9d1d9; }
+.spin-icon { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>
