@@ -162,14 +162,20 @@ function handleNavigate() {
   const url = urlInput.value.trim()
   if (!url) return
 
-  let finalUrl = url
-  if (!/^https?:\/\//.test(url)) {
-    finalUrl = 'https://' + url
-  }
+  try {
+    let finalUrl = url
+    if (!/^https?:\/\//.test(url)) {
+      finalUrl = 'https://' + url
+    }
 
-  appStore.navigateWebview(finalUrl)
-  if (webviewRef.value) {
-    webviewRef.value.loadURL(finalUrl)
+    new URL(finalUrl)
+
+    appStore.navigateWebview(finalUrl)
+    if (webviewRef.value) {
+      webviewRef.value.loadURL(finalUrl)
+    }
+  } catch (error) {
+    console.error('Invalid URL:', error)
   }
 }
 
