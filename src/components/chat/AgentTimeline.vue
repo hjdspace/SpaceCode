@@ -95,6 +95,15 @@
               <span v-if="event.metadata?.duration" class="meta-tag">{{ (event.metadata.duration / 1000).toFixed(1) }}s</span>
             </div>
           </template>
+
+          <!-- Error event -->
+          <template v-else-if="event.type === 'error' && event.classifiedError">
+            <ErrorCard
+              :error="event.classifiedError"
+              @retry="handleRetry"
+              @dismiss="handleDismissError"
+            />
+          </template>
         </div>
       </div>
     </div>
@@ -102,20 +111,23 @@
 </template>
 
 <script setup lang="ts">
-import type { Message, ToolCall, MessageMetadata } from '@/types'
+import type { Message, ToolCall, MessageMetadata, ClassifiedError } from '@/types'
 import type { Component } from 'vue'
 import { computed, markRaw, onMounted, reactive, watch } from 'vue'
 import { hasToolComponent, resolveToolComponent } from '@/components/chat/tools/index'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
+import ErrorCard from '../common/ErrorCard.vue'
+import { errorHandler } from '@/services/errorHandler'
+import { useChatStore } from '@/stores/chat'
 import {
-  Loader2, Check, X, ChevronDown, Bot,
+  Loader2, Check, X, ChevronDown, Bot, AlertCircle,
   Terminal, FileText, FileEdit, Search, Globe, Wand2, Folder, Code,
   Brain, MessageCircle, Info
 } from 'lucide-vue-next'
 
 interface TimelineEvent {
   id: string
-  type: 'reasoning' | 'text' | 'tool_call' | 'metadata'
+  type: 'reasoning' | 'text' | 'tool_call' | 'metadata' | 'error'
   status: 'running' | 'completed' | 'error' | 'pending'
   icon: Component
   label: string
@@ -125,6 +137,7 @@ interface TimelineEvent {
   toolCall?: ToolCall
   metadata?: MessageMetadata
   specialComponent?: Component
+  classifiedError?: ClassifiedError
 }
 
 const props = defineProps<{
@@ -133,6 +146,17 @@ const props = defineProps<{
 }>()
 
 const expandedEvents = reactive<Record<string, boolean>>({})
+
+const chatStore = useChatStore()
+
+function handleRetry() {
+  chatStore.retryLastMessage()
+}
+
+function handleDismissError() {
+  const sid = chatStore.currentSessionId
+  if (sid) errorHandler.clearInlineError(sid)
+}
 
 const TOOL_ICON_MAP: Record<string, Component> = {
   Bash: Terminal,
@@ -298,6 +322,18 @@ const timelineEvents = computed<TimelineEvent[]>(() => {
         label: 'Info',
         content: '',
         metadata: msg.metadata,
+      })
+    }
+
+    if (msg.metadata?.error) {
+      events.push({
+        id: `${msg.id}-error`,
+        type: 'error',
+        status: 'error',
+        icon: markRaw(AlertCircle),
+        label: 'Error',
+        content: '',
+        classifiedError: msg.metadata.error,
       })
     }
   }
