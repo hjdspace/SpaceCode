@@ -217,8 +217,8 @@
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/hjdspace/claude-code-gui.git
-cd claude-code-gui
+git clone https://github.com/hjdspace/SpaceCode.git
+cd SpaceCode
 
 # 2. 安装 Desktop 依赖
 npm install

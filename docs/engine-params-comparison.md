@@ -2,7 +2,7 @@
 
 > 对比基准：
 > - **参考实现**：`D:\AI\compare\claude-desktop-app\electron\bridge-server.cjs` 中的 `spawnPersistentEngine` 函数（约 L4016-L4141）
-> - **当前实现**：`d:\AI\claude-code-gui\electron\claudeCodeProcessManager.ts` 中的 `startSession` 及相关方法
+> - **当前实现**：`d:\AI\SpaceCode\electron\claudeCodeProcessManager.ts` 中的 `startSession` 及相关方法
 > - **分析日期**：2026-05-02
 
 ---

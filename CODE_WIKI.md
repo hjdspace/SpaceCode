@@ -139,7 +139,7 @@ SpaceCode 是一款 AI 驱动的智能编程助手，提供两种使用方式：
 ## 4. 目录结构
 
 ```
-claude-code-gui/
+SpaceCode/
 ├── electron/                          # Electron 主进程代码
 │   ├── main.ts                        # 主进程入口（窗口管理、系统集成）
 │   ├── preload.ts                     # Context Bridge（安全 API 暴露）
@@ -796,8 +796,8 @@ Desktop 复用 Engine 的以下部分：
 
 ```bash
 # 克隆项目
-git clone https://github.com/hjdspace/claude-code-gui.git
-cd claude-code-gui
+git clone https://github.com/hjdspace/SpaceCode.git
+cd SpaceCode
 
 # 安装 Desktop 项目依赖（根目录）
 npm install

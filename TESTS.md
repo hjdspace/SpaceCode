@@ -40,7 +40,7 @@
 ## 测试目录结构
 
 ```
-claude-code-gui/
+SpaceCode/
 ├── engine/                              # CLI 引擎测试
 │   ├── src/__tests__/                   # 单元测试（核心模块）
 │   │   ├── Tool.test.ts                 # 工具接口定义

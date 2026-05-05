@@ -5,7 +5,7 @@
 ## 目录结构总览（tree -L 2）
 
 ```
-claude-code-gui/
+SpaceCode/
 ├── electron/                          # Electron 主进程代码
 │   ├── claudeCodeIPC.ts               # Claude Code IPC 通信封装
 │   ├── gitService.ts                  # Git 操作服务

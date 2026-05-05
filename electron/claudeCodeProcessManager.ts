@@ -188,7 +188,7 @@ export class ClaudeCodeProcessManager extends EventEmitter {
       : undefined
 
     if (modelType) {
-      const settingsDir = path.join(os.tmpdir(), 'claude-code-gui')
+      const settingsDir = path.join(os.tmpdir(), 'SpaceCode')
       try { fs.mkdirSync(settingsDir, { recursive: true }) } catch {}
       const settingsPath = path.join(settingsDir, `settings-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`)
       const settingsContent: Record<string, unknown> = { modelType }
