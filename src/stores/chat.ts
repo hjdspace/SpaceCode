@@ -472,6 +472,7 @@ export const useChatStore = defineStore('chat', () => {
         permissionMode: 'bypassPermissions',
         agent: currentAgent.value || undefined,
         thinkingEnabled: settingsStore.thinkingEnabled,
+        engineType: settingsStore.engineType,
       })
 
       logger.info('ChatStore', `initClaudeCodeSession: session started successfully | id=${sessionId.slice(0, 8)}`)

@@ -24,6 +24,27 @@
 
       <div class="divider"></div>
 
+      <!-- Engine Selection -->
+      <div class="form-group">
+        <label class="form-label">Agent Engine</label>
+        <div class="engine-options">
+          <button
+            v-for="engine in engines"
+            :key="engine.id"
+            class="engine-card"
+            :class="{ active: config.engineType === engine.id }"
+            @click="selectEngine(engine.id)"
+          >
+            <span class="engine-name">{{ engine.name }}</span>
+            <span class="engine-desc">{{ engine.desc }}</span>
+            <Check v-if="config.engineType === engine.id" class="engine-check" :size="16" />
+          </button>
+        </div>
+        <span class="form-hint">Choose which agent engine to use</span>
+      </div>
+
+      <div class="divider"></div>
+
       <!-- Login Method Selection -->
       <div class="form-group">
         <label class="form-label">{{ $t('settings.loginMethod') }}</label>
@@ -267,7 +288,7 @@ import { api } from '@/services/electronAPI'
 import { useAppStore } from '@/stores/app'
 import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
 import { useSettingsStore } from '@/stores/settings'
-import type { AuthMethod, OAuthAccountInfo } from '@/stores/settings'
+import type { AuthMethod, OAuthAccountInfo, EngineType } from '@/stores/settings'
 import type { Locale } from '@/i18n'
 import SearchableSelect from './SearchableSelect.vue'
 
@@ -282,6 +303,7 @@ const props = defineProps<{
     opusModel: string
     projectRoot: string
     oauthAccount: OAuthAccountInfo | null
+    engineType: EngineType
   }
 }>()
 
@@ -311,6 +333,17 @@ const currentLanguage = computed({
 
 function selectLanguage(langId: Locale) {
   currentLanguage.value = langId
+}
+
+const engines = computed(() => [
+  { id: 'claude-code' as EngineType, name: 'Claude Code', desc: 'Original claude-code engine' },
+  { id: 'pi' as EngineType, name: 'Pi', desc: 'pi-coding-agent engine' }
+])
+
+function selectEngine(engineId: EngineType) {
+  config.value.engineType = engineId
+  settingsStore.engineType = engineId
+  settingsStore.saveSettings()
 }
 
 const authMethods = computed(() => [
@@ -946,6 +979,54 @@ async function browseProjectRoot() {
 }
 
 .language-check {
+  color: var(--accent-primary);
+}
+
+.engine-options {
+  display: flex;
+  gap: 12px;
+}
+
+.engine-card {
+  @include reset-button;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px 16px;
+  background: var(--bg-secondary);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+
+  &:hover {
+    background: var(--bg-hover);
+  }
+
+  &.active {
+    border-color: var(--accent-primary);
+    background: rgba(var(--accent-primary-rgb), 0.05);
+  }
+}
+
+.engine-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.engine-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.engine-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
   color: var(--accent-primary);
 }
 </style>

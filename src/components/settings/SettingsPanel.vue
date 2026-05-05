@@ -91,7 +91,7 @@ import {
   Settings, Boxes, Palette, Wrench, Keyboard
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
-import { useSettingsStore, type AuthMethod, type OAuthAccountInfo } from '@/stores/settings'
+import { useSettingsStore, type AuthMethod, type OAuthAccountInfo, type EngineType } from '@/stores/settings'
 
 // 异步加载非首屏组件，减少首屏bundle大小
 const GeneralSettings = defineAsyncComponent(() => import('./GeneralSettings.vue'))
@@ -134,7 +134,8 @@ const settingsData = ref({
   sonnetModel: '',
   opusModel: '',
   projectRoot: '',
-  oauthAccount: null as OAuthAccountInfo | null
+  oauthAccount: null as OAuthAccountInfo | null,
+  engineType: 'claude-code' as EngineType
 })
 
 // 缓存已访问的标签页，避免重复渲染
@@ -187,7 +188,8 @@ function loadSettings() {
     sonnetModel: settingsStore.getSonnetModel() || '',
     opusModel: settingsStore.getOpusModel() || '',
     projectRoot: settingsStore.projectRoot || '',
-    oauthAccount: settingsStore.oauthAccount
+    oauthAccount: settingsStore.oauthAccount,
+    engineType: settingsStore.engineType
   }
   
   // Reset hasChanges after loading, and re-enable the watch
@@ -235,7 +237,8 @@ async function handleSave() {
       opusModel: settingsData.value.opusModel
     },
     oauthAccount: settingsData.value.oauthAccount,
-    projectRoot: settingsData.value.projectRoot
+    projectRoot: settingsData.value.projectRoot,
+    engineType: settingsData.value.engineType
   }
 
   // Update store
