@@ -1,59 +1,69 @@
-const sharp = require('sharp');
+/**
+ * Generate icon.ico from individual PNG size files using png-to-ico.
+ * 
+ * Usage: node icons/generate-ico.js
+ * 
+ * This script reads the PNG icons from the icons/ directory and creates a
+ * multi-resolution .ico file. png-to-ico generates BMP-encoded ICO entries
+ * (not PNG-encoded), which ensures maximum compatibility with electron-builder's
+ * rcedit tool for embedding icons into the Windows .exe.
+ */
+const { imagesToIco } = require('png-to-ico');
+const { PNG } = require('pngjs');
 const fs = require('fs');
 const path = require('path');
 
-async function createIco() {
-  const sizes = [256, 128, 64, 48, 32, 16];
-  const images = [];
+const SCRIPT_DIR = __dirname; // icons/ directory
+const SIZES = [256, 128, 64, 48, 32, 16];
+const OUTPUT_PATH = path.join(SCRIPT_DIR, 'icon.ico');
 
-  for (const size of sizes) {
-    const inputPath = path.join(__dirname, 'icons', `icon-${size}.png`);
-    if (fs.existsSync(inputPath)) {
-      const image = sharp(inputPath);
-      const metadata = await image.metadata();
-      const { data, info } = await image.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-      images.push({
-        width: info.width,
-        height: info.height,
-        data: Buffer.from(data)
-      });
+async function createIco() {
+  // Parse PNG files into the pngjs format that imagesToIco expects
+  const pngImages = [];
+  const missingSizes = [];
+
+  for (const size of SIZES) {
+    const pngPath = path.join(SCRIPT_DIR, `icon-${size}.png`);
+    if (fs.existsSync(pngPath)) {
+      const buf = fs.readFileSync(pngPath);
+      const png = PNG.sync.read(buf);
+      pngImages.push(png);
+      console.log(`  ✓ icon-${size}.png (${png.width}x${png.height})`);
+    } else {
+      missingSizes.push(size);
+      console.log(`  ✗ icon-${size}.png — MISSING (skipped)`);
     }
   }
 
-  if (images.length === 0) {
-    throw new Error('No images found');
+  if (pngImages.length === 0) {
+    console.error('ERROR: No PNG icon files found! Please run "node icons/generate-icons.js" first.');
+    process.exit(1);
   }
 
-  const iconDirHeader = Buffer.alloc(6);
-  iconDirHeader.writeUInt16LE(0, 0); // Reserved
-  iconDirHeader.writeUInt16LE(1, 2); // Type: ICO
-  iconDirHeader.writeUInt16LE(images.length, 4); // Number of images
-
-  let offset = 6 + images.length * 16;
-  const dirEntries = [];
-
-  for (const img of images) {
-    const pngData = await sharp(img.data, { raw: { width: img.width, height: img.height, channels: 4 } }).png().toBuffer();
-    
-    const entry = Buffer.alloc(16);
-    entry.writeUInt8(img.width >= 256 ? 0 : img.width, 0); // Width
-    entry.writeUInt8(img.height >= 256 ? 0 : img.height, 1); // Height
-    entry.writeUInt8(0, 2); // Color palette
-    entry.writeUInt8(0, 3); // Reserved
-    entry.writeUInt16LE(1, 4); // Color planes
-    entry.writeUInt16LE(32, 6); // Bits per pixel
-    entry.writeUInt32LE(pngData.length, 8); // Size of image data
-    entry.writeUInt32LE(offset, 12); // Offset
-    
-    dirEntries.push({ entry, data: pngData });
-    offset += pngData.length;
+  if (missingSizes.length > 0) {
+    console.warn(`WARNING: Missing sizes: ${missingSizes.join(', ')}. ICO will contain ${pngImages.length} sizes.`);
   }
 
-  const icoBuffer = Buffer.concat([iconDirHeader, ...dirEntries.map(d => d.entry), ...dirEntries.map(d => d.data)]);
-  
-  const outputPath = path.join(__dirname, 'icons', 'icon.ico');
-  fs.writeFileSync(outputPath, icoBuffer);
-  console.log(`Generated: ${outputPath} (${icoBuffer.length} bytes)`);
+  // Generate ICO using png-to-ico (produces BMP-encoded ICO, best compatibility)
+  const icoBuffer = await imagesToIco(pngImages);
+  fs.writeFileSync(OUTPUT_PATH, icoBuffer);
+
+  // Verify the output
+  const header = icoBuffer.slice(0, 6);
+  const type = header.readUInt16LE(2);
+  const count = header.readUInt16LE(4);
+  const isValid = type === 1 && count > 0;
+
+  console.log(`\nGenerated: ${OUTPUT_PATH}`);
+  console.log(`  Size: ${icoBuffer.length} bytes | Entries: ${count} | Format: ${isValid ? 'VALID (BMP-encoded)' : 'INVALID'}`);
+
+  if (!isValid) {
+    console.error('ERROR: Generated ICO is invalid!');
+    process.exit(1);
+  }
 }
 
-createIco().catch(console.error);
+createIco().catch(err => {
+  console.error('FATAL: Failed to generate ICO:', err.message || err);
+  process.exit(1);
+});

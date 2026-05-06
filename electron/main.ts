@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, shell, dialog, net, globalShortcut } from 'electron'
-import { join, resolve } from 'path'
+import { join, resolve, extname } from 'path'
 import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSync } from 'fs'
 import { config } from 'dotenv'
 import { TerminalManager } from './terminalManager'
@@ -62,12 +62,70 @@ function destroyTray() {
 }
 
 // Resolve icon path: dev mode uses project root icons/, production uses extraResources
+// On Windows, prefer .ico (multi-resolution, required for .exe embedding).
+// Falls back to .png if .ico is unavailable.
 function getIconPath(): string {
-  const iconExt = process.platform === 'win32' ? 'ico' : 'png'
   if (app.isPackaged) {
-    return join(process.resourcesPath, 'icons', `icon.${iconExt}`)
+    // Production: extraResources copies icons/ → resources/icons/
+    const icoPath = join(process.resourcesPath, 'icons', 'icon.ico')
+    const pngPath = join(process.resourcesPath, 'icons', 'icon.png')
+    if (existsSync(icoPath)) return icoPath
+    if (existsSync(pngPath)) return pngPath
+    warn('Icon', `No icon found in resources: tried ${icoPath} and ${pngPath}`)
+    return icoPath // return .ico path even if missing (caller handles missing)
   }
-  return join(__dirname, `../icons/icon.${iconExt}`)
+  // Development: icon files are in project root icons/
+  const devIcoPath = join(__dirname, '../icons/icon.ico')
+  const devPngPath = join(__dirname, '../icons/icon.png')
+  if (existsSync(devIcoPath)) return devIcoPath
+  if (existsSync(devPngPath)) return devPngPath
+  warn('Icon', `No icon found in dev: tried ${devIcoPath} and ${devPngPath}`)
+  return devIcoPath // return .ico path even if missing
+}
+
+// Load a NativeImage for tray/window icon, with .ico → .png fallback
+function loadIconImage(): Electron.NativeImage {
+  const iconPath = getIconPath()
+  info('Icon', `Loading icon from: ${iconPath} | exists=${existsSync(iconPath)}`)
+
+  try {
+    if (existsSync(iconPath)) {
+      const img = nativeImage.createFromPath(iconPath)
+      if (!img.isEmpty()) {
+        debug('Icon', `Icon loaded successfully: ${iconPath} (${img.getSize().width}x${img.getSize().height})`)
+        return img
+      }
+      warn('Icon', `Icon at ${iconPath} loaded but is EMPTY — trying PNG fallback`)
+    }
+
+    // Try PNG fallback
+    const fallbackExt = extname(iconPath) === '.ico' ? '.png' : '.ico'
+    const fallbackPath = iconPath.replace(/\.(ico|png)$/, fallbackExt)
+    if (fallbackPath !== iconPath && existsSync(fallbackPath)) {
+      const fallbackImg = nativeImage.createFromPath(fallbackPath)
+      if (!fallbackImg.isEmpty()) {
+        info('Icon', `Using fallback icon: ${fallbackPath}`)
+        return fallbackImg
+      }
+      warn('Icon', `Fallback icon at ${fallbackPath} also empty`)
+    }
+
+    warn('Icon', 'No valid icon found — using empty image (will show default)')
+    return nativeImage.createEmpty()
+  } catch (err) {
+    error('Icon', 'Error loading icon image', err)
+    return nativeImage.createEmpty()
+  }
+}
+
+// Helper: resolve icon path for BrowserWindow (Electron constructor needs a file path)
+function getWindowIconPath(): string {
+  const iconPath = getIconPath()
+  if (existsSync(iconPath)) return iconPath
+  // Fallback to PNG
+  const pngPath = iconPath.replace(/\.ico$/, '.png')
+  if (existsSync(pngPath)) return pngPath
+  return iconPath
 }
 
 function createWindow() {
@@ -79,7 +137,7 @@ function createWindow() {
     minWidth: 1000,
     minHeight: 700,
     title: 'SpaceCode',
-    icon: getIconPath(),
+    icon: getWindowIconPath(),
     backgroundColor: '#0c0c1d',
     show: false,
     webPreferences: {
@@ -302,24 +360,21 @@ function createMenu() {
 
 function createTray() {
   const iconPath = getIconPath()
-  let icon: Electron.NativeImage
 
   debug('Tray', `Loading icon from: ${iconPath} | exists: ${existsSync(iconPath)}`)
 
+  let icon: Electron.NativeImage
+
   try {
-    if (existsSync(iconPath)) {
-      icon = nativeImage.createFromPath(iconPath)
-      if (icon.isEmpty()) {
-        warn('Tray', 'Icon loaded but is empty, using fallback')
-        icon = nativeImage.createEmpty()
-      } else {
-        const trayIconSize = process.platform === 'darwin' ? 18 : 16
-        icon = icon.resize({ width: trayIconSize, height: trayIconSize })
-        debug('Tray', `Icon loaded and resized to ${trayIconSize}x${trayIconSize}`)
-      }
+    icon = loadIconImage()
+    
+    // Resize for tray (Windows: 16x16, macOS: 18x18)
+    if (!icon.isEmpty()) {
+      const trayIconSize = process.platform === 'darwin' ? 18 : 16
+      icon = icon.resize({ width: trayIconSize, height: trayIconSize })
+      debug('Tray', `Icon loaded and resized to ${trayIconSize}x${trayIconSize}`)
     } else {
-      warn('Tray', `Icon file not found at: ${iconPath}`)
-      icon = nativeImage.createEmpty()
+      warn('Tray', 'Icon is empty after loadIconImage() — tray will show default icon')
     }
   } catch (err) {
     error('Tray', 'Error loading icon', err)
