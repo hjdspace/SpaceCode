@@ -34,9 +34,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
+import { useSettingsStore } from '@/stores/settings'
 import TitleBar from './components/layout/TitleBar.vue'
 import Sidebar from './components/layout/Sidebar.vue'
 import ChatPanel from './components/layout/ChatPanel.vue'
@@ -49,6 +50,7 @@ import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
 
 const appStore = useAppStore()
 const chatStore = useChatStore()
+const settingsStore = useSettingsStore()
 const { openProjectByPath } = useOpenProjectWorkflow()
 
 // Initialize shortcuts
@@ -135,6 +137,14 @@ function stopResize() {
 
 onMounted(() => {
   document.documentElement.setAttribute('data-theme', appStore.theme)
+
+  watch(() => settingsStore.appearance.theme, (newTheme) => {
+    let effectiveTheme = newTheme
+    if (newTheme === 'system') {
+      effectiveTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+    }
+    appStore.setTheme(effectiveTheme as 'light' | 'dark' | 'anthropic' | 'anthropic-dark')
+  }, { immediate: true })
 
   // 监听菜单事件
   api.onMenuOpenFolder((path: string) => {

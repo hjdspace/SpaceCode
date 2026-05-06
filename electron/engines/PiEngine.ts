@@ -2,12 +2,35 @@ import type { BrowserWindow } from 'electron'
 import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo } from './types'
 import { mapPiEvent } from './PiEventMapper'
 import { info, warn, error } from '../logger'
+import { codingTools } from '@mariozechner/pi-coding-agent/dist/tools/index.js'
 
 interface PiSessionEntry {
   agent: any
   unsubscribe: () => void
   config: EngineSessionConfig
   status: 'starting' | 'active' | 'idle' | 'exited'
+}
+
+const PROVIDER_API_MAP: Record<string, string> = {
+  anthropic: 'anthropic-messages',
+  openai: 'openai-completions',
+  google: 'google-generative-ai',
+  xai: 'openai-completions',
+  groq: 'openai-completions',
+  cerebras: 'openai-completions',
+  openrouter: 'openai-completions',
+  zai: 'openai-completions',
+}
+
+const PROVIDER_BASE_URL_MAP: Record<string, string> = {
+  anthropic: 'https://api.anthropic.com',
+  openai: 'https://api.openai.com/v1',
+  google: 'https://generativelanguage.googleapis.com',
+  xai: 'https://api.x.ai/v1',
+  groq: 'https://api.groq.com/openai/v1',
+  cerebras: 'https://api.cerebras.ai/v1',
+  openrouter: 'https://openrouter.ai/api/v1',
+  zai: 'https://api.zai.chat/v1',
 }
 
 let piSdkAvailable: boolean | null = null
@@ -70,31 +93,49 @@ export class PiEngine implements IEngine {
     try {
       const { Agent } = piAgentModule
       const { ProviderTransport } = piAgentModule
-      const { codingTools } = await import('@mariozechner/pi-coding-agent')
-
-      const transportOptions: any = {}
-      if (config.apiKey) {
-        transportOptions.getApiKey = (provider: string) => {
-          if (provider === config.provider) return config.apiKey
-          return undefined
-        }
-      }
-      if (config.baseUrl) {
-        transportOptions.corsProxyUrl = config.baseUrl
-      }
-
-      const transport = new ProviderTransport(transportOptions)
 
       const modelId = config.model || 'claude-sonnet-4-20250514'
       const provider = config.provider || 'anthropic'
 
+      let model: any = null
+      if (piAiModule?.getModel) {
+        model = piAiModule.getModel(provider, modelId)
+      }
+
+      if (!model) {
+        const api = PROVIDER_API_MAP[provider] || 'openai-completions'
+        const baseUrl = config.baseUrl || PROVIDER_BASE_URL_MAP[provider] || 'https://api.openai.com/v1'
+        model = {
+          id: modelId,
+          name: modelId,
+          api,
+          provider,
+          baseUrl,
+          reasoning: false,
+          input: ['text'],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 128000,
+          maxTokens: 32000,
+        }
+        info('PiEngine', `[${sessionId.slice(0, 8)}] Model not in registry, constructed default | id=${modelId} | api=${api} | baseUrl=${baseUrl}`)
+      }
+
+      const transportOptions: any = {}
+      if (config.apiKey) {
+        transportOptions.getApiKey = (_provider: string) => {
+          return config.apiKey
+        }
+      }
+
+      const transport = new ProviderTransport(transportOptions)
+
       const agentOptions: any = {
         transport,
-        tools: codingTools(config.cwd),
+        tools: codingTools,
         queueMode: 'one-at-a-time',
         initialState: {
           systemPrompt: `You are a helpful coding assistant. Working directory: ${config.cwd}`,
-          model: { id: modelId, provider },
+          model,
           thinkingLevel: config.thinkingEnabled ? 'medium' : 'off',
         },
       }

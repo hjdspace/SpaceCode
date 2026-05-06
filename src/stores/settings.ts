@@ -20,6 +20,19 @@ export interface OAuthAccountInfo {
 
 export type EngineType = 'claude-code' | 'pi'
 
+export interface AppearanceSettings {
+  theme: 'system' | 'light' | 'dark' | 'anthropic' | 'anthropic-dark'
+  fontSize: number
+  fontFamily: string
+  codeFontFamily: string
+  density: 'compact' | 'default' | 'comfortable'
+  showLineNumbers: boolean
+  wordWrap: boolean
+  showMinimap: boolean
+  smoothScrolling: boolean
+  accentColor: string
+}
+
 export interface AuthSettings {
   authMethod: AuthMethod
   anthropicConfig: ProviderConfig
@@ -30,6 +43,7 @@ export interface AuthSettings {
   thinkingEnabled?: boolean
   language?: Locale
   engineType?: EngineType
+  appearance?: AppearanceSettings
 }
 
 const SETTINGS_STORAGE_KEY = 'claude_desktop_settings'
@@ -208,6 +222,18 @@ export const useSettingsStore = defineStore('settings', () => {
   const thinkingEnabled = ref<boolean>((saved as any).thinkingEnabled !== undefined ? (saved as any).thinkingEnabled : true)
   const language = ref<Locale>((saved as any).language || detectSystemLanguage())
   const engineType = ref<EngineType>((saved as any).engineType || 'claude-code')
+  const appearance = ref<AppearanceSettings>((saved as any).appearance || {
+    theme: 'system',
+    fontSize: 14,
+    fontFamily: 'system',
+    codeFontFamily: 'jetbrains',
+    density: 'default',
+    showLineNumbers: true,
+    wordWrap: true,
+    showMinimap: false,
+    smoothScrolling: true,
+    accentColor: 'blue'
+  })
 
   // Computed: current provider for LLM service compatibility
   const provider = computed(() => {
@@ -355,7 +381,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function saveSettings() {
-    const data: AuthSettings & { effortLevel?: string; language?: Locale; engineType?: EngineType } = {
+    const data: AuthSettings & { effortLevel?: string; language?: Locale; engineType?: EngineType; appearance?: AppearanceSettings } = {
       authMethod: authMethod.value,
       anthropicConfig: { ...anthropicConfig.value },
       openaiConfig: { ...openaiConfig.value },
@@ -365,7 +391,8 @@ export const useSettingsStore = defineStore('settings', () => {
       effortLevel: effortLevel.value,
       thinkingEnabled: thinkingEnabled.value,
       language: language.value,
-      engineType: engineType.value
+      engineType: engineType.value,
+      appearance: { ...appearance.value }
     }
 
     const serialized = JSON.stringify(data, null, 2)
@@ -394,7 +421,7 @@ export const useSettingsStore = defineStore('settings', () => {
     saveSettings()
   }
 
-  function applySettings(settings: Partial<AuthSettings> & { effortLevel?: 'low' | 'medium' | 'high' | 'max'; language?: Locale; engineType?: EngineType }) {
+  function applySettings(settings: Partial<AuthSettings> & { effortLevel?: 'low' | 'medium' | 'high' | 'max'; language?: Locale; engineType?: EngineType; appearance?: AppearanceSettings }) {
     if (settings.authMethod) authMethod.value = settings.authMethod
     if (settings.anthropicConfig) anthropicConfig.value = { ...createDefaultProviderConfig(), ...settings.anthropicConfig }
     if (settings.openaiConfig) openaiConfig.value = { ...createDefaultProviderConfig(), ...settings.openaiConfig }
@@ -405,6 +432,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (settings.thinkingEnabled !== undefined) thinkingEnabled.value = settings.thinkingEnabled
     if (settings.language) language.value = settings.language
     if (settings.engineType) engineType.value = settings.engineType
+    if (settings.appearance) appearance.value = { ...appearance.value, ...settings.appearance }
   }
 
   async function loadFromGuiSettingsFile() {
@@ -440,6 +468,11 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
+  function updateAppearance(settings: Partial<AppearanceSettings>) {
+    appearance.value = { ...appearance.value, ...settings }
+    saveSettings()
+  }
+
   // Auto-load persisted file settings first, then allow .env to override in development/packaged resource env scenarios
   loadFromGuiSettingsFile().finally(() => loadFromEnv())
 
@@ -454,6 +487,7 @@ export const useSettingsStore = defineStore('settings', () => {
     thinkingEnabled,
     language,
     engineType,
+    appearance,
     provider,
     config,
     isConfigured,
@@ -464,6 +498,7 @@ export const useSettingsStore = defineStore('settings', () => {
     getOpusModel,
     saveSettings,
     updateFromSettingsPanel,
+    updateAppearance,
     loadFromEnv,
     loadFromGuiSettingsFile
   }

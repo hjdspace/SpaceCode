@@ -133,24 +133,8 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { Check } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
+import { useSettingsStore, type AppearanceSettings as AppearanceConfig } from '@/stores/settings'
 import { debounce } from '@/utils/debounce'
-
-export interface AppearanceConfig {
-  theme: 'system' | 'light' | 'dark' | 'anthropic' | 'anthropic-dark'
-  fontSize: number
-  fontFamily: string
-  codeFontFamily: string
-  density: 'compact' | 'default' | 'comfortable'
-  showLineNumbers: boolean
-  wordWrap: boolean
-  showMinimap: boolean
-  smoothScrolling: boolean
-  accentColor: string
-}
-
-const props = defineProps<{
-  modelValue?: AppearanceConfig
-}>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: AppearanceConfig]
@@ -158,6 +142,7 @@ const emit = defineEmits<{
 }>()
 
 const appStore = useAppStore()
+const settingsStore = useSettingsStore()
 
 const themes = [
   { id: 'system', name: 'System' },
@@ -216,8 +201,11 @@ const defaultConfig: AppearanceConfig = {
   accentColor: 'blue'
 }
 
-// Load saved config from localStorage - 使用惰性初始化
 function loadSavedConfig(): Partial<AppearanceConfig> {
+  const storeAppearance = settingsStore.appearance
+  if (storeAppearance && Object.keys(storeAppearance).length > 0) {
+    return storeAppearance
+  }
   try {
     const saved = localStorage.getItem('appearance_settings')
     if (saved) {
@@ -229,27 +217,20 @@ function loadSavedConfig(): Partial<AppearanceConfig> {
   return {}
 }
 
-// Initialize config with saved values or defaults
 const savedConfig = loadSavedConfig()
 const config = ref<AppearanceConfig>({
   ...defaultConfig,
-  ...savedConfig,
-  ...props.modelValue
+  ...savedConfig
 })
 
-// Sync with external modelValue if provided - 使用浅比较
-watch(() => props.modelValue, (newValue) => {
-  if (newValue) {
-    const hasChanges = Object.keys(newValue).some(
-      key => config.value[key as keyof AppearanceConfig] !== newValue[key as keyof AppearanceConfig]
-    )
-    if (hasChanges) {
-      config.value = { ...config.value, ...newValue }
-    }
+let _initializedFromStore = false
+watch(() => settingsStore.appearance, (newAppearance) => {
+  if (!_initializedFromStore && newAppearance) {
+    _initializedFromStore = true
+    config.value = { ...defaultConfig, ...newAppearance }
   }
-}, { deep: false })
+}, { deep: true })
 
-// Apply theme to document
 function applyTheme(theme: string) {
   let effectiveTheme = theme
   if (theme === 'system') {
@@ -304,8 +285,9 @@ const debouncedSave = debounce((newConfig: AppearanceConfig) => {
   try {
     localStorage.setItem('appearance_settings', JSON.stringify(newConfig))
   } catch (e) {
-    console.error('[Appearance] Failed to save settings')
+    console.error('[Appearance] Failed to save settings to localStorage')
   }
+  settingsStore.updateAppearance(newConfig)
 }, 300)
 
 // 批量应用样式更新
