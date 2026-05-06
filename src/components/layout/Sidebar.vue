@@ -233,6 +233,10 @@
               <TerminalIcon :size="14" />
               {{ t('sidebar.startClaudeCLI') }}
             </button>
+            <button class="open-terminal-btn secondary" @click="handleOpenPiCLI">
+              <TerminalIcon :size="14" />
+              {{ t('sidebar.startPiCLI') }}
+            </button>
           </div>
         </div>
       </Transition>
@@ -385,6 +389,15 @@ async function handleOpenClaudeCLI() {
     fullCommand += ` --model "${primaryModel}"`
   }
 
+  appStore.openTerminalTab(fullCommand, env, appStore.projectRoot || undefined)
+}
+
+async function handleOpenPiCLI() {
+  const cliCommand = await api.getPiCliPath()
+  const env = settingsStore.buildEnvVars()
+
+  let fullCommand = cliCommand || 'npx @mariozechner/pi-coding-agent'
+  
   appStore.openTerminalTab(fullCommand, env, appStore.projectRoot || undefined)
 }
 

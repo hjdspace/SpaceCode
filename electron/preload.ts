@@ -96,6 +96,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // System API
   getCwd: () => ipcRenderer.invoke('system:getCwd'),
   getClaudeCliPath: () => ipcRenderer.invoke('app:getClaudeCliPath'),
+  getPiCliPath: () => ipcRenderer.invoke('app:getPiCliPath'),
 
   // Inject GUI model settings into ~/.claude/settings.json
   injectGuiModelsToSettings: (models: { primaryModel: string; haikuModel?: string; sonnetModel?: string; opusModel?: string; effortLevel?: 'low' | 'medium' | 'high' | 'max' }) =>
@@ -198,6 +199,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('claude-code:isSessionActive', sessionId),
     listAgents: (cwd?: string, engineType?: string) =>
       ipcRenderer.invoke('claude-code:listAgents', cwd, engineType),
+    isEngineAvailable: (engineType: string) =>
+      ipcRenderer.invoke('claude-code:isEngineAvailable', engineType),
     onAssistant: (callback: (data: { sessionId: string; data: any }) => void) => {
       const wrapper = (_: any, data: any) => callback(data)
       ipcRenderer.on('claude-code:assistant', wrapper)

@@ -10,10 +10,31 @@ interface PiSessionEntry {
   status: 'starting' | 'active' | 'idle' | 'exited'
 }
 
+let piSdkAvailable: boolean | null = null
+let piSdk: any = null
+
+function loadPiSdk(): any {
+  if (piSdkAvailable !== null) return piSdk
+  try {
+    piSdk = require('@mariozechner/pi-coding-agent')
+    piSdkAvailable = true
+    info('PiEngine', 'pi-coding-agent SDK loaded successfully')
+  } catch (err) {
+    piSdkAvailable = false
+    warn('PiEngine', 'pi-coding-agent SDK not available', { error: String(err) })
+  }
+  return piSdk
+}
+
 export class PiEngine implements IEngine {
   readonly type: EngineType = 'pi'
   private mainWindow: BrowserWindow | null = null
   private sessions: Map<string, PiSessionEntry> = new Map()
+
+  static isAvailable(): boolean {
+    loadPiSdk()
+    return piSdkAvailable === true
+  }
 
   setMainWindow(window: BrowserWindow): void {
     this.mainWindow = window
@@ -30,10 +51,16 @@ export class PiEngine implements IEngine {
       }
     }
 
+    const sdk = loadPiSdk()
+    if (!sdk) {
+      throw new Error(
+        'pi-coding-agent SDK is not installed. ' +
+        'Please install it with: npm install @mariozechner/pi-coding-agent'
+      )
+    }
+
     try {
-      const { createAgentSession } = await import('@mariozechner/pi-coding-agent')
-      const { AuthStorage } = await import('@mariozechner/pi-coding-agent')
-      const { ModelRegistry } = await import('@mariozechner/pi-coding-agent')
+      const { createAgentSession, AuthStorage, ModelRegistry } = sdk
 
       const authStorage = AuthStorage.create()
       if (config.apiKey && config.provider) {
@@ -49,10 +76,14 @@ export class PiEngine implements IEngine {
       }
 
       if (config.model) {
-        const models = await modelRegistry.getAvailable()
-        const matched = models.find((m: any) => m.id === config.model || m.id.includes(config.model!))
-        if (matched) {
-          piConfig.model = matched
+        try {
+          const models = await modelRegistry.getAvailable()
+          const matched = models.find((m: any) => m.id === config.model || m.id.includes(config.model!))
+          if (matched) {
+            piConfig.model = matched
+          }
+        } catch (err) {
+          warn('PiEngine', `[${sessionId.slice(0, 8)}] Could not resolve model`, { error: String(err) })
         }
       }
 
@@ -101,7 +132,9 @@ export class PiEngine implements IEngine {
     if (!entry) return
     info('PiEngine', `[${sessionId.slice(0, 8)}] Aborting session`)
     try {
-      await entry.session.abort()
+      if (typeof entry.session.abort === 'function') {
+        await entry.session.abort()
+      }
     } catch (err) {
       error('PiEngine', `[${sessionId.slice(0, 8)}] Error aborting session`, { error: String(err) })
     }
@@ -113,9 +146,25 @@ export class PiEngine implements IEngine {
     info('PiEngine', `[${sessionId.slice(0, 8)}] Stopping session`)
     entry.unsubscribe()
     try {
-      entry.session.dispose()
+      if (typeof entry.session.dispose === 'function') {
+        entry.session.dispose()
+      }
     } catch {}
     this.sessions.delete(sessionId)
+  }
+
+  suspendSession?(sessionId: string): void {
+    const entry = this.sessions.get(sessionId)
+    if (!entry) return
+    info('PiEngine', `[${sessionId.slice(0, 8)}] Suspending session`)
+    entry.status = 'exited'
+  }
+
+  async resumeSession?(sessionId: string): Promise<void> {
+    const entry = this.sessions.get(sessionId)
+    if (!entry) return
+    info('PiEngine', `[${sessionId.slice(0, 8)}] Resuming session`)
+    entry.status = 'idle'
   }
 
   getSessionStatus(sessionId: string): EngineSessionStatus | null {

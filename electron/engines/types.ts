@@ -44,15 +44,15 @@ export interface EngineSessionStatus {
 
 export interface IEngine {
   readonly type: EngineType
-  startSession(sessionId: string, config: EngineSessionConfig): Promise&lt;void&gt;
-  sendMessage(sessionId: string, content: string): Promise&lt;void&gt;
-  abort(sessionId: string): Promise&lt;void&gt;
-  stop(sessionId: string): Promise&lt;void&gt;
+  startSession(sessionId: string, config: EngineSessionConfig): Promise<void>
+  sendMessage(sessionId: string, content: string): Promise<void>
+  abort(sessionId: string): Promise<void>
+  stop(sessionId: string): Promise<void>
   suspendSession?(sessionId: string): void
-  resumeSession?(sessionId: string): Promise&lt;void&gt;
+  resumeSession?(sessionId: string): Promise<void>
   getSessionStatus(sessionId: string): EngineSessionStatus | null
   getActiveSessions(): EngineSessionStatus[]
-  listAgents?(cwd?: string): Promise&lt;AgentInfo[]&gt;
+  listAgents?(cwd?: string): Promise<AgentInfo[]>
   setMainWindow(window: BrowserWindow): void
 }
 

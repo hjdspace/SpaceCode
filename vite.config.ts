@@ -20,7 +20,13 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
-              external: ['electron', 'dotenv', 'node-pty']
+              external: [
+                'electron',
+                'dotenv',
+                'node-pty',
+                '@mariozechner/pi-coding-agent',
+                /^@mariozechner\/.*/  // 匹配该包下的所有子路径
+              ]
             }
           }
         }
@@ -48,7 +54,10 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    emptyOutDir: true
+    emptyOutDir: true,
+    rollupOptions: {
+      external: ['@mariozechner/pi-coding-agent']
+    }
   },
   css: {
     preprocessorOptions: {

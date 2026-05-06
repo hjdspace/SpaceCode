@@ -115,6 +115,11 @@ export function registerClaudeCodeIPC() {
     }
     return []
   })
+
+  ipcMain.handle('claude-code:isEngineAvailable', async (_, engineType: string) => {
+    debug('ClaudeCodeIPC', `→ isEngineAvailable | engine=${engineType}`)
+    return EngineFactory.isEngineAvailable(engineType as any)
+  })
 }
 
 function findEngineForSession(sessionId: string) {
@@ -126,6 +131,6 @@ function findEngineForSession(sessionId: string) {
   return EngineFactory.getEngine('claude-code')
 }
 
-export function getPool(): null {
+export function getPool(): { killAll: () => void } | null {
   return null
 }

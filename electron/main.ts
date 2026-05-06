@@ -784,6 +784,40 @@ ipcMain.handle('app:getClaudeCliPath', async () => {
   return null
 })
 
+// Get the command to launch Pi CLI in terminal
+ipcMain.handle('app:getPiCliPath', async () => {
+  // Try to find the Pi CLI - first check if @mariozechner/pi-coding-agent has a bin entry
+  try {
+    const { execSync } = await import('child_process')
+    // Check if `pi` or `pi-coding` is available globally
+    const cmd = process.platform === 'win32' ? 'where pi' : 'which pi'
+    try {
+      execSync(cmd, { stdio: 'ignore' })
+      info('PI', 'Using globally installed pi')
+      return 'pi'
+    } catch {}
+  } catch {}
+
+  // Try to run it via bun npx
+  try {
+    const { execSync } = await import('child_process')
+    execSync('bun --version', { stdio: 'ignore' })
+    info('PI', 'Using bun to run pi via npx')
+    return 'bunx @mariozechner/pi-coding-agent'
+  } catch {}
+
+  // Try npx directly
+  try {
+    const { execSync } = await import('child_process')
+    execSync('npx --version', { stdio: 'ignore' })
+    info('PI', 'Using npx to run pi')
+    return 'npx @mariozechner/pi-coding-agent'
+  } catch {}
+
+  warn('PI', 'No Pi CLI found!')
+  return null
+})
+
 // ============================================================================
 // GUI Settings Persistence (file-based, survives localStorage loss)
 // ============================================================================

@@ -88,6 +88,7 @@ export default {
     terminalDesc: '在终端中运行命令并直接与 Claude CLI 交互。',
     openTerminal: '打开终端',
     startClaudeCLI: '启动 Claude CLI',
+    startPiCLI: '启动 Pi CLI',
     deleteConversation: '确定删除此对话？',
     removeProject: '确定移除此项目及其所有对话？',
     searchConversations: '搜索对话',

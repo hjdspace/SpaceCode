@@ -32,8 +32,9 @@
             v-for="engine in engines"
             :key="engine.id"
             class="engine-card"
-            :class="{ active: config.engineType === engine.id }"
+            :class="{ active: config.engineType === engine.id, disabled: !engine.available }"
             @click="selectEngine(engine.id)"
+            :disabled="!engine.available"
           >
             <span class="engine-name">{{ engine.name }}</span>
             <span class="engine-desc">{{ engine.desc }}</span>
@@ -335,12 +336,28 @@ function selectLanguage(langId: Locale) {
   currentLanguage.value = langId
 }
 
+const piAvailable = ref<boolean | null>(null)
+
+onMounted(async () => {
+  try {
+    const electronAPI = (window as any).electronAPI
+    if (electronAPI?.claudeCode?.isEngineAvailable) {
+      piAvailable.value = await electronAPI.claudeCode.isEngineAvailable('pi')
+    } else {
+      piAvailable.value = false
+    }
+  } catch {
+    piAvailable.value = false
+  }
+})
+
 const engines = computed(() => [
-  { id: 'claude-code' as EngineType, name: 'Claude Code', desc: 'Original claude-code engine' },
-  { id: 'pi' as EngineType, name: 'Pi', desc: 'pi-coding-agent engine' }
+  { id: 'claude-code' as EngineType, name: 'Claude Code', desc: 'Original claude-code engine', available: true },
+  { id: 'pi' as EngineType, name: 'Pi', desc: piAvailable.value === false ? 'SDK not installed' : 'pi-coding-agent engine', available: piAvailable.value !== false }
 ])
 
 function selectEngine(engineId: EngineType) {
+  if (engineId === 'pi' && piAvailable.value === false) return
   config.value.engineType = engineId
   settingsStore.engineType = engineId
   settingsStore.saveSettings()
@@ -1002,13 +1019,19 @@ async function browseProjectRoot() {
   transition: all 0.2s ease;
   position: relative;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: var(--bg-hover);
   }
 
   &.active {
     border-color: var(--accent-primary);
     background: rgba(var(--accent-primary-rgb), 0.05);
+  }
+
+  &.disabled,
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 }
 

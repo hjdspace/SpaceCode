@@ -2,7 +2,7 @@ import type { BrowserWindow } from 'electron'
 import type { EngineType, IEngine } from './types'
 import { ClaudeCodeEngine } from './ClaudeCodeEngine'
 import { PiEngine } from './PiEngine'
-import { info } from '../logger'
+import { info, warn } from '../logger'
 
 export class EngineFactory {
   private static engines: Map<EngineType, IEngine> = new Map()
@@ -22,6 +22,9 @@ export class EngineFactory {
           this.engines.set(type, new ClaudeCodeEngine())
           break
         case 'pi':
+          if (!PiEngine.isAvailable()) {
+            warn('EngineFactory', 'pi-coding-agent SDK is not installed. The Pi engine will fail on session start.')
+          }
           this.engines.set(type, new PiEngine())
           break
         default:
@@ -37,6 +40,11 @@ export class EngineFactory {
 
   static getAllEngines(): IEngine[] {
     return Array.from(this.engines.values())
+  }
+
+  static isEngineAvailable(type: EngineType): boolean {
+    if (type === 'pi') return PiEngine.isAvailable()
+    return true
   }
 
   static killAll(): void {
