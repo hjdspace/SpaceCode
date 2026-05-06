@@ -346,8 +346,18 @@ onMounted(async () => {
     } else {
       piAvailable.value = false
     }
+    if (piAvailable.value === false && config.value.engineType === 'pi') {
+      config.value.engineType = 'claude-code'
+      settingsStore.engineType = 'claude-code'
+      settingsStore.saveSettings()
+    }
   } catch {
     piAvailable.value = false
+    if (config.value.engineType === 'pi') {
+      config.value.engineType = 'claude-code'
+      settingsStore.engineType = 'claude-code'
+      settingsStore.saveSettings()
+    }
   }
 })
 

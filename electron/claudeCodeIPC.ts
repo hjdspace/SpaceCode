@@ -14,10 +14,14 @@ export function registerClaudeCodeIPC() {
   info('ClaudeCodeIPC', 'Initializing with EngineFactory')
 
   ipcMain.handle('claude-code:startSession', async (_, sessionId: string, config: EngineSessionConfig) => {
-    const engineType = config.engineType || 'claude-code'
+    let engineType = config.engineType || 'claude-code'
     info('ClaudeCodeIPC', `→ startSession | sessionId=${sessionId.slice(0, 8)} | engine=${engineType} | cwd=${config.cwd} | provider=${config.provider} | model=${config.model}`)
     const startMs = Date.now()
     try {
+      if (engineType !== 'claude-code' && !EngineFactory.isEngineAvailable(engineType)) {
+        warn('ClaudeCodeIPC', `Engine "${engineType}" not available, falling back to claude-code | sessionId=${sessionId.slice(0, 8)}`)
+        engineType = 'claude-code'
+      }
       const engine = EngineFactory.getEngine(engineType)
       await engine.startSession(sessionId, config)
       const status = engine.getSessionStatus(sessionId)
