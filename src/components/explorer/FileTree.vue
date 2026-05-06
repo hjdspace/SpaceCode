@@ -326,7 +326,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--bg-elevated);
+  background: transparent;
 }
 
 .tree-toolbar {
@@ -360,7 +360,7 @@ onUnmounted(() => {
   font-size: 12px;
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
+  background: var(--surface-glass);
   color: var(--text-primary);
   outline: none;
   transition: border-color var(--transition-fast);
