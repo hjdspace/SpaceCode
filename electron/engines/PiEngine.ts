@@ -1,29 +1,31 @@
 import type { BrowserWindow } from 'electron'
-import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, UnifiedEngineEvent } from './types'
+import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo } from './types'
 import { mapPiEvent } from './PiEventMapper'
 import { info, warn, error } from '../logger'
 
 interface PiSessionEntry {
-  session: any
+  agent: any
   unsubscribe: () => void
   config: EngineSessionConfig
   status: 'starting' | 'active' | 'idle' | 'exited'
 }
 
 let piSdkAvailable: boolean | null = null
-let piSdk: any = null
+let piAgentModule: any = null
+let piAiModule: any = null
 
-function loadPiSdk(): any {
-  if (piSdkAvailable !== null) return piSdk
+async function loadPiSdk(): Promise<boolean> {
+  if (piSdkAvailable !== null) return piSdkAvailable
   try {
-    piSdk = require('@mariozechner/pi-coding-agent')
+    piAgentModule = await import('@mariozechner/pi-agent')
+    piAiModule = await import('@mariozechner/pi-ai')
     piSdkAvailable = true
-    info('PiEngine', 'pi-coding-agent SDK loaded successfully')
+    info('PiEngine', 'pi-agent SDK loaded successfully')
   } catch (err) {
     piSdkAvailable = false
-    warn('PiEngine', 'pi-coding-agent SDK not available', { error: String(err) })
+    warn('PiEngine', 'pi-agent SDK not available', { error: String(err) })
   }
-  return piSdk
+  return piSdkAvailable
 }
 
 export class PiEngine implements IEngine {
@@ -31,8 +33,14 @@ export class PiEngine implements IEngine {
   private mainWindow: BrowserWindow | null = null
   private sessions: Map<string, PiSessionEntry> = new Map()
 
+  static async isAvailableAsync(): Promise<boolean> {
+    return loadPiSdk()
+  }
+
   static isAvailable(): boolean {
-    loadPiSdk()
+    if (piSdkAvailable === null) {
+      loadPiSdk()
+    }
     return piSdkAvailable === true
   }
 
@@ -51,8 +59,8 @@ export class PiEngine implements IEngine {
       }
     }
 
-    const sdk = loadPiSdk()
-    if (!sdk) {
+    const available = await loadPiSdk()
+    if (!available) {
       throw new Error(
         'pi-coding-agent SDK is not installed. ' +
         'Please install it with: npm install @mariozechner/pi-coding-agent'
@@ -60,51 +68,51 @@ export class PiEngine implements IEngine {
     }
 
     try {
-      const { createAgentSession, AuthStorage, ModelRegistry } = sdk
+      const { Agent } = piAgentModule
+      const { ProviderTransport } = piAgentModule
+      const { codingTools } = await import('@mariozechner/pi-coding-agent')
 
-      const authStorage = AuthStorage.create()
-      if (config.apiKey && config.provider) {
-        await authStorage.setApiKey(config.provider, config.apiKey)
-      }
-
-      const modelRegistry = ModelRegistry.create(authStorage)
-
-      const piConfig: any = {
-        cwd: config.cwd,
-        authStorage,
-        modelRegistry,
-      }
-
-      if (config.model) {
-        try {
-          const models = await modelRegistry.getAvailable()
-          const matched = models.find((m: any) => m.id === config.model || m.id.includes(config.model!))
-          if (matched) {
-            piConfig.model = matched
-          }
-        } catch (err) {
-          warn('PiEngine', `[${sessionId.slice(0, 8)}] Could not resolve model`, { error: String(err) })
+      const transportOptions: any = {}
+      if (config.apiKey) {
+        transportOptions.getApiKey = (provider: string) => {
+          if (provider === config.provider) return config.apiKey
+          return undefined
         }
       }
-
-      if (config.thinkingEnabled !== undefined) {
-        piConfig.thinkingLevel = config.thinkingEnabled ? 'medium' : 'off'
+      if (config.baseUrl) {
+        transportOptions.corsProxyUrl = config.baseUrl
       }
 
-      const { session } = await createAgentSession(piConfig)
+      const transport = new ProviderTransport(transportOptions)
 
-      const unsubscribe = session.subscribe((event: any) => {
+      const modelId = config.model || 'claude-sonnet-4-20250514'
+      const provider = config.provider || 'anthropic'
+
+      const agentOptions: any = {
+        transport,
+        tools: codingTools(config.cwd),
+        queueMode: 'one-at-a-time',
+        initialState: {
+          systemPrompt: `You are a helpful coding assistant. Working directory: ${config.cwd}`,
+          model: { id: modelId, provider },
+          thinkingLevel: config.thinkingEnabled ? 'medium' : 'off',
+        },
+      }
+
+      const agent = new Agent(agentOptions)
+
+      const unsubscribe = agent.subscribe((event: any) => {
         this.handlePiEvent(sessionId, event)
       })
 
       this.sessions.set(sessionId, {
-        session,
+        agent,
         unsubscribe,
         config,
         status: 'idle',
       })
 
-      info('PiEngine', `[${sessionId.slice(0, 8)}] Session started successfully`)
+      info('PiEngine', `[${sessionId.slice(0, 8)}] Session started successfully | model=${modelId} | provider=${provider}`)
     } catch (err) {
       error('PiEngine', `[${sessionId.slice(0, 8)}] Failed to start session`, { error: String(err) })
       throw err
@@ -118,7 +126,7 @@ export class PiEngine implements IEngine {
     info('PiEngine', `[${sessionId.slice(0, 8)}] Sending message | contentLen=${content.length}`)
     entry.status = 'active'
     try {
-      await entry.session.prompt(content)
+      await entry.agent.prompt(content)
       entry.status = 'idle'
     } catch (err) {
       entry.status = 'idle'
@@ -132,9 +140,7 @@ export class PiEngine implements IEngine {
     if (!entry) return
     info('PiEngine', `[${sessionId.slice(0, 8)}] Aborting session`)
     try {
-      if (typeof entry.session.abort === 'function') {
-        await entry.session.abort()
-      }
+      entry.agent.abort()
     } catch (err) {
       error('PiEngine', `[${sessionId.slice(0, 8)}] Error aborting session`, { error: String(err) })
     }
@@ -145,11 +151,6 @@ export class PiEngine implements IEngine {
     if (!entry) return
     info('PiEngine', `[${sessionId.slice(0, 8)}] Stopping session`)
     entry.unsubscribe()
-    try {
-      if (typeof entry.session.dispose === 'function') {
-        entry.session.dispose()
-      }
-    } catch {}
     this.sessions.delete(sessionId)
   }
 

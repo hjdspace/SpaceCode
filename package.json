@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",
+    "@mariozechner/pi-coding-agent": "^0.8.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "cors": "^2.8.6",
@@ -72,10 +73,12 @@
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
-      "node_modules/node-pty/**/*"
+      "node_modules/node-pty/**/*",
+      "node_modules/@mariozechner/**/*"
     ],
     "asarUnpack": [
-      "node_modules/node-pty/**/*.node"
+      "node_modules/node-pty/**/*.node",
+      "node_modules/@mariozechner/**/*"
     ],
     "extraResources": [
       {

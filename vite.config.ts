@@ -25,7 +25,10 @@ export default defineConfig({
                 'dotenv',
                 'node-pty',
                 '@mariozechner/pi-coding-agent',
-                /^@mariozechner\/.*/  // 匹配该包下的所有子路径
+                '@mariozechner/pi-agent',
+                '@mariozechner/pi-ai',
+                '@mariozechner/pi-tui',
+                /^@mariozechner\/.*/
               ]
             }
           }

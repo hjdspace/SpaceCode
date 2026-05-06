@@ -22,9 +22,6 @@ export class EngineFactory {
           this.engines.set(type, new ClaudeCodeEngine())
           break
         case 'pi':
-          if (!PiEngine.isAvailable()) {
-            warn('EngineFactory', 'pi-coding-agent SDK is not installed. The Pi engine will fail on session start.')
-          }
           this.engines.set(type, new PiEngine())
           break
         default:
@@ -44,6 +41,11 @@ export class EngineFactory {
 
   static isEngineAvailable(type: EngineType): boolean {
     if (type === 'pi') return PiEngine.isAvailable()
+    return true
+  }
+
+  static async isEngineAvailableAsync(type: EngineType): Promise<boolean> {
+    if (type === 'pi') return PiEngine.isAvailableAsync()
     return true
   }
 

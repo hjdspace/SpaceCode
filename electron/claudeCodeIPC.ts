@@ -18,7 +18,7 @@ export function registerClaudeCodeIPC() {
     info('ClaudeCodeIPC', `→ startSession | sessionId=${sessionId.slice(0, 8)} | engine=${engineType} | cwd=${config.cwd} | provider=${config.provider} | model=${config.model}`)
     const startMs = Date.now()
     try {
-      if (engineType !== 'claude-code' && !EngineFactory.isEngineAvailable(engineType)) {
+      if (engineType !== 'claude-code' && !(await EngineFactory.isEngineAvailableAsync(engineType))) {
         warn('ClaudeCodeIPC', `Engine "${engineType}" not available, falling back to claude-code | sessionId=${sessionId.slice(0, 8)}`)
         engineType = 'claude-code'
       }
@@ -122,7 +122,7 @@ export function registerClaudeCodeIPC() {
 
   ipcMain.handle('claude-code:isEngineAvailable', async (_, engineType: string) => {
     debug('ClaudeCodeIPC', `→ isEngineAvailable | engine=${engineType}`)
-    return EngineFactory.isEngineAvailable(engineType as any)
+    return EngineFactory.isEngineAvailableAsync(engineType as any)
   })
 }
 
