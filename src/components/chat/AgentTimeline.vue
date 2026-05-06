@@ -350,6 +350,23 @@ const overallStatus = computed(() => {
   return 'completed'
 })
 
+// Thinking 事件默认展开，完成后自动折叠
+watch(
+  () => timelineEvents.value,
+  (newEvents, oldEvents) => {
+    for (const event of newEvents) {
+      if (event.type === 'reasoning') {
+        const oldEvent = oldEvents?.find(e => e.id === event.id)
+        // 新事件或状态变化时更新默认展开状态
+        if (!oldEvent || oldEvent.status !== event.status) {
+          expandedEvents[event.id] = event.status === 'running'
+        }
+      }
+    }
+  },
+  { deep: true }
+)
+
 const statusLabel = computed(() => {
   if (overallStatus.value === 'running') {
     const running = timelineEvents.value.find(e => e.status === 'running')
@@ -682,6 +699,30 @@ function formatOutput(output: string): string {
   background: var(--bg-tertiary);
   color: var(--text-muted);
   font-family: var(--font-mono);
+}
+
+.timeline-event.event-reasoning {
+  .event-detail {
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1.6;
+
+    :deep(.markdown-renderer) {
+      color: var(--text-muted);
+
+      .md-heading {
+        color: var(--text-muted);
+      }
+
+      strong {
+        color: var(--text-muted);
+      }
+
+      .code-block code {
+        color: var(--text-muted);
+      }
+    }
+  }
 }
 
 .spin-icon {

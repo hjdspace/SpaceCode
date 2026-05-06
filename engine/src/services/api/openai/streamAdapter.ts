@@ -35,6 +35,7 @@ import { randomUUID } from 'crypto'
 export async function* adaptOpenAIStreamToAnthropic(
   stream: AsyncIterable<ChatCompletionChunk>,
   model: string,
+  enableThinking?: boolean,
 ): AsyncGenerator<BetaRawMessageStreamEvent, void> {
   const messageId = `msg_${randomUUID().replace(/-/g, '').slice(0, 24)}`
 
@@ -119,8 +120,10 @@ export async function* adaptOpenAIStreamToAnthropic(
 
     // Handle reasoning_content → Anthropic thinking block
     // DeepSeek and compatible providers send delta.reasoning_content
+    // Only process when thinking mode is enabled; otherwise silently drop it
+    // so that frontend thinking-off config is respected.
     const reasoningContent = (delta as any).reasoning_content
-    if (reasoningContent != null && reasoningContent !== '') {
+    if (enableThinking !== false && reasoningContent != null && reasoningContent !== '') {
       if (!thinkingBlockOpen) {
         currentContentIndex++
         thinkingBlockOpen = true

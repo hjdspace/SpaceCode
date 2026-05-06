@@ -320,7 +320,7 @@ export async function* queryModelOpenAI(
 
     // 12. Convert OpenAI stream to Anthropic events, then process into
     //     AssistantMessage + StreamEvent (matching the Anthropic path behavior)
-    const adaptedStream = adaptOpenAIStreamToAnthropic(stream, openaiModel)
+    const adaptedStream = adaptOpenAIStreamToAnthropic(stream, openaiModel, enableThinking)
 
     // Accumulate content blocks and usage, same as the Anthropic path in claude.ts
     const contentBlocks: Record<number, any> = {}

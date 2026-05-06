@@ -377,6 +377,46 @@ describe('thinking support (reasoning_content)', () => {
     expect(blockStarts[0].index).toBe(0)
     expect(blockStarts[1].index).toBe(1)
   })
+
+  test('drops reasoning_content when enableThinking is false', async () => {
+    const events: any[] = []
+    for await (const event of adaptOpenAIStreamToAnthropic(
+      mockStream([
+        makeChunk({
+          choices: [{
+            index: 0,
+            delta: { reasoning_content: 'This should be dropped.' },
+            finish_reason: null,
+          }],
+        }),
+        makeChunk({
+          choices: [{
+            index: 0,
+            delta: { content: 'Only text should remain.' },
+            finish_reason: null,
+          }],
+        }),
+        makeChunk({
+          choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+        }),
+      ]),
+      'gpt-4o',
+      false,
+    )) {
+      events.push(event)
+    }
+
+    const thinkingDeltas = events.filter(
+      e => e.type === 'content_block_delta' && e.delta?.type === 'thinking_delta',
+    )
+    expect(thinkingDeltas).toHaveLength(0)
+
+    const textDeltas = events.filter(
+      e => e.type === 'content_block_delta' && e.delta?.type === 'text_delta',
+    )
+    expect(textDeltas).toHaveLength(1)
+    expect(textDeltas[0].delta.text).toBe('Only text should remain.')
+  })
 })
 
 describe('prompt caching support', () => {

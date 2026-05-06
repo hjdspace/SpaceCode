@@ -10,6 +10,7 @@ dist-electron/
 
 # Node
 node_modules/
+dist-pi-sdk/
 
 # Environment
 .env

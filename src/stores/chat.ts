@@ -783,7 +783,7 @@ export const useChatStore = defineStore('chat', () => {
                           msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
                         }
                         msg.reasoning.content += thinkingText
-                        msg.reasoning.endTime = Date.now()
+                        // 不在此处设置 endTime — thinking 可能仍在进行
                         if (!currentReasoningEventId) {
                           currentReasoningEventId = crypto.randomUUID()
                           addTimelineEvent({
@@ -844,7 +844,7 @@ export const useChatStore = defineStore('chat', () => {
                       msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
                     }
                     msg.reasoning.content += reasoningContent
-                    msg.reasoning.endTime = Date.now()
+                    // 不在此处设置 endTime — thinking 可能仍在进行
                     if (!currentReasoningEventId) {
                       currentReasoningEventId = crypto.randomUUID()
                       addTimelineEvent({

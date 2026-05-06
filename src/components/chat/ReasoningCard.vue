@@ -23,7 +23,7 @@
 import type { ReasoningBlock } from '@/types'
 import { Brain, ChevronDown } from 'lucide-vue-next'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
-import { computed, ref, onUnmounted, onMounted } from 'vue'
+import { computed, ref, watch, onUnmounted, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -32,8 +32,17 @@ const props = defineProps<{
   reasoning: ReasoningBlock
 }>()
 
-const isExpanded = ref(props.reasoning.isExpanded ?? false)
+const isExpanded = ref(!props.reasoning.endTime)
 const isThinking = computed(() => !props.reasoning.endTime)
+
+// thinking 开始时自动展开，完成时自动折叠
+watch(isThinking, (thinking) => {
+  if (thinking) {
+    isExpanded.value = true
+  } else {
+    isExpanded.value = false
+  }
+})
 
 const duration = computed(() => {
   if (!props.reasoning.endTime) return '0.0'
@@ -41,9 +50,7 @@ const duration = computed(() => {
 })
 
 function toggleExpand() {
-  if (!isThinking.value) {
-    isExpanded.value = !isExpanded.value
-  }
+  isExpanded.value = !isExpanded.value
 }
 
 // 动画dots
@@ -134,17 +141,33 @@ onUnmounted(() => {
 .reasoning-content {
   padding: 8px 12px 12px 34px;
   font-size: 13px;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   line-height: 1.6;
   border-top: 1px solid var(--surface-border);
   background: var(--bg-secondary);
+
+  // 穿透 MarkdownRenderer 的 color: var(--text-primary) 覆盖
+  :deep(.markdown-renderer) {
+    color: var(--text-muted);
+
+    .md-heading {
+      color: var(--text-muted);
+    }
+
+    strong {
+      color: var(--text-muted);
+    }
+
+    .code-block code {
+      color: var(--text-muted);
+    }
+  }
 }
 
 .is-thinking .reasoning-header {
-  cursor: default;
-
   &:hover {
-    background: transparent;
+    background: var(--surface-glass-hover);
+    color: var(--text-secondary);
   }
 }
 
