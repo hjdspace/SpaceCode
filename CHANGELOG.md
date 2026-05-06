@@ -1,3 +1,33 @@
+## [0.3.2](https://github.com/hjdspace/SpaceCode/compare/v0.3.1...v0.3.2) (2026-05-06)
+
+### Features
+
+* **pi-engine:** 实现 Pi Engine 多引擎架构支持 ([776e8d5](https://github.com/hjdspace/SpaceCode/commit/776e8d5))
+  - 添加 IEngine 接口和统一事件类型定义 ([776e8d5](https://github.com/hjdspace/SpaceCode/commit/776e8d5))
+  - 添加 ClaudeCodeEngine 适配器 ([2c23de7](https://github.com/hjdspace/SpaceCode/commit/2c23de7))
+  - 添加 EngineFactory 和 PiEngine 占位 ([e3e4f68](https://github.com/hjdspace/SpaceCode/commit/e3e4f68))
+  - 通过 EngineFactory 路由 IPC 调用 ([a0d904b](https://github.com/hjdspace/SpaceCode/commit/a0d904b))
+  - 添加 PiEventMapper 事件映射器 ([9fb275b](https://github.com/hjdspace/SpaceCode/commit/9fb275b))
+  - 实现 PiEngine 核心功能 ([37e9e35](https://github.com/hjdspace/SpaceCode/commit/37e9e35))
+  - 更新 settings.ts 支持引擎选择 ([4f8a960](https://github.com/hjdspace/SpaceCode/commit/4f8a960))
+  - 更新 preload.ts 支持多引擎 ([e62d68c](https://github.com/hjdspace/SpaceCode/commit/e62d68c))
+  - 更新设置 UI 和 chat store 支持引擎选择 ([511eb88](https://github.com/hjdspace/SpaceCode/commit/511eb88))
+  - 添加 SDK 可用性检查和优雅降级 ([4e370cc](https://github.com/hjdspace/SpaceCode/commit/4e370cc))
+* **chat:** 实现思考模式功能 ([7ebff5e](https://github.com/hjdspace/SpaceCode/commit/7ebff5e))
+  - 实现消息流中思考和文本内容的增量处理 ([7ebff5e](https://github.com/hjdspace/SpaceCode/commit/7ebff5e))
+  - 添加思考模式切换功能 ([d70a40f](https://github.com/hjdspace/SpaceCode/commit/d70a40f))
+  - 改进思考模式交互和样式 ([2d9570b](https://github.com/hjdspace/SpaceCode/commit/2d9570b))
+* **settings:** 实现外观设置的状态管理并优化 PiEngine 模型处理 ([3dce5de](https://github.com/hjdspace/SpaceCode/commit/3dce5de))
+
+### Bug Fixes
+
+* **pi-engine:** 当 Pi SDK 不可用时回退到 claude-code ([015858e](https://github.com/hjdspace/SpaceCode/commit/015858e))
+* **pi-engine:** 使用 ESM 动态导入加载 pi SDK，添加为本地依赖 ([4ae6883](https://github.com/hjdspace/SpaceCode/commit/4ae6883))
+
+### Chore
+
+* 将 pi-engine 添加到 gitignore ([3e8514a](https://github.com/hjdspace/SpaceCode/commit/3e8514a))
+
 ## [0.3.1](https://github.com/hjdspace/SpaceCode/compare/v0.3.0...v0.3.1) (2026-05-06)
 
 ### Features
