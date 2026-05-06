@@ -111,13 +111,13 @@ export class PiEngine implements IEngine {
           api,
           provider,
           baseUrl,
-          reasoning: false,
+          reasoning: !!config.thinkingEnabled,
           input: ['text'],
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
           contextWindow: 128000,
           maxTokens: 32000,
         }
-        info('PiEngine', `[${sessionId.slice(0, 8)}] Model not in registry, constructed default | id=${modelId} | api=${api} | baseUrl=${baseUrl}`)
+        info('PiEngine', `[${sessionId.slice(0, 8)}] Model not in registry, constructed default | id=${modelId} | api=${api} | baseUrl=${baseUrl} | reasoning=${model.reasoning}`)
       }
 
       const transportOptions: any = {}

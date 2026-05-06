@@ -49,10 +49,12 @@ export function mapPiEvent(sessionId: string, event: PiAgentEvent): UnifiedEngin
     case 'message_update': {
       const delta = event.assistantMessageEvent
       if (!delta) return null
+
+      const mappedDelta = mapStreamDelta(delta)
       return {
         sessionId,
         type: 'stream_event',
-        data: { event: delta },
+        data: { event: mappedDelta },
       }
     }
 
@@ -181,5 +183,66 @@ function formatToolResult(result: any): string {
     return JSON.stringify(result, null, 2)
   } catch {
     return String(result)
+  }
+}
+
+function mapStreamDelta(delta: any): any {
+  switch (delta.type) {
+    case 'thinking_start':
+      return {
+        type: 'content_block_start',
+        content_block: { type: 'thinking' },
+        partial: delta.partial
+      }
+    case 'thinking_delta':
+      return {
+        type: 'content_block_delta',
+        delta: { type: 'thinking_delta', thinking: delta.delta || delta.thinking },
+        partial: delta.partial
+      }
+    case 'thinking_end':
+      return {
+        type: 'content_block_stop',
+        content_block: { type: 'thinking' },
+        partial: delta.partial
+      }
+    case 'text_start':
+      return {
+        type: 'content_block_start',
+        content_block: { type: 'text' },
+        partial: delta.partial
+      }
+    case 'text_delta':
+      return {
+        type: 'content_block_delta',
+        delta: { type: 'text_delta', text: delta.delta || delta.text },
+        partial: delta.partial
+      }
+    case 'text_end':
+      return {
+        type: 'content_block_stop',
+        content_block: { type: 'text' },
+        partial: delta.partial
+      }
+    case 'toolcall_start':
+      return {
+        type: 'content_block_start',
+        content_block: { type: 'tool_use', id: delta.toolCallId, name: delta.toolName },
+        partial: delta.partial
+      }
+    case 'toolcall_delta':
+      return {
+        type: 'content_block_delta',
+        delta: { type: 'input_json_delta', partial_json: delta.delta },
+        partial: delta.partial
+      }
+    case 'toolcall_end':
+      return {
+        type: 'content_block_stop',
+        content_block: { type: 'tool_use' },
+        partial: delta.partial
+      }
+    default:
+      return delta
   }
 }

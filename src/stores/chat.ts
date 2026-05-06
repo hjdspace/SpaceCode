@@ -756,16 +756,70 @@ export const useChatStore = defineStore('chat', () => {
         if (assistant.message?.content) {
           const content = assistant.message.content
           if (Array.isArray(content)) {
-            const textContent = content
-              .filter((c: any) => c.type === 'text')
-              .map((c: any) => c.text || '')
-              .join('')
+            const hasExistingTimeline = !!getAssistantMessage()?.timelineEvents?.length
 
-            if (textContent && textContent.length > accumulatedContent.length) {
-              const deltaText = textContent.slice(accumulatedContent.length)
-              accumulatedContent = textContent
-              streamingContents.value.set(targetSessionId, accumulatedContent)
-              if (!getAssistantMessage()?.timelineEvents?.some(event => event.type === 'text')) {
+            if (!hasExistingTimeline) {
+              for (const block of content) {
+                if (block.type === 'text' && block.text) {
+                  completeCurrentTextEvent()
+                  const textEventId = ensureTextTimelineEvent()
+                  accumulatedContent += block.text
+                  streamingContents.value.set(targetSessionId, accumulatedContent)
+                  const msg = getAssistantMessage()
+                  const textEvent = msg?.timelineEvents?.find(event => event.id === textEventId)
+                  updateTimelineEvent(textEventId, {
+                    content: `${textEvent?.content || ''}${block.text}`,
+                    status: 'running'
+                  })
+                } else if (block.type === 'thinking') {
+                  const thinkingText = block.thinking || block.text || ''
+                  if (thinkingText) {
+                    completeCurrentTextEvent()
+                    const s = sessions.value.find(s => s.id === targetSessionId)
+                    if (s) {
+                      const msg = s.messages.find(m => m.id === assistantMessageId)
+                      if (msg) {
+                        if (!msg.reasoning) {
+                          msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
+                        }
+                        msg.reasoning.content += thinkingText
+                        msg.reasoning.endTime = Date.now()
+                        if (!currentReasoningEventId) {
+                          currentReasoningEventId = crypto.randomUUID()
+                          addTimelineEvent({
+                            id: currentReasoningEventId,
+                            type: 'reasoning',
+                            timestamp: msg.reasoning.startTime,
+                            status: 'running',
+                            content: ''
+                          })
+                        }
+                        const reasoningEvent = msg.timelineEvents?.find(event => event.id === currentReasoningEventId)
+                        updateTimelineEvent(currentReasoningEventId, {
+                          content: `${reasoningEvent?.content || ''}${thinkingText}`,
+                          status: 'completed'
+                        })
+                      }
+                    }
+                  }
+                } else if (block.type === 'tool_use' && block.id) {
+                  addToolTimelineEvent(block.id)
+                }
+              }
+
+              if (accumulatedContent) {
+                updateMessage(assistantMessageId, { content: accumulatedContent }, targetSessionId)
+              }
+            } else {
+              const textContent = content
+                .filter((c: any) => c.type === 'text')
+                .map((c: any) => c.text || '')
+                .join('')
+
+              if (textContent && textContent.length > accumulatedContent.length) {
+                const deltaText = textContent.slice(accumulatedContent.length)
+                accumulatedContent = textContent
+                streamingContents.value.set(targetSessionId, accumulatedContent)
                 const textEventId = ensureTextTimelineEvent()
                 const msg = getAssistantMessage()
                 const textEvent = msg?.timelineEvents?.find(event => event.id === textEventId)
@@ -773,64 +827,41 @@ export const useChatStore = defineStore('chat', () => {
                   content: `${textEvent?.content || ''}${deltaText}`,
                   status: 'running'
                 })
-              }
-              updateMessage(assistantMessageId, { content: accumulatedContent }, targetSessionId)
-            }
-
-            if (!getAssistantMessage()?.timelineEvents?.length) {
-              let fallbackText = ''
-              for (const block of content) {
-                if (block.type === 'text' && block.text) {
-                  const textEventId = ensureTextTimelineEvent()
-                  fallbackText += block.text
-                  const msg = getAssistantMessage()
-                  const textEvent = msg?.timelineEvents?.find(event => event.id === textEventId)
-                  updateTimelineEvent(textEventId, {
-                    content: `${textEvent?.content || ''}${block.text}`,
-                    status: 'running'
-                  })
-                } else if (block.type === 'tool_use' && block.id) {
-                  addToolTimelineEvent(block.id)
-                }
-              }
-              if (fallbackText && fallbackText.length > accumulatedContent.length) {
-                accumulatedContent = fallbackText
-                streamingContents.value.set(targetSessionId, accumulatedContent)
                 updateMessage(assistantMessageId, { content: accumulatedContent }, targetSessionId)
               }
-            }
 
-            const reasoningContent = content
-              .filter((c: any) => c.type === 'thinking')
-              .map((c: any) => c.thinking || c.text || '')
-              .join('')
+              const reasoningContent = content
+                .filter((c: any) => c.type === 'thinking')
+                .map((c: any) => c.thinking || c.text || '')
+                .join('')
 
-            if (reasoningContent) {
-              const s = sessions.value.find(s => s.id === targetSessionId)
-              if (s) {
-                const msg = s.messages.find(m => m.id === assistantMessageId)
-                if (msg) {
-                  if (!msg.reasoning) {
-                    msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
-                  }
-                  msg.reasoning.content += reasoningContent
-                  msg.reasoning.endTime = Date.now()
-                  if (!currentReasoningEventId) {
-                    currentReasoningEventId = crypto.randomUUID()
-                    addTimelineEvent({
-                      id: currentReasoningEventId,
-                      type: 'reasoning',
-                      timestamp: msg.reasoning.startTime,
-                      status: 'running',
-                      content: ''
+              if (reasoningContent) {
+                const s = sessions.value.find(s => s.id === targetSessionId)
+                if (s) {
+                  const msg = s.messages.find(m => m.id === assistantMessageId)
+                  if (msg) {
+                    if (!msg.reasoning) {
+                      msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
+                    }
+                    msg.reasoning.content += reasoningContent
+                    msg.reasoning.endTime = Date.now()
+                    if (!currentReasoningEventId) {
+                      currentReasoningEventId = crypto.randomUUID()
+                      addTimelineEvent({
+                        id: currentReasoningEventId,
+                        type: 'reasoning',
+                        timestamp: msg.reasoning.startTime,
+                        status: 'running',
+                        content: ''
+                      })
+                    }
+                    const reasoningEvent = msg.timelineEvents?.find(event => event.id === currentReasoningEventId)
+                    updateTimelineEvent(currentReasoningEventId, {
+                      content: `${reasoningEvent?.content || ''}${reasoningContent}`,
+                      status: 'completed'
                     })
+                    saveToStorage()
                   }
-                  const reasoningEvent = msg.timelineEvents?.find(event => event.id === currentReasoningEventId)
-                  updateTimelineEvent(currentReasoningEventId, {
-                    content: `${reasoningEvent?.content || ''}${reasoningContent}`,
-                    status: 'completed'
-                  })
-                  saveToStorage()
                 }
               }
             }
