@@ -1,3 +1,17 @@
+## [0.3.3](https://github.com/hjdspace/SpaceCode/compare/v0.3.2...v0.3.3) (2026-05-06)
+
+### Features
+
+* **图标:** 改进图标生成和加载逻辑 ([6dc41da](https://github.com/hjdspace/SpaceCode/commit/6dc41da))
+  - 使用 png-to-ico 替代 sharp 生成兼容性更好的 .ico 文件
+  - 添加图标生成脚本作为 electron 构建前置步骤
+  - 改进图标加载逻辑，支持 .ico 和 .png 回退机制
+  - 优化构建配置中的图标路径处理
+
+### Styles
+
+* **FileTree:** 调整背景样式为透明和毛玻璃效果 ([6314c54](https://github.com/hjdspace/SpaceCode/commit/6314c54))
+
 ## [0.3.2](https://github.com/hjdspace/SpaceCode/compare/v0.3.1...v0.3.2) (2026-05-06)
 
 ### Features
