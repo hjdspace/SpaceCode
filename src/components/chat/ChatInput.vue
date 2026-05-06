@@ -479,6 +479,11 @@ function toggleThinking() {
   thinkingEnabled.value = !thinkingEnabled.value
   settingsStore.thinkingEnabled = thinkingEnabled.value
   settingsStore.saveSettings()
+
+  const sid = chatStore.currentSessionId
+  if (sid) {
+    api.updateThinkingLevel(sid, thinkingEnabled.value).catch(() => {})
+  }
 }
 
 // Agent selector state

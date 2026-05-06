@@ -235,6 +235,7 @@ export class ClaudeCodeProcessManager extends EventEmitter {
       if (config.apiKey) env.OPENAI_API_KEY = config.apiKey
       if (config.baseUrl) env.OPENAI_BASE_URL = config.baseUrl
       if (config.model) env.OPENAI_MODEL = config.model
+      if (config.thinkingEnabled) env.OPENAI_ENABLE_THINKING = '1'
     } else if (provider === 'gemini') {
       if (config.apiKey) env.GEMINI_API_KEY = config.apiKey
       if (config.baseUrl) env.GEMINI_BASE_URL = config.baseUrl

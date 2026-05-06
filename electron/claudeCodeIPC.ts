@@ -120,6 +120,18 @@ export function registerClaudeCodeIPC() {
     return []
   })
 
+  ipcMain.handle('claude-code:updateThinkingLevel', async (_, sessionId: string, enabled: boolean) => {
+    info('ClaudeCodeIPC', `→ updateThinkingLevel | sessionId=${sessionId.slice(0, 8)} | enabled=${enabled}`)
+    try {
+      const engine = findEngineForSession(sessionId)
+      if (engine.type === 'pi' && typeof (engine as any).updateThinkingLevel === 'function') {
+        ;(engine as any).updateThinkingLevel(sessionId, enabled)
+      }
+    } catch (err) {
+      error('ClaudeCodeIPC', `✗ updateThinkingLevel | sessionId=${sessionId.slice(0, 8)}`, { error: String(err) })
+    }
+  })
+
   ipcMain.handle('claude-code:isEngineAvailable', async (_, engineType: string) => {
     debug('ClaudeCodeIPC', `→ isEngineAvailable | engine=${engineType}`)
     return EngineFactory.isEngineAvailableAsync(engineType as any)

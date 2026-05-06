@@ -24,7 +24,6 @@
         <div v-if="event.type === 'reasoning' || event.type === 'metadata'" class="event-node">
           <div class="event-dot" :class="`status-${event.status}`">
             <Loader2 v-if="event.status === 'running'" :size="11" class="spin-icon" />
-            <Check v-else-if="event.status === 'completed'" :size="11" />
             <X v-else-if="event.status === 'error'" :size="11" />
             <component v-else :is="event.icon" :size="11" />
           </div>
@@ -120,7 +119,7 @@ import ErrorCard from '../common/ErrorCard.vue'
 import { errorHandler } from '@/services/errorHandler'
 import { useChatStore } from '@/stores/chat'
 import {
-  Loader2, Check, X, ChevronDown, Bot, AlertCircle,
+  Loader2, X, ChevronDown, Bot, AlertCircle,
   Terminal, FileText, FileEdit, Search, Globe, Wand2, Folder, Code,
   Brain, MessageCircle, Info
 } from 'lucide-vue-next'

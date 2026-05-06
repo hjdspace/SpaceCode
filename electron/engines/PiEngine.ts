@@ -176,6 +176,27 @@ export class PiEngine implements IEngine {
     }
   }
 
+  updateThinkingLevel(sessionId: string, enabled: boolean): void {
+    const entry = this.sessions.get(sessionId)
+    if (!entry) {
+      warn('PiEngine', `[${sessionId.slice(0, 8)}] updateThinkingLevel: session not found`)
+      return
+    }
+
+    const level = enabled ? 'medium' : 'off'
+    entry.agent.setThinkingLevel(level)
+
+    const currentModel = entry.agent.state?.model
+    if (currentModel && typeof currentModel === 'object') {
+      const updatedModel = { ...currentModel, reasoning: !!enabled }
+      entry.agent.setModel(updatedModel)
+      info('PiEngine', `[${sessionId.slice(0, 8)}] Model reasoning updated | reasoning=${!!enabled}`)
+    }
+
+    entry.config.thinkingEnabled = enabled
+    info('PiEngine', `[${sessionId.slice(0, 8)}] Thinking level updated | enabled=${enabled} | level=${level}`)
+  }
+
   async abort(sessionId: string): Promise<void> {
     const entry = this.sessions.get(sessionId)
     if (!entry) return

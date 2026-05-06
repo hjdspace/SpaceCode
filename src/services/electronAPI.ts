@@ -211,6 +211,13 @@ export const api = {
     },
   },
 
+  updateThinkingLevel: (sessionId: string, enabled: boolean): Promise<void> => {
+    if (electronAPI?.claudeCode?.updateThinkingLevel) {
+      return electronAPI.claudeCode.updateThinkingLevel(sessionId, enabled)
+    }
+    return Promise.resolve()
+  },
+
   // Debug API
   debug: {
     listFiles: (): Promise<DebugFileEntry[]> => electronAPI?.debug?.listFiles() || Promise.resolve([]),
