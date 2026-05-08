@@ -235,7 +235,6 @@ async function handleSend(content: string, attachments: Attachment[], options?: 
   console.log('[ChatPanel] handleSend called:', content.slice(0, 50))
   if (!content.trim() && attachments.length === 0) return
 
-  // 构建包含附件信息的消息内容
   let messageContent = content.trim()
 
   if (attachments.length > 0) {

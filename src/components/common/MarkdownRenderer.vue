@@ -9,6 +9,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { marked } from 'marked'
+import hljs from 'highlight.js'
 import { useAppStore } from '@/stores/app'
 
 const props = defineProps<{
@@ -17,12 +18,38 @@ const props = defineProps<{
 
 const appStore = useAppStore()
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function transformMentionChips(text: string): string {
+  text = text.replace(/@file:"([^"]+)"/g, (_match, path) => {
+    const name = path.split('/').pop() || path
+    return `<span class="mention-chip"><span class="chip-icon">📄</span><span class="chip-name">${escapeHtml(name)}</span></span>`
+  })
+  text = text.replace(/@folder:"([^"]+)"/g, (_match, path) => {
+    const name = path.split('/').pop() || path
+    return `<span class="mention-chip is-folder"><span class="chip-icon">📁</span><span class="chip-name">${escapeHtml(name)}</span></span>`
+  })
+  return text
+}
+
 const renderer = new marked.Renderer()
 
 renderer.code = function(code, language) {
   const lang = language || 'text'
-  const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  return `<pre class="code-block"><code class="language-${lang}">${escaped}</code></pre>`
+  const validLang = hljs.getLanguage(lang) ? lang : 'plaintext'
+  let highlighted: string
+  try {
+    highlighted = hljs.highlight(code, { language: validLang }).value
+  } catch {
+    highlighted = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  }
+  return `<pre class="code-block"><code class="hljs language-${lang}">${highlighted}</code></pre>`
 }
 
 renderer.heading = function(text, level) {
@@ -51,9 +78,10 @@ marked.setOptions({
 
 const renderedContent = computed(() => {
   if (!props.content) return ''
-  
+
   try {
-    return marked.parse(props.content) as string
+    const contentWithChips = transformMentionChips(props.content)
+    return marked.parse(contentWithChips) as string
   } catch {
     return props.content
   }
@@ -150,12 +178,11 @@ function handleLinkClick(event: MouseEvent) {
     padding: 12px 16px;
     overflow-x: auto;
     margin: 12px 0;
-    
+
     code {
       font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', Consolas, monospace;
       font-size: 13px;
       line-height: 1.5;
-      color: var(--text-primary);
     }
   }
   
@@ -200,16 +227,73 @@ function handleLinkClick(event: MouseEvent) {
     width: 100%;
     border-collapse: collapse;
     margin: 12px 0;
-    
+
     th, td {
       border: 1px solid var(--surface-border);
       padding: 8px 12px;
       text-align: left;
     }
-    
+
     th {
       background: var(--bg-secondary);
       font-weight: 600;
+    }
+  }
+
+  :deep(.hljs) {
+    color: #c9d1d9;
+    background: #0d1117;
+  }
+  :deep(.hljs-keyword) { color: #ff7b72; }
+  :deep(.hljs-string) { color: #a5d6ff; }
+  :deep(.hljs-number) { color: #79c0ff; }
+  :deep(.hljs-comment) { color: #8b949e; font-style: italic; }
+  :deep(.hljs-function) { color: #d2a8ff; }
+  :deep(.hljs-title) { color: #d2a8ff; }
+  :deep(.hljs-params) { color: #c9d1d9; }
+  :deep(.hljs-built_in) { color: #ffa657; }
+  :deep(.hljs-type) { color: #ffa657; }
+  :deep(.hljs-attr) { color: #79c0ff; }
+  :deep(.hljs-variable) { color: #ffa657; }
+  :deep(.hljs-literal) { color: #79c0ff; }
+  :deep(.hljs-meta) { color: #8b949e; }
+  :deep(.hljs-tag) { color: #7ee787; }
+  :deep(.hljs-name) { color: #7ee787; }
+  :deep(.hljs-selector-class) { color: #7ee787; }
+  :deep(.hljs-selector-id) { color: #7ee787; }
+  :deep(.hljs-property) { color: #79c0ff; }
+  :deep(.hljs-punctuation) { color: #c9d1d9; }
+
+  :deep(.mention-chip) {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    margin: 0 2px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--surface-border);
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 1.4;
+    vertical-align: baseline;
+
+    .chip-icon {
+      font-size: 12px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .chip-name {
+      max-width: 260px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    &.is-folder {
+      background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.08);
+      border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.3);
+      color: var(--accent-primary);
     }
   }
 }

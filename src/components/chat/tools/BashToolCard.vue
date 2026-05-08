@@ -67,7 +67,7 @@ import EmbeddedTerminal from '@/components/terminal/EmbeddedTerminal.vue'
 const props = defineProps<{ toolCall: ToolCall }>()
 
 const chatStore = useChatStore()
-const isExpanded = ref(true)
+const isExpanded = ref(false)
 const showTerminal = ref(false)
 const terminalStatus = ref<'running' | 'completed' | 'error' | 'idle'>('idle')
 const embeddedTerminalRef = ref<InstanceType<typeof EmbeddedTerminal> | null>(null)
