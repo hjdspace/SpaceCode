@@ -235,18 +235,26 @@ async function handleSend(content: string, attachments: Attachment[], options?: 
   console.log('[ChatPanel] handleSend called:', content.slice(0, 50))
   if (!content.trim() && attachments.length === 0) return
 
-  // 构建包含附件信息的消息内容
   let messageContent = content.trim()
 
   if (attachments.length > 0) {
-    const attachmentInfo = attachments.map(att =>
-      att.isFolder ? `[Folder: ${att.name}]` : `[File: ${att.name}]`
-    ).join(', ')
+    const mentionedPaths = new Set<string>()
 
-    if (messageContent) {
-      messageContent += `\n\nAttachments: ${attachmentInfo}`
-    } else {
-      messageContent = `Attachments: ${attachmentInfo}`
+    const atFilePattern = /@file:"([^"]+)"/g
+    const atFolderPattern = /@folder:"([^"]+)"/g
+    let match
+    while ((match = atFilePattern.exec(content)) !== null) {
+      mentionedPaths.add(match[1])
+    }
+    while ((match = atFolderPattern.exec(content)) !== null) {
+      mentionedPaths.add(match[1])
+    }
+
+    const missingAttachments = attachments.filter(att => !mentionedPaths.has(att.path))
+
+    for (const att of missingAttachments) {
+      const prefix = att.isFolder ? '@folder:' : '@file:'
+      messageContent += (messageContent ? '\n' : '') + `${prefix}"${att.name}"`
     }
   }
 
