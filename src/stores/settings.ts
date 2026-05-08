@@ -282,7 +282,7 @@ export const useSettingsStore = defineStore('settings', () => {
     return {
       provider: provider.value,
       apiKey,
-      apiUrl: baseUrl || undefined,
+      baseUrl: baseUrl || undefined,
       model: model || undefined,
       effortLevel: effortLevel.value
     }

@@ -275,7 +275,7 @@ export const useScmStore = defineStore('scm', () => {
       const settingsStore = settingsModule.useSettingsStore()
       const cfg = settingsStore.config
       if (cfg.apiKey) {
-        await initLLMService({ provider: cfg.provider, apiKey: cfg.apiKey, baseUrl: cfg.apiUrl, model: cfg.model })
+        await initLLMService({ provider: cfg.provider, apiKey: cfg.apiKey, baseUrl: cfg.baseUrl, model: cfg.model })
       } else {
         throw new Error('LLM not configured. Please set API key in Settings.')
       }

@@ -446,7 +446,7 @@ export const useChatStore = defineStore('chat', () => {
       session.processStatus = 'starting'
       saveToStorage()
 
-      logger.info('ChatStore', `initClaudeCodeSession: starting session | id=${sessionId.slice(0, 8)} | cwd=${cwd} | provider=${config.provider} | model=${config.model} | baseUrl=${config.apiUrl || '(empty)'} | apiKey=${config.apiKey ? '***set' : '(empty)'} | agent=${currentAgent.value || '(none)'}`)
+      logger.info('ChatStore', `initClaudeCodeSession: starting session | id=${sessionId.slice(0, 8)} | cwd=${cwd} | provider=${config.provider} | model=${config.model} | baseUrl=${config.baseUrl || '(empty)'} | apiKey=${config.apiKey ? '***set' : '(empty)'} | agent=${currentAgent.value || '(none)'}`)
       traceEvent({
         sessionId,
         actor: 'system',
@@ -457,7 +457,7 @@ export const useChatStore = defineStore('chat', () => {
           cwd,
           provider: config.provider,
           model: config.model,
-          baseUrl: config.apiUrl || '',
+          baseUrl: config.baseUrl || '',
           agent: currentAgent.value || '',
         },
       })
@@ -465,7 +465,7 @@ export const useChatStore = defineStore('chat', () => {
       await claudeCode.startSession(sessionId, {
         cwd,
         apiKey: config.apiKey,
-        baseUrl: config.apiUrl,
+        baseUrl: config.baseUrl,
         provider: config.provider,
         model: config.model,
         effortLevel: config.effortLevel,
@@ -489,7 +489,7 @@ export const useChatStore = defineStore('chat', () => {
         sessionId,
         provider: settingsStore.config.provider,
         model: settingsStore.config.model,
-        baseUrl: settingsStore.config.apiUrl,
+        baseUrl: settingsStore.config.baseUrl,
         phase: 'init',
       })
       logger.error('ChatStore', `initClaudeCodeSession: failed to start session | id=${sessionId.slice(0, 8)}`, { error: String(error), category: classified.category })
@@ -1155,7 +1155,7 @@ export const useChatStore = defineStore('chat', () => {
           sessionId: targetSessionId,
           provider: settingsStore.config.provider,
           model: settingsStore.config.model,
-          baseUrl: settingsStore.config.apiUrl,
+          baseUrl: settingsStore.config.baseUrl,
           phase: 'stream',
         })
 
