@@ -45,6 +45,7 @@ export const useAppStore = defineStore('app', () => {
   const currentFile = ref<FileInfo | null>(null)
   const toolDiffData = ref<ToolDiffData | null>(null)
   const completedToolActions = ref<Set<string>>(new Set())
+  const currentLine = ref<number>(0)
   const centerTabs = ref<CenterTab[]>([
     { id: 'chat', label: 'Chat', icon: markRaw(MessageSquare), closable: false }
   ])
@@ -111,6 +112,32 @@ export const useAppStore = defineStore('app', () => {
 
   function setCurrentFile(file: FileInfo | null) {
     currentFile.value = file
+  }
+
+  async function openFile(filePath: string, line?: number) {
+    const api = (window as any).electronAPI
+    if (!api?.readFile) {
+      console.error('[AppStore] readFile API not available')
+      return
+    }
+
+    try {
+      const content = await api.readFile(filePath)
+      if (content !== null) {
+        const fileName = filePath.split('/').pop() || filePath
+        const language = getLanguageFromPath(filePath)
+        currentLine.value = line || 0
+        setCurrentFile({
+          path: filePath,
+          name: fileName,
+          content: content,
+          language: language
+        })
+        showInfoPanel('file')
+      }
+    } catch (error) {
+      console.error('[AppStore] Failed to open file:', filePath, error)
+    }
   }
 
   function openTerminalTab(autoCommand?: string, env?: Record<string, string>, cwd?: string) {
@@ -291,6 +318,7 @@ export const useAppStore = defineStore('app', () => {
       'hpp': 'cpp',
       'sv': 'verilog',
       'svh': 'verilog',
+      'svi': 'verilog',
       'v': 'verilog',
       'vh': 'verilog',
       'md': 'markdown',
@@ -324,7 +352,10 @@ export const useAppStore = defineStore('app', () => {
     infoPanelVisible,
     infoPanelMode,
     currentFile,
+    currentLine,
     toolDiffData,
+    completedToolActions,
+    currentLine,
     centerTabs,
     activeCenterTab,
     projectRoot,
@@ -344,6 +375,7 @@ export const useAppStore = defineStore('app', () => {
     showToolDiff,
     markToolActionCompleted,
     setCurrentFile,
+    openFile,
     getLanguageFromPath,
     openTerminalTab,
     closeCenterTab,
