@@ -954,8 +954,6 @@ ipcMain.handle('settings:injectGuiModels', async (_event, models: { primaryModel
       settings.modelSettings = { ...(settings.modelSettings || {}), ...modelSettings }
     }
 
-    delete settings.model
-
     if (models.effortLevel) {
       settings.effortLevel = models.effortLevel
     } else {
@@ -968,7 +966,7 @@ ipcMain.handle('settings:injectGuiModels', async (_event, models: { primaryModel
     }
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8')
 
-    info('Settings', `Injected GUI models to ${settingsPath}`, { modelSettingsKeys: Object.keys(modelSettings), modelCleared: true })
+    info('Settings', `Injected GUI models to ${settingsPath}`, { modelSettingsKeys: Object.keys(modelSettings) })
 
     return { success: true }
   } catch (err: any) {
