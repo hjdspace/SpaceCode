@@ -18,6 +18,7 @@ export default {
   settings: {
     title: 'Settings',
     general: 'General',
+    modelSettings: 'Models',
     appearance: 'Appearance',
     tools: 'Tools',
     mcp: 'MCP',

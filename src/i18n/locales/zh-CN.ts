@@ -18,6 +18,7 @@ export default {
   settings: {
     title: '设置',
     general: '通用',
+    modelSettings: '模型',
     appearance: '外观',
     tools: '工具',
     mcp: 'MCP',
