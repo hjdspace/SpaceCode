@@ -275,6 +275,7 @@ export default {
     httpProxyUnavailable: 'HTTP proxy not available',
     fetchFailed: 'Fetch failed ({status})',
     skillLabel: 'Skill',
+    optimizePrompt: 'Optimize Prompt',
   },
 
   errors: {

@@ -341,6 +341,19 @@
           <ArrowUp v-if="!props.isSending" :size="18" />
           <Square v-else :size="14" />
         </button>
+
+        <!-- 优化提示词按钮 -->
+        <button
+          v-if="hasContent && !props.isSending"
+          class="optimize-btn"
+          :class="{ 'is-optimizing': isOptimizing }"
+          :disabled="isOptimizing"
+          :title="t('chatInput.optimizePrompt')"
+          @click.stop.prevent="handleOptimizePrompt"
+        >
+          <Loader2 v-if="isOptimizing" :size="16" class="spin" />
+          <Sparkles v-else :size="16" />
+        </button>
       </div>
     </div>
 
@@ -375,7 +388,8 @@ import {
   ArrowUp, Plus, ChevronDown, Check, FileText, Folder, Square, X,
   Search, Loader2, RefreshCw, AlertCircle, HelpCircle, Trash2, Coins,
   Minimize2, Stethoscope, FilePlus, Zap, FolderOpen, Terminal, Settings,
-  Code, GitBranch, Bug, Bookmark, Layers, MessageSquare, Eye, Cpu, Brain
+  Code, GitBranch, Bug, Bookmark, Layers, MessageSquare, Eye, Cpu, Brain,
+  Sparkles
 } from 'lucide-vue-next'
 import { useSettingsStore } from '@/stores/settings'
 import { useSkillsStore } from '@/stores/skills'
@@ -746,6 +760,9 @@ const hasContent = computed(() => {
 })
 const canSend = computed(() => (hasContent.value) && !props.isSending)
 
+// Prompt optimizer state
+const isOptimizing = ref(false)
+
 // ─── ContentEditable Utilities ───────────────────────────────
 
 /** Extract plain text from contenteditable, replacing chips with @path markers */
@@ -985,6 +1002,29 @@ async function fetchModelsFromBaseUrl() {
 // 刷新模型列表
 function refreshModels() {
   fetchModelsFromBaseUrl()
+}
+
+// 优化提示词
+async function handleOptimizePrompt() {
+  const prompt = getEditorPlainText().trim()
+  if (!prompt || isOptimizing.value) return
+
+  isOptimizing.value = true
+
+  try {
+    const result = await api.optimizePrompt(prompt)
+
+    if (result.success && result.result) {
+      setEditorContent(result.result)
+      autoResize()
+    } else {
+      console.error('Prompt optimization failed:', result.error)
+    }
+  } catch (error) {
+    console.error('Prompt optimization error:', error)
+  } finally {
+    isOptimizing.value = false
+  }
 }
 
 // 切换模型下拉菜单
@@ -2308,6 +2348,49 @@ watch([() => props.disabled, () => props.isSending], ([disabled, sending]) => {
     background: #e5e5e5;
     color: #a3a3a3;
     cursor: not-allowed;
+  }
+}
+
+// 优化提示词按钮
+.optimize-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: transparent;
+  color: #737373;
+  @include flex-center;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+  margin-right: 8px;
+
+  &:not(:disabled) {
+    color: #a3a3a3;
+
+    &:hover {
+      background: rgba(0, 0, 0, 0.05);
+      color: #404040;
+    }
+  }
+
+  &.is-optimizing {
+    color: #737373;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+  }
+
+  .spin {
+    animation: spin 1s linear infinite;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
   }
 }
 
