@@ -155,6 +155,14 @@ export const api = {
     return Promise.resolve({ canceled: true, filePaths: [] })
   },
 
+  // Prompt Optimizer API
+  optimizePrompt: (prompt: string): Promise<{ success: boolean; result?: string; error?: string }> => {
+    if (electronAPI?.optimizePrompt) {
+      return electronAPI.optimizePrompt(prompt)
+    }
+    return Promise.resolve({ success: false, error: 'Prompt optimizer not available' })
+  },
+
   // Git/SCM API
   git: {
     isRepo: (cwd: string): Promise<boolean> =>

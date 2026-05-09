@@ -275,6 +275,7 @@ export default {
     httpProxyUnavailable: 'HTTP 代理不可用',
     fetchFailed: '获取失败 ({status})',
     skillLabel: '技能',
+    optimizePrompt: '优化提示词',
   },
 
   errors: {

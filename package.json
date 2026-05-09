@@ -79,7 +79,7 @@
       "node_modules/@mariozechner/**/*"
     ],
     "asarUnpack": [
-      "node_modules/node-pty/**/*.node",
+      "node_modules/node-pty/**/*",
       "node_modules/@mariozechner/**/*"
     ],
     "extraResources": [

@@ -263,6 +263,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectFiles: (): Promise<{ canceled: boolean; filePaths: string[] }> =>
     ipcRenderer.invoke('dialog:selectFiles'),
 
+  // Prompt Optimizer API
+  optimizePrompt: (prompt: string): Promise<{ success: boolean; result?: string; error?: string }> =>
+    ipcRenderer.invoke('prompt-optimizer:optimize', prompt),
+
   // Skills API
   skills: {
     getSkills: (cwd?: string) => ipcRenderer.invoke('skills:getSkills', cwd),
