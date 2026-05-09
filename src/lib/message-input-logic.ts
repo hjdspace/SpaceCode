@@ -206,13 +206,6 @@ export function dispatchBadge(
     }
     case 'slash_command':
     case 'sdk_command': {
-      const expandedPrompt = COMMAND_PROMPTS[badge.command] || ''
-      if (expandedPrompt) {
-        const finalPrompt = userContent
-          ? `${expandedPrompt}\n\nUser context: ${userContent}`
-          : expandedPrompt
-        return { prompt: finalPrompt, displayLabel }
-      }
       const slashPrompt = userContent
         ? `${badge.command} ${userContent}`
         : badge.command
