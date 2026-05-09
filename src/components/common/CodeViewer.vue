@@ -4,8 +4,9 @@
       <FileCode :size="14" />
       <span class="file-name">{{ appStore.currentFile?.name || 'No file selected' }}</span>
       <span class="language-badge" v-if="appStore.currentFile">{{ appStore.currentFile.language }}</span>
-      <button 
-        v-if="isMarkdownFile" 
+      <span class="line-badge" v-if="appStore.currentLine > 0">Line {{ appStore.currentLine }}</span>
+      <button
+        v-if="isMarkdownFile"
         class="preview-btn"
         @click="switchToPreview"
         title="Preview Markdown"
@@ -14,9 +15,19 @@
         <span>Preview</span>
       </button>
     </div>
-    
-    <div class="code-container" v-if="appStore.currentFile">
-      <pre><code :class="`language-${appStore.currentFile.language}`" v-html="highlightedCode"></code></pre>
+
+    <div class="code-container" ref="codeContainer" v-if="appStore.currentFile">
+      <div class="code-with-lines">
+        <div class="line-numbers">
+          <div
+            v-for="lineNum in lineCount"
+            :key="lineNum"
+            class="line-number"
+            :class="{ 'current-line': lineNum === appStore.currentLine }"
+          >{{ lineNum }}</div>
+        </div>
+        <pre class="code-content"><code :class="`language-${appStore.currentFile.language}`" v-html="highlightedCode"></code></pre>
+      </div>
     </div>
     <div class="empty-state" v-else>
       <FileCode :size="48" />
@@ -26,15 +37,21 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { FileCode, Eye } from 'lucide-vue-next'
 import hljs from 'highlight.js'
 
 const appStore = useAppStore()
+const codeContainer = ref<HTMLElement | null>(null)
 
 const isMarkdownFile = computed(() => {
   return appStore.currentFile?.language === 'markdown'
+})
+
+const lineCount = computed(() => {
+  if (!appStore.currentFile) return 0
+  return appStore.currentFile.content.split('\n').length
 })
 
 function switchToPreview() {
@@ -44,7 +61,7 @@ function switchToPreview() {
 const highlightedCode = computed(() => {
   const file = appStore.currentFile
   if (!file) return ''
-  
+
   try {
     const language = file.language
     if (language && hljs.getLanguage(language)) {
@@ -65,6 +82,25 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;')
 }
+
+function scrollToLine(lineNumber: number) {
+  if (!lineNumber || !codeContainer.value) return
+
+  nextTick(() => {
+    const container = codeContainer.value
+    if (!container) return
+
+    const lineHeight = 21.6
+    const scrollTop = (lineNumber - 1) * lineHeight - container.clientHeight / 3
+    container.scrollTo({ top: Math.max(0, scrollTop), behavior: 'smooth' })
+  })
+}
+
+watch(() => appStore.currentLine, (newLine) => {
+  if (newLine > 0) {
+    scrollToLine(newLine)
+  }
+})
 </script>
 
 <style lang="scss" scoped>
@@ -81,7 +117,7 @@ function escapeHtml(text: string): string {
   padding: 10px 12px;
   border-bottom: 1px solid var(--border-color);
   font-size: 13px;
-  
+
   .file-name {
     font-weight: 500;
     color: var(--text-primary);
@@ -99,6 +135,15 @@ function escapeHtml(text: string): string {
     letter-spacing: 0.5px;
   }
 
+  .line-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.15);
+    color: var(--accent-primary);
+    font-weight: 500;
+  }
+
   .preview-btn {
     @include reset-button;
     display: flex;
@@ -110,7 +155,7 @@ function escapeHtml(text: string): string {
     color: var(--text-secondary);
     background: var(--bg-tertiary);
     transition: all 0.15s;
-    
+
     &:hover {
       background: var(--accent-color);
       color: white;
@@ -124,13 +169,46 @@ function escapeHtml(text: string): string {
   overflow: auto;
   @include scrollbar;
   background: var(--bg-primary);
-  
-  pre {
-    margin: 0;
-    padding: 16px;
-    min-height: 100%;
+}
+
+.code-with-lines {
+  display: flex;
+  min-height: 100%;
+}
+
+.line-numbers {
+  flex-shrink: 0;
+  padding: 16px 0;
+  padding-right: 12px;
+  padding-left: 12px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  user-select: none;
+  text-align: right;
+
+  .line-number {
+    font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-muted);
+    height: 21.6px;
+
+    &.current-line {
+      color: var(--accent-primary);
+      font-weight: 600;
+      background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.1);
+      margin: 0 -12px;
+      padding: 0 12px;
+    }
   }
-  
+}
+
+.code-content {
+  flex: 1;
+  margin: 0;
+  padding: 16px;
+  overflow-x: auto;
+
   code {
     font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', Consolas, monospace;
     font-size: 13px;
@@ -148,7 +226,7 @@ function escapeHtml(text: string): string {
   justify-content: center;
   gap: 16px;
   color: var(--text-muted);
-  
+
   p {
     font-size: 14px;
   }

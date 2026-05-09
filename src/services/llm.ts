@@ -37,7 +37,7 @@ export async function initLLMService(config?: LLMConfig): Promise<void> {
         currentConfig = {
           provider: cfg.provider,
           apiKey: cfg.apiKey,
-          baseUrl: cfg.apiUrl,
+          baseUrl: cfg.baseUrl,
           model: cfg.model,
         }
         llmState.provider.value = cfg.provider

@@ -173,7 +173,7 @@ async function handleModelChange(model: string) {
   updateConfig({
     provider: config.provider as any,
     apiKey: config.apiKey || '',
-    baseUrl: config.apiUrl,
+    baseUrl: config.baseUrl,
     model: model
   })
   

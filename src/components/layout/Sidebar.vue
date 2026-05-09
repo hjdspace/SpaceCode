@@ -430,7 +430,7 @@ function handleSettingsSave() {
   initLLMService({
     provider: config.provider,
     apiKey: config.apiKey || '',
-    baseUrl: config.apiUrl,
+    baseUrl: config.baseUrl,
     model: config.model
   })
 }

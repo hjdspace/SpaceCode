@@ -927,18 +927,23 @@ ipcMain.handle('settings:injectGuiModels', async (_event, models: { primaryModel
   debug('Settings', 'injectGuiModels', models)
   try {
     const settingsPath = getClaudeSettingsPath()
-    let settings: any = {}
+    let existingSettings: Record<string, unknown> = {}
 
     if (existsSync(settingsPath)) {
       try {
         const raw = readFileSync(settingsPath, 'utf-8')
-        settings = JSON.parse(raw)
+        if (raw.trim()) {
+          const parsed = JSON.parse(raw)
+          if (parsed && typeof parsed === 'object') {
+            existingSettings = { ...parsed }
+          }
+        }
       } catch {
-        settings = {}
+        existingSettings = {}
       }
     }
 
-    const modelSettings: Record<string, any> = {}
+    const modelSettings: Record<string, Record<string, unknown>> = {}
 
     if (models.haikuModel) {
       modelSettings[models.haikuModel] = {}
@@ -950,25 +955,30 @@ ipcMain.handle('settings:injectGuiModels', async (_event, models: { primaryModel
       modelSettings[models.opusModel] = {}
     }
 
+    const mergedSettings: Record<string, unknown> = { ...existingSettings }
+
     if (Object.keys(modelSettings).length > 0) {
-      settings.modelSettings = { ...(settings.modelSettings || {}), ...modelSettings }
+      const existingModelSettings = (typeof mergedSettings.modelSettings === 'object' && mergedSettings.modelSettings !== null)
+        ? { ...(mergedSettings.modelSettings as Record<string, Record<string, unknown>>) }
+        : {}
+      mergedSettings.modelSettings = { ...existingModelSettings, ...modelSettings }
     }
 
-    delete settings.model
-
     if (models.effortLevel) {
-      settings.effortLevel = models.effortLevel
-    } else {
-      delete settings.effortLevel
+      mergedSettings.effortLevel = models.effortLevel
     }
 
     const dirPath = join(app.getPath('home'), '.claude')
     if (!existsSync(dirPath)) {
       mkdirSync(dirPath, { recursive: true })
     }
-    writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8')
+    writeFileSync(settingsPath, JSON.stringify(mergedSettings, null, 2), 'utf-8')
 
-    info('Settings', `Injected GUI models to ${settingsPath}`, { modelSettingsKeys: Object.keys(modelSettings), modelCleared: true })
+    info('Settings', `Injected GUI models to ${settingsPath}`, {
+      modelSettingsKeys: Object.keys(modelSettings),
+      effortLevel: models.effortLevel,
+      preservedFields: Object.keys(existingSettings).filter(k => !['modelSettings', 'effortLevel'].includes(k))
+    })
 
     return { success: true }
   } catch (err: any) {

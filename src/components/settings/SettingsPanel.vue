@@ -42,6 +42,11 @@
                       v-model="settingsData"
                       @change="onSettingsChange"
                     />
+                    <ModelSettings
+                      v-else-if="activeTab === 'model'"
+                      v-model="settingsData"
+                      @change="onSettingsChange"
+                    />
                     <McpSettings
                       v-else-if="activeTab === 'mcp'"
                       @change="onSettingsChange"
@@ -88,13 +93,14 @@
 import { ref, computed, watch, reactive, defineAsyncComponent } from 'vue'
 import {
   ArrowLeft, X, Save, Loader2,
-  Settings, Boxes, Palette, Wrench, Keyboard
+  Settings, Boxes, Palette, Wrench, Keyboard, Bot
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore, type AuthMethod, type OAuthAccountInfo, type EngineType } from '@/stores/settings'
 
 // 异步加载非首屏组件，减少首屏bundle大小
 const GeneralSettings = defineAsyncComponent(() => import('./GeneralSettings.vue'))
+const ModelSettings = defineAsyncComponent(() => import('./ModelSettings.vue'))
 const McpSettings = defineAsyncComponent(() => import('./McpSettings.vue'))
 const AppearanceSettings = defineAsyncComponent(() => import('./AppearanceSettings.vue'))
 const ToolsSettings = defineAsyncComponent(() => import('./ToolsSettings.vue'))
@@ -114,6 +120,7 @@ const { t } = useI18n()
 
 const menuItems = computed(() => [
   { id: 'general', label: t('settings.general'), icon: Settings },
+  { id: 'model', label: t('settings.modelSettings'), icon: Bot },
   { id: 'mcp', label: t('settings.mcpServers'), icon: Boxes },
   { id: 'tools', label: t('settings.tools'), icon: Wrench },
   { id: 'appearance', label: t('settings.appearance'), icon: Palette },

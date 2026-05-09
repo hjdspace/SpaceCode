@@ -38,6 +38,29 @@ function transformMentionChips(text: string): string {
   return text
 }
 
+function transformFileLinks(text: string): string {
+  const fileExtensions = [
+    'ts', 'tsx', 'js', 'jsx', 'vue', 'py', 'go', 'rs', 'java', 'c', 'cpp', 'cc', 'cxx',
+    'h', 'hpp', 'v', 'sv', 'svh', 'svi', 'md', 'json', 'yaml', 'yml', 'xml', 'html',
+    'css', 'scss', 'less', 'sh', 'bash', 'sql', 'rb', 'php', 'swift', 'kt', 'txt',
+    'toml', 'ini', 'cfg', 'conf', 'log', 'gitignore', 'env', 'dockerfile', 'makefile'
+  ]
+  
+  const extPattern = fileExtensions.map(ext => ext.replace('.', '\\.')).join('|')
+  
+  const filePathRegex = new RegExp(
+    `(?:^|[^\\w/\\\\.])((?:[A-Za-z]:[\\\\/])?(?:[\\w\\-.\\\\/]*[\\/])*[\\w\\-.\\\\/]*\\.(?:${extPattern}))(?::(\\d+))?(?=[^\\w]|$)`,
+    'g'
+  )
+  
+  return text.replace(filePathRegex, (match, filePath, lineNumber) => {
+    const displayName = filePath.split(/[\\/]/).pop() || filePath
+    const lineAttr = lineNumber ? `data-line-number="${lineNumber}"` : ''
+    
+    return `<span class="file-link" data-file-path="${escapeHtml(filePath)}" ${lineAttr}>${escapeHtml(displayName)}</span>`
+  })
+}
+
 const renderer = new marked.Renderer()
 
 renderer.code = function(code, language) {
@@ -81,7 +104,8 @@ const renderedContent = computed(() => {
 
   try {
     const contentWithChips = transformMentionChips(props.content)
-    return marked.parse(contentWithChips) as string
+    const contentWithFileLinks = transformFileLinks(contentWithChips)
+    return marked.parse(contentWithFileLinks) as string
   } catch {
     return props.content
   }
@@ -111,6 +135,21 @@ function isExternalURL(url: string): boolean {
 
 function handleLinkClick(event: MouseEvent) {
   const target = event.target as HTMLElement
+  
+  const fileLink = target.closest('.file-link') as HTMLElement
+  if (fileLink) {
+    event.preventDefault()
+    event.stopPropagation()
+    
+    const filePath = fileLink.getAttribute('data-file-path')
+    const lineNumberStr = fileLink.getAttribute('data-line-number')
+    const lineNumber = lineNumberStr ? parseInt(lineNumberStr, 10) : undefined
+    
+    if (filePath) {
+      appStore.openFile(filePath, lineNumber)
+      return
+    }
+  }
   
   const anchor = target.tagName === 'A' 
     ? target as HTMLAnchorElement 
@@ -294,6 +333,27 @@ function handleLinkClick(event: MouseEvent) {
       background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.08);
       border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.3);
       color: var(--accent-primary);
+    }
+  }
+
+  :deep(.file-link) {
+    color: var(--accent-primary);
+    text-decoration: underline;
+    cursor: pointer;
+    font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', Consolas, monospace;
+    font-size: 0.95em;
+    padding: 0 2px;
+    border-radius: 2px;
+    transition: all 0.15s ease;
+
+    &:hover {
+      color: var(--accent-secondary);
+      background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.1);
+    }
+
+    &:active {
+      background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.15);
+      transform: scale(0.98);
     }
   }
 }
