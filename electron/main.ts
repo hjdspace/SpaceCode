@@ -6,6 +6,7 @@ import { TerminalManager } from './terminalManager'
 import { registerGitIPCHandlers } from './gitService'
 import { registerSkillsIPCHandlers } from './skillsService'
 import { registerClaudeCodeIPC, setMainWindow } from './claudeCodeIPC'
+import { registerPromptOptimizerIPC } from './promptOptimizerIPC'
 import { initLogger, info, warn, error, debug, isDebugMode, ipc as logIpc, traceEvent, listDebugFiles, readDebugFile, listTraceSessions, readTraceEvents } from './logger'
 
 // ============================================================
@@ -425,6 +426,10 @@ app.whenReady().then(() => {
   // Register Claude Code IPC handlers
   registerClaudeCodeIPC()
   info('Startup', 'Claude Code IPC handlers registered')
+
+  // Register Prompt Optimizer IPC handlers
+  registerPromptOptimizerIPC()
+  info('Startup', 'Prompt Optimizer IPC handlers registered')
 
   // Create system tray for all platforms
   createTray()
