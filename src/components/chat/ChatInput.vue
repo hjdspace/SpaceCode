@@ -331,29 +331,31 @@
           </div>
         </div>
 
-        <!-- 发送/停止按钮 -->
-        <button
-          class="send-btn"
-          :class="{ 'has-content': hasContent, 'is-sending': props.isSending }"
-          :disabled="disabled && !props.isSending"
-          @click.stop.prevent="handleSendOrStop"
-        >
-          <ArrowUp v-if="!props.isSending" :size="18" />
-          <Square v-else :size="14" />
-        </button>
+        <!-- 右侧按钮组：优化提示词 + 发送/停止 -->
+        <div class="toolbar-right">
+          <!-- 优化提示词按钮（位于发送按钮左侧） -->
+          <button
+            class="optimize-btn"
+            :class="{ 'is-optimizing': isOptimizing }"
+            :disabled="isOptimizing || props.isSending || !hasContent"
+            :title="t('chatInput.optimizePrompt')"
+            @click.stop.prevent="handleOptimizePrompt"
+          >
+            <Loader2 v-if="isOptimizing" :size="16" class="spin" />
+            <Sparkles v-else :size="16" />
+          </button>
 
-        <!-- 优化提示词按钮 -->
-        <button
-          v-if="hasContent && !props.isSending"
-          class="optimize-btn"
-          :class="{ 'is-optimizing': isOptimizing }"
-          :disabled="isOptimizing"
-          :title="t('chatInput.optimizePrompt')"
-          @click.stop.prevent="handleOptimizePrompt"
-        >
-          <Loader2 v-if="isOptimizing" :size="16" class="spin" />
-          <Sparkles v-else :size="16" />
-        </button>
+          <!-- 发送/停止按钮 -->
+          <button
+            class="send-btn"
+            :class="{ 'has-content': hasContent, 'is-sending': props.isSending }"
+            :disabled="disabled && !props.isSending"
+            @click.stop.prevent="handleSendOrStop"
+          >
+            <ArrowUp v-if="!props.isSending" :size="18" />
+            <Square v-else :size="14" />
+          </button>
+        </div>
       </div>
     </div>
 
@@ -2352,31 +2354,38 @@ watch([() => props.disabled, () => props.isSending], ([disabled, sending]) => {
 }
 
 // 优化提示词按钮
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .optimize-btn {
   width: 32px;
   height: 32px;
   border-radius: 50%;
   background: transparent;
-  color: #737373;
+  color: #a3a3a3;
   @include flex-center;
   flex-shrink: 0;
   transition: all 0.2s ease;
-  margin-right: 8px;
 
   &:not(:disabled) {
-    color: #a3a3a3;
+    color: #525252;
 
     &:hover {
       background: rgba(0, 0, 0, 0.05);
-      color: #404040;
+      color: #171717;
     }
   }
 
   &.is-optimizing {
-    color: #737373;
+    color: #525252;
   }
 
   &:disabled {
+    color: #d4d4d4;
     cursor: not-allowed;
   }
 

@@ -107,6 +107,8 @@ export interface MessageMetadata {
 
 export type ProcessStatus = 'none' | 'starting' | 'active' | 'idle' | 'suspended' | 'exited'
 
+export type SessionEngineType = 'claude-code' | 'pi'
+
 export interface Session {
   id: string
   title: string
@@ -115,6 +117,8 @@ export interface Session {
   updatedAt: number
   workingDirectory?: string
   engineSessionId?: string
+  /** Engine that currently owns the live process for this session (if any). */
+  engineType?: SessionEngineType
   processStatus: ProcessStatus
   isTabOpen: boolean
   lastActivityAt: number

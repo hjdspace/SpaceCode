@@ -433,10 +433,22 @@ export const useChatStore = defineStore('chat', () => {
       return
     }
 
+    const desiredEngine = settingsStore.engineType
     const status = await claudeCode.getSessionStatus(sessionId)
     if (status?.isRunning) {
-      logger.info('ChatStore', `initClaudeCodeSession: session already running | id=${sessionId.slice(0, 8)}`)
-      return
+      const currentEngine = session.engineType
+      if (currentEngine && currentEngine !== desiredEngine) {
+        logger.info('ChatStore', `initClaudeCodeSession: engine changed (${currentEngine} → ${desiredEngine}), restarting | id=${sessionId.slice(0, 8)}`)
+        try {
+          await claudeCode.stop(sessionId)
+        } catch (e) {
+          logger.warn('ChatStore', `initClaudeCodeSession: stop failed before engine switch | id=${sessionId.slice(0, 8)}`, { error: String(e) })
+        }
+        // Fall through to start with the new engine
+      } else {
+        logger.info('ChatStore', `initClaudeCodeSession: session already running | id=${sessionId.slice(0, 8)}`)
+        return
+      }
     }
 
     try {
@@ -446,7 +458,7 @@ export const useChatStore = defineStore('chat', () => {
       session.processStatus = 'starting'
       saveToStorage()
 
-      logger.info('ChatStore', `initClaudeCodeSession: starting session | id=${sessionId.slice(0, 8)} | cwd=${cwd} | provider=${config.provider} | model=${config.model} | baseUrl=${config.baseUrl || '(empty)'} | apiKey=${config.apiKey ? '***set' : '(empty)'} | agent=${currentAgent.value || '(none)'}`)
+      logger.info('ChatStore', `initClaudeCodeSession: starting session | id=${sessionId.slice(0, 8)} | engine=${desiredEngine} | cwd=${cwd} | provider=${config.provider} | model=${config.model} | baseUrl=${config.baseUrl || '(empty)'} | apiKey=${config.apiKey ? '***set' : '(empty)'} | agent=${currentAgent.value || '(none)'}`)
       traceEvent({
         sessionId,
         actor: 'system',
@@ -455,6 +467,7 @@ export const useChatStore = defineStore('chat', () => {
         title: 'Starting engine session',
         metadata: {
           cwd,
+          engineType: desiredEngine,
           provider: config.provider,
           model: config.model,
           baseUrl: config.baseUrl || '',
@@ -472,8 +485,13 @@ export const useChatStore = defineStore('chat', () => {
         permissionMode: 'bypassPermissions',
         agent: currentAgent.value || undefined,
         thinkingEnabled: settingsStore.thinkingEnabled,
-        engineType: settingsStore.engineType,
+        engineType: desiredEngine,
       })
+
+      // Record which engine owns this session's live process so subsequent
+      // engine switches in settings can be detected and force a restart.
+      session.engineType = desiredEngine
+      saveToStorage()
 
       logger.info('ChatStore', `initClaudeCodeSession: session started successfully | id=${sessionId.slice(0, 8)}`)
       traceEvent({
@@ -1351,6 +1369,23 @@ export const useChatStore = defineStore('chat', () => {
     if (session.processStatus === 'suspended') {
       const claudeCode = electronAPI?.claudeCode
       if (claudeCode) {
+        // If the user switched engines while this session was suspended, the
+        // old engine's snapshot is no longer usable. Throw it away and start
+        // fresh under the current engine instead of trying to resume.
+        const desiredEngine = settingsStore.engineType
+        if (session.engineType && session.engineType !== desiredEngine) {
+          logger.info('ChatStore', `activateSession: suspended session uses engine=${session.engineType}, current=${desiredEngine} — restarting fresh | id=${sessionId.slice(0, 8)}`)
+          try {
+            await claudeCode.stop(sessionId)
+          } catch {}
+          session.processStatus = 'none'
+          saveToStorage()
+          if (session.messages.length > 0) {
+            await initClaudeCodeSession(sessionId)
+          }
+          return
+        }
+
         try {
           session.processStatus = 'starting'
           saveToStorage()

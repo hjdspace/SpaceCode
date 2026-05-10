@@ -64,6 +64,10 @@ export class PiProcessPool {
         await this.resumeSession(sessionId)
         return
       }
+      // Dead/exited session entry — drop it so a fresh process can be spawned.
+      info('PiProcessPool', `[${sessionId.slice(0, 8)}] Evicting stale session entry | status=${existing.status}`)
+      this.detachPoolHandlers(sessionId, existing)
+      this.processes.delete(sessionId)
     }
 
     this.evictIfNeeded()

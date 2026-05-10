@@ -150,9 +150,38 @@ const engines = computed(() => [
 
 function selectEngine(engineId: EngineType) {
   if (engineId === 'pi' && piAvailable.value === false) return
+  if (config.value.engineType === engineId) return
+
+  const previousEngine = config.value.engineType
   config.value.engineType = engineId
   settingsStore.engineType = engineId
   settingsStore.saveSettings()
+
+  // Proactively tear down live processes so the new engine can take over
+  // immediately. initClaudeCodeSession will also guard against mismatched
+  // engines on the next send, but doing it eagerly here frees resources and
+  // prevents races where suspended processes are reused by the old engine.
+  try {
+    const electronAPI = (window as any).electronAPI
+    const stop = electronAPI?.claudeCode?.stop
+    const getActive = electronAPI?.claudeCode?.getActiveSessions
+    if (stop && getActive) {
+      Promise.resolve(getActive())
+        .then((list: any[]) => {
+          if (!Array.isArray(list)) return
+          for (const s of list) {
+            if (s?.sessionId) {
+              Promise.resolve(stop(s.sessionId)).catch(() => {})
+            }
+          }
+        })
+        .catch(() => {})
+    }
+  } catch {
+    // best-effort; ignored
+  }
+
+  console.info(`[GeneralSettings] engine switched: ${previousEngine} → ${engineId}`)
 }
 
 const config = computed({

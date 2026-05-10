@@ -54,8 +54,17 @@ export function registerClaudeCodeIPC() {
 
   ipcMain.handle('claude-code:stop', async (_, sessionId: string) => {
     info('ClaudeCodeIPC', `→ stop | sessionId=${sessionId.slice(0, 8)}`)
-    const engine = findEngineForSession(sessionId)
-    await engine.stop(sessionId)
+    // Stop on every engine that still tracks this session so switching engines
+    // leaves no dangling entries that `findEngineForSession` could resurrect.
+    for (const engine of EngineFactory.getAllEngines()) {
+      if (engine.getSessionStatus(sessionId)) {
+        try {
+          await engine.stop(sessionId)
+        } catch (err) {
+          warn('ClaudeCodeIPC', `stop failed on engine=${engine.type} | sessionId=${sessionId.slice(0, 8)}`, { error: String(err) })
+        }
+      }
+    }
   })
 
   ipcMain.handle('claude-code:suspendSession', async (_, sessionId: string) => {
@@ -139,11 +148,21 @@ export function registerClaudeCodeIPC() {
 }
 
 function findEngineForSession(sessionId: string) {
+  // Prefer an engine that actually has a live process for this session. This
+  // matters when the user switches engines on an existing session: the old
+  // engine's pool may still remember the session (its `exit` handler does not
+  // evict the map entry), so a naive lookup would keep routing messages to
+  // the dead engine.
+  let fallback: ReturnType<typeof EngineFactory.getEngine> | null = null
   for (const engine of EngineFactory.getAllEngines()) {
-    if (engine.getSessionStatus(sessionId)) {
+    const status = engine.getSessionStatus(sessionId)
+    if (!status) continue
+    if (status.isRunning) {
       return engine
     }
+    if (!fallback) fallback = engine
   }
+  if (fallback) return fallback
   return EngineFactory.getEngine('claude-code')
 }
 

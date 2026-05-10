@@ -35,6 +35,10 @@ export class ClaudeCodeProcessPool {
         await this.resumeSession(sessionId)
         return
       }
+      // Dead/exited entry — drop it so a fresh process can take over cleanly.
+      info('ProcessPool', `[${sessionId.slice(0, 8)}] Evicting stale session entry | status=${existing.status}`)
+      this.detachPoolHandlers(sessionId, existing)
+      this.processes.delete(sessionId)
     }
 
     this.evictIfNeeded()
