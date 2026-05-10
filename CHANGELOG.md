@@ -1,3 +1,35 @@
+## [0.3.5](https://github.com/hjdspace/SpaceCode/compare/v0.3.4...v0.3.5) (2026-05-10)
+
+### Features
+
+* **pi-engine:** 新增教学流程学习笔记生成功能
+  - 每个主题自动生成面向学习者的快速参考笔记
+  - 优化会话状态管理和提示词长度约束
+* **聊天面板:** 实现文件提及标记的富文本渲染
+* **markdown:** 添加 Markdown 查看器组件并支持预览/源码模式切换
+* **linux:** 为 Linux 系统添加自定义窗口控制功能
+* **prompt-optimizer:** 支持根据项目上下文优化提示词
+* **进程管理:** 改进引擎切换时的进程清理逻辑
+* **engine:** 实现 PiEngine 进程池管理及会话处理优化
+
+### Bug Fixes
+
+* **file-edit:** 修复文件编辑/写入流程在缺少前置读取状态时的阻塞问题
+* **thinking:** 保留模型响应中的推理/思考内容，避免丢失
+* **thinking:** 移除自动"清除思考"的锁存行为
+
+### Refactor
+
+* **session:** 简化会话状态和提示词长度约束
+
+### Documentation
+
+* 添加详细的笔记生成指南和写作规则
+
+### Tests
+
+* 更新测试以反映保留推理行为和扩展的模型检测
+
 ## [0.3.4](https://github.com/hjdspace/SpaceCode/compare/v0.3.3...v0.3.4) (2026-05-10)
 
 ### Features
