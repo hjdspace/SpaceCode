@@ -164,9 +164,22 @@ function createWindow() {
       symbolColor: '#888888',
       height: 44,
     }
+  } else if (process.platform === 'linux') {
+    // Linux window managers don't consistently support titleBarOverlay,
+    // so drop the native frame entirely and render window controls
+    // inside our custom TitleBar component instead.
+    windowOptions.frame = false
   }
 
   mainWindow = new BrowserWindow(windowOptions)
+
+  // Notify renderer when window maximize state changes (for custom controls)
+  mainWindow.on('maximize', () => {
+    mainWindow?.webContents.send('window:maximizeChanged', true)
+  })
+  mainWindow.on('unmaximize', () => {
+    mainWindow?.webContents.send('window:maximizeChanged', false)
+  })
 
   mainWindow.once('ready-to-show', () => {
     info('Startup', 'Window ready-to-show')
@@ -512,6 +525,28 @@ ipcMain.handle('cli:getAppState', async () => {
     currentSessionId: null,
     theme: 'dark'
   }
+})
+
+// Window controls (primarily for Linux where we use frame: false)
+ipcMain.on('window:minimize', () => {
+  mainWindow?.minimize()
+})
+
+ipcMain.on('window:toggleMaximize', () => {
+  if (!mainWindow) return
+  if (mainWindow.isMaximized()) {
+    mainWindow.unmaximize()
+  } else {
+    mainWindow.maximize()
+  }
+})
+
+ipcMain.on('window:close', () => {
+  mainWindow?.close()
+})
+
+ipcMain.handle('window:isMaximized', () => {
+  return mainWindow?.isMaximized() ?? false
 })
 
 ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {

@@ -50,6 +50,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   getAppState: () => ipcRenderer.invoke('cli:getAppState'),
 
+  // Window controls (used on Linux where we run frameless)
+  window: {
+    minimize: () => ipcRenderer.send('window:minimize'),
+    toggleMaximize: () => ipcRenderer.send('window:toggleMaximize'),
+    close: () => ipcRenderer.send('window:close'),
+    isMaximized: (): Promise<boolean> => ipcRenderer.invoke('window:isMaximized'),
+    onMaximizeChanged: (callback: (maximized: boolean) => void) => {
+      const wrapper = (_: any, maximized: boolean) => callback(maximized)
+      ipcRenderer.on('window:maximizeChanged', wrapper)
+      return () => ipcRenderer.removeListener('window:maximizeChanged', wrapper)
+    },
+  },
+
   readDir: (dirPath: string): Promise<FileEntry[]> =>
     ipcRenderer.invoke('fs:readDir', dirPath),
   readFile: (filePath: string): Promise<string | null> =>

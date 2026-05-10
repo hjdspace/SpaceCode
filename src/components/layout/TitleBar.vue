@@ -1,5 +1,5 @@
 <template>
-  <div class="titlebar" :class="{ 'is-mac': isMac, 'is-windows': isWindows }">
+  <div class="titlebar" :class="{ 'is-mac': isMac, 'is-windows': isWindows, 'is-linux': isLinux }">
     <!-- macOS: left spacer for traffic lights -->
     <div v-if="isMac" class="titlebar-traffic-lights-spacer"></div>
 
@@ -32,6 +32,20 @@
 
       <!-- Windows: spacer for system overlay controls (min/max/close ~138px) -->
       <div v-if="isWindows" class="windows-controls-spacer"></div>
+
+      <!-- Linux: custom window controls (frameless window) -->
+      <div v-if="isLinux" class="linux-window-controls">
+        <button class="win-ctrl" @click="onMinimize" title="Minimize" aria-label="Minimize">
+          <Minus :size="14" />
+        </button>
+        <button class="win-ctrl" @click="onToggleMaximize" :title="isMaximized ? 'Restore' : 'Maximize'" aria-label="Maximize">
+          <Square v-if="!isMaximized" :size="12" />
+          <Copy v-else :size="12" />
+        </button>
+        <button class="win-ctrl win-ctrl-close" @click="onClose" title="Close" aria-label="Close">
+          <X :size="14" />
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -40,8 +54,8 @@
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { useI18n } from 'vue-i18n'
-import { Menu, Sun, Moon } from 'lucide-vue-next'
-import { computed } from 'vue'
+import { Menu, Sun, Moon, Minus, Square, Copy, X } from 'lucide-vue-next'
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import type { ThemeId } from '@/stores/app'
 import { THEME_CYCLE } from '@/stores/app'
 
@@ -69,6 +83,33 @@ const platform = typeof window !== 'undefined' && window.electronAPI?.platform
 
 const isMac = platform === 'darwin' || /^Mac/i.test(platform)
 const isWindows = platform === 'win32' || /^Win/i.test(platform)
+const isLinux = platform === 'linux' || /Linux/i.test(platform)
+
+// Window controls state (Linux frameless window)
+const isMaximized = ref(false)
+const winApi = typeof window !== 'undefined' ? (window as any).electronAPI?.window : null
+
+const onMinimize = () => winApi?.minimize?.()
+const onToggleMaximize = () => winApi?.toggleMaximize?.()
+const onClose = () => winApi?.close?.()
+
+let removeMaxListener: (() => void) | null = null
+
+onMounted(async () => {
+  if (!isLinux || !winApi) return
+  try {
+    isMaximized.value = await winApi.isMaximized()
+  } catch { /* ignore */ }
+  if (typeof winApi.onMaximizeChanged === 'function') {
+    removeMaxListener = winApi.onMaximizeChanged((maximized: boolean) => {
+      isMaximized.value = maximized
+    })
+  }
+})
+
+onBeforeUnmount(() => {
+  removeMaxListener?.()
+})
 </script>
 
 <style lang="scss" scoped>
@@ -223,5 +264,44 @@ const isWindows = platform === 'win32' || /^Win/i.test(platform)
 .windows-controls-spacer {
   width: 138px;
   flex-shrink: 0;
+}
+
+// Linux: custom window controls (frameless window)
+.linux-window-controls {
+  display: flex;
+  align-items: center;
+  margin-left: 8px;
+  // Ensure the controls themselves stay clickable even though the
+  // parent titlebar is a drag region.
+  -webkit-app-region: no-drag;
+
+  .win-ctrl {
+    width: 36px;
+    height: 32px;
+    border-radius: var(--radius-md);
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color var(--transition-fast), color var(--transition-fast);
+
+    &:hover {
+      background: var(--surface-glass-hover);
+      color: var(--text-primary);
+    }
+
+    &:active {
+      background: var(--surface-glass-hover);
+      filter: brightness(0.9);
+    }
+  }
+
+  .win-ctrl-close:hover {
+    background: #e81123;
+    color: #fff;
+  }
 }
 </style>
