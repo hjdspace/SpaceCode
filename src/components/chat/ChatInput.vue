@@ -1014,7 +1014,9 @@ async function handleOptimizePrompt() {
   isOptimizing.value = true
 
   try {
-    const result = await api.optimizePrompt(prompt)
+    const result = await api.optimizePrompt(prompt, {
+      workingDirectory: props.workingDirectory,
+    })
 
     if (result.success && result.result) {
       setEditorContent(result.result)

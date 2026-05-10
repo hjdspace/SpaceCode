@@ -156,9 +156,12 @@ export const api = {
   },
 
   // Prompt Optimizer API
-  optimizePrompt: (prompt: string): Promise<{ success: boolean; result?: string; error?: string }> => {
+  optimizePrompt: (
+    prompt: string,
+    options?: { workingDirectory?: string },
+  ): Promise<{ success: boolean; result?: string; error?: string }> => {
     if (electronAPI?.optimizePrompt) {
-      return electronAPI.optimizePrompt(prompt)
+      return electronAPI.optimizePrompt(prompt, options)
     }
     return Promise.resolve({ success: false, error: 'Prompt optimizer not available' })
   },

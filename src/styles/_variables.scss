@@ -120,6 +120,20 @@ $grid-opacity: 0.01;
   
   --noise-opacity: #{$noise-opacity};
   --grid-opacity: #{$grid-opacity};
+
+  /* Code Block Syntax Highlighting - GitHub Light palette */
+  --code-bg: var(--bg-tertiary);
+  --code-fg: #24292f;
+  --code-keyword: #cf222e;
+  --code-string: #0a3069;
+  --code-number: #0550ae;
+  --code-comment: #6e7781;
+  --code-function: #8250df;
+  --code-builtin: #953800;
+  --code-attr: #0550ae;
+  --code-tag: #116329;
+  --code-punctuation: #24292f;
+  --code-meta: #6e7781;
 }
 
 [data-theme='anthropic'] {
@@ -173,6 +187,20 @@ $grid-opacity: 0.01;
 
   --noise-opacity: 0.012;
   --grid-opacity: 0.008;
+
+  /* Code Block Syntax Highlighting - warm, Anthropic-tinted light */
+  --code-bg: #f0ede4;
+  --code-fg: #2d2a24;
+  --code-keyword: #c44e3f;
+  --code-string: #687c4d;
+  --code-number: #a36a3a;
+  --code-comment: #8a8880;
+  --code-function: #6a9bcc;
+  --code-builtin: #b06a3a;
+  --code-attr: #6a9bcc;
+  --code-tag: #788c5d;
+  --code-punctuation: #2d2a24;
+  --code-meta: #8a8880;
 }
 
 [data-theme='anthropic-dark'] {
@@ -226,6 +254,20 @@ $grid-opacity: 0.01;
 
   --noise-opacity: 0.008;
   --grid-opacity: 0.012;
+
+  /* Code Block Syntax Highlighting - warm dark, Anthropic-tinted */
+  --code-bg: #1a1918;
+  --code-fg: #e8e4d8;
+  --code-keyword: #e08870;
+  --code-string: #a3b985;
+  --code-number: #e0a87a;
+  --code-comment: #8a8880;
+  --code-function: #8bb3d9;
+  --code-builtin: #e8a36a;
+  --code-attr: #8bb3d9;
+  --code-tag: #a3b985;
+  --code-punctuation: #e8e4d8;
+  --code-meta: #8a8880;
 }
 
 [data-theme='dark'] {
@@ -281,6 +323,20 @@ $grid-opacity: 0.01;
   
   --noise-opacity: 0.01;
   --grid-opacity: 0.015;
+
+  /* Code Block Syntax Highlighting - GitHub Dark palette */
+  --code-bg: #0d1117;
+  --code-fg: #c9d1d9;
+  --code-keyword: #ff7b72;
+  --code-string: #a5d6ff;
+  --code-number: #79c0ff;
+  --code-comment: #8b949e;
+  --code-function: #d2a8ff;
+  --code-builtin: #ffa657;
+  --code-attr: #79c0ff;
+  --code-tag: #7ee787;
+  --code-punctuation: #c9d1d9;
+  --code-meta: #8b949e;
 }
 
 @keyframes fadeIn {
