@@ -205,6 +205,8 @@ export default {
     openInPanel: 'View in panel',
     additions: 'Additions',
     deletions: 'Deletions',
+    previewMode: 'Preview',
+    sourceMode: 'Source',
   },
 
   titleBar: {

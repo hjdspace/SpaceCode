@@ -205,6 +205,8 @@ export default {
     openInPanel: '在面板中查看',
     additions: '新增',
     deletions: '删除',
+    previewMode: '预览',
+    sourceMode: '源码',
   },
 
   titleBar: {

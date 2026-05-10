@@ -57,7 +57,11 @@
       <!-- 现有模式保持不变 -->
       <DiffViewer v-if="mode === 'diff'" />
       <CodeViewer v-else-if="mode === 'file'" />
-      <MarkdownRenderer v-else-if="mode === 'markdown'" :content="appStore.currentFile?.content || ''" />
+      <MarkdownViewer
+        v-else-if="mode === 'markdown'"
+        :content="appStore.currentFile?.content || ''"
+        :file-name="appStore.currentFile?.name"
+      />
       <ToolDiffViewer v-else-if="mode === 'tool-diff'" />
       
       <!-- 新增 webview 模式 -->
@@ -99,7 +103,7 @@ import { useI18n } from 'vue-i18n'
 import { X, Loader2, ArrowLeft, ArrowRight, RotateCw, ExternalLink } from 'lucide-vue-next'
 import DiffViewer from '../common/DiffViewer.vue'
 import CodeViewer from '../common/CodeViewer.vue'
-import MarkdownRenderer from '../common/MarkdownRenderer.vue'
+import MarkdownViewer from '../common/MarkdownViewer.vue'
 import ToolDiffViewer from '../common/ToolDiffViewer.vue'
 
 const props = defineProps<{

@@ -22,7 +22,14 @@
       </div>
     </div>
 
-    <div class="diff-content" v-if="diffData?.type === 'read' || (isActionCompleted && (diffData?.type === 'write' || diffData?.type === 'edit'))">
+    <div
+      class="diff-content markdown-content"
+      v-if="isMarkdownFile && (diffData?.type === 'read' || (isActionCompleted && (diffData?.type === 'write' || diffData?.type === 'edit')))"
+    >
+      <MarkdownViewer :content="diffData.modifiedContent || ''" :file-name="fileName" />
+    </div>
+
+    <div class="diff-content" v-else-if="diffData?.type === 'read' || (isActionCompleted && (diffData?.type === 'write' || diffData?.type === 'edit'))">
       <pre><code :class="`language-${diffData.language}`" v-html="highlightedCode"></code></pre>
     </div>
 
@@ -67,6 +74,7 @@ import { useI18n } from 'vue-i18n'
 import { FileDiff, Check, Undo2 } from 'lucide-vue-next'
 import * as Diff from 'diff'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import MarkdownViewer from './MarkdownViewer.vue'
 import hljs from 'highlight.js'
 import { api } from '@/services/electronAPI'
 
@@ -76,6 +84,19 @@ const { t } = useI18n()
 const diffData = computed(() => appStore.toolDiffData)
 
 const isActionCompleted = computed(() => diffData.value?.actionCompleted === true)
+
+const fileName = computed(() => {
+  const fp = diffData.value?.filePath || ''
+  return fp.split(/[\\/]/).pop() || fp
+})
+
+const isMarkdownFile = computed(() => {
+  const data = diffData.value
+  if (!data) return false
+  if (data.language === 'markdown') return true
+  const fp = data.filePath || ''
+  return /\.(md|markdown|mdx)$/i.test(fp)
+})
 
 const hasActions = computed(() => {
   const data = diffData.value
@@ -424,6 +445,15 @@ async function handleRevert() {
   &.webfetch-content {
     font-family: inherit;
     padding: 16px;
+  }
+
+  &.markdown-content {
+    font-family: inherit;
+    padding: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
   }
 }
 
