@@ -4,7 +4,11 @@
       <FileCode :size="14" />
       <span class="file-name">{{ appStore.currentFile?.name || 'No file selected' }}</span>
       <span class="language-badge" v-if="appStore.currentFile">{{ appStore.currentFile.language }}</span>
-      <span class="line-badge" v-if="appStore.currentLine > 0">Line {{ appStore.currentLine }}</span>
+      <span class="line-badge" v-if="appStore.currentLine > 0">
+        {{ appStore.currentEndLine > appStore.currentLine
+          ? `Lines ${appStore.currentLine}-${appStore.currentEndLine}`
+          : `Line ${appStore.currentLine}` }}
+      </span>
       <button
         v-if="isMarkdownFile"
         class="preview-btn"
@@ -23,7 +27,8 @@
             v-for="lineNum in lineCount"
             :key="lineNum"
             class="line-number"
-            :class="{ 'current-line': lineNum === appStore.currentLine }"
+            :class="{ 'current-line': isLineHighlighted(lineNum) }"
+            :ref="el => registerLineRef(lineNum, el as HTMLElement | null)"
           >{{ lineNum }}</div>
         </div>
         <pre class="code-content"><code :class="`language-${appStore.currentFile.language}`" v-html="highlightedCode"></code></pre>
@@ -44,6 +49,19 @@ import hljs from 'highlight.js'
 
 const appStore = useAppStore()
 const codeContainer = ref<HTMLElement | null>(null)
+const lineRefs = new Map<number, HTMLElement>()
+
+function registerLineRef(lineNum: number, el: HTMLElement | null) {
+  if (el) lineRefs.set(lineNum, el)
+  else lineRefs.delete(lineNum)
+}
+
+function isLineHighlighted(lineNum: number): boolean {
+  const start = appStore.currentLine
+  if (!start) return false
+  const end = appStore.currentEndLine > start ? appStore.currentEndLine : start
+  return lineNum >= start && lineNum <= end
+}
 
 const isMarkdownFile = computed(() => {
   return appStore.currentFile?.language === 'markdown'
@@ -84,23 +102,34 @@ function escapeHtml(text: string): string {
 }
 
 function scrollToLine(lineNumber: number) {
-  if (!lineNumber || !codeContainer.value) return
+  if (!lineNumber) return
 
   nextTick(() => {
     const container = codeContainer.value
     if (!container) return
 
-    const lineHeight = 21.6
-    const scrollTop = (lineNumber - 1) * lineHeight - container.clientHeight / 3
-    container.scrollTo({ top: Math.max(0, scrollTop), behavior: 'smooth' })
+    // Use the real DOM offset of the line element so zoom / font changes
+    // don't desync the scroll. Fall back to an estimate if the ref is missing.
+    const lineEl = lineRefs.get(lineNumber)
+    let targetTop: number
+    if (lineEl) {
+      targetTop = lineEl.offsetTop - container.clientHeight / 3
+    } else {
+      const estimated = 21.6
+      targetTop = (lineNumber - 1) * estimated - container.clientHeight / 3
+    }
+    container.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
   })
 }
 
-watch(() => appStore.currentLine, (newLine) => {
-  if (newLine > 0) {
-    scrollToLine(newLine)
+watch(
+  () => [appStore.currentFile?.path, appStore.currentLine],
+  ([, line]) => {
+    if ((line as number) > 0) {
+      scrollToLine(line as number)
+    }
   }
-})
+)
 </script>
 
 <style lang="scss" scoped>

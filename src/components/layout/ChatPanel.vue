@@ -235,7 +235,11 @@ async function handleSend(content: string, attachments: Attachment[], options?: 
   console.log('[ChatPanel] handleSend called:', content.slice(0, 50))
   if (!content.trim() && attachments.length === 0) return
 
-  let messageContent = content.trim()
+  // The raw user input (with inline @file/@folder markers) is shown in the
+  // chat bubble. The LLM payload is augmented with an `Attachments:` suffix
+  // so the backend still has structured context without polluting the UI.
+  const userTyped = content.trim()
+  let messageContent = userTyped
 
   if (attachments.length > 0) {
     const attachmentInfo = attachments.map(att =>
@@ -249,9 +253,13 @@ async function handleSend(content: string, attachments: Attachment[], options?: 
     }
   }
 
-  const userContent = (options?.displayLabel && options.displayLabel !== messageContent)
+  // If an explicit display label was provided (e.g. via slash-command badge),
+  // prefer it. Otherwise fall back to the raw user input so the bubble shows
+  // the chips instead of the synthetic `Attachments: ...` suffix.
+  const displayLabel = options?.displayLabel && options.displayLabel !== messageContent
     ? options.displayLabel
-    : undefined
+    : userTyped
+  const userContent = displayLabel !== messageContent ? displayLabel : undefined
 
   console.log('[ChatPanel] Calling chatStore.sendMessage...')
   await chatStore.sendMessage(messageContent, userContent)

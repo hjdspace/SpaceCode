@@ -46,6 +46,7 @@ export const useAppStore = defineStore('app', () => {
   const toolDiffData = ref<ToolDiffData | null>(null)
   const completedToolActions = ref<Set<string>>(new Set())
   const currentLine = ref<number>(0)
+  const currentEndLine = ref<number>(0)
   const centerTabs = ref<CenterTab[]>([
     { id: 'chat', label: 'Chat', icon: markRaw(MessageSquare), closable: false }
   ])
@@ -114,30 +115,59 @@ export const useAppStore = defineStore('app', () => {
     currentFile.value = file
   }
 
-  async function openFile(filePath: string, line?: number) {
+  async function openFile(filePath: string, line?: number, endLine?: number) {
     const api = (window as any).electronAPI
     if (!api?.readFile) {
       console.error('[AppStore] readFile API not available')
       return
     }
 
+    // Resolve relative paths against the current project root so links
+    // produced by the LLM (which usually uses repo-relative paths) work.
+    const resolvedPath = resolveFilePath(filePath)
+
     try {
-      const content = await api.readFile(filePath)
+      let content = await api.readFile(resolvedPath)
+      // Fallback: try the original path in case it was already absolute in an
+      // unexpected form (e.g. the user pasted a full path from another OS).
+      if (content === null && resolvedPath !== filePath) {
+        content = await api.readFile(filePath)
+      }
       if (content !== null) {
-        const fileName = filePath.split('/').pop() || filePath
-        const language = getLanguageFromPath(filePath)
+        const fileName = resolvedPath.split(/[\\/]/).pop() || resolvedPath
+        const language = getLanguageFromPath(resolvedPath)
         currentLine.value = line || 0
+        currentEndLine.value = endLine || 0
+        const isMarkdown = language === 'markdown'
         setCurrentFile({
-          path: filePath,
+          path: resolvedPath,
           name: fileName,
           content: content,
           language: language
         })
-        showInfoPanel('file')
+        // Markdown files open in preview mode by default, like the sidebar does.
+        // When a specific line is requested we fall back to the code view so
+        // the user actually sees the highlighted line.
+        showInfoPanel(isMarkdown && !line ? 'markdown' : 'file')
+      } else {
+        console.warn('[AppStore] Failed to open file (not found):', filePath)
       }
     } catch (error) {
       console.error('[AppStore] Failed to open file:', filePath, error)
     }
+  }
+
+  function resolveFilePath(filePath: string): string {
+    const trimmed = filePath.trim()
+    if (!trimmed) return trimmed
+    // Absolute paths: POSIX (/foo) or Windows (C:\foo, C:/foo, \\server\share)
+    const isAbsolute = /^([a-zA-Z]:[\\/]|[\\/]{2}|\/)/.test(trimmed)
+    if (isAbsolute || !projectRoot.value) return trimmed
+
+    const root = projectRoot.value.replace(/[\\/]+$/, '')
+    const rel = trimmed.replace(/^[.\\/]+/, '')
+    const sep = root.includes('\\') && !root.includes('/') ? '\\' : '/'
+    return `${root}${sep}${rel}`
   }
 
   function openTerminalTab(autoCommand?: string, env?: Record<string, string>, cwd?: string) {
@@ -353,6 +383,7 @@ export const useAppStore = defineStore('app', () => {
     infoPanelMode,
     currentFile,
     currentLine,
+    currentEndLine,
     toolDiffData,
     completedToolActions,
     centerTabs,

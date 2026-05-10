@@ -11,6 +11,7 @@ import { computed } from 'vue'
 import { marked } from 'marked'
 import hljs from 'highlight.js'
 import { useAppStore } from '@/stores/app'
+import { escapeHtml, replaceMentionChipMarkers } from '@/utils/mention-chips'
 
 const props = defineProps<{
   content: string
@@ -18,47 +19,88 @@ const props = defineProps<{
 
 const appStore = useAppStore()
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
-function transformMentionChips(text: string): string {
-  text = text.replace(/@file:"([^"]+)"/g, (_match, path) => {
-    const name = path.split('/').pop() || path
-    return `<span class="mention-chip"><span class="chip-icon">📄</span><span class="chip-name">${escapeHtml(name)}</span></span>`
-  })
-  text = text.replace(/@folder:"([^"]+)"/g, (_match, path) => {
-    const name = path.split('/').pop() || path
-    return `<span class="mention-chip is-folder"><span class="chip-icon">📁</span><span class="chip-name">${escapeHtml(name)}</span></span>`
-  })
-  return text
-}
-
-function transformFileLinks(text: string): string {
+function transformFileLinks(html: string): string {
   const fileExtensions = [
     'ts', 'tsx', 'js', 'jsx', 'vue', 'py', 'go', 'rs', 'java', 'c', 'cpp', 'cc', 'cxx',
     'h', 'hpp', 'v', 'sv', 'svh', 'svi', 'md', 'json', 'yaml', 'yml', 'xml', 'html',
     'css', 'scss', 'less', 'sh', 'bash', 'sql', 'rb', 'php', 'swift', 'kt', 'txt',
     'toml', 'ini', 'cfg', 'conf', 'log', 'gitignore', 'env', 'dockerfile', 'makefile'
   ]
-  
-  const extPattern = fileExtensions.map(ext => ext.replace('.', '\\.')).join('|')
-  
+
+  const extPattern = fileExtensions.join('|')
+
+  // Match a file-ish path:
+  //   - optional Windows drive or UNC prefix
+  //   - segments separated by / or \
+  //   - known extension
+  //   - optional ":line" or ":startLine-endLine" suffix
+  // We capture the prefix separately so the replacement preserves surrounding text.
   const filePathRegex = new RegExp(
-    `(?:^|[^\\w/\\\\.])((?:[A-Za-z]:[\\\\/])?(?:[\\w\\-.\\\\/]*[\\/])*[\\w\\-.\\\\/]*\\.(?:${extPattern}))(?::(\\d+))?(?=[^\\w]|$)`,
-    'g'
+    '(^|[\\s\\(\\[\\{\'"`,;:!?])' +
+    '(' +
+      '(?:[A-Za-z]:[\\\\/]|\\.{1,2}[\\\\/]|[\\\\/])?' +
+      '(?:[\\w.\\-]+[\\\\/])+' +
+      '[\\w.\\-]+\\.(?:' + extPattern + ')' +
+    ')' +
+    '(?::(\\d+)(?:-(\\d+))?)?' +
+    '(?=[\\s\\)\\]\\}\'"`,;:!?]|$)',
+    'gi'
   )
-  
-  return text.replace(filePathRegex, (match, filePath, lineNumber) => {
-    const displayName = filePath.split(/[\\/]/).pop() || filePath
-    const lineAttr = lineNumber ? `data-line-number="${lineNumber}"` : ''
-    
-    return `<span class="file-link" data-file-path="${escapeHtml(filePath)}" ${lineAttr}>${escapeHtml(displayName)}</span>`
+
+  // Walk only text nodes; skip existing anchors, code blocks, chips and already-linked spans.
+  const container = document.createElement('div')
+  container.innerHTML = html
+
+  const SKIP_TAGS = new Set(['A', 'CODE', 'PRE', 'SCRIPT', 'STYLE'])
+  const SKIP_CLASSES = ['mention-chip', 'file-link']
+
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      let parent: HTMLElement | null = node.parentElement
+      while (parent && parent !== container) {
+        if (SKIP_TAGS.has(parent.tagName)) return NodeFilter.FILTER_REJECT
+        for (const cls of SKIP_CLASSES) {
+          if (parent.classList.contains(cls)) return NodeFilter.FILTER_REJECT
+        }
+        parent = parent.parentElement
+      }
+      return NodeFilter.FILTER_ACCEPT
+    }
   })
+
+  const textNodes: Text[] = []
+  let current: Node | null = walker.nextNode()
+  while (current) {
+    textNodes.push(current as Text)
+    current = walker.nextNode()
+  }
+
+  for (const node of textNodes) {
+    const text = node.nodeValue || ''
+    if (!filePathRegex.test(text)) continue
+    filePathRegex.lastIndex = 0
+
+    const replaced = text.replace(
+      filePathRegex,
+      (_match, prefix: string, filePath: string, startLine: string | undefined, endLine: string | undefined) => {
+        const displayName = filePath.split(/[\\/]/).pop() || filePath
+        const suffix = startLine
+          ? (endLine ? `:${startLine}-${endLine}` : `:${startLine}`)
+          : ''
+        const startAttr = startLine ? ` data-line-number="${startLine}"` : ''
+        const endAttr = endLine ? ` data-end-line-number="${endLine}"` : ''
+        return `${prefix}<span class="file-link" data-file-path="${escapeHtml(filePath)}"${startAttr}${endAttr} title="${escapeHtml(filePath + suffix)}">${escapeHtml(displayName + suffix)}</span>`
+      }
+    )
+
+    if (replaced !== text) {
+      const template = document.createElement('template')
+      template.innerHTML = replaced
+      node.replaceWith(template.content)
+    }
+  }
+
+  return container.innerHTML
 }
 
 const renderer = new marked.Renderer()
@@ -103,9 +145,11 @@ const renderedContent = computed(() => {
   if (!props.content) return ''
 
   try {
-    const contentWithChips = transformMentionChips(props.content)
-    const contentWithFileLinks = transformFileLinks(contentWithChips)
-    return marked.parse(contentWithFileLinks) as string
+    const contentWithChips = replaceMentionChipMarkers(props.content)
+    const rendered = marked.parse(contentWithChips) as string
+    // Run file-link detection after markdown rendering so we can safely skip
+    // code blocks, inline code and existing anchors via DOM traversal.
+    return transformFileLinks(rendered)
   } catch {
     return props.content
   }
@@ -143,10 +187,12 @@ function handleLinkClick(event: MouseEvent) {
     
     const filePath = fileLink.getAttribute('data-file-path')
     const lineNumberStr = fileLink.getAttribute('data-line-number')
+    const endLineStr = fileLink.getAttribute('data-end-line-number')
     const lineNumber = lineNumberStr ? parseInt(lineNumberStr, 10) : undefined
-    
+    const endLineNumber = endLineStr ? parseInt(endLineStr, 10) : undefined
+
     if (filePath) {
-      appStore.openFile(filePath, lineNumber)
+      appStore.openFile(filePath, lineNumber, endLineNumber)
       return
     }
   }

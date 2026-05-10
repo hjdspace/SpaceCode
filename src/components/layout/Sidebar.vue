@@ -409,6 +409,8 @@ async function handleFileSelect(node: TreeNode) {
         const language = appStore.getLanguageFromPath(node.path)
         const isMarkdown = language === 'markdown'
 
+        appStore.currentLine = 0
+        appStore.currentEndLine = 0
         appStore.setCurrentFile({
           path: node.path,
           name: node.name,

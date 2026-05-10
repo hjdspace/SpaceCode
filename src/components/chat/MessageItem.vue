@@ -23,7 +23,7 @@
           v-if="message.role === 'assistant'" 
           :content="message.content" 
         />
-        <p v-else>{{ message.content }}</p>
+        <p v-else class="user-text" v-html="renderedUserContent"></p>
       </div>
       
       <!-- 元数据 -->
@@ -35,17 +35,23 @@
 <script setup lang="ts">
 import type { Message } from '@/types'
 import { User, Bot } from 'lucide-vue-next'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
 import ReasoningCard from './ReasoningCard.vue'
 import ToolCallList from './ToolCallList.vue'
 import MessageMetadata from './MessageMetadata.vue'
+import { renderMentionChipsToHtml } from '@/utils/mention-chips'
 
 const { t } = useI18n()
 
-defineProps<{
+const props = defineProps<{
   message: Message
 }>()
+
+const renderedUserContent = computed(() =>
+  renderMentionChipsToHtml(props.message.content || '')
+)
 
 function formatTime(timestamp: number): string {
   const date = new Date(timestamp)
@@ -145,6 +151,41 @@ function formatTime(timestamp: number): string {
     word-break: break-word;
     margin: 0;
     user-select: text;
+  }
+
+  // Inline mention chips inside user-authored messages.
+  :deep(.mention-chip) {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    margin: 0 2px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--surface-border);
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 1.4;
+    vertical-align: baseline;
+    white-space: nowrap;
+
+    .chip-icon {
+      font-size: 12px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .chip-name {
+      max-width: 260px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    &.is-folder {
+      background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.08);
+      border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.3);
+      color: var(--accent-primary);
+    }
   }
 }
 
