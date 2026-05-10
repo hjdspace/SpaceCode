@@ -25,6 +25,7 @@ export default defineConfig({
                 'dotenv',
                 'node-pty',
                 '@mariozechner/pi-coding-agent',
+                '@mariozechner/pi-coding-agent/dist/modes/rpc/rpc-client.js',
                 '@mariozechner/pi-agent',
                 '@mariozechner/pi-ai',
                 '@mariozechner/pi-tui',

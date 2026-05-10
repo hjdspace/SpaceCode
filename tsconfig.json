@@ -28,6 +28,9 @@
     "src/**/*.vue",
     "electron/**/*.ts"
   ],
+  "exclude": [
+    "engine/**/*"
+  ],
   "references": [
     {
       "path": "./tsconfig.node.json"

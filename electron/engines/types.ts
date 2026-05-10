@@ -11,6 +11,7 @@ export interface EngineSessionConfig {
   thinkingEnabled?: boolean
   effortLevel?: string
   systemPrompt?: string
+  appendSystemPrompt?: string
   agent?: string
   engineType?: EngineType
 }

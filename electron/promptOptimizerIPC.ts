@@ -1,11 +1,18 @@
 import { ipcMain } from 'electron'
 import { info, error, debug } from './logger'
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type OptimizerResult = { success: true; optimizedPrompt?: string } | { success: false; error?: string }
+
 export async function optimizePrompt(prompt: string): Promise<{ success: boolean; result?: string; error?: string }> {
   try {
     debug('PromptOptimizer', `Optimizing prompt | length=${prompt.length}`)
-    const { optimizePrompt: optimize } = await import('../engine/src/commands/prompt-optimizer/optimizer.js')
-    const result = await optimize({ prompt })
+    // Use createRequire to avoid TypeScript module resolution
+    const { createRequire } = await import('module')
+    const require = createRequire(import.meta.url)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const optimizer = require('../engine/src/commands/prompt-optimizer/optimizer.js') as any
+    const result: OptimizerResult = await optimizer.optimizePrompt({ prompt })
     
     if (result.success) {
       info('PromptOptimizer', `Optimization successful | original=${prompt.length} | optimized=${result.optimizedPrompt?.length || 0}`)

@@ -38,7 +38,7 @@ export function registerClaudeCodeIPC() {
     const startMs = Date.now()
     try {
       const engine = findEngineForSession(sessionId)
-      engine.sendMessage(sessionId, content)
+      await engine.sendMessage(sessionId, content)
       info('ClaudeCodeIPC', `← sendMessage | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms`)
     } catch (err) {
       error('ClaudeCodeIPC', `✗ sendMessage | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms`, { error: String(err) })

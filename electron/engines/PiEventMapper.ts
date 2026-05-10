@@ -143,6 +143,27 @@ export function mapPiEvent(sessionId: string, event: PiAgentEvent): UnifiedEngin
         data: { subtype: 'auto_retry_end', success: event.success, attempt: event.attempt },
       }
 
+    case 'suspended':
+      return {
+        sessionId,
+        type: 'suspended',
+        data: { reason: event.reason || 'unknown' },
+      }
+
+    case 'exit':
+      return {
+        sessionId,
+        type: 'exit',
+        data: { code: event.code, signal: event.signal, stderr: event.stderr },
+      }
+
+    case 'error':
+      return {
+        sessionId,
+        type: 'error',
+        data: { message: event.message, code: event.code },
+      }
+
     case 'queue_update':
       return null
 

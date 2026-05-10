@@ -1,3 +1,24 @@
+## [0.3.4](https://github.com/hjdspace/SpaceCode/compare/v0.3.3...v0.3.4) (2026-05-10)
+
+### Features
+
+* **pi-engine:** 重构 PiEngine 实现进程池和多会话支持
+  - 新增 PiProcessPool 进程池管理器，支持多会话并发
+  - 新增 PiSessionProcess 会话进程管理，实现会话生命周期管理
+  - 重构 PiEngine 核心逻辑，支持多模型提供商（OpenAI、Anthropic、Google、DeepSeek 等）
+  - 添加 appendSystemPrompt 配置支持
+  - 优化环境变量注入和命令行参数构建
+
+### Bug Fixes
+
+* **prompt-optimizer:** 修复模块导入问题，使用 createRequire 替代 ESM 动态导入
+* **engine:** 修复桌面构建时 ripgrep 二进制文件未复制的问题
+* **preload:** 修正 onExit 回调类型定义，支持更详细的退出信息
+
+### Chore
+
+* 更新依赖包（package-lock.json）
+
 ## [0.3.3](https://github.com/hjdspace/SpaceCode/compare/v0.3.2...v0.3.3) (2026-05-06)
 
 ### Features

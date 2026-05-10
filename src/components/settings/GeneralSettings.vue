@@ -116,6 +116,7 @@ function selectLanguage(langId: Locale) {
 }
 
 const piAvailable = ref<boolean | null>(null)
+const piChecking = ref(true)
 
 onMounted(async () => {
   try {
@@ -137,12 +138,14 @@ onMounted(async () => {
       settingsStore.engineType = 'claude-code'
       settingsStore.saveSettings()
     }
+  } finally {
+    piChecking.value = false
   }
 })
 
 const engines = computed(() => [
   { id: 'claude-code' as EngineType, name: 'Claude Code', desc: 'Original claude-code engine', available: true },
-  { id: 'pi' as EngineType, name: 'Pi', desc: piAvailable.value === false ? 'SDK not installed' : 'pi-coding-agent engine', available: piAvailable.value !== false }
+  { id: 'pi' as EngineType, name: 'Pi', desc: piChecking.value ? 'Checking SDK...' : (piAvailable.value === false ? 'SDK not installed' : 'pi-coding-agent engine'), available: piAvailable.value === true }
 ])
 
 function selectEngine(engineId: EngineType) {

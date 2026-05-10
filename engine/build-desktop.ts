@@ -103,6 +103,35 @@ if (existsSync(vendorSrc)) {
   console.log(`[desktop-build] Copied vendor/audio-capture/ → ${vendorDest}/`)
 }
 
+// Step 4b: Copy ripgrep vendor binary.
+// At runtime, engine/src/utils/ripgrep.ts resolves the rg binary relative to
+// its own __dirname. After bundling, __dirname == dist-desktop/, so it looks
+// for dist-desktop/vendor/ripgrep/${arch}-${platform}/rg(.exe).
+//
+// postinstall.cjs (run by `bun install`) downloads the current platform's
+// ripgrep to engine/src/utils/vendor/ripgrep/${arch}-${platform}/. We need
+// to mirror that directory under dist-desktop/ so packaged Electron builds
+// (extraResources copies engine/dist-desktop/ → resources/engine/dist-desktop/)
+// can actually spawn rg. Without this, GrepTool / GlobTool fail with:
+//   ENOENT: spawn .../resources/engine/dist-desktop/vendor/ripgrep/${arch}-${platform}/rg
+const ripgrepSrc = join('src', 'utils', 'vendor', 'ripgrep')
+if (existsSync(ripgrepSrc)) {
+  const ripgrepDest = join(outdir, 'vendor', 'ripgrep')
+  await cp(ripgrepSrc, ripgrepDest, { recursive: true })
+  console.log(`[desktop-build] Copied ${ripgrepSrc}/ → ${ripgrepDest}/`)
+} else {
+  // Fail loudly in CI — this WILL break Grep/Glob at runtime in the packaged app.
+  // Most likely cause: `bun install` was skipped, or the postinstall download was
+  // blocked by the network. Re-run `bun install` (optionally with HTTPS_PROXY or
+  // RIPGREP_DOWNLOAD_BASE set) before `build-desktop.ts`.
+  console.error(
+    `[desktop-build] ERROR: ${ripgrepSrc}/ not found. ` +
+      `Run \`bun install\` in engine/ first so postinstall.cjs downloads the ripgrep binary. ` +
+      `Without this, the packaged desktop app's Grep/Glob tools will crash with ENOENT at runtime.`,
+  )
+  process.exit(1)
+}
+
 // Report results
 const outputFiles = await readdir(outdir)
 const jsFiles = outputFiles.filter(f => f.endsWith('.js'))

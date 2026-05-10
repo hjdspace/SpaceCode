@@ -404,7 +404,7 @@ export const useSettingsStore = defineStore('settings', () => {
     localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify({
       provider: legacyConfig.provider,
       apiKey: legacyConfig.apiKey || '',
-      baseUrl: legacyConfig.apiUrl || '',
+      baseUrl: legacyConfig.baseUrl || '',
       model: legacyConfig.model || '',
       projectRoot: projectRoot.value
     }))

@@ -1210,11 +1210,33 @@ export const useChatStore = defineStore('chat', () => {
       const unsubscribeToolUse = claudeCode.onToolUse(handleToolUse)
       const unsubscribeToolResult = claudeCode.onToolResult(handleToolResult)
       const unsubscribeResult = claudeCode.onResult(handleResult)
-      const unsubscribeExit = claudeCode.onExit((event: { sessionId: string; data: number | null }) => {
+      const unsubscribeExit = claudeCode.onExit((event: { sessionId: string; data: number | null | { code?: number | null; signal?: string | null; stderr?: string } }) => {
         if (event.sessionId !== targetSessionId) return
-        logger.warn('ChatStore', `[${targetSessionId.slice(0, 8)}] process exit event | code=${event.data}`)
-        if (event.data !== null && event.data !== 0) {
-          handleError(new Error(`Process exited with code ${event.data}`))
+
+        // Normalize exit payload across engines:
+        //  - claude-code engine: data = number | null (the exit code)
+        //  - pi engine:          data = { code, signal, stderr }
+        let exitCode: number | null = null
+        let stderrTail: string | undefined
+        let signal: string | null | undefined
+        if (typeof event.data === 'number' || event.data === null) {
+          exitCode = event.data
+        } else if (event.data && typeof event.data === 'object') {
+          exitCode = event.data.code ?? null
+          stderrTail = event.data.stderr || undefined
+          signal = event.data.signal ?? undefined
+        }
+
+        logger.warn('ChatStore', `[${targetSessionId.slice(0, 8)}] process exit event | code=${exitCode}${signal ? ` | signal=${signal}` : ''}${stderrTail ? ` | stderr=${stderrTail.slice(0, 200)}` : ''}`)
+
+        if (exitCode !== null && exitCode !== 0) {
+          const detail = stderrTail
+            ? stderrTail.split(/\r?\n/).filter(Boolean).slice(-3).join(' | ')
+            : undefined
+          const msg = detail
+            ? `Process exited with code ${exitCode}: ${detail}`
+            : `Process exited with code ${exitCode}`
+          handleError(new Error(msg))
         } else {
           handleResult({ sessionId: targetSessionId, data: {} })
         }

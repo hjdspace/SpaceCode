@@ -238,7 +238,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('claude-code:log', wrapper)
       return () => ipcRenderer.removeListener('claude-code:log', wrapper)
     },
-    onExit: (callback: (data: { sessionId: string; data: number | null }) => void) => {
+    onExit: (callback: (data: { sessionId: string; data: number | null | { code?: number | null; signal?: string | null; stderr?: string } }) => void) => {
       const wrapper = (_: any, data: any) => callback(data)
       ipcRenderer.on('claude-code:exit', wrapper)
       return () => ipcRenderer.removeListener('claude-code:exit', wrapper)

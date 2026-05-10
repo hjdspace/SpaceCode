@@ -355,7 +355,6 @@ export const useAppStore = defineStore('app', () => {
     currentLine,
     toolDiffData,
     completedToolActions,
-    currentLine,
     centerTabs,
     activeCenterTab,
     projectRoot,
