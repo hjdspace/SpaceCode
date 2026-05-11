@@ -99,7 +99,27 @@ jobs:
           "
 
       - name: Rebuild native modules
-        run: npx electron-rebuild
+        shell: bash
+        run: |
+          # 使用 @electron/rebuild（新包名，老包 electron-rebuild 已弃用）
+          # 针对当前项目安装的 Electron 版本重新编译 node-pty
+          npx --yes @electron/rebuild@^3 -f -w node-pty
+
+          echo "=== Verifying node-pty native binary ==="
+          NODE_PTY_DIR="node_modules/node-pty"
+          if [ -f "$NODE_PTY_DIR/build/Release/pty.node" ]; then
+            echo "OK: build/Release/pty.node exists"
+            ls -lh "$NODE_PTY_DIR/build/Release/pty.node"
+          elif [ -f "$NODE_PTY_DIR/prebuilds/${{ matrix.platform == 'linux' && 'linux-x64' || matrix.platform == 'mac' && 'darwin-x64' || 'win32-x64' }}/pty.node" ]; then
+            echo "OK: prebuild exists"
+          else
+            echo "ERROR: node-pty native binary not found after rebuild!"
+            echo "--- Contents of node-pty ---"
+            find "$NODE_PTY_DIR" -name "*.node" -type f 2>/dev/null || true
+            ls -la "$NODE_PTY_DIR/build" 2>/dev/null || echo "(no build/ dir)"
+            ls -la "$NODE_PTY_DIR/prebuilds" 2>/dev/null || echo "(no prebuilds/ dir)"
+            exit 1
+          fi
 
       - name: Build frontend
         run: npx vite build

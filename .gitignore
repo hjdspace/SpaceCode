@@ -7,6 +7,7 @@ __pycache__/
 dist/
 *.egg
 dist-electron/
+*.lock
 
 # Node
 node_modules/
