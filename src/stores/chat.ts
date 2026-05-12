@@ -1169,6 +1169,18 @@ export const useChatStore = defineStore('chat', () => {
         loadingSessions.value.set(targetSessionId, false)
         streamingContents.value.set(targetSessionId, '')
 
+        // 如果是超时错误，先尝试 abort 引擎
+        const errorMsg = String(error).toLowerCase()
+        const isTimeoutError = errorMsg.includes('超时') || errorMsg.includes('timeout')
+        if (isTimeoutError && claudeCode) {
+          try {
+            logger.warn('ChatStore', `[${targetSessionId.slice(0, 8)}] timeout detected, attempting to abort engine process`)
+            claudeCode.abort(targetSessionId)
+          } catch (e) {
+            logger.warn('ChatStore', `[${targetSessionId.slice(0, 8)}] abort failed`, { error: String(e) })
+          }
+        }
+
         const classified = errorHandler.handleError(error, {
           sessionId: targetSessionId,
           provider: settingsStore.config.provider,
@@ -1199,6 +1211,8 @@ export const useChatStore = defineStore('chat', () => {
         const s = sessions.value.find(s => s.id === targetSessionId)
         if (s) {
           s.processStatus = 'exited'
+          // 不清除 engineType！它记录的是用户选择的引擎类型
+          // 下次启动时会用同样的引擎继续工作
           saveToStorage()
         }
 
@@ -1306,6 +1320,8 @@ export const useChatStore = defineStore('chat', () => {
     errorHandler.clearInlineError(sid)
     const session = sessions.value.find(s => s.id === sid)
     if (!session) return
+    
+    const claudeCode = electronAPI?.claudeCode
     const lastUserMsg = [...session.messages].reverse().find(m => m.role === 'user')
     if (lastUserMsg) {
       const lastAssistantMsg = [...session.messages].reverse().find(m => m.role === 'assistant' && m.metadata?.error)
@@ -1313,7 +1329,55 @@ export const useChatStore = defineStore('chat', () => {
         const idx = session.messages.findIndex(m => m.id === lastAssistantMsg.id)
         if (idx >= 0) session.messages.splice(idx, 1)
       }
-      await sendMessage(lastUserMsg.content)
+      
+      try {
+        // 先尝试挂起会话（而不是直接停止），这样引擎可以用 --resume 恢复完整历史
+        if (claudeCode) {
+          logger.info('ChatStore', `retryLastMessage: attempting to suspend and resume session | sessionId=${sid.slice(0, 8)}`)
+          try {
+            // 先尝试挂起
+            if (session.processStatus === 'active' || session.processStatus === 'idle') {
+              claudeCode.suspendSession?.(sid)
+              session.processStatus = 'suspended'
+              saveToStorage()
+              // 给一点时间让挂起完成
+              await new Promise(resolve => setTimeout(resolve, 100))
+            }
+            // 如果挂起后还是有问题，或者状态不是 suspended，那就停止它
+            const status = await claudeCode.getSessionStatus(sid)
+            if (!status?.isRunning || status?.status === 'exited') {
+              await claudeCode.stop(sid)
+              session.processStatus = 'none'
+              // 不清除 engineType！用户没有切换引擎，保持原来的选择
+              saveToStorage()
+            }
+          } catch (e) {
+            // 挂起失败的话，就停止进程
+            logger.warn('ChatStore', `retryLastMessage: suspend failed, falling back to stop | sessionId=${sid.slice(0, 8)}`, { error: String(e) })
+            try {
+              await claudeCode.stop(sid)
+            } catch (e2) {
+              // 停止失败也不要紧，继续尝试
+            }
+            session.processStatus = 'none'
+            // 不清除 engineType！用户没有切换引擎，保持原来的选择
+            saveToStorage()
+          }
+        }
+        
+        // 重新发送消息（会自动重新初始化引擎）
+        // 注意：sendMessage 内部会把这条消息先加到 session.messages 里，所以我们先临时移除这条
+        // 用户消息，等 sendMessage 再加回来，避免重复
+        const existingUserMsgIndex = session.messages.findIndex(m => m.role === 'user' && m.content === lastUserMsg.content)
+        if (existingUserMsgIndex >= 0) {
+          session.messages.splice(existingUserMsgIndex, 1)
+          saveToStorage()
+        }
+        
+        await sendMessage(lastUserMsg.content)
+      } catch (error) {
+        logger.error('ChatStore', `retryLastMessage: failed | sessionId=${sid.slice(0, 8)}`, { error: String(error) })
+      }
     }
   }
 
