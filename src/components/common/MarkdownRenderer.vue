@@ -11,9 +11,14 @@
 import { computed, ref, onMounted, watch } from 'vue'
 import { marked } from 'marked'
 import hljs from 'highlight.js'
-import mermaid from 'mermaid'
 import { useAppStore } from '@/stores/app'
 import { escapeHtml, replaceMentionChipMarkers } from '@/utils/mention-chips'
+import { 
+  initializeMermaid, 
+  generateMermaidId, 
+  createMermaidContainerHtml,
+  renderAllMermaidDiagrams 
+} from '@/utils/mermaidRenderer'
 
 const containerRef = ref<HTMLElement | null>(null)
 
@@ -109,14 +114,12 @@ function transformFileLinks(html: string): string {
 
 const renderer = new marked.Renderer()
 
-let mermaidIdCounter = 0
-
 renderer.code = function(code, language) {
   const lang = language || 'text'
   
   if (lang.toLowerCase() === 'mermaid') {
-    const mermaidId = `mermaid-${++mermaidIdCounter}`
-    return `<div class="mermaid-container" id="${mermaidId}">${escapeHtml(code)}</div>`
+    const mermaidId = generateMermaidId()
+    return createMermaidContainerHtml(code, mermaidId)
   }
   
   const validLang = hljs.getLanguage(lang) ? lang : 'plaintext'
@@ -228,30 +231,11 @@ function handleLinkClick(event: MouseEvent) {
   }
 }
 
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'default',
-  securityLevel: 'strict',
-  flowchart: {
-    htmlLabels: true
-  }
-})
+initializeMermaid()
 
 async function renderMermaidDiagrams() {
   if (!containerRef.value) return
-  
-  const containers = containerRef.value.querySelectorAll('.mermaid-container')
-  for (const container of containers) {
-    try {
-      const code = container.textContent || ''
-      const { svg } = await mermaid.render(`mermaid-svg-${container.id}`, code)
-      container.innerHTML = svg
-      container.classList.add('rendered')
-    } catch (error) {
-      console.error('[MarkdownRenderer] Mermaid render error:', error)
-      container.innerHTML = `<div class="mermaid-error">Failed to render mermaid diagram: ${error instanceof Error ? error.message : 'Unknown error'}</div>`
-    }
-  }
+  await renderAllMermaidDiagrams(containerRef.value)
 }
 
 onMounted(() => {
