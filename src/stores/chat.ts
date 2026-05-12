@@ -1330,22 +1330,49 @@ export const useChatStore = defineStore('chat', () => {
       }
       
       try {
-        // 先尝试停止可能卡住的引擎进程
+        // 先尝试挂起会话（而不是直接停止），这样引擎可以用 --resume 恢复完整历史
         if (claudeCode) {
-          logger.info('ChatStore', `retryLastMessage: attempting to stop stuck engine process | sessionId=${sid.slice(0, 8)}`)
+          logger.info('ChatStore', `retryLastMessage: attempting to suspend and resume session | sessionId=${sid.slice(0, 8)}`)
           try {
-            await claudeCode.stop(sid)
+            // 先尝试挂起
+            if (session.processStatus === 'active' || session.processStatus === 'idle') {
+              claudeCode.suspendSession?.(sid)
+              session.processStatus = 'suspended'
+              saveToStorage()
+              // 给一点时间让挂起完成
+              await new Promise(resolve => setTimeout(resolve, 100))
+            }
+            // 如果挂起后还是有问题，或者状态不是 suspended，那就停止它
+            const status = await claudeCode.getSessionStatus(sid)
+            if (!status?.isRunning || status?.status === 'exited') {
+              await claudeCode.stop(sid)
+              session.processStatus = 'none'
+              session.engineType = undefined
+              saveToStorage()
+            }
           } catch (e) {
-            // 停止失败也不要紧，继续尝试
-            logger.warn('ChatStore', `retryLastMessage: failed to stop process (expected if already stopped) | sessionId=${sid.slice(0, 8)}`, { error: String(e) })
+            // 挂起失败的话，就停止进程
+            logger.warn('ChatStore', `retryLastMessage: suspend failed, falling back to stop | sessionId=${sid.slice(0, 8)}`, { error: String(e) })
+            try {
+              await claudeCode.stop(sid)
+            } catch (e2) {
+              // 停止失败也不要紧，继续尝试
+            }
+            session.processStatus = 'none'
+            session.engineType = undefined
+            saveToStorage()
           }
-          // 重置会话状态
-          session.processStatus = 'none'
-          session.engineType = undefined
-          saveToStorage()
         }
         
         // 重新发送消息（会自动重新初始化引擎）
+        // 注意：sendMessage 内部会把这条消息先加到 session.messages 里，所以我们先临时移除这条
+        // 用户消息，等 sendMessage 再加回来，避免重复
+        const existingUserMsgIndex = session.messages.findIndex(m => m.role === 'user' && m.content === lastUserMsg.content)
+        if (existingUserMsgIndex >= 0) {
+          session.messages.splice(existingUserMsgIndex, 1)
+          saveToStorage()
+        }
+        
         await sendMessage(lastUserMsg.content)
       } catch (error) {
         logger.error('ChatStore', `retryLastMessage: failed | sessionId=${sid.slice(0, 8)}`, { error: String(error) })
