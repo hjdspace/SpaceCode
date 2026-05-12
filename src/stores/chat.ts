@@ -1211,7 +1211,8 @@ export const useChatStore = defineStore('chat', () => {
         const s = sessions.value.find(s => s.id === targetSessionId)
         if (s) {
           s.processStatus = 'exited'
-          s.engineType = undefined // 清除引擎类型，确保下次重新启动新引擎
+          // 不清除 engineType！它记录的是用户选择的引擎类型
+          // 下次启动时会用同样的引擎继续工作
           saveToStorage()
         }
 
@@ -1347,7 +1348,7 @@ export const useChatStore = defineStore('chat', () => {
             if (!status?.isRunning || status?.status === 'exited') {
               await claudeCode.stop(sid)
               session.processStatus = 'none'
-              session.engineType = undefined
+              // 不清除 engineType！用户没有切换引擎，保持原来的选择
               saveToStorage()
             }
           } catch (e) {
@@ -1359,7 +1360,7 @@ export const useChatStore = defineStore('chat', () => {
               // 停止失败也不要紧，继续尝试
             }
             session.processStatus = 'none'
-            session.engineType = undefined
+            // 不清除 engineType！用户没有切换引擎，保持原来的选择
             saveToStorage()
           }
         }
