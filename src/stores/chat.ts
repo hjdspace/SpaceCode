@@ -1169,6 +1169,18 @@ export const useChatStore = defineStore('chat', () => {
         loadingSessions.value.set(targetSessionId, false)
         streamingContents.value.set(targetSessionId, '')
 
+        // 如果是超时错误，先尝试 abort 引擎
+        const errorMsg = String(error).toLowerCase()
+        const isTimeoutError = errorMsg.includes('超时') || errorMsg.includes('timeout')
+        if (isTimeoutError && claudeCode) {
+          try {
+            logger.warn('ChatStore', `[${targetSessionId.slice(0, 8)}] timeout detected, attempting to abort engine process`)
+            claudeCode.abort(targetSessionId)
+          } catch (e) {
+            logger.warn('ChatStore', `[${targetSessionId.slice(0, 8)}] abort failed`, { error: String(e) })
+          }
+        }
+
         const classified = errorHandler.handleError(error, {
           sessionId: targetSessionId,
           provider: settingsStore.config.provider,
@@ -1199,6 +1211,7 @@ export const useChatStore = defineStore('chat', () => {
         const s = sessions.value.find(s => s.id === targetSessionId)
         if (s) {
           s.processStatus = 'exited'
+          s.engineType = undefined // 清除引擎类型，确保下次重新启动新引擎
           saveToStorage()
         }
 
@@ -1306,6 +1319,8 @@ export const useChatStore = defineStore('chat', () => {
     errorHandler.clearInlineError(sid)
     const session = sessions.value.find(s => s.id === sid)
     if (!session) return
+    
+    const claudeCode = electronAPI?.claudeCode
     const lastUserMsg = [...session.messages].reverse().find(m => m.role === 'user')
     if (lastUserMsg) {
       const lastAssistantMsg = [...session.messages].reverse().find(m => m.role === 'assistant' && m.metadata?.error)
@@ -1313,7 +1328,28 @@ export const useChatStore = defineStore('chat', () => {
         const idx = session.messages.findIndex(m => m.id === lastAssistantMsg.id)
         if (idx >= 0) session.messages.splice(idx, 1)
       }
-      await sendMessage(lastUserMsg.content)
+      
+      try {
+        // 先尝试停止可能卡住的引擎进程
+        if (claudeCode) {
+          logger.info('ChatStore', `retryLastMessage: attempting to stop stuck engine process | sessionId=${sid.slice(0, 8)}`)
+          try {
+            await claudeCode.stop(sid)
+          } catch (e) {
+            // 停止失败也不要紧，继续尝试
+            logger.warn('ChatStore', `retryLastMessage: failed to stop process (expected if already stopped) | sessionId=${sid.slice(0, 8)}`, { error: String(e) })
+          }
+          // 重置会话状态
+          session.processStatus = 'none'
+          session.engineType = undefined
+          saveToStorage()
+        }
+        
+        // 重新发送消息（会自动重新初始化引擎）
+        await sendMessage(lastUserMsg.content)
+      } catch (error) {
+        logger.error('ChatStore', `retryLastMessage: failed | sessionId=${sid.slice(0, 8)}`, { error: String(error) })
+      }
     }
   }
 
