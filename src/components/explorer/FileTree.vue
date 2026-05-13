@@ -232,7 +232,9 @@ function handleToggle(node: TreeNode) {
 }
 
 function handleExpandPath(path: string) {
-  expandedPaths.value.add(path)
+  const next = new Set(expandedPaths.value)
+  next.add(path)
+  expandedPaths.value = next
 }
 
 function handleSelect(node: TreeNode) {

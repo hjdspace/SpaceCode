@@ -7,6 +7,7 @@
 
 import { ref } from 'vue'
 import { errorHandler } from '@/services/errorHandler'
+import { api } from '@/services/electronAPI'
 
 export interface LLMConfig {
   provider: string
@@ -90,7 +91,7 @@ export async function sendMessage(messages: Array<{ role: string; content: strin
   if (provider === 'anthropic' || provider === 'anthropic_compatible') {
     const url = buildApiUrl(baseUrl, 'https://api.anthropic.com', '/v1/messages')
     console.log('[LLM] Anthropic URL:', url)
-    const response = await fetch(url, {
+    const response = await api.httpFetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -107,17 +108,17 @@ export async function sendMessage(messages: Array<{ role: string; content: strin
       }),
     })
 
-    if (!response.ok) {
-      const text = await response.text()
+    if (!response || !response.ok) {
+      const text = response?.data || ''
       console.log('[LLM] Anthropic API error response:', text.slice(0, 500))
       const classified = errorHandler.handleError(
-        new Error(`API error: ${response.status} ${response.statusText} - ${text.slice(0, 200)}`),
+        new Error(`API error: ${response?.status || 'unknown'} - ${text.slice(0, 200)}`),
         { provider, baseUrl, phase: 'send' }
       )
       throw new Error(classified.technicalDetail)
     }
 
-    const responseText = await response.text()
+    const responseText = response.data
     console.log('[LLM] Anthropic raw response:', responseText.slice(0, 500))
     let data
     try {
@@ -131,7 +132,7 @@ export async function sendMessage(messages: Array<{ role: string; content: strin
   // OpenAI-compatible fallback
   const url = buildApiUrl(baseUrl, 'https://api.openai.com', '/v1/chat/completions')
   console.log('[LLM] OpenAI URL:', url)
-  const response = await fetch(url, {
+  const response = await api.httpFetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -143,17 +144,17 @@ export async function sendMessage(messages: Array<{ role: string; content: strin
     }),
   })
 
-  if (!response.ok) {
-    const text = await response.text()
+  if (!response || !response.ok) {
+    const text = response?.data || ''
     console.log('[LLM] OpenAI API error response:', text.slice(0, 500))
     const classified = errorHandler.handleError(
-      new Error(`API error: ${response.status} ${response.statusText} - ${text.slice(0, 200)}`),
+      new Error(`API error: ${response?.status || 'unknown'} - ${text.slice(0, 200)}`),
       { provider, baseUrl, phase: 'send' }
     )
     throw new Error(classified.technicalDetail)
   }
 
-  const responseText = await response.text()
+  const responseText = response.data
   console.log('[LLM] OpenAI raw response:', responseText.slice(0, 500))
   let data
   try {
