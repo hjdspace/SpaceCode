@@ -1,9 +1,9 @@
 /**
- * Shared utilities for rendering "@file"/"@folder" mention markers as
+ * Shared utilities for rendering "@file"/"@folder"/"@image" mention markers as
  * inline chips in chat messages.
  *
  * The ChatInput editor serializes inline chips to plain-text markers
- * like `@file:"<path>"` / `@folder:"<path>"` when the user sends a
+ * like `@file:"<path>"` / `@folder:"<path>"` / `@image:"<id>"` when the user sends a
  * message. We use these utilities to transform those markers back into
  * styled HTML chips when displaying messages (both user and assistant).
  *
@@ -11,6 +11,8 @@
  * paths (e.g. `D:\AI\SpaceCode\electron`) render the trailing segment
  * as the chip label.
  */
+
+import type { ImageAttachment } from '@/types'
 
 export function escapeHtml(text: string): string {
   return text
@@ -44,6 +46,18 @@ function buildChipHtml(path: string, isFolder: boolean): string {
     `<span class="${chipClass}" title="${escapeHtml(path)}">` +
     `<span class="chip-icon">${icon}</span>` +
     `<span class="chip-name">${escapeHtml(name)}</span>` +
+    `</span>`
+  )
+}
+
+/**
+ * Build the HTML for an image preview chip.
+ */
+function buildImageChipHtml(image: ImageAttachment): string {
+  return (
+    `<span class="mention-chip is-image" data-image-id="${escapeHtml(image.id)}">` +
+    `<span class="chip-icon">🖼️</span>` +
+    `<span class="chip-name">${escapeHtml(image.name)}</span>` +
     `</span>`
   )
 }
@@ -83,4 +97,51 @@ export function renderMentionChipsToHtml(text: string): string {
 
   result += escapeHtml(text.slice(lastIndex))
   return result
+}
+
+/**
+ * Render mention chips and image previews together.
+ */
+export function renderContentWithAttachments(text: string, images?: ImageAttachment[]): string {
+  if (!text) return ''
+
+  const imageMap = new Map(images?.map(img => [img.id, img]) || [])
+
+  const MARKER_RE = /@(file|folder|image):"([^"]+)"/g
+  let result = ''
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = MARKER_RE.exec(text)) !== null) {
+    const [full, kind, value] = match
+    result += escapeHtml(text.slice(lastIndex, match.index))
+    
+    if (kind === 'image') {
+      const img = imageMap.get(value)
+      if (img) {
+        result += buildImageChipHtml(img)
+      } else {
+        // If image not found, just show the text
+        result += escapeHtml(full)
+      }
+    } else {
+      result += buildChipHtml(value, kind === 'folder')
+    }
+    
+    lastIndex = match.index + full.length
+  }
+
+  result += escapeHtml(text.slice(lastIndex))
+  return result
+}
+
+/**
+ * Generate a plain text string that includes image markers.
+ */
+export function buildContentWithMarkers(text: string, attachments: any[]): string {
+  let content = text || ''
+  
+  // Add @file / @folder markers
+  // This will be used when sending messages
+  return content
 }

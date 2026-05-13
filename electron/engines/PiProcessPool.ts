@@ -1,6 +1,6 @@
 import { BrowserWindow } from 'electron'
 import { PiSessionProcess } from './PiSessionProcess'
-import type { EngineSessionConfig, EngineSessionStatus } from './types'
+import type { EngineSessionConfig, EngineSessionStatus, ImageAttachment } from './types'
 import type { ProcessStatus } from '../sessionProcess'
 import { mapPiEvent } from './PiEventMapper'
 import { info, warn, error, debug } from '../logger'
@@ -88,15 +88,15 @@ export class PiProcessPool {
     }
   }
 
-  async sendMessage(sessionId: string, content: string): Promise<void> {
+  async sendMessage(sessionId: string, content: string, images?: ImageAttachment[]): Promise<void> {
     const proc = this.processes.get(sessionId)
     if (!proc || !proc.isRunning()) {
       error('PiProcessPool', `[${sessionId.slice(0, 8)}] sendMessage failed: no active process`)
       throw new Error(`Session ${sessionId} has no active process`)
     }
 
-    info('PiProcessPool', `[${sessionId.slice(0, 8)}] Forwarding user message | contentLen=${content.length}`)
-    await proc.sendMessage(content)
+    info('PiProcessPool', `[${sessionId.slice(0, 8)}] Forwarding user message | contentLen=${content.length} | images=${images?.length || 0}`)
+    await proc.sendMessage(content, images)
   }
 
   abortSession(sessionId: string): void {

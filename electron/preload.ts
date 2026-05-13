@@ -194,8 +194,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   claudeCode: {
     startSession: (sessionId: string, config: any) =>
       ipcRenderer.invoke('claude-code:startSession', sessionId, config),
-    sendMessage: (sessionId: string, content: string) =>
-      ipcRenderer.invoke('claude-code:sendMessage', sessionId, content),
+    sendMessage: (sessionId: string, content: string, images?: any[]) =>
+      ipcRenderer.invoke('claude-code:sendMessage', sessionId, content, images),
     abort: (sessionId: string) =>
       ipcRenderer.invoke('claude-code:abort', sessionId),
     stop: (sessionId: string) =>
