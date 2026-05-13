@@ -145,6 +145,40 @@ export function registerClaudeCodeIPC() {
     debug('ClaudeCodeIPC', `→ isEngineAvailable | engine=${engineType}`)
     return EngineFactory.isEngineAvailableAsync(engineType as any)
   })
+
+  ipcMain.handle('claude-code:submitToolAnswer', async (_, sessionId: string, toolCallId: string, answers: Record<string, string>) => {
+    info('ClaudeCodeIPC', `→ submitToolAnswer | sessionId=${sessionId.slice(0, 8)} | toolId=${toolCallId.slice(0, 8)} | answers=${JSON.stringify(answers)}`)
+    const startMs = Date.now()
+    try {
+      const engine = findEngineForSession(sessionId)
+      if (typeof engine.submitToolAnswer === 'function') {
+        await engine.submitToolAnswer(sessionId, toolCallId, answers)
+        info('ClaudeCodeIPC', `← submitToolAnswer | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms`)
+      } else {
+        warn('ClaudeCodeIPC', `submitToolAnswer not implemented in engine=${engine.type}`)
+      }
+    } catch (err) {
+      error('ClaudeCodeIPC', `✗ submitToolAnswer | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms`, { error: String(err) })
+      throw err
+    }
+  })
+
+  ipcMain.handle('claude-code:skipToolAnswer', async (_, sessionId: string, toolCallId: string) => {
+    info('ClaudeCodeIPC', `→ skipToolAnswer | sessionId=${sessionId.slice(0, 8)} | toolId=${toolCallId.slice(0, 8)}`)
+    const startMs = Date.now()
+    try {
+      const engine = findEngineForSession(sessionId)
+      if (typeof engine.skipToolAnswer === 'function') {
+        await engine.skipToolAnswer(sessionId, toolCallId)
+        info('ClaudeCodeIPC', `← skipToolAnswer | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms`)
+      } else {
+        warn('ClaudeCodeIPC', `skipToolAnswer not implemented in engine=${engine.type}`)
+      }
+    } catch (err) {
+      error('ClaudeCodeIPC', `✗ skipToolAnswer | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms`, { error: String(err) })
+      throw err
+    }
+  })
 }
 
 function findEngineForSession(sessionId: string) {

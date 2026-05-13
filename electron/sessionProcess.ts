@@ -268,6 +268,73 @@ export class SessionProcess extends EventEmitter {
       throw err
     }
   }
+
+  submitToolAnswer(toolCallId: string, answers: Record<string, string>): void {
+    if (!this.process) throw new Error('No active process')
+    
+    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Submitting tool answer | toolId=${toolCallId.slice(0, 8)} | answers=${JSON.stringify(answers)}`)
+    traceEvent({
+      sessionId: this.sessionId,
+      actor: 'user',
+      type: 'tool_answer',
+      status: 'completed',
+      title: 'User submitted tool answer',
+      input: { toolCallId, answers },
+    })
+    
+    const msg = JSON.stringify({
+      type: 'user',
+      message: { 
+        role: 'user', 
+        content: [{
+          type: 'tool_result',
+          tool_use_id: toolCallId,
+          content: JSON.stringify({ answers })
+        }]
+      }
+    }) + '\n'
+    try {
+      this.process.stdin!.write(msg)
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Tool answer written to stdin successfully`)
+    } catch (err) {
+      error('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to write tool answer to stdin`, { error: String(err) })
+      throw err
+    }
+  }
+
+  skipToolAnswer(toolCallId: string): void {
+    if (!this.process) throw new Error('No active process')
+    
+    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Skipping tool answer | toolId=${toolCallId.slice(0, 8)}`)
+    traceEvent({
+      sessionId: this.sessionId,
+      actor: 'user',
+      type: 'tool_skip',
+      status: 'completed',
+      title: 'User skipped tool answer',
+      input: { toolCallId },
+    })
+    
+    const msg = JSON.stringify({
+      type: 'user',
+      message: { 
+        role: 'user', 
+        content: [{
+          type: 'tool_result',
+          tool_use_id: toolCallId,
+          content: '',
+          is_error: false
+        }]
+      }
+    }) + '\n'
+    try {
+      this.process.stdin!.write(msg)
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Tool skip written to stdin successfully`)
+    } catch (err) {
+      error('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to write tool skip to stdin`, { error: String(err) })
+      throw err
+    }
+  }
   
   private getUploadDir(): string {
     const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')

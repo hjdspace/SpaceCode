@@ -463,6 +463,22 @@ function handleOpenSkills() {
   window.dispatchEvent(new CustomEvent('open-skills-manager'))
 }
 
+// 处理工具提交（AskUserQuestion）
+async function handleToolSubmit(messageId: string, toolId: string, answers: Record<string, string>) {
+  console.log('[ChatPanel] Tool submit:', { messageId, toolId, answers })
+  
+  // 将答案发送到后端
+  await chatStore.submitToolAnswer(messageId, toolId, answers)
+}
+
+// 处理工具跳过（AskUserQuestion）
+async function handleToolSkip(messageId: string, toolId: string) {
+  console.log('[ChatPanel] Tool skip:', { messageId, toolId })
+  
+  // 通知后端用户跳过
+  await chatStore.skipToolAnswer(messageId, toolId)
+}
+
 async function handleNewSession() {
   if (chatStore.currentSessionId && chatStore.currentSession) {
     appStore.openSessionTab(chatStore.currentSessionId, chatStore.currentSession.title)
