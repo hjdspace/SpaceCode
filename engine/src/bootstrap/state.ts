@@ -323,7 +323,7 @@ function getInitialState(): State {
     codeEditToolDecisionCounter: null,
     activeTimeCounter: null,
     statsStore: null,
-    sessionId: (process.env.CLAUDE_SESSION_ID as SessionId) || randomUUID() as SessionId,
+    sessionId: randomUUID() as SessionId,
     parentSessionId: undefined,
     // Logger state
     loggerProvider: null,

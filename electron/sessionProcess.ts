@@ -558,6 +558,9 @@ export class SessionProcess extends EventEmitter {
     if (this.engineSessionId && this.status === 'suspended') {
       args.push('--resume', this.engineSessionId)
       debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Added --resume flag | engineSessionId=${this.engineSessionId}`)
+    } else {
+      args.push('--session-id', this.sessionId)
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Added --session-id flag | sessionId=${this.sessionId}`)
     }
 
     return args
@@ -567,10 +570,6 @@ export class SessionProcess extends EventEmitter {
     const env: Record<string, string> = {}
     const provider = (config.provider || 'anthropic').toLowerCase()
     env.LLM_PROVIDER = provider
-
-    // 将前端的 sessionId 传递给 Claude Code CLI
-    // 这样 CLI 会使用相同的 sessionId 来存储 uploads 和其他会话数据
-    env.CLAUDE_SESSION_ID = this.sessionId
 
     if (provider === 'openai') {
       env.CLAUDE_CODE_USE_OPENAI = '1'
