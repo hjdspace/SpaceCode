@@ -14,6 +14,7 @@ export const TOOL_COMPONENT_MAP: Record<string, () => Promise<any>> = {
   'Skill': () => import('./SkillToolCard.vue'),
   'WebFetch': () => import('./WebFetchToolCard.vue'),
   'WebSearch': () => import('./WebSearchToolCard.vue'),
+  'AskUserQuestion': () => import('./AskUserQuestionToolCard.vue'),
 }
 
 const componentCache = new Map<string, Component>()
