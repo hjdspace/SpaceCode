@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AskUserQuestion Tool UI Designs</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #0a0e17;
+            color: #e5e7eb;
+            padding: 40px 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 10px;
+            color: #fff;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #9ca3af;
+            margin-bottom: 40px;
+            font-size: 14px;
+        }
+
+        .design-section {
+            margin-bottom: 50px;
+            padding: 24px;
+            background: #111827;
+            border-radius: 12px;
+            border: 1px solid #374151;
+        }
+
+        .design-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #60a5fa;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .design-title .badge {
+            background: rgba(96, 165, 250, 0.2);
+            color: #60a5fa;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        /* 全局样式变量模拟 */
+        :root {
+            --bg-secondary: #1f2937;
+            --surface-glass: rgba(255, 255, 255, 0.02);
+            --surface-border: #374151;
+            --text-primary: #f3f4f6;
+            --text-secondary: #d1d5db;
+            --text-muted: #9ca3af;
+            --text-tertiary: #6b7280;
+            --accent-primary: #60a5fa;
+            --success: #4ade80;
+            --error: #f87171;
+            --transition-fast: 0.15s ease;
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+        }
+
+        /* ==================== 方案一：简洁问答卡片 (Simple Design) ==================== */
+        .design1-card {
+            border-radius: 8px;
+            background: var(--surface-glass);
+            border: 1px solid var(--surface-border);
+            overflow: hidden;
+            font-size: 13px;
+        }
+
+        .design1-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            background: rgba(96, 165, 250, 0.08);
+            border-bottom: 1px solid var(--surface-border);
+        }
+
+        .design1-icon-wrapper {
+            width: 24px;
+            height: 24px;
+            border-radius: 5px;
+            background: rgba(96, 165, 250, 0.15);
+            color: #60a5fa;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .design1-tool-name {
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #60a5fa;
+        }
+
+        .design1-chip {
+            margin-left: auto;
+            background: rgba(96, 165, 250, 0.2);
+            color: #60a5fa;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        .design1-body {
+            padding: 16px 14px;
+        }
+
+        .design1-question {
+            font-size: 15px;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 14px;
+        }
+
+        .design1-options {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .design1-option {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 10px 12px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--surface-border);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .design1-option:hover {
+            border-color: #60a5fa;
+            background: rgba(96, 165, 250, 0.06);
+        }
+
+        .design1-option-radio {
+            width: 18px;
+            height: 18px;
+            border: 2px solid var(--surface-border);
+            border-radius: 50%;
+            margin-top: 2px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+        }
+
+        .design1-option:hover .design1-option-radio {
+            border-color: #60a5fa;
+        }
+
+        .design1-option.selected .design1-option-radio {
+            border-color: #60a5fa;
+            background: #60a5fa;
+        }
+
+        .design1-option.selected .design1-option-radio::after {
+            content: '';
+            width: 6px;
+            height: 6px;
+            background: white;
+            border-radius: 50%;
+        }
+
+        .design1-option-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .design1-option-label {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 13px;
+            margin-bottom: 3px;
+        }
+
+        .design1-option-desc {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .design1-footer {
+            padding: 12px 14px;
+            border-top: 1px solid var(--surface-border);
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        .design1-btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            transition: all 0.15s;
+        }
+
+        .design1-btn-secondary {
+            background: transparent;
+            color: var(--text-secondary);
+            border: 1px solid var(--surface-border);
+        }
+
+        .design1-btn-secondary:hover {
+            background: var(--bg-secondary);
+        }
+
+        .design1-btn-primary {
+            background: #60a5fa;
+            color: white;
+        }
+
+        .design1-btn-primary:hover {
+            background: #3b82f6;
+        }
+
+        /* ==================== 方案二：现代对话框风格 (Modern Dialog Style) ==================== */
+        .design2-card {
+            border-radius: 12px;
+            background: linear-gradient(145deg, #1a1f2e, #111827);
+            border: 1px solid rgba(96, 165, 250, 0.2);
+            overflow: hidden;
+            font-size: 13px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .design2-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 20px;
+            background: linear-gradient(90deg, rgba(96, 165, 250, 0.15), transparent);
+            border-bottom: 1px solid rgba(96, 165, 250, 0.15);
+        }
+
+        .design2-icon-wrapper {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #60a5fa, #8b5cf6);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(96, 165, 250, 0.3);
+        }
+
+        .design2-title {
+            flex: 1;
+        }
+
+        .design2-tool-name {
+            font-weight: 700;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #60a5fa;
+            margin-bottom: 2px;
+        }
+
+        .design2-subtitle {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .design2-body {
+            padding: 24px 20px;
+        }
+
+        .design2-question {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 18px;
+        }
+
+        .design2-options {
+            display: grid;
+            gap: 10px;
+        }
+
+        .design2-option {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 2px solid transparent;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .design2-option:hover {
+            background: rgba(96, 165, 250, 0.08);
+            border-color: rgba(96, 165, 250, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .design2-option.selected {
+            background: rgba(96, 165, 250, 0.12);
+            border-color: #60a5fa;
+        }
+
+        .design2-option-checkbox {
+            width: 22px;
+            height: 22px;
+            border: 2px solid var(--surface-border);
+            border-radius: 6px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+        }
+
+        .design2-option.selected .design2-option-checkbox {
+            background: #60a5fa;
+            border-color: #60a5fa;
+        }
+
+        .design2-option.selected .design2-option-checkbox::after {
+            content: '✓';
+            color: white;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .design2-option-content {
+            flex: 1;
+        }
+
+        .design2-option-label {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+
+        .design2-option-desc {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .design2-footer {
+            padding: 16px 20px;
+            border-top: 1px solid rgba(96, 165, 250, 0.15);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .design2-hint {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .design2-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .design2-btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+        }
+
+        .design2-btn-secondary {
+            background: transparent;
+            color: var(--text-secondary);
+            border: 1px solid var(--surface-border);
+        }
+
+        .design2-btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .design2-btn-primary {
+            background: linear-gradient(135deg, #60a5fa, #8b5cf6);
+            color: white;
+            box-shadow: 0 4px 12px rgba(96, 165, 250, 0.3);
+        }
+
+        .design2-btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(96, 165, 250, 0.4);
+        }
+
+        /* ==================== 方案三：紧凑卡片样式 (Compact Card Style) ==================== */
+        .design3-card {
+            border-radius: 8px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--surface-border);
+            overflow: hidden;
+            font-size: 13px;
+        }
+
+        .design3-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--surface-border);
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .design3-icon-wrapper {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            background: rgba(168, 85, 247, 0.15);
+            color: #a855f7;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .design3-tool-name {
+            font-weight: 600;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #a855f7;
+        }
+
+        .design3-body {
+            padding: 12px;
+        }
+
+        .design3-question-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            align-items: flex-start;
+        }
+
+        .design3-question-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            padding-top: 3px;
+            min-width: 60px;
+        }
+
+        .design3-question-text {
+            flex: 1;
+            font-size: 14px;
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .design3-options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .design3-option {
+            padding: 8px 14px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--surface-border);
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.15s;
+            font-size: 12px;
+        }
+
+        .design3-option:hover {
+            border-color: #a855f7;
+            background: rgba(168, 85, 247, 0.1);
+        }
+
+        .design3-option.selected {
+            background: rgba(168, 85, 247, 0.18);
+            border-color: #a855f7;
+            color: #e9d5ff;
+        }
+
+        .design3-option-label {
+            font-weight: 600;
+        }
+
+        .design3-option-desc {
+            font-size: 11px;
+            color: var(--text-muted);
+            display: block;
+            margin-top: 3px;
+        }
+
+        .design3-footer {
+            padding: 10px 12px;
+            border-top: 1px solid var(--surface-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .design3-multi-hint {
+            font-size: 11px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .design3-btn {
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            transition: all 0.15s;
+        }
+
+        .design3-btn-secondary {
+            background: transparent;
+            color: var(--text-secondary);
+        }
+
+        .design3-btn-secondary:hover {
+            color: var(--text-primary);
+        }
+
+        .design3-btn-primary {
+            background: #a855f7;
+            color: white;
+        }
+
+        .design3-btn-primary:hover {
+            background: #9333ea;
+        }
+
+        /* ==================== 方案四：分步骤设计 (Step-by-Step Design) ==================== */
+        .design4-card {
+            border-radius: 10px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            overflow: hidden;
+            font-size: 13px;
+        }
+
+        .design4-progress {
+            display: flex;
+            gap: 2px;
+            padding: 2px;
+            background: #020617;
+        }
+
+        .design4-progress-bar {
+            height: 3px;
+            flex: 1;
+            background: #1e293b;
+            border-radius: 2px;
+        }
+
+        .design4-progress-bar.active {
+            background: linear-gradient(90deg, #22c55e, #10b981);
+        }
+
+        .design4-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 18px;
+            border-bottom: 1px solid #1e293b;
+        }
+
+        .design4-icon-wrapper {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: rgba(34, 197, 94, 0.15);
+            color: #22c55e;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .design4-title-wrapper {
+            flex: 1;
+        }
+
+        .design4-tool-name {
+            font-weight: 600;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .design4-step-info {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .design4-body {
+            padding: 20px 18px;
+        }
+
+        .design4-question {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 6px;
+        }
+
+        .design4-question-sub {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+        }
+
+        .design4-options {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .design4-option {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 14px;
+            background: transparent;
+            border: 1px solid #1e293b;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .design4-option:hover {
+            background: rgba(34, 197, 94, 0.06);
+            border-color: rgba(34, 197, 94, 0.3);
+        }
+
+        .design4-option.selected {
+            background: rgba(34, 197, 94, 0.12);
+            border-color: #22c55e;
+        }
+
+        .design4-option-number {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #1e293b;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-muted);
+            flex-shrink: 0;
+        }
+
+        .design4-option.selected .design4-option-number {
+            background: #22c55e;
+            color: white;
+        }
+
+        .design4-option-content {
+            flex: 1;
+        }
+
+        .design4-option-label {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 13px;
+        }
+
+        .design4-option-desc {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .design4-footer {
+            padding: 14px 18px;
+            border-top: 1px solid #1e293b;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .design4-counter {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .design4-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .design4-btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            transition: all 0.15s;
+        }
+
+        .design4-btn-secondary {
+            background: transparent;
+            color: var(--text-secondary);
+            border: 1px solid #1e293b;
+        }
+
+        .design4-btn-secondary:hover {
+            border-color: #334155;
+        }
+
+        .design4-btn-primary {
+            background: #22c55e;
+            color: #020617;
+            font-weight: 600;
+        }
+
+        .design4-btn-primary:hover {
+            background: #16a34a;
+        }
+
+        /* 图标模拟 */
+        .icon {
+            font-size: 16px;
+        }
+
+        /* 分隔线 */
+        .divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #374151, transparent);
+            margin: 60px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AskUserQuestion Tool UI Designs</h1>
+        <p class="subtitle">4 different design approaches for the user question interaction card</p>
+
+        <!-- 方案一 -->
+        <section class="design-section">
+            <h2 class="design-title">
+                <span>方案一：简洁问答卡片</span>
+                <span class="badge">Simple</span>
+            </h2>
+            <div class="design1-card">
+                <div class="design1-header">
+                    <div class="design1-icon-wrapper">
+                        <span class="icon">❓</span>
+                    </div>
+                    <span class="design1-tool-name">Ask User Question</span>
+                    <span class="design1-chip">Library</span>
+                </div>
+                <div class="design1-body">
+                    <div class="design1-question">Which library should we use for date formatting?</div>
+                    <div class="design1-options">
+                        <div class="design1-option selected">
+                            <div class="design1-option-radio"></div>
+                            <div class="design1-option-content">
+                                <div class="design1-option-label">Day.js</div>
+                                <div class="design1-option-desc">Lightweight (2KB), modern API, good performance</div>
+                            </div>
+                        </div>
+                        <div class="design1-option">
+                            <div class="design1-option-radio"></div>
+                            <div class="design1-option-content">
+                                <div class="design1-option-label">Moment.js</div>
+                                <div class="design1-option-desc">Full-featured but larger (60KB), legacy project</div>
+                            </div>
+                        </div>
+                        <div class="design1-option">
+                            <div class="design1-option-radio"></div>
+                            <div class="design1-option-content">
+                                <div class="design1-option-label">date-fns</div>
+                                <div class="design1-option-desc">Functional API, tree-shakable, modular</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="design1-footer">
+                    <button class="design1-btn design1-btn-secondary">Skip</button>
+                    <button class="design1-btn design1-btn-primary">Confirm</button>
+                </div>
+            </div>
+        </section>
+
+        <div class="divider"></div>
+
+        <!-- 方案二 -->
+        <section class="design-section">
+            <h2 class="design-title">
+                <span>方案二：现代对话框风格</span>
+                <span class="badge">Modern</span>
+            </h2>
+            <div class="design2-card">
+                <div class="design2-header">
+                    <div class="design2-icon-wrapper">
+                        <span class="icon">💬</span>
+                    </div>
+                    <div class="design2-title">
+                        <div class="design2-tool-name">User Question</div>
+                        <div class="design2-subtitle">Please make your selection</div>
+                    </div>
+                </div>
+                <div class="design2-body">
+                    <div class="design2-question">Which UI framework should we use for this project?</div>
+                    <div class="design2-options">
+                        <div class="design2-option">
+                            <div class="design2-option-checkbox"></div>
+                            <div class="design2-option-content">
+                                <div class="design2-option-label">React</div>
+                                <div class="design2-option-desc">Large ecosystem, mature, good for complex apps</div>
+                            </div>
+                        </div>
+                        <div class="design2-option selected">
+                            <div class="design2-option-checkbox"></div>
+                            <div class="design2-option-content">
+                                <div class="design2-option-label">Vue.js</div>
+                                <div class="design2-option-desc">Progressive, easier learning curve, great documentation</div>
+                            </div>
+                        </div>
+                        <div class="design2-option">
+                            <div class="design2-option-checkbox"></div>
+                            <div class="design2-option-content">
+                                <div class="design2-option-label">Svelte</div>
+                                <div class="design2-option-desc">No virtual DOM, small bundle sizes, compiler-based</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="design2-footer">
+                    <span class="design2-hint">You can add custom notes in the input below</span>
+                    <div class="design2-buttons">
+                        <button class="design2-btn design2-btn-secondary">Later</button>
+                        <button class="design2-btn design2-btn-primary">Submit Answer</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div class="divider"></div>
+
+        <!-- 方案三 -->
+        <section class="design-section">
+            <h2 class="design-title">
+                <span>方案三：紧凑卡片样式</span>
+                <span class="badge">Compact</span>
+            </h2>
+            <div class="design3-card">
+                <div class="design3-header">
+                    <div class="design3-icon-wrapper">
+                        <span class="icon">🎯</span>
+                    </div>
+                    <span class="design3-tool-name">Quick Question</span>
+                </div>
+                <div class="design3-body">
+                    <div class="design3-question-row">
+                        <span class="design3-question-label">Question</span>
+                        <span class="design3-question-text">Which approach should we take?</span>
+                    </div>
+                    <div class="design3-options">
+                        <div class="design3-option selected">
+                            <span class="design3-option-label">Rewrite</span>
+                            <span class="design3-option-desc">Full refactor</span>
+                        </div>
+                        <div class="design3-option">
+                            <span class="design3-option-label">Refactor</span>
+                            <span class="design3-option-desc">Incremental changes</span>
+                        </div>
+                        <div class="design3-option">
+                            <span class="design3-option-label">Patch</span>
+                            <span class="design3-option-desc">Quick fix</span>
+                        </div>
+                        <div class="design3-option">
+                            <span class="design3-option-label">Ignore</span>
+                            <span class="design3-option-desc">Leave as is</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="design3-footer">
+                    <span class="design3-multi-hint">
+                        <span class="icon">ⓘ</span>
+                        Multi-select enabled
+                    </span>
+                    <div style="display: flex; gap: 6px;">
+                        <button class="design3-btn design3-btn-secondary">Cancel</button>
+                        <button class="design3-btn design3-btn-primary">OK</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div class="divider"></div>
+
+        <!-- 方案四 -->
+        <section class="design-section">
+            <h2 class="design-title">
+                <span>方案四：分步骤设计</span>
+                <span class="badge">Step-by-Step</span>
+            </h2>
+            <div class="design4-card">
+                <div class="design4-progress">
+                    <div class="design4-progress-bar active"></div>
+                    <div class="design4-progress-bar"></div>
+                    <div class="design4-progress-bar"></div>
+                </div>
+                <div class="design4-header">
+                    <div class="design4-icon-wrapper">
+                        <span class="icon">📋</span>
+                    </div>
+                    <div class="design4-title-wrapper">
+                        <div class="design4-tool-name">Questionnaire</div>
+                        <div class="design4-step-info">Question 1 of 3</div>
+                    </div>
+                </div>
+                <div class="design4-body">
+                    <div class="design4-question">What testing library do you prefer?</div>
+                    <div class="design4-question-sub">This will affect our project setup</div>
+                    <div class="design4-options">
+                        <div class="design4-option selected">
+                            <div class="design4-option-number">1</div>
+                            <div class="design4-option-content">
+                                <div class="design4-option-label">Jest</div>
+                                <div class="design4-option-desc">Feature-rich, snapshot testing, great ecosystem</div>
+                            </div>
+                        </div>
+                        <div class="design4-option">
+                            <div class="design4-option-number">2</div>
+                            <div class="design4-option-content">
+                                <div class="design4-option-label">Vitest</div>
+                                <div class="design4-option-desc">Vite-native, fast, Jest-compatible API</div>
+                            </div>
+                        </div>
+                        <div class="design4-option">
+                            <div class="design4-option-number">3</div>
+                            <div class="design4-option-content">
+                                <div class="design4-option-label">Playwright</div>
+                                <div class="design4-option-desc">E2E testing, multi-browser, cross-platform</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="design4-footer">
+                    <span class="design4-counter">1 option selected</span>
+                    <div class="design4-buttons">
+                        <button class="design4-btn design4-btn-secondary">Back</button>
+                        <button class="design4-btn design4-btn-primary">Next →</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        // 添加点击选择交互
+        document.querySelectorAll('.design1-option, .design2-option, .design3-option, .design4-option').forEach(option => {
+            option.addEventListener('click', function() {
+                // 对于非多选组，取消其他选项的选中状态
+                const parent = this.parentElement;
+                if (!parent.classList.contains('design3-options')) {
+                    parent.querySelectorAll('.design1-option, .design2-option, .design4-option').forEach(o => {
+                        o.classList.remove('selected');
+                    });
+                }
+                this.classList.toggle('selected');
+            });
+        });
+    </script>
+</body>
+</html>
