@@ -555,7 +555,11 @@ export class SessionProcess extends EventEmitter {
 
     args.push('--thinking', config.thinkingEnabled ? 'enabled' : 'disabled')
 
-    if (this.engineSessionId && this.status === 'suspended') {
+    // 首先检查是否有需要恢复的历史会话 ID
+    if (config.resumeSessionId) {
+      args.push('--resume', config.resumeSessionId)
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Added --resume flag | resumeSessionId=${config.resumeSessionId}`)
+    } else if (this.engineSessionId && this.status === 'suspended') {
       args.push('--resume', this.engineSessionId)
       debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Added --resume flag | engineSessionId=${this.engineSessionId}`)
     } else {

@@ -27,6 +27,8 @@ export interface SessionConfig {
   allowedTools?: string[]
   /** 是否启用 thinking 模式 (extended thinking) */
   thinkingEnabled?: boolean
+  /** 要恢复的会话 ID，使用 --resume 参数启动 */
+  resumeSessionId?: string
 }
 
 export class ClaudeCodeProcessManager extends EventEmitter {
@@ -178,6 +180,11 @@ export class ClaudeCodeProcessManager extends EventEmitter {
       '--verbose',
       '--include-partial-messages', // 启用流式消息输出
     )
+
+    // 如果要恢复历史会话，添加 --resume 参数
+    if (config.resumeSessionId) {
+      args.push('--resume', config.resumeSessionId)
+    }
 
     // 引擎通过 settings.json 的 modelType 字段判断 API provider
     // 我们写入临时 settings.json 并通过 --settings 传入
