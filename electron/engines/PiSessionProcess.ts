@@ -1,6 +1,8 @@
 import { EventEmitter } from 'events'
 import * as path from 'path'
 import * as fs from 'fs'
+import * as os from 'os'
+import { randomUUID } from 'crypto'
 import { app } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import { StringDecoder } from 'string_decoder'
@@ -173,9 +175,29 @@ export class PiSessionProcess extends EventEmitter {
 
     info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Sending prompt | contentLen=${content.length} | images=${images?.length || 0}`)
 
+    // 处理图片：保存到临时目录并生成 @-引用
+    let imageRefs = ''
+    if (images && images.length > 0) {
+      const uploadDir = this.getUploadDir()
+      for (const img of images) {
+        try {
+          const savedPath = this.saveImageToTemp(img, uploadDir)
+          imageRefs += `@"${savedPath}" `
+        } catch (err) {
+          error('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to save image: ${img.name}`, err)
+        }
+      }
+    }
+
+    // 构建最终消息内容，添加 @-引用前缀
+    let finalContent = content
+    if (imageRefs) {
+      finalContent = `${imageRefs}${content || 'Please analyze the attached images.'}`.trim()
+    }
+
     try {
       const id = `req_${++this._requestId}`
-      const command = { id, type: 'prompt', message: content, images }
+      const command = { id, type: 'prompt', message: finalContent }
       
       // Wait for response confirmation
       const responsePromise = new Promise<any>((resolve, reject) => {
@@ -215,6 +237,47 @@ export class PiSessionProcess extends EventEmitter {
       error('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Prompt failed`, err)
       throw err
     }
+  }
+
+  private getUploadDir(): string {
+    const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
+    const uploadDir = path.join(configDir, 'uploads', this.sessionId)
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true })
+    }
+    return uploadDir
+  }
+
+  private saveImageToTemp(img: ImageAttachment, uploadDir: string): string {
+    const matches = img.data.match(/^data:([^;]+);base64,(.+)$/)
+    if (!matches) {
+      throw new Error('Invalid image data format')
+    }
+    
+    const mimeType = matches[1]
+    const base64Data = matches[2]
+    
+    const ext = this.getExtensionFromMimeType(mimeType) || 'png'
+    const fileName = `${randomUUID()}-${img.name.replace(/[^a-zA-Z0-9.-]/g, '_')}.${ext}`
+    const filePath = path.join(uploadDir, fileName)
+    
+    const buffer = Buffer.from(base64Data, 'base64')
+    fs.writeFileSync(filePath, buffer)
+    
+    info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Image saved | name=${img.name} | path=${filePath}`)
+    return filePath
+  }
+
+  private getExtensionFromMimeType(mimeType: string): string | null {
+    const mimeToExt: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/gif': 'gif',
+      'image/bmp': 'bmp',
+      'image/webp': 'webp',
+      'image/svg+xml': 'svg',
+    }
+    return mimeToExt[mimeType] || null
   }
 
   async abort(): Promise<void> {
