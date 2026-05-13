@@ -10,7 +10,9 @@
         { 'file-tree-flash': isHighlighted }
       ]"
       :id="isHighlighted ? 'file-tree-highlight' : undefined"
+      draggable="true"
       @click="handleClick"
+      @dragstart="handleDragStart"
     >
       <!-- Expand/Collapse Button for Directories -->
       <button
@@ -133,6 +135,17 @@ function handleToggle() {
   // Emit expand-path event to parent for path tracking
   emit('expand-path', props.node.path)
   emit('toggle', props.node)
+}
+
+function handleDragStart(e: DragEvent) {
+  if (!e.dataTransfer) return
+  
+  e.dataTransfer.effectAllowed = 'copy'
+  e.dataTransfer.setData('application/x-claude-path', props.node.path)
+  e.dataTransfer.setData('application/x-claude-type', props.node.type)
+  e.dataTransfer.setData('text/plain', props.node.path)
+  
+  console.log('[FileTreeNode] Drag start:', props.node.path, props.node.type)
 }
 
 function getIconComponent() {

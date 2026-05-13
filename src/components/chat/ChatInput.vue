@@ -2031,7 +2031,7 @@ async function handleAttachFolder() {
 function handleDragEnter(e: DragEvent) {
   e.preventDefault()
   e.stopPropagation()
-  if (hasImageFiles(e)) {
+  if (hasDragContent(e)) {
     isDragging.value = true
   }
 }
@@ -2039,7 +2039,7 @@ function handleDragEnter(e: DragEvent) {
 function handleDragOver(e: DragEvent) {
   e.preventDefault()
   e.stopPropagation()
-  if (hasImageFiles(e)) {
+  if (hasDragContent(e)) {
     isDragging.value = true
   }
 }
@@ -2061,6 +2061,29 @@ function handleDrop(e: DragEvent) {
   e.stopPropagation()
   isDragging.value = false
   
+  if (!e.dataTransfer) return
+
+  // 1. 处理从目录树拖拽的文件/文件夹
+  const claudePath = e.dataTransfer.getData('application/x-claude-path')
+  if (claudePath) {
+    const nodeType = e.dataTransfer.getData('application/x-claude-type')
+    const name = claudePath.split(/[\\/]/).pop() || claudePath
+    const isFolder = nodeType === 'directory'
+    
+    // 避免重复添加
+    if (!attachedFiles.value.some(f => f.path === claudePath)) {
+      attachedFiles.value.push({
+        name,
+        path: claudePath,
+        isFolder
+      })
+      insertMentionChip(name, claudePath, isFolder)
+      console.log('[ChatInput] Dropped file/folder from tree:', claudePath, isFolder ? '(folder)' : '(file)')
+    }
+    return
+  }
+
+  // 2. 处理图片文件（从系统文件管理器拖拽）
   const files = Array.from(e.dataTransfer?.files || [])
   for (const file of files) {
     if (file.type.startsWith('image/')) {
@@ -2069,12 +2092,20 @@ function handleDrop(e: DragEvent) {
   }
 }
 
-function hasImageFiles(e: DragEvent): boolean {
+function hasDragContent(e: DragEvent): boolean {
   if (!e.dataTransfer?.types) return false
+  
+  // 检查是否有目录树拖拽的内容
+  if (e.dataTransfer.types.includes('application/x-claude-path')) {
+    return true
+  }
+  
+  // 检查是否有图片文件
   if (e.dataTransfer.types.includes('Files')) {
     const files = Array.from(e.dataTransfer.files || [])
     return files.some(file => file.type.startsWith('image/'))
   }
+  
   return false
 }
 
