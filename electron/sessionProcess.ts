@@ -568,6 +568,10 @@ export class SessionProcess extends EventEmitter {
     const provider = (config.provider || 'anthropic').toLowerCase()
     env.LLM_PROVIDER = provider
 
+    // 将前端的 sessionId 传递给 Claude Code CLI
+    // 这样 CLI 会使用相同的 sessionId 来存储 uploads 和其他会话数据
+    env.CLAUDE_SESSION_ID = this.sessionId
+
     if (provider === 'openai') {
       env.CLAUDE_CODE_USE_OPENAI = '1'
       if (config.apiKey) env.OPENAI_API_KEY = config.apiKey

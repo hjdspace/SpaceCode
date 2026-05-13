@@ -512,6 +512,10 @@ export class PiSessionProcess extends EventEmitter {
     const env: Record<string, string> = {}
     const provider = this.resolveEffectiveProvider()
 
+    // 将前端的 sessionId 传递给 Pi CLI
+    // 这样 CLI 会使用相同的 sessionId 来存储 uploads 和其他会话数据
+    env.CLAUDE_SESSION_ID = this.sessionId
+
     if (this.config.apiKey) {
       // Populate the env var(s) pi-ai reads for this provider so auth works without
       // requiring the user to pre-configure ~/.pi/agent/auth.json.
