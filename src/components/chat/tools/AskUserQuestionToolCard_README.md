@@ -100,9 +100,20 @@ function handleSkip() {
 
 - ✅ 新建：`src/components/chat/tools/AskUserQuestionToolCard.vue`
 - ✅ 修改：`src/components/chat/tools/index.ts` - 注册组件
+- ✅ 修改：`src/components/chat/ToolCallList.vue` - 添加图标和事件处理
+- ✅ 修改：`src/components/chat/MessageItem.vue` - 事件转发
+
+## 事件流
+
+组件的完整事件流如下：
+1. `AskUserQuestionToolCard` → 发出 `submit` 或 `skip` 事件
+2. → `ToolCallList` 接收并转发 → 发出 `toolSubmit` 或 `toolSkip`
+3. → `MessageItem` 接收并转发 → 发出 `toolSubmit` 或 `toolSkip`
+4. → 需要在父组件（App.vue 或其他）中继续处理
 
 ## 后续步骤
 
 1. 在 `electron/` 目录中添加IPC处理器来处理用户答案
 2. 在 `src/stores/chat.ts` 中添加 `submitAskUserQuestion` 方法
-3. 测试组件的完整交互流程
+3. 在 App.vue 或相关父组件中添加事件监听器
+4. 测试组件的完整交互流程

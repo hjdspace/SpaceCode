@@ -51,6 +51,7 @@
 import { ref, computed } from 'vue'
 import { MessageCircleQuestion } from 'lucide-vue-next'
 import type { ToolCall } from '@/types'
+import { api } from '@/services/electronAPI'
 
 interface QuestionOption {
   label: string
@@ -127,7 +128,12 @@ function handleOptionClick(
       selections.value.set(key, option.label)
     }
   } else {
-    selections.value.clear()
+    // 清除同一个问题的其他选择
+    for (const [k, _] of selections.value) {
+      if (k.startsWith(`${qIndex}-`)) {
+        selections.value.delete(k)
+      }
+    }
     selections.value.set(key, option.label)
   }
 }
@@ -212,10 +218,6 @@ function handleSubmit() {
 
 .question-item {
   margin-bottom: 20px;
-  
-  &:last-child {
-    margin-bottom: 0;
-  }
 }
 
 .question-title {
@@ -281,7 +283,7 @@ function handleSubmit() {
   
   &.selected {
     border-color: var(--accent-primary);
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(139, 92, 246, 0.08) 100%);
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(139, 92, 246, 0.1) 100%);
     
     &::before {
       border-color: var(--accent-primary);
@@ -340,7 +342,7 @@ function handleSubmit() {
   }
   
   &.secondary {
-    background: var(--surface-glass);
+    background: transparent;
     border: 1px solid var(--border-strong);
     color: var(--text-secondary);
     
@@ -360,10 +362,6 @@ function handleSubmit() {
     &:hover {
       box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
       transform: translateY(-1px);
-    }
-    
-    &:active {
-      transform: scale(0.98);
     }
   }
 }
