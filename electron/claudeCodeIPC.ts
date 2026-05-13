@@ -33,12 +33,12 @@ export function registerClaudeCodeIPC() {
     }
   })
 
-  ipcMain.handle('claude-code:sendMessage', async (_, sessionId: string, content: string) => {
-    info('ClaudeCodeIPC', `→ sendMessage | sessionId=${sessionId.slice(0, 8)} | contentLen=${content.length}`)
+  ipcMain.handle('claude-code:sendMessage', async (_, sessionId: string, content: string, images?: any[]) => {
+    info('ClaudeCodeIPC', `→ sendMessage | sessionId=${sessionId.slice(0, 8)} | contentLen=${content.length} | images=${images?.length || 0}`)
     const startMs = Date.now()
     try {
       const engine = findEngineForSession(sessionId)
-      await engine.sendMessage(sessionId, content)
+      await engine.sendMessage(sessionId, content, images)
       info('ClaudeCodeIPC', `← sendMessage | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms`)
     } catch (err) {
       error('ClaudeCodeIPC', `✗ sendMessage | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms`, { error: String(err) })

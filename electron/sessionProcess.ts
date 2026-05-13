@@ -223,20 +223,21 @@ export class SessionProcess extends EventEmitter {
     await this.start()
   }
 
-  sendMessage(content: string): void {
+  sendMessage(content: string, images?: any[]): void {
     if (!this.process) throw new Error('No active process')
-    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Sending user message | contentLen=${content.length} | preview="${content.slice(0, 100)}"`)
+    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Sending user message | contentLen=${content.length} | images=${images?.length || 0} | preview="${content.slice(0, 100)}"`)
     traceEvent({
       sessionId: this.sessionId,
       actor: 'user',
       type: 'user_message',
       status: 'completed',
       title: 'User message sent to engine',
-      input: { content },
+      input: { content, images: images?.length || 0 },
     })
+    
     const msg = JSON.stringify({
       type: 'user',
-      message: { role: 'user', content }
+      message: { role: 'user', content, images }
     }) + '\n'
     try {
       this.process.stdin!.write(msg)

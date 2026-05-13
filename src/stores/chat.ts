@@ -559,7 +559,12 @@ export const useChatStore = defineStore('chat', () => {
     return newMessage
   }
 
-  async function sendMessage(content: string, userMessageContent?: string): Promise<void> {
+  interface MessageAttachments {
+    files?: { name: string; path: string; isFolder: boolean }[]
+    images?: { id: string; name: string; type: 'image'; mimeType: string; previewUrl: string; data: string }[]
+  }
+
+  async function sendMessage(content: string, userMessageContent?: string, attachments?: MessageAttachments): Promise<void> {
     if (!currentSessionId.value) {
       createSession()
     }
@@ -581,7 +586,9 @@ export const useChatStore = defineStore('chat', () => {
 
     addMessage({
       role: 'user',
-      content: userMessageContent ?? content
+      content: userMessageContent ?? content,
+      attachments: attachments?.files,
+      imageAttachments: attachments?.images
     }, targetSessionId)
 
     const claudeCode = electronAPI?.claudeCode
@@ -1285,7 +1292,7 @@ export const useChatStore = defineStore('chat', () => {
         unsubscribeExit?.()
       }
 
-      claudeCode.sendMessage(targetSessionId, content).catch((error: any) => {
+      claudeCode.sendMessage(targetSessionId, content, attachments?.images).catch((error: any) => {
         logger.error('ChatStore', `[${targetSessionId.slice(0, 8)}] IPC sendMessage rejected`, { error: String(error) })
         cleanup()
         handleError(error)

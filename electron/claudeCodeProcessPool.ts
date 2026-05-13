@@ -85,14 +85,14 @@ export class ClaudeCodeProcessPool {
     proc.suspend()
   }
 
-  sendMessage(sessionId: string, content: string): void {
+  sendMessage(sessionId: string, content: string, images?: any[]): void {
     const proc = this.processes.get(sessionId)
     if (!proc || !proc.isRunning()) {
       error('ProcessPool', `[${sessionId.slice(0, 8)}] sendMessage failed: no active process | hasProcess=${!!proc} | isRunning=${proc?.isRunning()}`)
       throw new Error(`Session ${sessionId} has no active process`)
     }
-    info('ProcessPool', `[${sessionId.slice(0, 8)}] Forwarding user message | contentLen=${content.length}`)
-    proc.sendMessage(content)
+    info('ProcessPool', `[${sessionId.slice(0, 8)}] Forwarding user message | contentLen=${content.length} | images=${images?.length || 0}`)
+    proc.sendMessage(content, images)
   }
 
   abortSession(sessionId: string): void {

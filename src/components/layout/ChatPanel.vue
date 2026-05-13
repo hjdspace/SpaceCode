@@ -74,7 +74,7 @@ import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import { useAppStore } from '@/stores/app'
 import MessageList from '../chat/MessageList.vue'
-import ChatInput, { type Attachment } from '../chat/ChatInput.vue'
+import ChatInput, { type Attachment, type ImageAttachment } from '../chat/ChatInput.vue'
 import SessionTabBar from '../chat/SessionTabBar.vue'
 import TerminalPanel from '../terminal/TerminalPanel.vue'
 import NoProjectHome from './NoProjectHome.vue'
@@ -231,18 +231,21 @@ interface SendOptions {
   displayLabel?: string
 }
 
-async function handleSend(content: string, attachments: Attachment[], options?: SendOptions) {
-  console.log('[ChatPanel] handleSend called:', content.slice(0, 50))
-  if (!content.trim() && attachments.length === 0) return
+interface AllAttachments {
+  files: Attachment[]
+  images: ImageAttachment[]
+}
 
-  // The raw user input (with inline @file/@folder markers) is shown in the
-  // chat bubble. The LLM payload is augmented with an `Attachments:` suffix
-  // so the backend still has structured context without polluting the UI.
+async function handleSend(content: string, attachments: AllAttachments, options?: SendOptions) {
+  console.log('[ChatPanel] handleSend called:', content.slice(0, 50))
+  const hasContent = content.trim().length > 0 || attachments.files.length > 0 || attachments.images.length > 0
+  if (!hasContent) return
+
   const userTyped = content.trim()
   let messageContent = userTyped
 
-  if (attachments.length > 0) {
-    const attachmentInfo = attachments.map(att =>
+  if (attachments.files.length > 0) {
+    const attachmentInfo = attachments.files.map(att =>
       att.isFolder ? `[Folder: ${att.name}]` : `[File: ${att.name}]`
     ).join(', ')
 
@@ -253,16 +256,25 @@ async function handleSend(content: string, attachments: Attachment[], options?: 
     }
   }
 
-  // If an explicit display label was provided (e.g. via slash-command badge),
-  // prefer it. Otherwise fall back to the raw user input so the bubble shows
-  // the chips instead of the synthetic `Attachments: ...` suffix.
+  if (attachments.images.length > 0) {
+    const imageInfo = attachments.images.map(img => `[Image: ${img.name}]`).join(', ')
+    if (messageContent) {
+      messageContent += `\n\nImages: ${imageInfo}`
+    } else {
+      messageContent = `Images: ${imageInfo}`
+    }
+  }
+
   const displayLabel = options?.displayLabel && options.displayLabel !== messageContent
     ? options.displayLabel
     : userTyped
   const userContent = displayLabel !== messageContent ? displayLabel : undefined
 
   console.log('[ChatPanel] Calling chatStore.sendMessage...')
-  await chatStore.sendMessage(messageContent, userContent)
+  await chatStore.sendMessage(messageContent, userContent, {
+    files: attachments.files,
+    images: attachments.images
+  })
   console.log('[ChatPanel] chatStore.sendMessage done')
 }
 

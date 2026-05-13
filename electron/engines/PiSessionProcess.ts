@@ -5,7 +5,7 @@ import { app } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import { StringDecoder } from 'string_decoder'
 import type { ProcessStatus } from '../sessionProcess'
-import type { EngineSessionConfig } from './types'
+import type { EngineSessionConfig, ImageAttachment } from './types'
 import { info, warn, error, debug } from '../logger'
 
 export class PiSessionProcess extends EventEmitter {
@@ -162,7 +162,7 @@ export class PiSessionProcess extends EventEmitter {
     }
   }
 
-  async sendMessage(content: string): Promise<void> {
+  async sendMessage(content: string, images?: ImageAttachment[]): Promise<void> {
     if (!this._process || this.status === 'exited') {
       throw new Error(`Session ${this.sessionId} has no active process`)
     }
@@ -171,11 +171,11 @@ export class PiSessionProcess extends EventEmitter {
     this._isProcessing = true
     this.lastActivityAt = Date.now()
 
-    info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Sending prompt | contentLen=${content.length}`)
+    info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Sending prompt | contentLen=${content.length} | images=${images?.length || 0}`)
 
     try {
       const id = `req_${++this._requestId}`
-      const command = { id, type: 'prompt', message: content }
+      const command = { id, type: 'prompt', message: content, images }
       
       // Wait for response confirmation
       const responsePromise = new Promise<any>((resolve, reject) => {

@@ -463,9 +463,14 @@ interface SendOptions {
   displayLabel?: string
 }
 
+interface AllAttachments {
+  files: Attachment[]
+  images: ImageAttachment[]
+}
+
 const emit = defineEmits<{
-  send: [content: string, attachments: Attachment[], options?: SendOptions]
-  'slash-command': [command: string, args: string, attachments: Attachment[]]
+  send: [content: string, attachments: AllAttachments, options?: SendOptions]
+  'slash-command': [command: string, args: string, attachments: AllAttachments]
   'update:model': [model: string]
   'update:effort': [effort: string]
   'update:agent': [agent: string]
@@ -2272,8 +2277,52 @@ watch([() => props.disabled, () => props.isSending], ([disabled, sending]) => {
         border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.3);
         color: var(--accent-primary);
       }
+
+      &.is-image {
+        background: rgba(34, 197, 94, 0.08);
+        border-color: rgba(34, 197, 94, 0.3);
+        color: #22c55e;
+      }
     }
   }
+}
+
+// 拖拽遮罩样式
+.drag-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(34, 197, 94, 0.1);
+  border: 2px dashed rgba(34, 197, 94, 0.5);
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  pointer-events: none;
+
+  .drag-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    color: #22c55e;
+    font-size: 16px;
+    font-weight: 500;
+  }
+}
+
+// fade 过渡动画
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 
 // 底部工具栏 - 背景透明与输入框一致

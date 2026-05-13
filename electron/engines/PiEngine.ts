@@ -2,7 +2,7 @@ import type { BrowserWindow } from 'electron'
 import { app } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
-import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo } from './types'
+import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment } from './types'
 import { PiProcessPool } from './PiProcessPool'
 import { info, warn, error } from '../logger'
 
@@ -41,11 +41,11 @@ export class PiEngine implements IEngine {
     }
   }
 
-  async sendMessage(sessionId: string, content: string): Promise<void> {
-    info('PiEngine', `sendMessage | sessionId=${sessionId.slice(0, 8)} | contentLen=${content.length}`)
+  async sendMessage(sessionId: string, content: string, images?: ImageAttachment[]): Promise<void> {
+    info('PiEngine', `sendMessage | sessionId=${sessionId.slice(0, 8)} | contentLen=${content.length} | images=${images?.length || 0}`)
 
     try {
-      await this.pool.sendMessage(sessionId, content)
+      await this.pool.sendMessage(sessionId, content, images)
     } catch (err) {
       error('PiEngine', `sendMessage failed | sessionId=${sessionId.slice(0, 8)}`, err)
       throw err
