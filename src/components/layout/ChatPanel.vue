@@ -44,6 +44,8 @@
           v-else
           :messages="chatStore.currentMessages"
           :loading="chatStore.isLoading"
+          @tool-submit="handleToolSubmit"
+          @tool-skip="handleToolSkip"
         />
       </div>
 
