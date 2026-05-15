@@ -18,6 +18,13 @@
           <h2>{{ currentSession?.title || t('common.newConversation') }}</h2>
         </div>
         <div class="header-actions">
+          <button
+            class="history-btn"
+            @click="showHistoryModal = true"
+            title="历史会话"
+          >
+            <History :size="16" />
+          </button>
           <span class="agent-badge" v-if="chatStore.currentAgent" :title="chatStore.currentAgent">
             <span class="badge-dot agent-dot"></span>
             {{ chatStore.currentAgent }}
@@ -66,6 +73,39 @@
       />
       <ToastNotification />
     </template>
+    
+    <!-- History Session Modal -->
+    <Transition name="modal-fade">
+      <div 
+        v-if="showHistoryModal" 
+        class="history-modal-overlay" 
+        @click.self="showHistoryModal = false"
+      >
+        <div class="history-modal-content">
+          <div class="history-modal-header">
+            <h3>📜 恢复历史会话</h3>
+            <button class="history-close-btn" @click="showHistoryModal = false">×</button>
+          </div>
+          
+          <div class="history-modal-body">
+            <!-- Search Input -->
+            <input
+              type="text"
+              v-model="historySearchQuery"
+              placeholder="🔍 搜索会话标题、路径..."
+              class="history-search-input"
+              autofocus
+            />
+            
+            <!-- Session List -->
+            <HistorySessionList
+              :search-query="historySearchQuery"
+              @select="handleRestoreHistorySession"
+            />
+          </div>
+        </div>
+      </div>
+    </Transition>
   </main>
 </template>
 
@@ -86,6 +126,8 @@ import SessionTabBar from '../chat/SessionTabBar.vue'
 import TerminalPanel from '../terminal/TerminalPanel.vue'
 import NoProjectHome from './NoProjectHome.vue'
 import ToastNotification from '../common/ToastNotification.vue'
+import { History } from 'lucide-vue-next'
+import HistorySessionList from '../explorer/HistorySessionList.vue'
 import { initLLMService, llmState, updateConfig } from '@/services/llm'
 import { pathsEqual } from '@/utils/recentProjectRoots'
 
@@ -95,6 +137,9 @@ const appStore = useAppStore()
 const { t } = useI18n()
 
 const electronAPI = (window as any).electronAPI
+
+const showHistoryModal = ref(false)
+const historySearchQuery = ref('')
 
 const currentSession = computed(() => chatStore.currentSession)
 const provider = computed(() => llmState.provider.value)
@@ -509,6 +554,56 @@ function handleCloseTab(tabId: string) {
   }
   appStore.closeSessionTab(tabId)
 }
+
+async function handleRestoreHistorySession(session: any) {
+  try {
+    const claudeCode = (window as any).electronAPI?.claudeCode
+    if (!claudeCode || !session?.sessionId) return
+    
+    const fullSession = await claudeCode.getFullSession(session.projectPath, session.sessionId)
+    if (!fullSession?.messages) return
+    
+    const newSession = chatStore.createSession(
+      session.metadata?.customTitle ||
+      (session.firstUserMessage ? session.firstUserMessage.slice(0, 60) : '历史会话恢复')
+    )
+    
+    for (const msg of fullSession.messages) {
+      if (msg.type === 'user' && msg.message?.content) {
+        let content = ''
+        if (typeof msg.message.content === 'string') {
+          content = msg.message.content
+        } else if (Array.isArray(msg.message.content)) {
+          const textItem = msg.message.content.find((c: any) => c.type === 'text')
+          content = textItem?.text || ''
+        }
+        
+        if (content.trim()) {
+          await chatStore.addMessage({ role: 'user', content })
+        }
+      } else if (msg.type === 'assistant' && msg.message?.content) {
+        let content = ''
+        if (typeof msg.message.content === 'string') {
+          content = msg.message.content
+        } else if (Array.isArray(msg.message.content)) {
+          content = msg.message.content.map((c: any) => 
+            c.type === 'text' ? c.text : `[${c.type}]`
+          ).join('\n')
+        }
+        
+        if (content.trim()) {
+          await chatStore.addMessage({ role: 'assistant', content })
+        }
+      }
+    }
+    
+    showHistoryModal.value = false
+    
+    console.log('[ChatPanel] History session restored:', newSession.id)
+  } catch (error) {
+    console.error('[ChatPanel] Failed to restore history session:', error)
+  }
+}
 </script>
 
 <style lang="scss" scoped>
@@ -680,6 +775,131 @@ function handleCloseTab(tabId: string) {
   }
   50% {
     opacity: 0.5;
+  }
+}
+
+/* History Button */
+.history-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    background: var(--surface-glass-hover);
+    color: var(--accent-primary);
+  }
+}
+
+/* History Modal */
+.history-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 10vh;
+}
+
+.history-modal-content {
+  width: 90%;
+  max-width: 640px;
+  max-height: 75vh;
+  background: var(--surface-glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.history-modal-header {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--surface-border);
+  @include flex-between;
+
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+  }
+}
+
+.history-close-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    background: var(--surface-glass-hover);
+    color: var(--error);
+  }
+}
+
+.history-modal-body {
+  padding: 12px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.history-search-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: all 0.2s ease;
+  margin-bottom: 8px;
+
+  &::placeholder {
+    color: var(--text-muted);
+  }
+
+  &:focus {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.15);
+  }
+}
+
+/* Modal Transition */
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: all 0.25s ease;
+}
+
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
+
+  .history-modal-content {
+    transform: translateY(-10px) scale(0.98);
   }
 }
 </style>
