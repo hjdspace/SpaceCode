@@ -50,6 +50,21 @@ export interface ErrorLogEntry {
   resolved: boolean
 }
 
+export interface ImageAttachment {
+  id: string
+  name: string
+  type: 'image'
+  mimeType: string
+  previewUrl: string
+  data: string // Base64 encoded image data
+}
+
+export interface Attachment {
+  name: string
+  path: string
+  isFolder: boolean
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant' | 'system'
@@ -60,6 +75,8 @@ export interface Message {
   toolResults?: ToolResult[]
   timelineEvents?: MessageTimelineEvent[]
   metadata?: MessageMetadata
+  attachments?: (Attachment | ImageAttachment)[]
+  imageAttachments?: ImageAttachment[]
 }
 
 export interface MessageTimelineEvent {

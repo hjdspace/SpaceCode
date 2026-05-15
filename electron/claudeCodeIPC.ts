@@ -33,12 +33,12 @@ export function registerClaudeCodeIPC() {
     }
   })
 
-  ipcMain.handle('claude-code:sendMessage', async (_, sessionId: string, content: string) => {
-    info('ClaudeCodeIPC', `→ sendMessage | sessionId=${sessionId.slice(0, 8)} | contentLen=${content.length}`)
+  ipcMain.handle('claude-code:sendMessage', async (_, sessionId: string, content: string, images?: any[]) => {
+    info('ClaudeCodeIPC', `→ sendMessage | sessionId=${sessionId.slice(0, 8)} | contentLen=${content.length} | images=${images?.length || 0}`)
     const startMs = Date.now()
     try {
       const engine = findEngineForSession(sessionId)
-      await engine.sendMessage(sessionId, content)
+      await engine.sendMessage(sessionId, content, images)
       info('ClaudeCodeIPC', `← sendMessage | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms`)
     } catch (err) {
       error('ClaudeCodeIPC', `✗ sendMessage | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms`, { error: String(err) })
@@ -144,6 +144,40 @@ export function registerClaudeCodeIPC() {
   ipcMain.handle('claude-code:isEngineAvailable', async (_, engineType: string) => {
     debug('ClaudeCodeIPC', `→ isEngineAvailable | engine=${engineType}`)
     return EngineFactory.isEngineAvailableAsync(engineType as any)
+  })
+
+  ipcMain.handle('claude-code:submitToolAnswer', async (_, sessionId: string, toolCallId: string, answers: Record<string, string>) => {
+    info('ClaudeCodeIPC', `→ submitToolAnswer | sessionId=${sessionId.slice(0, 8)} | toolId=${toolCallId.slice(0, 8)} | answers=${JSON.stringify(answers)}`)
+    const startMs = Date.now()
+    try {
+      const engine = findEngineForSession(sessionId)
+      if (typeof engine.submitToolAnswer === 'function') {
+        await engine.submitToolAnswer(sessionId, toolCallId, answers)
+        info('ClaudeCodeIPC', `← submitToolAnswer | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms`)
+      } else {
+        warn('ClaudeCodeIPC', `submitToolAnswer not implemented in engine=${engine.type}`)
+      }
+    } catch (err) {
+      error('ClaudeCodeIPC', `✗ submitToolAnswer | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms`, { error: String(err) })
+      throw err
+    }
+  })
+
+  ipcMain.handle('claude-code:skipToolAnswer', async (_, sessionId: string, toolCallId: string) => {
+    info('ClaudeCodeIPC', `→ skipToolAnswer | sessionId=${sessionId.slice(0, 8)} | toolId=${toolCallId.slice(0, 8)}`)
+    const startMs = Date.now()
+    try {
+      const engine = findEngineForSession(sessionId)
+      if (typeof engine.skipToolAnswer === 'function') {
+        await engine.skipToolAnswer(sessionId, toolCallId)
+        info('ClaudeCodeIPC', `← skipToolAnswer | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms`)
+      } else {
+        warn('ClaudeCodeIPC', `skipToolAnswer not implemented in engine=${engine.type}`)
+      }
+    } catch (err) {
+      error('ClaudeCodeIPC', `✗ skipToolAnswer | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms`, { error: String(err) })
+      throw err
+    }
   })
 }
 

@@ -3,15 +3,24 @@
     class="markdown-renderer" 
     v-html="renderedContent" 
     @click="handleLinkClick"
+    ref="containerRef"
   ></div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
 import { marked } from 'marked'
 import hljs from 'highlight.js'
 import { useAppStore } from '@/stores/app'
 import { escapeHtml, replaceMentionChipMarkers } from '@/utils/mention-chips'
+import { 
+  initializeMermaid, 
+  generateMermaidId, 
+  createMermaidContainerHtml,
+  renderAllMermaidDiagrams 
+} from '@/utils/mermaidRenderer'
+
+const containerRef = ref<HTMLElement | null>(null)
 
 const props = defineProps<{
   content: string
@@ -107,6 +116,12 @@ const renderer = new marked.Renderer()
 
 renderer.code = function(code, language) {
   const lang = language || 'text'
+  
+  if (lang.toLowerCase() === 'mermaid') {
+    const mermaidId = generateMermaidId()
+    return createMermaidContainerHtml(code, mermaidId)
+  }
+  
   const validLang = hljs.getLanguage(lang) ? lang : 'plaintext'
   let highlighted: string
   try {
@@ -215,6 +230,21 @@ function handleLinkClick(event: MouseEvent) {
     console.log('[MarkdownRenderer] External link opened in webview:', href)
   }
 }
+
+initializeMermaid()
+
+async function renderMermaidDiagrams() {
+  if (!containerRef.value) return
+  await renderAllMermaidDiagrams(containerRef.value)
+}
+
+onMounted(() => {
+  renderMermaidDiagrams()
+})
+
+watch(() => props.content, () => {
+  setTimeout(renderMermaidDiagrams, 0)
+})
 </script>
 
 <style lang="scss" scoped>
@@ -403,6 +433,42 @@ function handleLinkClick(event: MouseEvent) {
       background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.15);
       transform: scale(0.98);
     }
+  }
+
+  :deep(.mermaid-container) {
+    background: var(--code-bg);
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    margin: 12px 0;
+    overflow-x: auto;
+    font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', Consolas, monospace;
+    font-size: 13px;
+    color: var(--text-primary);
+    
+    &.rendered {
+      background: transparent;
+      border: none;
+      padding: 8px 0;
+      overflow: visible;
+      
+      svg {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin: 0 auto;
+      }
+    }
+  }
+
+  :deep(.mermaid-error) {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: var(--radius-md);
+    padding: 12px;
+    color: #ef4444;
+    font-size: 13px;
+    margin: 12px 0;
   }
 }
 </style>

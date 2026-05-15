@@ -11,11 +11,28 @@
         <span class="timestamp">{{ formatTime(message.timestamp) }}</span>
       </div>
       
+      <!-- 图片附件 -->
+      <div v-if="message.imageAttachments?.length" class="image-attachments">
+        <div 
+          v-for="img in message.imageAttachments" 
+          :key="img.id"
+          class="image-attachment"
+        >
+          <img :src="img.previewUrl" :alt="img.name" @click="showImagePreview(img)" />
+          <span class="image-name">{{ img.name }}</span>
+        </div>
+      </div>
+      
       <!-- 思考过程 -->
       <ReasoningCard v-if="message.reasoning" :reasoning="message.reasoning" />
       
       <!-- 工具调用 -->
-      <ToolCallList v-if="message.toolCalls?.length" :tool-calls="message.toolCalls" />
+      <ToolCallList 
+        v-if="message.toolCalls?.length" 
+        :tool-calls="message.toolCalls"
+        @tool-submit="handleToolSubmit"
+        @tool-skip="handleToolSkip"
+      />
       
       <!-- 消息内容 -->
       <div class="message-content" v-if="message.content">
@@ -33,7 +50,7 @@
 </template>
 
 <script setup lang="ts">
-import type { Message } from '@/types'
+import type { Message, ImageAttachment } from '@/types'
 import { User, Bot } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -49,6 +66,11 @@ const props = defineProps<{
   message: Message
 }>()
 
+const emit = defineEmits<{
+  toolSubmit: [messageId: string, toolId: string, answers: Record<string, string>]
+  toolSkip: [messageId: string, toolId: string]
+}>()
+
 const renderedUserContent = computed(() =>
   renderMentionChipsToHtml(props.message.content || '')
 )
@@ -56,6 +78,18 @@ const renderedUserContent = computed(() =>
 function formatTime(timestamp: number): string {
   const date = new Date(timestamp)
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })    
+}
+
+function showImagePreview(img: ImageAttachment) {
+  window.open(img.previewUrl, '_blank')
+}
+
+function handleToolSubmit(toolId: string, answers: Record<string, string>) {
+  emit('toolSubmit', props.message.id, toolId, answers)
+}
+
+function handleToolSkip(toolId: string) {
+  emit('toolSkip', props.message.id, toolId)
 }
 </script>
 
@@ -137,6 +171,46 @@ function formatTime(timestamp: number): string {
   .timestamp {
     font-size: 11px;
     color: var(--text-muted);
+  }
+}
+
+.image-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.image-attachment {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--surface-border);
+  border-radius: 8px;
+  padding: 4px;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+
+  &:hover {
+    border-color: var(--accent-primary);
+  }
+
+  img {
+    max-width: 120px;
+    max-height: 120px;
+    border-radius: 4px;
+    object-fit: cover;
+  }
+
+  .image-name {
+    font-size: 11px;
+    color: var(--text-muted);
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 

@@ -1,7 +1,7 @@
 import type { BrowserWindow } from 'electron'
 import { ClaudeCodeProcessPool } from '../claudeCodeProcessPool'
 import { SessionConfig } from '../claudeCodeProcessManager'
-import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo } from './types'
+import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment } from './types'
 import * as fs from 'fs'
 import * as path from 'path'
 import { info } from '../logger'
@@ -64,8 +64,18 @@ export class ClaudeCodeEngine implements IEngine {
     await this.pool.startSession(sessionId, sessionConfig)
   }
 
-  sendMessage(sessionId: string, content: string): Promise<void> {
-    this.pool.sendMessage(sessionId, content)
+  sendMessage(sessionId: string, content: string, images?: ImageAttachment[]): Promise<void> {
+    this.pool.sendMessage(sessionId, content, images)
+    return Promise.resolve()
+  }
+
+  submitToolAnswer(sessionId: string, toolCallId: string, answers: Record<string, string>): Promise<void> {
+    this.pool.submitToolAnswer(sessionId, toolCallId, answers)
+    return Promise.resolve()
+  }
+
+  skipToolAnswer(sessionId: string, toolCallId: string): Promise<void> {
+    this.pool.skipToolAnswer(sessionId, toolCallId)
     return Promise.resolve()
   }
 

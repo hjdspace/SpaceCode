@@ -1,5 +1,12 @@
 <template>
-  <div ref="containerRef" class="chat-input-container">
+  <div 
+    ref="containerRef" 
+    class="chat-input-container"
+    @dragenter="handleDragEnter"
+    @dragover="handleDragOver"
+    @dragleave="handleDragLeave"
+    @drop="handleDrop"
+  >
     <!-- 斜杠命令弹窗 -->
     <Transition name="dropdown">
       <div
@@ -362,6 +369,10 @@
     <!-- 附件菜单弹窗 -->
     <Transition name="dropdown">
       <div v-if="showAttachmentMenu" class="attachment-menu" v-click-outside="closeAttachmentMenu">
+        <button class="attachment-item" @click="handleAttachImage">
+          <Image :size="16" />
+          <span>添加图片</span>
+        </button>
         <button class="attachment-item" @click="handleAttachFile">
           <FileText :size="16" />
           <span>{{ t('chatInput.attachFiles') }}</span>
@@ -381,6 +392,16 @@
         </button>
       </div>
     </Transition>
+    
+    <!-- 拖拽遮罩 -->
+    <Transition name="fade">
+      <div v-if="isDragging" class="drag-overlay">
+        <div class="drag-content">
+          <Image :size="48" />
+          <span>拖放图片到此处添加</span>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -391,7 +412,7 @@ import {
   Search, Loader2, RefreshCw, AlertCircle, HelpCircle, Trash2, Coins,
   Minimize2, Stethoscope, FilePlus, Zap, FolderOpen, Terminal, Settings,
   Code, GitBranch, Bug, Bookmark, Layers, MessageSquare, Eye, Cpu, Brain,
-  Sparkles
+  Sparkles, Image
 } from 'lucide-vue-next'
 import { useSettingsStore } from '@/stores/settings'
 import { useSkillsStore } from '@/stores/skills'
@@ -400,6 +421,15 @@ import { useChatStore } from '@/stores/chat'
 import { api } from '@/services/electronAPI'
 import { useI18n } from 'vue-i18n'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
+
+export interface ImageAttachment {
+  id: string
+  name: string
+  type: 'image'
+  mimeType: string
+  previewUrl: string
+  data: string // Base64 encoded image data
+}
 
 export interface Attachment {
   name: string
@@ -433,9 +463,14 @@ interface SendOptions {
   displayLabel?: string
 }
 
+interface AllAttachments {
+  files: Attachment[]
+  images: ImageAttachment[]
+}
+
 const emit = defineEmits<{
-  send: [content: string, attachments: Attachment[], options?: SendOptions]
-  'slash-command': [command: string, args: string, attachments: Attachment[]]
+  send: [content: string, attachments: AllAttachments, options?: SendOptions]
+  'slash-command': [command: string, args: string, attachments: AllAttachments]
   'update:model': [model: string]
   'update:effort': [effort: string]
   'update:agent': [agent: string]
@@ -466,6 +501,8 @@ const showModelDropdown = ref(false)
 const showModeDropdown = ref(false)
 const showAttachmentMenu = ref(false)
 const attachedFiles = ref<Attachment[]>([])
+const attachedImages = ref<ImageAttachment[]>([])
+const isDragging = ref(false)
 
 // 命令 Badge 系统
 const activeBadge = ref<CommandBadge | null>(null)
@@ -776,9 +813,15 @@ function getEditorPlainText(): string {
     let text = ''
     for (const node of Array.from(parent.childNodes)) {
       if (node instanceof Element && node.classList.contains('mention-chip')) {
-        const path = node.getAttribute('data-path') || ''
-        const isFolder = node.getAttribute('data-is-folder') === 'true'
-        text += isFolder ? `@folder:"${path}" ` : `@file:"${path}" `
+        const path = node.getAttribute('data-path')
+        const imageId = node.getAttribute('data-image-id')
+        
+        if (imageId) {
+          text += `@image:"${imageId}" `
+        } else if (path) {
+          const isFolder = node.getAttribute('data-is-folder') === 'true'
+          text += isFolder ? `@folder:"${path}" ` : `@file:"${path}" `
+        }
       } else if (node.nodeType === Node.TEXT_NODE) {
         text += node.textContent || ''
       } else if (node instanceof Element && node.tagName === 'BR') {
@@ -796,6 +839,15 @@ function getEditorPlainText(): string {
   }
 
   return walkNodes(editor)
+}
+
+/** Collect all attachments (files and images) from editor */
+function collectAllAttachments() {
+  const mentions = collectMentions()
+  return {
+    files: mentions,
+    images: [...attachedImages.value]
+  }
 }
 
 /** Extract text before cursor in the contenteditable */
@@ -1334,11 +1386,116 @@ function closeContextMenu() {
   highlightedContextItem.value = null
 }
 
-// Handle paste — strip HTML, paste as plain text
+// 处理图片文件读取为 base64
+function readImageAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
+// 创建图片附件对象
+function createImageAttachment(file: File, dataUrl: string): ImageAttachment {
+  return {
+    id: crypto.randomUUID(),
+    name: file.name,
+    type: 'image',
+    mimeType: file.type,
+    previewUrl: dataUrl,
+    data: dataUrl
+  }
+}
+
+// 处理单个图片文件
+async function handleImageFile(file: File) {
+  if (!file.type.startsWith('image/')) return
+  
+  try {
+    const dataUrl = await readImageAsDataUrl(file)
+    const imageAttachment = createImageAttachment(file, dataUrl)
+    attachedImages.value.push(imageAttachment)
+    insertImageChip(imageAttachment)
+  } catch (error) {
+    console.error('Failed to read image file:', error)
+  }
+}
+
+// 插入图片 chip
+function insertImageChip(image: ImageAttachment) {
+  const editor = editorRef.value
+  if (!editor) return
+  
+  const chip = document.createElement('span')
+  chip.className = 'mention-chip is-image'
+  chip.setAttribute('data-image-id', image.id)
+  chip.setAttribute('contenteditable', 'false')
+  
+  const icon = document.createElement('span')
+  icon.className = 'chip-icon'
+  icon.textContent = '🖼️'
+  
+  const name = document.createElement('span')
+  name.className = 'chip-name'
+  name.textContent = image.name
+  
+  chip.appendChild(icon)
+  chip.appendChild(name)
+  
+  const sel = window.getSelection()
+  if (sel && sel.rangeCount > 0) {
+    const range = sel.getRangeAt(0)
+    range.deleteContents()
+    range.insertNode(chip)
+    
+    // 添加尾随空格
+    const space = document.createTextNode('\u00A0')
+    range.collapse(false)
+    range.insertNode(space)
+    
+    // 移动光标到空格后
+    const finalRange = document.createRange()
+    finalRange.setStartAfter(space)
+    finalRange.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(finalRange)
+  } else {
+    editor.appendChild(chip)
+    editor.appendChild(document.createTextNode('\u00A0'))
+  }
+  
+  inputText.value = getEditorPlainText()
+}
+
+// 处理粘贴事件 - 支持粘贴图片
 function handleEditorPaste(e: ClipboardEvent) {
   e.preventDefault()
-  const text = e.clipboardData?.getData('text/plain') || ''
-  document.execCommand('insertText', false, text)
+  
+  const items = e.clipboardData?.items
+  if (items) {
+    let hasImage = false
+    
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        hasImage = true
+        const file = item.getAsFile()
+        if (file) {
+          handleImageFile(file)
+        }
+      }
+    }
+    
+    // 如果没有图片，继续处理文本
+    if (!hasImage) {
+      const text = e.clipboardData?.getData('text/plain') || ''
+      document.execCommand('insertText', false, text)
+    }
+  } else {
+    // 回退到普通文本粘贴
+    const text = e.clipboardData?.getData('text/plain') || ''
+    document.execCommand('insertText', false, text)
+  }
 }
 
 // Handle click in editor
@@ -1606,11 +1763,17 @@ function handleEditorKeydown(event: KeyboardEvent) {
         nodeBefore.remove()
         inputText.value = getEditorPlainText()
 
-        // Also remove from attachedFiles
+        // Also remove from attachedFiles or attachedImages
         const path = nodeBefore.getAttribute('data-path')
         if (path) {
           const idx = attachedFiles.value.findIndex(f => f.path === path)
           if (idx >= 0) attachedFiles.value.splice(idx, 1)
+        }
+        
+        const imageId = nodeBefore.getAttribute('data-image-id')
+        if (imageId) {
+          const idx = attachedImages.value.findIndex(img => img.id === imageId)
+          if (idx >= 0) attachedImages.value.splice(idx, 1)
         }
       }
     }
@@ -1630,7 +1793,7 @@ function handleSendOrStop() {
 
 function handleSend() {
   const mentions = collectMentions()
-  if ((!canSend.value && mentions.length === 0 && !hasActiveBadge.value) || props.disabled) return
+  if ((!canSend.value && mentions.length === 0 && attachedImages.value.length === 0 && !hasActiveBadge.value) || props.disabled) return
 
   // 如果有打开的斜杠命令菜单或上下文菜单，不执行发送（让菜单处理回车事件）
   if (showSlashCommandMenu.value || showContextMenu.value) return
@@ -1645,13 +1808,14 @@ function handleSend() {
   modelSearchQuery.value = ''
 
   const content = getEditorPlainText().trim()
+  const allAttachments = collectAllAttachments()
 
   // 如果有活跃的 Badge，使用 dispatchBadge 展开
   if (hasActiveBadge.value && activeBadge.value) {
     const result = dispatchBadge(activeBadge.value, content)
 
     // 发送展开后的提示词
-    emit('send', result.prompt, mentions, {
+    emit('send', result.prompt, allAttachments, {
       badge: activeBadge.value,
       displayLabel: result.displayLabel
     })
@@ -1659,6 +1823,7 @@ function handleSend() {
     // 清除状态
     clearEditor()
     attachedFiles.value = []
+    attachedImages.value = []
     activeBadge.value = null
     return
   }
@@ -1671,7 +1836,7 @@ function handleSend() {
     const commandName = content.slice(1).split(/\s+/)[0]
     const commandArgs = content.slice(1 + commandName.length).trim()
     clearEditor()
-    emit('slash-command', commandName, commandArgs, mentions)
+    emit('slash-command', commandName, commandArgs, allAttachments)
   } else if (slashResult.action === 'set_badge' && slashResult.badge) {
     // 设置为 Badge，等待用户添加上下文
     activeBadge.value = slashResult.badge
@@ -1682,11 +1847,12 @@ function handleSend() {
     clearEditor()
   } else {
     // 普通消息
-    emit('send', content, mentions)
+    emit('send', content, allAttachments)
   }
 
   clearEditor()
   attachedFiles.value = []
+  attachedImages.value = []
 }
 
 // 清除 Badge
@@ -1772,6 +1938,72 @@ async function handleOpenProjectFolder() {
   await openProjectFromPicker()
 }
 
+async function handleAttachImage() {
+  closeAttachmentMenu()
+  try {
+    const result = await api.selectFiles({
+      filters: [
+        { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'] }
+      ]
+    })
+    if (!result.canceled && result.filePaths.length > 0) {
+      for (const filePath of result.filePaths) {
+        const name = filePath.split(/[\\/]/).pop() || filePath
+        // 从文件路径创建 File 对象（需要在 renderer 进程处理）
+        // 使用 fetch 或 fs 来读取文件
+        try {
+          // 对于 Electron，我们可以直接通过 fs 读取
+          const dataUrl = await readLocalImageAsDataUrl(filePath)
+          const mimeType = getMimeTypeFromFileName(filePath)
+          const imageAttachment: ImageAttachment = {
+            id: crypto.randomUUID(),
+            name,
+            type: 'image',
+            mimeType,
+            previewUrl: dataUrl,
+            data: dataUrl
+          }
+          attachedImages.value.push(imageAttachment)
+          insertImageChip(imageAttachment)
+        } catch (error) {
+          console.error('Failed to read local image:', error)
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Failed to select images:', error)
+  }
+}
+
+async function readLocalImageAsDataUrl(filePath: string): Promise<string> {
+  try {
+    // 尝试使用 api 提供的 fs 读取
+    const fileData = await (api as any).readFile?.(filePath, { encoding: 'base64' })
+    if (fileData) {
+      const mimeType = getMimeTypeFromFileName(filePath)
+      return `data:${mimeType};base64,${fileData}`
+    }
+  } catch (e) {
+    console.warn('Could not use API to read file, falling back')
+  }
+  // 如果没有 api，我们需要使用传统方法（这需要 File 对象）
+  throw new Error('Need File object')
+}
+
+function getMimeTypeFromFileName(fileName: string): string {
+  const ext = fileName.split('.').pop()?.toLowerCase()
+  switch (ext) {
+    case 'jpg':
+    case 'jpeg': return 'image/jpeg'
+    case 'png': return 'image/png'
+    case 'gif': return 'image/gif'
+    case 'bmp': return 'image/bmp'
+    case 'webp': return 'image/webp'
+    case 'svg': return 'image/svg+xml'
+    default: return 'image/png'
+  }
+}
+
 async function handleAttachFolder() {
   closeAttachmentMenu()
   try {
@@ -1792,6 +2024,88 @@ async function handleAttachFolder() {
   } catch (error) {
     console.error('Failed to select folder:', error)
   }
+}
+
+// 拖拽处理函数
+function handleDragEnter(e: DragEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  if (hasDragContent(e)) {
+    isDragging.value = true
+  }
+}
+
+function handleDragOver(e: DragEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  if (hasDragContent(e)) {
+    isDragging.value = true
+  }
+}
+
+function handleDragLeave(e: DragEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  // 检查是否真的离开了容器
+  const rect = (containerRef.value as HTMLElement).getBoundingClientRect()
+  const x = e.clientX
+  const y = e.clientY
+  if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+    isDragging.value = false
+  }
+}
+
+function handleDrop(e: DragEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  isDragging.value = false
+  
+  if (!e.dataTransfer) return
+
+  // 1. 处理从目录树拖拽的文件/文件夹
+  const claudePath = e.dataTransfer.getData('application/x-claude-path')
+  if (claudePath) {
+    const nodeType = e.dataTransfer.getData('application/x-claude-type')
+    const name = claudePath.split(/[\\/]/).pop() || claudePath
+    const isFolder = nodeType === 'directory'
+    
+    // 避免重复添加
+    if (!attachedFiles.value.some(f => f.path === claudePath)) {
+      attachedFiles.value.push({
+        name,
+        path: claudePath,
+        isFolder
+      })
+      insertMentionChip(name, claudePath, isFolder)
+      console.log('[ChatInput] Dropped file/folder from tree:', claudePath, isFolder ? '(folder)' : '(file)')
+    }
+    return
+  }
+
+  // 2. 处理图片文件（从系统文件管理器拖拽）
+  const files = Array.from(e.dataTransfer?.files || [])
+  for (const file of files) {
+    if (file.type.startsWith('image/')) {
+      handleImageFile(file)
+    }
+  }
+}
+
+function hasDragContent(e: DragEvent): boolean {
+  if (!e.dataTransfer?.types) return false
+  
+  // 检查是否有目录树拖拽的内容
+  if (e.dataTransfer.types.includes('application/x-claude-path')) {
+    return true
+  }
+  
+  // 检查是否有图片文件
+  if (e.dataTransfer.types.includes('Files')) {
+    const files = Array.from(e.dataTransfer.files || [])
+    return files.some(file => file.type.startsWith('image/'))
+  }
+  
+  return false
 }
 
 // 键盘导航
@@ -1993,8 +2307,52 @@ watch([() => props.disabled, () => props.isSending], ([disabled, sending]) => {
         border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.3);
         color: var(--accent-primary);
       }
+
+      &.is-image {
+        background: rgba(34, 197, 94, 0.08);
+        border-color: rgba(34, 197, 94, 0.3);
+        color: #22c55e;
+      }
     }
   }
+}
+
+// 拖拽遮罩样式
+.drag-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(34, 197, 94, 0.1);
+  border: 2px dashed rgba(34, 197, 94, 0.5);
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  pointer-events: none;
+
+  .drag-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    color: #22c55e;
+    font-size: 16px;
+    font-weight: 500;
+  }
+}
+
+// fade 过渡动画
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 
 // 底部工具栏 - 背景透明与输入框一致

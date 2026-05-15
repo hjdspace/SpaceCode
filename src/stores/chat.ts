@@ -559,7 +559,12 @@ export const useChatStore = defineStore('chat', () => {
     return newMessage
   }
 
-  async function sendMessage(content: string, userMessageContent?: string): Promise<void> {
+  interface MessageAttachments {
+    files?: { name: string; path: string; isFolder: boolean }[]
+    images?: { id: string; name: string; type: 'image'; mimeType: string; previewUrl: string; data: string }[]
+  }
+
+  async function sendMessage(content: string, userMessageContent?: string, attachments?: MessageAttachments): Promise<void> {
     if (!currentSessionId.value) {
       createSession()
     }
@@ -581,7 +586,9 @@ export const useChatStore = defineStore('chat', () => {
 
     addMessage({
       role: 'user',
-      content: userMessageContent ?? content
+      content: userMessageContent ?? content,
+      attachments: attachments?.files,
+      imageAttachments: attachments?.images
     }, targetSessionId)
 
     const claudeCode = electronAPI?.claudeCode
@@ -1169,6 +1176,18 @@ export const useChatStore = defineStore('chat', () => {
         loadingSessions.value.set(targetSessionId, false)
         streamingContents.value.set(targetSessionId, '')
 
+        // 如果是超时错误，先尝试 abort 引擎
+        const errorMsg = String(error).toLowerCase()
+        const isTimeoutError = errorMsg.includes('超时') || errorMsg.includes('timeout')
+        if (isTimeoutError && claudeCode) {
+          try {
+            logger.warn('ChatStore', `[${targetSessionId.slice(0, 8)}] timeout detected, attempting to abort engine process`)
+            claudeCode.abort(targetSessionId)
+          } catch (e) {
+            logger.warn('ChatStore', `[${targetSessionId.slice(0, 8)}] abort failed`, { error: String(e) })
+          }
+        }
+
         const classified = errorHandler.handleError(error, {
           sessionId: targetSessionId,
           provider: settingsStore.config.provider,
@@ -1199,6 +1218,8 @@ export const useChatStore = defineStore('chat', () => {
         const s = sessions.value.find(s => s.id === targetSessionId)
         if (s) {
           s.processStatus = 'exited'
+          // 不清除 engineType！它记录的是用户选择的引擎类型
+          // 下次启动时会用同样的引擎继续工作
           saveToStorage()
         }
 
@@ -1271,7 +1292,7 @@ export const useChatStore = defineStore('chat', () => {
         unsubscribeExit?.()
       }
 
-      claudeCode.sendMessage(targetSessionId, content).catch((error: any) => {
+      claudeCode.sendMessage(targetSessionId, content, attachments?.images).catch((error: any) => {
         logger.error('ChatStore', `[${targetSessionId.slice(0, 8)}] IPC sendMessage rejected`, { error: String(error) })
         cleanup()
         handleError(error)
@@ -1306,6 +1327,8 @@ export const useChatStore = defineStore('chat', () => {
     errorHandler.clearInlineError(sid)
     const session = sessions.value.find(s => s.id === sid)
     if (!session) return
+    
+    const claudeCode = electronAPI?.claudeCode
     const lastUserMsg = [...session.messages].reverse().find(m => m.role === 'user')
     if (lastUserMsg) {
       const lastAssistantMsg = [...session.messages].reverse().find(m => m.role === 'assistant' && m.metadata?.error)
@@ -1313,7 +1336,55 @@ export const useChatStore = defineStore('chat', () => {
         const idx = session.messages.findIndex(m => m.id === lastAssistantMsg.id)
         if (idx >= 0) session.messages.splice(idx, 1)
       }
-      await sendMessage(lastUserMsg.content)
+      
+      try {
+        // 先尝试挂起会话（而不是直接停止），这样引擎可以用 --resume 恢复完整历史
+        if (claudeCode) {
+          logger.info('ChatStore', `retryLastMessage: attempting to suspend and resume session | sessionId=${sid.slice(0, 8)}`)
+          try {
+            // 先尝试挂起
+            if (session.processStatus === 'active' || session.processStatus === 'idle') {
+              claudeCode.suspendSession?.(sid)
+              session.processStatus = 'suspended'
+              saveToStorage()
+              // 给一点时间让挂起完成
+              await new Promise(resolve => setTimeout(resolve, 100))
+            }
+            // 如果挂起后还是有问题，或者状态不是 suspended，那就停止它
+            const status = await claudeCode.getSessionStatus(sid)
+            if (!status?.isRunning || status?.status === 'exited') {
+              await claudeCode.stop(sid)
+              session.processStatus = 'none'
+              // 不清除 engineType！用户没有切换引擎，保持原来的选择
+              saveToStorage()
+            }
+          } catch (e) {
+            // 挂起失败的话，就停止进程
+            logger.warn('ChatStore', `retryLastMessage: suspend failed, falling back to stop | sessionId=${sid.slice(0, 8)}`, { error: String(e) })
+            try {
+              await claudeCode.stop(sid)
+            } catch (e2) {
+              // 停止失败也不要紧，继续尝试
+            }
+            session.processStatus = 'none'
+            // 不清除 engineType！用户没有切换引擎，保持原来的选择
+            saveToStorage()
+          }
+        }
+        
+        // 重新发送消息（会自动重新初始化引擎）
+        // 注意：sendMessage 内部会把这条消息先加到 session.messages 里，所以我们先临时移除这条
+        // 用户消息，等 sendMessage 再加回来，避免重复
+        const existingUserMsgIndex = session.messages.findIndex(m => m.role === 'user' && m.content === lastUserMsg.content)
+        if (existingUserMsgIndex >= 0) {
+          session.messages.splice(existingUserMsgIndex, 1)
+          saveToStorage()
+        }
+        
+        await sendMessage(lastUserMsg.content)
+      } catch (error) {
+        logger.error('ChatStore', `retryLastMessage: failed | sessionId=${sid.slice(0, 8)}`, { error: String(error) })
+      }
     }
   }
 
@@ -1329,6 +1400,58 @@ export const useChatStore = defineStore('chat', () => {
           saveToStorage()
         }
       }
+    }
+  }
+
+  async function submitToolAnswer(messageId: string, toolCallId: string, answers: Record<string, string>): Promise<void> {
+    const sid = currentSessionId.value
+    if (!sid) return
+
+    logger.info('ChatStore', `submitToolAnswer: submitting answers | sessionId=${sid.slice(0, 8)} | messageId=${messageId.slice(0, 8)} | toolId=${toolCallId.slice(0, 8)}`)
+    
+    const claudeCode = electronAPI?.claudeCode
+    if (!claudeCode) {
+      logger.error('ChatStore', 'submitToolAnswer: claudeCode API not available')
+      return
+    }
+
+    try {
+      // 通过 IPC 发送答案到后端
+      await claudeCode.submitToolAnswer(sid, toolCallId, answers)
+      
+      // 更新工具调用状态为已完成
+      updateToolCall(messageId, toolCallId, 'completed')
+      
+      logger.info('ChatStore', `submitToolAnswer: answers submitted successfully`)
+    } catch (error) {
+      logger.error('ChatStore', 'submitToolAnswer: failed', { error: String(error) })
+      throw error
+    }
+  }
+
+  async function skipToolAnswer(messageId: string, toolCallId: string): Promise<void> {
+    const sid = currentSessionId.value
+    if (!sid) return
+
+    logger.info('ChatStore', `skipToolAnswer: skipping tool | sessionId=${sid.slice(0, 8)} | messageId=${messageId.slice(0, 8)} | toolId=${toolCallId.slice(0, 8)}`)
+    
+    const claudeCode = electronAPI?.claudeCode
+    if (!claudeCode) {
+      logger.error('ChatStore', 'skipToolAnswer: claudeCode API not available')
+      return
+    }
+
+    try {
+      // 通过 IPC 通知后端跳过
+      await claudeCode.skipToolAnswer(sid, toolCallId)
+      
+      // 更新工具调用状态为已完成（跳过也算完成）
+      updateToolCall(messageId, toolCallId, 'completed')
+      
+      logger.info('ChatStore', `skipToolAnswer: tool skipped successfully`)
+    } catch (error) {
+      logger.error('ChatStore', 'skipToolAnswer: failed', { error: String(error) })
+      throw error
     }
   }
 
@@ -1524,5 +1647,7 @@ export const useChatStore = defineStore('chat', () => {
     loadAgents,
     switchAgent,
     switchModel,
+    submitToolAnswer,
+    skipToolAnswer,
   }
 })

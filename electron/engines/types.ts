@@ -43,10 +43,19 @@ export interface EngineSessionStatus {
   isRunning: boolean
 }
 
+export interface ImageAttachment {
+  id: string
+  name: string
+  type: 'image'
+  mimeType: string
+  previewUrl: string
+  data: string
+}
+
 export interface IEngine {
   readonly type: EngineType
   startSession(sessionId: string, config: EngineSessionConfig): Promise<void>
-  sendMessage(sessionId: string, content: string): Promise<void>
+  sendMessage(sessionId: string, content: string, images?: ImageAttachment[]): Promise<void>
   abort(sessionId: string): Promise<void>
   stop(sessionId: string): Promise<void>
   suspendSession?(sessionId: string): void
@@ -55,6 +64,8 @@ export interface IEngine {
   getActiveSessions(): EngineSessionStatus[]
   listAgents?(cwd?: string): Promise<AgentInfo[]>
   setMainWindow(window: BrowserWindow): void
+  submitToolAnswer?(sessionId: string, toolCallId: string, answers: Record<string, string>): Promise<void>
+  skipToolAnswer?(sessionId: string, toolCallId: string): Promise<void>
 }
 
 export interface AgentInfo {

@@ -194,8 +194,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   claudeCode: {
     startSession: (sessionId: string, config: any) =>
       ipcRenderer.invoke('claude-code:startSession', sessionId, config),
-    sendMessage: (sessionId: string, content: string) =>
-      ipcRenderer.invoke('claude-code:sendMessage', sessionId, content),
+    sendMessage: (sessionId: string, content: string, images?: any[]) =>
+      ipcRenderer.invoke('claude-code:sendMessage', sessionId, content, images),
     abort: (sessionId: string) =>
       ipcRenderer.invoke('claude-code:abort', sessionId),
     stop: (sessionId: string) =>
@@ -266,6 +266,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('claude-code:eviction_blocked', wrapper)
       return () => ipcRenderer.removeListener('claude-code:eviction_blocked', wrapper)
     },
+    submitToolAnswer: (sessionId: string, toolCallId: string, answers: Record<string, string>) =>
+      ipcRenderer.invoke('claude-code:submitToolAnswer', sessionId, toolCallId, answers),
+    skipToolAnswer: (sessionId: string, toolCallId: string) =>
+      ipcRenderer.invoke('claude-code:skipToolAnswer', sessionId, toolCallId),
   },
 
   // Folder selection dialog

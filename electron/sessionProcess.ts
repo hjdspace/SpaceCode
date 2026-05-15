@@ -223,20 +223,42 @@ export class SessionProcess extends EventEmitter {
     await this.start()
   }
 
-  sendMessage(content: string): void {
+  sendMessage(content: string, images?: any[]): void {
     if (!this.process) throw new Error('No active process')
-    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Sending user message | contentLen=${content.length} | preview="${content.slice(0, 100)}"`)
+    
+    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Sending user message | contentLen=${content.length} | images=${images?.length || 0} | preview="${content.slice(0, 100)}"`)
     traceEvent({
       sessionId: this.sessionId,
       actor: 'user',
       type: 'user_message',
       status: 'completed',
       title: 'User message sent to engine',
-      input: { content },
+      input: { content, images: images?.length || 0 },
     })
+    
+    // 处理图片：保存到临时目录并生成 @-引用
+    let imageRefs = ''
+    if (images && images.length > 0) {
+      const uploadDir = this.getUploadDir()
+      for (const img of images) {
+        try {
+          const savedPath = this.saveImageToTemp(img, uploadDir)
+          imageRefs += `@"${savedPath}" `
+        } catch (err) {
+          error('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to save image: ${img.name}`, err)
+        }
+      }
+    }
+    
+    // 构建最终消息内容，添加 @-引用前缀
+    let finalContent = content
+    if (imageRefs) {
+      finalContent = `${imageRefs}${content || 'Please analyze the attached images.'}`.trim()
+    }
+    
     const msg = JSON.stringify({
       type: 'user',
-      message: { role: 'user', content }
+      message: { role: 'user', content: finalContent }
     }) + '\n'
     try {
       this.process.stdin!.write(msg)
@@ -245,6 +267,117 @@ export class SessionProcess extends EventEmitter {
       error('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to write to stdin`, { error: String(err) })
       throw err
     }
+  }
+
+  submitToolAnswer(toolCallId: string, answers: Record<string, string>): void {
+    if (!this.process) throw new Error('No active process')
+    
+    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Submitting tool answer | toolId=${toolCallId.slice(0, 8)} | answers=${JSON.stringify(answers)}`)
+    traceEvent({
+      sessionId: this.sessionId,
+      actor: 'user',
+      type: 'tool_answer',
+      status: 'completed',
+      title: 'User submitted tool answer',
+      input: { toolCallId, answers },
+    })
+    
+    const msg = JSON.stringify({
+      type: 'user',
+      message: { 
+        role: 'user', 
+        content: [{
+          type: 'tool_result',
+          tool_use_id: toolCallId,
+          content: JSON.stringify({ answers })
+        }]
+      }
+    }) + '\n'
+    try {
+      this.process.stdin!.write(msg)
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Tool answer written to stdin successfully`)
+    } catch (err) {
+      error('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to write tool answer to stdin`, { error: String(err) })
+      throw err
+    }
+  }
+
+  skipToolAnswer(toolCallId: string): void {
+    if (!this.process) throw new Error('No active process')
+    
+    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Skipping tool answer | toolId=${toolCallId.slice(0, 8)}`)
+    traceEvent({
+      sessionId: this.sessionId,
+      actor: 'user',
+      type: 'tool_skip',
+      status: 'completed',
+      title: 'User skipped tool answer',
+      input: { toolCallId },
+    })
+    
+    const msg = JSON.stringify({
+      type: 'user',
+      message: { 
+        role: 'user', 
+        content: [{
+          type: 'tool_result',
+          tool_use_id: toolCallId,
+          content: '',
+          is_error: false
+        }]
+      }
+    }) + '\n'
+    try {
+      this.process.stdin!.write(msg)
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Tool skip written to stdin successfully`)
+    } catch (err) {
+      error('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to write tool skip to stdin`, { error: String(err) })
+      throw err
+    }
+  }
+  
+  private getUploadDir(): string {
+    const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
+    const uploadDir = path.join(configDir, 'uploads', this.sessionId)
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true })
+    }
+    return uploadDir
+  }
+  
+  private saveImageToTemp(img: any, uploadDir: string): string {
+    // 从 data URL 提取 base64 数据
+    const matches = img.data.match(/^data:([^;]+);base64,(.+)$/)
+    if (!matches) {
+      throw new Error('Invalid image data format')
+    }
+    
+    const mimeType = matches[1]
+    const base64Data = matches[2]
+    
+    // 根据 MIME 类型确定文件扩展名
+    const ext = this.getExtensionFromMimeType(mimeType) || 'png'
+    const fileName = `${randomUUID()}-${img.name.replace(/[^a-zA-Z0-9.-]/g, '_')}.${ext}`
+    const filePath = path.join(uploadDir, fileName)
+    
+    // 解码并保存
+    const buffer = Buffer.from(base64Data, 'base64')
+    fs.writeFileSync(filePath, buffer)
+    
+    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Image saved | name=${img.name} | path=${filePath}`)
+    return filePath
+  }
+  
+  private getExtensionFromMimeType(mimeType: string): string | null {
+    const mimeToExt: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/gif': 'gif',
+      'image/bmp': 'bmp',
+      'image/webp': 'webp',
+      'image/svg+xml': 'svg',
+    }
+    return mimeToExt[mimeType] || null
   }
 
   abort(): void {
@@ -492,6 +625,9 @@ export class SessionProcess extends EventEmitter {
     if (this.engineSessionId && this.status === 'suspended') {
       args.push('--resume', this.engineSessionId)
       debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Added --resume flag | engineSessionId=${this.engineSessionId}`)
+    } else {
+      args.push('--session-id', this.sessionId)
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Added --session-id flag | sessionId=${this.sessionId}`)
     }
 
     return args

@@ -85,14 +85,34 @@ export class ClaudeCodeProcessPool {
     proc.suspend()
   }
 
-  sendMessage(sessionId: string, content: string): void {
+  sendMessage(sessionId: string, content: string, images?: any[]): void {
     const proc = this.processes.get(sessionId)
     if (!proc || !proc.isRunning()) {
       error('ProcessPool', `[${sessionId.slice(0, 8)}] sendMessage failed: no active process | hasProcess=${!!proc} | isRunning=${proc?.isRunning()}`)
       throw new Error(`Session ${sessionId} has no active process`)
     }
-    info('ProcessPool', `[${sessionId.slice(0, 8)}] Forwarding user message | contentLen=${content.length}`)
-    proc.sendMessage(content)
+    info('ProcessPool', `[${sessionId.slice(0, 8)}] Forwarding user message | contentLen=${content.length} | images=${images?.length || 0}`)
+    proc.sendMessage(content, images)
+  }
+
+  submitToolAnswer(sessionId: string, toolCallId: string, answers: Record<string, string>): void {
+    const proc = this.processes.get(sessionId)
+    if (!proc || !proc.isRunning()) {
+      error('ProcessPool', `[${sessionId.slice(0, 8)}] submitToolAnswer failed: no active process | hasProcess=${!!proc} | isRunning=${proc?.isRunning()}`)
+      throw new Error(`Session ${sessionId} has no active process`)
+    }
+    info('ProcessPool', `[${sessionId.slice(0, 8)}] Forwarding tool answer | toolId=${toolCallId.slice(0, 8)} | answers=${JSON.stringify(answers)}`)
+    proc.submitToolAnswer(toolCallId, answers)
+  }
+
+  skipToolAnswer(sessionId: string, toolCallId: string): void {
+    const proc = this.processes.get(sessionId)
+    if (!proc || !proc.isRunning()) {
+      error('ProcessPool', `[${sessionId.slice(0, 8)}] skipToolAnswer failed: no active process | hasProcess=${!!proc} | isRunning=${proc?.isRunning()}`)
+      throw new Error(`Session ${sessionId} has no active process`)
+    }
+    info('ProcessPool', `[${sessionId.slice(0, 8)}] Forwarding tool skip | toolId=${toolCallId.slice(0, 8)}`)
+    proc.skipToolAnswer(toolCallId)
   }
 
   abortSession(sessionId: string): void {
