@@ -34,7 +34,7 @@ function getClaudeProjectsDir(): string {
 }
 
 function sanitizePath(p: string): string {
-  return p.replace(/[/\\:*?"<>|]/g, '_')
+  return p.replace(/[^a-zA-Z0-9]/g, '-')
 }
 
 function getProjectDir(projectPath: string): string {
@@ -42,14 +42,14 @@ function getProjectDir(projectPath: string): string {
 }
 
 function decodeSanitizedPath(sanitized: string): string {
-  if (/^[A-Z]__/.test(sanitized)) {
+  if (/^[A-Z]--/.test(sanitized)) {
     const driveLetter = sanitized[0]
-    const rest = sanitized.slice(3).replace(/_/g, path.sep)
+    const rest = sanitized.slice(2).replace(/-/g, path.sep)
     return `${driveLetter}:${path.sep}${rest}`
   }
   
-  if (sanitized.startsWith('_')) {
-    return sanitized.replace(/_/g, path.sep)
+  if (sanitized.startsWith('-')) {
+    return sanitized.replace(/-/g, path.sep)
   }
   
   return sanitized
