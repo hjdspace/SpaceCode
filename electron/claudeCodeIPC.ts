@@ -2,6 +2,7 @@ import { ipcMain, BrowserWindow } from 'electron'
 import { EngineFactory } from './engines/EngineFactory'
 import type { EngineSessionConfig, AgentInfo } from './engines/types'
 import { info, warn, error, debug } from './logger'
+import { SessionHistoryManager, SessionLite } from './sessionHistoryManager'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -163,6 +164,22 @@ export function registerClaudeCodeIPC() {
     }
   })
 
+  // ==================== 会话历史管理 ====================
+  ipcMain.handle('claude-code:listProjectSessions', async (_, cwd: string) => {
+    info('ClaudeCodeIPC', `→ listProjectSessions | cwd=${cwd}`)
+    try {
+      const sessions = await SessionHistoryManager.listProjectSessions(cwd)
+      return sessions.map(s => ({
+        ...s,
+        title: SessionHistoryManager.getSessionTitle(s),
+        displayTime: SessionHistoryManager.formatTimestamp(s.lastMessageTimestamp),
+      }))
+    } catch (err) {
+      error('ClaudeCodeIPC', `✗ listProjectSessions`, { error: String(err) })
+      throw err
+    }
+  })
+
   ipcMain.handle('claude-code:skipToolAnswer', async (_, sessionId: string, toolCallId: string) => {
     info('ClaudeCodeIPC', `→ skipToolAnswer | sessionId=${sessionId.slice(0, 8)} | toolId=${toolCallId.slice(0, 8)}`)
     const startMs = Date.now()
@@ -176,6 +193,32 @@ export function registerClaudeCodeIPC() {
       }
     } catch (err) {
       error('ClaudeCodeIPC', `✗ skipToolAnswer | sessionId=${sessionId.slice(0, 8)} | elapsed=${Date.now() - startMs}ms`, { error: String(err) })
+      throw err
+    }
+  })
+
+  ipcMain.handle('claude-code:listAllSessions', async () => {
+    info('ClaudeCodeIPC', '→ listAllSessions')
+    try {
+      const sessions = await SessionHistoryManager.listAllSessions()
+      return sessions.map(s => ({
+        ...s,
+        title: SessionHistoryManager.getSessionTitle(s),
+        displayTime: SessionHistoryManager.formatTimestamp(s.lastMessageTimestamp),
+      }))
+    } catch (err) {
+      error('ClaudeCodeIPC', `✗ listAllSessions`, { error: String(err) })
+      throw err
+    }
+  })
+
+  ipcMain.handle('claude-code:restoreSession', async (_, sessionId: string, projectPath: string) => {
+    info('ClaudeCodeIPC', `→ restoreSession | sessionId=${sessionId.slice(0, 8)} | projectPath=${projectPath}`)
+    try {
+      const fullSession = await SessionHistoryManager.getFullSession(projectPath, sessionId)
+      return fullSession
+    } catch (err) {
+      error('ClaudeCodeIPC', `✗ restoreSession`, { error: String(err) })
       throw err
     }
   })

@@ -60,6 +60,7 @@ export class ClaudeCodeEngine implements IEngine {
       systemPrompt: config.systemPrompt,
       agent: config.agent,
       thinkingEnabled: config.thinkingEnabled,
+      resumeSessionId: config.resumeSessionId,
     }
     await this.pool.startSession(sessionId, sessionConfig)
   }

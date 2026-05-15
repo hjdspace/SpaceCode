@@ -14,6 +14,7 @@ export interface EngineSessionConfig {
   appendSystemPrompt?: string
   agent?: string
   engineType?: EngineType
+  resumeSessionId?: string
 }
 
 export interface UnifiedEngineEvent {

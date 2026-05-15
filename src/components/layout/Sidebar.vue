@@ -25,6 +25,16 @@
         <MessageSquare :size="20" />
         <span class="icon-label">{{ t('sidebar.chats') }}</span>
       </button>
+      
+      <!-- Restore History Session -->
+      <button
+        class="icon-btn"
+        @click="showHistoryModal = true"
+        title="恢复历史会话"
+      >
+        <History :size="20" />
+        <span class="icon-label">历史会话</span>
+      </button>
 
       <!-- Explorer Tab -->
       <button
@@ -257,6 +267,21 @@
     <McpManager
       v-model="showMcpManager"
     />
+    
+    <!-- History Session Modal -->
+    <div v-if="showHistoryModal" class="modal-overlay" @click.self="showHistoryModal = false">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>恢复历史会话</h3>
+          <button class="close-btn" @click="showHistoryModal = false">
+            ×
+          </button>
+        </div>
+        <div class="modal-body">
+          <HistorySessionList @select="handleRestoreHistorySession" />
+        </div>
+      </div>
+    </div>
   </aside>
 </template>
 
@@ -279,7 +304,8 @@ import {
   FolderPlus,
   Zap,
   Plug,
-  Activity
+  Activity,
+  History
 } from 'lucide-vue-next'
 
 // Enhanced Components
@@ -289,6 +315,7 @@ import SettingsPanel from '../settings/SettingsPanel.vue'
 import ScmPanel from '../scm/ScmPanel.vue'
 import SkillsManager from '../skills/SkillsManagerModal.vue'
 import McpManager from '../mcp/McpManagerModal.vue'
+import HistorySessionList from '../explorer/HistorySessionList.vue'
 
 import { initLLMService } from '@/services/llm'
 import { api } from '@/services/electronAPI'
@@ -315,6 +342,7 @@ const { openProjectFromPicker } = useOpenProjectWorkflow()
 const activeTab = ref<'explorer' | 'scm' | 'history' | 'terminal'>('history')
 const showSettings = ref(false)
 const showMcpManager = ref(false)
+const showHistoryModal = ref(false)
 
 // Platform detection for titlebar spacing
 const platform = typeof window !== 'undefined' && window.electronAPI?.platform
@@ -554,6 +582,28 @@ function handleOpenSearch() {
   window.dispatchEvent(new CustomEvent('open-global-search'))
 }
 
+async function handleRestoreHistorySession(session: any) {
+  try {
+    const claudeCode = (window as any).electronAPI?.claudeCode
+    if (!claudeCode) return
+    
+    // Create a new session in chat store
+    const newSession = chatStore.createSession(session.title, session.projectPath)
+    
+    // Restore the history session
+    await claudeCode.restoreSession(session.id, session.projectPath || chatStore.currentProjectRoot || '')
+    
+    // Switch to the new session
+    chatStore.selectSession(newSession.id)
+    appStore.openSessionTab(newSession.id, newSession.title)
+    
+    showHistoryModal.value = false
+  } catch (error) {
+    console.error('Failed to restore history session:', error)
+    alert('恢复历史会话失败')
+  }
+}
+
 function handleSplitScreen(sessionId: string) {
   // TODO: Implement split screen functionality
   // For now, just show a toast notification
@@ -637,6 +687,64 @@ onMounted(() => {
       background: var(--text-muted);
     }
   }
+}
+
+// Modal styles
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: var(--surface-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: 90%;
+  max-width: 500px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--surface-border);
+  
+  h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  
+  .close-btn {
+    @include reset-button;
+    font-size: 24px;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0 4px;
+    
+    &:hover {
+      color: var(--text-primary);
+    }
+  }
+}
+
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
 }
 
 // Sidebar Container (CodePilot-style)

@@ -216,6 +216,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('claude-code:isEngineAvailable', engineType),
     updateThinkingLevel: (sessionId: string, enabled: boolean) =>
       ipcRenderer.invoke('claude-code:updateThinkingLevel', sessionId, enabled),
+    // 会话历史相关
+    listProjectSessions: (cwd: string) =>
+      ipcRenderer.invoke('claude-code:listProjectSessions', cwd),
+    listAllSessions: () =>
+      ipcRenderer.invoke('claude-code:listAllSessions'),
+    restoreSession: (sessionId: string, projectPath: string) =>
+      ipcRenderer.invoke('claude-code:restoreSession', sessionId, projectPath),
     onAssistant: (callback: (data: { sessionId: string; data: any }) => void) => {
       const wrapper = (_: any, data: any) => callback(data)
       ipcRenderer.on('claude-code:assistant', wrapper)
