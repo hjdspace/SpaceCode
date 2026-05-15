@@ -221,6 +221,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('claude-code:listProjectSessions', cwd),
     listAllSessions: () =>
       ipcRenderer.invoke('claude-code:listAllSessions'),
+    getFullSession: (projectPath: string, sessionId: string) =>
+      ipcRenderer.invoke('claude-code:getFullSession', projectPath, sessionId),
     restoreSession: (sessionId: string, projectPath: string) =>
       ipcRenderer.invoke('claude-code:restoreSession', sessionId, projectPath),
     onAssistant: (callback: (data: { sessionId: string; data: any }) => void) => {

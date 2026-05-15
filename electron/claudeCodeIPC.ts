@@ -212,6 +212,17 @@ export function registerClaudeCodeIPC() {
     }
   })
 
+  ipcMain.handle('claude-code:getFullSession', async (_, projectPath: string, sessionId: string) => {
+    info('ClaudeCodeIPC', `→ getFullSession | projectPath=${projectPath} | sessionId=${sessionId.slice(0, 8)}`)
+    try {
+      const fullSession = await SessionHistoryManager.getFullSession(projectPath, sessionId)
+      return fullSession
+    } catch (err) {
+      error('ClaudeCodeIPC', `✗ getFullSession`, { error: String(err) })
+      throw err
+    }
+  })
+
   ipcMain.handle('claude-code:restoreSession', async (_, sessionId: string, projectPath: string) => {
     info('ClaudeCodeIPC', `→ restoreSession | sessionId=${sessionId.slice(0, 8)} | projectPath=${projectPath}`)
     try {
