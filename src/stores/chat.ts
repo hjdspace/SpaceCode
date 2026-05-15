@@ -1403,6 +1403,58 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  async function submitToolAnswer(messageId: string, toolCallId: string, answers: Record<string, string>): Promise<void> {
+    const sid = currentSessionId.value
+    if (!sid) return
+
+    logger.info('ChatStore', `submitToolAnswer: submitting answers | sessionId=${sid.slice(0, 8)} | messageId=${messageId.slice(0, 8)} | toolId=${toolCallId.slice(0, 8)}`)
+    
+    const claudeCode = electronAPI?.claudeCode
+    if (!claudeCode) {
+      logger.error('ChatStore', 'submitToolAnswer: claudeCode API not available')
+      return
+    }
+
+    try {
+      // 通过 IPC 发送答案到后端
+      await claudeCode.submitToolAnswer(sid, toolCallId, answers)
+      
+      // 更新工具调用状态为已完成
+      updateToolCall(messageId, toolCallId, 'completed')
+      
+      logger.info('ChatStore', `submitToolAnswer: answers submitted successfully`)
+    } catch (error) {
+      logger.error('ChatStore', 'submitToolAnswer: failed', { error: String(error) })
+      throw error
+    }
+  }
+
+  async function skipToolAnswer(messageId: string, toolCallId: string): Promise<void> {
+    const sid = currentSessionId.value
+    if (!sid) return
+
+    logger.info('ChatStore', `skipToolAnswer: skipping tool | sessionId=${sid.slice(0, 8)} | messageId=${messageId.slice(0, 8)} | toolId=${toolCallId.slice(0, 8)}`)
+    
+    const claudeCode = electronAPI?.claudeCode
+    if (!claudeCode) {
+      logger.error('ChatStore', 'skipToolAnswer: claudeCode API not available')
+      return
+    }
+
+    try {
+      // 通过 IPC 通知后端跳过
+      await claudeCode.skipToolAnswer(sid, toolCallId)
+      
+      // 更新工具调用状态为已完成（跳过也算完成）
+      updateToolCall(messageId, toolCallId, 'completed')
+      
+      logger.info('ChatStore', `skipToolAnswer: tool skipped successfully`)
+    } catch (error) {
+      logger.error('ChatStore', 'skipToolAnswer: failed', { error: String(error) })
+      throw error
+    }
+  }
+
   function updateMessage(messageId: string, updates: Partial<Message>, targetSessionId?: string) {
     const sid = targetSessionId || currentSessionId.value
     const session = sessions.value.find(s => s.id === sid)
@@ -1595,5 +1647,7 @@ export const useChatStore = defineStore('chat', () => {
     loadAgents,
     switchAgent,
     switchModel,
+    submitToolAnswer,
+    skipToolAnswer,
   }
 })

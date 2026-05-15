@@ -54,7 +54,12 @@
 
           <!-- Tool call event with special component -->
           <template v-else-if="event.type === 'tool_call' && event.specialComponent">
-            <component :is="event.specialComponent" :tool-call="event.toolCall!" />
+            <component 
+              :is="event.specialComponent" 
+              :tool-call="event.toolCall!" 
+              @submit="handleToolSubmit(event.toolCall!.id, $event)"
+              @skip="handleToolSkip(event.toolCall!.id)"
+            />
           </template>
 
           <!-- Generic tool call event -->
@@ -123,6 +128,19 @@ import {
   Terminal, FileText, FileEdit, Search, Globe, Wand2, Folder, Code,
   Brain, MessageCircle, Info
 } from 'lucide-vue-next'
+
+const emit = defineEmits<{
+  toolSubmit: [toolId: string, answers: Record<string, string>]
+  toolSkip: [toolId: string]
+}>()
+
+function handleToolSubmit(toolId: string, answers: Record<string, string>) {
+  emit('toolSubmit', toolId, answers)
+}
+
+function handleToolSkip(toolId: string) {
+  emit('toolSkip', toolId)
+}
 
 interface TimelineEvent {
   id: string

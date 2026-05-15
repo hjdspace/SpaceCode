@@ -1779,7 +1779,6 @@ function handleEditorKeydown(event: KeyboardEvent) {
     }
   }
 }
-}
 
 function handleSendOrStop() {
   console.log('[ChatInput] handleSendOrStop called, isSending:', props.isSending)

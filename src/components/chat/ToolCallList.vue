@@ -49,6 +49,8 @@
             <component
               :is="specialComponents[tool.id]"
               :tool-call="tool"
+              @submit="handleToolSubmit(tool.id, $event)"
+              @skip="handleToolSkip(tool.id)"
             />
           </div>
         </template>
@@ -100,13 +102,18 @@ import { computed, markRaw, onMounted, reactive, ref, watch } from 'vue'
 import { hasToolComponent, resolveToolComponent } from '@/components/chat/tools/index'
 import {
   Loader2, Check, X, ChevronDown, CheckCircle2, XCircle, CircleDot,
-  Terminal, FileText, FileEdit, Search, Globe, Wand2, Bot, Folder, Code
+  Terminal, FileText, FileEdit, Search, Globe, Wand2, Bot, Folder, Code, MessageCircleQuestion
 } from 'lucide-vue-next'
 
 const taskManager = useTaskManager()
 
 const props = defineProps<{
   toolCalls: ToolCall[]
+}>()
+
+const emit = defineEmits<{
+  toolSubmit: [toolId: string, answers: Record<string, string>]
+  toolSkip: [toolId: string]
 }>()
 
 const isCollapsed = ref(false)
@@ -131,6 +138,7 @@ const TOOL_ICON_MAP: Record<string, Component> = {
   WebFetch: Globe,
   WebSearch: Globe,
   CodebaseSearch: Search,
+  AskUserQuestion: MessageCircleQuestion,
 }
 
 const TOOL_LABEL_MAP: Record<string, string> = {
@@ -150,6 +158,7 @@ const TOOL_LABEL_MAP: Record<string, string> = {
   WebSearch: 'Web search',
   CodebaseSearch: 'Codebase search',
   TodoWrite: 'Update tasks',
+  AskUserQuestion: 'Ask user',
 }
 
 function getToolIcon(name: string): Component {
@@ -322,6 +331,14 @@ async function loadSpecialComponents() {
 
 onMounted(loadSpecialComponents)
 watch(() => props.toolCalls, () => { loadSpecialComponents() }, { deep: true })
+
+function handleToolSubmit(toolId: string, answers: Record<string, string>) {
+  emit('toolSubmit', toolId, answers)
+}
+
+function handleToolSkip(toolId: string) {
+  emit('toolSkip', toolId)
+}
 </script>
 
 <style lang="scss" scoped>

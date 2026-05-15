@@ -27,7 +27,12 @@
       <ReasoningCard v-if="message.reasoning" :reasoning="message.reasoning" />
       
       <!-- 工具调用 -->
-      <ToolCallList v-if="message.toolCalls?.length" :tool-calls="message.toolCalls" />
+      <ToolCallList 
+        v-if="message.toolCalls?.length" 
+        :tool-calls="message.toolCalls"
+        @tool-submit="handleToolSubmit"
+        @tool-skip="handleToolSkip"
+      />
       
       <!-- 消息内容 -->
       <div class="message-content" v-if="message.content">
@@ -61,6 +66,11 @@ const props = defineProps<{
   message: Message
 }>()
 
+const emit = defineEmits<{
+  toolSubmit: [messageId: string, toolId: string, answers: Record<string, string>]
+  toolSkip: [messageId: string, toolId: string]
+}>()
+
 const renderedUserContent = computed(() =>
   renderMentionChipsToHtml(props.message.content || '')
 )
@@ -72,6 +82,14 @@ function formatTime(timestamp: number): string {
 
 function showImagePreview(img: ImageAttachment) {
   window.open(img.previewUrl, '_blank')
+}
+
+function handleToolSubmit(toolId: string, answers: Record<string, string>) {
+  emit('toolSubmit', props.message.id, toolId, answers)
+}
+
+function handleToolSkip(toolId: string) {
+  emit('toolSkip', props.message.id, toolId)
 }
 </script>
 

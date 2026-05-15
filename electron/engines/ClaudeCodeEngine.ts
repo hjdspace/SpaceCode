@@ -69,6 +69,16 @@ export class ClaudeCodeEngine implements IEngine {
     return Promise.resolve()
   }
 
+  submitToolAnswer(sessionId: string, toolCallId: string, answers: Record<string, string>): Promise<void> {
+    this.pool.submitToolAnswer(sessionId, toolCallId, answers)
+    return Promise.resolve()
+  }
+
+  skipToolAnswer(sessionId: string, toolCallId: string): Promise<void> {
+    this.pool.skipToolAnswer(sessionId, toolCallId)
+    return Promise.resolve()
+  }
+
   abort(sessionId: string): Promise<void> {
     this.pool.abortSession(sessionId)
     return Promise.resolve()

@@ -12,12 +12,16 @@
         <MessageItem
           v-if="group.type === 'user'"
           :message="group.messages[0]"
+          @tool-submit="(mId, tId, ans) => emit('toolSubmit', mId, tId, ans)"
+          @tool-skip="(mId, tId) => emit('toolSkip', mId, tId)"
         />
         <!-- Assistant timeline (unified) -->
         <AgentTimeline
           v-else
           :messages="group.messages"
           :loading="loading && group.id === messageGroups[messageGroups.length - 1]?.id"
+          @tool-submit="(tId, ans) => emit('toolSubmit', group.id, tId, ans)"
+          @tool-skip="(tId) => emit('toolSkip', group.id, tId)"
         />
       </template>
 
@@ -39,6 +43,11 @@ import { MessageSquare } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
+
+const emit = defineEmits<{
+  toolSubmit: [messageId: string, toolId: string, answers: Record<string, string>]
+  toolSkip: [messageId: string, toolId: string]
+}>()
 
 const { messages, loading } = defineProps<{
   messages: Message[]
