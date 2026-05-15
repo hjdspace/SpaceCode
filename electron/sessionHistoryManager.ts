@@ -1,40 +1,26 @@
 import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
-import { app } from 'electron'
+import { info, warn, error, debug } from './logger'
 
-/**
- * 会话历史管理器 - 复用 Claude Code Engine 的会话存储逻辑
- */
-
-// 类型定义（从 engine/src/utils/listSessionsImpl.ts 复制）
 export interface SessionLite {
   projectPath: string
   sessionId: string
-  /** May be undefined for old sessions. */
   metadata?: SessionMetadata
-  /** May be undefined for corrupt sessions. */
   firstUserMessage?: string
-  /** May be undefined for corrupt sessions or old sessions. */
   lastMessageTimestamp?: number
 }
 
 export interface SessionMetadata {
   customTitle?: string
-  /** May be undefined for older sessions. */
   lastPrompt?: string
-  /** May be undefined for older sessions. */
   gitBranch?: string
-  /** May be undefined for older sessions. */
   timestamps?: {
-    /** ISO 8601 timestamp of the session creation. */
     createdAt?: string
-    /** ISO 8601 timestamp of the last message in the session. */
     lastMessageAt?: string
   }
 }
 
-// 关键路径函数
 function getClaudeConfigHomeDir(): string {
   const xdgConfigHome = process.env.XDG_CONFIG_HOME
   if (xdgConfigHome) {
@@ -47,70 +33,107 @@ function getClaudeProjectsDir(): string {
   return path.join(getClaudeConfigHomeDir(), 'projects')
 }
 
-// 会话存储读取函数（简化版，从 engine/src/utils/sessionStorage.ts 提取）
-function sanitizePath(pathStr: string): string {
-  return pathStr.replace(/[/\\:*?"<>|]/g, '_')
+function sanitizePath(p: string): string {
+  return p.replace(/[/\\:*?"<>|]/g, '_')
 }
 
 function getProjectDir(projectPath: string): string {
   return path.join(getClaudeProjectsDir(), sanitizePath(projectPath))
 }
 
-async function readSessionLite(projectPath: string, sessionId: string): Promise<SessionLite | undefined> {
+function decodeSanitizedPath(sanitized: string): string {
+  if (/^[A-Z]__/.test(sanitized)) {
+    const driveLetter = sanitized[0]
+    const rest = sanitized.slice(3).replace(/_/g, path.sep)
+    return `${driveLetter}:${path.sep}${rest}`
+  }
+  
+  if (sanitized.startsWith('_')) {
+    return sanitized.replace(/_/g, path.sep)
+  }
+  
+  return sanitized
+}
+
+async function readSessionLite(
+  projectPath: string,
+  sessionId: string
+): Promise<SessionLite | undefined> {
   const sessionPath = path.join(getProjectDir(projectPath), `${sessionId}.jsonl`)
+  
   if (!fs.existsSync(sessionPath)) {
+    debug('SessionHistory', `Session file not found: ${sessionPath}`)
     return undefined
   }
-
+  
   let firstUserMessage: string | undefined
   let lastMessageTimestamp: number | undefined
   let metadata: SessionMetadata | undefined
-
+  
   try {
-    // 先尝试读取元数据文件
-    const metadataPath = path.join(getProjectDir(projectPath), `${sessionId}.metadata.json`)
+    const metadataPath = path.join(
+      getProjectDir(projectPath),
+      `${sessionId}.metadata.json`
+    )
+    
     if (fs.existsSync(metadataPath)) {
       try {
-        metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'))
-        // 提取时间戳
+        const raw = fs.readFileSync(metadataPath, 'utf8')
+        metadata = JSON.parse(raw)
+        
         if (metadata?.timestamps?.lastMessageAt) {
           lastMessageTimestamp = new Date(metadata.timestamps.lastMessageAt).getTime()
         }
-      } catch {
-        // 元数据读取失败，继续尝试读取会话文件
+        
+        debug('SessionHistory', `Loaded metadata for session ${sessionId}`)
+      } catch (e) {
+        warn('SessionHistory', `Failed to parse metadata for ${sessionId}`, { error: String(e) })
       }
     }
-
-    // 读取会话文件获取第一条用户消息
+    
     const fileContent = fs.readFileSync(sessionPath, 'utf8')
     const lines = fileContent.split('\n').filter(line => line.trim())
-
+    
     for (const line of lines) {
       try {
         const msg = JSON.parse(line)
+        
         if (msg.type === 'user' && !firstUserMessage) {
           const content = msg.message?.content
-          firstUserMessage = typeof content === 'string'
-            ? content
-            : Array.isArray(content)
-              ? content.find((c: any) => c.type === 'text')?.text || ''
-              : ''
-        }
-        // 如果有时间戳字段，尝试更新
-        if (msg.timestamp && !metadata?.timestamps?.lastMessageAt) {
-          const ts = new Date(msg.timestamp).getTime()
-          if (!isNaN(ts)) {
-            lastMessageTimestamp = ts
+          
+          if (typeof content === 'string') {
+            firstUserMessage = content.trim()
+          } else if (Array.isArray(content)) {
+            const textItem = content.find((c: any) => c.type === 'text')
+            firstUserMessage = textItem?.text?.trim() || ''
+          }
+          
+          if (firstUserMessage) {
+            debug('SessionHistory', `Found first user message for ${sessionId}: ${firstUserMessage.slice(0, 50)}...`)
           }
         }
-      } catch {
-        continue
+        
+        if (!metadata?.timestamps?.lastMessageAt && msg.timestamp) {
+          const ts = new Date(msg.timestamp).getTime()
+          if (!isNaN(ts)) {
+            if (!lastMessageTimestamp || ts > lastMessageTimestamp) {
+              lastMessageTimestamp = ts
+            }
+          }
+        }
+      } catch (e) {
       }
     }
-  } catch {
-    // 读取失败，返回基本信息
+    
+    if (lines.length === 0) {
+      warn('SessionHistory', `Empty session file: ${sessionPath}`)
+    }
+    
+  } catch (e) {
+    error('SessionHistory', `Failed to read session file ${sessionPath}`, { error: String(e) })
+    return undefined
   }
-
+  
   return {
     projectPath,
     sessionId,
@@ -122,102 +145,140 @@ async function readSessionLite(projectPath: string, sessionId: string): Promise<
 
 async function loadSameProjectSessions(cwd: string): Promise<SessionLite[]> {
   const projectDir = getProjectDir(cwd)
+  
   if (!fs.existsSync(projectDir)) {
+    info('SessionHistory', `Project directory not found: ${projectDir}`)
     return []
   }
-
+  
   const sessions: SessionLite[] = []
-  const entries = fs.readdirSync(projectDir)
-
-  for (const entry of entries) {
-    if (entry.endsWith('.jsonl')) {
+  
+  try {
+    const entries = fs.readdirSync(projectDir)
+    info('SessionHistory', `Found ${entries.length} entries in ${projectDir}`)
+    
+    for (const entry of entries) {
+      if (!entry.endsWith('.jsonl')) continue
+      
       const sessionId = entry.slice(0, -'.jsonl'.length)
+      
+      if (sessionId.startsWith('.') || sessionId.endsWith('.tmp')) continue
+      
       const session = await readSessionLite(cwd, sessionId)
       if (session) {
         sessions.push(session)
       }
     }
+  } catch (e) {
+    error('SessionHistory', `Failed to load sessions for project ${cwd}`, { error: String(e) })
   }
-
-  // 按时间倒序排列
+  
   sessions.sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0))
+  
+  info('SessionHistory', `Loaded ${sessions.length} sessions for project ${cwd}`)
   return sessions
 }
 
 async function loadAllProjectsSessions(): Promise<SessionLite[]> {
   const projectsDir = getClaudeProjectsDir()
+  
   if (!fs.existsSync(projectsDir)) {
+    warn('SessionHistory', `Projects directory not found: ${projectsDir}`)
     return []
   }
-
-  const sessions: SessionLite[] = []
-  const entries = fs.readdirSync(projectsDir)
-
-  for (const entry of entries) {
-    const projectPath = decodeSanitizedPath(entry)
-    const projectSessions = await loadSameProjectSessions(projectPath)
-    sessions.push(...projectSessions)
+  
+  const allSessions: SessionLite[] = []
+  
+  try {
+    const entries = fs.readdirSync(projectsDir)
+    info('SessionHistory', `Found ${entries.length} project directories`)
+    
+    for (const entry of entries) {
+      const entryPath = path.join(projectsDir, entry)
+      
+      try {
+        if (!fs.statSync(entryPath).isDirectory()) continue
+      } catch {
+        continue
+      }
+      
+      const projectPath = decodeSanitizedPath(entry)
+      
+      const projectSessions = await loadSameProjectSessions(projectPath)
+      allSessions.push(...projectSessions)
+    }
+  } catch (e) {
+    error('SessionHistory', `Failed to load all projects`, { error: String(e) })
   }
-
-  // 按时间倒序排列
-  sessions.sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0))
-  return sessions
+  
+  const uniqueSessions = new Map<string, SessionLite>()
+  for (const session of allSessions) {
+    if (!uniqueSessions.has(session.sessionId)) {
+      uniqueSessions.set(session.sessionId, session)
+    }
+  }
+  
+  const result = Array.from(uniqueSessions.values())
+  result.sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0))
+  
+  info('SessionHistory', `Total unique sessions: ${result.length}`)
+  return result
 }
 
-function decodeSanitizedPath(sanitized: string): string {
-  // 这是简化版，实际需要反向映射
-  // 对于跨项目会话，我们可以通过其他方式处理
-  return sanitized
-}
-
-// 导出会话恢复所需的完整会话数据
-async function loadFullSession(projectPath: string, sessionId: string): Promise<any> {
+async function loadFullSession(
+  projectPath: string,
+  sessionId: string
+): Promise<any> {
   const sessionPath = path.join(getProjectDir(projectPath), `${sessionId}.jsonl`)
+  
   if (!fs.existsSync(sessionPath)) {
-    return undefined
+    throw new Error(`Session file not found: ${sessionPath}`)
   }
-
+  
   const messages: any[] = []
   const fileContent = fs.readFileSync(sessionPath, 'utf8')
   const lines = fileContent.split('\n').filter(line => line.trim())
-
+  
   for (const line of lines) {
     try {
       messages.push(JSON.parse(line))
-    } catch {
-      continue
+    } catch (e) {
+      warn('SessionHistory', `Failed to parse line in ${sessionId}`, { error: String(e) })
     }
   }
-
-  // 读取元数据
+  
   let metadata: SessionMetadata | undefined
   const metadataPath = path.join(getProjectDir(projectPath), `${sessionId}.metadata.json`)
+  
   if (fs.existsSync(metadataPath)) {
     try {
       metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'))
-    } catch {}
+    } catch (e) {
+      warn('SessionHistory', `Failed to parse metadata for ${sessionId}`, { error: String(e) })
+    }
   }
-
-  return { messages, metadata, projectPath, sessionId }
+  
+  return {
+    messages,
+    metadata,
+    projectPath,
+    sessionId,
+  }
 }
 
 export const SessionHistoryManager = {
-  /** 获取当前项目的会话列表 */
   async listProjectSessions(cwd: string): Promise<SessionLite[]> {
     return loadSameProjectSessions(cwd)
   },
 
-  /** 获取所有项目的会话列表 */
   async listAllSessions(): Promise<SessionLite[]> {
     return loadAllProjectsSessions()
   },
 
-  /** 获取完整会话数据（用于恢复） */
   async getFullSession(projectPath: string, sessionId: string): Promise<any> {
     return loadFullSession(projectPath, sessionId)
   },
 
-  /** 获取会话显示标题 */
   getSessionTitle(session: SessionLite): string {
     if (session.metadata?.customTitle) {
       return session.metadata.customTitle
@@ -229,22 +290,19 @@ export const SessionHistoryManager = {
     return `Session ${session.sessionId.slice(0, 8)}`
   },
 
-  /** 格式化时间显示 */
   formatTimestamp(timestamp?: number): string {
     if (!timestamp) return ''
+    
     const date = new Date(timestamp)
     const now = new Date()
     const diff = now.getTime() - date.getTime()
 
-    // 1 天内
     if (diff < 24 * 60 * 60 * 1000) {
       return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
     }
-    // 1 周内
     if (diff < 7 * 24 * 60 * 60 * 1000) {
       return date.toLocaleDateString(undefined, { weekday: 'short' })
     }
-    // 其他
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-  }
+  },
 }
