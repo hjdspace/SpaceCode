@@ -21,7 +21,7 @@
       >
         <div class="session-header">
           <span class="session-title">{{ session.title || getSessionTitle(session) }}</span>
-          <span class="session-time">{{ formatTime(session.lastMessageTimestamp || session.lastMessageAt || session.updatedAt) }}</span>
+          <span class="session-time">{{ formatTime(session.lastMessageTimestamp ?? session.lastMessageAt ?? session.updatedAt) }}</span>
         </div>
         <div v-if="session.firstUserMessage || session.lastMessagePreview" class="session-preview">
           {{ session.firstUserMessage || session.lastMessagePreview }}
@@ -107,7 +107,7 @@ function handleSelectSession(session: SessionLite) {
   emit('select', session)
 }
 
-function formatTime(timestamp: number): string {
+function formatTime(timestamp?: number): string {
   if (!timestamp) return ''
   
   const now = Date.now()
