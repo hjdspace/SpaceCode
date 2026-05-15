@@ -77,6 +77,11 @@ import { useSettingsStore } from '@/stores/settings'
 import { useAppStore } from '@/stores/app'
 import MessageList from '../chat/MessageList.vue'
 import ChatInput, { type Attachment, type ImageAttachment } from '../chat/ChatInput.vue'
+
+interface AllAttachments {
+  files: Attachment[]
+  images: ImageAttachment[]
+}
 import SessionTabBar from '../chat/SessionTabBar.vue'
 import TerminalPanel from '../terminal/TerminalPanel.vue'
 import NoProjectHome from './NoProjectHome.vue'
@@ -292,8 +297,8 @@ async function handleStop() {
 }
 
 // 处理斜杠命令
-async function handleSlashCommand(command: string, args: string, attachments: Attachment[]) {
-  console.log('[ChatPanel] Slash command:', command, args)
+async function handleSlashCommand(command: string, args: string, attachments: AllAttachments) {
+  console.log('[ChatPanel] Slash command:', command, args, attachments)
 
   // 添加用户输入的命令到消息列表
   const commandText = `/${command}${args ? ' ' + args : ''}`

@@ -8,6 +8,7 @@
 import { ref } from 'vue'
 import { errorHandler } from '@/services/errorHandler'
 import { api } from '@/services/electronAPI'
+import { useSettingsStore } from '@/stores/settings'
 
 export interface LLMConfig {
   provider: string
@@ -31,7 +32,6 @@ export async function initLLMService(config?: LLMConfig): Promise<void> {
   } else {
     // Try to load from settings
     try {
-      const { useSettingsStore } = await import('@/stores/settings')
       const settings = useSettingsStore()
       const cfg = settings.config
       if (cfg.apiKey) {

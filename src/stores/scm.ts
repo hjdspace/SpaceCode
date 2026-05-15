@@ -9,7 +9,8 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { api } from '@/services/electronAPI'
 import { useAppStore } from './app'
-import { sendMessage as sendLLMMessage, initLLMService } from '@/services/llm'
+import { sendMessage as sendLLMMessage, initLLMService, isLLMConfigured } from '@/services/llm'
+import { useSettingsStore } from './settings'
 
 export interface ScmFile {
   path: string
@@ -269,10 +270,9 @@ export const useScmStore = defineStore('scm', () => {
     if (stagedCount.value === 0 && unstagedCount.value === 0) throw new Error('No changes to analyze')
 
     // Ensure LLM service is initialized
-    if (!import('@/services/llm').then(m => m.isLLMConfigured?.() ?? false)) {
+    if (!isLLMConfigured()) {
       // Try to init from settings
-      const settingsModule = await import('@/stores/settings')
-      const settingsStore = settingsModule.useSettingsStore()
+      const settingsStore = useSettingsStore()
       const cfg = settingsStore.config
       if (cfg.apiKey) {
         await initLLMService({ provider: cfg.provider, apiKey: cfg.apiKey, baseUrl: cfg.baseUrl, model: cfg.model })

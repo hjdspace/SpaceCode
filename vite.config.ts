@@ -59,8 +59,37 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    chunkSizeWarningLimit: 600,
     rollupOptions: {
-      external: ['@mariozechner/pi-coding-agent']
+      external: ['@mariozechner/pi-coding-agent'],
+      output: {
+        manualChunks(id) {
+          // 大型图表库单独打包
+          if (id.includes('node_modules/cytoscape')) {
+            return 'vendor-cytoscape'
+          }
+          if (id.includes('node_modules/mermaid')) {
+            return 'vendor-mermaid'
+          }
+          if (id.includes('node_modules/katex')) {
+            return 'vendor-katex'
+          }
+          if (id.includes('node_modules/lucide')) {
+            return 'vendor-icons'
+          }
+          if (id.includes('node_modules/marked')) {
+            return 'vendor-markdown'
+          }
+          // Vue 核心库
+          if (id.includes('node_modules/vue') || id.includes('node_modules/pinia') || id.includes('node_modules/vue-i18n')) {
+            return 'vendor-vue'
+          }
+          // Electron 相关
+          if (id.includes('electron')) {
+            return 'vendor-electron'
+          }
+        }
+      }
     }
   },
   css: {

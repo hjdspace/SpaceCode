@@ -1266,7 +1266,8 @@ function selectSlashCommand(cmd: SlashCommand) {
   if (cmd.immediate || cmd.kind === 'immediate') {
     closeSlashCommandMenu()
     clearEditor()
-    emit('slash-command', cmd.name, '', attachedFiles.value)
+    const attachments = collectAllAttachments()
+    emit('slash-command', cmd.name, '', attachments)
     return
   }
 
@@ -1941,11 +1942,7 @@ async function handleOpenProjectFolder() {
 async function handleAttachImage() {
   closeAttachmentMenu()
   try {
-    const result = await api.selectFiles({
-      filters: [
-        { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'] }
-      ]
-    })
+    const result = await api.selectFiles()
     if (!result.canceled && result.filePaths.length > 0) {
       for (const filePath of result.filePaths) {
         const name = filePath.split(/[\\/]/).pop() || filePath
