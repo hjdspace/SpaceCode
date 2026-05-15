@@ -8,19 +8,23 @@
       <span>暂无历史会话</span>
     </div>
 
+    <div v-else-if="searchQuery && filteredSessions.length === 0" class="empty-state">
+      <span>未找到匹配 "{{ searchQuery }}" 的会话</span>
+    </div>
+
     <div v-else class="session-items">
       <div
-        v-for="session in sessions"
-        :key="session.id"
+        v-for="session in filteredSessions"
+        :key="session.sessionId || session.id"
         class="session-item"
         @click="handleSelectSession(session)"
       >
         <div class="session-header">
-          <span class="session-title">{{ session.title }}</span>
-          <span class="session-time">{{ formatTime(session.lastMessageAt || session.updatedAt) }}</span>
+          <span class="session-title">{{ session.title || getSessionTitle(session) }}</span>
+          <span class="session-time">{{ formatTime(session.lastMessageTimestamp || session.lastMessageAt || session.updatedAt) }}</span>
         </div>
-        <div v-if="session.lastMessagePreview" class="session-preview">
-          {{ session.lastMessagePreview }}
+        <div v-if="session.firstUserMessage || session.lastMessagePreview" class="session-preview">
+          {{ session.firstUserMessage || session.lastMessagePreview }}
         </div>
         <div class="session-meta">
           <span v-if="session.projectPath" class="project-path">
@@ -33,27 +37,51 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
+
+const props = defineProps<{
+  searchQuery?: string
+}>()
 
 const emit = defineEmits<{
   (e: 'select', session: any): void
 }>()
 
 interface SessionLite {
-  id: string
-  title: string
+  id?: string
+  sessionId?: string
+  title?: string
   projectPath?: string
   lastMessageAt?: number
-  updatedAt: number
+  lastMessageTimestamp?: number
+  updatedAt?: number
   lastMessagePreview?: string
+  firstUserMessage?: string
+  metadata?: any
 }
 
 const sessions = ref<SessionLite[]>([])
 const loading = ref(false)
 const appStore = useAppStore()
 const chatStore = useChatStore()
+
+const filteredSessions = computed(() => {
+  if (!props.searchQuery?.trim()) {
+    return sessions.value
+  }
+  
+  const query = props.searchQuery.toLowerCase().trim()
+  
+  return sessions.value.filter(session => {
+    const title = (session.title || getSessionTitle(session)).toLowerCase()
+    const projectPath = (session.projectPath || '').toLowerCase()
+    const preview = ((session.firstUserMessage || session.lastMessagePreview) || '').toLowerCase()
+    
+    return title.includes(query) || projectPath.includes(query) || preview.includes(query)
+  })
+})
 
 async function loadSessions() {
   loading.value = true
@@ -80,36 +108,44 @@ function handleSelectSession(session: SessionLite) {
 }
 
 function formatTime(timestamp: number): string {
+  if (!timestamp) return ''
+  
   const now = Date.now()
   const diff = now - timestamp
   
-  // Less than 1 minute
   if (diff < 60000) {
     return '刚刚'
   }
   
-  // Less than 1 hour
   if (diff < 3600000) {
     return `${Math.floor(diff / 60000)}分钟前`
   }
   
-  // Less than 24 hours
   if (diff < 86400000) {
     return `${Math.floor(diff / 3600000)}小时前`
   }
   
-  // Less than 7 days
   if (diff < 604800000) {
     return `${Math.floor(diff / 86400000)}天前`
   }
   
-  // Format as date
   const date = new Date(timestamp)
   return `${date.getMonth() + 1}/${date.getDate()}`
 }
 
-function getProjectName(path: string): string {
-  return path.split('/').pop() || path
+function getProjectName(pathStr: string): string {
+  return pathStr.split(/[/\\]/).pop() || pathStr
+}
+
+function getSessionTitle(session: SessionLite): string {
+  if (session.metadata?.customTitle) {
+    return session.metadata.customTitle
+  }
+  if (session.firstUserMessage) {
+    const preview = session.firstUserMessage.slice(0, 60)
+    return preview.length < session.firstUserMessage.length ? preview + '...' : preview
+  }
+  return `Session ${(session.sessionId || session.id || '').slice(0, 8)}`
 }
 
 onMounted(() => {
@@ -121,7 +157,7 @@ onMounted(() => {
 .history-session-list {
   padding: 8px;
   overflow-y: auto;
-  max-height: 400px;
+  max-height: calc(75vh - 120px);
 }
 
 .loading-state,
