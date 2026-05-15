@@ -132,8 +132,6 @@ function handleClick() {
 }
 
 function handleToggle() {
-  // Emit expand-path event to parent for path tracking
-  emit('expand-path', props.node.path)
   emit('toggle', props.node)
 }
 
