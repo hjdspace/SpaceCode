@@ -1,6 +1,9 @@
 import { defineStore } from 'pinia'
-import { ref, computed, nextTick, watch } from 'vue'
+import { ref, computed, nextTick, watch, readonly } from 'vue'
 import type { Session, Message, ToolCall, AgentInfo, ProcessStatus } from '@/types'
+
+// 权限模式类型定义
+type PermissionMode = 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions'
 import { useSettingsStore } from './settings'
 import { useAppStore } from './app'
 import { useTaskManager } from '@/composables/useTaskManager'
@@ -339,6 +342,9 @@ export const useChatStore = defineStore('chat', () => {
   }
   // outer key = sessionId, inner key = toolUseId
   const pendingPermissions = ref<Map<string, Map<string, PermissionRequest>>>(new Map())
+
+  // ── 权限模式状态 ──
+  const currentPermissionMode = ref<PermissionMode>('default')
 
   const isLoading = computed(() =>
     currentSessionId.value ? (loadingSessions.value.get(currentSessionId.value) ?? false) : false
@@ -1805,6 +1811,30 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  /**
+   * 切换当前会话的权限模式
+   * @param mode - 目标模式（default/plan/acceptEdits/bypassPermissions）
+   */
+  async function setPermissionMode(mode: PermissionMode): Promise<void> {
+    const sid = currentSessionId.value
+    if (!sid) return
+    
+    const claudeCode = electronAPI?.claudeCode
+    if (!claudeCode?.setPermissionMode) {
+      logger.error('ChatStore', 'setPermissionMode: IPC not available')
+      return
+    }
+    
+    try {
+      logger.info('ChatStore', `setPermissionMode | sessionId=${sid.slice(0, 8)} | mode=${mode}`)
+      await claudeCode.setPermissionMode(sid, mode)
+      currentPermissionMode.value = mode
+    } catch (error) {
+      logger.error('ChatStore', 'setPermissionMode failed', { error })
+      throw error
+    }
+  }
+
   migrateOldData()
 
   return {
@@ -1848,5 +1878,8 @@ export const useChatStore = defineStore('chat', () => {
     hasPendingPermissionForToolUse,
     allowPermission,
     denyPermission,
+    // 权限模式（新增）
+    currentPermissionMode: readonly(currentPermissionMode),
+    setPermissionMode,
   }
 })
