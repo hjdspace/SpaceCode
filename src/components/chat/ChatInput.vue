@@ -147,6 +147,9 @@
       <!-- 底部工具栏：+ 号、模型选择、发送按钮 -->
       <div class="input-toolbar">
         <div class="toolbar-left">
+          <!-- 权限模式选择器 -->
+          <PermissionModeSelector />
+
           <!-- + 号按钮 -->
           <button class="toolbar-btn add-btn" @click="handleAddClick" :title="t('chatInput.addAttachment')">
             <Plus :size="18" />
@@ -421,6 +424,7 @@ import { useChatStore } from '@/stores/chat'
 import { api } from '@/services/electronAPI'
 import { useI18n } from 'vue-i18n'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
+import PermissionModeSelector from './PermissionModeSelector.vue'
 
 export interface ImageAttachment {
   id: string
