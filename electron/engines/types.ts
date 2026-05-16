@@ -45,6 +45,7 @@ export interface EngineSessionStatus {
   engineSessionId: string | null
   status: 'starting' | 'active' | 'idle' | 'suspended' | 'exited'
   isRunning: boolean
+  permissionMode?: PermissionMode
 }
 
 export interface ImageAttachment {

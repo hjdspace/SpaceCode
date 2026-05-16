@@ -147,13 +147,13 @@
       <!-- 底部工具栏：+ 号、模型选择、发送按钮 -->
       <div class="input-toolbar">
         <div class="toolbar-left">
-          <!-- 权限模式选择器 -->
-          <PermissionModeSelector />
-
           <!-- + 号按钮 -->
           <button class="toolbar-btn add-btn" @click="handleAddClick" :title="t('chatInput.addAttachment')">
             <Plus :size="18" />
           </button>
+
+          <!-- 权限模式选择器 -->
+          <PermissionModeSelector />
 
           <button
             v-if="showOpenProjectAction"

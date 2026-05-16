@@ -152,7 +152,7 @@ onUnmounted(() => {
 }
 
 .mode-trigger:hover {
-  background: var(--surface-glass-hover);
+  background: var(--surface-hover);
   border-color: var(--border-strong);
   color: var(--text-primary);
 }
@@ -172,27 +172,29 @@ onUnmounted(() => {
   transform: rotate(180deg);
 }
 
-/* 下拉菜单样式 */
 .mode-dropdown {
   position: absolute;
-  bottom: calc(100% + 8px);
+  bottom: 100%;
   left: 0;
-  width: 280px;
-  background: var(--surface-primary);
+  margin-bottom: 8px;
+  min-width: 280px;
+  background: var(--bg-primary);
   border: 1px solid var(--surface-border);
   border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-  z-index: 1000;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+  z-index: 100;
   overflow: hidden;
 }
 
 .dropdown-header {
-  padding: 12px 16px;
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  padding: 12px 16px 8px;
+  font-size: 11px;
   font-weight: 600;
-  color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  color: var(--text-muted);
   border-bottom: 1px solid var(--surface-border);
 }
 
@@ -205,26 +207,28 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   width: 100%;
-  padding: 12px;
+  padding: 10px 12px;
   background: transparent;
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
   text-align: left;
+  color: var(--text-primary);
+  font-size: 13px;
 }
 
 .mode-option:hover {
-  background: var(--surface-glass-hover);
+  background: var(--surface-hover);
 }
 
 .mode-option.active {
-  background: rgba(59, 130, 246, 0.1);
+  background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.1);
 }
 
 .mode-option .mode-icon {
   flex-shrink: 0;
-  color: var(--text-secondary);
+  color: var(--text-muted);
 }
 
 .mode-option.active .mode-icon {
@@ -238,7 +242,7 @@ onUnmounted(() => {
 
 .mode-name {
   display: block;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
   line-height: 1.4;
@@ -246,8 +250,8 @@ onUnmounted(() => {
 
 .mode-desc {
   display: block;
-  font-size: 12px;
-  color: var(--text-tertiary);
+  font-size: 11px;
+  color: var(--text-muted);
   margin-top: 2px;
   line-height: 1.3;
 }
@@ -255,14 +259,13 @@ onUnmounted(() => {
 .check-icon {
   flex-shrink: 0;
   color: var(--accent-primary);
+  margin-left: 8px;
 }
 
-/* 特殊模式样式 */
 .mode-bypassPermissions .mode-name {
   color: #f59e0b;
 }
 
-/* 动画 */
 .dropdown-enter-active,
 .dropdown-leave-active {
   transition: all 0.2s ease;

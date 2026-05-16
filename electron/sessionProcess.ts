@@ -31,6 +31,7 @@ export class SessionProcess extends EventEmitter {
   status: ProcessStatus = 'starting'
   eventBuffer: SDKMessage[] = []
   lastActivityAt: number = Date.now()
+  currentPermissionMode: PermissionMode = 'default'
 
   // 工具调用状态追踪
   private pendingToolCalls: Set<string> = new Set()
@@ -45,6 +46,7 @@ export class SessionProcess extends EventEmitter {
     super()
     this.sessionId = sessionId
     this.config = config
+    this.currentPermissionMode = (config.permissionMode as PermissionMode) || 'default'
     const isPackaged = app.isPackaged
     if (isPackaged) {
       this.cliRoot = path.join(process.resourcesPath, 'engine')
@@ -542,7 +544,9 @@ export class SessionProcess extends EventEmitter {
       return Promise.reject(new Error('No active process'))
     }
     info('SessionProcess', `[${this.sessionId.slice(0, 8)}] setPermissionMode → ${mode}`)
-    return this.controlProtocol.setPermissionMode(mode)
+    return this.controlProtocol.setPermissionMode(mode).then(() => {
+      this.currentPermissionMode = mode
+    })
   }
 
   setModel(model: string | undefined): Promise<void> {

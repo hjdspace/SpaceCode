@@ -482,6 +482,9 @@ export const useChatStore = defineStore('chat', () => {
         // Fall through to start with the new engine
       } else {
         logger.info('ChatStore', `initClaudeCodeSession: session already running | id=${sessionId.slice(0, 8)}`)
+        if (status?.permissionMode) {
+          currentPermissionMode.value = status.permissionMode as PermissionMode
+        }
         return
       }
     }
@@ -1532,11 +1535,24 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function selectSession(sessionId: string) {
+  async function selectSession(sessionId: string) {
     currentSessionId.value = sessionId
     const session = sessions.value.find(s => s.id === sessionId)
     if (session?.workingDirectory) {
       currentProjectRoot.value = session.workingDirectory
+    }
+    const claudeCode = electronAPI?.claudeCode
+    if (claudeCode) {
+      try {
+        const status = await claudeCode.getSessionStatus(sessionId)
+        if (status?.permissionMode) {
+          currentPermissionMode.value = status.permissionMode as PermissionMode
+        } else {
+          currentPermissionMode.value = 'default'
+        }
+      } catch {
+        currentPermissionMode.value = 'default'
+      }
     }
   }
 
@@ -1575,6 +1591,10 @@ export const useChatStore = defineStore('chat', () => {
           await claudeCode.resumeSession(sessionId)
           session.processStatus = 'active'
           saveToStorage()
+          const status = await claudeCode.getSessionStatus(sessionId)
+          if (status?.permissionMode) {
+            currentPermissionMode.value = status.permissionMode as PermissionMode
+          }
         } catch (error) {
           console.error('[ChatStore] Failed to resume session:', error)
           session.processStatus = 'exited'

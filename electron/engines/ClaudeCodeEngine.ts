@@ -161,6 +161,7 @@ export class ClaudeCodeEngine implements IEngine {
       engineSessionId: status.engineSessionId,
       status: status.status,
       isRunning: status.isRunning,
+      permissionMode: status.permissionMode as PermissionMode | undefined,
     }
   }
 
@@ -170,6 +171,7 @@ export class ClaudeCodeEngine implements IEngine {
       engineSessionId: s.engineSessionId,
       status: s.status,
       isRunning: s.isRunning,
+      permissionMode: s.permissionMode as PermissionMode | undefined,
     }))
   }
 

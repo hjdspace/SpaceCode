@@ -10,6 +10,7 @@ export interface SessionStatusInfo {
   engineSessionId: string | null
   status: ProcessStatus
   isRunning: boolean
+  permissionMode?: string
 }
 
 export class ClaudeCodeProcessPool {
@@ -233,7 +234,8 @@ export class ClaudeCodeProcessPool {
       sessionId: proc.sessionId,
       engineSessionId: proc.engineSessionId,
       status: proc.status,
-      isRunning: proc.isRunning()
+      isRunning: proc.isRunning(),
+      permissionMode: proc.currentPermissionMode
     }
   }
 
@@ -242,7 +244,8 @@ export class ClaudeCodeProcessPool {
       sessionId: proc.sessionId,
       engineSessionId: proc.engineSessionId,
       status: proc.status,
-      isRunning: proc.isRunning()
+      isRunning: proc.isRunning(),
+      permissionMode: proc.currentPermissionMode
     }))
   }
 
