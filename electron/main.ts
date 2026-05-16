@@ -963,6 +963,9 @@ ipcMain.handle('settings:saveGuiSettings', async (_event, data: string) => {
     const settingsPath = getGuiSettingsPath()
     writeFileSync(settingsPath, data, 'utf-8')
     debug('Settings', `GUI settings saved to ${settingsPath}`)
+
+    syncApiConfigToSettingsJson(data)
+
     return { success: true }
   } catch (err: any) {
     error('Settings', 'Failed to save GUI settings', err)
@@ -991,6 +994,78 @@ ipcMain.handle('settings:loadGuiSettings', async () => {
 // ============================================================================
 function getClaudeSettingsPath(): string {
   return join(app.getPath('home'), '.claude', 'settings.json')
+}
+
+function syncApiConfigToSettingsJson(guiSettingsJson: string): void {
+  try {
+    const guiSettings = JSON.parse(guiSettingsJson)
+    if (!guiSettings || typeof guiSettings !== 'object') return
+
+    const authMethod = guiSettings.authMethod
+    if (!authMethod) return
+
+    const settingsPath = getClaudeSettingsPath()
+    let existingSettings: Record<string, any> = {}
+
+    if (existsSync(settingsPath)) {
+      try {
+        const raw = readFileSync(settingsPath, 'utf-8')
+        if (raw.trim()) {
+          const parsed = JSON.parse(raw)
+          if (parsed && typeof parsed === 'object') {
+            existingSettings = { ...parsed }
+          }
+        }
+      } catch {
+        existingSettings = {}
+      }
+    }
+
+    const env: Record<string, string> = {}
+    let modelType: string | undefined
+
+    if (authMethod === 'openai_compatible' && guiSettings.openaiConfig) {
+      const config = guiSettings.openaiConfig
+      if (config.baseUrl) env.OPENAI_BASE_URL = config.baseUrl
+      if (config.apiKey) env.OPENAI_API_KEY = config.apiKey
+      if (config.haikuModel) env.OPENAI_DEFAULT_HAIKU_MODEL = config.haikuModel
+      if (config.sonnetModel) env.OPENAI_DEFAULT_SONNET_MODEL = config.sonnetModel
+      if (config.opusModel) env.OPENAI_DEFAULT_OPUS_MODEL = config.opusModel
+      modelType = 'openai'
+    } else if (authMethod === 'gemini' && guiSettings.geminiConfig) {
+      const config = guiSettings.geminiConfig
+      if (config.baseUrl) env.GEMINI_BASE_URL = config.baseUrl
+      if (config.apiKey) env.GEMINI_API_KEY = config.apiKey
+      if (config.haikuModel) env.GEMINI_DEFAULT_HAIKU_MODEL = config.haikuModel
+      if (config.sonnetModel) env.GEMINI_DEFAULT_SONNET_MODEL = config.sonnetModel
+      if (config.opusModel) env.GEMINI_DEFAULT_OPUS_MODEL = config.opusModel
+      modelType = 'gemini'
+    } else if ((authMethod === 'anthropic' || authMethod === 'oauth') && guiSettings.anthropicConfig) {
+      const config = guiSettings.anthropicConfig
+      if (config.baseUrl) env.ANTHROPIC_BASE_URL = config.baseUrl
+      if (config.apiKey) env.ANTHROPIC_API_KEY = config.apiKey
+      if (config.haikuModel) env.ANTHROPIC_DEFAULT_HAIKU_MODEL = config.haikuModel
+      if (config.sonnetModel) env.ANTHROPIC_DEFAULT_SONNET_MODEL = config.sonnetModel
+      if (config.opusModel) env.ANTHROPIC_DEFAULT_OPUS_MODEL = config.opusModel
+      modelType = undefined
+    }
+
+    if (Object.keys(env).length > 0) {
+      existingSettings.env = { ...(existingSettings.env || {}), ...env }
+      debug('Settings', `Synced API config to settings.json | envKeys=[${Object.keys(env).join(',')}]`)
+    }
+
+    if (modelType) {
+      existingSettings.modelType = modelType
+      debug('Settings', `Synced modelType to settings.json | modelType=${modelType}`)
+    }
+
+    ensureClaudeDir()
+    writeFileSync(settingsPath, JSON.stringify(existingSettings, null, 2), 'utf-8')
+    debug('Settings', `Settings.json updated at ${settingsPath}`)
+  } catch (err: any) {
+    error('Settings', 'Failed to sync API config to settings.json', err)
+  }
 }
 
 ipcMain.handle('settings:injectGuiModels', async (_event, models: { primaryModel: string; haikuModel?: string; sonnetModel?: string; opusModel?: string; effortLevel?: 'low' | 'medium' | 'high' | 'max' }) => {
