@@ -421,9 +421,11 @@ export const useChatStore = defineStore('chat', () => {
     currentProjectRoot.value = projectPath
   }
 
-  function createSession(title = 'New Chat', workingDirectory?: string): Session {
+  function createSession(title = 'New Chat', workingDirectory?: string, sessionId?: string): Session {
+    const id = sessionId || crypto.randomUUID()
+    
     const session: Session = {
-      id: crypto.randomUUID(),
+      id,
       title,
       messages: [],
       createdAt: Date.now(),
@@ -439,9 +441,9 @@ export const useChatStore = defineStore('chat', () => {
     traceEvent({
       sessionId: session.id,
       actor: 'system',
-      type: 'session_created',
+      type: sessionId ? 'session_restored' : 'session_created',
       status: 'completed',
-      title: 'Chat session created',
+      title: sessionId ? 'Chat session restored from history' : 'Chat session created',
       metadata: { title: session.title, workingDirectory: session.workingDirectory },
     })
     return session
