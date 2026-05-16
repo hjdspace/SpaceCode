@@ -575,12 +575,24 @@ async function handleRestoreHistorySession(session: any) {
     const claudeCode = (window as any).electronAPI?.claudeCode
     if (!claudeCode || !session?.sessionId) return
     
+    const existingSession = chatStore.sessions.find(s => s.id === session.sessionId)
+    
+    if (existingSession) {
+      console.log('[ChatPanel] Reusing existing session:', session.sessionId)
+      chatStore.selectSession(session.sessionId)
+      appStore.openSessionTab(session.sessionId, existingSession.title)
+      showHistoryModal.value = false
+      return
+    }
+    
     const fullSession = await claudeCode.getFullSession(session.projectPath, session.sessionId)
     if (!fullSession?.messages) return
     
-    const newSession = chatStore.createSession(
+    const restoredSession = chatStore.createSession(
       session.metadata?.customTitle ||
-      (session.firstUserMessage ? session.firstUserMessage.slice(0, 60) : '历史会话恢复')
+      (session.firstUserMessage ? session.firstUserMessage.slice(0, 60) : '历史会话恢复'),
+      session.projectPath,
+      session.sessionId
     )
     
     for (const msg of fullSession.messages) {
@@ -594,7 +606,7 @@ async function handleRestoreHistorySession(session: any) {
         }
         
         if (content.trim()) {
-          await chatStore.addMessage({ role: 'user', content })
+          chatStore.addMessage({ role: 'user', content }, restoredSession.id)
         }
       } else if (msg.type === 'assistant' && msg.message?.content) {
         let content = ''
@@ -607,14 +619,19 @@ async function handleRestoreHistorySession(session: any) {
         }
         
         if (content.trim()) {
-          await chatStore.addMessage({ role: 'assistant', content })
+          chatStore.addMessage({ role: 'assistant', content }, restoredSession.id)
         }
       }
     }
     
     showHistoryModal.value = false
     
-    console.log('[ChatPanel] History session restored:', newSession.id)
+    console.log(
+      '[ChatPanel] History session restored with original ID:', 
+      restoredSession.id, 
+      '| Messages loaded:', 
+      restoredSession.messages.length
+    )
   } catch (error) {
     console.error('[ChatPanel] Failed to restore history session:', error)
   }
