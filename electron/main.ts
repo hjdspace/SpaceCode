@@ -1026,27 +1026,27 @@ function syncApiConfigToSettingsJson(guiSettingsJson: string): void {
 
     if (authMethod === 'openai_compatible' && guiSettings.openaiConfig) {
       const config = guiSettings.openaiConfig
-      if (config.baseUrl) env.OPENAI_BASE_URL = config.baseUrl
-      if (config.apiKey) env.OPENAI_API_KEY = config.apiKey
-      if (config.haikuModel) env.OPENAI_DEFAULT_HAIKU_MODEL = config.haikuModel
-      if (config.sonnetModel) env.OPENAI_DEFAULT_SONNET_MODEL = config.sonnetModel
-      if (config.opusModel) env.OPENAI_DEFAULT_OPUS_MODEL = config.opusModel
+      if (config.baseUrl) env.OPENAI_BASE_URL = config.baseUrl.trim()
+      if (config.apiKey) env.OPENAI_API_KEY = config.apiKey.trim()
+      if (config.haikuModel) env.OPENAI_DEFAULT_HAIKU_MODEL = config.haikuModel.trim()
+      if (config.sonnetModel) env.OPENAI_DEFAULT_SONNET_MODEL = config.sonnetModel.trim()
+      if (config.opusModel) env.OPENAI_DEFAULT_OPUS_MODEL = config.opusModel.trim()
       modelType = 'openai'
     } else if (authMethod === 'gemini' && guiSettings.geminiConfig) {
       const config = guiSettings.geminiConfig
-      if (config.baseUrl) env.GEMINI_BASE_URL = config.baseUrl
-      if (config.apiKey) env.GEMINI_API_KEY = config.apiKey
-      if (config.haikuModel) env.GEMINI_DEFAULT_HAIKU_MODEL = config.haikuModel
-      if (config.sonnetModel) env.GEMINI_DEFAULT_SONNET_MODEL = config.sonnetModel
-      if (config.opusModel) env.GEMINI_DEFAULT_OPUS_MODEL = config.opusModel
+      if (config.baseUrl) env.GEMINI_BASE_URL = config.baseUrl.trim()
+      if (config.apiKey) env.GEMINI_API_KEY = config.apiKey.trim()
+      if (config.haikuModel) env.GEMINI_DEFAULT_HAIKU_MODEL = config.haikuModel.trim()
+      if (config.sonnetModel) env.GEMINI_DEFAULT_SONNET_MODEL = config.sonnetModel.trim()
+      if (config.opusModel) env.GEMINI_DEFAULT_OPUS_MODEL = config.opusModel.trim()
       modelType = 'gemini'
     } else if ((authMethod === 'anthropic' || authMethod === 'oauth') && guiSettings.anthropicConfig) {
       const config = guiSettings.anthropicConfig
-      if (config.baseUrl) env.ANTHROPIC_BASE_URL = config.baseUrl
-      if (config.apiKey) env.ANTHROPIC_API_KEY = config.apiKey
-      if (config.haikuModel) env.ANTHROPIC_DEFAULT_HAIKU_MODEL = config.haikuModel
-      if (config.sonnetModel) env.ANTHROPIC_DEFAULT_SONNET_MODEL = config.sonnetModel
-      if (config.opusModel) env.ANTHROPIC_DEFAULT_OPUS_MODEL = config.opusModel
+      if (config.baseUrl) env.ANTHROPIC_BASE_URL = config.baseUrl.trim()
+      if (config.apiKey) env.ANTHROPIC_API_KEY = config.apiKey.trim()
+      if (config.haikuModel) env.ANTHROPIC_DEFAULT_HAIKU_MODEL = config.haikuModel.trim()
+      if (config.sonnetModel) env.ANTHROPIC_DEFAULT_SONNET_MODEL = config.sonnetModel.trim()
+      if (config.opusModel) env.ANTHROPIC_DEFAULT_OPUS_MODEL = config.opusModel.trim()
       modelType = undefined
     }
 
