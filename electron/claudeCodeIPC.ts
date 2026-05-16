@@ -197,6 +197,136 @@ export function registerClaudeCodeIPC() {
     }
   })
 
+  // ──────────────────── can_use_tool / control_request ────────────────────
+
+  ipcMain.handle(
+    'claude-code:allowPermission',
+    async (
+      _,
+      sessionId: string,
+      requestId: string,
+      updatedInput?: Record<string, unknown>,
+      decisionClassification?: 'user_temporary' | 'user_permanent',
+    ) => {
+      info(
+        'ClaudeCodeIPC',
+        `→ allowPermission | sessionId=${sessionId.slice(0, 8)} | requestId=${requestId.slice(0, 8)} | classification=${decisionClassification || '(none)'}`,
+      )
+      const engine = findEngineForSession(sessionId)
+      if (typeof engine.allowPermission === 'function') {
+        await engine.allowPermission(sessionId, requestId, updatedInput, decisionClassification)
+      } else {
+        warn('ClaudeCodeIPC', `allowPermission not implemented in engine=${engine.type}`)
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'claude-code:denyPermission',
+    async (
+      _,
+      sessionId: string,
+      requestId: string,
+      message?: string,
+      options?: { interrupt?: boolean },
+    ) => {
+      info(
+        'ClaudeCodeIPC',
+        `→ denyPermission | sessionId=${sessionId.slice(0, 8)} | requestId=${requestId.slice(0, 8)} | interrupt=${!!options?.interrupt}`,
+      )
+      const engine = findEngineForSession(sessionId)
+      if (typeof engine.denyPermission === 'function') {
+        await engine.denyPermission(sessionId, requestId, message, options)
+      } else {
+        warn('ClaudeCodeIPC', `denyPermission not implemented in engine=${engine.type}`)
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'claude-code:respondPermission',
+    async (_, sessionId: string, requestId: string, decision: any) => {
+      info(
+        'ClaudeCodeIPC',
+        `→ respondPermission | sessionId=${sessionId.slice(0, 8)} | requestId=${requestId.slice(0, 8)} | behavior=${decision?.behavior}`,
+      )
+      const engine = findEngineForSession(sessionId)
+      if (typeof engine.respondPermission === 'function') {
+        await engine.respondPermission(sessionId, requestId, decision)
+      } else {
+        warn('ClaudeCodeIPC', `respondPermission not implemented in engine=${engine.type}`)
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'claude-code:setPermissionMode',
+    async (_, sessionId: string, mode: 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions') => {
+      info('ClaudeCodeIPC', `→ setPermissionMode | sessionId=${sessionId.slice(0, 8)} | mode=${mode}`)
+      const engine = findEngineForSession(sessionId)
+      if (typeof engine.setPermissionMode === 'function') {
+        await engine.setPermissionMode(sessionId, mode)
+      } else {
+        warn('ClaudeCodeIPC', `setPermissionMode not implemented in engine=${engine.type}`)
+      }
+    },
+  )
+
+  ipcMain.handle('claude-code:setModel', async (_, sessionId: string, model: string | undefined) => {
+    info('ClaudeCodeIPC', `→ setModel | sessionId=${sessionId.slice(0, 8)} | model=${model || '(default)'}`)
+    const engine = findEngineForSession(sessionId)
+    if (typeof engine.setModel === 'function') {
+      await engine.setModel(sessionId, model)
+    } else {
+      warn('ClaudeCodeIPC', `setModel not implemented in engine=${engine.type}`)
+    }
+  })
+
+  ipcMain.handle('claude-code:getMcpStatus', async (_, sessionId: string) => {
+    debug('ClaudeCodeIPC', `→ getMcpStatus | sessionId=${sessionId.slice(0, 8)}`)
+    const engine = findEngineForSession(sessionId)
+    if (typeof engine.getMcpStatus === 'function') {
+      return engine.getMcpStatus(sessionId)
+    }
+    return null
+  })
+
+  ipcMain.handle('claude-code:getContextUsage', async (_, sessionId: string) => {
+    debug('ClaudeCodeIPC', `→ getContextUsage | sessionId=${sessionId.slice(0, 8)}`)
+    const engine = findEngineForSession(sessionId)
+    if (typeof engine.getContextUsage === 'function') {
+      return engine.getContextUsage(sessionId)
+    }
+    return null
+  })
+
+  ipcMain.handle('claude-code:getSettings', async (_, sessionId: string) => {
+    debug('ClaudeCodeIPC', `→ getSettings | sessionId=${sessionId.slice(0, 8)}`)
+    const engine = findEngineForSession(sessionId)
+    if (typeof engine.getSettings === 'function') {
+      return engine.getSettings(sessionId)
+    }
+    return null
+  })
+
+  ipcMain.handle('claude-code:stopEngineTask', async (_, sessionId: string, taskId: string) => {
+    info('ClaudeCodeIPC', `→ stopEngineTask | sessionId=${sessionId.slice(0, 8)} | taskId=${taskId}`)
+    const engine = findEngineForSession(sessionId)
+    if (typeof engine.stopEngineTask === 'function') {
+      await engine.stopEngineTask(sessionId, taskId)
+    } else {
+      warn('ClaudeCodeIPC', `stopEngineTask not implemented in engine=${engine.type}`)
+    }
+  })
+
+  ipcMain.handle('claude-code:getPendingPermissionRequestIds', async (_, sessionId: string) => {
+    const engine = findEngineForSession(sessionId)
+    if (typeof engine.getPendingPermissionRequestIds === 'function') {
+      return engine.getPendingPermissionRequestIds(sessionId)
+    }
+    return []
+  })
+
   ipcMain.handle('claude-code:listAllSessions', async () => {
     info('ClaudeCodeIPC', '→ listAllSessions')
     try {

@@ -112,7 +112,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  toolSubmit: [toolId: string, answers: Record<string, string>]
+  toolSubmit: [toolId: string, updatedInput: Record<string, unknown>]
   toolSkip: [toolId: string]
 }>()
 
@@ -332,8 +332,8 @@ async function loadSpecialComponents() {
 onMounted(loadSpecialComponents)
 watch(() => props.toolCalls, () => { loadSpecialComponents() }, { deep: true })
 
-function handleToolSubmit(toolId: string, answers: Record<string, string>) {
-  emit('toolSubmit', toolId, answers)
+function handleToolSubmit(toolId: string, updatedInput: Record<string, unknown>) {
+  emit('toolSubmit', toolId, updatedInput)
 }
 
 function handleToolSkip(toolId: string) {

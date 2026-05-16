@@ -279,6 +279,58 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('claude-code:submitToolAnswer', sessionId, toolCallId, answers),
     skipToolAnswer: (sessionId: string, toolCallId: string) =>
       ipcRenderer.invoke('claude-code:skipToolAnswer', sessionId, toolCallId),
+
+    // ── can_use_tool / control_request 协议 ──
+    allowPermission: (
+      sessionId: string,
+      requestId: string,
+      updatedInput?: Record<string, unknown>,
+      decisionClassification?: 'user_temporary' | 'user_permanent',
+    ) =>
+      ipcRenderer.invoke(
+        'claude-code:allowPermission',
+        sessionId,
+        requestId,
+        updatedInput,
+        decisionClassification,
+      ),
+    denyPermission: (
+      sessionId: string,
+      requestId: string,
+      message?: string,
+      options?: { interrupt?: boolean },
+    ) => ipcRenderer.invoke('claude-code:denyPermission', sessionId, requestId, message, options),
+    respondPermission: (sessionId: string, requestId: string, decision: any) =>
+      ipcRenderer.invoke('claude-code:respondPermission', sessionId, requestId, decision),
+    setPermissionMode: (
+      sessionId: string,
+      mode: 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions',
+    ) => ipcRenderer.invoke('claude-code:setPermissionMode', sessionId, mode),
+    setModel: (sessionId: string, model: string | undefined) =>
+      ipcRenderer.invoke('claude-code:setModel', sessionId, model),
+    getMcpStatus: (sessionId: string) => ipcRenderer.invoke('claude-code:getMcpStatus', sessionId),
+    getContextUsage: (sessionId: string) =>
+      ipcRenderer.invoke('claude-code:getContextUsage', sessionId),
+    getSettings: (sessionId: string) => ipcRenderer.invoke('claude-code:getSettings', sessionId),
+    stopEngineTask: (sessionId: string, taskId: string) =>
+      ipcRenderer.invoke('claude-code:stopEngineTask', sessionId, taskId),
+    getPendingPermissionRequestIds: (sessionId: string) =>
+      ipcRenderer.invoke('claude-code:getPendingPermissionRequestIds', sessionId),
+    onPermissionRequest: (callback: (data: { sessionId: string; data: any }) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
+      ipcRenderer.on('claude-code:permission_request', wrapper)
+      return () => ipcRenderer.removeListener('claude-code:permission_request', wrapper)
+    },
+    onPermissionRequestCancelled: (callback: (data: { sessionId: string; data: any }) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
+      ipcRenderer.on('claude-code:permission_request_cancelled', wrapper)
+      return () => ipcRenderer.removeListener('claude-code:permission_request_cancelled', wrapper)
+    },
+    onElicitationRequest: (callback: (data: { sessionId: string; data: any }) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
+      ipcRenderer.on('claude-code:elicitation_request', wrapper)
+      return () => ipcRenderer.removeListener('claude-code:elicitation_request', wrapper)
+    },
   },
 
   // Folder selection dialog

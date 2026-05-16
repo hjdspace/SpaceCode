@@ -67,7 +67,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  toolSubmit: [messageId: string, toolId: string, answers: Record<string, string>]
+  toolSubmit: [messageId: string, toolId: string, updatedInput: Record<string, unknown>]
   toolSkip: [messageId: string, toolId: string]
 }>()
 
@@ -84,8 +84,8 @@ function showImagePreview(img: ImageAttachment) {
   window.open(img.previewUrl, '_blank')
 }
 
-function handleToolSubmit(toolId: string, answers: Record<string, string>) {
-  emit('toolSubmit', props.message.id, toolId, answers)
+function handleToolSubmit(toolId: string, updatedInput: Record<string, unknown>) {
+  emit('toolSubmit', props.message.id, toolId, updatedInput)
 }
 
 function handleToolSkip(toolId: string) {

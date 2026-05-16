@@ -129,6 +129,32 @@ function getWindowIconPath(): string {
   return iconPath
 }
 
+function waitForViteAndLoad(window: BrowserWindow, url: string, maxRetries = 50, interval = 200): void {
+  let attempts = 0
+  const tryLoad = () => {
+    attempts++
+    const req = net.request(url)
+    req.on('response', () => {
+      info('Startup', `Vite dev server ready after ${attempts} attempt(s)`)
+      window.loadURL(url).catch((err: Error) => {
+        error('Startup', `Failed to load URL: ${err.message}`)
+      })
+    })
+    req.on('error', () => {
+      if (attempts < maxRetries) {
+        setTimeout(tryLoad, interval)
+      } else {
+        error('Startup', `Vite dev server not ready after ${maxRetries} attempts, loading anyway`)
+        window.loadURL(url).catch((err: Error) => {
+          error('Startup', `Failed to load URL: ${err.message}`)
+        })
+      }
+    })
+    req.end()
+  }
+  tryLoad()
+}
+
 function createWindow() {
   const debugMode = isDebugMode()
 
@@ -201,7 +227,11 @@ function createWindow() {
   })
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173')
+    // vite-plugin-electron starts Electron and Vite in parallel; the dev server
+    // typically isn't bound to :5173 until ~1–2 s after Electron's `ready` event,
+    // so a naive `loadURL` races and produces a black screen with
+    // ERR_CONNECTION_REFUSED. Poll until the server answers, then load.
+    waitForViteAndLoad(mainWindow, 'http://localhost:5173')
   } else {
     mainWindow.loadFile(join(__dirname, '../dist/index.html'))
   }

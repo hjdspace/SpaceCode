@@ -417,6 +417,204 @@ describe('thinking support (reasoning_content)', () => {
     expect(textDeltas).toHaveLength(1)
     expect(textDeltas[0].delta.text).toBe('Only text should remain.')
   })
+
+  test('converts OpenRouter-style delta.reasoning to thinking block', async () => {
+    const events = await collectEvents([
+      makeChunk({
+        choices: [{
+          index: 0,
+          delta: { reasoning: 'Routing the question...' },
+          finish_reason: null,
+        }],
+      }),
+      makeChunk({
+        choices: [{
+          index: 0,
+          delta: { reasoning: ' through OpenRouter.' },
+          finish_reason: null,
+        }],
+      }),
+      makeChunk({
+        choices: [{
+          index: 0,
+          delta: { content: 'Final answer.' },
+          finish_reason: null,
+        }],
+      }),
+      makeChunk({
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      }),
+    ])
+
+    const thinkingStart = events.find(
+      e => e.type === 'content_block_start' && (e as any).content_block?.type === 'thinking',
+    ) as any
+    expect(thinkingStart).toBeDefined()
+    expect(thinkingStart.content_block.type).toBe('thinking')
+
+    const thinkingDeltas = events.filter(
+      e => e.type === 'content_block_delta' && (e as any).delta?.type === 'thinking_delta',
+    ) as any[]
+    expect(thinkingDeltas).toHaveLength(2)
+    expect(thinkingDeltas[0].delta.thinking).toBe('Routing the question...')
+    expect(thinkingDeltas[1].delta.thinking).toBe(' through OpenRouter.')
+
+    const textDeltas = events.filter(
+      e => e.type === 'content_block_delta' && (e as any).delta?.type === 'text_delta',
+    ) as any[]
+    expect(textDeltas).toHaveLength(1)
+    expect(textDeltas[0].delta.text).toBe('Final answer.')
+  })
+
+  test('drops delta.reasoning when enableThinking is false', async () => {
+    const events: any[] = []
+    for await (const event of adaptOpenAIStreamToAnthropic(
+      mockStream([
+        makeChunk({
+          choices: [{
+            index: 0,
+            delta: { reasoning: 'Should be dropped.' },
+            finish_reason: null,
+          }],
+        }),
+        makeChunk({
+          choices: [{
+            index: 0,
+            delta: { content: 'Only text remains.' },
+            finish_reason: null,
+          }],
+        }),
+        makeChunk({
+          choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+        }),
+      ]),
+      'openai/gpt-4o',
+      false,
+    )) {
+      events.push(event)
+    }
+
+    const thinkingDeltas = events.filter(
+      e => e.type === 'content_block_delta' && e.delta?.type === 'thinking_delta',
+    )
+    expect(thinkingDeltas).toHaveLength(0)
+  })
+
+  test('rescues dropped reasoning as text when no other content was produced', async () => {
+    // Simulates an OpenRouter "thinking-only" model (e.g. arcee-ai/trinity-large-thinking)
+    // that routes the entire response through delta.reasoning. With thinking disabled
+    // we'd otherwise emit zero content blocks and the user sees a silent empty turn.
+    const events: any[] = []
+    for await (const event of adaptOpenAIStreamToAnthropic(
+      mockStream([
+        makeChunk({
+          choices: [{
+            index: 0,
+            delta: { reasoning: 'The answer is 42.' },
+            finish_reason: null,
+          }],
+        }),
+        makeChunk({
+          choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+        }),
+      ]),
+      'arcee-ai/trinity-large-thinking',
+      false,
+    )) {
+      events.push(event)
+    }
+
+    const thinkingDeltas = events.filter(
+      e => e.type === 'content_block_delta' && (e as any).delta?.type === 'thinking_delta',
+    )
+    expect(thinkingDeltas).toHaveLength(0)
+
+    const textDeltas = events.filter(
+      e => e.type === 'content_block_delta' && (e as any).delta?.type === 'text_delta',
+    ) as any[]
+    expect(textDeltas).toHaveLength(1)
+    expect(textDeltas[0].delta.text).toBe('The answer is 42.')
+
+    const textStart = events.find(
+      e => e.type === 'content_block_start' && (e as any).content_block?.type === 'text',
+    )
+    expect(textStart).toBeDefined()
+  })
+
+  test('rescues reasoning as text when thinking is ON but no visible content was produced', async () => {
+    // Same scenario as above but with thinking enabled. The thinking block is
+    // forwarded live AND a text rescue block is appended at the end so the
+    // user sees both the reasoning trace and the final answer. Without this,
+    // thinking-on still leaves the user with a chat bubble that has no
+    // assistant-visible text.
+    const events = await collectEvents([
+      makeChunk({
+        choices: [{
+          index: 0,
+          delta: { reasoning: 'The answer is 42.' },
+          finish_reason: null,
+        }],
+      }),
+      makeChunk({
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      }),
+    ])
+
+    const thinkingDeltas = events.filter(
+      e => e.type === 'content_block_delta' && (e as any).delta?.type === 'thinking_delta',
+    ) as any[]
+    expect(thinkingDeltas).toHaveLength(1)
+    expect(thinkingDeltas[0].delta.thinking).toBe('The answer is 42.')
+
+    const textDeltas = events.filter(
+      e => e.type === 'content_block_delta' && (e as any).delta?.type === 'text_delta',
+    ) as any[]
+    expect(textDeltas).toHaveLength(1)
+    expect(textDeltas[0].delta.text).toBe('The answer is 42.')
+  })
+
+  test('does NOT rescue reasoning when text content was already produced', async () => {
+    // When thinking is off and the model emits both reasoning and text,
+    // reasoning should be silently dropped (as before), not duplicated as
+    // a second text block.
+    const events: any[] = []
+    for await (const event of adaptOpenAIStreamToAnthropic(
+      mockStream([
+        makeChunk({
+          choices: [{
+            index: 0,
+            delta: { reasoning: 'Should be dropped.' },
+            finish_reason: null,
+          }],
+        }),
+        makeChunk({
+          choices: [{
+            index: 0,
+            delta: { content: 'Visible answer.' },
+            finish_reason: null,
+          }],
+        }),
+        makeChunk({
+          choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+        }),
+      ]),
+      'openai/gpt-4o',
+      false,
+    )) {
+      events.push(event)
+    }
+
+    const textBlocks = events.filter(
+      e => e.type === 'content_block_start' && (e as any).content_block?.type === 'text',
+    )
+    expect(textBlocks).toHaveLength(1)
+
+    const textDeltas = events.filter(
+      e => e.type === 'content_block_delta' && (e as any).delta?.type === 'text_delta',
+    ) as any[]
+    expect(textDeltas).toHaveLength(1)
+    expect(textDeltas[0].delta.text).toBe('Visible answer.')
+  })
 })
 
 describe('prompt caching support', () => {

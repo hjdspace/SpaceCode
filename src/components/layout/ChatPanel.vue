@@ -513,19 +513,34 @@ function handleOpenSkills() {
   window.dispatchEvent(new CustomEvent('open-skills-manager'))
 }
 
-// 处理工具提交（AskUserQuestion）
-async function handleToolSubmit(messageId: string, toolId: string, answers: Record<string, string>) {
-  console.log('[ChatPanel] Tool submit:', { messageId, toolId, answers })
-  
-  // 将答案发送到后端
+// 处理工具提交（AskUserQuestion / 任何 behavior:'ask' 工具）
+//
+// 卡片现在传的是「更新后的 updatedInput」（含 answers / plan / 等等），
+// 直接对应 engine PermissionAllowResult.updatedInput 的语义。
+// 我们走新的 control_response 通道：chatStore.allowPermission。
+async function handleToolSubmit(messageId: string, toolId: string, updatedInput: Record<string, unknown>) {
+  console.log('[ChatPanel] Tool submit:', { messageId, toolId, updatedInput })
+
+  if (chatStore.hasPendingPermissionForToolUse(toolId)) {
+    await chatStore.allowPermission(messageId, toolId, updatedInput)
+    return
+  }
+
+  // Fallback：极少数遗留路径下没有 pending permission（例如 engine 端走
+  // 工具自调用流程，permission 已被自动批准），把 answers 当作 tool_result 推回。
+  const answers = (updatedInput?.answers as Record<string, string> | undefined) ?? {}
   await chatStore.submitToolAnswer(messageId, toolId, answers)
 }
 
-// 处理工具跳过（AskUserQuestion）
+// 处理工具跳过（AskUserQuestion / 任何 behavior:'ask' 工具）
 async function handleToolSkip(messageId: string, toolId: string) {
   console.log('[ChatPanel] Tool skip:', { messageId, toolId })
-  
-  // 通知后端用户跳过
+
+  if (chatStore.hasPendingPermissionForToolUse(toolId)) {
+    await chatStore.denyPermission(messageId, toolId, 'User skipped the questions')
+    return
+  }
+  // Fallback for legacy path
   await chatStore.skipToolAnswer(messageId, toolId)
 }
 

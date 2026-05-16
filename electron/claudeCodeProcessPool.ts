@@ -15,7 +15,18 @@ export interface SessionStatusInfo {
 export class ClaudeCodeProcessPool {
   private processes: Map<string, SessionProcess> = new Map()
   private mainWindow: BrowserWindow | null = null
-  private poolHandlers: Map<string, { message: (msg: any) => void; log: (data: string) => void; exit: (code: number | null) => void; error: (err: Error) => void }> = new Map()
+  private poolHandlers: Map<
+    string,
+    {
+      message: (msg: any) => void
+      log: (data: string) => void
+      exit: (code: number | null) => void
+      error: (err: Error) => void
+      permissionRequest?: (data: any) => void
+      permissionRequestCancelled?: (data: any) => void
+      elicitationRequest?: (data: any) => void
+    }
+  > = new Map()
 
   setMainWindow(window: BrowserWindow) {
     this.mainWindow = window
@@ -113,6 +124,90 @@ export class ClaudeCodeProcessPool {
     }
     info('ProcessPool', `[${sessionId.slice(0, 8)}] Forwarding tool skip | toolId=${toolCallId.slice(0, 8)}`)
     proc.skipToolAnswer(toolCallId)
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // can_use_tool / control_request 协议（来自 SessionProcess）
+  // ──────────────────────────────────────────────────────────────────────
+
+  respondPermission(
+    sessionId: string,
+    requestId: string,
+    decision: import('./controlProtocol').PermissionDecision,
+  ): void {
+    const proc = this.requireRunning(sessionId, 'respondPermission')
+    proc.respondPermission(requestId, decision)
+  }
+
+  allowPermission(
+    sessionId: string,
+    requestId: string,
+    updatedInput?: Record<string, unknown>,
+    decisionClassification?: 'user_temporary' | 'user_permanent',
+  ): void {
+    const proc = this.requireRunning(sessionId, 'allowPermission')
+    proc.allowPermission(requestId, updatedInput, decisionClassification)
+  }
+
+  denyPermission(
+    sessionId: string,
+    requestId: string,
+    message: string = 'User denied',
+    options: { interrupt?: boolean } = {},
+  ): void {
+    const proc = this.requireRunning(sessionId, 'denyPermission')
+    proc.denyPermission(requestId, message, options)
+  }
+
+  setPermissionMode(
+    sessionId: string,
+    mode: import('./controlProtocol').PermissionMode,
+  ): Promise<void> {
+    const proc = this.requireRunning(sessionId, 'setPermissionMode')
+    return proc.setPermissionMode(mode)
+  }
+
+  setModel(sessionId: string, model: string | undefined): Promise<void> {
+    const proc = this.requireRunning(sessionId, 'setModel')
+    return proc.setModel(model)
+  }
+
+  getMcpStatus(sessionId: string): Promise<Record<string, unknown> | undefined> {
+    const proc = this.requireRunning(sessionId, 'getMcpStatus')
+    return proc.getMcpStatus()
+  }
+
+  getContextUsage(sessionId: string): Promise<Record<string, unknown> | undefined> {
+    const proc = this.requireRunning(sessionId, 'getContextUsage')
+    return proc.getContextUsage()
+  }
+
+  getSettings(sessionId: string): Promise<Record<string, unknown> | undefined> {
+    const proc = this.requireRunning(sessionId, 'getSettings')
+    return proc.getSettings()
+  }
+
+  stopTask(sessionId: string, taskId: string): Promise<void> {
+    const proc = this.requireRunning(sessionId, 'stopTask')
+    return proc.stopTask(taskId)
+  }
+
+  getPendingPermissionRequestIds(sessionId: string): string[] {
+    const proc = this.processes.get(sessionId)
+    if (!proc) return []
+    return proc.getPendingPermissionRequestIds()
+  }
+
+  private requireRunning(sessionId: string, op: string): SessionProcess {
+    const proc = this.processes.get(sessionId)
+    if (!proc || !proc.isRunning()) {
+      error(
+        'ProcessPool',
+        `[${sessionId.slice(0, 8)}] ${op} failed: no active process | hasProcess=${!!proc} | isRunning=${proc?.isRunning()}`,
+      )
+      throw new Error(`Session ${sessionId} has no active process`)
+    }
+    return proc
   }
 
   abortSession(sessionId: string): void {
@@ -218,22 +313,34 @@ export class ClaudeCodeProcessPool {
       log: (data: string) => this.routeEvent(sessionId, 'log', data),
       exit: (code: number | null) => this.routeEvent(sessionId, 'exit', code),
       error: (err: Error) => this.routeEvent(sessionId, 'error', { message: err.message }),
+      permissionRequest: (data: any) => this.routeEvent(sessionId, 'permission_request', data),
+      permissionRequestCancelled: (data: any) =>
+        this.routeEvent(sessionId, 'permission_request_cancelled', data),
+      elicitationRequest: (data: any) => this.routeEvent(sessionId, 'elicitation_request', data),
     }
-    this.poolHandlers.set(sessionId, handlers)
+    this.poolHandlers.set(sessionId, handlers as any)
     proc.on('message', handlers.message)
     proc.on('log', handlers.log)
     proc.on('exit', handlers.exit)
     proc.on('error', handlers.error)
+    proc.on('permission_request', handlers.permissionRequest)
+    proc.on('permission_request_cancelled', handlers.permissionRequestCancelled)
+    proc.on('elicitation_request', handlers.elicitationRequest)
     debug('ProcessPool', `[${sessionId.slice(0, 8)}] Pool handlers attached`)
   }
 
   private detachPoolHandlers(sessionId: string, proc: SessionProcess): void {
-    const handlers = this.poolHandlers.get(sessionId)
+    const handlers = this.poolHandlers.get(sessionId) as any
     if (!handlers) return
     proc.removeListener('message', handlers.message)
     proc.removeListener('log', handlers.log)
     proc.removeListener('exit', handlers.exit)
     proc.removeListener('error', handlers.error)
+    if (handlers.permissionRequest) proc.removeListener('permission_request', handlers.permissionRequest)
+    if (handlers.permissionRequestCancelled) {
+      proc.removeListener('permission_request_cancelled', handlers.permissionRequestCancelled)
+    }
+    if (handlers.elicitationRequest) proc.removeListener('elicitation_request', handlers.elicitationRequest)
     this.poolHandlers.delete(sessionId)
     debug('ProcessPool', `[${sessionId.slice(0, 8)}] Pool handlers detached`)
   }

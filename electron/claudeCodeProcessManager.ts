@@ -242,7 +242,9 @@ export class ClaudeCodeProcessManager extends EventEmitter {
       if (config.apiKey) env.OPENAI_API_KEY = config.apiKey
       if (config.baseUrl) env.OPENAI_BASE_URL = config.baseUrl
       if (config.model) env.OPENAI_MODEL = config.model
-      if (config.thinkingEnabled) env.OPENAI_ENABLE_THINKING = '1'
+      // 显式开/关思考模式：关时也要写入 '0'，否则当模型名命中 deepseek 自动检测白名单时
+      // 引擎仍会把思考模式打开，UI 关闭按钮就形同虚设。
+      env.OPENAI_ENABLE_THINKING = config.thinkingEnabled ? '1' : '0'
     } else if (provider === 'gemini') {
       if (config.apiKey) env.GEMINI_API_KEY = config.apiKey
       if (config.baseUrl) env.GEMINI_BASE_URL = config.baseUrl

@@ -1,7 +1,7 @@
 import type { BrowserWindow } from 'electron'
 import { ClaudeCodeProcessPool } from '../claudeCodeProcessPool'
 import { SessionConfig } from '../claudeCodeProcessManager'
-import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment } from './types'
+import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment, PermissionDecision, PermissionMode } from './types'
 import * as fs from 'fs'
 import * as path from 'path'
 import { info } from '../logger'
@@ -78,6 +78,61 @@ export class ClaudeCodeEngine implements IEngine {
   skipToolAnswer(sessionId: string, toolCallId: string): Promise<void> {
     this.pool.skipToolAnswer(sessionId, toolCallId)
     return Promise.resolve()
+  }
+
+  // ── can_use_tool / control_request 协议 ──
+
+  respondPermission(sessionId: string, requestId: string, decision: PermissionDecision): Promise<void> {
+    this.pool.respondPermission(sessionId, requestId, decision)
+    return Promise.resolve()
+  }
+
+  allowPermission(
+    sessionId: string,
+    requestId: string,
+    updatedInput?: Record<string, unknown>,
+    decisionClassification?: 'user_temporary' | 'user_permanent',
+  ): Promise<void> {
+    this.pool.allowPermission(sessionId, requestId, updatedInput, decisionClassification)
+    return Promise.resolve()
+  }
+
+  denyPermission(
+    sessionId: string,
+    requestId: string,
+    message?: string,
+    options?: { interrupt?: boolean },
+  ): Promise<void> {
+    this.pool.denyPermission(sessionId, requestId, message, options)
+    return Promise.resolve()
+  }
+
+  setPermissionMode(sessionId: string, mode: PermissionMode): Promise<void> {
+    return this.pool.setPermissionMode(sessionId, mode)
+  }
+
+  setModel(sessionId: string, model: string | undefined): Promise<void> {
+    return this.pool.setModel(sessionId, model)
+  }
+
+  getMcpStatus(sessionId: string) {
+    return this.pool.getMcpStatus(sessionId)
+  }
+
+  getContextUsage(sessionId: string) {
+    return this.pool.getContextUsage(sessionId)
+  }
+
+  getSettings(sessionId: string) {
+    return this.pool.getSettings(sessionId)
+  }
+
+  stopEngineTask(sessionId: string, taskId: string): Promise<void> {
+    return this.pool.stopTask(sessionId, taskId)
+  }
+
+  getPendingPermissionRequestIds(sessionId: string): string[] {
+    return this.pool.getPendingPermissionRequestIds(sessionId)
   }
 
   abort(sessionId: string): Promise<void> {

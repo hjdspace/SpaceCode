@@ -45,7 +45,7 @@ import { useI18n } from 'vue-i18n'
 const { t } = useI18n()
 
 const emit = defineEmits<{
-  toolSubmit: [messageId: string, toolId: string, answers: Record<string, string>]
+  toolSubmit: [messageId: string, toolId: string, updatedInput: Record<string, unknown>]
   toolSkip: [messageId: string, toolId: string]
 }>()
 

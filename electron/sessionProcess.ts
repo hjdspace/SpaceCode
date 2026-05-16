@@ -7,6 +7,14 @@ import { randomUUID } from 'crypto'
 import { app } from 'electron'
 import { SessionConfig } from './claudeCodeProcessManager'
 import { info, warn, error, debug, processRaw, setSessionLogPath, sdkMessage, traceEvent } from './logger'
+import {
+  ControlProtocolHandler,
+  encodeJsonLine,
+  type PermissionDecision,
+  type PermissionMode,
+  type CanUseToolRequest,
+  type ElicitationRequest,
+} from './controlProtocol'
 
 export type ProcessStatus = 'starting' | 'active' | 'idle' | 'suspended' | 'exited'
 
@@ -28,8 +36,10 @@ export class SessionProcess extends EventEmitter {
   private pendingToolCalls: Set<string> = new Set()
   private isProcessing: boolean = false
 
+  // 控制协议处理器：负责 can_use_tool / control_response / elicitation 等
+  private readonly controlProtocol: ControlProtocolHandler
+
   private cliRoot: string
-  private buffer: string = ''
 
   constructor(sessionId: string, config: SessionConfig) {
     super()
@@ -42,6 +52,64 @@ export class SessionProcess extends EventEmitter {
       this.cliRoot = path.resolve(__dirname, '../engine')
     }
     debug('SessionProcess', `Constructed | sessionId=${sessionId.slice(0, 8)} | cwd=${config.cwd} | provider=${config.provider} | model=${config.model}`)
+
+    this.controlProtocol = new ControlProtocolHandler((message) => this.writeStdin(message))
+    this.controlProtocol.on('sdk_message', (msg: any) => this.handleSDKMessage(msg))
+    this.controlProtocol.on('permission_request', (req: CanUseToolRequest) => {
+      info(
+        'SessionProcess',
+        `[${this.sessionId.slice(0, 8)}] control_request: can_use_tool | requestId=${req.requestId.slice(0, 8)} | tool=${req.toolName} | toolUseId=${req.toolUseId.slice(0, 8)}`,
+      )
+      traceEvent({
+        sessionId: this.sessionId,
+        engineSessionId: this.engineSessionId || undefined,
+        actor: 'system',
+        type: 'permission_request',
+        status: 'started',
+        title: `Permission request: ${req.toolName}`,
+        input: { tool_name: req.toolName, input: req.input, tool_use_id: req.toolUseId },
+        metadata: { requestId: req.requestId, agentId: req.agentId },
+      })
+      this.lastActivityAt = Date.now()
+      this.emit('permission_request', {
+        sessionId: this.sessionId,
+        requestId: req.requestId,
+        toolName: req.toolName,
+        input: req.input,
+        toolUseId: req.toolUseId,
+        agentId: req.agentId,
+        description: req.description,
+        title: req.title,
+        displayName: req.displayName,
+        blockedPath: req.blockedPath,
+        decisionReason: req.decisionReason,
+        permissionSuggestions: req.permissionSuggestions,
+      })
+    })
+    this.controlProtocol.on('permission_request_cancelled', (info_: { requestId: string; reason?: string }) => {
+      this.emit('permission_request_cancelled', {
+        sessionId: this.sessionId,
+        requestId: info_.requestId,
+        reason: info_.reason,
+      })
+    })
+    this.controlProtocol.on('elicitation_request', (req: ElicitationRequest) => {
+      info(
+        'SessionProcess',
+        `[${this.sessionId.slice(0, 8)}] control_request: elicitation | requestId=${req.requestId.slice(0, 8)} | server=${req.mcpServerName}`,
+      )
+      this.lastActivityAt = Date.now()
+      this.emit('elicitation_request', {
+        sessionId: this.sessionId,
+        requestId: req.requestId,
+        mcpServerName: req.mcpServerName,
+        message: req.message,
+        mode: req.mode,
+        url: req.url,
+        elicitationId: req.elicitationId,
+        requestedSchema: req.requestedSchema,
+      })
+    })
   }
 
   async start(): Promise<void> {
@@ -175,19 +243,9 @@ export class SessionProcess extends EventEmitter {
     proc.stdout!.on('data', (data) => {
       const dataStr = data.toString()
       processRaw(this.sessionId, 'stdout', dataStr)
-
-      this.buffer += dataStr
-      const bufferedLines = this.buffer.split('\n')
-      this.buffer = bufferedLines.pop() || ''
-      for (const line of bufferedLines) {
-        if (line.trim()) {
-          try {
-            const msg = JSON.parse(line)
-            this.handleSDKMessage(msg)
-          } catch (e) {
-            warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to parse SDK message`, { line: line.slice(0, 200), error: String(e) })
-          }
-        }
+      const { parseErrors } = this.controlProtocol.feedStdoutChunk(dataStr)
+      for (const { line, error: err } of parseErrors) {
+        warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to parse SDK message`, { line: line.slice(0, 200), error: String(err) })
       }
     })
 
@@ -210,6 +268,9 @@ export class SessionProcess extends EventEmitter {
       if (this.status !== 'suspended') {
         this.status = 'exited'
       }
+      // Reject pending outbound control_requests and emit cancellation events
+      // for any open inbound permission prompts so the UI can clean up.
+      this.controlProtocol.rejectAllPending(`process_exit (code=${code}, signal=${signal})`)
       this.emit('exit', code)
       this.process = null
     })
@@ -383,13 +444,149 @@ export class SessionProcess extends EventEmitter {
   abort(): void {
     info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Sending abort/interrupt control_request`)
     if (this.process?.stdin?.writable) {
-      const abortMessage = {
-        type: 'control_request',
-        request_id: randomUUID(),
-        request: { subtype: 'interrupt' }
-      }
-      this.process.stdin.write(JSON.stringify(abortMessage) + '\n')
+      this.controlProtocol.interrupt()
     }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // control_request / control_response 协议
+  // ──────────────────────────────────────────────────────────────────────
+
+  /**
+   * 用户对一次 can_use_tool 询问做出决定（来自前端授权弹窗 / AskUserQuestion / ExitPlanMode 等）。
+   *
+   * 注意：不要把它和 submitToolAnswer 搞混了。
+   * - submitToolAnswer 是「工具自己执行完，把结果作为 tool_result 推回」，用于
+   *   AskUserQuestion 这类返回 answers 的工具的 output。
+   * - respondPermission 是「告诉引擎是否允许此工具调用」，对应 can_use_tool 的 control_response。
+   */
+  respondPermission(requestId: string, decision: PermissionDecision): void {
+    if (!this.process?.stdin?.writable) {
+      throw new Error('No active process')
+    }
+    const pending = this.controlProtocol.getPendingPermissionRequest(requestId)
+    info(
+      'SessionProcess',
+      `[${this.sessionId.slice(0, 8)}] Responding to can_use_tool | requestId=${requestId.slice(0, 8)} | tool=${pending?.toolName || '?'} | behavior=${decision.behavior}`,
+    )
+    traceEvent({
+      sessionId: this.sessionId,
+      actor: 'user',
+      type: 'permission_decision',
+      status: 'completed',
+      title: `User ${decision.behavior === 'allow' ? 'allowed' : 'denied'} ${pending?.toolName || 'tool'}`,
+      input: { requestId, decision },
+      metadata: { toolUseId: pending?.toolUseId },
+    })
+    this.controlProtocol.respondPermission(requestId, decision)
+  }
+
+  /**
+   * Helper: 用「允许」回应 can_use_tool。updatedInput 缺省为原始 input，等价于「直接放行」。
+   */
+  allowPermission(
+    requestId: string,
+    updatedInput?: Record<string, unknown>,
+    decisionClassification?: 'user_temporary' | 'user_permanent',
+  ): void {
+    if (!this.process?.stdin?.writable) {
+      throw new Error('No active process')
+    }
+    this.controlProtocol.allowPermission(requestId, updatedInput, decisionClassification)
+  }
+
+  /**
+   * Helper: 用「拒绝」回应 can_use_tool。
+   */
+  denyPermission(
+    requestId: string,
+    message: string = 'User denied',
+    options: { interrupt?: boolean } = {},
+  ): void {
+    if (!this.process?.stdin?.writable) {
+      throw new Error('No active process')
+    }
+    this.controlProtocol.denyPermission(requestId, message, options)
+  }
+
+  /**
+   * Returns the ids of in-flight permission prompts (the engine asked, the
+   * user has not answered yet).
+   */
+  getPendingPermissionRequestIds(): string[] {
+    return this.controlProtocol.getPendingPermissionRequestIds()
+  }
+
+  /**
+   * 应答一个引擎发来的 elicitation control_request（MCP 服务器要求用户输入）。
+   */
+  respondElicitation(
+    requestId: string,
+    response: { action: 'accept' | 'decline' | 'cancel'; content?: Record<string, unknown> },
+  ): void {
+    if (!this.process?.stdin?.writable) {
+      throw new Error('No active process')
+    }
+    info(
+      'SessionProcess',
+      `[${this.sessionId.slice(0, 8)}] Responding to elicitation | requestId=${requestId.slice(0, 8)} | action=${response.action}`,
+    )
+    this.writeStdin({
+      type: 'control_response',
+      response: { subtype: 'success', request_id: requestId, response },
+    })
+  }
+
+  setPermissionMode(mode: PermissionMode): Promise<void> {
+    if (!this.process?.stdin?.writable) {
+      return Promise.reject(new Error('No active process'))
+    }
+    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] setPermissionMode → ${mode}`)
+    return this.controlProtocol.setPermissionMode(mode)
+  }
+
+  setModel(model: string | undefined): Promise<void> {
+    if (!this.process?.stdin?.writable) {
+      return Promise.reject(new Error('No active process'))
+    }
+    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] setModel → ${model || '(default)'}`)
+    return this.controlProtocol.setModel(model)
+  }
+
+  getMcpStatus(): Promise<Record<string, unknown> | undefined> {
+    if (!this.process?.stdin?.writable) {
+      return Promise.reject(new Error('No active process'))
+    }
+    return this.controlProtocol.getMcpStatus()
+  }
+
+  getContextUsage(): Promise<Record<string, unknown> | undefined> {
+    if (!this.process?.stdin?.writable) {
+      return Promise.reject(new Error('No active process'))
+    }
+    return this.controlProtocol.getContextUsage()
+  }
+
+  getSettings(): Promise<Record<string, unknown> | undefined> {
+    if (!this.process?.stdin?.writable) {
+      return Promise.reject(new Error('No active process'))
+    }
+    return this.controlProtocol.getSettings()
+  }
+
+  stopTask(taskId: string): Promise<void> {
+    if (!this.process?.stdin?.writable) {
+      return Promise.reject(new Error('No active process'))
+    }
+    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] stopTask | taskId=${taskId}`)
+    return this.controlProtocol.stopTask(taskId)
+  }
+
+  private writeStdin(message: unknown): void {
+    if (!this.process?.stdin?.writable) {
+      throw new Error('Cannot write: stdin not writable')
+    }
+    this.process.stdin.write(encodeJsonLine(message))
   }
 
   suspend(): void {
@@ -448,6 +645,11 @@ export class SessionProcess extends EventEmitter {
     return this.pendingToolCalls.size
   }
 
+  /**
+   * 入站消息路由：把控制协议消息消化掉，其余继续走原有 handleSDKMessage 逻辑。
+   *
+   * 实际工作由 ControlProtocolHandler 完成；此处保留是为了便于打日志。
+   */
   private handleSDKMessage(msg: SDKMessage) {
     this.lastActivityAt = Date.now()
     sdkMessage(this.sessionId, msg.type, msg)
@@ -629,12 +831,43 @@ export class SessionProcess extends EventEmitter {
     } else if (this.engineSessionId && this.status === 'suspended') {
       args.push('--resume', this.engineSessionId)
       debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Added --resume flag | engineSessionId=${this.engineSessionId}`)
+    } else if (this.transcriptFileExists(config.cwd, this.sessionId)) {
+      // engine 收到 --session-id 时会检查 ~/.claude/projects/<sanitized-cwd>/<uuid>.jsonl
+      // 是否已存在；如果存在就立即 exit(1) 并打印 "Session ID ... is already in use"。
+      // 这种情况在重启 Electron / 进程被 evict 后再次发消息时必现：前端 chat 会话
+      // id 在 localStorage 里持久化，但 engineSessionId / 内存里的 status 都丢了，
+      // 走到 --session-id 分支就会撞上磁盘上的旧 jsonl。
+      // 用 --resume 接续历史，等价于 IDE 重启后继续聊。
+      args.push('--resume', this.sessionId)
+      debug(
+        'SessionProcess',
+        `[${this.sessionId.slice(0, 8)}] transcript already exists, using --resume to continue | sessionId=${this.sessionId}`,
+      )
     } else {
       args.push('--session-id', this.sessionId)
       debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Added --session-id flag | sessionId=${this.sessionId}`)
     }
 
     return args
+  }
+
+  /**
+   * Returns true when ~/.claude/projects/<sanitized-cwd>/<sessionId>.jsonl already
+   * exists. Mirrors engine/src/utils/sessionStorage.ts:sessionIdExists() so we can
+   * decide between --session-id (fresh) and --resume (continue) without round-tripping
+   * through the engine.
+   */
+  private transcriptFileExists(cwd: string, sessionId: string): boolean {
+    try {
+      const claudeDir = process.env.XDG_CONFIG_HOME
+        ? path.join(process.env.XDG_CONFIG_HOME, 'claude')
+        : path.join(os.homedir(), '.claude')
+      const sanitized = cwd.replace(/[^a-zA-Z0-9]/g, '-')
+      const transcript = path.join(claudeDir, 'projects', sanitized, `${sessionId}.jsonl`)
+      return fs.existsSync(transcript)
+    } catch {
+      return false
+    }
   }
 
   private buildEnv(config: SessionConfig): Record<string, string> {
@@ -647,7 +880,9 @@ export class SessionProcess extends EventEmitter {
       if (config.apiKey) env.OPENAI_API_KEY = config.apiKey
       if (config.baseUrl) env.OPENAI_BASE_URL = config.baseUrl
       if (config.model) env.OPENAI_MODEL = config.model
-      if (config.thinkingEnabled) env.OPENAI_ENABLE_THINKING = '1'
+      // 显式开/关思考模式：关时也要写入 '0'，否则当模型名命中 deepseek 自动检测白名单时
+      // 引擎仍会把思考模式打开，UI 关闭按钮就形同虚设。
+      env.OPENAI_ENABLE_THINKING = config.thinkingEnabled ? '1' : '0'
     } else if (provider === 'gemini') {
       env.CLAUDE_CODE_USE_GEMINI = '1'
       if (config.apiKey) env.GEMINI_API_KEY = config.apiKey
@@ -672,6 +907,16 @@ export class SessionProcess extends EventEmitter {
 
     if (!process.env.CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS) {
       env.CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS = '80000'
+    }
+
+    // Force-enable v2 task tools (TaskCreate / TaskGet / TaskUpdate / TaskList).
+    // Without this, the engine sees `getIsNonInteractiveSession() === true`
+    // (we always pass `--print`) and isTodoV2Enabled() returns false, so the
+    // four task tools are stripped from the tool list. The desktop UI is the
+    // user-facing surface for these tools, so we always want them present.
+    // See engine/src/utils/tasks.ts:isTodoV2Enabled().
+    if (!process.env.CLAUDE_CODE_ENABLE_TASKS) {
+      env.CLAUDE_CODE_ENABLE_TASKS = '1'
     }
 
     debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] buildEnv | provider=${provider} | baseUrl=${config.baseUrl || '(empty)'} | apiKey=${config.apiKey ? '***set' : '(empty)'} | envKeys=[${Object.keys(env).join(',')}]`)

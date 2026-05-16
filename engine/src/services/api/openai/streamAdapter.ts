@@ -6,11 +6,11 @@ import { randomUUID } from 'crypto'
  * Adapt an OpenAI streaming response into Anthropic BetaRawMessageStreamEvent.
  *
  * Mapping:
- *   First chunk              → message_start
- *   delta.reasoning_content  → content_block_start(thinking) + thinking_delta + content_block_stop
- *   delta.content            → content_block_start(text) + text_delta + content_block_stop
- *   delta.tool_calls         → content_block_start(tool_use) + input_json_delta + content_block_stop
- *   finish_reason            → message_delta(stop_reason) + message_stop
+ *   First chunk                                      → message_start
+ *   delta.reasoning_content / delta.reasoning        → content_block_start(thinking) + thinking_delta + content_block_stop
+ *   delta.content                                    → content_block_start(text) + text_delta + content_block_stop
+ *   delta.tool_calls                                 → content_block_start(tool_use) + input_json_delta + content_block_stop
+ *   finish_reason                                    → message_delta(stop_reason) + message_stop
  *
  * Usage field mapping (OpenAI → Anthropic):
  *   prompt_tokens                        → input_tokens
@@ -23,8 +23,10 @@ import { randomUUID } from 'crypto'
  *   OpenAI-compatible endpoints) are fully captured before the final counts are reported.
  *
  * Thinking support:
- *   DeepSeek and compatible providers send `delta.reasoning_content` for chain-of-thought.
- *   This is mapped to Anthropic's `thinking` content blocks:
+ *   Two upstream conventions are supported simultaneously:
+ *     - DeepSeek native / vLLM:    `delta.reasoning_content` (string)
+ *     - OpenRouter / Naga / etc.:  `delta.reasoning` (string)
+ *   Both are mapped to Anthropic's `thinking` content blocks:
  *     content_block_start: { type: 'thinking', thinking: '', signature: '' }
  *     content_block_delta: { type: 'thinking_delta', thinking: '...' }
  *
@@ -50,6 +52,16 @@ export async function* adaptOpenAIStreamToAnthropic(
 
   // Track text block state
   let textBlockOpen = false
+
+  // Track whether any visible content (text / tool_use) was emitted at all.
+  // Used by the post-stream fallback below: thinking-only models (e.g.
+  // arcee-ai/trinity-large-thinking) can route their entire response through
+  // the reasoning channel and never emit a text block. Without rescue, the
+  // user sees an empty turn. We buffer all reasoning content (regardless of
+  // whether it was forwarded as a thinking block) so that, if no text/tool
+  // ever arrives, we can surface the reasoning as text after the stream ends.
+  let sawVisibleContent = false
+  let reasoningBuffer = ''
 
   // Track usage — all four Anthropic fields, populated from OpenAI usage fields:
   //   prompt_tokens                          → input_tokens
@@ -118,36 +130,47 @@ export async function* adaptOpenAIStreamToAnthropic(
     // Skip chunks that carry only usage data (no delta content)
     if (!delta) continue
 
-    // Handle reasoning_content → Anthropic thinking block
-    // DeepSeek and compatible providers send delta.reasoning_content
-    // Only process when thinking mode is enabled; otherwise silently drop it
-    // so that frontend thinking-off config is respected.
-    const reasoningContent = (delta as any).reasoning_content
-    if (enableThinking !== false && reasoningContent != null && reasoningContent !== '') {
-      if (!thinkingBlockOpen) {
-        currentContentIndex++
-        thinkingBlockOpen = true
-        openBlockIndices.add(currentContentIndex)
+    // Handle reasoning_content / reasoning → Anthropic thinking block
+    // - DeepSeek native / vLLM emit `delta.reasoning_content`
+    // - OpenRouter / Naga / others emit `delta.reasoning` (string delta)
+    // Both are coalesced into the same thinking content block.
+    //
+    // We always buffer the raw reasoning text so the post-stream rescue can
+    // surface it as visible text if the model never emitted a text/tool block
+    // (some "thinking-only" OpenRouter models do this). Whether we also forward
+    // it as a live thinking_delta depends on enableThinking — when disabled,
+    // we silently drop the live deltas so the UI honors the user's preference.
+    const reasoningContent =
+      (delta as any).reasoning_content ?? (delta as any).reasoning
+    if (reasoningContent != null && reasoningContent !== '') {
+      reasoningBuffer += reasoningContent
+
+      if (enableThinking !== false) {
+        if (!thinkingBlockOpen) {
+          currentContentIndex++
+          thinkingBlockOpen = true
+          openBlockIndices.add(currentContentIndex)
+
+          yield {
+            type: 'content_block_start',
+            index: currentContentIndex,
+            content_block: {
+              type: 'thinking',
+              thinking: '',
+              signature: '',
+            },
+          } as BetaRawMessageStreamEvent
+        }
 
         yield {
-          type: 'content_block_start',
+          type: 'content_block_delta',
           index: currentContentIndex,
-          content_block: {
-            type: 'thinking',
-            thinking: '',
-            signature: '',
+          delta: {
+            type: 'thinking_delta',
+            thinking: reasoningContent,
           },
         } as BetaRawMessageStreamEvent
       }
-
-      yield {
-        type: 'content_block_delta',
-        index: currentContentIndex,
-        delta: {
-          type: 'thinking_delta',
-          thinking: reasoningContent,
-        },
-      } as BetaRawMessageStreamEvent
     }
 
     // Handle text content
@@ -165,6 +188,7 @@ export async function* adaptOpenAIStreamToAnthropic(
 
         currentContentIndex++
         textBlockOpen = true
+        sawVisibleContent = true
         openBlockIndices.add(currentContentIndex)
 
         yield {
@@ -225,6 +249,7 @@ export async function* adaptOpenAIStreamToAnthropic(
             arguments: '',
           })
           openBlockIndices.add(currentContentIndex)
+          sawVisibleContent = true
 
           yield {
             type: 'content_block_start',
@@ -302,6 +327,42 @@ export async function* adaptOpenAIStreamToAnthropic(
     yield {
       type: 'content_block_stop',
       index: idx,
+    } as BetaRawMessageStreamEvent
+  }
+
+  // Reasoning rescue: when the model routes its entire response through the
+  // reasoning channel and never emits a text/tool block (common with
+  // OpenRouter "thinking-only" models like arcee-ai/trinity-large-thinking),
+  // surface the buffered reasoning as a text block so the user sees the
+  // answer. Without this rescue, both thinking-on and thinking-off paths
+  // produce a chat bubble with no visible content. Runs after finish_reason
+  // but before message_delta / message_stop so the rescued text is part of
+  // the final assembled assistant message.
+  if (!sawVisibleContent && reasoningBuffer.length > 0) {
+    currentContentIndex++
+    const rescueIndex = currentContentIndex
+
+    yield {
+      type: 'content_block_start',
+      index: rescueIndex,
+      content_block: {
+        type: 'text',
+        text: '',
+      },
+    } as BetaRawMessageStreamEvent
+
+    yield {
+      type: 'content_block_delta',
+      index: rescueIndex,
+      delta: {
+        type: 'text_delta',
+        text: reasoningBuffer,
+      },
+    } as BetaRawMessageStreamEvent
+
+    yield {
+      type: 'content_block_stop',
+      index: rescueIndex,
     } as BetaRawMessageStreamEvent
   }
 

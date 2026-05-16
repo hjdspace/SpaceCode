@@ -1,12 +1,12 @@
 <template>
-  <div class="ask-user-question-card">
+  <div v-if="shouldRender" class="ask-user-question-card" :class="{ 'is-resolved': !isPending }">
     <div class="card-header">
       <div class="header-icon">
         <MessageCircleQuestion :size="20" />
       </div>
       <div class="header-text">
         <h3>{{ title }}</h3>
-        <span>{{ questionCountText }}</span>
+        <span>{{ statusText }}</span>
       </div>
     </div>
     
@@ -27,6 +27,7 @@
             :key="oIndex"
             class="option-btn"
             :class="{ 'selected': isOptionSelected(qIndex, oIndex) }"
+            :disabled="!isPending"
             @click="handleOptionClick(qIndex, oIndex, option, question.multiSelect)"
           >
             <div class="option-label">{{ option.label }}</div>
@@ -37,10 +38,18 @@
     </div>
     
     <div class="card-footer">
-      <button class="footer-btn secondary" @click="handleSkip">
+      <button
+        class="footer-btn secondary"
+        :disabled="!isPending"
+        @click="handleSkip"
+      >
         {{ skipText }}
       </button>
-      <button class="footer-btn primary" @click="handleSubmit">
+      <button
+        class="footer-btn primary"
+        :disabled="!isPending || answeredQuestionCount === 0"
+        @click="handleSubmit"
+      >
         {{ submitText }}
       </button>
     </div>
@@ -51,7 +60,7 @@
 import { ref, computed } from 'vue'
 import { MessageCircleQuestion } from 'lucide-vue-next'
 import type { ToolCall } from '@/types'
-import { api } from '@/services/electronAPI'
+import { useChatStore } from '@/stores/chat'
 
 interface QuestionOption {
   label: string
@@ -71,20 +80,66 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  submit: [answers: Record<string, string>]
+  /**
+   * 用户提交答案。payload 是「合并了 answers 之后的完整 updatedInput」，
+   * 直接对应 engine 在 can_use_tool 决策里的 PermissionAllowResult.updatedInput。
+   * 父级链路应当把它传给 chatStore.allowPermission(messageId, toolUseId, updatedInput)。
+   */
+  submit: [updatedInput: Record<string, unknown>]
+  /**
+   * 用户跳过 / 拒绝。父级链路应当把它传给 chatStore.denyPermission(...)。
+   */
   skip: []
 }>()
 
+const chatStore = useChatStore()
+
 const questions = computed<Question[]>(() => {
   const input = props.toolCall.input || {}
-  return input.questions || []
+  return (input as { questions?: Question[] }).questions || []
+})
+
+/**
+ * 卡片是否还可交互：当且仅当 chat store 中存在与本 toolCall 对应的
+ * pending can_use_tool 请求时为 true。这样可以避免：
+ *   1) 历史会话/旧消息里看到这张卡片时不小心被点中
+ *   2) 用户连续点提交导致重复 control_response
+ */
+const isPending = computed(() =>
+  chatStore.hasPendingPermissionForToolUse(props.toolCall.id),
+)
+
+/**
+ * 是否需要渲染整张卡片。
+ *
+ * 引擎侧 AskUserQuestion 是 `shouldDefer: true` 工具：模型首次调用时
+ * schema 尚未通过 ToolSearch 加载，引擎会直接给出 input 校验失败的
+ * tool_result（status='error'）—— 这种"幽灵 toolCall"没有真实 questions，
+ * 也永远不会发出 permission_request。如果照常渲染，就会出现 issue 截图里
+ * "已回答 / 本次提问已结束"的空卡片。
+ *
+ * 规则：
+ * - 已经被本地标成 error 的 toolCall：不渲染
+ * - 工具输入里没有 questions（或为空数组）：不渲染
+ * - 既不是 pending（还没有 permission 请求）也没有正在 running：不渲染
+ *   （兜底：模型自调用 tool_result 已回，但卡片不再有任何意义）
+ */
+const shouldRender = computed(() => {
+  if (props.toolCall.status === 'error') return false
+  if (questions.value.length === 0) return false
+  if (!isPending.value && props.toolCall.status !== 'running' && props.toolCall.status !== 'pending') {
+    return false
+  }
+  return true
 })
 
 const title = computed(() => {
+  if (!isPending.value) return '已回答'
   return questions.value.length > 1 ? '快速选择' : '请做出选择'
 })
 
-const questionCountText = computed(() => {
+const statusText = computed(() => {
+  if (!isPending.value) return '本次提问已结束'
   const count = questions.value.length
   return count > 1 ? `${count}个问题需要您的选择` : '1个问题'
 })
@@ -94,16 +149,25 @@ const skipText = computed(() => {
 })
 
 const submitText = computed(() => {
-  const hasSelections = selections.value.size > 0
   const totalQuestions = questions.value.length
-  const answeredQuestions = selections.value.size
-  
-  if (!hasSelections) return '确认'
+  const answeredQuestions = answeredQuestionCount.value
+
+  if (answeredQuestions === 0) return '请先选择'
   if (answeredQuestions === totalQuestions) return '提交答案'
   return `已选 ${answeredQuestions}/${totalQuestions}`
 })
 
 const selections = ref<Map<string, string>>(new Map())
+
+/** Counts how many distinct questions currently have at least one selection. */
+const answeredQuestionCount = computed(() => {
+  const seen = new Set<number>()
+  for (const key of selections.value.keys()) {
+    const qIdx = Number(key.split('-')[0])
+    if (!Number.isNaN(qIdx)) seen.add(qIdx)
+  }
+  return seen.size
+})
 
 function getSelectionKey(qIndex: number, oIndex: number): string {
   return `${qIndex}-${oIndex}`
@@ -119,6 +183,7 @@ function handleOptionClick(
   option: QuestionOption,
   multiSelect?: boolean
 ) {
+  if (!isPending.value) return
   const key = getSelectionKey(qIndex, oIndex)
   
   if (multiSelect) {
@@ -128,39 +193,54 @@ function handleOptionClick(
       selections.value.set(key, option.label)
     }
   } else {
-    // 清除同一个问题的其他选择
-    for (const [k, _] of selections.value) {
-      if (k.startsWith(`${qIndex}-`)) {
-        selections.value.delete(k)
-      }
-    }
+    // 清除同一问题的旧选择。先把要删的 key 收集到数组里，再删除——
+    // 避免在 Vue reactive Map 的迭代器上同时改写。
+    const prefix = `${qIndex}-`
+    const toDelete = Array.from(selections.value.keys()).filter(k => k.startsWith(prefix))
+    for (const k of toDelete) selections.value.delete(k)
     selections.value.set(key, option.label)
   }
 }
 
 function handleSkip() {
+  if (!isPending.value) return
   emit('skip')
 }
 
 function handleSubmit() {
+  if (!isPending.value) return
+
   const answers: Record<string, string> = {}
-  
   questions.value.forEach((question, qIndex) => {
-    const selectedOptions: string[] = []
-    
-    question.options.forEach((_, oIndex) => {
+    const selectedLabels: string[] = []
+    question.options.forEach((option, oIndex) => {
       const key = getSelectionKey(qIndex, oIndex)
       if (selections.value.has(key)) {
-        selectedOptions.push(selections.value.get(key)!)
+        // engine 强制 option label 在每题内唯一（UNIQUENESS_REFINE），
+        // 且 SDK 的 outputSchema.answers 描述说多选答案以逗号分隔。
+        selectedLabels.push(option.label)
+        // option arg referenced to silence unused-var lints in some setups
+        void option
       }
     })
-    
-    if (selectedOptions.length > 0) {
-      answers[question.question] = selectedOptions.join(', ')
+    if (selectedLabels.length > 0) {
+      answers[question.question] = selectedLabels.join(', ')
     }
   })
-  
-  emit('submit', answers)
+
+  // engine 在 permissionPromptToolResultToPermissionDecision 之后会用
+  // updatedInput 当作工具的真实输入再走一遍 zod 校验。
+  // AskUserQuestion 的 inputSchema 要求 answers 是 Record<string,string>，
+  // 即便允许 optional 也得避免空对象 → 否则引擎拿到空 answers，工具回结果
+  // "User has answered your questions: " 后面跟空串，模型会困惑甚至再次重问，
+  // 造成"点了确认没有反应"的体感。这里再守一道：没选任何选项就直接 return。
+  if (Object.keys(answers).length === 0) return
+
+  // 必须把 answers 合并回原 input 后再交给上层——engine 在
+  // permissionPromptToolResultToPermissionDecision 之后会用 updatedInput
+  // 当作工具的真实输入再走一遍 zod 校验，缺任何字段都会 deny。
+  const original = (props.toolCall.input || {}) as Record<string, unknown>
+  emit('submit', { ...JSON.parse(JSON.stringify(original)), answers })
 }
 </script>
 
@@ -172,6 +252,11 @@ function handleSubmit() {
   overflow: hidden;
   margin-top: 8px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+
+  &.is-resolved {
+    opacity: 0.7;
+    filter: grayscale(0.2);
+  }
 }
 
 .card-header {
@@ -259,6 +344,11 @@ function handleSubmit() {
   cursor: pointer;
   transition: all 0.2s ease;
   overflow: hidden;
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
   
   &::before {
     content: '';
@@ -336,6 +426,12 @@ function handleSubmit() {
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+    pointer-events: none;
+  }
   
   &:active {
     transform: scale(0.97);

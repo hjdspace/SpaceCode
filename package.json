@@ -24,6 +24,8 @@
     "electron:build:mac": "npm run icons:generate && npm run copy-bun && npm run engine:build:desktop && npm run build && electron-builder --mac",
     "electron:build:linux": "npm run icons:generate && npm run copy-bun && npm run engine:build:desktop && npm run build && electron-builder --linux",
     "typecheck": "vue-tsc --noEmit",
+    "test:electron": "node --experimental-strip-types --test tests/electron/*.test.ts",
+    "test:electron:ci": "node --experimental-strip-types --test --test-reporter=spec tests/electron/*.test.ts",
     "changelog": "conventional-changelog -p conventionalcommits -i CHANGELOG.md -s",
     "changelog:all": "conventional-changelog -p conventionalcommits -i CHANGELOG.md -s -r 0",
     "version": "npm run changelog && git add CHANGELOG.md",

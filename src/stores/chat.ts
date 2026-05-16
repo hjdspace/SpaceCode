@@ -313,6 +313,33 @@ export const useChatStore = defineStore('chat', () => {
   const streamingContents = ref<Map<string, string>>(new Map())
   const loadingSessions = ref<Map<string, boolean>>(new Map())
 
+  // ────────────────────────────────────────────────────────────────────
+  // 权限请求（can_use_tool control_request）
+  //
+  // engine 通过 control_request 发出 can_use_tool 请求时，preload 会经
+  // claude-code:permission_request 频道把它推送过来。我们按 sessionId 维护
+  // 一张 toolUseId → PermissionRequest 的索引表，UI 在渲染 AskUserQuestion /
+  // EnterPlanMode / ExitPlanMode / 任何 behavior:'ask' 工具的卡片时，依据
+  // toolCall.id（= engine 的 tool_use_id）查找对应的 requestId，再调用
+  // allowPermission / denyPermission 回写 control_response。
+  // ────────────────────────────────────────────────────────────────────
+  interface PermissionRequest {
+    sessionId: string
+    requestId: string
+    toolName: string
+    toolUseId: string
+    input: Record<string, unknown>
+    agentId?: string
+    description?: string
+    title?: string
+    displayName?: string
+    blockedPath?: string
+    decisionReason?: string
+    permissionSuggestions?: unknown[]
+  }
+  // outer key = sessionId, inner key = toolUseId
+  const pendingPermissions = ref<Map<string, Map<string, PermissionRequest>>>(new Map())
+
   const isLoading = computed(() =>
     currentSessionId.value ? (loadingSessions.value.get(currentSessionId.value) ?? false) : false
   )
@@ -640,6 +667,7 @@ export const useChatStore = defineStore('chat', () => {
       let isCompleted = false
       let currentTextEventId: string | null = null
       let currentReasoningEventId: string | null = null
+      let streamingHandledThinking = false
 
       const getAssistantMessage = () => {
         const s = sessions.value.find(s => s.id === targetSessionId)
@@ -712,19 +740,25 @@ export const useChatStore = defineStore('chat', () => {
 
         if (ev.type === 'content_block_start' && ev.content_block?.type === 'thinking') {
           logger.debug('ChatStore', `[${targetSessionId.slice(0, 8)}] stream_event: content_block_start(thinking)`)
+          if (currentReasoningEventId) {
+            updateTimelineEvent(currentReasoningEventId, { status: 'completed' })
+          }
           const s = sessions.value.find(s => s.id === targetSessionId)
           if (s) {
             const msg = s.messages.find(m => m.id === assistantMessageId)
-            if (msg && !msg.reasoning) {
-              msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
+            if (msg) {
+              if (!msg.reasoning) {
+                msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
+              }
               currentReasoningEventId = crypto.randomUUID()
               addTimelineEvent({
                 id: currentReasoningEventId,
                 type: 'reasoning',
-                timestamp: msg.reasoning.startTime,
+                timestamp: Date.now(),
                 status: 'running',
                 content: ''
               })
+              streamingHandledThinking = true
             }
           }
         }
@@ -745,6 +779,7 @@ export const useChatStore = defineStore('chat', () => {
         }
 
         if (ev.type === 'content_block_delta' && ev.delta?.type === 'thinking_delta' && ev.delta?.thinking) {
+          streamingHandledThinking = true
           const s = sessions.value.find(s => s.id === targetSessionId)
           if (s) {
             const msg = s.messages.find(m => m.id === assistantMessageId)
@@ -758,7 +793,7 @@ export const useChatStore = defineStore('chat', () => {
                 addTimelineEvent({
                   id: currentReasoningEventId,
                   type: 'reasoning',
-                  timestamp: msg.reasoning.startTime,
+                  timestamp: Date.now(),
                   status: 'running',
                   content: ''
                 })
@@ -797,6 +832,7 @@ export const useChatStore = defineStore('chat', () => {
                     status: 'running'
                   })
                 } else if (block.type === 'thinking') {
+                  if (streamingHandledThinking) continue
                   const thinkingText = block.thinking || block.text || ''
                   if (thinkingText) {
                     completeCurrentTextEvent()
@@ -808,7 +844,6 @@ export const useChatStore = defineStore('chat', () => {
                           msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
                         }
                         msg.reasoning.content += thinkingText
-                        // 不在此处设置 endTime — thinking 可能仍在进行
                         if (!currentReasoningEventId) {
                           currentReasoningEventId = crypto.randomUUID()
                           addTimelineEvent({
@@ -824,6 +859,7 @@ export const useChatStore = defineStore('chat', () => {
                           content: `${reasoningEvent?.content || ''}${thinkingText}`,
                           status: 'completed'
                         })
+                        streamingHandledThinking = true
                       }
                     }
                   }
@@ -860,7 +896,7 @@ export const useChatStore = defineStore('chat', () => {
                 .map((c: any) => c.thinking || c.text || '')
                 .join('')
 
-              if (reasoningContent) {
+              if (reasoningContent && !streamingHandledThinking) {
                 const s = sessions.value.find(s => s.id === targetSessionId)
                 if (s) {
                   const msg = s.messages.find(m => m.id === assistantMessageId)
@@ -869,7 +905,6 @@ export const useChatStore = defineStore('chat', () => {
                       msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
                     }
                     msg.reasoning.content += reasoningContent
-                    // 不在此处设置 endTime — thinking 可能仍在进行
                     if (!currentReasoningEventId) {
                       currentReasoningEventId = crypto.randomUUID()
                       addTimelineEvent({
@@ -885,6 +920,7 @@ export const useChatStore = defineStore('chat', () => {
                       content: `${reasoningEvent?.content || ''}${reasoningContent}`,
                       status: 'completed'
                     })
+                    streamingHandledThinking = true
                     saveToStorage()
                   }
                 }
@@ -1391,14 +1427,30 @@ export const useChatStore = defineStore('chat', () => {
   function updateToolCall(messageId: string, toolCallId: string, status: ToolCall['status']) {
     const sid = currentSessionId.value
     const session = sessions.value.find(s => s.id === sid)
-    if (session) {
-      const message = session.messages.find(m => m.id === messageId)
-      if (message?.toolCalls) {
-        const toolCall = message.toolCalls.find(tc => tc.id === toolCallId)
-        if (toolCall) {
-          toolCall.status = status
-          saveToStorage()
-        }
+    if (!session) return
+
+    // 优先按调用方传入的 messageId 命中。AssistantTimeline / MessageList 把
+    // 同一段 assistant 输出按"连续 assistant 消息"打成 group，外层 emit 时
+    // 用的是 `group.id`（即第一条消息的 id）；但 toolCall 可能挂在 group 内
+    // 任意一条后续 assistant 消息上（每个 LLM turn 都会新建一条 assistantMessage）。
+    // 严格按 messageId 命中就会静默 no-op，导致 AskUserQuestion 卡片提交后
+    // 视觉上不变化（仍然 running）。
+    // 因此当 messageId 找不到时，fallback 全表扫描——toolCallId 在会话内是
+    // 全局唯一的（engine 颁发的 tool_use_id），不会误命中。
+    const primary = session.messages.find(m => m.id === messageId)
+    const tc = primary?.toolCalls?.find(t => t.id === toolCallId)
+    if (tc) {
+      tc.status = status
+      saveToStorage()
+      return
+    }
+
+    for (const message of session.messages) {
+      const fallback = message.toolCalls?.find(t => t.id === toolCallId)
+      if (fallback) {
+        fallback.status = status
+        saveToStorage()
+        return
       }
     }
   }
@@ -1612,6 +1664,145 @@ export const useChatStore = defineStore('chat', () => {
     }
   })
 
+  // ────────────────────────────────────────────────────────────────────
+  // 权限请求订阅（control_request: can_use_tool）
+  //
+  // 这条订阅是会话无关 / turn 无关的——一旦 store 创建就长期生效，因为
+  // engine 可能在任何时刻（比如 background turn 或者后台 hook）发起授权请求。
+  // 单元测试 / SSR 场景下 onPermissionRequest 不存在时安全地降级为 no-op。
+  // ────────────────────────────────────────────────────────────────────
+  if (electronAPI?.claudeCode?.onPermissionRequest) {
+    electronAPI.claudeCode.onPermissionRequest((evt: { sessionId: string; data: PermissionRequest }) => {
+      const sid = evt.sessionId
+      const req = evt.data
+      if (!req?.toolUseId) {
+        logger.warn('ChatStore', `permission_request without toolUseId | sessionId=${sid.slice(0, 8)} | requestId=${req?.requestId}`)
+        return
+      }
+      logger.info('ChatStore', `permission_request | sessionId=${sid.slice(0, 8)} | tool=${req.toolName} | toolUseId=${req.toolUseId.slice(0, 8)} | requestId=${req.requestId.slice(0, 8)}`)
+      let bySession = pendingPermissions.value.get(sid)
+      if (!bySession) {
+        bySession = new Map()
+        pendingPermissions.value.set(sid, bySession)
+      }
+      bySession.set(req.toolUseId, { ...req, sessionId: sid })
+      // Trigger reactivity (Map mutations otherwise don't notify computed/watch)
+      pendingPermissions.value = new Map(pendingPermissions.value)
+    })
+  }
+  if (electronAPI?.claudeCode?.onPermissionRequestCancelled) {
+    electronAPI.claudeCode.onPermissionRequestCancelled((evt: { sessionId: string; data: { requestId: string; reason?: string } }) => {
+      const sid = evt.sessionId
+      const cancelledRequestId = evt.data?.requestId
+      if (!cancelledRequestId) return
+      logger.info('ChatStore', `permission_request_cancelled | sessionId=${sid.slice(0, 8)} | requestId=${cancelledRequestId.slice(0, 8)} | reason=${evt.data?.reason || '(none)'}`)
+      const bySession = pendingPermissions.value.get(sid)
+      if (!bySession) return
+      // Find by requestId (we index by toolUseId, so we need a scan).
+      for (const [toolUseId, req] of bySession.entries()) {
+        if (req.requestId === cancelledRequestId) {
+          bySession.delete(toolUseId)
+          break
+        }
+      }
+      if (bySession.size === 0) pendingPermissions.value.delete(sid)
+      pendingPermissions.value = new Map(pendingPermissions.value)
+    })
+  }
+
+  function getPendingPermissionForToolUse(toolUseId: string, sessionId?: string): PermissionRequest | undefined {
+    const sid = sessionId ?? currentSessionId.value
+    if (!sid) return undefined
+    return pendingPermissions.value.get(sid)?.get(toolUseId)
+  }
+
+  function hasPendingPermissionForToolUse(toolUseId: string, sessionId?: string): boolean {
+    return !!getPendingPermissionForToolUse(toolUseId, sessionId)
+  }
+
+  function consumePermissionFor(toolUseId: string, sessionId: string): PermissionRequest | undefined {
+    const bySession = pendingPermissions.value.get(sessionId)
+    if (!bySession) return undefined
+    const req = bySession.get(toolUseId)
+    if (!req) return undefined
+    bySession.delete(toolUseId)
+    if (bySession.size === 0) pendingPermissions.value.delete(sessionId)
+    pendingPermissions.value = new Map(pendingPermissions.value)
+    return req
+  }
+
+  /**
+   * Approve a pending permission request keyed by tool_use_id.
+   *
+   * `updatedInput` is the new input fed to the underlying tool. For most
+   * "yes/no" prompts (e.g. Bash, Edit) it equals the original input. For
+   * AskUserQuestion / EnterPlanMode etc. it carries the answers / plan as
+   * extra fields, exactly as engine/src/components/permissions/.../onAllow
+   * does in TUI mode.
+   */
+  async function allowPermission(
+    messageId: string,
+    toolUseId: string,
+    updatedInput: Record<string, unknown>,
+    decisionClassification?: 'user_temporary' | 'user_permanent',
+  ): Promise<void> {
+    const sid = currentSessionId.value
+    if (!sid) return
+    const claudeCode = electronAPI?.claudeCode
+    if (!claudeCode?.allowPermission) {
+      logger.error('ChatStore', 'allowPermission: claudeCode.allowPermission not available')
+      return
+    }
+    const req = consumePermissionFor(toolUseId, sid)
+    if (!req) {
+      logger.warn('ChatStore', `allowPermission: no pending request | sessionId=${sid.slice(0, 8)} | toolUseId=${toolUseId.slice(0, 8)}`)
+      return
+    }
+    logger.info('ChatStore', `allowPermission | sessionId=${sid.slice(0, 8)} | tool=${req.toolName} | requestId=${req.requestId.slice(0, 8)}`)
+    try {
+      const safeInput = JSON.parse(JSON.stringify(updatedInput)) as Record<string, unknown>
+      await claudeCode.allowPermission(sid, req.requestId, safeInput, decisionClassification)
+      // Mark the matching tool call as completed so the card collapses.
+      updateToolCall(messageId, toolUseId, 'completed')
+    } catch (error) {
+      logger.error('ChatStore', 'allowPermission failed', { error: String(error) })
+      throw error
+    }
+  }
+
+  /**
+   * Deny a pending permission request. By default the engine treats deny as
+   * the user explicitly rejecting the tool call (decisionClassification:
+   * user_reject is set inside the IPC layer).
+   */
+  async function denyPermission(
+    messageId: string,
+    toolUseId: string,
+    message: string = 'User denied',
+    options: { interrupt?: boolean } = {},
+  ): Promise<void> {
+    const sid = currentSessionId.value
+    if (!sid) return
+    const claudeCode = electronAPI?.claudeCode
+    if (!claudeCode?.denyPermission) {
+      logger.error('ChatStore', 'denyPermission: claudeCode.denyPermission not available')
+      return
+    }
+    const req = consumePermissionFor(toolUseId, sid)
+    if (!req) {
+      logger.warn('ChatStore', `denyPermission: no pending request | sessionId=${sid.slice(0, 8)} | toolUseId=${toolUseId.slice(0, 8)}`)
+      return
+    }
+    logger.info('ChatStore', `denyPermission | sessionId=${sid.slice(0, 8)} | tool=${req.toolName} | requestId=${req.requestId.slice(0, 8)} | interrupt=${!!options.interrupt}`)
+    try {
+      await claudeCode.denyPermission(sid, req.requestId, message, options)
+      updateToolCall(messageId, toolUseId, 'completed')
+    } catch (error) {
+      logger.error('ChatStore', 'denyPermission failed', { error: String(error) })
+      throw error
+    }
+  }
+
   migrateOldData()
 
   return {
@@ -1649,5 +1840,11 @@ export const useChatStore = defineStore('chat', () => {
     switchModel,
     submitToolAnswer,
     skipToolAnswer,
+    // can_use_tool / control_request
+    pendingPermissions,
+    getPendingPermissionForToolUse,
+    hasPendingPermissionForToolUse,
+    allowPermission,
+    denyPermission,
   }
 })
