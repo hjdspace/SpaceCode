@@ -446,25 +446,48 @@ export const useSettingsStore = defineStore('settings', () => {
   async function loadFromEnv() {
     const envSettings = await loadEnvSettings()
 
-    // 始终从 .env 加载 baseUrl 和 apiKey（如果 .env 中有定义）
-    // 这确保 API 端点配置始终来自 .env
-    if (envSettings.authMethod) {
+    // Only apply .env values as fallback when user hasn't configured via GUI
+    // Priority: gui-settings.json > localStorage > .env > defaults
+    // This prevents .env from overwriting user's manual configuration
+
+    if (envSettings.authMethod && !authMethod.value) {
       authMethod.value = envSettings.authMethod
     }
     if (envSettings.anthropicConfig) {
       for (const [key, value] of Object.entries(envSettings.anthropicConfig)) {
-        if (value) (anthropicConfig.value as any)[key] = value
+        if (value && !(anthropicConfig.value as any)[key]) {
+          (anthropicConfig.value as any)[key] = value
+        }
       }
     }
     if (envSettings.openaiConfig) {
       for (const [key, value] of Object.entries(envSettings.openaiConfig)) {
-        if (value) (openaiConfig.value as any)[key] = value
+        if (value && !(openaiConfig.value as any)[key]) {
+          (openaiConfig.value as any)[key] = value
+        }
       }
     }
     if (envSettings.geminiConfig) {
       for (const [key, value] of Object.entries(envSettings.geminiConfig)) {
-        if (value) (geminiConfig.value as any)[key] = value
+        if (value && !(geminiConfig.value as any)[key]) {
+          (geminiConfig.value as any)[key] = value
+        }
       }
+    }
+
+    const envAny = envSettings as Record<string, any>
+
+    if (envAny.effortLevel !== undefined && !effortLevel.value) {
+      effortLevel.value = envAny.effortLevel as 'low' | 'medium' | 'high' | 'max'
+    }
+    if (envSettings.language && !language.value) {
+      language.value = envSettings.language as Locale
+    }
+    if (envSettings.engineType && !engineType.value) {
+      engineType.value = envSettings.engineType as EngineType
+    }
+    if (envSettings.appearance) {
+      updateAppearance(envSettings.appearance)
     }
   }
 
@@ -473,7 +496,7 @@ export const useSettingsStore = defineStore('settings', () => {
     saveSettings()
   }
 
-  // Auto-load persisted file settings first, then allow .env to override in development/packaged resource env scenarios
+  // Priority: gui-settings.json (highest) > localStorage > .env (fallback) > defaults
   loadFromGuiSettingsFile().finally(() => loadFromEnv())
 
   return {
