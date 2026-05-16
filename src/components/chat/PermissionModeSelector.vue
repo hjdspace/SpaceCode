@@ -1,5 +1,5 @@
 <template>
-  <div class="permission-mode-selector" ref="selectorRef">
+  <div class="permission-mode-selector" ref="selectorRef" @focusout="handleFocusOut">
     <button 
       class="mode-trigger" 
       @click="toggleDropdown"
@@ -15,7 +15,6 @@
       <div 
         v-if="isOpen" 
         class="mode-dropdown"
-        v-click-outside="closeDropdown"
       >
         <div class="dropdown-header">{{ t('permission.modeSelector.title') }}</div>
         <div class="dropdown-list">
@@ -43,7 +42,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Shield, ChevronDown, Check, Eye, Edit3, Zap } from 'lucide-vue-next'
 import { useChatStore } from '@/stores/chat'
@@ -109,6 +108,26 @@ function toggleDropdown() {
 function closeDropdown() {
   isOpen.value = false
 }
+
+function handleFocusOut(e: FocusEvent) {
+  if (selectorRef.value && !selectorRef.value.contains(e.relatedTarget as Node)) {
+    closeDropdown()
+  }
+}
+
+function handleClickOutside(e: MouseEvent) {
+  if (selectorRef.value && !selectorRef.value.contains(e.target as Node)) {
+    closeDropdown()
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('mousedown', handleClickOutside)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('mousedown', handleClickOutside)
+})
 </script>
 
 <style scoped>
