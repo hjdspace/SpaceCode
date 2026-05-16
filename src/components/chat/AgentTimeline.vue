@@ -60,6 +60,13 @@
               @submit="handleToolSubmit(event.toolCall!.id, $event)"
               @skip="handleToolSkip(event.toolCall!.id)"
             />
+            <PermissionRequestCard
+              v-if="getPendingPermission(event.toolCall!.id)"
+              :message-id="event.messageId!"
+              :tool-use-id="event.toolCall!.id"
+              :tool-name="getPendingPermission(event.toolCall!.id)!.toolName"
+              :input="getPendingPermission(event.toolCall!.id)!.input"
+            />
           </template>
 
           <!-- Generic tool call event -->
@@ -88,6 +95,13 @@
                 <pre class="detail-code output"><code>{{ formatOutput(event.toolCall.output) }}</code></pre>
               </div>
             </div>
+            <PermissionRequestCard
+              v-if="event.toolCall && getPendingPermission(event.toolCall.id)"
+              :message-id="event.messageId!"
+              :tool-use-id="event.toolCall.id"
+              :tool-name="getPendingPermission(event.toolCall.id)!.toolName"
+              :input="getPendingPermission(event.toolCall.id)!.input"
+            />
           </template>
 
           <!-- Metadata event -->
@@ -119,6 +133,7 @@ import type { Message, ToolCall, MessageMetadata, ClassifiedError } from '@/type
 import type { Component } from 'vue'
 import { computed, markRaw, onMounted, reactive, watch } from 'vue'
 import { hasToolComponent, resolveToolComponent } from '@/components/chat/tools/index'
+import PermissionRequestCard from './tools/PermissionRequestCard.vue'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
 import ErrorCard from '../common/ErrorCard.vue'
 import { errorHandler } from '@/services/errorHandler'
@@ -152,6 +167,7 @@ interface TimelineEvent {
   target?: string
   duration?: string
   toolCall?: ToolCall
+  messageId?: string
   metadata?: MessageMetadata
   specialComponent?: Component
   classifiedError?: ClassifiedError
@@ -165,6 +181,10 @@ const props = defineProps<{
 const expandedEvents = reactive<Record<string, boolean>>({})
 
 const chatStore = useChatStore()
+
+function getPendingPermission(toolUseId: string) {
+  return chatStore.getPendingPermissionForToolUse(toolUseId)
+}
 
 function handleRetry() {
   chatStore.retryLastMessage()
@@ -253,6 +273,7 @@ const timelineEvents = computed<TimelineEvent[]>(() => {
             target: getToolTarget(tool),
             duration: getToolDuration(tool) || undefined,
             toolCall: tool,
+            messageId: msg.id,
             specialComponent: specialComponents[tool.id] ? markRaw(specialComponents[tool.id]) : undefined,
           })
           continue
@@ -296,6 +317,7 @@ const timelineEvents = computed<TimelineEvent[]>(() => {
           target: getToolTarget(tool),
           duration: getToolDuration(tool) || undefined,
           toolCall: tool,
+          messageId: msg.id,
           specialComponent: specialComponents[tool.id] ? markRaw(specialComponents[tool.id]) : undefined,
         })
       }
