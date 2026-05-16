@@ -15,6 +15,7 @@ export interface SessionStatusInfo {
 
 export class ClaudeCodeProcessPool {
   private processes: Map<string, SessionProcess> = new Map()
+  private pendingPermissionModes: Map<string, string> = new Map()
   private mainWindow: BrowserWindow | null = null
   private poolHandlers: Map<
     string,
@@ -63,6 +64,16 @@ export class ClaudeCodeProcessPool {
     try {
       await proc.start()
       info('ProcessPool', `[${sessionId.slice(0, 8)}] Session started successfully | pid=${proc.process?.pid} | totalActive=${Array.from(this.processes.values()).filter(p => p.isRunning()).length}`)
+      const pendingMode = this.pendingPermissionModes.get(sessionId)
+      if (pendingMode) {
+        info('ProcessPool', `[${sessionId.slice(0, 8)}] Applying pending permission mode | mode=${pendingMode}`)
+        try {
+          await proc.setPermissionMode(pendingMode as any)
+          this.pendingPermissionModes.delete(sessionId)
+        } catch (e) {
+          warn('ProcessPool', `[${sessionId.slice(0, 8)}] Failed to apply pending permission mode`, { error: String(e) })
+        }
+      }
     } catch (err) {
       error('ProcessPool', `[${sessionId.slice(0, 8)}] Failed to start session`, { error: String(err) })
       throw err
@@ -84,6 +95,16 @@ export class ClaudeCodeProcessPool {
     try {
       await proc.resume()
       info('ProcessPool', `[${sessionId.slice(0, 8)}] Session resumed successfully`)
+      const pendingMode = this.pendingPermissionModes.get(sessionId)
+      if (pendingMode) {
+        info('ProcessPool', `[${sessionId.slice(0, 8)}] Applying pending permission mode after resume | mode=${pendingMode}`)
+        try {
+          await proc.setPermissionMode(pendingMode as any)
+          this.pendingPermissionModes.delete(sessionId)
+        } catch (e) {
+          warn('ProcessPool', `[${sessionId.slice(0, 8)}] Failed to apply pending permission mode after resume`, { error: String(e) })
+        }
+      }
     } catch (err) {
       error('ProcessPool', `[${sessionId.slice(0, 8)}] Failed to resume session`, { error: String(err) })
       throw err
@@ -164,7 +185,13 @@ export class ClaudeCodeProcessPool {
     sessionId: string,
     mode: import('./controlProtocol').PermissionMode,
   ): Promise<void> {
-    const proc = this.requireRunning(sessionId, 'setPermissionMode')
+    const proc = this.processes.get(sessionId)
+    if (!proc || !proc.isRunning()) {
+      this.pendingPermissionModes.set(sessionId, mode)
+      info('ProcessPool', `[${sessionId.slice(0, 8)}] setPermissionMode: no active process, saved as pending | mode=${mode}`)
+      return Promise.resolve()
+    }
+    this.pendingPermissionModes.delete(sessionId)
     return proc.setPermissionMode(mode)
   }
 

@@ -93,12 +93,8 @@ async function selectMode(mode: PermissionMode) {
     return
   }
   
-  try {
-    await chatStore.setPermissionMode(mode)
-    isOpen.value = false
-  } catch (error) {
-    console.error('Failed to set permission mode:', error)
-  }
+  await chatStore.setPermissionMode(mode)
+  isOpen.value = false
 }
 
 function toggleDropdown() {

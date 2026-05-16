@@ -1840,18 +1840,18 @@ export const useChatStore = defineStore('chat', () => {
     if (!sid) return
     
     const claudeCode = electronAPI?.claudeCode
-    if (!claudeCode?.setPermissionMode) {
-      logger.error('ChatStore', 'setPermissionMode: IPC not available')
-      return
-    }
     
     try {
-      logger.info('ChatStore', `setPermissionMode | sessionId=${sid.slice(0, 8)} | mode=${mode}`)
-      await claudeCode.setPermissionMode(sid, mode)
+      if (claudeCode?.setPermissionMode) {
+        logger.info('ChatStore', `setPermissionMode | sessionId=${sid.slice(0, 8)} | mode=${mode}`)
+        await claudeCode.setPermissionMode(sid, mode)
+      } else {
+        logger.warn('ChatStore', `setPermissionMode: IPC not available, updating local state only | mode=${mode}`)
+      }
       currentPermissionMode.value = mode
     } catch (error) {
       logger.error('ChatStore', 'setPermissionMode failed', { error })
-      throw error
+      currentPermissionMode.value = mode
     }
   }
 
