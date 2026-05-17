@@ -51,6 +51,7 @@ import CurrentTurnChangeCard from './CurrentTurnChangeCard.vue'
 import { MessageSquare } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useChatStore } from '@/stores/chat'
+import { getCompletedTurnTargets } from '@/utils/turnCheckpointUtils'
 
 const { t } = useI18n()
 const chatStore = useChatStore()
@@ -107,21 +108,34 @@ watch(() => [messages, loading], () => {
   scrollToBottom()
 }, { deep: true })
 
+const completedTurnTargets = computed(() => getCompletedTurnTargets(messages))
+const hasCompletedTurns = computed(() => completedTurnTargets.value.length > 0)
+
 watch(() => chatStore.currentSessionId, async (sessionId) => {
-  if (sessionId && !chatStore.isLoading) {
+  if (sessionId && !chatStore.isLoading && hasCompletedTurns.value) {
     await chatStore.loadTurnCheckpoints(sessionId)
   }
 })
 
 watch(() => messages, async () => {
-  if (chatStore.currentSessionId && !chatStore.isLoading) {
-    await chatStore.loadTurnCheckpoints(chatStore.currentSessionId)
+  const sessionId = chatStore.currentSessionId
+  const isIdle = !chatStore.isLoading && !loading
+  
+  if (sessionId && isIdle && hasCompletedTurns.value) {
+    await chatStore.loadTurnCheckpoints(sessionId)
+  } else if (sessionId && isIdle && !hasCompletedTurns.value) {
+    chatStore.clearTurnCheckpoints()
   }
 }, { deep: true })
 
-onMounted(() => {
+onMounted(async () => {
   if (messages.length > 0) {
     scrollToBottom()
+  }
+  
+  const sessionId = chatStore.currentSessionId
+  if (sessionId && !loading && hasCompletedTurns.value) {
+    await chatStore.loadTurnCheckpoints(sessionId)
   }
 })
 </script>
