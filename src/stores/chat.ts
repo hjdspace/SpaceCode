@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, nextTick, watch, readonly } from 'vue'
-import type { Session, Message, ToolCall, AgentInfo, ProcessStatus } from '@/types'
+import type { Session, Message, ToolCall, AgentInfo, ProcessStatus, SessionTurnCheckpoint, TurnChangeCardData } from '@/types'
 
 // 权限模式类型定义
 type PermissionMode = 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions'
@@ -8,6 +8,7 @@ import { useSettingsStore } from './settings'
 import { useAppStore } from './app'
 import { useTaskManager } from '@/composables/useTaskManager'
 import { errorHandler } from '@/services/errorHandler'
+import { api } from '@/services/electronAPI'
 
 const taskManager = useTaskManager()
 
@@ -345,6 +346,13 @@ export const useChatStore = defineStore('chat', () => {
 
   // ── 权限模式状态 ──
   const currentPermissionMode = ref<PermissionMode>('default')
+
+  // ── Turn Change Card 状态 ──
+  
+  const turnCheckpoints = ref<SessionTurnCheckpoint[]>([])
+  const isLoadingTurnCards = ref(false)
+  const turnCardsError = ref<string | null>(null)
+  const rewindingTurnId = ref<string | null>(null)
 
   const isLoading = computed(() =>
     currentSessionId.value ? (loadingSessions.value.get(currentSessionId.value) ?? false) : false
@@ -1633,6 +1641,75 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  // ── Turn Checkpoint Actions & Getters ──
+  
+  async function loadTurnCheckpoints(sessionId: string) {
+    if (!sessionId || isLoadingTurnCards.value) return
+    
+    isLoadingTurnCards.value = true
+    turnCardsError.value = null
+    
+    try {
+      const result = await api.session.getTurnCheckpoints(sessionId)
+      if (result.ok) {
+        turnCheckpoints.value = result.checkpoints
+      } else {
+        turnCardsError.value = result.error || 'Failed to load turn checkpoints'
+        turnCheckpoints.value = []
+      }
+    } catch (err) {
+      turnCardsError.value = err instanceof Error ? err.message : 'Unknown error'
+      turnCheckpoints.value = []
+    } finally {
+      isLoadingTurnCards.value = false
+    }
+  }
+
+  async function undoTurn(sessionId: string, targetUserMessageId: string, userMessageIndex?: number) {
+    if (!sessionId || rewindingTurnId.value) return
+    
+    rewindingTurnId.value = targetUserMessageId
+    
+    try {
+      const result = await api.session.rewindTurn(sessionId, {
+        targetUserMessageId,
+        userMessageIndex
+      })
+      
+      if (!result.ok) {
+        throw new Error(result.error || 'Failed to rewind turn')
+      }
+      
+      await loadTurnCheckpoints(sessionId)
+    } catch (err) {
+      logger.error('ChatStore', 'Failed to undo turn', { error: err })
+      throw err
+    } finally {
+      rewindingTurnId.value = null
+    }
+  }
+
+  function clearTurnCheckpoints() {
+    turnCheckpoints.value = []
+    turnCardsError.value = null
+  }
+
+  const turnChangeCards = computed<TurnChangeCardData[]>(() => {
+    if (turnCheckpoints.value.length === 0) return []
+    
+    const latestIndex = turnCheckpoints.value.length - 1
+    
+    return turnCheckpoints.value.map((checkpoint, index) => ({
+      checkpoint,
+      workDir: checkpoint.workDir ?? null,
+      isLatest: index === latestIndex,
+      targetUserMessageId: checkpoint.target.targetUserMessageId
+    })).filter(card => 
+      card.checkpoint.code.available && 
+      card.checkpoint.code.filesChanged.length > 0
+    )
+  })
+
   function migrateOldData() {
     try {
       const oldKeys = Object.keys(localStorage).filter(k => k.startsWith('chat_sessions_'))
@@ -1901,5 +1978,14 @@ export const useChatStore = defineStore('chat', () => {
     // 权限模式（新增）
     currentPermissionMode: readonly(currentPermissionMode),
     setPermissionMode,
+    // Turn Checkpoints
+    turnCheckpoints: readonly(turnCheckpoints),
+    turnChangeCards,
+    isLoadingTurnCards,
+    turnCardsError,
+    rewindingTurnId: readonly(rewindingTurnId),
+    loadTurnCheckpoints,
+    undoTurn,
+    clearTurnCheckpoints,
   }
 })

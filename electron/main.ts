@@ -1173,7 +1173,11 @@ ipcMain.handle('debug:readTraceEvents', async (_event, sessionId: string, maxEve
 ipcMain.handle('session:getTurnCheckpoints', async (_event, sessionId: string) => {
   try {
     const { getPool } = await import('./claudeCodeIPC')
-    const pool = getPool()
+    const pool = getPool() as any
+    if (!pool) {
+      return { ok: false, checkpoints: [], error: 'Session pool not available' }
+    }
+    
     const session = pool.get(sessionId)
     
     if (!session?.process) {
@@ -1205,7 +1209,11 @@ ipcMain.handle('session:getTurnCheckpointDiff', async (
 ) => {
   try {
     const { getPool } = await import('./claudeCodeIPC')
-    const pool = getPool()
+    const pool = getPool() as any
+    if (!pool) {
+      return { state: 'error' as const, path: filePath, error: 'Session pool not available' }
+    }
+    
     const session = pool.get(sessionId)
     
     if (!session?.process) {
@@ -1237,7 +1245,11 @@ ipcMain.handle('session:rewindTurn', async (
 ) => {
   try {
     const { getPool } = await import('./claudeCodeIPC')
-    const pool = getPool()
+    const pool = getPool() as any
+    if (!pool) {
+      return { ok: false, error: 'Session pool not available' }
+    }
+    
     const session = pool.get(sessionId)
     
     if (!session?.process) {
