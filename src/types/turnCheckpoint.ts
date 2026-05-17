@@ -4,10 +4,16 @@ export interface SessionTurnCheckpointTarget {
   userMessageCount: number
 }
 
+export interface FileChangedEntry {
+  path: string
+  insertions: number
+  deletions: number
+}
+
 export interface SessionTurnCheckpointCode {
   available: boolean
   reason?: string
-  filesChanged: string[]
+  filesChanged: FileChangedEntry[]
   insertions: number
   deletions: number
 }
