@@ -69,6 +69,18 @@ export default {
     output: '输出',
     hiddenLines: '{count} 行已折叠',
     progressUpdate: '进度更新 {completed}/{total}',
+    turnChangesTitle: '{count} 个文件已更改',
+    turnChangesLatestSubtitle: '当前轮次检查点',
+    turnChangesHistoricalSubtitle: '历史轮次',
+    turnChangesLatestUndo: '撤销当前轮次',
+    turnChangesHistoricalUndo: '回滚到这一轮之前',
+    turnChangesUndoing: '正在撤销...',
+    turnChangesDiffLoading: '正在加载 diff...',
+    turnChangesDiffUnavailable: '无法获取差异内容',
+    turnChangesShowDiffAria: '查看 {path} 的变更详情',
+    turnChangesHideDiffAria: '隐藏 {path} 的变更详情',
+    turnChangesLatestCardLabel: '当前轮次变更追踪',
+    turnChangesHistoricalCardLabel: '历史轮次变更追踪',
   },
 
   sidebar: {
