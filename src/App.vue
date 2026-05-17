@@ -15,6 +15,7 @@
       <div class="center-panel">
         <div class="center-content">
           <SettingsPanel v-if="appStore.showSettings" />
+          <SkillsManager v-else-if="appStore.showSkillsManager" />
           <ChatPanel v-else-if="!appStore.showTraceViewer" />
           <TraceViewer v-else />
         </div>
@@ -45,6 +46,7 @@ import ChatPanel from './components/layout/ChatPanel.vue'
 import InfoPanel from './components/layout/InfoPanel.vue'
 import TraceViewer from './components/debug/TraceViewer.vue'
 import SettingsPanel from './components/settings/SettingsPanel.vue'
+import SkillsManager from './components/skills/SkillsManager.vue'
 import { api } from '@/services/electronAPI'
 import { useShortcuts } from '@/composables/useShortcuts'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'

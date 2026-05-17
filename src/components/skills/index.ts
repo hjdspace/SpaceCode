@@ -1,4 +1,4 @@
-export { default as SkillsManager } from './SkillsManagerModal.vue'
+export { default as SkillsManager } from './SkillsManager.vue'
 export { default as SkillListItem } from './SkillListItem.vue'
 export { default as SkillEditor } from './SkillEditor.vue'
 export { default as CreateSkillDialog } from './CreateSkillDialog.vue'

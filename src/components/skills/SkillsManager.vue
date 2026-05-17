@@ -3,9 +3,14 @@
     <!-- Fixed header -->
     <div class="skills-header">
       <div class="header-content">
-        <div>
-          <h1 class="title">Skills</h1>
-          <p class="description">Create and manage slash command skills for Claude</p>
+        <div class="header-left">
+          <button class="close-btn" @click="handleClose" title="Close">
+            <ArrowLeft :size="18" />
+          </button>
+          <div>
+            <h1 class="title">Skills</h1>
+            <p class="description">Create and manage slash command skills for Claude</p>
+          </div>
         </div>
         <button v-if="viewTab === 'local'" class="btn btn-primary" @click="showCreate = true">
           <Plus :size="14" />
@@ -127,14 +132,21 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { Plus, Search, Zap } from 'lucide-vue-next'
+import { Plus, Search, Zap, ArrowLeft } from 'lucide-vue-next'
 import { useSkillsStore, type Skill } from '@/stores/skills'
+import { useAppStore } from '@/stores/app'
 import SkillListItem from './SkillListItem.vue'
 import SkillEditor from './SkillEditor.vue'
 import CreateSkillDialog from './CreateSkillDialog.vue'
 import MarketplaceBrowser from './MarketplaceBrowser.vue'
 
 const skillsStore = useSkillsStore()
+
+// Close skills manager (return to chat)
+function handleClose() {
+  const appStore = useAppStore()
+  appStore.showSkillsManager = false
+}
 
 const search = ref('')
 const selected = ref<Skill | null>(null)
@@ -225,7 +237,31 @@ onMounted(() => {
   align-items: flex-start;
   justify-content: space-between;
   margin-bottom: 12px;
-  padding-right: 48px; // Make room for the close button in modal
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+
+  &:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
 }
 
 .title {

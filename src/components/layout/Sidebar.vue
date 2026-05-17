@@ -246,11 +246,6 @@
     <!-- Settings Panel (Modal) -->
     <!-- Settings now renders inline in the center panel via App.vue -->
 
-    <!-- Skills Manager Modal -->
-    <SkillsManager
-      v-model="appStore.showSkillsManager"
-    />
-
     <!-- MCP Manager Modal -->
     <McpManager
       v-model="showMcpManager"
@@ -286,7 +281,7 @@ import {
 import SessionList from '../explorer/SessionList.vue'
 import FileTree from '../explorer/FileTree.vue'
 import ScmPanel from '../scm/ScmPanel.vue'
-import SkillsManager from '../skills/SkillsManagerModal.vue'
+import SkillsManager from '../skills/SkillsManager.vue'
 import McpManager from '../mcp/McpManagerModal.vue'
 import { api } from '@/services/electronAPI'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
