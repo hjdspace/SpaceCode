@@ -81,7 +81,7 @@ export const api = {
   },
   showDiff: (diff: any) => electronAPI?.showDiff(diff),
   onDiffRequested: (callback: (diff: any) => void) => electronAPI?.onDiffRequested(callback),
-  showInfoPanel: (mode: 'diff' | 'file' | 'markdown' | 'tool-diff') => electronAPI?.showInfoPanel(mode),
+  showInfoPanel: (mode: 'diff' | 'file' | 'markdown' | 'tool-diff' | 'webview') => electronAPI?.showInfoPanel(mode),
   hideInfoPanel: () => electronAPI?.hideInfoPanel(),
   onShowInfoPanel: (callback: (mode: string) => void) => electronAPI?.onShowInfoPanel(callback),
   onHideInfoPanel: (callback: () => void) => electronAPI?.onHideInfoPanel(callback),

@@ -207,6 +207,8 @@ export default {
     deletions: '删除',
     previewMode: '预览',
     sourceMode: '源码',
+    closeTab: '关闭标签页',
+    closePanel: '关闭面板',
   },
 
   titleBar: {

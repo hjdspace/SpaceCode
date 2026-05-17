@@ -456,7 +456,7 @@ function selectCommit(entry: ScmLogEntry): void {
 
 function handleSelectFile(file: ScmFile, isStaged: boolean): void {
   scmStore.selectFile(file, isStaged)
-  appStore.showInfoPanel('diff')
+  appStore.openScmDiff(file.path)
 }
 
 async function handleStage(file: ScmFile): Promise<void> {

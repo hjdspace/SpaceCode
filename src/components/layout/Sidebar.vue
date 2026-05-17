@@ -413,7 +413,6 @@ async function handleFileSelect(node: TreeNode) {
           language: language
         })
 
-        appStore.showInfoPanel(isMarkdown ? 'markdown' : 'file')
         highlightedFilePath.value = node.path
       }
     } catch (error) {

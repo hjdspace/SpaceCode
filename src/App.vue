@@ -28,7 +28,6 @@
       ></div>
       <InfoPanel
         v-if="appStore.infoPanelVisible"
-        :mode="appStore.infoPanelMode"
         :style="{ width: rightWidth + 'px' }"
       />
     </div>

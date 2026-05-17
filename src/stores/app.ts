@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, markRaw } from 'vue'
-import { MessageSquare, Terminal as TerminalIcon } from 'lucide-vue-next'
+import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch } from 'lucide-vue-next'
 import { useChatStore } from './chat'
 import { useTerminalStore } from './terminal'
 
@@ -23,6 +23,24 @@ export interface ToolDiffData {
   actionCompleted?: boolean
 }
 
+export interface WebviewTabData {
+  url: string
+  history: string[]
+  historyIndex: number
+  title: string
+}
+
+export type InfoPanelTabType = 'file' | 'markdown' | 'diff' | 'tool-diff' | 'webview'
+
+export interface InfoPanelTab {
+  id: string
+  type: InfoPanelTabType
+  title: string
+  icon: any
+  data: FileInfo | ToolDiffData | WebviewTabData | null
+  closeable: boolean
+}
+
 export interface CenterTab {
   id: string
   label: string
@@ -41,9 +59,6 @@ export const useAppStore = defineStore('app', () => {
   const theme = ref<ThemeId>('light')
   const sidebarCollapsed = ref(false)
   const infoPanelVisible = ref(false)
-  const infoPanelMode = ref<'diff' | 'file' | 'markdown' | 'tool-diff' | 'webview'>('diff')
-  const currentFile = ref<FileInfo | null>(null)
-  const toolDiffData = ref<ToolDiffData | null>(null)
   const completedToolActions = ref<Set<string>>(new Set())
   const currentLine = ref<number>(0)
   const currentEndLine = ref<number>(0)
@@ -52,24 +67,76 @@ export const useAppStore = defineStore('app', () => {
   ])
   const activeCenterTab = ref<string>('chat')
 
-  // Restore persisted project root from localStorage on init
+  const infoPanelTabs = ref<InfoPanelTab[]>([])
+  const activeInfoTabId = ref<string | null>(null)
+  const isLoading = ref<boolean>(false)
+
   let _initialProjectRoot = ''
   try {
     _initialProjectRoot = localStorage.getItem(PROJECT_ROOT_STORAGE_KEY) || ''
   } catch { /* ignore */ }
   const projectRoot = ref<string>(_initialProjectRoot)
 
-  // Skills manager modal visibility
   const showSkillsManager = ref(false)
   const showTraceViewer = ref(false)
   const showSettings = ref(false)
 
-  // Webview 相关状态
-  const webviewUrl = ref<string>('')
-  const webviewHistory = ref<string[]>([])
-  const currentHistoryIndex = ref<number>(-1)
-  const webviewTitle = ref<string>('')
-  const isLoading = ref<boolean>(false)
+  const activeInfoTab = computed<InfoPanelTab | null>(() => {
+    if (!activeInfoTabId.value) return null
+    return infoPanelTabs.value.find(t => t.id === activeInfoTabId.value) || null
+  })
+
+  const infoPanelMode = computed<InfoPanelTabType>(() => {
+    return activeInfoTab.value?.type ?? 'file'
+  })
+
+  const currentFile = computed<FileInfo | null>(() => {
+    const tab = activeInfoTab.value
+    if (tab && (tab.type === 'file' || tab.type === 'markdown')) {
+      return tab.data as FileInfo
+    }
+    return null
+  })
+
+  const toolDiffData = computed<ToolDiffData | null>(() => {
+    const tab = activeInfoTab.value
+    if (tab && tab.type === 'tool-diff') {
+      return tab.data as ToolDiffData
+    }
+    return null
+  })
+
+  const webviewUrl = computed<string>(() => {
+    const tab = activeInfoTab.value
+    if (tab && tab.type === 'webview') {
+      return (tab.data as WebviewTabData).url
+    }
+    return ''
+  })
+
+  const webviewHistory = computed<string[]>(() => {
+    const tab = activeInfoTab.value
+    if (tab && tab.type === 'webview') {
+      return (tab.data as WebviewTabData).history
+    }
+    return []
+  })
+
+  const currentHistoryIndex = computed<number>(() => {
+    const tab = activeInfoTab.value
+    if (tab && tab.type === 'webview') {
+      return (tab.data as WebviewTabData).historyIndex
+    }
+    return -1
+  })
+
+  const webviewTitle = computed<string>(() => {
+    const tab = activeInfoTab.value
+    if (tab && tab.type === 'webview') {
+      return (tab.data as WebviewTabData).title
+    }
+    return ''
+  })
 
   const isDark = computed(() => theme.value === 'dark' || theme.value === 'anthropic-dark')
 
@@ -96,31 +163,91 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  function showInfoPanel(mode: 'diff' | 'file' | 'markdown' | 'tool-diff' | 'webview') {
-    infoPanelMode.value = mode
+  function openInfoTab(tab: InfoPanelTab) {
+    const existing = infoPanelTabs.value.find(t => t.id === tab.id)
+    if (existing) {
+      activeInfoTabId.value = existing.id
+      infoPanelVisible.value = true
+      return
+    }
+    infoPanelTabs.value.push(tab)
+    activeInfoTabId.value = tab.id
+    infoPanelVisible.value = true
+  }
+
+  function closeInfoTab(tabId: string) {
+    const index = infoPanelTabs.value.findIndex(t => t.id === tabId)
+    if (index === -1) return
+
+    infoPanelTabs.value.splice(index, 1)
+
+    if (activeInfoTabId.value === tabId) {
+      if (infoPanelTabs.value.length === 0) {
+        activeInfoTabId.value = null
+        infoPanelVisible.value = false
+      } else {
+        const nextIndex = Math.min(index, infoPanelTabs.value.length - 1)
+        activeInfoTabId.value = infoPanelTabs.value[nextIndex].id
+      }
+    }
+  }
+
+  function closeAllInfoTabs() {
+    infoPanelTabs.value = []
+    activeInfoTabId.value = null
+    infoPanelVisible.value = false
+  }
+
+  function showInfoPanel(mode: InfoPanelTabType) {
+    if (activeInfoTab.value && activeInfoTab.value.type === mode) {
+      infoPanelVisible.value = true
+      return
+    }
     infoPanelVisible.value = true
   }
 
   function hideInfoPanel() {
-    infoPanelVisible.value = false
-    toolDiffData.value = null
+    closeAllInfoTabs()
   }
 
   function showToolDiff(data: ToolDiffData) {
     if (completedToolActions.value.has(data.toolCallId)) {
       data.actionCompleted = true
     }
-    toolDiffData.value = data
-    infoPanelMode.value = 'tool-diff'
-    infoPanelVisible.value = true
+    const tabId = `tool-diff::${data.toolCallId}`
+    const icon = data.type === 'grep' ? markRaw(TextSearch) : markRaw(FileDiff)
+    openInfoTab({
+      id: tabId,
+      type: 'tool-diff',
+      title: data.filePath,
+      icon,
+      data,
+      closeable: true
+    })
   }
 
   function markToolActionCompleted(toolCallId: string) {
     completedToolActions.value.add(toolCallId)
+    const tab = infoPanelTabs.value.find(t => t.id === `tool-diff::${toolCallId}`)
+    if (tab && tab.data) {
+      (tab.data as ToolDiffData).actionCompleted = true
+    }
   }
 
   function setCurrentFile(file: FileInfo | null) {
-    currentFile.value = file
+    if (!file) return
+    const isMarkdown = file.language === 'markdown'
+    const tabType: InfoPanelTabType = isMarkdown ? 'markdown' : 'file'
+    const tabId = `${tabType}::${file.path}`
+    const icon = isMarkdown ? markRaw(FileText) : markRaw(FileCode)
+    openInfoTab({
+      id: tabId,
+      type: tabType,
+      title: file.name,
+      icon,
+      data: file,
+      closeable: true
+    })
   }
 
   async function openFile(filePath: string, line?: number, endLine?: number) {
@@ -130,14 +257,10 @@ export const useAppStore = defineStore('app', () => {
       return
     }
 
-    // Resolve relative paths against the current project root so links
-    // produced by the LLM (which usually uses repo-relative paths) work.
     const resolvedPath = resolveFilePath(filePath)
 
     try {
       let content = await api.readFile(resolvedPath)
-      // Fallback: try the original path in case it was already absolute in an
-      // unexpected form (e.g. the user pasted a full path from another OS).
       if (content === null && resolvedPath !== filePath) {
         content = await api.readFile(filePath)
       }
@@ -147,16 +270,35 @@ export const useAppStore = defineStore('app', () => {
         currentLine.value = line || 0
         currentEndLine.value = endLine || 0
         const isMarkdown = language === 'markdown'
-        setCurrentFile({
-          path: resolvedPath,
-          name: fileName,
-          content: content,
-          language: language
-        })
-        // Markdown files open in preview mode by default, like the sidebar does.
-        // When a specific line is requested we fall back to the code view so
-        // the user actually sees the highlighted line.
-        showInfoPanel(isMarkdown && !line ? 'markdown' : 'file')
+        const tabType: InfoPanelTabType = isMarkdown && !line ? 'markdown' : 'file'
+        const tabId = `${tabType}::${resolvedPath}`
+        const icon = tabType === 'markdown' ? markRaw(FileText) : markRaw(FileCode)
+
+        const existing = infoPanelTabs.value.find(t => t.id === tabId)
+        if (existing) {
+          existing.data = {
+            path: resolvedPath,
+            name: fileName,
+            content: content,
+            language: language
+          }
+          activeInfoTabId.value = existing.id
+          infoPanelVisible.value = true
+        } else {
+          openInfoTab({
+            id: tabId,
+            type: tabType,
+            title: fileName,
+            icon,
+            data: {
+              path: resolvedPath,
+              name: fileName,
+              content: content,
+              language: language
+            },
+            closeable: true
+          })
+        }
       } else {
         console.warn('[AppStore] Failed to open file (not found):', filePath)
       }
@@ -168,7 +310,6 @@ export const useAppStore = defineStore('app', () => {
   function resolveFilePath(filePath: string): string {
     const trimmed = filePath.trim()
     if (!trimmed) return trimmed
-    // Absolute paths: POSIX (/foo) or Windows (C:\foo, C:/foo, \\server\share)
     const isAbsolute = /^([a-zA-Z]:[\\/]|[\\/]{2}|\/)/.test(trimmed)
     if (isAbsolute || !projectRoot.value) return trimmed
 
@@ -200,7 +341,6 @@ export const useAppStore = defineStore('app', () => {
     if (index > -1 && centerTabs.value[index].closable) {
       centerTabs.value.splice(index, 1)
 
-      // If it's a terminal tab, notify terminal store
       if (tabId.startsWith('terminal-')) {
         const terminalStore = useTerminalStore()
         terminalStore.closeTab(tabId)
@@ -239,7 +379,6 @@ export const useAppStore = defineStore('app', () => {
     if (tab) {
       activeCenterTab.value = tab.id
     } else {
-      // Get the actual session title from chatStore
       const chatStore = useChatStore()
       const session = chatStore.sessions.find(s => s.id === sessionId)
       const sessionTitle = session?.title || 'New Chat'
@@ -266,8 +405,7 @@ export const useAppStore = defineStore('app', () => {
     try {
       localStorage.removeItem(PROJECT_ROOT_STORAGE_KEY)
     } catch { /* ignore */ }
-    currentFile.value = null
-    infoPanelVisible.value = false
+    closeAllInfoTabs()
   }
 
   function openWebview(url: string) {
@@ -276,18 +414,29 @@ export const useAppStore = defineStore('app', () => {
       normalizedUrl = 'https://' + normalizedUrl
     }
 
-    if (webviewHistory.value.length === 0 || currentHistoryIndex.value === -1) {
-      webviewHistory.value = [normalizedUrl]
-      currentHistoryIndex.value = 0
-    } else {
-      webviewHistory.value = webviewHistory.value.slice(0, currentHistoryIndex.value + 1)
-      webviewHistory.value.push(normalizedUrl)
-      currentHistoryIndex.value = webviewHistory.value.length - 1
+    const tabId = `webview::${normalizedUrl}`
+    const existing = infoPanelTabs.value.find(t => t.id === tabId)
+    if (existing) {
+      activeInfoTabId.value = existing.id
+      infoPanelVisible.value = true
+      return
     }
 
-    webviewUrl.value = normalizedUrl
-    infoPanelMode.value = 'webview'
-    infoPanelVisible.value = true
+    const webviewData: WebviewTabData = {
+      url: normalizedUrl,
+      history: [normalizedUrl],
+      historyIndex: 0,
+      title: ''
+    }
+
+    openInfoTab({
+      id: tabId,
+      type: 'webview',
+      title: normalizedUrl,
+      icon: markRaw(Globe),
+      data: webviewData,
+      closeable: true
+    })
 
     console.log('[AppStore] Webview opened:', normalizedUrl)
   }
@@ -298,37 +447,47 @@ export const useAppStore = defineStore('app', () => {
       normalizedUrl = 'https://' + normalizedUrl
     }
 
-    webviewHistory.value = webviewHistory.value.slice(0, currentHistoryIndex.value + 1)
-    webviewHistory.value.push(normalizedUrl)
-    currentHistoryIndex.value = webviewHistory.value.length - 1
-    webviewUrl.value = normalizedUrl
+    const tab = activeInfoTab.value
+    if (tab && tab.type === 'webview') {
+      const data = tab.data as WebviewTabData
+      data.history = data.history.slice(0, data.historyIndex + 1)
+      data.history.push(normalizedUrl)
+      data.historyIndex = data.history.length - 1
+      data.url = normalizedUrl
+    }
 
     console.log('[AppStore] Webview navigated to:', normalizedUrl)
   }
 
   function goBackWebview() {
-    if (currentHistoryIndex.value > 0) {
-      currentHistoryIndex.value--
-      webviewUrl.value = webviewHistory.value[currentHistoryIndex.value]
-      console.log('[AppStore] Webview go back to:', webviewUrl.value)
+    const tab = activeInfoTab.value
+    if (tab && tab.type === 'webview') {
+      const data = tab.data as WebviewTabData
+      if (data.historyIndex > 0) {
+        data.historyIndex--
+        data.url = data.history[data.historyIndex]
+        console.log('[AppStore] Webview go back to:', data.url)
+      }
     }
   }
 
   function goForwardWebview() {
-    if (currentHistoryIndex.value < webviewHistory.value.length - 1) {
-      currentHistoryIndex.value++
-      webviewUrl.value = webviewHistory.value[currentHistoryIndex.value]
-      console.log('[AppStore] Webview go forward to:', webviewUrl.value)
+    const tab = activeInfoTab.value
+    if (tab && tab.type === 'webview') {
+      const data = tab.data as WebviewTabData
+      if (data.historyIndex < data.history.length - 1) {
+        data.historyIndex++
+        data.url = data.history[data.historyIndex]
+        console.log('[AppStore] Webview go forward to:', data.url)
+      }
     }
   }
 
   function closeWebview() {
-    webviewUrl.value = ''
-    webviewHistory.value = []
-    currentHistoryIndex.value = -1
-    webviewTitle.value = ''
-    isLoading.value = false
-    hideInfoPanel()
+    const tab = activeInfoTab.value
+    if (tab && tab.type === 'webview') {
+      closeInfoTab(tab.id)
+    }
     console.log('[AppStore] Webview closed')
   }
 
@@ -337,7 +496,31 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function setWebviewTitle(title: string) {
-    webviewTitle.value = title
+    const tab = activeInfoTab.value
+    if (tab && tab.type === 'webview') {
+      const data = tab.data as WebviewTabData
+      data.title = title
+      tab.title = title || tab.title
+    }
+  }
+
+  function openScmDiff(filePath: string) {
+    const tabId = `diff::${filePath}`
+    const existing = infoPanelTabs.value.find(t => t.id === tabId)
+    if (existing) {
+      activeInfoTabId.value = existing.id
+      infoPanelVisible.value = true
+      return
+    }
+
+    openInfoTab({
+      id: tabId,
+      type: 'diff',
+      title: filePath.split(/[\\/]/).pop() || filePath,
+      icon: markRaw(FileDiff),
+      data: null,
+      closeable: true
+    })
   }
 
   function getLanguageFromPath(path: string): string {
@@ -396,6 +579,9 @@ export const useAppStore = defineStore('app', () => {
     completedToolActions,
     centerTabs,
     activeCenterTab,
+    infoPanelTabs,
+    activeInfoTabId,
+    activeInfoTab,
     projectRoot,
     showSkillsManager,
     showTraceViewer,
@@ -431,6 +617,10 @@ export const useAppStore = defineStore('app', () => {
     goForwardWebview,
     closeWebview,
     setWebviewLoading,
-    setWebviewTitle
+    setWebviewTitle,
+    openInfoTab,
+    closeInfoTab,
+    closeAllInfoTabs,
+    openScmDiff
   }
 })

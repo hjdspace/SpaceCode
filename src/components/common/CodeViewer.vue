@@ -42,9 +42,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick, markRaw } from 'vue'
 import { useAppStore } from '@/stores/app'
-import { FileCode, Eye } from 'lucide-vue-next'
+import { FileCode, Eye, FileText } from 'lucide-vue-next'
 import hljs from 'highlight.js'
 
 const appStore = useAppStore()
@@ -73,7 +73,17 @@ const lineCount = computed(() => {
 })
 
 function switchToPreview() {
-  appStore.showInfoPanel('markdown')
+  const file = appStore.currentFile
+  if (file) {
+    appStore.openInfoTab({
+      id: `markdown::${file.path}`,
+      type: 'markdown',
+      title: file.name,
+      icon: markRaw(FileText),
+      data: file,
+      closeable: true
+    })
+  }
 }
 
 const highlightedCode = computed(() => {

@@ -207,6 +207,8 @@ export default {
     deletions: 'Deletions',
     previewMode: 'Preview',
     sourceMode: 'Source',
+    closeTab: 'Close tab',
+    closePanel: 'Close panel',
   },
 
   titleBar: {
