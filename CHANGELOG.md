@@ -1,3 +1,50 @@
+## [0.3.6](https://github.com/hjdspace/SpaceCode/compare/v0.3.5...v0.3.6) (2026-05-17)
+
+### Features
+
+* **权限控制:** 实现完整的权限控制系统
+  - 新增 4 种权限模式：自动批准、手动批准、始终拒绝、仅建议
+  - 添加 PermissionModeSelector 权限模式选择器组件
+  - 添加 PermissionRequestCard 权限请求卡片，支持动态渲染
+  - 集成权限控制到 ChatInput 工具栏和 AgentTimeline
+  - 完整的 i18n 国际化支持（中文/英文）
+  - 优雅降级：无活动进程时支持本地状态回退
+* **历史会话:** 实现历史会话管理和恢复功能
+  - 添加历史会话列表展示和搜索/过滤功能
+  - 在 ChatPanel 中添加历史会话按钮和模态框
+  - 支持使用原始会话 ID 恢复历史会话
+  - 重写会话历史管理器，对齐 Claude-Code 引擎源码
+* **设置:** 增强 API 配置管理
+  - 新增 API 配置同步到 settings.json 功能
+  - 调整 .env 配置加载逻辑，改为回退优先级
+
+### Bug Fixes
+
+* **权限控制:** 修复权限模式下拉位置、样式和刷新状态同步问题
+* **组件:** 替换 v-click-outside 为原生事件监听器，提升兼容性
+* **文件浏览器:** 移除文件树节点展开时的多余事件发送
+* **会话:** 修复模态透明度和缺失的 getFullSession IPC handler
+* **路径处理:** 修复 sanitizePath 与引擎源码不一致的问题（使用 '-' 替代 '_'）
+* **类型修复:** 解决 formatTime 函数的 TypeScript 类型错误
+* **配置:** 修复配置值首尾空格问题
+
+### Refactor
+
+* **工具调用:** 重构工具调用流程，支持新版权限控制协议
+* **代码结构:** 优化代码结构与依赖配置
+* **侧边栏:** 移除旧的历史会话相关代码
+
+### Build
+
+* **electron:** 修复 Electron 原生模块编译和加载问题
+
+### Chore
+
+* 移除无用的 AskUserQuestionToolCard 说明文档
+* 添加 webview 自定义元素配置
+
+---
+
 ## [0.3.5](https://github.com/hjdspace/SpaceCode/compare/v0.3.4...v0.3.5) (2026-05-10)
 
 ### Features
