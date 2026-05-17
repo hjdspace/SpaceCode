@@ -1167,3 +1167,92 @@ ipcMain.handle('debug:listTraceSessions', async () => {
 ipcMain.handle('debug:readTraceEvents', async (_event, sessionId: string, maxEvents?: number) => {
   return readTraceEvents(sessionId, maxEvents)
 })
+
+// ─── Turn Checkpoint API - 轮次变更追踪 ──────────────────────────
+
+ipcMain.handle('session:getTurnCheckpoints', async (_event, sessionId: string) => {
+  try {
+    const { getPool } = await import('./claudeCodeIPC')
+    const pool = getPool()
+    const session = pool.get(sessionId)
+    
+    if (!session?.process) {
+      return { ok: false, checkpoints: [], error: 'Session not found' }
+    }
+
+    // TODO: 从 Claude Code 进程获取 fileHistory 快照数据
+    // 当前返回空数组，后续实现完整的数据聚合逻辑
+    return { 
+      ok: true, 
+      checkpoints: [] as import('../src/types/turnCheckpoint').SessionTurnCheckpoint[],
+      error: null 
+    }
+  } catch (err) {
+    return { 
+      ok: false, 
+      checkpoints: [] as import('../src/types/turnCheckpoint').SessionTurnCheckpoint[], 
+      error: err instanceof Error ? err.message : String(err) 
+    }
+  }
+})
+
+ipcMain.handle('session:getTurnCheckpointDiff', async (
+  _event,
+  sessionId: string,
+  targetUserMessageId: string,
+  filePath: string,
+  userMessageIndex?: number
+) => {
+  try {
+    const { getPool } = await import('./claudeCodeIPC')
+    const pool = getPool()
+    const session = pool.get(sessionId)
+    
+    if (!session?.process) {
+      return { state: 'error' as const, path: filePath, error: 'Session not found' }
+    }
+
+    // TODO: 实现实际的 diff 计算逻辑
+    // 需要从 fileHistory 快照中获取前后版本并计算 unified diff
+    return { 
+      state: 'ok' as const, 
+      path: filePath,
+      diff: '',
+      error: undefined 
+    }
+  } catch (err) {
+    return { 
+      state: 'error' as const, 
+      path: filePath,
+      error: err instanceof Error ? err.message : String(err),
+      diff: undefined
+    }
+  }
+})
+
+ipcMain.handle('session:rewindTurn', async (
+  _event,
+  sessionId: string,
+  options: { targetUserMessageId: string; userMessageIndex?: number }
+) => {
+  try {
+    const { getPool } = await import('./claudeCodeIPC')
+    const pool = getPool()
+    const session = pool.get(sessionId)
+    
+    if (!session?.process) {
+      return { ok: false, error: 'Session not found' }
+    }
+
+    // TODO: 实现回滚逻辑
+    // 1. 恢复文件到该轮次之前的状态
+    // 2. 截断消息历史
+    // 3. 返回操作结果
+    return { ok: true, error: null }
+  } catch (err) {
+    return { 
+      ok: false, 
+      error: err instanceof Error ? err.message : String(err) 
+    }
+  }
+})
