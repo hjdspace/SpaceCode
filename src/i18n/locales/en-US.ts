@@ -203,6 +203,13 @@ export default {
     refresh: 'Refresh',
   },
 
+  workspace: {
+    previewAllLines: 'Showing all {total} lines',
+    previewLineLimit: 'Showing first {count} of {total} lines',
+    collapsePreview: 'Collapse',
+    showAllLoadedLines: 'Show all loaded lines',
+  },
+
   infoPanel: {
     changes: 'Changes',
     fileViewer: 'File Viewer',
