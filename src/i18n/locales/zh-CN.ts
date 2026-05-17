@@ -300,6 +300,7 @@ export default {
     fetchFailed: '获取失败 ({status})',
     skillLabel: '技能',
     optimizePrompt: '优化提示词',
+    optimizing: '正在优化提示词',
   },
 
   errors: {

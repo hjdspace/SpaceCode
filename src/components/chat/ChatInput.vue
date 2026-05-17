@@ -116,7 +116,7 @@
       </div>
     </Transition>
 
-    <div class="input-wrapper" :class="{ 'has-content': hasContent, 'is-sending': isSending }">
+    <div class="input-wrapper" :class="{ 'has-content': hasContent, 'is-sending': isSending, 'is-optimizing': isOptimizing }">
       <!-- 命令 Badge — 嵌入输入框内部 -->
       <Transition name="badge">
         <div v-if="activeBadge" class="command-badge-bar">
@@ -135,13 +135,15 @@
         <div
           ref="editorRef"
           class="inline-editor"
-          contenteditable="true"
+          :contenteditable="!isOptimizing"
           :data-placeholder="placeholder"
           @input="handleEditorInput"
           @keydown="handleEditorKeydown"
           @click="handleEditorClick"
           @paste="handleEditorPaste"
         ></div>
+        <!-- 提示词优化 shimmer 扫光层 -->
+        <div v-if="isOptimizing" class="optimize-shimmer" aria-hidden="true"></div>
       </div>
 
       <!-- 底部工具栏：+ 号、模型选择、发送按钮 -->
@@ -339,6 +341,17 @@
               </div>
             </Transition>
           </div>
+
+          <!-- 提示词优化进行中提示 -->
+          <Transition name="optimize-hint">
+            <span v-if="isOptimizing" class="optimize-hint" role="status" aria-live="polite">
+              <Sparkles :size="12" class="optimize-hint-icon" />
+              <span class="optimize-hint-label">{{ t('chatInput.optimizing') }}</span>
+              <span class="optimize-hint-dots" aria-hidden="true">
+                <span></span><span></span><span></span>
+              </span>
+            </span>
+          </Transition>
         </div>
 
         <!-- 右侧按钮组：优化提示词 + 发送/停止 -->
@@ -2324,10 +2337,123 @@ watch([() => props.disabled, () => props.isSending], ([disabled, sending]) => {
   &.is-sending {
     opacity: 0.8;
   }
+
+  &.is-optimizing {
+    border-color: rgba(99, 102, 241, 0.45);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.08);
+
+    .inline-editor {
+      opacity: 0.55;
+      filter: saturate(0.7);
+      caret-color: transparent;
+      user-select: none;
+    }
+  }
+}
+
+// 提示词优化扫光层
+.optimize-shimmer {
+  position: absolute;
+  inset: -4px -8px;
+  border-radius: 8px;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 1;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      110deg,
+      transparent 0%,
+      transparent 35%,
+      rgba(99, 102, 241, 0.18) 50%,
+      rgba(168, 85, 247, 0.14) 55%,
+      transparent 70%,
+      transparent 100%
+    );
+    background-size: 220% 100%;
+    background-repeat: no-repeat;
+    animation: optimize-shimmer-sweep 1.5s ease-in-out infinite;
+  }
+}
+
+@keyframes optimize-shimmer-sweep {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -120% 0;
+  }
+}
+
+// 提示词优化进行中文字提示
+.optimize-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1;
+  color: #6366f1;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.18);
+  white-space: nowrap;
+  user-select: none;
+
+  .optimize-hint-icon {
+    animation: optimize-hint-pulse 1.6s ease-in-out infinite;
+  }
+
+  .optimize-hint-label {
+    font-weight: 500;
+  }
+
+  .optimize-hint-dots {
+    display: inline-flex;
+    gap: 2px;
+    margin-left: 2px;
+
+    span {
+      width: 3px;
+      height: 3px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.4;
+      animation: optimize-hint-dot 1.2s ease-in-out infinite;
+
+      &:nth-child(2) { animation-delay: 0.2s; }
+      &:nth-child(3) { animation-delay: 0.4s; }
+    }
+  }
+}
+
+@keyframes optimize-hint-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50%      { transform: scale(1.15); opacity: 1; }
+}
+
+@keyframes optimize-hint-dot {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40%           { opacity: 1;    transform: translateY(-2px); }
+}
+
+.optimize-hint-enter-active,
+.optimize-hint-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.optimize-hint-enter-from,
+.optimize-hint-leave-to {
+  opacity: 0;
+  transform: translateY(2px);
 }
 
 // 文本输入区域
 .textarea-wrapper {
+  position: relative;
   flex: 1;
   min-height: 24px;
   margin-bottom: 12px;

@@ -300,6 +300,7 @@ export default {
     fetchFailed: 'Fetch failed ({status})',
     skillLabel: 'Skill',
     optimizePrompt: 'Optimize Prompt',
+    optimizing: 'Optimizing prompt',
   },
 
   errors: {
