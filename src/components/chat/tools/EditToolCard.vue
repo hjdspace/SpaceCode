@@ -239,11 +239,22 @@ async function openInPanel() {
   const modifiedContent = await api.readFile(fp)
   if (modifiedContent === null) return
 
-  let originalContent = modifiedContent
-  const oldStr = props.toolCall.input?.old_string || ''
-  const newStr = props.toolCall.input?.new_string || ''
-  if (newStr && modifiedContent.includes(newStr)) {
-    originalContent = modifiedContent.replace(newStr, oldStr)
+  let originalContent = ''
+  try {
+    const projectRoot = appStore.projectRoot
+    if (projectRoot) {
+      const relativePath = fp.replace(projectRoot, '').replace(/^[/\\]/, '')
+      if (relativePath) {
+        const headContent = await api.git.showFile(projectRoot, relativePath)
+        if (headContent !== null) {
+          originalContent = headContent
+        }
+      }
+    }
+  } catch { /* not in git repo or file not tracked */ }
+
+  if (!originalContent) {
+    originalContent = modifiedContent
   }
 
   const language = appStore.getLanguageFromPath(fp)

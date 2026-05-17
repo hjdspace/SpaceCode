@@ -5,7 +5,13 @@ import renderer from 'vite-plugin-electron-renderer';
 import { resolve } from 'path';
 export default defineConfig({
     plugins: [
-        vue(),
+        vue({
+            template: {
+                compilerOptions: {
+                    isCustomElement: (tag) => tag === 'webview'
+                }
+            }
+        }),
         electron([
             {
                 entry: 'electron/main.ts',
