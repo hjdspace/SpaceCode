@@ -268,5 +268,41 @@ export const api = {
       }
       return () => {}
     },
-  }
+  },
+
+  // Turn Checkpoint API - 轮次变更追踪
+  session: {
+    getTurnCheckpoints: (sessionId: string): Promise<{
+      ok: boolean
+      checkpoints: import('@/types').SessionTurnCheckpoint[]
+      error: string | null
+    }> =>
+      electronAPI?.session?.getTurnCheckpoints(sessionId) ||
+      Promise.resolve({ ok: false, checkpoints: [], error: 'Session API not available' }),
+
+    getTurnCheckpointDiff: (
+      sessionId: string,
+      targetUserMessageId: string,
+      filePath: string,
+      userMessageIndex?: number
+    ): Promise<import('@/types').TurnCheckpointDiffResult> =>
+      electronAPI?.session?.getTurnCheckpointDiff(
+        sessionId,
+        targetUserMessageId,
+        filePath,
+        userMessageIndex
+      ) ||
+      Promise.resolve({
+        state: 'error',
+        path: filePath,
+        error: 'Session API not available'
+      }),
+
+    rewindTurn: (
+      sessionId: string,
+      options: { targetUserMessageId: string; userMessageIndex?: number }
+    ): Promise<{ ok: boolean; error: string | null }> =>
+      electronAPI?.session?.rewindTurn(sessionId, options) ||
+      Promise.resolve({ ok: false, error: 'Session API not available' }),
+  },
 }
