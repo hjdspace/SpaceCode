@@ -139,7 +139,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPiCliPath: () => ipcRenderer.invoke('app:getPiCliPath'),
 
   // Inject GUI model settings into ~/.claude/settings.json
-  injectGuiModelsToSettings: (models: { primaryModel: string; haikuModel?: string; sonnetModel?: string; opusModel?: string; effortLevel?: 'low' | 'medium' | 'high' | 'max' }) =>
+  injectGuiModelsToSettings: (models: { primaryModel: string; haikuModel?: string; sonnetModel?: string; opusModel?: string; effortLevel?: 'low' | 'medium' | 'high' | 'max'; permissionMode?: 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions' }) =>
     ipcRenderer.invoke('settings:injectGuiModels', models),
 
   // GUI Settings persistence (file-based, ~/.claude/gui-settings.json)

@@ -1068,7 +1068,7 @@ function syncApiConfigToSettingsJson(guiSettingsJson: string): void {
   }
 }
 
-ipcMain.handle('settings:injectGuiModels', async (_event, models: { primaryModel: string; haikuModel?: string; sonnetModel?: string; opusModel?: string; effortLevel?: 'low' | 'medium' | 'high' | 'max' }) => {
+ipcMain.handle('settings:injectGuiModels', async (_event, models: { primaryModel: string; haikuModel?: string; sonnetModel?: string; opusModel?: string; effortLevel?: 'low' | 'medium' | 'high' | 'max'; permissionMode?: 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions' }) => {
   debug('Settings', 'injectGuiModels', models)
   try {
     const settingsPath = getClaudeSettingsPath()
@@ -1113,6 +1113,14 @@ ipcMain.handle('settings:injectGuiModels', async (_event, models: { primaryModel
       mergedSettings.effortLevel = models.effortLevel
     }
 
+    if (models.permissionMode) {
+      const existingPermissions = (typeof mergedSettings.permissions === 'object' && mergedSettings.permissions !== null)
+        ? { ...(mergedSettings.permissions as Record<string, unknown>) }
+        : {}
+      existingPermissions.defaultMode = models.permissionMode
+      mergedSettings.permissions = existingPermissions
+    }
+
     const dirPath = join(app.getPath('home'), '.claude')
     if (!existsSync(dirPath)) {
       mkdirSync(dirPath, { recursive: true })
@@ -1122,7 +1130,8 @@ ipcMain.handle('settings:injectGuiModels', async (_event, models: { primaryModel
     info('Settings', `Injected GUI models to ${settingsPath}`, {
       modelSettingsKeys: Object.keys(modelSettings),
       effortLevel: models.effortLevel,
-      preservedFields: Object.keys(existingSettings).filter(k => !['modelSettings', 'effortLevel'].includes(k))
+      permissionMode: models.permissionMode,
+      preservedFields: Object.keys(existingSettings).filter(k => !['modelSettings', 'effortLevel', 'permissions'].includes(k))
     })
 
     return { success: true }

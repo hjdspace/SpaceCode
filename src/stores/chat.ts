@@ -345,7 +345,10 @@ export const useChatStore = defineStore('chat', () => {
   const pendingPermissions = ref<Map<string, Map<string, PermissionRequest>>>(new Map())
 
   // ── 权限模式状态 ──
-  const currentPermissionMode = ref<PermissionMode>('default')
+  // 以 settings store 中的持久化偏好为真值，跨会话/重启保持不变
+  const currentPermissionMode = ref<PermissionMode>(
+    (settingsStore.permissionMode as PermissionMode) || 'default'
+  )
 
   // ── Turn Change Card 状态 ──
   
@@ -490,8 +493,13 @@ export const useChatStore = defineStore('chat', () => {
         // Fall through to start with the new engine
       } else {
         logger.info('ChatStore', `initClaudeCodeSession: session already running | id=${sessionId.slice(0, 8)}`)
-        if (status?.permissionMode) {
-          currentPermissionMode.value = status.permissionMode as PermissionMode
+        // 已在运行的会话：若后端模式与用户偏好不一致，则下发用户偏好
+        if (status?.permissionMode && status.permissionMode !== currentPermissionMode.value) {
+          try {
+            await claudeCode.setPermissionMode?.(sessionId, currentPermissionMode.value)
+          } catch (e) {
+            logger.warn('ChatStore', `initClaudeCodeSession: failed to apply preferred mode | id=${sessionId.slice(0, 8)}`, { error: String(e) })
+          }
         }
         return
       }
@@ -528,7 +536,7 @@ export const useChatStore = defineStore('chat', () => {
         provider: config.provider,
         model: config.model,
         effortLevel: config.effortLevel,
-        permissionMode: 'bypassPermissions',
+        permissionMode: currentPermissionMode.value,
         agent: currentAgent.value || undefined,
         thinkingEnabled: settingsStore.thinkingEnabled,
         engineType: desiredEngine,
@@ -1580,13 +1588,17 @@ export const useChatStore = defineStore('chat', () => {
         )
         const status = await Promise.race([statusPromise, timeoutPromise]).catch(() => null)
 
-        if (status?.permissionMode) {
-          currentPermissionMode.value = status.permissionMode as PermissionMode
-        } else {
-          currentPermissionMode.value = 'default'
+        // 切换会话不应重置用户的权限模式偏好。
+        // 若后端会话已运行且模式与偏好不一致，则把偏好下发给后端，保持 UI 与后端一致。
+        if (status?.isRunning && status.permissionMode && status.permissionMode !== currentPermissionMode.value) {
+          try {
+            await claudeCode.setPermissionMode?.(sessionId, currentPermissionMode.value)
+          } catch (e) {
+            logger.warn('ChatStore', `selectSession: failed to apply preferred mode | id=${sessionId.slice(0, 8)}`, { error: String(e) })
+          }
         }
       } catch {
-        currentPermissionMode.value = 'default'
+        // 忽略：保留用户偏好不变
       }
     }
   }
@@ -1626,9 +1638,14 @@ export const useChatStore = defineStore('chat', () => {
           await claudeCode.resumeSession(sessionId)
           session.processStatus = 'active'
           saveToStorage()
+          // 恢复挂起会话后，把用户偏好下发给后端，避免后端旧状态覆盖偏好
           const status = await claudeCode.getSessionStatus(sessionId)
-          if (status?.permissionMode) {
-            currentPermissionMode.value = status.permissionMode as PermissionMode
+          if (status?.permissionMode && status.permissionMode !== currentPermissionMode.value) {
+            try {
+              await claudeCode.setPermissionMode?.(sessionId, currentPermissionMode.value)
+            } catch (e) {
+              logger.warn('ChatStore', `activateSession: failed to apply preferred mode | id=${sessionId.slice(0, 8)}`, { error: String(e) })
+            }
           }
         } catch (error) {
           console.error('[ChatStore] Failed to resume session:', error)
@@ -1944,22 +1961,44 @@ export const useChatStore = defineStore('chat', () => {
    * @param mode - 目标模式（default/plan/acceptEdits/bypassPermissions）
    */
   async function setPermissionMode(mode: PermissionMode): Promise<void> {
-    const sid = currentSessionId.value
-    if (!sid) return
-    
     const claudeCode = electronAPI?.claudeCode
-    
+    const sid = currentSessionId.value
+
+    // 1) 立即更新内存状态，使 UI 即时响应
+    currentPermissionMode.value = mode
+
+    // 2) 持久化为用户偏好（跨会话切换 / 新建会话 / GUI 重启都生效）
     try {
-      if (claudeCode?.setPermissionMode) {
+      settingsStore.permissionMode = mode
+      settingsStore.saveSettings()
+    } catch (e) {
+      logger.warn('ChatStore', 'setPermissionMode: failed to persist preference', { error: String(e) })
+    }
+
+    // 2b) 同步写入 ~/.claude/settings.json 的 permissions.defaultMode，
+    //     使引擎在未指定 --permission-mode 时也以用户偏好为默认
+    try {
+      await api.injectGuiModelsToSettings({
+        primaryModel: settingsStore.getPrimaryModel() || '',
+        haikuModel: settingsStore.getHaikuModel(),
+        sonnetModel: settingsStore.getSonnetModel(),
+        opusModel: settingsStore.getOpusModel(),
+        permissionMode: mode,
+      })
+    } catch (e) {
+      logger.warn('ChatStore', 'setPermissionMode: failed to write defaultMode to settings.json', { error: String(e) })
+    }
+
+    // 3) 若当前已有运行中的后端会话，则下发到后端
+    if (sid && claudeCode?.setPermissionMode) {
+      try {
         logger.info('ChatStore', `setPermissionMode | sessionId=${sid.slice(0, 8)} | mode=${mode}`)
         await claudeCode.setPermissionMode(sid, mode)
-      } else {
-        logger.warn('ChatStore', `setPermissionMode: IPC not available, updating local state only | mode=${mode}`)
+      } catch (error) {
+        logger.error('ChatStore', 'setPermissionMode: backend update failed', { error })
       }
-      currentPermissionMode.value = mode
-    } catch (error) {
-      logger.error('ChatStore', 'setPermissionMode failed', { error })
-      currentPermissionMode.value = mode
+    } else if (sid) {
+      logger.warn('ChatStore', `setPermissionMode: IPC not available, updating local state only | mode=${mode}`)
     }
   }
 

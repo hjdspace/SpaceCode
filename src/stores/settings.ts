@@ -20,6 +20,8 @@ export interface OAuthAccountInfo {
 
 export type EngineType = 'claude-code' | 'pi'
 
+export type PermissionMode = 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions'
+
 export interface AppearanceSettings {
   theme: 'system' | 'light' | 'dark' | 'anthropic' | 'anthropic-dark'
   fontSize: number
@@ -43,6 +45,7 @@ export interface AuthSettings {
   thinkingEnabled?: boolean
   language?: Locale
   engineType?: EngineType
+  permissionMode?: PermissionMode
   appearance?: AppearanceSettings
 }
 
@@ -222,6 +225,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const thinkingEnabled = ref<boolean>((saved as any).thinkingEnabled !== undefined ? (saved as any).thinkingEnabled : true)
   const language = ref<Locale>((saved as any).language || detectSystemLanguage())
   const engineType = ref<EngineType>((saved as any).engineType || 'claude-code')
+  const permissionMode = ref<PermissionMode>(((saved as any).permissionMode as PermissionMode) || 'default')
   const appearance = ref<AppearanceSettings>((saved as any).appearance || {
     theme: 'system',
     fontSize: 14,
@@ -381,7 +385,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function saveSettings() {
-    const data: AuthSettings & { effortLevel?: string; language?: Locale; engineType?: EngineType; appearance?: AppearanceSettings } = {
+    const data: AuthSettings & { effortLevel?: string; language?: Locale; engineType?: EngineType; permissionMode?: PermissionMode; appearance?: AppearanceSettings } = {
       authMethod: authMethod.value,
       anthropicConfig: { ...anthropicConfig.value },
       openaiConfig: { ...openaiConfig.value },
@@ -392,6 +396,7 @@ export const useSettingsStore = defineStore('settings', () => {
       thinkingEnabled: thinkingEnabled.value,
       language: language.value,
       engineType: engineType.value,
+      permissionMode: permissionMode.value,
       appearance: { ...appearance.value }
     }
 
@@ -432,6 +437,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (settings.thinkingEnabled !== undefined) thinkingEnabled.value = settings.thinkingEnabled
     if (settings.language) language.value = settings.language
     if (settings.engineType) engineType.value = settings.engineType
+    if ((settings as any).permissionMode) permissionMode.value = (settings as any).permissionMode as PermissionMode
     if (settings.appearance) appearance.value = { ...appearance.value, ...settings.appearance }
   }
 
@@ -510,6 +516,7 @@ export const useSettingsStore = defineStore('settings', () => {
     thinkingEnabled,
     language,
     engineType,
+    permissionMode,
     appearance,
     provider,
     config,
