@@ -166,11 +166,13 @@ async function toggleFileDiff(index: number) {
   
   try {
     const sessionId = chatStore.currentSessionId!
+    const projectPath = chatStore.workingDirectory
     const result = await api.session.getTurnCheckpointDiff(
       sessionId,
       props.cardData.targetUserMessageId,
       file.path,
-      props.cardData.checkpoint.target.userMessageIndex
+      props.cardData.checkpoint.target.userMessageIndex,
+      projectPath
     )
     
     if (result.state === 'ok' && result.diff) {

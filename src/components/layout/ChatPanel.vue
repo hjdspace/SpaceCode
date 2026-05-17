@@ -110,7 +110,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
@@ -582,6 +582,13 @@ async function handleRestoreHistorySession(session: any) {
       chatStore.selectSession(session.sessionId)
       appStore.openSessionTab(session.sessionId, existingSession.title)
       showHistoryModal.value = false
+      await nextTick()
+      const reusedProjectPath = existingSession.workingDirectory || session.projectPath
+      try {
+        await chatStore.loadTurnCheckpoints(session.sessionId, reusedProjectPath)
+      } catch (err) {
+        console.warn('[ChatPanel] loadTurnCheckpoints failed:', err)
+      }
       return
     }
 
@@ -602,6 +609,15 @@ async function handleRestoreHistorySession(session: any) {
     }
 
     showHistoryModal.value = false
+
+    // 历史会话加载后显式触发轮次变更卡片加载，避免依赖 MessageList watcher
+    // 的时序（destructured props / 异步消息追加可能导致 watcher 未在合适时机触发）。
+    await nextTick()
+    try {
+      await chatStore.loadTurnCheckpoints(restoredSession.id, session.projectPath)
+    } catch (err) {
+      console.warn('[ChatPanel] loadTurnCheckpoints failed:', err)
+    }
 
     console.log(
       '[ChatPanel] History session restored with original ID:',

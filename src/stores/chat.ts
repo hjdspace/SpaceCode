@@ -1643,14 +1643,17 @@ export const useChatStore = defineStore('chat', () => {
 
   // ── Turn Checkpoint Actions & Getters ──
   
-  async function loadTurnCheckpoints(sessionId: string) {
+  async function loadTurnCheckpoints(sessionId: string, projectPathOverride?: string) {
     if (!sessionId || isLoadingTurnCards.value) return
     
     isLoadingTurnCards.value = true
     turnCardsError.value = null
     
     try {
-      const result = await api.session.getTurnCheckpoints(sessionId)
+      const projectPath = projectPathOverride
+        || sessions.value.find(s => s.id === sessionId)?.workingDirectory
+        || workingDirectory.value
+      const result = await api.session.getTurnCheckpoints(sessionId, projectPath)
       if (result.ok) {
         turnCheckpoints.value = result.checkpoints
       } else {
@@ -1671,10 +1674,11 @@ export const useChatStore = defineStore('chat', () => {
     rewindingTurnId.value = targetUserMessageId
     
     try {
+      const projectPath = workingDirectory.value
       const result = await api.session.rewindTurn(sessionId, {
         targetUserMessageId,
         userMessageIndex
-      })
+      }, projectPath)
       
       if (!result.ok) {
         throw new Error(result.error || 'Failed to rewind turn')

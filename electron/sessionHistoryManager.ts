@@ -107,10 +107,6 @@ async function readSessionLite(
             const textItem = content.find((c: any) => c.type === 'text')
             firstUserMessage = textItem?.text?.trim() || ''
           }
-          
-          if (firstUserMessage) {
-            debug('SessionHistory', `Found first user message for ${sessionId}: ${firstUserMessage.slice(0, 50)}...`)
-          }
         }
         
         if (!metadata?.timestamps?.lastMessageAt && msg.timestamp) {

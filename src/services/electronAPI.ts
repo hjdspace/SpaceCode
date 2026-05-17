@@ -272,25 +272,27 @@ export const api = {
 
   // Turn Checkpoint API - 轮次变更追踪
   session: {
-    getTurnCheckpoints: (sessionId: string): Promise<{
+    getTurnCheckpoints: (sessionId: string, projectPath?: string): Promise<{
       ok: boolean
       checkpoints: import('@/types').SessionTurnCheckpoint[]
       error: string | null
     }> =>
-      electronAPI?.session?.getTurnCheckpoints(sessionId) ||
+      electronAPI?.session?.getTurnCheckpoints(sessionId, projectPath) ||
       Promise.resolve({ ok: false, checkpoints: [], error: 'Session API not available' }),
 
     getTurnCheckpointDiff: (
       sessionId: string,
       targetUserMessageId: string,
       filePath: string,
-      userMessageIndex?: number
+      userMessageIndex?: number,
+      projectPath?: string
     ): Promise<import('@/types').TurnCheckpointDiffResult> =>
       electronAPI?.session?.getTurnCheckpointDiff(
         sessionId,
         targetUserMessageId,
         filePath,
-        userMessageIndex
+        userMessageIndex,
+        projectPath
       ) ||
       Promise.resolve({
         state: 'error',
@@ -300,9 +302,10 @@ export const api = {
 
     rewindTurn: (
       sessionId: string,
-      options: { targetUserMessageId: string; userMessageIndex?: number }
+      options: { targetUserMessageId: string; userMessageIndex?: number },
+      projectPath?: string
     ): Promise<{ ok: boolean; error: string | null }> =>
-      electronAPI?.session?.rewindTurn(sessionId, options) ||
+      electronAPI?.session?.rewindTurn(sessionId, options, projectPath) ||
       Promise.resolve({ ok: false, error: 'Session API not available' }),
   },
 }
