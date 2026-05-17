@@ -1,4 +1,28 @@
-## [0.3.6](https://github.com/hjdspace/SpaceCode/compare/v0.3.5...v0.3.6) (2026-05-17)
+## [0.3.7](https://github.com/hjdspace/SpaceCode/compare/v0.3.6...v0.3.7) (2026-05-17)
+
+### Features
+
+* **轮次变更追踪:** 实现完整的轮次变更追踪功能（任务 1/10 - 10/10）
+  - 新增 turn checkpoint 类型定义和 IPC 通信层（类型定义 + IPC handlers + preload API + electronAPI wrapper）
+  - 新增轮次变更状态管理（turn checkpoint store + 工具函数）
+  - 新增 CurrentTurnChangeCard 主组件和工作区差异展示组件（WorkspaceDiffSurface）
+  - 集成到 MessageList，支持历史会话轮次变更卡片展示
+  - 完整的 i18n 国际化支持（中文/英文）
+* **重构:** 将设置面板移至主内容区并重构展示逻辑
+* **信息面板:** 重构信息面板，添加多标签页支持
+* **技能管理:** 将技能管理器改为内嵌式面板，优化交互体验
+* **工具卡片:** 替换自研 diff 展示为 @git-diff-view 组件，提升差异展示效果
+* **工具调用:** EditTool 支持基于 git 获取原始内容，提升编辑准确性
+* **工具卡片:** 优化工具卡片展开逻辑与会话列表体验
+* **会话列表:** 重写历史会话恢复逻辑，提升稳定性
+
+### Refactor
+
+* **聊天面板:** 重写历史会话恢复逻辑
+* **会话列表:** 优化会话列表展示和交互体验
+
+---
+---
 
 ### Features
 
