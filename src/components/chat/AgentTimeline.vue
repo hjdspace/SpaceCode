@@ -232,6 +232,9 @@ const TOOL_LABEL_MAP: Record<string, string> = {
   TodoWrite: 'Update tasks',
 }
 
+// Keyed by tool NAME (not id): the same Vue component is reused across
+// every tool_use of the same name, so resolving once is sufficient and
+// guarantees real-time card rendering for subsequent calls during streaming.
 const specialComponents = reactive<Record<string, Component>>({})
 const loadingSpecialComponents = new Set<string>()
 const specialToolNames = computed(() => {
@@ -244,27 +247,27 @@ const specialToolNames = computed(() => {
   return Array.from(names).sort().join(',')
 })
 
-async function loadSpecialComponentForTool(tool: ToolCall) {
-  if (!hasToolComponent(tool.name) || specialComponents[tool.id] || loadingSpecialComponents.has(tool.id)) return
-  loadingSpecialComponents.add(tool.id)
-  const comp = await resolveToolComponent(tool.name)
-  if (comp) specialComponents[tool.id] = markRaw(comp)
-  loadingSpecialComponents.delete(tool.id)
+async function loadSpecialComponentByName(toolName: string) {
+  if (!hasToolComponent(toolName) || specialComponents[toolName] || loadingSpecialComponents.has(toolName)) return
+  loadingSpecialComponents.add(toolName)
+  const comp = await resolveToolComponent(toolName)
+  if (comp) specialComponents[toolName] = markRaw(comp)
+  loadingSpecialComponents.delete(toolName)
 }
 
 function loadVisibleSpecialComponents() {
   for (const msg of props.messages) {
     for (const tool of msg.toolCalls || []) {
-      loadSpecialComponentForTool(tool)
+      loadSpecialComponentByName(tool.name)
     }
   }
 }
 
 onMounted(loadVisibleSpecialComponents)
 
-watch(() => [props.messages.length, props.messages[props.messages.length - 1]?.id, specialToolNames.value], () => {
-  loadVisibleSpecialComponents()
-})
+// Trigger only when the set of tool names changes (cheap string compare).
+// Per-name resolution covers every tool.id automatically.
+watch(specialToolNames, loadVisibleSpecialComponents)
 
 // ========== 优化2: timelineEvents计算缓存 ==========
 let _cachedTimelineEvents: TimelineEvent[] | null = null
@@ -272,7 +275,7 @@ let _cachedTimelineKey = ''
 
 function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
   const toolStateKey = msgs
-    .flatMap(msg => (msg.toolCalls || []).map(tool => `${tool.id}:${tool.status}:${specialComponents[tool.id] ? 1 : 0}`))
+    .flatMap(msg => (msg.toolCalls || []).map(tool => `${tool.id}:${tool.status}:${specialComponents[tool.name] ? 1 : 0}`))
     .join(',')
   const key = msgs.length > 0
     ? `${msgs.length}-${msgs[0]?.id}-${msgs[msgs.length - 1]?.id}-${toolStateKey}`
@@ -307,7 +310,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
             duration: getToolDuration(tool) || undefined,
             toolCall: tool,
             messageId: msg.id,
-            specialComponent: specialComponents[tool.id] ? markRaw(specialComponents[tool.id]) : undefined,
+            specialComponent: specialComponents[tool.name] ? markRaw(specialComponents[tool.name]) : undefined,
           })
           continue
         }
@@ -351,7 +354,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
           duration: getToolDuration(tool) || undefined,
           toolCall: tool,
           messageId: msg.id,
-          specialComponent: specialComponents[tool.id] ? markRaw(specialComponents[tool.id]) : undefined,
+          specialComponent: specialComponents[tool.name] ? markRaw(specialComponents[tool.name]) : undefined,
         })
       }
     }

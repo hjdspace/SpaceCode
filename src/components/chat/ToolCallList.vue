@@ -47,7 +47,7 @@
           </div>
           <div class="timeline-content">
             <component
-              :is="specialComponents[tool.id]"
+              :is="specialComponents[tool.name]"
               :tool-call="tool"
               @submit="handleToolSubmit(tool.id, $event)"
               @skip="handleToolSkip(tool.id)"
@@ -322,15 +322,18 @@ function parseTaskUpdateOutput(output?: string): TaskListItem[] {
   return [{ id: taskId, content: `Task #${taskId} updated`, status: (status as TaskListItem['status']) || 'pending' }]
 }
 
+// Keyed by tool NAME (not id): one resolved component is reused across
+// every tool call of the same name, so subsequent calls render instantly
+// during live streaming (no per-id async wait required).
 const specialComponents = reactive<Record<string, Component>>({})
 const loadingSpecialComponents = new Set<string>()
 
-async function loadSpecialComponentForTool(tool: ToolCall) {
-  if (!hasToolComponent(tool.name) || specialComponents[tool.id] || loadingSpecialComponents.has(tool.id)) return
-  loadingSpecialComponents.add(tool.id)
-  const comp = await resolveToolComponent(tool.name)
-  if (comp) specialComponents[tool.id] = markRaw(comp)
-  loadingSpecialComponents.delete(tool.id)
+async function loadSpecialComponentByName(toolName: string) {
+  if (!hasToolComponent(toolName) || specialComponents[toolName] || loadingSpecialComponents.has(toolName)) return
+  loadingSpecialComponents.add(toolName)
+  const comp = await resolveToolComponent(toolName)
+  if (comp) specialComponents[toolName] = markRaw(comp)
+  loadingSpecialComponents.delete(toolName)
 }
 
 function shouldMountSpecialComponent(tool: ToolCall): boolean {
@@ -338,21 +341,29 @@ function shouldMountSpecialComponent(tool: ToolCall): boolean {
 }
 
 function shouldRenderSpecialComponent(tool: ToolCall): boolean {
-  return shouldMountSpecialComponent(tool) && !!specialComponents[tool.id]
+  return shouldMountSpecialComponent(tool) && !!specialComponents[tool.name]
 }
 
 function loadVisibleSpecialComponents() {
   for (const tool of props.toolCalls) {
     if (shouldMountSpecialComponent(tool)) {
-      loadSpecialComponentForTool(tool)
+      loadSpecialComponentByName(tool.name)
     }
   }
 }
 
-onMounted(loadVisibleSpecialComponents)
-watch(() => props.toolCalls.map(tool => `${tool.id}:${tool.name}:${tool.status}:${expandedItems[tool.id] ? 1 : 0}`).join('|'), () => {
-  loadVisibleSpecialComponents()
+const toolNamesKey = computed(() => {
+  const names = new Set<string>()
+  for (const tool of props.toolCalls) {
+    if (hasToolComponent(tool.name)) names.add(tool.name)
+  }
+  return Array.from(names).sort().join(',')
 })
+
+onMounted(loadVisibleSpecialComponents)
+// Cheap watcher: only fires when the set of tool names changes.
+// Per-name resolution then covers every existing/future tool.id of that name.
+watch(toolNamesKey, loadVisibleSpecialComponents)
 
 function handleToolSubmit(toolId: string, updatedInput: Record<string, unknown>) {
   emit('toolSubmit', toolId, updatedInput)

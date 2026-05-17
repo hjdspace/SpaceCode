@@ -42,7 +42,7 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  className: 'min-h-0 flex-1 overflow-auto bg-[var(--color-code-bg)]',
+  className: 'min-h-0 flex-1 overflow-auto bg-[var(--gdc-bg-color)]',
   lineLimit: 2000
 })
 
@@ -143,10 +143,10 @@ const showAllLabel = computed(() => t('workspace.showAllLoadedLines'))
   font-family: var(--font-mono, 'Consolas', 'Monaco', monospace);
   font-size: 12px;
   line-height: 1.55;
-  color: var(--color-code-fg, #d4d4d4);
-  background-color: var(--color-code-bg, #1e1e1e);
+  color: var(--gdc-text-color, var(--text-primary, #24292f));
+  background-color: var(--gdc-bg-color, var(--bg-tertiary, #f5f5f5));
   border-radius: var(--radius-md, 6px);
-  border: 1px solid var(--color-border, #3c3c3c);
+  border: 1px solid var(--gdc-border-color, var(--border-default, rgba(0, 0, 0, 0.08)));
   overflow: auto;
   max-height: 430px;
 }
@@ -175,26 +175,26 @@ const showAllLabel = computed(() => t('workspace.showAllLoadedLines'))
   width: max-content;
 
   &:hover {
-    background-color: var(--color-surface-hover, rgba(255, 255, 255, 0.05));
+    background-color: var(--surface-glass-hover, rgba(0, 0, 0, 0.04));
   }
 
   &.diff-added {
-    background-color: var(--color-diff-added-bg, rgba(16, 185, 129, 0.15));
+    background-color: var(--gdc-add-bg-color, rgba(16, 185, 129, 0.15));
   }
 
   &.diff-removed {
-    background-color: var(--color-diff-removed-bg, rgba(239, 68, 68, 0.15));
+    background-color: var(--gdc-remove-bg-color, rgba(239, 68, 68, 0.15));
   }
 
   &.diff-hunk {
-    background-color: var(--color-diff-highlight-bg, rgba(245, 158, 11, 0.15));
+    background-color: var(--warning-glow, rgba(245, 158, 11, 0.15));
   }
 }
 
 .line-number {
   text-align: right;
   font-size: 11px;
-  color: var(--color-text-tertiary, #888888);
+  color: var(--text-muted, #737373);
   user-select: none;
 }
 
@@ -204,15 +204,15 @@ const showAllLabel = computed(() => t('workspace.showAllLoadedLines'))
   user-select: none;
 
   &.prefix-added {
-    color: var(--color-diff-added-text, #10b981);
+    color: var(--gdc-add-text-color, #1a7f37);
   }
 
   &.prefix-removed {
-    color: var(--color-diff-removed-text, #ef4444);
+    color: var(--gdc-remove-text-color, #cf222e);
   }
 
   &.prefix-context {
-    color: var(--color-text-tertiary, #888888);
+    color: var(--text-muted, #737373);
   }
 }
 
@@ -222,12 +222,12 @@ const showAllLabel = computed(() => t('workspace.showAllLoadedLines'))
 
   &.content-header {
     font-weight: 600;
-    color: var(--color-text-secondary, #cccccc);
+    color: var(--text-secondary, #525252);
   }
 
   &.content-hunk {
     font-weight: 600;
-    color: var(--color-warning, #f59e0b);
+    color: var(--warning, #d97706);
   }
 }
 
@@ -238,11 +238,11 @@ const showAllLabel = computed(() => t('workspace.showAllLoadedLines'))
   align-items: center;
   gap: 12px;
   padding: 8px 12px;
-  border-top: 1px solid var(--color-border, #3c3c3c);
-  background-color: var(--color-surface-glass, rgba(30, 30, 30, 0.9));
+  border-top: 1px solid var(--gdc-border-color, var(--border-default, rgba(0, 0, 0, 0.08)));
+  background-color: var(--surface-glass, rgba(0, 0, 0, 0.02));
   backdrop-filter: blur(8px);
   font-size: 12px;
-  color: var(--color-text-tertiary, #888888);
+  color: var(--text-muted, #737373);
 }
 
 .toggle-btn {
@@ -251,15 +251,15 @@ const showAllLabel = computed(() => t('workspace.showAllLoadedLines'))
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
-  color: var(--color-text-secondary, #aaaaaa);
+  color: var(--text-secondary, #525252);
   background: transparent;
   border: none;
   cursor: pointer;
   transition: all 0.2s ease;
 
   &:hover {
-    background-color: var(--color-surface-hover, rgba(255, 255, 255, 0.05));
-    color: var(--color-text-primary, #ffffff);
+    background-color: var(--surface-glass-hover, rgba(0, 0, 0, 0.04));
+    color: var(--text-primary, #171717);
   }
 }
 </style>

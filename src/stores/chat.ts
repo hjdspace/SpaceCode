@@ -165,13 +165,46 @@ function loadSessionsFromStorage(): Session[] {
   return []
 }
 
+// 持久化前剥离图片附件中的超大 base64 字段（data / previewUrl）。
+// 这些 dataURL 通常是几 MB 的字符串；流式回调里每条 chunk 都触发保存时，
+// 重复序列化它们会导致 localStorage 配额溢出 → 触发清理 → 渲染进程卡死 → 黑屏。
+// engine 已经在发送时通过 IPC 收到原始字节，无需再持久化到前端存储。
+function stripLargeAttachmentData(sessions: Session[]): Session[] {
+  return sessions.map(session => ({
+    ...session,
+    messages: session.messages.map(msg => {
+      const hasImages = !!msg.imageAttachments?.length
+      const hasAttImages = Array.isArray(msg.attachments) && msg.attachments.some((a: any) => a?.type === 'image')
+      if (!hasImages && !hasAttImages) return msg
+      const next: any = { ...msg }
+      if (hasImages) {
+        next.imageAttachments = msg.imageAttachments!.map((img: any) => ({
+          id: img.id,
+          name: img.name,
+          type: img.type,
+          mimeType: img.mimeType,
+          // 丢弃 data / previewUrl（base64），重新加载时显示占位
+        }))
+      }
+      if (hasAttImages) {
+        next.attachments = (msg.attachments as any[]).map(att =>
+          att?.type === 'image'
+            ? { id: att.id, name: att.name, type: att.type, mimeType: att.mimeType }
+            : att
+        )
+      }
+      return next
+    })
+  }))
+}
+
 function saveSessionsToStorage(sessions: Session[]): boolean {
   try {
     const spaceCheck = checkStorageSpace()
-    let sessionsToSave = sessions
+    let sessionsToSave = stripLargeAttachmentData(sessions)
     if (!spaceCheck.ok || spaceCheck.warning) {
       console.warn('[ChatStore] Storage space low, cleaning up old sessions')
-      sessionsToSave = cleanupOldSessions(sessions, 30)
+      sessionsToSave = cleanupOldSessions(sessionsToSave, 30)
       sessionsToSave = truncateLongMessages(sessionsToSave, 5000)
     }
     const jsonData = JSON.stringify(sessionsToSave)
@@ -399,8 +432,48 @@ export const useChatStore = defineStore('chat', () => {
     return settingsStore.config
   }
 
-  function saveToStorage() {
+  // 节流持久化：流式回调里每条 chunk 都会调用 saveToStorage，
+  // 而 JSON.stringify + LZ 压缩 + localStorage.setItem 是重量级同步操作。
+  // 不节流会冻结渲染进程（黑屏 / Render frame disposed）。
+  // 600ms 既能保证崩溃恢复时丢失数据极少，又把同步成本平摊到合理频率。
+  let _saveScheduled = false
+  let _saveTrailing = false
+  let _lastSaveAt = 0
+  const SAVE_INTERVAL_MS = 600
+
+  function flushSaveNow() {
+    _saveScheduled = false
+    _saveTrailing = false
+    _lastSaveAt = Date.now()
     saveSessionsToStorage(sessions.value)
+  }
+
+  function saveToStorage() {
+    const now = Date.now()
+    const elapsed = now - _lastSaveAt
+    if (elapsed >= SAVE_INTERVAL_MS && !_saveScheduled) {
+      _lastSaveAt = now
+      saveSessionsToStorage(sessions.value)
+      return
+    }
+    // 在窗口期内：标记 trailing，到期后再保存一次最新状态
+    _saveTrailing = true
+    if (_saveScheduled) return
+    _saveScheduled = true
+    const wait = Math.max(0, SAVE_INTERVAL_MS - elapsed)
+    setTimeout(() => {
+      _saveScheduled = false
+      if (_saveTrailing) {
+        _saveTrailing = false
+        _lastSaveAt = Date.now()
+        saveSessionsToStorage(sessions.value)
+      }
+    }, wait)
+  }
+
+  // 关闭窗口前确保最后一次状态落盘
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', flushSaveNow)
   }
 
   function saveProjects() {
@@ -1355,7 +1428,16 @@ export const useChatStore = defineStore('chat', () => {
         unsubscribeExit?.()
       }
 
-      claudeCode.sendMessage(targetSessionId, content, attachments?.images).catch((error: any) => {
+      // 通过 IPC 传递前剥离 Vue 响应式 Proxy（structuredClone 无法克隆 Proxy / Symbol 键）
+      const plainImages = attachments?.images?.map(img => ({
+        id: img.id,
+        name: img.name,
+        type: img.type,
+        mimeType: img.mimeType,
+        previewUrl: img.previewUrl,
+        data: img.data,
+      }))
+      claudeCode.sendMessage(targetSessionId, content, plainImages).catch((error: any) => {
         logger.error('ChatStore', `[${targetSessionId.slice(0, 8)}] IPC sendMessage rejected`, { error: String(error) })
         cleanup()
         handleError(error)
