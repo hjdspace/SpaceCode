@@ -30,6 +30,14 @@
         <div class="dot"></div>
         <div class="dot"></div>
       </div>
+
+      <!-- Turn Change Cards -->
+      <CurrentTurnChangeCard
+        v-for="(card, index) in chatStore.turnChangeCards"
+        :key="card.targetUserMessageId"
+        :card-data="card"
+        class="turn-change-card-wrapper"
+      />
     </div>
   </div>
 </template>
@@ -39,10 +47,13 @@ import { ref, watch, nextTick, onMounted, computed } from 'vue'
 import type { Message } from '@/types'
 import MessageItem from './MessageItem.vue'
 import AgentTimeline from './AgentTimeline.vue'
+import CurrentTurnChangeCard from './CurrentTurnChangeCard.vue'
 import { MessageSquare } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
+import { useChatStore } from '@/stores/chat'
 
 const { t } = useI18n()
+const chatStore = useChatStore()
 
 const emit = defineEmits<{
   toolSubmit: [messageId: string, toolId: string, updatedInput: Record<string, unknown>]
@@ -94,6 +105,18 @@ function scrollToBottom() {
 
 watch(() => [messages, loading], () => {
   scrollToBottom()
+}, { deep: true })
+
+watch(() => chatStore.currentSessionId, async (sessionId) => {
+  if (sessionId && !chatStore.isLoading) {
+    await chatStore.loadTurnCheckpoints(sessionId)
+  }
+})
+
+watch(() => messages, async () => {
+  if (chatStore.currentSessionId && !chatStore.isLoading) {
+    await chatStore.loadTurnCheckpoints(chatStore.currentSessionId)
+  }
 }, { deep: true })
 
 onMounted(() => {
@@ -163,6 +186,10 @@ onMounted(() => {
     &:nth-child(1) { animation-delay: -0.32s; }
     &:nth-child(2) { animation-delay: -0.16s; }
   }
+}
+
+.turn-change-card-wrapper {
+  margin: 12px 16px;
 }
 
 @keyframes bounce {
