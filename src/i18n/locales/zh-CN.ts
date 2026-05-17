@@ -81,6 +81,7 @@ export default {
     turnChangesHideDiffAria: '隐藏 {path} 的变更详情',
     turnChangesLatestCardLabel: '当前轮次变更追踪',
     turnChangesHistoricalCardLabel: '历史轮次变更追踪',
+    turnChangesNoFiles: '本轮次没有文件变更',
   },
 
   sidebar: {

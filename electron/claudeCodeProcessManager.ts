@@ -274,6 +274,14 @@ export class ClaudeCodeProcessManager extends EventEmitter {
       env.CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS = '80000'
     }
 
+    // 强制开启 SDK 模式下的文件历史快照（轮次变更卡片所需）。
+    // 桌面 GUI 通过 --print --output-format stream-json 启动引擎，被识别为非交互式 SDK 会话。
+    // 在该路径下 engine/src/utils/fileHistory.ts:fileHistoryEnabledSdk() 必须有此环境变量
+    // 才会真正记录 file-history-snapshot 条目与备份文件，否则卡片永远没有数据可展示。
+    if (!process.env.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING) {
+      env.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING = '1'
+    }
+
     // TODO: 保留此代码以备后续需要强制禁用 Todo V2 功能时启用
     // env.CLAUDE_CODE_ENABLE_TASKS = 'false'
     return env

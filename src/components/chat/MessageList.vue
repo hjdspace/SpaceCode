@@ -152,14 +152,18 @@ onMounted(async () => {
 }
 
 .messages-container {
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 auto;
+  min-height: 100%;
   padding: 16px 20px;
   max-width: 900px;
   margin: 0 auto;
   width: 100%;
   display: flex;
   flex-direction: column;
+
+  > * {
+    flex-shrink: 0;
+  }
 }
 
 .empty-state {

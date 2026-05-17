@@ -152,9 +152,35 @@ function hasAssistantResponse(messages: SessionMessage[], userMessageId: string)
 }
 
 function extractFileHistorySnapshots(messages: SessionMessage[]): FileHistorySnapshotEntry[] {
-  return messages
-    .filter((msg): msg is FileHistorySnapshotEntry => msg.type === 'file-history-snapshot')
-    .filter(entry => !entry.isSnapshotUpdate)
+  // 把 JSONL 里所有 file-history-snapshot 条目按 user-message-id 聚合，并取该组的最后一条。
+  //
+  // 重要：JSONL 中存在两种 file-history-snapshot 条目：
+  //   1. isSnapshotUpdate=false  —— 轮次开始时由 fileHistoryMakeSnapshot 写入，初始
+  //      trackedFileBackups 通常为空 {}（除非是从上一轮继承的备份）。
+  //   2. isSnapshotUpdate=true   —— 轮次中每次 fileHistoryTrackEdit 写入。这里的
+  //      trackedFileBackups 是 spread-累积态（包含此前所有备份 + 本次新增），所以
+  //      同一组里 **最后一条 update 即为该轮最终快照**，丢弃中间条目无损。
+  //
+  // 还需注意 update 条目的两个 messageId 字段含义不同：
+  //   - 外层 entry.messageId      = 触发本次 edit 的 message uuid（通常是 assistant
+  //     tool-use 消息，与 user 消息无对应关系）。
+  //   - 内嵌 snapshot.messageId   = 该轮起始的 **user 消息 uuid**，与
+  //     extractUserMessages 返回的 id 对齐。
+  // 因此聚合 / 匹配都必须用 entry.snapshot.messageId。
+  const allEntries = messages.filter(
+    (msg): msg is FileHistorySnapshotEntry => msg.type === 'file-history-snapshot'
+  )
+
+  const latestByUserMsg = new Map<string, FileHistorySnapshotEntry>()
+  const order: string[] = []
+  for (const entry of allEntries) {
+    const key = entry.snapshot?.messageId
+    if (!key) continue
+    if (!latestByUserMsg.has(key)) order.push(key)
+    latestByUserMsg.set(key, entry)
+  }
+
+  return order.map(k => latestByUserMsg.get(k)!).filter(Boolean)
 }
 
 function findSnapshotForTarget(
@@ -162,7 +188,7 @@ function findSnapshotForTarget(
   targetUserMessageId: string
 ): FileHistorySnapshotEntry | null {
   for (let i = snapshots.length - 1; i >= 0; i--) {
-    if (snapshots[i].messageId === targetUserMessageId) {
+    if (snapshots[i].snapshot?.messageId === targetUserMessageId) {
       return snapshots[i]
     }
   }
@@ -175,7 +201,7 @@ function findNextSnapshot(
 ): FileHistorySnapshotEntry | null {
   let foundTarget = false
   for (const snapshot of snapshots) {
-    if (snapshot.messageId === targetUserMessageId) {
+    if (snapshot.snapshot?.messageId === targetUserMessageId) {
       foundTarget = true
       continue
     }

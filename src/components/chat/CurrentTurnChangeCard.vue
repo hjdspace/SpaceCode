@@ -2,26 +2,30 @@
   <div class="turn-change-card" :class="{ 'is-latest': isLatest }">
     <div class="card-header">
       <div class="header-left">
-        <span class="icon">📝</span>
+        <span class="card-icon" aria-hidden="true">
+          <FileEdit :size="14" :stroke-width="2" />
+        </span>
         <h3 class="title">
           {{ t('chat.turnChangesTitle', { count: filesChangedCount }) }}
-          <span class="stats">
-            +{{ totalInsertions }} -{{ totalDeletions }}
-          </span>
         </h3>
+        <span class="stats" aria-hidden="true">
+          <span class="insertions">+{{ totalInsertions }}</span>
+          <span class="deletions">−{{ totalDeletions }}</span>
+        </span>
       </div>
-      
+
       <div class="header-right">
         <span v-if="!isLatest" class="subtitle">
           {{ t('chat.turnChangesHistoricalSubtitle') }}
         </span>
-        <button 
+        <button
           @click="handleUndo"
           :disabled="isUndoing"
           class="undo-btn"
           :aria-label="undoButtonLabel"
         >
-          {{ undoButtonText }}
+          <RotateCcw :size="13" :stroke-width="2" />
+          <span>{{ undoButtonText }}</span>
         </button>
       </div>
     </div>
@@ -31,19 +35,24 @@
         v-for="(file, index) in filesChanged"
         :key="file.path"
         class="file-item"
+        :class="{ 'is-expanded': expandedFileIndex === index }"
       >
         <button
           class="file-header"
           @click="toggleFileDiff(index)"
           :aria-label="expandedFileIndex === index ? hideDiffAria(file.path) : showDiffAria(file.path)"
         >
-          <span class="file-icon">{{ getFileIcon(file.path) }}</span>
+          <ChevronRight
+            class="expand-icon"
+            :size="13"
+            :stroke-width="2.25"
+          />
+          <FileText class="file-icon" :size="13" :stroke-width="1.75" />
           <span class="file-name">{{ getRelativePath(file.path) }}</span>
           <span class="file-stats">
             <span class="insertions">+{{ file.insertions }}</span>
-            <span class="deletions">-{{ file.deletions }}</span>
+            <span class="deletions">−{{ file.deletions }}</span>
           </span>
-          <span class="expand-icon">{{ expandedFileIndex === index ? '▼' : '▶' }}</span>
         </button>
 
         <div v-if="expandedFileIndex === index && loadingDiff === file.path" class="diff-loading">
@@ -64,7 +73,7 @@
     </div>
 
     <div v-else class="no-files">
-      No files changed in this turn.
+      {{ t('chat.turnChangesNoFiles') }}
     </div>
   </div>
 </template>
@@ -74,6 +83,7 @@ import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useChatStore } from '@/stores/chat'
 import { api } from '@/services/electronAPI'
+import { FileEdit, FileText, ChevronRight, RotateCcw } from 'lucide-vue-next'
 import WorkspaceDiffSurface from './WorkspaceDiffSurface.vue'
 import type { TurnChangeCardData, FileChangedEntry } from '@/types'
 
@@ -128,16 +138,6 @@ function getRelativePath(absolutePath: string): string {
   }
   
   return absolutePath.split('/').pop() || absolutePath
-}
-
-function getFileIcon(path: string): string {
-  const ext = path.split('.').pop()?.toLowerCase()
-  const iconMap: Record<string, string> = {
-    ts: '📘', tsx: '⚛️', js: '📜', jsx: '⚛️',
-    vue: '💚', py: '🐍', json: '📋', md: '📝',
-    css: '🎨', scss: '🎨', html: '🌐', sh: '🖥️',
-  }
-  return iconMap[ext || ''] || '📄'
 }
 
 function showDiffAria(path: string): string {
@@ -209,20 +209,22 @@ watch(() => props.cardData.checkpoint, () => {
 
 <style lang="scss" scoped>
 .turn-change-card {
-  background-color: var(--color-surface-elevated, #2a2a2a);
-  border: 1px solid var(--color-border, #3c3c3c);
-  border-radius: var(--radius-lg, 12px);
-  padding: 16px;
+  background: var(--bg-elevated, #2a2928);
+  border: 1px solid var(--border-default, rgba(255, 255, 255, 0.09));
+  border-radius: var(--radius-lg, 10px);
   margin: 16px 0;
-  box-shadow: var(--shadow-sm, 0 2px 8px rgba(0, 0, 0, 0.2));
-  transition: all 0.3s ease;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.2));
+  transition:
+    border-color 150ms ease,
+    box-shadow 250ms ease;
 
   &.is-latest {
-    border-left: 4px solid var(--color-primary, #6366f1);
+    border-left: 3px solid var(--accent-primary, #d97757);
   }
 
   &:hover {
-    box-shadow: var(--shadow-md, 0 4px 16px rgba(0, 0, 0, 0.25));
+    border-color: var(--border-strong, rgba(255, 255, 255, 0.16));
   }
 }
 
@@ -230,92 +232,130 @@ watch(() => props.cardData.checkpoint, () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
   gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.05));
 
   .header-left {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     flex: 1;
     min-width: 0;
-
-    .icon {
-      font-size: 18px;
-    }
-
-    .title {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--color-text-primary, #ffffff);
-      margin: 0;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-
-      .stats {
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--color-text-secondary, #cccccc);
-
-        .insertions {
-          color: var(--color-diff-added-text, #10b981);
-        }
-
-        .deletions {
-          color: var(--color-diff-removed-text, #ef4444);
-        }
-      }
-    }
+    flex-wrap: wrap;
   }
 
-  .header-right {
-    display: flex;
+  .card-icon {
+    display: inline-flex;
     align-items: center;
-    gap: 12px;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: rgba(217, 119, 87, 0.12);
+    color: var(--accent-primary, #d97757);
+    flex-shrink: 0;
+  }
 
-    .subtitle {
-      font-size: 12px;
-      color: var(--color-text-tertiary, #888888);
+  .title {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary, #faf9f5);
+    line-height: 1.3;
+  }
+
+  .stats {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--surface-glass, rgba(255, 255, 255, 0.04));
+    border: 1px solid var(--surface-border, rgba(255, 255, 255, 0.08));
+    font-family: var(--font-mono, 'JetBrains Mono', Consolas, monospace);
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.6;
+
+    .insertions {
+      color: var(--gdc-add-text-color, #5c7040);
     }
-
-    .undo-btn {
-      padding: 6px 12px;
-      border-radius: var(--radius-md, 6px);
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--color-primary, #6366f1);
-      background-color: transparent;
-      border: 1px solid var(--color-primary, #6366f1);
-      cursor: pointer;
-      transition: all 0.2s ease;
-      white-space: nowrap;
-
-      &:hover:not(:disabled) {
-        background-color: var(--color-primary-hover, rgba(99, 102, 241, 0.15));
-      }
-
-      &:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-      }
+    .deletions {
+      color: var(--gdc-remove-text-color, #c44e3f);
     }
+  }
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+
+  .subtitle {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted, rgba(255, 255, 255, 0.5));
+  }
+}
+
+.undo-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+  background: var(--surface-glass, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--surface-border, rgba(255, 255, 255, 0.08));
+  cursor: pointer;
+  transition: all 150ms ease;
+  white-space: nowrap;
+
+  svg {
+    flex-shrink: 0;
+  }
+
+  &:hover:not(:disabled) {
+    color: var(--accent-primary, #d97757);
+    background: rgba(217, 119, 87, 0.10);
+    border-color: rgba(217, 119, 87, 0.35);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 }
 
 .file-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  padding: 4px;
+  gap: 1px;
 }
 
 .file-item {
-  border-radius: var(--radius-md, 6px);
+  border-radius: 6px;
   overflow: hidden;
-  transition: all 0.2s ease;
+  transition: background 150ms ease;
 
-  &:hover {
-    background-color: var(--color-surface-hover, rgba(255, 255, 255, 0.03));
+  &.is-expanded {
+    background: var(--surface-glass, rgba(255, 255, 255, 0.04));
+
+    .expand-icon {
+      transform: rotate(90deg);
+      color: var(--accent-primary, #d97757);
+    }
   }
 }
 
@@ -324,22 +364,28 @@ watch(() => props.cardData.checkpoint, () => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 7px 10px;
   background: transparent;
   border: none;
   cursor: pointer;
   text-align: left;
   color: inherit;
   font-family: inherit;
-  font-size: 13px;
-  transition: background-color 0.2s ease;
+  border-radius: 6px;
+  transition: background 150ms ease;
 
   &:hover {
-    background-color: var(--color-surface-hover, rgba(255, 255, 255, 0.05));
+    background: var(--surface-glass-hover, rgba(255, 255, 255, 0.07));
+  }
+
+  .expand-icon {
+    color: var(--text-muted, rgba(255, 255, 255, 0.5));
+    flex-shrink: 0;
+    transition: transform 150ms ease, color 150ms ease;
   }
 
   .file-icon {
-    font-size: 14px;
+    color: var(--text-muted, rgba(255, 255, 255, 0.5));
     flex-shrink: 0;
   }
 
@@ -349,55 +395,53 @@ watch(() => props.cardData.checkpoint, () => {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-family: var(--font-mono, monospace);
-    color: var(--color-text-secondary, #cccccc);
+    font-family: var(--font-mono, 'JetBrains Mono', Consolas, monospace);
+    font-size: 12px;
+    color: var(--text-primary, #faf9f5);
   }
 
   .file-stats {
-    display: flex;
+    display: inline-flex;
+    align-items: center;
     gap: 8px;
-    font-size: 12px;
-    font-weight: 500;
+    font-family: var(--font-mono, 'JetBrains Mono', Consolas, monospace);
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
     flex-shrink: 0;
 
     .insertions {
-      color: var(--color-diff-added-text, #10b981);
+      color: var(--gdc-add-text-color, #5c7040);
     }
-
     .deletions {
-      color: var(--color-diff-removed-text, #ef4444);
+      color: var(--gdc-remove-text-color, #c44e3f);
     }
-  }
-
-  .expand-icon {
-    font-size: 10px;
-    color: var(--color-text-tertiary, #888888);
-    flex-shrink: 0;
-    transition: transform 0.2s ease;
   }
 }
 
 .diff-loading,
 .diff-error {
-  padding: 12px;
+  padding: 14px 16px;
   text-align: center;
-  font-size: 13px;
-  color: var(--color-text-tertiary, #888888);
-  background-color: var(--color-surface-base, rgba(30, 30, 30, 0.5));
+  font-size: 12px;
+  color: var(--text-muted, rgba(255, 255, 255, 0.5));
+  border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.05));
+  background: var(--surface-glass, rgba(255, 255, 255, 0.04));
 }
 
 .diff-error {
-  color: var(--color-error, #ef4444);
+  color: var(--error, #c44e3f);
 }
 
 .diff-viewer {
-  border-top: 1px solid var(--color-border, #3c3c3c);
+  border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.05));
+  background: var(--bg-tertiary, #1c1b1a);
 }
 
 .no-files {
-  padding: 24px;
+  padding: 18px 16px;
   text-align: center;
-  font-size: 13px;
-  color: var(--color-text-tertiary, #888888);
+  font-size: 12px;
+  color: var(--text-muted, rgba(255, 255, 255, 0.5));
 }
 </style>

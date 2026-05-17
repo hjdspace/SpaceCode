@@ -923,6 +923,18 @@ export class SessionProcess extends EventEmitter {
       env.CLAUDE_CODE_ENABLE_TASKS = '1'
     }
 
+    // Force-enable file history checkpointing for the SDK / non-interactive code path.
+    // The engine always sees `getIsNonInteractiveSession() === true` because we pass
+    // `--print --output-format stream-json`. Under that path,
+    // engine/src/utils/fileHistory.ts:fileHistoryEnabledSdk() requires this flag to
+    // be truthy, otherwise fileHistoryTrackEdit / fileHistoryMakeSnapshot all early-return,
+    // no backups are written to ~/.claude/file-history/{sessionId}/, and no
+    // file-history-snapshot entries are appended to the session JSONL — which means the
+    // turn-change card UI never has any data to display.
+    if (!process.env.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING) {
+      env.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING = '1'
+    }
+
     debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] buildEnv | provider=${provider} | baseUrl=${config.baseUrl || '(empty)'} | apiKey=${config.apiKey ? '***set' : '(empty)'} | envKeys=[${Object.keys(env).join(',')}]`)
 
     return env

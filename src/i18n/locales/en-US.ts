@@ -81,6 +81,7 @@ export default {
     turnChangesHideDiffAria: 'Hide changes for {path}',
     turnChangesLatestCardLabel: 'Current turn change tracker',
     turnChangesHistoricalCardLabel: 'Historical turn change tracker',
+    turnChangesNoFiles: 'No files changed in this turn',
   },
 
   sidebar: {
