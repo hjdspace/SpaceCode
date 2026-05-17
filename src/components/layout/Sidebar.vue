@@ -79,7 +79,8 @@
       <!-- Settings Button -->
       <button
         class="icon-btn settings-btn"
-        @click="showSettings = true"
+        :class="{ active: appStore.showSettings }"
+        @click="appStore.toggleSettings()"
         :title="t('sidebar.settings')"
       >
         <Settings :size="20" />
@@ -243,10 +244,7 @@
     </div>
 
     <!-- Settings Panel (Modal) -->
-    <SettingsPanel
-      v-model="showSettings"
-      @save="handleSettingsSave"
-    />
+    <!-- Settings now renders inline in the center panel via App.vue -->
 
     <!-- Skills Manager Modal -->
     <SkillsManager
@@ -287,11 +285,9 @@ import {
 // Enhanced Components
 import SessionList from '../explorer/SessionList.vue'
 import FileTree from '../explorer/FileTree.vue'
-import SettingsPanel from '../settings/SettingsPanel.vue'
 import ScmPanel from '../scm/ScmPanel.vue'
 import SkillsManager from '../skills/SkillsManagerModal.vue'
 import McpManager from '../mcp/McpManagerModal.vue'
-import { initLLMService } from '@/services/llm'
 import { api } from '@/services/electronAPI'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { pathsEqual } from '@/utils/recentProjectRoots'
@@ -314,7 +310,6 @@ const { t } = useI18n()
 const { openProjectFromPicker } = useOpenProjectWorkflow()
 
 const activeTab = ref<'explorer' | 'scm' | 'history' | 'terminal'>('history')
-const showSettings = ref(false)
 const showMcpManager = ref(false)
 
 // Platform detection for titlebar spacing
@@ -331,6 +326,10 @@ const workspacePath = ref('')
 const highlightedFilePath = ref<string>('')
 
 function handleTabClick(tab: 'explorer' | 'scm' | 'history' | 'terminal') {
+  // Close settings when switching to another sidebar tab
+  if (appStore.showSettings) {
+    appStore.showSettings = false
+  }
   if (activeTab.value === tab && !appStore.sidebarCollapsed) {
     appStore.toggleSidebar()
   } else {
@@ -426,16 +425,6 @@ async function handleFileSelect(node: TreeNode) {
       console.error('Failed to read file:', error)
     }
   }
-}
-
-function handleSettingsSave() {
-  const config = settingsStore.config
-  initLLMService({
-    provider: config.provider,
-    apiKey: config.apiKey || '',
-    baseUrl: config.baseUrl,
-    model: config.model
-  })
 }
 
 // Enhanced Session Management (CodePilot-style)
@@ -600,7 +589,7 @@ onMounted(() => {
 
   // Listen for open settings event
   window.addEventListener('open-settings', () => {
-    showSettings.value = true
+    appStore.showSettings = true
   })
 })
 </script>

@@ -62,6 +62,7 @@ export const useAppStore = defineStore('app', () => {
   // Skills manager modal visibility
   const showSkillsManager = ref(false)
   const showTraceViewer = ref(false)
+  const showSettings = ref(false)
 
   // Webview 相关状态
   const webviewUrl = ref<string>('')
@@ -86,6 +87,13 @@ export const useAppStore = defineStore('app', () => {
 
   function toggleSidebar() {
     sidebarCollapsed.value = !sidebarCollapsed.value
+  }
+
+  function toggleSettings() {
+    showSettings.value = !showSettings.value
+    if (showSettings.value) {
+      showTraceViewer.value = false
+    }
   }
 
   function showInfoPanel(mode: 'diff' | 'file' | 'markdown' | 'tool-diff' | 'webview') {
@@ -391,6 +399,7 @@ export const useAppStore = defineStore('app', () => {
     projectRoot,
     showSkillsManager,
     showTraceViewer,
+    showSettings,
     webviewUrl,
     webviewHistory,
     currentHistoryIndex,
@@ -400,6 +409,7 @@ export const useAppStore = defineStore('app', () => {
     toggleTheme,
     setTheme,
     toggleSidebar,
+    toggleSettings,
     showInfoPanel,
     hideInfoPanel,
     showToolDiff,
