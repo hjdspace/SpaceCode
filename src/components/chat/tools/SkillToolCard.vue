@@ -10,7 +10,7 @@
       <span class="skill-name">/{{ skillName }}</span>
       <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
     </div>
-    <div v-show="isExpanded" class="skill-body">
+    <div v-if="isExpanded" class="skill-body">
       <div v-if="promptArg" class="skill-prompt">
         <div class="block-label">Prompt Argument</div>
         <pre><code>{{ promptArg }}</code></pre>

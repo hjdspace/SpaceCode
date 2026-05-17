@@ -35,7 +35,7 @@
         </template>
 
         <!-- Special tool cards rendered inline -->
-        <template v-else-if="specialComponents[tool.id]">
+        <template v-else-if="shouldRenderSpecialComponent(tool)">
           <div class="timeline-node">
             <div class="timeline-dot" :class="`status-${tool.status}`">
               <Loader2 v-if="tool.status === 'running'" :size="12" class="spin-icon" />
@@ -246,6 +246,10 @@ const summaryText = computed(() => {
 })
 
 const displayToolCalls = computed(() => {
+  // 显式访问 specialComponents，建立响应式依赖
+  // 这样当特殊组件异步加载完成后，computed 会自动重新计算
+  const _componentDeps = Object.keys(specialComponents).join(',')
+
   const parsed = props.toolCalls.map((tool) => ({
     ...tool,
     taskItems: getTaskListItems(tool)
@@ -319,18 +323,36 @@ function parseTaskUpdateOutput(output?: string): TaskListItem[] {
 }
 
 const specialComponents = reactive<Record<string, Component>>({})
+const loadingSpecialComponents = new Set<string>()
 
-async function loadSpecialComponents() {
+async function loadSpecialComponentForTool(tool: ToolCall) {
+  if (!hasToolComponent(tool.name) || specialComponents[tool.id] || loadingSpecialComponents.has(tool.id)) return
+  loadingSpecialComponents.add(tool.id)
+  const comp = await resolveToolComponent(tool.name)
+  if (comp) specialComponents[tool.id] = markRaw(comp)
+  loadingSpecialComponents.delete(tool.id)
+}
+
+function shouldMountSpecialComponent(tool: ToolCall): boolean {
+  return hasToolComponent(tool.name)
+}
+
+function shouldRenderSpecialComponent(tool: ToolCall): boolean {
+  return shouldMountSpecialComponent(tool) && !!specialComponents[tool.id]
+}
+
+function loadVisibleSpecialComponents() {
   for (const tool of props.toolCalls) {
-    if (hasToolComponent(tool.name) && !specialComponents[tool.id]) {
-      const comp = await resolveToolComponent(tool.name)
-      if (comp) specialComponents[tool.id] = markRaw(comp)
+    if (shouldMountSpecialComponent(tool)) {
+      loadSpecialComponentForTool(tool)
     }
   }
 }
 
-onMounted(loadSpecialComponents)
-watch(() => props.toolCalls, () => { loadSpecialComponents() }, { deep: true })
+onMounted(loadVisibleSpecialComponents)
+watch(() => props.toolCalls.map(tool => `${tool.id}:${tool.name}:${tool.status}:${expandedItems[tool.id] ? 1 : 0}`).join('|'), () => {
+  loadVisibleSpecialComponents()
+})
 
 function handleToolSubmit(toolId: string, updatedInput: Record<string, unknown>) {
   emit('toolSubmit', toolId, updatedInput)

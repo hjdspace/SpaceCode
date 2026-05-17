@@ -18,7 +18,7 @@
       </button>
       <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
     </div>
-    <div v-show="isExpanded" class="grep-body">
+    <div v-if="isExpanded" class="grep-body">
       <pre class="search-results"><code>{{ formattedOutput }}</code></pre>
     </div>
   </div>

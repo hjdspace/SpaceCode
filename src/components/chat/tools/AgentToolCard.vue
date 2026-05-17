@@ -10,7 +10,7 @@
       <span class="agent-type">{{ agentType }}</span>
       <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
     </div>
-    <div v-show="isExpanded" class="agent-body">
+    <div v-if="isExpanded" class="agent-body">
       <div v-if="description" class="agent-desc-block">
         <div class="block-label">Description</div>
         <p class="desc-text">{{ description }}</p>

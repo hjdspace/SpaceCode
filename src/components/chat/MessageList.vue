@@ -1,7 +1,7 @@
 <template>
   <div class="message-list" ref="listRef" :class="{ 'has-messages': messages.length > 0 || loading }">
     <div class="messages-container">
-      <div v-if="messages.length === 0 && !loading" class="empty-state">        
+      <div v-if="messages.length === 0 && !loading" class="empty-state">
         <MessageSquare :size="48" />
         <p>{{ t('chat.startConversation') }}</p>
         <span>{{ t('chat.startConversationDesc') }}</span>
@@ -43,7 +43,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, computed } from 'vue'
+import { ref, watch, nextTick, onMounted, computed, onUnmounted } from 'vue'
 import type { Message } from '@/types'
 import MessageItem from './MessageItem.vue'
 import AgentTimeline from './AgentTimeline.vue'
@@ -51,7 +51,7 @@ import CurrentTurnChangeCard from './CurrentTurnChangeCard.vue'
 import { MessageSquare } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useChatStore } from '@/stores/chat'
-import { getCompletedTurnTargets } from '@/utils/turnCheckpointUtils'
+import { getCompletedTurnTargets, type RewindTurnTarget } from '@/utils/turnCheckpointUtils'
 
 const { t } = useI18n()
 const chatStore = useChatStore()
@@ -72,11 +72,23 @@ interface MessageGroup {
   messages: Message[]
 }
 
-const messageGroups = computed<MessageGroup[]>(() => {
+// ========== 优化1: 消息分组计算缓存 (类似useMemo) ==========
+// 使用自定义缓存避免每次渲染重新计算
+let _cachedMessageGroups: MessageGroup[] | null = null
+let _cachedMessagesKey = ''
+
+function buildMessageGroups(msgs: Message[]): MessageGroup[] {
+  // 生成简单key用于比较消息数组是否变化
+  const key = msgs.length > 0 ? `${msgs.length}-${msgs[msgs.length - 1]?.id}-${msgs[0]?.id}` : 'empty'
+
+  if (_cachedMessageGroups && _cachedMessagesKey === key) {
+    return _cachedMessageGroups
+  }
+
   const groups: MessageGroup[] = []
   let currentGroup: MessageGroup | null = null
 
-  for (const msg of messages) {
+  for (const msg of msgs) {
     const groupType = msg.role === 'user' ? 'user' : 'assistant'
 
     if (!currentGroup || currentGroup.type !== groupType) {
@@ -91,51 +103,189 @@ const messageGroups = computed<MessageGroup[]>(() => {
     }
   }
 
+  _cachedMessageGroups = groups
+  _cachedMessagesKey = key
   return groups
+}
+
+const messageGroups = computed<MessageGroup[]>(() => {
+  return buildMessageGroups(messages)
 })
 
-const listRef = ref<HTMLElement | null>(null)
+// ========== 优化2: 滚动位置记忆与恢复 ==========
+const MAX_SCROLL_SNAPSHOTS = 10
+const sessionScrollSnapshots = new Map<string, { scrollTop: number; wasAtBottom: boolean }>()
 
-function scrollToBottom() {
+function rememberSessionScroll(sessionId: string, element: HTMLElement) {
+  // LRU策略：超过10个时删除最旧的
+  if (sessionScrollSnapshots.size >= MAX_SCROLL_SNAPSHOTS && !sessionScrollSnapshots.has(sessionId)) {
+    const oldestSessionId = sessionScrollSnapshots.keys().next().value
+    if (oldestSessionId) sessionScrollSnapshots.delete(oldestSessionId)
+  }
+
+  sessionScrollSnapshots.set(sessionId, {
+    scrollTop: element.scrollTop,
+    wasAtBottom: isNearScrollBottom(element),
+  })
+}
+
+function restoreSessionScroll(sessionId: string, element: HTMLElement) {
+  const snapshot = sessionScrollSnapshots.get(sessionId)
+
+  if (snapshot && !snapshot.wasAtBottom) {
+    // 恢复之前的滚动位置（用户在阅读历史）
+    element.scrollTop = snapshot.scrollTop
+  } else {
+    // 新会话或之前在底部 → 自动滚到底部
+    element.scrollTop = element.scrollHeight
+  }
+}
+
+// ========== 优化3: 智能自动滚动控制 ==========
+const listRef = ref<HTMLElement | null>(null)
+const shouldAutoScrollRef = ref(true)
+const isProgrammaticScrollingRef = ref(false)
+const lastSessionIdRef = ref<string | null>(null)
+
+const SCROLL_BOTTOM_THRESHOLD = 80 // 像素阈值，判断是否在底部附近
+
+function isNearScrollBottom(element: HTMLElement): boolean {
+  return element.scrollHeight - element.scrollTop - element.clientHeight < SCROLL_BOTTOM_THRESHOLD
+}
+
+function scrollToBottom(behavior: 'auto' | 'smooth' = 'auto') {
   nextTick(() => {
     if (listRef.value) {
+      isProgrammaticScrollingRef.value = true
       listRef.value.scrollTop = listRef.value.scrollHeight
+
+      // 重置标记
+      setTimeout(() => {
+        isProgrammaticScrollingRef.value = false
+      }, 50)
     }
   })
 }
 
-watch(() => [messages, loading], () => {
-  scrollToBottom()
-}, { deep: true })
+// 用户滚动事件处理
+function handleScroll() {
+  if (isProgrammaticScrollingRef.value || !listRef.value) return
 
-const completedTurnTargets = computed(() => getCompletedTurnTargets(messages))
+  const isAtBottom = isNearScrollBottom(listRef.value)
+  shouldAutoScrollRef.value = isAtBottom
+
+  // 记录当前滚动位置
+  const sessionId = chatStore.currentSessionId
+  if (sessionId) {
+    rememberSessionScroll(sessionId, listRef.value)
+  }
+}
+
+// 监听messages变化，智能决定是否自动滚动
+watch(() => [messages.length, loading], ([newLength, newLoading], [oldLength, oldLoading]) => {
+  if (!listRef.value) return
+
+  // 只有在底部时才自动滚动（用户正在看最新消息）
+  if (shouldAutoScrollRef.value) {
+    scrollToBottom('auto')
+  }
+}, { flush: 'post' })
+
+// 会话切换时恢复滚动位置
+watch(() => chatStore.currentSessionId, (newSessionId, oldSessionId) => {
+  if (!listRef.value || !newSessionId) return
+
+  // 记住旧会话的滚动位置
+  if (oldSessionId) {
+    rememberSessionScroll(oldSessionId, listRef.value)
+  }
+
+  // 恢复新会话的滚动位置（在下一个tick执行，确保DOM已更新）
+  nextTick(() => {
+    if (listRef.value && newSessionId) {
+      restoreSessionScroll(newSessionId, listRef.value)
+    }
+  })
+
+  lastSessionIdRef.value = newSessionId
+}, { flush: 'post' })
+
+// ========== 优化4: completedTurnTargets计算缓存 ==========
+let _cachedTurnTargets: RewindTurnTarget[] | null = null
+let _cachedTurnTargetsKey = ''
+
+function getCachedCompletedTurnTargets(msgs: Message[]): RewindTurnTarget[] {
+  const key = msgs.length > 0 ? `${msgs.length}-${msgs[msgs.length - 1]?.id}` : 'empty'
+
+  if (_cachedTurnTargets && _cachedTurnTargetsKey === key) {
+    return _cachedTurnTargets
+  }
+
+  _cachedTurnTargets = getCompletedTurnTargets(msgs)
+  _cachedTurnTargetsKey = key
+  return _cachedTurnTargets
+}
+
+const completedTurnTargets = computed(() => getCachedCompletedTurnTargets(messages))
 const hasCompletedTurns = computed(() => completedTurnTargets.value.length > 0)
 
-watch(() => chatStore.currentSessionId, async (sessionId) => {
+// 优化：使用防抖处理turnCheckpoints加载
+let _turnCheckpointsTimeout: ReturnType<typeof setTimeout> | null = null
+
+function debouncedLoadTurnCheckpoints(sessionId: string) {
+  if (_turnCheckpointsTimeout) {
+    clearTimeout(_turnCheckpointsTimeout)
+  }
+
+  _turnCheckpointsTimeout = setTimeout(async () => {
+    if (sessionId && !chatStore.isLoading && hasCompletedTurns.value) {
+      await chatStore.loadTurnCheckpoints(sessionId)
+    }
+  }, 100)
+}
+
+watch(() => chatStore.currentSessionId, (sessionId) => {
   if (sessionId && !chatStore.isLoading && hasCompletedTurns.value) {
-    await chatStore.loadTurnCheckpoints(sessionId)
+    debouncedLoadTurnCheckpoints(sessionId)
   }
 })
 
-watch(() => messages, async () => {
+watch(() => messages.length, () => {
   const sessionId = chatStore.currentSessionId
   const isIdle = !chatStore.isLoading && !loading
-  
+
   if (sessionId && isIdle && hasCompletedTurns.value) {
-    await chatStore.loadTurnCheckpoints(sessionId)
+    debouncedLoadTurnCheckpoints(sessionId)
   } else if (sessionId && isIdle && !hasCompletedTurns.value) {
     chatStore.clearTurnCheckpoints()
   }
-}, { deep: true })
+})
 
 onMounted(async () => {
+  // 添加滚动监听
+  if (listRef.value) {
+    listRef.value.addEventListener('scroll', handleScroll, { passive: true })
+  }
+
   if (messages.length > 0) {
     scrollToBottom()
   }
-  
+
   const sessionId = chatStore.currentSessionId
   if (sessionId && !loading && hasCompletedTurns.value) {
     await chatStore.loadTurnCheckpoints(sessionId)
+  }
+
+  lastSessionIdRef.value = sessionId
+})
+
+onUnmounted(() => {
+  if (listRef.value) {
+    listRef.value.removeEventListener('scroll', handleScroll)
+  }
+
+  if (_turnCheckpointsTimeout) {
+    clearTimeout(_turnCheckpointsTimeout)
   }
 })
 </script>

@@ -162,6 +162,7 @@
               :projects="chatStore.allProjects"
               :current-project="chatStore.currentProjectRoot"
               :show-remove-button="true"
+              :loading-session-id="switchingSession"
               @select="handleSelectSession"
               @delete="handleDeleteSession"
               @rename="handleRenameSession"
@@ -255,7 +256,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useChatStore } from '@/stores/chat'
 import { useAppStore } from '@/stores/app'
@@ -444,13 +445,32 @@ async function handleNewChat() {
   }
 }
 
+// ========== 优化: 即时UI反馈 + 异步数据加载 ==========
+const switchingSession = ref<string | null>(null)
+
 async function handleSelectSession(sessionId: string) {
-  chatStore.selectSession(sessionId)
-  appStore.switchToSessionTab(sessionId)
-  if (chatStore.workingDirectory && chatStore.workingDirectory !== appStore.projectRoot) {
-    appStore.setProjectRoot(chatStore.workingDirectory)
-    settingsStore.projectRoot = chatStore.workingDirectory
-    settingsStore.saveSettings()
+  // 如果已经在切换中，避免重复点击
+  if (switchingSession.value === sessionId) return
+
+  // 立即提供UI反馈：标记正在切换
+  switchingSession.value = sessionId
+
+  try {
+    // 1. 立即切换UI状态（同步操作，<1ms）
+    chatStore.selectSession(sessionId)
+    appStore.switchToSessionTab(sessionId)
+
+    // 2. 异步加载会话数据（后台操作，不阻塞UI）
+    await nextTick()
+
+    if (chatStore.workingDirectory && chatStore.workingDirectory !== appStore.projectRoot) {
+      appStore.setProjectRoot(chatStore.workingDirectory)
+      settingsStore.projectRoot = chatStore.workingDirectory
+      settingsStore.saveSettings()
+    }
+  } finally {
+    // 清除切换状态
+    switchingSession.value = null
   }
 }
 

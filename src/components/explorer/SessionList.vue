@@ -50,6 +50,7 @@
                 :needs-approval="pendingApprovalSessions?.has(session.id)"
                 :process-status="session.processStatus || 'none'"
                 :format-relative-time="formatRelativeTime"
+                :is-loading="session.id === loadingSessionId"
                 @mouseenter="hoveredSession = session.id"
                 @mouseleave="hoveredSession = null"
                 @select="$emit('select', session.id)"
@@ -90,6 +91,7 @@ import {
 } from '@/utils/chat-list-utils'
 
 const SESSION_TRUNCATE_LIMIT = 10
+const MAX_TOTAL_SESSIONS = 100 // 全局最大会话数限制
 
 interface Props {
   sessions: Session[]
@@ -99,6 +101,7 @@ interface Props {
   projects?: string[]
   currentProject?: string
   showRemoveButton?: boolean
+  loadingSessionId?: string | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -107,7 +110,8 @@ const props = withDefaults(defineProps<Props>(), {
   pendingApprovalSessions: () => new Set(),
   projects: () => [],
   currentProject: '',
-  showRemoveButton: false
+  showRemoveButton: false,
+  loadingSessionId: null
 })
 
 const emit = defineEmits<{
@@ -128,9 +132,26 @@ const hoveredSession = ref<string | null>(null)
 const deletingSession = ref<string | null>(null)
 const expandedGroups = ref<Set<string>>(new Set())
 
-// Computed - 必须在 watch 之前定义
-const projectGroups = computed(() => {
-  const groups = groupSessionsByProject(props.sessions)
+// ========== 优化1: projectGroups计算缓存 ==========
+let _cachedProjectGroups: ReturnType<typeof groupSessionsByProject> | null = null
+let _cachedSessionsKey = ''
+
+function buildProjectGroups(sessions: Session[]) {
+  // 生成缓存key：会话数量 + 第一条和最后一条会话ID
+  const key = sessions.length > 0
+    ? `${sessions.length}-${sessions[0]?.id}-${sessions[sessions.length - 1]?.id}`
+    : 'empty'
+
+  if (_cachedProjectGroups && _cachedSessionsKey === key) {
+    return _cachedProjectGroups
+  }
+
+  // 限制总会话数，避免DOM膨胀
+  const limitedSessions = sessions.length > MAX_TOTAL_SESSIONS
+    ? sessions.slice(0, MAX_TOTAL_SESSIONS)
+    : sessions
+
+  const groups = groupSessionsByProject(limitedSessions)
 
   // Pin current project to top
   if (props.currentProject) {
@@ -141,12 +162,23 @@ const projectGroups = computed(() => {
     }
   }
 
+  _cachedProjectGroups = groups
+  _cachedSessionsKey = key
   return groups
+}
+
+const projectGroups = computed(() => {
+  return buildProjectGroups(props.sessions)
 })
 
-// Auto-collapse: only expand the project with the most recent session activity
-// 注意：这个 watch 必须在 projectGroups 计算属性之后定义
-watch(() => projectGroups.value, (groups) => {
+// ========== 优化2: 使用更轻量的watch，避免频繁触发 ==========
+// 只在sessions长度变化时执行自动折叠逻辑（新会话创建/删除时）
+const _initialized = ref(false)
+
+watch(() => props.sessions.length, () => {
+  if (_initialized.value) return
+
+  const groups = projectGroups.value
   if (groups.length <= 1) return
 
   // Find the project with the latest session (highest latestUpdatedAt)
@@ -170,6 +202,8 @@ watch(() => projectGroups.value, (groups) => {
     saveCollapsedProjects(toCollapse)
     localStorage.setItem(initKey, '1')
   }
+
+  _initialized.value = true
 }, { immediate: true })
 
 // Methods

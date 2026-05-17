@@ -11,7 +11,7 @@
       <span v-if="matchCount !== null" class="glob-count">{{ matchCount }} results</span>
       <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
     </div>
-    <div v-show="isExpanded" class="glob-body">
+    <div v-if="isExpanded" class="glob-body">
       <pre class="file-list"><code>{{ formattedOutput }}</code></pre>
     </div>
   </div>

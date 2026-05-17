@@ -14,7 +14,7 @@
 
     <div v-else class="session-items">
       <div
-        v-for="session in filteredSessions"
+        v-for="session in displaySessions"
         :key="session.sessionId || session.id"
         class="session-item"
         @click="handleSelectSession(session)"
@@ -32,6 +32,16 @@
           </span>
         </div>
       </div>
+
+      <!-- Load More Button -->
+      <button
+        v-if="canLoadMore"
+        class="load-more-btn"
+        :disabled="loadingMore"
+        @click.stop="loadMore"
+      >
+        {{ loadingMore ? '加载中...' : `加载更多 (${sessions.length - displayLimit})` }}
+      </button>
     </div>
   </div>
 </template>
@@ -64,6 +74,11 @@ interface SessionLite {
 
 const sessions = ref<SessionLite[]>([])
 const loading = ref(false)
+const loadingMore = ref(false)
+const displayLimit = ref(20) // 初始显示数量
+const INITIAL_LIMIT = 20
+const LOAD_MORE_COUNT = 20
+
 const appStore = useAppStore()
 const chatStore = useChatStore()
 
@@ -71,16 +86,25 @@ const filteredSessions = computed(() => {
   if (!props.searchQuery?.trim()) {
     return sessions.value
   }
-  
+
   const query = props.searchQuery.toLowerCase().trim()
-  
+
   return sessions.value.filter(session => {
     const title = (session.title || getSessionTitle(session)).toLowerCase()
     const projectPath = (session.projectPath || '').toLowerCase()
     const preview = ((session.firstUserMessage || session.lastMessagePreview) || '').toLowerCase()
-    
+
     return title.includes(query) || projectPath.includes(query) || preview.includes(query)
   })
+})
+
+// 分页显示
+const displaySessions = computed(() => {
+  return filteredSessions.value.slice(0, displayLimit.value)
+})
+
+const canLoadMore = computed(() => {
+  return filteredSessions.value.length > displayLimit.value
 })
 
 async function loadSessions() {
@@ -94,7 +118,9 @@ async function loadSessions() {
       } else {
         loadedSessions = await claudeCode.listAllSessions()
       }
-      sessions.value = loadedSessions
+      // 限制总加载数量
+      sessions.value = loadedSessions.slice(0, 200)
+      displayLimit.value = INITIAL_LIMIT
     }
   } catch (error) {
     console.error('Failed to load history sessions:', error)
@@ -103,32 +129,43 @@ async function loadSessions() {
   }
 }
 
+function loadMore() {
+  if (loadingMore.value) return
+  loadingMore.value = true
+
+  // 使用 setTimeout 让UI有机会更新按钮状态
+  setTimeout(() => {
+    displayLimit.value += LOAD_MORE_COUNT
+    loadingMore.value = false
+  }, 50)
+}
+
 function handleSelectSession(session: SessionLite) {
   emit('select', session)
 }
 
 function formatTime(timestamp?: number): string {
   if (!timestamp) return ''
-  
+
   const now = Date.now()
   const diff = now - timestamp
-  
+
   if (diff < 60000) {
     return '刚刚'
   }
-  
+
   if (diff < 3600000) {
     return `${Math.floor(diff / 60000)}分钟前`
   }
-  
+
   if (diff < 86400000) {
     return `${Math.floor(diff / 3600000)}小时前`
   }
-  
+
   if (diff < 604800000) {
     return `${Math.floor(diff / 86400000)}天前`
   }
-  
+
   const date = new Date(timestamp)
   return `${date.getMonth() + 1}/${date.getDate()}`
 }
@@ -229,5 +266,28 @@ onMounted(() => {
   background: var(--surface-glass);
   padding: 2px 6px;
   border-radius: 4px;
+}
+
+.load-more-btn {
+  width: 100%;
+  padding: 8px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--surface-glass-hover);
+    color: var(--text-secondary);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 }
 </style>

@@ -18,7 +18,7 @@
       </button>
       <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
     </div>
-    <div v-show="isExpanded" class="write-body">
+    <div v-if="isExpanded" class="write-body">
       <div v-if="toolCall.input.content" class="content-preview">
         <div class="block-label">Content Preview</div>
         <pre class="code-block"><code v-html="highlightedPreview"></code></pre>

@@ -10,7 +10,7 @@
       <span class="search-query">{{ queryDisplay }}</span>
       <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
     </div>
-    <div v-show="isExpanded" class="search-body">
+    <div v-if="isExpanded" class="search-body">
       <div v-if="toolCall.output" class="search-results">
         <div class="block-label">Results</div>
         <pre class="results-content"><code>{{ toolCall.output }}</code></pre>

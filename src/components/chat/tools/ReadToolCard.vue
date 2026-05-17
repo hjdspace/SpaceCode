@@ -18,7 +18,7 @@
       <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
     </div>
 
-    <div v-show="isExpanded" class="read-body">
+    <div v-if="isExpanded" class="read-body">
       <div class="read-meta-row">
         <span class="meta-item" v-if="offset"><ArrowUp :size="11" /> Line {{ offset }}</span>
         <span class="meta-item" v-if="limit"><ArrowDown :size="11" /> {{ limit }} lines</span>

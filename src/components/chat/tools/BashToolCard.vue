@@ -22,7 +22,7 @@
       </div>
     </div>
 
-    <div v-show="isExpanded" class="bash-body">
+    <div v-if="isExpanded" class="bash-body">
       <div class="bash-command-block">
         <div class="block-label">$ Command</div>
         <pre class="code-block command-text"><code>{{ toolCall.input.command }}</code></pre>

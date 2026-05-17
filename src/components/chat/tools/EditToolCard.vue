@@ -18,7 +18,7 @@
       <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
     </div>
 
-    <div v-show="isExpanded" class="edit-body">
+    <div v-if="isExpanded" class="edit-body">
       <!-- 专业 Diff 展示 -->
       <div v-if="diffFile" class="git-diff-wrapper">
         <DiffView

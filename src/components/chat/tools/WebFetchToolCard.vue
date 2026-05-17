@@ -17,7 +17,7 @@
       </button>
       <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
     </div>
-    <div v-show="isExpanded" class="fetch-body">
+    <div v-if="isExpanded" class="fetch-body">
       <div v-if="prompt" class="fetch-prompt">
         <div class="block-label">Prompt</div>
         <p class="prompt-text">{{ prompt }}</p>

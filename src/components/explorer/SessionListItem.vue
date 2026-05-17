@@ -11,8 +11,12 @@
     >
       <!-- Left Icon Area - Status Indicators (CodePilot-style) -->
       <div class="status-indicator">
+        <!-- Loading: Switching session -->
+        <span v-if="isLoading" class="loading-indicator" title="切换中...">
+          <span class="spinner-small"></span>
+        </span>
         <!-- Active/Starting: Spinning circle -->
-        <span v-if="processStatus === 'active' || processStatus === 'starting'" class="spinning-indicator">
+        <span v-else-if="processStatus === 'active' || processStatus === 'starting'" class="spinning-indicator">
           <span class="spinner"></span>
         </span>
         <!-- Idle: Green dot -->
@@ -150,6 +154,7 @@ interface Props {
   needsApproval: boolean
   processStatus: 'none' | 'starting' | 'active' | 'idle' | 'suspended' | 'exited'
   formatRelativeTime: (dateStr: string) => string
+  isLoading?: boolean
 }
 
 const props = defineProps<Props>()
@@ -353,6 +358,23 @@ onUnmounted(() => {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.loading-indicator {
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  .spinner-small {
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid var(--accent-primary, #3b82f6);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
 }
 
 .idle-indicator {

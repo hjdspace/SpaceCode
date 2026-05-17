@@ -53,10 +53,10 @@
           </template>
 
           <!-- Tool call event with special component -->
-          <template v-else-if="event.type === 'tool_call' && event.specialComponent">
-            <component 
-              :is="event.specialComponent" 
-              :tool-call="event.toolCall!" 
+          <template v-else-if="event.type === 'tool_call' && shouldRenderSpecialComponent(event)">
+            <component
+              :is="event.specialComponent"
+              :tool-call="event.toolCall!"
               @submit="handleToolSubmit(event.toolCall!.id, $event)"
               @skip="handleToolSkip(event.toolCall!.id)"
             />
@@ -131,7 +131,7 @@
 <script setup lang="ts">
 import type { Message, ToolCall, MessageMetadata, ClassifiedError } from '@/types'
 import type { Component } from 'vue'
-import { computed, markRaw, onMounted, reactive, watch } from 'vue'
+import { computed, markRaw, onMounted, reactive, watch, ref } from 'vue'
 import { hasToolComponent, resolveToolComponent } from '@/components/chat/tools/index'
 import PermissionRequestCard from './tools/PermissionRequestCard.vue'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
@@ -233,26 +233,59 @@ const TOOL_LABEL_MAP: Record<string, string> = {
 }
 
 const specialComponents = reactive<Record<string, Component>>({})
-
-async function loadSpecialComponents() {
+const loadingSpecialComponents = new Set<string>()
+const specialToolNames = computed(() => {
+  const names = new Set<string>()
   for (const msg of props.messages) {
     for (const tool of msg.toolCalls || []) {
-      if (hasToolComponent(tool.name) && !specialComponents[tool.id]) {
-        const comp = await resolveToolComponent(tool.name)
-        if (comp) specialComponents[tool.id] = markRaw(comp)
-      }
+      if (hasToolComponent(tool.name)) names.add(tool.name)
+    }
+  }
+  return Array.from(names).sort().join(',')
+})
+
+async function loadSpecialComponentForTool(tool: ToolCall) {
+  if (!hasToolComponent(tool.name) || specialComponents[tool.id] || loadingSpecialComponents.has(tool.id)) return
+  loadingSpecialComponents.add(tool.id)
+  const comp = await resolveToolComponent(tool.name)
+  if (comp) specialComponents[tool.id] = markRaw(comp)
+  loadingSpecialComponents.delete(tool.id)
+}
+
+function loadVisibleSpecialComponents() {
+  for (const msg of props.messages) {
+    for (const tool of msg.toolCalls || []) {
+      loadSpecialComponentForTool(tool)
     }
   }
 }
 
-onMounted(loadSpecialComponents)
-watch(() => props.messages, () => { loadSpecialComponents() }, { deep: true })
+onMounted(loadVisibleSpecialComponents)
 
-const timelineEvents = computed<TimelineEvent[]>(() => {
+watch(() => [props.messages.length, props.messages[props.messages.length - 1]?.id, specialToolNames.value], () => {
+  loadVisibleSpecialComponents()
+})
+
+// ========== 优化2: timelineEvents计算缓存 ==========
+let _cachedTimelineEvents: TimelineEvent[] | null = null
+let _cachedTimelineKey = ''
+
+function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
+  const toolStateKey = msgs
+    .flatMap(msg => (msg.toolCalls || []).map(tool => `${tool.id}:${tool.status}:${specialComponents[tool.id] ? 1 : 0}`))
+    .join(',')
+  const key = msgs.length > 0
+    ? `${msgs.length}-${msgs[0]?.id}-${msgs[msgs.length - 1]?.id}-${toolStateKey}`
+    : 'empty'
+
+  if (_cachedTimelineEvents && _cachedTimelineKey === key) {
+    return _cachedTimelineEvents
+  }
+
   const events: TimelineEvent[] = []
   const timelineToolCallIds = new Set<string>()
 
-  for (const msg of props.messages) {
+  for (const msg of msgs) {
     const hasTimeline = msg.timelineEvents?.length
 
     if (hasTimeline) {
@@ -377,7 +410,16 @@ const timelineEvents = computed<TimelineEvent[]>(() => {
     }
   }
 
+  _cachedTimelineEvents = events
+  _cachedTimelineKey = key
   return events
+}
+
+const timelineEvents = computed<TimelineEvent[]>(() => {
+  // 显式访问 specialComponents，建立响应式依赖
+  // 这样当特殊组件异步加载完成后，computed 会自动重新计算
+  const _componentDeps = Object.keys(specialComponents).join(',')
+  return buildTimelineEvents(props.messages)
 })
 
 const overallStatus = computed(() => {
@@ -390,22 +432,35 @@ const overallStatus = computed(() => {
   return 'completed'
 })
 
-// Thinking 事件默认展开，完成后自动折叠
-watch(
-  () => timelineEvents.value,
-  (newEvents, oldEvents) => {
-    for (const event of newEvents) {
+// ========== 优化3: 使用更轻量的监听替代deep watch ==========
+// 只监听reasoning事件的状态变化，不监听整个timelineEvents数组
+const lastEventCount = ref(0)
+
+watch(() => timelineEvents.value.length, (newLength, oldLength) => {
+  const events = timelineEvents.value
+
+  // 只处理新添加的事件
+  if (newLength > oldLength) {
+    for (let i = oldLength; i < newLength; i++) {
+      const event = events[i]
       if (event.type === 'reasoning') {
-        const oldEvent = oldEvents?.find(e => e.id === event.id)
-        // 新事件或状态变化时更新默认展开状态
-        if (!oldEvent || oldEvent.status !== event.status) {
-          expandedEvents[event.id] = event.status === 'running'
-        }
+        expandedEvents[event.id] = event.status === 'running'
       }
     }
-  },
-  { deep: true }
-)
+  }
+
+  // 检查已有事件的状态变化
+  const reasoningEvents = events.filter(e => e.type === 'reasoning')
+  for (const event of reasoningEvents) {
+    const currentExpanded = expandedEvents[event.id]
+    // 如果事件正在运行，默认展开；如果已完成且之前是自动展开的，可以折叠
+    if (event.status === 'running' && currentExpanded === undefined) {
+      expandedEvents[event.id] = true
+    }
+  }
+
+  lastEventCount.value = newLength
+})
 
 const statusLabel = computed(() => {
   if (overallStatus.value === 'running') {
@@ -421,6 +476,10 @@ const statusLabel = computed(() => {
 
 function toggleEvent(eventId: string) {
   expandedEvents[eventId] = !expandedEvents[eventId]
+}
+
+function shouldRenderSpecialComponent(event: TimelineEvent): boolean {
+  return !!event.specialComponent
 }
 
 function getToolTarget(tool: ToolCall): string {
@@ -718,51 +777,22 @@ function formatOutput(output: string): string {
 
 .event-text-content {
   padding: 4px 0;
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--text-primary);
-  user-select: text;
 }
 
 .event-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 0;
-  flex-wrap: wrap;
+  gap: 8px;
+  padding: 2px 0;
 }
 
 .meta-tag {
   font-size: 11px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--bg-tertiary);
-  color: var(--text-muted);
   font-family: var(--font-mono);
-}
-
-.timeline-event.event-reasoning {
-  .event-detail {
-    color: var(--text-muted);
-    font-size: 13px;
-    line-height: 1.6;
-
-    :deep(.markdown-renderer) {
-      color: var(--text-muted);
-
-      .md-heading {
-        color: var(--text-muted);
-      }
-
-      strong {
-        color: var(--text-muted);
-      }
-
-      .code-block code {
-        color: var(--text-muted);
-      }
-    }
-  }
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  padding: 1px 6px;
+  border-radius: 4px;
 }
 
 .spin-icon {
@@ -770,7 +800,11 @@ function formatOutput(output: string): string {
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

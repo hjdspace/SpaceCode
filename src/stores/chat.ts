@@ -1543,16 +1543,43 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  // ========== 优化: 即时UI反馈 + 异步数据加载 ==========
+  const sessionLoadingStates = ref<Map<string, boolean>>(new Map())
+
+  function setSessionLoading(sessionId: string, loading: boolean) {
+    const newMap = new Map(sessionLoadingStates.value)
+    if (loading) {
+      newMap.set(sessionId, true)
+    } else {
+      newMap.delete(sessionId)
+    }
+    sessionLoadingStates.value = newMap
+  }
+
+  function isSessionLoading(sessionId: string): boolean {
+    return sessionLoadingStates.value.get(sessionId) ?? false
+  }
+
   async function selectSession(sessionId: string) {
+    // 1. 立即更新当前会话ID（同步操作，<1ms）
     currentSessionId.value = sessionId
+
     const session = sessions.value.find(s => s.id === sessionId)
     if (session?.workingDirectory) {
       currentProjectRoot.value = session.workingDirectory
     }
+
+    // 2. 异步获取会话状态（后台操作，不阻塞UI）
     const claudeCode = electronAPI?.claudeCode
     if (claudeCode) {
       try {
-        const status = await claudeCode.getSessionStatus(sessionId)
+        // 使用 Promise.race 添加超时，避免长时间阻塞
+        const statusPromise = claudeCode.getSessionStatus(sessionId)
+        const timeoutPromise = new Promise<null>((_, reject) =>
+          setTimeout(() => reject(new Error('timeout')), 2000)
+        )
+        const status = await Promise.race([statusPromise, timeoutPromise]).catch(() => null)
+
         if (status?.permissionMode) {
           currentPermissionMode.value = status.permissionMode as PermissionMode
         } else {
@@ -1991,5 +2018,8 @@ export const useChatStore = defineStore('chat', () => {
     loadTurnCheckpoints,
     undoTurn,
     clearTurnCheckpoints,
+    // ========== 优化: 会话加载状态 ==========
+    sessionLoadingStates: readonly(sessionLoadingStates),
+    isSessionLoading,
   }
 })
