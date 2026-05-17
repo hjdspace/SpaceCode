@@ -42,8 +42,12 @@ function buildChipHtml(path: string, isFolder: boolean): string {
   const name = pathBasename(path) || path
   const icon = isFolder ? '📁' : '📄'
   const chipClass = isFolder ? 'mention-chip is-folder' : 'mention-chip'
+  // data-path / data-is-folder are used by the copy handler to reconstruct
+  // the original `@file:"<path>"` / `@folder:"<path>"` markers, so that
+  // copy-pasting a sent user message round-trips back into the editor as
+  // a chip rather than introducing stray newlines from inline-flex serialization.
   return (
-    `<span class="${chipClass}" title="${escapeHtml(path)}">` +
+    `<span class="${chipClass}" title="${escapeHtml(path)}" data-path="${escapeHtml(path)}" data-is-folder="${isFolder ? 'true' : 'false'}">` +
     `<span class="chip-icon">${icon}</span>` +
     `<span class="chip-name">${escapeHtml(name)}</span>` +
     `</span>`

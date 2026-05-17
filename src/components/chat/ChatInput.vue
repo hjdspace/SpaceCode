@@ -424,6 +424,7 @@ import { useChatStore } from '@/stores/chat'
 import { api } from '@/services/electronAPI'
 import { useI18n } from 'vue-i18n'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
+import { pathBasename } from '@/utils/mention-chips'
 import PermissionModeSelector from './PermissionModeSelector.vue'
 
 export interface ImageAttachment {
@@ -1473,14 +1474,95 @@ function insertImageChip(image: ImageAttachment) {
   inputText.value = getEditorPlainText()
 }
 
+/**
+ * Build a mention chip element from a marker (`@file:"..."`, `@folder:"..."`,
+ * `@image:"..."`). Mirrors the structure produced by `insertMentionChip` /
+ * `insertImageChip` so chips pasted from a previously sent message round-trip
+ * back into the editor identically.
+ */
+function buildChipElementFromMarker(kind: 'file' | 'folder' | 'image', value: string): HTMLElement {
+  const isFolder = kind === 'folder'
+  const isImage = kind === 'image'
+  const chip = document.createElement('span')
+  let className = 'mention-chip'
+  if (isFolder) className += ' is-folder'
+  if (isImage) className += ' is-image'
+  chip.className = className
+  chip.setAttribute('contenteditable', 'false')
+  if (isImage) {
+    chip.setAttribute('data-image-id', value)
+  } else {
+    chip.setAttribute('data-path', value)
+    chip.setAttribute('data-is-folder', String(isFolder))
+  }
+
+  const icon = document.createElement('span')
+  icon.className = 'chip-icon'
+  icon.textContent = isImage ? '🖼️' : (isFolder ? '📁' : '📄')
+
+  const nameSpan = document.createElement('span')
+  nameSpan.className = 'chip-name'
+  // Display the trailing path segment for files/folders; image markers carry an id,
+  // so we fall back to the id itself (the original sender's preview is not available).
+  nameSpan.textContent = isImage ? value : (pathBasename(value) || value)
+
+  chip.appendChild(icon)
+  chip.appendChild(nameSpan)
+  return chip
+}
+
+/** Insert pasted plain text at the cursor, converting any mention markers back into chips. */
+function insertPastedTextWithMarkers(text: string) {
+  if (!text) return
+  const MARKER_RE = /@(file|folder|image):"([^"]+)"/g
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+  let inserted = false
+
+  while ((match = MARKER_RE.exec(text)) !== null) {
+    const [full, kind, value] = match
+    const before = text.slice(lastIndex, match.index)
+    if (before) {
+      document.execCommand('insertText', false, before)
+    }
+
+    const chip = buildChipElementFromMarker(kind as 'file' | 'folder' | 'image', value)
+    const sel = window.getSelection()
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0)
+      range.deleteContents()
+      range.insertNode(chip)
+      const after = document.createRange()
+      after.setStartAfter(chip)
+      after.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(after)
+    } else {
+      editorRef.value?.appendChild(chip)
+    }
+
+    lastIndex = match.index + full.length
+    inserted = true
+  }
+
+  const tail = text.slice(lastIndex)
+  if (tail) {
+    document.execCommand('insertText', false, tail)
+  }
+
+  if (inserted) {
+    inputText.value = getEditorPlainText()
+  }
+}
+
 // 处理粘贴事件 - 支持粘贴图片
 function handleEditorPaste(e: ClipboardEvent) {
   e.preventDefault()
-  
+
   const items = e.clipboardData?.items
   if (items) {
     let hasImage = false
-    
+
     for (const item of items) {
       if (item.type.startsWith('image/')) {
         hasImage = true
@@ -1490,16 +1572,16 @@ function handleEditorPaste(e: ClipboardEvent) {
         }
       }
     }
-    
-    // 如果没有图片，继续处理文本
+
+    // 如果没有图片，继续处理文本（识别 @file/@folder/@image 标记并还原为 chip）
     if (!hasImage) {
       const text = e.clipboardData?.getData('text/plain') || ''
-      document.execCommand('insertText', false, text)
+      insertPastedTextWithMarkers(text)
     }
   } else {
     // 回退到普通文本粘贴
     const text = e.clipboardData?.getData('text/plain') || ''
-    document.execCommand('insertText', false, text)
+    insertPastedTextWithMarkers(text)
   }
 }
 

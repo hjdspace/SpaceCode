@@ -41,7 +41,7 @@
           v-if="message.role === 'assistant'" 
           :content="message.content" 
         />
-        <p v-else class="user-text" v-html="renderedUserContent"></p>
+        <p v-else class="user-text" v-html="renderedUserContent" @copy="handleUserCopy"></p>
       </div>
       
       <!-- 元数据 -->
@@ -91,6 +91,59 @@ function handleToolSubmit(toolId: string, updatedInput: Record<string, unknown>)
 
 function handleToolSkip(toolId: string) {
   emit('toolSkip', props.message.id, toolId)
+}
+
+/**
+ * Serialize a DOM node tree into plain text, replacing mention chip elements
+ * with their original `@file:"<path>"` / `@folder:"<path>"` / `@image:"<id>"`
+ * markers. Browsers (especially Chromium) treat `display: inline-flex` chips
+ * as block boxes during clipboard plain-text serialization, which inserts
+ * spurious newlines around each chip. By overriding the copy event we keep
+ * the output format identical to the original input — so pasting back into
+ * the chat editor preserves both content and chip rendering.
+ */
+function serializeNodeForCopy(node: Node): string {
+  let out = ''
+  for (const child of Array.from(node.childNodes)) {
+    if (child instanceof HTMLElement && child.classList.contains('mention-chip')) {
+      const imageId = child.getAttribute('data-image-id')
+      const path = child.getAttribute('data-path')
+      const isFolder = child.getAttribute('data-is-folder') === 'true'
+      if (imageId) {
+        out += `@image:"${imageId}"`
+      } else if (path) {
+        out += isFolder ? `@folder:"${path}"` : `@file:"${path}"`
+      } else {
+        // Fallback: use visible chip name if attributes are missing.
+        out += child.textContent || ''
+      }
+    } else if (child.nodeType === Node.TEXT_NODE) {
+      out += child.textContent || ''
+    } else if (child instanceof HTMLElement) {
+      out += serializeNodeForCopy(child)
+      if (child.tagName === 'BR') out += '\n'
+    }
+  }
+  return out
+}
+
+function handleUserCopy(e: ClipboardEvent) {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return
+  const range = selection.getRangeAt(0)
+  if (range.collapsed) return
+
+  const container = e.currentTarget as HTMLElement
+  // Only intercept when the entire selection is contained within this user
+  // message; otherwise fall back to the browser's default copy behaviour.
+  if (!container.contains(range.commonAncestorContainer)) return
+
+  const fragment = range.cloneContents()
+  const text = serializeNodeForCopy(fragment)
+  if (!text) return
+
+  e.preventDefault()
+  e.clipboardData?.setData('text/plain', text)
 }
 </script>
 
