@@ -10,6 +10,15 @@
         <span class="stat-additions">+{{ stats.additions }}</span>
         <span class="stat-deletions">-{{ stats.deletions }}</span>
       </div>
+      <!-- 视图模式切换按钮 -->
+      <button
+        class="view-toggle-btn"
+        @click="toggleViewMode"
+        :title="viewMode === DiffModeEnum.Unified ? 'Split View' : 'Unified View'"
+        v-if="diffData?.type === 'edit' && !isActionCompleted"
+      >
+        <Columns3 :size="14" />
+      </button>
       <div class="diff-actions" v-if="hasActions">
         <button class="action-btn accept-btn" @click="handleAccept" :title="t('infoPanel.accept')">
           <Check :size="14" />
@@ -52,31 +61,39 @@
       </div>
     </div>
 
-    <div class="diff-content" v-else>
-      <div
-        v-for="(line, index) in renderedDiffLines"
-        :key="index"
-        class="diff-line"
-        :class="line.type"
-      >
-        <span class="line-number">{{ line.displayNumber || '' }}</span>
-        <span class="line-prefix">{{ line.prefix }}</span>
-        <span class="line-content" v-html="getHighlightedLine(line)"></span>
-      </div>
+    <!-- 专业 Diff 展示 -->
+    <div class="diff-content git-diff-full-height" v-else-if="diffFile">
+      <DiffView
+        :diff-file="diffFile"
+        :diff-view-mode="viewMode"
+        :diff-view-highlight="true"
+        class="git-diff-container"
+      />
+    </div>
+
+    <!-- 无 diff 时的回退：直接展示当前文件内容（已是 HEAD 状态） -->
+    <div
+      class="diff-content"
+      v-else-if="diffData?.type === 'edit' || diffData?.type === 'write'"
+    >
+      <div class="empty-diff-notice">{{ t('infoPanel.noChangesToDisplay') || 'No changes to display' }}</div>
+      <pre><code :class="`language-${diffData.language}`" v-html="fallbackHighlightedCode"></code></pre>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch, ref as vueRef } from 'vue'
 import { useAppStore, type ToolDiffData } from '@/stores/app'
 import { useI18n } from 'vue-i18n'
-import { FileDiff, Check, Undo2 } from 'lucide-vue-next'
-import * as Diff from 'diff'
+import { FileDiff, Check, Undo2, Columns3 } from 'lucide-vue-next'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import MarkdownViewer from './MarkdownViewer.vue'
 import hljs from 'highlight.js'
 import { api } from '@/services/electronAPI'
+import { DiffView, DiffModeEnum } from '@git-diff-view/vue'
+import { generateDiffFile } from '@git-diff-view/file'
+import '@git-diff-view/vue/styles/diff-view.css'
 
 const appStore = useAppStore()
 const { t } = useI18n()
@@ -105,126 +122,89 @@ const hasActions = computed(() => {
   return data.type === 'edit' || data.type === 'write'
 })
 
-interface DiffLineView {
-  type: 'add' | 'remove' | 'context'
-  content: string
-  displayNumber?: number
-  oldNumber?: number
-  newNumber?: number
-  prefix: string
+// 视图模式切换
+const viewMode = vueRef<DiffModeEnum>(DiffModeEnum.Unified)
+
+function toggleViewMode() {
+  viewMode.value = viewMode.value === DiffModeEnum.Unified ? DiffModeEnum.Split : DiffModeEnum.Unified
 }
-
-const renderedDiffLines = computed<DiffLineView[]>(() => {
-  const data = diffData.value
-  if (!data || data.type === 'read' || data.type === 'webfetch' || data.type === 'grep') return []
-
-  const changes = Diff.diffLines(data.originalContent, data.modifiedContent)
-  const lines: DiffLineView[] = []
-  let oldNum = 0
-  let newNum = 0
-
-  for (const change of changes) {
-    const count = change.count || 0
-    const value = change.value
-    const splitLines = value.split('\n')
-    const trailingNewline = value.endsWith('\n')
-    const contentLines = trailingNewline ? splitLines.slice(0, -1) : splitLines
-
-    if (change.added) {
-      for (const line of contentLines) {
-        newNum++
-        lines.push({ type: 'add', content: line, displayNumber: newNum, newNumber: newNum, prefix: '+' })
-      }
-    } else if (change.removed) {
-      for (const line of contentLines) {
-        oldNum++
-        lines.push({ type: 'remove', content: line, displayNumber: oldNum, oldNumber: oldNum, prefix: '-' })
-      }
-    } else {
-      for (const line of contentLines) {
-        oldNum++
-        newNum++
-        lines.push({ type: 'context', content: line, displayNumber: newNum, oldNumber: oldNum, newNumber: newNum, prefix: ' ' })
-      }
-    }
-  }
-
-  return lines
-})
 
 const stats = computed(() => {
-  let additions = 0
-  let deletions = 0
-  for (const line of renderedDiffLines.value) {
-    if (line.type === 'add') additions++
-    if (line.type === 'remove') deletions++
+  const data = diffData.value
+  if (!data || !data.originalContent || !data.modifiedContent) {
+    return { additions: 0, deletions: 0 }
   }
-  return { additions, deletions }
+
+  const oldLines = data.originalContent.split('\n').filter(l => l.trim()).length
+  const newLines = data.modifiedContent.split('\n').filter(l => l.trim()).length
+
+  return {
+    additions: Math.max(0, newLines - oldLines),
+    deletions: Math.max(0, oldLines - newLines)
+  }
 })
 
-const highlightedOriginalLines = computed<string[]>(() => {
+// Normalize line endings to LF before diffing. Git stores files with LF,
+// but on Windows `api.readFile` reads CRLF from the working tree, which
+// would otherwise make every line look changed.
+function normalizeEol(text: string): string {
+  return text.replace(/\r\n?/g, '\n')
+}
+
+// 创建 DiffFile 实例（用于 DiffView 组件）
+const diffFile = computed(() => {
   const data = diffData.value
-  if (!data || !data.originalContent) return []
-  return highlightAndSplit(data.originalContent, data.language)
+  if (!data) return null
+  if (data.type !== 'edit' && data.type !== 'write') return null
+  // Need at least the modified content; allow empty original for new files.
+  if (data.modifiedContent === undefined || data.modifiedContent === null) return null
+
+  const oldContent = normalizeEol(data.originalContent || '')
+  const newContent = normalizeEol(data.modifiedContent)
+  if (oldContent === newContent) return null
+
+  const fName = fileName.value || 'file'
+
+  // 使用 generateDiffFile 自动比较两个文件内容并生成 diff
+  const file = generateDiffFile(
+    `${fName}.old`,
+    oldContent,
+    `${fName}.new`,
+    newContent,
+    data.language || 'text',
+    data.language || 'text'
+  )
+
+  // 根据当前主题初始化
+  const isDarkTheme = document.documentElement.getAttribute('data-theme')?.includes('dark')
+  file.initTheme(isDarkTheme ? 'dark' : 'light')
+  file.init()
+
+  // 根据当前视图模式构建 diff 行
+  if (viewMode.value === DiffModeEnum.Unified) {
+    file.buildUnifiedDiffLines()
+    // 展开全部隐藏行，以 Cursor 风格显示完整文件 + 行内 diff
+    file.onAllExpand('unified')
+  } else {
+    file.buildSplitDiffLines()
+    file.onAllExpand('split')
+  }
+
+  return file
 })
 
-const highlightedModifiedLines = computed<string[]>(() => {
-  const data = diffData.value
-  if (!data || !data.modifiedContent) return []
-  return highlightAndSplit(data.modifiedContent, data.language)
-})
-
-function highlightAndSplit(content: string, language: string): string[] {
-  let highlighted: string
-  try {
-    if (language && hljs.getLanguage(language)) {
-      highlighted = hljs.highlight(content, { language }).value
+// 监听视图模式变化，重新构建 diff 行
+watch(viewMode, () => {
+  if (diffFile.value) {
+    if (viewMode.value === DiffModeEnum.Unified) {
+      diffFile.value.buildUnifiedDiffLines()
+      diffFile.value.onAllExpand('unified')
     } else {
-      highlighted = hljs.highlightAuto(content).value
+      diffFile.value.buildSplitDiffLines()
+      diffFile.value.onAllExpand('split')
     }
-  } catch {
-    highlighted = escapeHtml(content)
   }
-  return splitHtmlByNewlines(highlighted)
-}
-
-function splitHtmlByNewlines(html: string): string[] {
-  const rawLines = html.split('\n')
-  const result: string[] = []
-  let openSpans = ''
-
-  for (const line of rawLines) {
-    const fullLine = openSpans + line
-    const opens: string[] = []
-    let closes = 0
-
-    const spanRegex = /<span[^>]*>/g
-    const closeSpanRegex = /<\/span>/g
-    let match
-    while ((match = spanRegex.exec(fullLine)) !== null) {
-      opens.push(match[0])
-    }
-    while ((match = closeSpanRegex.exec(fullLine)) !== null) {
-      closes++
-    }
-
-    const unclosedCount = opens.length - closes
-    result.push(fullLine + '</span>'.repeat(Math.max(0, unclosedCount)))
-    openSpans = opens.slice(closes).join('')
-  }
-
-  return result
-}
-
-function getHighlightedLine(line: DiffLineView): string {
-  if (line.type === 'remove' && line.oldNumber) {
-    return highlightedOriginalLines.value[line.oldNumber - 1] || escapeHtml(line.content)
-  }
-  if (line.newNumber) {
-    return highlightedModifiedLines.value[line.newNumber - 1] || escapeHtml(line.content)
-  }
-  return escapeHtml(line.content)
-}
+})
 
 const highlightedCode = computed(() => {
   const data = diffData.value
@@ -240,6 +220,23 @@ const highlightedCode = computed(() => {
     return hljs.highlightAuto(content).value
   } catch {
     return escapeHtml(data.modifiedContent)
+  }
+})
+
+// 当 diff 不可用（例如 originalContent === modifiedContent）时，
+// 直接以当前文件内容做语法高亮做兜底展示。
+const fallbackHighlightedCode = computed(() => {
+  const data = diffData.value
+  if (!data) return ''
+  const content = data.modifiedContent || ''
+  try {
+    const language = data.language
+    if (language && hljs.getLanguage(language)) {
+      return hljs.highlight(content, { language }).value
+    }
+    return hljs.highlightAuto(content).value
+  } catch {
+    return escapeHtml(content)
   }
 })
 
@@ -333,9 +330,10 @@ async function handleRevert() {
 
 <style lang="scss" scoped>
 .tool-diff-viewer {
-  height: 100%;
   display: flex;
   flex-direction: column;
+  height: 100%;
+  min-height: 0; /* 关键：允许 flex 子元素收缩 */
 }
 
 .diff-header {
@@ -424,6 +422,7 @@ async function handleRevert() {
 .diff-content {
   flex: 1;
   overflow: auto;
+  min-height: 0; /* 关键：允许在 flex 容器中正确收缩 */
   font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', Consolas, monospace;
   font-size: 12px;
   line-height: 1.6;
@@ -457,66 +456,90 @@ async function handleRevert() {
   }
 }
 
-.diff-line {
+/* Git Diff View 样式 */
+.git-diff-full-height {
   display: flex;
-  align-items: stretch;
-  min-height: 20px;
+  flex-direction: column;
+  flex: 1; /* 关键：填充剩余空间 */
+  min-height: 0; /* 关键：允许收缩 */
+}
 
-  .line-number {
-    min-width: 40px;
-    padding: 0 8px;
-    text-align: right;
-    color: var(--text-muted);
-    user-select: none;
-    background: var(--bg-secondary);
-    font-size: 11px;
-    flex-shrink: 0;
+.git-diff-container {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0; /* 关键：确保高度正确传递给 DiffView */
+
+  /* 覆盖默认样式以匹配当前主题 */
+  --gdc-bg-color: var(--gdc-bg-color, #0d1117);
+  --gdc-text-color: var(--gdc-text-color, #c9d1d9);
+  --gdc-border-color: var(--gdc-border-color, #30363d);
+
+  /* 添加行 */
+  --gdc-add-bg-color: var(--gdc-add-bg-color, rgba(46, 160, 67, 0.15));
+  --gdc-add-text-color: var(--gdc-add-text-color, #3fb950);
+  --gdc-add-gutter-bg-color: var(--gdc-add-gutter-bg-color, rgba(46, 160, 67, 0.25));
+
+  /* 删除行 */
+  --gdc-remove-bg-color: var(--gdc-remove-bg-color, rgba(248, 81, 73, 0.15));
+  --gdc-remove-text-color: var(--gdc-remove-text-color, #f85149);
+  --gdc-remove-gutter-bg-color: var(--gdc-remove-gutter-bg-color, rgba(248, 81, 73, 0.25));
+
+  /* Gutter */
+  --gdc-gutter-bg-color: var(--gdc-gutter-bg-color, #161b22);
+  --gdc-gutter-text-color: var(--gdc-gutter-text-color, #6e7681);
+
+  &::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
   }
 
-  .line-prefix {
-    width: 16px;
-    text-align: center;
-    user-select: none;
-    flex-shrink: 0;
-    font-weight: 700;
+  &::-webkit-scrollbar-track {
+    background: transparent;
   }
 
-  .line-content {
-    flex: 1;
-    padding: 0 8px;
-    white-space: pre;
-    overflow-x: auto;
-  }
+  &::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
 
-  &.context {
-    .line-content { color: var(--text-secondary); }
-  }
-
-  &.add {
-    background: rgba(40, 167, 69, 0.08);
-    .line-number { background: rgba(40, 167, 69, 0.12); }
-    .line-prefix { color: var(--success); }
-  }
-
-  &.remove {
-    background: rgba(220, 53, 69, 0.08);
-    .line-number { background: rgba(220, 53, 69, 0.12); }
-    .line-prefix { color: var(--error); }
+    &:hover {
+      background: rgba(255, 255, 255, 0.25);
+    }
   }
 }
 
-:deep(.diff-line) {
-  &.add .line-content :deep(span) {
-    opacity: 0.9;
-  }
+/* 视图模式切换按钮 */
+.view-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
 
-  &.remove .line-content :deep(span) {
-    opacity: 0.7;
+  &:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--accent-color);
   }
 }
 
 .grep-results {
   padding: 8px 0;
+}
+
+.empty-diff-notice {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-family: var(--font-body);
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .grep-line {

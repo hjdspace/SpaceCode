@@ -19,18 +19,14 @@
     </div>
 
     <div v-show="isExpanded" class="edit-body">
-      <!-- Unified Diff 视图 -->
-      <div v-if="diffLines.length > 0" class="unified-diff">
-        <div
-          v-for="(line, index) in diffLines"
-          :key="index"
-          class="diff-line"
-          :class="line.type"
-        >
-          <span class="line-prefix">{{ line.prefix }}</span>
-          <span class="line-number">{{ line.displayNumber }}</span>
-          <span class="line-content" v-html="getHighlightedContent(line, index)"></span>
-        </div>
+      <!-- 专业 Diff 展示 -->
+      <div v-if="diffFile" class="git-diff-wrapper">
+        <DiffView
+          :diff-file="diffFile"
+          :diff-view-mode="DiffModeEnum.Unified"
+          :diff-view-highlight="true"
+          class="git-diff-container"
+        />
       </div>
 
       <!-- 无 diff 数据时的回退显示 -->
@@ -54,8 +50,9 @@ import { computed, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
-import * as Diff from 'diff'
-import hljs from 'highlight.js'
+import { DiffView, DiffModeEnum } from '@git-diff-view/vue'
+import { generateDiffFile } from '@git-diff-view/file'
+import '@git-diff-view/vue/styles/diff-view.css'
 
 const props = defineProps<{ toolCall: ToolCall }>()
 const isExpanded = ref(false)
@@ -67,161 +64,45 @@ const filePath = computed(() => props.toolCall.input?.file_path || props.toolCal
 
 function toggleExpand() { isExpanded.value = !isExpanded.value }
 
-// Diff 行数据接口
-interface DiffLine {
-  type: 'add' | 'remove' | 'context'
-  content: string
-  displayNumber?: number
-  oldNumber?: number
-  newNumber?: number
-  prefix: string
-}
+// Diff 数据源
+const oldString = computed(() => props.toolCall.input?.old_string || '')
+const newString = computed(() => props.toolCall.input?.new_string || '')
+const hasDiffData = computed(() => !!(oldString.value || newString.value))
+const fileLanguage = computed(() => appStore.getLanguageFromPath(filePath.value))
 
-// 生成 unified diff 行数据
-const diffLines = computed<DiffLine[]>(() => {
-  const oldStr = props.toolCall.input?.old_string || ''
-  const newStr = props.toolCall.input?.new_string || ''
+// 创建 DiffFile 实例（用于 DiffView 组件）
+const diffFile = computed(() => {
+  if (!hasDiffData.value) return null
 
-  if (!oldStr && !newStr) return []
+  const fileName = filePath.value.split(/[/\\]/).pop() || 'file'
 
-  const changes = Diff.diffLines(oldStr, newStr)
-  const lines: DiffLine[] = []
-  let oldNum = 0
-  let newNum = 0
+  // 使用 generateDiffFile 自动比较两个文件内容并生成 diff
+  const file = generateDiffFile(
+    `${fileName}.old`,
+    oldString.value,
+    `${fileName}.new`,
+    newString.value,
+    fileLanguage.value,
+    fileLanguage.value
+  )
 
-  for (const change of changes) {
-    const count = change.count || 0
-    const value = change.value
-    const splitLines = value.split('\n')
-    const trailingNewline = value.endsWith('\n')
-    const contentLines = trailingNewline ? splitLines.slice(0, -1) : splitLines
+  // 根据当前主题初始化
+  const isDarkTheme = document.documentElement.getAttribute('data-theme')?.includes('dark')
+  file.initTheme(isDarkTheme ? 'dark' : 'light')
+  file.init()
+  file.buildUnifiedDiffLines()
 
-    if (change.added) {
-      for (const line of contentLines) {
-        newNum++
-        lines.push({
-          type: 'add',
-          content: line,
-          displayNumber: newNum,
-          newNumber: newNum,
-          prefix: '+'
-        })
-      }
-    } else if (change.removed) {
-      for (const line of contentLines) {
-        oldNum++
-        lines.push({
-          type: 'remove',
-          content: line,
-          displayNumber: oldNum,
-          oldNumber: oldNum,
-          prefix: '-'
-        })
-      }
-    } else {
-      for (const line of contentLines) {
-        oldNum++
-        newNum++
-        lines.push({
-          type: 'context',
-          content: line,
-          displayNumber: newNum,
-          oldNumber: oldNum,
-          newNumber: newNum,
-          prefix: ' '
-        })
-      }
-    }
-  }
-
-  return lines
+  return file
 })
 
-// 对所有行进行高亮处理（缓存结果）
-const highlightedLines = computed<string[]>(() => {
-  const data = diffLines.value
-  if (data.length === 0) return []
-
-  // 分别高亮旧内容和新内容
-  const oldContent = data
-    .filter(l => l.type === 'remove' || l.type === 'context')
-    .map(l => l.content)
-    .join('\n')
-
-  const newContent = data
-    .filter(l => l.type === 'add' || l.type === 'context')
-    .map(l => l.content)
-    .join('\n')
-
-  const language = appStore.getLanguageFromPath(filePath.value)
-
-  const oldHighlighted = highlightAndSplit(oldContent, language)
-  const newHighlighted = highlightAndSplit(newContent, language)
-
-  // 映射回每行
-  let oldIdx = 0
-  let newIdx = 0
-
-  return data.map(line => {
-    if (line.type === 'remove') {
-      return oldHighlighted[oldIdx++] || escapeHtml(line.content)
-    } else {
-      return newHighlighted[newIdx++] || escapeHtml(line.content)
-    }
-  })
+const diffStats = computed(() => {
+  const oldLines = oldString.value.split('\n').length
+  const newLines = newString.value.split('\n').length
+  return {
+    additions: Math.max(0, newLines - oldLines),
+    deletions: Math.max(0, oldLines - newLines)
+  }
 })
-
-// 高亮并按行分割（处理跨行 span 标签）
-function highlightAndSplit(content: string, language: string): string[] {
-  if (!content) return ['']
-
-  let highlighted: string
-  try {
-    if (language && hljs.getLanguage(language)) {
-      highlighted = hljs.highlight(content, { language }).value
-    } else {
-      highlighted = hljs.highlightAuto(content).value
-    }
-  } catch {
-    highlighted = escapeHtml(content)
-  }
-
-  return splitHtmlByNewlines(highlighted)
-}
-
-// 分割 HTML 时保持跨行 span 标签的完整性
-function splitHtmlByNewlines(html: string): string[] {
-  const rawLines = html.split('\n')
-  const result: string[] = []
-  let openSpans = ''
-
-  for (const line of rawLines) {
-    const fullLine = openSpans + line
-    const opens: string[] = []
-    let closes = 0
-
-    const spanRegex = /<span[^>]*>/g
-    const closeSpanRegex = /<\/span>/g
-    let match
-    while ((match = spanRegex.exec(fullLine)) !== null) {
-      opens.push(match[0])
-    }
-    while ((match = closeSpanRegex.exec(fullLine)) !== null) {
-      closes++
-    }
-
-    const unclosedCount = opens.length - closes
-    result.push(fullLine + '</span>'.repeat(Math.max(0, unclosedCount)))
-    openSpans = opens.slice(closes).join('')
-  }
-
-  return result
-}
-
-// 获取某行的高亮 HTML
-function getHighlightedContent(line: DiffLine, index: number): string {
-  return highlightedLines.value[index] || escapeHtml(line.content)
-}
 
 // HTML 转义（XSS 防护）
 function escapeHtml(text: string): string {
@@ -240,21 +121,38 @@ async function openInPanel() {
   if (modifiedContent === null) return
 
   let originalContent = ''
+  let originalContentResolved = false
   try {
     const projectRoot = appStore.projectRoot
     if (projectRoot) {
-      const relativePath = fp.replace(projectRoot, '').replace(/^[/\\]/, '')
+      // strip the project root prefix and normalize to forward slashes — git
+      // expects POSIX-style paths in `git show HEAD:<path>` even on Windows.
+      const relativePath = fp
+        .replace(projectRoot, '')
+        .replace(/^[/\\]/, '')
+        .replace(/\\/g, '/')
       if (relativePath) {
         const headContent = await api.git.showFile(projectRoot, relativePath)
         if (headContent !== null) {
           originalContent = headContent
+          originalContentResolved = true
         }
       }
     }
   } catch { /* not in git repo or file not tracked */ }
 
-  if (!originalContent) {
-    originalContent = modifiedContent
+  if (!originalContentResolved) {
+    // File is not tracked in git — treat the current edit as the only change
+    // by reconstructing the pre-edit content from the tool input.
+    const oldStr = props.toolCall.input?.old_string
+    const newStr = props.toolCall.input?.new_string
+    if (typeof oldStr === 'string' && typeof newStr === 'string' && newStr) {
+      originalContent = modifiedContent.includes(newStr)
+        ? modifiedContent.replace(newStr, oldStr)
+        : modifiedContent
+    } else {
+      originalContent = modifiedContent
+    }
   }
 
   const language = appStore.getLanguageFromPath(fp)
@@ -364,17 +262,35 @@ async function openInPanel() {
   border-top: 1px solid var(--surface-border);
 }
 
-/* Unified Diff 样式 */
-.unified-diff {
-  background: #0d1117;
-  border-radius: 6px;
+/* Git Diff View 容器 */
+.git-diff-wrapper {
   margin: 8px;
+  border-radius: 6px;
   overflow: hidden;
-  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.6;
+}
+
+.git-diff-container {
   max-height: 400px;
   overflow-y: auto;
+
+  /* 覆盖默认样式以匹配当前主题 */
+  --gdc-bg-color: var(--gdc-bg-color, #0d1117);
+  --gdc-text-color: var(--gdc-text-color, #c9d1d9);
+  --gdc-border-color: var(--gdc-border-color, #30363d);
+
+  /* 添加行 */
+  --gdc-add-bg-color: var(--gdc-add-bg-color, rgba(46, 160, 67, 0.15));
+  --gdc-add-text-color: var(--gdc-add-text-color, #3fb950);
+  --gdc-add-gutter-bg-color: var(--gdc-add-gutter-bg-color, rgba(46, 160, 67, 0.25));
+
+  /* 删除行 */
+  --gdc-remove-bg-color: var(--gdc-remove-bg-color, rgba(248, 81, 73, 0.15));
+  --gdc-remove-text-color: var(--gdc-remove-text-color, #f85149);
+  --gdc-remove-gutter-bg-color: var(--gdc-remove-gutter-bg-color, rgba(248, 81, 73, 0.25));
+
+  /* Gutter */
+  --gdc-gutter-bg-color: var(--gdc-gutter-bg-color, #161b22);
+  --gdc-gutter-text-color: var(--gdc-gutter-text-color, #6e7681);
 
   &::-webkit-scrollbar {
     width: 8px;
@@ -392,134 +308,6 @@ async function openInPanel() {
     &:hover {
       background: rgba(255, 255, 255, 0.25);
     }
-  }
-}
-
-.diff-line {
-  display: flex;
-  padding: 0 12px;
-  border-left: 3px solid transparent;
-  min-height: 21px;
-
-  &.context {
-    background: rgba(255, 255, 255, 0.02);
-  }
-
-  &.add {
-    background: rgba(46, 160, 67, 0.15);
-    border-left-color: #2ea043;
-
-    .line-prefix {
-      color: #3fb950;
-    }
-  }
-
-  &.remove {
-    background: rgba(248, 81, 73, 0.15);
-    border-left-color: #f85149;
-
-    .line-prefix {
-      color: #f85149;
-    }
-  }
-}
-
-.line-prefix {
-  width: 20px;
-  text-align: center;
-  color: #6e7681;
-  user-select: none;
-  flex-shrink: 0;
-  padding-top: 1px;
-}
-
-.line-number {
-  width: 40px;
-  text-align: right;
-  padding-right: 12px;
-  color: #6e7681;
-  user-select: none;
-  flex-shrink: 0;
-  padding-top: 1px;
-}
-
-.line-content {
-  flex: 1;
-  white-space: pre;
-  word-break: break-all;
-  color: #c9d1d9;
-  padding-top: 1px;
-
-  /* 继承 highlight.js 的语法高亮颜色 */
-  :deep(.hljs) {
-    color: inherit;
-    background: transparent;
-  }
-
-  :deep(.hljs-comment),
-  :deep(.hljs-quote) {
-    color: #6a737d;
-    font-style: italic;
-  }
-
-  :deep(.hljs-keyword),
-  :deep(.hljs-selector-tag),
-  :deep(.hljs-addition) {
-    color: #ff7b72;
-  }
-
-  :deep(.hljs-number),
-  :deep(.hljs-string),
-  :deep(.hljs-meta .hljs-meta-string),
-  :deep(.hljs-literal),
-  :deep(.hljs-doctag),
-  :deep(.hljs-regexp) {
-    color: #a5d6ff;
-  }
-
-  :deep(.hljs-title),
-  :deep(.hljs-section),
-  :deep(.hljs-name),
-  :deep(.hljs-selector-id),
-  :deep(.hljs-selector-class) {
-    color: #d2a8ff;
-  }
-
-  :deep(.hljs-attribute),
-  :deep(.hljs-attr),
-  :deep(.hljs-variable),
-  :deep(.hljs-template-variable),
-  :deep(.hljs-class .hljs-title),
-  :deep(.hljs-type) {
-    color: #79c0ff;
-  }
-
-  :deep(.hljs-symbol),
-  :deep(.hljs-bullet),
-  :deep(.hljs-subst),
-  :deep(.hljs-meta),
-  :deep(.hljs-selector-attr),
-  :deep(.hljs-selector-pseudo),
-  :deep(.hljs-link) {
-    color: #79c0ff;
-  }
-
-  :deep(.hljs-built_in),
-  :deep(.hljs-deletion) {
-    color: #ffa657;
-  }
-
-  :deep(.hljs-formula) {
-    background: #083254;
-    color: #f8e71c;
-  }
-
-  :deep(.hljs-emphasis) {
-    font-style: italic;
-  }
-
-  :deep(.hljs-strong) {
-    font-weight: bold;
   }
 }
 

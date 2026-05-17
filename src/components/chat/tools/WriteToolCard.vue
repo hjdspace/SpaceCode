@@ -104,7 +104,12 @@ async function openInPanel() {
   try {
     const projectRoot = appStore.projectRoot
     if (projectRoot) {
-      const relativePath = fp.replace(projectRoot, '').replace(/^[/\\]/, '')
+      // strip the project root prefix and normalize to forward slashes — git
+      // expects POSIX-style paths in `git show HEAD:<path>` even on Windows.
+      const relativePath = fp
+        .replace(projectRoot, '')
+        .replace(/^[/\\]/, '')
+        .replace(/\\/g, '/')
       if (relativePath) {
         const headContent = await api.git.showFile(projectRoot, relativePath)
         if (headContent !== null) {

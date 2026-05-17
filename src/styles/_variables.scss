@@ -134,6 +134,19 @@ $grid-opacity: 0.01;
   --code-tag: #116329;
   --code-punctuation: #24292f;
   --code-meta: #6e7781;
+
+  /* Git Diff View - Light Theme */
+  --gdc-bg-color: #ffffff;
+  --gdc-text-color: #24292f;
+  --gdc-border-color: #d0d7de;
+  --gdc-add-bg-color: rgba(35, 134, 54, 0.15);
+  --gdc-add-text-color: #1a7f37;
+  --gdc-add-gutter-bg-color: rgba(35, 134, 54, 0.15);
+  --gdc-remove-bg-color: rgba(218, 53, 52, 0.12);
+  --gdc-remove-text-color: #cf222e;
+  --gdc-remove-gutter-bg-color: rgba(218, 53, 52, 0.08);
+  --gdc-gutter-bg-color: #f6f8fa;
+  --gdc-gutter-text-color: #6e7781;
 }
 
 [data-theme='anthropic'] {
@@ -201,6 +214,19 @@ $grid-opacity: 0.01;
   --code-tag: #788c5d;
   --code-punctuation: #2d2a24;
   --code-meta: #8a8880;
+
+  /* Git Diff View - Anthropic Light Theme */
+  --gdc-bg-color: #faf9f5;
+  --gdc-text-color: #2d2a24;
+  --gdc-border-color: #e8e6dc;
+  --gdc-add-bg-color: rgba(120, 140, 93, 0.15);
+  --gdc-add-text-color: #5c7040;
+  --gdc-add-gutter-bg-color: rgba(120, 140, 93, 0.12);
+  --gdc-remove-bg-color: rgba(196, 78, 63, 0.12);
+  --gdc-remove-text-color: #c44e3f;
+  --gdc-remove-gutter-bg-color: rgba(196, 78, 63, 0.08);
+  --gdc-gutter-bg-color: #f5f3ed;
+  --gdc-gutter-text-color: #8a8880;
 }
 
 [data-theme='anthropic-dark'] {
@@ -268,6 +294,19 @@ $grid-opacity: 0.01;
   --code-tag: #a3b985;
   --code-punctuation: #e8e4d8;
   --code-meta: #8a8880;
+
+  /* Git Diff View - Anthropic Dark Theme */
+  --gdc-bg-color: #1c1b1a;
+  --gdc-text-color: #e8e4d8;
+  --gdc-border-color: #383736;
+  --gdc-add-bg-color: rgba(140, 160, 109, 0.18);
+  --gdc-add-text-color: #a3b985;
+  --gdc-add-gutter-bg-color: rgba(140, 160, 109, 0.15);
+  --gdc-remove-bg-color: rgba(224, 96, 80, 0.15);
+  --gdc-remove-text-color: #e06050;
+  --gdc-remove-gutter-bg-color: rgba(224, 96, 80, 0.12);
+  --gdc-gutter-bg-color: #242322;
+  --gdc-gutter-text-color: #8a8880;
 }
 
 [data-theme='dark'] {
@@ -337,6 +376,19 @@ $grid-opacity: 0.01;
   --code-tag: #7ee787;
   --code-punctuation: #c9d1d9;
   --code-meta: #8b949e;
+
+  /* Git Diff View - GitHub Dark Theme */
+  --gdc-bg-color: #0d1117;
+  --gdc-text-color: #c9d1d9;
+  --gdc-border-color: #30363d;
+  --gdc-add-bg-color: rgba(46, 160, 67, 0.15);
+  --gdc-add-text-color: #3fb950;
+  --gdc-add-gutter-bg-color: rgba(46, 160, 67, 0.25);
+  --gdc-remove-bg-color: rgba(248, 81, 73, 0.15);
+  --gdc-remove-text-color: #f85149;
+  --gdc-remove-gutter-bg-color: rgba(248, 81, 73, 0.25);
+  --gdc-gutter-bg-color: #161b22;
+  --gdc-gutter-text-color: #6e7681;
 }
 
 @keyframes fadeIn {
