@@ -41,6 +41,30 @@ const traceApi = {
   event: (event: any) => ipcRenderer.send('trace:event', event),
 }
 
+// Turn Checkpoint API - 轮次变更追踪
+const sessionApi = {
+  getTurnCheckpoints: (sessionId: string) =>
+    ipcRenderer.invoke('session:getTurnCheckpoints', sessionId),
+  getTurnCheckpointDiff: (
+    sessionId: string,
+    targetUserMessageId: string,
+    filePath: string,
+    userMessageIndex?: number
+  ) =>
+    ipcRenderer.invoke(
+      'session:getTurnCheckpointDiff',
+      sessionId,
+      targetUserMessageId,
+      filePath,
+      userMessageIndex
+    ),
+  rewindTurn: (
+    sessionId: string,
+    options: { targetUserMessageId: string; userMessageIndex?: number }
+  ) =>
+    ipcRenderer.invoke('session:rewindTurn', sessionId, options),
+}
+
 contextBridge.exposeInMainWorld('electronAPI', {
   // Platform info for titlebar rendering
   platform: process.platform,
@@ -365,4 +389,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   logger: rendererLogger,
   debug: debugApi,
   trace: traceApi,
+  session: sessionApi,
 })
