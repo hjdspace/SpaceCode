@@ -751,9 +751,17 @@ export const useChatStore = defineStore('chat', () => {
           if (accumulatedContent.length > 0 && !accumulatedContent.endsWith('\n')) {
             accumulatedContent += '\n\n'
             streamingContents.value.set(targetSessionId, accumulatedContent)
-            nextTick(() => {
-              updateMessage(assistantMessageId, { content: accumulatedContent }, targetSessionId)
-            })
+            // 直接更新，不等待 nextTick
+            const msg = getAssistantMessage()
+            if (msg) {
+              const updatedTimelineEvents = msg.timelineEvents?.map(event =>
+                event.id === currentTextEventId ? { ...event, content: accumulatedContent } : event
+              )
+              updateMessage(assistantMessageId, { 
+                content: accumulatedContent,
+                timelineEvents: updatedTimelineEvents
+              }, targetSessionId)
+            }
           }
         }
 
@@ -762,23 +770,20 @@ export const useChatStore = defineStore('chat', () => {
           if (currentReasoningEventId) {
             updateTimelineEvent(currentReasoningEventId, { status: 'completed' })
           }
-          const s = sessions.value.find(s => s.id === targetSessionId)
-          if (s) {
-            const msg = s.messages.find(m => m.id === assistantMessageId)
-            if (msg) {
-              if (!msg.reasoning) {
-                msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
-              }
-              currentReasoningEventId = crypto.randomUUID()
-              addTimelineEvent({
-                id: currentReasoningEventId,
-                type: 'reasoning',
-                timestamp: Date.now(),
-                status: 'running',
-                content: ''
-              })
-              streamingHandledThinking = true
-            }
+          const msg = getAssistantMessage()
+          if (msg) {
+            const newReasoning = msg.reasoning || { content: '', startTime: Date.now(), isExpanded: true }
+            currentReasoningEventId = crypto.randomUUID()
+            addTimelineEvent({
+              id: currentReasoningEventId,
+              type: 'reasoning',
+              timestamp: Date.now(),
+              status: 'running',
+              content: ''
+            })
+            streamingHandledThinking = true
+            // 使用 updateMessage 确保响应式
+            updateMessage(assistantMessageId, { reasoning: newReasoning }, targetSessionId)
           }
         }
 
@@ -788,42 +793,53 @@ export const useChatStore = defineStore('chat', () => {
           streamingContents.value.set(targetSessionId, accumulatedContent)
           const msg = getAssistantMessage()
           const textEvent = msg?.timelineEvents?.find(event => event.id === textEventId)
-          updateTimelineEvent(textEventId, {
-            content: `${textEvent?.content || ''}${ev.delta.text}`,
-            status: 'running'
-          })
-          nextTick(() => {
-            updateMessage(assistantMessageId, { content: accumulatedContent }, targetSessionId)
-          })
+          
+          // 更新 timeline 事件和消息内容
+          const updatedTimelineEvents = msg?.timelineEvents?.map(event =>
+            event.id === textEventId ? { 
+              ...event, 
+              content: `${textEvent?.content || ''}${ev.delta.text}`,
+              status: 'running' 
+            } : event
+          )
+          
+          updateMessage(assistantMessageId, { 
+            content: accumulatedContent,
+            timelineEvents: updatedTimelineEvents
+          }, targetSessionId)
         }
 
         if (ev.type === 'content_block_delta' && ev.delta?.type === 'thinking_delta' && ev.delta?.thinking) {
           streamingHandledThinking = true
-          const s = sessions.value.find(s => s.id === targetSessionId)
-          if (s) {
-            const msg = s.messages.find(m => m.id === assistantMessageId)
-            if (msg) {
-              if (!msg.reasoning) {
-                msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
-              }
-              msg.reasoning.content += ev.delta.thinking
-              if (!currentReasoningEventId) {
-                currentReasoningEventId = crypto.randomUUID()
-                addTimelineEvent({
-                  id: currentReasoningEventId,
-                  type: 'reasoning',
-                  timestamp: Date.now(),
-                  status: 'running',
-                  content: ''
-                })
-              }
-              const reasoningEvent = msg.timelineEvents?.find(event => event.id === currentReasoningEventId)
-              updateTimelineEvent(currentReasoningEventId, {
+          const msg = getAssistantMessage()
+          if (msg) {
+            const currentReasoning = msg.reasoning || { content: '', startTime: Date.now(), isExpanded: true }
+            const newReasoningContent = currentReasoning.content + ev.delta.thinking
+            
+            if (!currentReasoningEventId) {
+              currentReasoningEventId = crypto.randomUUID()
+              addTimelineEvent({
+                id: currentReasoningEventId,
+                type: 'reasoning',
+                timestamp: Date.now(),
+                status: 'running',
+                content: ''
+              })
+            }
+            
+            const reasoningEvent = msg.timelineEvents?.find(event => event.id === currentReasoningEventId)
+            const updatedTimelineEvents = msg.timelineEvents?.map(event =>
+              event.id === currentReasoningEventId ? {
+                ...event,
                 content: `${reasoningEvent?.content || ''}${ev.delta.thinking}`,
                 status: 'running'
-              })
-              saveToStorage()
-            }
+              } : event
+            )
+            
+            updateMessage(assistantMessageId, { 
+              reasoning: { ...currentReasoning, content: newReasoningContent },
+              timelineEvents: updatedTimelineEvents
+            }, targetSessionId)
           }
         }
       }
@@ -835,7 +851,14 @@ export const useChatStore = defineStore('chat', () => {
         if (assistant.message?.content) {
           const content = assistant.message.content
           if (Array.isArray(content)) {
-            const hasExistingTimeline = !!getAssistantMessage()?.timelineEvents?.length
+            const msg = getAssistantMessage()
+            if (!msg) return
+            
+            const hasExistingTimeline = !!msg.timelineEvents?.length
+            let updates: Partial<Message> = {}
+            let updatedToolCalls = [...(msg.toolCalls || [])]
+            let updatedTimelineEvents = [...(msg.timelineEvents || [])]
+            let updatedReasoning = msg.reasoning ? { ...msg.reasoning } : undefined
 
             if (!hasExistingTimeline) {
               for (const block of content) {
@@ -844,52 +867,65 @@ export const useChatStore = defineStore('chat', () => {
                   const textEventId = ensureTextTimelineEvent()
                   accumulatedContent += block.text
                   streamingContents.value.set(targetSessionId, accumulatedContent)
-                  const msg = getAssistantMessage()
-                  const textEvent = msg?.timelineEvents?.find(event => event.id === textEventId)
-                  updateTimelineEvent(textEventId, {
-                    content: `${textEvent?.content || ''}${block.text}`,
-                    status: 'running'
-                  })
+                  
+                  // 更新 timeline 事件
+                  updatedTimelineEvents = updatedTimelineEvents.map(event =>
+                    event.id === textEventId ? {
+                      ...event,
+                      content: `${event.content || ''}${block.text}`,
+                      status: 'running'
+                    } : event
+                  )
                 } else if (block.type === 'thinking') {
                   if (streamingHandledThinking) continue
                   const thinkingText = block.thinking || block.text || ''
                   if (thinkingText) {
                     completeCurrentTextEvent()
-                    const s = sessions.value.find(s => s.id === targetSessionId)
-                    if (s) {
-                      const msg = s.messages.find(m => m.id === assistantMessageId)
-                      if (msg) {
-                        if (!msg.reasoning) {
-                          msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
-                        }
-                        msg.reasoning.content += thinkingText
-                        if (!currentReasoningEventId) {
-                          currentReasoningEventId = crypto.randomUUID()
-                          addTimelineEvent({
-                            id: currentReasoningEventId,
-                            type: 'reasoning',
-                            timestamp: msg.reasoning.startTime,
-                            status: 'running',
-                            content: ''
-                          })
-                        }
-                        const reasoningEvent = msg.timelineEvents?.find(event => event.id === currentReasoningEventId)
-                        updateTimelineEvent(currentReasoningEventId, {
-                          content: `${reasoningEvent?.content || ''}${thinkingText}`,
-                          status: 'completed'
-                        })
-                        streamingHandledThinking = true
-                      }
+                    
+                    if (!updatedReasoning) {
+                      updatedReasoning = { content: '', startTime: Date.now(), isExpanded: true }
                     }
+                    updatedReasoning.content += thinkingText
+                    
+                    if (!currentReasoningEventId) {
+                      currentReasoningEventId = crypto.randomUUID()
+                      // 添加新的 timeline 事件
+                      updatedTimelineEvents.push({
+                        id: currentReasoningEventId,
+                        type: 'reasoning',
+                        timestamp: updatedReasoning.startTime,
+                        status: 'running',
+                        content: ''
+                      })
+                    }
+                    
+                    // 更新 reasoning 事件
+                    updatedTimelineEvents = updatedTimelineEvents.map(event =>
+                      event.id === currentReasoningEventId ? {
+                        ...event,
+                        content: `${event.content || ''}${thinkingText}`,
+                        status: 'completed'
+                      } : event
+                    )
+                    streamingHandledThinking = true
                   }
                 } else if (block.type === 'tool_use' && block.id) {
-                  addToolTimelineEvent(block.id)
+                  completeCurrentTextEvent()
+                  const toolEventId = `tool-${block.id}`
+                  // 检查是否已存在该工具事件
+                  if (!updatedTimelineEvents.some(e => e.id === toolEventId)) {
+                    updatedTimelineEvents.push({
+                      id: toolEventId,
+                      type: 'tool_call',
+                      timestamp: Date.now(),
+                      status: 'running',
+                      toolCallId: block.id
+                    })
+                  }
                 }
               }
 
-              if (accumulatedContent) {
-                updateMessage(assistantMessageId, { content: accumulatedContent }, targetSessionId)
-              }
+              updates.content = accumulatedContent
             } else {
               const textContent = content
                 .filter((c: any) => c.type === 'text')
@@ -901,13 +937,15 @@ export const useChatStore = defineStore('chat', () => {
                 accumulatedContent = textContent
                 streamingContents.value.set(targetSessionId, accumulatedContent)
                 const textEventId = ensureTextTimelineEvent()
-                const msg = getAssistantMessage()
-                const textEvent = msg?.timelineEvents?.find(event => event.id === textEventId)
-                updateTimelineEvent(textEventId, {
-                  content: `${textEvent?.content || ''}${deltaText}`,
-                  status: 'running'
-                })
-                updateMessage(assistantMessageId, { content: accumulatedContent }, targetSessionId)
+                
+                updatedTimelineEvents = updatedTimelineEvents.map(event =>
+                  event.id === textEventId ? {
+                    ...event,
+                    content: `${event.content || ''}${deltaText}`,
+                    status: 'running'
+                  } : event
+                )
+                updates.content = accumulatedContent
               }
 
               const reasoningContent = content
@@ -916,53 +954,54 @@ export const useChatStore = defineStore('chat', () => {
                 .join('')
 
               if (reasoningContent && !streamingHandledThinking) {
-                const s = sessions.value.find(s => s.id === targetSessionId)
-                if (s) {
-                  const msg = s.messages.find(m => m.id === assistantMessageId)
-                  if (msg) {
-                    if (!msg.reasoning) {
-                      msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
-                    }
-                    msg.reasoning.content += reasoningContent
-                    if (!currentReasoningEventId) {
-                      currentReasoningEventId = crypto.randomUUID()
-                      addTimelineEvent({
-                        id: currentReasoningEventId,
-                        type: 'reasoning',
-                        timestamp: msg.reasoning.startTime,
-                        status: 'running',
-                        content: ''
-                      })
-                    }
-                    const reasoningEvent = msg.timelineEvents?.find(event => event.id === currentReasoningEventId)
-                    updateTimelineEvent(currentReasoningEventId, {
-                      content: `${reasoningEvent?.content || ''}${reasoningContent}`,
-                      status: 'completed'
-                    })
-                    streamingHandledThinking = true
-                    saveToStorage()
-                  }
+                if (!updatedReasoning) {
+                  updatedReasoning = { content: '', startTime: Date.now(), isExpanded: true }
                 }
+                updatedReasoning.content += reasoningContent
+                
+                if (!currentReasoningEventId) {
+                  currentReasoningEventId = crypto.randomUUID()
+                  updatedTimelineEvents.push({
+                    id: currentReasoningEventId,
+                    type: 'reasoning',
+                    timestamp: updatedReasoning.startTime,
+                    status: 'running',
+                    content: ''
+                  })
+                }
+                
+                updatedTimelineEvents = updatedTimelineEvents.map(event =>
+                  event.id === currentReasoningEventId ? {
+                    ...event,
+                    content: `${event.content || ''}${reasoningContent}`,
+                    status: 'completed'
+                  } : event
+                )
+                streamingHandledThinking = true
               }
             }
 
+            // 处理工具调用
             const toolUses = content.filter((c: any) => c.type === 'tool_use')
             for (const toolUse of toolUses) {
-              const s = sessions.value.find(s => s.id === targetSessionId)
-              if (s) {
-                const msg = s.messages.find(m => m.id === assistantMessageId)
-                if (msg) {
-                  const existingTool = msg.toolCalls?.find(tc => tc.id === toolUse.id)
-                  if (!existingTool) {
-                    msg.toolCalls = [...(msg.toolCalls || []), {
-                      id: toolUse.id, name: toolUse.name, input: toolUse.input || {},
-                      status: 'running', startTime: Date.now()
-                    }]
-                    addToolTimelineEvent(toolUse.id)
-                    saveToStorage()
-                  }
-                }
+              const existingTool = updatedToolCalls.find(tc => tc.id === toolUse.id)
+              if (!existingTool) {
+                updatedToolCalls.push({
+                  id: toolUse.id, name: toolUse.name, input: toolUse.input || {},
+                  status: 'running', startTime: Date.now()
+                })
               }
+            }
+
+            // 应用所有更新
+            if (Object.keys(updates).length > 0 || updatedReasoning || 
+                updatedToolCalls !== msg.toolCalls || updatedTimelineEvents !== msg.timelineEvents) {
+              updateMessage(assistantMessageId, {
+                ...updates,
+                toolCalls: updatedToolCalls.length > 0 ? updatedToolCalls : undefined,
+                timelineEvents: updatedTimelineEvents.length > 0 ? updatedTimelineEvents : undefined,
+                reasoning: updatedReasoning
+              }, targetSessionId)
             }
           }
         }
@@ -973,40 +1012,57 @@ export const useChatStore = defineStore('chat', () => {
         const toolUse = event.data
         const toolName = toolUse.name || toolUse.tool_use?.name || 'Unknown Tool'
         logger.info('ChatStore', `[${targetSessionId.slice(0, 8)}] tool_use event | name=${toolName}`)
-        const s = sessions.value.find(s => s.id === targetSessionId)
-        if (s) {
-          const msg = s.messages.find(m => m.id === assistantMessageId)
-          if (msg) {
-            const toolId = toolUse.id || toolUse.tool_use?.id || crypto.randomUUID()
-            const toolName = toolUse.name || toolUse.tool_use?.name || 'Unknown Tool'
-            const toolInput = toolUse.input || toolUse.tool_use?.input || {}
-            const existingTool = msg.toolCalls?.find(tc => tc.id === toolId)
-            if (!existingTool) {
-              msg.toolCalls = [...(msg.toolCalls || []), {
-                id: toolId, name: toolName, input: toolInput,
-                status: 'running', startTime: Date.now()
-              }]
-              let traceType: string = 'tool_call'
-              if (FILE_TOOLS.has(toolName)) traceType = 'file_change'
-              else if (COMMAND_TOOLS.has(toolName)) {
-                const cmd = typeof toolInput.command === 'string' ? toolInput.command : ''
-                const isVerification = VERIFICATION_PATTERNS.some(p => p.test(cmd))
-                traceType = isVerification ? 'verification' : 'command_run'
-              }
-
-              traceEvent({
-                sessionId: targetSessionId,
-                actor: 'tool',
-                type: traceType,
-                status: 'started',
-                title: toolName,
-                input: toolInput,
-                metadata: { toolId, assistantMessageId },
-              })
-              addToolTimelineEvent(toolId)
-              saveToStorage()
-            }
+        
+        const msg = getAssistantMessage()
+        if (!msg) return
+        
+        const toolId = toolUse.id || toolUse.tool_use?.id || crypto.randomUUID()
+        const toolNameFinal = toolUse.name || toolUse.tool_use?.name || 'Unknown Tool'
+        const toolInput = toolUse.input || toolUse.tool_use?.input || {}
+        const existingTool = msg.toolCalls?.find(tc => tc.id === toolId)
+        
+        if (!existingTool) {
+          const updatedToolCalls = [...(msg.toolCalls || []), {
+            id: toolId, name: toolNameFinal, input: toolInput,
+            status: 'running', startTime: Date.now()
+          }]
+          
+          let traceType: string = 'tool_call'
+          if (FILE_TOOLS.has(toolNameFinal)) traceType = 'file_change'
+          else if (COMMAND_TOOLS.has(toolNameFinal)) {
+            const cmd = typeof toolInput.command === 'string' ? toolInput.command : ''
+            const isVerification = VERIFICATION_PATTERNS.some(p => p.test(cmd))
+            traceType = isVerification ? 'verification' : 'command_run'
           }
+
+          traceEvent({
+            sessionId: targetSessionId,
+            actor: 'tool',
+            type: traceType,
+            status: 'started',
+            title: toolNameFinal,
+            input: toolInput,
+            metadata: { toolId, assistantMessageId },
+          })
+          
+          // 添加工具 timeline 事件
+          const toolEventId = `tool-${toolId}`
+          const updatedTimelineEvents = [...(msg.timelineEvents || [])]
+          if (!updatedTimelineEvents.some(e => e.id === toolEventId)) {
+            updatedTimelineEvents.push({
+              id: toolEventId,
+              type: 'tool_call',
+              timestamp: Date.now(),
+              status: 'running',
+              toolCallId: toolId
+            })
+          }
+          
+          // 使用 updateMessage 确保响应式
+          updateMessage(assistantMessageId, {
+            toolCalls: updatedToolCalls,
+            timelineEvents: updatedTimelineEvents
+          }, targetSessionId)
         }
       }
 
@@ -1016,70 +1072,75 @@ export const useChatStore = defineStore('chat', () => {
         const resultToolUseId = toolResult.tool_use_id || toolResult.tool_result?.tool_use_id
         const resultIsError = toolResult.is_error || toolResult.tool_result?.is_error
         logger.info('ChatStore', `[${targetSessionId.slice(0, 8)}] tool_result event | toolUseId=${resultToolUseId?.slice(0, 8)} | error=${!!resultIsError}`)
-        const s = sessions.value.find(s => s.id === targetSessionId)
-        if (s) {
-          const msg = s.messages.find(m => m.id === assistantMessageId)
-          if (msg?.toolCalls) {
-            const resultToolUseId = toolResult.tool_use_id || toolResult.tool_result?.tool_use_id
-            const rawResultOutput = toolResult.output ?? toolResult.content ?? toolResult.tool_result?.output ?? toolResult.tool_result?.content
-            const resultOutput = typeof rawResultOutput === 'string' ? rawResultOutput : JSON.stringify(rawResultOutput)
-            const resultIsError = toolResult.is_error || toolResult.tool_result?.is_error
+        
+        const msg = getAssistantMessage()
+        if (!msg?.toolCalls) return
+        
+        const rawResultOutput = toolResult.output ?? toolResult.content ?? toolResult.tool_result?.output ?? toolResult.tool_result?.content
+        const resultOutput = typeof rawResultOutput === 'string' ? rawResultOutput : JSON.stringify(rawResultOutput)
+        
+        updateTaskStateFromToolResult(msg.toolCalls, resultToolUseId, resultOutput)
 
-            updateTaskStateFromToolResult(msg.toolCalls, resultToolUseId, resultOutput)
+        const toolCallIndex = msg.toolCalls.findIndex(tc => tc.id === resultToolUseId)
+        if (toolCallIndex >= 0) {
+          const updatedToolCalls = [...msg.toolCalls]
+          updatedToolCalls[toolCallIndex] = {
+            ...updatedToolCalls[toolCallIndex],
+            status: resultIsError ? 'error' : 'completed',
+            output: resultOutput,
+            endTime: Date.now()
+          }
 
-            const toolCallIndex = msg.toolCalls.findIndex(tc => tc.id === resultToolUseId)
-            if (toolCallIndex >= 0) {
-              const updatedToolCalls = [...msg.toolCalls]
-              updatedToolCalls[toolCallIndex] = {
-                ...updatedToolCalls[toolCallIndex],
-                status: resultIsError ? 'error' : 'completed',
-                output: resultOutput,
-                endTime: Date.now()
-              }
-              msg.toolCalls = updatedToolCalls
-
-              const toolName = updatedToolCalls[toolCallIndex].name
-              let traceType: string = 'tool_result'
-              let evidence: Array<{ kind: string; result?: string; detail: string }> | undefined
-              if (FILE_TOOLS.has(toolName)) {
-                traceType = 'file_change'
-              } else if (COMMAND_TOOLS.has(toolName)) {
-                const cmd = typeof updatedToolCalls[toolCallIndex].input?.command === 'string'
-                  ? updatedToolCalls[toolCallIndex].input.command : ''
-                const isVerification = VERIFICATION_PATTERNS.some(p => p.test(cmd))
-                if (isVerification) {
-                  traceType = 'verification'
-                  const passKeywords = ['passed', 'pass', '0 failures', '0 errors', 'all tests passed', 'success']
-                  const failKeywords = ['failed', 'fail', 'error', 'failure', 'failing']
-                  const lowerOutput = resultOutput.toLowerCase()
-                  const isPass = !resultIsError && passKeywords.some(k => lowerOutput.includes(k))
-                  const isFail = resultIsError || failKeywords.some(k => lowerOutput.includes(k))
-                  evidence = [{
-                    kind: cmd.match(/test/i) ? 'test' : cmd.match(/(lint|eslint|biome|ruff)/i) ? 'lint' : cmd.match(/(build|tsc|typecheck)/i) ? 'build' : 'manual',
-                    result: isFail ? 'fail' : isPass ? 'pass' : 'unknown',
-                    detail: resultOutput.slice(0, 500),
-                  }]
-                } else {
-                  traceType = 'command_run'
-                }
-              }
-
-              traceEvent({
-                sessionId: targetSessionId,
-                actor: 'tool',
-                type: traceType,
-                status: resultIsError ? 'failed' : 'completed',
-                title: toolName,
-                output: resultOutput,
-                evidence,
-                metadata: { toolId: resultToolUseId, assistantMessageId },
-              })
-              updateTimelineEvent(`tool-${resultToolUseId}`, {
-                status: resultIsError ? 'error' : 'completed'
-              })
-              saveToStorage()
+          const toolName = updatedToolCalls[toolCallIndex].name
+          let traceType: string = 'tool_result'
+          let evidence: Array<{ kind: string; result?: string; detail: string }> | undefined
+          if (FILE_TOOLS.has(toolName)) {
+            traceType = 'file_change'
+          } else if (COMMAND_TOOLS.has(toolName)) {
+            const cmd = typeof updatedToolCalls[toolCallIndex].input?.command === 'string'
+              ? updatedToolCalls[toolCallIndex].input.command : ''
+            const isVerification = VERIFICATION_PATTERNS.some(p => p.test(cmd))
+            if (isVerification) {
+              traceType = 'verification'
+              const passKeywords = ['passed', 'pass', '0 failures', '0 errors', 'all tests passed', 'success']
+              const failKeywords = ['failed', 'fail', 'error', 'failure', 'failing']
+              const lowerOutput = resultOutput.toLowerCase()
+              const isPass = !resultIsError && passKeywords.some(k => lowerOutput.includes(k))
+              const isFail = resultIsError || failKeywords.some(k => lowerOutput.includes(k))
+              evidence = [{
+                kind: cmd.match(/test/i) ? 'test' : cmd.match(/(lint|eslint|biome|ruff)/i) ? 'lint' : cmd.match(/(build|tsc|typecheck)/i) ? 'build' : 'manual',
+                result: isFail ? 'fail' : isPass ? 'pass' : 'unknown',
+                detail: resultOutput.slice(0, 500),
+              }]
+            } else {
+              traceType = 'command_run'
             }
           }
+
+          traceEvent({
+            sessionId: targetSessionId,
+            actor: 'tool',
+            type: traceType,
+            status: resultIsError ? 'failed' : 'completed',
+            title: toolName,
+            output: resultOutput,
+            evidence,
+            metadata: { toolId: resultToolUseId, assistantMessageId },
+          })
+          
+          // 更新 timeline 事件
+          const updatedTimelineEvents = (msg.timelineEvents || []).map(event =>
+            event.id === `tool-${resultToolUseId}` ? {
+              ...event,
+              status: resultIsError ? 'error' : 'completed'
+            } : event
+          )
+          
+          // 使用 updateMessage 确保响应式
+          updateMessage(assistantMessageId, {
+            toolCalls: updatedToolCalls,
+            timelineEvents: updatedTimelineEvents
+          }, targetSessionId)
         }
       }
 
@@ -1098,28 +1159,45 @@ export const useChatStore = defineStore('chat', () => {
           s.lastActivityAt = Date.now()
           const msg = s.messages.find(m => m.id === assistantMessageId)
           if (msg) {
+            let updates: Partial<Message> = {}
+            let updatedTimelineEvents = [...(msg.timelineEvents || [])]
+            let updatedReasoning = msg.reasoning ? { ...msg.reasoning } : undefined
+            let updatedToolCalls = [...(msg.toolCalls || [])]
+            
             const finalText = typeof result.result === 'string' ? result.result : ''
             if (finalText && finalText.length > msg.content.length) {
               const textEventId = ensureTextTimelineEvent()
               const deltaText = finalText.slice(msg.content.length)
-              msg.content = finalText
-              const textEvent = msg.timelineEvents?.find(event => event.id === textEventId)
-              updateTimelineEvent(textEventId, {
-                content: `${textEvent?.content || ''}${deltaText}`,
-                status: 'completed'
-              })
+              updates.content = finalText
+              
+              updatedTimelineEvents = updatedTimelineEvents.map(event =>
+                event.id === textEventId ? {
+                  ...event,
+                  content: `${event.content || ''}${deltaText}`,
+                  status: 'completed'
+                } : event
+              )
             }
+            
             completeCurrentTextEvent()
-            if (msg.reasoning && !msg.reasoning.endTime) {
-              msg.reasoning.endTime = Date.now()
-              msg.reasoning.isExpanded = false
+            
+            if (updatedReasoning && !updatedReasoning.endTime) {
+              updatedReasoning.endTime = Date.now()
+              updatedReasoning.isExpanded = false
             }
+            
             if (currentReasoningEventId) {
-              updateTimelineEvent(currentReasoningEventId, { status: 'completed' })
+              updatedTimelineEvents = updatedTimelineEvents.map(event =>
+                event.id === currentReasoningEventId ? {
+                  ...event,
+                  status: 'completed'
+                } : event
+              )
             }
-            const hasRunningTools = !!msg.toolCalls?.some(tool => tool.status === 'running' || tool.status === 'pending')
+            
+            const hasRunningTools = !!updatedToolCalls.some(tool => tool.status === 'running' || tool.status === 'pending')
             const suspiciousToolStop = result.stop_reason === 'tool_use'
-            msg.metadata = {
+            updates.metadata = {
               model: settingsStore.config.model,
               duration: Date.now() - msg.timestamp,
               warning: suspiciousToolStop
@@ -1128,6 +1206,7 @@ export const useChatStore = defineStore('chat', () => {
                   ? 'Agent 已结束，但仍有工具调用未返回结果。'
                   : undefined
             }
+            
             traceEvent({
               sessionId: targetSessionId,
               messageId: assistantMessageId,
@@ -1135,22 +1214,22 @@ export const useChatStore = defineStore('chat', () => {
               type: 'assistant_turn',
               status: 'completed',
               title: 'Assistant turn completed',
-              output: { content: msg.content },
+              output: { content: updates.content || msg.content },
               metadata: {
-                duration: msg.metadata.duration,
-                model: msg.metadata.model,
+                duration: updates.metadata.duration,
+                model: updates.metadata.model,
                 stopReason: result.stop_reason || '',
-                warning: msg.metadata.warning || '',
+                warning: updates.metadata.warning || '',
               },
             })
 
-            const fileChanges = msg.toolCalls
+            const fileChanges = updatedToolCalls
               ?.filter(tc => ['Write', 'FileWrite', 'Edit', 'FileEdit', 'MultiEdit'].includes(tc.name))
               .map(tc => ({
                 kind: tc.name,
                 path: tc.input?.file_path || tc.input?.path || '',
               })) || []
-            const verifications = msg.toolCalls
+            const verifications = updatedToolCalls
               ?.filter(tc => tc.name === 'Bash' && tc.output)
               .filter(tc => {
                 const cmd = typeof tc.input?.command === 'string' ? tc.input.command : ''
@@ -1161,7 +1240,7 @@ export const useChatStore = defineStore('chat', () => {
                 result: tc.status === 'completed' ? 'pass' : 'fail',
                 detail: (tc.output || '').slice(0, 300),
               })) || []
-            const errors = msg.toolCalls
+            const errors = updatedToolCalls
               ?.filter(tc => tc.status === 'error')
               .map(tc => ({ kind: tc.name, detail: (tc.output || '').slice(0, 300) })) || []
 
@@ -1176,15 +1255,21 @@ export const useChatStore = defineStore('chat', () => {
               evidence: verifications.length > 0 ? verifications : undefined,
               error: errors.length > 0 ? { message: errors.map(e => `${e.kind}: ${e.detail}`).join('; ') } : undefined,
               metadata: {
-                toolCallCount: msg.toolCalls?.length || 0,
+                toolCallCount: updatedToolCalls.length,
                 fileChangeCount: fileChanges.length,
                 verificationCount: verifications.length,
                 errorCount: errors.length,
-                contentLength: msg.content.length,
+                contentLength: (updates.content || msg.content).length,
               },
             })
-
-            saveToStorage()
+            
+            // 应用所有更新
+            updateMessage(assistantMessageId, {
+              ...updates,
+              timelineEvents: updatedTimelineEvents,
+              reasoning: updatedReasoning,
+              toolCalls: updatedToolCalls.length > 0 ? updatedToolCalls : undefined
+            }, targetSessionId)
           }
         }
 
@@ -1198,25 +1283,29 @@ export const useChatStore = defineStore('chat', () => {
         if (userMsg.message?.content && Array.isArray(userMsg.message.content)) {
           const toolResults = userMsg.message.content.filter((c: any) => c.type === 'tool_result')
           for (const toolResult of toolResults) {
-            const s = sessions.value.find(s => s.id === targetSessionId)
-            if (s) {
-              const msg = s.messages.find(m => m.id === assistantMessageId)
-              if (msg?.toolCalls) {
-                const toolCallIndex = msg.toolCalls.findIndex(tc => tc.id === toolResult.tool_use_id)
-                if (toolCallIndex >= 0) {
-                  const updatedToolCalls = [...msg.toolCalls]
-                  updatedToolCalls[toolCallIndex] = {
-                    ...updatedToolCalls[toolCallIndex],
-                    status: toolResult.is_error ? 'error' : 'completed',
-                    output: typeof toolResult.content === 'string' ? toolResult.content : JSON.stringify(toolResult.content),
-                    endTime: Date.now()
-                  }
-                  msg.toolCalls = updatedToolCalls
-                  updateTimelineEvent(`tool-${toolResult.tool_use_id}`, {
-                    status: toolResult.is_error ? 'error' : 'completed'
-                  })
-                  saveToStorage()
+            const msg = getAssistantMessage()
+            if (msg?.toolCalls) {
+              const toolCallIndex = msg.toolCalls.findIndex(tc => tc.id === toolResult.tool_use_id)
+              if (toolCallIndex >= 0) {
+                const updatedToolCalls = [...msg.toolCalls]
+                updatedToolCalls[toolCallIndex] = {
+                  ...updatedToolCalls[toolCallIndex],
+                  status: toolResult.is_error ? 'error' : 'completed',
+                  output: typeof toolResult.content === 'string' ? toolResult.content : JSON.stringify(toolResult.content),
+                  endTime: Date.now()
                 }
+                
+                const updatedTimelineEvents = (msg.timelineEvents || []).map(event =>
+                  event.id === `tool-${toolResult.tool_use_id}` ? {
+                    ...event,
+                    status: toolResult.is_error ? 'error' : 'completed'
+                  } : event
+                )
+                
+                updateMessage(assistantMessageId, {
+                  toolCalls: updatedToolCalls,
+                  timelineEvents: updatedTimelineEvents
+                }, targetSessionId)
               }
             }
           }
@@ -1443,33 +1532,33 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function updateToolCall(messageId: string, toolCallId: string, status: ToolCall['status']) {
+  function updateToolCall(messageId: string, toolCallId: string, status: ToolCall['status'], additionalUpdates?: Partial<ToolCall>) {
     const sid = currentSessionId.value
     const session = sessions.value.find(s => s.id === sid)
     if (!session) return
 
-    // 优先按调用方传入的 messageId 命中。AssistantTimeline / MessageList 把
-    // 同一段 assistant 输出按"连续 assistant 消息"打成 group，外层 emit 时
-    // 用的是 `group.id`（即第一条消息的 id）；但 toolCall 可能挂在 group 内
-    // 任意一条后续 assistant 消息上（每个 LLM turn 都会新建一条 assistantMessage）。
-    // 严格按 messageId 命中就会静默 no-op，导致 AskUserQuestion 卡片提交后
-    // 视觉上不变化（仍然 running）。
-    // 因此当 messageId 找不到时，fallback 全表扫描——toolCallId 在会话内是
-    // 全局唯一的（engine 颁发的 tool_use_id），不会误命中。
+    // 优先按调用方传入的 messageId 命中
     const primary = session.messages.find(m => m.id === messageId)
-    const tc = primary?.toolCalls?.find(t => t.id === toolCallId)
-    if (tc) {
-      tc.status = status
-      saveToStorage()
-      return
+    if (primary?.toolCalls) {
+      const tcIndex = primary.toolCalls.findIndex(t => t.id === toolCallId)
+      if (tcIndex >= 0) {
+        const updatedToolCalls = [...primary.toolCalls]
+        updatedToolCalls[tcIndex] = { ...updatedToolCalls[tcIndex], status, ...additionalUpdates }
+        updateMessage(messageId, { toolCalls: updatedToolCalls }, sid)
+        return
+      }
     }
 
+    // fallback 全表扫描
     for (const message of session.messages) {
-      const fallback = message.toolCalls?.find(t => t.id === toolCallId)
-      if (fallback) {
-        fallback.status = status
-        saveToStorage()
-        return
+      if (message.toolCalls) {
+        const tcIndex = message.toolCalls.findIndex(t => t.id === toolCallId)
+        if (tcIndex >= 0) {
+          const updatedToolCalls = [...message.toolCalls]
+          updatedToolCalls[tcIndex] = { ...updatedToolCalls[tcIndex], status, ...additionalUpdates }
+          updateMessage(message.id, { toolCalls: updatedToolCalls }, sid)
+          return
+        }
       }
     }
   }
