@@ -8,35 +8,60 @@
         <h3>{{ title }}</h3>
         <span>{{ statusText }}</span>
       </div>
-    </div>
-    
-    <div class="card-body">
-      <div 
-        v-for="(question, qIndex) in questions" 
-        :key="qIndex"
-        class="question-item"
-      >
-        <div class="question-title">
-          <span v-if="question.header" class="chip">{{ question.header }}</span>
-          <span>{{ question.question }}</span>
-        </div>
-        
-        <div class="options-grid">
-          <button
-            v-for="(option, oIndex) in question.options"
-            :key="oIndex"
-            class="option-btn"
-            :class="{ 'selected': isOptionSelected(qIndex, oIndex) }"
-            :disabled="!isPending"
-            @click="handleOptionClick(qIndex, oIndex, option, question.multiSelect)"
-          >
-            <div class="option-label">{{ option.label }}</div>
-            <div v-if="option.description" class="option-desc">{{ option.description }}</div>
-          </button>
+      <div v-if="isPaged" class="header-progress">
+        <span class="progress-text">{{ currentPage + 1 }} / {{ questions.length }}</span>
+        <div class="progress-dots">
+          <span
+            v-for="(_, idx) in questions"
+            :key="idx"
+            class="dot"
+            :class="{
+              active: idx === currentPage,
+              done: isQuestionAnswered(idx) && idx !== currentPage,
+            }"
+          />
         </div>
       </div>
     </div>
-    
+
+    <div class="card-body">
+      <template v-if="currentQuestion">
+        <div class="question-item" :key="currentPage">
+          <div class="question-title">
+            <span v-if="currentQuestion.header" class="chip">{{ currentQuestion.header }}</span>
+            <span>{{ currentQuestion.question }}</span>
+            <span v-if="currentQuestion.multiSelect" class="multi-hint">多选</span>
+          </div>
+
+          <div class="options-grid">
+            <button
+              v-for="(option, oIndex) in currentQuestion.options"
+              :key="oIndex"
+              class="option-btn"
+              :class="{ 'selected': isOptionSelected(currentPage, oIndex) }"
+              :disabled="!isPending"
+              @click="handleOptionClick(currentPage, oIndex, option, currentQuestion.multiSelect)"
+            >
+              <div class="option-label">{{ option.label }}</div>
+              <div v-if="option.description" class="option-desc">{{ option.description }}</div>
+            </button>
+          </div>
+
+          <div class="custom-input-wrap">
+            <label class="custom-input-label">没有合适的选项？自己输入：</label>
+            <textarea
+              v-model="customInputs[currentPage]"
+              class="custom-input"
+              rows="2"
+              placeholder="在此输入你自己的答案（可选）"
+              :disabled="!isPending"
+              @input="onCustomInput(currentPage)"
+            />
+          </div>
+        </div>
+      </template>
+    </div>
+
     <div class="card-footer">
       <button
         class="footer-btn secondary"
@@ -45,7 +70,25 @@
       >
         {{ skipText }}
       </button>
+      <div class="footer-spacer" />
       <button
+        v-if="isPaged"
+        class="footer-btn ghost"
+        :disabled="!isPending || currentPage === 0"
+        @click="goPrev"
+      >
+        上一页
+      </button>
+      <button
+        v-if="isPaged && !isLastPage"
+        class="footer-btn primary"
+        :disabled="!isPending || !isQuestionAnswered(currentPage)"
+        @click="goNext"
+      >
+        下一页
+      </button>
+      <button
+        v-if="!isPaged || isLastPage"
         class="footer-btn primary"
         :disabled="!isPending || answeredQuestionCount === 0"
         @click="handleSubmit"
@@ -133,9 +176,17 @@ const shouldRender = computed(() => {
   return true
 })
 
+const isPaged = computed(() => questions.value.length > 1)
+
+const currentPage = ref(0)
+
+const currentQuestion = computed<Question | undefined>(() => questions.value[currentPage.value])
+
+const isLastPage = computed(() => currentPage.value >= questions.value.length - 1)
+
 const title = computed(() => {
   if (!isPending.value) return '已回答'
-  return questions.value.length > 1 ? '快速选择' : '请做出选择'
+  return isPaged.value ? '快速选择' : '请做出选择'
 })
 
 const statusText = computed(() => {
@@ -145,7 +196,7 @@ const statusText = computed(() => {
 })
 
 const skipText = computed(() => {
-  return questions.value.length > 1 ? '跳过全部' : '跳过'
+  return isPaged.value ? '跳过全部' : '跳过'
 })
 
 const submitText = computed(() => {
@@ -154,19 +205,29 @@ const submitText = computed(() => {
 
   if (answeredQuestions === 0) return '请先选择'
   if (answeredQuestions === totalQuestions) return '提交答案'
-  return `已选 ${answeredQuestions}/${totalQuestions}`
+  return `已答 ${answeredQuestions}/${totalQuestions}`
 })
 
 const selections = ref<Map<string, string>>(new Map())
+// 每个问题的自定义输入（按问题索引存放）。即使 LLM 没给合适选项，用户也能补充。
+const customInputs = ref<Record<number, string>>({})
 
-/** Counts how many distinct questions currently have at least one selection. */
-const answeredQuestionCount = computed(() => {
-  const seen = new Set<number>()
+function isQuestionAnswered(qIndex: number): boolean {
+  const prefix = `${qIndex}-`
   for (const key of selections.value.keys()) {
-    const qIdx = Number(key.split('-')[0])
-    if (!Number.isNaN(qIdx)) seen.add(qIdx)
+    if (key.startsWith(prefix)) return true
   }
-  return seen.size
+  const custom = customInputs.value[qIndex]
+  return !!(custom && custom.trim().length > 0)
+}
+
+/** Counts how many distinct questions currently have at least one answer (option or custom text). */
+const answeredQuestionCount = computed(() => {
+  let count = 0
+  for (let i = 0; i < questions.value.length; i++) {
+    if (isQuestionAnswered(i)) count += 1
+  }
+  return count
 })
 
 function getSelectionKey(qIndex: number, oIndex: number): string {
@@ -202,6 +263,22 @@ function handleOptionClick(
   }
 }
 
+function onCustomInput(_qIndex: number) {
+  // 仅用于触发 reactive 更新；当前不需要额外副作用。
+  void _qIndex
+}
+
+function goPrev() {
+  if (!isPending.value) return
+  if (currentPage.value > 0) currentPage.value -= 1
+}
+
+function goNext() {
+  if (!isPending.value) return
+  if (!isQuestionAnswered(currentPage.value)) return
+  if (currentPage.value < questions.value.length - 1) currentPage.value += 1
+}
+
 function handleSkip() {
   if (!isPending.value) return
   emit('skip')
@@ -212,19 +289,20 @@ function handleSubmit() {
 
   const answers: Record<string, string> = {}
   questions.value.forEach((question, qIndex) => {
-    const selectedLabels: string[] = []
+    const parts: string[] = []
     question.options.forEach((option, oIndex) => {
       const key = getSelectionKey(qIndex, oIndex)
       if (selections.value.has(key)) {
         // engine 强制 option label 在每题内唯一（UNIQUENESS_REFINE），
         // 且 SDK 的 outputSchema.answers 描述说多选答案以逗号分隔。
-        selectedLabels.push(option.label)
-        // option arg referenced to silence unused-var lints in some setups
+        parts.push(option.label)
         void option
       }
     })
-    if (selectedLabels.length > 0) {
-      answers[question.question] = selectedLabels.join(', ')
+    const custom = (customInputs.value[qIndex] || '').trim()
+    if (custom) parts.push(custom)
+    if (parts.length > 0) {
+      answers[question.question] = parts.join(', ')
     }
   })
 
@@ -297,8 +375,103 @@ function handleSubmit() {
   }
 }
 
+.header-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.progress-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-dots {
+  display: flex;
+  gap: 5px;
+
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--surface-border);
+    transition: all 0.2s ease;
+
+    &.done {
+      background: var(--accent-primary);
+      opacity: 0.7;
+    }
+
+    &.active {
+      background: var(--accent-primary);
+      transform: scale(1.3);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+    }
+  }
+}
+
 .card-body {
   padding: 16px 20px;
+}
+
+.multi-hint {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent-primary);
+  background: rgba(59, 130, 246, 0.12);
+  border-radius: 999px;
+}
+
+.custom-input-wrap {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.custom-input-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.custom-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--surface-glass);
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 56px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+
+  &::placeholder {
+    color: var(--text-muted);
+  }
+
+  &:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.footer-spacer {
+  flex: 1;
 }
 
 .question-item {
@@ -445,6 +618,17 @@ function handleSubmit() {
     &:hover {
       background: var(--surface-glass-hover);
       border-color: var(--accent-primary);
+      color: var(--text-primary);
+    }
+  }
+
+  &.ghost {
+    background: var(--surface-glass);
+    border: 1px solid var(--surface-border);
+    color: var(--text-secondary);
+
+    &:hover {
+      background: var(--surface-glass-hover);
       color: var(--text-primary);
     }
   }

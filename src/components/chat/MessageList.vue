@@ -1,7 +1,7 @@
 <template>
-  <div class="message-list" ref="listRef" :class="{ 'has-messages': messages.length > 0 || loading }">
+  <div class="message-list" ref="listRef" :class="{ 'has-messages': props.messages.length > 0 || props.loading }">
     <div class="messages-container">
-      <div v-if="messages.length === 0 && !loading" class="empty-state">
+      <div v-if="props.messages.length === 0 && !props.loading" class="empty-state">
         <MessageSquare :size="48" />
         <p>{{ t('chat.startConversation') }}</p>
         <span>{{ t('chat.startConversationDesc') }}</span>
@@ -19,13 +19,13 @@
         <AgentTimeline
           v-else
           :messages="group.messages"
-          :loading="loading && group.id === messageGroups[messageGroups.length - 1]?.id"
+          :loading="props.loading && group.id === messageGroups[messageGroups.length - 1]?.id"
           @tool-submit="(tId, ans) => emit('toolSubmit', group.id, tId, ans)"
           @tool-skip="(tId) => emit('toolSkip', group.id, tId)"
         />
       </template>
 
-      <div v-if="loading" class="typing-indicator">
+      <div v-if="props.loading" class="typing-indicator">
         <div class="dot"></div>
         <div class="dot"></div>
         <div class="dot"></div>
@@ -61,7 +61,7 @@ const emit = defineEmits<{
   toolSkip: [messageId: string, toolId: string]
 }>()
 
-const { messages, loading } = defineProps<{
+const props = defineProps<{
   messages: Message[]
   loading: boolean
 }>()
@@ -73,15 +73,37 @@ interface MessageGroup {
 }
 
 // ========== 优化1: 消息分组计算缓存 (类似useMemo) ==========
-// 使用自定义缓存避免每次渲染重新计算
+// 使用输入数组引用 + 数组形态作为缓存键. 关键约束:
+//  - chat store 的 updateMessage() 每次流式 text_delta 都会执行
+//    `session.messages = [...]` 整体替换数组, 同时把被改的 message 替换为
+//    `{ ...old, ...updates }` 这个新对象. 因此每次内容增长 -> msgs 引用变 ->
+//    缓存必须失效, 重建后下游拿到的才是最新的 message 引用.
+//  - addMessage() 发送用户消息/追加 assistant 占位消息时使用 push(), 数组引用
+//    不变但 length/lastId 会变, 所以不能只按引用缓存, 否则用户 bubble 会延迟显示.
+//  - 更旧的实现只用 `length-firstId-lastId` 作为 key, 流式期间这三个值都不变,
+//    缓存永久命中, 把第一次构建时持有的"僵尸 message 引用"一直传给
+//    AgentTimeline, 导致 LLM 答复无法实时渲染, 必须切走会话再切回 (组件
+//    remount, 缓存重置) 才能看到完整内容.
+//  - 对于不替换数组、只改对象内部属性的更新 (例如 msg.timelineEvents = [...])
+//    msgs 引用相同, 缓存命中是正确的: 下游 AgentTimeline 拿到的是同一批
+//    message 引用, 它内部的内容感知缓存会再做一次细粒度失效.
 let _cachedMessageGroups: MessageGroup[] | null = null
-let _cachedMessagesKey = ''
+let _cachedMessagesRef: Message[] | null = null
+let _cachedMessagesLength = -1
+let _cachedFirstMessageId = ''
+let _cachedLastMessageId = ''
 
 function buildMessageGroups(msgs: Message[]): MessageGroup[] {
-  // 生成简单key用于比较消息数组是否变化
-  const key = msgs.length > 0 ? `${msgs.length}-${msgs[msgs.length - 1]?.id}-${msgs[0]?.id}` : 'empty'
+  const firstMessageId = msgs[0]?.id || ''
+  const lastMessageId = msgs[msgs.length - 1]?.id || ''
 
-  if (_cachedMessageGroups && _cachedMessagesKey === key) {
+  if (
+    _cachedMessageGroups &&
+    _cachedMessagesRef === msgs &&
+    _cachedMessagesLength === msgs.length &&
+    _cachedFirstMessageId === firstMessageId &&
+    _cachedLastMessageId === lastMessageId
+  ) {
     return _cachedMessageGroups
   }
 
@@ -104,12 +126,15 @@ function buildMessageGroups(msgs: Message[]): MessageGroup[] {
   }
 
   _cachedMessageGroups = groups
-  _cachedMessagesKey = key
+  _cachedMessagesRef = msgs
+  _cachedMessagesLength = msgs.length
+  _cachedFirstMessageId = firstMessageId
+  _cachedLastMessageId = lastMessageId
   return groups
 }
 
 const messageGroups = computed<MessageGroup[]>(() => {
-  return buildMessageGroups(messages)
+  return buildMessageGroups(props.messages)
 })
 
 // ========== 优化2: 滚动位置记忆与恢复 ==========
@@ -154,16 +179,22 @@ function isNearScrollBottom(element: HTMLElement): boolean {
 }
 
 function scrollToBottom(behavior: 'auto' | 'smooth' = 'auto') {
-  nextTick(() => {
-    if (listRef.value) {
-      isProgrammaticScrollingRef.value = true
-      listRef.value.scrollTop = listRef.value.scrollHeight
+  const applyScroll = () => {
+    if (!listRef.value || !shouldAutoScrollRef.value) return
+    isProgrammaticScrollingRef.value = true
+    listRef.value.scrollTo({
+      top: listRef.value.scrollHeight,
+      behavior,
+    })
+    setTimeout(() => {
+      isProgrammaticScrollingRef.value = false
+    }, 0)
+  }
 
-      // 重置标记
-      setTimeout(() => {
-        isProgrammaticScrollingRef.value = false
-      }, 50)
-    }
+  nextTick(() => {
+    applyScroll()
+    requestAnimationFrame(applyScroll)
+    setTimeout(applyScroll, 120)
   })
 }
 
@@ -181,8 +212,29 @@ function handleScroll() {
   }
 }
 
-// 监听messages变化，智能决定是否自动滚动
-watch(() => [messages.length, loading], ([newLength, newLoading], [oldLength, oldLoading]) => {
+const streamScrollSignal = computed(() => {
+  const lastMessage = props.messages[props.messages.length - 1]
+  if (!lastMessage) return 'empty'
+
+  const timelineSignal = (lastMessage.timelineEvents || [])
+    .map(event => `${event.id}:${event.status}:${(event.content || '').length}`)
+    .join('|')
+
+  return [
+    props.messages.length,
+    lastMessage.id,
+    lastMessage.role,
+    (lastMessage.content || '').length,
+    (lastMessage.reasoning?.content || '').length,
+    lastMessage.reasoning?.endTime ? 1 : 0,
+    lastMessage.metadata ? 1 : 0,
+    props.loading ? 1 : 0,
+    timelineSignal,
+  ].join(':')
+})
+
+// 监听消息数量、loading 和流式内容变化，智能决定是否自动滚动
+watch(streamScrollSignal, () => {
   if (!listRef.value) return
 
   // 只有在底部时才自动滚动（用户正在看最新消息）
@@ -226,7 +278,7 @@ function getCachedCompletedTurnTargets(msgs: Message[]): RewindTurnTarget[] {
   return _cachedTurnTargets
 }
 
-const completedTurnTargets = computed(() => getCachedCompletedTurnTargets(messages))
+const completedTurnTargets = computed(() => getCachedCompletedTurnTargets(props.messages))
 const hasCompletedTurns = computed(() => completedTurnTargets.value.length > 0)
 
 // 优化：使用防抖处理turnCheckpoints加载
@@ -250,9 +302,9 @@ watch(() => chatStore.currentSessionId, (sessionId) => {
   }
 })
 
-watch(() => messages.length, () => {
+watch(() => props.messages.length, () => {
   const sessionId = chatStore.currentSessionId
-  const isIdle = !chatStore.isLoading && !loading
+  const isIdle = !chatStore.isLoading && !props.loading
 
   if (sessionId && isIdle && hasCompletedTurns.value) {
     debouncedLoadTurnCheckpoints(sessionId)
@@ -267,12 +319,12 @@ onMounted(async () => {
     listRef.value.addEventListener('scroll', handleScroll, { passive: true })
   }
 
-  if (messages.length > 0) {
+  if (props.messages.length > 0) {
     scrollToBottom()
   }
 
   const sessionId = chatStore.currentSessionId
-  if (sessionId && !loading && hasCompletedTurns.value) {
+  if (sessionId && !props.loading && hasCompletedTurns.value) {
     await chatStore.loadTurnCheckpoints(sessionId)
   }
 
