@@ -33,12 +33,22 @@
         >
           Marketplace
         </button>
+        <button
+          class="tab-btn"
+          :class="{ active: viewTab === 'library' }"
+          @click="viewTab = 'library'"
+        >
+          {{ t('skills.localLibrary') }}
+        </button>
       </div>
     </div>
 
     <!-- Main content -->
     <div v-if="viewTab === 'marketplace'" class="marketplace-container">
       <MarketplaceBrowser @installed="fetchSkills" />
+    </div>
+    <div v-else-if="viewTab === 'library'" class="library-container">
+      <LocalSkillBrowser />
     </div>
     <div v-else class="skills-content">
       <!-- Left: skill list -->
@@ -132,6 +142,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Plus, Search, Zap, ArrowLeft } from 'lucide-vue-next'
 import { useSkillsStore, type Skill } from '@/stores/skills'
 import { useAppStore } from '@/stores/app'
@@ -139,7 +150,9 @@ import SkillListItem from './SkillListItem.vue'
 import SkillEditor from './SkillEditor.vue'
 import CreateSkillDialog from './CreateSkillDialog.vue'
 import MarketplaceBrowser from './MarketplaceBrowser.vue'
+import LocalSkillBrowser from './LocalSkillBrowser.vue'
 
+const { t } = useI18n()
 const skillsStore = useSkillsStore()
 
 // Close skills manager (return to chat)
@@ -151,7 +164,7 @@ function handleClose() {
 const search = ref('')
 const selected = ref<Skill | null>(null)
 const showCreate = ref(false)
-const viewTab = ref<'local' | 'marketplace'>('local')
+const viewTab = ref<'local' | 'marketplace' | 'library'>('local')
 
 const loading = computed(() => skillsStore.loading)
 const skills = computed(() => skillsStore.skills)
@@ -309,6 +322,11 @@ onMounted(() => {
 }
 
 .marketplace-container {
+  flex: 1;
+  overflow: hidden;
+}
+
+.library-container {
   flex: 1;
   overflow: hidden;
 }

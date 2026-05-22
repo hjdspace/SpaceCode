@@ -396,6 +396,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     installMarketplaceSkill: (source: string, skillId: string, global: boolean) => ipcRenderer.invoke('skills:installMarketplaceSkill', source, skillId, global),
     uninstallMarketplaceSkill: (skillName: string, global: boolean) => ipcRenderer.invoke('skills:uninstallMarketplaceSkill', skillName, global),
     fetchMarketplaceReadme: (source: string, skillId: string) => ipcRenderer.invoke('skills:fetchMarketplaceReadme', source, skillId),
+    scanLocalLibrary: (dirPaths: string[], cwd?: string) => ipcRenderer.invoke('skills:scan-local-library', dirPaths, cwd),
+    installLocal: (skillName: string, scope: 'global' | 'project', cwd?: string) => ipcRenderer.invoke('skills:install-local', skillName, scope, cwd),
+    uninstallLocal: (skillName: string, cwd?: string) => ipcRenderer.invoke('skills:uninstall-local', skillName, cwd),
+    getCustomDirs: () => ipcRenderer.invoke('skills:get-custom-dirs'),
+    addCustomDir: (dirPath: string) => ipcRenderer.invoke('skills:add-custom-dir', dirPath),
+    removeCustomDir: (dirPath: string) => ipcRenderer.invoke('skills:remove-custom-dir', dirPath),
   },
 
   // 渲染进程日志桥接

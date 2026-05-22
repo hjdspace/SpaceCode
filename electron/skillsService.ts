@@ -562,3 +562,360 @@ export function registerSkillsIPCHandlers(): void {
 
   console.log('[Skills] IPC handlers registered')
 }
+
+// ==================== Local Library Functions ====================
+
+interface LocalSkill {
+  name: string
+  description: string
+  content: string
+  category: string
+  tags?: string[]
+  sourceDir: string
+  skillPath: string
+  isInstalled: boolean
+  installedScope?: 'global' | 'project'
+  installedAt?: Date
+}
+
+const CUSTOM_DIRS_STORAGE_KEY = 'local_skill_custom_dirs'
+const CUSTOM_DIRS_FILE = join(app.getPath('userData'), 'custom-skill-dirs.json')
+
+function loadCustomDirsFromFile(): string[] {
+  try {
+    if (existsSync(CUSTOM_DIRS_FILE)) {
+      const content = readFileSync(CUSTOM_DIRS_FILE, 'utf-8')
+      return JSON.parse(content)
+    }
+  } catch (err) {
+    console.error('[LocalLibrary] Failed to load custom directories from file:', err)
+  }
+  return []
+}
+
+function saveCustomDirsToFile(directories: string[]): void {
+  try {
+    writeFileSync(CUSTOM_DIRS_FILE, JSON.stringify(directories, null, 2), 'utf-8')
+  } catch (err) {
+    console.error('[LocalLibrary] Failed to save custom directories to file:', err)
+    throw err
+  }
+}
+
+function parseYamlFrontMatter(content: string): Record<string, any> | null {
+  const match = content.match(/^---\n([\s\S]*?)\n---/)
+  if (!match) return null
+
+  try {
+    const yaml = match[1]
+    const result: Record<string, any> = {}
+    const lines = yaml.split('\n')
+
+    for (const line of lines) {
+      const colonIndex = line.indexOf(':')
+      if (colonIndex === -1) continue
+
+      const key = line.slice(0, colonIndex).trim()
+      let value: string | string[] = line.slice(colonIndex + 1).trim()
+
+      if (typeof value === 'string' && value.startsWith('[') && value.endsWith(']')) {
+        value = (value as string).slice(1, -1).split(',').map(item => item.trim().replace(/^['"]|['"]$/g, ''))
+      } else if (typeof value === 'string' && (value.startsWith('"') || value.startsWith("'"))) {
+        value = (value as string).slice(1, -1)
+      }
+
+      result[key] = value
+    }
+
+    return result
+  } catch (err) {
+    return null
+  }
+}
+
+function inferCategory(skillPath: string, content: string): string {
+  const frontMatter = parseYamlFrontMatter(content)
+
+  if (frontMatter?.category) {
+    return frontMatter.category.toLowerCase().replace(/[\s_]+/g, '-')
+  }
+
+  const dirName = dirname(skillPath).split(/[\\/]/).pop()?.toLowerCase() || ''
+  const categoryMap: Record<string, string> = {
+    'frontend': 'frontend-design',
+    'ui': 'frontend-design',
+    'design': 'frontend-design',
+    'css': 'frontend-design',
+    'office': 'office',
+    'document': 'office',
+    'excel': 'office',
+    'word': 'office',
+    'dev': 'development',
+    'code': 'development',
+    'programming': 'development',
+    'api': 'development',
+    'ai': 'ai-ml',
+    'ml': 'ai-ml',
+    'machine-learning': 'ai-ml',
+    'nlp': 'ai-ml',
+    'devops': 'devops',
+    'docker': 'devops',
+    'kubernetes': 'devops',
+    'ci': 'devops',
+    'creative': 'creative',
+    'art': 'creative',
+    'image': 'creative',
+    'communication': 'communication',
+    'chat': 'communication',
+    'email': 'communication'
+  }
+
+  if (categoryMap[dirName]) {
+    return categoryMap[dirName]
+  }
+
+  const lowerContent = content.toLowerCase()
+  const keywordPatterns: Array<{ pattern: RegExp; category: string }> = [
+    { pattern: /react|vue|angular|css|scss|tailwind|frontend/i, category: 'frontend-design' },
+    { pattern: /excel|word|powerpoint|office|document|pdf/i, category: 'office' },
+    { pattern: /api|rest|graphql|database|sql|backend/i, category: 'development' },
+    { pattern: /machine.?learning|deep.?learning|neural|nlp|gpt|llm|ai/i, category: 'ai-ml' },
+    { pattern: /docker|kubernetes|ci.?cd|deploy|pipeline/i, category: 'devops' },
+    { pattern: /design|ui|ux|figma|sketch|creative|art/i, category: 'creative' },
+    { pattern: /slack|discord|email|notification|chat|message/i, category: 'communication' }
+  ]
+
+  for (const { pattern, category } of keywordPatterns) {
+    if (pattern.test(lowerContent)) {
+      return category
+    }
+  }
+
+  return 'other'
+}
+
+function checkSkillInstalled(skillName: string): boolean {
+  const globalDir = getGlobalSkillsDir()
+  const globalSkills = readSkillsFromDir(globalDir, 'global')
+  return isSkillInstalled(skillName, globalSkills)
+}
+
+async function handleScanLocalLibrary(
+  _event: Electron.IpcMainInvokeEvent,
+  dirPaths: string[],
+  cwd?: string
+): Promise<{ skills: LocalSkill[] }> {
+  try {
+    const allSkills: LocalSkill[] = []
+
+    for (const dirPath of dirPaths) {
+      const fullPath = dirPath.startsWith('skills-lib') ? join(app.getAppPath(), dirPath) : dirPath
+
+      if (!existsSync(fullPath)) {
+        console.log(`[LocalLibrary] Directory not found: ${fullPath}`)
+        continue
+      }
+
+      const entries = readdirSync(fullPath, { withFileTypes: true })
+
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const skillDir = join(fullPath, entry.name)
+          const skillFile = join(skillDir, 'SKILL.md')
+
+          if (existsSync(skillFile)) {
+            try {
+              const content = readFileSync(skillFile, 'utf-8')
+              const frontMatter = parseYamlFrontMatter(content)
+              const name = frontMatter?.name || entry.name
+              const description = frontMatter?.description ||
+                content.split('\n').find(line => line.trim() && !line.startsWith('#'))?.trim() ||
+                `Skill: ${name}`
+              const tags = frontMatter?.tags ? (Array.isArray(frontMatter.tags) ? frontMatter.tags : [frontMatter.tags]) : undefined
+
+              const localSkill: LocalSkill = {
+                name,
+                description,
+                content,
+                category: inferCategory(skillFile, content),
+                tags,
+                sourceDir: fullPath,
+                skillPath: skillFile,
+                isInstalled: checkSkillInstalled(name)
+              }
+
+              allSkills.push(localSkill)
+            } catch (err) {
+              console.error(`[LocalLibrary] Failed to read skill: ${skillFile}`, err)
+            }
+          }
+        } else if (entry.isFile() && entry.name.endsWith('.md')) {
+          const filePath = join(fullPath, entry.name)
+          try {
+            const content = readFileSync(filePath, 'utf-8')
+            const frontMatter = parseYamlFrontMatter(content)
+            const name = frontMatter?.name || entry.name.replace('.md', '')
+            const description = frontMatter?.description ||
+              content.split('\n').find(line => line.trim() && !line.startsWith('#'))?.trim() ||
+              `Skill: ${name}`
+            const tags = frontMatter?.tags ? (Array.isArray(frontMatter.tags) ? frontMatter.tags : [frontMatter.tags]) : undefined
+
+            const localSkill: LocalSkill = {
+              name,
+              description,
+              content,
+              category: inferCategory(filePath, content),
+              tags,
+              sourceDir: fullPath,
+              skillPath: filePath,
+              isInstalled: checkSkillInstalled(name)
+            }
+
+            allSkills.push(localSkill)
+          } catch (err) {
+            console.error(`[LocalLibrary] Failed to read file: ${filePath}`, err)
+          }
+        }
+      }
+    }
+
+    console.log(`[LocalLibrary] Scanned ${allSkills.length} skills from ${dirPaths.length} directories`)
+    return { skills: allSkills }
+  } catch (err) {
+    console.error('[LocalLibrary] Failed to scan library:', err)
+    throw err
+  }
+}
+
+async function handleInstallLocalSkill(
+  _event: Electron.IpcMainInvokeEvent,
+  skillName: string,
+  scope: 'global' | 'project',
+  cwd?: string
+): Promise<{ success: boolean }> {
+  try {
+    const targetDir = scope === 'global' ? getGlobalSkillsDir() : getProjectSkillsDir(cwd || process.cwd())
+
+    if (!existsSync(targetDir)) {
+      mkdirSync(targetDir, { recursive: true })
+    }
+
+    const targetPath = join(targetDir, `${skillName}.md`)
+
+    if (existsSync(targetPath)) {
+      throw new Error(`Skill '${skillName}' is already installed`)
+    }
+
+    writeFileSync(targetPath, `# Installed from Local Library\n\nName: ${skillName}\nScope: ${scope}\n`, 'utf-8')
+
+    console.log(`[LocalLibrary] Installed skill '${skillName}' to ${scope}`)
+    return { success: true }
+  } catch (err) {
+    console.error('[LocalLibrary] Failed to install skill:', err)
+    throw err
+  }
+}
+
+async function handleUninstallLocalSkill(
+  _event: Electron.IpcMainInvokeEvent,
+  skillName: string,
+  cwd?: string
+): Promise<{ success: boolean }> {
+  try {
+    const globalDir = getGlobalSkillsDir()
+    const projectDir = cwd ? getProjectSkillsDir(cwd) : null
+
+    const globalPath = join(globalDir, `${skillName}.md`)
+    const projectPath = projectDir ? join(projectDir, `${skillName}.md`) : null
+
+    let removed = false
+
+    if (existsSync(globalPath)) {
+      unlinkSync(globalPath)
+      removed = true
+    }
+
+    if (projectPath && existsSync(projectPath)) {
+      unlinkSync(projectPath)
+      removed = true
+    }
+
+    if (!removed) {
+      throw new Error(`Skill '${skillName}' is not installed`)
+    }
+
+    console.log(`[LocalLibrary] Uninstalled skill '${skillName}'`)
+    return { success: true }
+  } catch (err) {
+    console.error('[LocalLibrary] Failed to uninstall skill:', err)
+    throw err
+  }
+}
+
+async function handleGetCustomDirectories(
+  _event: Electron.IpcMainInvokeEvent
+): Promise<{ directories: string[] }> {
+  try {
+    const directories = loadCustomDirsFromFile()
+    return { directories }
+  } catch (err) {
+    console.error('[LocalLibrary] Failed to get custom directories:', err)
+    return { directories: [] }
+  }
+}
+
+async function handleAddCustomDirectory(
+  _event: Electron.IpcMainInvokeEvent,
+  dirPath: string
+): Promise<{ success: boolean }> {
+  try {
+    if (!existsSync(dirPath)) {
+      throw new Error(`Directory does not exist: ${dirPath}`)
+    }
+
+    const directories = loadCustomDirsFromFile()
+
+    if (directories.includes(dirPath)) {
+      throw new Error(`Directory already exists: ${dirPath}`)
+    }
+
+    directories.push(dirPath)
+    saveCustomDirsToFile(directories)
+
+    console.log(`[LocalLibrary] Added custom directory: ${dirPath}`)
+    return { success: true }
+  } catch (err) {
+    console.error('[LocalLibrary] Failed to add custom directory:', err)
+    throw err
+  }
+}
+
+async function handleRemoveCustomDirectory(
+  _event: Electron.IpcMainInvokeEvent,
+  dirPath: string
+): Promise<{ success: boolean }> {
+  try {
+    let directories = loadCustomDirsFromFile()
+    directories = directories.filter(d => d !== dirPath)
+
+    saveCustomDirsToFile(directories)
+
+    console.log(`[LocalLibrary] Removed custom directory: ${dirPath}`)
+    return { success: true }
+  } catch (err) {
+    console.error('[LocalLibrary] Failed to remove custom directory:', err)
+    throw err
+  }
+}
+
+export function registerLocalLibraryIPCHandlers(): void {
+  ipcMain.handle('skills:scan-local-library', handleScanLocalLibrary)
+  ipcMain.handle('skills:install-local', handleInstallLocalSkill)
+  ipcMain.handle('skills:uninstall-local', handleUninstallLocalSkill)
+  ipcMain.handle('skills:get-custom-dirs', handleGetCustomDirectories)
+  ipcMain.handle('skills:add-custom-dir', handleAddCustomDirectory)
+  ipcMain.handle('skills:remove-custom-dir', handleRemoveCustomDirectory)
+
+  console.log('[LocalLibrary] IPC handlers registered')
+}
+

@@ -4,7 +4,7 @@ import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSy
 import { config } from 'dotenv'
 import { TerminalManager } from './terminalManager'
 import { registerGitIPCHandlers } from './gitService'
-import { registerSkillsIPCHandlers } from './skillsService'
+import { registerSkillsIPCHandlers, registerLocalLibraryIPCHandlers } from './skillsService'
 import { registerClaudeCodeIPC, setMainWindow } from './claudeCodeIPC'
 import { registerPromptOptimizerIPC } from './promptOptimizerIPC'
 import { initLogger, info, warn, error, debug, isDebugMode, ipc as logIpc, traceEvent, listDebugFiles, readDebugFile, listTraceSessions, readTraceEvents } from './logger'
@@ -465,6 +465,10 @@ app.whenReady().then(() => {
   // Register Skills IPC handlers
   registerSkillsIPCHandlers()
   info('Startup', 'Skills IPC handlers registered')
+
+  // Register Local Library IPC handlers
+  registerLocalLibraryIPCHandlers()
+  info('Startup', 'Local Library IPC handlers registered')
 
   // Register Claude Code IPC handlers
   registerClaudeCodeIPC()
