@@ -37,8 +37,17 @@ function sanitizePath(p: string): string {
   return p.replace(/[^a-zA-Z0-9]/g, '-')
 }
 
+function resolveRealPath(p: string): string {
+  try {
+    return fs.realpathSync(p).normalize('NFC')
+  } catch {
+    return p.normalize('NFC')
+  }
+}
+
 function getProjectDir(projectPath: string): string {
-  return path.join(getClaudeProjectsDir(), sanitizePath(projectPath))
+  const resolvedPath = resolveRealPath(projectPath)
+  return path.join(getClaudeProjectsDir(), sanitizePath(resolvedPath))
 }
 
 function decodeSanitizedPath(sanitized: string): string {
