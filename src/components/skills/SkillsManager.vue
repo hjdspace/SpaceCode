@@ -4,17 +4,17 @@
     <div class="skills-header">
       <div class="header-content">
         <div class="header-left">
-          <button class="close-btn" @click="handleClose" title="Close">
+          <button class="close-btn" @click="handleClose" :title="t('common.close')">
             <ArrowLeft :size="18" />
           </button>
           <div>
-            <h1 class="title">Skills</h1>
-            <p class="description">Create and manage slash command skills for Claude</p>
+            <h1 class="title">{{ t('skills.title') }}</h1>
+            <p class="description">{{ t('skills.description') }}</p>
           </div>
         </div>
         <button v-if="viewTab === 'local'" class="btn btn-primary" @click="showCreate = true">
           <Plus :size="14" />
-          New Skill
+          {{ t('skills.newSkill') }}
         </button>
       </div>
       <!-- Segmented control -->
@@ -24,14 +24,14 @@
           :class="{ active: viewTab === 'local' }"
           @click="viewTab = 'local'"
         >
-          My Skills
+          {{ t('skills.tabMySkills') }}
         </button>
         <button
           class="tab-btn"
           :class="{ active: viewTab === 'marketplace' }"
           @click="viewTab = 'marketplace'"
         >
-          Marketplace
+          {{ t('skills.tabMarketplace') }}
         </button>
         <button
           class="tab-btn"
@@ -48,7 +48,7 @@
       <MarketplaceBrowser @installed="fetchSkills" />
     </div>
     <div v-else-if="viewTab === 'library'" class="library-container">
-      <LocalSkillBrowser />
+      <LocalSkillBrowser @installed="fetchSkills" />
     </div>
     <div v-else class="skills-content">
       <!-- Left: skill list -->
@@ -57,13 +57,13 @@
           <Search :size="14" class="search-icon" />
           <input
             v-model="search"
-            placeholder="Search skills..."
+            :placeholder="t('skills.searchSkillsMy')"
             class="search-input"
           />
         </div>
         <div class="skills-list">
           <div v-if="globalSkills.length > 0" class="skill-group">
-            <span class="group-label">Global</span>
+            <span class="group-label">{{ t('skills.groupGlobal') }}</span>
             <SkillListItem
               v-for="skill in globalSkills"
               :key="`${skill.source}:${skill.installedSource ?? 'default'}:${skill.name}`"
@@ -73,8 +73,19 @@
               @delete="handleDelete"
             />
           </div>
+          <div v-if="projectSkills.length > 0" class="skill-group">
+            <span class="group-label">{{ t('skills.groupProject') }}</span>
+            <SkillListItem
+              v-for="skill in projectSkills"
+              :key="`${skill.source}:${skill.installedSource ?? 'default'}:${skill.name}`"
+              :skill="skill"
+              :selected="isSelected(skill)"
+              @select="selected = skill"
+              @delete="handleDelete"
+            />
+          </div>
           <div v-if="installedSkills.length > 0" class="skill-group">
-            <span class="group-label">Installed</span>
+            <span class="group-label">{{ t('skills.groupInstalled') }}</span>
             <SkillListItem
               v-for="skill in installedSkills"
               :key="`${skill.source}:${skill.installedSource ?? 'default'}:${skill.name}`"
@@ -85,7 +96,7 @@
             />
           </div>
           <div v-if="pluginSkills.length > 0" class="skill-group">
-            <span class="group-label">Plugins</span>
+            <span class="group-label">{{ t('skills.groupPlugins') }}</span>
             <SkillListItem
               v-for="skill in pluginSkills"
               :key="skill.filePath || `${skill.source}:${skill.installedSource ?? 'default'}:${skill.name}`"
@@ -97,10 +108,10 @@
           </div>
           <div v-if="filtered.length === 0" class="empty-state">
             <Zap :size="32" class="empty-icon" />
-            <p class="empty-text">{{ search ? 'No skills found' : 'No skills yet' }}</p>
+            <p class="empty-text">{{ search ? t('skills.noSkillsFound') : t('skills.noSkillsYet') }}</p>
             <button v-if="!search" class="btn btn-secondary" @click="showCreate = true">
               <Plus :size="12" />
-              Create one
+              {{ t('skills.createOne') }}
             </button>
           </div>
         </div>
@@ -113,7 +124,7 @@
       <div class="skill-editor-panel">
         <SkillEditor
           v-if="selected"
-          :key="`${selected.source}:${selected.name}`"
+          :key="selected.filePath || `${selected.source}:${selected.name}`"
           :skill="selected"
           @save="handleSave"
           @delete="handleDelete"
@@ -121,12 +132,12 @@
         <div v-else class="no-selection">
           <Zap :size="48" class="no-selection-icon" />
           <div class="no-selection-text">
-            <p class="no-selection-title">No skill selected</p>
-            <p class="no-selection-desc">Select a skill from the list or create a new one</p>
+            <p class="no-selection-title">{{ t('skills.noSkillSelected') }}</p>
+            <p class="no-selection-desc">{{ t('skills.noSkillSelectedDesc') }}</p>
           </div>
           <button class="btn btn-secondary" @click="showCreate = true">
             <Plus :size="14" />
-            New Skill
+            {{ t('skills.newSkill') }}
           </button>
         </div>
       </div>
@@ -154,10 +165,9 @@ import LocalSkillBrowser from './LocalSkillBrowser.vue'
 
 const { t } = useI18n()
 const skillsStore = useSkillsStore()
+const appStore = useAppStore()
 
-// Close skills manager (return to chat)
 function handleClose() {
-  const appStore = useAppStore()
   appStore.showSkillsManager = false
 }
 
@@ -178,6 +188,7 @@ const filtered = computed(() => {
 })
 
 const globalSkills = computed(() => filtered.value.filter(s => s.source === 'global'))
+const projectSkills = computed(() => filtered.value.filter(s => s.source === 'project'))
 const installedSkills = computed(() => filtered.value.filter(s => s.source === 'installed'))
 const pluginSkills = computed(() => filtered.value.filter(s => s.source === 'plugin'))
 
@@ -189,12 +200,14 @@ function isSelected(skill: Skill): boolean {
 }
 
 async function fetchSkills() {
-  await skillsStore.fetchSkills()
+  const cwd = appStore.projectRoot || undefined
+  await skillsStore.fetchSkills(cwd)
 }
 
 async function handleCreate(name: string, scope: 'global' | 'project', content: string) {
   try {
-    const skill = await skillsStore.createSkill(name, scope, content)
+    const cwd = appStore.projectRoot || undefined
+    const skill = await skillsStore.createSkill(name, scope, content, cwd)
     selected.value = skill
     showCreate.value = false
   } catch (err) {
@@ -213,7 +226,7 @@ async function handleSave(skill: Skill, content: string) {
 }
 
 async function handleDelete(skill: Skill) {
-  if (!confirm(`Delete skill "${skill.name}"?`)) return
+  if (!confirm(t('skills.deleteConfirm', { name: skill.name }))) return
   try {
     await skillsStore.deleteSkill(skill)
     if (isSelected(skill)) {

@@ -3,8 +3,8 @@
  */
 
 import { ipcMain, app } from 'electron'
-import { join, dirname } from 'path'
-import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSync, unlinkSync } from 'fs'
+import { join, dirname, basename } from 'path'
+import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSync, unlinkSync, cpSync, rmSync } from 'fs'
 import { net } from 'electron'
 
 // Types
@@ -38,15 +38,21 @@ let marketplaceCache: { skills: MarketplaceSkill[]; timestamp: number } | null =
 /**
  * Get the path to global skills directory
  */
-function getGlobalSkillsDir(): string {
-  return join(app.getPath('home'), '.claude', 'commands')
+function getGlobalSkillsDirs(): string[] {
+  return [
+    join(app.getPath('home'), '.claude', 'commands'),
+    join(app.getPath('home'), '.claude', 'skills')
+  ]
 }
 
 /**
- * Get the path to project skills directory
+ * Get the paths to project skills directories
  */
-function getProjectSkillsDir(cwd: string): string {
-  return join(cwd, '.claude', 'commands')
+function getProjectSkillsDirs(cwd: string): string[] {
+  return [
+    join(cwd, '.claude', 'commands'),
+    join(cwd, '.claude', 'skills')
+  ]
 }
 
 /**
@@ -62,12 +68,39 @@ function readSkillsFromDir(dirPath: string, source: Skill['source']): Skill[] {
     const entries = readdirSync(dirPath, { withFileTypes: true })
 
     for (const entry of entries) {
-      if (entry.isFile() && entry.name.endsWith('.md')) {
+      if (entry.isDirectory()) {
+        const skillDir = join(dirPath, entry.name)
+        const filePath = join(skillDir, 'SKILL.md')
+        if (!existsSync(filePath)) {
+          continue
+        }
+        try {
+          const content = readFileSync(filePath, 'utf-8')
+          const frontMatter = parseYamlFrontMatter(content)
+          const name = frontMatter?.name || entry.name
+          const description = frontMatter?.description ||
+            content.split('\n').find(line => line.trim() && !line.startsWith('#') && !line.startsWith('---'))?.trim() ||
+            `Skill: /${name}`
+
+          skills.push({
+            name,
+            description,
+            content,
+            source,
+            filePath
+          })
+        } catch (err) {
+          console.error(`[Skills] Failed to read skill file: ${filePath}`, err)
+        }
+      } else if (entry.isFile() && entry.name.endsWith('.md')) {
         const filePath = join(dirPath, entry.name)
         try {
           const content = readFileSync(filePath, 'utf-8')
-          const name = entry.name.replace('.md', '')
-          const description = content.split('\n')[0]?.replace(/^#+\s*/, '') || `Skill: /${name}`
+          const frontMatter = parseYamlFrontMatter(content)
+          const name = frontMatter?.name || entry.name.replace('.md', '')
+          const description = frontMatter?.description ||
+            content.split('\n')[0]?.replace(/^#+\s*/, '') ||
+            `Skill: /${name}`
 
           skills.push({
             name,
@@ -210,6 +243,42 @@ function isSkillInstalled(skillName: string, globalSkills: Skill[]): boolean {
   return globalSkills.some(s => s.name.toLowerCase() === skillName.toLowerCase())
 }
 
+function getSkillInstallPath(targetDir: string, skillName: string): string {
+  return join(targetDir, skillName, 'SKILL.md')
+}
+
+function removeInstalledSkillFromDir(dirPath: string, skillName: string): boolean {
+  const skillDir = join(dirPath, skillName)
+  const skillFile = join(skillDir, 'SKILL.md')
+  const legacyFile = join(dirPath, `${skillName}.md`)
+  let removed = false
+
+  if (existsSync(skillFile)) {
+    rmSync(skillDir, { recursive: true, force: true })
+    removed = true
+  }
+
+  if (existsSync(legacyFile)) {
+    unlinkSync(legacyFile)
+    removed = true
+  }
+
+  return removed
+}
+
+function deleteSkillPath(filePath: string): void {
+  if (!existsSync(filePath)) {
+    return
+  }
+
+  if (basename(filePath) === 'SKILL.md') {
+    rmSync(dirname(filePath), { recursive: true, force: true })
+    return
+  }
+
+  unlinkSync(filePath)
+}
+
 /**
  * Register all skills-related IPC handlers
  */
@@ -217,10 +286,10 @@ export function registerSkillsIPCHandlers(): void {
   // Get all skills (global and project)
   ipcMain.handle('skills:getSkills', async (_event, cwd?: string) => {
     try {
-      const globalDir = getGlobalSkillsDir()
-      const globalSkills = readSkillsFromDir(globalDir, 'global')
+      const globalDirs = getGlobalSkillsDirs()
+      const globalSkills = globalDirs.flatMap(dir => readSkillsFromDir(dir, 'global'))
 
-      const projectSkills = cwd ? readSkillsFromDir(getProjectSkillsDir(cwd), 'project') : []
+      const projectSkills = cwd ? getProjectSkillsDirs(cwd).flatMap(dir => readSkillsFromDir(dir, 'project')) : []
 
       // Combine and deduplicate
       const allSkills = [...globalSkills, ...projectSkills]
@@ -240,13 +309,14 @@ export function registerSkillsIPCHandlers(): void {
   // Create a new skill
   ipcMain.handle('skills:createSkill', async (_event, name: string, scope: 'global' | 'project', content: string, cwd?: string) => {
     try {
-      const dirPath = scope === 'global' ? getGlobalSkillsDir() : getProjectSkillsDir(cwd || process.cwd())
+      const dirPath = scope === 'global' ? getGlobalSkillsDirs()[0] : getProjectSkillsDirs(cwd || process.cwd())[0]
 
       if (!existsSync(dirPath)) {
         mkdirSync(dirPath, { recursive: true })
       }
 
-      const filePath = join(dirPath, `${name}.md`)
+      const filePath = getSkillInstallPath(dirPath, name)
+      mkdirSync(dirname(filePath), { recursive: true })
       writeFileSync(filePath, content, 'utf-8')
 
       const skill: Skill = {
@@ -285,9 +355,7 @@ export function registerSkillsIPCHandlers(): void {
   // Delete a skill
   ipcMain.handle('skills:deleteSkill', async (_event, filePath: string) => {
     try {
-      if (existsSync(filePath)) {
-        unlinkSync(filePath)
-      }
+      deleteSkillPath(filePath)
       return { success: true }
     } catch (err) {
       console.error('[Skills] Failed to delete skill:', err)
@@ -301,8 +369,8 @@ export function registerSkillsIPCHandlers(): void {
       // Use the query parameter to fetch from API, default to 'claude' if empty
       const searchQuery = query && query.trim() ? query.trim() : 'claude'
       const marketplaceSkills = await fetchMarketplaceSkills(searchQuery)
-      const globalDir = getGlobalSkillsDir()
-      const globalSkills = readSkillsFromDir(globalDir, 'global')
+      const globalDirs = getGlobalSkillsDirs()
+      const globalSkills = globalDirs.flatMap(dir => readSkillsFromDir(dir, 'global'))
 
       // Filter by query if provided (for local filtering on top of API results)
       let filtered = marketplaceSkills
@@ -328,7 +396,7 @@ export function registerSkillsIPCHandlers(): void {
   })
 
   // Install a marketplace skill
-  ipcMain.handle('skills:installMarketplaceSkill', async (_event, source: string, skillId: string, global: boolean = true) => {
+  ipcMain.handle('skills:installMarketplaceSkill', async (_event, source: string, skillId: string, global: boolean = true, cwd?: string) => {
     const logs: string[] = []
     
     try {
@@ -407,7 +475,7 @@ export function registerSkillsIPCHandlers(): void {
         }
         
         const scope = global ? 'global' : 'project'
-        const dirPath = global ? getGlobalSkillsDir() : getProjectSkillsDir(process.cwd())
+        const dirPath = global ? getGlobalSkillsDirs()[0] : getProjectSkillsDirs(cwd || process.cwd())[0]
         
         logs.push(`Target directory: ${dirPath}`)
 
@@ -416,7 +484,8 @@ export function registerSkillsIPCHandlers(): void {
           mkdirSync(dirPath, { recursive: true })
         }
 
-        const filePath = join(dirPath, `${skillId}.md`)
+        const filePath = getSkillInstallPath(dirPath, skillId)
+        mkdirSync(dirname(filePath), { recursive: true })
         logs.push(`Writing skill file: ${filePath}`)
         writeFileSync(filePath, content, 'utf-8')
         logs.push(`✓ Successfully installed ${skillId} to ${filePath}`)
@@ -443,7 +512,7 @@ export function registerSkillsIPCHandlers(): void {
       // Use skillId as the file name
       const skillName = skillId || source.split('/').pop()?.replace('.md', '') || 'unknown'
       const scope = global ? 'global' : 'project'
-      const dirPath = global ? getGlobalSkillsDir() : getProjectSkillsDir(process.cwd())
+      const dirPath = global ? getGlobalSkillsDirs()[0] : getProjectSkillsDirs(cwd || process.cwd())[0]
       
       logs.push(`Target directory: ${dirPath}`)
 
@@ -452,7 +521,8 @@ export function registerSkillsIPCHandlers(): void {
         mkdirSync(dirPath, { recursive: true })
       }
 
-      const filePath = join(dirPath, `${skillName}.md`)
+      const filePath = getSkillInstallPath(dirPath, skillName)
+      mkdirSync(dirname(filePath), { recursive: true })
       logs.push(`Writing skill file: ${filePath}`)
       writeFileSync(filePath, content, 'utf-8')
       logs.push(`✓ Successfully installed ${skillName} to ${filePath}`)
@@ -466,13 +536,15 @@ export function registerSkillsIPCHandlers(): void {
   })
 
   // Uninstall a marketplace skill
-  ipcMain.handle('skills:uninstallMarketplaceSkill', async (_event, skillName: string, global: boolean = true) => {
+  ipcMain.handle('skills:uninstallMarketplaceSkill', async (_event, skillName: string, global: boolean = true, cwd?: string) => {
     try {
-      const dirPath = global ? getGlobalSkillsDir() : getProjectSkillsDir(process.cwd())
-      const filePath = join(dirPath, `${skillName}.md`)
-
-      if (existsSync(filePath)) {
-        unlinkSync(filePath)
+      const dirs = global ? getGlobalSkillsDirs() : getProjectSkillsDirs(cwd || process.cwd())
+      let removed = false
+      for (const dirPath of dirs) {
+        removed = removeInstalledSkillFromDir(dirPath, skillName) || removed
+      }
+      if (!removed) {
+        throw new Error(`Skill '${skillName}' is not installed`)
       }
 
       return { success: true }
@@ -694,10 +766,18 @@ function inferCategory(skillPath: string, content: string): string {
   return 'other'
 }
 
-function checkSkillInstalled(skillName: string): boolean {
-  const globalDir = getGlobalSkillsDir()
-  const globalSkills = readSkillsFromDir(globalDir, 'global')
-  return isSkillInstalled(skillName, globalSkills)
+function checkSkillInstalled(skillName: string, cwd?: string): boolean {
+  const globalDirs = getGlobalSkillsDirs()
+  const globalSkills = globalDirs.flatMap(dir => readSkillsFromDir(dir, 'global'))
+  if (isSkillInstalled(skillName, globalSkills)) return true
+
+  if (cwd) {
+    const projectDirs = getProjectSkillsDirs(cwd)
+    const projectSkills = projectDirs.flatMap(dir => readSkillsFromDir(dir, 'project'))
+    if (isSkillInstalled(skillName, projectSkills)) return true
+  }
+
+  return false
 }
 
 async function handleScanLocalLibrary(
@@ -741,7 +821,7 @@ async function handleScanLocalLibrary(
                 tags,
                 sourceDir: fullPath,
                 skillPath: skillFile,
-                isInstalled: checkSkillInstalled(name)
+                isInstalled: checkSkillInstalled(name, cwd)
               }
 
               allSkills.push(localSkill)
@@ -768,7 +848,7 @@ async function handleScanLocalLibrary(
               tags,
               sourceDir: fullPath,
               skillPath: filePath,
-              isInstalled: checkSkillInstalled(name)
+              isInstalled: checkSkillInstalled(name, cwd)
             }
 
             allSkills.push(localSkill)
@@ -791,22 +871,69 @@ async function handleInstallLocalSkill(
   _event: Electron.IpcMainInvokeEvent,
   skillName: string,
   scope: 'global' | 'project',
-  cwd?: string
+  cwd?: string,
+  skillPath?: string
 ): Promise<{ success: boolean }> {
   try {
-    const targetDir = scope === 'global' ? getGlobalSkillsDir() : getProjectSkillsDir(cwd || process.cwd())
+    const targetDir = scope === 'global' ? getGlobalSkillsDirs()[0] : getProjectSkillsDirs(cwd || process.cwd())[0]
 
     if (!existsSync(targetDir)) {
       mkdirSync(targetDir, { recursive: true })
     }
 
-    const targetPath = join(targetDir, `${skillName}.md`)
+    const targetPath = getSkillInstallPath(targetDir, skillName)
+    const legacyTargetPath = join(targetDir, `${skillName}.md`)
 
-    if (existsSync(targetPath)) {
+    if (existsSync(targetPath) || existsSync(legacyTargetPath)) {
       throw new Error(`Skill '${skillName}' is already installed`)
     }
 
-    writeFileSync(targetPath, `# Installed from Local Library\n\nName: ${skillName}\nScope: ${scope}\n`, 'utf-8')
+    let sourceSkillPath = skillPath
+    if (!sourceSkillPath || !existsSync(sourceSkillPath)) {
+      const allDirPaths = ['skills-lib']
+      const customDirs = loadCustomDirsFromFile()
+      allDirPaths.push(...customDirs)
+
+      for (const dirPath of allDirPaths) {
+        const fullPath = dirPath.startsWith('skills-lib') ? join(app.getAppPath(), dirPath) : dirPath
+        const entries = existsSync(fullPath) ? readdirSync(fullPath, { withFileTypes: true }) : []
+
+        for (const entry of entries) {
+          const candidatePath = entry.isDirectory()
+            ? join(fullPath, entry.name, 'SKILL.md')
+            : entry.isFile() && entry.name.endsWith('.md')
+              ? join(fullPath, entry.name)
+              : null
+
+          if (!candidatePath || !existsSync(candidatePath)) {
+            continue
+          }
+
+          const content = readFileSync(candidatePath, 'utf-8')
+          const frontMatter = parseYamlFrontMatter(content)
+          const candidateName = frontMatter?.name || (entry.isDirectory() ? entry.name : entry.name.replace('.md', ''))
+          if (candidateName.toLowerCase() === skillName.toLowerCase()) {
+            sourceSkillPath = candidatePath
+            break
+          }
+        }
+
+        if (sourceSkillPath) {
+          break
+        }
+      }
+    }
+
+    if (!sourceSkillPath || !existsSync(sourceSkillPath)) {
+      throw new Error(`Skill '${skillName}' source not found`)
+    }
+
+    mkdirSync(dirname(targetPath), { recursive: true })
+    if (basename(sourceSkillPath) === 'SKILL.md') {
+      cpSync(dirname(sourceSkillPath), dirname(targetPath), { recursive: true, force: false })
+    } else {
+      writeFileSync(targetPath, readFileSync(sourceSkillPath, 'utf-8'), 'utf-8')
+    }
 
     console.log(`[LocalLibrary] Installed skill '${skillName}' to ${scope}`)
     return { success: true }
@@ -822,22 +949,14 @@ async function handleUninstallLocalSkill(
   cwd?: string
 ): Promise<{ success: boolean }> {
   try {
-    const globalDir = getGlobalSkillsDir()
-    const projectDir = cwd ? getProjectSkillsDir(cwd) : null
+    const globalDirs = getGlobalSkillsDirs()
+    const projectDirs = cwd ? getProjectSkillsDirs(cwd) : []
 
-    const globalPath = join(globalDir, `${skillName}.md`)
-    const projectPath = projectDir ? join(projectDir, `${skillName}.md`) : null
-
+    const allDirs = [...globalDirs, ...projectDirs]
     let removed = false
 
-    if (existsSync(globalPath)) {
-      unlinkSync(globalPath)
-      removed = true
-    }
-
-    if (projectPath && existsSync(projectPath)) {
-      unlinkSync(projectPath)
-      removed = true
+    for (const dir of allDirs) {
+      removed = removeInstalledSkillFromDir(dir, skillName) || removed
     }
 
     if (!removed) {

@@ -47,7 +47,7 @@ export const useSkillsStore = defineStore('skills', () => {
       // Use IPC instead of HTTP API
       if (electronAPI?.skills?.getSkills) {
         const data = await electronAPI.skills.getSkills(cwd)
-        skills.value = (data.skills || []).filter((s: Skill) => s.source !== 'project')
+        skills.value = data.skills || []
       } else {
         // Fallback: load from localStorage
         const stored = localStorage.getItem(SKILLS_STORAGE_KEY)
@@ -159,10 +159,10 @@ export const useSkillsStore = defineStore('skills', () => {
     }
   }
 
-  async function installMarketplaceSkill(source: string, skillId: string, global: boolean = true): Promise<{ success: boolean; logs: string[]; error?: string }> {
+  async function installMarketplaceSkill(source: string, skillId: string, global: boolean = true, cwd?: string): Promise<{ success: boolean; logs: string[]; error?: string }> {
     try {
       if (electronAPI?.skills?.installMarketplaceSkill) {
-        const result = await electronAPI.skills.installMarketplaceSkill(source, skillId, global)
+        const result = await electronAPI.skills.installMarketplaceSkill(source, skillId, global, cwd)
         return result
       }
       return { success: false, logs: ['Electron API not available'], error: 'Electron API not available' }
@@ -172,10 +172,10 @@ export const useSkillsStore = defineStore('skills', () => {
     }
   }
 
-  async function uninstallMarketplaceSkill(skillName: string, global: boolean = true) {
+  async function uninstallMarketplaceSkill(skillName: string, global: boolean = true, cwd?: string) {
     try {
       if (electronAPI?.skills?.uninstallMarketplaceSkill) {
-        await electronAPI.skills.uninstallMarketplaceSkill(skillName, global)
+        await electronAPI.skills.uninstallMarketplaceSkill(skillName, global, cwd)
       }
       return true
     } catch (err) {

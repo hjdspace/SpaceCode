@@ -34,6 +34,7 @@
     <div class="browser-content">
       <CategorySidebar
         v-model="store.selectedCategory"
+        v-model:selectedDirectory="store.selectedDirectory"
         :categoriesWithCount="store.categoriesWithCount"
         :customDirectories="store.customDirectories"
         @add-directory="showDirectoryManager = true"
@@ -64,6 +65,12 @@
       @add="handleAddDirectory"
       @remove="handleRemoveDirectory"
     />
+
+    <InstallScopeDialog
+      v-model:open="showInstallScope"
+      :skillName="installingSkillName"
+      @confirm="handleInstallScopeConfirm"
+    />
   </div>
 </template>
 
@@ -76,19 +83,29 @@ import {
   List
 } from 'lucide-vue-next'
 import { useLocalSkillsStore, type LocalSkill } from '../../stores/localSkills'
+import { useAppStore } from '@/stores/app'
 import CategorySidebar from './CategorySidebar.vue'
 import SkillGrid from './SkillGrid.vue'
 import LocalSkillDetail from './LocalSkillDetail.vue'
 import DirectoryManager from './DirectoryManager.vue'
+import InstallScopeDialog from './InstallScopeDialog.vue'
 
 const { t } = useI18n()
 const store = useLocalSkillsStore()
+const appStore = useAppStore()
 const selectedSkill = ref<LocalSkill | null>(null)
 const showDirectoryManager = ref(false)
+const showInstallScope = ref(false)
+const installingSkillName = ref('')
+
+const emit = defineEmits<{
+  installed: []
+}>()
 
 onMounted(async () => {
   await store.loadCustomDirectories()
-  await store.fetchLocalSkills()
+  const cwd = appStore.projectRoot || undefined
+  await store.fetchLocalSkills(cwd)
 })
 
 function handleSelectSkill(skill: LocalSkill) {
@@ -96,10 +113,26 @@ function handleSelectSkill(skill: LocalSkill) {
 }
 
 async function handleInstall(name: string, scope?: 'global' | 'project') {
+  if (scope) {
+    try {
+      const cwd = appStore.projectRoot || undefined
+      await store.installSkill(name, scope, cwd)
+      emit('installed')
+    } catch (err) {
+      console.error('Failed to install skill:', err)
+      alert(`Failed to install: ${err instanceof Error ? err.message : err}`)
+    }
+  } else {
+    installingSkillName.value = name
+    showInstallScope.value = true
+  }
+}
+
+async function handleInstallScopeConfirm(scope: 'global' | 'project') {
   try {
-    const targetScope = scope || 'global'
-    await store.installSkill(name, targetScope)
-    alert(t('skills.installSuccess'))
+    const cwd = appStore.projectRoot || undefined
+    await store.installSkill(installingSkillName.value, scope, cwd)
+    emit('installed')
   } catch (err) {
     console.error('Failed to install skill:', err)
     alert(`Failed to install: ${err instanceof Error ? err.message : err}`)
@@ -108,7 +141,9 @@ async function handleInstall(name: string, scope?: 'global' | 'project') {
 
 async function handleUninstall(name: string) {
   try {
-    await store.uninstallSkill(name)
+    const cwd = appStore.projectRoot || undefined
+    await store.uninstallSkill(name, cwd)
+    emit('installed')
     alert(t('skills.uninstallSuccess'))
   } catch (err) {
     console.error('Failed to uninstall skill:', err)

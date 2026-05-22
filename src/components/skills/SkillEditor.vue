@@ -4,7 +4,7 @@
     <div class="editor-toolbar">
       <div class="toolbar-left">
         <span class="skill-name">/{{ skill.name }}</span>
-        <span v-if="isDirty" class="dirty-indicator" title="Unsaved changes" />
+        <span v-if="isDirty" class="dirty-indicator" :title="t('skills.editor.unsavedChanges')" />
         <span class="source-badge" :class="skill.source">
           <Globe v-if="skill.source === 'global'" :size="10" />
           <FolderOpen v-else-if="skill.source === 'installed'" :size="10" />
@@ -19,7 +19,7 @@
           class="toolbar-btn"
           :class="{ active: viewMode === 'edit' }"
           @click="viewMode = 'edit'"
-          title="Edit"
+          :title="t('skills.editor.edit')"
         >
           <Pencil :size="12" />
         </button>
@@ -27,7 +27,7 @@
           class="toolbar-btn"
           :class="{ active: viewMode === 'preview' }"
           @click="viewMode = 'preview'"
-          title="Preview"
+          :title="t('skills.editor.preview')"
         >
           <Eye :size="12" />
         </button>
@@ -35,7 +35,7 @@
           class="toolbar-btn"
           :class="{ active: viewMode === 'split' }"
           @click="viewMode = 'split'"
-          title="Split view"
+          :title="t('skills.editor.splitView')"
         >
           <Columns :size="12" />
         </button>
@@ -50,7 +50,7 @@
         >
           <Loader2 v-if="saving" :size="12" class="spin" />
           <Save v-else :size="12" />
-          {{ saving ? 'Saving' : saved ? 'Saved' : 'Save' }}
+          {{ saving ? t('skills.editor.saving') : saved ? t('skills.editor.saved') : t('skills.editor.save') }}
         </button>
 
         <!-- Delete -->
@@ -70,7 +70,7 @@
         <textarea
           v-model="content"
           class="editor-textarea"
-          placeholder="Enter skill content in Markdown..."
+          :placeholder="t('skills.editor.enterMarkdown')"
           @keydown="handleKeyDown"
         />
       </template>
@@ -101,11 +101,14 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   Save, Trash2, Pencil, Eye, Columns, Loader2, Globe, FolderOpen
 } from 'lucide-vue-next'
 import type { Skill } from '@/stores/skills'
 import { marked } from 'marked'
+
+const { t } = useI18n()
 
 interface Props {
   skill: Skill

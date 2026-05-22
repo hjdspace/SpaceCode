@@ -10,13 +10,13 @@
               <XCircle v-else :size="20" class="error" />
             </div>
             <h3 class="dialog-title">
-              {{ phase === 'running' ? 'Installing...' : phase === 'success' ? 'Success!' : 'Failed' }}
+              {{ phase === 'running' ? t('skills.installing') : phase === 'success' ? t('skills.installSuccess') : t('skills.installFailed') }}
             </h3>
           </div>
 
           <div class="logs-container">
             <div v-if="logs.length === 0 && phase === 'running'" class="logs-placeholder">
-              Installing...
+              {{ t('skills.installing') }}
             </div>
             <div
               v-for="(line, i) in logs"
@@ -30,7 +30,7 @@
 
           <div class="dialog-footer">
             <button class="btn btn-primary" @click="handleClose">
-              {{ phase === 'running' ? 'Cancel' : 'Close' }}
+              {{ phase === 'running' ? t('common.cancel') : t('common.close') }}
             </button>
           </div>
         </div>
@@ -41,15 +41,21 @@
 
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Loader2, CheckCircle, XCircle } from 'lucide-vue-next'
 import { useSkillsStore } from '@/stores/skills'
+import { useAppStore } from '@/stores/app'
 
+const { t } = useI18n()
+const skillsStore = useSkillsStore()
+const appStore = useAppStore()
 interface Props {
   open: boolean
   action: 'install' | 'uninstall'
   source: string
   skillId: string
   skillName: string
+  global?: boolean
 }
 
 const props = defineProps<Props>()
@@ -57,8 +63,6 @@ const emit = defineEmits<{
   'update:open': [value: boolean]
   complete: []
 }>()
-
-const skillsStore = useSkillsStore()
 
 type Phase = 'running' | 'success' | 'error'
 
@@ -73,8 +77,10 @@ async function startProcess() {
   try {
     logs.value.push(`Starting ${props.action}...`)
 
+    const useGlobal = props.global !== false
     if (props.action === 'install') {
-      const result = await skillsStore.installMarketplaceSkill(props.source, props.skillId, true)
+      const cwd = appStore.projectRoot || undefined
+      const result = await skillsStore.installMarketplaceSkill(props.source, props.skillId, useGlobal, cwd)
       
       // Add all logs from the installation process
       if (result.logs && result.logs.length > 0) {
@@ -89,7 +95,8 @@ async function startProcess() {
         phase.value = 'error'
       }
     } else {
-      await skillsStore.uninstallMarketplaceSkill(props.skillName, true)
+      const cwd = appStore.projectRoot || undefined
+      await skillsStore.uninstallMarketplaceSkill(props.skillName, useGlobal, cwd)
       logs.value.push(`Successfully uninstalled ${props.skillName}`)
       phase.value = 'success'
     }

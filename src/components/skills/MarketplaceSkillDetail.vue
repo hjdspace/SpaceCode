@@ -11,7 +11,7 @@
             <h3 class="skill-name">{{ skill.name }}</h3>
             <span v-if="skill.isInstalled" class="installed-badge">
               <CheckCircle :size="10" />
-              Installed
+              {{ t('skills.installed') }}
             </span>
           </div>
           <div class="skill-meta">
@@ -38,7 +38,7 @@
             @click="handleUninstall"
           >
             <Trash2 :size="14" />
-            Uninstall
+            {{ t('skills.uninstall') }}
           </button>
           <button
             v-else
@@ -46,7 +46,7 @@
             @click="handleInstall"
           >
             <Download :size="14" />
-            Install
+            {{ t('skills.install') }}
           </button>
         </div>
       </div>
@@ -63,9 +63,16 @@
         v-html="renderedReadme"
       />
       <div v-else class="readme-empty">
-        <p>No README available</p>
+        <p>{{ t('skills.noReadme') }}</p>
       </div>
     </div>
+
+    <!-- Install Scope Dialog -->
+    <InstallScopeDialog
+      v-model:open="showScopeDialog"
+      :skill-name="skill.name"
+      @confirm="handleScopeConfirm"
+    />
 
     <!-- Install Progress Dialog -->
     <InstallProgressDialog
@@ -74,6 +81,7 @@
       :source="skill.source"
       :skill-id="skill.skillId"
       :skill-name="skill.name"
+      :global="installGlobal"
       @complete="handleInstallComplete"
     />
   </div>
@@ -81,12 +89,16 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   Zap, CheckCircle, Download, Trash2, ExternalLink, Loader2
 } from 'lucide-vue-next'
 import { useSkillsStore, type MarketplaceSkill } from '@/stores/skills'
 import { marked } from 'marked'
 import InstallProgressDialog from './InstallProgressDialog.vue'
+import InstallScopeDialog from './InstallScopeDialog.vue'
+
+const { t } = useI18n()
 
 interface Props {
   skill: MarketplaceSkill
@@ -100,7 +112,9 @@ const emit = defineEmits<{
 const skillsStore = useSkillsStore()
 
 const showProgress = ref(false)
+const showScopeDialog = ref(false)
 const progressAction = ref<'install' | 'uninstall'>('install')
+const installGlobal = ref(true)
 const readme = ref<string | null>(null)
 const readmeLoading = ref(true)
 
@@ -135,6 +149,11 @@ async function fetchReadme() {
 }
 
 function handleInstall() {
+  showScopeDialog.value = true
+}
+
+function handleScopeConfirm(scope: 'global' | 'project') {
+  installGlobal.value = scope === 'global'
   progressAction.value = 'install'
   showProgress.value = true
 }

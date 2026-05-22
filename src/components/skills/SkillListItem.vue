@@ -14,9 +14,8 @@
     <button
       v-if="showDelete"
       class="delete-btn"
-      :class="{ confirm: confirmDelete }"
-      @click.stop="handleDelete"
-      :title="confirmDelete ? 'Click again to confirm' : 'Delete skill'"
+      @click.stop="emit('delete', props.skill)"
+      :title="t('skills.editor.deleteSkill')"
     >
       <Trash2 :size="12" />
     </button>
@@ -25,6 +24,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Zap, Trash2 } from 'lucide-vue-next'
 import type { Skill } from '@/stores/skills'
 
@@ -39,20 +39,11 @@ const emit = defineEmits<{
   delete: [skill: Skill]
 }>()
 
+const { t } = useI18n()
+
 const hovered = ref(false)
-const confirmDelete = ref(false)
 
-const showDelete = computed(() => hovered.value || confirmDelete.value)
-
-function handleDelete() {
-  if (confirmDelete.value) {
-    emit('delete', props.skill)
-    confirmDelete.value = false
-  } else {
-    confirmDelete.value = true
-    setTimeout(() => confirmDelete.value = false, 3000)
-  }
-}
+const showDelete = computed(() => hovered.value)
 </script>
 
 <style lang="scss" scoped>
@@ -125,16 +116,6 @@ function handleDelete() {
   &:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
-  }
-
-  &.confirm {
-    opacity: 1;
-    background: #dc3545;
-    color: white;
-
-    &:hover {
-      background: #c82333;
-    }
   }
 }
 </style>

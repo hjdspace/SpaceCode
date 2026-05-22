@@ -42,6 +42,7 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
   const skills = ref<LocalSkill[]>([])
   const customDirectories = ref<string[]>([])
   const selectedCategory = ref<string>('all')
+  const selectedDirectory = ref<string | null>(null)
   const searchQuery = ref('')
   const viewMode = ref<'grid' | 'list'>('grid')
   const loading = ref(false)
@@ -55,6 +56,11 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
 
     if (selectedCategory.value !== 'all') {
       result = result.filter(s => s.category === selectedCategory.value)
+    }
+
+    if (selectedDirectory.value) {
+      const sel = selectedDirectory.value
+      result = result.filter(s => s.sourceDir === sel)
     }
 
     if (searchQuery.value.trim()) {
@@ -108,8 +114,8 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
     installingId.value = skillName
     try {
       if (electronAPI?.skills?.installLocal) {
-        await electronAPI.skills.installLocal(skillName, scope, cwd)
         const skill = skills.value.find(s => s.name === skillName)
+        await electronAPI.skills.installLocal(skillName, scope, cwd, skill?.skillPath)
         if (skill) {
           skill.isInstalled = true
           skill.installedScope = scope
@@ -167,6 +173,9 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
       if (electronAPI?.skills?.removeCustomDir) {
         await electronAPI.skills.removeCustomDir(dirPath)
         customDirectories.value = customDirectories.value.filter(d => d !== dirPath)
+        if (selectedDirectory.value === dirPath) {
+          selectedDirectory.value = null
+        }
         await fetchLocalSkills()
         return true
       }
@@ -192,6 +201,10 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
     selectedCategory.value = categoryId
   }
 
+  function selectDirectory(dirPath: string | null) {
+    selectedDirectory.value = dirPath
+  }
+
   function setSearchQuery(query: string) {
     searchQuery.value = query
   }
@@ -204,6 +217,7 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
     skills,
     customDirectories,
     selectedCategory,
+    selectedDirectory,
     searchQuery,
     viewMode,
     loading,
@@ -220,6 +234,7 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
     removeCustomDirectory,
     loadCustomDirectories,
     selectCategory,
+    selectDirectory,
     setSearchQuery,
     setViewMode
   }

@@ -4,14 +4,14 @@
       <div v-if="open" class="dialog-overlay" @click.self="handleClose">
         <div class="dialog-content">
           <div class="dialog-header">
-            <h3 class="dialog-title">Create Skill</h3>
-            <p class="dialog-desc">Create a new slash command skill. It will be saved as a .md file.</p>
+            <h3 class="dialog-title">{{ t('skills.create.title') }}</h3>
+            <p class="dialog-desc">{{ t('skills.create.description') }}</p>
           </div>
 
           <div class="dialog-body">
             <!-- Name input -->
             <div class="form-group">
-              <label class="form-label">Skill Name</label>
+              <label class="form-label">{{ t('skills.create.skillName') }}</label>
               <div class="name-input-wrapper">
                 <span class="name-prefix">/</span>
                 <input
@@ -26,7 +26,7 @@
 
             <!-- Scope selection -->
             <div class="form-group">
-              <label class="form-label">Scope</label>
+              <label class="form-label">{{ t('skills.create.scope') }}</label>
               <div class="scope-options">
                 <button
                   class="scope-btn"
@@ -34,7 +34,7 @@
                   @click="scope = 'project'"
                 >
                   <FolderOpen :size="16" />
-                  Project
+                  {{ t('skills.create.project') }}
                 </button>
                 <button
                   class="scope-btn"
@@ -42,28 +42,28 @@
                   @click="scope = 'global'"
                 >
                   <Globe :size="16" />
-                  Global
+                  {{ t('skills.create.global') }}
                 </button>
               </div>
               <p class="scope-desc">
                 {{ scope === 'project'
-                  ? 'Saved in .claude/commands/ (this project only)'
-                  : 'Saved in ~/.claude/commands/ (available everywhere)' }}
+                  ? t('skills.create.projectScopeDesc')
+                  : t('skills.create.globalScopeDesc') }}
               </p>
             </div>
 
             <!-- Template selection -->
             <div class="form-group">
-              <label class="form-label">Template</label>
+              <label class="form-label">{{ t('skills.create.template') }}</label>
               <div class="template-options">
                 <button
                   v-for="(tpl, i) in templates"
-                  :key="tpl.label"
+                  :key="tpl.labelKey"
                   class="template-btn"
                   :class="{ active: templateIdx === i }"
                   @click="templateIdx = i"
                 >
-                  {{ tpl.label }}
+                  {{ t(tpl.labelKey) }}
                 </button>
               </div>
             </div>
@@ -73,12 +73,12 @@
 
           <div class="dialog-footer">
             <button class="btn btn-secondary" @click="handleClose" :disabled="creating">
-              Cancel
+              {{ t('skills.create.cancel') }}
             </button>
             <button class="btn btn-primary" @click="handleCreate" :disabled="creating || !isValid">
               <Loader2 v-if="creating" :size="16" class="spin" />
               <Plus v-else :size="16" />
-              {{ creating ? 'Creating...' : 'Create Skill' }}
+              {{ creating ? t('skills.create.creating') : t('skills.create.createSkill') }}
             </button>
           </div>
         </div>
@@ -89,17 +89,20 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Plus, FolderOpen, Globe, Loader2 } from 'lucide-vue-next'
 
 interface Template {
-  label: string
+  labelKey: string
   content: string
 }
 
+const { t } = useI18n()
+
 const templates: Template[] = [
-  { label: 'Blank', content: '' },
+  { labelKey: 'skills.create.blank', content: '' },
   {
-    label: 'Commit Helper',
+    labelKey: 'skills.create.commitHelper',
     content: `# Commit Helper
 
 Review the staged changes and generate a concise, descriptive commit message following conventional commit format.
@@ -112,7 +115,7 @@ Rules:
 `
   },
   {
-    label: 'Code Reviewer',
+    labelKey: 'skills.create.codeReviewer',
     content: `# Code Reviewer
 
 Review the provided code and give feedback on:
@@ -167,11 +170,11 @@ function handleClose() {
 async function handleCreate() {
   const trimmed = name.value.trim()
   if (!trimmed) {
-    error.value = 'Name is required'
+    error.value = t('skills.create.nameRequired')
     return
   }
   if (!/^[a-zA-Z0-9_-]+$/.test(trimmed)) {
-    error.value = 'Name can only contain letters, numbers, underscores, and hyphens'
+    error.value = t('skills.create.nameInvalid')
     return
   }
 

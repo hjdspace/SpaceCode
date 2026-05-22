@@ -10,7 +10,7 @@
         <span class="skill-name">{{ skill.name }}</span>
         <span v-if="skill.isInstalled" class="installed-badge">
           <CheckCircle :size="10" />
-          Installed
+          {{ t('skills.installed') }}
         </span>
       </div>
       <div class="skill-meta">
@@ -26,7 +26,10 @@
 
 <script setup lang="ts">
 import { Zap, CheckCircle, Download } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
 import type { MarketplaceSkill } from '@/stores/skills'
+
+const { t } = useI18n()
 
 interface Props {
   skill: MarketplaceSkill

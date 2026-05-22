@@ -39,12 +39,15 @@
           v-for="dir in customDirectories"
           :key="dir"
           class="custom-dir-item"
+          :class="{ active: selectedDirectory === dir }"
+          :title="dir"
+          @click="handleDirClick(dir)"
         >
           <Folder :size="14" />
           <span class="dir-name">{{ getDirectoryName(dir) }}</span>
           <button
             class="remove-btn"
-            @click="$emit('remove-directory', dir)"
+            @click.stop="$emit('remove-directory', dir)"
             title="Remove Directory"
           >
             <X :size="12" />
@@ -74,17 +77,27 @@ import {
 } from 'lucide-vue-next'
 import { CATEGORIES, type Category } from '../../stores/localSkills'
 
-defineProps<{
+const props = defineProps<{
   modelValue: string
   categoriesWithCount: Category[]
   customDirectories: string[]
+  selectedDirectory?: string | null
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
+  (e: 'update:selectedDirectory', value: string | null): void
   (e: 'add-directory'): void
   (e: 'remove-directory', dirPath: string): void
 }>()
+
+function handleDirClick(dir: string) {
+  if (props.selectedDirectory === dir) {
+    emit('update:selectedDirectory', null)
+  } else {
+    emit('update:selectedDirectory', dir)
+  }
+}
 
 const { t } = useI18n()
 
@@ -241,8 +254,16 @@ function getDirectoryName(path: string): string {
 }
 
 .custom-dir-item {
+  cursor: pointer;
+  transition: all 0.2s;
+
   &:hover {
     background: var(--bg-tertiary);
+  }
+
+  &.active {
+    background: var(--accent-primary-glow);
+    color: var(--accent-primary);
   }
 
   .dir-name {

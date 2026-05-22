@@ -6,7 +6,7 @@
         <Search :size="14" class="search-icon" />
         <input
           v-model="search"
-          placeholder="Search marketplace..."
+          :placeholder="t('skills.marketplace.searchPlaceholder')"
           class="search-input"
         />
       </div>
@@ -15,12 +15,12 @@
           <Loader2 :size="20" class="spin" />
         </div>
         <div v-else-if="error" class="error-state">
-          <p class="error-title">Failed to search</p>
+          <p class="error-title">{{ t('skills.marketplace.failedToSearch') }}</p>
           <p class="error-desc">{{ error }}</p>
         </div>
         <div v-else-if="!loading && results.length === 0" class="empty-state">
           <Store :size="32" class="empty-icon" />
-          <p class="empty-text">No results found</p>
+          <p class="empty-text">{{ t('skills.marketplace.noResults') }}</p>
         </div>
         <MarketplaceSkillCard
           v-for="skill in results"
@@ -46,8 +46,8 @@
       <div v-else class="no-selection">
         <Store :size="48" class="no-selection-icon" />
         <div class="no-selection-text">
-          <p class="no-selection-title">Browse Marketplace</p>
-          <p class="no-selection-desc">Search and install skills from the community</p>
+          <p class="no-selection-title">{{ t('skills.marketplace.browseTitle') }}</p>
+          <p class="no-selection-desc">{{ t('skills.marketplace.browseDesc') }}</p>
         </div>
       </div>
     </div>
@@ -57,10 +57,12 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue'
 import { Search, Loader2, Store } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
 import { useSkillsStore, type MarketplaceSkill } from '@/stores/skills'
 import MarketplaceSkillCard from './MarketplaceSkillCard.vue'
 import MarketplaceSkillDetail from './MarketplaceSkillDetail.vue'
 
+const { t } = useI18n()
 const skillsStore = useSkillsStore()
 
 const emit = defineEmits<{
