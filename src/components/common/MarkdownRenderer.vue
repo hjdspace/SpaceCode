@@ -8,7 +8,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { marked } from 'marked'
 import hljs from 'highlight.js'
 import { useAppStore } from '@/stores/app'
@@ -156,19 +156,75 @@ marked.setOptions({
   breaks: true
 })
 
-const renderedContent = computed(() => {
-  if (!props.content) return ''
+// ========== 流式渲染节流 ==========
+// 背景: 在长任务(尤其 Linux AppImage)中, props.content 在流式输出期间会
+// 被高频更新(每个 text_delta 触发一次). 同步执行 marked.parse + hljs +
+// transformFileLinks(创建 <div>/TreeWalker) 会产生 O(N^2) 的 CPU/内存压力,
+// 触发 V8 OOM, 导致渲染进程崩溃 (Linux exitCode=133 / SIGTRAP).
+// 修复: 通过 rAF + 最小时间间隔节流重渲染, 并将昂贵的文件链接 DOM 遍历
+// 推迟到尾随帧执行, 同时保证最终内容与未节流版本完全一致.
+const renderedContent = ref('')
+const STREAM_RENDER_INTERVAL_MS = 80
+let renderScheduled = false
+let lastRenderAt = 0
+let trailingTimer: number | null = null
+let pendingFinalize = false
+let isUnmounted = false
 
+function renderMarkdown(content: string, withFileLinks: boolean): string {
+  if (!content) return ''
   try {
-    const contentWithChips = replaceMentionChipMarkers(props.content)
+    const contentWithChips = replaceMentionChipMarkers(content)
     const rendered = marked.parse(contentWithChips) as string
-    // Run file-link detection after markdown rendering so we can safely skip
-    // code blocks, inline code and existing anchors via DOM traversal.
-    return transformFileLinks(rendered)
+    // 仅在尾随/最终渲染时执行 transformFileLinks: 它需要构造完整的临时 DOM
+    // 并遍历所有文本节点, 在流式高频更新中重复执行是渲染进程崩溃的主要诱因.
+    return withFileLinks ? transformFileLinks(rendered) : rendered
   } catch {
-    return props.content
+    return content
   }
-})
+}
+
+function performRender(withFileLinks: boolean) {
+  if (isUnmounted) return
+  lastRenderAt = Date.now()
+  renderedContent.value = renderMarkdown(props.content, withFileLinks)
+}
+
+function scheduleRender() {
+  if (isUnmounted) return
+  const now = Date.now()
+  const elapsed = now - lastRenderAt
+
+  if (elapsed >= STREAM_RENDER_INTERVAL_MS && !renderScheduled) {
+    renderScheduled = true
+    // 使用 rAF 把渲染合并到下一帧, 避免 N 次 delta -> N 次 parse.
+    requestAnimationFrame(() => {
+      renderScheduled = false
+      performRender(false)
+      // 之后再用一个尾随定时器, 在内容稳定后做一次"完整"渲染(含 file-link).
+      armTrailingFinalize()
+    })
+    return
+  }
+
+  // 在节流窗口内: 仅注册尾随渲染, 不立即执行.
+  armTrailingFinalize()
+}
+
+function armTrailingFinalize() {
+  pendingFinalize = true
+  if (trailingTimer !== null) return
+  trailingTimer = window.setTimeout(() => {
+    trailingTimer = null
+    if (!pendingFinalize) return
+    pendingFinalize = false
+    performRender(true)
+    // 内容稳定后再尝试渲染 mermaid 图.
+    if (!isUnmounted) {
+      setTimeout(renderMermaidDiagrams, 0)
+    }
+  }, STREAM_RENDER_INTERVAL_MS)
+}
 
 function isExternalURL(url: string): boolean {
   try {
@@ -239,12 +295,23 @@ async function renderMermaidDiagrams() {
 }
 
 onMounted(() => {
+  // 首次挂载: 立即同步渲染一次(含 file-link), 保证初始内容可点击.
+  performRender(true)
   renderMermaidDiagrams()
 })
 
-watch(() => props.content, () => {
-  setTimeout(renderMermaidDiagrams, 0)
+onBeforeUnmount(() => {
+  isUnmounted = true
+  if (trailingTimer !== null) {
+    clearTimeout(trailingTimer)
+    trailingTimer = null
+  }
 })
+
+watch(() => props.content, (newVal, oldVal) => {
+  if (newVal === oldVal) return
+  scheduleRender()
+}, { flush: 'post' })
 </script>
 
 <style lang="scss" scoped>
