@@ -277,8 +277,30 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
   const toolStateKey = msgs
     .flatMap(msg => (msg.toolCalls || []).map(tool => `${tool.id}:${tool.status}:${specialComponents[tool.name] ? 1 : 0}`))
     .join(',')
+  // 必须把流式文本/推理内容也纳入缓存键, 否则纯 text_delta 流式更新时
+  // (msg 数量/ID/工具状态都不变) 缓存命中 -> 返回旧的 TimelineEvent[] ->
+  // MarkdownRenderer 拿到同一份 content 字符串, watch 不触发, 界面卡住,
+  // 直到用户切走再切回 (组件 remount, 缓存重置) 才看到完整答复.
+  const contentStateKey = msgs.map(msg => {
+    const tlKey = (msg.timelineEvents || [])
+      .map(e => {
+        if (e.type === 'text' || e.type === 'reasoning') {
+          return `${e.id}:${e.status}:${(e.content || '').length}`
+        }
+        return `${e.id}:${e.type}`
+      })
+      .join('|')
+    return [
+      msg.id,
+      (msg.content || '').length,
+      (msg.reasoning?.content || '').length,
+      msg.reasoning?.endTime ? 1 : 0,
+      msg.metadata ? 1 : 0,
+      tlKey,
+    ].join(':')
+  }).join(';')
   const key = msgs.length > 0
-    ? `${msgs.length}-${msgs[0]?.id}-${msgs[msgs.length - 1]?.id}-${toolStateKey}`
+    ? `${msgs.length}-${msgs[0]?.id}-${msgs[msgs.length - 1]?.id}-${toolStateKey}-${contentStateKey}`
     : 'empty'
 
   if (_cachedTimelineEvents && _cachedTimelineKey === key) {
