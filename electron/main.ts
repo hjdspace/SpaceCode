@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, shell, dialog, net, globalShortcut } from 'electron'
-import { join, resolve, extname } from 'path'
-import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSync } from 'fs'
+import { join, resolve, extname, dirname, basename } from 'path'
+import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSync, copyFileSync, renameSync, unlinkSync, rmSync } from 'fs'
 import { config } from 'dotenv'
 import { TerminalManager } from './terminalManager'
 import { registerGitIPCHandlers } from './gitService'
@@ -746,6 +746,76 @@ ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   info('IPC', 'shell:openExternal', { url })
   await shell.openExternal(url)
 })
+
+// File operations for context menu
+ipcMain.handle('fs:copy', async (_event, srcPath: string, destPath: string) => {
+  debug('IPC', 'fs:copy', { srcPath, destPath })
+  try {
+    const stat = statSync(srcPath)
+    if (stat.isDirectory()) {
+      copyDirRecursive(srcPath, destPath)
+    } else {
+      copyFileSync(srcPath, destPath)
+    }
+    return { success: true }
+  } catch (err: any) {
+    error('IPC', 'fs:copy failed', { srcPath, destPath, err })
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('fs:move', async (_event, srcPath: string, destPath: string) => {
+  debug('IPC', 'fs:move', { srcPath, destPath })
+  try {
+    renameSync(srcPath, destPath)
+    return { success: true }
+  } catch (err: any) {
+    error('IPC', 'fs:move failed', { srcPath, destPath, err })
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('fs:rename', async (_event, filePath: string, newName: string) => {
+  debug('IPC', 'fs:rename', { filePath, newName })
+  try {
+    const dir = dirname(filePath)
+    const newPath = join(dir, newName)
+    renameSync(filePath, newPath)
+    return { success: true, newPath }
+  } catch (err: any) {
+    error('IPC', 'fs:rename failed', { filePath, newName, err })
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('fs:delete', async (_event, filePath: string, permanent: boolean = false) => {
+  debug('IPC', 'fs:delete', { filePath, permanent })
+  try {
+    if (permanent) {
+      rmSync(filePath, { recursive: true, force: true })
+    } else {
+      await shell.trashItem(filePath)
+    }
+    return { success: true }
+  } catch (err: any) {
+    error('IPC', 'fs:delete failed', { filePath, err })
+    return { success: false, error: err.message }
+  }
+})
+
+function copyDirRecursive(src: string, dest: string) {
+  mkdirSync(dest, { recursive: true })
+  const entries = readdirSync(src, { withFileTypes: true })
+  for (const entry of entries) {
+    const srcPath = join(src, entry.name)
+    const destPath = join(dest, entry.name)
+    if (entry.isDirectory()) {
+      copyDirRecursive(srcPath, destPath)
+    } else {
+      copyFileSync(srcPath, destPath)
+    }
+  }
+}
 
 // Proxy HTTP requests from renderer to bypass CORS
 ipcMain.handle('http:fetch', async (_event, url: string, options?: { method?: string; headers?: Record<string, string>; body?: string }) => {

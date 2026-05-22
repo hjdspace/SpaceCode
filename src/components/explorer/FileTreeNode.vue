@@ -13,6 +13,7 @@
       draggable="true"
       @click="handleClick"
       @dragstart="handleDragStart"
+      @contextmenu.prevent="handleContextMenu"
     >
       <!-- Expand/Collapse Button for Directories -->
       <button
@@ -35,8 +36,19 @@
         :class="[getIconClass(), { 'icon-folder': node.type === 'directory' }]"
       />
 
-      <!-- Node Name -->
-      <span class="node-name" :class="{ highlighted: isSearchMatch }">
+      <!-- Node Name (or inline rename input) -->
+      <input
+        v-if="isRenaming"
+        ref="renameInputRef"
+        class="rename-input"
+        :value="renameValue"
+        @blur="confirmRename"
+        @keydown.enter="confirmRename"
+        @keydown.escape="cancelRename"
+        @click.stop
+        @mousedown.stop
+      />
+      <span v-else class="node-name" :class="{ highlighted: isSearchMatch }">
         {{ node.name }}
       </span>
     </div>
@@ -58,6 +70,7 @@
           @select="$emit('select', $event)"
           @toggle="$emit('toggle', $event)"
           @expand-path="$emit('expand-path', $event)"
+          @contextmenu="$emit('contextmenu', $event, child)"
         />
       </div>
     </Transition>
@@ -65,7 +78,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, nextTick } from 'vue'
 import {
   ChevronRight,
   File,
@@ -77,6 +90,7 @@ import {
   Braces,
   FileType
 } from 'lucide-vue-next'
+import { api } from '@/services/electronAPI'
 
 interface TreeNode {
   name: string
@@ -104,7 +118,15 @@ const emit = defineEmits<{
   select: [node: TreeNode]
   toggle: [node: TreeNode]
   'expand-path': [path: string]
+  'add-to-chat': [node: TreeNode]
+  refresh: []
+  contextmenu: [event: MouseEvent, node: TreeNode]
 }>()
+
+// Rename State
+const isRenaming = ref(false)
+const renameValue = ref('')
+const renameInputRef = ref<HTMLInputElement | null>(null)
 
 // Computed
 const isExpanded = computed(() => {
@@ -124,6 +146,7 @@ const isSelected = ref(false) // Could be controlled by parent in future
 
 // Methods
 function handleClick() {
+  if (isRenaming.value) return
   if (props.node.type === 'directory') {
     handleToggle()
   } else {
@@ -132,7 +155,57 @@ function handleClick() {
 }
 
 function handleToggle() {
+  if (isRenaming.value) return
   emit('toggle', props.node)
+}
+
+function handleContextMenu(e: MouseEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  
+  // Emit event to parent (FileTree) to show global context menu
+  emit('contextmenu', e, props.node)
+}
+
+function startRename() {
+  isRenaming.value = true
+  renameValue.value = props.node.name
+  nextTick(() => {
+    renameInputRef.value?.focus()
+    renameInputRef.value?.select()
+  })
+}
+
+async function confirmRename() {
+  if (!isRenaming.value) return
+  
+  const newName = renameValue.value.trim()
+  if (!newName || newName === props.node.name) {
+    cancelRename()
+    return
+  }
+  
+  try {
+    const result = await api.renameFile(props.node.path, newName)
+    if (result.success) {
+      console.log('[FileTreeNode] Renamed to:', newName)
+      emit('refresh')
+    } else {
+      alert(`重命名失败：${result.error}`)
+      cancelRename()
+    }
+  } catch (err) {
+    console.error('[FileTreeNode] Rename error:', err)
+    alert('重命名失败，请重试。')
+    cancelRename()
+  }
+  
+  isRenaming.value = false
+}
+
+function cancelRename() {
+  isRenaming.value = false
+  renameValue.value = ''
 }
 
 function handleDragStart(e: DragEvent) {
@@ -329,6 +402,18 @@ function getIconClass(): string {
       rgba(var(--accent-primary-rgb), 0.15) 100%
     );
   }
+}
+
+.rename-input {
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--accent-primary);
+  border-radius: 3px;
+  padding: 1px 4px;
+  outline: none;
+  min-width: 100px;
+  flex: 1;
 }
 
 .node-children {

@@ -437,6 +437,7 @@ import { useChatStore } from '@/stores/chat'
 import { api } from '@/services/electronAPI'
 import { useI18n } from 'vue-i18n'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
+import { useFileToChat } from '@/composables/useFileToChat'
 import { pathBasename } from '@/utils/mention-chips'
 import PermissionModeSelector from './PermissionModeSelector.vue'
 
@@ -511,6 +512,7 @@ const skillsStore = useSkillsStore()
 const appStore = useAppStore()
 const { t } = useI18n()
 const { openProjectFromPicker } = useOpenProjectWorkflow()
+const { pendingFile, consumePendingFile } = useFileToChat()
 
 const inputText = ref('')
 const editorRef = ref<HTMLElement | null>(null)
@@ -2308,6 +2310,31 @@ watch([() => props.disabled, () => props.isSending], ([disabled, sending]) => {
     editor.contentEditable = (!disabled || sending) ? 'true' : 'false'
   }
 }, { immediate: true })
+
+// Watch for files added from file tree context menu
+watch(pendingFile, (file) => {
+  if (!file) return
+  
+  // Insert the file as a mention chip
+  insertMentionChip(file.name, file.path, file.isFolder)
+  
+  // Add to attached files if not already present
+  if (!attachedFiles.value.some(f => f.path === file.path)) {
+    attachedFiles.value.push({
+      name: file.name,
+      path: file.path,
+      isFolder: file.isFolder
+    })
+  }
+  
+  // Consume the pending file
+  consumePendingFile()
+  
+  // Focus editor
+  nextTick(() => {
+    focusEditor()
+  })
+})
 </script>
 
 <style lang="scss" scoped>

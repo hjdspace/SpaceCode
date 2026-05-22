@@ -73,6 +73,17 @@ export const api = {
     }
     return Promise.resolve([])
   },
+
+  // File operations for context menu
+  copyFile: (srcPath: string, destPath: string): Promise<{ success: boolean; error?: string }> =>
+    electronAPI?.copyFile(srcPath, destPath) || Promise.resolve({ success: false, error: 'copyFile not available' }),
+  moveFile: (srcPath: string, destPath: string): Promise<{ success: boolean; error?: string }> =>
+    electronAPI?.moveFile(srcPath, destPath) || Promise.resolve({ success: false, error: 'moveFile not available' }),
+  renameFile: (filePath: string, newName: string): Promise<{ success: boolean; error?: string; newPath?: string }> =>
+    electronAPI?.renameFile(filePath, newName) || Promise.resolve({ success: false, error: 'renameFile not available' }),
+  deleteFile: (filePath: string, permanent?: boolean): Promise<{ success: boolean; error?: string }> =>
+    electronAPI?.deleteFile(filePath, permanent) || Promise.resolve({ success: false, error: 'deleteFile not available' }),
+
   getEnv: (key: string): Promise<string | undefined> => {
     if (electronAPI?.getEnv) {
       return electronAPI.getEnv(key)

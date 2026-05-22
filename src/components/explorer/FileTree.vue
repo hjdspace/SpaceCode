@@ -48,16 +48,34 @@
           @select="handleSelect"
           @toggle="handleToggle"
           @expand-path="handleExpandPath"
+          @add-to-chat="handleAddToChat"
+          @refresh="refreshTree"
+          @contextmenu="handleContextMenu"
         />
       </div>
     </div>
+
+    <!-- Global Context Menu (singleton) -->
+    <FileContextMenu
+      :visible="contextMenuState.visible"
+      :node="contextMenuState.node"
+      :x="contextMenuState.x"
+      :y="contextMenuState.y"
+      @close="closeContextMenu"
+      @cut="handleCut"
+      @copy="handleCopy"
+      @add-to-chat="handleAddToChatFromMenu"
+      @rename="handleRename"
+      @delete="handleDelete"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick, reactive } from 'vue'
 import { Search, RefreshCw, FolderOpen } from 'lucide-vue-next'
 import FileTreeNode from './FileTreeNode.vue'
+import FileContextMenu from './FileContextMenu.vue'
 import { api } from '@/services/electronAPI'
 import { useAppStore } from '@/stores/app'
 
@@ -83,6 +101,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   select: [node: TreeNode]
+  'add-to-chat': [node: TreeNode]
 }>()
 
 const appStore = useAppStore()
@@ -96,6 +115,14 @@ const searchQuery = ref('')
 const expandedPaths = ref<Set<string>>(new Set())
 const abortController = ref<AbortController | null>(null)
 const seekKeyRef = ref<string | null>(null)
+
+// Global Context Menu State (singleton)
+const contextMenuState = reactive({
+  visible: false,
+  node: null as TreeNode | null,
+  x: 0,
+  y: 0
+})
 
 // Computed
 const filteredTreeData = computed(() => {
@@ -241,6 +268,79 @@ function handleSelect(node: TreeNode) {
   if (node.type === 'file') {
     emit('select', node)
   }
+}
+
+function handleAddToChat(node: TreeNode) {
+  emit('add-to-chat', node)
+}
+
+// Context Menu Handlers
+function handleContextMenu(e: MouseEvent, node: TreeNode) {
+  e.preventDefault()
+  e.stopPropagation()
+  
+  // Calculate menu position (prevent overflow)
+  const menuWidth = 200
+  const menuHeight = 280
+  const x = Math.min(e.clientX, window.innerWidth - menuWidth - 10)
+  const y = Math.min(e.clientY, window.innerHeight - menuHeight - 10)
+  
+  // Update global state (this will automatically close any previous menu)
+  contextMenuState.visible = true
+  contextMenuState.node = node
+  contextMenuState.x = x
+  contextMenuState.y = y
+}
+
+function closeContextMenu() {
+  contextMenuState.visible = false
+  contextMenuState.node = null
+}
+
+async function handleCut(node: TreeNode) {
+  try {
+    await navigator.clipboard.writeText(node.path)
+    localStorage.setItem('clipboard_operation', JSON.stringify({
+      type: 'cut',
+      path: node.path,
+      name: node.name,
+      nodeType: node.type
+    }))
+    console.log('[FileTree] Cut:', node.path)
+  } catch (err) {
+    console.error('[FileTree] Cut failed:', err)
+  }
+}
+
+async function handleCopy(node: TreeNode) {
+  try {
+    await navigator.clipboard.writeText(node.path)
+    localStorage.setItem('clipboard_operation', JSON.stringify({
+      type: 'copy',
+      path: node.path,
+      name: node.name,
+      nodeType: node.type
+    }))
+    console.log('[FileTree] Copied:', node.path)
+  } catch (err) {
+    console.error('[FileTree] Copy failed:', err)
+  }
+}
+
+function handleAddToChatFromMenu(node: TreeNode) {
+  emit('add-to-chat', node)
+}
+
+function handleRename(node: TreeNode) {
+  // For now, just refresh the tree after rename
+  // TODO: Implement inline rename at FileTree level if needed
+  console.log('[FileTree] Rename requested for:', node.path)
+  refreshTree()
+}
+
+function handleDelete(node: TreeNode) {
+  // Refresh tree after deletion
+  refreshTree()
 }
 
 // Get parent paths for auto-expansion

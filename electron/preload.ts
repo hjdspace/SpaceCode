@@ -102,6 +102,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   searchFiles: (dirPath: string, query: string, options?: { maxResults?: number }): Promise<Array<{ name: string; path: string; relativePath: string; isDirectory: boolean; isFile: boolean }>> =>
     ipcRenderer.invoke('fs:searchFiles', dirPath, query, options),
 
+  // File operations for context menu
+  copyFile: (srcPath: string, destPath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('fs:copy', srcPath, destPath),
+  moveFile: (srcPath: string, destPath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('fs:move', srcPath, destPath),
+  renameFile: (filePath: string, newName: string): Promise<{ success: boolean; error?: string; newPath?: string }> =>
+    ipcRenderer.invoke('fs:rename', filePath, newName),
+  deleteFile: (filePath: string, permanent?: boolean): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('fs:delete', filePath, permanent),
+
   getEnv: (key: string): Promise<string | undefined> =>
     ipcRenderer.invoke('env:get', key),
 

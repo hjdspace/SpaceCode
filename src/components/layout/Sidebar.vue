@@ -185,6 +185,7 @@
           </div>
           <FileTree
             @select="handleFileSelect"
+            @add-to-chat="handleAddToChat"
             :working-directory="chatStore.workingDirectory"
             :highlight-path="highlightedFilePath"
           />
@@ -286,6 +287,7 @@ import SkillsManager from '../skills/SkillsManager.vue'
 import McpManager from '../mcp/McpManagerModal.vue'
 import { api } from '@/services/electronAPI'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
+import { useFileToChat } from '@/composables/useFileToChat'
 import { pathsEqual } from '@/utils/recentProjectRoots'
 
 interface TreeNode {
@@ -304,6 +306,7 @@ const settingsStore = useSettingsStore()
 const scmStore = useScmStore()
 const { t } = useI18n()
 const { openProjectFromPicker } = useOpenProjectWorkflow()
+const { addFileToFile } = useFileToChat()
 
 const activeTab = ref<'explorer' | 'scm' | 'history' | 'terminal'>('history')
 const showMcpManager = ref(false)
@@ -395,6 +398,11 @@ async function handleOpenPiCLI() {
   let fullCommand = cliCommand || 'npx @mariozechner/pi-coding-agent'
   
   appStore.openTerminalTab(fullCommand, env, appStore.projectRoot || undefined)
+}
+
+function handleAddToChat(node: TreeNode) {
+  addFileToFile(node)
+  console.log('[Sidebar] Add to chat:', node.path)
 }
 
 async function handleFileSelect(node: TreeNode) {

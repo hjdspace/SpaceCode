@@ -918,6 +918,12 @@ onUnmounted(() => {
   align-items: center;
   gap: 1px;
   margin-left: auto;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.group-header:hover .group-actions-right {
+  opacity: 1;
 }
 
 .group-icon-btn {
