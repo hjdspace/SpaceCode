@@ -1,10 +1,10 @@
 <template>
   <div class="settings-section">
-    <h2 class="section-title">Tools</h2>
-    
+    <h2 class="section-title">{{ t('toolsSettings.title') }}</h2>
+
     <div class="section-content">
       <p class="section-desc">
-        Enable or disable specific tools that Claude can use. Disabled tools will not be available during conversations.
+        {{ t('toolsSettings.description') }}
       </p>
 
       <!-- Tool Categories -->
@@ -17,7 +17,7 @@
             <div class="category-info">
               <h3 class="category-name">{{ category.name }}</h3>
               <span class="category-count">
-                {{ getEnabledCount(category.tools) }} of {{ category.tools.length }} enabled
+                {{ t('toolsSettings.enabledCount', { enabled: getEnabledCount(category.tools), total: category.tools.length }) }}
               </span>
             </div>
             <label class="category-toggle">
@@ -50,7 +50,7 @@
                   <span class="tool-name">{{ tool.name }}</span>
                   <span v-if="tool.availability === 'feature-flag'" class="tool-badge feature-flag">{{ tool.featureFlag }}</span>
                   <span v-else-if="tool.availability === 'env-var'" class="tool-badge env-var">{{ tool.envVar }}</span>
-                  <span v-else-if="tool.availability === 'runtime-check'" class="tool-badge runtime">runtime</span>
+                  <span v-else-if="tool.availability === 'runtime-check'" class="tool-badge runtime">{{ t('toolsSettings.runtime') }}</span>
                 </div>
                 <span class="tool-desc">{{ tool.description }}</span>
               </div>
@@ -64,15 +64,15 @@
       <div class="danger-zone">
         <h3 class="danger-title">
           <AlertTriangle :size="16" />
-          Danger Zone
+          {{ t('toolsSettings.dangerZone') }}
         </h3>
         <div class="danger-item">
           <div class="danger-info">
-            <span class="danger-label">Reset All Tool Settings</span>
-            <span class="danger-desc">Restore default tool configuration</span>
+            <span class="danger-label">{{ t('toolsSettings.resetAllLabel') }}</span>
+            <span class="danger-desc">{{ t('toolsSettings.resetAllDesc') }}</span>
           </div>
           <button class="btn btn-danger" @click="resetTools">
-            Reset to Defaults
+            {{ t('toolsSettings.resetButton') }}
           </button>
         </div>
       </div>
@@ -82,6 +82,7 @@
 
 <script setup lang="ts">
 import { computed, shallowRef, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { AlertTriangle } from 'lucide-vue-next'
 import {
   Terminal, FileText, Globe, Bot, ListChecks, Zap,
@@ -100,6 +101,7 @@ import { useConfigStore } from '@/stores/config'
 import { TOOL_CATEGORIES, TOOL_REGISTRY, type ToolDefinition, type ToolCategory } from '@/lib/tool-registry'
 import { debounce } from '@/utils/debounce'
 
+const { t } = useI18n()
 const emit = defineEmits<{ 'change': [] }>()
 
 const configStore = useConfigStore()
@@ -178,7 +180,7 @@ function toggleTool(toolId: string) {
 }
 
 function resetTools() {
-  if (confirm('Are you sure you want to reset all tool settings to defaults?')) {
+  if (confirm(t('toolsSettings.resetConfirm'))) {
     localStorage.removeItem('tools_config')
     location.reload()
   }

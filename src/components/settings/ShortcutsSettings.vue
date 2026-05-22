@@ -1,10 +1,10 @@
 <template>
   <div class="settings-section">
-    <h2 class="section-title">Keyboard Shortcuts</h2>
+    <h2 class="section-title">{{ t('shortcutsSettings.title') }}</h2>
 
     <div class="section-content">
       <p class="section-desc">
-        Customize keyboard shortcuts for common actions. Click on a shortcut to edit it.
+        {{ t('shortcutsSettings.description') }}
       </p>
 
       <!-- Search -->
@@ -12,7 +12,7 @@
         <Search :size="16" />
         <input
           v-model="searchQuery"
-          placeholder="Search shortcuts..."
+          :placeholder="t('shortcutsSettings.searchPlaceholder')"
           class="search-input"
         />
       </div>
@@ -40,8 +40,8 @@
               </div>
               <div class="shortcut-keys">
                 <template v-if="editingShortcut === shortcut.id">
-                  <span class="editing-hint">Press keys...</span>
-                  <button class="cancel-edit" @click.stop="cancelEdit">Cancel</button>
+                  <span class="editing-hint">{{ t('shortcutsSettings.pressKeys') }}</span>
+                  <button class="cancel-edit" @click.stop="cancelEdit">{{ t('shortcutsSettings.cancel') }}</button>
                 </template>
                 <template v-else>
                   <kbd
@@ -59,15 +59,15 @@
       <!-- Empty State -->
       <div v-if="filteredCategories.length === 0" class="empty-state">
         <SearchX :size="48" />
-        <h4>No shortcuts found</h4>
-        <p>Try a different search term</p>
+        <h4>{{ t('shortcutsSettings.noShortcutsFound') }}</h4>
+        <p>{{ t('shortcutsSettings.tryDifferentSearch') }}</p>
       </div>
 
       <!-- Reset Button -->
       <div class="shortcuts-footer">
         <button class="btn btn-secondary" @click="resetShortcuts">
           <RotateCcw :size="14" />
-          Reset to Defaults
+          {{ t('shortcutsSettings.resetToDefaults') }}
         </button>
       </div>
     </div>
@@ -75,15 +75,15 @@
     <!-- Key Capture Overlay -->
     <div v-if="editingShortcut" class="key-capture-overlay" tabindex="0" @keydown.capture.prevent="onKeyDown">
       <div class="key-capture-modal">
-        <h3>Enter New Shortcut</h3>
-        <p>Press the key combination you want to use</p>
+        <h3>{{ t('shortcutsSettings.enterNewShortcut') }}</h3>
+        <p>{{ t('shortcutsSettings.pressCombination') }}</p>
         <div class="captured-keys">
           <kbd v-for="key in capturedKeys" :key="key" class="key-badge large">{{ key }}</kbd>
         </div>
         <div class="capture-actions">
-          <button class="btn btn-secondary" @click="cancelEdit">Cancel</button>
+          <button class="btn btn-secondary" @click="cancelEdit">{{ t('shortcutsSettings.cancel') }}</button>
           <button class="btn btn-primary" @click="saveShortcut" :disabled="capturedKeys.length === 0">
-            Save
+            {{ t('shortcutsSettings.save') }}
           </button>
         </div>
       </div>
@@ -93,9 +93,11 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Search, SearchX, RotateCcw } from 'lucide-vue-next'
 import { debounce } from '@/utils/debounce'
 
+const { t } = useI18n()
 export interface Shortcut {
   id: string
   name: string
@@ -129,40 +131,40 @@ const STORAGE_KEY = 'keyboard_shortcuts'
 const defaultShortcuts: ShortcutCategory[] = [
   {
     id: 'general',
-    name: 'General',
+    name: t('shortcutsSettings.categoryGeneral'),
     shortcuts: [
-      { id: 'new_chat', name: 'New Chat', description: 'Start a new conversation', keys: ['Ctrl', 'N'], defaultKeys: ['Ctrl', 'N'] },
-      { id: 'close_chat', name: 'Close Chat', description: 'Close current conversation', keys: ['Ctrl', 'W'], defaultKeys: ['Ctrl', 'W'] },
-      { id: 'search_chats', name: 'Search Chats', description: 'Search through chat history', keys: ['Ctrl', 'K'], defaultKeys: ['Ctrl', 'K'] },
-      { id: 'settings', name: 'Settings', description: 'Open settings', keys: ['Ctrl', ','], defaultKeys: ['Ctrl', ','] }
+      { id: 'new_chat', name: t('shortcutsSettings.newChat'), description: t('shortcutsSettings.newChatDesc'), keys: ['Ctrl', 'N'], defaultKeys: ['Ctrl', 'N'] },
+      { id: 'close_chat', name: t('shortcutsSettings.closeChat'), description: t('shortcutsSettings.closeChatDesc'), keys: ['Ctrl', 'W'], defaultKeys: ['Ctrl', 'W'] },
+      { id: 'search_chats', name: t('shortcutsSettings.searchChats'), description: t('shortcutsSettings.searchChatsDesc'), keys: ['Ctrl', 'K'], defaultKeys: ['Ctrl', 'K'] },
+      { id: 'settings', name: t('shortcutsSettings.settings'), description: t('shortcutsSettings.settingsDesc'), keys: ['Ctrl', ','], defaultKeys: ['Ctrl', ','] }
     ]
   },
   {
     id: 'editor',
-    name: 'Editor',
+    name: t('shortcutsSettings.categoryEditor'),
     shortcuts: [
-      { id: 'send_message', name: 'Send Message', description: 'Send the current message', keys: ['Enter'], defaultKeys: ['Enter'] },
-      { id: 'new_line', name: 'New Line', description: 'Insert a new line', keys: ['Shift', 'Enter'], defaultKeys: ['Shift', 'Enter'] },
-      { id: 'clear_chat', name: 'Clear Chat', description: 'Clear the conversation', keys: ['Ctrl', 'Shift', 'K'], defaultKeys: ['Ctrl', 'Shift', 'K'] }
+      { id: 'send_message', name: t('shortcutsSettings.sendMessage'), description: t('shortcutsSettings.sendMessageDesc'), keys: ['Enter'], defaultKeys: ['Enter'] },
+      { id: 'new_line', name: t('shortcutsSettings.newLine'), description: t('shortcutsSettings.newLineDesc'), keys: ['Shift', 'Enter'], defaultKeys: ['Shift', 'Enter'] },
+      { id: 'clear_chat', name: t('shortcutsSettings.clearChat'), description: t('shortcutsSettings.clearChatDesc'), keys: ['Ctrl', 'Shift', 'K'], defaultKeys: ['Ctrl', 'Shift', 'K'] }
     ]
   },
   {
     id: 'navigation',
-    name: 'Navigation',
+    name: t('shortcutsSettings.categoryNavigation'),
     shortcuts: [
-      { id: 'focus_input', name: 'Focus Input', description: 'Focus the chat input', keys: ['Ctrl', 'L'], defaultKeys: ['Ctrl', 'L'] },
-      { id: 'toggle_sidebar', name: 'Toggle Sidebar', description: 'Show or hide sidebar', keys: ['Ctrl', 'B'], defaultKeys: ['Ctrl', 'B'] },
-      { id: 'next_chat', name: 'Next Chat', description: 'Switch to next conversation', keys: ['Ctrl', 'Tab'], defaultKeys: ['Ctrl', 'Tab'] },
-      { id: 'prev_chat', name: 'Previous Chat', description: 'Switch to previous conversation', keys: ['Ctrl', 'Shift', 'Tab'], defaultKeys: ['Ctrl', 'Shift', 'Tab'] }
+      { id: 'focus_input', name: t('shortcutsSettings.focusInput'), description: t('shortcutsSettings.focusInputDesc'), keys: ['Ctrl', 'L'], defaultKeys: ['Ctrl', 'L'] },
+      { id: 'toggle_sidebar', name: t('shortcutsSettings.toggleSidebar'), description: t('shortcutsSettings.toggleSidebarDesc'), keys: ['Ctrl', 'B'], defaultKeys: ['Ctrl', 'B'] },
+      { id: 'next_chat', name: t('shortcutsSettings.nextChat'), description: t('shortcutsSettings.nextChatDesc'), keys: ['Ctrl', 'Tab'], defaultKeys: ['Ctrl', 'Tab'] },
+      { id: 'prev_chat', name: t('shortcutsSettings.prevChat'), description: t('shortcutsSettings.prevChatDesc'), keys: ['Ctrl', 'Shift', 'Tab'], defaultKeys: ['Ctrl', 'Shift', 'Tab'] }
     ]
   },
   {
     id: 'terminal',
-    name: 'Terminal',
+    name: t('shortcutsSettings.categoryTerminal'),
     shortcuts: [
-      { id: 'new_terminal', name: 'New Terminal', description: 'Open a new terminal', keys: ['Ctrl', 'Shift', '`'], defaultKeys: ['Ctrl', 'Shift', '`'] },
-      { id: 'close_terminal', name: 'Close Terminal', description: 'Close current terminal', keys: ['Ctrl', 'Shift', 'W'], defaultKeys: ['Ctrl', 'Shift', 'W'] },
-      { id: 'clear_terminal', name: 'Clear Terminal', description: 'Clear terminal output', keys: ['Ctrl', 'K'], defaultKeys: ['Ctrl', 'K'] }
+      { id: 'new_terminal', name: t('shortcutsSettings.newTerminal'), description: t('shortcutsSettings.newTerminalDesc'), keys: ['Ctrl', 'Shift', '`'], defaultKeys: ['Ctrl', 'Shift', '`'] },
+      { id: 'close_terminal', name: t('shortcutsSettings.closeTerminal'), description: t('shortcutsSettings.closeTerminalDesc'), keys: ['Ctrl', 'Shift', 'W'], defaultKeys: ['Ctrl', 'Shift', 'W'] },
+      { id: 'clear_terminal', name: t('shortcutsSettings.clearTerminal'), description: t('shortcutsSettings.clearTerminalDesc'), keys: ['Ctrl', 'K'], defaultKeys: ['Ctrl', 'K'] }
     ]
   }
 ]
@@ -305,7 +307,7 @@ function saveShortcut() {
 }
 
 function resetShortcuts() {
-  if (confirm('Reset all shortcuts to default values?')) {
+  if (confirm(t('shortcutsSettings.resetConfirm'))) {
     shortcutCategories.value = JSON.parse(JSON.stringify(defaultShortcuts))
   }
 }

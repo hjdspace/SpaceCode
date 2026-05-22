@@ -12,14 +12,14 @@
         <!-- 剪切 -->
         <button class="menu-item" :class="{ disabled: !canCut }" @click="handleCut">
           <span class="menu-icon">✂️</span>
-          <span class="menu-label">剪切</span>
+          <span class="menu-label">{{ t('fileTree.cut') }}</span>
           <span class="menu-shortcut">Ctrl+X</span>
         </button>
 
         <!-- 复制 -->
         <button class="menu-item" @click="handleCopy">
           <span class="menu-icon">📋</span>
-          <span class="menu-label">复制</span>
+          <span class="menu-label">{{ t('fileTree.copy') }}</span>
           <span class="menu-shortcut">Ctrl+C</span>
         </button>
 
@@ -28,14 +28,14 @@
         <!-- 复制路径 -->
         <button class="menu-item" @click="handleCopyPath">
           <span class="menu-icon">🔗</span>
-          <span class="menu-label">复制路径</span>
+          <span class="menu-label">{{ t('fileTree.copyPath') }}</span>
           <span class="menu-shortcut">Shift+Alt+C</span>
         </button>
 
         <!-- 复制相对路径 -->
         <button class="menu-item" @click="handleCopyRelativePath">
           <span class="menu-icon">📝</span>
-          <span class="menu-label">复制相对路径</span>
+          <span class="menu-label">{{ t('fileTree.copyRelativePath') }}</span>
           <span class="menu-shortcut">Ctrl+Shift+C</span>
         </button>
 
@@ -44,7 +44,7 @@
         <!-- 添加到对话 -->
         <button class="menu-item highlight" @click="handleAddToChat">
           <span class="menu-icon">📎</span>
-          <span class="menu-label">添加到对话</span>
+          <span class="menu-label">{{ t('fileTree.addToChat') }}</span>
         </button>
 
         <div class="menu-separator"></div>
@@ -52,14 +52,14 @@
         <!-- 重命名 -->
         <button class="menu-item" :class="{ disabled: !canRename }" @click="handleRename">
           <span class="menu-icon">✏️</span>
-          <span class="menu-label">重命名...</span>
+          <span class="menu-label">{{ t('fileTree.rename') }}...</span>
           <span class="menu-shortcut">F2</span>
         </button>
 
         <!-- 删除 -->
         <button class="menu-item danger" :class="{ disabled: !canDelete }" @click="handleDelete">
           <span class="menu-icon">🗑️</span>
-          <span class="menu-label">删除</span>
+          <span class="menu-label">{{ t('fileTree.delete') }}</span>
           <span class="menu-shortcut">Delete</span>
         </button>
       </div>
@@ -69,9 +69,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
 import { useAppStore } from '@/stores/app'
 
+const { t } = useI18n()
 interface TreeNode {
   name: string
   path: string

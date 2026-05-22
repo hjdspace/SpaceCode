@@ -1,11 +1,11 @@
 <template>
   <div class="settings-section">
-    <h2 class="section-title">Appearance</h2>
+    <h2 class="section-title">{{ t('appearanceSettings.title') }}</h2>
 
     <div class="section-content">
       <!-- Theme Selection -->
       <div class="form-group">
-        <label class="form-label">Theme</label>
+        <label class="form-label">{{ t('settings.theme') }}</label>
         <div class="theme-options">
           <button
             v-for="theme in themes"
@@ -54,7 +54,7 @@
 
       <!-- UI Density -->
       <div class="divider"></div>
-      <h3 class="subsection-title">Density</h3>
+      <h3 class="subsection-title">{{ t('settings.density') }}</h3>
 
       <div class="density-options">
         <button
@@ -73,37 +73,37 @@
 
       <!-- Toggles -->
       <div class="divider"></div>
-      <h3 class="subsection-title">Editor</h3>
+      <h3 class="subsection-title">{{ t('settings.editor') }}</h3>
 
       <div class="toggle-list">
         <label class="toggle-item">
           <div class="toggle-info">
-            <span class="toggle-label">Show Line Numbers</span>
-            <span class="toggle-desc">Display line numbers in code editor</span>
+            <span class="toggle-label">{{ t('settings.showLineNumbers') }}</span>
+            <span class="toggle-desc">{{ t('settings.showLineNumbersDesc') }}</span>
           </div>
           <input type="checkbox" v-model="config.showLineNumbers" class="toggle-switch" />
         </label>
 
         <label class="toggle-item">
           <div class="toggle-info">
-            <span class="toggle-label">Word Wrap</span>
-            <span class="toggle-desc">Wrap long lines to fit the viewport</span>
+            <span class="toggle-label">{{ t('settings.wordWrap') }}</span>
+            <span class="toggle-desc">{{ t('settings.wordWrapDesc') }}</span>
           </div>
           <input type="checkbox" v-model="config.wordWrap" class="toggle-switch" />
         </label>
 
         <label class="toggle-item">
           <div class="toggle-info">
-            <span class="toggle-label">Minimap</span>
-            <span class="toggle-desc">Show minimap in code editor</span>
+            <span class="toggle-label">{{ t('settings.minimap') }}</span>
+            <span class="toggle-desc">{{ t('settings.minimapDesc') }}</span>
           </div>
           <input type="checkbox" v-model="config.showMinimap" class="toggle-switch" />
         </label>
 
         <label class="toggle-item">
           <div class="toggle-info">
-            <span class="toggle-label">Smooth Scrolling</span>
-            <span class="toggle-desc">Enable smooth scrolling animation</span>
+            <span class="toggle-label">{{ t('appearanceSettings.smoothScrolling') }}</span>
+            <span class="toggle-desc">{{ t('appearanceSettings.smoothScrollingDesc') }}</span>
           </div>
           <input type="checkbox" v-model="config.smoothScrolling" class="toggle-switch" />
         </label>
@@ -111,7 +111,7 @@
 
       <!-- Accent Color -->
       <div class="divider"></div>
-      <h3 class="subsection-title">Accent Color</h3>
+      <h3 class="subsection-title">{{ t('appearanceSettings.accentColor') }}</h3>
 
       <div class="color-options">
         <button
@@ -131,11 +131,13 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Check } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore, type AppearanceSettings as AppearanceConfig } from '@/stores/settings'
 import { debounce } from '@/utils/debounce'
 
+const { t } = useI18n()
 const emit = defineEmits<{
   'update:modelValue': [value: AppearanceConfig]
   'change': []
@@ -145,17 +147,17 @@ const appStore = useAppStore()
 const settingsStore = useSettingsStore()
 
 const themes = [
-  { id: 'system', name: 'System' },
-  { id: 'light', name: 'Light' },
-  { id: 'dark', name: 'Dark' },
-  { id: 'anthropic', name: 'Anthropic' },
-  { id: 'anthropic-dark', name: 'Anthropic Dark' }
+  { id: 'system', name: t('appearanceSettings.themeSystem') },
+  { id: 'light', name: t('appearanceSettings.themeLight') },
+  { id: 'dark', name: t('appearanceSettings.themeDark') },
+  { id: 'anthropic', name: t('appearanceSettings.themeAnthropic') },
+  { id: 'anthropic-dark', name: t('appearanceSettings.themeAnthropicDark') }
 ]
 
 const fontSizes = [12, 13, 14, 15, 16, 18, 20]
 
 const fontFamilies = [
-  { id: 'system', name: 'System Default' },
+  { id: 'system', name: t('appearanceSettings.fontSystemDefault') },
   { id: 'inter', name: 'Inter' },
   { id: 'sf-pro', name: 'SF Pro' },
   { id: 'segoe', name: 'Segoe UI' }

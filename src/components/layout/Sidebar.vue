@@ -7,7 +7,7 @@
         class="icon-btn new-chat-icon"
         :disabled="creatingChat"
         @click="handleNewChat"
-        title="New Conversation"
+        :title="t('sidebar.newConversation')"
       >
         <Plus :size="20" />
         <span class="icon-label">{{ t('sidebar.new') }}</span>
@@ -102,7 +102,7 @@
               class="new-chat-btn"
               :disabled="creatingChat"
               @click="handleNewChat"
-              title="New conversation"
+              :title="t('sidebar.newConversation')"
             >
               <Plus :size="14" />
               <span>{{ t('sidebar.newConversation') }}</span>

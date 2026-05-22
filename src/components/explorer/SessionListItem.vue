@@ -112,19 +112,19 @@
       <Transition name="modal">
         <div v-if="renameDialogOpen" class="dialog-overlay" @click="renameDialogOpen = false">
           <div class="dialog-content" @click.stop>
-            <h3 class="dialog-title">Rename Conversation</h3>
+            <h3 class="dialog-title">{{ t('common.rename') }}</h3>
             <input
               ref="renameInput"
               v-model="renameValue"
               type="text"
               class="dialog-input"
-              placeholder="Enter new title..."
+              :placeholder="t('sessionTab.newSession')"
               @keyup.enter="confirmRename"
               @keyup.escape="renameDialogOpen = false"
             />
             <div class="dialog-actions">
-              <button class="btn btn-secondary" @click="renameDialogOpen = false">Cancel</button>
-              <button class="btn btn-primary" @click="confirmRename">Confirm</button>
+              <button class="btn btn-secondary" @click="renameDialogOpen = false">{{ t('common.cancel') }}</button>
+              <button class="btn btn-primary" @click="confirmRename">{{ t('common.confirm') }}</button>
             </div>
           </div>
         </div>
@@ -135,6 +135,7 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { Session } from '@/types'
 import {
   Bell,
@@ -145,6 +146,7 @@ import {
   Columns
 } from 'lucide-vue-next'
 
+const { t } = useI18n()
 interface Props {
   session: Session
   isActive: boolean

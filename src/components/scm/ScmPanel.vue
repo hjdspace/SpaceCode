@@ -4,20 +4,20 @@
     <div class="scm-header">
       <div class="branch-info" @click="showBranchDropdown = !showBranchDropdown">
         <GitBranch :size="14" />
-        <span class="branch-name">{{ scmStore.branch || 'No branch' }}</span>
+        <span class="branch-name">{{ scmStore.branch || t('scm.noBranch') }}</span>
         <ChevronDown :size="12" />
       </div>
       <div class="scm-actions">
-        <button class="scm-action-btn" @click="handleRefresh" title="Refresh">
+        <button class="scm-action-btn" @click="handleRefresh" :title="t('scm.refresh')">
           <RefreshCw :size="14" :class="{ spinning: scmStore.isLoading }" />
         </button>
-        <button class="scm-action-btn" @click="handlePull" title="Pull">
+        <button class="scm-action-btn" @click="handlePull" :title="t('scm.pull')">
           <ArrowDown :size="14" />
         </button>
-        <button class="scm-action-btn" @click="handlePush" title="Push">
+        <button class="scm-action-btn" @click="handlePush" :title="t('scm.push')">
           <ArrowUp :size="14" />
         </button>
-        <button class="scm-action-btn" @click="handleStash" title="Stash">
+        <button class="scm-action-btn" @click="handleStash" :title="t('scm.stash')">
           <Archive :size="14" />
         </button>
       </div>
@@ -26,7 +26,7 @@
     <!-- Branch dropdown -->
     <div v-if="showBranchDropdown" class="branch-dropdown" @click.stop>
       <div class="branch-dropdown-header">
-        <span>Branches</span>
+        <span>{{ t('scm.branches') }}</span>
         <button class="branch-create-btn" @click="showCreateBranch = true">
           <Plus :size="12" />
         </button>
@@ -44,7 +44,7 @@
           <Check v-if="b.current" :size="12" />
         </button>
       </div>
-      <div v-if="remoteBranches.length > 0" class="branch-section-title">REMOTE</div>
+      <div v-if="remoteBranches.length > 0" class="branch-section-title">{{ t('scm.remote').toUpperCase() }}</div>
       <div class="branch-list">
         <button
           v-for="b in remoteBranches"
@@ -64,7 +64,7 @@
         <textarea
           v-model="scmStore.commitMessage"
           class="commit-input"
-          :placeholder="'Message (Ctrl+Enter to commit on ' + (scmStore.branch || 'HEAD') + ')'"
+          :placeholder="t('scm.messagePlaceholder', { branch: scmStore.branch || 'HEAD' })"
           rows="2"
           @keydown.ctrl.enter="handleCommit"
         ></textarea>
@@ -93,17 +93,17 @@
           </button>
           <div v-if="showCommitMenu" class="commit-dropdown-menu" @click.stop>
             <button class="commit-menu-item" @click="handleCommit(); showCommitMenu = false">
-              提交
+              {{ t('scm.commit') }}
             </button>
             <button class="commit-menu-item" @click="handleCommitAmend(); showCommitMenu = false">
-              提交（修改）
+              {{ t('scm.commitAmend') }}
             </button>
             <div class="commit-menu-divider"></div>
             <button class="commit-menu-item" @click="handleCommitAndPush(); showCommitMenu = false">
-              提交和推送
+              {{ t('scm.commitAndPush') }}
             </button>
             <button class="commit-menu-item" @click="handleCommitAndSync(); showCommitMenu = false">
-              提交和同步
+              {{ t('scm.commitAndSync') }}
             </button>
           </div>
         </div>
@@ -114,18 +114,18 @@
     <div class="change-group">
       <div class="group-header" @click="stagedCollapsed = !stagedCollapsed">
         <ChevronRight :size="12" :class="{ rotated: !stagedCollapsed }" />
-        <span class="group-title">更改</span>
+        <span class="group-title">{{ t('scm.changes') }}</span>
         <div class="group-actions-right">
-          <button class="group-icon-btn" title="Discard All Changes" @click.stop="handleDiscardAll">
+          <button class="group-icon-btn" :title="t('scm.discardAllChanges')" @click.stop="handleDiscardAll">
             <Trash2 :size="14" />
           </button>
-          <button class="group-icon-btn" title="Stage All Changes" @click.stop="handleStageAll">
+          <button class="group-icon-btn" :title="t('scm.stageAllChanges')" @click.stop="handleStageAll">
             <Check :size="14" />
           </button>
-          <button class="group-icon-btn" title="Refresh" @click.stop="handleRefresh">
+          <button class="group-icon-btn" :title="t('scm.refresh')" @click.stop="handleRefresh">
             <RefreshCw :size="14" />
           </button>
-          <button class="group-icon-btn more" title="More Actions" @click.stop="showMoreMenu = !showMoreMenu">
+          <button class="group-icon-btn more" :title="t('scm.moreActions')" @click.stop="showMoreMenu = !showMoreMenu">
             <MoreHorizontal :size="14" />
           </button>
         </div>
@@ -133,7 +133,7 @@
       <div v-show="!stagedCollapsed" class="group-content">
         <!-- Staged files -->
         <template v-if="scmStore.staged.length > 0">
-          <div class="sub-group-label">已暂存的更改</div>
+          <div class="sub-group-label">{{ t('scm.stagedChanges') }}</div>
           <div
             v-for="file in scmStore.staged"
             :key="'staged-' + file.path"
@@ -146,15 +146,15 @@
             <span class="file-name" :title="file.path">{{ getFileName(file.path) }}</span>
             <span class="file-path-truncated" :title="file.path">{{ truncatePath(file.path) }}</span>
             <div class="file-actions">
-              <button class="file-action-btn" @click.stop="handleCopyPath(file)" title="Copy Path"><Copy :size="12" /></button>
-              <button class="file-action-btn" @click.stop="handleUnstage(file)" title="Unstage"><Undo2 :size="12" /></button>
-              <button class="file-action-btn" @click.stop="handleStage(file)" title="Stage"><Plus :size="12" /></button>
+              <button class="file-action-btn" @click.stop="handleCopyPath(file)" :title="t('scm.copyPath')"><Copy :size="12" /></button>
+              <button class="file-action-btn" @click.stop="handleUnstage(file)" :title="t('scm.unstage')"><Undo2 :size="12" /></button>
+              <button class="file-action-btn" @click.stop="handleStage(file)" :title="t('scm.stage')"><Plus :size="12" /></button>
             </div>
           </div>
         </template>
         <!-- Unstaged + Untracked -->
         <template v-if="scmStore.unstaged.length > 0 || scmStore.untracked.length > 0">
-          <div class="sub-group-label" @click.stop="handleStageAll" title="Click to stage all changes">更改 <span class="sub-count">{{ scmStore.unstaged.length + scmStore.untracked.length }}</span></div>
+          <div class="sub-group-label" @click.stop="handleStageAll" :title="t('scm.stageAllChanges')">{{ t('scm.changesCount') }} <span class="sub-count">{{ scmStore.unstaged.length + scmStore.untracked.length }}</span></div>
           <div
             v-for="file in scmStore.unstaged"
             :key="'unstaged-' + file.path"
@@ -167,10 +167,10 @@
             <span class="file-name" :title="file.path">{{ getFileName(file.path) }}</span>
             <span class="file-path-truncated" :title="file.path">{{ truncatePath(file.path) }}</span>
             <div class="file-actions">
-              <button class="file-action-btn" @click.stop="handleCopyPath(file)" title="Copy Path"><Copy :size="12" /></button>
-              <button class="file-action-btn discard" @click.stop="handleDiscard(file)" title="Discard Changes"><Undo2 :size="12" /></button>
-              <button class="file-action-btn" @click.stop="handleStage(file)" title="Stage"><Plus :size="12" /></button>
-            </div>
+                <button class="file-action-btn" @click.stop="handleCopyPath(file)" :title="t('scm.copyPath')"><Copy :size="12" /></button>
+                <button class="file-action-btn discard" @click.stop="handleDiscard(file)" :title="t('scm.discardChanges')"><Undo2 :size="12" /></button>
+                <button class="file-action-btn" @click.stop="handleStage(file)" :title="t('scm.stage')"><Plus :size="12" /></button>
+              </div>
           </div>
           <div
             v-for="file in scmStore.untracked"
@@ -184,12 +184,12 @@
             <span class="file-name" :title="file.path">{{ getFileName(file.path) }}</span>
             <span class="file-path-truncated" :title="file.path">{{ truncatePath(file.path) }}</span>
             <div class="file-actions">
-              <button class="file-action-btn" @click.stop="handleStage(file)" title="Stage"><Plus :size="12" /></button>
-            </div>
+                <button class="file-action-btn" @click.stop="handleStage(file)" :title="t('scm.stage')"><Plus :size="12" /></button>
+              </div>
           </div>
         </template>
         <div v-if="scmStore.totalChanges === 0 && scmStore.isRepo && !scmStore.isLoading" class="no-changes">
-          没有更改
+          {{ t('scm.noChanges') }}
         </div>
       </div>
     </div>
@@ -298,7 +298,7 @@
     <!-- More Actions Dropdown Menu -->
     <div v-if="showMoreMenu" class="more-menu" @click.stop>
       <button class="more-menu-item" @click="handleStageAll(); showMoreMenu = false">
-        <Check :size="12" /> 暂存所有更改
+        <Check :size="12" /> {{ t('scm.stageAllChanges') }}
       </button>
       <button class="more-menu-item" @click="handleUnstageAll(); showMoreMenu = false">
         <Undo2 :size="12" /> 取消暂存所有更改
@@ -324,7 +324,7 @@
           ref="branchInput"
         />
         <div class="dialog-actions">
-          <button class="dialog-btn cancel" @click="showCreateBranch = false">取消</button>
+          <button class="dialog-btn cancel" @click="showCreateBranch = false">{{ t('common.cancel') }}</button>
           <button class="dialog-btn create" :disabled="!newBranchName.trim()" @click="handleCreateBranch">
             创建并切换
           </button>
@@ -336,6 +336,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useScmStore } from '@/stores/scm'
 import { useAppStore } from '@/stores/app'
 import {
@@ -348,6 +349,7 @@ import type { ScmFile, ScmLogEntry } from '@/stores/scm'
 
 const scmStore = useScmStore()
 const appStore = useAppStore()
+const { t } = useI18n()
 
 const stagedCollapsed = ref(false)
 const conflictsCollapsed = ref(false)

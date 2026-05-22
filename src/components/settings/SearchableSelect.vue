@@ -21,7 +21,7 @@
             ref="searchInput"
             v-model="searchQuery"
             type="text"
-            placeholder="Search models..."
+            :placeholder="t('model.selectModel')"
             aria-label="Search models"
             :aria-describedby="filteredOptions.length === 0 ? 'no-results' : undefined"
             @click.stop
@@ -40,7 +40,7 @@
             role="status"
             aria-live="polite"
           >
-            No models found
+            {{ t('auth.noModelsFound') }}
           </div>
           <div
             v-for="option in filteredOptions"
@@ -61,9 +61,11 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted, shallowRef } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Search, ChevronDown, Check, X } from 'lucide-vue-next'
 import { debounce } from '@/utils/debounce'
 
+const { t } = useI18n()
 interface Option {
   id: string
   name?: string
@@ -88,9 +90,9 @@ const optionsList = ref<HTMLElement | null>(null)
 
 // 使用computed缓存选中标签
 const selectedLabel = computed(() => {
-  if (!props.modelValue) return props.placeholder || 'Select...'
+  if (!props.modelValue) return props.placeholder || t('model.selectModel')
   const option = props.options.find(o => o.id === props.modelValue)
-  return option?.name || option?.id || props.placeholder || 'Select...'
+  return option?.name || option?.id || props.placeholder || t('model.selectModel')
 })
 
 // 使用shallowRef优化大型列表

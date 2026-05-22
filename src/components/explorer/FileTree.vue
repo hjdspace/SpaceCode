@@ -8,14 +8,14 @@
           v-model="searchQuery"
           type="text"
           class="search-input"
-          placeholder="Filter files..."
+          :placeholder="t('chatInput.searchFiles')"
           @input="handleSearch"
         />
       </div>
       <button
         class="refresh-btn"
         :class="{ loading }"
-        :title="'Refresh file tree'"
+        :title="t('fileTree.refresh')"
         @click="refreshTree"
         :disabled="loading"
       >
@@ -32,7 +32,7 @@
 
       <!-- Empty State -->
       <div v-else-if="treeData.length === 0" class="empty-state">
-        <span>{{ error || (workingDirectory ? 'No files' : 'Select a folder') }}</span>
+        <span>{{ error || (workingDirectory ? t('fileTree.noFiles') : t('fileTree.selectFolder')) }}</span>
       </div>
 
       <!-- Tree Nodes -->
@@ -73,11 +73,14 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick, reactive } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Search, RefreshCw, FolderOpen } from 'lucide-vue-next'
 import FileTreeNode from './FileTreeNode.vue'
 import FileContextMenu from './FileContextMenu.vue'
 import { api } from '@/services/electronAPI'
 import { useAppStore } from '@/stores/app'
+
+const { t } = useI18n()
 
 interface TreeNode {
   name: string

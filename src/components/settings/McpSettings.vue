@@ -1,13 +1,13 @@
 <template>
   <div class="settings-section">
-    <h2 class="section-title">MCP Servers</h2>
+    <h2 class="section-title">{{ t('mcpSettings.title') }}</h2>
     
     <div class="section-content">
       <div class="servers-header">
-        <span class="servers-count">{{ enabledCount }} of {{ servers.length }} enabled</span>
+        <span class="servers-count">{{ t('mcpSettings.enabledCount', { enabled: enabledCount, total: servers.length }) }}</span>
         <button class="btn btn-primary" @click="showAddForm = true">
           <Plus :size="14" />
-          Add Server
+          {{ t('mcpSettings.addServer') }}
         </button>
       </div>
 
@@ -33,10 +33,10 @@
               <div class="server-command">{{ server.command }} {{ server.args.join(' ') }}</div>
             </div>
             <div class="server-actions">
-              <button class="icon-btn" @click.stop="editServer(server)" title="Edit">
+              <button class="icon-btn" @click.stop="editServer(server)" :title="t('mcpSettings.edit')">
                 <Pencil :size="14" />
               </button>
-              <button class="icon-btn danger" @click.stop="deleteServer(server.id)" title="Delete">
+              <button class="icon-btn danger" @click.stop="deleteServer(server.id)" :title="t('mcpSettings.delete')">
                 <Trash2 :size="14" />
               </button>
               <ChevronDown 
@@ -50,15 +50,15 @@
           <!-- Expanded Details -->
           <div v-if="expandedServer === server.id" class="server-details">
             <div class="detail-row">
-              <span class="detail-label">Command:</span>
+              <span class="detail-label">{{ t('mcpSettings.command') }}</span>
               <code class="detail-value">{{ server.command }}</code>
             </div>
             <div class="detail-row">
-              <span class="detail-label">Arguments:</span>
+              <span class="detail-label">{{ t('mcpSettings.arguments') }}</span>
               <code class="detail-value">{{ server.args.join(' ') }}</code>
             </div>
             <div v-if="Object.keys(server.env).length > 0" class="detail-row">
-              <span class="detail-label">Environment:</span>
+              <span class="detail-label">{{ t('mcpSettings.environment') }}</span>
               <div class="env-list">
                 <span v-for="(value, key) in server.env" :key="key" class="env-tag">
                   {{ key }}={{ maskValue(value) }}
@@ -72,44 +72,44 @@
       <!-- Add/Edit Form Modal -->
       <div v-if="showAddForm" class="form-modal-overlay" @click.self="cancelForm">
         <div class="form-modal">
-          <h3>{{ editingServer ? 'Edit Server' : 'Add MCP Server' }}</h3>
+          <h3>{{ editingServer ? t('mcpSettings.editServer') : t('mcpSettings.addMcpServer') }}</h3>
           
           <div class="form-group">
-            <label>Server Name</label>
-            <input v-model="form.name" placeholder="e.g., filesystem" class="form-input" />
+            <label>{{ t('mcpSettings.serverName') }}</label>
+            <input v-model="form.name" :placeholder="t('mcpSettings.serverNamePlaceholder')" class="form-input" />
           </div>
           
           <div class="form-group">
-            <label>Command</label>
-            <input v-model="form.command" placeholder="e.g., npx" class="form-input" />
+            <label>{{ t('mcpSettings.commandLabel') }}</label>
+            <input v-model="form.command" :placeholder="t('mcpSettings.commandPlaceholder')" class="form-input" />
           </div>
           
           <div class="form-group">
-            <label>Arguments (space separated)</label>
-            <input v-model="form.args" placeholder="-y @modelcontextprotocol/server-filesystem ." class="form-input" />
+            <label>{{ t('mcpSettings.argsLabel') }}</label>
+            <input v-model="form.args" :placeholder="t('mcpSettings.argsPlaceholder')" class="form-input" />
           </div>
           
           <div class="form-group">
-            <label>Environment Variables (optional)</label>
+            <label>{{ t('mcpSettings.envVarsLabel') }}</label>
             <div class="env-inputs">
               <div v-for="(env, index) in form.envList" :key="index" class="env-row">
-                <input v-model="env.key" placeholder="KEY" class="form-input env-key" />
-                <input v-model="env.value" placeholder="value" class="form-input env-value" />
+                <input v-model="env.key" :placeholder="t('mcpSettings.keyPlaceholder')" class="form-input env-key" />
+                <input v-model="env.value" :placeholder="t('mcpSettings.valuePlaceholder')" class="form-input env-value" />
                 <button class="icon-btn danger" @click="removeEnv(index)">
                   <X :size="14" />
                 </button>
               </div>
               <button class="btn btn-secondary" @click="addEnv">
                 <Plus :size="14" />
-                Add Variable
+                {{ t('mcpSettings.addVariable') }}
               </button>
             </div>
           </div>
           
           <div class="form-actions">
-            <button class="btn btn-secondary" @click="cancelForm">Cancel</button>
+            <button class="btn btn-secondary" @click="cancelForm">{{ t('mcpSettings.cancel') }}</button>
             <button class="btn btn-primary" @click="saveServer" :disabled="!isFormValid">
-              {{ editingServer ? 'Save Changes' : 'Add Server' }}
+              {{ editingServer ? t('mcpSettings.saveChanges') : t('mcpSettings.addServerButton') }}
             </button>
           </div>
         </div>
@@ -118,11 +118,11 @@
       <!-- Empty State -->
       <div v-if="servers.length === 0" class="empty-state">
         <Boxes :size="48" />
-        <h4>No MCP Servers</h4>
-        <p>Add an MCP server to extend Claude's capabilities with custom tools.</p>
+        <h4>{{ t('mcpSettings.noServers') }}</h4>
+        <p>{{ t('mcpSettings.noServersDesc') }}</p>
         <button class="btn btn-primary" @click="showAddForm = true">
           <Plus :size="14" />
-          Add Your First Server
+          {{ t('mcpSettings.addFirstServer') }}
         </button>
       </div>
     </div>
@@ -131,9 +131,11 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, shallowRef } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Plus, Pencil, Trash2, ChevronDown, X, Boxes } from 'lucide-vue-next'
 import { debounce } from '@/utils/debounce'
 
+const { t } = useI18n()
 const emit = defineEmits<{
   'change': []
 }>()

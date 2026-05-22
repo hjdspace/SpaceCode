@@ -35,14 +35,14 @@
 
       <!-- Linux: custom window controls (frameless window) -->
       <div v-if="isLinux" class="linux-window-controls">
-        <button class="win-ctrl" @click="onMinimize" title="Minimize" aria-label="Minimize">
+        <button class="win-ctrl" @click="onMinimize" :title="t('titleBar.minimize')" :aria-label="t('titleBar.minimize')">
           <Minus :size="14" />
         </button>
-        <button class="win-ctrl" @click="onToggleMaximize" :title="isMaximized ? 'Restore' : 'Maximize'" aria-label="Maximize">
+        <button class="win-ctrl" @click="onToggleMaximize" :title="isMaximized ? t('titleBar.restore') : t('titleBar.maximize')" :aria-label="t('titleBar.maximize')">
           <Square v-if="!isMaximized" :size="12" />
           <Copy v-else :size="12" />
         </button>
-        <button class="win-ctrl win-ctrl-close" @click="onClose" title="Close" aria-label="Close">
+        <button class="win-ctrl win-ctrl-close" @click="onClose" :title="t('titleBar.close')" :aria-label="t('titleBar.close')">
           <X :size="14" />
         </button>
       </div>

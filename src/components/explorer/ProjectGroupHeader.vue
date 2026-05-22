@@ -31,7 +31,7 @@
       <button
         v-if="workingDirectory !== ''"
         class="action-btn"
-        title="New conversation in this project"
+        :title="t('sidebar.newConversation')"
         @click.stop="$emit('create-session', $event)"
       >
         <Plus :size="14" />
@@ -41,7 +41,7 @@
       <div class="menu-wrapper">
         <button
           class="action-btn"
-          title="More options"
+          :title="t('common.moreOptions')"
           @click.stop="toggleMenu"
         >
           <MoreVertical :size="14" />
