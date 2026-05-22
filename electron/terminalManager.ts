@@ -15,88 +15,146 @@ import * as fs from 'fs'
  * 加载 node-pty 原生模块
  *
  * 打包后 node-pty 通过 asarUnpack 被展开到 resources/app.asar.unpacked。
- * node-pty 内部会查找以下三个相对路径中的一个以定位 pty.node:
- *   - ../build/Release/pty.node
- *   - ../build/Debug/pty.node
- *   - ../prebuilds/{platform}-{arch}/pty.node
+ * node-pty 自带的加载器 (lib/utils.js#loadNativeModule) 会按下面顺序
+ * 依次尝试 6 个相对路径：
+ *   ../build/Release/pty.node, ./build/Release/pty.node,
+ *   ../build/Debug/pty.node,   ./build/Debug/pty.node,
+ *   ../prebuilds/{platform}-{arch}/pty.node, ./prebuilds/{platform}-{arch}/pty.node
+ * 但它的 try/catch 只保留 *最后* 一次失败的 lastError，所以一旦第一次因
+ * ABI 不匹配 / 共享库缺失抛错，最终错误会被后续 "Cannot find module" 覆盖，
+ * 严重误导排查 (典型现象：build/Release/pty.node 明明存在，却报 prebuilds
+ * 路径找不到)。
  *
- * Linux 上官方不提供 prebuilds，必须通过 electron-rebuild (或 @electron/rebuild)
- * 在打包前用 Electron 的 Node ABI 重新编译 node-pty，生成 build/Release/pty.node。
- *
- * 这里的加载策略参考 VSCode 的做法：
- *   1. 先尝试 app.asar.unpacked 下的路径 (打包环境)
- *   2. 再尝试普通 require (开发环境 / 回退)
- *   3. 每次失败都输出详细诊断信息，方便排查
+ * 这里的策略：
+ *   1. 在 require('node-pty') 之前，主动定位真实存在的 pty.node 文件，
+ *      用 process.dlopen 显式加载并捕获每个候选的真实错误信息；
+ *   2. 加载成功后，把 native binding 注入 require.cache，使 node-pty
+ *      自带的 require('../build/Release/...') 直接命中缓存，跳过它脆弱的
+ *      6 路 fallback，避免不必要的二次 dlopen；
+ *   3. 任何阶段失败都输出每个候选的完整错误，便于诊断 (ABI mismatch、
+ *      missing libstdc++、文件不存在等)。
  */
-function loadNodePty(): any {
-  const tried: string[] = []
-  const errors: string[] = []
-
-  const logAttempt = (p: string, err: unknown) => {
-    tried.push(p)
-    const msg = err instanceof Error ? err.message : String(err)
-    errors.push(`  - ${p}: ${msg}`)
-  }
-
-  // 1) 打包环境：优先从 app.asar.unpacked 加载
+function resolveNodePtyDir(): string {
   if (app.isPackaged) {
-    const unpackedPath = path.join(
+    return path.join(
       process.resourcesPath,
       'app.asar.unpacked',
       'node_modules',
       'node-pty'
     )
-
-    // 先打个诊断：检查关键文件是否真的存在
-    const expectedBinary = path.join(
-      unpackedPath,
-      'build',
-      'Release',
-      'pty.node'
-    )
-    const expectedPrebuild = path.join(
-      unpackedPath,
-      'prebuilds',
-      `${process.platform}-${process.arch}`,
-      'pty.node'
-    )
-
-    console.log('[TerminalManager] Diagnosing node-pty in packaged app:')
-    console.log(`  resourcesPath: ${process.resourcesPath}`)
-    console.log(`  unpackedPath exists: ${fs.existsSync(unpackedPath)}`)
-    console.log(`  build/Release/pty.node exists: ${fs.existsSync(expectedBinary)}`)
-    console.log(`  prebuilds/${process.platform}-${process.arch}/pty.node exists: ${fs.existsSync(expectedPrebuild)}`)
-
-    try {
-      return require(unpackedPath)
-    } catch (err) {
-      logAttempt(unpackedPath, err)
-    }
-
-    // 再尝试 asar 内的 (虽然多半加载不了 .node，但万一 electron 做了重定向)
-    const asarPath = path.join(
-      process.resourcesPath,
-      'app.asar',
-      'node_modules',
-      'node-pty'
-    )
-    try {
-      return require(asarPath)
-    } catch (err) {
-      logAttempt(asarPath, err)
-    }
   }
+  // 开发环境：使用 require.resolve 找到 node-pty 的根目录
+  const pkgJsonPath = require.resolve('node-pty/package.json')
+  return path.dirname(pkgJsonPath)
+}
 
-  // 2) 开发环境或 fallback：普通 require
+function listCandidatePtyBinaries(nodePtyDir: string): string[] {
+  const platArch = `${process.platform}-${process.arch}`
+  return [
+    path.join(nodePtyDir, 'build', 'Release', 'pty.node'),
+    path.join(nodePtyDir, 'build', 'Debug', 'pty.node'),
+    path.join(nodePtyDir, 'prebuilds', platArch, 'pty.node'),
+    // 备份：递归找一个 (用户手工放置 / 异常构建)
+  ]
+}
+
+function preloadNativeBinding(absPath: string): { module: any | null; error: Error | null } {
   try {
-    return require('node-pty')
+    const m: any = { exports: {} }
+    // 使用 process.dlopen 直接装载 .node，避免再次走 require 解析逻辑
+    ;(process as any).dlopen(m, absPath)
+    return { module: m.exports, error: null }
   } catch (err) {
-    logAttempt('node-pty (resolved via require)', err)
+    return { module: null, error: err instanceof Error ? err : new Error(String(err)) }
+  }
+}
+
+function injectIntoRequireCache(absPath: string, exportsObj: any) {
+  const Module = require('module')
+  // 命中 require.cache 的 key 必须是 path.resolve 后的规范化绝对路径
+  const key = path.resolve(absPath)
+  if (Module._cache[key]) return
+  const fakeMod = new Module(key, null)
+  fakeMod.id = key
+  fakeMod.filename = key
+  fakeMod.loaded = true
+  fakeMod.exports = exportsObj
+  Module._cache[key] = fakeMod
+}
+
+function loadNodePty(): any {
+  const nodePtyDir = resolveNodePtyDir()
+  const candidates = listCandidatePtyBinaries(nodePtyDir)
+  const platArch = `${process.platform}-${process.arch}`
+
+  console.log('[TerminalManager] Diagnosing node-pty:')
+  console.log(`  isPackaged: ${app.isPackaged}`)
+  console.log(`  resourcesPath: ${process.resourcesPath}`)
+  console.log(`  nodePtyDir: ${nodePtyDir}`)
+  console.log(`  nodePtyDir exists: ${fs.existsSync(nodePtyDir)}`)
+  for (const c of candidates) {
+    console.log(`  candidate exists [${fs.existsSync(c) ? 'yes' : 'no '}]: ${c}`)
   }
 
-  throw new Error(
-    `Failed to load node-pty from any location. Tried:\n${errors.join('\n')}`
-  )
+  const errors: string[] = []
+  let nativeBinding: any = null
+  let nativeBindingPath: string | null = null
+
+  for (const c of candidates) {
+    if (!fs.existsSync(c)) {
+      errors.push(`  - ${c}: file not found`)
+      continue
+    }
+    const result = preloadNativeBinding(c)
+    if (result.module) {
+      nativeBinding = result.module
+      nativeBindingPath = c
+      console.log(`[TerminalManager] Successfully dlopen'd: ${c}`)
+      break
+    }
+    errors.push(`  - ${c}: ${result.error?.message ?? 'unknown error'}`)
+  }
+
+  if (!nativeBinding) {
+    // 最后兜底：交给 node-pty 自己的 require (开发环境通常足够)
+    try {
+      console.log('[TerminalManager] Falling back to plain require(node-pty)')
+      return require(app.isPackaged ? nodePtyDir : 'node-pty')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      errors.push(`  - require(node-pty): ${msg}`)
+      throw new Error(
+        `Failed to load node-pty pty.node native binding for ${platArch}. ` +
+        `Make sure @electron/rebuild has been run for the target Electron ABI ` +
+        `before packaging (typical fix: \`npx @electron/rebuild -f -w node-pty\`).\n` +
+        `Attempted binaries:\n${errors.join('\n')}`
+      )
+    }
+  }
+
+  // 关键：把已加载的 native 模块注入 require.cache，这样 node-pty 自带的
+  // require('../build/Release/pty.node') 等会直接命中缓存，不会再触发 dlopen。
+  // 同时为同一个文件的多个等价绝对路径都注入一份，覆盖 './' 与 '../' 两种写法。
+  for (const c of candidates) {
+    if (fs.existsSync(c)) {
+      injectIntoRequireCache(c, nativeBinding)
+    }
+  }
+  // 也注入实际加载成功的那个路径 (大概率与上面重复，但保险)
+  if (nativeBindingPath) {
+    injectIntoRequireCache(nativeBindingPath, nativeBinding)
+  }
+
+  // 再 require 包入口；它内部的 loadNativeModule 会因 require.cache 命中而成功
+  try {
+    return require(app.isPackaged ? nodePtyDir : 'node-pty')
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new Error(
+      `Loaded pty.node successfully from ${nativeBindingPath}, but require('node-pty') ` +
+      `still failed: ${msg}\nPrior attempts:\n${errors.join('\n')}`
+    )
+  }
 }
 
 let pty: any
