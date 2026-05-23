@@ -6,6 +6,9 @@
  */
 
 import { execFile } from 'child_process'
+import { writeFileSync, unlinkSync, mkdtempSync, rmdirSync } from 'fs'
+import { join } from 'path'
+import { tmpdir } from 'os'
 import { ipcMain } from 'electron'
 
 const GIT_TIMEOUT = 10000
@@ -330,17 +333,33 @@ async function unstageAll(cwd: string): Promise<boolean> {
 }
 
 async function commit(cwd: string, message: string, amend?: boolean): Promise<{ success: boolean; hash?: string; error?: string }> {
-  const args = ['commit', '-m', message]
-  if (amend) {
-    args.push('--amend', '--no-edit')
+  let tmpDir: string | undefined
+  try {
+    tmpDir = mkdtempSync(join(tmpdir(), 'git-commit-'))
+    const msgFile = join(tmpDir, 'msg.txt')
+    writeFileSync(msgFile, message, 'utf8')
+
+    const args = ['commit', '-F', msgFile]
+    if (amend) {
+      args.push('--amend', '--no-edit')
+    }
+    const result = await gitExec(args, cwd)
+    if (result.code === 0) {
+      const hashResult = await gitExec(['rev-parse', 'HEAD'], cwd)
+      return { success: true, hash: hashResult.stdout.trim().substring(0, 7) }
+    }
+    return { success: false, error: result.stderr || result.stdout }
+  } finally {
+    if (tmpDir) {
+      try { unlinkSync(join(tmpDir, 'msg.txt')) } catch {}
+      try { rmdirSync(tmpDir) } catch {}
+    }
   }
-  const result = await gitExec(args, cwd)
-  if (result.code === 0) {
-    // Get the commit hash
-    const hashResult = await gitExec(['rev-parse', 'HEAD'], cwd)
-    return { success: true, hash: hashResult.stdout.trim().substring(0, 7) }
-  }
-  return { success: false, error: result.stderr || result.stdout }
+}
+
+async function getStagedDiffRaw(cwd: string): Promise<string> {
+  const result = await gitExec(['diff', '--cached', '--no-color', '--unified=3'], cwd)
+  return result.code === 0 ? result.stdout : ''
 }
 
 async function getDiff(cwd: string, path: string, staged?: boolean): Promise<GitDiffResult | null> {
@@ -580,6 +599,10 @@ export function registerGitIPCHandlers() {
 
   ipcMain.handle('git:getDiff', async (_event, cwd: string, path: string, staged?: boolean) => {
     return getDiff(cwd, path, staged)
+  })
+
+  ipcMain.handle('git:getStagedDiff', async (_event, cwd: string) => {
+    return getStagedDiffRaw(cwd)
   })
 
   ipcMain.handle('git:showFile', async (_event, cwd: string, path: string) => {

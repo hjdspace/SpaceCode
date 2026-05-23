@@ -498,7 +498,7 @@ async function handleCommit(): Promise<void> {
 }
 
 async function handleGenerateCommitMessage(): Promise<void> {
-  if (scmStore.totalChanges === 0) return
+  if (scmStore.stagedCount === 0) return
   try {
     const message = await scmStore.generateCommitMessage()
     if (message) {

@@ -202,6 +202,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('git:commit', cwd, message, amend),
     getDiff: (cwd: string, path: string, staged?: boolean): Promise<any> =>
       ipcRenderer.invoke('git:getDiff', cwd, path, staged),
+    getStagedDiff: (cwd: string): Promise<string> =>
+      ipcRenderer.invoke('git:getStagedDiff', cwd),
     showFile: (cwd: string, path: string): Promise<string | null> =>
       ipcRenderer.invoke('git:showFile', cwd, path),
     getBranches: (cwd: string): Promise<any[]> =>
@@ -399,6 +401,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     scanLocalLibrary: (dirPaths: string[], cwd?: string) => ipcRenderer.invoke('skills:scan-local-library', dirPaths, cwd),
     installLocal: (skillName: string, scope: 'global' | 'project', cwd?: string) => ipcRenderer.invoke('skills:install-local', skillName, scope, cwd),
     uninstallLocal: (skillName: string, cwd?: string) => ipcRenderer.invoke('skills:uninstall-local', skillName, cwd),
+    installLocalBundle: (bundleId: string, scope: 'global' | 'project', cwd?: string) => ipcRenderer.invoke('skills:install-local-bundle', bundleId, scope, cwd),
+    uninstallLocalBundle: (bundleName: string, cwd?: string) => ipcRenderer.invoke('skills:uninstall-local-bundle', bundleName, cwd),
     getCustomDirs: () => ipcRenderer.invoke('skills:get-custom-dirs'),
     addCustomDir: (dirPath: string) => ipcRenderer.invoke('skills:add-custom-dir', dirPath),
     removeCustomDir: (dirPath: string) => ipcRenderer.invoke('skills:remove-custom-dir', dirPath),

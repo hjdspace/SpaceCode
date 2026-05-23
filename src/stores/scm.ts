@@ -267,7 +267,7 @@ export const useScmStore = defineStore('scm', () => {
   async function generateCommitMessage(): Promise<string> {
     const cwd = appStore.projectRoot
     if (!cwd) throw new Error('No project root')
-    if (stagedCount.value === 0 && unstagedCount.value === 0) throw new Error('No changes to analyze')
+    if (stagedCount.value === 0) throw new Error('No staged changes to analyze. Please stage your changes first.')
 
     // Ensure LLM service is initialized
     if (!isLLMConfigured()) {
@@ -284,48 +284,71 @@ export const useScmStore = defineStore('scm', () => {
     isGeneratingCommitMessage.value = true
 
     try {
-      // Gather git context (parallel)
-      const [diffResult, logResult, statusResult] = await Promise.all([
-        api.git.getDiff(cwd, '', false),
+      const [diff, logResult] = await Promise.all([
+        api.git.getStagedDiff(cwd),
         api.git.getLog(cwd, 10),
-        api.git.getStatus(cwd),
       ])
 
-      const diff = typeof diffResult === 'string' ? diffResult : JSON.stringify(diffResult || {})
       const logEntries: ScmLogEntry[] = logResult || []
       const recentCommits = logEntries.map(e => e.subject).join('\n')
 
-      // Get file list for context
-      const changedFiles = [
-        ...staged.value.map(f => `  ${f.status.toUpperCase()} ${f.path}`),
-        ...unstaged.value.map(f => `  ${f.status.toUpperCase()} ${f.path}`),
-        ...untracked.value.map(f => `  U ${f.path}`),
-      ].join('\n')
+      const changedFiles = staged.value
+        .map(f => `  ${f.status.toUpperCase()} ${f.path}`)
+        .join('\n')
 
-      const prompt = `You are a git commit message expert. Analyze the following git changes and generate a concise, high-quality commit message.
+      const systemPrompt = `你是一位专业的 Git 提交信息撰写专家。你需要根据代码变更生成高质量、规范的中文提交信息。
 
-## Recent commit messages (for style reference):
-${recentCommits || '(none - this may be a new repo)'}
+## 输出格式要求
+- 使用 Conventional Commits 规范：type(scope): subject
+- type 包括：feat / fix / refactor / docs / style / test / chore / perf / ci / build
+- scope 为可选，表示影响范围（模块、组件、功能区域等）
+- subject 使用中文，简明扼要描述"做了什么"，不超过 72 个字符
+- 必须在 subject 空一行后添加 body，用编号列表逐条说明关键变更：
+  1. 每条说明一个具体的改动点
+  2. 描述改动的目的和影响
+  3. 条目数量根据实际变更复杂度决定，至少1条
+- 仅输出提交信息本身，不要输出任何解释、分析或额外文字
 
-## Changed files:
+## 示例
+feat(登录): 新增微信扫码登录功能
+
+1. 实现微信扫码OAuth2.0认证流程
+2. 添加登录页面二维码组件及自动刷新逻辑
+3. 集成后端回调接口完成用户自动绑定
+
+fix(支付): 修复订单金额计算精度丢失的问题
+
+1. 将浮点数运算替换为BigDecimal精确计算
+2. 修复折扣叠加时金额溢出的边界情况
+
+refactor(路由): 将路由配置从硬编码改为动态加载
+
+1. 抽取路由表为独立配置文件，支持按模块拆分
+2. 实现路由守卫的插件化注册机制
+3. 提升路由模块的可维护性，支持插件动态注册路由
+
+chore(deps): 升级 vite 至 5.4 版本
+
+1. 更新vite及相关插件版本至5.4以修复HMR缓存泄漏
+2. 适配vite配置breaking change`
+
+      const userPrompt = `## 最近的提交记录（用于参考风格）：
+${recentCommits || '（暂无提交记录）'}
+
+## 变更文件列表：
 ${changedFiles}
 
-## Git diff:
-${diff.substring(0, 8000)}${diff.length > 8000 ? '\n... (truncated)' : ''}
+## Git Diff：
+${diff.substring(0, 16000)}${diff.length > 16000 ? '\n... (已截断)' : ''}
 
-## Rules:
-- Write the message in English (standard for most repos)
-- Use conventional commits format if the repo uses it (type: summary)
-- Keep the subject line under 72 characters
-- Focus on WHY changes were made, not just WHAT was done
-- Be concise but informative
-- Output ONLY the commit message, no explanation or extra text`
+请根据以上变更生成提交信息。`
 
-      const result = await sendLLMMessage([
-        { role: 'user', content: prompt }
-      ])
+      const result = await sendLLMMessage(
+        [{ role: 'user', content: userPrompt }],
+        { system: systemPrompt }
+      )
 
-      return result.trim().split('\n')[0] // Return only first line as primary message
+      return result.trim()
     } finally {
       isGeneratingCommitMessage.value = false
     }

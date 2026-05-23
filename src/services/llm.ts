@@ -78,7 +78,7 @@ function buildApiUrl(baseUrl: string | undefined, defaultBase: string, endpoint:
   return `${normalized}${endpoint}`
 }
 
-export async function sendMessage(messages: Array<{ role: string; content: string }>, options?: { maxTokens?: number }): Promise<string> {
+export async function sendMessage(messages: Array<{ role: string; content: string }>, options?: { maxTokens?: number; system?: string }): Promise<string> {
   if (!currentConfig?.apiKey) {
     throw new Error('LLM not configured')
   }
@@ -101,6 +101,7 @@ export async function sendMessage(messages: Array<{ role: string; content: strin
       body: JSON.stringify({
         model: model || 'claude-3-sonnet-20240229',
         max_tokens: options?.maxTokens || 1024,
+        ...(options?.system ? { system: options.system } : {}),
         messages: messages.map(m => ({
           role: m.role as 'user' | 'assistant',
           content: m.content,
@@ -140,7 +141,10 @@ export async function sendMessage(messages: Array<{ role: string; content: strin
     },
     body: JSON.stringify({
       model: model || 'gpt-4',
-      messages,
+      messages: [
+        ...(options?.system ? [{ role: 'system', content: options.system }] : []),
+        ...messages,
+      ],
     }),
   })
 
