@@ -11,6 +11,7 @@ import { api } from '@/services/electronAPI'
 import { useAppStore } from './app'
 import { sendMessage as sendLLMMessage, initLLMService, isLLMConfigured } from '@/services/llm'
 import { useSettingsStore } from './settings'
+import { useI18n } from 'vue-i18n'
 
 export interface ScmFile {
   path: string
@@ -41,6 +42,7 @@ export interface ScmLogEntry {
 
 export const useScmStore = defineStore('scm', () => {
   const appStore = useAppStore()
+  const { locale } = useI18n()
 
   const isRepo = ref(false)
   const isLoading = ref(false)
@@ -296,7 +298,10 @@ export const useScmStore = defineStore('scm', () => {
         .map(f => `  ${f.status.toUpperCase()} ${f.path}`)
         .join('\n')
 
-      const systemPrompt = `你是一位专业的 Git 提交信息撰写专家。你需要根据代码变更生成高质量、规范的中文提交信息。
+      const isZh = locale.value === 'zh-CN'
+
+      const systemPrompt = isZh
+        ? `你是一位专业的 Git 提交信息撰写专家。你需要根据代码变更生成高质量、规范的中文提交信息。
 
 ## 输出格式要求
 - 使用 Conventional Commits 规范：type(scope): subject
@@ -331,8 +336,44 @@ chore(deps): 升级 vite 至 5.4 版本
 
 1. 更新vite及相关插件版本至5.4以修复HMR缓存泄漏
 2. 适配vite配置breaking change`
+        : `You are an expert Git commit message writer. Generate high-quality, well-structured commit messages based on code changes.
 
-      const userPrompt = `## 最近的提交记录（用于参考风格）：
+## Output Format Requirements
+- Use Conventional Commits format: type(scope): subject
+- Types: feat / fix / refactor / docs / style / test / chore / perf / ci / build
+- scope is optional, indicating the affected area (module, component, feature, etc.)
+- subject should concisely describe "what was done", max 72 characters
+- Always add a body after a blank line, using a numbered list to detail key changes:
+  1. Each item describes a specific change
+  2. Explain the purpose and impact of the change
+  3. Number of items depends on change complexity, at least 1
+- Output ONLY the commit message, no explanations or extra text
+
+## Examples
+feat(auth): add WeChat QR code login
+
+1. Implement WeChat OAuth2.0 authentication flow
+2. Add QR code component with auto-refresh logic on login page
+3. Integrate backend callback for automatic user binding
+
+fix(payment): fix order amount precision loss
+
+1. Replace floating-point arithmetic with BigDecimal for precise calculation
+2. Fix edge case of amount overflow when stacking discounts
+
+refactor(router): migrate route config from hardcoded to dynamic loading
+
+1. Extract route table into independent config files with module-level splitting
+2. Implement plugin-based route guard registration mechanism
+3. Improve router maintainability and support dynamic plugin route registration
+
+chore(deps): upgrade vite to v5.4
+
+1. Update vite and related plugins to 5.4 to fix HMR cache leak
+2. Adapt to vite config breaking changes`
+
+      const userPrompt = isZh
+        ? `## 最近的提交记录（用于参考风格）：
 ${recentCommits || '（暂无提交记录）'}
 
 ## 变更文件列表：
@@ -342,6 +383,16 @@ ${changedFiles}
 ${diff.substring(0, 16000)}${diff.length > 16000 ? '\n... (已截断)' : ''}
 
 请根据以上变更生成提交信息。`
+        : `## Recent commit messages (for style reference):
+${recentCommits || '(none - this may be a new repo)'}
+
+## Changed files:
+${changedFiles}
+
+## Git Diff:
+${diff.substring(0, 16000)}${diff.length > 16000 ? '\n... (truncated)' : ''}
+
+Generate a commit message based on the above changes.`
 
       const result = await sendLLMMessage(
         [{ role: 'user', content: userPrompt }],

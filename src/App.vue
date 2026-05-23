@@ -92,11 +92,11 @@ const { register } = useShortcuts({
 })
 
 const mainContent = ref<HTMLElement | null>(null)
-const leftWidth = ref(280)
+const leftWidth = ref(350)
 const rightWidth = ref(400)
 
-const minWidth = 150
-const maxWidth = 600
+const minWidth = 200
+const maxWidth = 650
 
 const isResizing = ref(false)
 const resizeTarget = ref<'left' | 'right' | null>(null)

@@ -62,10 +62,12 @@
     <div class="commit-section">
       <div class="commit-input-wrapper">
         <textarea
+          ref="commitTextarea"
           v-model="scmStore.commitMessage"
           class="commit-input"
           :placeholder="t('scm.messagePlaceholder', { branch: scmStore.branch || 'HEAD' })"
-          rows="2"
+          :rows="commitTextareaRows"
+          @input="autoResizeTextarea"
           @keydown.ctrl.enter="handleCommit"
         ></textarea>
         <button
@@ -363,6 +365,11 @@ const graphViewMode = ref<'auto' | 'linear'>('auto')
 const selectedCommitHash = ref<string | null>(null)
 const showMoreMenu = ref(false)
 const showCommitMenu = ref(false)
+const commitTextarea = ref<HTMLTextAreaElement | null>(null)
+const commitTextareaRows = ref(2)
+
+const COMMIT_TEXTAREA_MIN_ROWS = 2
+const COMMIT_TEXTAREA_MAX_ROWS = 12
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 
@@ -419,6 +426,19 @@ function getStatusLetter(file: ScmFile): string {
 
 function handleCopyPath(file: ScmFile): void {
   navigator.clipboard.writeText(file.path).catch(() => {})
+}
+
+function autoResizeTextarea(): void {
+  const el = commitTextarea.value
+  if (!el) return
+  const text = el.value
+  const lineCount = text.split('\n').length
+  const wrappedLines = text.split('\n').reduce((acc, line) => {
+    if (!line) return acc + 1
+    const charWidth = el.clientWidth > 0 ? el.clientWidth / (parseFloat(getComputedStyle(el).fontSize) * 0.6) : 80
+    return acc + Math.max(1, Math.ceil(line.length / charWidth))
+  }, 0)
+  commitTextareaRows.value = Math.min(Math.max(wrappedLines, COMMIT_TEXTAREA_MIN_ROWS, lineCount), COMMIT_TEXTAREA_MAX_ROWS)
 }
 
 // --- Commit helpers ---
@@ -503,6 +523,7 @@ async function handleGenerateCommitMessage(): Promise<void> {
     const message = await scmStore.generateCommitMessage()
     if (message) {
       scmStore.commitMessage = message
+      nextTick(() => autoResizeTextarea())
     }
   } catch (e: any) {
     console.error('[ScmPanel] AI commit message generation failed:', e)

@@ -197,6 +197,8 @@ export const api = {
       electronAPI?.git?.commit(cwd, message, amend) || Promise.resolve({ success: false, error: 'Git API not available' }),
     getDiff: (cwd: string, path: string, staged?: boolean): Promise<any> =>
       electronAPI?.git?.getDiff(cwd, path, staged) || Promise.resolve(null),
+    getStagedDiff: (cwd: string): Promise<string> =>
+      electronAPI?.git?.getStagedDiff(cwd) || Promise.resolve(''),
     showFile: (cwd: string, path: string): Promise<string | null> =>
       electronAPI?.git?.showFile(cwd, path) || Promise.resolve(null),
     getBranches: (cwd: string): Promise<any[]> =>

@@ -809,8 +809,8 @@ onMounted(() => {
   overflow: hidden;
   background: var(--surface-glass);
   transition: opacity var(--transition-normal);
-  min-width: 240px;
-  max-width: 300px;
+  min-width: 300px;
+  max-width: 380px;
 }
 
 .panel {
