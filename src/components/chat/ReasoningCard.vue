@@ -1,7 +1,6 @@
 <template>
   <div class="reasoning-card" :class="{ 'is-thinking': isThinking, 'is-expanded': isExpanded }">
     <div class="reasoning-header" @click="toggleExpand">
-      <Brain :size="14" class="reasoning-icon" :class="{ 'pulse': isThinking }" />
       <span class="reasoning-title">
           <template v-if="isThinking">
             {{ t('chat.thinking') }}
@@ -21,7 +20,7 @@
 
 <script setup lang="ts">
 import type { ReasoningBlock } from '@/types'
-import { Brain, ChevronDown } from 'lucide-vue-next'
+import { ChevronDown } from 'lucide-vue-next'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
 import { computed, ref, watch, onUnmounted, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -97,15 +96,6 @@ onUnmounted(() => {
   &:hover {
     background: var(--surface-glass-hover);
     color: var(--text-secondary);
-  }
-}
-
-.reasoning-icon {
-  flex-shrink: 0;
-  opacity: 0.7;
-
-  &.pulse {
-    animation: pulse 1.5s ease-in-out infinite;
   }
 }
 

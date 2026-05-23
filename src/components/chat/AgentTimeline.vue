@@ -21,7 +21,7 @@
         :class="[`event-${event.type}`, `status-${event.status}`, { 'is-last': index === timelineEvents.length - 1 }]"
       >
         <!-- Timeline connector -->
-        <div v-if="event.type === 'reasoning' || event.type === 'metadata'" class="event-node">
+        <div v-if="event.type === 'metadata'" class="event-node">
           <div class="event-dot" :class="`status-${event.status}`">
             <Loader2 v-if="event.status === 'running'" :size="11" class="spin-icon" />
             <X v-else-if="event.status === 'error'" :size="11" />
@@ -141,8 +141,10 @@ import { useChatStore } from '@/stores/chat'
 import {
   Loader2, X, ChevronDown, Bot, AlertCircle,
   Terminal, FileText, FileEdit, Search, Globe, Wand2, Folder, Code,
-  Brain, MessageCircle, Info
+  MessageCircle, Info
 } from 'lucide-vue-next'
+
+const EmptyIcon = () => null
 
 const emit = defineEmits<{
   toolSubmit: [toolId: string, updatedInput: Record<string, unknown>]
@@ -341,7 +343,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
             id: event.id,
             type: 'reasoning',
             status: event.status,
-            icon: markRaw(Brain),
+            icon: markRaw(EmptyIcon),
             label: 'Thinking',
             content: event.content || '',
           })
@@ -391,7 +393,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
           id: `${msg.id}-reasoning`,
           type: 'reasoning',
           status: isThinking ? 'running' : 'completed',
-          icon: markRaw(Brain),
+          icon: markRaw(EmptyIcon),
           label: 'Thinking',
           content: msg.reasoning.content || '',
           duration: duration || undefined,
