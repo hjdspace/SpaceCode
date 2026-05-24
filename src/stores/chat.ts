@@ -10,6 +10,7 @@ import { useAppStore } from './app'
 import { useTaskManager } from '@/composables/useTaskManager'
 import { getCompletedTurnTargets } from '@/utils/turnCheckpointUtils'
 import { api } from '@/services/electronAPI'
+import { errorHandler } from '@/services/errorHandler'
 
 const taskManager = useTaskManager()
 

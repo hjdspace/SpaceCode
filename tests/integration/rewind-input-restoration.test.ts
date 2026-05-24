@@ -189,7 +189,7 @@ describe('User Message Restoration to Input Box', () => {
   describe('Scenario 5: Integration with different rewind modes', () => {
     it('should restore input in "conversation" mode', () => {
       // In conversation mode, we always restore if there's a user message
-      const mode = 'conversation'
+      const mode: string = 'conversation'
       const hasCodeError = false
 
       // Use includes() to avoid TypeScript literal type comparison warning
