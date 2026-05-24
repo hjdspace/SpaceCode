@@ -120,16 +120,41 @@ export interface MessageMetadata {
   duration?: number
   warning?: string
   error?: ClassifiedError
+  kind?: 'task-notification'
+  agentTaskId?: string
+  agentName?: string
+  teamName?: string
+  status?: TeammateStatus
 }
 
 export type ProcessStatus = 'none' | 'starting' | 'active' | 'idle' | 'suspended' | 'exited'
 
 export type SessionEngineType = 'claude-code' | 'pi'
 
+export type AgentColor = 'red' | 'blue' | 'green' | 'yellow' | 'purple' | 'orange' | 'pink' | 'cyan'
+
+export type TeammateStatus = 'running' | 'completed' | 'failed' | 'idle'
+
+export interface TeamContext {
+  teamName: string
+  isLeader: boolean
+  teammates: Record<string, {
+    name: string
+    agentType?: string
+    status: TeammateStatus
+    color: AgentColor
+    messageCount: number
+  }>
+}
+
 export interface Session {
   id: string
   title: string
   messages: Message[]
+  teamContext?: TeamContext
+  expandedView?: 'none' | 'tasks' | 'teammates'
+  viewingAgentTaskId?: string
+  teammateTranscripts?: Record<string, Message[]>
   createdAt: number
   updatedAt: number
   workingDirectory?: string

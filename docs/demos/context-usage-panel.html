@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="anthropic-dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SpaceCode · Context & Token Usage</title>
+  <style>
+    :root {
+      --bg-primary: #141413;
+      --bg-secondary: #1c1b1a;
+      --bg-tertiary: #242322;
+      --bg-elevated: #2a2928;
+      --surface-border: rgba(250, 249, 245, 0.07);
+      --surface-border-strong: rgba(250, 249, 245, 0.13);
+      --text-primary: #faf9f5;
+      --text-secondary: #b0aea5;
+      --text-muted: #8a8880;
+      --accent-primary: #d97757;
+      --accent-secondary: #6a9bcc;
+      --accent-tertiary: #788c5d;
+      --success: #8ca06d;
+      --warning: #e0896b;
+      --error: #e06050;
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+      --font-mono: "JetBrains Mono", "SF Mono", "Cascadia Code", Consolas, monospace;
+      --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    min-height: 100vh;
+    line-height: 1.5;
+  }
+
+  .page {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 32px 24px 64px;
+  }
+
+  header.page-header {
+    margin-bottom: 28px;
+  }
+
+  header.page-header h1 {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  header.page-header p {
+    margin-top: 6px;
+    color: var(--text-secondary);
+    font-size: 14px;
+  }
+
+  /* ── Status bar (BuiltinStatusLine equivalent) ── */
+  .status-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0;
+    padding: 10px 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius-md);
+    font-size: 13px;
+    margin-bottom: 20px;
+  }
+
+  .status-bar .sep {
+    color: var(--text-muted);
+    margin: 0 10px;
+    opacity: 0.5;
+  }
+
+  .status-bar .label { color: var(--text-muted); }
+  .status-bar .value { color: var(--text-primary); font-weight: 500; }
+
+  .mini-bar {
+    display: inline-flex;
+    width: 72px;
+    height: 5px;
+    background: rgba(250, 249, 245, 0.08);
+    border-radius: 3px;
+    overflow: hidden;
+    vertical-align: middle;
+    margin: 0 6px;
+  }
+
+  .mini-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.4s ease;
+  }
+
+  .mini-bar-fill.session { background: var(--accent-secondary); }
+  .mini-bar-fill.weekly { background: var(--accent-tertiary); }
+
+  /* ── Main grid ── */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    gap: 16px;
+  }
+
+  @media (max-width: 780px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+
+  .card-header {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid var(--surface-border);
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .card-header h2 {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+
+  .card-header .subtitle {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+
+  .card-body { padding: 20px; }
+
+  /* ── Context ring + stats ── */
+  .context-overview {
+    display: flex;
+    gap: 24px;
+    align-items: center;
+    margin-bottom: 24px;
+  }
+
+  .ring-wrap {
+    position: relative;
+    width: 120px;
+    height: 120px;
+    flex-shrink: 0;
+  }
+
+  .ring-wrap svg { transform: rotate(-90deg); }
+
+  .ring-bg { stroke: rgba(250, 249, 245, 0.06); }
+  .ring-fill {
+    stroke-linecap: round;
+    transition: stroke-dashoffset 0.5s ease, stroke 0.3s ease;
+  }
+
+  .ring-center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .ring-center .pct {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1;
+  }
+
+  .ring-center .pct-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .context-meta { flex: 1; min-width: 0; }
+
+  .context-meta .model-row {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+
+  .context-meta .token-row {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+  }
+
+  .context-meta .token-row strong {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  .threshold-bar-wrap { margin-top: 8px; }
+
+  .threshold-bar {
+    position: relative;
+    height: 8px;
+    background: rgba(250, 249, 245, 0.06);
+    border-radius: 4px;
+    overflow: visible;
+  }
+
+  .threshold-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.5s ease, background 0.3s ease;
+  }
+
+  .threshold-markers {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .threshold-marker {
+    position: absolute;
+    top: -3px;
+    width: 2px;
+    height: 14px;
+    background: rgba(250, 249, 245, 0.25);
+    border-radius: 1px;
+  }
+
+  .threshold-marker.warn { background: var(--warning); opacity: 0.7; }
+  .threshold-marker.compact { background: var(--accent-primary); opacity: 0.8; }
+
+  .threshold-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .threshold-legend span::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    margin-right: 5px;
+    vertical-align: middle;
+  }
+
+  .threshold-legend .used::before { background: var(--accent-secondary); }
+  .threshold-legend .warn::before { background: var(--warning); }
+  .threshold-legend .compact::before { background: var(--accent-primary); }
+
+  .warning-banner {
+    margin-top: 14px;
+    padding: 10px 14px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    display: none;
+  }
+
+  .warning-banner.show { display: block; }
+  .warning-banner.warn {
+    background: rgba(224, 137, 107, 0.12);
+    border: 1px solid rgba(224, 137, 107, 0.25);
+    color: var(--warning);
+  }
+  .warning-banner.error {
+    background: rgba(224, 96, 80, 0.12);
+    border: 1px solid rgba(224, 96, 80, 0.25);
+    color: var(--error);
+  }
+
+  /* ── Category grid (ContextVisualization) ── */
+  .viz-row {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+  }
+
+  .context-grid {
+    display: grid;
+    grid-template-columns: repeat(10, 14px);
+    grid-template-rows: repeat(10, 14px);
+    gap: 2px;
+    flex-shrink: 0;
+  }
+
+  .grid-cell {
+    width: 14px;
+    height: 14px;
+    border-radius: 2px;
+    font-size: 10px;
+    line-height: 14px;
+    text-align: center;
+    transition: background 0.3s ease;
+  }
+
+  .grid-cell.free { background: rgba(250, 249, 245, 0.04); }
+  .grid-cell.buffer { background: rgba(217, 119, 87, 0.35); }
+  .grid-cell.filled { opacity: 0.85; }
+
+  .category-list {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .category-list h3 {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
+    font-weight: 400;
+    margin-bottom: 10px;
+  }
+
+  .category-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 0;
+    font-size: 13px;
+  }
+
+  .cat-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+
+  .cat-name { flex: 1; color: var(--text-primary); }
+  .cat-tokens {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* ── Session stats sidebar ── */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--surface-border);
+    font-size: 13px;
+  }
+
+  .stat-row:last-child { border-bottom: none; }
+
+  .stat-label { color: var(--text-secondary); }
+  .stat-value {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .stat-value.cost { color: var(--accent-primary); }
+
+  .stat-section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin: 16px 0 4px;
+  }
+
+  .stat-section-title:first-child { margin-top: 0; }
+
+  /* ── Controls ── */
+  .controls {
+    margin-top: 24px;
+    padding: 20px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius-lg);
+  }
+
+  .controls h3 {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 14px;
+    color: var(--text-secondary);
+  }
+
+  .slider-group {
+    margin-bottom: 16px;
+  }
+
+  .slider-group label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+
+  .slider-group label output {
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+  }
+
+  input[type="range"] {
+    width: 100%;
+    accent-color: var(--accent-primary);
+    height: 4px;
+  }
+
+  .preset-btns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .preset-btns button {
+    padding: 6px 12px;
+    font-size: 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--surface-border-strong);
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .preset-btns button:hover {
+    border-color: var(--accent-primary);
+    color: var(--text-primary);
+  }
+
+  .preset-btns button.active {
+    background: rgba(217, 119, 87, 0.15);
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+  }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="page-header">
+      <h1>Context & Token Usage</h1>
+      <p>基于 Claude Code TUI 逻辑的前端 UI 概念稿 · 拖动滑块预览不同上下文占用状态</p>
+    </header>
+
+    <!-- Status bar: mirrors BuiltinStatusLine.tsx -->
+    <div class="status-bar" id="statusBar">
+      <span class="value" id="sbModel">Sonnet 4.6</span>
+      <span class="sep">│</span>
+      <span class="label">Context </span>
+      <span class="value" id="sbContextPct">42%</span>
+      <span class="label" id="sbTokenPair"> (84k/200k)</span>
+      <span class="sep">│</span>
+      <span class="label">Session </span>
+      <span class="mini-bar"><span class="mini-bar-fill session" id="sbSessionBar" style="width:35%"></span></span>
+      <span class="value" id="sbSessionPct">35%</span>
+      <span class="label" id="sbSessionReset"> 2h14m</span>
+      <span class="sep">│</span>
+      <span class="label">Weekly </span>
+      <span class="mini-bar"><span class="mini-bar-fill weekly" id="sbWeeklyBar" style="width:18%"></span></span>
+      <span class="value" id="sbWeeklyPct">18%</span>
+      <span class="sep">│</span>
+      <span class="value cost" id="sbCost">$0.0842</span>
+    </div>
+
+    <div class="grid">
+      <!-- Main context panel -->
+      <div class="card">
+        <div class="card-header">
+          <h2>Context Usage</h2>
+          <span class="subtitle" id="headerSubtitle">claude-sonnet-4-6 · 200k window</span>
+        </div>
+        <div class="card-body">
+          <div class="context-overview">
+            <div class="ring-wrap">
+              <svg width="120" height="120" viewBox="0 0 120 120">
+                <circle class="ring-bg" cx="60" cy="60" r="52" fill="none" stroke-width="10"/>
+                <circle class="ring-fill" id="ringFill" cx="60" cy="60" r="52" fill="none" stroke-width="10"
+                  stroke-dasharray="326.73" stroke-dashoffset="189.5" stroke="var(--accent-secondary)"/>
+              </svg>
+              <div class="ring-center">
+                <span class="pct" id="ringPct">42</span>
+                <span class="pct-label">used</span>
+              </div>
+            </div>
+            <div class="context-meta">
+              <div class="model-row" id="metaModel">Claude Sonnet 4.6</div>
+              <div class="token-row">
+                <strong id="metaUsed">84,000</strong> / <span id="metaTotal">200,000</span> tokens
+                · <span id="metaRemaining">116,000</span> remaining
+              </div>
+              <div class="threshold-bar-wrap">
+                <div class="threshold-bar">
+                  <div class="threshold-fill" id="thresholdFill" style="width:42%"></div>
+                  <div class="threshold-markers">
+                    <div class="threshold-marker warn" id="warnMarker" style="left:86%"></div>
+                    <div class="threshold-marker compact" id="compactMarker" style="left:93%"></div>
+                  </div>
+                </div>
+                <div class="threshold-legend">
+                  <span class="used">已用上下文</span>
+                  <span class="warn">警告阈值 (~87%)</span>
+                  <span class="compact">自动压缩 (~93%)</span>
+                </div>
+              </div>
+              <div class="warning-banner warn" id="warningBanner">
+                23% until auto-compact
+              </div>
+            </div>
+          </div>
+
+          <!-- Context visualization grid -->
+          <div class="viz-row">
+            <div class="context-grid" id="contextGrid"></div>
+            <div class="category-list">
+              <h3>Estimated usage by category</h3>
+              <div id="categoryList"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Session stats sidebar -->
+      <div class="card">
+        <div class="card-header">
+          <h2>Session Stats</h2>
+          <span class="subtitle">cumulative</span>
+        </div>
+        <div class="card-body">
+          <div class="stat-section-title">Token breakdown</div>
+          <div class="stat-row">
+            <span class="stat-label">Input (uncached)</span>
+            <span class="stat-value" id="statInput">52,400</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Cache read</span>
+            <span class="stat-value" id="statCacheRead">28,600</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Cache write</span>
+            <span class="stat-value" id="statCacheWrite">3,000</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Output</span>
+            <span class="stat-value" id="statOutput">12,800</span>
+          </div>
+
+          <div class="stat-section-title">Cost & duration</div>
+          <div class="stat-row">
+            <span class="stat-label">Total cost</span>
+            <span class="stat-value cost" id="statCost">$0.0842</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">API duration</span>
+            <span class="stat-value" id="statApiDur">2m 34s</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Wall duration</span>
+            <span class="stat-value" id="statWallDur">8m 12s</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Interactive demo controls -->
+    <div class="controls">
+      <h3>Demo controls</h3>
+      <div class="slider-group">
+        <label>
+          Context used (input + cache)
+          <output id="sliderOutput">84,000 tokens (42%)</output>
+        </label>
+        <input type="range" id="usageSlider" min="0" max="200000" step="1000" value="84000" />
+      </div>
+      <div class="preset-btns">
+        <button data-preset="fresh">Fresh session</button>
+        <button data-preset="normal" class="active">Normal (42%)</button>
+        <button data-preset="warning">Warning zone</button>
+        <button data-preset="compact">Near autocompact</button>
+        <button data-preset="1m">1M context model</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ── Constants mirroring engine/src ──
+    const MODEL = {
+      id: 'claude-sonnet-4-6',
+      displayName: 'Claude Sonnet 4.6',
+      shortName: 'Sonnet 4.6',
+      contextWindow: 200_000,
+    };
+
+    const AUTOCOMPACT_BUFFER = 13_000;
+    const WARNING_BUFFER = 20_000;
+    const MAX_OUTPUT_RESERVE = 20_000; // min(maxOutput, 20k) for effective window
+
+    const CATEGORIES = [
+      { name: 'Messages', color: '#6a9bcc', baseRatio: 0.38 },
+      { name: 'System prompt', color: '#788c5d', baseRatio: 0.12 },
+      { name: 'Tools', color: '#d97757', baseRatio: 0.08 },
+      { name: 'MCP tools', color: '#c49a6c', baseRatio: 0.05 },
+      { name: 'Memory files', color: '#a3b985', baseRatio: 0.04 },
+      { name: 'Skills', color: '#8bb3d9', baseRatio: 0.03 },
+    ];
+
+    const CIRCUMFERENCE = 2 * Math.PI * 52;
+
+    function getEffectiveWindow(ctx) {
+      return ctx - Math.min(32_000, MAX_OUTPUT_RESERVE);
+    }
+
+    function getAutoCompactThreshold(ctx) {
+      return getEffectiveWindow(ctx) - AUTOCOMPACT_BUFFER;
+    }
+
+    function getWarningThreshold(ctx) {
+      const threshold = getAutoCompactThreshold(ctx);
+      return threshold - WARNING_BUFFER;
+    }
+
+    // StatusLine formula: input + cache only (NOT output)
+    function calcUsedPct(inputTokens, ctx) {
+      return Math.min(100, Math.max(0, Math.round((inputTokens / ctx) * 100)));
+    }
+
+    function formatTokens(n) {
+      if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace('.0', '') + 'M';
+      if (n >= 1_000) return (n / 1_000).toFixed(1).replace('.0', '') + 'k';
+      return String(n);
+    }
+
+    function formatNumber(n) {
+      return n.toLocaleString('en-US');
+    }
+
+    function distributeCategories(totalInput) {
+      const sum = CATEGORIES.reduce((s, c) => s + c.baseRatio, 0);
+      return CATEGORIES.map(c => ({
+        ...c,
+        tokens: Math.round(totalInput * (c.baseRatio / sum)),
+      }));
+    }
+
+    function buildGrid(usedInput, ctx) {
+      const totalCells = 100;
+      const usedPct = usedInput / ctx;
+      const bufferPct = AUTOCOMPACT_BUFFER / ctx;
+      const filledCells = Math.round(usedPct * totalCells);
+      const bufferCells = Math.round(bufferPct * totalCells);
+      const cells = [];
+
+      const cats = distributeCategories(usedInput);
+      let catIdx = 0, catRemaining = cats[0]?.tokens || 0;
+      const catCellCounts = cats.map(c => Math.round((c.tokens / Math.max(usedInput, 1)) * filledCells));
+
+      for (let i = 0; i < totalCells; i++) {
+        if (i < filledCells) {
+          while (catIdx < catCellCounts.length && catCellCounts[catIdx] <= 0) catIdx++;
+          const color = cats[catIdx]?.color || '#6a9bcc';
+          if (catCellCounts[catIdx] !== undefined) catCellCounts[catIdx]--;
+          cells.push({ type: 'filled', color });
+        } else if (i < filledCells + bufferCells) {
+          cells.push({ type: 'buffer' });
+        } else {
+          cells.push({ type: 'free' });
+        }
+      }
+      return cells;
+    }
+
+    function renderGrid(cells) {
+      const grid = document.getElementById('contextGrid');
+      grid.innerHTML = cells.map(c => {
+        if (c.type === 'free') return '<div class="grid-cell free"></div>';
+        if (c.type === 'buffer') return '<div class="grid-cell buffer"></div>';
+        return `<div class="grid-cell filled" style="background:${c.color}"></div>`;
+      }).join('');
+    }
+
+    function renderCategories(usedInput, ctx) {
+      const cats = distributeCategories(usedInput);
+      const list = document.getElementById('categoryList');
+      list.innerHTML = cats.map(c => `
+        <div class="category-item">
+          <span class="cat-dot" style="background:${c.color}"></span>
+          <span class="cat-name">${c.name}</span>
+          <span class="cat-tokens">${formatTokens(c.tokens)} (${((c.tokens / ctx) * 100).toFixed(1)}%)</span>
+        </div>
+      `).join('');
+    }
+
+    function updateWarningBanner(usedInput, ctx) {
+      const banner = document.getElementById('warningBanner');
+      const autoThreshold = getAutoCompactThreshold(ctx);
+      const warnThreshold = getWarningThreshold(ctx);
+      const effective = getEffectiveWindow(ctx);
+
+      if (usedInput < warnThreshold) {
+        banner.classList.remove('show', 'warn', 'error');
+        return;
+      }
+
+      banner.classList.add('show');
+      if (usedInput >= autoThreshold - 2000) {
+        banner.className = 'warning-banner show error';
+        banner.textContent = `Context low (${Math.max(0, Math.round(((effective - usedInput) / effective) * 100))}% remaining) · Run /compact to continue`;
+      } else {
+        const pctLeft = Math.max(0, Math.round(((autoThreshold - usedInput) / autoThreshold) * 100));
+        banner.className = 'warning-banner show warn';
+        banner.textContent = `${pctLeft}% until auto-compact`;
+      }
+    }
+
+    function updateRing(pct, isHigh) {
+      const ring = document.getElementById('ringFill');
+      const offset = CIRCUMFERENCE * (1 - pct / 100);
+      ring.setAttribute('stroke-dashoffset', offset);
+      ring.setAttribute('stroke', isHigh ? 'var(--warning)' : pct > 75 ? 'var(--accent-primary)' : 'var(--accent-secondary)');
+    }
+
+    function updateUI(usedInput) {
+      const ctx = MODEL.contextWindow;
+      const pct = calcUsedPct(usedInput, ctx);
+      const remaining = ctx - usedInput;
+      const isHigh = usedInput >= getWarningThreshold(ctx);
+
+      // Status bar
+      document.getElementById('sbContextPct').textContent = pct + '%';
+      document.getElementById('sbTokenPair').textContent = ` (${formatTokens(usedInput)}/${formatTokens(ctx)})`;
+
+      // Ring
+      document.getElementById('ringPct').textContent = pct;
+      updateRing(pct, isHigh);
+
+      // Meta
+      document.getElementById('metaUsed').textContent = formatNumber(usedInput);
+      document.getElementById('metaTotal').textContent = formatNumber(ctx);
+      document.getElementById('metaRemaining').textContent = formatNumber(remaining);
+
+      // Threshold bar
+      const fill = document.getElementById('thresholdFill');
+      fill.style.width = pct + '%';
+      fill.style.background = isHigh ? 'var(--warning)' : pct > 75 ? 'var(--accent-primary)' : 'var(--accent-secondary)';
+
+      const effective = getEffectiveWindow(ctx);
+      const warnPct = (getWarningThreshold(ctx) / ctx) * 100;
+      const compactPct = (getAutoCompactThreshold(ctx) / ctx) * 100;
+      document.getElementById('warnMarker').style.left = warnPct + '%';
+      document.getElementById('compactMarker').style.left = compactPct + '%';
+
+      // Warning banner
+      updateWarningBanner(usedInput, ctx);
+
+      // Grid & categories
+      renderGrid(buildGrid(usedInput, ctx));
+      renderCategories(usedInput, ctx);
+
+      // Slider output
+      document.getElementById('sliderOutput').textContent =
+        `${formatNumber(usedInput)} tokens (${pct}%)`;
+
+      // Session stats scale with usage
+      const ratio = usedInput / 84000;
+      document.getElementById('statInput').textContent = formatNumber(Math.round(52400 * ratio));
+      document.getElementById('statCacheRead').textContent = formatNumber(Math.round(28600 * ratio));
+      document.getElementById('statCacheWrite').textContent = formatNumber(Math.round(3000 * ratio));
+      document.getElementById('statOutput').textContent = formatNumber(Math.round(12800 * ratio));
+      const cost = (0.0842 * ratio).toFixed(4);
+      document.getElementById('statCost').textContent = '$' + cost;
+      document.getElementById('sbCost').textContent = '$' + cost;
+    }
+
+    function setModel(preset) {
+      if (preset === '1m') {
+        MODEL.contextWindow = 1_000_000;
+        document.getElementById('headerSubtitle').textContent = 'claude-sonnet-4-6[1m] · 1M window';
+      } else {
+        MODEL.contextWindow = 200_000;
+        document.getElementById('headerSubtitle').textContent = 'claude-sonnet-4-6 · 200k window';
+      }
+      const slider = document.getElementById('usageSlider');
+      slider.max = MODEL.contextWindow;
+      updateUI(Number(slider.value));
+    }
+
+    const PRESETS = {
+      fresh: 8000,
+      normal: 84000,
+      warning: 155000,
+      compact: 172000,
+      '1m': 420000,
+    };
+
+    document.getElementById('usageSlider').addEventListener('input', e => {
+      updateUI(Number(e.target.value));
+      document.querySelectorAll('.preset-btns button').forEach(b => b.classList.remove('active'));
+    });
+
+    document.querySelectorAll('.preset-btns button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const preset = btn.dataset.preset;
+        document.querySelectorAll('.preset-btns button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        if (preset === '1m') setModel('1m');
+        else setModel('200k');
+        const val = PRESETS[preset];
+        document.getElementById('usageSlider').value = val;
+        updateUI(val);
+      });
+    });
+
+    updateUI(84000);
+  </script>
+</body>
+</html>

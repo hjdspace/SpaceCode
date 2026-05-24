@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Token Usage Dashboard - Claude Code Style</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 30px;
+            background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* 状态栏样式 */
+        .status-bar {
+            background: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin-bottom: 24px;
+            border: 1px solid rgba(71, 85, 105, 0.5);
+            flex-wrap: wrap;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .model-name {
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: #60a5fa;
+        }
+
+        .separator {
+            width: 1px;
+            height: 24px;
+            background: #475569;
+        }
+
+        .label {
+            color: #94a3b8;
+            font-size: 0.9rem;
+        }
+
+        .value {
+            font-weight: 600;
+            font-size: 1rem;
+        }
+
+        .value.green { color: #10b981; }
+        .value.yellow { color: #f59e0b; }
+        .value.orange { color: #f97316; }
+        .value.red { color: #ef4444; }
+
+        .token-detail {
+            color: #64748b;
+            font-size: 0.85rem;
+        }
+
+        /* 进度条 */
+        .progress-bar-container {
+            flex: 1;
+            max-width: 200px;
+            min-width: 120px;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: #334155;
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: all 0.5s ease-out;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(
+                90deg,
+                transparent,
+                rgba(255, 255, 255, 0.3),
+                transparent
+            );
+            animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        .progress-fill.green { background: linear-gradient(90deg, #10b981, #34d399); }
+        .progress-fill.yellow { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+        .progress-fill.orange { background: linear-gradient(90deg, #f97316, #fb923c); }
+        .progress-fill.red { background: linear-gradient(90deg, #ef4444, #f87171); }
+
+        /* 警告横幅 */
+        .warning-banner {
+            padding: 16px 24px;
+            border-radius: 12px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            animation: pulse-glow 2s ease-in-out infinite;
+            border-left: 4px solid;
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.95; transform: scale(1.01); }
+        }
+
+        .warning-banner.warning {
+            background: rgba(245, 158, 11, 0.15);
+            border-color: #f59e0b;
+        }
+
+        .warning-banner.error {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: #ef4444;
+        }
+
+        .warning-icon {
+            font-size: 1.5rem;
+        }
+
+        .warning-text {
+            flex: 1;
+        }
+
+        .compact-btn {
+            padding: 10px 24px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9rem;
+        }
+
+        .compact-btn.warning {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: white;
+        }
+
+        .compact-btn.error {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: white;
+        }
+
+        .compact-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        /* 主网格布局 */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+
+        .card {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 24px;
+            border: 1px solid rgba(71, 85, 105, 0.4);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-bottom: 20px;
+            color: #f1f5f9;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* 仪表盘 */
+        .gauge-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px 0;
+        }
+
+        .gauge-svg {
+            width: 280px;
+            height: 160px;
+        }
+
+        .gauge-center {
+            text-align: center;
+            margin-top: -80px;
+        }
+
+        .gauge-percentage {
+            font-size: 3rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .gauge-details {
+            color: #94a3b8;
+            font-size: 0.9rem;
+            margin-top: 4px;
+        }
+
+        .gauge-remaining {
+            text-align: center;
+            margin-top: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        /* Token 分解面板 */
+        .breakdown-stack {
+            height: 32px;
+            background: #334155;
+            border-radius: 16px;
+            overflow: hidden;
+            display: flex;
+            margin-bottom: 24px;
+            position: relative;
+        }
+
+        .stack-segment {
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: white;
+            transition: all 0.5s ease;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .stack-segment:hover {
+            filter: brightness(1.2);
+            z-index: 10;
+        }
+
+        .stack-segment.input { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+        .stack-segment.cache-create { background: linear-gradient(135deg, #a855f7, #9333ea); }
+        .stack-segment.cache-read { background: linear-gradient(135deg, #06b6d4, #0891b2); }
+        .stack-segment.output { background: linear-gradient(135deg, #10b981, #059669); }
+
+        .breakdown-list {
+            space-y: 12px;
+        }
+
+        .breakdown-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(71, 85, 105, 0.3);
+        }
+
+        .breakdown-item:last-child {
+            border-bottom: none;
+        }
+
+        .breakdown-label {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #cbd5e1;
+        }
+
+        .breakdown-icon {
+            font-size: 1.25rem;
+        }
+
+        .breakdown-values {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .breakdown-value {
+            font-weight: 700;
+            font-size: 1rem;
+        }
+
+        .breakdown-percent {
+            color: #64748b;
+            font-size: 0.85rem;
+            width: 50px;
+            text-align: right;
+        }
+
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 16px 0;
+            border-top: 2px solid rgba(71, 85, 105, 0.5);
+            margin-top: 12px;
+            font-weight: 700;
+        }
+
+        /* 阈值指示器 */
+        .threshold-section {
+            margin-top: 24px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(71, 85, 105, 0.3);
+        }
+
+        .threshold-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 0;
+            font-size: 0.9rem;
+        }
+
+        .threshold-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #94a3b8;
+        }
+
+        .threshold-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .threshold-dot.warning { background: #f59e0b; }
+        .threshold-dot.error { background: #ef4444; }
+        .threshold-dot.compact { background: #a855f7; }
+        .threshold-dot.blocking { background: #dc2626; }
+
+        /* 统计卡片 */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: rgba(51, 65, 85, 0.5);
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid rgba(71, 85, 105, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .stat-card:hover {
+            background: rgba(51, 65, 85, 0.7);
+            transform: translateY(-2px);
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 800;
+            margin-bottom: 4px;
+        }
+
+        .stat-label {
+            color: #94a3b8;
+            font-size: 0.85rem;
+        }
+
+        /* 图表区域 */
+        .chart-container {
+            height: 300px;
+            position: relative;
+            margin-top: 20px;
+        }
+
+        .chart-bars {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-around;
+            height: 250px;
+            padding: 20px 0;
+            border-bottom: 2px solid #475569;
+        }
+
+        .chart-bar-wrapper {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            max-width: 60px;
+        }
+
+        .chart-bar {
+            width: 40px;
+            background: linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%);
+            border-radius: 4px 4px 0 0;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .chart-bar:hover {
+            filter: brightness(1.2);
+            transform: scaleY(1.05);
+            transform-origin: bottom;
+        }
+
+        .chart-bar-label {
+            font-size: 0.75rem;
+            color: #94a3b8;
+        }
+
+        .chart-tooltip {
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1e293b;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            border: 1px solid #475569;
+            margin-bottom: 8px;
+        }
+
+        .chart-bar:hover .chart-tooltip {
+            opacity: 1;
+        }
+
+        /* 控制面板 */
+        .controls {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+
+        .control-btn {
+            padding: 10px 20px;
+            background: rgba(51, 65, 85, 0.7);
+            border: 1px solid rgba(71, 85, 105, 0.5);
+            border-radius: 8px;
+            color: #e2e8f0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .control-btn:hover {
+            background: rgba(71, 85, 105, 0.8);
+            transform: translateY(-1px);
+        }
+
+        .control-btn.active {
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            border-color: transparent;
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .status-bar {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+
+            .separator {
+                display: none;
+            }
+
+            .progress-bar-container {
+                width: 100%;
+                max-width: none;
+            }
+
+            h1 {
+                font-size: 1.75rem;
+            }
+        }
+
+        /* 动画效果 */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .card {
+            animation: fadeInUp 0.6s ease-out;
+        }
+
+        .card:nth-child(2) { animation-delay: 0.1s; }
+        .card:nth-child(3) { animation-delay: 0.2s; }
+        .card:nth-child(4) { animation-delay: 0.3s; }
+
+        /* 实时更新指示器 */
+        .live-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.8rem;
+            color: #10b981;
+        }
+
+        .live-dot {
+            width: 8px;
+            height: 8px;
+            background: #10b981;
+            border-radius: 50%;
+            animation: live-pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes live-pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Token Usage Dashboard</h1>
+
+        <!-- 状态栏 -->
+        <div class="status-bar" id="statusBar">
+            <div class="status-item">
+                <span class="model-name">Opus 4.6</span>
+            </div>
+            
+            <div class="separator"></div>
+            
+            <div class="status-item">
+                <span class="label">Context</span>
+                <span class="value yellow" id="contextPercent">65%</span>
+                <span class="token-detail" id="tokenDetail">(130k / 200k)</span>
+            </div>
+
+            <div class="progress-bar-container">
+                <div class="progress-bar">
+                    <div class="progress-fill yellow" id="contextProgress" style="width: 65%;"></div>
+                </div>
+            </div>
+
+            <div class="separator"></div>
+
+            <div class="status-item">
+                <span class="label">Session</span>
+                <div class="progress-bar" style="width: 100px;">
+                    <div class="progress-fill green" style="width: 45%;"></div>
+                </div>
+                <span class="value green">45%</span>
+                <span class="token-detail">3h 12m</span>
+            </div>
+
+            <div class="separator"></div>
+
+            <div class="status-item">
+                <span class="label">Cost</span>
+                <span class="value" style="color: #60a5fa;">$0.42</span>
+            </div>
+
+            <div class="live-indicator" style="margin-left: auto;">
+                <span class="live-dot"></span>
+                <span>LIVE</span>
+            </div>
+        </div>
+
+        <!-- 警告横幅（可切换显示） -->
+        <div class="warning-banner warning" id="warningBanner" style="display: none;">
+            <span class="warning-icon">⚠️</span>
+            <div class="warning-text">
+                <strong style="color: #fbbf24;">Context low (15% remaining)</strong>
+                <p style="color: #fcd34d; margin-top: 4px; font-size: 0.9rem;">
+                    Consider running /compact to free up space and continue working efficiently.
+                </p>
+            </div>
+            <button class="compact-btn warning" onclick="triggerCompact()">
+                Compact Now
+            </button>
+        </div>
+
+        <!-- 控制按钮 -->
+        <div class="controls">
+            <button class="control-btn active" onclick="setScenario('normal')">Normal Usage (65%)</button>
+            <button class="control-btn" onclick="setScenario('warning')">Warning Mode (88%)</button>
+            <button class="control-btn" onclick="setScenario('danger')">Danger Zone (95%)</button>
+            <button class="control-btn" onclick="toggleWarningBanner()">Toggle Warning</button>
+            <button class="control-btn" onclick="simulateGrowth()">Simulate Growth</button>
+        </div>
+
+        <!-- 统计概览 -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value" style="color: #60a5fa;" id="totalInputTokens">130K</div>
+                <div class="stat-label">Total Input Tokens</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" style="color: #10b981;" id="outputTokens">45K</div>
+                <div class="stat-label">Output Tokens</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" style="color: #a855f7;" id="cacheCreation">12K</div>
+                <div class="stat-label">Cache Created</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" style="color: #06b6d4;" id="cacheRead">28K</div>
+                <div class="stat-label">Cache Read</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" style="color: #f59e0b;" id="remainingTokens">70K</div>
+                <div class="stat-label">Remaining</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" style="color: #10b981;" id="costDisplay">$0.42</div>
+                <div class="stat-label">Total Cost</div>
+            </div>
+        </div>
+
+        <!-- 主要仪表盘 -->
+        <div class="dashboard-grid">
+            <!-- 上下文仪表盘 -->
+            <div class="card">
+                <h3 class="card-title">
+                    📊 Context Window Gauge
+                </h3>
+                
+                <div class="gauge-container">
+                    <svg class="gauge-svg" viewBox="0 0 280 160" id="gaugeSvg">
+                        <!-- 背景弧 -->
+                        <defs>
+                            <linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stopColor="#10B981"/>
+                                <stop offset="50%" stopColor="#F59E0B"/>
+                                <stop offset="85%" stopColor="#EF4444"/>
+                                <stop offset="100%" stopColor="#DC2626"/>
+                            </linearGradient>
+                        </defs>
+                        
+                        <!-- 背景弧 -->
+                        <path 
+                            d="M 30 140 A 110 110 0 0 1 250 140"
+                            fill="none"
+                            stroke="#334155"
+                            stroke-width="18"
+                            stroke-linecap="round"
+                        />
+                        
+                        <!-- 进度弧 -->
+                        <path 
+                            d="M 30 140 A 110 110 0 0 1 250 140"
+                            fill="none"
+                            stroke="url(#gaugeGradient)"
+                            stroke-width="18"
+                            stroke-linecap="round"
+                            stroke-dasharray="0 691.15"
+                            id="gaugeProgress"
+                            transform="rotate(-180 140 140)"
+                            style="transition: stroke-dasharray 0.8s ease-out;"
+                        />
+                        
+                        <!-- 阈值标记 -->
+                        <line x1="87" y1="52" x2="97" y2="62" stroke="#F59E0B" stroke-width="3" stroke-linecap="round"/>
+                        <line x1="193" y1="52" x2="183" y2="62" stroke="#EF4444" stroke-width="3" stroke-linecap="round"/>
+                        
+                        <!-- 标签 -->
+                        <text x="70" y="45" fill="#F59E0B" font-size="11" font-weight="600">Warning</text>
+                        <text x="185" y="45" fill="#EF4444" font-size="11" font-weight="600">Error</text>
+                    </svg>
+                    
+                    <div class="gauge-center">
+                        <div class="gauge-percentage" id="gaugePercentage">65%</div>
+                        <div class="gauge-details" id="gaugeDetails">130k / 200k tokens</div>
+                    </div>
+                </div>
+                
+                <div class="gauge-remaining">
+                    <span id="gaugeRemaining" style="color: #10b981;">35% remaining</span>
+                </div>
+
+                <!-- 阈值说明 -->
+                <div class="threshold-section">
+                    <div class="threshold-item">
+                        <span class="threshold-label">
+                            <span class="threshold-dot warning"></span>
+                            Warning Threshold
+                        </span>
+                        <span style="color: #f59e0b; font-weight: 600;">90% (180k tokens)</span>
+                    </div>
+                    <div class="threshold-item">
+                        <span class="threshold-label">
+                            <span class="threshold-dot error"></span>
+                            Error Threshold
+                        </span>
+                        <span style="color: #ef4444; font-weight: 600;">95% (190k tokens)</span>
+                    </div>
+                    <div class="threshold-item">
+                        <span class="threshold-label">
+                            <span class="threshold-dot compact"></span>
+                            Auto-Compact Trigger
+                        </span>
+                        <span style="color: #a855f7; font-weight: 600;">93.5% (187k tokens)</span>
+                    </div>
+                    <div class="threshold-item">
+                        <span class="threshold-label">
+                            <span class="threshold-dot blocking"></span>
+                            Blocking Limit
+                        </span>
+                        <span style="color: #dc2626; font-weight: 600;">98.5% (197k tokens)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Token 分解面板 -->
+            <div class="card">
+                <h3 class="card-title">
+                    🔍 Token Breakdown Analysis
+                </h3>
+
+                <!-- 堆叠条 -->
+                <div class="breakdown-stack" id="breakdownStack">
+                    <div class="stack-segment input" style="width: 45%;" title="Input Tokens: 90k (45%)">
+                        Input 45%
+                    </div>
+                    <div class="stack-segment cache-create" style="width: 6%;" title="Cache Creation: 12k (6%)">
+                        Cache C 6%
+                    </div>
+                    <div class="stack-segment cache-read" style="width: 14%;" title="Cache Read: 28k (14%)">
+                        Cache R 14%
+                    </div>
+                    <div class="stack-segment output" style="width: 22.5%;" title="Output Tokens: 45k (22.5%)">
+                        Output 22.5%
+                    </div>
+                </div>
+
+                <!-- 详细列表 -->
+                <div class="breakdown-list">
+                    <div class="breakdown-item">
+                        <div class="breakdown-label">
+                            <span class="breakdown-icon">📥</span>
+                            <span>Input Tokens</span>
+                        </div>
+                        <div class="breakdown-values">
+                            <span class="breakdown-value" style="color: #60a5fa;" id="inputTokenValue">90k</span>
+                            <span class="breakdown-percent">45.0%</span>
+                        </div>
+                    </div>
+
+                    <div class="breakdown-item">
+                        <div class="breakdown-label">
+                            <span class="breakdown-icon">💾</span>
+                            <span>Cache Creation</span>
+                        </div>
+                        <div class="breakdown-values">
+                            <span class="breakdown-value" style="color: #a855f7;" id="cacheCreateValue">12k</span>
+                            <span class="breakdown-percent">6.0%</span>
+                        </div>
+                    </div>
+
+                    <div class="breakdown-item">
+                        <div class="breakdown-label">
+                            <span class="breakdown-icon">📖</span>
+                            <span>Cache Read</span>
+                        </div>
+                        <div class="breakdown-values">
+                            <span class="breakdown-value" style="color: #06b6d4;" id="cacheReadValue">28k</span>
+                            <span class="breakdown-percent">14.0%</span>
+                        </div>
+                    </div>
+
+                    <div class="breakdown-item">
+                        <div class="breakdown-label">
+                            <span class="breakdown-icon">📤</span>
+                            <span>Output Tokens</span>
+                        </div>
+                        <div class="breakdown-values">
+                            <span class="breakdown-value" style="color: #10b981;" id="outputTokenValue">45k</span>
+                            <span class="breakdown-percent">22.5%</span>
+                        </div>
+                    </div>
+
+                    <div class="total-row">
+                        <span style="color: #f1f5f9;">Total Used</span>
+                        <span style="color: #60a5fa;" id="totalUsedValue">175k</span>
+                    </div>
+
+                    <div class="breakdown-item" style="padding-top: 8px;">
+                        <div class="breakdown-label">
+                            <span class="breakdown-icon">✅</span>
+                            <span>Remaining Budget</span>
+                        </div>
+                        <div class="breakdown-values">
+                            <span class="breakdown-value" style="color: #10b981;" id="remainingBudgetValue">25k</span>
+                            <span class="breakdown-percent">12.5%</span>
+                        </div>
+                    </div>
+
+                    <div class="breakdown-item">
+                        <div class="breakdown-label">
+                            <span class="breakdown-icon">📏</span>
+                            <span>Context Window Size</span>
+                        </div>
+                        <div class="breakdown-values">
+                            <span class="breakdown-value" style="color: #94a3b8;">200k</span>
+                            <span class="breakdown-percent">100%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 使用趋势图表 -->
+        <div class="card">
+            <h3 class="card-title">
+                📈 Daily Token Usage Trend (Last 7 Days)
+            </h3>
+            
+            <div class="chart-container">
+                <div class="chart-bars" id="chartBars">
+                    <!-- 图表数据将通过 JS 动态生成 -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 页脚信息 -->
+        <div style="text-align: center; margin-top: 40px; padding: 20px; color: #64748b; font-size: 0.85rem;">
+            <p>Built with inspiration from Claude Code's TUI implementation • Real-time Token Monitoring System</p>
+            <p style="margin-top: 8px;">Context Window: 200K tokens • Model: Opus 4.6 • Last updated: Just now</p>
+        </div>
+    </div>
+
+    <script>
+        // 全局状态
+        let currentUsage = {
+            input_tokens: 90000,
+            cache_creation_input_tokens: 12000,
+            cache_read_input_tokens: 28000,
+            output_tokens: 45000
+        };
+        
+        const CONTEXT_WINDOW = 200000;
+
+        // 初始化图表数据
+        const chartData = [
+            { day: 'Mon', tokens: 85000, cost: 0.28 },
+            { day: 'Tue', tokens: 120000, cost: 0.39 },
+            { day: 'Wed', tokens: 95000, cost: 0.31 },
+            { day: 'Thu', tokens: 145000, cost: 0.47 },
+            { day: 'Fri', tokens: 110000, cost: 0.36 },
+            { day: 'Sat', tokens: 75000, cost: 0.24 },
+            { day: 'Sun', tokens: 130000, cost: 0.42 }
+        ];
+
+        // 格式化 token 数值
+        function formatTokens(count) {
+            if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M';
+            if (count >= 1000) return (count / 1000).toFixed(0) + 'K';
+            return count.toString();
+        }
+
+        // 更新所有 UI 元素
+        function updateUI() {
+            const totalUsed = currentUsage.input_tokens + 
+                             currentUsage.cache_creation_input_tokens + 
+                             currentUsage.cache_read_input_tokens + 
+                             currentUsage.output_tokens;
+            
+            const usedPercentage = Math.round((totalUsed / CONTEXT_WINDOW) * 100);
+            const percentLeft = 100 - usedPercentage;
+            const remaining = CONTEXT_WINDOW - totalUsed;
+
+            // 更新状态栏
+            document.getElementById('contextPercent').textContent = `${usedPercentage}%`;
+            document.getElementById('contextPercent').className = `value ${getColorClass(usedPercentage)}`;
+            document.getElementById('tokenDetail').textContent = `(${formatTokens(totalUsed)} / ${formatTokens(CONTEXT_WINDOW)})`;
+            document.getElementById('contextProgress').style.width = `${usedPercentage}%`;
+            document.getElementById('contextProgress').className = `progress-fill ${getColorClass(usedPercentage)}`;
+
+            // 更新统计卡片
+            document.getElementById('totalInputTokens').textContent = formatTokens(totalUsed);
+            document.getElementById('outputTokens').textContent = formatTokens(currentUsage.output_tokens);
+            document.getElementById('cacheCreation').textContent = formatTokens(currentUsage.cache_creation_input_tokens);
+            document.getElementById('cacheRead').textContent = formatTokens(currentUsage.cache_read_input_tokens);
+            document.getElementById('remainingTokens').textContent = formatTokens(Math.max(0, remaining));
+            
+            // 计算费用（简化估算）
+            const cost = (totalUsed / 1000000) * 15 + (currentUsage.output_tokens / 1000000) * 75;
+            document.getElementById('costDisplay').textContent = `$${cost.toFixed(2)}`;
+
+            // 更新仪表盘
+            const circumference = 2 * Math.PI * 110; // 691.15
+            const dashArray = (usedPercentage / 100) * circumference;
+            document.getElementById('gaugeProgress').setAttribute('stroke-dasharray', `${dashArray} ${circumference}`);
+            document.getElementById('gaugePercentage').textContent = `${usedPercentage}%`;
+            document.getElementById('gaugeDetails').textContent = `${formatTokens(totalUsed)} / ${formatTokens(CONTEXT_WINDOW)} tokens`;
+            
+            const remainingEl = document.getElementById('gaugeRemaining');
+            remainingEl.textContent = `${percentLeft}% remaining`;
+            remainingEl.style.color = percentLeft > 30 ? '#10b981' : percentLeft > 15 ? '#f59e0b' : '#ef4444';
+
+            // 更新分解面板
+            updateBreakdown(totalUsed);
+
+            // 更新警告横幅状态
+            if (usedPercentage >= 90) {
+                showWarningBanner();
+            } else {
+                hideWarningBanner();
+            }
+        }
+
+        // 获取颜色类名
+        function getColorClass(percentage) {
+            if (percentage >= 95) return 'red';
+            if (percentage >= 90) return 'orange';
+            if (percentage >= 75) return 'yellow';
+            return 'green';
+        }
+
+        // 更新分解面板
+        function updateBreakdown(totalUsed) {
+            const segments = document.querySelectorAll('.stack-segment');
+            
+            segments[0].style.width = `${(currentUsage.input_tokens / CONTEXT_WINDOW) * 100}%`;
+            segments[0].textContent = `Input ${((currentUsage.input_tokens / totalUsed) * 100).toFixed(1)}%`;
+            
+            segments[1].style.width = `${(currentUsage.cache_creation_input_tokens / CONTEXT_WINDOW) * 100}%`;
+            segments[1].textContent = `Cache C ${((currentUsage.cache_creation_input_tokens / totalUsed) * 100).toFixed(1)}%`;
+            
+            segments[2].style.width = `${(currentUsage.cache_read_input_tokens / CONTEXT_WINDOW) * 100}%`;
+            segments[2].textContent = `Cache R ${((currentUsage.cache_read_input_tokens / totalUsed) * 100).toFixed(1)}%`;
+            
+            segments[3].style.width = `${(currentUsage.output_tokens / CONTEXT_WINDOW) * 100}%`;
+            segments[3].textContent = `Output ${((currentUsage.output_tokens / totalUsed) * 100).toFixed(1)}%`;
+
+            // 更新数值
+            document.getElementById('inputTokenValue').textContent = formatTokens(currentUsage.input_tokens);
+            document.getElementById('cacheCreateValue').textContent = formatTokens(currentUsage.cache_creation_input_tokens);
+            document.getElementById('cacheReadValue').textContent = formatTokens(currentUsage.cache_read_input_tokens);
+            document.getElementById('outputTokenValue').textContent = formatTokens(currentUsage.output_tokens);
+            document.getElementById('totalUsedValue').textContent = formatTokens(totalUsed);
+            document.getElementById('remainingBudgetValue').textContent = formatTokens(Math.max(0, CONTEXT_WINDOW - totalUsed));
+
+            // 更新百分比
+            const percents = document.querySelectorAll('.breakdown-percent');
+            percents[0].textContent = `${((currentUsage.input_tokens / totalUsed) * 100).toFixed(1)}%`;
+            percents[1].textContent = `${((currentUsage.cache_creation_input_tokens / totalUsed) * 100).toFixed(1)}%`;
+            percents[2].textContent = `${((currentUsage.cache_read_input_tokens / totalUsed) * 100).toFixed(1)}%`;
+            percents[3].textContent = `${((currentUsage.output_tokens / totalUsed) * 100).toFixed(1)}%`;
+            percents[4].textContent = `${Math.max(0, ((CONTEXT_WINDOW - totalUsed) / CONTEXT_WINDOW) * 100).toFixed(1)}%`;
+        }
+
+        // 场景切换
+        function setScenario(scenario) {
+            // 更新按钮状态
+            document.querySelectorAll('.control-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            switch(scenario) {
+                case 'normal':
+                    currentUsage = {
+                        input_tokens: 90000,
+                        cache_creation_input_tokens: 12000,
+                        cache_read_input_tokens: 28000,
+                        output_tokens: 45000
+                    };
+                    break;
+                case 'warning':
+                    currentUsage = {
+                        input_tokens: 145000,
+                        cache_creation_input_tokens: 18000,
+                        cache_read_input_tokens: 35000,
+                        output_tokens: 72000
+                    };
+                    break;
+                case 'danger':
+                    currentUsage = {
+                        input_tokens: 165000,
+                        cache_creation_input_tokens: 12000,
+                        cache_read_input_tokens: 42000,
+                        output_tokens: 65000
+                    };
+                    break;
+            }
+
+            updateUI();
+        }
+
+        // 切换警告横幅
+        function toggleWarningBanner() {
+            const banner = document.getElementById('warningBanner');
+            banner.style.display = banner.style.display === 'none' ? 'flex' : 'none';
+        }
+
+        function showWarningBanner() {
+            const banner = document.getElementById('warningBanner');
+            const totalUsed = currentUsage.input_tokens + 
+                             currentUsage.cache_creation_input_tokens + 
+                             currentUsage.cache_read_input_tokens + 
+                             currentUsage.output_tokens;
+            const percentLeft = Math.max(0, 100 - Math.round((totalUsed / CONTEXT_WINDOW) * 100));
+            
+            banner.className = `warning-banner ${percentLeft <= 5 ? 'error' : 'warning'}`;
+            banner.style.display = 'flex';
+            
+            banner.querySelector('.warning-icon').textContent = percentLeft <= 5 ? '🚨' : '⚠️';
+            banner.querySelector('strong').textContent = 
+                `Context critically low (${percentLeft}% remaining)`;
+            banner.querySelector('p').textContent = 
+                percentLeft <= 5 
+                    ? 'Please run /compact immediately or start a new session.'
+                    : 'Consider running /compact to free up space.';
+            
+            banner.querySelector('.compact-btn').className = `compact-btn ${percentLeft <= 5 ? 'error' : 'warning'}`;
+        }
+
+        function hideWarningBanner() {
+            document.getElementById('warningBanner').style.display = 'none';
+        }
+
+        // 触发压缩操作
+        function triggerCompact() {
+            alert('✅ Compaction initiated!\n\nThis would trigger the auto-compact process:\n• Summarize old messages\n• Clear context window\n• Preserve recent conversation history\n\nIn production, this would call the /compact command.');
+            
+            // 模拟压缩后的状态
+            currentUsage = {
+                input_tokens: 30000,
+                cache_creation_input_tokens: 5000,
+                cache_read_input_tokens: 8000,
+                output_tokens: 15000
+            };
+            updateUI();
+        }
+
+        // 模拟增长动画
+        function simulateGrowth() {
+            let growth = 0;
+            const interval = setInterval(() => {
+                growth += Math.random() * 5000;
+                
+                currentUsage.input_tokens += growth * 0.5;
+                currentUsage.cache_creation_input_tokens += growth * 0.05;
+                currentUsage.cache_read_input_tokens += growth * 0.15;
+                currentUsage.output_tokens += growth * 0.3;
+                
+                updateUI();
+
+                // 达到上限时停止
+                const totalUsed = Object.values(currentUsage).reduce((a, b) => a + b, 0);
+                if (totalUsed >= CONTEXT_WINDOW * 0.98) {
+                    clearInterval(interval);
+                }
+            }, 500);
+
+            // 5秒后停止
+            setTimeout(() => clearInterval(interval), 10000);
+        }
+
+        // 初始化图表
+        function initChart() {
+            const chartContainer = document.getElementById('chartBars');
+            const maxTokens = Math.max(...chartData.map(d => d.tokens));
+
+            chartData.forEach((data, index) => {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'chart-bar-wrapper';
+
+                const bar = document.createElement('div');
+                bar.className = 'chart-bar';
+                const height = (data.tokens / maxTokens) * 220;
+                bar.style.height = `${height}px`;
+
+                // Tooltip
+                const tooltip = document.createElement('div');
+                tooltip.className = 'chart-tooltip';
+                tooltip.innerHTML = `
+                    <strong>${formatTokens(data.tokens)} tokens</strong><br/>
+                    Cost: $${data.cost.toFixed(2)}
+                `;
+                bar.appendChild(tooltip);
+
+                const label = document.createElement('div');
+                label.className = 'chart-bar-label';
+                label.textContent = data.day;
+
+                wrapper.appendChild(bar);
+                wrapper.appendChild(label);
+                chartContainer.appendChild(wrapper);
+
+                // 动画延迟
+                setTimeout(() => {
+                    bar.style.height = `${height}px`;
+                }, index * 100);
+            });
+        }
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            updateUI();
+            initChart();
+
+            // 模拟实时更新（每5秒微调）
+            setInterval(() => {
+                // 小幅度随机波动，模拟真实使用场景
+                const fluctuation = Math.floor(Math.random() * 2000) - 1000;
+                currentUsage.input_tokens = Math.max(0, currentUsage.input_tokens + fluctuation);
+                
+                // 偶尔增加输出 tokens
+                if (Math.random() > 0.7) {
+                    currentUsage.output_tokens += Math.floor(Math.random() * 3000);
+                }
+
+                updateUI();
+            }, 5000);
+        });
+
+        // 添加键盘快捷键
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'c' && e.ctrlKey) {
+                e.preventDefault();
+                triggerCompact();
+            }
+            if (e.key === 'r' && e.ctrlKey) {
+                e.preventDefault();
+                location.reload();
+            }
+        });
+    </script>
+</body>
+</html>

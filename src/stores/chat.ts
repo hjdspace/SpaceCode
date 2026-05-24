@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, nextTick, watch, readonly } from 'vue'
-import type { Session, Message, ToolCall, AgentInfo, ProcessStatus, SessionTurnCheckpoint, TurnChangeCardData } from '@/types'
+import type { Session, Message, ToolCall, AgentInfo, ProcessStatus, SessionTurnCheckpoint, TurnChangeCardData, AgentColor, TeammateStatus } from '@/types'
 import type { RewindOption, RewindState } from '@/types/rewind'
 
 // 权限模式类型定义
@@ -158,7 +158,11 @@ function loadSessionsFromStorage(): Session[] {
         ...s,
         processStatus: s.processStatus || 'none',
         isTabOpen: s.isTabOpen ?? false,
-        lastActivityAt: s.lastActivityAt || s.updatedAt || s.createdAt
+        lastActivityAt: s.lastActivityAt || s.updatedAt || s.createdAt,
+        expandedView: s.expandedView || 'none',
+        viewingAgentTaskId: s.viewingAgentTaskId,
+        teammateTranscripts: s.teammateTranscripts || {},
+        teamContext: s.teamContext,
       }))
     }
   } catch (e) {
@@ -339,6 +343,55 @@ function updateTaskStateFromToolResult(
 
 type TaskStatus = 'pending' | 'in_progress' | 'completed'
 
+const AGENT_COLORS: AgentColor[] = ['red', 'blue', 'green', 'yellow', 'purple', 'orange', 'pink', 'cyan']
+
+function stableTeammateId(raw: any): string {
+  const value = raw?.agentTaskId || raw?.taskId || raw?.agentId || raw?.agentName || raw?.subagent_type || raw?.name || 'teammate'
+  return String(value).trim().toLowerCase().replace(/[^a-z0-9_-]+/gi, '-') || 'teammate'
+}
+
+function getRawTeammateName(raw: any): string {
+  return String(raw?.agentName || raw?.name || raw?.subagent_type || raw?.agentType || 'teammate')
+}
+
+function getRawTeamName(raw: any): string {
+  return String(raw?.teamName || raw?.team_name || raw?.team || 'Agent Team')
+}
+
+function isTeammateRawMessage(raw: any): boolean {
+  return !!raw && typeof raw === 'object' && (raw.type === 'teammate' || raw.isSidechain || raw.agentName || raw.subagent_type)
+}
+
+function inferTeammateStatus(raw: any): TeammateStatus {
+  const value = String(raw?.status || raw?.state || raw?.event || raw?.subtype || '').toLowerCase()
+  if (/fail|error|reject|cancel/.test(value)) return 'failed'
+  if (/complete|done|finish|success|result/.test(value)) return 'completed'
+  if (/idle|wait/.test(value)) return 'idle'
+  return 'running'
+}
+
+function stringifyRawContent(raw: any): string {
+  const content = raw?.message?.content ?? raw?.content ?? raw?.text ?? raw?.output ?? raw?.result
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    return content
+      .map((part: any) => {
+        if (typeof part === 'string') return part
+        if (part?.type === 'text' && typeof part.text === 'string') return part.text
+        if (part?.text) return String(part.text)
+        return ''
+      })
+      .filter(Boolean)
+      .join('\n')
+  }
+  if (content == null) return ''
+  try {
+    return JSON.stringify(content)
+  } catch {
+    return String(content)
+  }
+}
+
 export const useChatStore = defineStore('chat', () => {
   const appStore = useAppStore()
   const settingsStore = useSettingsStore()
@@ -427,6 +480,25 @@ export const useChatStore = defineStore('chat', () => {
   const currentMessages = computed(() =>
     currentSession.value?.messages || []
   )
+
+  const currentTeamContext = computed(() => currentSession.value?.teamContext || null)
+
+  const currentViewedAgentTaskId = computed(() => currentSession.value?.viewingAgentTaskId)
+
+  const viewedTeammate = computed(() => {
+    const taskId = currentViewedAgentTaskId.value
+    if (!taskId) return null
+    return currentTeamContext.value?.teammates[taskId] || null
+  })
+
+  const displayMessages = computed(() => {
+    const session = currentSession.value
+    const teammateId = session?.viewingAgentTaskId
+    if (!session || !teammateId) return session?.messages || []
+    return session.teammateTranscripts?.[teammateId] || []
+  })
+
+  const isViewingTeammate = computed(() => !!currentSession.value?.viewingAgentTaskId)
 
   const workingDirectory = computed(() =>
     currentSession.value?.workingDirectory || currentProjectRoot.value || ''
@@ -668,6 +740,189 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  function ensureTeamContext(session: Session, teamName: string) {
+    if (!session.teamContext) {
+      session.teamContext = {
+        teamName,
+        isLeader: true,
+        teammates: {}
+      }
+    } else if (!session.teamContext.teamName) {
+      session.teamContext.teamName = teamName
+    }
+    session.expandedView = session.expandedView || 'none'
+    session.teammateTranscripts = session.teammateTranscripts || {}
+  }
+
+  function recordTeammateMessage(raw: any, targetSessionId: string): Message | null {
+    if (!isTeammateRawMessage(raw)) return null
+    const session = sessions.value.find(s => s.id === targetSessionId)
+    if (!session) return null
+
+    const teammateId = stableTeammateId(raw)
+    const name = getRawTeammateName(raw)
+    const teamName = getRawTeamName(raw)
+    const status = inferTeammateStatus(raw)
+    const text = stringifyRawContent(raw)
+    ensureTeamContext(session, teamName)
+
+    const existing = session.teamContext!.teammates[teammateId]
+    const color = existing?.color || AGENT_COLORS[Object.keys(session.teamContext!.teammates).length % AGENT_COLORS.length]
+    const transcript = session.teammateTranscripts![teammateId] || []
+    const messageId = raw?.uuid || raw?.message?.id || raw?.id || crypto.randomUUID()
+    const message: Message = {
+      id: String(messageId),
+      role: raw?.role === 'user' ? 'user' : 'assistant',
+      content: text,
+      timestamp: raw?.timestamp ? Date.parse(raw.timestamp) || Date.now() : Date.now(),
+      metadata: {
+        agentTaskId: teammateId,
+        agentName: name,
+        teamName,
+        status,
+      }
+    }
+
+    if (text.trim() && !transcript.some(m => m.id === message.id)) {
+      session.teammateTranscripts![teammateId] = [...transcript, message]
+    }
+
+    session.teamContext!.teammates[teammateId] = {
+      name,
+      agentType: raw?.agentType || raw?.subagent_type,
+      status,
+      color,
+      messageCount: session.teammateTranscripts![teammateId]?.length || transcript.length
+    }
+
+    if ((status === 'completed' || status === 'failed') && !session.messages.some(m => m.metadata?.kind === 'task-notification' && m.metadata.agentTaskId === teammateId && m.metadata.status === status)) {
+      session.messages.push({
+        id: crypto.randomUUID(),
+        role: 'system',
+        content: `${name} ${status === 'completed' ? 'completed' : 'failed'}.`,
+        timestamp: Date.now(),
+        metadata: {
+          kind: 'task-notification',
+          agentTaskId: teammateId,
+          agentName: name,
+          teamName,
+          status,
+        }
+      })
+    }
+
+    session.updatedAt = Date.now()
+    session.lastActivityAt = Date.now()
+    saveToStorage()
+    return message
+  }
+
+  function parseAgentToolOutput(output: string): { displayText: string; outputFile?: string } {
+    try {
+      const parsed = JSON.parse(output)
+      const text = Array.isArray(parsed)
+        ? parsed.map((part: any) => typeof part === 'string' ? part : part?.text || '').filter(Boolean).join('\n')
+        : typeof parsed?.text === 'string' ? parsed.text : output
+      const outputFile = text.match(/output_file:\s*([^\n]+)/)?.[1]?.trim()
+      const agentId = text.match(/agentId:\s*([^\s]+)/)?.[1]?.trim()
+      return {
+        displayText: agentId
+          ? `Agent launched successfully.\n\nAgent ID: ${agentId}\n${outputFile ? `Output file: ${outputFile}` : ''}`.trim()
+          : text,
+        outputFile,
+      }
+    } catch {
+      const outputFile = output.match(/output_file:\s*([^\n]+)/)?.[1]?.trim()
+      return { displayText: output, outputFile }
+    }
+  }
+
+  async function hydrateAgentTranscriptFromFile(sessionId: string, teammateId: string, filePath: string, name: string, status: TeammateStatus) {
+    try {
+      const content = await electronAPI?.readFile?.(filePath)
+      if (!content?.trim()) return
+      const session = sessions.value.find(s => s.id === sessionId)
+      if (!session?.teammateTranscripts) return
+      const transcript = session.teammateTranscripts[teammateId] || []
+      const fileMessageId = `${teammateId}-output-file`
+      const fileMessage: Message = {
+        id: fileMessageId,
+        role: 'assistant',
+        content,
+        timestamp: Date.now(),
+        metadata: {
+          agentTaskId: teammateId,
+          agentName: name,
+          teamName: 'Agent Team',
+          status,
+        }
+      }
+      session.teammateTranscripts[teammateId] = transcript.some(m => m.id === fileMessageId)
+        ? transcript.map(m => m.id === fileMessageId ? fileMessage : m)
+        : [...transcript, fileMessage]
+      const teammate = session.teamContext?.teammates[teammateId]
+      if (teammate) teammate.messageCount = session.teammateTranscripts[teammateId].length
+      saveToStorage()
+    } catch (error) {
+      logger.warn('ChatStore', 'Failed to hydrate agent transcript from output file', { filePath, error: String(error) })
+    }
+  }
+
+  function recordAgentToolCall(session: Session, toolCall: ToolCall, status: TeammateStatus = 'running') {
+    if (toolCall.name !== 'Agent') return
+    ensureTeamContext(session, 'Agent Team')
+
+    const input = toolCall.input || {}
+    const teammateId = String(toolCall.id || input.agentTaskId || input.taskId || crypto.randomUUID())
+    const agentType = String(input.agentType || input.type || 'general-purpose')
+    const name = String(input.name || input.agentName || agentType)
+    const existing = session.teamContext!.teammates[teammateId]
+    const color = existing?.color || AGENT_COLORS[Object.keys(session.teamContext!.teammates).length % AGENT_COLORS.length]
+    const transcript = session.teammateTranscripts![teammateId] || []
+
+    if (toolCall.output && !transcript.some(m => m.id === `${toolCall.id}-result`)) {
+      const parsedOutput = parseAgentToolOutput(toolCall.output)
+      session.teammateTranscripts![teammateId] = [...transcript, {
+        id: `${toolCall.id}-result`,
+        role: 'assistant',
+        content: parsedOutput.displayText,
+        timestamp: toolCall.endTime || Date.now(),
+        metadata: {
+          agentTaskId: teammateId,
+          agentName: name,
+          teamName: 'Agent Team',
+          status,
+        }
+      }]
+      if (parsedOutput.outputFile) {
+        void hydrateAgentTranscriptFromFile(session.id, teammateId, parsedOutput.outputFile, name, status)
+      }
+    }
+
+    session.teamContext!.teammates[teammateId] = {
+      name,
+      agentType,
+      status,
+      color,
+      messageCount: session.teammateTranscripts![teammateId]?.length || 0
+    }
+  }
+  function viewTeammateTranscript(taskId: string) {
+    const session = currentSession.value
+    if (!session?.teamContext?.teammates[taskId]) return
+    session.viewingAgentTaskId = taskId
+    session.expandedView = 'teammates'
+    saveToStorage()
+  }
+
+  function backToLeaderView() {
+    const session = currentSession.value
+    if (!session) return
+    session.viewingAgentTaskId = undefined
+    session.expandedView = session.teamContext ? 'teammates' : 'none'
+    saveToStorage()
+  }
+
   function addMessage(message: Omit<Message, 'id' | 'timestamp'> & { id?: string }, targetSessionId?: string): Message {
     const sid = targetSessionId || currentSessionId.value
     if (!sid) {
@@ -691,6 +946,14 @@ export const useChatStore = defineStore('chat', () => {
       }
       session.updatedAt = Date.now()
       session.lastActivityAt = Date.now()
+
+      for (const toolCall of newMessage.toolCalls || []) {
+        recordAgentToolCall(session, toolCall, toolCall.status === 'completed' ? 'completed' : toolCall.status === 'error' ? 'failed' : 'running')
+      }
+
+      for (const toolCall of newMessage.toolCalls || []) {
+        recordAgentToolCall(session, toolCall, toolCall.status === 'completed' ? 'completed' : toolCall.status === 'error' ? 'failed' : 'running')
+      }
 
       if (session.messages.length === 1 && newMessage.role === 'user') {
         const newTitle = newMessage.content.slice(0, 50) + (newMessage.content.length > 50 ? '...' : '')
@@ -1056,6 +1319,7 @@ export const useChatStore = defineStore('chat', () => {
                       id: toolUse.id, name: toolUse.name, input: toolUse.input || {},
                       status: 'running', startTime: Date.now()
                     }]
+                    recordAgentToolCall(s, msg.toolCalls[msg.toolCalls.length - 1])
                     addToolTimelineEvent(toolUse.id)
                     saveToStorage()
                   }
@@ -1135,6 +1399,7 @@ export const useChatStore = defineStore('chat', () => {
                 endTime: Date.now()
               }
               msg.toolCalls = updatedToolCalls
+              recordAgentToolCall(s, updatedToolCalls[toolCallIndex], resultIsError ? 'failed' : 'completed')
 
               const toolName = updatedToolCalls[toolCallIndex].name
               let traceType: string = 'tool_result'
@@ -1310,6 +1575,7 @@ export const useChatStore = defineStore('chat', () => {
                     endTime: Date.now()
                   }
                   msg.toolCalls = updatedToolCalls
+                  recordAgentToolCall(s, updatedToolCalls[toolCallIndex], toolResult.is_error ? 'failed' : 'completed')
                   updateTimelineEvent(`tool-${toolResult.tool_use_id}`, {
                     status: toolResult.is_error ? 'error' : 'completed'
                   })
@@ -2335,6 +2601,11 @@ export const useChatStore = defineStore('chat', () => {
     streamingContent,
     currentSession,
     currentMessages,
+    displayMessages,
+    currentTeamContext,
+    currentViewedAgentTaskId,
+    viewedTeammate,
+    isViewingTeammate,
     workingDirectory,
     projects,
     allProjects,
@@ -2344,6 +2615,9 @@ export const useChatStore = defineStore('chat', () => {
     createSession,
     initClaudeCodeSession,
     addMessage,
+    viewTeammateTranscript,
+    backToLeaderView,
+    recordTeammateMessage,
     sendMessage,
     abort,
     retryLastMessage,

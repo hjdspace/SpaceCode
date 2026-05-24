@@ -47,15 +47,29 @@
       <div class="chat-panel-body">
         <NoProjectHome v-if="showNoProjectWelcome" />
 
-        <MessageList
-          v-else
-          :messages="chatStore.currentMessages"
-          :loading="chatStore.isLoading"
-          @tool-submit="handleToolSubmit"
-          @tool-skip="handleToolSkip"
-          @rewind="handleMessageRewind"
-        />
+        <template v-else>
+          <TeammateTranscriptHeader
+            v-if="chatStore.isViewingTeammate"
+            :teammate="chatStore.viewedTeammate"
+            @back="chatStore.backToLeaderView"
+          />
+
+          <MessageList
+            :messages="chatStore.displayMessages"
+            :loading="chatStore.isLoading"
+            @tool-submit="handleToolSubmit"
+            @tool-skip="handleToolSkip"
+            @rewind="handleMessageRewind"
+          />
+        </template>
       </div>
+
+      <TeamStatusBar
+        v-if="!showNoProjectWelcome"
+        :team-context="chatStore.currentTeamContext"
+        :viewing-agent-task-id="chatStore.currentViewedAgentTaskId"
+        @view-teammate="chatStore.viewTeammateTranscript"
+      />
 
       <ChatInput
         @send="handleSend"
@@ -153,6 +167,8 @@ import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import { useAppStore } from '@/stores/app'
 import MessageList from '../chat/MessageList.vue'
+import TeamStatusBar from '../chat/TeamStatusBar.vue'
+import TeammateTranscriptHeader from '../chat/TeammateTranscriptHeader.vue'
 import ChatInput, { type Attachment, type ImageAttachment } from '../chat/ChatInput.vue'
 
 interface AllAttachments {
@@ -789,6 +805,10 @@ async function handleRestoreHistorySession(session: any) {
 
     for (const msg of restoredMessages) {
       chatStore.addMessage(msg, restoredSession.id)
+    }
+
+    for (const raw of fullSession.messages) {
+      chatStore.recordTeammateMessage(raw, restoredSession.id)
     }
 
     showHistoryModal.value = false

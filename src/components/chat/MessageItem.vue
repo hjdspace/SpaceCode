@@ -1,7 +1,7 @@
 <template>
   <div
     class="message-item"
-    :class="[message.role]"
+    :class="[message.role, { notification: isTaskNotification }]"
     @mouseenter="handleMouseEnter"
     @mouseleave="handleMouseLeave"
   >
@@ -21,53 +21,61 @@
     </button>
 
     <div class="message-body">
-      <div class="message-header">
-        <span class="role-label">{{ message.role === 'user' ? t('chat.you') : t('chat.claude') }}</span>
-        <span class="timestamp">{{ formatTime(message.timestamp) }}</span>
+      <div v-if="isTaskNotification" class="task-notification-card" :class="message.metadata?.status">
+        <CheckCircle v-if="message.metadata?.status === 'completed'" :size="14" />
+        <XCircle v-else :size="14" />
+        <span>{{ message.content }}</span>
       </div>
-      
-      <!-- 图片附件 -->
-      <div v-if="message.imageAttachments?.length" class="image-attachments">
-        <div 
-          v-for="img in message.imageAttachments" 
-          :key="img.id"
-          class="image-attachment"
-        >
-          <img v-if="img.previewUrl" :src="img.previewUrl" :alt="img.name" @click="showImagePreview(img)" />
-          <div v-else class="image-placeholder" :title="img.name">{{ img.mimeType || 'image' }}</div>
-          <span class="image-name">{{ img.name }}</span>
+
+      <template v-else>
+        <div class="message-header">
+          <span class="role-label">{{ message.role === 'user' ? t('chat.you') : message.role === 'system' ? 'System' : t('chat.claude') }}</span>
+          <span class="timestamp">{{ formatTime(message.timestamp) }}</span>
         </div>
-      </div>
-      
-      <!-- 思考过程 -->
-      <ReasoningCard v-if="message.reasoning" :reasoning="message.reasoning" />
-      
-      <!-- 工具调用 -->
-      <ToolCallList 
-        v-if="message.toolCalls?.length" 
-        :tool-calls="message.toolCalls"
-        @tool-submit="handleToolSubmit"
-        @tool-skip="handleToolSkip"
-      />
-      
-      <!-- 消息内容 -->
-      <div class="message-content" v-if="message.content">
-        <MarkdownRenderer 
-          v-if="message.role === 'assistant'" 
-          :content="message.content" 
+        
+        <!-- 图片附件 -->
+        <div v-if="message.imageAttachments?.length" class="image-attachments">
+          <div 
+            v-for="img in message.imageAttachments" 
+            :key="img.id"
+            class="image-attachment"
+          >
+            <img v-if="img.previewUrl" :src="img.previewUrl" :alt="img.name" @click="showImagePreview(img)" />
+            <div v-else class="image-placeholder" :title="img.name">{{ img.mimeType || 'image' }}</div>
+            <span class="image-name">{{ img.name }}</span>
+          </div>
+        </div>
+        
+        <!-- 思考过程 -->
+        <ReasoningCard v-if="message.reasoning" :reasoning="message.reasoning" />
+        
+        <!-- 工具调用 -->
+        <ToolCallList 
+          v-if="message.toolCalls?.length" 
+          :tool-calls="message.toolCalls"
+          @tool-submit="handleToolSubmit"
+          @tool-skip="handleToolSkip"
         />
-        <p v-else class="user-text" v-html="renderedUserContent" @copy="handleUserCopy"></p>
-      </div>
-      
-      <!-- 元数据 -->
-      <MessageMetadata v-if="message.role === 'assistant' && message.metadata" :metadata="message.metadata" />
+        
+        <!-- 消息内容 -->
+        <div class="message-content" v-if="message.content">
+          <MarkdownRenderer 
+            v-if="message.role === 'assistant'" 
+            :content="message.content" 
+          />
+          <p v-else class="user-text" v-html="renderedUserContent" @copy="handleUserCopy"></p>
+        </div>
+        
+        <!-- 元数据 -->
+        <MessageMetadata v-if="message.role === 'assistant' && message.metadata" :metadata="message.metadata" />
+      </template>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import type { Message, ImageAttachment } from '@/types'
-import { User, Bot, RotateCcw } from 'lucide-vue-next'
+import { User, Bot, RotateCcw, CheckCircle, XCircle } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
@@ -90,6 +98,8 @@ const emit = defineEmits<{
 }>()
 
 const isHovered = ref(false)
+
+const isTaskNotification = computed(() => props.message.metadata?.kind === 'task-notification')
 
 const showRewindButton = computed(() => {
   if (!isHovered.value) return false
@@ -186,13 +196,87 @@ function handleUserCopy(e: ClipboardEvent) {
 </script>
 
 <style lang="scss" scoped>
+.message-item.notification {
+  padding: 8px 0;
+
+  .message-avatar {
+    display: none;
+  }
+
+  .message-body {
+    width: 100%;
+  }
+}
+
+.task-notification-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: center;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 8px 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--surface-border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+
+  &.completed {
+    color: var(--success);
+    border-color: rgba(34, 197, 94, 0.35);
+  }
+
+  &.failed {
+    color: var(--error);
+    border-color: rgba(239, 68, 68, 0.35);
+  }
+}
+
 .message-item {
   display: flex;
   gap: 12px;
   padding: 16px 0;
   position: relative;
 
-  & + .message-item {
+  & + .message-item.notification {
+  padding: 8px 0;
+
+  .message-avatar {
+    display: none;
+  }
+
+  .message-body {
+    width: 100%;
+  }
+}
+
+.task-notification-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: center;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 8px 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--surface-border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+
+  &.completed {
+    color: var(--success);
+    border-color: rgba(34, 197, 94, 0.35);
+  }
+
+  &.failed {
+    color: var(--error);
+    border-color: rgba(239, 68, 68, 0.35);
+  }
+}
+
+.message-item {
     border-top: 1px solid var(--surface-border);
   }
 
@@ -394,7 +478,44 @@ function handleUserCopy(e: ClipboardEvent) {
 
 // 响应式布局
 @media (max-width: 768px) {
-  .message-item {
+  .message-item.notification {
+  padding: 8px 0;
+
+  .message-avatar {
+    display: none;
+  }
+
+  .message-body {
+    width: 100%;
+  }
+}
+
+.task-notification-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: center;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 8px 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--surface-border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+
+  &.completed {
+    color: var(--success);
+    border-color: rgba(34, 197, 94, 0.35);
+  }
+
+  &.failed {
+    color: var(--error);
+    border-color: rgba(239, 68, 68, 0.35);
+  }
+}
+
+.message-item {
     gap: 8px;
     padding: 12px 0;
   }
