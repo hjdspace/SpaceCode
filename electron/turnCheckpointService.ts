@@ -194,13 +194,41 @@ function extractFileHistorySnapshots(messages: SessionMessage[]): FileHistorySna
 
 function findSnapshotForTarget(
   snapshots: FileHistorySnapshotEntry[],
-  targetUserMessageId: string
+  targetUserMessageId: string,
+  userMessageIndex?: number
 ): FileHistorySnapshotEntry | null {
+  // Strategy 1: Exact match by messageId (engine's uuid)
   for (let i = snapshots.length - 1; i >= 0; i--) {
     if (snapshots[i].snapshot?.messageId === targetUserMessageId) {
+      debug('TurnCheckpoint', `Found snapshot by exact ID match: ${targetUserMessageId.slice(0, 8)}...`)
       return snapshots[i]
     }
   }
+
+  // Strategy 2: Fallback to index-based matching
+  // This handles the case where frontend message.id differs from engine's uuid
+  // Frontend generates its own IDs (crypto.randomUUID()), but engine uses internal uuids
+  // for file-history-snapshot entries. When userMessageIndex is provided, use position.
+  if (userMessageIndex !== undefined && userMessageIndex >= 0) {
+    const allUserMessageIds = [...new Set(snapshots.map(s => s.snapshot?.messageId).filter(Boolean))]
+    debug('TurnCheckpoint', `Exact ID match failed, trying index-based lookup | targetIndex=${userMessageIndex} | availableSnapshots=${allUserMessageIds.length}`)
+
+    if (userMessageIndex < allUserMessageIds.length) {
+      const fallbackId = allUserMessageIds[userMessageIndex]
+      const snapshotByIndex = snapshots.find(s => s.snapshot?.messageId === fallbackId)
+      if (snapshotByIndex) {
+        warn('TurnCheckpoint', `Using index-based fallback matching | index=${userMessageIndex} | matchedSnapshotId=${fallbackId?.slice(0, 8)}... | originalTargetId=${targetUserMessageId.slice(0, 8)}...`)
+        return snapshotByIndex
+      }
+    }
+
+    warn('TurnCheckpoint', `Index-based lookup also failed | targetIndex=${userMessageIndex} | totalSnapshots=${allUserMessageIds.length}`)
+  }
+
+  // Log available snapshot IDs for debugging
+  const availableIds = snapshots.map(s => s.snapshot?.messageId).filter(Boolean).map(id => id!.slice(0, 8))
+  warn('TurnCheckpoint', `No snapshot found for target message | targetId=${targetUserMessageId.slice(0, 8)}... | availableSnapshotIds=[${availableIds.join(', ')}]`)
+
   return null
 }
 
@@ -444,7 +472,7 @@ export async function getTurnCheckpointDiff(
   const snapshots = extractFileHistorySnapshots(messages)
   const workDir = projectPath
 
-  const targetSnapshot = findSnapshotForTarget(snapshots, targetUserMessageId)
+  const targetSnapshot = findSnapshotForTarget(snapshots, targetUserMessageId, userMessageIndex)
   if (!targetSnapshot) {
     return { state: 'missing', path: filePath, error: 'No snapshot found for target message' }
   }
@@ -503,7 +531,7 @@ export async function rewindTurn(
   const snapshots = extractFileHistorySnapshots(messages)
   const workDir = projectPath
 
-  const targetSnapshot = findSnapshotForTarget(snapshots, targetUserMessageId)
+  const targetSnapshot = findSnapshotForTarget(snapshots, targetUserMessageId, userMessageIndex)
   if (!targetSnapshot) {
     return { ok: false, error: 'No snapshot found for target message' }
   }

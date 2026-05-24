@@ -91,6 +91,15 @@
         @cancel="handleRewindCancel"
       />
 
+      <!-- Code Rewind Confirmation Dialog -->
+      <CodeRewindConfirmDialog
+        :show="chatStore.rewindState.showCodeConfirm"
+        :files="[...chatStore.rewindState.filesToRewind]"
+        :is-loading="chatStore.rewindState.isRewinding"
+        @confirm="handleCodeRewindConfirm"
+        @cancel="handleCodeRewindCancel"
+      />
+
       <!-- Message Selector for /rewind command -->
       <MessageSelector
         :show="showMessageSelector"
@@ -155,6 +164,7 @@ import TerminalPanel from '../terminal/TerminalPanel.vue'
 import NoProjectHome from './NoProjectHome.vue'
 import ToastNotification from '../common/ToastNotification.vue'
 import RewindDialog from '../chat/RewindDialog.vue'
+import CodeRewindConfirmDialog from '../chat/CodeRewindConfirmDialog.vue'
 import MessageSelector from '../chat/MessageSelector.vue'
 import { History } from 'lucide-vue-next'
 import HistorySessionList from '../explorer/HistorySessionList.vue'
@@ -194,7 +204,7 @@ const userMessages = computed(() =>
     })) || []
 )
 
-function handleRewindConfirm() {
+async function handleRewindConfirm() {
   const option = chatStore.rewindState.selectedOption
   const messageId = chatStore.rewindState.selectedMessageId
 
@@ -211,20 +221,58 @@ function handleRewindConfirm() {
   } else if (option === 'cancel') {
     chatStore.setShowRewindDialog(false)
     chatStore.resetRewindState()
+  } else if (option === 'both' || option === 'code') {
+    // Show code rewind confirmation dialog for code-related modes
+    await openCodeRewindConfirm()
   } else {
-    chatStore.rewindSession(
+    // conversation mode - no code changes, proceed directly
+    executeRewind()
+  }
+}
+
+async function openCodeRewindConfirm() {
+  if (!chatStore.rewindState.selectedMessageId || !chatStore.currentSessionId) return
+
+  const files = await chatStore.loadFilesToRewind(
+    chatStore.currentSessionId,
+    chatStore.rewindState.selectedMessageId
+  )
+
+  if (files.length > 0) {
+    chatStore.setFilesToRewind(files)
+    chatStore.setShowCodeConfirm(true)
+  } else {
+    // No files to rollback, proceed directly
+    executeRewind()
+  }
+}
+
+function handleCodeRewindConfirm() {
+  chatStore.setShowCodeConfirm(false)
+  executeRewind()
+}
+
+function handleCodeRewindCancel() {
+  chatStore.setShowCodeConfirm(false)
+  // Return to main rewind dialog, don't close it
+}
+
+async function executeRewind() {
+  const option = chatStore.rewindState.selectedOption
+  const messageId = chatStore.rewindState.selectedMessageId
+
+  if (!messageId) return
+
+  try {
+    await chatStore.rewindSession(
       chatStore.currentSessionId || '',
       messageId,
       option as 'both' | 'conversation' | 'code'
-    ).then(() => {
-      // Success: close dialog and reset state
-      chatStore.setShowRewindDialog(false)
-      chatStore.resetRewindState()
-    }).catch((err: any) => {
-      // Error: keep dialog open so user can see the error message
-      // Error is already set in rewindState.error by rewindSession
-      console.error('[ChatPanel] Rewind failed:', err)
-    })
+    )
+    chatStore.setShowRewindDialog(false)
+    chatStore.resetRewindState()
+  } catch (err: any) {
+    console.error('[ChatPanel] Rewind failed:', err)
   }
 }
 

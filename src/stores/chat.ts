@@ -399,7 +399,12 @@ export const useChatStore = defineStore('chat', () => {
     summarizeFeedback: '',
     isRewinding: false,
     error: null,
+    showCodeConfirm: false,    // 是否显示代码回滚确认弹窗
+    filesToRewind: [],         // 将要回滚的文件路径列表
   })
+
+  // 待恢复到输入框的用户消息内容（用于回滚时恢复用户输入）
+  const pendingInputText = ref<string>('')
 
   const isLoading = computed(() =>
     currentSessionId.value ? (loadingSessions.value.get(currentSessionId.value) ?? false) : false
@@ -1861,11 +1866,50 @@ export const useChatStore = defineStore('chat', () => {
       summarizeFeedback: '',
       isRewinding: false,
       error: null,
+      showCodeConfirm: false,
+      filesToRewind: [],
     }
   }
 
   function setRewindError(error: string | null) {
     rewindState.value.error = error
+  }
+
+  function setShowCodeConfirm(show: boolean) {
+    rewindState.value.showCodeConfirm = show
+  }
+
+  function setFilesToRewind(files: string[]) {
+    rewindState.value.filesToRewind = files
+  }
+
+  function setPendingInputText(text: string) {
+    pendingInputText.value = text
+  }
+
+  function clearPendingInputText() {
+    pendingInputText.value = ''
+  }
+
+  async function loadFilesToRewind(sessionId: string, messageId: string): Promise<string[]> {
+    try {
+      const result = await api.session.getTurnCheckpoints(sessionId)
+      if (!result.ok || !result.checkpoints) {
+        return []
+      }
+
+      const targetCheckpoint = result.checkpoints.find(
+        (cp: any) => cp.target?.targetUserMessageId === messageId
+      )
+
+      if (targetCheckpoint?.code?.filesChanged) {
+        return targetCheckpoint.code.filesChanged.map((f: any) => f.path)
+      }
+      return []
+    } catch (err) {
+      logger.error('ChatStore', 'Failed to load files to rewind', { error: err })
+      return []
+    }
   }
 
   async function rewindSession(
@@ -1893,9 +1937,15 @@ export const useChatStore = defineStore('chat', () => {
       if (mode === 'both' || mode === 'code') {
         try {
           const projectPath = workingDirectory.value
-          logger.info('ChatStore', 'Rewinding code', { sessionId, targetUserMessageId, projectPath })
+          const session = sessions.value.find(s => s.id === sessionId)
+          const userMessageIndex = session
+            ? session.messages.filter(m => m.role === 'user').findIndex(m => m.id === targetUserMessageId)
+            : -1
+
+          logger.info('ChatStore', 'Rewinding code', { sessionId, targetUserMessageId, userMessageIndex, projectPath })
           const result = await api.session.rewindTurn(sessionId, {
             targetUserMessageId,
+            userMessageIndex: userMessageIndex >= 0 ? userMessageIndex : undefined,
           }, projectPath)
 
           if (!result.ok) {
@@ -1908,15 +1958,41 @@ export const useChatStore = defineStore('chat', () => {
           codeError = err instanceof Error ? err.message : 'Unknown error during code rewind'
           logger.error('ChatStore', 'Code rewind exception', { error: codeError })
         }
+
+        // FIX: If mode='both' and code rewind failed, don't proceed with conversation rewind
+        // This prevents inconsistent state where messages are deleted but code changes remain
+        if (mode === 'both' && codeError) {
+          logger.warn('ChatStore', 'Skipping conversation rewind due to code rewind failure', { error: codeError })
+        }
       }
 
-      // Step 2: Restore conversation (if needed) - always execute even if code failed
-      if (mode === 'both' || mode === 'conversation') {
+      // Step 2: Restore conversation (if needed)
+      // Only execute if:
+      // - mode is 'conversation' (code rewind not involved), OR
+      // - mode is 'both' AND code rewind succeeded (no codeError)
+      if (mode === 'conversation' || (mode === 'both' && !codeError)) {
         try {
           const session = sessions.value.find(s => s.id === sessionId)
           if (session) {
             const targetIndex = session.messages.findIndex(m => m.id === targetUserMessageId)
             if (targetIndex >= 0) {
+              // UX Enhancement: Extract user message content to restore to input box
+              // Find the last user message that will be removed
+              const messagesToRemove = session.messages.slice(targetIndex + 1)
+              const lastUserMessage = [...messagesToRemove].reverse().find(m => m.role === 'user')
+
+              if (lastUserMessage) {
+                // Store the user message content to restore in input box
+                pendingInputText.value = lastUserMessage.content || ''
+                logger.info('ChatStore', 'Stored user message for input restoration', {
+                  messageId: lastUserMessage.id,
+                  contentLength: pendingInputText.value.length
+                })
+              } else {
+                // No user message to restore, clear any previous value
+                pendingInputText.value = ''
+              }
+
               // Keep messages up to and including the target message
               // Remove all messages AFTER the target message
               session.messages = session.messages.slice(0, targetIndex + 1)
@@ -2284,12 +2360,18 @@ export const useChatStore = defineStore('chat', () => {
     clearTurnCheckpoints,
     // Rewind
     rewindState: readonly(rewindState),
+    pendingInputText: readonly(pendingInputText),
     setShowRewindDialog,
     setRewindSelectedMessage,
     setRewindSelectedOption,
     setRewindSummarizeFeedback,
     resetRewindState,
     setRewindError,
+    setShowCodeConfirm,
+    setFilesToRewind,
+    setPendingInputText,
+    clearPendingInputText,
+    loadFilesToRewind,
     rewindSession,
     summarizeTurn,
     // ========== 优化: 会话加载状态 ==========

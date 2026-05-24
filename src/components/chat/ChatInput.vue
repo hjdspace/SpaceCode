@@ -781,6 +781,26 @@ onMounted(() => {
   chatStore.loadAgents()
 })
 
+// 监听回滚后的待恢复输入文本（将用户消息恢复到输入框）
+watch(() => chatStore.pendingInputText, (newText) => {
+  if (newText && newText.trim()) {
+    // 填充文本到输入框
+    inputText.value = newText
+
+    // 更新编辑器内容
+    nextTick(() => {
+      if (editorRef.value) {
+        editorRef.value.innerHTML = newText.replace(/\n/g, '<br>')
+      }
+      // 聚焦输入框
+      editorRef.value?.focus()
+    })
+
+    // 清除pendingInputText，避免重复填充
+    chatStore.clearPendingInputText()
+  }
+})
+
 // 监听外部 modelValue 变化
 watch(() => props.modelValue, (newValue) => {
   if (newValue && newValue !== selectedModel.value) {

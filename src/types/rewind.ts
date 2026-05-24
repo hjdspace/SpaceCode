@@ -13,6 +13,8 @@ export interface RewindState {
   summarizeFeedback: string
   isRewinding: boolean
   error: string | null
+  showCodeConfirm: boolean       // 是否显示代码回滚确认弹窗
+  filesToRewind: string[]        // 将要回滚的文件路径列表
 }
 
 /** Diff statistics for rewind preview */
