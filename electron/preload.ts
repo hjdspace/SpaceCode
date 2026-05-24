@@ -390,6 +390,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Skills API
   skills: {
     getSkills: (cwd?: string) => ipcRenderer.invoke('skills:getSkills', cwd),
+    getBundledSkills: () => ipcRenderer.invoke('skills:getBundledSkills'),
     createSkill: (name: string, scope: 'global' | 'project', content: string, cwd?: string) =>
       ipcRenderer.invoke('skills:createSkill', name, scope, content, cwd),
     saveSkill: (skill: any, content: string) => ipcRenderer.invoke('skills:saveSkill', skill, content),

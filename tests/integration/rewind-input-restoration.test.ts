@@ -48,12 +48,32 @@ describe('User Message Restoration to Input Box', () => {
         { id: 'msg-4', role: 'assistant' as const, content: 'Second answer' },
       ]
 
-      // Simulate rewind to msg-2 (keeping messages up to index 1)
-      const targetIndex = 1
-      const messagesToRemove = messages.slice(targetIndex + 1)
+      const targetIndex = 2
+      const messagesToRemove = messages.slice(targetIndex)
+      const targetMessage = messages[targetIndex]
       const lastUserMessage = [...messagesToRemove].reverse().find(m => m.role === 'user')
 
       assert.ok(lastUserMessage)
+      assert.strictEqual(lastUserMessage?.id, 'msg-3')
+      assert.strictEqual(lastUserMessage?.content, 'Second question to restore')
+
+      const remainingMessages = messages.slice(0, targetIndex)
+      assert.strictEqual(remainingMessages.length, 2, 'Target user message should be removed from chat')
+      assert.strictEqual(remainingMessages[remainingMessages.length - 1]?.id, 'msg-2', 'Last remaining message should be the assistant answer before target')
+    })
+
+    it('should restore target user message content when it is the only user message removed', () => {
+      const messages = [
+        { id: 'msg-1', role: 'user' as const, content: 'First question' },
+        { id: 'msg-2', role: 'assistant' as const, content: 'First answer' },
+        { id: 'msg-3', role: 'user' as const, content: 'Second question to restore' },
+      ]
+
+      const targetIndex = 2
+      const messagesToRemove = messages.slice(targetIndex)
+      const targetMessage = messages[targetIndex]
+      const lastUserMessage = [...messagesToRemove].reverse().find(m => m.role === 'user')
+
       assert.strictEqual(lastUserMessage?.id, 'msg-3')
       assert.strictEqual(lastUserMessage?.content, 'Second question to restore')
     })
@@ -84,12 +104,14 @@ describe('User Message Restoration to Input Box', () => {
         { id: 'msg-3', role: 'assistant' as const, content: 'Answer part 2' },
       ]
 
-      // Simulate rewind to msg-1 (removing only assistant messages)
-      const targetIndex = 0
-      const messagesToRemove = messages.slice(targetIndex + 1)
+      const targetIndex = 1
+      const messagesToRemove = messages.slice(targetIndex)
+      const targetMessage = messages[targetIndex]
       const lastUserMessage = [...messagesToRemove].reverse().find(m => m.role === 'user')
 
-      assert.strictEqual(lastUserMessage, undefined, 'No user message to restore')
+      assert.strictEqual(lastUserMessage, undefined, 'No user message in removed range after target')
+
+      assert.strictEqual(targetMessage?.role, 'assistant', 'Target message is assistant, not user')
     })
 
     it('should clear pendingInputText when no user message found', () => {
@@ -113,14 +135,17 @@ describe('User Message Restoration to Input Box', () => {
         { id: 'msg-6', role: 'assistant' as const, content: 'Answer 3' },
       ]
 
-      // Simulate rewind to msg-2
-      const targetIndex = 1
-      const messagesToRemove = messages.slice(targetIndex + 1)
+      const targetIndex = 2
+      const messagesToRemove = messages.slice(targetIndex)
       const lastUserMessage = [...messagesToRemove].reverse().find(m => m.role === 'user')
 
       assert.ok(lastUserMessage)
       assert.strictEqual(lastUserMessage?.id, 'msg-5', 'Should find the last user message')
       assert.strictEqual(lastUserMessage?.content, 'Follow-up 2 (most recent)')
+
+      const remainingMessages = messages.slice(0, targetIndex)
+      assert.strictEqual(remainingMessages.length, 2)
+      assert.strictEqual(remainingMessages[remainingMessages.length - 1]?.id, 'msg-2')
     })
   })
 

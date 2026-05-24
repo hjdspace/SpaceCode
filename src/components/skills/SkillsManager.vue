@@ -106,6 +106,17 @@
               @delete="handleDelete"
             />
           </div>
+          <div v-if="builtinSkills.length > 0" class="skill-group">
+            <span class="group-label">{{ t('skills.groupBuiltin') }}</span>
+            <SkillListItem
+              v-for="skill in builtinSkills"
+              :key="`builtin:${skill.name}`"
+              :skill="skill"
+              :selected="isSelected(skill)"
+              :readonly="true"
+              @select="selected = skill"
+            />
+          </div>
           <div v-if="filtered.length === 0" class="empty-state">
             <Zap :size="32" class="empty-icon" />
             <p class="empty-text">{{ search ? t('skills.noSkillsFound') : t('skills.noSkillsYet') }}</p>
@@ -191,6 +202,7 @@ const globalSkills = computed(() => filtered.value.filter(s => s.source === 'glo
 const projectSkills = computed(() => filtered.value.filter(s => s.source === 'project'))
 const installedSkills = computed(() => filtered.value.filter(s => s.source === 'installed'))
 const pluginSkills = computed(() => filtered.value.filter(s => s.source === 'plugin'))
+const builtinSkills = computed(() => filtered.value.filter(s => s.source === 'builtin'))
 
 function isSelected(skill: Skill): boolean {
   if (!selected.value) return false
@@ -226,6 +238,7 @@ async function handleSave(skill: Skill, content: string) {
 }
 
 async function handleDelete(skill: Skill) {
+  if (skill.source === 'builtin') return
   if (!confirm(t('skills.deleteConfirm', { name: skill.name }))) return
   try {
     await skillsStore.deleteSkill(skill)

@@ -19,6 +19,9 @@
     >
       <Trash2 :size="12" />
     </button>
+    <span v-else-if="readonly" class="readonly-badge" :title="t('skills.builtinReadonly')">
+      {{ t('skills.builtin') }}
+    </span>
   </div>
 </template>
 
@@ -31,6 +34,7 @@ import type { Skill } from '@/stores/skills'
 interface Props {
   skill: Skill
   selected: boolean
+  readonly?: boolean
 }
 
 const props = defineProps<Props>()
@@ -43,7 +47,7 @@ const { t } = useI18n()
 
 const hovered = ref(false)
 
-const showDelete = computed(() => hovered.value)
+const showDelete = computed(() => hovered.value && !props.readonly && props.skill.source !== 'builtin')
 </script>
 
 <style lang="scss" scoped>
@@ -117,5 +121,16 @@ const showDelete = computed(() => hovered.value)
     background: var(--bg-hover);
     color: var(--text-primary);
   }
+}
+
+.readonly-badge {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
 }
 </style>

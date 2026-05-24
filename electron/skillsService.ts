@@ -12,7 +12,7 @@ export interface Skill {
   name: string
   description: string
   content: string
-  source: 'global' | 'project' | 'plugin' | 'installed'
+  source: 'global' | 'project' | 'plugin' | 'installed' | 'builtin'
   installedSource?: 'agents' | 'claude'
   filePath: string
 }
@@ -179,6 +179,33 @@ function readSkillsFromDir(dirPath: string, source: Skill['source']): Skill[] {
  * CLI Engine 内置的 bundled skills（与 engine/src/skills/bundled/index.ts 保持一致）
  * 这些技能编译在 CLI 二进制中，无需磁盘上的 .md 文件
  */
+function getEngineRoot(): string {
+  if (app.isPackaged) {
+    return join(process.resourcesPath, 'engine')
+  }
+  return join(__dirname, '../engine')
+}
+
+function getBundledSkillContent(name: string, description: string): string {
+  const skillMdPath = join(getEngineRoot(), 'src/skills/bundled', name, 'SKILL.md')
+  if (existsSync(skillMdPath)) {
+    try {
+      const content = readFileSync(skillMdPath, 'utf-8').trim()
+      if (content && content !== '# Skill') {
+        return content
+      }
+    } catch (err) {
+      console.error(`[Skills] Failed to read bundled skill file: ${skillMdPath}`, err)
+    }
+  }
+
+  return `# /${name}
+
+${description}
+
+> Built-in CLI skill (read-only). This skill is bundled with Claude Code and cannot be edited or deleted.`
+}
+
 export const BUNDLED_SKILLS: Array<{ name: string; description: string }> = [
   { name: 'update-config', description: 'Update Claude Code configuration' },
   { name: 'keybindings-help', description: 'Show keyboard shortcuts help' },
@@ -362,7 +389,14 @@ export function registerSkillsIPCHandlers(): void {
 
   // Get bundled skills (built into CLI engine binary)
   ipcMain.handle('skills:getBundledSkills', async () => {
-    return { skills: BUNDLED_SKILLS }
+    const skills: Skill[] = BUNDLED_SKILLS.map(({ name, description }) => ({
+      name,
+      description,
+      content: getBundledSkillContent(name, description),
+      source: 'builtin' as const,
+      filePath: `builtin://${name}`,
+    }))
+    return { skills }
   })
 
   // Create a new skill
@@ -395,6 +429,9 @@ export function registerSkillsIPCHandlers(): void {
 
   // Save/update a skill
   ipcMain.handle('skills:saveSkill', async (_event, skill: Skill, content: string) => {
+    if (skill.source === 'builtin') {
+      throw new Error('Built-in skills cannot be modified')
+    }
     try {
       writeFileSync(skill.filePath, content, 'utf-8')
 
@@ -413,6 +450,9 @@ export function registerSkillsIPCHandlers(): void {
 
   // Delete a skill
   ipcMain.handle('skills:deleteSkill', async (_event, filePath: string) => {
+    if (filePath.startsWith('builtin://')) {
+      throw new Error('Built-in skills cannot be deleted')
+    }
     try {
       deleteSkillPath(filePath)
       return { success: true }

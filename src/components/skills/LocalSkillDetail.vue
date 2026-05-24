@@ -126,7 +126,7 @@ import {
 import type { LocalSkill } from '../../stores/localSkills'
 import { CATEGORIES } from '../../stores/localSkills'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
-import { sendMessage, isLLMConfigured } from '@/services/llm'
+import { useSkillTranslation } from '@/composables/useSkillTranslation'
 
 const props = defineProps<{
   skill: LocalSkill | null
@@ -142,15 +142,14 @@ defineEmits<{
 const { t } = useI18n()
 
 const previewMode = ref<'preview' | 'source'>('preview')
-const translatedContent = ref<string | null>(null)
-const isTranslating = ref(false)
 
-const isTranslated = computed(() => translatedContent.value !== null)
-
-const displayContent = computed(() => {
-  if (!props.skill) return ''
-  return translatedContent.value ?? props.skill.content
-})
+const {
+  isTranslating,
+  isTranslated,
+  displayContent,
+  resetTranslation,
+  toggleTranslation,
+} = useSkillTranslation(() => props.skill?.content ?? '')
 
 const sourceDirName = computed(() => {
   if (!props.skill) return ''
@@ -164,43 +163,9 @@ const categoryLabel = computed(() => {
 })
 
 watch(() => props.skill?.name, () => {
-  translatedContent.value = null
+  resetTranslation()
   previewMode.value = 'preview'
 })
-
-async function toggleTranslation() {
-  if (translatedContent.value !== null) {
-    translatedContent.value = null
-    return
-  }
-
-  if (!isLLMConfigured()) {
-    alert(t('skills.llmNotConfigured') || 'Please configure LLM API key in Settings first.')
-    return
-  }
-
-  if (!props.skill?.content) return
-
-  isTranslating.value = true
-  try {
-    const result = await sendMessage([
-      {
-        role: 'system',
-        content: 'You are a professional translator. Translate the following markdown content to Chinese. Preserve all markdown formatting, code blocks, and front matter (YAML between --- markers). Only translate the natural language text. Output the translated markdown directly without any explanation.'
-      },
-      {
-        role: 'user',
-        content: props.skill.content
-      }
-    ], { maxTokens: 4096 })
-    translatedContent.value = result
-  } catch (err) {
-    console.error('Failed to translate skill content:', err)
-    alert(t('skills.translationFailed') || `Translation failed: ${err instanceof Error ? err.message : err}`)
-  } finally {
-    isTranslating.value = false
-  }
-}
 </script>
 
 <style scoped lang="scss">

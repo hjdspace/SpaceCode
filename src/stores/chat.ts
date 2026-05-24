@@ -1976,26 +1976,27 @@ export const useChatStore = defineStore('chat', () => {
           if (session) {
             const targetIndex = session.messages.findIndex(m => m.id === targetUserMessageId)
             if (targetIndex >= 0) {
-              // UX Enhancement: Extract user message content to restore to input box
-              // Find the last user message that will be removed
-              const messagesToRemove = session.messages.slice(targetIndex + 1)
+              const messagesToRemove = session.messages.slice(targetIndex)
+              const targetMessage = session.messages[targetIndex]
               const lastUserMessage = [...messagesToRemove].reverse().find(m => m.role === 'user')
 
               if (lastUserMessage) {
-                // Store the user message content to restore in input box
                 pendingInputText.value = lastUserMessage.content || ''
                 logger.info('ChatStore', 'Stored user message for input restoration', {
                   messageId: lastUserMessage.id,
                   contentLength: pendingInputText.value.length
                 })
+              } else if (targetMessage?.role === 'user') {
+                pendingInputText.value = targetMessage.content || ''
+                logger.info('ChatStore', 'Stored target user message for input restoration', {
+                  messageId: targetMessage.id,
+                  contentLength: pendingInputText.value.length
+                })
               } else {
-                // No user message to restore, clear any previous value
                 pendingInputText.value = ''
               }
 
-              // Keep messages up to and including the target message
-              // Remove all messages AFTER the target message
-              session.messages = session.messages.slice(0, targetIndex + 1)
+              session.messages = session.messages.slice(0, targetIndex)
               saveToStorage()
               logger.info('ChatStore', 'Conversation rewind succeeded', { targetIndex, remainingMessages: session.messages.length })
             } else {

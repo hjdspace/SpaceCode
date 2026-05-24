@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
-export type SkillSource = 'global' | 'project' | 'plugin' | 'installed'
+export type SkillSource = 'global' | 'project' | 'plugin' | 'installed' | 'builtin'
 export type InstalledSource = 'agents' | 'claude'
 
 export interface Skill {
@@ -39,22 +39,32 @@ export const useSkillsStore = defineStore('skills', () => {
   const installedSkills = computed(() => skills.value.filter(s => s.source === 'installed'))
   const pluginSkills = computed(() => skills.value.filter(s => s.source === 'plugin'))
   const projectSkills = computed(() => skills.value.filter(s => s.source === 'project'))
+  const builtinSkills = computed(() => skills.value.filter(s => s.source === 'builtin'))
 
   async function fetchSkills(cwd?: string) {
     loading.value = true
     error.value = null
     try {
+      let userSkills: Skill[] = []
       // Use IPC instead of HTTP API
       if (electronAPI?.skills?.getSkills) {
         const data = await electronAPI.skills.getSkills(cwd)
-        skills.value = data.skills || []
+        userSkills = data.skills || []
       } else {
         // Fallback: load from localStorage
         const stored = localStorage.getItem(SKILLS_STORAGE_KEY)
         if (stored) {
-          skills.value = JSON.parse(stored)
+          userSkills = JSON.parse(stored)
         }
       }
+
+      let bundled: Skill[] = []
+      if (electronAPI?.skills?.getBundledSkills) {
+        const data = await electronAPI.skills.getBundledSkills()
+        bundled = data.skills || []
+      }
+
+      skills.value = [...userSkills, ...bundled]
     } catch (err) {
       console.error('Failed to fetch skills:', err)
       error.value = err instanceof Error ? err.message : 'Failed to fetch skills'
@@ -91,6 +101,9 @@ export const useSkillsStore = defineStore('skills', () => {
   }
 
   async function saveSkill(skill: Skill, content: string) {
+    if (skill.source === 'builtin') {
+      throw new Error('Built-in skills cannot be modified')
+    }
     try {
       if (electronAPI?.skills?.saveSkill) {
         const data = await electronAPI.skills.saveSkill(skill, content)
@@ -124,6 +137,9 @@ export const useSkillsStore = defineStore('skills', () => {
   }
 
   async function deleteSkill(skill: Skill) {
+    if (skill.source === 'builtin') {
+      throw new Error('Built-in skills cannot be deleted')
+    }
     try {
       if (electronAPI?.skills?.deleteSkill) {
         // Only pass the filePath (serializable string) instead of the whole skill object
@@ -206,6 +222,7 @@ export const useSkillsStore = defineStore('skills', () => {
     installedSkills,
     pluginSkills,
     projectSkills,
+    builtinSkills,
     fetchSkills,
     createSkill,
     saveSkill,

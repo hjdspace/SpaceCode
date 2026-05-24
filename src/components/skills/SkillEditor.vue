@@ -8,59 +8,73 @@
         <span class="source-badge" :class="skill.source">
           <Globe v-if="skill.source === 'global'" :size="10" />
           <FolderOpen v-else-if="skill.source === 'installed'" :size="10" />
-          <FolderOpen v-else :size="10" />
+          <FolderOpen v-else-if="skill.source === 'project'" :size="10" />
+          <Zap v-else :size="10" />
           {{ sourceLabel }}
         </span>
       </div>
 
       <div class="toolbar-right">
-        <!-- View mode toggles -->
         <button
-          class="toolbar-btn"
-          :class="{ active: viewMode === 'edit' }"
-          @click="viewMode = 'edit'"
-          :title="t('skills.editor.edit')"
+          class="toolbar-btn translate-btn"
+          :class="{ active: isTranslated }"
+          @click="handleToggleTranslation"
+          :disabled="isTranslating"
+          :title="isTranslated ? t('skills.showOriginal') : t('skills.translateToChinese')"
         >
-          <Pencil :size="12" />
-        </button>
-        <button
-          class="toolbar-btn"
-          :class="{ active: viewMode === 'preview' }"
-          @click="viewMode = 'preview'"
-          :title="t('skills.editor.preview')"
-        >
-          <Eye :size="12" />
-        </button>
-        <button
-          class="toolbar-btn"
-          :class="{ active: viewMode === 'split' }"
-          @click="viewMode = 'split'"
-          :title="t('skills.editor.splitView')"
-        >
-          <Columns :size="12" />
+          <Loader2 v-if="isTranslating" :size="12" class="spin" />
+          <Languages v-else :size="12" />
+          <span class="translate-label">
+            {{ isTranslating ? '...' : isTranslated ? t('skills.showOriginal') : t('skills.translate') }}
+          </span>
         </button>
 
-        <div class="toolbar-divider" />
+        <template v-if="!isReadonly">
+          <button
+            class="toolbar-btn"
+            :class="{ active: viewMode === 'edit' }"
+            @click="viewMode = 'edit'"
+            :title="t('skills.editor.edit')"
+          >
+            <Pencil :size="12" />
+          </button>
+          <button
+            class="toolbar-btn"
+            :class="{ active: viewMode === 'preview' }"
+            @click="viewMode = 'preview'"
+            :title="t('skills.editor.preview')"
+          >
+            <Eye :size="12" />
+          </button>
+          <button
+            class="toolbar-btn"
+            :class="{ active: viewMode === 'split' }"
+            @click="viewMode = 'split'"
+            :title="t('skills.editor.splitView')"
+          >
+            <Columns :size="12" />
+          </button>
 
-        <!-- Save -->
-        <button
-          class="btn btn-primary save-btn"
-          :disabled="!isDirty || saving"
-          @click="handleSave"
-        >
-          <Loader2 v-if="saving" :size="12" class="spin" />
-          <Save v-else :size="12" />
-          {{ saving ? t('skills.editor.saving') : saved ? t('skills.editor.saved') : t('skills.editor.save') }}
-        </button>
+          <div class="toolbar-divider" />
 
-        <!-- Delete -->
-        <button
-          class="toolbar-btn"
-          :class="{ 'btn-danger': confirmDelete }"
-          @click="handleDelete"
-        >
-          <Trash2 :size="12" />
-        </button>
+          <button
+            class="btn btn-primary save-btn"
+            :disabled="!isDirty || saving"
+            @click="handleSave"
+          >
+            <Loader2 v-if="saving" :size="12" class="spin" />
+            <Save v-else :size="12" />
+            {{ saving ? t('skills.editor.saving') : saved ? t('skills.editor.saved') : t('skills.editor.save') }}
+          </button>
+
+          <button
+            class="toolbar-btn"
+            :class="{ 'btn-danger': confirmDelete }"
+            @click="handleDelete"
+          >
+            <Trash2 :size="12" />
+          </button>
+        </template>
       </div>
     </div>
 
@@ -103,10 +117,11 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
-  Save, Trash2, Pencil, Eye, Columns, Loader2, Globe, FolderOpen
+  Save, Trash2, Pencil, Eye, Columns, Loader2, Globe, FolderOpen, Languages, Zap
 } from 'lucide-vue-next'
 import type { Skill } from '@/stores/skills'
 import { marked } from 'marked'
+import { useSkillTranslation } from '@/composables/useSkillTranslation'
 
 const { t } = useI18n()
 
@@ -123,14 +138,27 @@ const emit = defineEmits<{
 type ViewMode = 'edit' | 'preview' | 'split'
 
 const content = ref(props.skill.content)
-const viewMode = ref<ViewMode>('edit')
+const viewMode = ref<ViewMode>(props.skill.source === 'builtin' ? 'preview' : 'edit')
 const saving = ref(false)
 const saved = ref(false)
 const confirmDelete = ref(false)
 
-const isDirty = computed(() => content.value !== props.skill.content)
+const isReadonly = computed(() => props.skill.source === 'builtin')
+
+const {
+  isTranslating,
+  isTranslated,
+  displayContent,
+  resetTranslation,
+  toggleTranslation,
+} = useSkillTranslation(() => content.value)
+
+const isDirty = computed(() => !isReadonly.value && content.value !== props.skill.content)
 
 const sourceLabel = computed(() => {
+  if (props.skill.source === 'builtin') {
+    return t('skills.builtin')
+  }
   if (props.skill.source === 'installed' && props.skill.installedSource) {
     return `installed:${props.skill.installedSource}`
   }
@@ -138,16 +166,27 @@ const sourceLabel = computed(() => {
 })
 
 const renderedContent = computed(() => {
-  return marked(content.value || '', { gfm: true })
+  return marked(displayContent.value || '', { gfm: true })
 })
 
 watch(() => props.skill, (newSkill) => {
   content.value = newSkill.content
+  viewMode.value = newSkill.source === 'builtin' ? 'preview' : 'edit'
   confirmDelete.value = false
   saved.value = false
+  resetTranslation()
 }, { deep: true })
 
+async function handleToggleTranslation() {
+  const switchingToTranslation = !isTranslated.value
+  await toggleTranslation()
+  if (switchingToTranslation && isTranslated.value && viewMode.value === 'edit') {
+    viewMode.value = 'preview'
+  }
+}
+
 async function handleSave() {
+  if (isReadonly.value) return
   saving.value = true
   try {
     await emit('save', props.skill, content.value)
@@ -159,6 +198,7 @@ async function handleSave() {
 }
 
 function handleDelete() {
+  if (isReadonly.value) return
   if (confirmDelete.value) {
     emit('delete', props.skill)
     confirmDelete.value = false
@@ -253,6 +293,11 @@ function handleKeyDown(e: KeyboardEvent) {
     border-color: #f59e0b;
     color: #f59e0b;
   }
+
+  &.builtin {
+    border-color: #6366f1;
+    color: #6366f1;
+  }
 }
 
 .toolbar-right {
@@ -282,6 +327,13 @@ function handleKeyDown(e: KeyboardEvent) {
   &.active {
     background: var(--bg-tertiary);
     color: var(--text-primary);
+  }
+
+  &.translate-btn {
+    width: auto;
+    padding: 0 8px;
+    gap: 4px;
+    font-size: 11px;
   }
 
   &.btn-danger {
