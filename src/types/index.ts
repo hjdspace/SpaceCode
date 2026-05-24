@@ -202,3 +202,4 @@ export interface AgentInfo {
 }
 
 export * from './turnCheckpoint'
+export * from './rewind'

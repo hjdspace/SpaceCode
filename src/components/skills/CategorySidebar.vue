@@ -1,7 +1,7 @@
 <template>
   <div class="category-sidebar">
     <div class="section">
-      <h3 class="section-title">{{ t('skills.categories') ? '' : 'Categories' }}</h3>
+      <h3 class="section-title">{{ t('skills.categoriesLabel') }}</h3>
       <div class="category-list">
         <button
           v-for="cat in categoriesWithCount"

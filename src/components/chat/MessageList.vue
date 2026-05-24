@@ -12,8 +12,10 @@
         <MessageItem
           v-if="group.type === 'user'"
           :message="group.messages[0]"
+          :can-rewind="group.messages[0].id !== props.messages[props.messages.length - 1]?.id"
           @tool-submit="(mId, tId, ans) => emit('toolSubmit', mId, tId, ans)"
           @tool-skip="(mId, tId) => emit('toolSkip', mId, tId)"
+          @rewind="(msg) => emit('rewind', msg)"
         />
         <!-- Assistant timeline (unified) -->
         <AgentTimeline
@@ -59,6 +61,7 @@ const chatStore = useChatStore()
 const emit = defineEmits<{
   toolSubmit: [messageId: string, toolId: string, updatedInput: Record<string, unknown>]
   toolSkip: [messageId: string, toolId: string]
+  rewind: [message: Message]
 }>()
 
 const props = defineProps<{

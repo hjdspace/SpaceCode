@@ -53,6 +53,7 @@
           :loading="chatStore.isLoading"
           @tool-submit="handleToolSubmit"
           @tool-skip="handleToolSkip"
+          @rewind="handleMessageRewind"
         />
       </div>
 
@@ -72,6 +73,33 @@
         :show-open-project-action="showNoProjectWelcome"
       />
       <ToastNotification />
+
+      <!-- Rewind Dialog -->
+      <RewindDialog
+        :show="chatStore.rewindState.showDialog"
+        :selected-message-id="chatStore.rewindState.selectedMessageId"
+        :message-content="rewindSelectedMessageContent"
+        :selected-option="chatStore.rewindState.selectedOption"
+        :summarize-feedback="chatStore.rewindState.summarizeFeedback"
+        :is-rewinding="chatStore.rewindState.isRewinding"
+        :error="chatStore.rewindState.error"
+        :diff-stats="null"
+        @update:show="chatStore.setShowRewindDialog"
+        @update:selected-option="chatStore.setRewindSelectedOption"
+        @update:summarize-feedback="chatStore.setRewindSummarizeFeedback"
+        @confirm="handleRewindConfirm"
+        @cancel="handleRewindCancel"
+      />
+
+      <!-- Message Selector for /rewind command -->
+      <MessageSelector
+        :show="showMessageSelector"
+        :messages="userMessages"
+        :selected-message-id="chatStore.rewindState.selectedMessageId"
+        @update:show="showMessageSelector = $event"
+        @select="handleMessageSelect"
+        @cancel="showMessageSelector = false"
+      />
     </template>
     
     <!-- History Session Modal -->
@@ -126,10 +154,14 @@ import SessionTabBar from '../chat/SessionTabBar.vue'
 import TerminalPanel from '../terminal/TerminalPanel.vue'
 import NoProjectHome from './NoProjectHome.vue'
 import ToastNotification from '../common/ToastNotification.vue'
+import RewindDialog from '../chat/RewindDialog.vue'
+import MessageSelector from '../chat/MessageSelector.vue'
 import { History } from 'lucide-vue-next'
 import HistorySessionList from '../explorer/HistorySessionList.vue'
 import { initLLMService, llmState, updateConfig } from '@/services/llm'
 import { pathsEqual } from '@/utils/recentProjectRoots'
+import { useChatCommands } from '@/composables/useChatCommands'
+import type { Message } from '@/types'
 
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
@@ -140,6 +172,91 @@ const electronAPI = (window as any).electronAPI
 
 const showHistoryModal = ref(false)
 const historySearchQuery = ref('')
+
+// Rewind state
+const showMessageSelector = ref(false)
+
+const rewindSelectedMessageContent = computed(() => {
+  const messageId = chatStore.rewindState.selectedMessageId
+  if (!messageId) return ''
+  const message = chatStore.currentSession?.messages.find(m => m.id === messageId)
+  return message?.content || ''
+})
+
+const userMessages = computed(() =>
+  chatStore.currentSession?.messages
+    .filter(m => m.role === 'user')
+    .map(m => ({
+      id: m.id,
+      role: m.role as 'user' | 'assistant',
+      content: m.content || '',
+      timestamp: m.timestamp || Date.now()
+    })) || []
+)
+
+function handleRewindConfirm() {
+  const option = chatStore.rewindState.selectedOption
+  const messageId = chatStore.rewindState.selectedMessageId
+
+  if (!messageId) return
+
+  if (option === 'summarize') {
+    chatStore.summarizeTurn(
+      chatStore.currentSessionId || '',
+      messageId,
+      chatStore.rewindState.summarizeFeedback
+    )
+    chatStore.setShowRewindDialog(false)
+    chatStore.resetRewindState()
+  } else if (option === 'cancel') {
+    chatStore.setShowRewindDialog(false)
+    chatStore.resetRewindState()
+  } else {
+    chatStore.rewindSession(
+      chatStore.currentSessionId || '',
+      messageId,
+      option as 'both' | 'conversation' | 'code'
+    ).then(() => {
+      // Success: close dialog and reset state
+      chatStore.setShowRewindDialog(false)
+      chatStore.resetRewindState()
+    }).catch((err: any) => {
+      // Error: keep dialog open so user can see the error message
+      // Error is already set in rewindState.error by rewindSession
+      console.error('[ChatPanel] Rewind failed:', err)
+    })
+  }
+}
+
+function handleRewindCancel() {
+  chatStore.resetRewindState()
+}
+
+function handleMessageSelect(messageId: string) {
+  showMessageSelector.value = false
+  chatStore.setRewindSelectedMessage(messageId)
+  chatStore.setShowRewindDialog(true)
+}
+
+function handleOpenRewind() {
+  showMessageSelector.value = true
+}
+
+function handleMessageRewind(message: Message) {
+  chatStore.setRewindSelectedMessage(message.id)
+  chatStore.setShowRewindDialog(true)
+}
+
+const chatCommands = useChatCommands({
+  sessionId: chatStore.currentSessionId || '',
+  messages: chatStore.currentMessages,
+  onOpenSkills: () => {
+    handleOpenSkills()
+  },
+  onOpenRewind: () => {
+    handleOpenRewind()
+  },
+})
 
 const currentSession = computed(() => chatStore.currentSession)
 const provider = computed(() => llmState.provider.value)
@@ -355,6 +472,11 @@ async function handleSlashCommand(command: string, args: string, attachments: Al
   // 执行命令
   const result = await executeSlashCommand(command, args)
 
+  // 对于 rewind 命令，不添加 assistant 回复（UI 直接打开选择器）
+  if (command.toLowerCase() === 'rewind' || command.toLowerCase() === 'checkpoint') {
+    return
+  }
+
   // 添加命令执行结果
   await chatStore.addMessage({
     role: 'assistant',
@@ -412,6 +534,12 @@ async function executeSlashCommand(command: string, args: string): Promise<strin
       // 打开 MCP 管理器
       window.dispatchEvent(new CustomEvent('open-mcp-manager'))
       return '已打开 MCP 服务器管理器。'
+
+    case 'rewind':
+    case 'checkpoint':
+      // 打开消息选择器进行回滚
+      handleOpenRewind()
+      return ''
 
     default:
       return `未知命令: /${command}\n输入 /help 查看可用命令。`

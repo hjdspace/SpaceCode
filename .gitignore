@@ -47,6 +47,5 @@ release/
 engine/bin/
 
 .workbuddy/
-.claude/
 .assistant/
 pi-engine/

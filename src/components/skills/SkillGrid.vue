@@ -9,7 +9,7 @@
     <div v-else class="grid-container">
       <LocalSkillCard
         v-for="skill in skills"
-        :key="skill.name"
+        :key="skill.skillPath"
         :skill="skill"
         :installing="installingId === skill.name"
         @select="$emit('select', $event)"
@@ -43,9 +43,7 @@ const { t } = useI18n()
 
 <style scoped lang="scss">
 .skill-grid {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
+  padding: 0;
 
   &.grid .grid-container {
     display: grid;

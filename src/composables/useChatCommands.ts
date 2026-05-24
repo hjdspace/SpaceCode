@@ -25,6 +25,7 @@ export interface UseChatCommandsOptions {
   onOpenSettings?: () => void
   onOpenSkills?: () => void
   onOpenMcp?: () => void
+  onOpenRewind?: () => void
 }
 
 export interface CommandResult {
@@ -76,6 +77,11 @@ export function useChatCommands(options: UseChatCommandsOptions) {
       case 'mcp':
         options.onOpenMcp?.()
         return 'MCP server manager opened.'
+
+      case 'rewind':
+      case 'checkpoint':
+        options.onOpenRewind?.()
+        return null
 
       default:
         return null

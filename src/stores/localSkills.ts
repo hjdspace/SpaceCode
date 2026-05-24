@@ -14,6 +14,26 @@ export interface LocalSkill {
   isInstalled: boolean
   installedScope?: 'global' | 'project'
   installedAt?: Date
+  bundleId?: string
+  bundleName?: string
+}
+
+export interface LocalSkillBundle {
+  id: string
+  name: string
+  version?: string
+  description?: string
+  author?: string
+  homepage?: string
+  license?: string
+  keywords?: string[]
+  bundleDir: string
+  hasHooks: boolean
+  hasCommands: boolean
+  hasAgents: boolean
+  skillCount: number
+  isInstalled: boolean
+  installedScope?: 'global' | 'project' | 'mixed'
 }
 
 export interface Category {
@@ -40,6 +60,7 @@ const BUILTIN_DIR = 'skills-lib'
 
 export const useLocalSkillsStore = defineStore('localSkills', () => {
   const skills = ref<LocalSkill[]>([])
+  const bundles = ref<LocalSkillBundle[]>([])
   const customDirectories = ref<string[]>([])
   const selectedCategory = ref<string>('all')
   const selectedDirectory = ref<string | null>(null)
@@ -51,8 +72,13 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
 
   const allDirectoryPaths = computed(() => [BUILTIN_DIR, ...customDirectories.value])
 
+  function isWithinDirectory(path: string, dir: string): boolean {
+    return path === dir || path.startsWith(dir + '/') || path.startsWith(dir + '\\')
+  }
+
+  // "Free" skills only — bundle children render under their bundle card.
   const filteredSkills = computed(() => {
-    let result = skills.value
+    let result = skills.value.filter(s => !s.bundleId)
 
     if (selectedCategory.value !== 'all') {
       result = result.filter(s => s.category === selectedCategory.value)
@@ -60,7 +86,7 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
 
     if (selectedDirectory.value) {
       const sel = selectedDirectory.value
-      result = result.filter(s => s.sourceDir === sel)
+      result = result.filter(s => isWithinDirectory(s.sourceDir, sel) || isWithinDirectory(s.skillPath, sel))
     }
 
     if (searchQuery.value.trim()) {
@@ -75,9 +101,34 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
     return result
   })
 
+  const filteredBundles = computed(() => {
+    let result = bundles.value
+
+    if (selectedDirectory.value) {
+      const sel = selectedDirectory.value
+      result = result.filter(b => isWithinDirectory(b.bundleDir, sel))
+    }
+
+    if (searchQuery.value.trim()) {
+      const query = searchQuery.value.toLowerCase()
+      result = result.filter(b =>
+        b.name.toLowerCase().includes(query) ||
+        (b.description?.toLowerCase().includes(query) ?? false) ||
+        (b.keywords?.some(k => k.toLowerCase().includes(query)) ?? false)
+      )
+    }
+
+    return result
+  })
+
+  function getBundleSkills(bundleId: string): LocalSkill[] {
+    return skills.value.filter(s => s.bundleId === bundleId)
+  }
+
   const categoryStats = computed(() => {
-    const stats: Record<string, number> = { all: skills.value.length }
-    skills.value.forEach(skill => {
+    const freeSkills = skills.value.filter(s => !s.bundleId)
+    const stats: Record<string, number> = { all: freeSkills.length }
+    freeSkills.forEach(skill => {
       stats[skill.category] = (stats[skill.category] || 0) + 1
     })
     return stats
@@ -98,9 +149,11 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
         const dirPaths = allDirectoryPaths.value
         const data = await electronAPI.skills.scanLocalLibrary(dirPaths, cwd)
         skills.value = data.skills || []
+        bundles.value = data.bundles || []
       } else {
         console.warn('Electron API not available for scanning local library')
         skills.value = []
+        bundles.value = []
       }
     } catch (err) {
       console.error('Failed to fetch local skills:', err)
@@ -147,6 +200,37 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
       return false
     } catch (err) {
       console.error('Failed to uninstall skill:', err)
+      throw err
+    }
+  }
+
+  async function installBundle(bundleId: string, scope: 'global' | 'project', cwd?: string) {
+    installingId.value = bundleId
+    try {
+      if (electronAPI?.skills?.installLocalBundle) {
+        await electronAPI.skills.installLocalBundle(bundleId, scope, cwd)
+        await fetchLocalSkills(cwd)
+        return true
+      }
+      return false
+    } catch (err) {
+      console.error('Failed to install bundle:', err)
+      throw err
+    } finally {
+      installingId.value = null
+    }
+  }
+
+  async function uninstallBundle(bundleName: string, cwd?: string) {
+    try {
+      if (electronAPI?.skills?.uninstallLocalBundle) {
+        await electronAPI.skills.uninstallLocalBundle(bundleName, cwd)
+        await fetchLocalSkills(cwd)
+        return true
+      }
+      return false
+    } catch (err) {
+      console.error('Failed to uninstall bundle:', err)
       throw err
     }
   }
@@ -215,6 +299,7 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
 
   return {
     skills,
+    bundles,
     customDirectories,
     selectedCategory,
     selectedDirectory,
@@ -225,11 +310,15 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
     installingId,
     allDirectoryPaths,
     filteredSkills,
+    filteredBundles,
+    getBundleSkills,
     categoryStats,
     categoriesWithCount,
     fetchLocalSkills,
     installSkill,
     uninstallSkill,
+    installBundle,
+    uninstallBundle,
     addCustomDirectory,
     removeCustomDirectory,
     loadCustomDirectories,

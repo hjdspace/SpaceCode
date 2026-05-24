@@ -56,6 +56,60 @@ function getProjectSkillsDirs(cwd: string): string[] {
 }
 
 /**
+ * Plugin install root (Claude Code compatible).
+ * Each plugin lives in <root>/<pluginName>/ with .claude-plugin/plugin.json + skills/.
+ */
+function getGlobalPluginsRoot(): string {
+  return join(app.getPath('home'), '.claude', 'plugins')
+}
+
+function getProjectPluginsRoot(cwd: string): string {
+  return join(cwd, '.claude', 'plugins')
+}
+
+/**
+ * Scan a plugins root directory and return every plugin's `skills/<name>/SKILL.md`
+ * as Skill[] with source='plugin'. installedSource is reused to carry plugin name.
+ */
+function readPluginSkills(pluginsRoot: string): Skill[] {
+  if (!existsSync(pluginsRoot)) return []
+  const out: Skill[] = []
+  try {
+    const pluginDirs = readdirSync(pluginsRoot, { withFileTypes: true })
+    for (const pd of pluginDirs) {
+      if (!pd.isDirectory()) continue
+      const pluginDir = join(pluginsRoot, pd.name)
+      const skillsDir = join(pluginDir, 'skills')
+      if (!existsSync(skillsDir)) continue
+      try {
+        const skillEntries = readdirSync(skillsDir, { withFileTypes: true })
+        for (const se of skillEntries) {
+          if (!se.isDirectory()) continue
+          const filePath = join(skillsDir, se.name, 'SKILL.md')
+          if (!existsSync(filePath)) continue
+          try {
+            const content = readFileSync(filePath, 'utf-8')
+            const fm = parseYamlFrontMatter(content)
+            const name = fm?.name || se.name
+            const description = fm?.description ||
+              content.split('\n').find(l => l.trim() && !l.startsWith('#') && !l.startsWith('---'))?.trim() ||
+              `Skill: /${name}`
+            out.push({ name, description, content, source: 'plugin', filePath })
+          } catch (err) {
+            console.error(`[Skills] Failed to read plugin skill: ${filePath}`, err)
+          }
+        }
+      } catch (err) {
+        console.error(`[Skills] Failed to read plugin skills dir: ${skillsDir}`, err)
+      }
+    }
+  } catch (err) {
+    console.error(`[Skills] Failed to scan plugins root: ${pluginsRoot}`, err)
+  }
+  return out
+}
+
+/**
  * Read skills from a directory
  */
 function readSkillsFromDir(dirPath: string, source: Skill['source']): Skill[] {
@@ -291,8 +345,13 @@ export function registerSkillsIPCHandlers(): void {
 
       const projectSkills = cwd ? getProjectSkillsDirs(cwd).flatMap(dir => readSkillsFromDir(dir, 'project')) : []
 
+      const pluginSkills = [
+        ...readPluginSkills(getGlobalPluginsRoot()),
+        ...(cwd ? readPluginSkills(getProjectPluginsRoot(cwd)) : [])
+      ]
+
       // Combine and deduplicate
-      const allSkills = [...globalSkills, ...projectSkills]
+      const allSkills = [...globalSkills, ...projectSkills, ...pluginSkills]
 
       return { skills: allSkills }
     } catch (err) {
@@ -648,6 +707,26 @@ interface LocalSkill {
   isInstalled: boolean
   installedScope?: 'global' | 'project'
   installedAt?: Date
+  bundleId?: string
+  bundleName?: string
+}
+
+interface LocalSkillBundle {
+  id: string                 // bundleDir absolute path
+  name: string               // plugin.json.name
+  version?: string
+  description?: string
+  author?: string
+  homepage?: string
+  license?: string
+  keywords?: string[]
+  bundleDir: string          // absolute path
+  hasHooks: boolean
+  hasCommands: boolean
+  hasAgents: boolean
+  skillCount: number
+  isInstalled: boolean
+  installedScope?: 'global' | 'project' | 'mixed'
 }
 
 const CUSTOM_DIRS_STORAGE_KEY = 'local_skill_custom_dirs'
@@ -780,13 +859,155 @@ function checkSkillInstalled(skillName: string, cwd?: string): boolean {
   return false
 }
 
+function readLocalSkillFile(
+  skillFile: string,
+  fallbackName: string,
+  sourceDir: string,
+  cwd?: string,
+  bundleId?: string,
+  bundleName?: string
+): LocalSkill | null {
+  try {
+    const content = readFileSync(skillFile, 'utf-8')
+    const fm = parseYamlFrontMatter(content)
+    const name = fm?.name || fallbackName
+    const description = fm?.description ||
+      content.split('\n').find(line => line.trim() && !line.startsWith('#') && !line.startsWith('---'))?.trim() ||
+      `Skill: ${name}`
+    const tags = fm?.tags ? (Array.isArray(fm.tags) ? fm.tags : [fm.tags]) : undefined
+    return {
+      name,
+      description,
+      content,
+      category: inferCategory(skillFile, content),
+      tags,
+      sourceDir,
+      skillPath: skillFile,
+      isInstalled: checkSkillInstalled(name, cwd),
+      bundleId,
+      bundleName
+    }
+  } catch (err) {
+    console.error(`[LocalLibrary] Failed to read skill: ${skillFile}`, err)
+    return null
+  }
+}
+
+function readLocalSkillsFromDir(
+  skillsDir: string,
+  sourceDir: string,
+  cwd?: string,
+  bundleId?: string,
+  bundleName?: string
+): LocalSkill[] {
+  if (!existsSync(skillsDir)) return []
+  const list: LocalSkill[] = []
+  try {
+    const entries = readdirSync(skillsDir, { withFileTypes: true })
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const skillFile = join(skillsDir, entry.name, 'SKILL.md')
+        if (!existsSync(skillFile)) continue
+        const skill = readLocalSkillFile(skillFile, entry.name, sourceDir, cwd, bundleId, bundleName)
+        if (skill) list.push(skill)
+      } else if (entry.isFile() && entry.name.endsWith('.md')) {
+        const skillFile = join(skillsDir, entry.name)
+        const fallbackName = entry.name.toLowerCase() === 'skill.md'
+          ? basename(skillsDir)
+          : entry.name.replace(/\.md$/i, '')
+        const skill = readLocalSkillFile(skillFile, fallbackName, sourceDir, cwd, bundleId, bundleName)
+        if (skill) list.push(skill)
+      }
+    }
+  } catch (err) {
+    console.error(`[LocalLibrary] Failed to read skills directory: ${skillsDir}`, err)
+  }
+  return list
+}
+
+function getLocalSkillDirs(rootDir: string): string[] {
+  return [
+    rootDir,
+    join(rootDir, 'skills'),
+    join(rootDir, '.claude', 'skills'),
+    join(rootDir, '.claude', 'commands')
+  ]
+}
+
+function readPluginManifest(bundleDir: string): Record<string, any> | null {
+  const manifestPath = join(bundleDir, '.claude-plugin', 'plugin.json')
+  if (!existsSync(manifestPath)) return null
+  try {
+    return JSON.parse(readFileSync(manifestPath, 'utf-8'))
+  } catch (err) {
+    console.error(`[LocalLibrary] Failed to parse plugin.json: ${manifestPath}`, err)
+    return null
+  }
+}
+
+function bundleIsInstalled(bundleName: string, cwd?: string): { installed: boolean; scope?: 'global' | 'project' | 'mixed' } {
+  const globalPath = join(getGlobalPluginsRoot(), bundleName, '.claude-plugin', 'plugin.json')
+  const projectPath = cwd ? join(getProjectPluginsRoot(cwd), bundleName, '.claude-plugin', 'plugin.json') : ''
+  const inGlobal = existsSync(globalPath)
+  const inProject = !!projectPath && existsSync(projectPath)
+  if (inGlobal && inProject) return { installed: true, scope: 'mixed' }
+  if (inGlobal) return { installed: true, scope: 'global' }
+  if (inProject) return { installed: true, scope: 'project' }
+  return { installed: false }
+}
+
+function readBundleSkills(bundleDir: string, bundleId: string, bundleName: string, cwd?: string): LocalSkill[] {
+  const list: LocalSkill[] = []
+  const seen = new Set<string>()
+  for (const skillsDir of [join(bundleDir, 'skills'), join(bundleDir, '.claude', 'skills'), join(bundleDir, '.claude', 'commands')]) {
+    for (const skill of readLocalSkillsFromDir(skillsDir, bundleDir, cwd, bundleId, bundleName)) {
+      if (seen.has(skill.skillPath)) continue
+      seen.add(skill.skillPath)
+      list.push(skill)
+    }
+  }
+  return list
+}
+
 async function handleScanLocalLibrary(
   _event: Electron.IpcMainInvokeEvent,
   dirPaths: string[],
   cwd?: string
-): Promise<{ skills: LocalSkill[] }> {
+): Promise<{ skills: LocalSkill[]; bundles: LocalSkillBundle[] }> {
   try {
     const allSkills: LocalSkill[] = []
+    const allBundles: LocalSkillBundle[] = []
+
+    const tryAsBundle = (bundleDir: string): boolean => {
+      const manifest = readPluginManifest(bundleDir)
+      if (!manifest) return false
+      const bundleName: string = manifest.name || basename(bundleDir)
+      const bundleId = bundleDir
+      const status = bundleIsInstalled(bundleName, cwd)
+      const skills = readBundleSkills(bundleDir, bundleId, bundleName, cwd)
+      const author = typeof manifest.author === 'string'
+        ? manifest.author
+        : (manifest.author?.name || undefined)
+      allBundles.push({
+        id: bundleId,
+        name: bundleName,
+        version: manifest.version,
+        description: manifest.description,
+        author,
+        homepage: manifest.homepage,
+        license: manifest.license,
+        keywords: Array.isArray(manifest.keywords) ? manifest.keywords : undefined,
+        bundleDir,
+        hasHooks: existsSync(join(bundleDir, 'hooks')),
+        hasCommands: existsSync(join(bundleDir, 'commands')),
+        hasAgents: existsSync(join(bundleDir, 'agents')),
+        skillCount: skills.length,
+        isInstalled: status.installed,
+        installedScope: status.scope
+      })
+      allSkills.push(...skills)
+      return true
+    }
 
     for (const dirPath of dirPaths) {
       const fullPath = dirPath.startsWith('skills-lib') ? join(app.getAppPath(), dirPath) : dirPath
@@ -796,73 +1017,103 @@ async function handleScanLocalLibrary(
         continue
       }
 
+      // The custom directory itself may already be a plugin bundle root.
+      if (tryAsBundle(fullPath)) {
+        continue
+      }
+
       const entries = readdirSync(fullPath, { withFileTypes: true })
 
       for (const entry of entries) {
         if (entry.isDirectory()) {
-          const skillDir = join(fullPath, entry.name)
-          const skillFile = join(skillDir, 'SKILL.md')
+          const subDir = join(fullPath, entry.name)
 
-          if (existsSync(skillFile)) {
-            try {
-              const content = readFileSync(skillFile, 'utf-8')
-              const frontMatter = parseYamlFrontMatter(content)
-              const name = frontMatter?.name || entry.name
-              const description = frontMatter?.description ||
-                content.split('\n').find(line => line.trim() && !line.startsWith('#'))?.trim() ||
-                `Skill: ${name}`
-              const tags = frontMatter?.tags ? (Array.isArray(frontMatter.tags) ? frontMatter.tags : [frontMatter.tags]) : undefined
+          // Plugin bundle directory: <subDir>/.claude-plugin/plugin.json
+          if (tryAsBundle(subDir)) {
+            continue
+          }
 
-              const localSkill: LocalSkill = {
-                name,
-                description,
-                content,
-                category: inferCategory(skillFile, content),
-                tags,
-                sourceDir: fullPath,
-                skillPath: skillFile,
-                isInstalled: checkSkillInstalled(name, cwd)
-              }
-
-              allSkills.push(localSkill)
-            } catch (err) {
-              console.error(`[LocalLibrary] Failed to read skill: ${skillFile}`, err)
+          const seen = new Set<string>()
+          for (const skillsDir of getLocalSkillDirs(subDir)) {
+            for (const skill of readLocalSkillsFromDir(skillsDir, fullPath, cwd)) {
+              if (seen.has(skill.skillPath)) continue
+              seen.add(skill.skillPath)
+              allSkills.push(skill)
             }
           }
         } else if (entry.isFile() && entry.name.endsWith('.md')) {
-          const filePath = join(fullPath, entry.name)
-          try {
-            const content = readFileSync(filePath, 'utf-8')
-            const frontMatter = parseYamlFrontMatter(content)
-            const name = frontMatter?.name || entry.name.replace('.md', '')
-            const description = frontMatter?.description ||
-              content.split('\n').find(line => line.trim() && !line.startsWith('#'))?.trim() ||
-              `Skill: ${name}`
-            const tags = frontMatter?.tags ? (Array.isArray(frontMatter.tags) ? frontMatter.tags : [frontMatter.tags]) : undefined
-
-            const localSkill: LocalSkill = {
-              name,
-              description,
-              content,
-              category: inferCategory(filePath, content),
-              tags,
-              sourceDir: fullPath,
-              skillPath: filePath,
-              isInstalled: checkSkillInstalled(name, cwd)
-            }
-
-            allSkills.push(localSkill)
-          } catch (err) {
-            console.error(`[LocalLibrary] Failed to read file: ${filePath}`, err)
-          }
+          const skill = readLocalSkillFile(join(fullPath, entry.name), entry.name.replace(/\.md$/i, ''), fullPath, cwd)
+          if (skill) allSkills.push(skill)
         }
       }
     }
 
-    console.log(`[LocalLibrary] Scanned ${allSkills.length} skills from ${dirPaths.length} directories`)
-    return { skills: allSkills }
+    console.log(`[LocalLibrary] Scanned ${allSkills.length} skills, ${allBundles.length} bundles from ${dirPaths.length} directories`)
+    return { skills: allSkills, bundles: allBundles }
   } catch (err) {
     console.error('[LocalLibrary] Failed to scan library:', err)
+    throw err
+  }
+}
+
+async function handleInstallLocalBundle(
+  _event: Electron.IpcMainInvokeEvent,
+  bundleId: string,
+  scope: 'global' | 'project',
+  cwd?: string
+): Promise<{ success: boolean; bundleName: string; targetDir: string }> {
+  try {
+    const bundleDir = bundleId
+    if (!existsSync(bundleDir)) {
+      throw new Error(`Bundle source not found: ${bundleDir}`)
+    }
+    const manifest = readPluginManifest(bundleDir)
+    if (!manifest) {
+      throw new Error(`Not a valid plugin bundle (missing .claude-plugin/plugin.json): ${bundleDir}`)
+    }
+    const bundleName: string = manifest.name || basename(bundleDir)
+    const root = scope === 'global' ? getGlobalPluginsRoot() : getProjectPluginsRoot(cwd || process.cwd())
+    const targetDir = join(root, bundleName)
+
+    if (existsSync(targetDir)) {
+      throw new Error(`Bundle '${bundleName}' is already installed at ${targetDir}`)
+    }
+
+    mkdirSync(dirname(targetDir), { recursive: true })
+    cpSync(bundleDir, targetDir, { recursive: true, force: false })
+
+    console.log(`[LocalLibrary] Installed bundle '${bundleName}' to ${targetDir}`)
+    return { success: true, bundleName, targetDir }
+  } catch (err) {
+    console.error('[LocalLibrary] Failed to install bundle:', err)
+    throw err
+  }
+}
+
+async function handleUninstallLocalBundle(
+  _event: Electron.IpcMainInvokeEvent,
+  bundleName: string,
+  cwd?: string
+): Promise<{ success: boolean; removed: string[] }> {
+  try {
+    const candidates = [
+      join(getGlobalPluginsRoot(), bundleName),
+      ...(cwd ? [join(getProjectPluginsRoot(cwd), bundleName)] : [])
+    ]
+    const removed: string[] = []
+    for (const target of candidates) {
+      if (existsSync(target)) {
+        rmSync(target, { recursive: true, force: true })
+        removed.push(target)
+      }
+    }
+    if (removed.length === 0) {
+      throw new Error(`Bundle '${bundleName}' is not installed`)
+    }
+    console.log(`[LocalLibrary] Uninstalled bundle '${bundleName}' from ${removed.join(', ')}`)
+    return { success: true, removed }
+  } catch (err) {
+    console.error('[LocalLibrary] Failed to uninstall bundle:', err)
     throw err
   }
 }
@@ -1031,6 +1282,8 @@ export function registerLocalLibraryIPCHandlers(): void {
   ipcMain.handle('skills:scan-local-library', handleScanLocalLibrary)
   ipcMain.handle('skills:install-local', handleInstallLocalSkill)
   ipcMain.handle('skills:uninstall-local', handleUninstallLocalSkill)
+  ipcMain.handle('skills:install-local-bundle', handleInstallLocalBundle)
+  ipcMain.handle('skills:uninstall-local-bundle', handleUninstallLocalBundle)
   ipcMain.handle('skills:get-custom-dirs', handleGetCustomDirectories)
   ipcMain.handle('skills:add-custom-dir', handleAddCustomDirectory)
   ipcMain.handle('skills:remove-custom-dir', handleRemoveCustomDirectory)

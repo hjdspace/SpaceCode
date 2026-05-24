@@ -41,14 +41,50 @@
         @remove-directory="handleRemoveDirectory"
       />
 
-      <SkillGrid
-        :skills="store.filteredSkills"
-        :viewMode="store.viewMode"
-        :installingId="store.installingId"
-        @select="handleSelectSkill"
-        @install="handleInstall"
-        @uninstall="handleUninstall"
-      />
+      <div class="main-pane">
+        <div v-if="store.filteredBundles.length > 0" class="bundles-section">
+          <div class="section-title">
+            <Package :size="14" />
+            <span>{{ t('skills.bundle.sectionTitle') }}</span>
+            <span class="count">{{ store.filteredBundles.length }}</span>
+          </div>
+          <LocalSkillBundleCard
+            v-for="b in store.filteredBundles"
+            :key="b.id"
+            :bundle="b"
+            :skills="store.getBundleSkills(b.id)"
+            :installing="store.installingId === b.id"
+            @install="handleBundleInstall"
+            @uninstall="handleBundleUninstall"
+            @selectSkill="handleSelectSkill"
+          />
+        </div>
+
+        <div v-if="store.filteredSkills.length > 0" class="skills-section">
+          <div class="section-title">
+            <LayoutGrid :size="14" />
+            <span>{{ t('skills.skillsSectionTitle') }}</span>
+            <span class="count">{{ store.filteredSkills.length }}</span>
+          </div>
+          <SkillGrid
+            :skills="store.filteredSkills"
+            :viewMode="store.viewMode"
+            :installingId="store.installingId"
+            @select="handleSelectSkill"
+            @install="handleInstall"
+            @uninstall="handleUninstall"
+          />
+        </div>
+
+        <div
+          v-if="store.filteredBundles.length === 0 && store.filteredSkills.length === 0"
+          class="empty-pane"
+        >
+          <PackageOpen :size="48" />
+          <p>{{ t('skills.emptyLibrary') }}</p>
+          <span>{{ t('skills.emptyLibraryDesc') }}</span>
+        </div>
+      </div>
 
       <LocalSkillDetail
         :skill="selectedSkill"
@@ -80,15 +116,18 @@ import { useI18n } from 'vue-i18n'
 import {
   Search,
   LayoutGrid,
-  List
+  List,
+  Package,
+  PackageOpen
 } from 'lucide-vue-next'
-import { useLocalSkillsStore, type LocalSkill } from '../../stores/localSkills'
+import { useLocalSkillsStore, type LocalSkill, type LocalSkillBundle } from '../../stores/localSkills'
 import { useAppStore } from '@/stores/app'
 import CategorySidebar from './CategorySidebar.vue'
 import SkillGrid from './SkillGrid.vue'
 import LocalSkillDetail from './LocalSkillDetail.vue'
 import DirectoryManager from './DirectoryManager.vue'
 import InstallScopeDialog from './InstallScopeDialog.vue'
+import LocalSkillBundleCard from './LocalSkillBundleCard.vue'
 
 const { t } = useI18n()
 const store = useLocalSkillsStore()
@@ -97,6 +136,10 @@ const selectedSkill = ref<LocalSkill | null>(null)
 const showDirectoryManager = ref(false)
 const showInstallScope = ref(false)
 const installingSkillName = ref('')
+type PendingInstall =
+  | { kind: 'skill', name: string }
+  | { kind: 'bundle', bundle: LocalSkillBundle }
+const pendingInstall = ref<PendingInstall | null>(null)
 
 const emit = defineEmits<{
   installed: []
@@ -123,18 +166,44 @@ async function handleInstall(name: string, scope?: 'global' | 'project') {
       alert(`Failed to install: ${err instanceof Error ? err.message : err}`)
     }
   } else {
+    pendingInstall.value = { kind: 'skill', name }
     installingSkillName.value = name
     showInstallScope.value = true
   }
 }
 
-async function handleInstallScopeConfirm(scope: 'global' | 'project') {
+function handleBundleInstall(bundle: LocalSkillBundle) {
+  pendingInstall.value = { kind: 'bundle', bundle }
+  installingSkillName.value = bundle.name
+  showInstallScope.value = true
+}
+
+async function handleBundleUninstall(bundle: LocalSkillBundle) {
+  if (!confirm(t('skills.bundle.confirmUninstall', { name: bundle.name }))) return
   try {
     const cwd = appStore.projectRoot || undefined
-    await store.installSkill(installingSkillName.value, scope, cwd)
+    await store.uninstallBundle(bundle.name, cwd)
     emit('installed')
   } catch (err) {
-    console.error('Failed to install skill:', err)
+    console.error('Failed to uninstall bundle:', err)
+    alert(`Failed to uninstall bundle: ${err instanceof Error ? err.message : err}`)
+  }
+}
+
+async function handleInstallScopeConfirm(scope: 'global' | 'project') {
+  const target = pendingInstall.value
+  pendingInstall.value = null
+  if (!target) return
+  const cwd = appStore.projectRoot || undefined
+  try {
+    if (target.kind === 'bundle') {
+      await store.installBundle(target.bundle.id, scope, cwd)
+    } else {
+      await store.installSkill(target.name, scope, cwd)
+    }
+    emit('installed')
+  } catch (err) {
+    console.error('Failed to install:', err)
     alert(`Failed to install: ${err instanceof Error ? err.message : err}`)
   }
 }
@@ -238,6 +307,68 @@ async function handleRemoveDirectory(dirPath: string) {
   &.active {
     background: var(--accent-primary-glow);
     color: var(--accent-primary);
+  }
+}
+
+.main-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.bundles-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 16px 8px;
+}
+
+.skills-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 16px 16px;
+}
+
+.empty-pane {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 16px;
+  gap: 8px;
+  color: var(--text-tertiary);
+
+  p {
+    font-size: 16px;
+    font-weight: 500;
+    margin: 0;
+  }
+
+  span {
+    font-size: 13px;
+  }
+}
+
+.section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+
+  .count {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 500;
   }
 }
 

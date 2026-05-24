@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, nextTick, watch, readonly } from 'vue'
 import type { Session, Message, ToolCall, AgentInfo, ProcessStatus, SessionTurnCheckpoint, TurnChangeCardData } from '@/types'
+import type { RewindOption, RewindState } from '@/types/rewind'
 
 // 权限模式类型定义
 type PermissionMode = 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions'
@@ -389,6 +390,16 @@ export const useChatStore = defineStore('chat', () => {
   const isLoadingTurnCards = ref(false)
   const turnCardsError = ref<string | null>(null)
   const rewindingTurnId = ref<string | null>(null)
+
+  // ── Rewind 状态 ──
+  const rewindState = ref<RewindState>({
+    showDialog: false,
+    selectedMessageId: null,
+    selectedOption: 'both',
+    summarizeFeedback: '',
+    isRewinding: false,
+    error: null,
+  })
 
   const isLoading = computed(() =>
     currentSessionId.value ? (loadingSessions.value.get(currentSessionId.value) ?? false) : false
@@ -1824,6 +1835,138 @@ export const useChatStore = defineStore('chat', () => {
     turnCardsError.value = null
   }
 
+  // ── Rewind 状态管理方法 ──
+
+  function setShowRewindDialog(show: boolean) {
+    rewindState.value.showDialog = show
+  }
+
+  function setRewindSelectedMessage(messageId: string | null) {
+    rewindState.value.selectedMessageId = messageId
+  }
+
+  function setRewindSelectedOption(option: RewindOption) {
+    rewindState.value.selectedOption = option
+  }
+
+  function setRewindSummarizeFeedback(feedback: string) {
+    rewindState.value.summarizeFeedback = feedback
+  }
+
+  function resetRewindState() {
+    rewindState.value = {
+      showDialog: false,
+      selectedMessageId: null,
+      selectedOption: 'both',
+      summarizeFeedback: '',
+      isRewinding: false,
+      error: null,
+    }
+  }
+
+  function setRewindError(error: string | null) {
+    rewindState.value.error = error
+  }
+
+  async function rewindSession(
+    sessionId: string,
+    targetUserMessageId: string,
+    mode: 'both' | 'conversation' | 'code'
+  ): Promise<void> {
+    if (!sessionId) {
+      rewindState.value.error = 'Session ID is required'
+      return
+    }
+
+    if (rewindState.value.isRewinding) {
+      return
+    }
+
+    rewindState.value.isRewinding = true
+    rewindState.value.error = null
+
+    let codeError: string | null = null
+    let conversationError: string | null = null
+
+    try {
+      // Step 1: Restore code (if needed)
+      if (mode === 'both' || mode === 'code') {
+        try {
+          const projectPath = workingDirectory.value
+          logger.info('ChatStore', 'Rewinding code', { sessionId, targetUserMessageId, projectPath })
+          const result = await api.session.rewindTurn(sessionId, {
+            targetUserMessageId,
+          }, projectPath)
+
+          if (!result.ok) {
+            codeError = result.error || 'Failed to rewind code'
+            logger.error('ChatStore', 'Code rewind failed', { error: codeError })
+          } else {
+            logger.info('ChatStore', 'Code rewind succeeded')
+          }
+        } catch (err) {
+          codeError = err instanceof Error ? err.message : 'Unknown error during code rewind'
+          logger.error('ChatStore', 'Code rewind exception', { error: codeError })
+        }
+      }
+
+      // Step 2: Restore conversation (if needed) - always execute even if code failed
+      if (mode === 'both' || mode === 'conversation') {
+        try {
+          const session = sessions.value.find(s => s.id === sessionId)
+          if (session) {
+            const targetIndex = session.messages.findIndex(m => m.id === targetUserMessageId)
+            if (targetIndex >= 0) {
+              // Keep messages up to and including the target message
+              // Remove all messages AFTER the target message
+              session.messages = session.messages.slice(0, targetIndex + 1)
+              saveToStorage()
+              logger.info('ChatStore', 'Conversation rewind succeeded', { targetIndex, remainingMessages: session.messages.length })
+            } else {
+              conversationError = 'Target message not found in session'
+              logger.error('ChatStore', conversationError)
+            }
+          } else {
+            conversationError = 'Session not found'
+            logger.error('ChatStore', conversationError)
+          }
+        } catch (err) {
+          conversationError = err instanceof Error ? err.message : 'Unknown error during conversation rewind'
+          logger.error('ChatStore', 'Conversation rewind exception', { error: conversationError })
+        }
+      }
+    } catch (err) {
+      rewindState.value.error = err instanceof Error ? err.message : 'Unknown error during rewind'
+      rewindState.value.isRewinding = false
+      return
+    }
+
+    // Handle errors
+    if (codeError && conversationError) {
+      rewindState.value.error = `Code: ${codeError}\nConversation: ${conversationError}`
+    } else if (codeError) {
+      rewindState.value.error = codeError
+    } else if (conversationError) {
+      rewindState.value.error = conversationError
+    }
+
+    rewindState.value.isRewinding = false
+
+    // Throw error so caller can handle it (e.g., keep dialog open to show error)
+    if (codeError || conversationError) {
+      throw new Error(rewindState.value.error || 'Rewind failed')
+    }
+  }
+
+  async function summarizeTurn(
+    _sessionId: string,
+    _targetUserMessageId: string,
+    _feedback: string
+  ): Promise<void> {
+    // Placeholder implementation
+    return Promise.resolve()
+  }
+
   const turnChangeCards = computed<TurnChangeCardData[]>(() => {
     if (turnCheckpoints.value.length === 0) return []
     
@@ -2139,6 +2282,16 @@ export const useChatStore = defineStore('chat', () => {
     loadTurnCheckpoints,
     undoTurn,
     clearTurnCheckpoints,
+    // Rewind
+    rewindState: readonly(rewindState),
+    setShowRewindDialog,
+    setRewindSelectedMessage,
+    setRewindSelectedOption,
+    setRewindSummarizeFeedback,
+    resetRewindState,
+    setRewindError,
+    rewindSession,
+    summarizeTurn,
     // ========== 优化: 会话加载状态 ==========
     sessionLoadingStates: readonly(sessionLoadingStates),
     isSessionLoading,

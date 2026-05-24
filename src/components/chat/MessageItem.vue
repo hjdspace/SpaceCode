@@ -1,10 +1,25 @@
 <template>
-  <div class="message-item" :class="[message.role]">
+  <div
+    class="message-item"
+    :class="[message.role]"
+    @mouseenter="handleMouseEnter"
+    @mouseleave="handleMouseLeave"
+  >
     <div class="message-avatar">
       <User v-if="message.role === 'user'" :size="16" />
       <Bot v-else :size="16" />
     </div>
-    
+
+    <button
+      v-if="showRewindButton"
+      class="rewind-button"
+      :title="t('chat.rewind')"
+      :aria-label="t('chat.rewind')"
+      @click="handleRewindClick"
+    >
+      <RotateCcw :size="14" />
+    </button>
+
     <div class="message-body">
       <div class="message-header">
         <span class="role-label">{{ message.role === 'user' ? t('chat.you') : t('chat.claude') }}</span>
@@ -52,8 +67,8 @@
 
 <script setup lang="ts">
 import type { Message, ImageAttachment } from '@/types'
-import { User, Bot } from 'lucide-vue-next'
-import { computed } from 'vue'
+import { User, Bot, RotateCcw } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
 import ReasoningCard from './ReasoningCard.vue'
@@ -65,12 +80,35 @@ const { t } = useI18n()
 
 const props = defineProps<{
   message: Message
+  canRewind?: boolean
 }>()
 
 const emit = defineEmits<{
   toolSubmit: [messageId: string, toolId: string, updatedInput: Record<string, unknown>]
   toolSkip: [messageId: string, toolId: string]
+  rewind: [message: Message]
 }>()
+
+const isHovered = ref(false)
+
+const showRewindButton = computed(() => {
+  if (!isHovered.value) return false
+  if (props.message.role !== 'user') return false
+  if (props.canRewind === false) return false
+  return true
+})
+
+function handleMouseEnter() {
+  isHovered.value = true
+}
+
+function handleMouseLeave() {
+  isHovered.value = false
+}
+
+function handleRewindClick() {
+  emit('rewind', props.message)
+}
 
 const renderedUserContent = computed(() =>
   renderMentionChipsToHtml(props.message.content || '')
@@ -152,6 +190,7 @@ function handleUserCopy(e: ClipboardEvent) {
   display: flex;
   gap: 12px;
   padding: 16px 0;
+  position: relative;
 
   & + .message-item {
     border-top: 1px solid var(--surface-border);
@@ -159,30 +198,35 @@ function handleUserCopy(e: ClipboardEvent) {
 
   &.user {
     flex-direction: row-reverse;
-    
+
     .message-avatar {
       background: var(--accent-primary);
       color: white;
     }
-    
+
     .message-body {
       align-items: flex-end;
     }
-    
+
     .message-header {
       flex-direction: row-reverse;
     }
-    
+
     .message-content {
       background: var(--bg-tertiary);
       color: var(--text-primary);
       border-radius: var(--radius-lg);
       padding: 12px 16px;
       border: 1px solid var(--surface-border);
-      
+
       p {
         color: var(--text-primary);
       }
+    }
+
+    .rewind-button {
+      right: auto;
+      left: 40px;
     }
   }
 
@@ -317,6 +361,37 @@ function handleUserCopy(e: ClipboardEvent) {
   }
 }
 
+.rewind-button {
+  position: absolute;
+  top: 50%;
+  right: 40px;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--surface-border);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+  z-index: 1;
+  padding: 0;
+
+  &:hover {
+    background: var(--accent-primary);
+    color: white;
+    border-color: var(--accent-primary);
+  }
+}
+
+.message-item:hover .rewind-button {
+  opacity: 1;
+}
+
 // 响应式布局
 @media (max-width: 768px) {
   .message-item {
@@ -342,6 +417,15 @@ function handleUserCopy(e: ClipboardEvent) {
 
     .timestamp {
       font-size: 10px;
+    }
+  }
+
+  .rewind-button {
+    width: 20px;
+    height: 20px;
+
+    &.user {
+      left: 36px;
     }
   }
 }

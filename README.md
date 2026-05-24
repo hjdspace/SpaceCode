@@ -140,12 +140,39 @@ SpaceCode/
 | 文件树浏览器 | 项目结构导航 | 自定义递归组件 |
 | 会话管理器 | 历史记录切换 | Pinia Store 持久化 |
 | 多会话管理 | 多 Tab 并行会话 | 进程池 + LRU 淘汰 + 事件路由 |
+| **回滚对话框** | **消息回滚操作** | Teleport 模态弹窗 + Pinia Rewind State |
+| **消息选择器** | **选择回滚目标消息** | 消息列表弹窗 + 时间格式化 |
 
 #### 平台支持
 
 - ✅ Windows (NSIS 安装包 + Portable 便携版)
 - ✅ macOS (DMG + ZIP)
 - ✅ Linux (AppImage + DEB + RPM)
+
+#### 对话回滚（Rewind）
+
+支持将对话和代码变更回滚到历史消息节点，提供灵活的回滚策略：
+
+| 选项 | 说明 | 适用场景 |
+|------|------|----------|
+| **回滚对话和代码** | 删除目标消息之后的所有消息，并撤销对应的代码更改 | 彻底回退到某个决策点 |
+| **仅回滚对话** | 仅删除目标消息后的对话记录，保留代码变更 | 想换种说法重新提问，但不丢失已有改动 |
+| **仅回滚代码** | 仅撤销代码更改，保留所有消息记录 | 代码改错了，但对话上下文还想保留 |
+| **回滚并总结** | 回滚后生成变更总结 | 团队协作时记录回滚原因 |
+
+**工作流程：**
+1. 在消息列表中右键或点击回滚按钮
+2. 在消息选择器中选择要回滚到的目标用户消息
+3. 选择回滚策略（对话/代码/两者/总结）
+4. 预览变更统计（文件数、增删行数）
+5. 确认执行回滚
+
+**技术实现：**
+- `RewindDialog.vue` — Teleport 模态弹窗，支持 5 种回滚选项和变更统计预览
+- `MessageSelector.vue` — 消息选择器，展示时间线和内容预览
+- `chat.ts` (Pinia Store) — RewindState 状态管理 + 对话裁剪 + 代码回滚 IPC 调用
+- 完整的中/英文 i18n 文案支持
+- 配套单元测试和集成测试覆盖
 
 ## 快速开始
 
@@ -317,7 +344,7 @@ npm run electron:build
 |------|------|------|
 | `electron/` | Electron 主进程 | 窗口管理、IPC 服务、系统集成 |
 | `src/components/layout/` | 布局组件 | Sidebar、ChatPanel、InfoPanel、TitleBar |
-| `src/components/chat/` | 聊天组件 | 消息渲染、输入框、Markdown 展示 |
+| `src/components/chat/` | 聊天组件 | 消息渲染、输入框、Markdown 展示、回滚对话框、消息选择器 |
 | `src/components/explorer/` | 文件浏览器 | 项目树状导航 |
 | `src/components/terminal/` | 终端组件 | xterm.js 封装 |
 | `src/stores/` | 状态管理 | Pinia Store（app.ts、chat.ts） |

@@ -145,6 +145,14 @@ export const BUILT_IN_COMMANDS: SlashCommand[] = [
     kind: 'immediate',
     immediate: true,
   },
+  {
+    name: 'rewind',
+    description: 'Rewind conversation to a previous message',
+    icon: 'RotateCcw',
+    kind: 'immediate',
+    immediate: true,
+    aliases: ['checkpoint'],
+  },
 ]
 
 /** Find a command by name (including aliases) */
