@@ -282,6 +282,11 @@ export class ClaudeCodeProcessManager extends EventEmitter {
       env.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING = '1'
     }
 
+    // 强制禁用 x-anthropic-billing-header 以提升第三方代理/Bedrock/vLLM 缓存命中率
+    // 从 Claude Code 2.1.36 开始，每次请求的 cch 字段都会变化导致缓存失效
+    // 设置此环境变量可完全关闭该 header 的生成（参见 engine/src/constants/system.ts:getAttributionHeader）
+    env.CLAUDE_CODE_ATTRIBUTION_HEADER = '0'
+
     // TODO: 保留此代码以备后续需要强制禁用 Todo V2 功能时启用
     // env.CLAUDE_CODE_ENABLE_TASKS = 'false'
     return env
