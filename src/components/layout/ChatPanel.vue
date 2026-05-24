@@ -233,6 +233,13 @@ async function handleRewindConfirm() {
 async function openCodeRewindConfirm() {
   if (!chatStore.rewindState.selectedMessageId || !chatStore.currentSessionId) return
 
+  if (chatStore.turnChangeCards.length === 0) {
+    await chatStore.loadTurnCheckpoints(
+      chatStore.currentSessionId,
+      chatStore.workingDirectory || undefined
+    )
+  }
+
   const files = await chatStore.loadFilesToRewind(
     chatStore.currentSessionId,
     chatStore.rewindState.selectedMessageId

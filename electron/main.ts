@@ -1279,6 +1279,30 @@ ipcMain.handle('session:getTurnCheckpoints', async (_event, sessionId: string, p
   }
 })
 
+ipcMain.handle('session:getTurnRewindPreviewFiles', async (
+  _event,
+  sessionId: string,
+  targetUserMessageId: string,
+  userMessageIndex: number | undefined,
+  projectPath?: string
+) => {
+  try {
+    const { getTurnRewindPreviewFiles } = await import('./turnCheckpointService')
+    return await getTurnRewindPreviewFiles(
+      sessionId,
+      projectPath || '',
+      targetUserMessageId,
+      userMessageIndex
+    )
+  } catch (err) {
+    return {
+      ok: false,
+      files: [],
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+})
+
 ipcMain.handle('session:getTurnCheckpointDiff', async (
   _event,
   sessionId: string,

@@ -455,6 +455,62 @@ export async function listSessionTurnCheckpoints(
   return checkpoints
 }
 
+function findNextSnapshotAfter(
+  snapshots: FileHistorySnapshotEntry[],
+  targetSnapshot: FileHistorySnapshotEntry
+): FileHistorySnapshotEntry | null {
+  const index = snapshots.findIndex(snapshot => snapshot === targetSnapshot)
+  if (index >= 0 && index < snapshots.length - 1) {
+    return snapshots[index + 1]
+  }
+  return null
+}
+
+export async function getTurnRewindPreviewFiles(
+  sessionId: string,
+  projectPath: string,
+  targetUserMessageId: string,
+  userMessageIndex?: number
+): Promise<{ ok: boolean; files: string[]; error: string | null }> {
+  const sessionPath = path.join(getProjectDir(projectPath), `${sessionId}.jsonl`)
+
+  if (!fs.existsSync(sessionPath)) {
+    return { ok: false, files: [], error: 'Session file not found' }
+  }
+
+  const messages = readSessionJsonl(sessionPath)
+  const snapshots = extractFileHistorySnapshots(messages)
+  const targetSnapshot = findSnapshotForTarget(snapshots, targetUserMessageId, userMessageIndex)
+
+  if (!targetSnapshot) {
+    return { ok: true, files: [], error: null }
+  }
+
+  const nextSnapshot = findNextSnapshotAfter(snapshots, targetSnapshot)
+
+  try {
+    const preview = await buildTurnCodePreview(
+      sessionId,
+      targetSnapshot,
+      nextSnapshot,
+      projectPath
+    )
+
+    if (preview.filesChanged.length > 0) {
+      return {
+        ok: true,
+        files: preview.filesChanged.map(file => file.path),
+        error: null,
+      }
+    }
+  } catch (err) {
+    warn('TurnCheckpoint', 'Failed to build rewind preview', { error: String(err) })
+  }
+
+  const trackedFiles = Object.keys(targetSnapshot.snapshot.trackedFileBackups)
+  return { ok: true, files: trackedFiles, error: null }
+}
+
 export async function getTurnCheckpointDiff(
   sessionId: string,
   projectPath: string,

@@ -293,6 +293,20 @@ export const api = {
       electronAPI?.session?.getTurnCheckpoints(sessionId, projectPath) ||
       Promise.resolve({ ok: false, checkpoints: [], error: 'Session API not available' }),
 
+    getTurnRewindPreviewFiles: (
+      sessionId: string,
+      targetUserMessageId: string,
+      userMessageIndex?: number,
+      projectPath?: string
+    ): Promise<{ ok: boolean; files: string[]; error: string | null }> =>
+      electronAPI?.session?.getTurnRewindPreviewFiles(
+        sessionId,
+        targetUserMessageId,
+        userMessageIndex,
+        projectPath
+      ) ||
+      Promise.resolve({ ok: false, files: [], error: 'Session API not available' }),
+
     getTurnCheckpointDiff: (
       sessionId: string,
       targetUserMessageId: string,

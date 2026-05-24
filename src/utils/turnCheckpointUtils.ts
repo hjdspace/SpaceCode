@@ -1,4 +1,17 @@
-import type { Message } from '@/types'
+import type { Message, SessionTurnCheckpoint } from '@/types'
+
+export const findTurnCheckpointForMessage = (
+  checkpoints: SessionTurnCheckpoint[],
+  messageId: string,
+  userMessageIndex: number
+): SessionTurnCheckpoint | undefined => {
+  const byId = checkpoints.find(cp => cp.target.targetUserMessageId === messageId)
+  if (byId) return byId
+  if (userMessageIndex >= 0) {
+    return checkpoints.find(cp => cp.target.userMessageIndex === userMessageIndex)
+  }
+  return undefined
+}
 
 export interface RewindTurnTarget {
   messageId: string

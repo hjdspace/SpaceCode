@@ -8,7 +8,7 @@ type PermissionMode = 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions'
 import { useSettingsStore } from './settings'
 import { useAppStore } from './app'
 import { useTaskManager } from '@/composables/useTaskManager'
-import { errorHandler } from '@/services/errorHandler'
+import { getCompletedTurnTargets } from '@/utils/turnCheckpointUtils'
 import { api } from '@/services/electronAPI'
 
 const taskManager = useTaskManager()
@@ -1893,19 +1893,40 @@ export const useChatStore = defineStore('chat', () => {
 
   async function loadFilesToRewind(sessionId: string, messageId: string): Promise<string[]> {
     try {
-      const result = await api.session.getTurnCheckpoints(sessionId)
-      if (!result.ok || !result.checkpoints) {
-        return []
-      }
+      const projectPath = sessions.value.find(s => s.id === sessionId)?.workingDirectory
+        || workingDirectory.value
+      const session = sessions.value.find(s => s.id === sessionId)
+      const userMessageIndex = session
+        ? session.messages.filter(m => m.role === 'user').findIndex(m => m.id === messageId)
+        : -1
 
-      const targetCheckpoint = result.checkpoints.find(
-        (cp: any) => cp.target?.targetUserMessageId === messageId
+      const result = await api.session.getTurnRewindPreviewFiles(
+        sessionId,
+        messageId,
+        userMessageIndex >= 0 ? userMessageIndex : undefined,
+        projectPath
       )
 
-      if (targetCheckpoint?.code?.filesChanged) {
-        return targetCheckpoint.code.filesChanged.map((f: any) => f.path)
+      if (result.ok && result.files.length > 0) {
+        return result.files
       }
-      return []
+
+      if (session && turnCheckpoints.value.length > 0) {
+        const completedTurns = getCompletedTurnTargets(session.messages)
+        const turnIndex = completedTurns.findIndex(turn => turn.messageId === messageId)
+        if (turnIndex >= 0 && completedTurns.length === turnCheckpoints.value.length) {
+          const checkpoint = turnCheckpoints.value[turnIndex]
+          if (checkpoint?.code?.filesChanged?.length) {
+            return checkpoint.code.filesChanged.map(file => file.path)
+          }
+        }
+      }
+
+      if (!result.ok) {
+        logger.warn('ChatStore', 'Failed to load rewind preview files', { error: result.error })
+      }
+
+      return result.ok ? result.files : []
     } catch (err) {
       logger.error('ChatStore', 'Failed to load files to rewind', { error: err })
       return []

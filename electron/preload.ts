@@ -45,6 +45,19 @@ const traceApi = {
 const sessionApi = {
   getTurnCheckpoints: (sessionId: string, projectPath?: string) =>
     ipcRenderer.invoke('session:getTurnCheckpoints', sessionId, projectPath),
+  getTurnRewindPreviewFiles: (
+    sessionId: string,
+    targetUserMessageId: string,
+    userMessageIndex: number | undefined,
+    projectPath?: string
+  ) =>
+    ipcRenderer.invoke(
+      'session:getTurnRewindPreviewFiles',
+      sessionId,
+      targetUserMessageId,
+      userMessageIndex,
+      projectPath
+    ),
   getTurnCheckpointDiff: (
     sessionId: string,
     targetUserMessageId: string,
