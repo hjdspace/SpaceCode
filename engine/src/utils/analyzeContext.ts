@@ -74,6 +74,20 @@ const MANUAL_COMPACT_BUFFER_NAME = 'Compact buffer'
  */
 export const TOOL_TOKEN_COUNT_OVERHEAD = 500
 
+function roughEstimateTokensFromPayload(
+  messages: Anthropic.Beta.Messages.BetaMessageParam[],
+  tools: Anthropic.Beta.Messages.BetaToolUnion[],
+): number {
+  let total = 0
+  for (const msg of messages) {
+    total += roughTokenCountEstimation(jsonStringify(msg))
+  }
+  for (const tool of tools) {
+    total += roughTokenCountEstimation(jsonStringify(tool))
+  }
+  return total
+}
+
 async function countTokensWithFallback(
   messages: Anthropic.Beta.Messages.BetaMessageParam[],
   tools: Anthropic.Beta.Messages.BetaToolUnion[],
@@ -93,19 +107,27 @@ async function countTokensWithFallback(
 
   try {
     const fallbackResult = await countTokensViaHaikuFallback(messages, tools)
-    if (fallbackResult === null) {
-      logForDebugging(
-        `countTokensWithFallback: haiku fallback also returned null (${tools.length} tools)`,
-      )
+    if (fallbackResult !== null) {
+      return fallbackResult
     }
-    return fallbackResult
+    logForDebugging(
+      `countTokensWithFallback: haiku fallback also returned null (${tools.length} tools)`,
+    )
   } catch (err) {
     logForDebugging(
       `countTokensWithFallback: haiku fallback failed: ${errorMessage(err)}`,
     )
     logError(err)
-    return null
   }
+
+  const roughEstimate = roughEstimateTokensFromPayload(messages, tools)
+  if (roughEstimate > 0) {
+    logForDebugging(
+      `countTokensWithFallback: using rough estimate (${roughEstimate} tokens)`,
+    )
+    return roughEstimate
+  }
+  return null
 }
 
 interface ContextCategory {
@@ -913,7 +935,13 @@ async function approximateMessageTokens(
     [],
   )
 
-  breakdown.totalTokens = approximateMessageTokens ?? 0
+  const roughMessageTotal =
+    breakdown.toolCallTokens +
+    breakdown.toolResultTokens +
+    breakdown.attachmentTokens +
+    breakdown.assistantMessageTokens +
+    breakdown.userMessageTokens
+  breakdown.totalTokens = approximateMessageTokens ?? roughMessageTotal
   return breakdown
 }
 

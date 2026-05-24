@@ -33,6 +33,10 @@
             <span class="badge-dot"></span>
             {{ formatModelName(currentModel) }}
           </span>
+          <ContextUsageChip
+            v-if="!showNoProjectWelcome"
+            @open="showContextModal = true"
+          />
           <span class="provider-badge" v-if="provider">
             <span class="badge-dot"></span>
             {{ provider.toUpperCase() }}
@@ -69,6 +73,11 @@
         :team-context="chatStore.currentTeamContext"
         :viewing-agent-task-id="chatStore.currentViewedAgentTaskId"
         @view-teammate="chatStore.viewTeammateTranscript"
+      />
+
+      <ContextUsageWarningBar
+        v-if="!showNoProjectWelcome"
+        @open="showContextModal = true"
       />
 
       <ChatInput
@@ -157,6 +166,8 @@
         </div>
       </div>
     </Transition>
+
+    <ContextUsageModal v-model:show="showContextModal" />
   </main>
 </template>
 
@@ -184,6 +195,10 @@ import CodeRewindConfirmDialog from '../chat/CodeRewindConfirmDialog.vue'
 import MessageSelector from '../chat/MessageSelector.vue'
 import { History } from 'lucide-vue-next'
 import HistorySessionList from '../explorer/HistorySessionList.vue'
+import ContextUsageChip from '../chat/ContextUsageChip.vue'
+import ContextUsageWarningBar from '../chat/ContextUsageWarningBar.vue'
+import ContextUsageModal from '../chat/ContextUsageModal.vue'
+import { useContextUsageStore } from '@/stores/contextUsage'
 import { initLLMService, llmState, updateConfig } from '@/services/llm'
 import { pathsEqual } from '@/utils/recentProjectRoots'
 import { useChatCommands } from '@/composables/useChatCommands'
@@ -198,6 +213,8 @@ const electronAPI = (window as any).electronAPI
 
 const showHistoryModal = ref(false)
 const historySearchQuery = ref('')
+const showContextModal = ref(false)
+const contextUsageStore = useContextUsageStore()
 
 // Rewind state
 const showMessageSelector = ref(false)
@@ -381,7 +398,24 @@ const currentModel = ref('')
 onMounted(async () => {
   await initLLMService()
   currentModel.value = settingsStore.config.model || ''
+  if (chatStore.currentSessionId) {
+    void contextUsageStore.refresh(chatStore.currentSessionId)
+  }
 })
+
+watch(
+  () => [chatStore.currentSessionId, chatStore.isLoading] as const,
+  ([sid, loading], prev) => {
+    if (!sid) {
+      contextUsageStore.clear()
+      return
+    }
+    if (loading) return
+    if (!prev || prev[0] !== sid || prev[1] === true) {
+      void contextUsageStore.refresh(sid, prev?.[1] === true)
+    }
+  },
+)
 
 // 监听 settings 变化同步模型
 watch(() => settingsStore.config.model, (newModel) => {
@@ -543,8 +577,13 @@ async function handleSlashCommand(command: string, args: string, attachments: Al
   // 执行命令
   const result = await executeSlashCommand(command, args)
 
-  // 对于 rewind 命令，不添加 assistant 回复（UI 直接打开选择器）
-  if (command.toLowerCase() === 'rewind' || command.toLowerCase() === 'checkpoint') {
+  // 对于 rewind / context 命令，不添加 assistant 回复（UI 直接打开面板）
+  const cmd = command.toLowerCase()
+  if (cmd === 'rewind' || cmd === 'checkpoint') {
+    return
+  }
+  if (cmd === 'context') {
+    showContextModal.value = true
     return
   }
 
@@ -584,7 +623,8 @@ async function executeSlashCommand(command: string, args: string): Promise<strin
       return generateCostMessage()
 
     case 'context':
-      return generateContextMessage()
+      showContextModal.value = true
+      return ''
 
     case 'terminal':
       // 打开终端标签

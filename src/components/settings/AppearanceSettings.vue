@@ -109,6 +109,27 @@
         </label>
       </div>
 
+      <div class="divider"></div>
+      <h3 class="subsection-title">{{ t('contextUsage.settingsSection') }}</h3>
+
+      <div class="toggle-list">
+        <label class="toggle-item">
+          <div class="toggle-info">
+            <span class="toggle-label">{{ t('contextUsage.showInHeader') }}</span>
+            <span class="toggle-desc">{{ t('contextUsage.showInHeaderDesc') }}</span>
+          </div>
+          <input type="checkbox" v-model="config.showContextUsage" class="toggle-switch" />
+        </label>
+
+        <label class="toggle-item">
+          <div class="toggle-info">
+            <span class="toggle-label">{{ t('contextUsage.showWarningBar') }}</span>
+            <span class="toggle-desc">{{ t('contextUsage.showWarningBarDesc') }}</span>
+          </div>
+          <input type="checkbox" v-model="config.showContextWarningBar" class="toggle-switch" />
+        </label>
+      </div>
+
       <!-- Accent Color -->
       <div class="divider"></div>
       <h3 class="subsection-title">{{ t('appearanceSettings.accentColor') }}</h3>
@@ -200,7 +221,9 @@ const defaultConfig: AppearanceConfig = {
   wordWrap: true,
   showMinimap: false,
   smoothScrolling: true,
-  accentColor: 'blue'
+  accentColor: 'blue',
+  showContextUsage: true,
+  showContextWarningBar: true,
 }
 
 function loadSavedConfig(): Partial<AppearanceConfig> {

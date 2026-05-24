@@ -242,6 +242,13 @@ export const api = {
     return Promise.resolve()
   },
 
+  getContextUsage: (sessionId: string): Promise<Record<string, unknown> | undefined> => {
+    if (electronAPI?.claudeCode?.getContextUsage) {
+      return electronAPI.claudeCode.getContextUsage(sessionId)
+    }
+    return Promise.resolve(undefined)
+  },
+
   // Debug API
   debug: {
     listFiles: (): Promise<DebugFileEntry[]> => electronAPI?.debug?.listFiles() || Promise.resolve([]),

@@ -211,6 +211,12 @@
           :placeholder="$t('model.selectModel')"
         />
       </div>
+
+      <div class="context-info-box">
+        <h3 class="subsection-title">{{ $t('contextUsage.modelContextTitle') }}</h3>
+        <p class="context-info-desc">{{ $t('contextUsage.modelContextDesc') }}</p>
+        <ContextUsagePreview :model-id="previewModelId" />
+      </div>
     </div>
   </div>
 </template>
@@ -227,6 +233,7 @@ import { api } from '@/services/electronAPI'
 import { useSettingsStore } from '@/stores/settings'
 import type { AuthMethod, OAuthAccountInfo } from '@/stores/settings'
 import SearchableSelect from './SearchableSelect.vue'
+import ContextUsagePreview from './ContextUsagePreview.vue'
 
 const props = defineProps<{
   modelValue: {
@@ -279,6 +286,10 @@ const oauthLoading = ref(false)
 const connectionStatus = ref<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null)
 
 const availableModels = ref<{ id: string; name?: string }[]>([])
+
+const previewModelId = computed(
+  () => settingsStore.config.model || config.value.sonnetModel || 'claude-sonnet-4-6',
+)
 
 // 根据当前认证方式获取默认模型
 const defaultModels = computed(() => {
@@ -790,6 +801,21 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
     font-size: 11px;
     font-weight: 600;
   }
+}
+
+.context-info-box {
+  margin-top: 8px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--surface-border);
+  background: var(--bg-tertiary);
+}
+
+.context-info-desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-muted);
 }
 
 .spin {

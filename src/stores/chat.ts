@@ -6,6 +6,7 @@ import type { RewindOption, RewindState } from '@/types/rewind'
 // 权限模式类型定义
 type PermissionMode = 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions'
 import { useSettingsStore } from './settings'
+import { useContextUsageStore } from './contextUsage'
 import { useAppStore } from './app'
 import { useTaskManager } from '@/composables/useTaskManager'
 import { getCompletedTurnTargets } from '@/utils/turnCheckpointUtils'
@@ -68,6 +69,126 @@ const STORAGE_VERSION = '2.1'
 
 const STORAGE_QUOTA_LIMIT = 4 * 1024 * 1024
 const STORAGE_WARNING_THRESHOLD = 0.8
+/** Max serialized payload for chat_sessions key (UTF-16 ×2 in localStorage). */
+const SESSION_PAYLOAD_LIMIT = Math.floor(STORAGE_QUOTA_LIMIT * 0.45)
+const MESSAGE_CONTENT_PERSIST_LIMIT = 8_000
+const TOOL_OUTPUT_PERSIST_LIMIT = 4_000
+const REASONING_PERSIST_LIMIT = 2_000
+const TIMELINE_CONTENT_PERSIST_LIMIT = 1_000
+
+let _storageMaintenanceLoggedAt = 0
+const STORAGE_LOG_COOLDOWN_MS = 120_000
+
+function logStorageMaintenance(message: string, data?: unknown) {
+  const now = Date.now()
+  if (now - _storageMaintenanceLoggedAt < STORAGE_LOG_COOLDOWN_MS) return
+  _storageMaintenanceLoggedAt = now
+  logger.debug('ChatStore', message, data)
+}
+
+function estimateUtf16Bytes(text: string): number {
+  return text.length * 2
+}
+
+interface PersistTrimOptions {
+  maxContent?: number
+  maxToolOutput?: number
+  maxReasoning?: number
+  maxTimelineContent?: number
+}
+
+function stripPersistedPayload(
+  sessions: Session[],
+  options: PersistTrimOptions = {},
+): Session[] {
+  const maxContent = options.maxContent ?? MESSAGE_CONTENT_PERSIST_LIMIT
+  const maxToolOutput = options.maxToolOutput ?? TOOL_OUTPUT_PERSIST_LIMIT
+  const maxReasoning = options.maxReasoning ?? REASONING_PERSIST_LIMIT
+  const maxTimelineContent = options.maxTimelineContent ?? TIMELINE_CONTENT_PERSIST_LIMIT
+
+  const truncateText = (text: string, limit: number, suffix: string) =>
+    text.length > limit ? text.slice(0, limit) + suffix : text
+
+  return sessions.map(session => ({
+    ...session,
+    messages: session.messages.map(msg => {
+      const next: Message = { ...msg }
+
+      if (next.content && next.content.length > maxContent) {
+        next.content = truncateText(next.content, maxContent, '\n\n[Truncated for storage]')
+      }
+
+      if (next.reasoning?.content && next.reasoning.content.length > maxReasoning) {
+        next.reasoning = {
+          ...next.reasoning,
+          content: truncateText(next.reasoning.content, maxReasoning, '…'),
+        }
+      }
+
+      if (next.toolCalls?.length) {
+        next.toolCalls = next.toolCalls.map(toolCall => ({
+          ...toolCall,
+          output:
+            toolCall.output && toolCall.output.length > maxToolOutput
+              ? truncateText(toolCall.output, maxToolOutput, '\n[Truncated for storage]')
+              : toolCall.output,
+        }))
+      }
+
+      if (next.toolResults?.length) {
+        next.toolResults = next.toolResults.map(toolResult => ({
+          ...toolResult,
+          output:
+            toolResult.output.length > maxToolOutput
+              ? truncateText(toolResult.output, maxToolOutput, '\n[Truncated for storage]')
+              : toolResult.output,
+        }))
+      }
+
+      if (next.timelineEvents?.length) {
+        next.timelineEvents = next.timelineEvents.map(event => ({
+          ...event,
+          content:
+            event.content && event.content.length > maxTimelineContent
+              ? truncateText(event.content, maxTimelineContent, '…')
+              : event.content,
+        }))
+      }
+
+      return next
+    }),
+  }))
+}
+
+function buildStoragePayload(sessions: Session[]): { payload: string; compressed: boolean } {
+  const jsonData = JSON.stringify(sessions)
+  const compressed = compressData(jsonData)
+  const payload = compressed.length < jsonData.length ? compressed : jsonData
+  return { payload, compressed: payload !== jsonData }
+}
+
+function prepareSessionsForStorage(
+  sessions: Session[],
+  aggressive = false,
+): Session[] {
+  let prepared = stripLargeAttachmentData(sessions)
+  prepared = stripPersistedPayload(
+    prepared,
+    aggressive
+      ? {
+          maxContent: 3_000,
+          maxToolOutput: 1_500,
+          maxReasoning: 800,
+          maxTimelineContent: 400,
+        }
+      : undefined,
+  )
+  if (aggressive) {
+    prepared = cleanupOldSessions(prepared, 20, false)
+    prepared = truncateLongMessages(prepared, 3_000)
+  }
+  return prepared
+}
 
 interface StorageStats {
   totalSize: number
@@ -121,11 +242,19 @@ function checkStorageSpace(): { ok: boolean; usage: number; warning: boolean } {
   }
 }
 
-function cleanupOldSessions(sessions: Session[], keepCount: number = 50): Session[] {
+function cleanupOldSessions(
+  sessions: Session[],
+  keepCount: number = 50,
+  log = true,
+): Session[] {
   if (sessions.length <= keepCount) return sessions
   const sorted = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)
   const kept = sorted.slice(0, keepCount)
-  console.log(`[ChatStore] Cleaned up ${sessions.length - keepCount} old sessions`)
+  if (log) {
+    logStorageMaintenance(`Dropped ${sessions.length - keepCount} old sessions`, {
+      kept: keepCount,
+    })
+  }
   return kept
 }
 
@@ -206,40 +335,51 @@ function stripLargeAttachmentData(sessions: Session[]): Session[] {
 
 function saveSessionsToStorage(sessions: Session[]): boolean {
   try {
-    const spaceCheck = checkStorageSpace()
-    let sessionsToSave = stripLargeAttachmentData(sessions)
-    if (!spaceCheck.ok || spaceCheck.warning) {
-      console.warn('[ChatStore] Storage space low, cleaning up old sessions')
-      sessionsToSave = cleanupOldSessions(sessionsToSave, 30)
-      sessionsToSave = truncateLongMessages(sessionsToSave, 5000)
+    let prepared = prepareSessionsForStorage(sessions)
+    let { payload, compressed } = buildStoragePayload(prepared)
+
+    if (estimateUtf16Bytes(payload) > SESSION_PAYLOAD_LIMIT) {
+      logStorageMaintenance('Session payload over limit, applying aggressive trim')
+      prepared = prepareSessionsForStorage(sessions, true)
+      ;({ payload, compressed } = buildStoragePayload(prepared))
     }
-    const jsonData = JSON.stringify(sessionsToSave)
-    const compressed = compressData(jsonData)
-    const dataToStore = compressed.length < jsonData.length ? compressed : jsonData
-    if (dataToStore.length * 2 > STORAGE_QUOTA_LIMIT) {
-      console.error('[ChatStore] Data too large to save, truncating further')
-      sessionsToSave = cleanupOldSessions(sessionsToSave, 20)
-      sessionsToSave = truncateLongMessages(sessionsToSave, 3000)
-      const truncatedJson = JSON.stringify(sessionsToSave)
-      localStorage.setItem(STORAGE_KEY, truncatedJson)
-    } else {
-      localStorage.setItem(STORAGE_KEY, dataToStore)
+
+    if (estimateUtf16Bytes(payload) > SESSION_PAYLOAD_LIMIT) {
+      logStorageMaintenance('Session payload still large after trim, keeping recent sessions only')
+      prepared = cleanupOldSessions(prepared, 10, false)
+      prepared = stripPersistedPayload(prepared, {
+        maxContent: 2_000,
+        maxToolOutput: 800,
+        maxReasoning: 500,
+        maxTimelineContent: 200,
+      })
+      const rebuilt = buildStoragePayload(prepared)
+      payload = rebuilt.payload
+      compressed = rebuilt.compressed
     }
-    localStorage.setItem(`${STORAGE_KEY}_meta`, JSON.stringify({
-      version: STORAGE_VERSION,
-      savedAt: Date.now(),
-      count: sessionsToSave.length,
-      compressed: dataToStore !== jsonData
-    }))
+
+    localStorage.setItem(STORAGE_KEY, payload)
+    localStorage.setItem(
+      `${STORAGE_KEY}_meta`,
+      JSON.stringify({
+        version: STORAGE_VERSION,
+        savedAt: Date.now(),
+        count: prepared.length,
+        compressed,
+      }),
+    )
     return true
   } catch (e) {
-    console.error('[ChatStore] Failed to save sessions to storage:', e)
+    logger.error('ChatStore', 'Failed to save sessions to storage', e)
     try {
-      const emergencySessions = cleanupOldSessions(sessions, 10)
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(emergencySessions))
+      const emergencySessions = cleanupOldSessions(sessions, 10, false)
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(stripPersistedPayload(stripLargeAttachmentData(emergencySessions))),
+      )
       return true
     } catch (e2) {
-      console.error('[ChatStore] Emergency save also failed:', e2)
+      logger.error('ChatStore', 'Emergency save also failed', e2)
       return false
     }
   }
@@ -1193,6 +1333,20 @@ export const useChatStore = defineStore('chat', () => {
         if (event.sessionId !== targetSessionId || isCompleted) return
         const assistant = event.data
         logger.info('ChatStore', `[${targetSessionId.slice(0, 8)}] assistant event received`)
+
+        const apiUsage = assistant.message?.usage
+        if (apiUsage) {
+          const s = sessions.value.find(sess => sess.id === targetSessionId)
+          const msg = s?.messages.find(m => m.id === assistantMessageId)
+          if (msg) {
+            msg.metadata = {
+              ...msg.metadata,
+              inputTokens: apiUsage.input_tokens,
+              outputTokens: apiUsage.output_tokens,
+            }
+          }
+        }
+
         if (assistant.message?.content) {
           const content = assistant.message.content
           if (Array.isArray(content)) {
@@ -1482,15 +1636,22 @@ export const useChatStore = defineStore('chat', () => {
             }
             const hasRunningTools = !!msg.toolCalls?.some(tool => tool.status === 'running' || tool.status === 'pending')
             const suspiciousToolStop = result.stop_reason === 'tool_use'
+            const resultUsage = result.usage
             msg.metadata = {
               model: settingsStore.config.model,
               duration: Date.now() - msg.timestamp,
+              ...(resultUsage && {
+                inputTokens: resultUsage.input_tokens,
+                outputTokens: resultUsage.output_tokens,
+              }),
               warning: suspiciousToolStop
                 ? 'Agent 在工具调用状态下提前结束，当前模型可能没有稳定支持多轮工具调用协议。建议重试或切换为更强的工具调用模型。'
                 : hasRunningTools
                   ? 'Agent 已结束，但仍有工具调用未返回结果。'
                   : undefined
             }
+
+            void useContextUsageStore().refresh(targetSessionId, true)
             traceEvent({
               sessionId: targetSessionId,
               messageId: assistantMessageId,
@@ -1500,10 +1661,10 @@ export const useChatStore = defineStore('chat', () => {
               title: 'Assistant turn completed',
               output: { content: msg.content },
               metadata: {
-                duration: msg.metadata.duration,
-                model: msg.metadata.model,
+                duration: msg.metadata?.duration,
+                model: msg.metadata?.model,
                 stopReason: result.stop_reason || '',
-                warning: msg.metadata.warning || '',
+                warning: msg.metadata?.warning || '',
               },
             })
 

@@ -5,7 +5,7 @@ import { config } from 'dotenv'
 import { TerminalManager } from './terminalManager'
 import { registerGitIPCHandlers } from './gitService'
 import { registerSkillsIPCHandlers, registerLocalLibraryIPCHandlers } from './skillsService'
-import { registerClaudeCodeIPC, setMainWindow } from './claudeCodeIPC'
+import { registerClaudeCodeIPC, setMainWindow, getPool } from './claudeCodeIPC'
 import { registerPromptOptimizerIPC } from './promptOptimizerIPC'
 import { initLogger, info, warn, error, debug, isDebugMode, ipc as logIpc, traceEvent, listDebugFiles, readDebugFile, listTraceSessions, readTraceEvents } from './logger'
 
@@ -256,7 +256,6 @@ function createWindow() {
     // 清理所有 Claude Code 会话进程
     try {
       info('App', 'Killing all Claude Code sessions on window close')
-      const { getPool } = await import('./claudeCodeIPC')
       const pool = getPool()
       if (pool) {
         pool.killAll()
@@ -533,7 +532,6 @@ app.on('before-quit', async () => {
   // 清理所有 Claude Code 会话进程
   try {
     info('App', 'Killing all Claude Code sessions')
-    const { getPool } = await import('./claudeCodeIPC')
     const pool = getPool()
     if (pool) {
       pool.killAll()

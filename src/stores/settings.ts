@@ -33,6 +33,10 @@ export interface AppearanceSettings {
   showMinimap: boolean
   smoothScrolling: boolean
   accentColor: string
+  /** Show context % chip in chat header (default: on). */
+  showContextUsage?: boolean
+  /** Show warning bar above input when context is low (default: on). */
+  showContextWarningBar?: boolean
 }
 
 export interface AuthSettings {
