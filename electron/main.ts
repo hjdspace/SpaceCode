@@ -7,6 +7,7 @@ import { registerGitIPCHandlers } from './gitService'
 import { registerSkillsIPCHandlers, registerLocalLibraryIPCHandlers } from './skillsService'
 import { registerClaudeCodeIPC, setMainWindow, getPool } from './claudeCodeIPC'
 import { registerPromptOptimizerIPC } from './promptOptimizerIPC'
+import { aggregateLocalTokenStats } from './tokenStatsService'
 import { initLogger, info, warn, error, debug, isDebugMode, ipc as logIpc, traceEvent, listDebugFiles, readDebugFile, listTraceSessions, readTraceEvents } from './logger'
 
 // ============================================================
@@ -1059,6 +1060,14 @@ ipcMain.handle('settings:loadGuiSettings', async () => {
   } catch (err: any) {
     error('Settings', 'Failed to load GUI settings', err)
     return { success: false, data: null, error: String(err) }
+  }
+})
+
+ipcMain.handle('stats:getTokenUsage', async () => {
+  try {
+    return { success: true, data: aggregateLocalTokenStats() }
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to load token usage stats' }
   }
 })
 

@@ -58,6 +58,41 @@ export interface AgentTraceEvent {
   metadata?: Record<string, unknown>
 }
 
+export interface TokenStatsDailyEntry {
+  date: string
+  totalTokens: number
+  inputTokens: number
+  outputTokens: number
+  cacheCreationInputTokens: number
+  cacheReadInputTokens: number
+  sessionCount: number
+  messageCount: number
+  tokensByModel: Record<string, number>
+}
+
+export interface TokenStatsSummary {
+  totalTokens: number
+  inputTokens: number
+  outputTokens: number
+  cacheCreationInputTokens: number
+  cacheReadInputTokens: number
+  sessionCount: number
+  messageCount: number
+}
+
+export interface TokenStatsResult {
+  generatedAt: string
+  sourceDir: string
+  firstDate: string | null
+  lastDate: string | null
+  today: TokenStatsSummary
+  yesterday: TokenStatsSummary
+  last30Days: TokenStatsSummary
+  allTime: TokenStatsSummary
+  daily: TokenStatsDailyEntry[]
+  modelUsage: Record<string, TokenStatsSummary>
+}
+
 export const api = {
   sendMessage: (text: string) => electronAPI?.sendMessage(text) || Promise.resolve({ success: false }),
   onMessage: (callback: (msg: any) => void) => electronAPI?.onMessage(callback),
@@ -148,6 +183,12 @@ export const api = {
       return electronAPI.loadGuiSettings()
     }
     return Promise.resolve({ success: false, data: null, error: 'loadGuiSettings not available' })
+  },
+  getTokenUsageStats: (): Promise<{ success: boolean; data?: TokenStatsResult; error?: string }> => {
+    if (electronAPI?.getTokenUsageStats) {
+      return electronAPI.getTokenUsageStats()
+    }
+    return Promise.resolve({ success: false, error: 'getTokenUsageStats not available' })
   },
 
   // Folder selection dialog

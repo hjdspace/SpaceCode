@@ -56,6 +56,9 @@
               v-else-if="activeTab === 'shortcuts'"
               @change="onSettingsChange"
             />
+            <TokenUsageSettings
+              v-else-if="activeTab === 'token-usage'"
+            />
           </KeepAlive>
         </div>
       </main>
@@ -67,7 +70,7 @@
 import { ref, computed, watch, defineAsyncComponent } from 'vue'
 import {
   ArrowLeft,
-  Settings, Boxes, Palette, Wrench, Keyboard, Bot
+  Settings, Boxes, Palette, Wrench, Keyboard, Bot, BarChart3
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -80,6 +83,7 @@ const McpSettings = defineAsyncComponent(() => import('./McpSettings.vue'))
 const AppearanceSettings = defineAsyncComponent(() => import('./AppearanceSettings.vue'))
 const ToolsSettings = defineAsyncComponent(() => import('./ToolsSettings.vue'))
 const ShortcutsSettings = defineAsyncComponent(() => import('./ShortcutsSettings.vue'))
+const TokenUsageSettings = defineAsyncComponent(() => import('./TokenUsageSettings.vue'))
 
 const appStore = useAppStore()
 const settingsStore = useSettingsStore()
@@ -91,7 +95,8 @@ const menuItems = computed(() => [
   { id: 'mcp', label: t('settings.mcpServers'), icon: Boxes },
   { id: 'tools', label: t('settings.tools'), icon: Wrench },
   { id: 'appearance', label: t('settings.appearance'), icon: Palette },
-  { id: 'shortcuts', label: t('settings.shortcuts'), icon: Keyboard }
+  { id: 'shortcuts', label: t('settings.shortcuts'), icon: Keyboard },
+  { id: 'token-usage', label: 'Token 用量', icon: BarChart3 }
 ])
 
 const activeTab = ref('general')

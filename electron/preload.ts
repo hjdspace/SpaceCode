@@ -170,6 +170,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('settings:saveGuiSettings', data),
   loadGuiSettings: (): Promise<{ success: boolean; data: string | null; error?: string }> =>
     ipcRenderer.invoke('settings:loadGuiSettings'),
+  getTokenUsageStats: () =>
+    ipcRenderer.invoke('stats:getTokenUsage'),
 
   // Terminal API
   terminal: {
