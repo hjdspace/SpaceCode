@@ -1,3 +1,34 @@
+## [0.3.10](https://github.com/hjdspace/SpaceCode/compare/v0.3.9...v0.3.10) (2026-05-25)
+
+### Features
+
+* **Token统计:** 新增token使用量统计与设置页面
+  - 添加token使用量追踪功能
+  - 新增token统计设置页面
+* **上下文缓存:** 新增上下文缓存token统计与快速加载功能
+  - 优化上下文用量获取逻辑
+  - 调整超时设置以提升性能
+* **超时配置:** 为HTTP请求和LLM调用添加超时配置支持
+  - 支持自定义HTTP请求超时
+  - 支持自定义LLM调用超时
+
+### Bug Fixes
+
+* **MarkdownRenderer:** 修复文件链接无法正确渲染的问题
+
+### Refactor
+
+* **App.vue:** 抽离窗口事件处理函数为单独方法，提升代码可维护性
+* **MCP管理器:** 迁移MCP管理器到全屏面板并重构状态管理
+* **analyzeContext:** 移除全局roughEstimatesOnlyMode，改用参数传递，优化代码结构
+* **electron:** 统一处理skills-lib路径解析逻辑，提升跨平台兼容性
+
+### Build
+
+* **CI:** 优化多平台原生模块构建与glibc错误提示
+
+---
+
 ## [0.3.9](https://github.com/hjdspace/SpaceCode/compare/v0.3.8...v0.3.9) (2026-05-25)
 
 ### Features
