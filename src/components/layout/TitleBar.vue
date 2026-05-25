@@ -172,9 +172,7 @@ onBeforeUnmount(() => {
 <style lang="scss" scoped>
 .titlebar {
   height: 44px;
-  background: var(--surface-glass);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: var(--bg-primary);
   border-bottom: 1px solid var(--surface-border);
   display: flex;
   align-items: center;
@@ -184,23 +182,6 @@ onBeforeUnmount(() => {
   z-index: 100;
   user-select: none;
   flex-shrink: 0;
-
-  &::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background: linear-gradient(90deg,
-      transparent 0%,
-      var(--accent-primary-glow) 20%,
-      var(--accent-secondary-glow) 50%,
-      var(--accent-primary-glow) 80%,
-      transparent 100%
-    );
-    opacity: 0.5;
-  }
 
   // macOS: shift content right to avoid traffic lights
   &.is-mac {
@@ -221,7 +202,7 @@ onBeforeUnmount(() => {
 .titlebar-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 
   .sidebar-toggle {
@@ -235,33 +216,35 @@ onBeforeUnmount(() => {
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: background-color var(--transition-fast), color var(--transition-fast);
 
     &:hover {
-      background: var(--surface-glass-hover);
+      background: var(--surface-hover);
       color: var(--text-primary);
-      transform: scale(1.05);
     }
 
     &:active {
-      transform: scale(0.95);
+      background: var(--surface-active);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--accent-primary);
+      outline-offset: 2px;
     }
   }
 
   .title-wrapper {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
   }
 
   .title {
     font-family: var(--font-display);
-    font-size: 14px;
-    font-weight: 600;
-    background: linear-gradient(135deg, var(--text-primary), var(--text-secondary));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
     white-space: nowrap;
   }
 
@@ -290,7 +273,7 @@ onBeforeUnmount(() => {
 .titlebar-right {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
 }
 
 .titlebar-btn {
@@ -304,16 +287,20 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background-color var(--transition-fast), color var(--transition-fast);
 
   &:hover {
-    background: var(--surface-glass-hover);
+    background: var(--surface-hover);
     color: var(--accent-secondary);
-    transform: scale(1.05);
   }
 
   &:active {
-    transform: scale(0.95);
+    background: var(--surface-active);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
   }
 }
 
@@ -333,9 +320,21 @@ onBeforeUnmount(() => {
   padding: 6px;
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-md);
-  background: var(--bg-primary);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-lg);
   z-index: 1000;
+  animation: menuFadeIn 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes menuFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .open-file-menu-item {
@@ -348,7 +347,7 @@ onBeforeUnmount(() => {
   font-size: 13px;
   text-align: left;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background-color var(--transition-fast), color var(--transition-fast);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -357,6 +356,7 @@ onBeforeUnmount(() => {
     width: 18px;
     height: 18px;
     flex-shrink: 0;
+    transition: transform var(--transition-fast);
 
     &.vscode-icon {
       filter: drop-shadow(0 1px 2px rgba(0, 122, 204, 0.3));
@@ -372,12 +372,12 @@ onBeforeUnmount(() => {
     color: var(--text-primary);
 
     .menu-icon {
-      transform: scale(1.1);
+      transform: scale(1.05);
     }
   }
 
   &:active {
-    transform: scale(0.98);
+    background: var(--surface-active);
   }
 }
 
@@ -410,13 +410,17 @@ onBeforeUnmount(() => {
     transition: background-color var(--transition-fast), color var(--transition-fast);
 
     &:hover {
-      background: var(--surface-glass-hover);
+      background: var(--surface-hover);
       color: var(--text-primary);
     }
 
     &:active {
-      background: var(--surface-glass-hover);
-      filter: brightness(0.9);
+      background: var(--surface-active);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--accent-primary);
+      outline-offset: 2px;
     }
   }
 
