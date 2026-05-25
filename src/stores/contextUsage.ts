@@ -33,30 +33,27 @@ function parseEngineContextData(raw: Record<string, unknown>): ContextUsageData 
   return data
 }
 
-const CONTEXT_USAGE_FETCH_RETRIES = 1
-const CONTEXT_USAGE_RETRY_DELAY_MS = 1_000
+const CONTEXT_USAGE_FETCH_TIMEOUT_MS = 3_500
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | undefined> {
+  return new Promise(resolve => {
+    const timer = setTimeout(() => resolve(undefined), timeoutMs)
+    promise
+      .then(value => resolve(value))
+      .catch(() => resolve(undefined))
+      .finally(() => clearTimeout(timer))
+  })
 }
 
 async function fetchEngineContextUsage(sessionId: string): Promise<Record<string, unknown> | undefined> {
-  for (let attempt = 0; attempt <= CONTEXT_USAGE_FETCH_RETRIES; attempt++) {
-    try {
-      const raw = await api.getContextUsage(sessionId)
-      if (raw) return raw
-    } catch {
-      if (attempt >= CONTEXT_USAGE_FETCH_RETRIES) break
-      await sleep(CONTEXT_USAGE_RETRY_DELAY_MS)
-    }
-  }
-  return undefined
+  return withTimeout(api.getContextUsage(sessionId), CONTEXT_USAGE_FETCH_TIMEOUT_MS)
 }
 
 export const useContextUsageStore = defineStore('contextUsage', () => {
   const snapshot = ref<ContextUsageSnapshot | null>(null)
   const loading = ref(false)
   const lastFetchedSessionId = ref<string | null>(null)
+  const activeRequestSessionId = ref<string | null>(null)
 
   const hasData = computed(() => snapshot.value != null)
 
@@ -70,6 +67,9 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
     }
 
     if (!force && lastFetchedSessionId.value === sid && snapshot.value && !loading.value) {
+      return
+    }
+    if (loading.value && activeRequestSessionId.value === sid) {
       return
     }
 
@@ -86,6 +86,7 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
 
     loading.value = true
     lastFetchedSessionId.value = sid
+    activeRequestSessionId.value = sid
 
     try {
       if (settingsStore.engineType === 'claude-code') {
@@ -99,13 +100,18 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
     } catch {
       // Keep optimistic fallback snapshot.
     } finally {
-      loading.value = false
+      if (activeRequestSessionId.value === sid) {
+        loading.value = false
+        activeRequestSessionId.value = null
+      }
     }
   }
 
   function clear() {
     snapshot.value = null
     lastFetchedSessionId.value = null
+    activeRequestSessionId.value = null
+    loading.value = false
   }
 
   return {

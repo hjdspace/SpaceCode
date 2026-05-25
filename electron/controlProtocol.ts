@@ -727,7 +727,7 @@ export class ControlProtocolHandler extends EventEmitter {
     )
   }
 
-  getContextUsage(requestId: string = randomUUIDFn(), timeoutMs: number = 20_000) {
+  getContextUsage(requestId: string = randomUUIDFn(), timeoutMs: number = 5_000) {
     return this.sendControlRequest(
       buildGetContextUsageRequest(requestId) as { request_id: string } & Record<string, unknown>,
       timeoutMs,
