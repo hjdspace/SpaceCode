@@ -200,7 +200,7 @@ function scheduleRender() {
     // 使用 rAF 把渲染合并到下一帧, 避免 N 次 delta -> N 次 parse.
     requestAnimationFrame(() => {
       renderScheduled = false
-      performRender(false)
+      performRender(true)
       // 之后再用一个尾随定时器, 在内容稳定后做一次"完整"渲染(含 file-link).
       armTrailingFinalize()
     })
