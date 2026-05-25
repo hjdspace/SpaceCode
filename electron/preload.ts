@@ -153,7 +153,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
 
   // HTTP proxy (bypasses CORS by routing through main process)
-  httpFetch: (url: string, options?: { method?: string; headers?: Record<string, string>; body?: string }) =>
+  httpFetch: (url: string, options?: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number }) =>
     ipcRenderer.invoke('http:fetch', url, options),
 
   // System API

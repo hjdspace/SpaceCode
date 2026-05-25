@@ -113,7 +113,7 @@ export const api = {
     }
   },
   openExternal: (url: string) => electronAPI?.openExternal(url) || Promise.resolve(),
-  httpFetch: (url: string, options?: { method?: string; headers?: Record<string, string>; body?: string }): Promise<{ ok: boolean; status: number; data: string; error?: string } | null> => {
+  httpFetch: (url: string, options?: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number }): Promise<{ ok: boolean; status: number; data: string; error?: string } | null> => {
     if (electronAPI?.httpFetch) {
       return electronAPI.httpFetch(url, options)
     }

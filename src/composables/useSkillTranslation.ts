@@ -1,9 +1,12 @@
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { sendMessage, isLLMConfigured } from '@/services/llm'
+import { sendMessage, isLLMConfigured, initLLMService } from '@/services/llm'
 
 const TRANSLATION_SYSTEM_PROMPT =
   'You are a professional translator. Translate the following markdown content to Chinese. Preserve all markdown formatting, code blocks, and front matter (YAML between --- markers). Only translate the natural language text. Output the translated markdown directly without any explanation.'
+
+const TRANSLATION_TIMEOUT_MS = 180000
+const TRANSLATION_MAX_TOKENS = 8192
 
 export function useSkillTranslation(getContent: () => string) {
   const { t } = useI18n()
@@ -24,6 +27,8 @@ export function useSkillTranslation(getContent: () => string) {
       return
     }
 
+    await initLLMService()
+
     if (!isLLMConfigured()) {
       alert(t('skills.llmNotConfigured') || 'Please configure LLM API key in Settings first.')
       return
@@ -39,15 +44,13 @@ export function useSkillTranslation(getContent: () => string) {
           { role: 'system', content: TRANSLATION_SYSTEM_PROMPT },
           { role: 'user', content },
         ],
-        { maxTokens: 4096 },
+        { maxTokens: TRANSLATION_MAX_TOKENS, timeoutMs: TRANSLATION_TIMEOUT_MS },
       )
       translatedContent.value = result
     } catch (err) {
       console.error('Failed to translate skill content:', err)
-      alert(
-        t('skills.translationFailed') ||
-          `Translation failed: ${err instanceof Error ? err.message : err}`,
-      )
+      const message = err instanceof Error ? err.message : String(err)
+      alert(`${t('skills.translationFailed') || 'Translation failed'}: ${message}`)
     } finally {
       isTranslating.value = false
     }

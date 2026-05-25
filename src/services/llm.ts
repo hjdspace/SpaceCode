@@ -78,13 +78,18 @@ function buildApiUrl(baseUrl: string | undefined, defaultBase: string, endpoint:
   return `${normalized}${endpoint}`
 }
 
-export async function sendMessage(messages: Array<{ role: string; content: string }>, options?: { maxTokens?: number; system?: string }): Promise<string> {
+export async function sendMessage(
+  messages: Array<{ role: string; content: string }>,
+  options?: { maxTokens?: number; system?: string; timeoutMs?: number },
+): Promise<string> {
   if (!currentConfig?.apiKey) {
     throw new Error('LLM not configured')
   }
 
   const { provider, apiKey, baseUrl, model } = currentConfig
   console.log('[LLM] sendMessage called:', { provider, baseUrl, model, hasApiKey: !!apiKey })
+
+  const fetchOptions = { timeoutMs: options?.timeoutMs ?? 120000 }
 
   // Simple implementation for commit message generation and other non-Agent tasks
   // This is NOT used for the main chat Agent (which uses ClaudeCodeProcessManager)
@@ -107,16 +112,17 @@ export async function sendMessage(messages: Array<{ role: string; content: strin
           content: m.content,
         })),
       }),
+      ...fetchOptions,
     })
 
     if (!response || !response.ok) {
-      const text = response?.data || ''
+      const text = response?.error || response?.data || ''
       console.log('[LLM] Anthropic API error response:', text.slice(0, 500))
       const classified = errorHandler.handleError(
-        new Error(`API error: ${response?.status || 'unknown'} - ${text.slice(0, 200)}`),
+        new Error(`API error: ${response?.status ?? 'unknown'} - ${text.slice(0, 200)}`),
         { provider, baseUrl, phase: 'send' }
       )
-      throw new Error(classified.technicalDetail)
+      throw new Error(classified.message)
     }
 
     const responseText = response.data
@@ -141,21 +147,23 @@ export async function sendMessage(messages: Array<{ role: string; content: strin
     },
     body: JSON.stringify({
       model: model || 'gpt-4',
+      max_tokens: options?.maxTokens || 1024,
       messages: [
         ...(options?.system ? [{ role: 'system', content: options.system }] : []),
         ...messages,
       ],
     }),
+    ...fetchOptions,
   })
 
   if (!response || !response.ok) {
-    const text = response?.data || ''
+    const text = response?.error || response?.data || ''
     console.log('[LLM] OpenAI API error response:', text.slice(0, 500))
     const classified = errorHandler.handleError(
-      new Error(`API error: ${response?.status || 'unknown'} - ${text.slice(0, 200)}`),
+      new Error(`API error: ${response?.status ?? 'unknown'} - ${text.slice(0, 200)}`),
       { provider, baseUrl, phase: 'send' }
     )
-    throw new Error(classified.technicalDetail)
+    throw new Error(classified.message)
   }
 
   const responseText = response.data

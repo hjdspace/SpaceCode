@@ -820,12 +820,13 @@ function copyDirRecursive(src: string, dest: string) {
 }
 
 // Proxy HTTP requests from renderer to bypass CORS
-ipcMain.handle('http:fetch', async (_event, url: string, options?: { method?: string; headers?: Record<string, string>; body?: string }) => {
+ipcMain.handle('http:fetch', async (_event, url: string, options?: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number }) => {
   const fetchStart = Date.now()
-  debug('IPC', 'http:fetch', { url, method: options?.method })
+  const timeoutMs = options?.timeoutMs ?? 30000
+  debug('IPC', 'http:fetch', { url, method: options?.method, timeoutMs })
   try {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 30000)
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
 
     const response = await net.fetch(url, {
       method: options?.method || 'GET',
@@ -842,7 +843,7 @@ ipcMain.handle('http:fetch', async (_event, url: string, options?: { method?: st
   } catch (err: any) {
     const elapsed = Date.now() - fetchStart
     const errorMsg = err?.name === 'AbortError'
-      ? 'Request timed out (30s)'
+      ? `Request timed out (${Math.round(timeoutMs / 1000)}s)`
       : (err instanceof Error ? err.message : String(err))
     error('IPC', `http:fetch failed | elapsed=${elapsed}ms`, { url, error: errorMsg })
     return { ok: false, status: 0, error: errorMsg }
