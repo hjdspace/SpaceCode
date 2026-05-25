@@ -117,6 +117,8 @@ export interface MessageMetadata {
   model?: string
   inputTokens?: number
   outputTokens?: number
+  cacheReadInputTokens?: number
+  cacheCreationInputTokens?: number
   duration?: number
   warning?: string
   error?: ClassifiedError

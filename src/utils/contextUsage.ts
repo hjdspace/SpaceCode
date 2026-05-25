@@ -364,16 +364,23 @@ export function calculateCacheHitRate(totals: {
   return Math.round((totals.cacheReadInputTokens / promptTokens) * 10000) / 100
 }
 
+/** Status-line / engine analyzeContext formula: input + cache only (no output). */
+export function getContextFillFromApiUsage(usage: ContextApiUsage | null | undefined): number {
+  if (!usage) return 0
+  return (
+    usage.input_tokens +
+    (usage.cache_creation_input_tokens ?? 0) +
+    (usage.cache_read_input_tokens ?? 0)
+  )
+}
+
 /** StatusLine formula: input + cache only. */
 export function calculateContextPercentages(
   usage: ContextApiUsage | null,
   contextWindowSize: number,
 ): { used: number | null; remaining: number | null } {
   if (!usage) return { used: null, remaining: null }
-  const totalInput =
-    usage.input_tokens +
-    (usage.cache_creation_input_tokens ?? 0) +
-    (usage.cache_read_input_tokens ?? 0)
+  const totalInput = getContextFillFromApiUsage(usage)
   const used = Math.min(100, Math.max(0, Math.round((totalInput / contextWindowSize) * 100)))
   return { used, remaining: 100 - used }
 }
@@ -427,15 +434,23 @@ export function sumSessionTokensFromMessages(messages: Message[]): {
 } {
   let inputTokens = 0
   let outputTokens = 0
+  let cacheReadInputTokens = 0
+  let cacheCreationInputTokens = 0
   for (const msg of messages) {
     if (msg.metadata?.inputTokens) inputTokens += msg.metadata.inputTokens
     if (msg.metadata?.outputTokens) outputTokens += msg.metadata.outputTokens
+    if (msg.metadata?.cacheReadInputTokens) {
+      cacheReadInputTokens += msg.metadata.cacheReadInputTokens
+    }
+    if (msg.metadata?.cacheCreationInputTokens) {
+      cacheCreationInputTokens += msg.metadata.cacheCreationInputTokens
+    }
   }
   return {
     inputTokens,
     outputTokens,
-    cacheReadInputTokens: 0,
-    cacheCreationInputTokens: 0,
+    cacheReadInputTokens,
+    cacheCreationInputTokens,
   }
 }
 
@@ -468,24 +483,27 @@ export function buildSnapshotFromEngineData(
   }
 }
 
+function getLastApiUsageFromMessages(messages: Message[]): ContextApiUsage | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (m?.metadata?.inputTokens != null) {
+      return {
+        input_tokens: m.metadata.inputTokens,
+        output_tokens: m.metadata.outputTokens ?? 0,
+        cache_read_input_tokens: m.metadata.cacheReadInputTokens ?? 0,
+        cache_creation_input_tokens: m.metadata.cacheCreationInputTokens ?? 0,
+      }
+    }
+  }
+  return null
+}
+
 export function buildFallbackSnapshot(
   messages: Message[],
   model: string,
 ): ContextUsageSnapshot {
   const ctxSize = getContextWindowForModel(model)
-  let lastUsage: ContextApiUsage | null = null
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i]
-    if (m?.metadata?.inputTokens != null) {
-      lastUsage = {
-        input_tokens: m.metadata.inputTokens,
-        output_tokens: m.metadata.outputTokens ?? 0,
-        cache_read_input_tokens: 0,
-        cache_creation_input_tokens: 0,
-      }
-      break
-    }
-  }
+  const lastUsage = getLastApiUsageFromMessages(messages)
 
   const sessionTotals = sumSessionTokensFromMessages(messages)
   let estimatedTotal = 0
@@ -497,12 +515,7 @@ export function buildFallbackSnapshot(
     estimatedTotal += Math.ceil(len / 4)
   }
 
-  const totalTokens = lastUsage
-    ? lastUsage.input_tokens +
-      lastUsage.output_tokens +
-      (lastUsage.cache_read_input_tokens ?? 0) +
-      (lastUsage.cache_creation_input_tokens ?? 0)
-    : estimatedTotal
+  const totalTokens = lastUsage ? getContextFillFromApiUsage(lastUsage) : estimatedTotal
 
   const percentage = Math.min(100, Math.round((totalTokens / ctxSize) * 100))
   const { used, remaining } = calculateContextPercentages(lastUsage, ctxSize)

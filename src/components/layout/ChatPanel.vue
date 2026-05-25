@@ -1087,6 +1087,12 @@ function buildMessagesFromHistory(rawMessages: any[]): RestoredMessage[] {
       if (raw.message?.model) metadata.model = raw.message.model
       if (typeof usage.input_tokens === 'number') metadata.inputTokens = usage.input_tokens
       if (typeof usage.output_tokens === 'number') metadata.outputTokens = usage.output_tokens
+      if (typeof usage.cache_read_input_tokens === 'number') {
+        metadata.cacheReadInputTokens = usage.cache_read_input_tokens
+      }
+      if (typeof usage.cache_creation_input_tokens === 'number') {
+        metadata.cacheCreationInputTokens = usage.cache_creation_input_tokens
+      }
 
       const restored: RestoredMessage = {
         id: messageId,

@@ -1343,6 +1343,12 @@ export const useChatStore = defineStore('chat', () => {
               ...msg.metadata,
               inputTokens: apiUsage.input_tokens,
               outputTokens: apiUsage.output_tokens,
+              ...(typeof apiUsage.cache_read_input_tokens === 'number'
+                ? { cacheReadInputTokens: apiUsage.cache_read_input_tokens }
+                : {}),
+              ...(typeof apiUsage.cache_creation_input_tokens === 'number'
+                ? { cacheCreationInputTokens: apiUsage.cache_creation_input_tokens }
+                : {}),
             }
           }
         }
@@ -1643,6 +1649,12 @@ export const useChatStore = defineStore('chat', () => {
               ...(resultUsage && {
                 inputTokens: resultUsage.input_tokens,
                 outputTokens: resultUsage.output_tokens,
+                ...(typeof resultUsage.cache_read_input_tokens === 'number'
+                  ? { cacheReadInputTokens: resultUsage.cache_read_input_tokens }
+                  : {}),
+                ...(typeof resultUsage.cache_creation_input_tokens === 'number'
+                  ? { cacheCreationInputTokens: resultUsage.cache_creation_input_tokens }
+                  : {}),
               }),
               warning: suspiciousToolStop
                 ? 'Agent 在工具调用状态下提前结束，当前模型可能没有稳定支持多轮工具调用协议。建议重试或切换为更强的工具调用模型。'

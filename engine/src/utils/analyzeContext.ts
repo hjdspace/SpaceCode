@@ -88,10 +88,18 @@ function roughEstimateTokensFromPayload(
   return total
 }
 
+/** Set while analyzeContextUsage runs with roughEstimatesOnly (SDK fast path). */
+let roughEstimatesOnlyMode = false
+
 async function countTokensWithFallback(
   messages: Anthropic.Beta.Messages.BetaMessageParam[],
   tools: Anthropic.Beta.Messages.BetaToolUnion[],
 ): Promise<number | null> {
+  if (roughEstimatesOnlyMode) {
+    const roughEstimate = roughEstimateTokensFromPayload(messages, tools)
+    return roughEstimate > 0 ? roughEstimate : null
+  }
+
   try {
     const result = await countMessagesTokensWithAPI(messages, tools)
     if (result !== null) {
@@ -945,6 +953,11 @@ async function approximateMessageTokens(
   return breakdown
 }
 
+export type AnalyzeContextUsageOptions = {
+  /** Skip count_tokens API calls — for SDK get_context_usage UI polling. */
+  roughEstimatesOnly?: boolean
+}
+
 export async function analyzeContextUsage(
   messages: Message[],
   model: string,
@@ -956,7 +969,11 @@ export async function analyzeContextUsage(
   mainThreadAgentDefinition?: AgentDefinition,
   /** Original messages before microcompact, used to extract API usage */
   originalMessages?: Message[],
+  analyzeOptions?: AnalyzeContextUsageOptions,
 ): Promise<ContextData> {
+  const prevRoughMode = roughEstimatesOnlyMode
+  roughEstimatesOnlyMode = analyzeOptions?.roughEstimatesOnly ?? false
+  try {
   const runtimeModel = getRuntimeMainLoopModel({
     permissionMode: (await getToolPermissionContext()).mode,
     mainLoopModel: model,
@@ -1408,5 +1425,8 @@ export async function analyzeContextUsage(
     isAutoCompactEnabled: isAutoCompact,
     messageBreakdown: formattedMessageBreakdown,
     apiUsage,
+  }
+  } finally {
+    roughEstimatesOnlyMode = prevRoughMode
   }
 }

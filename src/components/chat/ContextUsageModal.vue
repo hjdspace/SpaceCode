@@ -13,12 +13,12 @@
             </button>
           </header>
 
-          <div v-if="loading" class="modal-loading">
+          <div v-if="loading && !snapshot" class="modal-loading">
             <Loader2 :size="20" class="spin" />
             <span>{{ t('common.loading') }}</span>
           </div>
 
-          <div v-else-if="snapshot" class="modal-body">
+          <div v-if="snapshot" class="modal-body">
             <div class="overview-row">
               <div class="ring-wrap">
                 <svg width="112" height="112" viewBox="0 0 120 120">

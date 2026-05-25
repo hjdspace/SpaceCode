@@ -33,6 +33,26 @@ function parseEngineContextData(raw: Record<string, unknown>): ContextUsageData 
   return data
 }
 
+const CONTEXT_USAGE_FETCH_RETRIES = 1
+const CONTEXT_USAGE_RETRY_DELAY_MS = 1_000
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function fetchEngineContextUsage(sessionId: string): Promise<Record<string, unknown> | undefined> {
+  for (let attempt = 0; attempt <= CONTEXT_USAGE_FETCH_RETRIES; attempt++) {
+    try {
+      const raw = await api.getContextUsage(sessionId)
+      if (raw) return raw
+    } catch {
+      if (attempt >= CONTEXT_USAGE_FETCH_RETRIES) break
+      await sleep(CONTEXT_USAGE_RETRY_DELAY_MS)
+    }
+  }
+  return undefined
+}
+
 export const useContextUsageStore = defineStore('contextUsage', () => {
   const snapshot = ref<ContextUsageSnapshot | null>(null)
   const loading = ref(false)
@@ -57,22 +77,27 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
     const session = chatStore.sessions.find(s => s.id === sid)
     const messages = session?.messages ?? []
 
+    if (lastFetchedSessionId.value !== sid) {
+      snapshot.value = null
+    }
+
+    // Show client-side estimate immediately so the modal/chip never spin for minutes.
+    snapshot.value = buildFallbackSnapshot(messages, model)
+
     loading.value = true
     lastFetchedSessionId.value = sid
 
     try {
       if (settingsStore.engineType === 'claude-code') {
-        const raw = await api.getContextUsage(sid)
+        const raw = await fetchEngineContextUsage(sid)
         const data = raw ? parseEngineContextData(raw as Record<string, unknown>) : null
         if (data) {
           const enriched = enrichContextDataFromClient(data, messages)
           snapshot.value = buildSnapshotFromEngineData(enriched, model)
-          return
         }
       }
-      snapshot.value = buildFallbackSnapshot(messages, model)
     } catch {
-      snapshot.value = buildFallbackSnapshot(messages, model)
+      // Keep optimistic fallback snapshot.
     } finally {
       loading.value = false
     }

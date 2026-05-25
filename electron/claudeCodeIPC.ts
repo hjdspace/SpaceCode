@@ -293,11 +293,19 @@ export function registerClaudeCodeIPC() {
 
   ipcMain.handle('claude-code:getContextUsage', async (_, sessionId: string) => {
     debug('ClaudeCodeIPC', `→ getContextUsage | sessionId=${sessionId.slice(0, 8)}`)
-    const engine = findEngineForSession(sessionId)
-    if (typeof engine.getContextUsage === 'function') {
-      return engine.getContextUsage(sessionId)
+    try {
+      const engine = findEngineForSession(sessionId)
+      if (typeof engine.getContextUsage === 'function') {
+        return await engine.getContextUsage(sessionId)
+      }
+      return null
+    } catch (err) {
+      debug(
+        'ClaudeCodeIPC',
+        `getContextUsage failed | sessionId=${sessionId.slice(0, 8)} | ${err instanceof Error ? err.message : String(err)}`,
+      )
+      return null
     }
-    return null
   })
 
   ipcMain.handle('claude-code:getSettings', async (_, sessionId: string) => {
