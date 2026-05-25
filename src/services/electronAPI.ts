@@ -93,6 +93,8 @@ export interface TokenStatsResult {
   modelUsage: Record<string, TokenStatsSummary>
 }
 
+export type ExternalEditor = 'vscode' | 'gvim'
+
 export const api = {
   sendMessage: (text: string) => electronAPI?.sendMessage(text) || Promise.resolve({ success: false }),
   onMessage: (callback: (msg: any) => void) => electronAPI?.onMessage(callback),
@@ -148,6 +150,12 @@ export const api = {
     }
   },
   openExternal: (url: string) => electronAPI?.openExternal(url) || Promise.resolve(),
+  openInEditor: (editor: ExternalEditor, targetPath: string): Promise<{ success: boolean; error?: string }> => {
+    if (electronAPI?.openInEditor) {
+      return electronAPI.openInEditor(editor, targetPath)
+    }
+    return Promise.resolve({ success: false, error: 'openInEditor not available' })
+  },
   httpFetch: (url: string, options?: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number }): Promise<{ ok: boolean; status: number; data: string; error?: string } | null> => {
     if (electronAPI?.httpFetch) {
       return electronAPI.httpFetch(url, options)

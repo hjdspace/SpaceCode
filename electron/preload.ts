@@ -151,6 +151,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('menu:closeFolder', () => callback()),
 
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
+  openInEditor: (editor: 'vscode' | 'gvim', targetPath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('app:openInEditor', editor, targetPath),
 
   // HTTP proxy (bypasses CORS by routing through main process)
   httpFetch: (url: string, options?: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number }) =>

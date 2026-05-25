@@ -25,6 +25,23 @@
 
         <div class="menu-separator"></div>
 
+        <button v-if="node?.type === 'file'" class="menu-item" @click="handleOpenInEditor('vscode')">
+          <span class="menu-icon">🧩</span>
+          <span class="menu-label">{{ t('fileTree.openWithVSCode') }}</span>
+        </button>
+
+        <button v-if="node?.type === 'file'" class="menu-item" @click="handleOpenInEditor('gvim')">
+          <span class="menu-icon">📝</span>
+          <span class="menu-label">{{ t('fileTree.openWithGVim') }}</span>
+        </button>
+
+        <button v-if="node?.isRoot" class="menu-item" @click="handleOpenInEditor('vscode')">
+          <span class="menu-icon">🧩</span>
+          <span class="menu-label">{{ t('fileTree.openProjectWithVSCode') }}</span>
+        </button>
+
+        <div v-if="node?.type === 'file' || node?.isRoot" class="menu-separator"></div>
+
         <!-- 复制路径 -->
         <button class="menu-item" @click="handleCopyPath">
           <span class="menu-icon">🔗</span>
@@ -78,6 +95,7 @@ interface TreeNode {
   name: string
   path: string
   type: 'file' | 'directory'
+  isRoot?: boolean
 }
 
 const props = defineProps<{
@@ -107,6 +125,8 @@ const menuStyle = computed(() => ({
 const canCut = computed(() => props.node !== null)
 const canRename = computed(() => props.node !== null)
 const canDelete = computed(() => props.node !== null)
+
+type ExternalEditor = 'vscode' | 'gvim'
 
 function handleCut() {
   if (!props.node) return
@@ -146,6 +166,20 @@ async function handleCopyRelativePath() {
 function handleAddToChat() {
   if (!props.node) return
   emit('add-to-chat', props.node)
+  emit('close')
+}
+
+async function handleOpenInEditor(editor: ExternalEditor) {
+  if (!props.node) return
+  try {
+    const result = await api.openInEditor(editor, props.node.path)
+    if (!result.success) {
+      alert(`打开失败：${result.error || editor}`)
+    }
+  } catch (err) {
+    console.error('[FileContextMenu] Open in editor error:', err)
+    alert('打开失败，请确认编辑器命令已加入 PATH。')
+  }
   emit('close')
 }
 

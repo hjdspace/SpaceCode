@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, shell, dialog, net, globalShortcut } from 'electron'
 import { join, resolve, extname, dirname, basename } from 'path'
 import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSync, copyFileSync, renameSync, unlinkSync, rmSync } from 'fs'
+import { spawn } from 'child_process'
 import { config } from 'dotenv'
 import { TerminalManager } from './terminalManager'
 import { registerGitIPCHandlers } from './gitService'
@@ -55,6 +56,41 @@ app.commandLine.appendSwitch('no-sandbox')
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
+
+type ExternalEditor = 'vscode' | 'gvim'
+
+function openPathInEditor(editor: ExternalEditor, targetPath: string): Promise<{ success: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    if (!targetPath || !existsSync(targetPath)) {
+      resolve({ success: false, error: 'Path does not exist' })
+      return
+    }
+
+    const command = editor === 'vscode' ? 'code' : 'gvim'
+    const args = editor === 'vscode' ? ['-r', targetPath] : [targetPath]
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: 'ignore',
+      shell: process.platform === 'win32'
+    })
+
+    let settled = false
+    child.once('error', (err) => {
+      settled = true
+      error('IPC', 'app:openInEditor failed', { editor, targetPath, err })
+      resolve({ success: false, error: err.message })
+    })
+    child.once('spawn', () => {
+      child.unref()
+      setTimeout(() => {
+        if (!settled) {
+          settled = true
+          resolve({ success: true })
+        }
+      }, 100)
+    })
+  })
+}
 
 function destroyTray() {
   if (tray) {
@@ -748,6 +784,14 @@ ipcMain.on('ui:hideInfoPanel', () => {
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   info('IPC', 'shell:openExternal', { url })
   await shell.openExternal(url)
+})
+
+ipcMain.handle('app:openInEditor', async (_event, editor: ExternalEditor, targetPath: string) => {
+  info('IPC', 'app:openInEditor', { editor, targetPath })
+  if (editor !== 'vscode' && editor !== 'gvim') {
+    return { success: false, error: 'Unsupported editor' }
+  }
+  return openPathInEditor(editor, targetPath)
 })
 
 // File operations for context menu

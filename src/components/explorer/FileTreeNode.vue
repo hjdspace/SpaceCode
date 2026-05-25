@@ -98,6 +98,7 @@ interface TreeNode {
   type: 'file' | 'directory'
   children?: TreeNode[]
   extension?: string
+  isRoot?: boolean
 }
 
 interface Props {

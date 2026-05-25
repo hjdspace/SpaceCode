@@ -88,6 +88,7 @@ interface TreeNode {
   type: 'file' | 'directory'
   children?: TreeNode[]
   extension?: string
+  isRoot?: boolean
 }
 
 interface Props {
@@ -225,7 +226,15 @@ async function fetchTree() {
   error.value = null
 
   try {
-    treeData.value = await loadDirectory(rootPath)
+    const rootName = rootPath.split(/[\\/]/).filter(Boolean).pop() || rootPath
+    treeData.value = [{
+      name: rootName,
+      path: rootPath,
+      type: 'directory',
+      children: await loadDirectory(rootPath),
+      isRoot: true
+    }]
+    expandedPaths.value = new Set([rootPath])
   } catch (err) {
     if ((err as Error).name !== 'AbortError') {
       error.value = 'Failed to load file tree'
