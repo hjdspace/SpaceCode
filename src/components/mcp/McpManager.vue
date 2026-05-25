@@ -3,12 +3,17 @@
     <!-- Fixed header -->
     <div class="mcp-header">
       <div class="header-content">
-        <div>
-          <h1 class="title">
-            MCP Servers
-            <span v-if="serverCount > 0" class="server-count">({{ serverCount }})</span>
-          </h1>
-          <p class="description">Manage Model Context Protocol servers for extending Claude's capabilities</p>
+        <div class="header-left">
+          <button class="back-btn" @click="handleClose" title="返回聊天界面">
+            <ArrowLeft :size="18" />
+          </button>
+          <div>
+            <h1 class="title">
+              MCP Servers
+              <span v-if="serverCount > 0" class="server-count">({{ serverCount }})</span>
+            </h1>
+            <p class="description">Manage Model Context Protocol servers for extending Claude's capabilities</p>
+          </div>
         </div>
         <button class="btn btn-primary" @click="handleAdd">
           <Plus :size="14" />
@@ -127,14 +132,16 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import {
-  Plus, List, Code, Loader2, Wifi, RefreshCw
+  Plus, List, Code, Loader2, Wifi, RefreshCw, ArrowLeft
 } from 'lucide-vue-next'
 import { useMcpStore, type MCPServer } from '@/stores/mcp'
+import { useAppStore } from '@/stores/app'
 import McpServerList from './McpServerList.vue'
 import McpServerEditor from './McpServerEditor.vue'
 import ConfigEditor from './ConfigEditor.vue'
 
 const mcpStore = useMcpStore()
+const appStore = useAppStore()
 
 const tab = ref<'list' | 'json'>('list')
 const editorOpen = ref(false)
@@ -153,6 +160,10 @@ const serverCount = computed(() => mcpStore.serverCount)
 const hasClaudeJsonServers = computed(() =>
   Object.values(servers.value).some(s => s._source === 'claude.json')
 )
+
+function handleClose() {
+  appStore.showMCPManager = false
+}
 
 const jsonConfig = computed(() => {
   const filtered = Object.fromEntries(
@@ -260,7 +271,31 @@ onMounted(() => {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding-right: 48px; // Make room for the close button in modal
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
 }
 
 .title {

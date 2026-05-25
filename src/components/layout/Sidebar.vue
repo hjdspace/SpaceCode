@@ -128,7 +128,7 @@
             </button>
             <button
               class="feature-nav-item"
-              :class="{ active: showMcpManager }"
+              :class="{ active: appStore.showMCPManager }"
               @click="handleOpenMcp"
             >
               <Plug :size="14" />
@@ -248,10 +248,7 @@
     <!-- Settings Panel (Modal) -->
     <!-- Settings now renders inline in the center panel via App.vue -->
 
-    <!-- MCP Manager Modal -->
-    <McpManager
-      v-model="showMcpManager"
-    />
+    <!-- MCP Manager - 已迁移到 App.vue 全屏模式，不再使用弹窗 -->
     
   </aside>
 </template>
@@ -284,7 +281,7 @@ import SessionList from '../explorer/SessionList.vue'
 import FileTree from '../explorer/FileTree.vue'
 import ScmPanel from '../scm/ScmPanel.vue'
 import SkillsManager from '../skills/SkillsManager.vue'
-import McpManager from '../mcp/McpManagerModal.vue'
+// import McpManager from '../mcp/McpManagerModal.vue' // 已迁移到 App.vue 全屏模式
 import { api } from '@/services/electronAPI'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useFileToChat } from '@/composables/useFileToChat'
@@ -309,7 +306,7 @@ const { openProjectFromPicker } = useOpenProjectWorkflow()
 const { addFileToFile } = useFileToChat()
 
 const activeTab = ref<'explorer' | 'scm' | 'history' | 'terminal'>('history')
-const showMcpManager = ref(false)
+// const showMcpManager = ref(false) // 已迁移到 appStore.showMCPManager
 
 // Platform detection for titlebar spacing
 const platform = typeof window !== 'undefined' && window.electronAPI?.platform
@@ -348,7 +345,7 @@ function handleOpenSkills() {
 }
 
 function handleOpenMcp() {
-  showMcpManager.value = true
+  appStore.showMCPManager = true  // 使用全局状态，平铺显示在 center-panel
 }
 
 function handleTerminalClick() {

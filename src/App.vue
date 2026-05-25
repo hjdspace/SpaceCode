@@ -16,6 +16,7 @@
         <div class="center-content">
           <SettingsPanel v-if="appStore.showSettings" />
           <SkillsManager v-else-if="appStore.showSkillsManager" />
+          <McpManager v-else-if="appStore.showMCPManager" />
           <ChatPanel v-else-if="!appStore.showTraceViewer" />
           <TraceViewer v-else />
         </div>
@@ -46,6 +47,7 @@ import InfoPanel from './components/layout/InfoPanel.vue'
 import TraceViewer from './components/debug/TraceViewer.vue'
 import SettingsPanel from './components/settings/SettingsPanel.vue'
 import SkillsManager from './components/skills/SkillsManager.vue'
+import McpManager from './components/mcp/McpManager.vue'
 import { api } from '@/services/electronAPI'
 import { useShortcuts } from '@/composables/useShortcuts'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
@@ -170,6 +172,11 @@ onMounted(() => {
   // 监听打开技能管理器事件
   window.addEventListener('open-skills-manager', () => {
     appStore.showSkillsManager = true
+  })
+
+  // 监听打开 MCP 管理器事件
+  window.addEventListener('open-mcp-manager', () => {
+    appStore.showMCPManager = true
   })
 })
 
