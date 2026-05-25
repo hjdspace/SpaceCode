@@ -58,6 +58,15 @@ const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 const { openProjectByPath } = useOpenProjectWorkflow()
 
+// 事件处理函数（提升到组件作用域，供 onMounted/onUnmounted 使用）
+const handleOpenSkillsManager = () => {
+  appStore.showSkillsManager = true
+}
+
+const handleOpenMCPManager = () => {
+  appStore.showMCPManager = true
+}
+
 // Initialize shortcuts
 const { register } = useShortcuts({
   'new_chat': () => { chatStore.createSession() },
@@ -170,19 +179,17 @@ onMounted(() => {
   }
 
   // 监听打开技能管理器事件
-  window.addEventListener('open-skills-manager', () => {
-    appStore.showSkillsManager = true
-  })
+  window.addEventListener('open-skills-manager', handleOpenSkillsManager)
 
   // 监听打开 MCP 管理器事件
-  window.addEventListener('open-mcp-manager', () => {
-    appStore.showMCPManager = true
-  })
+  window.addEventListener('open-mcp-manager', handleOpenMCPManager)
 })
 
 onUnmounted(() => {
   document.removeEventListener('mousemove', handleResize)
   document.removeEventListener('mouseup', stopResize)
+  window.removeEventListener('open-skills-manager', handleOpenSkillsManager)
+  window.removeEventListener('open-mcp-manager', handleOpenMCPManager)
 })
 </script>
 
