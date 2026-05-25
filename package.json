@@ -107,6 +107,10 @@
       {
         "from": "engine/dist-desktop",
         "to": "engine/dist-desktop"
+      },
+      {
+        "from": "skills-lib",
+        "to": "skills-lib"
       }
     ],
     "win": {

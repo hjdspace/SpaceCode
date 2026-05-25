@@ -186,6 +186,21 @@ function getEngineRoot(): string {
   return join(__dirname, '../engine')
 }
 
+function getSkillsLibRoot(): string {
+  if (app.isPackaged) {
+    return join(process.resourcesPath, 'skills-lib')
+  }
+  return join(__dirname, '../skills-lib')
+}
+
+function resolveLocalLibPath(dirPath: string): string {
+  if (dirPath.startsWith('skills-lib')) {
+    const suffix = dirPath === 'skills-lib' ? '' : dirPath.slice('skills-lib'.length).replace(/^\//, '')
+    return suffix ? join(getSkillsLibRoot(), suffix) : getSkillsLibRoot()
+  }
+  return dirPath
+}
+
 function getBundledSkillContent(name: string, description: string): string {
   const skillMdPath = join(getEngineRoot(), 'src/skills/bundled', name, 'SKILL.md')
   if (existsSync(skillMdPath)) {
@@ -1050,7 +1065,7 @@ async function handleScanLocalLibrary(
     }
 
     for (const dirPath of dirPaths) {
-      const fullPath = dirPath.startsWith('skills-lib') ? join(app.getAppPath(), dirPath) : dirPath
+      const fullPath = resolveLocalLibPath(dirPath)
 
       if (!existsSync(fullPath)) {
         console.log(`[LocalLibrary] Directory not found: ${fullPath}`)
@@ -1186,7 +1201,7 @@ async function handleInstallLocalSkill(
       allDirPaths.push(...customDirs)
 
       for (const dirPath of allDirPaths) {
-        const fullPath = dirPath.startsWith('skills-lib') ? join(app.getAppPath(), dirPath) : dirPath
+        const fullPath = resolveLocalLibPath(dirPath)
         const entries = existsSync(fullPath) ? readdirSync(fullPath, { withFileTypes: true }) : []
 
         for (const entry of entries) {
