@@ -98,7 +98,38 @@ jobs:
             console.log('secrets.json written, keys:', Object.keys(secrets));
           "
 
-      - name: Rebuild native modules
+      - name: Rebuild native modules (Linux - in old-glibc container)
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          docker run --rm \
+            -v "${PWD}:/workspace" \
+            -w /workspace \
+            -e ELECTRON_CACHE=/workspace/.electron-cache \
+            node:20-bullseye \
+            bash -c "
+              set -e
+              apt-get update -qq && apt-get install -y -qq python3 build-essential >/dev/null
+              ln -sf /usr/bin/python3 /usr/local/bin/python || true
+              npx --yes @electron/rebuild@^3 -f -w node-pty
+            "
+          sudo chown -R "$(id -u):$(id -g)" node_modules/node-pty .electron-cache 2>/dev/null || true
+
+          echo "=== Verifying node-pty native binary glibc requirement ==="
+          PTY_NODE="node_modules/node-pty/build/Release/pty.node"
+          if [ -f "$PTY_NODE" ]; then
+            echo "OK: $PTY_NODE exists"
+            ls -lh "$PTY_NODE"
+            echo "--- GLIBC versions referenced by pty.node ---"
+            objdump -T "$PTY_NODE" 2>/dev/null | grep -oE 'GLIBC_[0-9.]+' | sort -V -u || true
+          else
+            echo "ERROR: node-pty native binary not found after rebuild!"
+            find node_modules/node-pty -name "*.node" -type f 2>/dev/null || true
+            exit 1
+          fi
+
+      - name: Rebuild native modules (macOS / Windows)
+        if: matrix.platform != 'linux'
         shell: bash
         run: |
           # 使用 @electron/rebuild（新包名，老包 electron-rebuild 已弃用）

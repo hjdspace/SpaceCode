@@ -977,10 +977,17 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function hydrateAgentTranscriptFromFile(sessionId: string, teammateId: string, filePath: string, name: string, status: TeammateStatus) {
+  async function hydrateAgentTranscriptFromFile(sessionId: string, teammateId: string, filePath: string, name: string, status: TeammateStatus, attempts = 8) {
     try {
       const content = await electronAPI?.readFile?.(filePath)
-      if (!content?.trim()) return
+      if (!content?.trim()) {
+        if (attempts > 0) {
+          setTimeout(() => {
+            void hydrateAgentTranscriptFromFile(sessionId, teammateId, filePath, name, status, attempts - 1)
+          }, 1500)
+        }
+        return
+      }
       const session = sessions.value.find(s => s.id === sessionId)
       if (!session?.teammateTranscripts) return
       const transcript = session.teammateTranscripts[teammateId] || []
@@ -1086,10 +1093,6 @@ export const useChatStore = defineStore('chat', () => {
       }
       session.updatedAt = Date.now()
       session.lastActivityAt = Date.now()
-
-      for (const toolCall of newMessage.toolCalls || []) {
-        recordAgentToolCall(session, toolCall, toolCall.status === 'completed' ? 'completed' : toolCall.status === 'error' ? 'failed' : 'running')
-      }
 
       for (const toolCall of newMessage.toolCalls || []) {
         recordAgentToolCall(session, toolCall, toolCall.status === 'completed' ? 'completed' : toolCall.status === 'error' ? 'failed' : 'running')

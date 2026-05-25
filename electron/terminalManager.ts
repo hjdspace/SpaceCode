@@ -123,11 +123,29 @@ function loadNodePty(): any {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       errors.push(`  - require(node-pty): ${msg}`)
+
+      // 检测典型的 glibc 版本过低错误，给出明确的中文诊断提示
+      const allErrors = errors.join('\n')
+      const glibcMatch = allErrors.match(/GLIBC_([0-9.]+)['`]?\s+not found/i)
+      if (glibcMatch && process.platform === 'linux') {
+        const requiredGlibc = glibcMatch[1]
+        throw new Error(
+          `[node-pty] 当前系统 glibc 版本过低，无法加载 pty.node。\n` +
+          `打包时使用的二进制需要 GLIBC_${requiredGlibc}，但当前发行版未提供该版本。\n` +
+          `常见于 Ubuntu 20.04 / Debian 11 / RHEL 8 等较老的 Linux 发行版。\n` +
+          `\n建议：\n` +
+          `  1) 升级到较新的发行版（Ubuntu 22.04+ / Debian 12+ / RHEL 9+）；或\n` +
+          `  2) 等待官方发布在低版本 glibc 上重编译的 AppImage；或\n` +
+          `  3) 自行从源码运行（npm ci && npm run electron:build:linux）。\n` +
+          `\n详细诊断:\n${allErrors}`
+        )
+      }
+
       throw new Error(
         `Failed to load node-pty pty.node native binding for ${platArch}. ` +
         `Make sure @electron/rebuild has been run for the target Electron ABI ` +
         `before packaging (typical fix: \`npx @electron/rebuild -f -w node-pty\`).\n` +
-        `Attempted binaries:\n${errors.join('\n')}`
+        `Attempted binaries:\n${allErrors}`
       )
     }
   }
