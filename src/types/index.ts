@@ -115,10 +115,24 @@ export interface ToolResult {
 
 export interface MessageMetadata {
   model?: string
+  // Cumulative-per-turn usage from SDK `result.usage`. Suitable for
+  // session-wide totals (sums across messages give grand totals), but NOT
+  // suitable for context-fill calculation because cache reads accumulate
+  // across iterations within one turn.
   inputTokens?: number
   outputTokens?: number
   cacheReadInputTokens?: number
   cacheCreationInputTokens?: number
+  // Per-API-call usage from the LAST `assistant` event of the turn. This
+  // mirrors what claude-code's `getCurrentUsage` returns and is the
+  // authoritative source for context-fill calculation
+  // (input + cache_creation + cache_read).
+  apiCallUsage?: {
+    input_tokens: number
+    output_tokens: number
+    cache_read_input_tokens: number
+    cache_creation_input_tokens: number
+  }
   duration?: number
   warning?: string
   error?: ClassifiedError

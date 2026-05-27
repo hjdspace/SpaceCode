@@ -1007,29 +1007,37 @@ function getLocalSkillDirs(rootDir: string): string[] {
 }
 
 function readPluginManifest(bundleDir: string): Record<string, any> | null {
-  const manifestPath = join(bundleDir, '.claude-plugin', 'plugin.json')
-  console.log(`[LocalLibrary] readPluginManifest checking: ${manifestPath}`)
-  if (!existsSync(manifestPath)) {
-    console.log(`[LocalLibrary] Manifest not found: ${manifestPath}`)
+  const manifestPaths = [
+    join(bundleDir, '.claude-plugin', 'plugin.json'),
+    join(bundleDir, '.claude-plugin', 'marketplace.json')
+  ]
+  const manifestPath = manifestPaths.find(path => existsSync(path))
+  console.log(`[LocalLibrary] readPluginManifest checking: ${manifestPaths.join(', ')}`)
+  if (!manifestPath) {
+    console.log(`[LocalLibrary] Manifest not found: ${manifestPaths.join(', ')}`)
     return null
   }
   try {
     const content = readFileSync(manifestPath, 'utf-8')
     console.log(`[LocalLibrary] Manifest content (${content.length} chars): ${manifestPath}`)
     const parsed = JSON.parse(content)
-    console.log(`[LocalLibrary] Parsed manifest:`, parsed.name)
-    return parsed
+    const manifest = Array.isArray(parsed.plugins) && parsed.plugins.length > 0
+      ? { ...parsed.plugins[0], marketplaceName: parsed.name }
+      : parsed
+    console.log(`[LocalLibrary] Parsed manifest:`, manifest.name)
+    return manifest
   } catch (err) {
-    console.error(`[LocalLibrary] Failed to parse plugin.json: ${manifestPath}`, err)
+    console.error(`[LocalLibrary] Failed to parse plugin manifest: ${manifestPath}`, err)
     return null
   }
 }
 
 function bundleIsInstalled(bundleName: string, cwd?: string): { installed: boolean; scope?: 'global' | 'project' | 'mixed' } {
-  const globalPath = join(getGlobalPluginsRoot(), bundleName, '.claude-plugin', 'plugin.json')
-  const projectPath = cwd ? join(getProjectPluginsRoot(cwd), bundleName, '.claude-plugin', 'plugin.json') : ''
-  const inGlobal = existsSync(globalPath)
-  const inProject = !!projectPath && existsSync(projectPath)
+  const hasManifest = (root: string) =>
+    existsSync(join(root, bundleName, '.claude-plugin', 'plugin.json')) ||
+    existsSync(join(root, bundleName, '.claude-plugin', 'marketplace.json'))
+  const inGlobal = hasManifest(getGlobalPluginsRoot())
+  const inProject = cwd ? hasManifest(getProjectPluginsRoot(cwd)) : false
   if (inGlobal && inProject) return { installed: true, scope: 'mixed' }
   if (inGlobal) return { installed: true, scope: 'global' }
   if (inProject) return { installed: true, scope: 'project' }

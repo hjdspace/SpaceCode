@@ -486,6 +486,19 @@ export function buildSnapshotFromEngineData(
 function getLastApiUsageFromMessages(messages: Message[]): ContextApiUsage | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i]
+    // Prefer `apiCallUsage` (last per-API-call usage) for context-fill
+    // calculation. Falling back to top-level token fields would risk using
+    // the cumulative-per-turn `result.usage`, which double-counts cache
+    // reads across iterations and reports an inflated context fill.
+    const callUsage = m?.metadata?.apiCallUsage
+    if (callUsage) {
+      return {
+        input_tokens: callUsage.input_tokens ?? 0,
+        output_tokens: callUsage.output_tokens ?? 0,
+        cache_read_input_tokens: callUsage.cache_read_input_tokens ?? 0,
+        cache_creation_input_tokens: callUsage.cache_creation_input_tokens ?? 0,
+      }
+    }
     if (m?.metadata?.inputTokens != null) {
       return {
         input_tokens: m.metadata.inputTokens,

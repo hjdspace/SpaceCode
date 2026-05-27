@@ -1342,6 +1342,12 @@ export const useChatStore = defineStore('chat', () => {
           const s = sessions.value.find(sess => sess.id === targetSessionId)
           const msg = s?.messages.find(m => m.id === assistantMessageId)
           if (msg) {
+            const cacheRead = typeof apiUsage.cache_read_input_tokens === 'number'
+              ? apiUsage.cache_read_input_tokens
+              : 0
+            const cacheCreate = typeof apiUsage.cache_creation_input_tokens === 'number'
+              ? apiUsage.cache_creation_input_tokens
+              : 0
             msg.metadata = {
               ...msg.metadata,
               inputTokens: apiUsage.input_tokens,
@@ -1352,6 +1358,25 @@ export const useChatStore = defineStore('chat', () => {
               ...(typeof apiUsage.cache_creation_input_tokens === 'number'
                 ? { cacheCreationInputTokens: apiUsage.cache_creation_input_tokens }
                 : {}),
+              // Per-API-call usage (the LAST iteration's view of context size).
+              // This is what claude-code's `getCurrentUsage` returns and is
+              // the correct source for context-fill calculation. The SDK's
+              // `result.usage` (written in handleResult) is the cumulative
+              // sum across iterations within this turn and would inflate
+              // cache_read by N×, so we keep it separate.
+              apiCallUsage: {
+                input_tokens: apiUsage.input_tokens ?? 0,
+                output_tokens: apiUsage.output_tokens ?? 0,
+                cache_read_input_tokens: cacheRead,
+                cache_creation_input_tokens: cacheCreate,
+              },
+            }
+            // Push a live snapshot update so the context chip/modal track
+            // the assistant during a turn instead of jumping at the end.
+            try {
+              useContextUsageStore().applyFallback(targetSessionId)
+            } catch {
+              // Non-fatal; the authoritative refresh on `result` will fix it.
             }
           }
         }
@@ -1646,6 +1671,12 @@ export const useChatStore = defineStore('chat', () => {
             const hasRunningTools = !!msg.toolCalls?.some(tool => tool.status === 'running' || tool.status === 'pending')
             const suspiciousToolStop = result.stop_reason === 'tool_use'
             const resultUsage = result.usage
+            // Preserve `apiCallUsage` (last per-API-call usage) so the
+            // context-fill calculation keeps using claude-code's
+            // `getCurrentUsage`-equivalent value. The cumulative
+            // per-turn `result.usage` only feeds session totals and the
+            // top-level token fields below.
+            const previousApiCallUsage = msg.metadata?.apiCallUsage
             msg.metadata = {
               model: settingsStore.config.model,
               duration: Date.now() - msg.timestamp,
@@ -1659,6 +1690,7 @@ export const useChatStore = defineStore('chat', () => {
                   ? { cacheCreationInputTokens: resultUsage.cache_creation_input_tokens }
                   : {}),
               }),
+              ...(previousApiCallUsage ? { apiCallUsage: previousApiCallUsage } : {}),
               warning: suspiciousToolStop
                 ? 'Agent 在工具调用状态下提前结束，当前模型可能没有稳定支持多轮工具调用协议。建议重试或切换为更强的工具调用模型。'
                 : hasRunningTools

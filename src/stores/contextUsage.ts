@@ -114,11 +114,33 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
     loading.value = false
   }
 
+  /**
+   * Lightweight, synchronous snapshot update derived solely from the chat
+   * store's messages. Intended for live updates while the assistant is
+   * streaming so the chip/modal can move with the response without
+   * incurring an engine IPC roundtrip on every assistant event.
+   */
+  function applyFallback(sessionId?: string) {
+    const chatStore = useChatStore()
+    const settingsStore = useSettingsStore()
+    const sid = sessionId ?? chatStore.currentSessionId
+    if (!sid) return
+    // Only update if it matches the currently displayed session to avoid
+    // overwriting another session's authoritative snapshot.
+    if (lastFetchedSessionId.value && lastFetchedSessionId.value !== sid) return
+    const session = chatStore.sessions.find(s => s.id === sid)
+    const messages = session?.messages ?? []
+    const model = settingsStore.config.model || 'claude-sonnet-4-6'
+    snapshot.value = buildFallbackSnapshot(messages, model)
+    lastFetchedSessionId.value = sid
+  }
+
   return {
     snapshot,
     loading,
     hasData,
     refresh,
+    applyFallback,
     clear,
   }
 })
