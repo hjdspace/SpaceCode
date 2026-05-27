@@ -39,8 +39,6 @@ Desktop.ini
 .assistant/
 .pytest_cache/
 
-/superpowers/
-
 release/
 
 # Bun binaries (downloaded during build)
