@@ -211,8 +211,8 @@ watch(isOpen, (open) => {
   align-items: center;
   justify-content: space-between;
   padding: 10px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  background: var(--surface-soft);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
@@ -250,7 +250,7 @@ watch(isOpen, (open) => {
   left: 0;
   right: 0;
   background: var(--bg-primary);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
   z-index: 100;
@@ -262,7 +262,7 @@ watch(isOpen, (open) => {
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
   color: var(--text-muted);
 
   input {

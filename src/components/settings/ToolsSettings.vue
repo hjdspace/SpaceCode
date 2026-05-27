@@ -215,8 +215,8 @@ watch(() => configStore.toolConfigs, () => {
 .tool-categories { display: flex; flex-direction: column; gap: 16px; }
 
 .category-card {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
   border-radius: 12px;
   overflow: hidden;
 }
@@ -226,7 +226,7 @@ watch(() => configStore.toolConfigs, () => {
   align-items: center;
   gap: 12px;
   padding: 16px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .category-icon {
@@ -288,7 +288,7 @@ watch(() => configStore.toolConfigs, () => {
   .checkmark {
     position: absolute; inset: 0;
     background: var(--bg-tertiary);
-    border: 2px solid var(--border-color);
+    border: 2px solid var(--border-default);
     border-radius: 4px; transition: all 0.15s;
     &::after {
       content: ''; position: absolute;
@@ -328,18 +328,18 @@ watch(() => configStore.toolConfigs, () => {
   &.runtime { background: rgba(14, 165, 233, 0.15); color: #38bdf8; }
 }
 
-.divider { height: 1px; background: var(--border-color); margin: 8px 0; }
+.divider { height: 1px; background: var(--border-default); margin: 8px 0; }
 
 .danger-zone {
-  background: rgba(220, 53, 69, 0.05);
-  border: 1px solid rgba(220, 53, 69, 0.2);
+  background: var(--error-glow);
+  border: 1px solid var(--error);
   border-radius: 12px; padding: 20px;
 }
 
 .danger-title {
   display: flex; align-items: center; gap: 8px;
   font-size: 14px; font-weight: 600;
-  color: #dc3545; margin: 0 0 16px 0;
+  color: var(--error); margin: 0 0 16px 0;
 }
 
 .danger-item { display: flex; align-items: center; justify-content: space-between; }
@@ -356,10 +356,10 @@ watch(() => configStore.toolConfigs, () => {
   padding: 10px 16px; border-radius: 8px;
   font-size: 13px; font-weight: 500; transition: all 0.2s;
   &.btn-danger {
-    background: rgba(220, 53, 69, 0.1);
-    border: 1px solid rgba(220, 53, 69, 0.3);
-    color: #dc3545;
-    &:hover { background: rgba(220, 53, 69, 0.2); border-color: #dc3545; }
+    background: var(--error-glow);
+    border: 1px solid var(--error);
+    color: var(--error);
+    &:hover { background: var(--error); color: white; border-color: var(--error); }
   }
 }
 </style>

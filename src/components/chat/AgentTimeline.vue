@@ -56,6 +56,7 @@
           <template v-else-if="event.type === 'tool_call' && shouldRenderSpecialComponent(event)">
             <component
               :is="event.specialComponent"
+              :key="getSpecialComponentKey(event)"
               :tool-call="event.toolCall!"
               @submit="handleToolSubmit(event.toolCall!.id, $event)"
               @skip="handleToolSkip(event.toolCall!.id)"
@@ -277,7 +278,13 @@ let _cachedTimelineKey = ''
 
 function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
   const toolStateKey = msgs
-    .flatMap(msg => (msg.toolCalls || []).map(tool => `${tool.id}:${tool.status}:${specialComponents[tool.name] ? 1 : 0}`))
+    .flatMap(msg => (msg.toolCalls || []).map(tool => [
+      tool.id,
+      tool.name,
+      tool.status,
+      getToolContentKey(tool),
+      specialComponents[tool.name] ? 1 : 0,
+    ].join(':')))
     .join(',')
   // 必须把流式文本/推理内容也纳入缓存键, 否则纯 text_delta 流式更新时
   // (msg 数量/ID/工具状态都不变) 缓存命中 -> 返回旧的 TimelineEvent[] ->
@@ -509,6 +516,20 @@ function shouldRenderSpecialComponent(event: TimelineEvent): boolean {
   return !!event.specialComponent
 }
 
+function getToolContentKey(tool: ToolCall): string {
+  const input = tool.input || {}
+  return [
+    input.file_path || input.path || '',
+    input.old_string ? String(input.old_string).length : 0,
+    input.new_string ? String(input.new_string).length : 0,
+    tool.output ? tool.output.length : 0,
+  ].join(':')
+}
+
+function getSpecialComponentKey(event: TimelineEvent): string {
+  return event.toolCall ? `${event.toolCall.id}:${getToolContentKey(event.toolCall)}` : event.id
+}
+
 function getToolTarget(tool: ToolCall): string {
   const input = tool.input || {}
   const value = input.file_path || input.path || input.command || input.pattern || input.query
@@ -684,14 +705,14 @@ function formatOutput(output: string): string {
 .event-reasoning {
   .event-body {
     padding-top: 4px;
-    padding-bottom: 2px;
+    padding-bottom: 0;
   }
 }
 
 .event-tool_call {
   .event-body {
-    padding-top: 2px;
-    padding-bottom: 8px;
+    padding-top: 0;
+    padding-bottom: 4px;
   }
 }
 

@@ -528,16 +528,16 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
   }
 
   &.powerful {
-    background: rgba(245, 158, 11, 0.1);
-    color: #f59e0b;
+    background: var(--accent-tertiary-glow);
+    color: var(--accent-tertiary);
   }
 }
 
 .form-input,
 .form-select {
   padding: 10px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  background: var(--surface-soft);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   color: var(--text-primary);
   font-size: 13px;
@@ -546,7 +546,7 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
   &:focus {
     outline: none;
     border-color: var(--accent-primary);
-    box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb), 0.1);
+    box-shadow: 0 0 0 3px var(--accent-primary-glow);
   }
 
   &::placeholder {
@@ -575,8 +575,8 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  background: var(--surface-soft);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   color: var(--text-muted);
   transition: all 0.2s;
@@ -600,7 +600,7 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
   align-items: center;
   gap: 8px;
   padding: 16px 12px;
-  background: var(--bg-secondary);
+  background: var(--surface-card);
   border: 2px solid transparent;
   border-radius: 12px;
   cursor: pointer;
@@ -608,8 +608,8 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
   position: relative;
 
   &:hover {
-    background: var(--bg-hover);
-    border-color: var(--border-color);
+    background: var(--surface-soft);
+    border-color: var(--border-default);
   }
 
   &.active {
@@ -658,7 +658,7 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
 
 .divider {
   height: 1px;
-  background: var(--border-color);
+  background: var(--border-default);
   margin: 8px 0;
 }
 
@@ -678,18 +678,18 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
   animation: slideIn 0.2s ease;
 
   &.success {
-    background: rgba(34, 197, 94, 0.1);
-    color: #16a34a;
+    background: var(--success-glow);
+    color: var(--success);
   }
 
   &.error {
-    background: rgba(239, 68, 68, 0.1);
-    color: #dc2626;
+    background: var(--error-glow);
+    color: var(--error);
   }
 
   &.warning {
-    background: rgba(245, 158, 11, 0.1);
-    color: #d97706;
+    background: var(--warning-glow);
+    color: var(--warning);
   }
 }
 
@@ -725,8 +725,8 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
   }
 
   &.btn-secondary {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    background: var(--surface-soft);
+    border: 1px solid var(--border-default);
     color: var(--text-primary);
 
     &:hover:not(:disabled) {
@@ -751,7 +751,7 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
   align-items: flex-start;
   gap: 12px;
   padding: 24px;
-  background: var(--bg-secondary);
+  background: var(--surface-soft);
   border-radius: 12px;
 
   .oauth-icon {
@@ -783,13 +783,13 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
-  background: rgba(34, 197, 94, 0.1);
+  background: var(--success-glow);
   border-radius: 8px;
   font-size: 13px;
   color: var(--text-primary);
 
   .success-icon {
-    color: #22c55e;
+    color: var(--success);
   }
 
   .subscription-badge {

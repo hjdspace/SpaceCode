@@ -22,6 +22,7 @@
       <!-- 专业 Diff 展示 -->
       <div v-if="diffFile" class="git-diff-wrapper">
         <DiffView
+          :key="diffViewKey"
           :diff-file="diffFile"
           :diff-view-mode="DiffModeEnum.Unified"
           :diff-view-highlight="true"
@@ -69,6 +70,13 @@ const oldString = computed(() => props.toolCall.input?.old_string || '')
 const newString = computed(() => props.toolCall.input?.new_string || '')
 const hasDiffData = computed(() => !!(oldString.value || newString.value))
 const fileLanguage = computed(() => appStore.getLanguageFromPath(filePath.value))
+const diffViewKey = computed(() => [
+  props.toolCall.id,
+  filePath.value,
+  oldString.value.length,
+  newString.value.length,
+  props.toolCall.status,
+].join(':'))
 
 // 创建 DiffFile 实例（用于 DiffView 组件）
 const diffFile = computed(() => {

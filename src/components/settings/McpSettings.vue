@@ -330,8 +330,8 @@ watch(servers, () => {
 }
 
 .server-card {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
   border-radius: 12px;
   overflow: hidden;
   transition: all 0.2s;
@@ -408,8 +408,8 @@ watch(servers, () => {
   }
 
   &.danger:hover {
-    background: rgba(220, 53, 69, 0.1);
-    color: #dc3545;
+    background: var(--error-glow);
+    color: var(--error);
   }
 }
 
@@ -425,7 +425,7 @@ watch(servers, () => {
 
 .server-details {
   padding: 0 16px 16px 46px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-default);
   background: var(--bg-tertiary);
 }
 
@@ -433,7 +433,7 @@ watch(servers, () => {
   display: flex;
   gap: 12px;
   padding: 12px 0;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
 
   &:last-child {
     border-bottom: none;
@@ -451,7 +451,7 @@ watch(servers, () => {
   font-size: 12px;
   color: var(--text-primary);
   font-family: var(--font-mono);
-  background: var(--bg-secondary);
+  background: var(--surface-soft);
   padding: 4px 8px;
   border-radius: 4px;
 }
@@ -492,8 +492,8 @@ watch(servers, () => {
   }
 
   &.btn-secondary {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    background: var(--surface-soft);
+    border: 1px solid var(--border-default);
     color: var(--text-primary);
 
     &:hover:not(:disabled) {
@@ -551,8 +551,8 @@ watch(servers, () => {
 
 .form-input {
   padding: 10px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  background: var(--surface-soft);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   color: var(--text-primary);
   font-size: 13px;
@@ -593,7 +593,7 @@ watch(servers, () => {
   gap: 12px;
   margin-top: 8px;
   padding-top: 16px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-default);
 }
 
 .empty-state {

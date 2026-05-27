@@ -246,9 +246,9 @@ onMounted(loadStats)
   gap: 8px;
   padding: 8px 12px;
   border-radius: 8px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   color: var(--text-secondary);
-  background: var(--bg-secondary);
+  background: var(--surface-soft);
 
   &:hover:not(:disabled) {
     color: var(--text-primary);
@@ -273,9 +273,9 @@ onMounted(loadStats)
 .summary-card,
 .heatmap-card,
 .detail-card {
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   border-radius: 12px;
-  background: var(--bg-secondary);
+  background: var(--surface-card);
 }
 
 .state-card {
@@ -284,7 +284,7 @@ onMounted(loadStats)
 }
 
 .error-card {
-  color: var(--error-color, #ef4444);
+  color: var(--error);
 }
 
 .summary-grid {
@@ -461,7 +461,7 @@ onMounted(loadStats)
   justify-content: space-between;
   gap: 12px;
   padding: 8px 0;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-default);
   color: var(--text-secondary);
   font-size: 13px;
 

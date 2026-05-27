@@ -349,8 +349,8 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
   padding: 12px 16px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  background: var(--surface-soft);
+  border: 1px solid var(--border-default);
   border-radius: 10px;
   color: var(--text-muted);
 
@@ -399,7 +399,7 @@ onMounted(() => {
 
 .shortcuts-group {
   background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   border-radius: 12px;
   overflow: hidden;
 }
@@ -411,7 +411,7 @@ onMounted(() => {
   padding: 14px 16px;
   cursor: pointer;
   transition: all 0.15s;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
 
   &:last-child {
     border-bottom: none;
@@ -457,7 +457,7 @@ onMounted(() => {
   height: 24px;
   padding: 0 8px;
   background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
@@ -516,7 +516,7 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   padding-top: 16px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-default);
 }
 
 .btn {
@@ -540,8 +540,8 @@ onMounted(() => {
   }
 
   &.btn-secondary {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    background: var(--surface-soft);
+    border: 1px solid var(--border-default);
     color: var(--text-primary);
 
     &:hover:not(:disabled) {

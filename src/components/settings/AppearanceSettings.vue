@@ -452,8 +452,8 @@ function selectAccent(colorId: string) {
 
 .form-select {
   padding: 10px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  background: var(--surface-soft);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   color: var(--text-primary);
   font-size: 13px;
@@ -473,7 +473,7 @@ function selectAccent(colorId: string) {
 
 .divider {
   height: 1px;
-  background: var(--border-color);
+  background: var(--border-default);
   margin: 8px 0;
 }
 
@@ -489,7 +489,7 @@ function selectAccent(colorId: string) {
   align-items: center;
   gap: 12px;
   padding: 12px;
-  background: var(--bg-secondary);
+  background: var(--surface-card);
   border: 2px solid transparent;
   border-radius: 12px;
   transition: all 0.2s;
@@ -509,14 +509,14 @@ function selectAccent(colorId: string) {
   width: 80px;
   height: 56px;
   border-radius: 8px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   overflow: hidden;
   position: relative;
 
   .preview-header {
     height: 12px;
     background: var(--bg-tertiary);
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-default);
   }
 
   .preview-sidebar {
@@ -526,7 +526,7 @@ function selectAccent(colorId: string) {
     bottom: 0;
     width: 20px;
     background: var(--bg-secondary);
-    border-right: 1px solid var(--border-color);
+    border-right: 1px solid var(--border-default);
   }
 
   .preview-content {
@@ -600,7 +600,7 @@ function selectAccent(colorId: string) {
   align-items: center;
   gap: 8px;
   padding: 16px 24px;
-  background: var(--bg-secondary);
+  background: var(--surface-card);
   border: 2px solid transparent;
   border-radius: 10px;
   transition: all 0.2s;
@@ -697,7 +697,7 @@ function selectAccent(colorId: string) {
   position: relative;
   cursor: pointer;
   transition: all 0.2s;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
 
   &::after {
     content: '';

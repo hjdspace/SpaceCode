@@ -260,8 +260,8 @@ async function browseProjectRoot() {
 
 .form-input {
   padding: 10px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  background: var(--surface-soft);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   color: var(--text-primary);
   font-size: 13px;
@@ -299,8 +299,8 @@ async function browseProjectRoot() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  background: var(--surface-soft);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   color: var(--text-muted);
   transition: all 0.2s;
@@ -314,7 +314,7 @@ async function browseProjectRoot() {
 
 .divider {
   height: 1px;
-  background: var(--border-color);
+  background: var(--border-default);
   margin: 8px 0;
 }
 
@@ -330,7 +330,7 @@ async function browseProjectRoot() {
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
-  background: var(--bg-secondary);
+  background: var(--surface-card);
   border: 2px solid transparent;
   border-radius: 8px;
   cursor: pointer;
@@ -374,7 +374,7 @@ async function browseProjectRoot() {
   align-items: flex-start;
   gap: 4px;
   padding: 14px 16px;
-  background: var(--bg-secondary);
+  background: var(--surface-card);
   border: 2px solid transparent;
   border-radius: 8px;
   cursor: pointer;

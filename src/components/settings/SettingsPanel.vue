@@ -213,8 +213,8 @@ function handleBack() {
   align-items: center;
   justify-content: space-between;
   padding: 12px 20px;
-  border-bottom: 1px solid var(--border-color);
-  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-primary);
   flex-shrink: 0;
 }
 
@@ -255,8 +255,8 @@ function handleBack() {
 
 .settings-nav {
   width: 220px;
-  background: var(--bg-secondary);
-  border-right: 1px solid var(--border-color);
+  background: var(--surface-soft);
+  border-right: 1px solid var(--border-default);
   padding: 16px 12px;
   display: flex;
   flex-direction: column;
@@ -323,7 +323,7 @@ function handleBack() {
     flex-direction: row;
     padding: 8px;
     border-right: none;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-default);
     overflow-x: auto;
 
     .nav-item {
