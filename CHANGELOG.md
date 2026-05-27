@@ -1,3 +1,81 @@
+## [0.4.0](https://github.com/hjdspace/SpaceCode/compare/v0.3.10...v0.4.0) (2026-05-28)
+
+### Features
+
+* **编辑器集成:** 新增通过 VSCode/GVim 打开文件或项目的功能
+  - 新增文件树节点根节点标记属性
+  - 实现主进程编辑器调用逻辑，支持 VSCode 和 GVim
+  - 添加右键菜单打开文件/项目到编辑器选项
+  - 顶部标题栏新增快速打开文件到编辑器的下拉菜单
+  - 补充中英文多语言配置项
+* **命令系统:** 将 commit 命令暴露给用户并添加会话回合检查点加载
+  - 将 commit 命令从 INTERNAL_ONLY_COMMANDS 移至 COMMANDS 列表
+  - 在 BUILT_IN_COMMANDS 中注册 commit 命令为 agent_skill 类型
+  - 在保存会话后加载 turn checkpoints 以支持会话恢复功能
+* **Diff 视图:** 优化 diff 生成逻辑并调整 UI 间距
+  - 重构 diff 计算逻辑，引入上下文行处理机制
+  - 实现符合 Git diff 格式的 hunk 头部及行号标注
+  - 调整 AgentTimeline 组件样式，优化 padding 间距与类名结构
+
+### Bug Fixes
+
+* **会话存储:** 修复会话存储路径匹配不一致问题
+  - 调整 transcriptFileExists 方法匹配引擎的路径解析规则
+  - 优先使用 CLAUDE_CONFIG_DIR 环境变量，不使用 XDG_CONFIG_HOME
+  - 对工作目录做 realpath 解析，解决 Linux 桌面环境下会话文件检测失败导致的程序崩溃问题
+
+### Refactor
+
+* **设计系统:** 统一设计系统并修复 diff 渲染问题
+  - 新增 surface 系列设计 token 并替换全局旧样式变量
+  - 为 DiffView 和工具组件添加正确的 key 防止渲染异常
+  - 优化时间线缓存和组件样式细节
+* **聊天界面:** 调整回滚按钮位置与消息内容布局
+  - 修复 diff 计算时获取首行编号的逻辑，改为查找有效条目而非直接取第一个元素
+  - 将回滚按钮移入消息内容容器中，调整样式对齐与移动端适配
+  - 重构消息内容区域的 DOM 结构与样式，统一管理消息内容与回滚按钮的布局
+* **技能库:** 改进技能库路径查找逻辑并添加调试日志
+  - 重构 getSkillsLibRoot 函数，添加 fallback 路径处理以适配不同打包/开发环境
+  - 为技能库相关操作添加详细的调试和日志输出
+  - 为 tryAsBundle 函数添加异常捕获，避免扫描流程崩溃
+  - 移除 fs:searchFiles 的 IPC 调试日志
+
+### Style
+
+* **全局样式:** 更新全局样式变量为官方设计规范
+  - 统一调整圆角尺寸、色彩系统、文本颜色与代码高亮配色
+  - 同时优化暗黑模式下的配色与排版注释
+* **主题系统:** 更新 Anthropic 明暗主题的官方配色与变量规范
+  - 对 anthropic 和 anthropic-dark 主题的所有 CSS 变量进行标准化更新
+  - 调整背景色、文字色、边框色等基础配色为官方规范值
+  - 统一透明度参数与阴影效果参数
+  - 优化代码块语法高亮配色
+  - 修正 git diff 视图的配色适配
+  - 添加模块化注释说明各系统变量分组
+* **标题栏:** 优化标题栏样式与交互细节
+  - 替换玻璃态背景为纯色主背景，移除底部渐变发光效果
+  - 调整间距、字体样式与按钮交互状态
+  - 为可交互元素添加焦点框样式，优化过渡动画
+  - 为下拉菜单添加入场动画与样式优化
+
+### Build
+
+* **技能库:** 新增 superpowers 技能库及相关配置文件
+  - 新增完整的 superpowers 技能库，包含 TDD、调试、协作等开发技能
+  - 添加项目配置、文档、测试用例和多平台插件支持
+  - 修复 .gitignore 路径问题
+
+### Chore
+
+* **electron:** 移除技能服务路径查找中的调试日志，简化开发环境下的路径返回逻辑
+* **gitignore:** 移除 .gitignore 中对 superpowers 目录的忽略规则
+
+### Documentation
+
+* **README:** 补充新增的 /commit 命令文档说明，完善功能列表
+
+---
+
 ## [0.3.10](https://github.com/hjdspace/SpaceCode/compare/v0.3.9...v0.3.10) (2026-05-25)
 
 ### Features
