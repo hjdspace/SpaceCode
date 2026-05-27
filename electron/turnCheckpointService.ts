@@ -286,28 +286,126 @@ async function computeFileDiff(
   const changes = diffLines(before, after)
   let insertions = 0
   let deletions = 0
-  let diffOutput = ''
+
+  const CONTEXT_LINES = 3
+  type LineEntry = { type: 'context' | 'added' | 'removed'; text: string; oldLine?: number; newLine?: number }
+  const outputLines: LineEntry[] = []
+
+  let oldLineNum = 1
+  let newLineNum = 1
 
   for (const change of changes) {
-    const lines = change.value.split('\n')
-    // Remove trailing empty line from split
-    if (lines[lines.length - 1] === '') {
-      lines.pop()
+    const changeLines = change.value.split('\n')
+    if (changeLines[changeLines.length - 1] === '') {
+      changeLines.pop()
     }
 
-    for (const line of lines) {
-      if (change.added) {
-        insertions++
-        diffOutput += `+${line}\n`
-      } else if (change.removed) {
+    if (!change.added && !change.removed) {
+      for (const line of changeLines) {
+        outputLines.push({ type: 'context', text: line, oldLine: oldLineNum, newLine: newLineNum })
+        oldLineNum++
+        newLineNum++
+      }
+    } else if (change.removed) {
+      for (const line of changeLines) {
+        outputLines.push({ type: 'removed', text: line, oldLine: oldLineNum })
+        oldLineNum++
         deletions++
-        diffOutput += `-${line}\n`
-      } else {
-        diffOutput += ` ${line}\n`
+      }
+    } else if (change.added) {
+      for (const line of changeLines) {
+        outputLines.push({ type: 'added', text: line, newLine: newLineNum })
+        newLineNum++
+        insertions++
       }
     }
   }
 
+  function collectHunk(startIdx: number): { hunkLines: string[]; nextIdx: number } {
+    const hunkRaw: LineEntry[] = []
+    let i = startIdx
+    let hasChange = false
+
+    while (i < outputLines.length) {
+      const entry = outputLines[i]
+      if (entry.type !== 'context') {
+        hasChange = true
+        hunkRaw.push(entry)
+        i++
+        continue
+      }
+
+      let ctxCount = 0
+      const ctxStart = i
+      while (i < outputLines.length && outputLines[i].type === 'context' && ctxCount < CONTEXT_LINES) {
+        hunkRaw.push(outputLines[i])
+        ctxCount++
+        i++
+      }
+
+      if (i >= outputLines.length || outputLines[i].type !== 'context') break
+
+      const remainingCtx = []
+      let j = i
+      while (j < outputLines.length && outputLines[j].type === 'context') {
+        remainingCtx.push(outputLines[j])
+        j++
+      }
+
+      if (j < outputLines.length) {
+        const take = Math.min(CONTEXT_LINES, remainingCtx.length)
+        for (let k = 0; k < take; k++) {
+          hunkRaw.push(remainingCtx[k])
+        }
+        i = ctxStart + take
+        break
+      } else {
+        i = j
+        break
+      }
+    }
+
+    if (!hasChange) return { hunkLines: [], nextIdx: i }
+
+    const firstOldLine = hunkRaw[0]?.oldLine ?? 1
+    const firstNewLine = hunkRaw[0]?.newLine ?? 1
+    let oldCount = 0
+    let newCount = 0
+    const lines: string[] = []
+
+    for (const entry of hunkRaw) {
+      if (entry.type === 'context') {
+        lines.push(` ${entry.text}`)
+        oldCount++
+        newCount++
+      } else if (entry.type === 'removed') {
+        lines.push(`-${entry.text}`)
+        oldCount++
+      } else if (entry.type === 'added') {
+        lines.push(`+${entry.text}`)
+        newCount++
+      }
+    }
+
+    const hunkHeader = `@@ -${firstOldLine},${oldCount} +${firstNewLine},${newCount} @@`
+    return { hunkLines: [hunkHeader, ...lines], nextIdx: i }
+  }
+
+  const diffParts: string[] = []
+  let idx = 0
+  while (idx < outputLines.length) {
+    if (outputLines[idx].type === 'context') {
+      idx++
+      continue
+    }
+    const { hunkLines, nextIdx } = collectHunk(idx)
+    if (hunkLines.length > 0) {
+      diffParts.push(hunkLines.join('\n'))
+    }
+    idx = nextIdx
+  }
+
+  const diffOutput = diffParts.join('\n')
   return { insertions, deletions, diff: diffOutput }
 }
 

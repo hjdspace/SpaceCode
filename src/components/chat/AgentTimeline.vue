@@ -677,13 +677,20 @@ function formatOutput(output: string): string {
 .event-text {
   .event-body {
     padding-top: 5px;
-    padding-bottom: 8px;
+    padding-bottom: 2px;
+  }
+}
+
+.event-reasoning {
+  .event-body {
+    padding-top: 4px;
+    padding-bottom: 2px;
   }
 }
 
 .event-tool_call {
   .event-body {
-    padding-top: 4px;
+    padding-top: 2px;
     padding-bottom: 8px;
   }
 }
