@@ -860,15 +860,37 @@ export class SessionProcess extends EventEmitter {
    * exists. Mirrors engine/src/utils/sessionStorage.ts:sessionIdExists() so we can
    * decide between --session-id (fresh) and --resume (continue) without round-tripping
    * through the engine.
+   *
+   * Must use the SAME resolution rules as the engine, otherwise we miss the on-disk
+   * transcript here, fall back to --session-id, and the engine kills itself with
+   * "Session ID ... is already in use". The engine resolves:
+   *   - claude config dir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')
+   *     (engine/src/utils/envUtils.ts:getClaudeConfigHomeDir — XDG_CONFIG_HOME is NOT used)
+   *   - cwd = realpathSync(process.cwd()) at engine bootstrap
+   *     (engine/src/utils/state.ts:getOriginalCwd)
+   * On Linux desktops XDG_CONFIG_HOME is commonly set to ~/.config, which previously
+   * caused this check to look under ~/.config/claude while the engine wrote/read
+   * ~/.claude — making model-switch + resend reliably crash the engine.
    */
   private transcriptFileExists(cwd: string, sessionId: string): boolean {
     try {
-      const claudeDir = process.env.XDG_CONFIG_HOME
-        ? path.join(process.env.XDG_CONFIG_HOME, 'claude')
+      const claudeDir = process.env.CLAUDE_CONFIG_DIR
+        ? process.env.CLAUDE_CONFIG_DIR
         : path.join(os.homedir(), '.claude')
-      const sanitized = cwd.replace(/[^a-zA-Z0-9]/g, '-')
-      const transcript = path.join(claudeDir, 'projects', sanitized, `${sessionId}.jsonl`)
-      return fs.existsSync(transcript)
+      const projectsDir = path.join(claudeDir, 'projects')
+
+      const candidates = new Set<string>()
+      candidates.add(cwd)
+      try {
+        candidates.add(fs.realpathSync(cwd))
+      } catch {}
+
+      for (const candidate of candidates) {
+        const sanitized = candidate.replace(/[^a-zA-Z0-9]/g, '-')
+        const transcript = path.join(projectsDir, sanitized, `${sessionId}.jsonl`)
+        if (fs.existsSync(transcript)) return true
+      }
+      return false
     } catch {
       return false
     }
