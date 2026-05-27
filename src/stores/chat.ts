@@ -1724,6 +1724,8 @@ export const useChatStore = defineStore('chat', () => {
             })
 
             saveToStorage()
+
+            void loadTurnCheckpoints(targetSessionId)
           }
         }
 

@@ -153,6 +153,13 @@ export const BUILT_IN_COMMANDS: SlashCommand[] = [
     immediate: true,
     aliases: ['checkpoint'],
   },
+  // Agent skill commands - dispatched as skill invocations via SkillTool
+  {
+    name: 'commit',
+    description: 'Create a git commit with AI-generated message',
+    icon: 'GitCommit',
+    kind: 'agent_skill',
+  },
 ]
 
 /** Find a command by name (including aliases) */
