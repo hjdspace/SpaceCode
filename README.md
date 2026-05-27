@@ -87,6 +87,7 @@ SpaceCode/
 | `/model` | 切换模型 | 选择 Haiku/Sonnet/Opus |
 | `/config` | 编辑配置文件 | 调整参数、自定义行为 |
 | `/compact` | 压缩对话上下文 | 对话过长时优化 Token 用量 |
+| `/commit` | 创建 Git 提交 | AI 生成提交信息并创建 commit |
 | `/diff` | 查看代码差异 | 代码审查、变更对比 |
 | `/review` | 代码审查 | 提交前质量检查 |
 | `/cost` | 显示用量成本 | 监控 API 费用 |
