@@ -670,7 +670,6 @@ ipcMain.handle('fs:stat', async (_event, filePath: string) => {
 
 // Recursive file search
 ipcMain.handle('fs:searchFiles', async (_event, dirPath: string, query: string, options?: { maxResults?: number }) => {
-  debug('IPC', 'fs:searchFiles', { dirPath, query, maxResults: options?.maxResults })
   try {
     const maxResults = options?.maxResults || 100
     const results: Array<{ name: string; path: string; relativePath: string; isDirectory: boolean; isFile: boolean }> = []

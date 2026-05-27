@@ -188,9 +188,32 @@ function getEngineRoot(): string {
 
 function getSkillsLibRoot(): string {
   if (app.isPackaged) {
-    return join(process.resourcesPath, 'skills-lib')
+    const primaryPath = join(process.resourcesPath, 'skills-lib')
+    console.log(`[LocalLibrary] Primary skills-lib path (packaged): ${primaryPath}`)
+
+    // Fallback: try alternative locations in case resourcesPath is incorrect
+    const fallbackPaths = [
+      primaryPath,
+      join(__dirname, '../skills-lib'),
+      join(app.getAppPath(), '..', 'resources', 'skills-lib'),
+    ]
+
+    for (const candidate of fallbackPaths) {
+      console.log(`[LocalLibrary] Checking path: ${candidate}, exists: ${existsSync(candidate)}`)
+      if (existsSync(candidate)) {
+        console.log(`[LocalLibrary] Using skills-lib path: ${candidate}`)
+        return candidate
+      }
+    }
+
+    // If none exist, still return primary path (will fail later with clear error)
+    console.warn(`[LocalLibrary] No skills-lib found, using primary: ${primaryPath}`)
+    return primaryPath
   }
-  return join(__dirname, '../skills-lib')
+
+  const devPath = join(__dirname, '../skills-lib')
+  console.log(`[LocalLibrary] Dev skills-lib path: ${devPath}`)
+  return devPath
 }
 
 function resolveLocalLibPath(dirPath: string): string {
@@ -991,9 +1014,17 @@ function getLocalSkillDirs(rootDir: string): string[] {
 
 function readPluginManifest(bundleDir: string): Record<string, any> | null {
   const manifestPath = join(bundleDir, '.claude-plugin', 'plugin.json')
-  if (!existsSync(manifestPath)) return null
+  console.log(`[LocalLibrary] readPluginManifest checking: ${manifestPath}`)
+  if (!existsSync(manifestPath)) {
+    console.log(`[LocalLibrary] Manifest not found: ${manifestPath}`)
+    return null
+  }
   try {
-    return JSON.parse(readFileSync(manifestPath, 'utf-8'))
+    const content = readFileSync(manifestPath, 'utf-8')
+    console.log(`[LocalLibrary] Manifest content (${content.length} chars): ${manifestPath}`)
+    const parsed = JSON.parse(content)
+    console.log(`[LocalLibrary] Parsed manifest:`, parsed.name)
+    return parsed
   } catch (err) {
     console.error(`[LocalLibrary] Failed to parse plugin.json: ${manifestPath}`, err)
     return null
@@ -1033,51 +1064,76 @@ async function handleScanLocalLibrary(
     const allSkills: LocalSkill[] = []
     const allBundles: LocalSkillBundle[] = []
 
+    console.log(`[LocalLibrary] Starting scan with dirs: ${JSON.stringify(dirPaths)}`)
+    console.log(`[LocalLibrary] app.isPackaged: ${app.isPackaged}`)
+    console.log(`[LocalLibrary] process.resourcesPath: ${process.resourcesPath}`)
+    console.log(`[LocalLibrary] __dirname: ${__dirname}`)
+    console.log(`[LocalLibrary] getSkillsLibRoot(): ${getSkillsLibRoot()}`)
+
     const tryAsBundle = (bundleDir: string): boolean => {
-      const manifest = readPluginManifest(bundleDir)
-      if (!manifest) return false
-      const bundleName: string = manifest.name || basename(bundleDir)
-      const bundleId = bundleDir
-      const status = bundleIsInstalled(bundleName, cwd)
-      const skills = readBundleSkills(bundleDir, bundleId, bundleName, cwd)
-      const author = typeof manifest.author === 'string'
-        ? manifest.author
-        : (manifest.author?.name || undefined)
-      allBundles.push({
-        id: bundleId,
-        name: bundleName,
-        version: manifest.version,
-        description: manifest.description,
-        author,
-        homepage: manifest.homepage,
-        license: manifest.license,
-        keywords: Array.isArray(manifest.keywords) ? manifest.keywords : undefined,
-        bundleDir,
-        hasHooks: existsSync(join(bundleDir, 'hooks')),
-        hasCommands: existsSync(join(bundleDir, 'commands')),
-        hasAgents: existsSync(join(bundleDir, 'agents')),
-        skillCount: skills.length,
-        isInstalled: status.installed,
-        installedScope: status.scope
-      })
-      allSkills.push(...skills)
-      return true
+      try {
+        const manifest = readPluginManifest(bundleDir)
+        if (!manifest) {
+          console.log(`[LocalLibrary] Not a bundle (no manifest): ${bundleDir}`)
+          return false
+        }
+        console.log(`[LocalLibrary] Found bundle: ${bundleDir} -> ${manifest.name}`)
+        const bundleName: string = manifest.name || basename(bundleDir)
+        const bundleId = bundleDir
+        const status = bundleIsInstalled(bundleName, cwd)
+        const skills = readBundleSkills(bundleDir, bundleId, bundleName, cwd)
+        const author = typeof manifest.author === 'string'
+          ? manifest.author
+          : (manifest.author?.name || undefined)
+        allBundles.push({
+          id: bundleId,
+          name: bundleName,
+          version: manifest.version,
+          description: manifest.description,
+          author,
+          homepage: manifest.homepage,
+          license: manifest.license,
+          keywords: Array.isArray(manifest.keywords) ? manifest.keywords : undefined,
+          bundleDir,
+          hasHooks: existsSync(join(bundleDir, 'hooks')),
+          hasCommands: existsSync(join(bundleDir, 'commands')),
+          hasAgents: existsSync(join(bundleDir, 'agents')),
+          skillCount: skills.length,
+          isInstalled: status.installed,
+          installedScope: status.scope
+        })
+        allSkills.push(...skills)
+        return true
+      } catch (err) {
+        console.error(`[LocalLibrary] Error in tryAsBundle for ${bundleDir}:`, err)
+        return false
+      }
     }
 
     for (const dirPath of dirPaths) {
       const fullPath = resolveLocalLibPath(dirPath)
+      console.log(`[LocalLibrary] Processing dirPath: ${dirPath} -> resolved: ${fullPath}`)
 
       if (!existsSync(fullPath)) {
         console.log(`[LocalLibrary] Directory not found: ${fullPath}`)
         continue
       }
 
+      console.log(`[LocalLibrary] Directory exists: ${fullPath}`)
+
       // The custom directory itself may already be a plugin bundle root.
       if (tryAsBundle(fullPath)) {
         continue
       }
 
-      const entries = readdirSync(fullPath, { withFileTypes: true })
+      let entries: any[]
+      try {
+        entries = readdirSync(fullPath, { withFileTypes: true })
+        console.log(`[LocalLibrary] Read ${entries.length} entries from ${fullPath}:`, entries.map(e => e.name))
+      } catch (err) {
+        console.error(`[LocalLibrary] Failed to read directory ${fullPath}:`, err)
+        continue
+      }
 
       for (const entry of entries) {
         if (entry.isDirectory()) {
@@ -1104,6 +1160,7 @@ async function handleScanLocalLibrary(
     }
 
     console.log(`[LocalLibrary] Scanned ${allSkills.length} skills, ${allBundles.length} bundles from ${dirPaths.length} directories`)
+    console.log(`[LocalLibrary] Bundles found:`, allBundles.map(b => b.name))
     return { skills: allSkills, bundles: allBundles }
   } catch (err) {
     console.error('[LocalLibrary] Failed to scan library:', err)
