@@ -150,164 +150,183 @@ $grid-opacity: 0.01;
 }
 
 [data-theme='anthropic'] {
+  /* Canvas System - Official Anthropic Cream Palette */
   --bg-primary: #faf9f5;
-  --bg-secondary: #f5f3ed;
-  --bg-tertiary: #eeedea;
-  --bg-elevated: #ffffff;
-  --bg-hover: #e8e6dc;
-  --bg-active: #ddd9cf;
+  --bg-secondary: #efe9de;
+  --bg-tertiary: #e8e4dc;
+  --bg-elevated: #faf9f5;
+  --bg-hover: #e5e0d5;
+  --bg-active: #dcd6c8;
 
-  --surface-glass: rgba(20, 20, 19, 0.02);
-  --surface-glass-hover: rgba(20, 20, 19, 0.04);
-  --surface-glass-active: rgba(20, 20, 19, 0.06);
-  --surface-border: rgba(20, 20, 19, 0.08);
-  --surface-border-strong: rgba(20, 20, 19, 0.14);
+  /* Surface System - Color-block first, minimal transparency */
+  --surface-glass: rgba(20, 20, 19, 0.015);
+  --surface-glass-hover: rgba(20, 20, 19, 0.03);
+  --surface-glass-active: rgba(20, 20, 19, 0.05);
+  --surface-border: rgba(20, 20, 19, 0.06);
+  --surface-border-strong: rgba(20, 20, 19, 0.12);
   --surface-hover: var(--bg-hover);
   --surface-active: var(--bg-active);
 
+  /* Typography - Ink System */
   --text-primary: #141413;
   --text-secondary: #5c5a52;
   --text-muted: #8a8880;
   --text-disabled: #b0aea5;
 
-  --accent-primary: #d97757;
-  --accent-primary-hover: #c96a4c;
-  --accent-primary-glow: rgba(217, 119, 87, 0.18);
+  /* Accent Palette - Official Coral Primary */
+  --accent-primary: #cc785c;
+  --accent-primary-hover: #b86a4e;
+  --accent-primary-glow: rgba(204, 120, 92, 0.15);
 
+  /* Secondary & Tertiary Accents */
   --accent-secondary: #6a9bcc;
   --accent-secondary-hover: #5a8bbc;
-  --accent-secondary-glow: rgba(106, 155, 204, 0.15);
+  --accent-secondary-glow: rgba(106, 155, 204, 0.12);
 
   --accent-tertiary: #788c5d;
   --accent-tertiary-hover: #687c4d;
 
+  /* Semantic Colors */
   --success: #788c5d;
-  --success-glow: rgba(120, 140, 93, 0.18);
-  --warning: #d97757;
-  --warning-glow: rgba(217, 119, 87, 0.18);
+  --success-glow: rgba(120, 140, 93, 0.15);
+  --warning: #cc785c;
+  --warning-glow: rgba(204, 120, 92, 0.15);
   --error: #c44e3f;
-  --error-glow: rgba(196, 78, 63, 0.18);
+  --error-glow: rgba(196, 78, 63, 0.15);
 
-  --border-subtle: rgba(20, 20, 19, 0.05);
-  --border-default: rgba(20, 20, 19, 0.1);
-  --border-strong: rgba(20, 20, 19, 0.18);
+  /* Border System - Hairline Philosophy */
+  --border-subtle: rgba(20, 20, 19, 0.04);
+  --border-default: rgba(20, 20, 19, 0.08);
+  --border-strong: rgba(20, 20, 19, 0.16);
 
-  --shadow-sm: 0 1px 2px rgba(20, 20, 19, 0.06);
-  --shadow-md: 0 4px 12px rgba(20, 20, 19, 0.08);
-  --shadow-lg: 0 8px 24px rgba(20, 20, 19, 0.1);
-  --shadow-xl: 0 16px 48px rgba(20, 20, 19, 0.14);
-  --shadow-glow: 0 0 15px var(--accent-primary-glow);
+  /* Shadow System - Minimal usage per brand guidelines */
+  --shadow-sm: 0 1px 2px rgba(20, 20, 19, 0.04);
+  --shadow-md: 0 2px 8px rgba(20, 20, 19, 0.06);
+  --shadow-lg: 0 4px 16px rgba(20, 20, 19, 0.08);
+  --shadow-xl: 0 8px 32px rgba(20, 20, 19, 0.1);
+  --shadow-glow: 0 0 12px var(--accent-primary-glow);
 
-  --noise-opacity: 0.012;
-  --grid-opacity: 0.008;
+  /* Texture Overlays */
+  --noise-opacity: 0.01;
+  --grid-opacity: 0.006;
 
-  /* Code Block Syntax Highlighting - warm, Anthropic-tinted light */
+  /* Code Block Syntax Highlighting - Warm Anthropic Palette */
   --code-bg: #f0ede4;
   --code-fg: #2d2a24;
   --code-keyword: #c44e3f;
   --code-string: #687c4d;
   --code-number: #a36a3a;
-  --code-comment: #8a8880;
+  --code-comment: #9a968a;
   --code-function: #6a9bcc;
   --code-builtin: #b06a3a;
   --code-attr: #6a9bcc;
   --code-tag: #788c5d;
   --code-punctuation: #2d2a24;
-  --code-meta: #8a8880;
+  --code-meta: #9a968a;
 
   /* Git Diff View - Anthropic Light Theme */
   --gdc-bg-color: #faf9f5;
   --gdc-text-color: #2d2a24;
-  --gdc-border-color: #e8e6dc;
-  --gdc-add-bg-color: rgba(120, 140, 93, 0.15);
+  --gdc-border-color: #e5e0d5;
+  --gdc-add-bg-color: rgba(120, 140, 93, 0.12);
   --gdc-add-text-color: #5c7040;
-  --gdc-add-gutter-bg-color: rgba(120, 140, 93, 0.12);
-  --gdc-remove-bg-color: rgba(196, 78, 63, 0.12);
+  --gdc-add-gutter-bg-color: rgba(120, 140, 93, 0.1);
+  --gdc-remove-bg-color: rgba(196, 78, 63, 0.1);
   --gdc-remove-text-color: #c44e3f;
-  --gdc-remove-gutter-bg-color: rgba(196, 78, 63, 0.08);
-  --gdc-gutter-bg-color: #f5f3ed;
+  --gdc-remove-gutter-bg-color: rgba(196, 78, 63, 0.07);
+  --gdc-gutter-bg-color: #efe9de;
   --gdc-gutter-text-color: #8a8880;
 }
 
 [data-theme='anthropic-dark'] {
-  --bg-primary: #141413;
+  /* Surface Dark System - Official Anthropic Dark Navy */
+  --bg-primary: #181715;
   --bg-secondary: #1c1b1a;
-  --bg-tertiary: #242322;
-  --bg-elevated: #2a2928;
-  --bg-hover: #302f2e;
-  --bg-active: #383736;
+  --bg-tertiary: #222120;
+  --bg-elevated: #252320;
+  --bg-hover: #2d2c29;
+  --bg-active: #353332;
 
-  --surface-glass: rgba(250, 249, 245, 0.03);
-  --surface-glass-hover: rgba(250, 249, 245, 0.05);
-  --surface-glass-active: rgba(250, 249, 245, 0.08);
-  --surface-border: rgba(250, 249, 245, 0.07);
-  --surface-border-strong: rgba(250, 249, 245, 0.13);
+  /* Surface System - Warm transparency on dark */
+  --surface-glass: rgba(250, 249, 245, 0.025);
+  --surface-glass-hover: rgba(250, 249, 245, 0.04);
+  --surface-glass-active: rgba(250, 249, 245, 0.06);
+  --surface-border: rgba(250, 249, 245, 0.06);
+  --surface-border-strong: rgba(250, 249, 245, 0.12);
   --surface-hover: var(--bg-hover);
   --surface-active: var(--bg-active);
 
-  --text-primary: #faf9f5;
+  /* Typography - On-Dark Ink System */
+  --text-primary: #e8e4d8;
   --text-secondary: #b0aea5;
   --text-muted: #8a8880;
   --text-disabled: #5c5a52;
 
-  --accent-primary: #d97757;
-  --accent-primary-hover: #e0896b;
-  --accent-primary-glow: rgba(217, 119, 87, 0.25);
+  /* Accent Palette - Official Coral Primary (Dark Mode) */
+  --accent-primary: #cc785c;
+  --accent-primary-hover: #dd8a6e;
+  --accent-primary-glow: rgba(204, 120, 92, 0.2);
 
-  --accent-secondary: #6a9bcc;
-  --accent-secondary-hover: #7db0d8;
-  --accent-secondary-glow: rgba(106, 155, 204, 0.2);
+  /* Secondary & Tertiary Accents - Slightly brighter for dark bg */
+  --accent-secondary: #7aacdc;
+  --accent-secondary-hover: #8abce6;
+  --accent-secondary-glow: rgba(106, 172, 220, 0.18);
 
-  --accent-tertiary: #788c5d;
-  --accent-tertiary-hover: #8ca06d;
+  --accent-tertiary: #88a06d;
+  --accent-tertiary-hover: #98b07d;
 
-  --success: #8ca06d;
-  --success-glow: rgba(140, 160, 109, 0.2);
-  --warning: #e0896b;
-  --warning-glow: rgba(224, 137, 107, 0.2);
+  /* Semantic Colors - Adjusted for dark background contrast */
+  --success: #88a06d;
+  --success-glow: rgba(136, 160, 109, 0.18);
+  --warning: #dd8a6e;
+  --warning-glow: rgba(221, 138, 110, 0.18);
   --error: #e06050;
-  --error-glow: rgba(224, 96, 80, 0.2);
+  --error-glow: rgba(224, 96, 80, 0.18);
 
-  --border-subtle: rgba(250, 249, 245, 0.05);
-  --border-default: rgba(250, 249, 245, 0.09);
-  --border-strong: rgba(250, 249, 245, 0.16);
+  /* Border System - Subtle on dark */
+  --border-subtle: rgba(250, 249, 245, 0.04);
+  --border-default: rgba(250, 249, 245, 0.08);
+  --border-strong: rgba(250, 249, 245, 0.14);
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
-  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.6);
-  --shadow-glow: 0 0 20px var(--accent-primary-glow);
+  /* Shadow System - Minimal per brand guidelines */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.32);
+  --shadow-lg: 0 4px 20px rgba(0, 0, 0, 0.38);
+  --shadow-xl: 0 8px 40px rgba(0, 0, 0, 0.45);
+  --shadow-glow: 0 0 16px var(--accent-primary-glow);
 
-  --noise-opacity: 0.008;
-  --grid-opacity: 0.012;
+  /* Texture Overlays - Reduced for dark mode */
+  --noise-opacity: 0.006;
+  --grid-opacity: 0.01;
 
-  /* Code Block Syntax Highlighting - warm dark, Anthropic-tinted */
+  /* Code Block Syntax Highlighting - Warm Dark Palette */
   --code-bg: #1a1918;
   --code-fg: #e8e4d8;
   --code-keyword: #e08870;
   --code-string: #a3b985;
   --code-number: #e0a87a;
-  --code-comment: #8a8880;
+  --code-comment: #9a968a;
   --code-function: #8bb3d9;
   --code-builtin: #e8a36a;
   --code-attr: #8bb3d9;
   --code-tag: #a3b985;
   --code-punctuation: #e8e4d8;
-  --code-meta: #8a8880;
+  --code-meta: #9a968a;
 
   /* Git Diff View - Anthropic Dark Theme */
   --gdc-bg-color: #1c1b1a;
   --gdc-text-color: #e8e4d8;
-  --gdc-border-color: #383736;
-  --gdc-add-bg-color: rgba(140, 160, 109, 0.18);
+  --gdc-border-color: #2d2c29;
+  --gdc-add-bg-color: rgba(136, 160, 109, 0.15);
   --gdc-add-text-color: #a3b985;
-  --gdc-add-gutter-bg-color: rgba(140, 160, 109, 0.15);
-  --gdc-remove-bg-color: rgba(224, 96, 80, 0.15);
+  --gdc-add-gutter-bg-color: rgba(136, 160, 109, 0.12);
+  --gdc-remove-bg-color: rgba(224, 96, 80, 0.12);
   --gdc-remove-text-color: #e06050;
-  --gdc-remove-gutter-bg-color: rgba(224, 96, 80, 0.12);
-  --gdc-gutter-bg-color: #242322;
+  --gdc-remove-gutter-bg-color: rgba(224, 96, 80, 0.09);
+  --gdc-gutter-bg-color: #222120;
   --gdc-gutter-text-color: #8a8880;
 }
+
 
 [data-theme='dark'] {
   /* Dark Theme - Pure Colors, Modern Minimal */
