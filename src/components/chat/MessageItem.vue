@@ -10,16 +10,6 @@
       <Bot v-else :size="16" />
     </div>
 
-    <button
-      v-if="showRewindButton"
-      class="rewind-button"
-      :title="t('chat.rewind')"
-      :aria-label="t('chat.rewind')"
-      @click="handleRewindClick"
-    >
-      <RotateCcw :size="14" />
-    </button>
-
     <div class="message-body">
       <div v-if="isTaskNotification" class="task-notification-card" :class="message.metadata?.status">
         <CheckCircle v-if="message.metadata?.status === 'completed'" :size="14" />
@@ -57,13 +47,26 @@
           @tool-skip="handleToolSkip"
         />
         
-        <!-- 消息内容 -->
-        <div class="message-content" v-if="message.content">
-          <MarkdownRenderer 
-            v-if="message.role === 'assistant'" 
-            :content="message.content" 
-          />
-          <p v-else class="user-text" v-html="renderedUserContent" @copy="handleUserCopy"></p>
+        <!-- 消息内容容器（包含回滚按钮和内容） -->
+        <div class="message-content-wrapper">
+          <button
+            v-if="showRewindButton"
+            class="rewind-button"
+            :title="t('chat.rewind')"
+            :aria-label="t('chat.rewind')"
+            @click="handleRewindClick"
+          >
+            <RotateCcw :size="14" />
+          </button>
+          
+          <!-- 消息内容 -->
+          <div class="message-content" v-if="message.content">
+            <MarkdownRenderer 
+              v-if="message.role === 'assistant'" 
+              :content="message.content" 
+            />
+            <p v-else class="user-text" v-html="renderedUserContent" @copy="handleUserCopy"></p>
+          </div>
         </div>
         
         <!-- 元数据 -->
@@ -307,11 +310,6 @@ function handleUserCopy(e: ClipboardEvent) {
         color: var(--text-primary);
       }
     }
-
-    .rewind-button {
-      right: auto;
-      left: 40px;
-    }
   }
 
   &.assistant {
@@ -445,11 +443,63 @@ function handleUserCopy(e: ClipboardEvent) {
   }
 }
 
+.message-content {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  user-select: text;
+
+  p {
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0;
+    user-select: text;
+  }
+
+  // Inline mention chips inside user-authored messages.
+  :deep(.mention-chip) {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    margin: 0 2px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--surface-border);
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 1.4;
+    vertical-align: baseline;
+    white-space: nowrap;
+
+    .chip-icon {
+      font-size: 12px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .chip-name {
+      max-width: 260px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    &.is-folder {
+      background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.08);
+      border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.3);
+      color: var(--accent-primary);
+    }
+  }
+}
+
+// 消息内容容器（用于放置回滚按钮和消息内容）
+.message-content-wrapper {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
 .rewind-button {
-  position: absolute;
-  top: 50%;
-  right: 40px;
-  transform: translateY(-50%);
   width: 24px;
   height: 24px;
   border-radius: 50%;
@@ -464,6 +514,8 @@ function handleUserCopy(e: ClipboardEvent) {
   transition: opacity 0.2s ease, background-color 0.2s ease, color 0.2s ease;
   z-index: 1;
   padding: 0;
+  flex-shrink: 0;
+  margin-top: 12px; // 与消息内容的padding对齐
 
   &:hover {
     background: var(--accent-primary);
@@ -544,10 +596,7 @@ function handleUserCopy(e: ClipboardEvent) {
   .rewind-button {
     width: 20px;
     height: 20px;
-
-    &.user {
-      left: 36px;
-    }
+    margin-top: 10px; // 调整移动端的margin
   }
 }
 </style>

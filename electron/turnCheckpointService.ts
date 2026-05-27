@@ -367,8 +367,8 @@ async function computeFileDiff(
 
     if (!hasChange) return { hunkLines: [], nextIdx: i }
 
-    const firstOldLine = hunkRaw[0]?.oldLine ?? 1
-    const firstNewLine = hunkRaw[0]?.newLine ?? 1
+    const firstOldLine = hunkRaw.find(e => e.oldLine !== undefined)?.oldLine ?? 1
+    const firstNewLine = hunkRaw.find(e => e.newLine !== undefined)?.newLine ?? 1
     let oldCount = 0
     let newCount = 0
     const lines: string[] = []
