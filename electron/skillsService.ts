@@ -189,9 +189,7 @@ function getEngineRoot(): string {
 function getSkillsLibRoot(): string {
   if (app.isPackaged) {
     const primaryPath = join(process.resourcesPath, 'skills-lib')
-    console.log(`[LocalLibrary] Primary skills-lib path (packaged): ${primaryPath}`)
 
-    // Fallback: try alternative locations in case resourcesPath is incorrect
     const fallbackPaths = [
       primaryPath,
       join(__dirname, '../skills-lib'),
@@ -199,9 +197,7 @@ function getSkillsLibRoot(): string {
     ]
 
     for (const candidate of fallbackPaths) {
-      console.log(`[LocalLibrary] Checking path: ${candidate}, exists: ${existsSync(candidate)}`)
       if (existsSync(candidate)) {
-        console.log(`[LocalLibrary] Using skills-lib path: ${candidate}`)
         return candidate
       }
     }
@@ -211,9 +207,7 @@ function getSkillsLibRoot(): string {
     return primaryPath
   }
 
-  const devPath = join(__dirname, '../skills-lib')
-  console.log(`[LocalLibrary] Dev skills-lib path: ${devPath}`)
-  return devPath
+  return join(__dirname, '../skills-lib')
 }
 
 function resolveLocalLibPath(dirPath: string): string {
