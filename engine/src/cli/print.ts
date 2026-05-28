@@ -2979,7 +2979,7 @@ function runHeadlessStreaming(
             const data = await collectContextData({
               messages: mutableMessages,
               getAppState,
-              fast: true,
+              fast: false,
               options: {
                 mainLoopModel: getMainLoopModel(),
                 tools: buildAllTools(appState),
