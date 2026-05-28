@@ -668,11 +668,13 @@ export function normalizeToolInput<T extends Tool>(
         (typeof legacyInput.wait_up_to === 'number'
           ? legacyInput.wait_up_to * 1000
           : undefined)
+      // 使用更长的默认超时时间，从环境变量读取配置
+      const defaultTaskTimeoutMs = parseInt(process.env.TASK_DEFAULT_TIMEOUT_MS || String(300 * 1000), 10) // 5分钟默认
       // SAFETY: See comment in BashTool case above
       return {
         task_id: taskId ?? '',
         block: legacyInput.block ?? true,
-        timeout: timeout ?? 30000,
+        timeout: timeout ?? defaultTaskTimeoutMs,
       } as z.infer<T['inputSchema']>
     }
     default:

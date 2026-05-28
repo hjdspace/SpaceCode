@@ -9,6 +9,7 @@ import { ref } from 'vue'
 import { errorHandler } from '@/services/errorHandler'
 import { api } from '@/services/electronAPI'
 import { useSettingsStore } from '@/stores/settings'
+import { withRetryAndTimeout, DEFAULT_API_TIMEOUT_MS } from '@/utils/retry'
 
 export interface LLMConfig {
   provider: string
@@ -89,90 +90,101 @@ export async function sendMessage(
   const { provider, apiKey, baseUrl, model } = currentConfig
   console.log('[LLM] sendMessage called:', { provider, baseUrl, model, hasApiKey: !!apiKey })
 
-  const fetchOptions = { timeoutMs: options?.timeoutMs ?? 120000 }
+  const timeoutMs = options?.timeoutMs || DEFAULT_API_TIMEOUT_MS
 
-  // Simple implementation for commit message generation and other non-Agent tasks
-  // This is NOT used for the main chat Agent (which uses ClaudeCodeProcessManager)
-  if (provider === 'anthropic' || provider === 'anthropic_compatible') {
-    const url = buildApiUrl(baseUrl, 'https://api.anthropic.com', '/v1/messages')
-    console.log('[LLM] Anthropic URL:', url)
-    const response = await api.httpFetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: model || 'claude-3-sonnet-20240229',
-        max_tokens: options?.maxTokens || 1024,
-        ...(options?.system ? { system: options.system } : {}),
-        messages: messages.map(m => ({
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
-        })),
-      }),
-      ...fetchOptions,
-    })
+  // 使用重试和超时包装 API 调用
+  return await withRetryAndTimeout(
+    async () => {
+      // Simple implementation for commit message generation and other non-Agent tasks
+      // This is NOT used for the main chat Agent (which uses ClaudeCodeProcessManager)
+      if (provider === 'anthropic' || provider === 'anthropic_compatible') {
+        const url = buildApiUrl(baseUrl, 'https://api.anthropic.com', '/v1/messages')
+        console.log('[LLM] Anthropic URL:', url)
+        const response = await api.httpFetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: model || 'claude-3-sonnet-20240229',
+            max_tokens: options?.maxTokens || 1024,
+            ...(options?.system ? { system: options.system } : {}),
+            messages: messages.map(m => ({
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+            })),
+          }),
+          timeoutMs,
+        })
 
-    if (!response || !response.ok) {
-      const text = response?.error || response?.data || ''
-      console.log('[LLM] Anthropic API error response:', text.slice(0, 500))
-      const classified = errorHandler.handleError(
-        new Error(`API error: ${response?.status ?? 'unknown'} - ${text.slice(0, 200)}`),
-        { provider, baseUrl, phase: 'send' }
-      )
-      throw new Error(classified.message)
-    }
+        if (!response || !response.ok) {
+          const text = response?.error || response?.data || ''
+          console.log('[LLM] Anthropic API error response:', text.slice(0, 500))
+          const classified = errorHandler.handleError(
+            new Error(`API error: ${response?.status ?? 'unknown'} - ${text.slice(0, 200)}`),
+            { provider, baseUrl, phase: 'send' }
+          )
+          throw new Error(classified.message)
+        }
 
-    const responseText = response.data
-    console.log('[LLM] Anthropic raw response:', responseText.slice(0, 500))
-    let data
-    try {
-      data = JSON.parse(responseText)
-    } catch (e: any) {
-      throw new Error(`Invalid JSON response from API. Please check your Base URL setting. Error: ${e.message}`)
-    }
-    return data.content?.[0]?.text || ''
-  }
+        const responseText = response.data
+        console.log('[LLM] Anthropic raw response:', responseText.slice(0, 500))
+        let data
+        try {
+          data = JSON.parse(responseText)
+        } catch (e: any) {
+          throw new Error(`Invalid JSON response from API. Please check your Base URL setting. Error: ${e.message}`)
+        }
+        return data.content?.[0]?.text || ''
+      }
 
-  // OpenAI-compatible fallback
-  const url = buildApiUrl(baseUrl, 'https://api.openai.com', '/v1/chat/completions')
-  console.log('[LLM] OpenAI URL:', url)
-  const response = await api.httpFetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
+      // OpenAI-compatible fallback
+      const url = buildApiUrl(baseUrl, 'https://api.openai.com', '/v1/chat/completions')
+      console.log('[LLM] OpenAI URL:', url)
+      const response = await api.httpFetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: model || 'gpt-4',
+          max_tokens: options?.maxTokens || 1024,
+          messages: [
+            ...(options?.system ? [{ role: 'system', content: options.system }] : []),
+            ...messages,
+          ],
+        }),
+        timeoutMs,
+      })
+
+      if (!response || !response.ok) {
+        const text = response?.error || response?.data || ''
+        console.log('[LLM] OpenAI API error response:', text.slice(0, 500))
+        const classified = errorHandler.handleError(
+          new Error(`API error: ${response?.status ?? 'unknown'} - ${text.slice(0, 200)}`),
+          { provider, baseUrl, phase: 'send' }
+        )
+        throw new Error(classified.message)
+      }
+
+      const responseText = response.data
+      console.log('[LLM] OpenAI raw response:', responseText.slice(0, 500))
+      let data
+      try {
+        data = JSON.parse(responseText)
+      } catch (e: any) {
+        throw new Error(`Invalid JSON response from API. Please check your Base URL setting. Error: ${e.message}`)
+      }
+      return data.choices?.[0]?.message?.content || ''
     },
-    body: JSON.stringify({
-      model: model || 'gpt-4',
-      max_tokens: options?.maxTokens || 1024,
-      messages: [
-        ...(options?.system ? [{ role: 'system', content: options.system }] : []),
-        ...messages,
-      ],
-    }),
-    ...fetchOptions,
-  })
-
-  if (!response || !response.ok) {
-    const text = response?.error || response?.data || ''
-    console.log('[LLM] OpenAI API error response:', text.slice(0, 500))
-    const classified = errorHandler.handleError(
-      new Error(`API error: ${response?.status ?? 'unknown'} - ${text.slice(0, 200)}`),
-      { provider, baseUrl, phase: 'send' }
-    )
-    throw new Error(classified.message)
-  }
-
-  const responseText = response.data
-  console.log('[LLM] OpenAI raw response:', responseText.slice(0, 500))
-  let data
-  try {
-    data = JSON.parse(responseText)
-  } catch (e: any) {
-    throw new Error(`Invalid JSON response from API. Please check your Base URL setting. Error: ${e.message}`)
-  }
-  return data.choices?.[0]?.message?.content || ''
+    {
+      timeoutMs,
+      onRetry: (attempt, error, delayMs) => {
+        console.log(`[LLM] 第 ${attempt} 次重试，等待 ${delayMs}ms，错误: ${error.message}`)
+      }
+    }
+  )
 }
