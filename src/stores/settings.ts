@@ -5,6 +5,8 @@ import { api } from '@/services/electronAPI'
 
 export type AuthMethod = 'anthropic_compatible' | 'openai_compatible' | 'gemini_api' | 'claudeai' | 'console'
 
+export type EngineSource = 'bundled' | 'installed'
+
 export interface ProviderConfig {
   baseUrl: string
   apiKey: string
@@ -51,6 +53,8 @@ export interface AuthSettings {
   engineType?: EngineType
   permissionMode?: PermissionMode
   appearance?: AppearanceSettings
+  engineSource?: EngineSource
+  installedCliPath?: string
 }
 
 const SETTINGS_STORAGE_KEY = 'claude_desktop_settings'
@@ -259,6 +263,8 @@ export const useSettingsStore = defineStore('settings', () => {
     smoothScrolling: true,
     accentColor: 'blue'
   })
+  const engineSource = ref<EngineSource>((saved as any).engineSource || 'bundled')
+  const installedCliPath = ref<string | null>((saved as any).installedCliPath || null)
 
   // Computed: current provider for LLM service compatibility
   const provider = computed(() => {
@@ -418,7 +424,9 @@ export const useSettingsStore = defineStore('settings', () => {
       language: language.value,
       engineType: engineType.value,
       permissionMode: permissionMode.value,
-      appearance: { ...appearance.value }
+      appearance: { ...appearance.value },
+      engineSource: engineSource.value,
+      installedCliPath: installedCliPath.value ?? undefined
     }
 
     const serialized = JSON.stringify(data, null, 2)
@@ -527,6 +535,16 @@ export const useSettingsStore = defineStore('settings', () => {
     saveSettings()
   }
 
+  function setEngineSource(source: EngineSource) {
+    engineSource.value = source
+    saveSettings()
+  }
+
+  function setInstalledCliPath(cliPath: string | null) {
+    installedCliPath.value = cliPath
+    saveSettings()
+  }
+
   // Priority: gui-settings.json (highest) > localStorage > .env (fallback) > defaults
   loadFromGuiSettingsFile().finally(() => loadFromEnv())
 
@@ -555,6 +573,10 @@ export const useSettingsStore = defineStore('settings', () => {
     updateFromSettingsPanel,
     updateAppearance,
     loadFromEnv,
-    loadFromGuiSettingsFile
+    loadFromGuiSettingsFile,
+    engineSource,
+    installedCliPath,
+    setEngineSource,
+    setInstalledCliPath
   }
 })
