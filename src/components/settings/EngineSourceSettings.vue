@@ -1,91 +1,135 @@
 <template>
   <div class="engine-source-settings">
     <div class="form-group">
-      <label class="form-label">Engine Source</label>
+      <label class="form-label">{{ $t('engineSource.title') }}</label>
       <div class="source-options">
         <button
-          v-for="source in sources"
-          :key="source.id"
           class="source-card"
-          :class="{ active: settingsStore.engineSource === source.id }"
-          @click="selectSource(source.id)"
+          :class="{ active: engineSource === 'bundled' }"
+          @click="selectSource('bundled')"
         >
-          <span class="source-name">{{ source.name }}</span>
-          <span class="source-desc">{{ source.desc }}</span>
-          <Check v-if="settingsStore.engineSource === source.id" class="source-check" :size="16" />
+          <div class="source-card-header">
+            <Package :size="18" class="source-icon" />
+            <span class="source-name">{{ $t('engineSource.bundled') }}</span>
+            <span class="source-badge recommended">{{ $t('engineSource.recommended') }}</span>
+          </div>
+          <span class="source-desc">{{ $t('engineSource.bundledDesc') }}</span>
+          <Check v-if="engineSource === 'bundled'" class="source-check" :size="16" />
+        </button>
+        <button
+          class="source-card"
+          :class="{ active: engineSource === 'installed' }"
+          @click="selectSource('installed')"
+        >
+          <div class="source-card-header">
+            <Terminal :size="18" class="source-icon" />
+            <span class="source-name">{{ $t('engineSource.installed') }}</span>
+          </div>
+          <span class="source-desc">{{ $t('engineSource.installedDesc') }}</span>
+          <Check v-if="engineSource === 'installed'" class="source-check" :size="16" />
         </button>
       </div>
-      <span class="form-hint">Choose whether to use the bundled engine or an installed Claude Code CLI</span>
     </div>
 
-    <template v-if="settingsStore.engineSource === 'installed'">
+    <template v-if="engineSource === 'installed'">
       <div class="divider"></div>
 
       <div class="form-group">
-        <label class="form-label">CLI Detection</label>
-        <div class="detection-status">
-          <template v-if="detecting">
-            <Loader2 class="status-icon spinning" :size="16" />
-            <span class="status-text">Detecting...</span>
-          </template>
-          <template v-else-if="cliDetection?.available">
-            <CheckCircle2 class="status-icon success" :size="16" />
-            <span class="status-text">CLI found: {{ cliDetection.path }}</span>
-            <span v-if="cliDetection.version" class="status-badge">v{{ cliDetection.version }}</span>
-          </template>
-          <template v-else>
-            <XCircle class="status-icon error" :size="16" />
-            <span class="status-text">Claude Code CLI not found</span>
-          </template>
-        </div>
-      </div>
+        <label class="form-label">{{ $t('engineSource.cliStatus') }}</label>
 
-      <div class="form-group">
-        <label class="form-label">Environment</label>
-        <div class="env-checks">
-          <div v-for="item in envItems" :key="item.name" class="env-item">
-            <CheckCircle2 v-if="item.available" class="status-icon success" :size="14" />
-            <XCircle v-else class="status-icon error" :size="14" />
-            <span class="env-name">{{ item.name }}</span>
-            <span v-if="item.version" class="env-version">{{ item.version }}</span>
+        <div v-if="isDetecting" class="cli-status detecting">
+          <Loader2 :size="16" class="spin" />
+          <span>{{ $t('engineSource.detecting') }}</span>
+        </div>
+
+        <div v-else-if="detectionResult?.available" class="cli-status installed">
+          <CheckCircle :size="16" />
+          <span class="cli-version">{{ detectionResult.version || 'unknown' }}</span>
+          <span class="cli-path">{{ detectionResult.path }}</span>
+        </div>
+
+        <div v-else class="cli-status not-found">
+          <AlertTriangle :size="16" />
+          <span>{{ $t('engineSource.cliNotFound') }}</span>
+        </div>
+
+        <div v-if="!isDetecting && !detectionResult?.available && envCheck" class="env-check">
+          <div class="env-item" :class="{ ok: envCheck.node.available }">
+            <CheckCircle2 v-if="envCheck.node.available" :size="14" />
+            <XCircle v-else :size="14" />
+            <span class="env-name">Node.js</span>
+            <span class="env-value">{{ envCheck.node.available ? envCheck.node.version : $t('engineSource.notInstalled') }}</span>
+          </div>
+          <div class="env-item" :class="{ ok: envCheck.npm.available }">
+            <CheckCircle2 v-if="envCheck.npm.available" :size="14" />
+            <XCircle v-else :size="14" />
+            <span class="env-name">npm</span>
+            <span class="env-value">{{ envCheck.npm.available ? envCheck.npm.version : $t('engineSource.notInstalled') }}</span>
+          </div>
+          <div class="env-item" :class="{ ok: envCheck.git.available }">
+            <CheckCircle2 v-if="envCheck.git.available" :size="14" />
+            <XCircle v-else :size="14" />
+            <span class="env-name">Git</span>
+            <span class="env-value">{{ envCheck.git.available ? envCheck.git.version : $t('engineSource.notInstalled') }}</span>
           </div>
         </div>
       </div>
 
-      <div v-if="!cliDetection?.available" class="form-group">
-        <button class="install-btn" :disabled="installing" @click="handleInstall">
-          <Loader2 v-if="installing" class="spinning" :size="16" />
-          <Download v-else :size="16" />
-          <span>{{ installing ? 'Installing...' : 'Install Claude Code CLI' }}</span>
-        </button>
+      <div v-if="!detectionResult?.available && !isDetecting" class="form-group">
         <div v-if="installProgress" class="install-progress">
           <div class="progress-bar">
-            <div class="progress-fill" :style="{ width: progressPercent + '%' }"></div>
+            <div class="progress-fill" :style="{ width: `${installProgress.percent || 0}%` }"></div>
           </div>
-          <span class="progress-text">{{ installProgress.message }}</span>
+          <div class="progress-info">
+            <span class="progress-stage">{{ stageLabel }}</span>
+            <span class="progress-percent">{{ installProgress.percent || 0 }}%</span>
+          </div>
+        </div>
+
+        <div v-if="installError" class="install-error">
+          <AlertCircle :size="14" />
+          <span>{{ installError }}</span>
+        </div>
+
+        <div class="install-actions">
+          <button
+            v-if="canInstall"
+            class="btn btn-primary"
+            :disabled="isInstalling"
+            @click="installCli"
+          >
+            <Download v-if="!isInstalling" :size="14" />
+            <Loader2 v-else :size="14" class="spin" />
+            {{ isInstalling ? $t('engineSource.installing') : $t('engineSource.installCli') }}
+          </button>
+
+          <button
+            v-else-if="missingDeps.length > 0"
+            class="btn btn-secondary"
+            :disabled="isInstalling"
+            @click="installCli"
+          >
+            <Download v-if="!isInstalling" :size="14" />
+            <Loader2 v-else :size="14" class="spin" />
+            {{ isInstalling ? $t('engineSource.installing') : $t('engineSource.installWithDeps', { deps: missingDeps.join(', ') }) }}
+          </button>
         </div>
       </div>
 
-      <template v-if="settingsStore.authMethod !== 'anthropic_compatible' && settingsStore.authMethod !== 'claudeai' && settingsStore.authMethod !== 'console'">
+      <template v-if="showAdapterStatus">
         <div class="divider"></div>
 
         <div class="form-group">
-          <label class="form-label">API Adapter</label>
-          <div class="adapter-status">
-            <template v-if="proxyChecking">
-              <Loader2 class="status-icon spinning" :size="16" />
-              <span class="status-text">Checking adapter...</span>
-            </template>
-            <template v-else-if="proxyRunning">
-              <CheckCircle2 class="status-icon success" :size="16" />
-              <span class="status-text">API adapter running</span>
-            </template>
-            <template v-else>
-              <XCircle class="status-icon warning" :size="16" />
-              <span class="status-text">API adapter not running</span>
-            </template>
+          <label class="form-label">{{ $t('engineSource.apiAdapter') }}</label>
+          <div class="adapter-status" :class="{ running: adapterRunning }">
+            <span class="adapter-dot" :class="{ running: adapterRunning }"></span>
+            <span class="adapter-label">
+              {{ adapterRunning ? $t('engineSource.adapterRunning') : $t('engineSource.adapterStopped') }}
+            </span>
+            <span v-if="adapterStatus?.port" class="adapter-port">
+              :{{ adapterStatus.port }}
+            </span>
           </div>
-          <span class="form-hint">Required for non-Anthropic API providers with the installed CLI</span>
         </div>
       </template>
     </template>
@@ -93,103 +137,153 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { Check, CheckCircle2, XCircle, Loader2, Download } from 'lucide-vue-next'
-import { useSettingsStore } from '@/stores/settings'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import {
+  Check, Package, Terminal, CheckCircle, CheckCircle2, XCircle,
+  AlertTriangle, AlertCircle, Download, Loader2
+} from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
+import { useSettingsStore } from '@/stores/settings'
+import type { EngineSource } from '@/stores/settings'
+
+interface CliDetectionResult {
+  available: boolean
+  path: string | null
+  version: string | null
+}
+
+interface EnvItemStatus {
+  available: boolean
+  version: string | null
+  path: string | null
+}
+
+interface EnvironmentCheck {
+  node: EnvItemStatus
+  npm: EnvItemStatus
+  git: EnvItemStatus
+}
+
+interface InstallProgressData {
+  stage: 'downloading' | 'installing' | 'verifying' | 'done' | 'error'
+  message: string
+  percent?: number
+}
+
+interface AdapterStatusData {
+  running: boolean
+  port: number
+  requestsProcessed: number
+  errorsCount: number
+  lastError?: string
+}
 
 const settingsStore = useSettingsStore()
+const { t } = useI18n()
 
-const sources = [
-  { id: 'bundled' as const, name: 'Bundled', desc: 'Built-in engine, no setup required' },
-  { id: 'installed' as const, name: 'Installed CLI', desc: 'Use official Claude Code CLI' },
-]
+const engineSource = computed(() => settingsStore.engineSource)
 
-const detecting = ref(false)
-const cliDetection = ref<{ available: boolean; path: string | null; version: string | null } | null>(null)
-const envCheck = ref<{ node: { available: boolean; version: string | null }; npm: { available: boolean; version: string | null }; git: { available: boolean; version: string | null } } | null>(null)
-const installing = ref(false)
-const installProgress = ref<{ stage: string; message: string; percent?: number } | null>(null)
-const proxyChecking = ref(false)
-const proxyRunning = ref(false)
+const isDetecting = ref(false)
+const detectionResult = ref<CliDetectionResult | null>(null)
+const envCheck = ref<EnvironmentCheck | null>(null)
+const isInstalling = ref(false)
+const installError = ref<string | null>(null)
+const installProgress = ref<InstallProgressData | null>(null)
+const adapterStatus = ref<AdapterStatusData | null>(null)
 
 let uninstallProgress: (() => void) | null = null
 
-const envItems = computed(() => {
+const canInstall = computed(() => {
+  if (!envCheck.value) return false
+  return envCheck.value.node.available &&
+    envCheck.value.npm.available &&
+    envCheck.value.git.available
+})
+
+const missingDeps = computed(() => {
   if (!envCheck.value) return []
-  return [
-    { name: 'Node.js', ...envCheck.value.node },
-    { name: 'npm', ...envCheck.value.npm },
-    { name: 'Git', ...envCheck.value.git },
-  ]
+  const deps: string[] = []
+  if (!envCheck.value.node.available) deps.push('Node.js')
+  if (!envCheck.value.npm.available) deps.push('npm')
+  if (!envCheck.value.git.available) deps.push('Git')
+  return deps
 })
 
-const progressPercent = computed(() => {
-  if (!installProgress.value) return 0
-  switch (installProgress.value.stage) {
-    case 'downloading': return 25
-    case 'installing': return 60
-    case 'verifying': return 90
-    case 'done': return 100
-    default: return 0
-  }
+const adapterRunning = computed(() => adapterStatus.value?.running ?? false)
+
+const showAdapterStatus = computed(() => {
+  if (engineSource.value !== 'installed') return false
+  const method = settingsStore.authMethod
+  return method !== 'anthropic_compatible' && method !== 'claudeai' && method !== 'console'
 })
 
-function selectSource(sourceId: 'bundled' | 'installed') {
-  settingsStore.setEngineSource(sourceId)
-  if (sourceId === 'installed') {
-    runDetection()
+const stageLabel = computed(() => {
+  if (!installProgress.value) return ''
+  const stage = installProgress.value.stage
+  const map: Record<string, string> = {
+    downloading: t('engineSource.stageDownloading'),
+    installing: t('engineSource.stageInstalling'),
+    verifying: t('engineSource.stageVerifying'),
+    done: t('engineSource.stageDone'),
+    error: t('engineSource.stageError'),
+  }
+  return map[stage] || installProgress.value.message
+})
+
+function selectSource(source: EngineSource) {
+  settingsStore.setEngineSource(source)
+  if (source === 'installed') {
+    detectInstalled()
+  } else {
+    detectionResult.value = null
+    envCheck.value = null
+    installError.value = null
+    installProgress.value = null
   }
 }
 
-async function runDetection() {
-  detecting.value = true
+async function detectInstalled() {
+  isDetecting.value = true
   try {
-    const result = await api.detectInstalledCli()
-    if (result) {
-      cliDetection.value = result
-      if (result.available && result.path) {
-        settingsStore.setInstalledCliPath(result.path)
-      }
-    }
-    const envResult = await api.checkEnvironment()
-    if (envResult) {
-      envCheck.value = envResult
+    const [detection, env] = await Promise.all([
+      api.detectInstalledCli(),
+      api.checkEnvironment(),
+    ])
+    detectionResult.value = detection
+    envCheck.value = env
+
+    if (detection?.available && detection.path) {
+      settingsStore.setInstalledCliPath(detection.path)
     }
   } catch {
-    cliDetection.value = { available: false, path: null, version: null }
+    detectionResult.value = null
+    envCheck.value = null
   } finally {
-    detecting.value = false
+    isDetecting.value = false
   }
 }
 
-async function checkProxyStatus() {
-  proxyChecking.value = true
-  try {
-    proxyRunning.value = await api.isProxyRunning()
-  } catch {
-    proxyRunning.value = false
-  } finally {
-    proxyChecking.value = false
-  }
-}
-
-async function handleInstall() {
-  installing.value = true
+async function installCli() {
+  isInstalling.value = true
+  installError.value = null
   installProgress.value = null
 
-  uninstallProgress = api.onInstallProgress?.((progress: any) => {
+  uninstallProgress = api.onInstallProgress((progress: InstallProgressData) => {
     installProgress.value = progress
-  }) ?? null
+  })
 
   try {
     const result = await api.installCli()
     if (result?.success) {
-      await runDetection()
+      await detectInstalled()
+    } else {
+      installError.value = result?.error || t('engineSource.installFailed')
     }
-  } catch {
+  } catch (err) {
+    installError.value = err instanceof Error ? err.message : t('engineSource.installFailed')
   } finally {
-    installing.value = false
+    isInstalling.value = false
     if (uninstallProgress) {
       uninstallProgress()
       uninstallProgress = null
@@ -197,18 +291,33 @@ async function handleInstall() {
   }
 }
 
+async function refreshAdapterStatus() {
+  try {
+    adapterStatus.value = await api.getProxyStatus()
+  } catch {
+    adapterStatus.value = null
+  }
+}
+
+watch(showAdapterStatus, (show) => {
+  if (show) {
+    refreshAdapterStatus()
+  }
+})
+
 onMounted(() => {
-  if (settingsStore.engineSource === 'installed') {
-    runDetection()
-    if (settingsStore.authMethod !== 'anthropic_compatible' && settingsStore.authMethod !== 'claudeai' && settingsStore.authMethod !== 'console') {
-      checkProxyStatus()
-    }
+  if (engineSource.value === 'installed') {
+    detectInstalled()
+  }
+  if (showAdapterStatus.value) {
+    refreshAdapterStatus()
   }
 })
 
 onUnmounted(() => {
   if (uninstallProgress) {
     uninstallProgress()
+    uninstallProgress = null
   }
 })
 </script>
@@ -218,6 +327,21 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .source-options {
@@ -230,8 +354,7 @@ onUnmounted(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
+  gap: 6px;
   padding: 14px 16px;
   background: var(--surface-card);
   border: 2px solid transparent;
@@ -239,6 +362,7 @@ onUnmounted(() => {
   cursor: pointer;
   transition: all 0.2s ease;
   position: relative;
+  text-align: left;
 
   &:hover {
     background: var(--bg-hover);
@@ -250,10 +374,36 @@ onUnmounted(() => {
   }
 }
 
+.source-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.source-icon {
+  color: var(--text-muted);
+
+  .source-card.active & {
+    color: var(--accent-primary);
+  }
+}
+
 .source-name {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.source-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+
+  &.recommended {
+    background: rgba(var(--accent-primary-rgb), 0.1);
+    color: var(--accent-primary);
+  }
 }
 
 .source-desc {
@@ -268,49 +418,56 @@ onUnmounted(() => {
   color: var(--accent-primary);
 }
 
-.detection-status,
-.adapter-status {
+.divider {
+  height: 1px;
+  background: var(--border-default);
+  margin: 4px 0;
+}
+
+.cli-status {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
-  background: var(--surface-soft);
+  padding: 10px 14px;
   border-radius: 8px;
-}
-
-.status-icon {
-  flex-shrink: 0;
-
-  &.success { color: #22c55e; }
-  &.error { color: #ef4444; }
-  &.warning { color: #f59e0b; }
-  &.spinning { animation: spin 1s linear infinite; }
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.status-text {
   font-size: 13px;
-  color: var(--text-primary);
-}
-
-.status-badge {
-  font-size: 11px;
-  padding: 2px 8px;
-  background: rgba(var(--accent-primary-rgb), 0.1);
-  color: var(--accent-primary);
-  border-radius: 4px;
   font-weight: 500;
+
+  &.detecting {
+    background: var(--surface-soft);
+    color: var(--text-secondary);
+  }
+
+  &.installed {
+    background: var(--success-glow);
+    color: var(--success);
+  }
+
+  &.not-found {
+    background: var(--warning-glow);
+    color: var(--warning);
+  }
 }
 
-.env-checks {
+.cli-version {
+  font-weight: 600;
+}
+
+.cli-path {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.env-check {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
+  gap: 4px;
+  padding: 10px 14px;
   background: var(--surface-soft);
   border-radius: 8px;
 }
@@ -319,48 +476,31 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+
+  &.ok {
+    color: var(--success);
+  }
+
+  &:not(.ok) {
+    color: var(--error);
+  }
 }
 
 .env-name {
-  font-size: 13px;
-  color: var(--text-primary);
-  min-width: 60px;
-}
-
-.env-version {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.install-btn {
-  @include reset-button;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  background: var(--accent-primary);
-  color: white;
-  border-radius: 8px;
-  font-size: 13px;
   font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
+  min-width: 56px;
+}
 
-  &:hover:not(:disabled) {
-    opacity: 0.9;
-  }
-
-  &:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
+.env-value {
+  color: var(--text-secondary);
 }
 
 .install-progress {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-top: 8px;
 }
 
 .progress-bar {
@@ -377,31 +517,117 @@ onUnmounted(() => {
   transition: width 0.3s ease;
 }
 
-.progress-text {
+.progress-info {
+  display: flex;
+  justify-content: space-between;
   font-size: 12px;
+}
+
+.progress-stage {
+  color: var(--text-secondary);
+}
+
+.progress-percent {
   color: var(--text-muted);
 }
 
-.divider {
-  height: 1px;
-  background: var(--border-default);
-  margin: 4px 0;
-}
-
-.form-group {
+.install-error {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--error-glow);
+  color: var(--error);
+  font-size: 12px;
 }
 
-.form-label {
+.install-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.adapter-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--surface-soft);
+  font-size: 13px;
+
+  &.running {
+    background: var(--success-glow);
+  }
+}
+
+.adapter-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+
+  &.running {
+    background: var(--success);
+    box-shadow: 0 0 6px var(--success);
+  }
+}
+
+.adapter-label {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.adapter-port {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+}
+
+.btn {
+  @include reset-button;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-primary);
+  transition: all 0.2s;
+
+  &.btn-primary {
+    background: var(--accent-primary);
+    color: white;
+
+    &:hover:not(:disabled) {
+      background: var(--accent-primary-hover);
+    }
+  }
+
+  &.btn-secondary {
+    background: var(--surface-soft);
+    border: 1px solid var(--border-default);
+    color: var(--text-primary);
+
+    &:hover:not(:disabled) {
+      background: var(--bg-hover);
+      border-color: var(--accent-primary);
+    }
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
 }
 
-.form-hint {
-  font-size: 12px;
-  color: var(--text-muted);
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>
