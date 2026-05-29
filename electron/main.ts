@@ -548,6 +548,21 @@ app.whenReady().then(() => {
       mainWindow?.show()
     }
   })
+
+  ;(async () => {
+    const guiSettings = await loadGuiSettings()
+    if (guiSettings?.engineSource === 'installed' && guiSettings?.authMethod !== 'anthropic_compatible') {
+      const proxyConfig = buildProxyConfigFromSettings(guiSettings)
+      if (proxyConfig) {
+        try {
+          await proxyManager.start(proxyConfig)
+          info('Startup', 'Auto-started proxy for installed CLI mode')
+        } catch (err) {
+          warn('Startup', 'Auto-start proxy failed:', err)
+        }
+      }
+    }
+  })()
 })
 
 app.on('window-all-closed', () => {
@@ -559,9 +574,10 @@ app.on('window-all-closed', () => {
 app.on('before-quit', async () => {
   info('App', 'App quitting')
   destroyTray()
-  // 注销全局快捷键
   try { globalShortcut.unregisterAll() } catch {}
-  // 清理所有终端进程
+  try {
+    await proxyManager.stop()
+  } catch {}
   try {
     info('App', 'Killing all terminal processes')
     terminalManager.killAll()
@@ -1067,6 +1083,67 @@ ipcMain.handle('app:getPiCliPath', async () => {
 // ============================================================================
 function getGuiSettingsPath(): string {
   return join(app.getPath('home'), '.claude', 'gui-settings.json')
+}
+
+async function loadGuiSettings(): Promise<Record<string, any> | null> {
+  try {
+    const settingsPath = getGuiSettingsPath()
+    if (!existsSync(settingsPath)) return null
+    const raw = readFileSync(settingsPath, 'utf-8')
+    if (!raw.trim()) return null
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+function buildProxyConfigFromSettings(guiSettings: Record<string, any>): ProxyConfig | null {
+  const authMethod = guiSettings.authMethod
+  if (!authMethod) return null
+
+  let upstreamProvider: ProxyConfig['upstreamProvider']
+  let upstreamBaseUrl = ''
+  let upstreamApiKey = ''
+  const modelMapping: ProxyConfig['modelMapping'] = {}
+
+  if (authMethod === 'openai_compatible' && guiSettings.openaiConfig) {
+    const cfg = guiSettings.openaiConfig
+    upstreamProvider = 'openai_compatible'
+    upstreamBaseUrl = (cfg.baseUrl || '').trim()
+    upstreamApiKey = (cfg.apiKey || '').trim()
+    if (cfg.haikuModel) modelMapping.haikuModel = cfg.haikuModel.trim()
+    if (cfg.sonnetModel) modelMapping.sonnetModel = cfg.sonnetModel.trim()
+    if (cfg.opusModel) modelMapping.opusModel = cfg.opusModel.trim()
+  } else if (authMethod === 'gemini_api' && guiSettings.geminiConfig) {
+    const cfg = guiSettings.geminiConfig
+    upstreamProvider = 'openai_compatible'
+    upstreamBaseUrl = (cfg.baseUrl || '').trim()
+    upstreamApiKey = (cfg.apiKey || '').trim()
+    if (cfg.haikuModel) modelMapping.haikuModel = cfg.haikuModel.trim()
+    if (cfg.sonnetModel) modelMapping.sonnetModel = cfg.sonnetModel.trim()
+    if (cfg.opusModel) modelMapping.opusModel = cfg.opusModel.trim()
+  } else if ((authMethod === 'anthropic_compatible' || authMethod === 'claudeai' || authMethod === 'console') && guiSettings.anthropicConfig) {
+    const cfg = guiSettings.anthropicConfig
+    upstreamProvider = 'anthropic'
+    upstreamBaseUrl = (cfg.baseUrl || '').trim()
+    upstreamApiKey = (cfg.apiKey || '').trim()
+    if (cfg.haikuModel) modelMapping.haikuModel = cfg.haikuModel.trim()
+    if (cfg.sonnetModel) modelMapping.sonnetModel = cfg.sonnetModel.trim()
+    if (cfg.opusModel) modelMapping.opusModel = cfg.opusModel.trim()
+  } else {
+    return null
+  }
+
+  if (!upstreamBaseUrl || !upstreamApiKey) return null
+
+  return {
+    host: '127.0.0.1',
+    port: 34567,
+    upstreamProvider,
+    upstreamBaseUrl,
+    upstreamApiKey,
+    modelMapping,
+  }
 }
 
 function ensureClaudeDir(): void {
