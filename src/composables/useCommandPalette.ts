@@ -12,8 +12,13 @@ export function useCommandPalette() {
   const selectedIndex = ref(0)
   const triggerPosition = ref<number>(-1)
 
+  watch(
+    () => skillsStore.skills,
+    (skills) => commandRegistry.refresh(skills),
+    { immediate: true },
+  )
+
   const allCommands = computed<UnifiedCommand[]>(() => {
-    commandRegistry.refresh(skillsStore.skills)
     return commandRegistry.getAllCommands()
   })
 
@@ -37,7 +42,6 @@ export function useCommandPalette() {
       return flat.commands.length > 0 ? [flat] : []
     }
 
-    allCommands.value
     return commandRegistry.getGroupedCommands()
   })
 
