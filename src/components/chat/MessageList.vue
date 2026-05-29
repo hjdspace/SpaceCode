@@ -7,7 +7,7 @@
         <span>{{ t('chat.startConversationDesc') }}</span>
       </div>
 
-      <template v-for="group in messageGroups" :key="group.id">
+      <template v-for="group in enrichedMessageGroups" :key="group.id">
         <!-- User message bubble -->
         <MessageItem
           v-if="group.type === 'user'"
@@ -18,13 +18,19 @@
           @rewind="(msg) => emit('rewind', msg)"
         />
         <!-- Assistant timeline (unified) -->
-        <AgentTimeline
-          v-else
-          :messages="group.messages"
-          :loading="props.loading && group.id === messageGroups[messageGroups.length - 1]?.id"
-          @tool-submit="(tId, ans) => emit('toolSubmit', group.id, tId, ans)"
-          @tool-skip="(tId) => emit('toolSkip', group.id, tId)"
-        />
+        <template v-else>
+          <AgentTimeline
+            :messages="group.messages"
+            :loading="props.loading && group.id === enrichedMessageGroups[enrichedMessageGroups.length - 1]?.id"
+            @tool-submit="(tId, ans) => emit('toolSubmit', group.id, tId, ans)"
+            @tool-skip="(tId) => emit('toolSkip', group.id, tId)"
+          />
+          <CurrentTurnChangeCard
+            v-if="group.turnChangeCard"
+            :card-data="group.turnChangeCard"
+            class="turn-change-card-wrapper"
+          />
+        </template>
       </template>
 
       <div v-if="props.loading" class="typing-indicator">
@@ -32,21 +38,13 @@
         <div class="dot"></div>
         <div class="dot"></div>
       </div>
-
-      <!-- Turn Change Cards -->
-      <CurrentTurnChangeCard
-        v-for="(card, index) in chatStore.turnChangeCards"
-        :key="card.targetUserMessageId"
-        :card-data="card"
-        class="turn-change-card-wrapper"
-      />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, computed, onUnmounted } from 'vue'
-import type { Message } from '@/types'
+import type { Message, TurnChangeCardData } from '@/types'
 import MessageItem from './MessageItem.vue'
 import AgentTimeline from './AgentTimeline.vue'
 import CurrentTurnChangeCard from './CurrentTurnChangeCard.vue'
@@ -73,6 +71,7 @@ interface MessageGroup {
   id: string
   type: 'user' | 'assistant'
   messages: Message[]
+  turnChangeCard?: TurnChangeCardData
 }
 
 // ========== 优化1: 消息分组计算缓存 (类似useMemo) ==========
@@ -138,6 +137,30 @@ function buildMessageGroups(msgs: Message[]): MessageGroup[] {
 
 const messageGroups = computed<MessageGroup[]>(() => {
   return buildMessageGroups(props.messages)
+})
+
+const turnChangeCardByUserMsgIndex = computed<Map<number, TurnChangeCardData>>(() => {
+  const map = new Map<number, TurnChangeCardData>()
+  for (const card of chatStore.turnChangeCards) {
+    map.set(card.checkpoint.target.userMessageIndex, card)
+  }
+  return map
+})
+
+const enrichedMessageGroups = computed<MessageGroup[]>(() => {
+  const groups = messageGroups.value
+  const cardMap = turnChangeCardByUserMsgIndex.value
+
+  let userMsgIndex = 0
+  return groups.map(group => {
+    if (group.type === 'user') {
+      userMsgIndex++
+      return { ...group }
+    }
+
+    const card = cardMap.get(userMsgIndex - 1)
+    return { ...group, turnChangeCard: card }
+  })
 })
 
 // ========== 优化2: 滚动位置记忆与恢复 ==========

@@ -19,13 +19,14 @@
           <Search :size="14" class="search-icon" />
           <input
             ref="slashSearchInput"
-            v-model="slashSearchQuery"
+            v-model="commandPalette.searchQuery.value"
             type="text"
             :placeholder="t('chatInput.searchCommands')"
             readonly
             tabindex="-1"
           />
-          <button v-if="slashSearchQuery" class="clear-btn" @click="clearSlashSearch">
+          <span v-if="commandPalette.ghostText.value" class="ghost-text">{{ commandPalette.ghostText.value.suffix }}</span>
+          <button v-if="commandPalette.searchQuery.value" class="clear-btn" @click="clearSlashSearch">
             <X :size="12" />
           </button>
         </div>
@@ -35,18 +36,20 @@
             <span>{{ t('chatInput.noMatchingCommands') }}</span>
           </div>
           <button
-            v-for="cmd in filteredSlashCommands"
+            v-for="(cmd, idx) in filteredSlashCommands"
             :key="cmd.name"
             class="dropdown-item"
             :class="{ highlighted: highlightedSlashCommand === cmd.name }"
             @click="selectSlashCommand(cmd)"
-            @mouseenter="highlightedSlashCommand = cmd.name"
+            @mouseenter="commandPalette.selectedIndex.value = idx"
           >
             <component :is="cmd.icon" :size="16" class="item-icon" />
             <div class="item-content">
               <span class="item-name">{{ cmd.name }}</span>
               <span class="item-description">{{ cmd.description }}</span>
             </div>
+            <span v-if="cmd.kind === 'agent_skill'" class="item-badge skill">{{ t('chatInput.skillLabel') }}</span>
+            <span v-else-if="cmd.kind === 'sdk_command'" class="item-badge sdk">SDK</span>
           </button>
         </div>
         <div class="dropdown-section-divider"></div>
@@ -428,7 +431,8 @@ import {
   Search, Loader2, RefreshCw, AlertCircle, HelpCircle, Trash2, Coins,
   Minimize2, Stethoscope, FilePlus, Zap, FolderOpen, Terminal, Settings,
   Code, GitBranch, Bug, Bookmark, Layers, MessageSquare, Eye, Cpu, Brain,
-  Sparkles, Image
+  Sparkles, Image, FileDiff, Play, FolderPlus, Download, Shield, ListTree,
+  Webhook, Activity, Palette, Command, Keyboard, RotateCcw, GitCommit
 } from 'lucide-vue-next'
 import { useSettingsStore } from '@/stores/settings'
 import { useSkillsStore } from '@/stores/skills'
@@ -439,6 +443,7 @@ import { useI18n } from 'vue-i18n'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useFileToChat } from '@/composables/useFileToChat'
 import { pathBasename } from '@/utils/mention-chips'
+import { normalizeApiUrl } from '@/utils/apiUrl'
 import PermissionModeSelector from './PermissionModeSelector.vue'
 
 export interface ImageAttachment {
@@ -602,11 +607,8 @@ function getAgentDescription(agentType: string, originalDescription: string): st
 }
 
 // 斜杠命令相关
-const showSlashCommandMenu = ref(false)
-const slashSearchQuery = ref('')
 const slashSearchInput = ref<HTMLInputElement | null>(null)
 const slashListRef = ref<HTMLElement | null>(null)
-const highlightedSlashCommand = ref<string | null>(null)
 const slashTriggerPosition = ref<number>(-1)
 const slashMenuPosition = ref<{ top?: string; bottom?: string; left: string }>({ top: '0px', left: '0px' })
 
@@ -625,26 +627,30 @@ const isLoadingContext = ref(false)
 import { BUILT_IN_COMMANDS } from '@/lib/constants/commands'
 import { resolveDirectSlash, dispatchBadge } from '@/lib/message-input-logic'
 import type { CommandBadge } from '@/types'
+import { useCommandPalette } from '@/composables/useCommandPalette'
+import type { UnifiedCommand } from '@/lib/commands/types'
+
+const commandPalette = useCommandPalette()
 
 // Icon mapping for commands
 const iconMap: Record<string, any> = {
   HelpCircle, Trash2, Coins, Minimize2, Stethoscope, FilePlus, Zap, Layers,
-  Terminal, Settings, Code, GitBranch, Bug, Bookmark, Eye, Cpu, MessageSquare
+  Terminal, Settings, Code, GitBranch, Bug, Bookmark, Eye, Cpu, MessageSquare,
+  FileDiff, Play, FolderPlus, Download, Shield, ListTree, Webhook, FileText,
+  Activity, Palette, Command, Keyboard, RotateCcw, GitCommit
 }
 
-// 内置斜杠命令列表 - 从常量生成
 const builtinSlashCommands = computed<SlashCommand[]>(() => {
   return BUILT_IN_COMMANDS.map(cmd => ({
     name: cmd.name,
     description: cmd.description,
-    icon: iconMap[cmd.icon] || Zap,
+    icon: (cmd.icon && iconMap[cmd.icon]) || Zap,
     kind: cmd.kind,
     immediate: cmd.immediate,
     aliases: cmd.aliases
   }))
 })
 
-// 技能命令
 const skillCommands = computed<SlashCommand[]>(() => {
   return skillsStore.skills.map(skill => ({
     name: skill.name,
@@ -653,21 +659,34 @@ const skillCommands = computed<SlashCommand[]>(() => {
   }))
 })
 
-// 所有斜杠命令
 const allSlashCommands = computed<SlashCommand[]>(() => {
   return [...builtinSlashCommands.value, ...skillCommands.value]
 })
 
-// 过滤后的斜杠命令
 const filteredSlashCommands = computed<SlashCommand[]>(() => {
-  if (!slashSearchQuery.value) return allSlashCommands.value
-  const query = slashSearchQuery.value.toLowerCase()
-  return allSlashCommands.value.filter(cmd =>
-    cmd.name.toLowerCase().includes(query) ||
-    cmd.description.toLowerCase().includes(query) ||
-    cmd.aliases?.some(alias => alias.toLowerCase().includes(query))
-  )
+  const query = commandPalette.searchQuery.value
+  if (!query) return allSlashCommands.value
+  return commandPalette.filteredCommands.value.map(cmd => {
+    const icon = (cmd.icon && iconMap[cmd.icon]) || Zap
+    return {
+      name: cmd.name,
+      description: cmd.description,
+      icon,
+      kind: cmd.kind,
+      immediate: cmd.immediate,
+      aliases: cmd.aliases,
+    }
+  })
 })
+
+const showSlashCommandMenu = computed({
+  get: () => commandPalette.showMenu.value,
+  set: (val: boolean) => { if (!val) commandPalette.closeMenu() }
+})
+
+const slashSearchQuery = computed(() => commandPalette.searchQuery.value)
+
+const highlightedSlashCommand = computed(() => commandPalette.highlightedName.value)
 
 // 过滤后的上下文项（服务端已搜索，客户端直接使用）
 const filteredContextItems = computed<ContextItem[]>(() => {
@@ -1018,21 +1037,6 @@ function collectMentions(): Attachment[] {
   }))
 }
 
-// 规范化API URL，确保包含正确的版本路径
-function normalizeApiUrl(baseUrl: string, provider: string): string {
-  let url = baseUrl.replace(/\/+$/, '')
-
-  // 根据provider类型确保包含正确的API版本路径
-  if (provider === 'anthropic' && !url.includes('/v1')) {
-    url += '/v1'
-  } else if (provider === 'openai' && !url.includes('/v1')) {
-    url += '/v1'
-  }
-  // gemini使用v1beta路径，通常已在默认URL中包含
-
-  return url
-}
-
 // 从 BASE_URL 获取模型列表
 async function fetchModelsFromBaseUrl() {
   if (!canRefreshModels.value) return
@@ -1179,33 +1183,23 @@ function checkSlashTrigger() {
   if (!editor) return
 
   const textBeforeCursor = getTextBeforeCursor()
-
-  // 检查是否在一行的开始处输入了 /
   const lastNewLine = textBeforeCursor.lastIndexOf('\n')
   const textAfterLastNewLine = textBeforeCursor.slice(lastNewLine + 1)
 
-  // 匹配 / 开头，后面跟着可选的字母数字
-  const slashMatch = textAfterLastNewLine.match(/^\/(\w*)$/)
+  const slashMatch = textAfterLastNewLine.match(/^\/([\w:-]*)$/)
 
   if (slashMatch && !showContextMenu.value) {
     slashTriggerPosition.value = lastNewLine + 1
-    showSlashCommandMenu.value = true
-    slashSearchQuery.value = slashMatch[1] || ''
-    highlightedSlashCommand.value = filteredSlashCommands.value[0]?.name || null
+    commandPalette.triggerMenu(slashMatch[1] || '')
 
-    // 计算菜单位置，保持焦点在 editor
     nextTick(() => {
       updateSlashMenuPosition()
       editorRef.value?.focus()
     })
   } else if (!textAfterLastNewLine.startsWith('/')) {
-    closeSlashCommandMenu()
-  } else if (showSlashCommandMenu.value) {
-    // 同步输入框内容到搜索查询
-    slashSearchQuery.value = textAfterLastNewLine.slice(1)
-    if (filteredSlashCommands.value.length > 0) {
-      highlightedSlashCommand.value = filteredSlashCommands.value[0].name
-    }
+    commandPalette.closeMenu()
+  } else if (commandPalette.showMenu.value) {
+    commandPalette.updateSearch(textAfterLastNewLine.slice(1))
   }
 }
 
@@ -1227,7 +1221,7 @@ function checkContextTrigger() {
   const textAfterAt = textBeforeCursor.slice(lastAtIndex + 1)
   const hasInvalidChar = /[\s\n]/.test(textAfterAt)
 
-  if (hasInvalidChar || showSlashCommandMenu.value) {
+  if (hasInvalidChar || commandPalette.showMenu.value) {
     closeContextMenu()
     return
   }
@@ -1325,15 +1319,14 @@ function updateContextMenuPosition() {
 // 选择斜杠命令
 function selectSlashCommand(cmd: SlashCommand) {
   if (cmd.immediate || cmd.kind === 'immediate') {
-    closeSlashCommandMenu()
+    commandPalette.closeMenu()
     clearEditor()
     const attachments = collectAllAttachments()
     emit('slash-command', cmd.name, '', attachments)
     return
   }
 
-  // 非立即执行命令：直接设置为 badge
-  closeSlashCommandMenu()
+  commandPalette.closeMenu()
   clearEditor()
 
   activeBadge.value = {
@@ -1343,7 +1336,6 @@ function selectSlashCommand(cmd: SlashCommand) {
     kind: cmd.kind || 'slash_command'
   }
 
-  // 聚焦回 editor
   nextTick(() => {
     editorRef.value?.focus()
     autoResize()
@@ -1434,10 +1426,8 @@ function removeTriggerText(triggerOffset: number, length: number) {
 
 // 关闭斜杠命令菜单
 function closeSlashCommandMenu() {
-  showSlashCommandMenu.value = false
-  slashSearchQuery.value = ''
+  commandPalette.closeMenu()
   slashTriggerPosition.value = -1
-  highlightedSlashCommand.value = null
 }
 
 // 关闭上下文菜单
@@ -1651,10 +1641,10 @@ function handleEditorClick() {
 
 // 清除斜杠搜索 - 同时清除输入框中的 /
 function clearSlashSearch() {
-  const queryLen = slashSearchQuery.value.length
-  slashSearchQuery.value = ''
+  const queryLen = commandPalette.searchQuery.value.length
+  commandPalette.updateSearch('')
   if (slashTriggerPosition.value >= 0) {
-    removeTriggerText(slashTriggerPosition.value, queryLen + 1) // +1 for /
+    removeTriggerText(slashTriggerPosition.value, queryLen + 1)
     inputText.value = getEditorPlainText()
     editorRef.value?.focus()
   }
@@ -1673,12 +1663,12 @@ function clearContextSearch() {
 
 // 处理斜杠命令键盘事件
 function handleSlashKeydown(event: KeyboardEvent) {
-  if (!showSlashCommandMenu.value) return
+  if (!commandPalette.showMenu.value) return
 
   switch (event.key) {
     case 'Escape':
       event.preventDefault()
-      closeSlashCommandMenu()
+      commandPalette.closeMenu()
       editorRef.value?.focus()
       break
     case 'ArrowDown':
@@ -1691,16 +1681,32 @@ function handleSlashKeydown(event: KeyboardEvent) {
       break
     case 'Enter':
       event.preventDefault()
-      const cmd = filteredSlashCommands.value.find(c => c.name === highlightedSlashCommand.value)
-      if (cmd) {
-        selectSlashCommand(cmd)
+      const selectedCmd = commandPalette.getSelectedCommand()
+      if (selectedCmd) {
+        const slashCmd: SlashCommand = {
+          name: selectedCmd.name,
+          description: selectedCmd.description,
+          icon: (selectedCmd.icon && iconMap[selectedCmd.icon]) || Zap,
+          kind: selectedCmd.kind,
+          immediate: selectedCmd.immediate,
+          aliases: selectedCmd.aliases,
+        }
+        selectSlashCommand(slashCmd)
       }
       break
     case 'Tab':
       event.preventDefault()
-      const tabCmd = filteredSlashCommands.value.find(c => c.name === highlightedSlashCommand.value)
-      if (tabCmd) {
-        selectSlashCommand(tabCmd)
+      const tabSelectedCmd = commandPalette.getSelectedCommand()
+      if (tabSelectedCmd) {
+        const tabSlashCmd: SlashCommand = {
+          name: tabSelectedCmd.name,
+          description: tabSelectedCmd.description,
+          icon: (tabSelectedCmd.icon && iconMap[tabSelectedCmd.icon]) || Zap,
+          kind: tabSelectedCmd.kind,
+          immediate: tabSelectedCmd.immediate,
+          aliases: tabSelectedCmd.aliases,
+        }
+        selectSlashCommand(tabSlashCmd)
       }
       break
   }
@@ -1743,16 +1749,11 @@ function handleContextKeydown(event: KeyboardEvent) {
 
 // 导航斜杠命令
 function navigateSlashCommands(direction: number) {
-  const commands = filteredSlashCommands.value
-  if (commands.length === 0) return
-
-  const currentIndex = commands.findIndex(c => c.name === highlightedSlashCommand.value)
-  let newIndex = currentIndex + direction
-
-  if (newIndex < 0) newIndex = commands.length - 1
-  if (newIndex >= commands.length) newIndex = 0
-
-  highlightedSlashCommand.value = commands[newIndex].name
+  if (direction > 0) {
+    commandPalette.navigateDown()
+  } else {
+    commandPalette.navigateUp()
+  }
 
   nextTick(() => {
     const highlightedEl = slashListRef.value?.querySelector('.highlighted')
@@ -1781,7 +1782,7 @@ function navigateContextItems(direction: number) {
 
 // 打开技能管理器
 function openSkillsManager() {
-  closeSlashCommandMenu()
+  commandPalette.closeMenu()
   emit('open-skills')
 }
 
@@ -1815,8 +1816,7 @@ async function handleBrowseFiles() {
 
 // 处理 editor 键盘事件
 function handleEditorKeydown(event: KeyboardEvent) {
-  // 处理斜杠命令菜单的键盘导航
-  if (showSlashCommandMenu.value) {
+  if (commandPalette.showMenu.value) {
     switch (event.key) {
       case 'ArrowDown':
         event.preventDefault()
@@ -1830,14 +1830,22 @@ function handleEditorKeydown(event: KeyboardEvent) {
       case 'Tab':
         event.preventDefault()
         event.stopPropagation()
-        const cmd = filteredSlashCommands.value.find(c => c.name === highlightedSlashCommand.value)
-        if (cmd) {
-          selectSlashCommand(cmd)
+        const editorCmd = commandPalette.getSelectedCommand()
+        if (editorCmd) {
+          const slashCmd: SlashCommand = {
+            name: editorCmd.name,
+            description: editorCmd.description,
+            icon: (editorCmd.icon && iconMap[editorCmd.icon]) || Zap,
+            kind: editorCmd.kind,
+            immediate: editorCmd.immediate,
+            aliases: editorCmd.aliases,
+          }
+          selectSlashCommand(slashCmd)
         }
         return
       case 'Escape':
         event.preventDefault()
-        closeSlashCommandMenu()
+        commandPalette.closeMenu()
         return
     }
   }
@@ -1939,7 +1947,7 @@ function handleSend() {
   if ((!canSend.value && mentions.length === 0 && attachedImages.value.length === 0 && !hasActiveBadge.value) || props.disabled) return
 
   // 如果有打开的斜杠命令菜单或上下文菜单，不执行发送（让菜单处理回车事件）
-  if (showSlashCommandMenu.value || showContextMenu.value) return
+  if (commandPalette.showMenu.value || showContextMenu.value) return
 
   // 关闭所有下拉菜单
   showModelDropdown.value = false
@@ -2875,6 +2883,14 @@ watch(pendingFile, (file) => {
       color: var(--text-primary);
     }
   }
+
+  .ghost-text {
+    color: var(--text-muted);
+    font-size: 14px;
+    opacity: 0.5;
+    pointer-events: none;
+    white-space: nowrap;
+  }
 }
 
 .dropdown-list {
@@ -3188,6 +3204,26 @@ watch(pendingFile, (file) => {
     font-size: 12px;
     color: var(--text-muted);
     @include truncate;
+  }
+
+  .item-badge {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    flex-shrink: 0;
+
+    &.skill {
+      background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+      color: var(--accent-primary);
+    }
+
+    &.sdk {
+      background: color-mix(in srgb, var(--text-secondary) 15%, transparent);
+      color: var(--text-secondary);
+    }
   }
 }
 

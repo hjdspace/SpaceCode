@@ -90,11 +90,12 @@ function readPluginSkills(pluginsRoot: string): Skill[] {
           try {
             const content = readFileSync(filePath, 'utf-8')
             const fm = parseYamlFrontMatter(content)
-            const name = fm?.name || se.name
+            const rawName = fm?.name || se.name
+            const name = `${pd.name}:${rawName}`
             const description = fm?.description ||
               content.split('\n').find(l => l.trim() && !l.startsWith('#') && !l.startsWith('---'))?.trim() ||
               `Skill: /${name}`
-            out.push({ name, description, content, source: 'plugin', filePath })
+            out.push({ name, description, content, source: 'plugin', filePath, installedSource: 'claude' })
           } catch (err) {
             console.error(`[Skills] Failed to read plugin skill: ${filePath}`, err)
           }
@@ -760,6 +761,80 @@ export function registerSkillsIPCHandlers(): void {
     } catch (err) {
       console.error('[Skills] Failed to fetch marketplace readme:', err)
       return { content: null }
+    }
+  })
+
+  ipcMain.handle('skills:discoverDynamicSkills', async (_event, filePaths: string[], cwd: string) => {
+    try {
+      const { dirname, join: pathJoin } = require('path')
+      const { existsSync: exSync, readdirSync: rdSync } = require('fs')
+      const discoveredSkills: Skill[] = []
+      const seenDirs = new Set<string>()
+
+      for (const fp of filePaths) {
+        let currentDir = dirname(fp)
+        while (currentDir.length > 1 && currentDir.startsWith(cwd)) {
+          const skillDir = pathJoin(currentDir, '.claude', 'skills')
+          if (!seenDirs.has(skillDir)) {
+            seenDirs.add(skillDir)
+            if (exSync(skillDir)) {
+              const skills = readSkillsFromDir(skillDir, 'project')
+              discoveredSkills.push(...skills)
+            }
+          }
+          currentDir = dirname(currentDir)
+        }
+      }
+
+      return { skills: discoveredSkills }
+    } catch (err) {
+      console.error('[Skills] Failed to discover dynamic skills:', err)
+      return { skills: [] }
+    }
+  })
+
+  ipcMain.handle('skills:getConditionalSkills', async (_event, cwd: string) => {
+    try {
+      const allSkillDirs = [
+        ...getGlobalSkillsDirs(),
+        ...(cwd ? getProjectSkillsDirs(cwd) : []),
+      ]
+
+      const conditionalSkills: Array<Skill & { paths?: string[] }> = []
+      for (const dir of allSkillDirs) {
+        if (!existsSync(dir)) continue
+        const entries = readdirSync(dir, { withFileTypes: true })
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue
+          const skillFile = join(dir, entry.name, 'SKILL.md')
+          if (!existsSync(skillFile)) continue
+          try {
+            const content = readFileSync(skillFile, 'utf-8')
+            const fm = parseYamlFrontMatter(content)
+            if (fm?.paths && Array.isArray(fm.paths) && fm.paths.length > 0) {
+              const name = fm.name || entry.name
+              const description = fm.description ||
+                content.split('\n').find(l => l.trim() && !l.startsWith('#') && !l.startsWith('---'))?.trim() ||
+                `Skill: /${name}`
+              conditionalSkills.push({
+                name,
+                description,
+                content,
+                source: dir.includes(app.getPath('home')) ? 'global' : 'project',
+                filePath: skillFile,
+                paths: fm.paths,
+              })
+            }
+          } catch {
+            // skip
+          }
+        }
+      }
+
+      return { skills: conditionalSkills }
+    } catch (err) {
+      console.error('[Skills] Failed to get conditional skills:', err)
+      return { skills: [] }
     }
   })
 

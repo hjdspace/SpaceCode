@@ -42,7 +42,6 @@ If CLAUDE.md already exists: read it, propose specific changes as diffs. Do not 
 
 /** Built-in slash commands shown in the popover */
 export const BUILT_IN_COMMANDS: SlashCommand[] = [
-  // Immediate commands
   {
     name: 'help',
     description: 'Show available commands and tips',
@@ -65,7 +64,6 @@ export const BUILT_IN_COMMANDS: SlashCommand[] = [
     kind: 'immediate',
     immediate: true,
   },
-  // SDK commands - sent directly to SDK
   {
     name: 'compact',
     description: 'Compress conversation context',
@@ -84,7 +82,92 @@ export const BUILT_IN_COMMANDS: SlashCommand[] = [
     icon: 'Eye',
     kind: 'sdk_command',
   },
-  // CodePilot commands - expanded before sending
+  {
+    name: 'diff',
+    description: 'Show file diff since last message',
+    icon: 'FileDiff',
+    kind: 'sdk_command',
+  },
+  {
+    name: 'resume',
+    description: 'Resume a previous session',
+    icon: 'Play',
+    kind: 'sdk_command',
+    aliases: ['continue'],
+  },
+  {
+    name: 'session',
+    description: 'Manage sessions',
+    icon: 'Layers',
+    kind: 'sdk_command',
+  },
+  {
+    name: 'add-dir',
+    description: 'Add directory to context',
+    icon: 'FolderPlus',
+    kind: 'sdk_command',
+  },
+  {
+    name: 'model',
+    description: 'Change AI model',
+    icon: 'Cpu',
+    kind: 'sdk_command',
+  },
+  {
+    name: 'config',
+    description: 'Open configuration',
+    icon: 'Settings',
+    kind: 'sdk_command',
+  },
+  {
+    name: 'export',
+    description: 'Export conversation',
+    icon: 'Download',
+    kind: 'sdk_command',
+  },
+  {
+    name: 'permissions',
+    description: 'Manage tool permissions',
+    icon: 'Shield',
+    kind: 'sdk_command',
+    aliases: ['permission'],
+  },
+  {
+    name: 'plan',
+    description: 'Toggle plan mode',
+    icon: 'ListTree',
+    kind: 'sdk_command',
+  },
+  {
+    name: 'fast',
+    description: 'Toggle fast mode',
+    icon: 'Zap',
+    kind: 'sdk_command',
+  },
+  {
+    name: 'hooks',
+    description: 'Manage lifecycle hooks',
+    icon: 'Webhook',
+    kind: 'sdk_command',
+  },
+  {
+    name: 'branch',
+    description: 'Git branch operations',
+    icon: 'GitBranch',
+    kind: 'sdk_command',
+  },
+  {
+    name: 'files',
+    description: 'List tracked files',
+    icon: 'FileText',
+    kind: 'sdk_command',
+  },
+  {
+    name: 'status',
+    description: 'Show session status',
+    icon: 'Activity',
+    kind: 'sdk_command',
+  },
   {
     name: 'doctor',
     description: 'Diagnose project health',
@@ -103,7 +186,6 @@ export const BUILT_IN_COMMANDS: SlashCommand[] = [
     icon: 'Bookmark',
     kind: 'codepilot_command',
   },
-  // UI commands - handled by the UI
   {
     name: 'terminal',
     description: 'Open terminal panel',
@@ -153,12 +235,32 @@ export const BUILT_IN_COMMANDS: SlashCommand[] = [
     immediate: true,
     aliases: ['checkpoint'],
   },
-  // Agent skill commands - dispatched as skill invocations via SkillTool
   {
     name: 'commit',
     description: 'Create a git commit with AI-generated message',
     icon: 'GitCommit',
     kind: 'agent_skill',
+  },
+  {
+    name: 'theme',
+    description: 'Toggle theme',
+    icon: 'Palette',
+    kind: 'immediate',
+    immediate: true,
+  },
+  {
+    name: 'vim',
+    description: 'Toggle vim mode',
+    icon: 'Command',
+    kind: 'immediate',
+    immediate: true,
+  },
+  {
+    name: 'keybindings',
+    description: 'Keyboard shortcuts help',
+    icon: 'Keyboard',
+    kind: 'immediate',
+    immediate: true,
   },
 ]
 

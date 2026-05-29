@@ -79,6 +79,54 @@ function buildApiUrl(baseUrl: string | undefined, defaultBase: string, endpoint:
   return `${normalized}${endpoint}`
 }
 
+function isOfficialAnthropic(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return true
+  const normalized = baseUrl.replace(/\/+$/, '').toLowerCase()
+  return normalized === 'https://api.anthropic.com' || normalized === 'https://api.anthropic.com/v1'
+}
+
+function buildAnthropicHeaders(apiKey: string, baseUrl: string | undefined): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'anthropic-version': '2023-06-01',
+  }
+
+  if (isOfficialAnthropic(baseUrl)) {
+    headers['x-api-key'] = apiKey
+  } else {
+    headers['Authorization'] = `Bearer ${apiKey}`
+    headers['x-api-key'] = apiKey
+  }
+
+  return headers
+}
+
+function classifyAnthropicError(response: { ok: boolean; status?: number; data?: string; error?: string } | null, provider: string, baseUrl: string | undefined): Error {
+  if (!response) {
+    return new Error('无法连接到 API 服务器，请检查网络连接。')
+  }
+
+  const text = response.error || response.data || ''
+  const status = response.status
+
+  if (text.includes('Please use Claude Code') || text.includes('third-party client')) {
+    return new Error('当前认证方式不支持直接调用 API。请使用 API Key 认证方式（在设置中选择 Anthropic 并填写 API Key），或确认 Base URL 配置正确。')
+  }
+
+  if (status === 401 || status === 403) {
+    if (text.includes('invalid') || text.includes('Invalid')) {
+      return new Error('API Key 无效，请检查设置中的 API Key 配置。')
+    }
+    return new Error('认证失败，请检查 API Key 和 Base URL 配置。')
+  }
+
+  const classified = errorHandler.handleError(
+    new Error(`API error: ${status ?? 'unknown'} - ${text.slice(0, 200)}`),
+    { provider, baseUrl, phase: 'send' }
+  )
+  return new Error(classified.message)
+}
+
 export async function sendMessage(
   messages: Array<{ role: string; content: string }>,
   options?: { maxTokens?: number; system?: string; timeoutMs?: number },
@@ -92,21 +140,15 @@ export async function sendMessage(
 
   const timeoutMs = options?.timeoutMs || DEFAULT_API_TIMEOUT_MS
 
-  // 使用重试和超时包装 API 调用
   return await withRetryAndTimeout(
     async () => {
-      // Simple implementation for commit message generation and other non-Agent tasks
-      // This is NOT used for the main chat Agent (which uses ClaudeCodeProcessManager)
       if (provider === 'anthropic' || provider === 'anthropic_compatible') {
         const url = buildApiUrl(baseUrl, 'https://api.anthropic.com', '/v1/messages')
         console.log('[LLM] Anthropic URL:', url)
+        const headers = buildAnthropicHeaders(apiKey, baseUrl)
         const response = await api.httpFetch(url, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-          },
+          headers,
           body: JSON.stringify({
             model: model || 'claude-3-sonnet-20240229',
             max_tokens: options?.maxTokens || 1024,
@@ -122,11 +164,7 @@ export async function sendMessage(
         if (!response || !response.ok) {
           const text = response?.error || response?.data || ''
           console.log('[LLM] Anthropic API error response:', text.slice(0, 500))
-          const classified = errorHandler.handleError(
-            new Error(`API error: ${response?.status ?? 'unknown'} - ${text.slice(0, 200)}`),
-            { provider, baseUrl, phase: 'send' }
-          )
-          throw new Error(classified.message)
+          throw classifyAnthropicError(response, provider, baseUrl)
         }
 
         const responseText = response.data

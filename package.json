@@ -43,6 +43,7 @@
     "diff": "^5.2.0",
     "dotenv": "^16.4.5",
     "express": "^5.2.1",
+    "fuse.js": "^7.3.0",
     "glob": "^13.0.6",
     "highlight.js": "^11.9.0",
     "lucide-vue-next": "^0.344.0",

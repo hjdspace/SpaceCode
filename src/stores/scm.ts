@@ -271,14 +271,16 @@ export const useScmStore = defineStore('scm', () => {
     if (!cwd) throw new Error('No project root')
     if (stagedCount.value === 0) throw new Error('No staged changes to analyze. Please stage your changes first.')
 
-    // Ensure LLM service is initialized
     if (!isLLMConfigured()) {
-      // Try to init from settings
       const settingsStore = useSettingsStore()
       const cfg = settingsStore.config
       if (cfg.apiKey) {
         await initLLMService({ provider: cfg.provider, apiKey: cfg.apiKey, baseUrl: cfg.baseUrl, model: cfg.model })
       } else {
+        const authMethod = settingsStore.authMethod
+        if (authMethod === 'claudeai' || authMethod === 'console') {
+          throw new Error('AI 生成提交消息需要 API Key 认证。当前使用的是 OAuth 认证方式，不支持直接调用 API。请在设置中切换到 Anthropic 兼容协议并填写 API Key。')
+        }
         throw new Error('LLM not configured. Please set API key in Settings.')
       }
     }
