@@ -59,6 +59,26 @@
             </button>
           </div>
         </div>
+        <div class="form-actions-row">
+          <button class="btn btn-secondary" @click="testConnection" :disabled="testing">
+            <Loader2 v-if="testing" :size="14" class="spin" />
+            <Plug v-else :size="14" />
+            {{ testing ? $t('auth.testing') : $t('auth.testConnection') }}
+          </button>
+          <button class="btn btn-secondary" @click="fetchModels" :disabled="fetchingModels">
+            <RefreshCw v-if="fetchingModels" :size="14" class="spin" />
+            <Download v-else :size="14" />
+            {{ fetchingModels ? $t('auth.fetching') : $t('auth.fetchModels') }}
+          </button>
+        </div>
+
+        <!-- Connection Status -->
+        <div v-if="connectionStatus" class="connection-status" :class="connectionStatus.type">
+          <CheckCircle v-if="connectionStatus.type === 'success'" :size="16" />
+          <XCircle v-if="connectionStatus.type === 'error'" :size="16" />
+          <AlertCircle v-if="connectionStatus.type === 'warning'" :size="16" />
+          <span>{{ connectionStatus.message }}</span>
+        </div>
       </template>
 
       <!-- OpenAI Compatible Config -->
@@ -291,6 +311,21 @@ const previewModelId = computed(
   () => settingsStore.config.model || config.value.sonnetModel || 'claude-sonnet-4-6',
 )
 
+// 规范化API URL，确保包含正确的版本路径
+function normalizeApiUrl(baseUrl: string, provider: string): string {
+  let url = baseUrl.replace(/\/+$/, '')
+
+  // 根据provider类型确保包含正确的API版本路径
+  if (provider === 'anthropic' && !url.includes('/v1')) {
+    url += '/v1'
+  } else if (provider === 'openai' && !url.includes('/v1')) {
+    url += '/v1'
+  }
+  // gemini使用v1beta路径，通常已在默认URL中包含
+
+  return url
+}
+
 // 根据当前认证方式获取默认模型
 const defaultModels = computed(() => {
   const models: { id: string; name?: string }[] = []
@@ -345,19 +380,23 @@ async function testConnection() {
   try {
     let baseUrl = ''
     let apiKey = ''
+    let provider = ''
 
     switch (authMethod.value) {
       case 'anthropic_compatible':
         baseUrl = config.value.anthropic.baseUrl || 'https://api.anthropic.com'
         apiKey = config.value.anthropic.apiKey
+        provider = 'anthropic'
         break
       case 'openai_compatible':
         baseUrl = config.value.openai.baseUrl || 'https://api.openai.com/v1'
         apiKey = config.value.openai.apiKey
+        provider = 'openai'
         break
       case 'gemini_api':
         baseUrl = config.value.gemini.baseUrl || 'https://generativelanguage.googleapis.com/v1beta'
         apiKey = config.value.gemini.apiKey
+        provider = 'gemini'
         break
     }
 
@@ -367,7 +406,9 @@ async function testConnection() {
       return
     }
 
-    const url = `${baseUrl.replace(/\/+$/, '')}/models`
+    // 规范化API URL，确保包含正确的版本路径
+    const normalizedUrl = normalizeApiUrl(baseUrl, provider)
+    const url = `${normalizedUrl}/models`
     const result = await api.httpFetch(url, {
       method: 'GET',
       headers: {
@@ -400,19 +441,23 @@ async function fetchModels() {
   try {
     let baseUrl = ''
     let apiKey = ''
+    let provider = ''
 
     switch (authMethod.value) {
       case 'anthropic_compatible':
         baseUrl = config.value.anthropic.baseUrl || 'https://api.anthropic.com'
         apiKey = config.value.anthropic.apiKey
+        provider = 'anthropic'
         break
       case 'openai_compatible':
         baseUrl = config.value.openai.baseUrl || 'https://api.openai.com/v1'
         apiKey = config.value.openai.apiKey
+        provider = 'openai'
         break
       case 'gemini_api':
         baseUrl = config.value.gemini.baseUrl || 'https://generativelanguage.googleapis.com/v1beta'
         apiKey = config.value.gemini.apiKey
+        provider = 'gemini'
         break
     }
 
@@ -422,7 +467,9 @@ async function fetchModels() {
       return
     }
 
-    const url = `${baseUrl.replace(/\/+$/, '')}/models`
+    // 规范化API URL，确保包含正确的版本路径
+    const normalizedUrl = normalizeApiUrl(baseUrl, provider)
+    const url = `${normalizedUrl}/models`
     const result = await api.httpFetch(url, {
       method: 'GET',
       headers: {

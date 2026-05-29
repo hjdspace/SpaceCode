@@ -1018,6 +1018,21 @@ function collectMentions(): Attachment[] {
   }))
 }
 
+// 规范化API URL，确保包含正确的版本路径
+function normalizeApiUrl(baseUrl: string, provider: string): string {
+  let url = baseUrl.replace(/\/+$/, '')
+
+  // 根据provider类型确保包含正确的API版本路径
+  if (provider === 'anthropic' && !url.includes('/v1')) {
+    url += '/v1'
+  } else if (provider === 'openai' && !url.includes('/v1')) {
+    url += '/v1'
+  }
+  // gemini使用v1beta路径，通常已在默认URL中包含
+
+  return url
+}
+
 // 从 BASE_URL 获取模型列表
 async function fetchModelsFromBaseUrl() {
   if (!canRefreshModels.value) return
@@ -1028,19 +1043,23 @@ async function fetchModelsFromBaseUrl() {
   try {
     let baseUrl = ''
     let apiKey = ''
+    let provider = ''
 
     switch (settingsStore.authMethod) {
       case 'anthropic_compatible':
         baseUrl = settingsStore.anthropicConfig.baseUrl || 'https://api.anthropic.com'
         apiKey = settingsStore.anthropicConfig.apiKey
+        provider = 'anthropic'
         break
       case 'openai_compatible':
         baseUrl = settingsStore.openaiConfig.baseUrl || 'https://api.openai.com/v1'
         apiKey = settingsStore.openaiConfig.apiKey
+        provider = 'openai'
         break
       case 'gemini_api':
         baseUrl = settingsStore.geminiConfig.baseUrl || 'https://generativelanguage.googleapis.com/v1beta'
         apiKey = settingsStore.geminiConfig.apiKey
+        provider = 'gemini'
         break
     }
 
@@ -1049,7 +1068,9 @@ async function fetchModelsFromBaseUrl() {
       return
     }
 
-    const url = `${baseUrl.replace(/\/+$/, '')}/models`
+    // 规范化API URL，确保包含正确的版本路径
+    const normalizedUrl = normalizeApiUrl(baseUrl, provider)
+    const url = `${normalizedUrl}/models`
     const result = await api.httpFetch(url, {
       method: 'GET',
       headers: {

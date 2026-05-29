@@ -391,6 +391,7 @@ const COMMIT_TEXTAREA_MAX_ROWS = 12
 const isResizing = ref(false)
 const changesFlex = ref(0)
 const graphFlex = ref(1)
+let removeResizeListeners: (() => void) | null = null
 
 function startResize(e: MouseEvent): void {
   e.preventDefault()
@@ -422,10 +423,20 @@ function startResize(e: MouseEvent): void {
     document.removeEventListener('mouseup', onMouseUp)
     document.body.style.cursor = ''
     document.body.style.userSelect = ''
+    removeResizeListeners = null
   }
 
   document.addEventListener('mousemove', onMouseMove)
   document.addEventListener('mouseup', onMouseUp)
+
+  removeResizeListeners = () => {
+    document.removeEventListener('mousemove', onMouseMove)
+    document.removeEventListener('mouseup', onMouseUp)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+    isResizing.value = false
+  }
+
   document.body.style.cursor = 'ns-resize'
   document.body.style.userSelect = 'none'
 }
@@ -694,6 +705,7 @@ onMounted(async () => {
 onUnmounted(() => {
   if (refreshTimer) clearInterval(refreshTimer)
   document.removeEventListener('click', handleClickOutside)
+  if (removeResizeListeners) removeResizeListeners()
 })
 </script>
 

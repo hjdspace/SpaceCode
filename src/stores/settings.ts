@@ -88,6 +88,21 @@ function parseSavedSettings(saved: string | null | undefined): Partial<AuthSetti
     return {}
   }
 }
+
+// 检查环境变量配置是否包含有效的API凭证
+function checkEnvHasCredentials(envSettings: Partial<AuthSettings>, authMethod: AuthMethod): boolean {
+  switch (authMethod) {
+    case 'anthropic_compatible':
+      return !!(envSettings.anthropicConfig?.apiKey || envSettings.anthropicConfig?.baseUrl)
+    case 'openai_compatible':
+      return !!(envSettings.openaiConfig?.apiKey || envSettings.openaiConfig?.baseUrl)
+    case 'gemini_api':
+      return !!(envSettings.geminiConfig?.apiKey || envSettings.geminiConfig?.baseUrl)
+    default:
+      return false
+  }
+}
+
 function loadLegacySettings(): Partial<AuthSettings> {
   try {
     const saved = localStorage.getItem(LEGACY_STORAGE_KEY)
@@ -171,14 +186,15 @@ async function loadEnvSettings(): Promise<Partial<AuthSettings>> {
       }
     }
 
-    // 如果没有 LLM_PROVIDER，按原有逻辑自动检测
-    if (geminiKey || geminiBaseUrl) {
+    // 如果没有 LLM_PROVIDER，使用智能优先级检测
+    // 优先级：Anthropic > OpenAI > Gemini（因为ANTHROPIC_*变量更明确）
+    if (anthropicKey || anthropicBaseUrl) {
       return {
-        authMethod: 'gemini_api',
-        geminiConfig: {
+        authMethod: 'anthropic_compatible',
+        anthropicConfig: {
           ...createDefaultProviderConfig(),
-          baseUrl: geminiBaseUrl || '',
-          apiKey: geminiKey || ''
+          baseUrl: anthropicBaseUrl || '',
+          apiKey: anthropicKey || ''
         }
       }
     } else if (openaiKey || openaiBaseUrl) {
@@ -191,13 +207,13 @@ async function loadEnvSettings(): Promise<Partial<AuthSettings>> {
           sonnetModel: openaiModel || ''
         }
       }
-    } else if (anthropicKey || anthropicBaseUrl) {
+    } else if (geminiKey || geminiBaseUrl) {
       return {
-        authMethod: 'anthropic_compatible',
-        anthropicConfig: {
+        authMethod: 'gemini_api',
+        geminiConfig: {
           ...createDefaultProviderConfig(),
-          baseUrl: anthropicBaseUrl || '',
-          apiKey: anthropicKey || ''
+          baseUrl: geminiBaseUrl || '',
+          apiKey: geminiKey || ''
         }
       }
     }
@@ -210,7 +226,8 @@ async function loadEnvSettings(): Promise<Partial<AuthSettings>> {
 export const useSettingsStore = defineStore('settings', () => {
   const saved = { ...loadLegacySettings(), ...loadSavedSettings() }
 
-  const authMethod = ref<AuthMethod>(saved.authMethod || 'openai_compatible')
+  // 默认使用anthropic_compatible（Claude Code的主要模式）
+  const authMethod = ref<AuthMethod>(saved.authMethod || 'anthropic_compatible')
   const anthropicConfig = ref<ProviderConfig>({
     ...createDefaultProviderConfig(),
     ...(saved.anthropicConfig || {})
@@ -456,12 +473,16 @@ export const useSettingsStore = defineStore('settings', () => {
   async function loadFromEnv() {
     const envSettings = await loadEnvSettings()
 
-    // Only apply .env values as fallback when user hasn't configured via GUI
+    // Apply .env values with smart merge strategy
     // Priority: gui-settings.json > localStorage > .env > defaults
-    // This prevents .env from overwriting user's manual configuration
+    // But: if env explicitly sets authMethod and has valid credentials, respect it
 
-    if (envSettings.authMethod && !authMethod.value) {
-      authMethod.value = envSettings.authMethod
+    if (envSettings.authMethod) {
+      // 环境变量明确指定了authMethod，应该优先使用（用户通过CLI/环境配置）
+      const envHasCredentials = checkEnvHasCredentials(envSettings, envSettings.authMethod)
+      if (envHasCredentials || !authMethod.value) {
+        authMethod.value = envSettings.authMethod
+      }
     }
     if (envSettings.anthropicConfig) {
       for (const [key, value] of Object.entries(envSettings.anthropicConfig)) {
