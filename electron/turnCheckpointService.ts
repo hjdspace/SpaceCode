@@ -36,6 +36,27 @@ interface SessionMessage {
   timestamp?: string
 }
 
+/**
+ * Anthropic API 协议里 tool_result 作为 `role: 'user'` 的消息发回，
+ * 但它不是"真正的用户输入"——前端 props.messages 里也不会出现它，
+ * 它被嵌入到 assistant message 的 toolCalls.output 里渲染。
+ *
+ * 因此后端在计算 userMessageIndex 时必须把 tool_result 消息排除，
+ * 否则与前端 MessageList.vue 中累计的 userMsgIndex 错位，导致从
+ * 第二轮开始的轮次卡片全部找不到对应 user message（卡片不显示）。
+ */
+function isRealUserInput(msg: SessionMessage): boolean {
+  if (msg.type !== 'user' && msg.message?.role !== 'user') return false
+  const content = msg.message?.content
+  if (typeof content === 'string') return true
+  if (Array.isArray(content) && content.length > 0) {
+    // 只要存在任何非 tool_result block，就视为真用户输入
+    return content.some(block => block.type !== 'tool_result')
+  }
+  // content 为空 / undefined / 空数组：视作真用户消息（保留之前的行为）
+  return true
+}
+
 export interface TurnCheckpointFileChange {
   path: string
   insertions: number
@@ -125,7 +146,7 @@ function extractUserMessages(messages: SessionMessage[]): Array<{ id: string; in
   const userMessages: Array<{ id: string; index: number }> = []
 
   for (const msg of messages) {
-    if (msg.type === 'user' || msg.message?.role === 'user') {
+    if (isRealUserInput(msg)) {
       // file-history-snapshot.messageId 是 JSONL 顶层 entry 的 uuid（参见
       // engine/src/QueryEngine.ts 中 fileHistoryMakeSnapshot(..., message.uuid)），
       // 因此优先使用 msg.uuid，再回退到 messageId / message.id 做兼容。
@@ -143,7 +164,7 @@ function extractUserMessages(messages: SessionMessage[]): Array<{ id: string; in
 function hasAssistantResponse(messages: SessionMessage[], userMessageId: string): boolean {
   let foundUser = false
   for (const msg of messages) {
-    if (msg.type === 'user' || msg.message?.role === 'user') {
+    if (isRealUserInput(msg)) {
       const id = msg.uuid || msg.messageId || msg.message?.id || ''
       if (id === userMessageId) {
         foundUser = true
