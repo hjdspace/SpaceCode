@@ -1958,6 +1958,13 @@ function handleSend() {
   closeContextMenu()
   modelSearchQuery.value = ''
 
+  function cleanupAfterCommand() {
+    clearEditor()
+    attachedFiles.value = []
+    attachedImages.value = []
+    activeBadge.value = null
+  }
+
   const content = getEditorPlainText().trim()
   const allAttachments = collectAllAttachments()
 
@@ -1966,20 +1973,14 @@ function handleSend() {
 
     if (badge.kind === 'sdk_command') {
       const commandName = badge.label
-      clearEditor()
-      attachedFiles.value = []
-      attachedImages.value = []
-      activeBadge.value = null
+      cleanupAfterCommand()
       emit('slash-command', commandName, content, allAttachments)
       return
     }
 
     if (badge.kind === 'immediate') {
       const commandName = badge.label
-      clearEditor()
-      attachedFiles.value = []
-      attachedImages.value = []
-      activeBadge.value = null
+      cleanupAfterCommand()
       emit('slash-command', commandName, content, allAttachments)
       return
     }
@@ -1991,10 +1992,7 @@ function handleSend() {
       displayLabel: result.displayLabel
     })
 
-    clearEditor()
-    attachedFiles.value = []
-    attachedImages.value = []
-    activeBadge.value = null
+    cleanupAfterCommand()
     return
   }
 
