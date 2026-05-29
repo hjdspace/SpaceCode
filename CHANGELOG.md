@@ -1,3 +1,64 @@
+## [0.4.2](https://github.com/hjdspace/SpaceCode/compare/v0.4.0...v0.4.2) (2026-05-30)
+
+### Features
+
+* **API 代理模块:** 实现 Anthropic ↔ OpenAI API 转换桥
+  - 新增 HTTP 代理服务器，支持流式响应
+  - 实现 Anthropic ↔ OpenAI 请求/响应转换器
+  - 实现 OpenAI SSE 到 Anthropic SSE 的流式转换器
+  - 新增模型映射和认证处理器
+  - 实现 SSE 事件流解析器
+  - 添加代理模块共享类型定义
+  - 实现代理子进程入口点和生命周期管理（ProxyManager）
+  - 增强流式转换器状态机逻辑
+* **引擎源配置系统:** 支持可配置的 AI 引擎源
+  - 新增 AI 引擎源设置 UI 组件（EngineSourceSettings）
+  - 实现 CLI 检测器，支持环境检查和自动安装
+  - 添加 IPC 处理程序和预加载 API 用于 CLI 检测和代理管理
+  - 集成引擎源和代理到 SessionProcess
+  - 将引擎源 UI 和代理生命周期集成到应用主流程
+  - 设置页面支持恢复 engineSource 和 installedCliPath 字段
+* **斜杠命令系统:** 实现完整斜杠命令功能
+  - 实现完整的斜杠命令系统，对齐 TUI 功能
+  - 添加斜杠命令支持和优化徽章处理
+* **SCM 面板增强:** 提升版本控制面板交互体验
+  - 为 SCM 面板添加可拖拽调整高度功能
+
+### Bug Fixes
+
+* **会话轮次:** 修复 turnCheckpointService 轮次错位问题
+  - 过滤 tool_result 消息避免轮次计数错误
+* **代理子进程:** 修复代理子进程无法启动的问题
+  - 添加 tsx 运行时支持
+  - 配置 esbuild 构建流程
+* **Windows 兼容性:** 修复 Windows 平台 CLI 版本显示异常
+  - 解决 .cmd 文件执行失败导致版本显示为 unknown 的问题
+
+### Refactor
+
+* **Electron 主进程:** 统一追加系统提示词的处理逻辑
+* **聊天输入框:** 提取发送后清理逻辑为复用函数
+* **命令面板:** 重构监听逻辑，替换手动调用为 watch 模式
+* **API 配置:** 统一 SCM、聊天、设置模块的 API URL 规范化逻辑
+  - 修复环境变量加载顺序问题
+  - 添加连接测试功能
+* **SCM 面板:** 调整提交区域与图表区域的 flex 占比
+
+### Style
+
+* **全局样式:** 更新全局样式变量，调整主题配色与中性色
+
+### Documentation
+
+* **设计文档:** 添加官网引擎切换 + API 转换桥实现计划
+* **技术方案:** 添加官网 Claude Code 引擎切换 + API 转换桥设计文档
+
+### Build
+
+* **构建优化:** 移除废弃的 proxy 打包配置并优化相关代码
+
+---
+
 ## [0.4.0](https://github.com/hjdspace/SpaceCode/compare/v0.3.10...v0.4.0) (2026-05-28)
 
 ### Features
