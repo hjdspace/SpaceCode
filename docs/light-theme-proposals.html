@@ -1,0 +1,2268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Light 主题优化方案对比</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  background: #1a1a1a;
+  color: #e5e5e5;
+  min-height: 100vh;
+}
+
+.header {
+  text-align: center;
+  padding: 48px 24px 32px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.header h1 {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 8px;
+}
+
+.header p {
+  font-size: 14px;
+  color: #888;
+  max-width: 640px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+.tabs {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  position: sticky;
+  top: 0;
+  background: rgba(26,26,26,0.95);
+  backdrop-filter: blur(12px);
+  z-index: 100;
+}
+
+.tab-btn {
+  padding: 8px 20px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  background: transparent;
+  color: #999;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tab-btn:hover {
+  border-color: rgba(255,255,255,0.2);
+  color: #ccc;
+}
+
+.tab-btn.active {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.2);
+  color: #fff;
+}
+
+.scheme-panel {
+  display: none;
+  padding: 32px 24px 64px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.scheme-panel.active {
+  display: block;
+}
+
+.scheme-intro {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 40px;
+}
+
+.scheme-intro-card {
+  padding: 24px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+}
+
+.scheme-intro-card h3 {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.scheme-intro-card p {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #aaa;
+}
+
+.scene-sentence {
+  font-style: italic;
+  color: #ccc !important;
+  border-left: 2px solid rgba(255,255,255,0.15);
+  padding-left: 12px;
+}
+
+.color-strategy-tag {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.section-title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 20px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.palette-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+  margin-bottom: 40px;
+}
+
+.palette-item {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.palette-swatch {
+  height: 56px;
+}
+
+.palette-info {
+  padding: 8px 10px;
+  background: rgba(255,255,255,0.03);
+}
+
+.palette-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: #ccc;
+  margin-bottom: 2px;
+}
+
+.palette-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: #777;
+}
+
+.demo-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 40px;
+}
+
+.demo-card {
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.demo-label {
+  padding: 8px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: rgba(255,255,255,0.02);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.demo-content {
+  padding: 0;
+}
+
+.full-width-demo {
+  margin-bottom: 40px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.full-width-demo .demo-label {
+  background: rgba(255,255,255,0.02);
+}
+
+.comparison-section {
+  margin-bottom: 40px;
+}
+
+.comparison-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.comparison-card {
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.comparison-header {
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: rgba(255,255,255,0.02);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.comparison-body {
+  padding: 0;
+}
+
+/* ============================================
+   SCHEME A: Warm Linen 暖麻布
+   ============================================ */
+.scheme-a {
+  --bg-primary: #faf9f6;
+  --bg-secondary: #f3f1ec;
+  --bg-tertiary: #ebe8e1;
+  --bg-elevated: #ffffff;
+  --bg-hover: #eae7e0;
+  --bg-active: #e0ddd5;
+
+  --surface-soft: #f5f3ee;
+  --surface-card: #efede7;
+  --surface-strong: #e6e3dc;
+
+  --text-primary: #1c1b18;
+  --text-secondary: #4a4840;
+  --text-muted: #7a776d;
+  --text-disabled: #a8a59c;
+
+  --accent-primary: #4f46e5;
+  --accent-primary-hover: #6366f1;
+  --accent-primary-glow: rgba(79, 70, 229, 0.12);
+
+  --accent-secondary: #64748b;
+  --accent-secondary-hover: #475569;
+
+  --success: #16a34a;
+  --warning: #ca8a04;
+  --error: #dc2626;
+
+  --border-subtle: rgba(28, 27, 24, 0.06);
+  --border-default: rgba(28, 27, 24, 0.1);
+  --border-strong: rgba(28, 27, 24, 0.16);
+
+  --shadow-sm: 0 1px 2px rgba(28, 27, 24, 0.05);
+  --shadow-md: 0 4px 12px rgba(28, 27, 24, 0.07);
+  --shadow-lg: 0 8px 24px rgba(28, 27, 24, 0.1);
+
+  --code-bg: #f0ede6;
+  --code-fg: #1c1b18;
+  --code-keyword: #b91c1c;
+  --code-string: #1e40af;
+  --code-number: #7c3aed;
+  --code-comment: #8a877e;
+  --code-function: #7c3aed;
+}
+
+/* ============================================
+   SCHEME B: Mist Slate 雾石板
+   ============================================ */
+.scheme-b {
+  --bg-primary: #f8f9fb;
+  --bg-secondary: #f0f1f5;
+  --bg-tertiary: #e7e9ef;
+  --bg-elevated: #ffffff;
+  --bg-hover: #e4e6ec;
+  --bg-active: #dbdde5;
+
+  --surface-soft: #f3f4f8;
+  --surface-card: #ecedf2;
+  --surface-strong: #e3e5ec;
+
+  --text-primary: #18191f;
+  --text-secondary: #44475a;
+  --text-muted: #6e7191;
+  --text-disabled: #9da1b8;
+
+  --accent-primary: #0d9488;
+  --accent-primary-hover: #14b8a6;
+  --accent-primary-glow: rgba(13, 148, 136, 0.12);
+
+  --accent-secondary: #6366f1;
+  --accent-secondary-hover: #818cf8;
+
+  --success: #059669;
+  --warning: #d97706;
+  --error: #dc2626;
+
+  --border-subtle: rgba(24, 25, 31, 0.05);
+  --border-default: rgba(24, 25, 31, 0.09);
+  --border-strong: rgba(24, 25, 31, 0.15);
+
+  --shadow-sm: 0 1px 2px rgba(24, 25, 31, 0.06);
+  --shadow-md: 0 4px 12px rgba(24, 25, 31, 0.08);
+  --shadow-lg: 0 8px 24px rgba(24, 25, 31, 0.11);
+
+  --code-bg: #eef0f5;
+  --code-fg: #18191f;
+  --code-keyword: #be123c;
+  --code-string: #1e40af;
+  --code-number: #7c3aed;
+  --code-comment: #6e7191;
+  --code-function: #0d9488;
+}
+
+/* ============================================
+   SCHEME C: Sunlit Birch 桦木光
+   ============================================ */
+.scheme-c {
+  --bg-primary: #faf8f2;
+  --bg-secondary: #f2efe5;
+  --bg-tertiary: #e9e5d8;
+  --bg-elevated: #fffdf8;
+  --bg-hover: #e7e3d6;
+  --bg-active: #ddd9cb;
+
+  --surface-soft: #f6f3ea;
+  --surface-card: #efece2;
+  --surface-strong: #e5e1d5;
+
+  --text-primary: #1f1d16;
+  --text-secondary: #4d4a3a;
+  --text-muted: #807c6a;
+  --text-disabled: #ada996;
+
+  --accent-primary: #b45309;
+  --accent-primary-hover: #d97706;
+  --accent-primary-glow: rgba(180, 83, 9, 0.12);
+
+  --accent-secondary: #166534;
+  --accent-secondary-hover: #15803d;
+
+  --success: #15803d;
+  --warning: #a16207;
+  --error: #b91c1c;
+
+  --border-subtle: rgba(31, 29, 22, 0.06);
+  --border-default: rgba(31, 29, 22, 0.1);
+  --border-strong: rgba(31, 29, 22, 0.17);
+
+  --shadow-sm: 0 1px 2px rgba(31, 29, 22, 0.06);
+  --shadow-md: 0 4px 12px rgba(31, 29, 22, 0.08);
+  --shadow-lg: 0 8px 24px rgba(31, 29, 22, 0.12);
+
+  --code-bg: #efeadf;
+  --code-fg: #1f1d16;
+  --code-keyword: #9a3412;
+  --code-string: #166534;
+  --code-number: #b45309;
+  --code-comment: #807c6a;
+  --code-function: #166534;
+}
+
+/* ============================================
+   SCHEME D: Rose Quartz 玫瑰石英
+   ============================================ */
+.scheme-d {
+  --bg-primary: #faf8f8;
+  --bg-secondary: #f3f0f0;
+  --bg-tertiary: #ebe6e6;
+  --bg-elevated: #ffffff;
+  --bg-hover: #e9e3e3;
+  --bg-active: #e0d8d8;
+
+  --surface-soft: #f5f1f1;
+  --surface-card: #efebeb;
+  --surface-strong: #e6e0e0;
+
+  --text-primary: #1c1819;
+  --text-secondary: #4a4244;
+  --text-muted: #7d7375;
+  --text-disabled: #a89a9c;
+
+  --accent-primary: #be123c;
+  --accent-primary-hover: #e11d48;
+  --accent-primary-glow: rgba(190, 18, 60, 0.12);
+
+  --accent-secondary: #7c3aed;
+  --accent-secondary-hover: #8b5cf6;
+
+  --success: #059669;
+  --warning: #b45309;
+  --error: #dc2626;
+
+  --border-subtle: rgba(28, 24, 25, 0.06);
+  --border-default: rgba(28, 24, 25, 0.1);
+  --border-strong: rgba(28, 24, 25, 0.16);
+
+  --shadow-sm: 0 1px 2px rgba(28, 24, 25, 0.05);
+  --shadow-md: 0 4px 12px rgba(28, 24, 25, 0.07);
+  --shadow-lg: 0 8px 24px rgba(28, 24, 25, 0.1);
+
+  --code-bg: #f0ecec;
+  --code-fg: #1c1819;
+  --code-keyword: #9a3412;
+  --code-string: #1e40af;
+  --code-number: #7c3aed;
+  --code-comment: #7d7375;
+  --code-function: #be123c;
+}
+
+/* ============================================
+   SCHEME E: Sage Garden 鼠尾草园
+   ============================================ */
+.scheme-e {
+  --bg-primary: #f8faf6;
+  --bg-secondary: #f0f3ec;
+  --bg-tertiary: #e6ebe2;
+  --bg-elevated: #ffffff;
+  --bg-hover: #e3e8de;
+  --bg-active: #d8dfd2;
+
+  --surface-soft: #f3f6f0;
+  --surface-card: #edf0e8;
+  --surface-strong: #e3e8dd;
+
+  --text-primary: #181c16;
+  --text-secondary: #3f4a38;
+  --text-muted: #6b7a62;
+  --text-disabled: #9aaa90;
+
+  --accent-primary: #c2410c;
+  --accent-primary-hover: #ea580c;
+  --accent-primary-glow: rgba(194, 65, 12, 0.12);
+
+  --accent-secondary: #166534;
+  --accent-secondary-hover: #15803d;
+
+  --success: #15803d;
+  --warning: #92400e;
+  --error: #b91c1c;
+
+  --border-subtle: rgba(24, 28, 22, 0.06);
+  --border-default: rgba(24, 28, 22, 0.1);
+  --border-strong: rgba(24, 28, 22, 0.16);
+
+  --shadow-sm: 0 1px 2px rgba(24, 28, 22, 0.05);
+  --shadow-md: 0 4px 12px rgba(24, 28, 22, 0.07);
+  --shadow-lg: 0 8px 24px rgba(24, 28, 22, 0.1);
+
+  --code-bg: #eef1e8;
+  --code-fg: #181c16;
+  --code-keyword: #9a3412;
+  --code-string: #1e40af;
+  --code-number: #c2410c;
+  --code-comment: #6b7a62;
+  --code-function: #166534;
+}
+
+/* ============================================
+   CURRENT: 现有 Light 主题
+   ============================================ */
+.scheme-current {
+  --bg-primary: #ffffff;
+  --bg-secondary: #fafafa;
+  --bg-tertiary: #f5f5f5;
+  --bg-elevated: #ffffff;
+  --bg-hover: #f0f0f0;
+  --bg-active: #e8e8e8;
+
+  --surface-soft: #fafafa;
+  --surface-card: #f5f5f5;
+  --surface-strong: #eeeeee;
+
+  --text-primary: #171717;
+  --text-secondary: #525252;
+  --text-muted: #737373;
+  --text-disabled: #a3a3a3;
+
+  --accent-primary: #2563eb;
+  --accent-primary-hover: #3b82f6;
+  --accent-primary-glow: rgba(37, 99, 235, 0.15);
+
+  --accent-secondary: #64748b;
+  --accent-secondary-hover: #475569;
+
+  --success: #16a34a;
+  --warning: #d97706;
+  --error: #dc2626;
+
+  --border-subtle: rgba(0, 0, 0, 0.04);
+  --border-default: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.15);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+  --code-bg: #f5f5f5;
+  --code-fg: #24292f;
+  --code-keyword: #cf222e;
+  --code-string: #0a3069;
+  --code-number: #0550ae;
+  --code-comment: #6e7781;
+  --code-function: #8250df;
+}
+
+/* ============================================
+   SHARED DEMO STYLES (applied inside themed containers)
+   ============================================ */
+.demo-ui {
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+}
+
+.demo-sidebar {
+  display: flex;
+  height: 420px;
+}
+
+.demo-sidebar-nav {
+  width: 220px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-default);
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.demo-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: default;
+}
+
+.demo-sidebar-item.active {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.demo-sidebar-icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: var(--border-default);
+  flex-shrink: 0;
+}
+
+.demo-sidebar-item.active .demo-sidebar-icon {
+  background: var(--accent-primary);
+  opacity: 0.7;
+}
+
+.demo-sidebar-section {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-disabled);
+  padding: 12px 10px 4px;
+}
+
+.demo-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.demo-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+}
+
+.demo-topbar-title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.demo-topbar-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.demo-topbar-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.demo-chat {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.demo-msg {
+  display: flex;
+  gap: 10px;
+  max-width: 85%;
+}
+
+.demo-msg.user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.demo-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.demo-msg.assistant .demo-avatar {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.demo-msg.user .demo-avatar {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+}
+
+.demo-bubble {
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.demo-msg.assistant .demo-bubble {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.demo-msg.user .demo-bubble {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.demo-input-bar {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+}
+
+.demo-input {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-primary);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.demo-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-primary-glow);
+}
+
+/* Code block demo */
+.demo-code-block {
+  background: var(--code-bg);
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+
+.demo-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: var(--bg-hover);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.demo-code-copy {
+  font-size: 11px;
+  color: var(--accent-primary);
+  cursor: default;
+  font-weight: 500;
+}
+
+.demo-code-body {
+  padding: 12px 16px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-x: auto;
+}
+
+.demo-code-body .kw { color: var(--code-keyword); }
+.demo-code-body .str { color: var(--code-string); }
+.demo-code-body .num { color: var(--code-number); }
+.demo-code-body .cmt { color: var(--code-comment); font-style: italic; }
+.demo-code-body .fn { color: var(--code-function); }
+.demo-code-body .punc { color: var(--text-muted); }
+
+/* Button demo */
+.demo-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 20px;
+  align-items: center;
+}
+
+.demo-btn {
+  padding: 7px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: default;
+  border: none;
+}
+
+.demo-btn-primary {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.demo-btn-secondary {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+}
+
+.demo-btn-ghost {
+  background: transparent;
+  color: var(--accent-primary);
+}
+
+.demo-btn-danger {
+  background: var(--error);
+  color: white;
+}
+
+.demo-btn-success {
+  background: var(--success);
+  color: white;
+}
+
+/* Badge / Tag demo */
+.demo-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 20px;
+  align-items: center;
+}
+
+.demo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.demo-badge-accent {
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+}
+
+.demo-badge-success {
+  background: rgba(22, 163, 74, 0.1);
+  color: var(--success);
+}
+
+.demo-badge-warning {
+  background: rgba(217, 119, 6, 0.1);
+  color: var(--warning);
+}
+
+.demo-badge-error {
+  background: rgba(220, 38, 38, 0.1);
+  color: var(--error);
+}
+
+.demo-badge-neutral {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+/* Card demo */
+.demo-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 20px;
+}
+
+.demo-card-item {
+  padding: 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+}
+
+.demo-card-title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.demo-card-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.demo-card-meta {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+
+/* Diff demo */
+.demo-diff {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+}
+
+.demo-diff-header {
+  padding: 6px 12px;
+  background: var(--bg-hover);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.demo-diff-line {
+  padding: 1px 12px 1px 40px;
+  position: relative;
+}
+
+.demo-diff-line.add {
+  background: rgba(22, 163, 74, 0.1);
+  color: var(--success);
+}
+
+.demo-diff-line.remove {
+  background: rgba(220, 38, 38, 0.08);
+  color: var(--error);
+}
+
+.demo-diff-line.context {
+  color: var(--text-secondary);
+}
+
+/* Surface layer demo */
+.demo-surfaces {
+  display: flex;
+  gap: 2px;
+  padding: 20px;
+  border-radius: 10px;
+}
+
+.demo-surface-col {
+  flex: 1;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.demo-surface-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.6;
+}
+
+.demo-surface-text {
+  font-size: 13px;
+}
+
+/* Typography scale demo */
+.demo-type-scale {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.demo-type-row {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+}
+
+.demo-type-label {
+  width: 80px;
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text-disabled);
+}
+
+.demo-type-sample {
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+/* Variables table */
+.vars-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-bottom: 40px;
+}
+
+.vars-table th {
+  text-align: left;
+  padding: 8px 12px;
+  font-weight: 600;
+  color: #888;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.vars-table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+
+.vars-table .var-name {
+  color: #aaa;
+}
+
+.vars-table .var-val-a { color: #8b7cf6; }
+.vars-table .var-val-b { color: #2dd4bf; }
+.vars-table .var-val-c { color: #f59e0b; }
+.vars-table .var-val-cur { color: #60a5fa; }
+
+.var-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  vertical-align: middle;
+  margin-right: 6px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.pros-cons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 40px;
+}
+
+.pros-cons-card {
+  padding: 20px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.02);
+}
+
+.pros-cons-card h4 {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.pros-cons-card ul {
+  list-style: none;
+  font-size: 13px;
+  line-height: 1.8;
+  color: #aaa;
+}
+
+.pros-cons-card ul li::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.pros-card ul li::before { background: #22c55e; }
+.cons-card ul li::before { background: #f59e0b; }
+
+.footer-note {
+  text-align: center;
+  padding: 32px 24px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  color: #555;
+  font-size: 12px;
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Light 主题优化方案</h1>
+  <p>当前 Light 主题使用纯白背景 + 纯灰中性色 + 标准 SaaS 蓝，存在刺眼、层级感弱、辨识度低等问题。以下是五套优化方案，每套都遵循"中性色带色温倾向"和"避免 AI 工具默认蓝"的设计原则。</p>
+</div>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="a">A: Warm Linen</button>
+  <button class="tab-btn" data-tab="b">B: Mist Slate</button>
+  <button class="tab-btn" data-tab="c">C: Sunlit Birch</button>
+  <button class="tab-btn" data-tab="d">D: Rose Quartz</button>
+  <button class="tab-btn" data-tab="e">E: Sage Garden</button>
+  <button class="tab-btn" data-tab="compare">对比总览</button>
+</div>
+
+<!-- ============================================
+     SCHEME A: Warm Linen 暖麻布
+     ============================================ -->
+<div class="scheme-panel active" id="panel-a">
+  <div class="scheme-intro">
+    <div class="scheme-intro-card">
+      <h3>设计意图</h3>
+      <div class="color-strategy-tag" style="background:rgba(79,70,229,0.15);color:#8b7cf6;">Restrained</div>
+      <p>中性色向暖黄方向偏移（chroma ~0.01），营造纸张般的温润触感。主色从标准 SaaS 蓝升级为更深沉的 Indigo，在保持专业感的同时摆脱"AI 工具默认蓝"的套路。适合长时间阅读代码和文档的场景。</p>
+    </div>
+    <div class="scheme-intro-card">
+      <h3>场景句</h3>
+      <p class="scene-sentence">开发者在上午自然光充足的居家办公室中，面对 27 英寸显示器长时间阅读和编写代码，需要一种不刺眼但依然清晰锐利的视觉体验。</p>
+    </div>
+  </div>
+
+  <h2 class="section-title">色板</h2>
+  <div class="palette-grid">
+    <div class="palette-item"><div class="palette-swatch" style="background:#faf9f6"></div><div class="palette-info"><div class="palette-name">bg-primary</div><div class="palette-value">#faf9f6</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#f3f1ec"></div><div class="palette-info"><div class="palette-name">bg-secondary</div><div class="palette-value">#f3f1ec</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#ebe8e1"></div><div class="palette-info"><div class="palette-name">bg-tertiary</div><div class="palette-value">#ebe8e1</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#eae7e0"></div><div class="palette-info"><div class="palette-name">bg-hover</div><div class="palette-value">#eae7e0</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#1c1b18"></div><div class="palette-info"><div class="palette-name">text-primary</div><div class="palette-value">#1c1b18</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#4a4840"></div><div class="palette-info"><div class="palette-name">text-secondary</div><div class="palette-value">#4a4840</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#7a776d"></div><div class="palette-info"><div class="palette-name">text-muted</div><div class="palette-value">#7a776d</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#4f46e5"></div><div class="palette-info"><div class="palette-name">accent-primary</div><div class="palette-value">#4f46e5</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#6366f1"></div><div class="palette-info"><div class="palette-name">accent-hover</div><div class="palette-value">#6366f1</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#16a34a"></div><div class="palette-info"><div class="palette-name">success</div><div class="palette-value">#16a34a</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#ca8a04"></div><div class="palette-info"><div class="palette-name">warning</div><div class="palette-value">#ca8a04</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#dc2626"></div><div class="palette-info"><div class="palette-name">error</div><div class="palette-value">#dc2626</div></div></div>
+  </div>
+
+  <h2 class="section-title">聊天界面</h2>
+  <div class="demo-card">
+    <div class="demo-content scheme-a">
+      <div class="demo-ui">
+        <div class="demo-sidebar">
+          <div class="demo-sidebar-nav">
+            <div class="demo-sidebar-section">对话</div>
+            <div class="demo-sidebar-item active"><div class="demo-sidebar-icon"></div>重构认证模块</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>API 文档生成</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>数据库迁移脚本</div>
+            <div class="demo-sidebar-section">工具</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>终端</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>文件搜索</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>Git 历史</div>
+          </div>
+          <div class="demo-main">
+            <div class="demo-topbar">
+              <div class="demo-topbar-title">重构认证模块</div>
+              <div class="demo-topbar-actions">
+                <div class="demo-topbar-btn">&#9881;</div>
+                <div class="demo-topbar-btn">&#8942;</div>
+              </div>
+            </div>
+            <div class="demo-chat">
+              <div class="demo-msg user">
+                <div class="demo-avatar">U</div>
+                <div class="demo-bubble">帮我重构 auth.ts，把 JWT 逻辑拆分成独立的模块</div>
+              </div>
+              <div class="demo-msg assistant">
+                <div class="demo-avatar">S</div>
+                <div class="demo-bubble">我来帮你把 JWT 逻辑从 auth.ts 中拆分出来。首先让我看一下当前的代码结构，然后创建独立的 jwt.module.ts 文件。</div>
+              </div>
+            </div>
+            <div class="demo-input-bar">
+              <input class="demo-input" value="输入消息，或输入 / 使用命令..." readonly>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-row" style="margin-top:24px;">
+    <div class="demo-card">
+      <div class="demo-label">代码块</div>
+      <div class="demo-content scheme-a">
+        <div class="demo-ui" style="padding:16px;">
+          <div class="demo-code-block">
+            <div class="demo-code-header">
+              <span>jwt.module.ts</span>
+              <span class="demo-code-copy">复制</span>
+            </div>
+            <div class="demo-code-body">
+<span class="cmt">// JWT 模块 - 独立认证令牌管理</span>
+<span class="kw">import</span> <span class="punc">{</span> sign<span class="punc">,</span> verify <span class="punc">}</span> <span class="kw">from</span> <span class="str">'jsonwebtoken'</span>
+
+<span class="kw">export function</span> <span class="fn">generateToken</span><span class="punc">(</span>payload<span class="punc">:</span> TokenPayload<span class="punc">)</span> <span class="punc">{</span>
+  <span class="kw">return</span> <span class="fn">sign</span><span class="punc">(</span>payload<span class="punc">,</span> SECRET<span class="punc">,</span> <span class="punc">{</span>
+    expiresIn<span class="punc">:</span> <span class="str">'24h'</span>
+  <span class="punc">})</span>
+<span class="punc">}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-card">
+      <div class="demo-label">按钮 & 标签</div>
+      <div class="demo-content scheme-a">
+        <div class="demo-ui">
+          <div class="demo-buttons">
+            <div class="demo-btn demo-btn-primary">主要操作</div>
+            <div class="demo-btn demo-btn-secondary">次要操作</div>
+            <div class="demo-btn demo-btn-ghost">文字按钮</div>
+            <div class="demo-btn demo-btn-danger">危险操作</div>
+          </div>
+          <div class="demo-badges">
+            <div class="demo-badge demo-badge-accent">进行中</div>
+            <div class="demo-badge demo-badge-success">已完成</div>
+            <div class="demo-badge demo-badge-warning">待审核</div>
+            <div class="demo-badge demo-badge-error">失败</div>
+            <div class="demo-badge demo-badge-neutral">草稿</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-title">表面层级</h2>
+  <div class="demo-card">
+    <div class="demo-content scheme-a">
+      <div class="demo-ui">
+        <div class="demo-surfaces">
+          <div class="demo-surface-col" style="background:var(--bg-primary);border-radius:8px 0 0 8px;">
+            <div class="demo-surface-label">Primary</div>
+            <div class="demo-surface-text">主背景 #faf9f6</div>
+          </div>
+          <div class="demo-surface-col" style="background:var(--bg-secondary);">
+            <div class="demo-surface-label">Secondary</div>
+            <div class="demo-surface-text">次背景 #f3f1ec</div>
+          </div>
+          <div class="demo-surface-col" style="background:var(--bg-tertiary);">
+            <div class="demo-surface-label">Tertiary</div>
+            <div class="demo-surface-text">三背景 #ebe8e1</div>
+          </div>
+          <div class="demo-surface-col" style="background:var(--bg-hover);">
+            <div class="demo-surface-label">Hover</div>
+            <div class="demo-surface-text">悬停 #eae7e0</div>
+          </div>
+          <div class="demo-surface-col" style="background:var(--bg-active);border-radius:0 8px 8px 0;">
+            <div class="demo-surface-label">Active</div>
+            <div class="demo-surface-text">激活 #e0ddd5</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-title" style="margin-top:32px;">优劣分析</h2>
+  <div class="pros-cons">
+    <div class="pros-cons-card pros-card">
+      <h4 style="color:#22c55e;">优势</h4>
+      <ul>
+        <li>暖色温减少长时间注视的视觉疲劳</li>
+        <li>Indigo 比标准蓝更有辨识度，摆脱 SaaS 套路</li>
+        <li>与现有 Anthropic 暖色主题形成色温统一</li>
+        <li>层级区分度比当前纯灰方案更清晰</li>
+      </ul>
+    </div>
+    <div class="pros-cons-card cons-card">
+      <h4 style="color:#f59e0b;">权衡</h4>
+      <ul>
+        <li>暖色温可能不适合偏好冷色调的用户</li>
+        <li>Indigo 在浅色背景上对比度需注意</li>
+        <li>与 Dark 主题切换时色温差较大</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================
+     SCHEME B: Mist Slate 雾石板
+     ============================================ -->
+<div class="scheme-panel" id="panel-b">
+  <div class="scheme-intro">
+    <div class="scheme-intro-card">
+      <h3>设计意图</h3>
+      <div class="color-strategy-tag" style="background:rgba(13,148,136,0.15);color:#2dd4bf;">Restrained</div>
+      <p>中性色向冷蓝方向微偏（chroma ~0.008），营造雾面石板般的冷静质感。主色采用 Teal 青绿，彻底打破"AI 工具 = 蓝色"的第一反射。整体感觉专业、克制、有辨识度。</p>
+    </div>
+    <div class="scheme-intro-card">
+      <h3>场景句</h3>
+      <p class="scene-sentence">开发者在明亮的大开间工作室中，阴天柔和漫射光透过落地窗洒入，需要一种冷静但不冰冷的界面来专注处理复杂的系统架构问题。</p>
+    </div>
+  </div>
+
+  <h2 class="section-title">色板</h2>
+  <div class="palette-grid">
+    <div class="palette-item"><div class="palette-swatch" style="background:#f8f9fb"></div><div class="palette-info"><div class="palette-name">bg-primary</div><div class="palette-value">#f8f9fb</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#f0f1f5"></div><div class="palette-info"><div class="palette-name">bg-secondary</div><div class="palette-value">#f0f1f5</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#e7e9ef"></div><div class="palette-info"><div class="palette-name">bg-tertiary</div><div class="palette-value">#e7e9ef</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#e4e6ec"></div><div class="palette-info"><div class="palette-name">bg-hover</div><div class="palette-value">#e4e6ec</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#18191f"></div><div class="palette-info"><div class="palette-name">text-primary</div><div class="palette-value">#18191f</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#44475a"></div><div class="palette-info"><div class="palette-name">text-secondary</div><div class="palette-value">#44475a</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#6e7191"></div><div class="palette-info"><div class="palette-name">text-muted</div><div class="palette-value">#6e7191</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#0d9488"></div><div class="palette-info"><div class="palette-name">accent-primary</div><div class="palette-value">#0d9488</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#14b8a6"></div><div class="palette-info"><div class="palette-name">accent-hover</div><div class="palette-value">#14b8a6</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#059669"></div><div class="palette-info"><div class="palette-name">success</div><div class="palette-value">#059669</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#d97706"></div><div class="palette-info"><div class="palette-name">warning</div><div class="palette-value">#d97706</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#dc2626"></div><div class="palette-info"><div class="palette-name">error</div><div class="palette-value">#dc2626</div></div></div>
+  </div>
+
+  <h2 class="section-title">聊天界面</h2>
+  <div class="demo-card">
+    <div class="demo-content scheme-b">
+      <div class="demo-ui">
+        <div class="demo-sidebar">
+          <div class="demo-sidebar-nav">
+            <div class="demo-sidebar-section">对话</div>
+            <div class="demo-sidebar-item active"><div class="demo-sidebar-icon"></div>重构认证模块</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>API 文档生成</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>数据库迁移脚本</div>
+            <div class="demo-sidebar-section">工具</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>终端</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>文件搜索</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>Git 历史</div>
+          </div>
+          <div class="demo-main">
+            <div class="demo-topbar">
+              <div class="demo-topbar-title">重构认证模块</div>
+              <div class="demo-topbar-actions">
+                <div class="demo-topbar-btn">&#9881;</div>
+                <div class="demo-topbar-btn">&#8942;</div>
+              </div>
+            </div>
+            <div class="demo-chat">
+              <div class="demo-msg user">
+                <div class="demo-avatar">U</div>
+                <div class="demo-bubble">帮我重构 auth.ts，把 JWT 逻辑拆分成独立的模块</div>
+              </div>
+              <div class="demo-msg assistant">
+                <div class="demo-avatar">S</div>
+                <div class="demo-bubble">我来帮你把 JWT 逻辑从 auth.ts 中拆分出来。首先让我看一下当前的代码结构，然后创建独立的 jwt.module.ts 文件。</div>
+              </div>
+            </div>
+            <div class="demo-input-bar">
+              <input class="demo-input" value="输入消息，或输入 / 使用命令..." readonly>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-row" style="margin-top:24px;">
+    <div class="demo-card">
+      <div class="demo-label">代码块</div>
+      <div class="demo-content scheme-b">
+        <div class="demo-ui" style="padding:16px;">
+          <div class="demo-code-block">
+            <div class="demo-code-header">
+              <span>jwt.module.ts</span>
+              <span class="demo-code-copy">复制</span>
+            </div>
+            <div class="demo-code-body">
+<span class="cmt">// JWT 模块 - 独立认证令牌管理</span>
+<span class="kw">import</span> <span class="punc">{</span> sign<span class="punc">,</span> verify <span class="punc">}</span> <span class="kw">from</span> <span class="str">'jsonwebtoken'</span>
+
+<span class="kw">export function</span> <span class="fn">generateToken</span><span class="punc">(</span>payload<span class="punc">:</span> TokenPayload<span class="punc">)</span> <span class="punc">{</span>
+  <span class="kw">return</span> <span class="fn">sign</span><span class="punc">(</span>payload<span class="punc">,</span> SECRET<span class="punc">,</span> <span class="punc">{</span>
+    expiresIn<span class="punc">:</span> <span class="str">'24h'</span>
+  <span class="punc">})</span>
+<span class="punc">}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-card">
+      <div class="demo-label">按钮 & 标签</div>
+      <div class="demo-content scheme-b">
+        <div class="demo-ui">
+          <div class="demo-buttons">
+            <div class="demo-btn demo-btn-primary">主要操作</div>
+            <div class="demo-btn demo-btn-secondary">次要操作</div>
+            <div class="demo-btn demo-btn-ghost">文字按钮</div>
+            <div class="demo-btn demo-btn-danger">危险操作</div>
+          </div>
+          <div class="demo-badges">
+            <div class="demo-badge demo-badge-accent">进行中</div>
+            <div class="demo-badge demo-badge-success">已完成</div>
+            <div class="demo-badge demo-badge-warning">待审核</div>
+            <div class="demo-badge demo-badge-error">失败</div>
+            <div class="demo-badge demo-badge-neutral">草稿</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-title">表面层级</h2>
+  <div class="demo-card">
+    <div class="demo-content scheme-b">
+      <div class="demo-ui">
+        <div class="demo-surfaces">
+          <div class="demo-surface-col" style="background:var(--bg-primary);border-radius:8px 0 0 8px;">
+            <div class="demo-surface-label">Primary</div>
+            <div class="demo-surface-text">主背景 #f8f9fb</div>
+          </div>
+          <div class="demo-surface-col" style="background:var(--bg-secondary);">
+            <div class="demo-surface-label">Secondary</div>
+            <div class="demo-surface-text">次背景 #f0f1f5</div>
+          </div>
+          <div class="demo-surface-col" style="background:var(--bg-tertiary);">
+            <div class="demo-surface-label">Tertiary</div>
+            <div class="demo-surface-text">三背景 #e7e9ef</div>
+          </div>
+          <div class="demo-surface-col" style="background:var(--bg-hover);">
+            <div class="demo-surface-label">Hover</div>
+            <div class="demo-surface-text">悬停 #e4e6ec</div>
+          </div>
+          <div class="demo-surface-col" style="background:var(--bg-active);border-radius:0 8px 8px 0;">
+            <div class="demo-surface-label">Active</div>
+            <div class="demo-surface-text">激活 #dbdde5</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-title" style="margin-top:32px;">优劣分析</h2>
+  <div class="pros-cons">
+    <div class="pros-cons-card pros-card">
+      <h4 style="color:#22c55e;">优势</h4>
+      <ul>
+        <li>Teal 主色彻底打破"AI = 蓝"的第一反射，辨识度极高</li>
+        <li>冷色温适合理性、技术导向的工作氛围</li>
+        <li>与 Dark 主题切换时色温连贯（都是冷调）</li>
+        <li>蓝灰中性色在代码编辑器中很常见，用户接受度高</li>
+      </ul>
+    </div>
+    <div class="pros-cons-card cons-card">
+      <h4 style="color:#f59e0b;">权衡</h4>
+      <ul>
+        <li>Teal 在某些文化中关联"医疗/健康"，需注意语境</li>
+        <li>冷色温可能让界面感觉"距离感"较强</li>
+        <li>与 Anthropic 暖色主题色温反差大</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================
+     SCHEME C: Sunlit Birch 桦木光
+     ============================================ -->
+<div class="scheme-panel" id="panel-c">
+  <div class="scheme-intro">
+    <div class="scheme-intro-card">
+      <h3>设计意图</h3>
+      <div class="color-strategy-tag" style="background:rgba(180,83,9,0.15);color:#f59e0b;">Committed</div>
+      <p>中性色向暖琥珀方向偏移（chroma ~0.012），比方案 A 更大胆。主色采用 Amber 琥珀橙，让品牌色在界面上占据更多视觉比重。辅以 Forest Green 森林绿作为第二强调色，形成自然、温暖的视觉语言。</p>
+    </div>
+    <div class="scheme-intro-card">
+      <h3>场景句</h3>
+      <p class="scene-sentence">开发者在午后木质书桌旁，金色斜阳透过窗户洒在键盘上，需要一种温暖而有活力的界面来激发创造力，同时保持长时间工作的舒适度。</p>
+    </div>
+  </div>
+
+  <h2 class="section-title">色板</h2>
+  <div class="palette-grid">
+    <div class="palette-item"><div class="palette-swatch" style="background:#faf8f2"></div><div class="palette-info"><div class="palette-name">bg-primary</div><div class="palette-value">#faf8f2</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#f2efe5"></div><div class="palette-info"><div class="palette-name">bg-secondary</div><div class="palette-value">#f2efe5</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#e9e5d8"></div><div class="palette-info"><div class="palette-name">bg-tertiary</div><div class="palette-value">#e9e5d8</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#e7e3d6"></div><div class="palette-info"><div class="palette-name">bg-hover</div><div class="palette-value">#e7e3d6</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#1f1d16"></div><div class="palette-info"><div class="palette-name">text-primary</div><div class="palette-value">#1f1d16</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#4d4a3a"></div><div class="palette-info"><div class="palette-name">text-secondary</div><div class="palette-value">#4d4a3a</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#807c6a"></div><div class="palette-info"><div class="palette-name">text-muted</div><div class="palette-value">#807c6a</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#b45309"></div><div class="palette-info"><div class="palette-name">accent-primary</div><div class="palette-value">#b45309</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#d97706"></div><div class="palette-info"><div class="palette-name">accent-hover</div><div class="palette-value">#d97706</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#15803d"></div><div class="palette-info"><div class="palette-name">success / accent-2</div><div class="palette-value">#15803d</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#a16207"></div><div class="palette-info"><div class="palette-name">warning</div><div class="palette-value">#a16207</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#b91c1c"></div><div class="palette-info"><div class="palette-name">error</div><div class="palette-value">#b91c1c</div></div></div>
+  </div>
+
+  <h2 class="section-title">聊天界面</h2>
+  <div class="demo-card">
+    <div class="demo-content scheme-c">
+      <div class="demo-ui">
+        <div class="demo-sidebar">
+          <div class="demo-sidebar-nav">
+            <div class="demo-sidebar-section">对话</div>
+            <div class="demo-sidebar-item active"><div class="demo-sidebar-icon"></div>重构认证模块</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>API 文档生成</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>数据库迁移脚本</div>
+            <div class="demo-sidebar-section">工具</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>终端</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>文件搜索</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>Git 历史</div>
+          </div>
+          <div class="demo-main">
+            <div class="demo-topbar">
+              <div class="demo-topbar-title">重构认证模块</div>
+              <div class="demo-topbar-actions">
+                <div class="demo-topbar-btn">&#9881;</div>
+                <div class="demo-topbar-btn">&#8942;</div>
+              </div>
+            </div>
+            <div class="demo-chat">
+              <div class="demo-msg user">
+                <div class="demo-avatar">U</div>
+                <div class="demo-bubble">帮我重构 auth.ts，把 JWT 逻辑拆分成独立的模块</div>
+              </div>
+              <div class="demo-msg assistant">
+                <div class="demo-avatar">S</div>
+                <div class="demo-bubble">我来帮你把 JWT 逻辑从 auth.ts 中拆分出来。首先让我看一下当前的代码结构，然后创建独立的 jwt.module.ts 文件。</div>
+              </div>
+            </div>
+            <div class="demo-input-bar">
+              <input class="demo-input" value="输入消息，或输入 / 使用命令..." readonly>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-row" style="margin-top:24px;">
+    <div class="demo-card">
+      <div class="demo-label">代码块</div>
+      <div class="demo-content scheme-c">
+        <div class="demo-ui" style="padding:16px;">
+          <div class="demo-code-block">
+            <div class="demo-code-header">
+              <span>jwt.module.ts</span>
+              <span class="demo-code-copy">复制</span>
+            </div>
+            <div class="demo-code-body">
+<span class="cmt">// JWT 模块 - 独立认证令牌管理</span>
+<span class="kw">import</span> <span class="punc">{</span> sign<span class="punc">,</span> verify <span class="punc">}</span> <span class="kw">from</span> <span class="str">'jsonwebtoken'</span>
+
+<span class="kw">export function</span> <span class="fn">generateToken</span><span class="punc">(</span>payload<span class="punc">:</span> TokenPayload<span class="punc">)</span> <span class="punc">{</span>
+  <span class="kw">return</span> <span class="fn">sign</span><span class="punc">(</span>payload<span class="punc">,</span> SECRET<span class="punc">,</span> <span class="punc">{</span>
+    expiresIn<span class="punc">:</span> <span class="str">'24h'</span>
+  <span class="punc">})</span>
+<span class="punc">}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-card">
+      <div class="demo-label">按钮 & 标签</div>
+      <div class="demo-content scheme-c">
+        <div class="demo-ui">
+          <div class="demo-buttons">
+            <div class="demo-btn demo-btn-primary">主要操作</div>
+            <div class="demo-btn demo-btn-secondary">次要操作</div>
+            <div class="demo-btn demo-btn-ghost">文字按钮</div>
+            <div class="demo-btn demo-btn-danger">危险操作</div>
+          </div>
+          <div class="demo-badges">
+            <div class="demo-badge demo-badge-accent">进行中</div>
+            <div class="demo-badge demo-badge-success">已完成</div>
+            <div class="demo-badge demo-badge-warning">待审核</div>
+            <div class="demo-badge demo-badge-error">失败</div>
+            <div class="demo-badge demo-badge-neutral">草稿</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-title">表面层级</h2>
+  <div class="demo-card">
+    <div class="demo-content scheme-c">
+      <div class="demo-ui">
+        <div class="demo-surfaces">
+          <div class="demo-surface-col" style="background:var(--bg-primary);border-radius:8px 0 0 8px;">
+            <div class="demo-surface-label">Primary</div>
+            <div class="demo-surface-text">主背景 #faf8f2</div>
+          </div>
+          <div class="demo-surface-col" style="background:var(--bg-secondary);">
+            <div class="demo-surface-label">Secondary</div>
+            <div class="demo-surface-text">次背景 #f2efe5</div>
+          </div>
+          <div class="demo-surface-col" style="background:var(--bg-tertiary);">
+            <div class="demo-surface-label">Tertiary</div>
+            <div class="demo-surface-text">三背景 #e9e5d8</div>
+          </div>
+          <div class="demo-surface-col" style="background:var(--bg-hover);">
+            <div class="demo-surface-label">Hover</div>
+            <div class="demo-surface-text">悬停 #e7e3d6</div>
+          </div>
+          <div class="demo-surface-col" style="background:var(--bg-active);border-radius:0 8px 8px 0;">
+            <div class="demo-surface-label">Active</div>
+            <div class="demo-surface-text">激活 #ddd9cb</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-title" style="margin-top:32px;">优劣分析</h2>
+  <div class="pros-cons">
+    <div class="pros-cons-card pros-card">
+      <h4 style="color:#22c55e;">优势</h4>
+      <ul>
+        <li>Amber 主色极具辨识度，在 AI 工具中几乎无竞品</li>
+        <li>Committed 策略让品牌感更强，不像"又一个 AI 工具"</li>
+        <li>自然暖色调营造舒适、有创造力的工作氛围</li>
+        <li>Forest Green 辅色与 Amber 形成互补，视觉层次丰富</li>
+      </ul>
+    </div>
+    <div class="pros-cons-card cons-card">
+      <h4 style="color:#f59e0b;">权衡</h4>
+      <ul>
+        <li>Amber 作为主色较激进，部分用户可能不适应</li>
+        <li>Committed 策略意味着品牌色出现频率高，需谨慎控制</li>
+        <li>暖琥珀色温最强烈，与 Dark 主题切换反差最大</li>
+        <li>Warning 色与主色同色系，需额外区分手段</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================
+     SCHEME D: Rose Quartz 玫瑰石英
+     ============================================ -->
+<div class="scheme-panel" id="panel-d">
+  <div class="scheme-intro">
+    <div class="scheme-intro-card">
+      <h3>设计意图</h3>
+      <div class="color-strategy-tag" style="background:rgba(190,18,60,0.15);color:#f43f5e;">Restrained</div>
+      <p>中性色向玫瑰方向微偏（chroma ~0.008），营造精致的粉灰质感。主色采用 Crimson 深红，既不是粉色也不是正红，而是一种沉稳的、有深度的红。辅以 Violet 紫罗兰作为第二强调色，形成优雅、编辑感十足的视觉语言。</p>
+    </div>
+    <div class="scheme-intro-card">
+      <h3>场景句</h3>
+      <p class="scene-sentence">开发者在清晨微粉的天光中，坐在极简风格的白色办公桌前，需要一种精致而不失温度的界面来处理设计系统和 UI 细节，既要专业感又要有审美品味。</p>
+    </div>
+  </div>
+
+  <h2 class="section-title">色板</h2>
+  <div class="palette-grid">
+    <div class="palette-item"><div class="palette-swatch" style="background:#faf8f8"></div><div class="palette-info"><div class="palette-name">bg-primary</div><div class="palette-value">#faf8f8</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#f3f0f0"></div><div class="palette-info"><div class="palette-name">bg-secondary</div><div class="palette-value">#f3f0f0</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#ebe6e6"></div><div class="palette-info"><div class="palette-name">bg-tertiary</div><div class="palette-value">#ebe6e6</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#e9e3e3"></div><div class="palette-info"><div class="palette-name">bg-hover</div><div class="palette-value">#e9e3e3</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#1c1819"></div><div class="palette-info"><div class="palette-name">text-primary</div><div class="palette-value">#1c1819</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#4a4244"></div><div class="palette-info"><div class="palette-name">text-secondary</div><div class="palette-value">#4a4244</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#7d7375"></div><div class="palette-info"><div class="palette-name">text-muted</div><div class="palette-value">#7d7375</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#be123c"></div><div class="palette-info"><div class="palette-name">accent-primary</div><div class="palette-value">#be123c</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#e11d48"></div><div class="palette-info"><div class="palette-name">accent-hover</div><div class="palette-value">#e11d48</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#059669"></div><div class="palette-info"><div class="palette-name">success</div><div class="palette-value">#059669</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#b45309"></div><div class="palette-info"><div class="palette-name">warning</div><div class="palette-value">#b45309</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#dc2626"></div><div class="palette-info"><div class="palette-name">error</div><div class="palette-value">#dc2626</div></div></div>
+  </div>
+
+  <h2 class="section-title">聊天界面</h2>
+  <div class="demo-card">
+    <div class="demo-content scheme-d">
+      <div class="demo-ui">
+        <div class="demo-sidebar">
+          <div class="demo-sidebar-nav">
+            <div class="demo-sidebar-section">对话</div>
+            <div class="demo-sidebar-item active"><div class="demo-sidebar-icon"></div>重构认证模块</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>API 文档生成</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>数据库迁移脚本</div>
+            <div class="demo-sidebar-section">工具</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>终端</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>文件搜索</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>Git 历史</div>
+          </div>
+          <div class="demo-main">
+            <div class="demo-topbar">
+              <div class="demo-topbar-title">重构认证模块</div>
+              <div class="demo-topbar-actions">
+                <div class="demo-topbar-btn">&#9881;</div>
+                <div class="demo-topbar-btn">&#8942;</div>
+              </div>
+            </div>
+            <div class="demo-chat">
+              <div class="demo-msg user">
+                <div class="demo-avatar">U</div>
+                <div class="demo-bubble">帮我重构 auth.ts，把 JWT 逻辑拆分成独立的模块</div>
+              </div>
+              <div class="demo-msg assistant">
+                <div class="demo-avatar">S</div>
+                <div class="demo-bubble">我来帮你把 JWT 逻辑从 auth.ts 中拆分出来。首先让我看一下当前的代码结构，然后创建独立的 jwt.module.ts 文件。</div>
+              </div>
+            </div>
+            <div class="demo-input-bar">
+              <input class="demo-input" value="输入消息，或输入 / 使用命令..." readonly>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-row" style="margin-top:24px;">
+    <div class="demo-card">
+      <div class="demo-label">代码块</div>
+      <div class="demo-content scheme-d">
+        <div class="demo-ui" style="padding:16px;">
+          <div class="demo-code-block">
+            <div class="demo-code-header">
+              <span>jwt.module.ts</span>
+              <span class="demo-code-copy">复制</span>
+            </div>
+            <div class="demo-code-body">
+<span class="cmt">// JWT 模块 - 独立认证令牌管理</span>
+<span class="kw">import</span> <span class="punc">{</span> sign<span class="punc">,</span> verify <span class="punc">}</span> <span class="kw">from</span> <span class="str">'jsonwebtoken'</span>
+
+<span class="kw">export function</span> <span class="fn">generateToken</span><span class="punc">(</span>payload<span class="punc">:</span> TokenPayload<span class="punc">)</span> <span class="punc">{</span>
+  <span class="kw">return</span> <span class="fn">sign</span><span class="punc">(</span>payload<span class="punc">,</span> SECRET<span class="punc">,</span> <span class="punc">{</span>
+    expiresIn<span class="punc">:</span> <span class="str">'24h'</span>
+  <span class="punc">})</span>
+<span class="punc">}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-card">
+      <div class="demo-label">按钮 & 标签</div>
+      <div class="demo-content scheme-d">
+        <div class="demo-ui">
+          <div class="demo-buttons">
+            <div class="demo-btn demo-btn-primary">主要操作</div>
+            <div class="demo-btn demo-btn-secondary">次要操作</div>
+            <div class="demo-btn demo-btn-ghost">文字按钮</div>
+            <div class="demo-btn demo-btn-danger">危险操作</div>
+          </div>
+          <div class="demo-badges">
+            <div class="demo-badge demo-badge-accent">进行中</div>
+            <div class="demo-badge demo-badge-success">已完成</div>
+            <div class="demo-badge demo-badge-warning">待审核</div>
+            <div class="demo-badge demo-badge-error">失败</div>
+            <div class="demo-badge demo-badge-neutral">草稿</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-title">表面层级</h2>
+  <div class="demo-card">
+    <div class="demo-content scheme-d">
+      <div class="demo-ui">
+        <div class="demo-surfaces">
+          <div class="demo-surface-col" style="background:var(--bg-primary);border-radius:8px 0 0 8px;">
+            <div class="demo-surface-label">Primary</div>
+            <div class="demo-surface-text">主背景 #faf8f8</div>
+          </div>
+          <div class="demo-surface-col" style="background:var(--bg-secondary);">
+            <div class="demo-surface-label">Secondary</div>
+            <div class="demo-surface-text">次背景 #f3f0f0</div>
+          </div>
+          <div class="demo-surface-col" style="background:var(--bg-tertiary);">
+            <div class="demo-surface-label">Tertiary</div>
+            <div class="demo-surface-text">三背景 #ebe6e6</div>
+          </div>
+          <div class="demo-surface-col" style="background:var(--bg-hover);">
+            <div class="demo-surface-label">Hover</div>
+            <div class="demo-surface-text">悬停 #e9e3e3</div>
+          </div>
+          <div class="demo-surface-col" style="background:var(--bg-active);border-radius:0 8px 8px 0;">
+            <div class="demo-surface-label">Active</div>
+            <div class="demo-surface-text">激活 #e0d8d8</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-title" style="margin-top:32px;">优劣分析</h2>
+  <div class="pros-cons">
+    <div class="pros-cons-card pros-card">
+      <h4 style="color:#22c55e;">优势</h4>
+      <ul>
+        <li>Crimson 深红主色极具编辑感和审美品味，区别于所有 AI 工具</li>
+        <li>玫瑰色温中性色精致优雅，不刺眼且有品位</li>
+        <li>Violet 辅色与 Crimson 形成红紫和声，视觉层次丰富</li>
+        <li>适合面向设计/创意人群的产品定位</li>
+      </ul>
+    </div>
+    <div class="pros-cons-card cons-card">
+      <h4 style="color:#f59e0b;">权衡</h4>
+      <ul>
+        <li>红色主色可能被误读为"警告/错误"语义</li>
+        <li>玫瑰色温偏女性化，需注意受众接受度</li>
+        <li>Error 红与主色红同色系，需通过明度/饱和度区分</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================
+     SCHEME E: Sage Garden 鼠尾草园
+     ============================================ -->
+<div class="scheme-panel" id="panel-e">
+  <div class="scheme-intro">
+    <div class="scheme-intro-card">
+      <h3>设计意图</h3>
+      <div class="color-strategy-tag" style="background:rgba(194,65,12,0.15);color:#ea580c;">Restrained</div>
+      <p>中性色向鼠尾草绿方向偏移（chroma ~0.01），营造被绿植环绕的自然安宁感。主色采用 Terracotta 陶土橙，与绿色中性色形成互补色对比，既温暖又有大地质感。这种"绿底橙点"的组合在 AI 工具中独一无二。</p>
+    </div>
+    <div class="scheme-intro-card">
+      <h3>场景句</h3>
+      <p class="scene-sentence">开发者在周末午后，坐在被绿植环绕的阳台工作台上，阳光透过叶片洒下斑驳光影，需要一种自然、安宁的界面来长时间专注编写和审查代码。</p>
+    </div>
+  </div>
+
+  <h2 class="section-title">色板</h2>
+  <div class="palette-grid">
+    <div class="palette-item"><div class="palette-swatch" style="background:#f8faf6"></div><div class="palette-info"><div class="palette-name">bg-primary</div><div class="palette-value">#f8faf6</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#f0f3ec"></div><div class="palette-info"><div class="palette-name">bg-secondary</div><div class="palette-value">#f0f3ec</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#e6ebe2"></div><div class="palette-info"><div class="palette-name">bg-tertiary</div><div class="palette-value">#e6ebe2</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#e3e8de"></div><div class="palette-info"><div class="palette-name">bg-hover</div><div class="palette-value">#e3e8de</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#181c16"></div><div class="palette-info"><div class="palette-name">text-primary</div><div class="palette-value">#181c16</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#3f4a38"></div><div class="palette-info"><div class="palette-name">text-secondary</div><div class="palette-value">#3f4a38</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#6b7a62"></div><div class="palette-info"><div class="palette-name">text-muted</div><div class="palette-value">#6b7a62</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#c2410c"></div><div class="palette-info"><div class="palette-name">accent-primary</div><div class="palette-value">#c2410c</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#ea580c"></div><div class="palette-info"><div class="palette-name">accent-hover</div><div class="palette-value">#ea580c</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#15803d"></div><div class="palette-info"><div class="palette-name">success / accent-2</div><div class="palette-value">#15803d</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#92400e"></div><div class="palette-info"><div class="palette-name">warning</div><div class="palette-value">#92400e</div></div></div>
+    <div class="palette-item"><div class="palette-swatch" style="background:#b91c1c"></div><div class="palette-info"><div class="palette-name">error</div><div class="palette-value">#b91c1c</div></div></div>
+  </div>
+
+  <h2 class="section-title">聊天界面</h2>
+  <div class="demo-card">
+    <div class="demo-content scheme-e">
+      <div class="demo-ui">
+        <div class="demo-sidebar">
+          <div class="demo-sidebar-nav">
+            <div class="demo-sidebar-section">对话</div>
+            <div class="demo-sidebar-item active"><div class="demo-sidebar-icon"></div>重构认证模块</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>API 文档生成</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>数据库迁移脚本</div>
+            <div class="demo-sidebar-section">工具</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>终端</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>文件搜索</div>
+            <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>Git 历史</div>
+          </div>
+          <div class="demo-main">
+            <div class="demo-topbar">
+              <div class="demo-topbar-title">重构认证模块</div>
+              <div class="demo-topbar-actions">
+                <div class="demo-topbar-btn">&#9881;</div>
+                <div class="demo-topbar-btn">&#8942;</div>
+              </div>
+            </div>
+            <div class="demo-chat">
+              <div class="demo-msg user">
+                <div class="demo-avatar">U</div>
+                <div class="demo-bubble">帮我重构 auth.ts，把 JWT 逻辑拆分成独立的模块</div>
+              </div>
+              <div class="demo-msg assistant">
+                <div class="demo-avatar">S</div>
+                <div class="demo-bubble">我来帮你把 JWT 逻辑从 auth.ts 中拆分出来。首先让我看一下当前的代码结构，然后创建独立的 jwt.module.ts 文件。</div>
+              </div>
+            </div>
+            <div class="demo-input-bar">
+              <input class="demo-input" value="输入消息，或输入 / 使用命令..." readonly>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-row" style="margin-top:24px;">
+    <div class="demo-card">
+      <div class="demo-label">代码块</div>
+      <div class="demo-content scheme-e">
+        <div class="demo-ui" style="padding:16px;">
+          <div class="demo-code-block">
+            <div class="demo-code-header">
+              <span>jwt.module.ts</span>
+              <span class="demo-code-copy">复制</span>
+            </div>
+            <div class="demo-code-body">
+<span class="cmt">// JWT 模块 - 独立认证令牌管理</span>
+<span class="kw">import</span> <span class="punc">{</span> sign<span class="punc">,</span> verify <span class="punc">}</span> <span class="kw">from</span> <span class="str">'jsonwebtoken'</span>
+
+<span class="kw">export function</span> <span class="fn">generateToken</span><span class="punc">(</span>payload<span class="punc">:</span> TokenPayload<span class="punc">)</span> <span class="punc">{</span>
+  <span class="kw">return</span> <span class="fn">sign</span><span class="punc">(</span>payload<span class="punc">,</span> SECRET<span class="punc">,</span> <span class="punc">{</span>
+    expiresIn<span class="punc">:</span> <span class="str">'24h'</span>
+  <span class="punc">})</span>
+<span class="punc">}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-card">
+      <div class="demo-label">按钮 & 标签</div>
+      <div class="demo-content scheme-e">
+        <div class="demo-ui">
+          <div class="demo-buttons">
+            <div class="demo-btn demo-btn-primary">主要操作</div>
+            <div class="demo-btn demo-btn-secondary">次要操作</div>
+            <div class="demo-btn demo-btn-ghost">文字按钮</div>
+            <div class="demo-btn demo-btn-danger">危险操作</div>
+          </div>
+          <div class="demo-badges">
+            <div class="demo-badge demo-badge-accent">进行中</div>
+            <div class="demo-badge demo-badge-success">已完成</div>
+            <div class="demo-badge demo-badge-warning">待审核</div>
+            <div class="demo-badge demo-badge-error">失败</div>
+            <div class="demo-badge demo-badge-neutral">草稿</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-title">表面层级</h2>
+  <div class="demo-card">
+    <div class="demo-content scheme-e">
+      <div class="demo-ui">
+        <div class="demo-surfaces">
+          <div class="demo-surface-col" style="background:var(--bg-primary);border-radius:8px 0 0 8px;">
+            <div class="demo-surface-label">Primary</div>
+            <div class="demo-surface-text">主背景 #f8faf6</div>
+          </div>
+          <div class="demo-surface-col" style="background:var(--bg-secondary);">
+            <div class="demo-surface-label">Secondary</div>
+            <div class="demo-surface-text">次背景 #f0f3ec</div>
+          </div>
+          <div class="demo-surface-col" style="background:var(--bg-tertiary);">
+            <div class="demo-surface-label">Tertiary</div>
+            <div class="demo-surface-text">三背景 #e6ebe2</div>
+          </div>
+          <div class="demo-surface-col" style="background:var(--bg-hover);">
+            <div class="demo-surface-label">Hover</div>
+            <div class="demo-surface-text">悬停 #e3e8de</div>
+          </div>
+          <div class="demo-surface-col" style="background:var(--bg-active);border-radius:0 8px 8px 0;">
+            <div class="demo-surface-label">Active</div>
+            <div class="demo-surface-text">激活 #d8dfd2</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-title" style="margin-top:32px;">优劣分析</h2>
+  <div class="pros-cons">
+    <div class="pros-cons-card pros-card">
+      <h4 style="color:#22c55e;">优势</h4>
+      <ul>
+        <li>"绿底橙点"互补色组合在 AI 工具中独一无二</li>
+        <li>鼠尾草绿中性色天然安宁，长时间注视最舒适</li>
+        <li>Terracotta 主色温暖有大地质感，不激进但有个性</li>
+        <li>绿色中性色与代码编辑器常见风格契合</li>
+      </ul>
+    </div>
+    <div class="pros-cons-card cons-card">
+      <h4 style="color:#f59e0b;">权衡</h4>
+      <ul>
+        <li>绿色中性色可能让界面偏"自然/环保"联想</li>
+        <li>Terracotta 橙与 Warning 色需注意区分</li>
+        <li>绿色色温较独特，与 Dark 主题切换需仔细调色</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================
+     COMPARISON PANEL
+     ============================================ -->
+<div class="scheme-panel" id="panel-compare">
+  <h2 class="section-title">核心变量对比</h2>
+  <table class="vars-table">
+    <thead>
+      <tr>
+        <th>变量</th>
+        <th><span class="var-swatch" style="background:#60a5fa"></span>当前</th>
+        <th><span class="var-swatch" style="background:#8b7cf6"></span>A</th>
+        <th><span class="var-swatch" style="background:#2dd4bf"></span>B</th>
+        <th><span class="var-swatch" style="background:#f59e0b"></span>C</th>
+        <th><span class="var-swatch" style="background:#f43f5e"></span>D</th>
+        <th><span class="var-swatch" style="background:#ea580c"></span>E</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td class="var-name">--bg-primary</td><td class="var-val-cur">#ffffff</td><td class="var-val-a">#faf9f6</td><td class="var-val-b">#f8f9fb</td><td class="var-val-c">#faf8f2</td><td style="color:#f43f5e">#faf8f8</td><td style="color:#ea580c">#f8faf6</td></tr>
+      <tr><td class="var-name">--bg-secondary</td><td class="var-val-cur">#fafafa</td><td class="var-val-a">#f3f1ec</td><td class="var-val-b">#f0f1f5</td><td class="var-val-c">#f2efe5</td><td style="color:#f43f5e">#f3f0f0</td><td style="color:#ea580c">#f0f3ec</td></tr>
+      <tr><td class="var-name">--bg-tertiary</td><td class="var-val-cur">#f5f5f5</td><td class="var-val-a">#ebe8e1</td><td class="var-val-b">#e7e9ef</td><td class="var-val-c">#e9e5d8</td><td style="color:#f43f5e">#ebe6e6</td><td style="color:#ea580c">#e6ebe2</td></tr>
+      <tr><td class="var-name">--text-primary</td><td class="var-val-cur">#171717</td><td class="var-val-a">#1c1b18</td><td class="var-val-b">#18191f</td><td class="var-val-c">#1f1d16</td><td style="color:#f43f5e">#1c1819</td><td style="color:#ea580c">#181c16</td></tr>
+      <tr><td class="var-name">--text-muted</td><td class="var-val-cur">#737373</td><td class="var-val-a">#7a776d</td><td class="var-val-b">#6e7191</td><td class="var-val-c">#807c6a</td><td style="color:#f43f5e">#7d7375</td><td style="color:#ea580c">#6b7a62</td></tr>
+      <tr><td class="var-name">--accent-primary</td><td class="var-val-cur">#2563eb</td><td class="var-val-a">#4f46e5</td><td class="var-val-b">#0d9488</td><td class="var-val-c">#b45309</td><td style="color:#f43f5e">#be123c</td><td style="color:#ea580c">#c2410c</td></tr>
+      <tr><td class="var-name">--accent-hover</td><td class="var-val-cur">#3b82f6</td><td class="var-val-a">#6366f1</td><td class="var-val-b">#14b8a6</td><td class="var-val-c">#d97706</td><td style="color:#f43f5e">#e11d48</td><td style="color:#ea580c">#ea580c</td></tr>
+    </tbody>
+  </table>
+
+  <h2 class="section-title">聊天界面并排对比</h2>
+  <div class="comparison-grid">
+    <div class="comparison-card">
+      <div class="comparison-header">当前 Light 主题</div>
+      <div class="comparison-body scheme-current">
+        <div class="demo-ui">
+          <div class="demo-sidebar" style="height:320px;">
+            <div class="demo-sidebar-nav" style="width:160px;">
+              <div class="demo-sidebar-item active"><div class="demo-sidebar-icon"></div>重构认证模块</div>
+              <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>API 文档</div>
+              <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>数据库迁移</div>
+            </div>
+            <div class="demo-main">
+              <div class="demo-topbar"><div class="demo-topbar-title">重构认证模块</div></div>
+              <div class="demo-chat">
+                <div class="demo-msg user"><div class="demo-avatar">U</div><div class="demo-bubble">帮我重构 auth.ts</div></div>
+                <div class="demo-msg assistant"><div class="demo-avatar">S</div><div class="demo-bubble">我来帮你把 JWT 逻辑拆分出来。</div></div>
+              </div>
+              <div class="demo-input-bar"><input class="demo-input" value="输入消息..." readonly></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="comparison-card">
+      <div class="comparison-header">A: Warm Linen 暖麻布</div>
+      <div class="comparison-body scheme-a">
+        <div class="demo-ui">
+          <div class="demo-sidebar" style="height:320px;">
+            <div class="demo-sidebar-nav" style="width:160px;">
+              <div class="demo-sidebar-item active"><div class="demo-sidebar-icon"></div>重构认证模块</div>
+              <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>API 文档</div>
+              <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>数据库迁移</div>
+            </div>
+            <div class="demo-main">
+              <div class="demo-topbar"><div class="demo-topbar-title">重构认证模块</div></div>
+              <div class="demo-chat">
+                <div class="demo-msg user"><div class="demo-avatar">U</div><div class="demo-bubble">帮我重构 auth.ts</div></div>
+                <div class="demo-msg assistant"><div class="demo-avatar">S</div><div class="demo-bubble">我来帮你把 JWT 逻辑拆分出来。</div></div>
+              </div>
+              <div class="demo-input-bar"><input class="demo-input" value="输入消息..." readonly></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="comparison-card">
+      <div class="comparison-header">B: Mist Slate 雾石板</div>
+      <div class="comparison-body scheme-b">
+        <div class="demo-ui">
+          <div class="demo-sidebar" style="height:320px;">
+            <div class="demo-sidebar-nav" style="width:160px;">
+              <div class="demo-sidebar-item active"><div class="demo-sidebar-icon"></div>重构认证模块</div>
+              <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>API 文档</div>
+              <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>数据库迁移</div>
+            </div>
+            <div class="demo-main">
+              <div class="demo-topbar"><div class="demo-topbar-title">重构认证模块</div></div>
+              <div class="demo-chat">
+                <div class="demo-msg user"><div class="demo-avatar">U</div><div class="demo-bubble">帮我重构 auth.ts</div></div>
+                <div class="demo-msg assistant"><div class="demo-avatar">S</div><div class="demo-bubble">我来帮你把 JWT 逻辑拆分出来。</div></div>
+              </div>
+              <div class="demo-input-bar"><input class="demo-input" value="输入消息..." readonly></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="comparison-card">
+      <div class="comparison-header">C: Sunlit Birch 桦木光</div>
+      <div class="comparison-body scheme-c">
+        <div class="demo-ui">
+          <div class="demo-sidebar" style="height:320px;">
+            <div class="demo-sidebar-nav" style="width:160px;">
+              <div class="demo-sidebar-item active"><div class="demo-sidebar-icon"></div>重构认证模块</div>
+              <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>API 文档</div>
+              <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>数据库迁移</div>
+            </div>
+            <div class="demo-main">
+              <div class="demo-topbar"><div class="demo-topbar-title">重构认证模块</div></div>
+              <div class="demo-chat">
+                <div class="demo-msg user"><div class="demo-avatar">U</div><div class="demo-bubble">帮我重构 auth.ts</div></div>
+                <div class="demo-msg assistant"><div class="demo-avatar">S</div><div class="demo-bubble">我来帮你把 JWT 逻辑拆分出来。</div></div>
+              </div>
+              <div class="demo-input-bar"><input class="demo-input" value="输入消息..." readonly></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="comparison-card">
+      <div class="comparison-header">D: Rose Quartz 玫瑰石英</div>
+      <div class="comparison-body scheme-d">
+        <div class="demo-ui">
+          <div class="demo-sidebar" style="height:320px;">
+            <div class="demo-sidebar-nav" style="width:160px;">
+              <div class="demo-sidebar-item active"><div class="demo-sidebar-icon"></div>重构认证模块</div>
+              <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>API 文档</div>
+              <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>数据库迁移</div>
+            </div>
+            <div class="demo-main">
+              <div class="demo-topbar"><div class="demo-topbar-title">重构认证模块</div></div>
+              <div class="demo-chat">
+                <div class="demo-msg user"><div class="demo-avatar">U</div><div class="demo-bubble">帮我重构 auth.ts</div></div>
+                <div class="demo-msg assistant"><div class="demo-avatar">S</div><div class="demo-bubble">我来帮你把 JWT 逻辑拆分出来。</div></div>
+              </div>
+              <div class="demo-input-bar"><input class="demo-input" value="输入消息..." readonly></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="comparison-card">
+      <div class="comparison-header">E: Sage Garden 鼠尾草园</div>
+      <div class="comparison-body scheme-e">
+        <div class="demo-ui">
+          <div class="demo-sidebar" style="height:320px;">
+            <div class="demo-sidebar-nav" style="width:160px;">
+              <div class="demo-sidebar-item active"><div class="demo-sidebar-icon"></div>重构认证模块</div>
+              <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>API 文档</div>
+              <div class="demo-sidebar-item"><div class="demo-sidebar-icon"></div>数据库迁移</div>
+            </div>
+            <div class="demo-main">
+              <div class="demo-topbar"><div class="demo-topbar-title">重构认证模块</div></div>
+              <div class="demo-chat">
+                <div class="demo-msg user"><div class="demo-avatar">U</div><div class="demo-bubble">帮我重构 auth.ts</div></div>
+                <div class="demo-msg assistant"><div class="demo-avatar">S</div><div class="demo-bubble">我来帮你把 JWT 逻辑拆分出来。</div></div>
+              </div>
+              <div class="demo-input-bar"><input class="demo-input" value="输入消息..." readonly></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-title" style="margin-top:32px;">代码块并排对比</h2>
+  <div class="comparison-grid">
+    <div class="comparison-card">
+      <div class="comparison-header">当前</div>
+      <div class="comparison-body scheme-current">
+        <div class="demo-ui" style="padding:12px;">
+          <div class="demo-code-block">
+            <div class="demo-code-header"><span>jwt.module.ts</span><span class="demo-code-copy">复制</span></div>
+            <div class="demo-code-body">
+<span class="cmt">// JWT 模块</span>
+<span class="kw">import</span> <span class="punc">{</span> sign<span class="punc">,</span> verify <span class="punc">}</span> <span class="kw">from</span> <span class="str">'jsonwebtoken'</span>
+<span class="kw">export function</span> <span class="fn">generateToken</span><span class="punc">(</span>payload<span class="punc">)</span> <span class="punc">{</span>
+  <span class="kw">return</span> <span class="fn">sign</span><span class="punc">(</span>payload<span class="punc">,</span> SECRET<span class="punc">,</span> <span class="punc">{</span> expiresIn<span class="punc">:</span> <span class="str">'24h'</span> <span class="punc">})</span>
+<span class="punc">}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="comparison-card">
+      <div class="comparison-header">A: Warm Linen</div>
+      <div class="comparison-body scheme-a">
+        <div class="demo-ui" style="padding:12px;">
+          <div class="demo-code-block">
+            <div class="demo-code-header"><span>jwt.module.ts</span><span class="demo-code-copy">复制</span></div>
+            <div class="demo-code-body">
+<span class="cmt">// JWT 模块</span>
+<span class="kw">import</span> <span class="punc">{</span> sign<span class="punc">,</span> verify <span class="punc"> }</span> <span class="kw">from</span> <span class="str">'jsonwebtoken'</span>
+<span class="kw">export function</span> <span class="fn">generateToken</span><span class="punc">(</span>payload<span class="punc">)</span> <span class="punc">{</span>
+  <span class="kw">return</span> <span class="fn">sign</span><span class="punc">(</span>payload<span class="punc">,</span> SECRET<span class="punc">,</span> <span class="punc">{</span> expiresIn<span class="punc">:</span> <span class="str">'24h'</span> <span class="punc">})</span>
+<span class="punc">}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="comparison-card">
+      <div class="comparison-header">B: Mist Slate</div>
+      <div class="comparison-body scheme-b">
+        <div class="demo-ui" style="padding:12px;">
+          <div class="demo-code-block">
+            <div class="demo-code-header"><span>jwt.module.ts</span><span class="demo-code-copy">复制</span></div>
+            <div class="demo-code-body">
+<span class="cmt">// JWT 模块</span>
+<span class="kw">import</span> <span class="punc">{</span> sign<span class="punc">,</span> verify <span class="punc">}</span> <span class="kw">from</span> <span class="str">'jsonwebtoken'</span>
+<span class="kw">export function</span> <span class="fn">generateToken</span><span class="punc">(</span>payload<span class="punc">)</span> <span class="punc">{</span>
+  <span class="kw">return</span> <span class="fn">sign</span><span class="punc">(</span>payload<span class="punc">,</span> SECRET<span class="punc">,</span> <span class="punc">{</span> expiresIn<span class="punc">:</span> <span class="str">'24h'</span> <span class="punc">})</span>
+<span class="punc">}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="comparison-card">
+      <div class="comparison-header">C: Sunlit Birch</div>
+      <div class="comparison-body scheme-c">
+        <div class="demo-ui" style="padding:12px;">
+          <div class="demo-code-block">
+            <div class="demo-code-header"><span>jwt.module.ts</span><span class="demo-code-copy">复制</span></div>
+            <div class="demo-code-body">
+<span class="cmt">// JWT 模块</span>
+<span class="kw">import</span> <span class="punc">{</span> sign<span class="punc">,</span> verify <span class="punc">}</span> <span class="kw">from</span> <span class="str">'jsonwebtoken'</span>
+<span class="kw">export function</span> <span class="fn">generateToken</span><span class="punc">(</span>payload<span class="punc">)</span> <span class="punc">{</span>
+  <span class="kw">return</span> <span class="fn">sign</span><span class="punc">(</span>payload<span class="punc">,</span> SECRET<span class="punc">,</span> <span class="punc">{</span> expiresIn<span class="punc">:</span> <span class="str">'24h'</span> <span class="punc">})</span>
+<span class="punc">}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-title" style="margin-top:32px;">方案总结</h2>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:24px;">
+    <div style="padding:20px;border-radius:10px;border:1px solid rgba(139,124,246,0.2);background:rgba(139,124,246,0.05);">
+      <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;color:#8b7cf6;margin-bottom:8px;">A: Warm Linen</div>
+      <div style="font-size:11px;color:#888;margin-bottom:12px;">Restrained / 暖色温 / Indigo</div>
+      <div style="font-size:13px;color:#aaa;line-height:1.7;">
+        最稳妥的升级路径。保留蓝色系主色但升级为 Indigo，暖色温中性色减少刺眼感。改动最小，风险最低。
+      </div>
+      <div style="margin-top:12px;padding:6px 10px;border-radius:6px;background:rgba(139,124,246,0.1);font-size:11px;color:#8b7cf6;font-weight:600;">稳妥首选</div>
+    </div>
+    <div style="padding:20px;border-radius:10px;border:1px solid rgba(45,212,191,0.2);background:rgba(45,212,191,0.05);">
+      <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;color:#2dd4bf;margin-bottom:8px;">B: Mist Slate</div>
+      <div style="font-size:11px;color:#888;margin-bottom:12px;">Restrained / 冷色温 / Teal</div>
+      <div style="font-size:13px;color:#aaa;line-height:1.7;">
+        辨识度最高的方案。Teal 主色彻底打破 AI 工具蓝色套路，冷色温专业克制。与 Dark 主题色温连贯。
+      </div>
+      <div style="margin-top:12px;padding:6px 10px;border-radius:6px;background:rgba(45,212,191,0.1);font-size:11px;color:#2dd4bf;font-weight:600;">辨识度首选</div>
+    </div>
+    <div style="padding:20px;border-radius:10px;border:1px solid rgba(245,158,11,0.2);background:rgba(245,158,11,0.05);">
+      <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;color:#f59e0b;margin-bottom:8px;">C: Sunlit Birch</div>
+      <div style="font-size:11px;color:#888;margin-bottom:12px;">Committed / 暖色温 / Amber</div>
+      <div style="font-size:13px;color:#aaa;line-height:1.7;">
+        最大胆的方案。Amber 主色让品牌感拉满，自然暖色调营造独特氛围。适合想要强烈品牌差异化。
+      </div>
+      <div style="margin-top:12px;padding:6px 10px;border-radius:6px;background:rgba(245,158,11,0.1);font-size:11px;color:#f59e0b;font-weight:600;">品牌感首选</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:40px;max-width:66%;">
+    <div style="padding:20px;border-radius:10px;border:1px solid rgba(244,63,94,0.2);background:rgba(244,63,94,0.05);">
+      <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;color:#f43f5e;margin-bottom:8px;">D: Rose Quartz</div>
+      <div style="font-size:11px;color:#888;margin-bottom:12px;">Restrained / 玫瑰色温 / Crimson</div>
+      <div style="font-size:13px;color:#aaa;line-height:1.7;">
+        最精致的方案。Crimson 深红主色极具编辑感，玫瑰色温中性色优雅有品位。辅以 Violet 紫罗兰形成红紫和声。适合面向设计/创意人群。
+      </div>
+      <div style="margin-top:12px;padding:6px 10px;border-radius:6px;background:rgba(244,63,94,0.1);font-size:11px;color:#f43f5e;font-weight:600;">审美品味首选</div>
+    </div>
+    <div style="padding:20px;border-radius:10px;border:1px solid rgba(234,88,12,0.2);background:rgba(234,88,12,0.05);">
+      <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;color:#ea580c;margin-bottom:8px;">E: Sage Garden</div>
+      <div style="font-size:11px;color:#888;margin-bottom:12px;">Restrained / 鼠尾草绿 / Terracotta</div>
+      <div style="font-size:13px;color:#aaa;line-height:1.7;">
+        最安宁的方案。"绿底橙点"互补色组合独一无二，鼠尾草绿中性色天然舒适，Terracotta 陶土橙温暖有大地感。长时间注视最不疲劳。
+      </div>
+      <div style="margin-top:12px;padding:6px 10px;border-radius:6px;background:rgba(234,88,12,0.1);font-size:11px;color:#ea580c;font-weight:600;">舒适度首选</div>
+    </div>
+  </div>
+</div>
+
+<div class="footer-note">
+  Light 主题优化方案对比 &middot; SpaceCode &middot; 2026-05-29
+</div>
+
+<script>
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.scheme-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+  });
+});
+</script>
+</body>
+</html>
