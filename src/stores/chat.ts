@@ -787,11 +787,13 @@ export const useChatStore = defineStore('chat', () => {
       const currentEngine = session.engineType
       if (currentEngine && currentEngine !== desiredEngine) {
         logger.info('ChatStore', `initClaudeCodeSession: engine changed (${currentEngine} → ${desiredEngine}), restarting | id=${sessionId.slice(0, 8)}`)
+        const resumeId = status.engineSessionId || session.engineSessionId
         try {
           await claudeCode.stop(sessionId)
         } catch (e) {
           logger.warn('ChatStore', `initClaudeCodeSession: stop failed before engine switch | id=${sessionId.slice(0, 8)}`, { error: String(e) })
         }
+        session._resumeSessionId = resumeId || undefined
         // Fall through to start with the new engine
       } else {
         logger.info('ChatStore', `initClaudeCodeSession: session already running | id=${sessionId.slice(0, 8)}`)
@@ -842,7 +844,12 @@ export const useChatStore = defineStore('chat', () => {
         agent: currentAgent.value || undefined,
         thinkingEnabled: settingsStore.thinkingEnabled,
         engineType: desiredEngine,
+        engineSource: settingsStore.engineSource,
+        installedCliPath: settingsStore.installedCliPath ?? undefined,
+        resumeSessionId: session._resumeSessionId,
       })
+
+      delete session._resumeSessionId
 
       // Record which engine owns this session's live process so subsequent
       // engine switches in settings can be detected and force a restart.

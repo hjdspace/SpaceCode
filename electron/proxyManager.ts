@@ -4,6 +4,7 @@ import { app } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as http from 'http'
+import * as net from 'net'
 import { pathToFileURL } from 'url'
 import type { ProxyConfig, AdapterStatus } from './proxy/types'
 import { info, warn, error, debug } from './logger'
@@ -11,7 +12,9 @@ import { info, warn, error, debug } from './logger'
 const STARTUP_TIMEOUT_MS = 10000
 const SHUTDOWN_TIMEOUT_MS = 5000
 const HEALTH_CHECK_INTERVAL_MS = 30000
-const MAX_HEALTH_RETRIES = 1
+const MAX_HEALTH_RETRIES = 3
+const PROXY_PORT_START = 34567
+const PROXY_PORT_END = 34667
 
 export class ProxyManager extends EventEmitter {
   private process: ChildProcess | null = null
@@ -26,6 +29,8 @@ export class ProxyManager extends EventEmitter {
       await this.stop()
     }
 
+    const port = await this.findAvailablePort(config.port || PROXY_PORT_START)
+    config.port = port
     this.config = config
     this.healthRetryCount = 0
 
@@ -336,6 +341,27 @@ export class ProxyManager extends EventEmitter {
     } finally {
       this.restarting = false
     }
+  }
+
+  private findAvailablePort(startPort: number): Promise<number> {
+    return new Promise((resolve, reject) => {
+      let port = startPort
+      const tryPort = () => {
+        if (port > PROXY_PORT_END) {
+          reject(new Error(`No available port in range ${PROXY_PORT_START}-${PROXY_PORT_END}`))
+          return
+        }
+        const server = net.createServer()
+        server.listen(port, '127.0.0.1', () => {
+          server.close(() => resolve(port))
+        })
+        server.on('error', () => {
+          port++
+          tryPort()
+        })
+      }
+      tryPort()
+    })
   }
 }
 

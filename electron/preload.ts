@@ -402,6 +402,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('claude-code:getProxyStatus'),
     isProxyRunning: () =>
       ipcRenderer.invoke('claude-code:isProxyRunning'),
+    notifyEngineSourceChanged: (source: string) =>
+      ipcRenderer.invoke('claude-code:engineSourceChanged', source),
   },
 
   // Folder selection dialog

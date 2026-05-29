@@ -982,8 +982,12 @@ export class SessionProcess extends EventEmitter {
           delete env.CLAUDE_CODE_USE_OPENAI
           delete env.CLAUDE_CODE_USE_GEMINI
           debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using proxy: ${proxyUrl}`)
+        } else {
+          warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Proxy URL is empty — installed CLI with non-Anthropic provider requires a running proxy. Session may fail.`)
         }
-      } catch {}
+      } catch (err) {
+        warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to inject proxy for installed CLI`, { error: String(err) })
+      }
     }
 
     debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] buildEnv | provider=${provider} | baseUrl=${config.baseUrl || '(empty)'} | apiKey=${config.apiKey ? '***set' : '(empty)'} | envKeys=[${Object.keys(env).join(',')}]`)

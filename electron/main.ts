@@ -512,6 +512,35 @@ app.whenReady().then(() => {
   registerClaudeCodeIPC()
   info('Startup', 'Claude Code IPC handlers registered')
 
+  ipcMain.handle('claude-code:engineSourceChanged', async (_, source: string) => {
+    info('EngineSource', `Engine source changed to: ${source}`)
+    const needsProxy = source === 'installed'
+    if (needsProxy) {
+      const guiSettings = await loadGuiSettings()
+      const authMethod = guiSettings?.authMethod
+      if (authMethod && !['anthropic_compatible', 'claudeai', 'console'].includes(authMethod)) {
+        const proxyConfig = buildProxyConfigFromSettings(guiSettings)
+        if (proxyConfig) {
+          try {
+            await proxyManager.start(proxyConfig)
+            info('EngineSource', 'Proxy started after engine source change')
+          } catch (err) {
+            warn('EngineSource', 'Failed to start proxy after engine source change:', err)
+          }
+        }
+      }
+    } else {
+      if (proxyManager.isRunning()) {
+        try {
+          await proxyManager.stop()
+          info('EngineSource', 'Proxy stopped after engine source change to bundled')
+        } catch (err) {
+          warn('EngineSource', 'Failed to stop proxy after engine source change:', err)
+        }
+      }
+    }
+  })
+
   // Register Prompt Optimizer IPC handlers
   registerPromptOptimizerIPC()
   info('Startup', 'Prompt Optimizer IPC handlers registered')
@@ -551,7 +580,7 @@ app.whenReady().then(() => {
 
   ;(async () => {
     const guiSettings = await loadGuiSettings()
-    if (guiSettings?.engineSource === 'installed' && guiSettings?.authMethod !== 'anthropic_compatible') {
+    if (guiSettings?.engineSource === 'installed' && !['anthropic_compatible', 'claudeai', 'console'].includes(guiSettings?.authMethod)) {
       const proxyConfig = buildProxyConfigFromSettings(guiSettings)
       if (proxyConfig) {
         try {

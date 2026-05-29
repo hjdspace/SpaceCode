@@ -1,3 +1,8 @@
+/**
+ * @deprecated This module is superseded by `sessionProcess.ts` which is used by the
+ * `ClaudeCodeProcessPool`. The logic here is stale and must NOT be used for new code.
+ * Kept only for reference; remove once no remaining imports exist.
+ */
 import { ChildProcess, spawn } from 'child_process'
 import { EventEmitter } from 'events'
 import * as path from 'path'

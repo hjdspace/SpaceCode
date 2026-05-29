@@ -540,8 +540,12 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function setEngineSource(source: EngineSource) {
+    const previous = engineSource.value
     engineSource.value = source
     saveSettings()
+    if (previous !== source) {
+      api.notifyEngineSourceChanged(source).catch(() => {})
+    }
   }
 
   function setInstalledCliPath(cliPath: string | null) {
