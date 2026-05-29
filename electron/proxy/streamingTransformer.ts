@@ -1,3 +1,30 @@
+interface OpenAIStreamChunk {
+  id?: string
+  model?: string
+  choices?: Array<{
+    index: number
+    delta?: {
+      role?: string
+      content?: string | null
+      tool_calls?: Array<{
+        index: number
+        id?: string
+        type?: string
+        function?: {
+          name?: string
+          arguments?: string
+        }
+      }>
+    }
+    finish_reason?: string | null
+  }>
+  usage?: {
+    prompt_tokens?: number
+    completion_tokens?: number
+    total_tokens?: number
+  }
+}
+
 export class OpenAIToAnthropicStreamTransformer {
   private messageStarted = false
   private contentBlockStarted = false
