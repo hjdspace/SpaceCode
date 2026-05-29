@@ -37,7 +37,7 @@ export function useCommandPalette() {
       return flat.commands.length > 0 ? [flat] : []
     }
 
-    commandRegistry.refresh(skillsStore.skills)
+    allCommands.value
     return commandRegistry.getGroupedCommands()
   })
 
