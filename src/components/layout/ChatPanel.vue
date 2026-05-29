@@ -648,12 +648,35 @@ async function executeSlashCommand(command: string, args: string): Promise<strin
 
     case 'rewind':
     case 'checkpoint':
-      // 打开消息选择器进行回滚
       handleOpenRewind()
       return ''
 
-    default:
+    case 'theme': {
+      const currentTheme = settingsStore.appearance.theme
+      const isDark = currentTheme === 'dark' || currentTheme === 'anthropic-dark'
+      settingsStore.updateAppearance({ theme: isDark ? 'light' : 'dark' })
+      return isDark ? '已切换到浅色主题。' : '已切换到深色主题。'
+    }
+
+    case 'vim':
+      return 'Vim 模式切换功能开发中。'
+
+    case 'keybindings':
+      return generateKeybindingsMessage()
+
+    default: {
+      const cmdDef = findCommand(command)
+      if (cmdDef && (cmdDef.kind === 'sdk_command' || cmdDef.kind === 'codepilot_command')) {
+        const fullCommand = args ? `/${command} ${args}` : `/${command}`
+        const userContent = fullCommand
+        await chatStore.sendMessage(userContent, fullCommand, {
+          files: [],
+          images: []
+        })
+        return ''
+      }
       return `未知命令: /${command}\n输入 /help 查看可用命令。`
+    }
   }
 }
 
@@ -745,6 +768,21 @@ function generateContextMessage(): string {
   }
 
   return context
+}
+
+function generateKeybindingsMessage(): string {
+  return `## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| Enter | Send message |
+| Shift+Enter | New line |
+| / | Open command palette |
+| @ | Mention file |
+| Escape | Close menu / Remove badge |
+| ↑↓ | Navigate menu |
+| Tab | Accept suggestion |
+| Ctrl+Z | Undo |`
 }
 
 // 处理打开技能管理器

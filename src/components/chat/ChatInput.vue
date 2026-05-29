@@ -1961,17 +1961,36 @@ function handleSend() {
   const content = getEditorPlainText().trim()
   const allAttachments = collectAllAttachments()
 
-  // 如果有活跃的 Badge，使用 dispatchBadge 展开
   if (hasActiveBadge.value && activeBadge.value) {
-    const result = dispatchBadge(activeBadge.value, content)
+    const badge = activeBadge.value
 
-    // 发送展开后的提示词
+    if (badge.kind === 'sdk_command') {
+      const commandName = badge.label
+      clearEditor()
+      attachedFiles.value = []
+      attachedImages.value = []
+      activeBadge.value = null
+      emit('slash-command', commandName, content, allAttachments)
+      return
+    }
+
+    if (badge.kind === 'immediate') {
+      const commandName = badge.label
+      clearEditor()
+      attachedFiles.value = []
+      attachedImages.value = []
+      activeBadge.value = null
+      emit('slash-command', commandName, content, allAttachments)
+      return
+    }
+
+    const result = dispatchBadge(badge, content)
+
     emit('send', result.prompt, allAttachments, {
-      badge: activeBadge.value,
+      badge: badge,
       displayLabel: result.displayLabel
     })
 
-    // 清除状态
     clearEditor()
     attachedFiles.value = []
     attachedImages.value = []
