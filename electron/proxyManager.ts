@@ -2,6 +2,7 @@ import { EventEmitter } from 'events'
 import { spawn, type ChildProcess } from 'child_process'
 import { app } from 'electron'
 import * as path from 'path'
+import * as fs from 'fs'
 import * as http from 'http'
 import type { ProxyConfig, AdapterStatus } from './proxy/types'
 import { info, warn, error, debug } from './logger'
@@ -32,7 +33,8 @@ export class ProxyManager extends EventEmitter {
 
     info('ProxyManager', 'Starting proxy subprocess', { port: config.port })
 
-    const child = spawn(process.execPath, [proxyScript, '--port', String(config.port), '--config', base64Config], {
+    const spawnArgs = this.buildSpawnArgs(proxyScript)
+    const child = spawn(process.execPath, spawnArgs, {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
@@ -213,7 +215,42 @@ export class ProxyManager extends EventEmitter {
     if (app.isPackaged) {
       return path.join(process.resourcesPath, 'electron', 'proxy', 'index.js')
     }
-    return path.join(__dirname, 'proxy', 'index.ts')
+    const compiledPath = path.join(__dirname, 'proxy', 'index.js')
+    if (fs.existsSync(compiledPath)) {
+      return compiledPath
+    }
+    const proxyDir = path.resolve(__dirname, '..', 'electron', 'proxy')
+    const sourcePath = path.join(proxyDir, 'index.ts')
+    if (fs.existsSync(sourcePath)) {
+      return sourcePath
+    }
+    return compiledPath
+  }
+
+  private buildSpawnArgs(proxyScript: string): string[] {
+    const portArg = '--port'
+    const configArg = '--config'
+    const base64Config = Buffer.from(JSON.stringify(this.config)).toString('base64')
+
+    if (!app.isPackaged && proxyScript.endsWith('.ts')) {
+      const tsxPath = this.resolveTsxPath()
+      if (tsxPath) {
+        return ['--import', tsxPath, proxyScript, portArg, String(this.config!.port), configArg, base64Config]
+      }
+    }
+
+    return [proxyScript, portArg, String(this.config!.port), configArg, base64Config]
+  }
+
+  private resolveTsxPath(): string | null {
+    const candidates = [
+      path.join(process.cwd(), 'node_modules', 'tsx', 'dist', 'loader.mjs'),
+      path.join(process.cwd(), 'node_modules', '.bin', 'tsx'),
+    ]
+    for (const p of candidates) {
+      if (fs.existsSync(p)) return p
+    }
+    return null
   }
 
   private startHealthCheck(): void {
