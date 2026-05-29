@@ -15,6 +15,8 @@ export interface EngineSessionConfig {
   agent?: string
   engineType?: EngineType
   resumeSessionId?: string
+  engineSource?: 'bundled' | 'installed'
+  installedCliPath?: string
 }
 
 export interface UnifiedEngineEvent {

@@ -61,6 +61,8 @@ export class ClaudeCodeEngine implements IEngine {
       agent: config.agent,
       thinkingEnabled: config.thinkingEnabled,
       resumeSessionId: config.resumeSessionId,
+      engineSource: config.engineSource as SessionConfig['engineSource'],
+      installedCliPath: config.installedCliPath,
     }
     await this.pool.startSession(sessionId, sessionConfig)
   }

@@ -29,6 +29,8 @@ export interface SessionConfig {
   thinkingEnabled?: boolean
   /** 要恢复的会话 ID，使用 --resume 参数启动 */
   resumeSessionId?: string
+  engineSource?: 'bundled' | 'installed'
+  installedCliPath?: string
 }
 
 export class ClaudeCodeProcessManager extends EventEmitter {
@@ -206,6 +208,7 @@ export class ClaudeCodeProcessManager extends EventEmitter {
 
     if (config.model) args.push('--model', config.model)
     if (config.permissionMode) args.push('--permission-mode', config.permissionMode)
+    args.push('--allow-dangerously-skip-permissions')
     if (config.effortLevel) args.push('--effort', config.effortLevel)
     if (config.systemPrompt) args.push('--system-prompt', config.systemPrompt)
 
@@ -271,6 +274,8 @@ export class ClaudeCodeProcessManager extends EventEmitter {
 
     // 确保 bun 能找到正确的项目根目录
     env.CLAUDE_CODE_ROOT = this.cliRoot
+
+    env.CLAUDE_CODE_ENTRYPOINT = 'claude-desktop'
 
     // 批次1新增：Windows Git Bash 路径检测与设置
     const gitBashPath = this.findGitBashPath()

@@ -809,6 +809,7 @@ export class SessionProcess extends EventEmitter {
 
     if (config.model) args.push('--model', config.model)
     if (config.permissionMode) args.push('--permission-mode', config.permissionMode)
+    args.push('--allow-dangerously-skip-permissions')
     if (config.effortLevel) args.push('--effort', config.effortLevel)
     if (config.systemPrompt) args.push('--system-prompt', config.systemPrompt)
 
@@ -934,6 +935,8 @@ export class SessionProcess extends EventEmitter {
 
     env.CLAUDE_CODE_ROOT = this.cliRoot
 
+    env.CLAUDE_CODE_ENTRYPOINT = 'claude-desktop'
+
     const gitBashPath = this.findGitBashPath()
     if (gitBashPath && !process.env.CLAUDE_CODE_GIT_BASH_PATH) {
       env.CLAUDE_CODE_GIT_BASH_PATH = gitBashPath
@@ -964,6 +967,23 @@ export class SessionProcess extends EventEmitter {
     // turn-change card UI never has any data to display.
     if (!process.env.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING) {
       env.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING = '1'
+    }
+
+    if (config.engineSource === 'installed' && config.provider !== 'anthropic') {
+      try {
+        const { proxyManager } = require('./proxyManager')
+        const proxyUrl = proxyManager.getProxyUrl()
+        if (proxyUrl) {
+          env.ANTHROPIC_BASE_URL = proxyUrl
+          delete env.OPENAI_BASE_URL
+          delete env.OPENAI_API_KEY
+          delete env.GEMINI_BASE_URL
+          delete env.GEMINI_API_KEY
+          delete env.CLAUDE_CODE_USE_OPENAI
+          delete env.CLAUDE_CODE_USE_GEMINI
+          debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using proxy: ${proxyUrl}`)
+        }
+      } catch {}
     }
 
     debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] buildEnv | provider=${provider} | baseUrl=${config.baseUrl || '(empty)'} | apiKey=${config.apiKey ? '***set' : '(empty)'} | envKeys=[${Object.keys(env).join(',')}]`)
@@ -998,6 +1018,11 @@ export class SessionProcess extends EventEmitter {
   }
 
   private resolveCliCommand(): { command: string; args: string[]; launcherEnv?: Record<string, string> } {
+    if (this.config.engineSource === 'installed' && this.config.installedCliPath) {
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (installed): ${this.config.installedCliPath}`)
+      return { command: this.config.installedCliPath, args: [] }
+    }
+
     const isDev = !app.isPackaged
 
     if (isDev) {
