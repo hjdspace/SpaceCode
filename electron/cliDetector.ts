@@ -11,9 +11,11 @@ const isWindows = process.platform === 'win32'
 
 function execFileAsync(command: string, args: string[] = [], timeout = 15000): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile(command, args, { timeout, windowsHide: true }, (err, stdout, stderr) => {
+    const useShell = isWindows && command.endsWith('.cmd')
+    const options: import('child_process').ExecFileOptions = { timeout, windowsHide: true, shell: useShell || undefined }
+    execFile(command, args, options, (err, stdout, stderr) => {
       if (err) return reject(err)
-      resolve({ stdout: stdout.trim(), stderr: stderr.trim() })
+      resolve({ stdout: String(stdout).trim(), stderr: String(stderr).trim() })
     })
   })
 }

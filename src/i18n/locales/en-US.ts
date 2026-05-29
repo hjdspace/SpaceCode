@@ -680,6 +680,7 @@ export default {
     cliStatus: 'CLI Detection Status',
     detecting: 'Detecting...',
     cliNotFound: 'Claude Code CLI not detected',
+    cliDetected: 'Detected',
     notInstalled: 'Not installed',
     installCli: 'Install Claude Code CLI',
     installWithDeps: 'Install dependencies and CLI ({deps})',

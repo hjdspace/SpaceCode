@@ -680,6 +680,7 @@ export default {
     cliStatus: 'CLI 检测状态',
     detecting: '正在检测...',
     cliNotFound: '未检测到 Claude Code CLI',
+    cliDetected: '已检测到',
     notInstalled: '未安装',
     installCli: '一键安装 Claude Code CLI',
     installWithDeps: '安装依赖并安装 CLI（{deps}）',

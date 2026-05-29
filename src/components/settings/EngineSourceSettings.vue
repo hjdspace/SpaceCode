@@ -44,7 +44,7 @@
 
         <div v-else-if="detectionResult?.available" class="cli-status installed">
           <CheckCircle :size="16" />
-          <span class="cli-version">{{ detectionResult.version || 'unknown' }}</span>
+          <span class="cli-version">{{ detectionResult.version ? `v${detectionResult.version}` : $t('engineSource.cliDetected') }}</span>
           <span class="cli-path">{{ detectionResult.path }}</span>
         </div>
 
