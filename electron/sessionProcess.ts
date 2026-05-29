@@ -811,7 +811,16 @@ export class SessionProcess extends EventEmitter {
     if (config.permissionMode) args.push('--permission-mode', config.permissionMode)
     if (config.effortLevel) args.push('--effort', config.effortLevel)
     if (config.systemPrompt) args.push('--system-prompt', config.systemPrompt)
-    if (config.appendSystemPrompt) args.push('--append-system-prompt', config.appendSystemPrompt)
+
+    const askUserGuidance = [
+      'When you need to ask the user clarifying questions, present choices, or gather preferences, you MUST use the AskUserQuestion tool instead of writing questions as plain text.',
+      'If AskUserQuestion is not in your available tool list (it may be deferred behind ToolSearch), first call ToolSearch({query: "select:AskUserQuestion"}) to load its schema, then call it.',
+      'This applies to all skills including brainstorming — always use AskUserQuestion for interactive questions with options.',
+    ].join(' ')
+    const finalAppendPrompt = config.appendSystemPrompt
+      ? config.appendSystemPrompt + '\n\n' + askUserGuidance
+      : askUserGuidance
+    args.push('--append-system-prompt', finalAppendPrompt)
     if (config.maxTurns) args.push('--max-turns', String(config.maxTurns))
     if (config.maxBudgetUsd) args.push('--max-budget-usd', String(config.maxBudgetUsd))
     if (config.agent) args.push('--agent', config.agent)
