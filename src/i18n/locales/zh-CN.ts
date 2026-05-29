@@ -670,6 +670,31 @@ export default {
     }
   },
 
+  engineSource: {
+    title: '引擎来源',
+    bundled: '内置引擎',
+    bundledDesc: '使用应用内置的 Claude Code 引擎，开箱即用',
+    installed: '官网版本',
+    installedDesc: '使用 npm 全局安装的 Claude Code CLI',
+    recommended: '推荐',
+    cliStatus: 'CLI 检测状态',
+    detecting: '正在检测...',
+    cliNotFound: '未检测到 Claude Code CLI',
+    notInstalled: '未安装',
+    installCli: '一键安装 Claude Code CLI',
+    installWithDeps: '安装依赖并安装 CLI（{deps}）',
+    installing: '安装中...',
+    installFailed: '安装失败',
+    stageDownloading: '下载中...',
+    stageInstalling: '安装中...',
+    stageVerifying: '验证中...',
+    stageDone: '安装完成',
+    stageError: '安装出错',
+    apiAdapter: 'API 适配器',
+    adapterRunning: '运行中',
+    adapterStopped: '已停止',
+  },
+
   errors: {
     rateLimit: '请求过于频繁',
     rateLimitDesc: 'API 返回 429 速率限制错误，请稍后重试。',

@@ -2763,11 +2763,10 @@ export const useChatStore = defineStore('chat', () => {
   async function setPermissionMode(mode: PermissionMode): Promise<void> {
     const claudeCode = electronAPI?.claudeCode
     const sid = currentSessionId.value
+    const previousMode = currentPermissionMode.value
 
-    // 1) 立即更新内存状态，使 UI 即时响应
     currentPermissionMode.value = mode
 
-    // 2) 持久化为用户偏好（跨会话切换 / 新建会话 / GUI 重启都生效）
     try {
       settingsStore.permissionMode = mode
       settingsStore.saveSettings()
@@ -2775,8 +2774,6 @@ export const useChatStore = defineStore('chat', () => {
       logger.warn('ChatStore', 'setPermissionMode: failed to persist preference', { error: String(e) })
     }
 
-    // 2b) 同步写入 ~/.claude/settings.json 的 permissions.defaultMode，
-    //     使引擎在未指定 --permission-mode 时也以用户偏好为默认
     try {
       await api.injectGuiModelsToSettings({
         primaryModel: settingsStore.getPrimaryModel() || '',
@@ -2789,13 +2786,17 @@ export const useChatStore = defineStore('chat', () => {
       logger.warn('ChatStore', 'setPermissionMode: failed to write defaultMode to settings.json', { error: String(e) })
     }
 
-    // 3) 若当前已有运行中的后端会话，则下发到后端
     if (sid && claudeCode?.setPermissionMode) {
       try {
         logger.info('ChatStore', `setPermissionMode | sessionId=${sid.slice(0, 8)} | mode=${mode}`)
         await claudeCode.setPermissionMode(sid, mode)
       } catch (error) {
-        logger.error('ChatStore', 'setPermissionMode: backend update failed', { error })
+        logger.error('ChatStore', 'setPermissionMode: backend rejected mode switch, reverting UI', { error, previousMode })
+        currentPermissionMode.value = previousMode
+        try {
+          settingsStore.permissionMode = previousMode
+          settingsStore.saveSettings()
+        } catch {}
       }
     } else if (sid) {
       logger.warn('ChatStore', `setPermissionMode: IPC not available, updating local state only | mode=${mode}`)

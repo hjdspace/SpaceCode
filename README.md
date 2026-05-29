@@ -175,6 +175,96 @@ SpaceCode/
 - 完整的中/英文 i18n 文案支持
 - 配套单元测试和集成测试覆盖
 
+---
+
+### 轮次卡片追踪 UI（Round Card Tracking）
+
+> 🧪 **测试功能** — 用于验证轮次卡片展示、状态流转和交互反馈的 UI 套件。
+
+#### 卡片列表视图
+
+| 卡片类型 | 状态指示 | 展示内容 |
+|----------|----------|----------|
+| **回合卡** | 进行中/已完成/失败 | 轮次序号、进度条、耗时、Token 消耗 |
+| **里程碑卡** | 锁定/可解锁/已达成 | 里程碑名称、条件描述、进度百分比 |
+| **步骤卡** | 待处理/运行中/成功/出错 | 步骤名、状态图标、输出预览、重试按钮 |
+| **统计卡** | 汇总 | 总轮次、平均耗时、成功率、Token 汇总 |
+
+#### 状态流转示例
+
+```
+待处理 → 运行中 → 成功 → 已归档
+    ↘ 失败 → 重试 → 运行中 → 成功
+```
+
+#### 交互行为
+
+- **点击卡片**：展开/折叠详情面板
+- **悬停卡片**：显示 tooltip 包含执行时间、输入/输出 Token 数
+- **右键菜单**：重新执行、跳过、标记为已完成、复制结果
+- **拖拽排序**：支持自定义轮次执行顺序
+- **批量操作**：多选卡片后批量重试或跳过
+
+#### 视觉状态对照表
+
+| 状态 | 边框色 | 背景色 | 图标 |
+|------|--------|--------|------|
+| 待处理 | `--color-border-muted` | 透明 | ○ 空心圆 |
+| 运行中 | `--color-accent` | `--color-accent-soft` | ◌ 旋转圆环 |
+| 成功 | `--color-success` | `--color-success-soft` | ✓ 勾选 |
+| 失败 | `--color-danger` | `--color-danger-soft` | ✕ 叉号 |
+| 已跳过 | `--color-warning` | `--color-warning-soft` | — 横线 |
+| 已归档 | `--color-text-muted` | `--color-surface-tertiary` | 📁 归档图标 |
+
+#### 数据模拟
+
+为方便 UI 开发和测试，提供模拟数据工厂：
+
+```typescript
+interface RoundCard {
+  id: string
+  roundIndex: number
+  status: 'pending' | 'running' | 'success' | 'failed' | 'skipped' | 'archived'
+  label: string
+  description?: string
+  progress?: number          // 0-100
+  durationMs?: number
+  tokenCount?: { input: number; output: number }
+  milestones?: MilestoneCard[]
+  createdAt: string
+  updatedAt: string
+}
+
+// 模拟数据生成
+function createMockRounds(count: number): RoundCard[] {
+  const statuses: RoundCard['status'][] = [
+    'success', 'success', 'failed', 'success', 'running', 'pending'
+  ]
+  return Array.from({ length: count }, (_, i) => ({
+    id: `round-${i + 1}`,
+    roundIndex: i + 1,
+    status: statuses[i % statuses.length],
+    label: `第 ${i + 1} 轮：${['代码审查', 'Bug 修复', '重构', '测试编写', '文档生成', '需求分析'][i % 6]}`,
+    progress: statuses[i % statuses.length] === 'running' ? Math.floor(Math.random() * 80) + 10 : 100,
+    durationMs: Math.floor(Math.random() * 30000) + 5000,
+    tokenCount: { input: Math.floor(Math.random() * 5000), output: Math.floor(Math.random() * 2000) },
+    createdAt: new Date(Date.now() - (count - i) * 60000).toISOString(),
+    updatedAt: new Date().toISOString(),
+  }))
+}
+```
+
+#### Storyboard 测试场景
+
+| 场景 | 描述 | 验证要点 |
+|------|------|----------|
+| **空状态** | 无任何轮次卡片 | 占位文本 + 引导按钮 |
+| **加载中** | 卡片列表骨架屏 | Skeleton 加载动画 |
+| **混合状态** | 多种状态卡片混合 | 颜色/图标正确性 |
+| **长列表** | 50+ 卡片 | 虚拟滚动性能 |
+| **错误恢复** | 失败后重试成功 | 状态流转动画 |
+| **全部完成** | 所有卡片成功 | 完成庆祝动画（彩带/烟花） |
+
 ## 快速开始
 
 ### 环境要求

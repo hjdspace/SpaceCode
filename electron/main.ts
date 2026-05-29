@@ -10,6 +10,8 @@ import { registerClaudeCodeIPC, setMainWindow, getPool } from './claudeCodeIPC'
 import { registerPromptOptimizerIPC } from './promptOptimizerIPC'
 import { aggregateLocalTokenStats } from './tokenStatsService'
 import { initLogger, info, warn, error, debug, isDebugMode, ipc as logIpc, traceEvent, listDebugFiles, readDebugFile, listTraceSessions, readTraceEvents } from './logger'
+import { proxyManager } from './proxyManager'
+import type { ProxyConfig } from './proxy/types'
 
 // ============================================================
 // App Startup

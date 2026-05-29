@@ -670,6 +670,31 @@ export default {
     }
   },
 
+  engineSource: {
+    title: 'Engine Source',
+    bundled: 'Built-in Engine',
+    bundledDesc: 'Use the bundled Claude Code engine, ready out of the box',
+    installed: 'Official CLI',
+    installedDesc: 'Use the npm globally installed Claude Code CLI',
+    recommended: 'Recommended',
+    cliStatus: 'CLI Detection Status',
+    detecting: 'Detecting...',
+    cliNotFound: 'Claude Code CLI not detected',
+    notInstalled: 'Not installed',
+    installCli: 'Install Claude Code CLI',
+    installWithDeps: 'Install dependencies and CLI ({deps})',
+    installing: 'Installing...',
+    installFailed: 'Installation failed',
+    stageDownloading: 'Downloading...',
+    stageInstalling: 'Installing...',
+    stageVerifying: 'Verifying...',
+    stageDone: 'Done',
+    stageError: 'Error',
+    apiAdapter: 'API Adapter',
+    adapterRunning: 'Running',
+    adapterStopped: 'Stopped',
+  },
+
   errors: {
     rateLimit: 'Rate Limited',
     rateLimitDesc: 'API returned 429 rate limit error. Please retry later.',

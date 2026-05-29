@@ -7,30 +7,27 @@
         <span>{{ t('chat.startConversationDesc') }}</span>
       </div>
 
-      <template v-for="group in enrichedMessageGroups" :key="group.id">
-        <!-- User message bubble -->
+      <template v-for="item in displayItems" :key="item.key">
         <MessageItem
-          v-if="group.type === 'user'"
-          :message="group.messages[0]"
-          :can-rewind="group.messages[0].id !== props.messages[props.messages.length - 1]?.id"
+          v-if="item.type === 'user-group'"
+          :message="item.group!.messages[0]"
+          :can-rewind="item.group!.messages[0].id !== props.messages[props.messages.length - 1]?.id"
           @tool-submit="(mId, tId, ans) => emit('toolSubmit', mId, tId, ans)"
           @tool-skip="(mId, tId) => emit('toolSkip', mId, tId)"
           @rewind="(msg) => emit('rewind', msg)"
         />
-        <!-- Assistant timeline (unified) -->
-        <template v-else>
-          <AgentTimeline
-            :messages="group.messages"
-            :loading="props.loading && group.id === enrichedMessageGroups[enrichedMessageGroups.length - 1]?.id"
-            @tool-submit="(tId, ans) => emit('toolSubmit', group.id, tId, ans)"
-            @tool-skip="(tId) => emit('toolSkip', group.id, tId)"
-          />
-          <CurrentTurnChangeCard
-            v-if="group.turnChangeCard"
-            :card-data="group.turnChangeCard"
-            class="turn-change-card-wrapper"
-          />
-        </template>
+        <AgentTimeline
+          v-else-if="item.type === 'assistant-group'"
+          :messages="item.group!.messages"
+          :loading="props.loading && item.group!.id === messageGroups[messageGroups.length - 1]?.id"
+          @tool-submit="(tId, ans) => emit('toolSubmit', item.group!.id, tId, ans)"
+          @tool-skip="(tId) => emit('toolSkip', item.group!.id, tId)"
+        />
+        <CurrentTurnChangeCard
+          v-else-if="item.type === 'turn-card'"
+          :card-data="item.card!"
+          class="turn-change-card-wrapper"
+        />
       </template>
 
       <div v-if="props.loading" class="typing-indicator">
@@ -44,7 +41,9 @@
 
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, computed, onUnmounted } from 'vue'
-import type { Message, TurnChangeCardData } from '@/types'
+import type { Message } from '@/types'
+import type { TurnChangeCardData } from '@/types'
+import { storeToRefs } from 'pinia'
 import MessageItem from './MessageItem.vue'
 import AgentTimeline from './AgentTimeline.vue'
 import CurrentTurnChangeCard from './CurrentTurnChangeCard.vue'
@@ -55,6 +54,7 @@ import { getCompletedTurnTargets, type RewindTurnTarget } from '@/utils/turnChec
 
 const { t } = useI18n()
 const chatStore = useChatStore()
+const { turnChangeCards: storeTurnChangeCards } = storeToRefs(chatStore)
 
 const emit = defineEmits<{
   toolSubmit: [messageId: string, toolId: string, updatedInput: Record<string, unknown>]
@@ -71,7 +71,13 @@ interface MessageGroup {
   id: string
   type: 'user' | 'assistant'
   messages: Message[]
-  turnChangeCard?: TurnChangeCardData
+}
+
+interface DisplayItem {
+  type: 'user-group' | 'assistant-group' | 'turn-card'
+  key: string
+  group?: MessageGroup
+  card?: TurnChangeCardData
 }
 
 // ========== 优化1: 消息分组计算缓存 (类似useMemo) ==========
@@ -139,29 +145,65 @@ const messageGroups = computed<MessageGroup[]>(() => {
   return buildMessageGroups(props.messages)
 })
 
-const turnChangeCardByUserMsgIndex = computed<Map<number, TurnChangeCardData>>(() => {
-  const map = new Map<number, TurnChangeCardData>()
-  for (const card of chatStore.turnChangeCards) {
-    map.set(card.checkpoint.target.userMessageIndex, card)
+function buildDisplayItems(
+  groups: MessageGroup[],
+  cards: TurnChangeCardData[]
+): DisplayItem[] {
+  if (cards.length === 0) {
+    return groups.map(g => ({
+      type: g.type === 'user' ? 'user-group' : 'assistant-group',
+      key: g.id,
+      group: g,
+    }))
   }
-  return map
-})
 
-const enrichedMessageGroups = computed<MessageGroup[]>(() => {
-  const groups = messageGroups.value
-  const cardMap = turnChangeCardByUserMsgIndex.value
+  const items: DisplayItem[] = []
+  let userMsgIndex = -1
 
-  let userMsgIndex = 0
-  return groups.map(group => {
+  for (let i = 0; i < groups.length; i++) {
+    const group = groups[i]
+
     if (group.type === 'user') {
       userMsgIndex++
-      return { ...group }
-    }
+      const userMsg = group.messages[0]
 
-    const card = cardMap.get(userMsgIndex - 1)
-    return { ...group, turnChangeCard: card }
-  })
-})
+      items.push({ type: 'user-group', key: group.id, group })
+
+      if (i + 1 < groups.length && groups[i + 1].type === 'assistant') {
+        i++
+        const assistantGroup = groups[i]
+        items.push({ type: 'assistant-group', key: assistantGroup.id, group: assistantGroup })
+      }
+
+      const card = cards.find(
+        c =>
+          c.targetUserMessageId === userMsg.id ||
+          c.checkpoint.target.userMessageIndex === userMsgIndex
+      )
+      if (card) {
+        items.push({
+          type: 'turn-card',
+          key: `turn-card-${card.targetUserMessageId}`,
+          card,
+        })
+      }
+    } else {
+      items.push({ type: 'assistant-group', key: group.id, group })
+    }
+  }
+
+  return items
+}
+
+const displayItems = ref<DisplayItem[]>([])
+
+watch(
+  [messageGroups, () => storeTurnChangeCards.value],
+  ([groups, cards]) => {
+    displayItems.value = buildDisplayItems(groups, cards)
+  },
+  { immediate: true }
+)
 
 // ========== 优化2: 滚动位置记忆与恢复 ==========
 const MAX_SCROLL_SNAPSHOTS = 10

@@ -25,13 +25,22 @@ interface OpenAIStreamChunk {
   }
 }
 
+const enum ContentBlockType {
+  None,
+  Text,
+  ToolUse,
+}
+
 export class OpenAIToAnthropicStreamTransformer {
   private messageStarted = false
-  private contentBlockStarted = false
+  private contentBlockType: ContentBlockType = ContentBlockType.None
   private finished = false
   private contentBlockIndex = 0
+  private currentToolIndex = -1
   private model = ''
   private messageId = ''
+  private inputTokens = 0
+  private outputTokens = 0
 
   transform(event: { data: string }): string[] {
     if (event.data === '[DONE]') {
@@ -50,6 +59,11 @@ export class OpenAIToAnthropicStreamTransformer {
 
     const output: string[] = []
 
+    if (chunk.usage) {
+      this.inputTokens = chunk.usage.prompt_tokens || 0
+      this.outputTokens = chunk.usage.completion_tokens || 0
+    }
+
     if (!this.messageStarted) {
       this.messageStarted = true
       this.model = chunk.model || ''
@@ -64,7 +78,7 @@ export class OpenAIToAnthropicStreamTransformer {
           model: this.model,
           stop_reason: null,
           stop_sequence: null,
-          usage: { input_tokens: 0, output_tokens: 0 },
+          usage: { input_tokens: this.inputTokens, output_tokens: 0 },
         },
       }))
     }
@@ -72,20 +86,94 @@ export class OpenAIToAnthropicStreamTransformer {
     const choice = chunk.choices?.[0]
     if (!choice) return output
 
-    if (choice.delta?.content) {
-      if (!this.contentBlockStarted) {
-        this.contentBlockStarted = true
+    if (choice.delta?.content != null && choice.delta.content !== '') {
+      if (this.contentBlockType === ContentBlockType.ToolUse) {
+        output.push(this.formatSSE('content_block_stop', {
+          type: 'content_block_stop',
+          index: this.contentBlockIndex,
+        }))
+        this.contentBlockIndex++
+        this.currentToolIndex = -1
+      }
+
+      if (this.contentBlockType !== ContentBlockType.Text) {
+        this.contentBlockType = ContentBlockType.Text
         output.push(this.formatSSE('content_block_start', {
           type: 'content_block_start',
           index: this.contentBlockIndex,
           content_block: { type: 'text', text: '' },
         }))
       }
+
       output.push(this.formatSSE('content_block_delta', {
         type: 'content_block_delta',
         index: this.contentBlockIndex,
         delta: { type: 'text_delta', text: choice.delta.content },
       }))
+    }
+
+    if (choice.delta?.tool_calls) {
+      for (const tc of choice.delta.tool_calls) {
+        if (tc.function?.name) {
+          if (this.contentBlockType === ContentBlockType.Text) {
+            output.push(this.formatSSE('content_block_stop', {
+              type: 'content_block_stop',
+              index: this.contentBlockIndex,
+            }))
+            this.contentBlockIndex++
+          } else if (this.contentBlockType === ContentBlockType.ToolUse && this.currentToolIndex >= 0) {
+            output.push(this.formatSSE('content_block_stop', {
+              type: 'content_block_stop',
+              index: this.contentBlockIndex,
+            }))
+            this.contentBlockIndex++
+          }
+
+          output.push(this.formatSSE('content_block_start', {
+            type: 'content_block_start',
+            index: this.contentBlockIndex,
+            content_block: {
+              type: 'tool_use',
+              id: tc.id || `toolu_${Date.now()}_${tc.index}`,
+              name: tc.function.name,
+              input: {},
+            },
+          }))
+          this.contentBlockType = ContentBlockType.ToolUse
+          this.currentToolIndex = tc.index
+        }
+
+        if (tc.function?.arguments) {
+          if (this.currentToolIndex !== tc.index) {
+            if (this.contentBlockType === ContentBlockType.ToolUse) {
+              output.push(this.formatSSE('content_block_stop', {
+                type: 'content_block_stop',
+                index: this.contentBlockIndex,
+              }))
+              this.contentBlockIndex++
+            }
+
+            output.push(this.formatSSE('content_block_start', {
+              type: 'content_block_start',
+              index: this.contentBlockIndex,
+              content_block: {
+                type: 'tool_use',
+                id: `toolu_${Date.now()}_${tc.index}`,
+                name: '',
+                input: {},
+              },
+            }))
+            this.contentBlockType = ContentBlockType.ToolUse
+            this.currentToolIndex = tc.index
+          }
+
+          output.push(this.formatSSE('content_block_delta', {
+            type: 'content_block_delta',
+            index: this.contentBlockIndex,
+            delta: { type: 'input_json_delta', partial_json: tc.function.arguments },
+          }))
+        }
+      }
     }
 
     if (choice.finish_reason) {
@@ -104,11 +192,14 @@ export class OpenAIToAnthropicStreamTransformer {
 
   reset(): void {
     this.messageStarted = false
-    this.contentBlockStarted = false
+    this.contentBlockType = ContentBlockType.None
     this.finished = false
     this.contentBlockIndex = 0
+    this.currentToolIndex = -1
     this.model = ''
     this.messageId = ''
+    this.inputTokens = 0
+    this.outputTokens = 0
   }
 
   private emitClosingEvents(finishReason?: string): string[] {
@@ -117,7 +208,7 @@ export class OpenAIToAnthropicStreamTransformer {
 
     const output: string[] = []
 
-    if (this.contentBlockStarted) {
+    if (this.contentBlockType !== ContentBlockType.None) {
       output.push(this.formatSSE('content_block_stop', {
         type: 'content_block_stop',
         index: this.contentBlockIndex,
@@ -130,7 +221,7 @@ export class OpenAIToAnthropicStreamTransformer {
         stop_reason: this.mapFinishReason(finishReason),
         stop_sequence: null,
       },
-      usage: { output_tokens: 0 },
+      usage: { output_tokens: this.outputTokens },
     }))
 
     output.push(this.formatSSE('message_stop', {

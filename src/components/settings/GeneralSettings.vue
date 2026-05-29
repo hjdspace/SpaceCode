@@ -44,6 +44,8 @@
         <span class="form-hint">Choose which agent engine to use</span>
       </div>
 
+      <EngineSourceSettings v-if="config.engineType === 'claude-code'" />
+
       <div class="divider"></div>
 
       <!-- Project Settings -->
@@ -72,6 +74,7 @@ import { ref, computed, onMounted } from 'vue'
 import {
   Check, FolderOpen
 } from 'lucide-vue-next'
+import EngineSourceSettings from './EngineSourceSettings.vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
 import { useAppStore } from '@/stores/app'
