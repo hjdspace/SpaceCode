@@ -112,113 +112,129 @@
       </div>
     </div>
 
-    <!-- Staged changes -->
-    <div class="change-group">
-      <div class="group-header" @click="stagedCollapsed = !stagedCollapsed">
-        <ChevronRight :size="12" :class="{ rotated: !stagedCollapsed }" />
-        <span class="group-title">{{ t('scm.changes') }}</span>
-        <div class="group-actions-right">
-          <button class="group-icon-btn" :title="t('scm.discardAllChanges')" @click.stop="handleDiscardAll">
-            <Trash2 :size="14" />
-          </button>
-          <button class="group-icon-btn" :title="t('scm.stageAllChanges')" @click.stop="handleStageAll">
-            <Check :size="14" />
-          </button>
-          <button class="group-icon-btn" :title="t('scm.refresh')" @click.stop="handleRefresh">
-            <RefreshCw :size="14" />
-          </button>
-          <button class="group-icon-btn more" :title="t('scm.moreActions')" @click.stop="showMoreMenu = !showMoreMenu">
-            <MoreHorizontal :size="14" />
-          </button>
-        </div>
-      </div>
-      <div v-show="!stagedCollapsed" class="group-content">
-        <!-- Staged files -->
-        <template v-if="scmStore.staged.length > 0">
-          <div class="sub-group-label">{{ t('scm.stagedChanges') }}</div>
-          <div
-            v-for="file in scmStore.staged"
-            :key="'staged-' + file.path"
-            class="change-file-row"
-            :class="{ selected: scmStore.selectedFile?.path === file.path && scmStore.selectedFileStaged }"
-            @click="handleSelectFile(file, true)"
-          >
-            <span class="file-status-badge staged">{{ getStatusLetter(file) }}</span>
-            <span class="file-lang-icon">{{ getLangIcon(file.path) }}</span>
-            <span class="file-name" :title="file.path">{{ getFileName(file.path) }}</span>
-            <span class="file-path-truncated" :title="file.path">{{ truncatePath(file.path) }}</span>
-            <div class="file-actions">
-              <button class="file-action-btn" @click.stop="handleCopyPath(file)" :title="t('scm.copyPath')"><Copy :size="12" /></button>
-              <button class="file-action-btn" @click.stop="handleUnstage(file)" :title="t('scm.unstage')"><Undo2 :size="12" /></button>
-              <button class="file-action-btn" @click.stop="handleStage(file)" :title="t('scm.stage')"><Plus :size="12" /></button>
-            </div>
+    <!-- Upper section: Changes (resizable) -->
+    <div
+      class="changes-container"
+      :style="{ flex: changesFlex + ' 1 0%' }"
+    >
+      <!-- Staged changes -->
+      <div class="change-group">
+        <div class="group-header" @click="stagedCollapsed = !stagedCollapsed">
+          <ChevronRight :size="12" :class="{ rotated: !stagedCollapsed }" />
+          <span class="group-title">{{ t('scm.changes') }}</span>
+          <div class="group-actions-right">
+            <button class="group-icon-btn" :title="t('scm.discardAllChanges')" @click.stop="handleDiscardAll">
+              <Trash2 :size="14" />
+            </button>
+            <button class="group-icon-btn" :title="t('scm.stageAllChanges')" @click.stop="handleStageAll">
+              <Check :size="14" />
+            </button>
+            <button class="group-icon-btn" :title="t('scm.refresh')" @click.stop="handleRefresh">
+              <RefreshCw :size="14" />
+            </button>
+            <button class="group-icon-btn more" :title="t('scm.moreActions')" @click.stop="showMoreMenu = !showMoreMenu">
+              <MoreHorizontal :size="14" />
+            </button>
           </div>
-        </template>
-        <!-- Unstaged + Untracked -->
-        <template v-if="scmStore.unstaged.length > 0 || scmStore.untracked.length > 0">
-          <div class="sub-group-label" @click.stop="handleStageAll" :title="t('scm.stageAllChanges')">{{ t('scm.changesCount') }} <span class="sub-count">{{ scmStore.unstaged.length + scmStore.untracked.length }}</span></div>
-          <div
-            v-for="file in scmStore.unstaged"
-            :key="'unstaged-' + file.path"
-            class="change-file-row"
-            :class="{ selected: scmStore.selectedFile?.path === file.path && !scmStore.selectedFileStaged }"
-            @click="handleSelectFile(file, false)"
-          >
-            <span class="file-status-badge" :class="getStatusClass(file)">{{ getStatusLetter(file) }}</span>
-            <span class="file-lang-icon">{{ getLangIcon(file.path) }}</span>
-            <span class="file-name" :title="file.path">{{ getFileName(file.path) }}</span>
-            <span class="file-path-truncated" :title="file.path">{{ truncatePath(file.path) }}</span>
-            <div class="file-actions">
+        </div>
+        <div v-show="!stagedCollapsed" class="group-content">
+          <!-- Staged files -->
+          <template v-if="scmStore.staged.length > 0">
+            <div class="sub-group-label">{{ t('scm.stagedChanges') }}</div>
+            <div
+              v-for="file in scmStore.staged"
+              :key="'staged-' + file.path"
+              class="change-file-row"
+              :class="{ selected: scmStore.selectedFile?.path === file.path && scmStore.selectedFileStaged }"
+              @click="handleSelectFile(file, true)"
+            >
+              <span class="file-status-badge staged">{{ getStatusLetter(file) }}</span>
+              <span class="file-lang-icon">{{ getLangIcon(file.path) }}</span>
+              <span class="file-name" :title="file.path">{{ getFileName(file.path) }}</span>
+              <span class="file-path-truncated" :title="file.path">{{ truncatePath(file.path) }}</span>
+              <div class="file-actions">
                 <button class="file-action-btn" @click.stop="handleCopyPath(file)" :title="t('scm.copyPath')"><Copy :size="12" /></button>
-                <button class="file-action-btn discard" @click.stop="handleDiscard(file)" :title="t('scm.discardChanges')"><Undo2 :size="12" /></button>
+                <button class="file-action-btn" @click.stop="handleUnstage(file)" :title="t('scm.unstage')"><Undo2 :size="12" /></button>
                 <button class="file-action-btn" @click.stop="handleStage(file)" :title="t('scm.stage')"><Plus :size="12" /></button>
               </div>
+            </div>
+          </template>
+          <!-- Unstaged + Untracked -->
+          <template v-if="scmStore.unstaged.length > 0 || scmStore.untracked.length > 0">
+            <div class="sub-group-label" @click.stop="handleStageAll" :title="t('scm.stageAllChanges')">{{ t('scm.changesCount') }} <span class="sub-count">{{ scmStore.unstaged.length + scmStore.untracked.length }}</span></div>
+            <div
+              v-for="file in scmStore.unstaged"
+              :key="'unstaged-' + file.path"
+              class="change-file-row"
+              :class="{ selected: scmStore.selectedFile?.path === file.path && !scmStore.selectedFileStaged }"
+              @click="handleSelectFile(file, false)"
+            >
+              <span class="file-status-badge" :class="getStatusClass(file)">{{ getStatusLetter(file) }}</span>
+              <span class="file-lang-icon">{{ getLangIcon(file.path) }}</span>
+              <span class="file-name" :title="file.path">{{ getFileName(file.path) }}</span>
+              <span class="file-path-truncated" :title="file.path">{{ truncatePath(file.path) }}</span>
+              <div class="file-actions">
+                  <button class="file-action-btn" @click.stop="handleCopyPath(file)" :title="t('scm.copyPath')"><Copy :size="12" /></button>
+                  <button class="file-action-btn discard" @click.stop="handleDiscard(file)" :title="t('scm.discardChanges')"><Undo2 :size="12" /></button>
+                  <button class="file-action-btn" @click.stop="handleStage(file)" :title="t('scm.stage')"><Plus :size="12" /></button>
+                </div>
+            </div>
+            <div
+              v-for="file in scmStore.untracked"
+              :key="'untracked-' + file.path"
+              class="change-file-row untracked-row"
+              :class="{ selected: scmStore.selectedFile?.path === file.path && !scmStore.selectedFileStaged }"
+              @click="handleSelectFile(file, false)"
+            >
+              <span class="file-status-badge untracked">U</span>
+              <span class="file-lang-icon">{{ getLangIcon(file.path) }}</span>
+              <span class="file-name" :title="file.path">{{ getFileName(file.path) }}</span>
+              <span class="file-path-truncated" :title="file.path">{{ truncatePath(file.path) }}</span>
+              <div class="file-actions">
+                  <button class="file-action-btn" @click.stop="handleStage(file)" :title="t('scm.stage')"><Plus :size="12" /></button>
+                </div>
+            </div>
+          </template>
+          <div v-if="scmStore.totalChanges === 0 && scmStore.isRepo && !scmStore.isLoading" class="no-changes">
+            {{ t('scm.noChanges') }}
           </div>
+        </div>
+      </div>
+
+      <!-- Conflicts -->
+      <div v-if="scmStore.conflicted.length > 0" class="change-group conflicts">
+        <div class="group-header" @click="conflictsCollapsed = !conflictsCollapsed">
+          <ChevronRight :size="12" :class="{ rotated: !conflictsCollapsed }" />
+          <span class="group-title conflict-title">合并冲突</span>
+          <span class="group-count conflict-count">{{ scmStore.conflicted.length }}</span>
+        </div>
+        <div v-show="!conflictsCollapsed" class="group-content">
           <div
-            v-for="file in scmStore.untracked"
-            :key="'untracked-' + file.path"
-            class="change-file-row untracked-row"
-            :class="{ selected: scmStore.selectedFile?.path === file.path && !scmStore.selectedFileStaged }"
+            v-for="file in scmStore.conflicted"
+            :key="'conflict-' + file.path"
+            class="change-file-row conflict"
             @click="handleSelectFile(file, false)"
           >
-            <span class="file-status-badge untracked">U</span>
-            <span class="file-lang-icon">{{ getLangIcon(file.path) }}</span>
+            <span class="file-status-badge conflict">C</span>
             <span class="file-name" :title="file.path">{{ getFileName(file.path) }}</span>
             <span class="file-path-truncated" :title="file.path">{{ truncatePath(file.path) }}</span>
-            <div class="file-actions">
-                <button class="file-action-btn" @click.stop="handleStage(file)" :title="t('scm.stage')"><Plus :size="12" /></button>
-              </div>
           </div>
-        </template>
-        <div v-if="scmStore.totalChanges === 0 && scmStore.isRepo && !scmStore.isLoading" class="no-changes">
-          {{ t('scm.noChanges') }}
         </div>
       </div>
     </div>
 
-    <!-- Conflicts -->
-    <div v-if="scmStore.conflicted.length > 0" class="change-group conflicts">
-      <div class="group-header" @click="conflictsCollapsed = !conflictsCollapsed">
-        <ChevronRight :size="12" :class="{ rotated: !conflictsCollapsed }" />
-        <span class="group-title conflict-title">合并冲突</span>
-        <span class="group-count conflict-count">{{ scmStore.conflicted.length }}</span>
-      </div>
-      <div v-show="!conflictsCollapsed" class="group-content">
-        <div
-          v-for="file in scmStore.conflicted"
-          :key="'conflict-' + file.path"
-          class="change-file-row conflict"
-          @click="handleSelectFile(file, false)"
-        >
-          <span class="file-status-badge conflict">C</span>
-          <span class="file-name" :title="file.path">{{ getFileName(file.path) }}</span>
-          <span class="file-path-truncated" :title="file.path">{{ truncatePath(file.path) }}</span>
-        </div>
-      </div>
-    </div>
+    <!-- Resize Handle (draggable splitter) -->
+    <div
+      class="resize-handle"
+      @mousedown="startResize"
+      :class="{ active: isResizing }"
+    ></div>
 
-    <!-- Git Graph / Graph Section -->
-    <div class="graph-section">
+    <!-- Git Graph / Graph Section (fills remaining space) -->
+    <div
+      class="graph-section"
+      :style="{ flex: graphFlex + ' 1 0%' }"
+    >
       <div class="graph-header" @click="graphCollapsed = !graphCollapsed">
         <ChevronRight :size="12" :class="{ rotated: !graphCollapsed }" />
         <span class="graph-title">图形</span>
@@ -370,6 +386,49 @@ const commitTextareaRows = ref(2)
 
 const COMMIT_TEXTAREA_MIN_ROWS = 2
 const COMMIT_TEXTAREA_MAX_ROWS = 12
+
+// --- Resize handle state (flex-based) ---
+const isResizing = ref(false)
+const changesFlex = ref(0)
+const graphFlex = ref(1)
+
+function startResize(e: MouseEvent): void {
+  e.preventDefault()
+  isResizing.value = true
+
+  const panel = (e.currentTarget as HTMLElement).closest('.scm-panel') as HTMLElement
+  if (!panel) return
+
+  const changesEl = panel.querySelector('.changes-container') as HTMLElement
+  const graphEl = panel.querySelector('.graph-section') as HTMLElement
+  if (!changesEl || !graphEl) return
+
+  const startY = e.clientY
+  const startChangesHeight = changesEl.getBoundingClientRect().height
+  const startGraphHeight = graphEl.getBoundingClientRect().height
+
+  function onMouseMove(moveEvent: MouseEvent): void {
+    const deltaY = moveEvent.clientY - startY
+    const newChangesHeight = Math.max(80, startChangesHeight + deltaY)
+    const newGraphHeight = Math.max(80, startGraphHeight - deltaY)
+    const total = newChangesHeight + newGraphHeight
+    changesFlex.value = newChangesHeight / total
+    graphFlex.value = newGraphHeight / total
+  }
+
+  function onMouseUp(): void {
+    isResizing.value = false
+    document.removeEventListener('mousemove', onMouseMove)
+    document.removeEventListener('mouseup', onMouseUp)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  }
+
+  document.addEventListener('mousemove', onMouseMove)
+  document.addEventListener('mouseup', onMouseUp)
+  document.body.style.cursor = 'ns-resize'
+  document.body.style.userSelect = 'none'
+}
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 
@@ -910,7 +969,10 @@ onUnmounted(() => {
 
 // --- Change Groups ---
 .change-group {
-  border-bottom: 1px solid var(--surface-border);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .group-header {
@@ -962,8 +1024,8 @@ onUnmounted(() => {
 }
 
 .group-content {
+  flex: 1;
   overflow-y: auto;
-  max-height: 220px;
   @include scrollbar-thin;
   padding: 0 2px 3px;
 }
@@ -1084,10 +1146,54 @@ onUnmounted(() => {
 .conflict-title { color: var(--error) !important; }
 .conflict-count { background: rgba(220,53,69,0.15) !important; color: var(--error) !important; }
 
-// --- Git Graph Section ---
-.graph-section {
-  border-top: 1px solid var(--surface-border);
+// --- Resize Handle ---
+.resize-handle {
+  height: 4px;
+  cursor: ns-resize;
+  background: var(--surface-border);
+  transition: background var(--transition-fast);
   flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+
+  &:hover, &.active {
+    background: var(--accent-primary);
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 24px;
+    height: 2px;
+    background: var(--text-muted);
+    border-radius: 1px;
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+  }
+
+  &:hover::after, &.active::after {
+    opacity: 1;
+    background: white;
+  }
+}
+
+// --- Changes Container (upper resizable section) ---
+.changes-container {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 80px;
+}
+
+// --- Git Graph Section (lower section, fills remaining space) ---
+.graph-section {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 80px;
 }
 
 .graph-header {
@@ -1137,7 +1243,7 @@ onUnmounted(() => {
 }
 
 .graph-content {
-  max-height: 260px;
+  flex: 1;
   overflow-y: auto;
   @include scrollbar-thin;
 }
