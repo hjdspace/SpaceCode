@@ -694,6 +694,8 @@ export default {
     apiAdapter: 'API Adapter',
     adapterRunning: 'Running',
     adapterStopped: 'Stopped',
+    adapterHint: 'The adapter will start automatically on the next session, or restart the app to apply immediately',
+    versionTooOld: 'Version too old, upgrade recommended',
   },
 
   errors: {

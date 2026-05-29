@@ -180,6 +180,8 @@ export interface Session {
   processStatus: ProcessStatus
   isTabOpen: boolean
   lastActivityAt: number
+  /** Temporary: set when switching engines to resume the previous session on the new engine. */
+  _resumeSessionId?: string
 }
 
 export interface FileNode {

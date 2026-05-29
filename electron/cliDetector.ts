@@ -8,6 +8,7 @@ import { info, warn, debug } from './logger'
 
 const SCOPE = 'CliDetector'
 const isWindows = process.platform === 'win32'
+const MIN_CLI_VERSION = '1.0.0'
 
 function execFileAsync(command: string, args: string[] = [], timeout = 15000): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
@@ -103,10 +104,13 @@ export async function detectInstalledCli(): Promise<CliDetectionResult> {
   const version = await getVersion(cliPath)
   info(SCOPE, 'CLI detected', { path: cliPath, version })
 
+  const versionCompatible = version ? isVersionGte(version, MIN_CLI_VERSION) : false
+
   return {
     available: true,
     path: cliPath,
     version,
+    versionCompatible,
   }
 }
 
@@ -257,4 +261,17 @@ export async function installCli(
     warn(SCOPE, 'Installation failed', { error: errMsg })
     return { success: false, error: errMsg }
   }
+}
+
+function isVersionGte(version: string, minVersion: string): boolean {
+  const parse = (v: string) => v.split('.').map(Number)
+  const a = parse(version)
+  const b = parse(minVersion)
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const ai = a[i] || 0
+    const bi = b[i] || 0
+    if (ai > bi) return true
+    if (ai < bi) return false
+  }
+  return true
 }

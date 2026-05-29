@@ -694,6 +694,8 @@ export default {
     apiAdapter: 'API 适配器',
     adapterRunning: '运行中',
     adapterStopped: '已停止',
+    adapterHint: '适配器将在下次启动会话时自动启动，或重启应用立即生效',
+    versionTooOld: '版本过旧，建议升级',
   },
 
   errors: {

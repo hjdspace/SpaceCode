@@ -26,6 +26,7 @@ export interface CliDetectionResult {
   available: boolean
   path: string | null
   version: string | null
+  versionCompatible?: boolean
 }
 
 export interface EnvironmentCheck {

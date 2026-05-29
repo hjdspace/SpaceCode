@@ -42,9 +42,11 @@
           <span>{{ $t('engineSource.detecting') }}</span>
         </div>
 
-        <div v-else-if="detectionResult?.available" class="cli-status installed">
-          <CheckCircle :size="16" />
+        <div v-else-if="detectionResult?.available" class="cli-status" :class="detectionResult.versionCompatible !== false ? 'installed' : 'version-warn'">
+          <CheckCircle v-if="detectionResult.versionCompatible !== false" :size="16" />
+          <AlertTriangle v-else :size="16" />
           <span class="cli-version">{{ detectionResult.version ? `v${detectionResult.version}` : $t('engineSource.cliDetected') }}</span>
+          <span v-if="detectionResult.versionCompatible === false" class="version-warning">{{ $t('engineSource.versionTooOld') }}</span>
           <span class="cli-path">{{ detectionResult.path }}</span>
         </div>
 
@@ -129,6 +131,9 @@
             <span v-if="adapterStatus?.port" class="adapter-port">
               :{{ adapterStatus.port }}
             </span>
+          </div>
+          <div v-if="!adapterRunning" class="adapter-hint">
+            {{ $t('engineSource.adapterHint') }}
           </div>
         </div>
       </template>
@@ -299,9 +304,36 @@ async function refreshAdapterStatus() {
   }
 }
 
+let adapterRefreshTimer: ReturnType<typeof setInterval> | null = null
+
+function startAdapterRefresh() {
+  stopAdapterRefresh()
+  refreshAdapterStatus()
+  adapterRefreshTimer = setInterval(refreshAdapterStatus, 10000)
+}
+
+function stopAdapterRefresh() {
+  if (adapterRefreshTimer) {
+    clearInterval(adapterRefreshTimer)
+    adapterRefreshTimer = null
+  }
+}
+
 watch(showAdapterStatus, (show) => {
   if (show) {
-    refreshAdapterStatus()
+    startAdapterRefresh()
+  } else {
+    stopAdapterRefresh()
+  }
+})
+
+watch(engineSource, (newSource) => {
+  if (newSource === 'installed') {
+    setTimeout(() => {
+      if (showAdapterStatus.value) {
+        startAdapterRefresh()
+      }
+    }, 2000)
   }
 })
 
@@ -310,7 +342,7 @@ onMounted(() => {
     detectInstalled()
   }
   if (showAdapterStatus.value) {
-    refreshAdapterStatus()
+    startAdapterRefresh()
   }
 })
 
@@ -319,6 +351,7 @@ onUnmounted(() => {
     uninstallProgress()
     uninstallProgress = null
   }
+  stopAdapterRefresh()
 })
 </script>
 
@@ -447,10 +480,22 @@ onUnmounted(() => {
     background: var(--warning-glow);
     color: var(--warning);
   }
+
+  &.version-warn {
+    background: var(--warning-glow);
+    color: var(--warning);
+  }
 }
 
 .cli-version {
   font-weight: 600;
+}
+
+.version-warning {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--warning);
+  margin-left: 4px;
 }
 
 .cli-path {
@@ -583,6 +628,13 @@ onUnmounted(() => {
   font-size: 12px;
   color: var(--text-muted);
   font-family: var(--font-mono, monospace);
+}
+
+.adapter-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  line-height: 1.4;
 }
 
 .btn {
