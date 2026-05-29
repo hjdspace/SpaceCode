@@ -4,6 +4,7 @@ import { app } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as http from 'http'
+import { pathToFileURL } from 'url'
 import type { ProxyConfig, AdapterStatus } from './proxy/types'
 import { info, warn, error, debug } from './logger'
 
@@ -29,7 +30,6 @@ export class ProxyManager extends EventEmitter {
     this.healthRetryCount = 0
 
     const proxyScript = this.resolveProxyScript()
-    const base64Config = Buffer.from(JSON.stringify(config)).toString('base64')
 
     info('ProxyManager', 'Starting proxy subprocess', { port: config.port })
 
@@ -235,7 +235,7 @@ export class ProxyManager extends EventEmitter {
     if (!app.isPackaged && proxyScript.endsWith('.ts')) {
       const tsxPath = this.resolveTsxPath()
       if (tsxPath) {
-        return ['--import', tsxPath, proxyScript, portArg, String(this.config!.port), configArg, base64Config]
+        return ['--import', pathToFileURL(tsxPath).href, proxyScript, portArg, String(this.config!.port), configArg, base64Config]
       }
     }
 

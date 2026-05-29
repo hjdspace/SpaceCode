@@ -45,20 +45,6 @@ export default defineConfig({
             outDir: 'dist-electron'
           }
         }
-      },
-      {
-        entry: 'electron/proxy/index.ts',
-        vite: {
-          build: {
-            outDir: 'dist-electron',
-            rollupOptions: {
-              external: ['electron'],
-              output: {
-                entryFileNames: 'proxy-index.js'
-              }
-            }
-          }
-        }
       }
     ]),
     renderer()
