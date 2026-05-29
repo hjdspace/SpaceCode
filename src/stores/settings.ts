@@ -452,6 +452,8 @@ export const useSettingsStore = defineStore('settings', () => {
     oauthAccount.value = settings.oauthAccount
     projectRoot.value = settings.projectRoot
     if (settings.engineType) engineType.value = settings.engineType
+    if (settings.engineSource) engineSource.value = settings.engineSource
+    if (settings.installedCliPath !== undefined) installedCliPath.value = settings.installedCliPath
     saveSettings()
   }
 
@@ -468,6 +470,8 @@ export const useSettingsStore = defineStore('settings', () => {
     if (settings.engineType) engineType.value = settings.engineType
     if ((settings as any).permissionMode) permissionMode.value = (settings as any).permissionMode as PermissionMode
     if (settings.appearance) appearance.value = { ...appearance.value, ...settings.appearance }
+    if (settings.engineSource) engineSource.value = settings.engineSource
+    if (settings.installedCliPath !== undefined) installedCliPath.value = settings.installedCliPath
   }
 
   async function loadFromGuiSettingsFile() {
