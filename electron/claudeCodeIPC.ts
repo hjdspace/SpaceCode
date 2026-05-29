@@ -3,6 +3,8 @@ import { EngineFactory } from './engines/EngineFactory'
 import type { EngineSessionConfig, AgentInfo } from './engines/types'
 import { info, warn, error, debug } from './logger'
 import { SessionHistoryManager, SessionLite } from './sessionHistoryManager'
+import { detectInstalledCli, checkEnvironment, installCli } from './cliDetector'
+import { proxyManager } from './proxyManager'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -370,6 +372,29 @@ export function registerClaudeCodeIPC() {
       error('ClaudeCodeIPC', `✗ restoreSession`, { error: String(err) })
       throw err
     }
+  })
+
+  ipcMain.handle('claude-code:detectInstalledCli', async () => {
+    return detectInstalledCli()
+  })
+
+  ipcMain.handle('claude-code:checkEnvironment', async () => {
+    return checkEnvironment()
+  })
+
+  ipcMain.handle('claude-code:installCli', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    return installCli(win, (progress) => {
+      win?.webContents.send('claude-code:installProgress', progress)
+    })
+  })
+
+  ipcMain.handle('claude-code:getProxyStatus', async () => {
+    return proxyManager.getStatus()
+  })
+
+  ipcMain.handle('claude-code:isProxyRunning', async () => {
+    return proxyManager.isRunning()
   })
 }
 

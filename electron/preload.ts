@@ -387,6 +387,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('claude-code:elicitation_request', wrapper)
       return () => ipcRenderer.removeListener('claude-code:elicitation_request', wrapper)
     },
+    detectInstalledCli: () =>
+      ipcRenderer.invoke('claude-code:detectInstalledCli'),
+    checkEnvironment: () =>
+      ipcRenderer.invoke('claude-code:checkEnvironment'),
+    installCli: () =>
+      ipcRenderer.invoke('claude-code:installCli'),
+    onInstallProgress: (callback: (progress: any) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
+      ipcRenderer.on('claude-code:installProgress', wrapper)
+      return () => ipcRenderer.removeListener('claude-code:installProgress', wrapper)
+    },
+    getProxyStatus: () =>
+      ipcRenderer.invoke('claude-code:getProxyStatus'),
+    isProxyRunning: () =>
+      ipcRenderer.invoke('claude-code:isProxyRunning'),
   },
 
   // Folder selection dialog

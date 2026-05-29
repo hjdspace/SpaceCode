@@ -298,6 +298,48 @@ export const api = {
     return Promise.resolve(undefined)
   },
 
+  detectInstalledCli: (): Promise<any> => {
+    if (electronAPI?.claudeCode?.detectInstalledCli) {
+      return electronAPI.claudeCode.detectInstalledCli()
+    }
+    return Promise.resolve(null)
+  },
+
+  checkEnvironment: (): Promise<any> => {
+    if (electronAPI?.claudeCode?.checkEnvironment) {
+      return electronAPI.claudeCode.checkEnvironment()
+    }
+    return Promise.resolve(null)
+  },
+
+  installCli: (): Promise<any> => {
+    if (electronAPI?.claudeCode?.installCli) {
+      return electronAPI.claudeCode.installCli()
+    }
+    return Promise.resolve(null)
+  },
+
+  onInstallProgress: (callback: (progress: any) => void): (() => void) => {
+    if (electronAPI?.claudeCode?.onInstallProgress) {
+      return electronAPI.claudeCode.onInstallProgress(callback)
+    }
+    return () => {}
+  },
+
+  getProxyStatus: (): Promise<any> => {
+    if (electronAPI?.claudeCode?.getProxyStatus) {
+      return electronAPI.claudeCode.getProxyStatus()
+    }
+    return Promise.resolve(null)
+  },
+
+  isProxyRunning: (): Promise<boolean> => {
+    if (electronAPI?.claudeCode?.isProxyRunning) {
+      return electronAPI.claudeCode.isProxyRunning()
+    }
+    return Promise.resolve(false)
+  },
+
   // Debug API
   debug: {
     listFiles: (): Promise<DebugFileEntry[]> => electronAPI?.debug?.listFiles() || Promise.resolve([]),
