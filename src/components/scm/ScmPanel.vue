@@ -389,7 +389,7 @@ const COMMIT_TEXTAREA_MAX_ROWS = 12
 
 // --- Resize handle state (flex-based) ---
 const isResizing = ref(false)
-const changesFlex = ref(0)
+const changesFlex = ref(2)
 const graphFlex = ref(1)
 let removeResizeListeners: (() => void) | null = null
 
