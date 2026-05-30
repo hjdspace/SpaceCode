@@ -26,6 +26,11 @@ async function findInPath(cliName: string): Promise<string | null> {
     const cmd = isWindows ? 'where' : 'which'
     const { stdout } = await execFileAsync(cmd, [cliName], 15000, true)
     const lines = stdout.split(/\r?\n/).filter(Boolean)
+    if (!lines.length) return null
+    if (isWindows) {
+      const cmdFile = lines.find(l => l.toLowerCase().endsWith('.cmd'))
+      if (cmdFile) return cmdFile
+    }
     return lines[0] || null
   } catch {
     return null

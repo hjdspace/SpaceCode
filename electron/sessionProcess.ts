@@ -150,11 +150,12 @@ export class SessionProcess extends EventEmitter {
       info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Starting process | command=${launch.command} | args=${args.join(' ')} | cwd=${this.config.cwd}`)
       debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process env keys=[${Object.keys(env).join(',')}] | provider=${this.config.provider} | model=${this.config.model}`)
 
+      const useShell = process.platform === 'win32' && launch.command.toLowerCase().endsWith('.cmd')
       const proc = spawn(launch.command, args, {
         cwd: this.config.cwd,
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: false,
+        shell: useShell,
         windowsHide: true,
       })
 
