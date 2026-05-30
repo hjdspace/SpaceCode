@@ -10,9 +10,9 @@ const SCOPE = 'CliDetector'
 const isWindows = process.platform === 'win32'
 const MIN_CLI_VERSION = '1.0.0'
 
-function execFileAsync(command: string, args: string[] = [], timeout = 15000): Promise<{ stdout: string; stderr: string }> {
+function execFileAsync(command: string, args: string[] = [], timeout = 15000, forceShell = false): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const useShell = isWindows && command.endsWith('.cmd')
+    const useShell = forceShell || (isWindows && command.endsWith('.cmd'))
     const options: import('child_process').ExecFileOptions = { timeout, windowsHide: true, shell: useShell }
     execFile(command, args, options, (err, stdout, stderr) => {
       if (err) return reject(err)
@@ -24,7 +24,7 @@ function execFileAsync(command: string, args: string[] = [], timeout = 15000): P
 async function findInPath(cliName: string): Promise<string | null> {
   try {
     const cmd = isWindows ? 'where' : 'which'
-    const { stdout } = await execFileAsync(cmd, [cliName])
+    const { stdout } = await execFileAsync(cmd, [cliName], 15000, true)
     const lines = stdout.split(/\r?\n/).filter(Boolean)
     return lines[0] || null
   } catch {
