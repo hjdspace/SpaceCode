@@ -1,0 +1,1829 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Code Hook 管理方案对比</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg-deep: #0a0a0f;
+  --bg-surface: #12121a;
+  --bg-card: #1a1a26;
+  --bg-elevated: #222233;
+  --border: #2a2a3d;
+  --border-hover: #3d3d5c;
+  --text-primary: #e8e8f0;
+  --text-secondary: #9898b0;
+  --text-muted: #6a6a82;
+  --accent-1: #7c5cfc;
+  --accent-1-light: #9b80ff;
+  --accent-1-glow: rgba(124, 92, 252, 0.15);
+  --accent-2: #00d4aa;
+  --accent-2-light: #33e0be;
+  --accent-2-glow: rgba(0, 212, 170, 0.15);
+  --accent-3: #ff6b6b;
+  --accent-4: #ffd93d;
+  --accent-5: #4ecdc4;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-xs: 6px;
+  --font-sans: 'Noto Sans SC', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+.bg-noise {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 256px;
+}
+
+.container { max-width: 1400px; margin: 0 auto; padding: 0 40px; position: relative; z-index: 1; }
+
+header {
+  padding: 60px 0 40px;
+  text-align: center;
+  position: relative;
+}
+
+header::before {
+  content: '';
+  position: absolute;
+  top: -100px; left: 50%; transform: translateX(-50%);
+  width: 600px; height: 400px;
+  background: radial-gradient(ellipse, var(--accent-1-glow) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.tag {
+  display: inline-block;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  margin-bottom: 20px;
+  background: var(--accent-1-glow);
+  color: var(--accent-1-light);
+  border: 1px solid rgba(124, 92, 252, 0.25);
+}
+
+h1 {
+  font-size: 48px;
+  font-weight: 900;
+  line-height: 1.2;
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, #e8e8f0 0%, var(--accent-1-light) 50%, var(--accent-2-light) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.subtitle {
+  font-size: 18px;
+  color: var(--text-secondary);
+  font-weight: 300;
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+nav.scheme-nav {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 30px 0 50px;
+  flex-wrap: wrap;
+}
+
+nav.scheme-nav button {
+  padding: 10px 22px;
+  border-radius: 30px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+nav.scheme-nav button:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+  background: var(--bg-card);
+}
+
+nav.scheme-nav button.active {
+  background: var(--accent-1);
+  color: #fff;
+  border-color: var(--accent-1);
+  box-shadow: 0 4px 20px var(--accent-1-glow);
+}
+
+nav.scheme-nav button .num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.1);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+nav.scheme-nav button.active .num {
+  background: rgba(255,255,255,0.25);
+}
+
+.scheme-section {
+  display: none;
+  animation: fadeSlideIn 0.5s ease;
+}
+
+.scheme-section.active { display: block; }
+
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.scheme-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  margin-bottom: 40px;
+}
+
+.scheme-icon {
+  width: 64px; height: 64px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  flex-shrink: 0;
+}
+
+.scheme-header h2 {
+  font-size: 32px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.scheme-header p {
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.mockup-container {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 32px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.3);
+}
+
+.mockup-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+}
+
+.mockup-dot {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+}
+
+.mockup-dot.red { background: #ff5f57; }
+.mockup-dot.yellow { background: #febc2e; }
+.mockup-dot.green { background: #28c840; }
+
+.mockup-titlebar span {
+  margin-left: 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.mockup-body {
+  padding: 24px;
+  min-height: 420px;
+}
+
+.mockup-body.s1 { display: grid; grid-template-columns: 220px 1fr; gap: 0; }
+.mockup-body.s2 { display: grid; grid-template-columns: 180px 1fr; gap: 0; }
+.mockup-body.s3 { padding: 20px; }
+.mockup-body.s4 { display: grid; grid-template-columns: 1fr; gap: 0; }
+.mockup-body.s5 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+
+.mockup-sidebar {
+  border-right: 1px solid var(--border);
+  padding: 16px;
+}
+
+.mockup-sidebar-item {
+  padding: 8px 12px;
+  border-radius: var(--radius-xs);
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  margin-bottom: 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s;
+}
+
+.mockup-sidebar-item:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.mockup-sidebar-item.active { background: var(--accent-1-glow); color: var(--accent-1-light); }
+
+.mockup-sidebar-item .icon { font-size: 14px; width: 18px; text-align: center; }
+
+.mockup-form { padding: 16px 24px; }
+
+.mockup-form-group {
+  margin-bottom: 16px;
+}
+
+.mockup-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.mockup-input {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font-mono);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.mockup-input:focus { border-color: var(--accent-1); }
+
+.mockup-select {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font-sans);
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.mockup-radio-group {
+  display: flex;
+  gap: 16px;
+  padding: 4px 0;
+}
+
+.mockup-radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.mockup-radio-dot {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mockup-radio.selected .mockup-radio-dot {
+  border-color: var(--accent-1);
+}
+
+.mockup-radio.selected .mockup-radio-dot::after {
+  content: '';
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--accent-1);
+}
+
+.mockup-textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+  background: var(--bg-deep);
+  color: var(--accent-2);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  outline: none;
+  resize: none;
+  min-height: 80px;
+  line-height: 1.6;
+}
+
+.mockup-json-preview {
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 12px 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.mockup-json-preview .key { color: var(--accent-1-light); }
+.mockup-json-preview .str { color: var(--accent-2); }
+.mockup-json-preview .brace { color: var(--text-muted); }
+
+.mockup-btn-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.mockup-btn {
+  padding: 8px 20px;
+  border-radius: var(--radius-xs);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  font-family: var(--font-sans);
+  transition: all 0.2s;
+}
+
+.mockup-btn.primary {
+  background: var(--accent-1);
+  color: #fff;
+}
+
+.mockup-btn.secondary {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.mockup-btn.ghost {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.mockup-editor {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.8;
+  padding: 16px 20px;
+  background: var(--bg-deep);
+  min-height: 350px;
+  color: var(--text-secondary);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.mockup-editor .line-num {
+  color: var(--text-muted);
+  display: inline-block;
+  width: 30px;
+  text-align: right;
+  margin-right: 16px;
+  user-select: none;
+}
+
+.mockup-editor .punct { color: var(--text-muted); }
+.mockup-editor .key { color: var(--accent-1-light); }
+.mockup-editor .str { color: var(--accent-2); }
+.mockup-editor .num { color: #ff9f43; }
+.mockup-editor .bool { color: #ff6b6b; }
+.mockup-editor .highlight { background: rgba(124, 92, 252, 0.1); display: inline; }
+
+.mockup-template-list {
+  padding: 12px;
+}
+
+.mockup-template-item {
+  padding: 10px 12px;
+  border-radius: var(--radius-xs);
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  margin-bottom: 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+}
+
+.mockup-template-item:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.mockup-template-item .tpl-icon { font-size: 16px; }
+.mockup-template-item .tpl-desc { font-size: 11px; color: var(--text-muted); }
+
+.mockup-problems-bar {
+  padding: 8px 16px;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.mockup-problems-bar .valid { color: var(--accent-2); }
+.mockup-problems-bar .warn { color: var(--accent-4); }
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.hook-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  transition: all 0.3s;
+  position: relative;
+}
+
+.hook-card:hover {
+  border-color: var(--border-hover);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+}
+
+.hook-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.hook-card-event {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hook-card-event.pre { background: rgba(255, 107, 107, 0.15); color: #ff8a8a; }
+.hook-card-event.post { background: rgba(0, 212, 170, 0.15); color: var(--accent-2-light); }
+.hook-card-event.session { background: rgba(124, 92, 252, 0.15); color: var(--accent-1-light); }
+.hook-card-event.stop { background: rgba(255, 217, 61, 0.15); color: #ffd93d; }
+
+.hook-card-toggle {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  background: var(--bg-elevated);
+  cursor: pointer;
+  transition: background 0.3s;
+  border: 1px solid var(--border);
+}
+
+.hook-card-toggle.on { background: var(--accent-1); border-color: var(--accent-1); }
+
+.hook-card-toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.3s;
+}
+
+.hook-card-toggle.on::after { transform: translateX(18px); }
+
+.hook-card-items {
+  list-style: none;
+}
+
+.hook-card-items li {
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 4px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hook-card-items li::before {
+  content: '▸';
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.hook-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.hook-card-actions button {
+  padding: 4px 12px;
+  border-radius: var(--radius-xs);
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  transition: all 0.2s;
+}
+
+.hook-card-actions button:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.mockup-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+}
+
+.mockup-toolbar-left {
+  display: flex;
+  gap: 4px;
+}
+
+.mockup-tab {
+  padding: 6px 16px;
+  border-radius: var(--radius-xs);
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.2s;
+  border: none;
+  background: transparent;
+  font-family: var(--font-sans);
+}
+
+.mockup-tab.active {
+  background: var(--accent-1);
+  color: #fff;
+}
+
+.mockup-tab:hover:not(.active) {
+  background: var(--bg-elevated);
+}
+
+.view-toggle {
+  display: flex;
+  background: var(--bg-deep);
+  border-radius: var(--radius-xs);
+  padding: 2px;
+  border: 1px solid var(--border);
+}
+
+.view-toggle button {
+  padding: 6px 14px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  transition: all 0.2s;
+}
+
+.view-toggle button.active {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.mockup-form-view, .mockup-code-view { display: none; }
+.mockup-form-view.active, .mockup-code-view.active { display: block; }
+
+.pros-cons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-top: 32px;
+}
+
+.pros-cons-box {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+
+.pros-cons-box h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pros-cons-box.pros h4 { color: var(--accent-2); }
+.pros-cons-box.cons h4 { color: var(--accent-3); }
+
+.pros-cons-box ul {
+  list-style: none;
+}
+
+.pros-cons-box ul li {
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 4px 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.5;
+}
+
+.pros-cons-box.pros ul li::before { content: '✓'; color: var(--accent-2); font-weight: 700; flex-shrink: 0; }
+.pros-cons-box.cons ul li::before { content: '✗'; color: var(--accent-3); font-weight: 700; flex-shrink: 0; }
+
+.comparison-section {
+  margin-top: 80px;
+  padding-top: 60px;
+  border-top: 1px solid var(--border);
+}
+
+.comparison-section h2 {
+  font-size: 32px;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.comparison-table-wrap {
+  overflow-x: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.comparison-table th,
+.comparison-table td {
+  padding: 14px 20px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.comparison-table th {
+  background: var(--bg-card);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.comparison-table th:first-child,
+.comparison-table td:first-child {
+  text-align: left;
+  font-weight: 500;
+}
+
+.comparison-table td:first-child {
+  color: var(--text-primary);
+}
+
+.comparison-table tr:last-child td { border-bottom: none; }
+
+.comparison-table td { color: var(--text-secondary); }
+
+.star { color: var(--accent-4); }
+.star.empty { color: var(--text-muted); opacity: 0.3; }
+
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge.recommended { background: rgba(0, 212, 170, 0.15); color: var(--accent-2); }
+.badge.fast { background: rgba(124, 92, 252, 0.15); color: var(--accent-1-light); }
+.badge.enterprise { background: rgba(255, 217, 61, 0.15); color: var(--accent-4); }
+
+.mockup-api-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.mockup-api-header {
+  padding: 12px 16px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mockup-api-list {
+  padding: 8px;
+}
+
+.mockup-api-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-xs);
+  font-size: 13px;
+  font-family: var(--font-mono);
+}
+
+.mockup-api-item:hover { background: var(--bg-elevated); }
+
+.api-method {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.api-method.get { background: rgba(0, 212, 170, 0.15); color: var(--accent-2); }
+.api-method.post { background: rgba(124, 92, 252, 0.15); color: var(--accent-1-light); }
+.api-method.put { background: rgba(255, 159, 67, 0.15); color: #ff9f43; }
+.api-method.delete { background: rgba(255, 107, 107, 0.15); color: #ff6b6b; }
+
+.api-path { color: var(--text-secondary); }
+
+.mockup-arch-diagram {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  text-align: center;
+}
+
+.arch-node {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 20px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.arch-node.primary { border-color: var(--accent-1); background: var(--accent-1-glow); color: var(--accent-1-light); }
+.arch-node.secondary { border-color: var(--accent-2); background: var(--accent-2-glow); color: var(--accent-2-light); }
+
+.arch-arrow {
+  display: inline-block;
+  color: var(--text-muted);
+  font-size: 18px;
+  margin: 0 8px;
+  vertical-align: middle;
+}
+
+.arch-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.recommendation {
+  margin-top: 60px;
+  background: linear-gradient(135deg, var(--accent-1-glow), var(--accent-2-glow));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 40px;
+}
+
+.recommendation h3 {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.rec-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.rec-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  text-align: center;
+  transition: all 0.3s;
+}
+
+.rec-card:hover {
+  border-color: var(--accent-1);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+}
+
+.rec-card .rec-icon { font-size: 36px; margin-bottom: 12px; }
+.rec-card h4 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+.rec-card .rec-scenario { font-size: 12px; color: var(--accent-1-light); margin-bottom: 8px; font-weight: 500; }
+.rec-card p { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+
+footer {
+  text-align: center;
+  padding: 60px 0 40px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.env-var-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  background: var(--bg-elevated);
+  color: var(--accent-2);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  margin: 2px;
+  transition: all 0.2s;
+}
+
+.env-var-chip:hover {
+  border-color: var(--accent-2);
+  background: var(--accent-2-glow);
+}
+
+.scope-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.scope-tab {
+  padding: 6px 14px;
+  border-radius: var(--radius-xs);
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-deep);
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  transition: all 0.2s;
+}
+
+.scope-tab.active {
+  background: var(--accent-1-glow);
+  color: var(--accent-1-light);
+  border-color: var(--accent-1);
+}
+
+.mockup-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 10px;
+  border-radius: var(--radius-xs);
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: all 0.2s;
+  margin-top: 12px;
+}
+
+.mockup-add-btn:hover {
+  border-color: var(--accent-1);
+  color: var(--accent-1-light);
+  background: var(--accent-1-glow);
+}
+
+@media (max-width: 768px) {
+  .container { padding: 0 16px; }
+  h1 { font-size: 32px; }
+  .card-grid { grid-template-columns: 1fr; }
+  .rec-cards { grid-template-columns: 1fr; }
+  .pros-cons { grid-template-columns: 1fr; }
+  .mockup-body.s1, .mockup-body.s2 { grid-template-columns: 1fr; }
+  .mockup-body.s5 { grid-template-columns: 1fr; }
+  .mockup-sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  nav.scheme-nav { gap: 6px; }
+  nav.scheme-nav button { padding: 8px 14px; font-size: 13px; }
+}
+</style>
+</head>
+<body>
+
+<div class="bg-noise"></div>
+
+<div class="container">
+  <header>
+    <div class="tag">Claude Code Hooks</div>
+    <h1>Hook 管理方案对比</h1>
+    <p class="subtitle">5 种桌面前端管理 Claude Code Hook 的交互方案，点击下方标签查看每种方案的 UI 模拟与优劣分析</p>
+  </header>
+
+  <nav class="scheme-nav">
+    <button class="active" onclick="showScheme(1)"><span class="num">1</span>表单编辑器</button>
+    <button onclick="showScheme(2)"><span class="num">2</span>代码编辑器</button>
+    <button onclick="showScheme(3)"><span class="num">3</span>卡片编排器</button>
+    <button onclick="showScheme(4)"><span class="num">4</span>混合编辑器</button>
+    <button onclick="showScheme(5)"><span class="num">5</span>后台服务</button>
+  </nav>
+
+  <!-- ============ 方案一：表单编辑器 ============ -->
+  <section class="scheme-section active" id="scheme-1">
+    <div class="scheme-header">
+      <div class="scheme-icon" style="background: var(--accent-1-glow); border: 1px solid rgba(124,92,252,0.3);">📝</div>
+      <div>
+        <h2>方案一：JSON Schema 驱动的表单化编辑器</h2>
+        <p>为 Hook 配置定义完整的 JSON Schema，前端自动生成结构化表单。用户无需手写 JSON，通过下拉框、输入框、开关等控件完成配置，右侧实时预览生成的 JSON。</p>
+      </div>
+    </div>
+
+    <div class="mockup-container">
+      <div class="mockup-titlebar">
+        <div class="mockup-dot red"></div>
+        <div class="mockup-dot yellow"></div>
+        <div class="mockup-dot green"></div>
+        <span>Hook Manager — ~/.claude/settings.json</span>
+      </div>
+      <div class="mockup-body s1">
+        <div class="mockup-sidebar">
+          <div class="mockup-sidebar-item active"><span class="icon">🔧</span> PreToolUse</div>
+          <div class="mockup-sidebar-item"><span class="icon">✅</span> PostToolUse</div>
+          <div class="mockup-sidebar-item"><span class="icon">💬</span> UserPromptSubmit</div>
+          <div class="mockup-sidebar-item"><span class="icon">🛑</span> Stop</div>
+          <div class="mockup-sidebar-item"><span class="icon">🤖</span> SubagentStop</div>
+          <div class="mockup-sidebar-item"><span class="icon">🚀</span> SessionStart</div>
+          <div class="mockup-sidebar-item"><span class="icon">📦</span> PreCompact</div>
+          <div class="mockup-sidebar-item"><span class="icon">🔔</span> Notification</div>
+          <div class="mockup-sidebar-item"><span class="icon">🔑</span> PermissionRequest</div>
+        </div>
+        <div class="mockup-form">
+          <div class="scope-tabs">
+            <button class="scope-tab active">👤 User</button>
+            <button class="scope-tab">📁 Project</button>
+            <button class="scope-tab">🔒 Local</button>
+          </div>
+          <div class="mockup-form-group">
+            <label class="mockup-label">Event Type</label>
+            <select class="mockup-select">
+              <option selected>PreToolUse</option>
+              <option>PostToolUse</option>
+              <option>Stop</option>
+              <option>SessionStart</option>
+            </select>
+          </div>
+          <div class="mockup-form-group">
+            <label class="mockup-label">Matcher (工具名匹配)</label>
+            <input class="mockup-input" value="Bash" placeholder="如 Write, Bash, Edit|Write">
+            <div style="margin-top:6px;">
+              <span class="env-var-chip">Write</span>
+              <span class="env-var-chip">Edit</span>
+              <span class="env-var-chip">Bash</span>
+              <span class="env-var-chip">Read</span>
+              <span class="env-var-chip">Glob</span>
+              <span class="env-var-chip">Grep</span>
+            </div>
+          </div>
+          <div class="mockup-form-group">
+            <label class="mockup-label">Hook Type</label>
+            <div class="mockup-radio-group">
+              <div class="mockup-radio selected"><div class="mockup-radio-dot"></div> Command</div>
+              <div class="mockup-radio"><div class="mockup-radio-dot"></div> Prompt</div>
+            </div>
+          </div>
+          <div class="mockup-form-group">
+            <label class="mockup-label">Command</label>
+            <textarea class="mockup-textarea">if echo "$CLAUDE_TOOL_INPUT_COMMAND" | grep -qE 'rm -rf'; then
+  echo 'BLOCKED: Dangerous command'; exit 2
+fi</textarea>
+            <div style="margin-top:6px;">
+              <span class="env-var-chip">$CLAUDE_PROJECT_DIR</span>
+              <span class="env-var-chip">$CLAUDE_SESSION_ID</span>
+            </div>
+          </div>
+          <div class="mockup-form-group">
+            <label class="mockup-label">Timeout (秒)</label>
+            <input class="mockup-input" value="30" type="number" style="width:120px;">
+          </div>
+          <div class="mockup-form-group">
+            <label class="mockup-label">JSON Preview</label>
+            <div class="mockup-json-preview">
+<span class="brace">{</span>
+  <span class="key">"hooks"</span>: <span class="brace">{</span>
+    <span class="key">"PreToolUse"</span>: <span class="brace">[</span>
+      <span class="brace">{</span>
+        <span class="key">"matcher"</span>: <span class="str">"Bash"</span>,
+        <span class="key">"hooks"</span>: <span class="brace">[</span>
+          <span class="brace">{</span>
+            <span class="key">"type"</span>: <span class="str">"command"</span>,
+            <span class="key">"command"</span>: <span class="str">"if echo ..."</span>,
+            <span class="key">"timeout"</span>: <span class="num">30</span>
+          <span class="brace">}</span>
+        <span class="brace">]</span>
+      <span class="brace">}</span>
+    <span class="brace">]</span>
+  <span class="brace">}</span>
+<span class="brace">}</span>
+            </div>
+          </div>
+          <div class="mockup-btn-row">
+            <button class="mockup-btn primary">💾 保存</button>
+            <button class="mockup-btn secondary">↩ 重置</button>
+            <button class="mockup-btn ghost">📤 导出</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pros-cons">
+      <div class="pros-cons-box pros">
+        <h4>✓ 优势</h4>
+        <ul>
+          <li>零门槛上手，无需理解 JSON 结构</li>
+          <li>表单校验防止配置错误</li>
+          <li>环境变量一键插入，无需记忆</li>
+          <li>作用域切换直观（User/Project/Local）</li>
+          <li>实时 JSON 预览方便高级用户校验</li>
+        </ul>
+      </div>
+      <div class="pros-cons-box cons">
+        <h4>✗ 劣势</h4>
+        <ul>
+          <li>灵活性受限，复杂嵌套场景表单臃肿</li>
+          <li>难以表达所有 JSON 结构变体</li>
+          <li>高级用户可能觉得操作繁琐</li>
+          <li>自定义脚本编辑体验不如代码编辑器</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 方案二：代码编辑器 ============ -->
+  <section class="scheme-section" id="scheme-2">
+    <div class="scheme-header">
+      <div class="scheme-icon" style="background: var(--accent-2-glow); border: 1px solid rgba(0,212,170,0.3);">💻</div>
+      <div>
+        <h2>方案二：Monaco Editor 驱动的智能代码编辑器</h2>
+        <p>以代码编辑器为核心，提供 JSON 智能补全、Schema 校验、模板插入，兼顾灵活性和易用性。左侧模板库一键插入常用 Hook 配置。</p>
+      </div>
+    </div>
+
+    <div class="mockup-container">
+      <div class="mockup-titlebar">
+        <div class="mockup-dot red"></div>
+        <div class="mockup-dot yellow"></div>
+        <div class="mockup-dot green"></div>
+        <span>Hook Config Editor — .claude/settings.json</span>
+      </div>
+      <div class="mockup-body s2">
+        <div class="mockup-sidebar" style="border-right: 1px solid var(--border);">
+          <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; padding:4px 0 10px; font-weight:600;">模板库</div>
+          <div class="mockup-template-item">
+            <span class="tpl-icon">🎨</span>
+            <div><div>Auto Format</div><div class="tpl-desc">Write/Edit 后自动 Prettier</div></div>
+          </div>
+          <div class="mockup-template-item">
+            <span class="tpl-icon">🔍</span>
+            <div><div>Auto Lint</div><div class="tpl-desc">Write/Edit 后自动 ESLint</div></div>
+          </div>
+          <div class="mockup-template-item" style="background:var(--accent-1-glow); border-color:var(--accent-1);">
+            <span class="tpl-icon">🛡️</span>
+            <div><div>Block Danger</div><div class="tpl-desc">拦截 rm -rf 等危险命令</div></div>
+          </div>
+          <div class="mockup-template-item">
+            <span class="tpl-icon">🧪</span>
+            <div><div>Auto Test</div><div class="tpl-desc">测试文件保存后自动运行</div></div>
+          </div>
+          <div class="mockup-template-item">
+            <span class="tpl-icon">📋</span>
+            <div><div>Git Context</div><div class="tpl-desc">SessionStart 注入 git status</div></div>
+          </div>
+          <div class="mockup-template-item">
+            <span class="tpl-icon">🔔</span>
+            <div><div>Notify Done</div><div class="tpl-desc">Stop 时发送桌面通知</div></div>
+          </div>
+        </div>
+        <div style="flex:1; display:flex; flex-direction:column;">
+          <div class="mockup-toolbar">
+            <div class="mockup-toolbar-left">
+              <div style="font-size:12px; color:var(--text-muted); margin-right:12px;">Scope:</div>
+              <button class="mockup-tab active">👤 User</button>
+              <button class="mockup-tab">📁 Project</button>
+              <button class="mockup-tab">🔒 Local</button>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button class="mockup-btn primary" style="padding:5px 14px; font-size:12px;">💾 Save</button>
+              <button class="mockup-btn secondary" style="padding:5px 14px; font-size:12px;">▶ Test</button>
+            </div>
+          </div>
+          <div class="mockup-editor" style="flex:1;">
+<span class="line-num">1</span><span class="brace">{</span>
+<span class="line-num">2</span>  <span class="key">"hooks"</span><span class="punct">:</span> <span class="brace">{</span>
+<span class="line-num">3</span>    <span class="key">"PreToolUse"</span><span class="punct">:</span> <span class="brace">[</span>
+<span class="line-num">4</span>      <span class="brace">{</span>
+<span class="line-num">5</span>        <span class="key">"matcher"</span><span class="punct">:</span> <span class="str">"Bash"</span><span class="punct">,</span>
+<span class="line-num">6</span>        <span class="key">"hooks"</span><span class="punct">:</span> <span class="brace">[</span>
+<span class="line-num">7</span>          <span class="brace">{</span>
+<span class="line-num">8</span>            <span class="key">"type"</span><span class="punct">:</span> <span class="str">"command"</span><span class="punct">,</span>
+<span class="line-num">9</span>            <span class="key">"command"</span><span class="punct">:</span> <span class="str highlight">"if echo \"$CLAUDE_TOOL_INPUT_COMMAND\" \</span>
+<span class="line-num">10</span>              <span class="str highlight">| grep -qE 'rm -rf'; then \</span>
+<span class="line-num">11</span>              <span class="str highlight">echo 'BLOCKED'; exit 2; fi"</span><span class="punct">,</span>
+<span class="line-num">12</span>            <span class="key">"timeout"</span><span class="punct">:</span> <span class="num">10</span>
+<span class="line-num">13</span>          <span class="brace">}</span>
+<span class="line-num">14</span>        <span class="brace">]</span>
+<span class="line-num">15</span>      <span class="brace">}</span>
+<span class="line-num">16</span>    <span class="brace">]</span><span class="punct">,</span>
+<span class="line-num">17</span>    <span class="key">"PostToolUse"</span><span class="punct">:</span> <span class="brace">[</span>
+<span class="line-num">18</span>      <span class="brace">{</span>
+<span class="line-num">19</span>        <span class="key">"matcher"</span><span class="punct">:</span> <span class="str">"Write|Edit"</span><span class="punct">,</span>
+<span class="line-num">20</span>        <span class="key">"hooks"</span><span class="punct">:</span> <span class="brace">[</span>
+<span class="line-num">21</span>          <span class="brace">{</span>
+<span class="line-num">22</span>            <span class="key">"type"</span><span class="punct">:</span> <span class="str">"command"</span><span class="punct">,</span>
+<span class="line-num">23</span>            <span class="key">"command"</span><span class="punct">:</span> <span class="str">"npx prettier --write \</span>
+<span class="line-num">24</span>              <span class="str">\"$CLAUDE_FILE_PATH\""</span>
+<span class="line-num">25</span>          <span class="brace">}</span>
+<span class="line-num">26</span>        <span class="brace">]</span>
+<span class="line-num">27</span>      <span class="brace">}</span>
+<span class="line-num">28</span>    <span class="brace">]</span>
+<span class="line-num">29</span>  <span class="brace">}</span>
+<span class="line-num">30</span><span class="brace">}</span></div>
+          <div class="mockup-problems-bar">
+            <span class="valid">✓ Valid JSON</span>
+            <span class="warn">⚠ 2 suggestions available</span>
+            <span>Ln 9, Col 22</span>
+            <span>UTF-8</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pros-cons">
+      <div class="pros-cons-box pros">
+        <h4>✓ 优势</h4>
+        <ul>
+          <li>灵活性最高，支持任意复杂 JSON 配置</li>
+          <li>开发者友好，Monaco 编辑器体验一流</li>
+          <li>智能补全 + Schema 校验减少出错</li>
+          <li>模板库快速插入常用配置</li>
+          <li>实现成本最低</li>
+        </ul>
+      </div>
+      <div class="pros-cons-box cons">
+        <h4>✗ 劣势</h4>
+        <ul>
+          <li>需要用户理解 JSON 结构</li>
+          <li>非开发者上手门槛较高</li>
+          <li>长命令字符串在 JSON 中可读性差</li>
+          <li>缺少可视化工作流概览</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 方案三：卡片编排器 ============ -->
+  <section class="scheme-section" id="scheme-3">
+    <div class="scheme-header">
+      <div class="scheme-icon" style="background: rgba(255,217,61,0.15); border: 1px solid rgba(255,217,61,0.3);">🧩</div>
+      <div>
+        <h2>方案三：卡片式 Hook 编排器（低代码方案）</h2>
+        <p>每个 Hook 是一张卡片，通过开关控制启用/禁用，拖拽排序调整执行顺序。可视化编排工作流，一键测试所有 Hook。</p>
+      </div>
+    </div>
+
+    <div class="mockup-container">
+      <div class="mockup-titlebar">
+        <div class="mockup-dot red"></div>
+        <div class="mockup-dot yellow"></div>
+        <div class="mockup-dot green"></div>
+        <span>Hook Workflow Editor</span>
+      </div>
+      <div class="mockup-body s3">
+        <div class="mockup-toolbar" style="margin:-24px -24px 20px; border-radius:0;">
+          <div class="mockup-toolbar-left">
+            <div style="font-size:12px; color:var(--text-muted); margin-right:8px;">作用域:</div>
+            <button class="mockup-tab active">👤 User</button>
+            <button class="mockup-tab">📁 Project</button>
+            <button class="mockup-tab">🔒 Local</button>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="mockup-btn secondary" style="padding:5px 14px; font-size:12px;">🧪 Test All</button>
+            <button class="mockup-btn primary" style="padding:5px 14px; font-size:12px;">＋ Add Hook</button>
+          </div>
+        </div>
+
+        <div class="card-grid">
+          <div class="hook-card">
+            <div class="hook-card-header">
+              <span class="hook-card-event pre">🔧 PreToolUse</span>
+              <div class="hook-card-toggle on" onclick="this.classList.toggle('on')"></div>
+            </div>
+            <div style="font-size:13px; color:var(--text-primary); margin-bottom:8px; font-weight:500;">Matcher: Bash</div>
+            <ul class="hook-card-items">
+              <li>拦截 rm -rf 危险命令</li>
+              <li>拦截 drop table SQL 操作</li>
+            </ul>
+            <div class="hook-card-actions">
+              <button>✏️ 编辑</button>
+              <button>📋 复制</button>
+              <button style="color:var(--accent-3);">🗑️ 删除</button>
+            </div>
+          </div>
+
+          <div class="hook-card">
+            <div class="hook-card-header">
+              <span class="hook-card-event post">✅ PostToolUse</span>
+              <div class="hook-card-toggle on" onclick="this.classList.toggle('on')"></div>
+            </div>
+            <div style="font-size:13px; color:var(--text-primary); margin-bottom:8px; font-weight:500;">Matcher: Write|Edit</div>
+            <ul class="hook-card-items">
+              <li>自动运行 Prettier 格式化</li>
+              <li>自动运行 ESLint 修复</li>
+            </ul>
+            <div class="hook-card-actions">
+              <button>✏️ 编辑</button>
+              <button>📋 复制</button>
+              <button style="color:var(--accent-3);">🗑️ 删除</button>
+            </div>
+          </div>
+
+          <div class="hook-card">
+            <div class="hook-card-header">
+              <span class="hook-card-event session">🚀 SessionStart</span>
+              <div class="hook-card-toggle on" onclick="this.classList.toggle('on')"></div>
+            </div>
+            <div style="font-size:13px; color:var(--text-primary); margin-bottom:8px; font-weight:500;">会话启动时</div>
+            <ul class="hook-card-items">
+              <li>加载 git status 上下文</li>
+              <li>设置环境变量</li>
+            </ul>
+            <div class="hook-card-actions">
+              <button>✏️ 编辑</button>
+              <button>📋 复制</button>
+              <button style="color:var(--accent-3);">🗑️ 删除</button>
+            </div>
+          </div>
+
+          <div class="hook-card">
+            <div class="hook-card-header">
+              <span class="hook-card-event stop">🛑 Stop</span>
+              <div class="hook-card-toggle" onclick="this.classList.toggle('on')"></div>
+            </div>
+            <div style="font-size:13px; color:var(--text-primary); margin-bottom:8px; font-weight:500;">响应完成时</div>
+            <ul class="hook-card-items">
+              <li style="opacity:0.5;">验证任务完成度</li>
+              <li style="opacity:0.5;">发送桌面通知</li>
+            </ul>
+            <div class="hook-card-actions">
+              <button>✏️ 编辑</button>
+              <button>📋 复制</button>
+              <button style="color:var(--accent-3);">🗑️ 删除</button>
+            </div>
+          </div>
+        </div>
+
+        <button class="mockup-add-btn">＋ 添加新 Hook</button>
+      </div>
+    </div>
+
+    <div class="pros-cons">
+      <div class="pros-cons-box pros">
+        <h4>✓ 优势</h4>
+        <ul>
+          <li>最直观的可视化，一目了然</li>
+          <li>开关控制启用/禁用，无需删除</li>
+          <li>拖拽排序调整执行顺序</li>
+          <li>一键测试所有 Hook</li>
+          <li>适合非技术用户</li>
+        </ul>
+      </div>
+      <div class="pros-cons-box cons">
+        <h4>✗ 劣势</h4>
+        <ul>
+          <li>实现复杂度最高</li>
+          <li>卡片式无法完美表达嵌套结构</li>
+          <li>大量 Hook 时卡片过多难管理</li>
+          <li>精细配置仍需弹窗编辑</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 方案四：混合编辑器 ============ -->
+  <section class="scheme-section" id="scheme-4">
+    <div class="scheme-header">
+      <div class="scheme-icon" style="background: rgba(78,205,196,0.15); border: 1px solid rgba(78,205,196,0.3);">🔀</div>
+      <div>
+        <h2>方案四：混合方案 — 表单 + 代码双模编辑器</h2>
+        <p>同时提供表单视图和代码视图，两者实时同步。简单配置用表单，复杂嵌套用代码，一键切换。兼顾易用性和灵活性。</p>
+      </div>
+    </div>
+
+    <div class="mockup-container">
+      <div class="mockup-titlebar">
+        <div class="mockup-dot red"></div>
+        <div class="mockup-dot yellow"></div>
+        <div class="mockup-dot green"></div>
+        <span>Hook Manager — Dual Mode</span>
+      </div>
+      <div class="mockup-toolbar">
+        <div class="mockup-toolbar-left">
+          <div class="scope-tabs" style="margin:0;">
+            <button class="scope-tab active">👤 User</button>
+            <button class="scope-tab">📁 Project</button>
+            <button class="scope-tab">🔒 Local</button>
+          </div>
+        </div>
+        <div class="view-toggle">
+          <button class="active" onclick="switchView(this, 'form')">📝 表单</button>
+          <button onclick="switchView(this, 'code')">💻 代码</button>
+        </div>
+      </div>
+
+      <div class="mockup-body s4">
+        <div class="mockup-form-view active" id="dual-form">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+            <div class="mockup-form-group">
+              <label class="mockup-label">Event Type</label>
+              <select class="mockup-select">
+                <option selected>PreToolUse</option>
+                <option>PostToolUse</option>
+                <option>Stop</option>
+                <option>SessionStart</option>
+              </select>
+            </div>
+            <div class="mockup-form-group">
+              <label class="mockup-label">Matcher</label>
+              <input class="mockup-input" value="Bash" placeholder="工具名或正则">
+            </div>
+          </div>
+          <div class="mockup-form-group">
+            <label class="mockup-label">Hook Type</label>
+            <div class="mockup-radio-group">
+              <div class="mockup-radio selected"><div class="mockup-radio-dot"></div> Command (bash 脚本)</div>
+              <div class="mockup-radio"><div class="mockup-radio-dot"></div> Prompt (LLM 评估)</div>
+            </div>
+          </div>
+          <div class="mockup-form-group">
+            <label class="mockup-label">Command</label>
+            <textarea class="mockup-textarea" style="min-height:100px;">if echo "$CLAUDE_TOOL_INPUT_COMMAND" | grep -qE 'rm -rf'; then
+  echo 'BLOCKED: Dangerous command detected'; exit 2
+fi</textarea>
+            <div style="margin-top:6px;">
+              <span class="env-var-chip">$CLAUDE_PROJECT_DIR</span>
+              <span class="env-var-chip">$CLAUDE_SESSION_ID</span>
+              <span class="env-var-chip">$CLAUDE_TOOL_INPUT_COMMAND</span>
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+            <div class="mockup-form-group">
+              <label class="mockup-label">Timeout (秒)</label>
+              <input class="mockup-input" value="10" type="number">
+            </div>
+            <div class="mockup-form-group">
+              <label class="mockup-label">Exit Code 行为</label>
+              <div style="font-size:12px; color:var(--text-secondary); padding:8px 0; line-height:1.6;">
+                <span style="color:var(--accent-2);">0</span> = 批准 &nbsp;
+                <span style="color:var(--accent-3);">2</span> = 阻止 &nbsp;
+                <span style="color:var(--accent-4);">其他</span> = 警告但继续
+              </div>
+            </div>
+          </div>
+          <div class="mockup-btn-row">
+            <button class="mockup-btn primary">💾 保存</button>
+            <button class="mockup-btn secondary">✅ 校验</button>
+            <button class="mockup-btn secondary">▶ 测试 Hook</button>
+          </div>
+        </div>
+
+        <div class="mockup-code-view" id="dual-code">
+          <div class="mockup-editor" style="min-height:300px;">
+<span class="line-num">1</span><span class="brace">{</span>
+<span class="line-num">2</span>  <span class="key">"hooks"</span><span class="punct">:</span> <span class="brace">{</span>
+<span class="line-num">3</span>    <span class="key">"PreToolUse"</span><span class="punct">:</span> <span class="brace">[</span>
+<span class="line-num">4</span>      <span class="brace">{</span>
+<span class="line-num">5</span>        <span class="key">"matcher"</span><span class="punct">:</span> <span class="str">"Bash"</span><span class="punct">,</span>
+<span class="line-num">6</span>        <span class="key">"hooks"</span><span class="punct">:</span> <span class="brace">[</span>
+<span class="line-num">7</span>          <span class="brace">{</span>
+<span class="line-num">8</span>            <span class="key">"type"</span><span class="punct">:</span> <span class="str">"command"</span><span class="punct">,</span>
+<span class="line-num">9</span>            <span class="key">"command"</span><span class="punct">:</span> <span class="str">"if echo \"$CLAUDE_TOOL_INPUT_COMMAND\" | grep -qE 'rm -rf'; then echo 'BLOCKED'; exit 2; fi"</span><span class="punct">,</span>
+<span class="line-num">10</span>           <span class="key">"timeout"</span><span class="punct">:</span> <span class="num">10</span>
+<span class="line-num">11</span>         <span class="brace">}</span>
+<span class="line-num">12</span>       <span class="brace">]</span>
+<span class="line-num">13</span>     <span class="brace">}</span>
+<span class="line-num">14</span>   <span class="brace">]</span>
+<span class="line-num">15</span>  <span class="brace">}</span>
+<span class="line-num">16</span><span class="brace">}</span>
+          </div>
+          <div class="mockup-problems-bar">
+            <span class="valid">✓ Valid JSON — Schema compliant</span>
+            <span>UTF-8</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pros-cons">
+      <div class="pros-cons-box pros">
+        <h4>✓ 优势</h4>
+        <ul>
+          <li>兼顾易用性和灵活性</li>
+          <li>新手用表单，高手用代码</li>
+          <li>双向同步实时校验</li>
+          <li>Exit Code 行为说明降低理解门槛</li>
+          <li>测试功能即时验证 Hook 效果</li>
+        </ul>
+      </div>
+      <div class="pros-cons-box cons">
+        <h4>✗ 劣势</h4>
+        <ul>
+          <li>双向同步实现复杂度高</li>
+          <li>代码解析回表单的边界情况多</li>
+          <li>两种视图切换可能造成困惑</li>
+          <li>需要维护两套 UI 状态</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 方案五：后台服务 ============ -->
+  <section class="scheme-section" id="scheme-5">
+    <div class="scheme-header">
+      <div class="scheme-icon" style="background: rgba(255,107,107,0.15); border: 1px solid rgba(255,107,107,0.3);">🖥️</div>
+      <div>
+        <h2>方案五：Hook 管理后台服务 + Web UI</h2>
+        <p>独立运行本地 Hook 管理服务，提供 REST API 和 Web UI，支持多客户端接入。包含审计日志、模板市场、文件监听同步等企业级能力。</p>
+      </div>
+    </div>
+
+    <div class="mockup-container">
+      <div class="mockup-titlebar">
+        <div class="mockup-dot red"></div>
+        <div class="mockup-dot yellow"></div>
+        <div class="mockup-dot green"></div>
+        <span>Hook Management Server — http://localhost:3777</span>
+      </div>
+      <div class="mockup-body s5">
+        <div>
+          <div class="mockup-arch-diagram" style="margin-bottom:16px;">
+            <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:16px; font-weight:600;">架构概览</div>
+            <div class="arch-row">
+              <div class="arch-node primary">🖥️ Hook Server</div>
+              <span class="arch-arrow">→</span>
+              <div class="arch-node">📄 settings.json</div>
+            </div>
+            <div class="arch-row">
+              <div class="arch-node secondary">🌐 Web UI</div>
+              <span class="arch-arrow">↔</span>
+              <div class="arch-node primary">🖥️ REST API</div>
+              <span class="arch-arrow">↔</span>
+              <div class="arch-node secondary">🔌 IDE 插件</div>
+            </div>
+            <div class="arch-row">
+              <div class="arch-node">📊 Audit Log</div>
+              <span class="arch-arrow">←</span>
+              <div class="arch-node primary">⚙️ Hook Engine</div>
+              <span class="arch-arrow">→</span>
+              <div class="arch-node">📁 File Watcher</div>
+            </div>
+          </div>
+
+          <div class="mockup-api-section">
+            <div class="mockup-api-header">
+              <span>🔌</span> REST API Endpoints
+            </div>
+            <div class="mockup-api-list">
+              <div class="mockup-api-item"><span class="api-method get">GET</span><span class="api-path">/api/hooks</span></div>
+              <div class="mockup-api-item"><span class="api-method post">POST</span><span class="api-path">/api/hooks</span></div>
+              <div class="mockup-api-item"><span class="api-method put">PUT</span><span class="api-path">/api/hooks/:id</span></div>
+              <div class="mockup-api-item"><span class="api-method delete">DEL</span><span class="api-path">/api/hooks/:id</span></div>
+              <div class="mockup-api-item"><span class="api-method post">POST</span><span class="api-path">/api/hooks/:id/toggle</span></div>
+              <div class="mockup-api-item"><span class="api-method post">POST</span><span class="api-path">/api/hooks/test</span></div>
+              <div class="mockup-api-item"><span class="api-method get">GET</span><span class="api-path">/api/hooks/audit</span></div>
+              <div class="mockup-api-item"><span class="api-method get">GET</span><span class="api-path">/api/hooks/templates</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; margin-bottom:16px;">
+            <div style="padding:12px 16px; background:var(--bg-elevated); border-bottom:1px solid var(--border); font-size:13px; font-weight:600; display:flex; align-items:center; gap:8px;">
+              <span>📊</span> 审计日志
+            </div>
+            <div style="padding:12px; font-family:var(--font-mono); font-size:12px; max-height:200px; overflow-y:auto;">
+              <div style="padding:4px 8px; border-radius:4px; margin-bottom:2px; display:flex; gap:12px;">
+                <span style="color:var(--text-muted);">10:32:15</span>
+                <span style="color:var(--accent-2);">CREATED</span>
+                <span style="color:var(--text-secondary);">PreToolUse/Bash hook</span>
+              </div>
+              <div style="padding:4px 8px; border-radius:4px; margin-bottom:2px; display:flex; gap:12px;">
+                <span style="color:var(--text-muted);">10:31:42</span>
+                <span style="color:var(--accent-1-light);">UPDATED</span>
+                <span style="color:var(--text-secondary);">PostToolUse/Write matcher</span>
+              </div>
+              <div style="padding:4px 8px; border-radius:4px; margin-bottom:2px; display:flex; gap:12px;">
+                <span style="color:var(--text-muted);">10:30:08</span>
+                <span style="color:var(--accent-3);">DELETED</span>
+                <span style="color:var(--text-secondary);">Stop/notify hook</span>
+              </div>
+              <div style="padding:4px 8px; border-radius:4px; margin-bottom:2px; display:flex; gap:12px;">
+                <span style="color:var(--text-muted);">10:28:55</span>
+                <span style="color:var(--accent-4);">TESTED</span>
+                <span style="color:var(--text-secondary);">PreToolUse/Bash → exit 2</span>
+              </div>
+              <div style="padding:4px 8px; border-radius:4px; margin-bottom:2px; display:flex; gap:12px;">
+                <span style="color:var(--text-muted);">10:25:11</span>
+                <span style="color:var(--accent-2);">CREATED</span>
+                <span style="color:var(--text-secondary);">SessionStart/git-status</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); overflow:hidden;">
+            <div style="padding:12px 16px; background:var(--bg-elevated); border-bottom:1px solid var(--border); font-size:13px; font-weight:600; display:flex; align-items:center; gap:8px;">
+              <span>🏪</span> 模板市场
+            </div>
+            <div style="padding:12px;">
+              <div style="display:flex; align-items:center; gap:10px; padding:8px; border-radius:var(--radius-xs); border:1px solid var(--border); margin-bottom:8px; cursor:pointer; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--accent-1)'" onmouseout="this.style.borderColor='var(--border)'">
+                <span style="font-size:20px;">🎨</span>
+                <div style="flex:1;">
+                  <div style="font-size:13px; font-weight:500;">Auto Format + Lint</div>
+                  <div style="font-size:11px; color:var(--text-muted);">PostToolUse · Write|Edit</div>
+                </div>
+                <button class="mockup-btn primary" style="padding:4px 12px; font-size:11px;">安装</button>
+              </div>
+              <div style="display:flex; align-items:center; gap:10px; padding:8px; border-radius:var(--radius-xs); border:1px solid var(--border); margin-bottom:8px; cursor:pointer; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--accent-1)'" onmouseout="this.style.borderColor='var(--border)'">
+                <span style="font-size:20px;">🛡️</span>
+                <div style="flex:1;">
+                  <div style="font-size:13px; font-weight:500;">Safety Guard</div>
+                  <div style="font-size:11px; color:var(--text-muted);">PreToolUse · Bash</div>
+                </div>
+                <button class="mockup-btn primary" style="padding:4px 12px; font-size:11px;">安装</button>
+              </div>
+              <div style="display:flex; align-items:center; gap:10px; padding:8px; border-radius:var(--radius-xs); border:1px solid var(--border); cursor:pointer; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--accent-1)'" onmouseout="this.style.borderColor='var(--border)'">
+                <span style="font-size:20px;">📋</span>
+                <div style="flex:1;">
+                  <div style="font-size:13px; font-weight:500;">Git Context Injector</div>
+                  <div style="font-size:11px; color:var(--text-muted);">SessionStart · startup</div>
+                </div>
+                <button class="mockup-btn primary" style="padding:4px 12px; font-size:11px;">安装</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pros-cons">
+      <div class="pros-cons-box pros">
+        <h4>✓ 优势</h4>
+        <ul>
+          <li>架构最完整，可扩展性最强</li>
+          <li>多客户端共享同一后端</li>
+          <li>审计日志追踪所有变更</li>
+          <li>模板市场支持社区共享</li>
+          <li>File Watcher 自动同步外部修改</li>
+        </ul>
+      </div>
+      <div class="pros-cons-box cons">
+        <h4>✗ 劣势</h4>
+        <ul>
+          <li>实现工作量最大</li>
+          <li>需要维护后台服务进程</li>
+          <li>部署和运维成本高</li>
+          <li>对个人用户过重</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 对比表格 ============ -->
+  <section class="comparison-section">
+    <h2>📊 全方位对比</h2>
+    <div class="comparison-table-wrap">
+      <table class="comparison-table">
+        <thead>
+          <tr>
+            <th>维度</th>
+            <th>方案一<br>表单编辑器</th>
+            <th>方案二<br>代码编辑器</th>
+            <th>方案三<br>卡片编排器</th>
+            <th>方案四<br>混合编辑器</th>
+            <th>方案五<br>后台服务</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>易用性</td>
+            <td><span class="star">★★★★★</span></td>
+            <td><span class="star">★★★</span><span class="star empty">★★</span></td>
+            <td><span class="star">★★★★★</span></td>
+            <td><span class="star">★★★★</span><span class="star empty">★</span></td>
+            <td><span class="star">★★★★</span><span class="star empty">★</span></td>
+          </tr>
+          <tr>
+            <td>灵活性</td>
+            <td><span class="star">★★★</span><span class="star empty">★★</span></td>
+            <td><span class="star">★★★★★</span></td>
+            <td><span class="star">★★★</span><span class="star empty">★★</span></td>
+            <td><span class="star">★★★★★</span></td>
+            <td><span class="star">★★★★★</span></td>
+          </tr>
+          <tr>
+            <td>实现复杂度</td>
+            <td><span class="badge fast">中等</span></td>
+            <td><span class="badge fast">低</span></td>
+            <td><span class="badge enterprise">高</span></td>
+            <td><span class="badge enterprise">中高</span></td>
+            <td><span class="badge enterprise">最高</span></td>
+          </tr>
+          <tr>
+            <td>适合人群</td>
+            <td>初学者</td>
+            <td>开发者</td>
+            <td>全员</td>
+            <td>全员</td>
+            <td>团队/企业</td>
+          </tr>
+          <tr>
+            <td>可扩展性</td>
+            <td><span class="star">★★</span><span class="star empty">★★★</span></td>
+            <td><span class="star">★★★</span><span class="star empty">★★</span></td>
+            <td><span class="star">★★★</span><span class="star empty">★★</span></td>
+            <td><span class="star">★★★★</span><span class="star empty">★</span></td>
+            <td><span class="star">★★★★★</span></td>
+          </tr>
+          <tr>
+            <td>可视化程度</td>
+            <td><span class="star">★★★★</span><span class="star empty">★</span></td>
+            <td><span class="star">★★</span><span class="star empty">★★★</span></td>
+            <td><span class="star">★★★★★</span></td>
+            <td><span class="star">★★★★</span><span class="star empty">★</span></td>
+            <td><span class="star">★★★★</span><span class="star empty">★</span></td>
+          </tr>
+          <tr>
+            <td>推荐指数</td>
+            <td><span class="star">★★★</span><span class="star empty">★★</span></td>
+            <td><span class="star">★★★★</span><span class="star empty">★</span></td>
+            <td><span class="star">★★★★</span><span class="star empty">★</span></td>
+            <td><span class="star">★★★★★</span> <span class="badge recommended">推荐</span></td>
+            <td><span class="star">★★★★</span><span class="star empty">★</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ 推荐总结 ============ -->
+  <section class="recommendation">
+    <h3>🎯 场景化推荐</h3>
+    <div class="rec-cards">
+      <div class="rec-card">
+        <div class="rec-icon">🚀</div>
+        <h4>方案二：代码编辑器</h4>
+        <div class="rec-scenario">MVP 快速验证 / 个人项目</div>
+        <p>实现最快，Monaco + JSON Schema 即可交付。开发者友好，灵活性最高，适合快速上线验证需求。</p>
+      </div>
+      <div class="rec-card" style="border-color: var(--accent-1); box-shadow: 0 0 30px var(--accent-1-glow);">
+        <div class="rec-icon">🔀</div>
+        <h4>方案四：混合编辑器</h4>
+        <div class="rec-scenario">⭐ 最佳平衡 / 通用推荐</div>
+        <p>表单 + 代码双模兼顾易用与灵活，新手用表单入门，高手用代码精调。双向同步 + 测试功能让配置更可靠。</p>
+      </div>
+      <div class="rec-card">
+        <div class="rec-icon">🏢</div>
+        <h4>方案五：后台服务</h4>
+        <div class="rec-scenario">团队协作 / 企业场景</div>
+        <p>REST API + 审计日志 + 模板市场 + 多客户端，企业级能力全覆盖。适合需要统一管理和合规审计的团队。</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p>基于 Claude Code 官方 Hooks Reference 文档分析 · 5 种前端管理方案对比</p>
+  </footer>
+</div>
+
+<script>
+function showScheme(n) {
+  document.querySelectorAll('.scheme-section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('nav.scheme-nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('scheme-' + n).classList.add('active');
+  document.querySelectorAll('nav.scheme-nav button')[n - 1].classList.add('active');
+  window.scrollTo({ top: document.querySelector('.scheme-section.active').offsetTop - 100, behavior: 'smooth' });
+}
+
+function switchView(btn, view) {
+  const parent = btn.closest('.mockup-body');
+  parent.querySelectorAll('.view-toggle button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (view === 'form') {
+    parent.querySelector('.mockup-form-view').classList.add('active');
+    parent.querySelector('.mockup-code-view').classList.remove('active');
+  } else {
+    parent.querySelector('.mockup-form-view').classList.remove('active');
+    parent.querySelector('.mockup-code-view').classList.add('active');
+  }
+}
+
+document.querySelectorAll('.mockup-sidebar-item').forEach(item => {
+  item.addEventListener('click', function() {
+    this.closest('.mockup-sidebar').querySelectorAll('.mockup-sidebar-item').forEach(i => i.classList.remove('active'));
+    this.classList.add('active');
+  });
+});
+
+document.querySelectorAll('.mockup-radio').forEach(radio => {
+  radio.addEventListener('click', function() {
+    this.closest('.mockup-radio-group').querySelectorAll('.mockup-radio').forEach(r => r.classList.remove('selected'));
+    this.classList.add('selected');
+  });
+});
+
+document.querySelectorAll('.scope-tab').forEach(tab => {
+  tab.addEventListener('click', function() {
+    this.closest('.scope-tabs').querySelectorAll('.scope-tab').forEach(t => t.classList.remove('active'));
+    this.classList.add('active');
+  });
+});
+
+document.querySelectorAll('.mockup-tab').forEach(tab => {
+  tab.addEventListener('click', function() {
+    this.closest('.mockup-toolbar-left').querySelectorAll('.mockup-tab').forEach(t => t.classList.remove('active'));
+    this.classList.add('active');
+  });
+});
+</script>
+</body>
+</html>
