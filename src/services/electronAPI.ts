@@ -340,6 +340,13 @@ export const api = {
     return Promise.resolve(false)
   },
 
+  notifyEngineSourceChanged: (source: string): Promise<void> => {
+    if (electronAPI?.claudeCode?.notifyEngineSourceChanged) {
+      return electronAPI.claudeCode.notifyEngineSourceChanged(source)
+    }
+    return Promise.resolve()
+  },
+
   // Debug API
   debug: {
     listFiles: (): Promise<DebugFileEntry[]> => electronAPI?.debug?.listFiles() || Promise.resolve([]),
