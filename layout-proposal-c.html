@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案C: 可折叠图标导航 + 弹性内容布局</title>
+<style>
+  :root {
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --surface-soft: #1e2a4a;
+    --surface-card: #1e2a4a;
+    --border-default: rgba(255,255,255,0.08);
+    --text-primary: #e8e8f0;
+    --text-secondary: #a0a0b8;
+    --text-muted: #6a6a82;
+    --accent-primary: #6c63ff;
+    --accent-primary-rgb: 108,99,255;
+    --accent-glow: rgba(108,99,255,0.12);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg-primary); color: var(--text-primary); height: 100vh; overflow: hidden; }
+
+  .settings-page { height: 100%; display: flex; flex-direction: column; }
+
+  /* Compact header */
+  .settings-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 20px; border-bottom: 1px solid var(--border-default);
+    background: var(--bg-primary); flex-shrink: 0;
+  }
+  .header-left { display: flex; align-items: center; gap: 12px; }
+  .back-btn {
+    display: flex; align-items: center; gap: 6px; padding: 5px 10px;
+    border-radius: 6px; color: var(--text-muted); font-size: 12px;
+    background: none; border: none; cursor: pointer; transition: all 0.2s;
+  }
+  .back-btn:hover { background: var(--surface-soft); color: var(--text-primary); }
+  .settings-title { font-size: 14px; font-weight: 600; }
+  .header-right { display: flex; gap: 8px; align-items: center; }
+  .header-btn {
+    padding: 5px 10px; border-radius: 6px; font-size: 12px;
+    background: var(--surface-soft); border: 1px solid var(--border-default);
+    color: var(--text-muted); cursor: pointer; transition: all 0.2s;
+  }
+  .header-btn:hover { border-color: var(--accent-primary); color: var(--text-primary); }
+
+  /* Body */
+  .settings-body { flex: 1; display: flex; overflow: hidden; }
+
+  /* Collapsible icon rail */
+  .settings-rail {
+    width: 56px; background: var(--bg-secondary); border-right: 1px solid var(--border-default);
+    padding: 12px 8px; display: flex; flex-direction: column; align-items: center;
+    gap: 4px; flex-shrink: 0; transition: width 0.2s;
+  }
+  .settings-rail.expanded { width: 200px; align-items: stretch; }
+
+  .rail-item {
+    display: flex; align-items: center; gap: 10px; padding: 10px 8px;
+    border-radius: 8px; color: var(--text-muted); background: none;
+    border: none; cursor: pointer; transition: all 0.15s; width: 100%;
+    position: relative;
+  }
+  .rail-item:hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
+  .rail-item.active { background: var(--accent-glow); color: var(--accent-primary); }
+  .rail-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .rail-label {
+    font-size: 13px; font-weight: 500; white-space: nowrap;
+    overflow: hidden; opacity: 0; transition: opacity 0.15s;
+  }
+  .settings-rail.expanded .rail-label { opacity: 1; }
+  .rail-tooltip {
+    position: absolute; left: 100%; top: 50%; transform: translateY(-50%);
+    margin-left: 8px; padding: 4px 10px; background: var(--bg-primary);
+    border: 1px solid var(--border-default); border-radius: 6px;
+    font-size: 12px; white-space: nowrap; pointer-events: none;
+    opacity: 0; transition: opacity 0.15s; z-index: 10;
+  }
+  .settings-rail:not(.expanded) .rail-item:hover .rail-tooltip { opacity: 1; }
+
+  .rail-divider { width: 24px; height: 1px; background: var(--border-default); margin: 6px 0; }
+  .settings-rail.expanded .rail-divider { width: 100%; }
+
+  .rail-toggle {
+    margin-top: auto; padding: 8px; border-radius: 6px; background: none;
+    border: none; color: var(--text-muted); cursor: pointer; transition: all 0.2s;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .rail-toggle:hover { background: var(--surface-soft); color: var(--text-primary); }
+  .rail-toggle svg { width: 16px; height: 16px; transition: transform 0.2s; }
+  .settings-rail.expanded .rail-toggle svg { transform: rotate(180deg); }
+
+  /* Content area - flexible width */
+  .settings-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+  .content-scroll { flex: 1; overflow-y: auto; padding: 24px 32px; }
+
+  .content-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--border-default);
+  }
+  .content-title-row { display: flex; align-items: center; gap: 10px; }
+  .content-icon {
+    width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+    background: var(--accent-glow); border-radius: 10px; color: var(--accent-primary); font-size: 18px;
+  }
+  .content-title { font-size: 20px; font-weight: 600; }
+  .content-subtitle { font-size: 12px; color: var(--text-muted); }
+
+  /* Flexible grid content */
+  .settings-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+  }
+  .settings-card {
+    background: var(--surface-card); border: 1px solid var(--border-default);
+    border-radius: 12px; padding: 18px; transition: all 0.2s;
+  }
+  .settings-card:hover { border-color: rgba(255,255,255,0.12); }
+  .settings-card.full-width { grid-column: 1 / -1; }
+
+  .card-title {
+    font-size: 13px; font-weight: 600; color: var(--text-primary);
+    margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+  }
+  .card-title .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-primary); }
+
+  .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  .form-group:last-child { margin-bottom: 0; }
+  .form-label { font-size: 12px; font-weight: 500; color: var(--text-secondary); }
+  .form-input {
+    padding: 8px 12px; background: var(--bg-primary); border: 1px solid var(--border-default);
+    border-radius: 8px; color: var(--text-primary); font-size: 13px;
+  }
+  .form-input:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 3px var(--accent-glow); }
+  .form-input::placeholder { color: var(--text-muted); }
+
+  /* Chip select */
+  .chip-group { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 500;
+    background: var(--bg-primary); border: 1px solid var(--border-default);
+    color: var(--text-secondary); cursor: pointer; transition: all 0.15s;
+  }
+  .chip:hover { border-color: var(--accent-primary); color: var(--text-primary); }
+  .chip.active { background: var(--accent-glow); border-color: var(--accent-primary); color: var(--accent-primary); }
+
+  /* Toggle compact */
+  .toggle-compact {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 0;
+  }
+  .toggle-compact + .toggle-compact { border-top: 1px solid var(--border-default); }
+  .toggle-compact-label { font-size: 13px; font-weight: 500; }
+  .toggle-mini {
+    width: 36px; height: 20px; background: var(--bg-primary); border-radius: 10px;
+    border: 1px solid var(--border-default); position: relative; cursor: pointer; transition: all 0.2s;
+  }
+  .toggle-mini::after {
+    content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+    background: white; border-radius: 50%; transition: transform 0.2s;
+  }
+  .toggle-mini.on { background: var(--accent-primary); border-color: var(--accent-primary); }
+  .toggle-mini.on::after { transform: translateX(16px); }
+
+  /* Status indicator */
+  .status-bar {
+    display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+    background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.2);
+    border-radius: 8px; font-size: 12px; color: #22c55e;
+  }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; }
+
+  .layout-note {
+    position: fixed; bottom: 16px; right: 16px; padding: 10px 16px;
+    background: var(--accent-primary); color: white; border-radius: 8px;
+    font-size: 12px; font-weight: 600; z-index: 100;
+  }
+</style>
+</head>
+<body>
+<div class="settings-page">
+  <div class="settings-header">
+    <div class="header-left">
+      <button class="back-btn">← 返回</button>
+      <h1 class="settings-title">设置</h1>
+    </div>
+    <div class="header-right">
+      <button class="header-btn">🔍 搜索设置</button>
+      <button class="header-btn">⌨️ 快捷键 ?</button>
+    </div>
+  </div>
+
+  <div class="settings-body">
+    <!-- Collapsible Icon Rail -->
+    <nav class="settings-rail" id="rail">
+      <button class="rail-item active" onclick="setActive(this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/></svg>
+        <span class="rail-label">通用</span>
+        <span class="rail-tooltip">通用</span>
+      </button>
+      <button class="rail-item" onclick="setActive(this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M12 8V4H8"/></svg>
+        <span class="rail-label">模型</span>
+        <span class="rail-tooltip">模型设置</span>
+      </button>
+      <button class="rail-item" onclick="setActive(this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/><path d="M4 18a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/></svg>
+        <span class="rail-label">MCP</span>
+        <span class="rail-tooltip">MCP 服务器</span>
+      </button>
+      <button class="rail-item" onclick="setActive(this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+        <span class="rail-label">工具</span>
+        <span class="rail-tooltip">工具</span>
+      </button>
+
+      <div class="rail-divider"></div>
+
+      <button class="rail-item" onclick="setActive(this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
+        <span class="rail-label">外观</span>
+        <span class="rail-tooltip">外观</span>
+      </button>
+      <button class="rail-item" onclick="setActive(this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/></svg>
+        <span class="rail-label">快捷键</span>
+        <span class="rail-tooltip">快捷键</span>
+      </button>
+
+      <div class="rail-divider"></div>
+
+      <button class="rail-item" onclick="setActive(this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        <span class="rail-label">Hooks</span>
+        <span class="rail-tooltip">Hooks</span>
+      </button>
+      <button class="rail-item" onclick="setActive(this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+        <span class="rail-label">Token</span>
+        <span class="rail-tooltip">Token 用量</span>
+      </button>
+
+      <button class="rail-toggle" onclick="toggleRail()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+      </button>
+    </nav>
+
+    <!-- Content -->
+    <main class="settings-content">
+      <div class="content-scroll">
+        <div class="content-header">
+          <div class="content-title-row">
+            <div class="content-icon">⚙️</div>
+            <div>
+              <h2 class="content-title">通用设置</h2>
+              <div class="content-subtitle">语言、引擎和项目基础配置</div>
+            </div>
+          </div>
+          <div class="status-bar">
+            <span class="status-dot"></span>
+            Claude Code 引擎运行中
+          </div>
+        </div>
+
+        <div class="settings-grid">
+          <!-- Language card -->
+          <div class="settings-card">
+            <div class="card-title"><span class="dot"></span>界面语言</div>
+            <div class="chip-group">
+              <div class="chip active">🇨🇳 简体中文</div>
+              <div class="chip">🇺🇸 English</div>
+            </div>
+          </div>
+
+          <!-- Engine card -->
+          <div class="settings-card">
+            <div class="card-title"><span class="dot"></span>Agent Engine</div>
+            <div class="chip-group">
+              <div class="chip active">Claude Code</div>
+              <div class="chip" style="opacity:0.5;cursor:not-allowed;">Pi (未安装)</div>
+            </div>
+          </div>
+
+          <!-- Project card -->
+          <div class="settings-card full-width">
+            <div class="card-title"><span class="dot"></span>项目配置</div>
+            <div class="form-group">
+              <label class="form-label">项目根目录</label>
+              <div style="display:flex;gap:8px;">
+                <input class="form-input" style="flex:1" value="/Users/dev/my-project" />
+                <button style="padding:8px 14px;background:var(--bg-primary);border:1px solid var(--border-default);border-radius:8px;color:var(--text-muted);cursor:pointer;">浏览</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Editor toggles card -->
+          <div class="settings-card">
+            <div class="card-title"><span class="dot"></span>编辑器</div>
+            <div class="toggle-compact">
+              <span class="toggle-compact-label">显示行号</span>
+              <button class="toggle-mini on"></button>
+            </div>
+            <div class="toggle-compact">
+              <span class="toggle-compact-label">自动换行</span>
+              <button class="toggle-mini on"></button>
+            </div>
+            <div class="toggle-compact">
+              <span class="toggle-compact-label">显示小地图</span>
+              <button class="toggle-mini"></button>
+            </div>
+          </div>
+
+          <!-- Context usage card -->
+          <div class="settings-card">
+            <div class="card-title"><span class="dot"></span>上下文用量</div>
+            <div class="toggle-compact">
+              <span class="toggle-compact-label">头部显示用量</span>
+              <button class="toggle-mini on"></button>
+            </div>
+            <div class="toggle-compact">
+              <span class="toggle-compact-label">显示警告条</span>
+              <button class="toggle-mini on"></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="layout-note">方案C: 可折叠图标导航 + 弹性内容布局</div>
+
+<script>
+function toggleRail() {
+  document.getElementById('rail').classList.toggle('expanded');
+}
+function setActive(el) {
+  document.querySelectorAll('.rail-item').forEach(i => i.classList.remove('active'));
+  el.classList.add('active');
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案D: 仪表盘网格 + 快捷设置布局</title>
+<style>
+  :root {
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --surface-soft: #1e2a4a;
+    --surface-card: #1e2a4a;
+    --border-default: rgba(255,255,255,0.08);
+    --text-primary: #e8e8f0;
+    --text-secondary: #a0a0b8;
+    --text-muted: #6a6a82;
+    --accent-primary: #6c63ff;
+    --accent-primary-rgb: 108,99,255;
+    --accent-glow: rgba(108,99,255,0.12);
+    --success: #22c55e;
+    --warning: #f59e0b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg-primary); color: var(--text-primary); height: 100vh; overflow: hidden; }
+
+  .settings-page { height: 100%; display: flex; flex-direction: column; }
+
+  /* Header */
+  .settings-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 24px; border-bottom: 1px solid var(--border-default);
+    background: var(--bg-primary); flex-shrink: 0;
+  }
+  .header-left { display: flex; align-items: center; gap: 16px; }
+  .back-btn {
+    display: flex; align-items: center; gap: 6px; padding: 6px 12px;
+    border-radius: 8px; color: var(--text-muted); font-size: 13px;
+    background: none; border: none; cursor: pointer; transition: all 0.2s;
+  }
+  .back-btn:hover { background: var(--surface-soft); color: var(--text-primary); }
+  .settings-title { font-size: 16px; font-weight: 600; }
+  .header-search {
+    display: flex; align-items: center; gap: 8px; padding: 7px 14px;
+    background: var(--surface-soft); border: 1px solid var(--border-default);
+    border-radius: 8px; width: 280px;
+  }
+  .header-search input {
+    background: none; border: none; color: var(--text-primary); font-size: 13px; flex: 1; outline: none;
+  }
+  .header-search input::placeholder { color: var(--text-muted); }
+
+  /* Body - No left nav, full dashboard */
+  .settings-body { flex: 1; overflow: hidden; }
+  .content-scroll { height: 100%; overflow-y: auto; padding: 24px 28px; }
+
+  /* Quick Settings Bar */
+  .quick-bar {
+    display: flex; gap: 10px; margin-bottom: 24px; flex-wrap: wrap;
+  }
+  .quick-item {
+    display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+    background: var(--surface-card); border: 1px solid var(--border-default);
+    border-radius: 10px; cursor: pointer; transition: all 0.2s; font-size: 13px;
+    font-weight: 500; color: var(--text-secondary);
+  }
+  .quick-item:hover { border-color: var(--accent-primary); color: var(--text-primary); }
+  .quick-item.active { border-color: var(--accent-primary); background: var(--accent-glow); color: var(--accent-primary); }
+  .quick-item .qi-icon { font-size: 16px; }
+  .quick-item .qi-value { font-size: 11px; color: var(--text-muted); margin-left: 4px; }
+
+  /* Dashboard Grid */
+  .dashboard-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: auto;
+    gap: 16px;
+  }
+
+  .dash-card {
+    background: var(--surface-card); border: 1px solid var(--border-default);
+    border-radius: 14px; padding: 18px; transition: all 0.2s;
+    cursor: pointer; position: relative; overflow: hidden;
+  }
+  .dash-card:hover { border-color: rgba(255,255,255,0.15); transform: translateY(-1px); }
+  .dash-card.span-2 { grid-column: span 2; }
+  .dash-card.span-3 { grid-column: span 3; }
+
+  .dash-card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .dash-card-title {
+    font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px;
+  }
+  .dash-card-icon {
+    width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+    border-radius: 9px; font-size: 16px;
+  }
+  .dash-card-badge {
+    font-size: 10px; padding: 2px 8px; border-radius: 4px; font-weight: 600;
+  }
+  .badge-green { background: rgba(34,197,94,0.12); color: var(--success); }
+  .badge-blue { background: var(--accent-glow); color: var(--accent-primary); }
+  .badge-yellow { background: rgba(245,158,11,0.12); color: var(--warning); }
+
+  .dash-card-content { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+
+  /* Mini form inside card */
+  .mini-form { display: flex; flex-direction: column; gap: 10px; }
+  .mini-row { display: flex; align-items: center; justify-content: space-between; }
+  .mini-label { font-size: 12px; color: var(--text-secondary); }
+  .mini-value { font-size: 12px; font-weight: 500; color: var(--text-primary); }
+  .mini-input {
+    padding: 6px 10px; background: var(--bg-primary); border: 1px solid var(--border-default);
+    border-radius: 6px; color: var(--text-primary); font-size: 12px; width: 100%;
+  }
+  .mini-input:focus { outline: none; border-color: var(--accent-primary); }
+
+  /* Toggle mini */
+  .toggle-mini {
+    width: 36px; height: 20px; background: var(--bg-primary); border-radius: 10px;
+    border: 1px solid var(--border-default); position: relative; cursor: pointer; transition: all 0.2s;
+    display: inline-block;
+  }
+  .toggle-mini::after {
+    content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+    background: white; border-radius: 50%; transition: transform 0.2s;
+  }
+  .toggle-mini.on { background: var(--accent-primary); border-color: var(--accent-primary); }
+  .toggle-mini.on::after { transform: translateX(16px); }
+
+  /* Stat display */
+  .stat-row { display: flex; justify-content: space-between; padding: 6px 0; }
+  .stat-row + .stat-row { border-top: 1px solid var(--border-default); }
+  .stat-label { font-size: 12px; color: var(--text-muted); }
+  .stat-value { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+
+  /* Progress bar */
+  .progress-bar {
+    height: 6px; background: var(--bg-primary); border-radius: 3px;
+    overflow: hidden; margin-top: 8px;
+  }
+  .progress-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+
+  /* Chip select */
+  .chip-group { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 500;
+    background: var(--bg-primary); border: 1px solid var(--border-default);
+    color: var(--text-secondary); cursor: pointer; transition: all 0.15s;
+  }
+  .chip:hover { border-color: var(--accent-primary); color: var(--text-primary); }
+  .chip.active { background: var(--accent-glow); border-color: var(--accent-primary); color: var(--accent-primary); }
+
+  /* Expand hint */
+  .expand-hint {
+    display: flex; align-items: center; gap: 4px; margin-top: 12px;
+    font-size: 11px; color: var(--text-muted); transition: color 0.2s;
+  }
+  .dash-card:hover .expand-hint { color: var(--accent-primary); }
+
+  /* Server list mini */
+  .server-mini {
+    display: flex; align-items: center; gap: 8px; padding: 6px 0;
+  }
+  .server-mini + .server-mini { border-top: 1px solid var(--border-default); }
+  .server-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .server-dot.on { background: var(--success); }
+  .server-dot.off { background: var(--text-muted); }
+  .server-name { font-size: 12px; font-weight: 500; flex: 1; }
+  .server-cmd { font-size: 11px; color: var(--text-muted); font-family: monospace; }
+
+  .layout-note {
+    position: fixed; bottom: 16px; right: 16px; padding: 10px 16px;
+    background: var(--accent-primary); color: white; border-radius: 8px;
+    font-size: 12px; font-weight: 600; z-index: 100;
+  }
+</style>
+</head>
+<body>
+<div class="settings-page">
+  <div class="settings-header">
+    <div class="header-left">
+      <button class="back-btn">← 返回应用</button>
+      <h1 class="settings-title">设置</h1>
+    </div>
+    <div class="header-search">
+      <span style="color:var(--text-muted);">🔍</span>
+      <input placeholder="搜索所有设置项..." />
+    </div>
+  </div>
+
+  <div class="settings-body">
+    <div class="content-scroll">
+      <!-- Quick Settings Bar -->
+      <div class="quick-bar">
+        <div class="quick-item active">
+          <span class="qi-icon">🌐</span> 中文 <span class="qi-value">语言</span>
+        </div>
+        <div class="quick-item">
+          <span class="qi-icon">🤖</span> Claude Code <span class="qi-value">引擎</span>
+        </div>
+        <div class="quick-item">
+          <span class="qi-icon">🎨</span> 深色 <span class="qi-value">主题</span>
+        </div>
+        <div class="quick-item">
+          <span class="qi-icon">🔤</span> 14px <span class="qi-value">字号</span>
+        </div>
+        <div class="quick-item">
+          <span class="qi-icon">📊</span> 2.4M <span class="qi-value">Token</span>
+        </div>
+      </div>
+
+      <!-- Dashboard Grid -->
+      <div class="dashboard-grid">
+        <!-- Model & Auth Card (span 2) -->
+        <div class="dash-card span-2">
+          <div class="dash-card-header">
+            <div class="dash-card-title">
+              <div class="dash-card-icon" style="background:var(--accent-glow);color:var(--accent-primary);">🤖</div>
+              模型 & 认证
+            </div>
+            <span class="dash-card-badge badge-green">已连接</span>
+          </div>
+          <div class="dash-card-content">
+            <div class="mini-form">
+              <div class="mini-row">
+                <span class="mini-label">认证方式</span>
+                <span class="mini-value">OpenAI Compatible</span>
+              </div>
+              <div class="mini-row">
+                <span class="mini-label">Base URL</span>
+                <span class="mini-value" style="font-family:monospace;font-size:11px;">https://api.openai.com/v1</span>
+              </div>
+              <div class="mini-row">
+                <span class="mini-label">API Key</span>
+                <span class="mini-value">sk-••••••••4f2d</span>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:4px;">
+                <div style="flex:1;">
+                  <div class="mini-label" style="margin-bottom:4px;">Haiku (快速)</div>
+                  <input class="mini-input" value="gpt-4o-mini" />
+                </div>
+                <div style="flex:1;">
+                  <div class="mini-label" style="margin-bottom:4px;">Sonnet (均衡)</div>
+                  <input class="mini-input" value="gpt-4o" />
+                </div>
+                <div style="flex:1;">
+                  <div class="mini-label" style="margin-bottom:4px;">Opus (强力)</div>
+                  <input class="mini-input" value="gpt-4-turbo" />
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="expand-hint">点击展开完整配置 →</div>
+        </div>
+
+        <!-- Token Usage Card -->
+        <div class="dash-card">
+          <div class="dash-card-header">
+            <div class="dash-card-title">
+              <div class="dash-card-icon" style="background:rgba(245,158,11,0.12);color:#f59e0b;">📊</div>
+              Token 用量
+            </div>
+            <span class="dash-card-badge badge-yellow">本月</span>
+          </div>
+          <div class="dash-card-content">
+            <div class="stat-row">
+              <span class="stat-label">今天</span>
+              <span class="stat-value">128K</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">昨天</span>
+              <span class="stat-value">256K</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">30天</span>
+              <span class="stat-value">2.4M</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" style="width:62%;background:var(--accent-primary);"></div>
+            </div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">上下文窗口使用 62%</div>
+          </div>
+          <div class="expand-hint">查看热力图 →</div>
+        </div>
+
+        <!-- MCP Servers Card -->
+        <div class="dash-card">
+          <div class="dash-card-header">
+            <div class="dash-card-title">
+              <div class="dash-card-icon" style="background:rgba(34,211,238,0.12);color:#22d3ee;">🔌</div>
+              MCP 服务器
+            </div>
+            <span class="dash-card-badge badge-blue">1/2</span>
+          </div>
+          <div class="dash-card-content">
+            <div class="server-mini">
+              <span class="server-dot on"></span>
+              <span class="server-name">filesystem</span>
+              <span class="server-cmd">npx</span>
+            </div>
+            <div class="server-mini">
+              <span class="server-dot off"></span>
+              <span class="server-name">github</span>
+              <span class="server-cmd">npx</span>
+            </div>
+          </div>
+          <div class="expand-hint">管理服务器 →</div>
+        </div>
+
+        <!-- Appearance Card -->
+        <div class="dash-card">
+          <div class="dash-card-header">
+            <div class="dash-card-title">
+              <div class="dash-card-icon" style="background:rgba(236,72,153,0.12);color:#ec4899;">🎨</div>
+              外观
+            </div>
+          </div>
+          <div class="dash-card-content">
+            <div class="mini-form">
+              <div>
+                <div class="mini-label" style="margin-bottom:6px;">主题</div>
+                <div class="chip-group">
+                  <div class="chip">系统</div>
+                  <div class="chip">浅色</div>
+                  <div class="chip active">深色</div>
+                </div>
+              </div>
+              <div class="mini-row">
+                <span class="mini-label">字号</span>
+                <span class="mini-value">14px</span>
+              </div>
+              <div class="mini-row">
+                <span class="mini-label">字体</span>
+                <span class="mini-value">Inter</span>
+              </div>
+            </div>
+          </div>
+          <div class="expand-hint">自定义外观 →</div>
+        </div>
+
+        <!-- Tools Card -->
+        <div class="dash-card">
+          <div class="dash-card-header">
+            <div class="dash-card-title">
+              <div class="dash-card-icon" style="background:rgba(34,197,94,0.12);color:#22c55e;">🔧</div>
+              工具
+            </div>
+            <span class="dash-card-badge badge-green">18/22</span>
+          </div>
+          <div class="dash-card-content">
+            <div class="stat-row">
+              <span class="stat-label">文件操作</span>
+              <span class="stat-value">6/6</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">终端</span>
+              <span class="stat-value">3/3</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">搜索</span>
+              <span class="stat-value">4/5</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Git</span>
+              <span class="stat-value">5/8</span>
+            </div>
+          </div>
+          <div class="expand-hint">管理工具 →</div>
+        </div>
+
+        <!-- General Settings Card (span 3) -->
+        <div class="dash-card span-3">
+          <div class="dash-card-header">
+            <div class="dash-card-title">
+              <div class="dash-card-icon" style="background:var(--accent-glow);color:var(--accent-primary);">⚙️</div>
+              通用 & 编辑器
+            </div>
+          </div>
+          <div class="dash-card-content">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;">
+              <div class="mini-form">
+                <div class="mini-label" style="margin-bottom:6px;font-weight:600;">语言 & 引擎</div>
+                <div class="chip-group">
+                  <div class="chip active">🇨🇳 中文</div>
+                  <div class="chip">🇺🇸 EN</div>
+                </div>
+                <div class="chip-group" style="margin-top:8px;">
+                  <div class="chip active">Claude Code</div>
+                  <div class="chip" style="opacity:0.5;">Pi</div>
+                </div>
+              </div>
+              <div class="mini-form">
+                <div class="mini-label" style="margin-bottom:6px;font-weight:600;">编辑器选项</div>
+                <div class="mini-row"><span class="mini-label">显示行号</span><span class="toggle-mini on"></span></div>
+                <div class="mini-row"><span class="mini-label">自动换行</span><span class="toggle-mini on"></span></div>
+                <div class="mini-row"><span class="mini-label">显示小地图</span><span class="toggle-mini"></span></div>
+                <div class="mini-row"><span class="mini-label">平滑滚动</span><span class="toggle-mini on"></span></div>
+              </div>
+              <div class="mini-form">
+                <div class="mini-label" style="margin-bottom:6px;font-weight:600;">项目配置</div>
+                <div class="form-group" style="margin-bottom:0;">
+                  <span class="mini-label">项目根目录</span>
+                  <div style="display:flex;gap:6px;">
+                    <input class="mini-input" style="flex:1;" value="/Users/dev/my-project" />
+                    <button style="padding:4px 10px;background:var(--bg-primary);border:1px solid var(--border-default);border-radius:6px;color:var(--text-muted);cursor:pointer;font-size:11px;">浏览</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Shortcuts Card -->
+        <div class="dash-card">
+          <div class="dash-card-header">
+            <div class="dash-card-title">
+              <div class="dash-card-icon" style="background:rgba(167,139,250,0.12);color:#a78bfa;">⌨️</div>
+              快捷键
+            </div>
+          </div>
+          <div class="dash-card-content">
+            <div class="stat-row">
+              <span class="stat-label">新对话</span>
+              <span class="stat-value" style="font-family:monospace;font-size:11px;">Ctrl+N</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">搜索</span>
+              <span class="stat-value" style="font-family:monospace;font-size:11px;">Ctrl+K</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">设置</span>
+              <span class="stat-value" style="font-family:monospace;font-size:11px;">Ctrl+,</span>
+            </div>
+          </div>
+          <div class="expand-hint">自定义快捷键 →</div>
+        </div>
+
+        <!-- Hooks Card -->
+        <div class="dash-card">
+          <div class="dash-card-header">
+            <div class="dash-card-title">
+              <div class="dash-card-icon" style="background:rgba(245,158,11,0.12);color:#f59e0b;">⚡</div>
+              Hooks
+            </div>
+            <span class="dash-card-badge badge-yellow">3</span>
+          </div>
+          <div class="dash-card-content">
+            <div class="stat-row">
+              <span class="stat-label">PreToolUse</span>
+              <span class="stat-value">1</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">PostToolUse</span>
+              <span class="stat-value">1</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Notification</span>
+              <span class="stat-value">1</span>
+            </div>
+          </div>
+          <div class="expand-hint">管理 Hooks →</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="layout-note">方案D: 仪表盘网格 + 快捷设置布局</div>
+</body>
+</html>
