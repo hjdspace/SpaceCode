@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+type: software
+title: "planning-with-files"
+abstract: "Claude Code skill implementing Manus-style persistent markdown planning — the workflow pattern behind the $2B acquisition. Enables AI agents to plan, track progress, and resume work across sessions using structured markdown files."
+authors:
+  - family-names: Adi
+    given-names: Ahmad Othman Ammar
+    alias: OthmanAdi
+version: "2.43.0"
+date-released: "2026-05-01"
+license: MIT
+url: "https://github.com/OthmanAdi/planning-with-files"
+repository-code: "https://github.com/OthmanAdi/planning-with-files"
+keywords:
+  - claude-code
+  - agent-skill
+  - planning
+  - task-management
+  - manus-style
+  - autonomous-agents
+  - markdown
+  - ai-agents
