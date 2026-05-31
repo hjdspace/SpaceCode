@@ -1,0 +1,1957 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Code Hook 管理方案设计</title>
+<style>
+  :root {
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --bg-card: #1e2a45;
+    --bg-hover: rgba(255,255,255,0.06);
+    --bg-input: rgba(255,255,255,0.05);
+    --border-default: rgba(255,255,255,0.08);
+    --border-active: rgba(99,139,255,0.5);
+    --text-primary: #e8eaf0;
+    --text-secondary: #9ca3b4;
+    --text-muted: #6b7280;
+    --accent: #638bff;
+    --accent-rgb: 99,139,255;
+    --accent-soft: rgba(99,139,255,0.12);
+    --danger: #ef4444;
+    --danger-soft: rgba(239,68,68,0.12);
+    --success: #22c55e;
+    --success-soft: rgba(34,197,94,0.12);
+    --warning: #f59e0b;
+    --warning-soft: rgba(245,158,11,0.12);
+    --purple: #a78bfa;
+    --purple-soft: rgba(167,139,250,0.12);
+    --cyan: #22d3ee;
+    --cyan-soft: rgba(34,211,238,0.12);
+    --pink: #f472b6;
+    --pink-soft: rgba(244,114,182,0.12);
+    --radius: 8px;
+    --radius-lg: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 40px 32px 80px;
+  }
+
+  /* ====== Header ====== */
+  .doc-header {
+    margin-bottom: 48px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid var(--border-default);
+  }
+  .doc-header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 8px;
+  }
+  .doc-header h1 span { color: var(--accent); }
+  .doc-header p {
+    color: var(--text-secondary);
+    font-size: 15px;
+    max-width: 680px;
+  }
+
+  /* ====== TOC ====== */
+  .toc {
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
+    padding: 24px 28px;
+    margin-bottom: 48px;
+  }
+  .toc h3 {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+  }
+  .toc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 8px;
+  }
+  .toc a {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 14px;
+    transition: all 0.15s;
+  }
+  .toc a:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .toc a .toc-icon {
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+
+  /* ====== Section ====== */
+  .section {
+    margin-bottom: 56px;
+  }
+  .section-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    background: var(--accent-soft);
+    padding: 4px 10px;
+    border-radius: 4px;
+    margin-bottom: 12px;
+  }
+  .section h2 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin-bottom: 8px;
+  }
+  .section .section-desc {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin-bottom: 24px;
+    max-width: 720px;
+  }
+
+  /* ====== Info Box ====== */
+  .info-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
+    padding: 20px 24px;
+    margin-bottom: 24px;
+  }
+  .info-box h4 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .info-box table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .info-box th {
+    text-align: left;
+    padding: 8px 12px;
+    color: var(--text-muted);
+    font-weight: 500;
+    border-bottom: 1px solid var(--border-default);
+    white-space: nowrap;
+  }
+  .info-box td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-default);
+    color: var(--text-secondary);
+  }
+  .info-box tr:last-child td { border-bottom: none; }
+  .info-box code {
+    background: rgba(255,255,255,0.06);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    color: var(--cyan);
+  }
+
+  /* ====== Mockup Frame ====== */
+  .mockup-frame {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    margin-bottom: 24px;
+  }
+  .mockup-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-default);
+    background: var(--bg-card);
+  }
+  .mockup-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.1);
+  }
+  .mockup-dot.r { background: #ef4444; }
+  .mockup-dot.y { background: #f59e0b; }
+  .mockup-dot.g { background: #22c55e; }
+  .mockup-title {
+    flex: 1;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .mockup-body {
+    min-height: 400px;
+    padding: 0;
+  }
+
+  /* ====== Scheme Tabs ====== */
+  .scheme-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-default);
+    background: var(--bg-card);
+  }
+  .scheme-tab {
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .scheme-tab:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .scheme-tab.active { background: var(--accent-soft); color: var(--accent); }
+
+  /* ====== Scheme A: Card List ====== */
+  .scheme-a {
+    display: flex;
+    height: 480px;
+  }
+  .scheme-a-nav {
+    width: 200px;
+    border-right: 1px solid var(--border-default);
+    padding: 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: rgba(0,0,0,0.15);
+  }
+  .scheme-a-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .scheme-a-nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .scheme-a-nav-item.active { background: var(--accent-soft); color: var(--accent); }
+  .scheme-a-nav-item .nav-icon {
+    width: 18px; height: 18px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px;
+  }
+  .scheme-a-nav-item .nav-count {
+    margin-left: auto;
+    font-size: 11px;
+    background: rgba(255,255,255,0.06);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+  .scheme-a-content {
+    flex: 1;
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+  .scheme-a-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .scheme-a-header h3 {
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { filter: brightness(1.1); }
+  .btn-ghost { background: transparent; color: var(--text-muted); }
+  .btn-ghost:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .btn-danger { background: var(--danger-soft); color: var(--danger); }
+  .btn-danger:hover { background: rgba(239,68,68,0.2); }
+
+  .hook-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    margin-bottom: 8px;
+    transition: all 0.15s;
+  }
+  .hook-card:hover { border-color: rgba(255,255,255,0.12); }
+  .hook-card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    cursor: pointer;
+  }
+  .hook-card-toggle {
+    position: relative;
+    width: 36px; height: 20px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.1);
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+  }
+  .hook-card-toggle.on { background: var(--accent); }
+  .hook-card-toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    transition: all 0.2s;
+  }
+  .hook-card-toggle.on::after { left: 18px; }
+  .hook-card-info { flex: 1; min-width: 0; }
+  .hook-card-name {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .hook-card-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hook-card-tags {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .tag-event { background: var(--accent-soft); color: var(--accent); }
+  .tag-command { background: var(--cyan-soft); color: var(--cyan); }
+  .tag-prompt { background: var(--purple-soft); color: var(--purple); }
+  .tag-matcher { background: var(--warning-soft); color: var(--warning); }
+  .hook-card-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .icon-btn {
+    width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.15s;
+  }
+  .icon-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .icon-btn.danger:hover { background: var(--danger-soft); color: var(--danger); }
+  .hook-card-body {
+    padding: 0 16px 14px;
+    display: none;
+  }
+  .hook-card.expanded .hook-card-body { display: block; }
+  .hook-detail-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 8px;
+    font-size: 12px;
+  }
+  .hook-detail-label {
+    color: var(--text-muted);
+    width: 70px;
+    flex-shrink: 0;
+  }
+  .hook-detail-value {
+    color: var(--text-secondary);
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 11px;
+    background: rgba(0,0,0,0.2);
+    padding: 4px 8px;
+    border-radius: 4px;
+    flex: 1;
+    word-break: break-all;
+  }
+
+  /* ====== Scheme B: Event Timeline ====== */
+  .scheme-b {
+    padding: 20px 24px;
+    height: 480px;
+    overflow-y: auto;
+  }
+  .event-group {
+    margin-bottom: 20px;
+  }
+  .event-group-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    background: var(--bg-card);
+    border-radius: var(--radius);
+    border: 1px solid var(--border-default);
+  }
+  .event-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .event-group-header h4 {
+    font-size: 13px;
+    font-weight: 600;
+    flex: 1;
+  }
+  .event-group-header .event-time {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .event-hook-list {
+    padding-left: 20px;
+    border-left: 2px solid var(--border-default);
+    margin-left: 15px;
+  }
+  .event-hook-item {
+    position: relative;
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    margin-bottom: 6px;
+    margin-left: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .event-hook-item::before {
+    content: '';
+    position: absolute;
+    left: -14px;
+    top: 50%;
+    width: 12px;
+    height: 2px;
+    background: var(--border-default);
+  }
+  .event-hook-item .hook-type-badge {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+  }
+  .badge-command { background: var(--cyan-soft); color: var(--cyan); }
+  .badge-prompt { background: var(--purple-soft); color: var(--purple); }
+  .event-hook-item .hook-cmd {
+    flex: 1;
+    font-size: 12px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .event-hook-item .hook-matcher-tag {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--warning-soft);
+    color: var(--warning);
+    flex-shrink: 0;
+  }
+  .event-hook-item .hook-actions-inline {
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .event-hook-item:hover .hook-actions-inline { opacity: 1; }
+
+  /* ====== Scheme C: Visual Builder ====== */
+  .scheme-c {
+    display: flex;
+    height: 480px;
+  }
+  .scheme-c-palette {
+    width: 220px;
+    border-right: 1px solid var(--border-default);
+    padding: 16px;
+    background: rgba(0,0,0,0.15);
+    overflow-y: auto;
+  }
+  .palette-section {
+    margin-bottom: 16px;
+  }
+  .palette-section h5 {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+  .palette-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: grab;
+    border: 1px dashed var(--border-default);
+    margin-bottom: 4px;
+    transition: all 0.15s;
+  }
+  .palette-item:hover {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--text-primary);
+  }
+  .palette-item .pi-icon {
+    width: 24px; height: 24px;
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .scheme-c-canvas {
+    flex: 1;
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+  .canvas-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-muted);
+    text-align: center;
+  }
+  .canvas-empty-icon {
+    font-size: 40px;
+    margin-bottom: 12px;
+    opacity: 0.3;
+  }
+  .canvas-empty p { font-size: 14px; margin-bottom: 4px; }
+  .canvas-empty span { font-size: 12px; opacity: 0.6; }
+  .flow-node {
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    position: relative;
+  }
+  .flow-node::after {
+    content: '';
+    position: absolute;
+    bottom: -11px;
+    left: 50%;
+    width: 2px;
+    height: 10px;
+    background: var(--border-default);
+  }
+  .flow-node:last-child::after { display: none; }
+  .flow-node-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .flow-node-type {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .flow-node-name {
+    font-size: 13px;
+    font-weight: 600;
+    flex: 1;
+  }
+  .flow-node-body {
+    font-size: 12px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    color: var(--text-secondary);
+    background: rgba(0,0,0,0.2);
+    padding: 8px 10px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+  }
+  .flow-node-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .flow-connector {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 0;
+    color: var(--text-muted);
+    font-size: 18px;
+  }
+
+  /* ====== Scheme D: Table ====== */
+  .scheme-d {
+    padding: 20px 24px;
+    height: 480px;
+    overflow-y: auto;
+  }
+  .scheme-d-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .search-input {
+    flex: 1;
+    background: var(--bg-input);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    padding: 7px 12px;
+    color: var(--text-primary);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .search-input:focus { border-color: var(--border-active); }
+  .search-input::placeholder { color: var(--text-muted); }
+  .filter-select {
+    background: var(--bg-input);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    padding: 7px 12px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    outline: none;
+    cursor: pointer;
+  }
+  .hook-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .hook-table th {
+    text-align: left;
+    padding: 8px 12px;
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid var(--border-default);
+    white-space: nowrap;
+  }
+  .hook-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-default);
+    vertical-align: middle;
+  }
+  .hook-table tr:hover td { background: var(--bg-hover); }
+  .hook-table .name-cell {
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+  .hook-table .cmd-cell {
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 11px;
+    color: var(--text-secondary);
+    max-width: 280px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hook-table .actions-cell {
+    display: flex;
+    gap: 4px;
+  }
+  .toggle-sm {
+    position: relative;
+    width: 30px; height: 16px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.1);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .toggle-sm.on { background: var(--accent); }
+  .toggle-sm::after {
+    content: '';
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: #fff;
+    transition: all 0.2s;
+  }
+  .toggle-sm.on::after { left: 16px; }
+
+  /* ====== Modal ====== */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    display: none;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
+    width: 520px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-default);
+  }
+  .modal-header h3 { font-size: 15px; font-weight: 600; }
+  .modal-body { padding: 20px; }
+  .form-group { margin-bottom: 16px; }
+  .form-group label {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+  }
+  .form-group label .required { color: var(--danger); }
+  .form-input {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--text-primary);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .form-input:focus { border-color: var(--border-active); }
+  .form-input::placeholder { color: var(--text-muted); }
+  .form-select {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--text-primary);
+    font-size: 13px;
+    outline: none;
+    cursor: pointer;
+  }
+  .form-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 16px 20px;
+    border-top: 1px solid var(--border-default);
+  }
+
+  /* ====== Comparison ====== */
+  .comparison-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .comparison-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    transition: all 0.15s;
+  }
+  .comparison-card:hover { border-color: rgba(255,255,255,0.15); }
+  .comparison-card.recommended { border-color: var(--accent); }
+  .comparison-card .cc-icon {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    margin-bottom: 12px;
+  }
+  .comparison-card h4 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .comparison-card .cc-subtitle {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+  }
+  .comparison-card .cc-features {
+    list-style: none;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .comparison-card .cc-features li {
+    padding: 3px 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .comparison-card .cc-features li::before {
+    content: '';
+    width: 4px; height: 4px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .comparison-card .cc-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+
+  /* ====== Data Flow ====== */
+  .data-flow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 20px;
+    overflow-x: auto;
+    margin-bottom: 24px;
+  }
+  .flow-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    text-align: center;
+    min-width: 120px;
+    flex-shrink: 0;
+  }
+  .flow-box .fb-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+  .flow-box .fb-value {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .flow-arrow {
+    color: var(--text-muted);
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+
+  /* ====== JSON Preview ====== */
+  .json-preview {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    padding: 16px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--text-secondary);
+    overflow-x: auto;
+    margin-bottom: 24px;
+  }
+  .json-preview .jk { color: var(--cyan); }
+  .json-preview .js { color: var(--success); }
+  .json-preview .jn { color: var(--warning); }
+  .json-preview .jb { color: var(--purple); }
+
+  /* ====== Scope Selector ====== */
+  .scope-selector {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+  .scope-btn {
+    padding: 5px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    border: 1px solid var(--border-default);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .scope-btn:hover { border-color: rgba(255,255,255,0.15); color: var(--text-primary); }
+  .scope-btn.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+
+  /* ====== Responsive ====== */
+  @media (max-width: 900px) {
+    .comparison-grid { grid-template-columns: repeat(2, 1fr); }
+    .scheme-a-nav { width: 160px; }
+  }
+  @media (max-width: 640px) {
+    .comparison-grid { grid-template-columns: 1fr; }
+    .page-container { padding: 20px 16px 60px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page-container">
+
+  <!-- Header -->
+  <header class="doc-header">
+    <h1>Claude Code <span>Hook</span> 管理方案设计</h1>
+    <p>基于 Claude Code 官方 Hook 机制，结合 SpaceCode 桌面端现有架构（Vue 3 + Electron + Pinia），提供 4 种 Hook 管理 UI 方案，方便用户创建和删除 Hook。</p>
+  </header>
+
+  <!-- TOC -->
+  <nav class="toc">
+    <h3>目录</h3>
+    <div class="toc-grid">
+      <a href="#mechanism">
+        <span class="toc-icon" style="background:var(--accent-soft);color:var(--accent);">1</span>
+        Hook 机制解析
+      </a>
+      <a href="#scheme-a">
+        <span class="toc-icon" style="background:var(--cyan-soft);color:var(--cyan);">A</span>
+        卡片列表方案
+      </a>
+      <a href="#scheme-b">
+        <span class="toc-icon" style="background:var(--purple-soft);color:var(--purple);">B</span>
+        事件时间线方案
+      </a>
+      <a href="#scheme-c">
+        <span class="toc-icon" style="background:var(--warning-soft);color:var(--warning);">C</span>
+        可视化构建器方案
+      </a>
+      <a href="#scheme-d">
+        <span class="toc-icon" style="background:var(--pink-soft);color:var(--pink);">D</span>
+        紧凑表格方案
+      </a>
+      <a href="#comparison">
+        <span class="toc-icon" style="background:var(--success-soft);color:var(--success);">vs</span>
+        方案对比与推荐
+      </a>
+      <a href="#data-flow">
+        <span class="toc-icon" style="background:rgba(255,255,255,0.06);color:var(--text-muted);">&#8594;</span>
+        数据流与集成
+      </a>
+      <a href="#create-modal">
+        <span class="toc-icon" style="background:var(--danger-soft);color:var(--danger);">+</span>
+        创建 Hook 模态框
+      </a>
+    </div>
+  </nav>
+
+  <!-- Section 1: Mechanism -->
+  <section class="section" id="mechanism">
+    <div class="section-label">基础</div>
+    <h2>Claude Code Hook 机制解析</h2>
+    <p class="section-desc">Hook 是在 Claude Code 会话生命周期中特定事件触发时自动执行的自定义 Shell 命令。它们通过 settings.json 配置，支持 matcher 过滤和多种输出控制。</p>
+
+    <div class="info-box">
+      <h4>&#9881; 配置结构</h4>
+      <div class="json-preview"><span class="jk">{</span>
+  <span class="jk">"hooks"</span>: <span class="jb">{</span>
+    <span class="jk">"PreToolUse"</span>: <span class="jb">[</span>
+      <span class="jb">{</span>
+        <span class="jk">"matcher"</span>: <span class="js">"Write|Edit"</span>,
+        <span class="jk">"hooks"</span>: <span class="jb">[</span>
+          <span class="jb">{</span>
+            <span class="jk">"type"</span>: <span class="js">"command"</span>,
+            <span class="jk">"command"</span>: <span class="js">"prettier --write $FILE_PATH"</span>,
+            <span class="jk">"timeout"</span>: <span class="jn">30</span>
+          <span class="jb">}</span>
+        <span class="jb">]</span>
+      <span class="jb">}</span>
+    <span class="jb">]</span>,
+    <span class="jk">"Stop"</span>: <span class="jb">[</span>
+      <span class="jb">{</span>
+        <span class="jk">"hooks"</span>: <span class="jb">[</span>
+          <span class="jb">{</span>
+            <span class="jk">"type"</span>: <span class="js">"prompt"</span>,
+            <span class="jk">"prompt"</span>: <span class="js">"Check if all tasks complete: $ARGUMENTS"</span>
+          <span class="jb">}</span>
+        <span class="jb">]</span>
+      <span class="jb">}</span>
+    <span class="jb">]</span>
+  <span class="jb">}</span>
+<span class="jb">}</span></div>
+    </div>
+
+    <div class="info-box">
+      <h4>&#9889; 10 种 Hook 事件</h4>
+      <table>
+        <thead>
+          <tr><th>事件</th><th>触发时机</th><th>支持 Matcher</th><th>典型用途</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>PreToolUse</code></td><td>工具执行前</td><td>是</td><td>拦截危险命令、验证路径</td></tr>
+          <tr><td><code>PostToolUse</code></td><td>工具执行后</td><td>是</td><td>自动格式化、日志记录</td></tr>
+          <tr><td><code>PostCustomToolCall</code></td><td>MCP 工具完成后</td><td>是</td><td>修改 MCP 工具输出</td></tr>
+          <tr><td><code>Notification</code></td><td>发送通知时</td><td>否</td><td>桌面通知、Slack 集成</td></tr>
+          <tr><td><code>UserPromptSubmit</code></td><td>用户提交提示时</td><td>否</td><td>注入上下文、验证输入</td></tr>
+          <tr><td><code>Stop</code></td><td>主 Agent 完成时</td><td>否</td><td>验证任务、运行测试</td></tr>
+          <tr><td><code>SubagentStop</code></td><td>子 Agent 完成时</td><td>否</td><td>验证子 Agent 输出</td></tr>
+          <tr><td><code>PreCompact</code></td><td>上下文压缩前</td><td>manual / auto</td><td>备份重要决策</td></tr>
+          <tr><td><code>SessionStart</code></td><td>会话启动/恢复</td><td>startup / resume / clear / compact</td><td>加载 git 状态、环境变量</td></tr>
+          <tr><td><code>SessionEnd</code></td><td>会话结束时</td><td>否</td><td>清理、统计日志</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="info-box">
+      <h4>&#128274; 配置作用域</h4>
+      <table>
+        <thead>
+          <tr><th>作用域</th><th>文件路径</th><th>影响范围</th><th>共享</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>用户级</td><td><code>~/.claude/settings.json</code></td><td>所有项目</td><td>否</td></tr>
+          <tr><td>项目级</td><td><code>.claude/settings.json</code></td><td>当前项目</td><td>是（提交 Git）</td></tr>
+          <tr><td>本地级</td><td><code>.claude/settings.local.json</code></td><td>当前项目</td><td>否（gitignored）</td></tr>
+          <tr><td>企业管理</td><td>系统级 managed-settings</td><td>组织所有用户</td><td>IT 部署</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Scheme A -->
+  <section class="section" id="scheme-a">
+    <div class="section-label" style="background:var(--cyan-soft);color:var(--cyan);">方案 A</div>
+    <h2>卡片列表方案</h2>
+    <p class="section-desc">与现有 MCP 设置页面风格一致。左侧按事件类型分组导航，右侧展示该事件下的 Hook 卡片列表。支持展开详情、开关切换、快速删除。最适合与现有 UI 风格统一。</p>
+
+    <div class="mockup-frame">
+      <div class="mockup-toolbar">
+        <div class="mockup-dot r"></div>
+        <div class="mockup-dot y"></div>
+        <div class="mockup-dot g"></div>
+        <div class="mockup-title">SpaceCode - Hook 管理（卡片列表）</div>
+      </div>
+      <div class="mockup-body">
+        <div class="scheme-a">
+          <nav class="scheme-a-nav">
+            <div class="scheme-a-nav-item active">
+              <span class="nav-icon">&#9889;</span> PreToolUse
+              <span class="nav-count">3</span>
+            </div>
+            <div class="scheme-a-nav-item">
+              <span class="nav-icon">&#9998;</span> PostToolUse
+              <span class="nav-count">2</span>
+            </div>
+            <div class="scheme-a-nav-item">
+              <span class="nav-icon">&#128172;</span> UserPromptSubmit
+              <span class="nav-count">1</span>
+            </div>
+            <div class="scheme-a-nav-item">
+              <span class="nav-icon">&#9209;</span> Stop
+              <span class="nav-count">1</span>
+            </div>
+            <div class="scheme-a-nav-item">
+              <span class="nav-icon">&#128276;</span> Notification
+            </div>
+            <div class="scheme-a-nav-item">
+              <span class="nav-icon">&#9654;</span> SessionStart
+              <span class="nav-count">1</span>
+            </div>
+            <div class="scheme-a-nav-item">
+              <span class="nav-icon">&#9632;</span> SessionEnd
+            </div>
+            <div class="scheme-a-nav-item">
+              <span class="nav-icon">&#128451;</span> PreCompact
+            </div>
+          </nav>
+
+          <div class="scheme-a-content">
+            <div class="scheme-a-header">
+              <h3>PreToolUse</h3>
+              <button class="btn btn-primary">+ 添加 Hook</button>
+            </div>
+
+            <div class="scope-selector">
+              <button class="scope-btn active">项目级</button>
+              <button class="scope-btn">用户级</button>
+              <button class="scope-btn">本地级</button>
+            </div>
+
+            <div class="hook-card expanded">
+              <div class="hook-card-header">
+                <div class="hook-card-toggle on"></div>
+                <div class="hook-card-info">
+                  <div class="hook-card-name">格式化检查</div>
+                  <div class="hook-card-desc">Write 或 Edit 文件后自动运行 Prettier</div>
+                </div>
+                <div class="hook-card-tags">
+                  <span class="tag tag-matcher">Write|Edit</span>
+                  <span class="tag tag-command">command</span>
+                </div>
+                <div class="hook-card-actions">
+                  <button class="icon-btn" title="编辑">&#9998;</button>
+                  <button class="icon-btn danger" title="删除">&#128465;</button>
+                </div>
+              </div>
+              <div class="hook-card-body">
+                <div class="hook-detail-row">
+                  <span class="hook-detail-label">命令</span>
+                  <span class="hook-detail-value">prettier --write "$FILE_PATH"</span>
+                </div>
+                <div class="hook-detail-row">
+                  <span class="hook-detail-label">超时</span>
+                  <span class="hook-detail-value">30s</span>
+                </div>
+                <div class="hook-detail-row">
+                  <span class="hook-detail-label">作用域</span>
+                  <span class="hook-detail-value">.claude/settings.json (项目级)</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="hook-card">
+              <div class="hook-card-header">
+                <div class="hook-card-toggle on"></div>
+                <div class="hook-card-info">
+                  <div class="hook-card-name">阻止危险命令</div>
+                  <div class="hook-card-desc">拦截 rm -rf 和 sudo 等危险 Bash 命令</div>
+                </div>
+                <div class="hook-card-tags">
+                  <span class="tag tag-matcher">Bash</span>
+                  <span class="tag tag-command">command</span>
+                </div>
+                <div class="hook-card-actions">
+                  <button class="icon-btn" title="编辑">&#9998;</button>
+                  <button class="icon-btn danger" title="删除">&#128465;</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="hook-card">
+              <div class="hook-card-header">
+                <div class="hook-card-toggle"></div>
+                <div class="hook-card-info">
+                  <div class="hook-card-name">路径验证</div>
+                  <div class="hook-card-desc">确保 Write 操作只写入项目目录内</div>
+                </div>
+                <div class="hook-card-tags">
+                  <span class="tag tag-matcher">Write</span>
+                  <span class="tag tag-command">command</span>
+                </div>
+                <div class="hook-card-actions">
+                  <button class="icon-btn" title="编辑">&#9998;</button>
+                  <button class="icon-btn danger" title="删除">&#128465;</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Scheme B -->
+  <section class="section" id="scheme-b">
+    <div class="section-label" style="background:var(--purple-soft);color:var(--purple);">方案 B</div>
+    <h2>事件时间线方案</h2>
+    <p class="section-desc">按会话生命周期顺序排列所有 Hook 事件，形成时间线视图。用户可以直观看到 Hook 在会话流程中的位置，便于理解执行顺序和添加新 Hook。</p>
+
+    <div class="mockup-frame">
+      <div class="mockup-toolbar">
+        <div class="mockup-dot r"></div>
+        <div class="mockup-dot y"></div>
+        <div class="mockup-dot g"></div>
+        <div class="mockup-title">SpaceCode - Hook 管理（事件时间线）</div>
+      </div>
+      <div class="mockup-body">
+        <div class="scheme-b">
+          <div class="scheme-a-header" style="margin-bottom:16px;">
+            <h3>Hook 生命周期</h3>
+            <div style="display:flex;gap:8px;">
+              <button class="btn btn-ghost">全部折叠</button>
+              <button class="btn btn-primary">+ 添加 Hook</button>
+            </div>
+          </div>
+
+          <div class="scope-selector">
+            <button class="scope-btn active">项目级</button>
+            <button class="scope-btn">用户级</button>
+            <button class="scope-btn">本地级</button>
+          </div>
+
+          <div class="event-group">
+            <div class="event-group-header">
+              <div class="event-dot" style="background:var(--success);"></div>
+              <h4>SessionStart</h4>
+              <span style="font-size:12px;color:var(--text-muted);">会话启动时</span>
+              <span style="margin-left:auto;font-size:12px;color:var(--accent);">1 个 Hook</span>
+            </div>
+            <div class="event-hook-list">
+              <div class="event-hook-item">
+                <span class="hook-type-badge badge-command">CMD</span>
+                <span class="hook-cmd">echo "Git: $(git status --porcelain | wc -l) changed files"</span>
+                <span class="hook-actions-inline">
+                  <button class="icon-btn" style="opacity:1;">&#9998;</button>
+                  <button class="icon-btn danger" style="opacity:1;">&#128465;</button>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div class="event-group">
+            <div class="event-group-header">
+              <div class="event-dot" style="background:var(--warning);"></div>
+              <h4>UserPromptSubmit</h4>
+              <span style="font-size:12px;color:var(--text-muted);">用户提交提示时</span>
+              <span style="margin-left:auto;font-size:12px;color:var(--accent);">1 个 Hook</span>
+            </div>
+            <div class="event-hook-list">
+              <div class="event-hook-item">
+                <span class="hook-type-badge badge-command">CMD</span>
+                <span class="hook-cmd">python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/inject-context.py"</span>
+                <span class="hook-actions-inline">
+                  <button class="icon-btn" style="opacity:1;">&#9998;</button>
+                  <button class="icon-btn danger" style="opacity:1;">&#128465;</button>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div class="event-group">
+            <div class="event-group-header">
+              <div class="event-dot" style="background:var(--danger);"></div>
+              <h4>PreToolUse</h4>
+              <span style="font-size:12px;color:var(--text-muted);">工具执行前</span>
+              <span style="margin-left:auto;font-size:12px;color:var(--accent);">3 个 Hook</span>
+            </div>
+            <div class="event-hook-list">
+              <div class="event-hook-item">
+                <span class="hook-type-badge badge-command">CMD</span>
+                <span class="hook-cmd">prettier --write "$FILE_PATH"</span>
+                <span class="hook-matcher-tag">Write|Edit</span>
+                <span class="hook-actions-inline">
+                  <button class="icon-btn" style="opacity:1;">&#9998;</button>
+                  <button class="icon-btn danger" style="opacity:1;">&#128465;</button>
+                </span>
+              </div>
+              <div class="event-hook-item">
+                <span class="hook-type-badge badge-command">CMD</span>
+                <span class="hook-cmd">validate-bash-safety.sh</span>
+                <span class="hook-matcher-tag">Bash</span>
+                <span class="hook-actions-inline">
+                  <button class="icon-btn" style="opacity:1;">&#9998;</button>
+                  <button class="icon-btn danger" style="opacity:1;">&#128465;</button>
+                </span>
+              </div>
+              <div class="event-hook-item">
+                <span class="hook-type-badge badge-prompt">LLM</span>
+                <span class="hook-cmd">Check if this file path is safe to write...</span>
+                <span class="hook-matcher-tag">Write</span>
+                <span class="hook-actions-inline">
+                  <button class="icon-btn" style="opacity:1;">&#9998;</button>
+                  <button class="icon-btn danger" style="opacity:1;">&#128465;</button>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div class="event-group">
+            <div class="event-group-header">
+              <div class="event-dot" style="background:var(--cyan);"></div>
+              <h4>PostToolUse</h4>
+              <span style="font-size:12px;color:var(--text-muted);">工具执行后</span>
+              <span style="margin-left:auto;font-size:12px;color:var(--text-muted);">0 个 Hook</span>
+              <button class="btn btn-ghost" style="margin-left:8px;padding:3px 8px;font-size:11px;">+ 添加</button>
+            </div>
+          </div>
+
+          <div class="event-group">
+            <div class="event-group-header">
+              <div class="event-dot" style="background:var(--purple);"></div>
+              <h4>Stop</h4>
+              <span style="font-size:12px;color:var(--text-muted);">Agent 完成时</span>
+              <span style="margin-left:auto;font-size:12px;color:var(--accent);">1 个 Hook</span>
+            </div>
+            <div class="event-hook-list">
+              <div class="event-hook-item">
+                <span class="hook-type-badge badge-prompt">LLM</span>
+                <span class="hook-cmd">Verify all tasks are complete before stopping...</span>
+                <span class="hook-actions-inline">
+                  <button class="icon-btn" style="opacity:1;">&#9998;</button>
+                  <button class="icon-btn danger" style="opacity:1;">&#128465;</button>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Scheme C -->
+  <section class="section" id="scheme-c">
+    <div class="section-label" style="background:var(--warning-soft);color:var(--warning);">方案 C</div>
+    <h2>可视化构建器方案</h2>
+    <p class="section-desc">左侧提供事件和 Hook 类型的拖拽面板，右侧为可视化流程画布。用户从面板拖入事件节点和 Hook 节点，连接成流程。适合不熟悉 JSON 配置的新手用户。</p>
+
+    <div class="mockup-frame">
+      <div class="mockup-toolbar">
+        <div class="mockup-dot r"></div>
+        <div class="mockup-dot y"></div>
+        <div class="mockup-dot g"></div>
+        <div class="mockup-title">SpaceCode - Hook 管理（可视化构建器）</div>
+      </div>
+      <div class="mockup-body">
+        <div class="scheme-c">
+          <div class="scheme-c-palette">
+            <div class="palette-section">
+              <h5>事件节点</h5>
+              <div class="palette-item">
+                <span class="pi-icon" style="background:var(--success-soft);color:var(--success);">&#9654;</span>
+                SessionStart
+              </div>
+              <div class="palette-item">
+                <span class="pi-icon" style="background:var(--warning-soft);color:var(--warning);">&#128172;</span>
+                UserPromptSubmit
+              </div>
+              <div class="palette-item">
+                <span class="pi-icon" style="background:var(--danger-soft);color:var(--danger);">&#9889;</span>
+                PreToolUse
+              </div>
+              <div class="palette-item">
+                <span class="pi-icon" style="background:var(--cyan-soft);color:var(--cyan);">&#9998;</span>
+                PostToolUse
+              </div>
+              <div class="palette-item">
+                <span class="pi-icon" style="background:var(--purple-soft);color:var(--purple);">&#9209;</span>
+                Stop
+              </div>
+            </div>
+            <div class="palette-section">
+              <h5>Hook 类型</h5>
+              <div class="palette-item">
+                <span class="pi-icon" style="background:var(--cyan-soft);color:var(--cyan);">&gt;_</span>
+                Command
+              </div>
+              <div class="palette-item">
+                <span class="pi-icon" style="background:var(--purple-soft);color:var(--purple);">AI</span>
+                Prompt
+              </div>
+            </div>
+            <div class="palette-section">
+              <h5>模板</h5>
+              <div class="palette-item">
+                <span class="pi-icon" style="background:rgba(255,255,255,0.06);color:var(--text-muted);">&#128196;</span>
+                自动格式化
+              </div>
+              <div class="palette-item">
+                <span class="pi-icon" style="background:rgba(255,255,255,0.06);color:var(--text-muted);">&#128274;</span>
+                安全拦截
+              </div>
+              <div class="palette-item">
+                <span class="pi-icon" style="background:rgba(255,255,255,0.06);color:var(--text-muted);">&#128203;</span>
+                上下文注入
+              </div>
+            </div>
+          </div>
+
+          <div class="scheme-c-canvas">
+            <div class="scope-selector">
+              <button class="scope-btn active">项目级</button>
+              <button class="scope-btn">用户级</button>
+              <button class="scope-btn">本地级</button>
+            </div>
+
+            <div class="flow-node" style="border-left:3px solid var(--danger);">
+              <div class="flow-node-header">
+                <span class="flow-node-type" style="background:var(--danger-soft);color:var(--danger);">PreToolUse</span>
+                <span class="flow-node-name">Write|Edit</span>
+                <button class="icon-btn" style="margin-left:auto;">&#128465;</button>
+              </div>
+              <div class="flow-node-body">prettier --write "$FILE_PATH"</div>
+              <div class="flow-node-footer">
+                <span class="tag tag-command" style="font-size:10px;">command</span>
+                <span>30s 超时</span>
+              </div>
+            </div>
+
+            <div class="flow-connector">&#8595;</div>
+
+            <div class="flow-node" style="border-left:3px solid var(--danger);">
+              <div class="flow-node-header">
+                <span class="flow-node-type" style="background:var(--danger-soft);color:var(--danger);">PreToolUse</span>
+                <span class="flow-node-name">Bash</span>
+                <button class="icon-btn" style="margin-left:auto;">&#128465;</button>
+              </div>
+              <div class="flow-node-body">validate-bash-safety.sh</div>
+              <div class="flow-node-footer">
+                <span class="tag tag-command" style="font-size:10px;">command</span>
+                <span>10s 超时</span>
+              </div>
+            </div>
+
+            <div class="flow-connector">&#8595;</div>
+
+            <div class="flow-node" style="border-left:3px solid var(--cyan);">
+              <div class="flow-node-header">
+                <span class="flow-node-type" style="background:var(--cyan-soft);color:var(--cyan);">PostToolUse</span>
+                <span class="flow-node-name">Write|Edit</span>
+                <button class="icon-btn" style="margin-left:auto;">&#128465;</button>
+              </div>
+              <div class="flow-node-body">eslint --fix "$FILE_PATH"</div>
+              <div class="flow-node-footer">
+                <span class="tag tag-command" style="font-size:10px;">command</span>
+                <span>20s 超时</span>
+              </div>
+            </div>
+
+            <div class="flow-connector">&#8595;</div>
+
+            <div class="flow-node" style="border-left:3px solid var(--purple);">
+              <div class="flow-node-header">
+                <span class="flow-node-type" style="background:var(--purple-soft);color:var(--purple);">Stop</span>
+                <span class="flow-node-name">任务验证</span>
+                <button class="icon-btn" style="margin-left:auto;">&#128465;</button>
+              </div>
+              <div class="flow-node-body">Verify all tasks are complete: $ARGUMENTS</div>
+              <div class="flow-node-footer">
+                <span class="tag tag-prompt" style="font-size:10px;">prompt</span>
+                <span>30s 超时</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Scheme D -->
+  <section class="section" id="scheme-d">
+    <div class="section-label" style="background:var(--pink-soft);color:var(--pink);">方案 D</div>
+    <h2>紧凑表格方案</h2>
+    <p class="section-desc">以表格形式展示所有 Hook，支持搜索、筛选和批量操作。适合 Hook 数量较多的高级用户，信息密度高，操作效率高。</p>
+
+    <div class="mockup-frame">
+      <div class="mockup-toolbar">
+        <div class="mockup-dot r"></div>
+        <div class="mockup-dot y"></div>
+        <div class="mockup-dot g"></div>
+        <div class="mockup-title">SpaceCode - Hook 管理（紧凑表格）</div>
+      </div>
+      <div class="mockup-body">
+        <div class="scheme-d">
+          <div class="scheme-d-toolbar">
+            <input class="search-input" placeholder="搜索 Hook 名称、命令、matcher..." />
+            <select class="filter-select">
+              <option>所有事件</option>
+              <option>PreToolUse</option>
+              <option>PostToolUse</option>
+              <option>Stop</option>
+              <option>SessionStart</option>
+            </select>
+            <select class="filter-select">
+              <option>所有类型</option>
+              <option>Command</option>
+              <option>Prompt</option>
+            </select>
+            <select class="filter-select">
+              <option>所有作用域</option>
+              <option>项目级</option>
+              <option>用户级</option>
+              <option>本地级</option>
+            </select>
+            <button class="btn btn-primary">+ 添加</button>
+          </div>
+
+          <table class="hook-table">
+            <thead>
+              <tr>
+                <th style="width:40px;"></th>
+                <th>名称</th>
+                <th>事件</th>
+                <th>Matcher</th>
+                <th>类型</th>
+                <th>命令 / Prompt</th>
+                <th>作用域</th>
+                <th style="width:80px;">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><div class="toggle-sm on"></div></td>
+                <td class="name-cell">格式化检查</td>
+                <td><span class="tag tag-event" style="font-size:10px;">PreToolUse</span></td>
+                <td><code>Write|Edit</code></td>
+                <td><span class="tag tag-command" style="font-size:10px;">CMD</span></td>
+                <td class="cmd-cell">prettier --write "$FILE_PATH"</td>
+                <td style="font-size:12px;color:var(--text-muted);">项目</td>
+                <td class="actions-cell">
+                  <button class="icon-btn">&#9998;</button>
+                  <button class="icon-btn danger">&#128465;</button>
+                </td>
+              </tr>
+              <tr>
+                <td><div class="toggle-sm on"></div></td>
+                <td class="name-cell">阻止危险命令</td>
+                <td><span class="tag tag-event" style="font-size:10px;">PreToolUse</span></td>
+                <td><code>Bash</code></td>
+                <td><span class="tag tag-command" style="font-size:10px;">CMD</span></td>
+                <td class="cmd-cell">validate-bash-safety.sh</td>
+                <td style="font-size:12px;color:var(--text-muted);">项目</td>
+                <td class="actions-cell">
+                  <button class="icon-btn">&#9998;</button>
+                  <button class="icon-btn danger">&#128465;</button>
+                </td>
+              </tr>
+              <tr>
+                <td><div class="toggle-sm on"></div></td>
+                <td class="name-cell">路径安全验证</td>
+                <td><span class="tag tag-event" style="font-size:10px;">PreToolUse</span></td>
+                <td><code>Write</code></td>
+                <td><span class="tag tag-prompt" style="font-size:10px;">LLM</span></td>
+                <td class="cmd-cell">Check if this file path is safe to write...</td>
+                <td style="font-size:12px;color:var(--text-muted);">用户</td>
+                <td class="actions-cell">
+                  <button class="icon-btn">&#9998;</button>
+                  <button class="icon-btn danger">&#128465;</button>
+                </td>
+              </tr>
+              <tr>
+                <td><div class="toggle-sm on"></div></td>
+                <td class="name-cell">ESLint 修复</td>
+                <td><span class="tag tag-event" style="font-size:10px;">PostToolUse</span></td>
+                <td><code>Write|Edit</code></td>
+                <td><span class="tag tag-command" style="font-size:10px;">CMD</span></td>
+                <td class="cmd-cell">eslint --fix "$FILE_PATH"</td>
+                <td style="font-size:12px;color:var(--text-muted);">项目</td>
+                <td class="actions-cell">
+                  <button class="icon-btn">&#9998;</button>
+                  <button class="icon-btn danger">&#128465;</button>
+                </td>
+              </tr>
+              <tr>
+                <td><div class="toggle-sm on"></div></td>
+                <td class="name-cell">注入项目上下文</td>
+                <td><span class="tag tag-event" style="font-size:10px;">UserPromptSubmit</span></td>
+                <td>-</td>
+                <td><span class="tag tag-command" style="font-size:10px;">CMD</span></td>
+                <td class="cmd-cell">inject-context.py</td>
+                <td style="font-size:12px;color:var(--text-muted);">项目</td>
+                <td class="actions-cell">
+                  <button class="icon-btn">&#9998;</button>
+                  <button class="icon-btn danger">&#128465;</button>
+                </td>
+              </tr>
+              <tr>
+                <td><div class="toggle-sm on"></div></td>
+                <td class="name-cell">任务完成验证</td>
+                <td><span class="tag tag-event" style="font-size:10px;">Stop</span></td>
+                <td>-</td>
+                <td><span class="tag tag-prompt" style="font-size:10px;">LLM</span></td>
+                <td class="cmd-cell">Verify all tasks are complete: $ARGUMENTS</td>
+                <td style="font-size:12px;color:var(--text-muted);">用户</td>
+                <td class="actions-cell">
+                  <button class="icon-btn">&#9998;</button>
+                  <button class="icon-btn danger">&#128465;</button>
+                </td>
+              </tr>
+              <tr>
+                <td><div class="toggle-sm"></div></td>
+                <td class="name-cell" style="color:var(--text-muted);">Git 状态加载</td>
+                <td><span class="tag tag-event" style="font-size:10px;">SessionStart</span></td>
+                <td>startup</td>
+                <td><span class="tag tag-command" style="font-size:10px;">CMD</span></td>
+                <td class="cmd-cell" style="color:var(--text-muted);">git status --porcelain</td>
+                <td style="font-size:12px;color:var(--text-muted);">本地</td>
+                <td class="actions-cell">
+                  <button class="icon-btn">&#9998;</button>
+                  <button class="icon-btn danger">&#128465;</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Comparison -->
+  <section class="section" id="comparison">
+    <div class="section-label" style="background:var(--success-soft);color:var(--success);">对比</div>
+    <h2>方案对比与推荐</h2>
+    <p class="section-desc">四种方案各有侧重，根据用户群体和技术复杂度选择。</p>
+
+    <div class="comparison-grid">
+      <div class="comparison-card recommended">
+        <span class="cc-badge">推荐</span>
+        <div class="cc-icon" style="background:var(--cyan-soft);color:var(--cyan);">A</div>
+        <h4>卡片列表</h4>
+        <div class="cc-subtitle">与 MCP 设置风格一致</div>
+        <ul class="cc-features">
+          <li>与现有 UI 风格完全统一</li>
+          <li>开发成本最低，复用 MCP 组件</li>
+          <li>按事件分组，逻辑清晰</li>
+          <li>支持开关、展开详情</li>
+          <li>适合大多数用户</li>
+        </ul>
+      </div>
+      <div class="comparison-card">
+        <div class="cc-icon" style="background:var(--purple-soft);color:var(--purple);">B</div>
+        <h4>事件时间线</h4>
+        <div class="cc-subtitle">生命周期可视化</div>
+        <ul class="cc-features">
+          <li>直观展示执行顺序</li>
+          <li>帮助理解 Hook 触发流程</li>
+          <li>适合学习和调试场景</li>
+          <li>新增 Hook 时事件定位明确</li>
+          <li>纵向空间占用较多</li>
+        </ul>
+      </div>
+      <div class="comparison-card">
+        <div class="cc-icon" style="background:var(--warning-soft);color:var(--warning);">C</div>
+        <h4>可视化构建器</h4>
+        <div class="cc-subtitle">拖拽式零代码配置</div>
+        <ul class="cc-features">
+          <li>新手友好，无需懂 JSON</li>
+          <li>模板快速创建</li>
+          <li>开发成本最高</li>
+          <li>需要拖拽库支持</li>
+          <li>高级用户可能觉得效率低</li>
+        </ul>
+      </div>
+      <div class="comparison-card">
+        <div class="cc-icon" style="background:var(--pink-soft);color:var(--pink);">D</div>
+        <h4>紧凑表格</h4>
+        <div class="cc-subtitle">高密度信息管理</div>
+        <ul class="cc-features">
+          <li>信息密度最高</li>
+          <li>支持搜索和多维筛选</li>
+          <li>适合 Hook 数量多的场景</li>
+          <li>批量操作效率高</li>
+          <li>新手可能感到信息过载</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="info-box">
+      <h4>&#128161; 推荐策略：A + D 混合模式</h4>
+      <p style="font-size:13px;color:var(--text-secondary);line-height:1.8;">
+        <strong>默认使用方案 A（卡片列表）</strong>作为主界面，与现有 MCP 设置风格一致，降低学习成本。
+        在卡片列表顶部提供<strong>「表格视图」切换按钮</strong>，高级用户可一键切换到方案 D 的紧凑表格模式。
+        方案 B 的时间线视图可作为<strong>调试模式</strong>的辅助展示。方案 C 的可视化构建器可作为<strong>未来增强</strong>，
+        在 V2 版本中引入。
+      </p>
+    </div>
+  </section>
+
+  <!-- Data Flow -->
+  <section class="section" id="data-flow">
+    <div class="section-label">架构</div>
+    <h2>数据流与集成方案</h2>
+    <p class="section-desc">Hook 管理 UI 如何与现有架构集成，实现创建、编辑、删除的完整闭环。</p>
+
+    <div class="data-flow">
+      <div class="flow-box">
+        <div class="fb-label">UI 层</div>
+        <div class="fb-value">HookSettings.vue</div>
+      </div>
+      <div class="flow-arrow">&#8594;</div>
+      <div class="flow-box">
+        <div class="fb-label">状态层</div>
+        <div class="fb-value">hooksStore (Pinia)</div>
+      </div>
+      <div class="flow-arrow">&#8594;</div>
+      <div class="flow-box">
+        <div class="fb-label">IPC 桥接</div>
+        <div class="fb-value">electronAPI</div>
+      </div>
+      <div class="flow-arrow">&#8594;</div>
+      <div class="flow-box">
+        <div class="fb-label">主进程</div>
+        <div class="fb-value">hooksService.ts</div>
+      </div>
+      <div class="flow-arrow">&#8594;</div>
+      <div class="flow-box">
+        <div class="fb-label">文件系统</div>
+        <div class="fb-value">settings.json</div>
+      </div>
+    </div>
+
+    <div class="info-box">
+      <h4>&#128209; 需要新增的文件</h4>
+      <table>
+        <thead>
+          <tr><th>层级</th><th>文件</th><th>职责</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>UI 组件</td><td><code>src/components/settings/HookSettings.vue</code></td><td>Hook 管理 UI 主组件</td></tr>
+          <tr><td>UI 组件</td><td><code>src/components/settings/HookEditModal.vue</code></td><td>创建/编辑 Hook 的模态框</td></tr>
+          <tr><td>状态管理</td><td><code>src/stores/hooks.ts</code></td><td>Hook 数据的 Pinia Store</td></tr>
+          <tr><td>类型定义</td><td><code>src/types/hooks.ts</code></td><td>Hook 相关 TypeScript 类型</td></tr>
+          <tr><td>IPC 服务</td><td><code>electron/hooksService.ts</code></td><td>读写 settings.json 的主进程服务</td></tr>
+          <tr><td>IPC 桥接</td><td><code>electron/preload.ts</code>（扩展）</td><td>暴露 hooksAPI 到渲染进程</td></tr>
+          <tr><td>国际化</td><td><code>src/i18n/locales/zh-CN.ts</code>（扩展）</td><td>Hook 管理相关翻译</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="info-box">
+      <h4>&#128274; settings.json 读写策略</h4>
+      <table>
+        <thead>
+          <tr><th>操作</th><th>策略</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>读取</td><td>主进程读取 + 合并</td><td>按优先级合并用户级、项目级、本地级配置</td></tr>
+          <tr><td>创建</td><td>追加到指定作用域文件</td><td>根据用户选择的作用域写入对应 settings.json</td></tr>
+          <tr><td>编辑</td><td>定位并替换</td><td>通过事件名 + matcher 索引定位，原地替换</td></tr>
+          <tr><td>删除</td><td>定位并移除</td><td>移除指定 hook 条目，若 matcher 下无 hook 则移除 matcher</td></tr>
+          <tr><td>开关</td><td>添加 disabled 标记</td><td>在 hook 对象中添加 <code>"disabled": true</code>，引擎层已支持</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Create Modal -->
+  <section class="section" id="create-modal">
+    <div class="section-label" style="background:var(--danger-soft);color:var(--danger);">交互</div>
+    <h2>创建 Hook 模态框设计</h2>
+    <p class="section-desc">统一的创建/编辑 Hook 模态框，支持 command 和 prompt 两种类型，包含事件选择、matcher 配置、作用域选择等完整字段。</p>
+
+    <div class="mockup-frame">
+      <div class="mockup-toolbar">
+        <div class="mockup-dot r"></div>
+        <div class="mockup-dot y"></div>
+        <div class="mockup-dot g"></div>
+        <div class="mockup-title">创建 Hook</div>
+      </div>
+      <div class="mockup-body" style="padding:0;">
+        <div style="padding:20px 24px;">
+          <div class="form-group">
+            <label>Hook 名称 <span class="required">*</span></label>
+            <input class="form-input" placeholder="例如：自动格式化" value="自动格式化" />
+          </div>
+
+          <div class="form-group">
+            <label>事件类型 <span class="required">*</span></label>
+            <select class="form-select">
+              <option>PreToolUse - 工具执行前</option>
+              <option>PostToolUse - 工具执行后</option>
+              <option>PostCustomToolCall - MCP 工具完成后</option>
+              <option>Notification - 通知时</option>
+              <option>UserPromptSubmit - 用户提交提示时</option>
+              <option>Stop - Agent 完成时</option>
+              <option>SubagentStop - 子 Agent 完成时</option>
+              <option>PreCompact - 上下文压缩前</option>
+              <option>SessionStart - 会话启动时</option>
+              <option>SessionEnd - 会话结束时</option>
+            </select>
+            <div class="form-hint">选择 Hook 触发的生命周期事件</div>
+          </div>
+
+          <div class="form-group" id="matcher-group">
+            <label>Matcher 模式</label>
+            <input class="form-input" placeholder="例如：Write|Edit 或 Bash 或 * （留空匹配所有）" value="Write|Edit" />
+            <div class="form-hint">仅 PreToolUse / PostToolUse / PostCustomToolCall 支持 matcher。支持正则：Edit|Write 或 Notebook.*</div>
+          </div>
+
+          <div class="form-group">
+            <label>Hook 类型 <span class="required">*</span></label>
+            <div style="display:flex;gap:8px;">
+              <button class="scope-btn active" onclick="switchHookType('command')">Command（Shell 命令）</button>
+              <button class="scope-btn" onclick="switchHookType('prompt')">Prompt（LLM 评估）</button>
+            </div>
+          </div>
+
+          <div class="form-group" id="command-group">
+            <label>Shell 命令 <span class="required">*</span></label>
+            <input class="form-input" placeholder="例如：prettier --write $FILE_PATH" value='prettier --write "$FILE_PATH"' />
+            <div class="form-hint">可用环境变量：$CLAUDE_PROJECT_DIR, $FILE_PATH, $TOOL_NAME 等</div>
+          </div>
+
+          <div class="form-group" id="prompt-group" style="display:none;">
+            <label>Prompt 文本 <span class="required">*</span></label>
+            <textarea class="form-input" rows="3" placeholder="例如：检查此操作是否安全：$ARGUMENTS" style="resize:vertical;"></textarea>
+            <div class="form-hint">使用 $ARGUMENTS 作为 Hook 输入 JSON 的占位符。LLM 将返回 approve/block 决策。</div>
+          </div>
+
+          <div style="display:flex;gap:16px;">
+            <div class="form-group" style="flex:1;">
+              <label>超时时间（秒）</label>
+              <input class="form-input" type="number" value="30" min="1" max="300" />
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label>作用域 <span class="required">*</span></label>
+              <select class="form-select">
+                <option>项目级 (.claude/settings.json)</option>
+                <option>用户级 (~/.claude/settings.json)</option>
+                <option>本地级 (.claude/settings.local.json)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="checkbox" checked style="accent-color:var(--accent);" />
+              创建后立即启用
+            </label>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;padding:16px 24px;border-top:1px solid var(--border-default);">
+          <button class="btn btn-ghost">取消</button>
+          <button class="btn btn-primary">创建 Hook</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="info-box">
+      <h4>&#128221; 删除 Hook 的交互设计</h4>
+      <table>
+        <thead>
+          <tr><th>步骤</th><th>交互</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1. 触发</td><td>点击删除按钮</td><td>卡片/表格行上的删除图标</td></tr>
+          <tr><td>2. 确认</td><td>弹出确认对话框</td><td>显示 Hook 名称和命令，防止误删</td></tr>
+          <tr><td>3. 执行</td><td>调用 IPC 删除</td><td>从对应 settings.json 中移除条目</td></tr>
+          <tr><td>4. 反馈</td><td>Toast 通知</td><td>「Hook 已删除」+ 撤销按钮（5秒内）</td></tr>
+          <tr><td>5. 撤销</td><td>点击撤销</td><td>恢复刚删除的 Hook 条目</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+
+<script>
+function switchHookType(type) {
+  const cmdGroup = document.getElementById('command-group');
+  const promptGroup = document.getElementById('prompt-group');
+  const matcherGroup = document.getElementById('matcher-group');
+  const btns = document.querySelectorAll('#create-modal .scope-btn');
+
+  btns.forEach(b => b.classList.remove('active'));
+  if (type === 'command') {
+    cmdGroup.style.display = '';
+    promptGroup.style.display = 'none';
+    btns[0].classList.add('active');
+  } else {
+    cmdGroup.style.display = 'none';
+    promptGroup.style.display = '';
+    btns[1].classList.add('active');
+  }
+}
+
+document.querySelectorAll('.hook-card-header').forEach(header => {
+  header.addEventListener('click', (e) => {
+    if (e.target.closest('.hook-card-toggle') || e.target.closest('.icon-btn')) return;
+    header.parentElement.classList.toggle('expanded');
+  });
+});
+
+document.querySelectorAll('.hook-card-toggle').forEach(toggle => {
+  toggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggle.classList.toggle('on');
+  });
+});
+
+document.querySelectorAll('.toggle-sm').forEach(toggle => {
+  toggle.addEventListener('click', () => {
+    toggle.classList.toggle('on');
+  });
+});
+
+document.querySelectorAll('.scheme-a-nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    document.querySelectorAll('.scheme-a-nav-item').forEach(i => i.classList.remove('active'));
+    item.classList.add('active');
+  });
+});
+
+document.querySelectorAll('.scope-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const siblings = btn.parentElement.querySelectorAll('.scope-btn');
+    siblings.forEach(s => s.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+</script>
+
+</body>
+</html>
