@@ -6,6 +6,7 @@ import * as os from 'os'
 import { randomUUID } from 'crypto'
 import { app } from 'electron'
 import { SessionConfig } from './claudeCodeProcessManager'
+import { proxyManager } from './proxyManager'
 import { info, warn, error, debug, processRaw, setSessionLogPath, sdkMessage, traceEvent } from './logger'
 import {
   ControlProtocolHandler,
@@ -134,7 +135,7 @@ export class SessionProcess extends EventEmitter {
     })
 
     const builtArgs = this.buildArgs(this.config)
-    const baseEnv = this.buildEnv(this.config)
+    const baseEnv = await this.buildEnv(this.config)
     const desktopCli = path.join(this.cliRoot, 'dist-desktop/cli.js')
     let launch = this.resolveCliCommand()
     let canRetryENOENT =
@@ -792,12 +793,43 @@ export class SessionProcess extends EventEmitter {
     )
 
     const provider = (config.provider || 'anthropic').toLowerCase()
+    const useProxy = config.engineSource === 'installed' && provider !== 'anthropic' && proxyManager.getProxyUrl()
     const modelType = provider === 'openai' ? 'openai'
       : provider === 'gemini' ? 'gemini'
       : provider === 'grok' ? 'grok'
       : undefined
 
-    if (modelType) {
+    if (useProxy) {
+      const settingsDir = path.join(os.tmpdir(), 'SpaceCode')
+      try { fs.mkdirSync(settingsDir, { recursive: true }) } catch {}
+      const settingsPath = path.join(settingsDir, `settings-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`)
+      const proxyUrl = proxyManager.getProxyUrl()!
+      const settingsContent: Record<string, unknown> = {
+        modelType: 'anthropic',
+        env: {
+          ANTHROPIC_BASE_URL: proxyUrl,
+          ANTHROPIC_API_KEY: 'sk-spacecode-proxy',
+          OPENAI_BASE_URL: '',
+          OPENAI_API_KEY: '',
+          OPENAI_MODEL: '',
+          OPENAI_ENABLE_THINKING: '',
+          CLAUDE_CODE_USE_OPENAI: '',
+          OPENAI_DEFAULT_HAIKU_MODEL: '',
+          OPENAI_DEFAULT_SONNET_MODEL: '',
+          OPENAI_DEFAULT_OPUS_MODEL: '',
+          GEMINI_BASE_URL: '',
+          GEMINI_API_KEY: '',
+          GEMINI_MODEL: '',
+          CLAUDE_CODE_USE_GEMINI: '',
+          GEMINI_DEFAULT_HAIKU_MODEL: '',
+          GEMINI_DEFAULT_SONNET_MODEL: '',
+          GEMINI_DEFAULT_OPUS_MODEL: '',
+        },
+      }
+      fs.writeFileSync(settingsPath, JSON.stringify(settingsContent, null, 2), 'utf8')
+      args.push('--settings', settingsPath)
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Created temp settings file (proxy mode) | path=${settingsPath} | modelType=anthropic | ANTHROPIC_BASE_URL=${proxyUrl}`)
+    } else if (modelType) {
       const settingsDir = path.join(os.tmpdir(), 'SpaceCode')
       try { fs.mkdirSync(settingsDir, { recursive: true }) } catch {}
       const settingsPath = path.join(settingsDir, `settings-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`)
@@ -808,7 +840,7 @@ export class SessionProcess extends EventEmitter {
       debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Created temp settings file | path=${settingsPath} | modelType=${modelType}`)
     }
 
-    if (config.model) args.push('--model', config.model)
+    if (config.model && !useProxy) args.push('--model', config.model)
     if (config.permissionMode) args.push('--permission-mode', config.permissionMode)
     args.push('--allow-dangerously-skip-permissions')
     if (config.effortLevel) args.push('--effort', config.effortLevel)
@@ -907,7 +939,7 @@ export class SessionProcess extends EventEmitter {
     }
   }
 
-  private buildEnv(config: SessionConfig): Record<string, string> {
+  private async buildEnv(config: SessionConfig): Promise<Record<string, string>> {
     const env: Record<string, string> = {}
     const provider = (config.provider || 'anthropic').toLowerCase()
     env.LLM_PROVIDER = provider
@@ -917,8 +949,6 @@ export class SessionProcess extends EventEmitter {
       if (config.apiKey) env.OPENAI_API_KEY = config.apiKey
       if (config.baseUrl) env.OPENAI_BASE_URL = config.baseUrl
       if (config.model) env.OPENAI_MODEL = config.model
-      // 显式开/关思考模式：关时也要写入 '0'，否则当模型名命中 deepseek 自动检测白名单时
-      // 引擎仍会把思考模式打开，UI 关闭按钮就形同虚设。
       env.OPENAI_ENABLE_THINKING = config.thinkingEnabled ? '1' : '0'
     } else if (provider === 'gemini') {
       env.CLAUDE_CODE_USE_GEMINI = '1'
@@ -971,29 +1001,106 @@ export class SessionProcess extends EventEmitter {
     }
 
     if (config.engineSource === 'installed' && config.provider !== 'anthropic') {
-      try {
-        const { proxyManager } = require('./proxyManager')
-        const proxyUrl = proxyManager.getProxyUrl()
-        if (proxyUrl) {
-          env.ANTHROPIC_BASE_URL = proxyUrl
-          delete env.OPENAI_BASE_URL
-          delete env.OPENAI_API_KEY
-          delete env.GEMINI_BASE_URL
-          delete env.GEMINI_API_KEY
-          delete env.CLAUDE_CODE_USE_OPENAI
-          delete env.CLAUDE_CODE_USE_GEMINI
-          debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using proxy: ${proxyUrl}`)
-        } else {
-          warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Proxy URL is empty — installed CLI with non-Anthropic provider requires a running proxy. Session may fail.`)
+      const proxyUrl = proxyManager.getProxyUrl()
+      if (proxyUrl) {
+        env.ANTHROPIC_BASE_URL = proxyUrl
+        env.ANTHROPIC_API_KEY = 'sk-spacecode-proxy'
+        env.OPENAI_BASE_URL = ''
+        env.OPENAI_API_KEY = ''
+        env.OPENAI_MODEL = ''
+        env.OPENAI_ENABLE_THINKING = ''
+        env.CLAUDE_CODE_USE_OPENAI = ''
+        env.OPENAI_DEFAULT_HAIKU_MODEL = ''
+        env.OPENAI_DEFAULT_SONNET_MODEL = ''
+        env.OPENAI_DEFAULT_OPUS_MODEL = ''
+        env.GEMINI_BASE_URL = ''
+        env.GEMINI_API_KEY = ''
+        env.GEMINI_MODEL = ''
+        env.CLAUDE_CODE_USE_GEMINI = ''
+        env.GEMINI_DEFAULT_HAIKU_MODEL = ''
+        env.GEMINI_DEFAULT_SONNET_MODEL = ''
+        env.GEMINI_DEFAULT_OPUS_MODEL = ''
+        debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using proxy: ${proxyUrl}`)
+      } else {
+        warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Proxy not running — attempting to start proxy for installed CLI with non-Anthropic provider`)
+        try {
+          const proxyConfig = this.buildProxyConfig(config)
+          if (proxyConfig) {
+            await proxyManager.start(proxyConfig)
+            const startedUrl = proxyManager.getProxyUrl()
+            if (startedUrl) {
+              env.ANTHROPIC_BASE_URL = startedUrl
+              env.ANTHROPIC_API_KEY = 'sk-spacecode-proxy'
+              env.OPENAI_BASE_URL = ''
+              env.OPENAI_API_KEY = ''
+              env.OPENAI_MODEL = ''
+              env.OPENAI_ENABLE_THINKING = ''
+              env.CLAUDE_CODE_USE_OPENAI = ''
+              env.OPENAI_DEFAULT_HAIKU_MODEL = ''
+              env.OPENAI_DEFAULT_SONNET_MODEL = ''
+              env.OPENAI_DEFAULT_OPUS_MODEL = ''
+              env.GEMINI_BASE_URL = ''
+              env.GEMINI_API_KEY = ''
+              env.GEMINI_MODEL = ''
+              env.CLAUDE_CODE_USE_GEMINI = ''
+              env.GEMINI_DEFAULT_HAIKU_MODEL = ''
+              env.GEMINI_DEFAULT_SONNET_MODEL = ''
+              env.GEMINI_DEFAULT_OPUS_MODEL = ''
+              debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Proxy started on demand: ${startedUrl}`)
+            } else {
+              warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Proxy started but URL is empty — falling back to direct OpenAI env vars`)
+            }
+          } else {
+            warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Cannot build proxy config — falling back to direct OpenAI env vars. The installed CLI may not support CLAUDE_CODE_USE_OPENAI correctly.`)
+          }
+        } catch (err) {
+          warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to start proxy on demand`, { error: String(err) })
         }
-      } catch (err) {
-        warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to inject proxy for installed CLI`, { error: String(err) })
       }
     }
 
     debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] buildEnv | provider=${provider} | baseUrl=${config.baseUrl || '(empty)'} | apiKey=${config.apiKey ? '***set' : '(empty)'} | envKeys=[${Object.keys(env).join(',')}]`)
 
     return env
+  }
+
+  private buildProxyConfig(config: SessionConfig): import('./proxy/types').ProxyConfig | null {
+    const provider = (config.provider || 'anthropic').toLowerCase()
+    let upstreamProvider: 'openai_compatible' | 'anthropic'
+    let upstreamBaseUrl = ''
+    let upstreamApiKey = ''
+    const modelMapping: import('./proxy/types').ModelMappingConfig = {}
+
+    if (provider === 'openai' || provider === 'gemini') {
+      upstreamProvider = 'openai_compatible'
+      upstreamBaseUrl = (config.baseUrl || '').trim()
+      upstreamApiKey = (config.apiKey || '').trim()
+      if (config.model) {
+        modelMapping.sonnetModel = config.model.trim()
+        modelMapping.defaultModel = config.model.trim()
+      }
+    } else if (provider === 'anthropic') {
+      upstreamProvider = 'anthropic'
+      upstreamBaseUrl = (config.baseUrl || '').trim()
+      upstreamApiKey = (config.apiKey || '').trim()
+      if (config.model) {
+        modelMapping.sonnetModel = config.model.trim()
+        modelMapping.defaultModel = config.model.trim()
+      }
+    } else {
+      return null
+    }
+
+    if (!upstreamBaseUrl || !upstreamApiKey) return null
+
+    return {
+      host: '127.0.0.1',
+      port: 34567,
+      upstreamProvider,
+      upstreamBaseUrl,
+      upstreamApiKey,
+      modelMapping,
+    }
   }
 
   private findGitBashPath(): string | null {
