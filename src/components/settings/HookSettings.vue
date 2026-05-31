@@ -513,7 +513,6 @@ onMounted(() => {
 
 // Timeline view
 .timeline-view { display: flex; flex-direction: column; gap: 12px; }
-.event-group {}
 .event-group-header {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 14px; background: var(--surface-card); border-radius: 10px;

@@ -45,7 +45,7 @@
       <div class="form-group" v-if="form.type === 'command'">
         <label>{{ t('hookSettings.shellCommand') }} <span class="required">*</span></label>
         <input v-model="form.command" :placeholder="t('hookSettings.commandPlaceholder')" class="form-input" />
-        <div class="form-hint" v-html="t('hookSettings.commandHint')"></div>
+        <div class="form-hint">{{ t('hookSettings.commandHint') }}</div>
       </div>
 
       <div class="form-group" v-else>
@@ -69,7 +69,7 @@
 
       <div class="form-group">
         <label class="checkbox-label">
-          <input type="checkbox" v-model="form.enabled" style="accent-color:var(--accent-primary);" />
+          <input type="checkbox" v-model="form.enabled" class="accent-checkbox" />
           {{ t('hookSettings.enableOnCreate') }}
         </label>
       </div>
@@ -229,6 +229,7 @@ function save() {
 .checkbox-label {
   display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px;
 }
+.accent-checkbox { accent-color: var(--accent-primary); }
 
 .btn {
   @include reset-button;
