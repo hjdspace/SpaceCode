@@ -1,3 +1,84 @@
+## [0.4.3](https://github.com/hjdspace/SpaceCode/compare/v0.4.2...v0.4.3) (2026-06-01)
+
+### Features
+
+* **Caveman 压缩Skills:** 新增完整的压缩工具与插件生态
+  - 初始化 caveman 项目，添加核心压缩模式、命令与代理服务
+  - 支持 Claude Code、OpenCode 等多平台插件集成
+  - 实现代码审查、提交信息生成等配套工具
+  - 提供完整的文档、测试与安装脚本
+  - 配置 CI/CD 与项目基础结构
+* **文件式规划技能套件:** 新增 Manus 风格的文件式规划功能
+  - 新增完整的基础配置文件和多 IDE 钩子支持
+  - 支持多语言命令文档（阿拉伯语、德语、西班牙语、中文）
+  - 兼容 Claude Code、Cursor、GitHub Copilot 等工具
+  - 提供测试用例与 CI 流程支持
+* **Hook 管理系统:** 新增自定义会话生命周期钩子功能
+  - 新增 electronAPI 的 hooks 设置持久化方法
+  - 添加 Hook 设置面板与编辑弹窗组件
+  - 新增 hooks 相关类型定义与 Pinia 状态管理
+  - 支持用户级/项目级/本地级三种作用域的 Hook 配置
+  - 提供卡片/表格/时间线三种视图展示 Hook 列表
+  - 多语言国际化支持 Hook 设置页面
+  - 重构代理配置逻辑，改为由 Shadow Home 统一处理第三方提供商配置
+* **UI 技能库扩展:** 新增多套前端 UI 设计技能包
+  - 新增 10 套前端 UI 设计技能包（极简主义、工业粗野主义等风格）
+  - 新增 stitch-design-taste 技能，支持生成谷歌 Stitch 专用设计规范文档
+  - 新增 skills-lock.json 锁定技能版本与哈希校验
+* **API 代理增强:** 完善 Anthropic 和 OpenAI 消息格式互转逻辑
+  - 新增工具调用转换支持
+  - 修复多内容块消息处理
+  - 添加空值和类型校验
+* **引擎数据流分析:** 新增 Claude-Code Engine 数据流分析文档
+
+### Bug Fixes
+
+* **引擎切换:** 解决 10 个 Claude Code CLI 引擎切换问题
+  - **P0 修复：** 将 engineSource/installedCliPath 传递给 startSession（之前这些字段从未被转发，导致引擎源切换完全无效）
+  - **P0 修复：** 修复代理自动启动条件，排除 claudeai/console 认证方式
+  - **P1 优化：** 新增运行时引擎源切换时的动态代理启停功能
+  - **P1 优化：** 替换硬编码代理端口 34567 为自动发现（范围 34567-34667）
+  - **P1 优化：** 将 MAX_HEALTH_RETRIES 从 1 增加到 3，避免临时健康检查失败导致过早重启代理
+  - **P2 优化：** 标记 claudeCodeProcessManager.ts 为 @deprecated（已被 sessionProcess.ts 取代）
+  - **P2 优化：** 将代理注入中的静默 catch{} 替换为 warn 级别日志
+  - **P2 优化：** 添加 CLI 版本兼容性检查（MIN_CLI_VERSION = 1.0.0）及版本过旧 UI 警告
+  - **P2 优化：** 在引擎切换时保留 engineSessionId 并作为 resumeSessionId 传递以恢复对话上下文
+  - **P2 优化：** 添加适配器状态定期刷新（10s 间隔）、停止时的 adapter-hint 文本及新 UI 元素的 i18n 字符串
+* **URL 拼接:** 修复上游代理 URL 重复拼接版本路径的问题
+  - 针对 OpenAI 兼容的上游代理配置，当基础 URL 已包含版本路径时避免重复拼接
+  - 新增 URL 拼接工具函数统一处理 URL 拼接逻辑
+* **Windows 兼容性:** 优化 Windows 平台 CLI 命令查找与执行逻辑
+  - 新增对 Windows .cmd 脚本的优先匹配查找，避免找到非可执行的同名文件
+  - 在启动会话进程时，自动为 .cmd 脚本启用 shell 执行模式
+  - 修复 Windows 下非 .cmd 命令无法正常执行的问题
+  - 新增 forceShell 参数强制启用 shell 执行
+
+### Refactor
+
+* **代理模式配置:** 优化代理模式下的模型配置逻辑
+  - 更新代理服务器返回标准 Claude 模型列表
+  - 代理模式下不传递 --model 参数，使用官网默认模型选择逻辑
+  - 清空代理模式下的默认模型环境变量
+  - 简化同步 settings.json 的代理模式逻辑，避免污染全局配置
+* **代理启动流程:** 重构代理启动与 API 配置逻辑
+  - 新增引擎源切换时自动启动代理的逻辑
+  - 新增开机自动启动代理的逻辑
+  - 重构 API 配置同步逻辑，适配代理模式下的配置清理与环境变量设置
+* **CLI 检测:** 为 CliDetectionResult 接口新增 versionCompatible 字段
+
+### Style
+
+* **表单组件:** 优化表单样式与清理无用样式
+  - 移除 HookSettings.vue 中无用的 .event-group 空样式
+  - 将 HookEditModal 的复选框内联样式改为类名样式，并提取为 .accent-checkbox 类
+  - 将 v-html 改为普通插值渲染提示文本，避免 XSS 风险
+
+### Chore
+
+* 清理无用的 ask-user-question-ui-demos.html 文件
+
+---
+
 ## [0.4.2](https://github.com/hjdspace/SpaceCode/compare/v0.4.0...v0.4.2) (2026-05-30)
 
 ### Features
