@@ -108,12 +108,16 @@ export class ProxyServer {
   }
 
   private handleModels(res: http.ServerResponse): void {
-    const models = []
-    const mapping = this.config.modelMapping
-    if (mapping.defaultModel) models.push({ id: mapping.defaultModel, object: 'model', owned_by: 'spacecode-proxy' })
-    if (mapping.haikuModel) models.push({ id: mapping.haikuModel, object: 'model', owned_by: 'spacecode-proxy' })
-    if (mapping.sonnetModel) models.push({ id: mapping.sonnetModel, object: 'model', owned_by: 'spacecode-proxy' })
-    if (mapping.opusModel) models.push({ id: mapping.opusModel, object: 'model', owned_by: 'spacecode-proxy' })
+    // 返回 Claude 标准模型名作为 route_id（参考 cc-switch 的实现）
+    // 官网 claude-code 会使用这些 route_id，代理负责映射到实际的上游模型
+    const models = [
+      { id: 'claude-opus-4-20250514', object: 'model', owned_by: 'anthropic', supports1m: true },
+      { id: 'claude-sonnet-4-20250514', object: 'model', owned_by: 'anthropic', supports1m: true },
+      { id: 'claude-haiku-4-20250514', object: 'model', owned_by: 'anthropic', supports1m: true },
+      { id: 'claude-opus-4-8', object: 'model', owned_by: 'anthropic', supports1m: true },
+      { id: 'claude-sonnet-4-8', object: 'model', owned_by: 'anthropic', supports1m: true },
+      { id: 'claude-haiku-4-8', object: 'model', owned_by: 'anthropic', supports1m: true },
+    ]
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ object: 'list', data: models }))
   }

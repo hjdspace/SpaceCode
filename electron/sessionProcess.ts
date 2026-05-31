@@ -804,11 +804,18 @@ export class SessionProcess extends EventEmitter {
       try { fs.mkdirSync(settingsDir, { recursive: true }) } catch {}
       const settingsPath = path.join(settingsDir, `settings-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`)
       const proxyUrl = proxyManager.getProxyUrl()!
+
+      // 不设置 ANTHROPIC_DEFAULT_*_MODEL，让官网 claude-code 使用默认模型
+      // 代理会返回可用的模型列表，官网 claude-code 会自动选择
       const settingsContent: Record<string, unknown> = {
         modelType: 'anthropic',
         env: {
           ANTHROPIC_BASE_URL: proxyUrl,
           ANTHROPIC_API_KEY: 'sk-spacecode-proxy',
+          // 清空所有模型相关的环境变量，让官网 CLI 使用默认行为
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: '',
+          ANTHROPIC_DEFAULT_SONNET_MODEL: '',
+          ANTHROPIC_DEFAULT_OPUS_MODEL: '',
           OPENAI_BASE_URL: '',
           OPENAI_API_KEY: '',
           OPENAI_MODEL: '',
@@ -840,7 +847,11 @@ export class SessionProcess extends EventEmitter {
       debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Created temp settings file | path=${settingsPath} | modelType=${modelType}`)
     }
 
-    if (config.model && !useProxy) args.push('--model', config.model)
+    // 在非代理模式下传递用户配置的模型
+    // 代理模式下不传递 --model，让官网 CLI 使用 ANTHROPIC_DEFAULT_*_MODEL 环境变量
+    if (config.model && !useProxy) {
+      args.push('--model', config.model)
+    }
     if (config.permissionMode) args.push('--permission-mode', config.permissionMode)
     args.push('--allow-dangerously-skip-permissions')
     if (config.effortLevel) args.push('--effort', config.effortLevel)
@@ -1076,16 +1087,23 @@ export class SessionProcess extends EventEmitter {
       upstreamBaseUrl = (config.baseUrl || '').trim()
       upstreamApiKey = (config.apiKey || '').trim()
       if (config.model) {
-        modelMapping.sonnetModel = config.model.trim()
-        modelMapping.defaultModel = config.model.trim()
+        const trimmedModel = config.model.trim()
+        // 将所有 Claude 模型名映射到用户配置的实际模型
+        modelMapping.haikuModel = trimmedModel
+        modelMapping.sonnetModel = trimmedModel
+        modelMapping.opusModel = trimmedModel
+        modelMapping.defaultModel = trimmedModel
       }
     } else if (provider === 'anthropic') {
       upstreamProvider = 'anthropic'
       upstreamBaseUrl = (config.baseUrl || '').trim()
       upstreamApiKey = (config.apiKey || '').trim()
       if (config.model) {
-        modelMapping.sonnetModel = config.model.trim()
-        modelMapping.defaultModel = config.model.trim()
+        const trimmedModel = config.model.trim()
+        modelMapping.haikuModel = trimmedModel
+        modelMapping.sonnetModel = trimmedModel
+        modelMapping.opusModel = trimmedModel
+        modelMapping.defaultModel = trimmedModel
       }
     } else {
       return null
