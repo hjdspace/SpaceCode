@@ -1,19 +1,16 @@
 export function anthropicToOpenAIRequest(body: Record<string, any>): Record<string, any> {
-  const messages: Array<{ role: string; content: string }> = []
+  const messages: Array<Record<string, any>> = []
 
   if (body.system) {
     const systemContent = typeof body.system === 'string'
       ? body.system
       : extractTextFromContent(body.system)
-    messages.push({ role: 'system', content: systemContent })
+    if (systemContent) messages.push({ role: 'system', content: systemContent })
   }
 
-  if (body.messages) {
+  if (Array.isArray(body.messages)) {
     for (const msg of body.messages) {
-      const content = typeof msg.content === 'string'
-        ? msg.content
-        : extractTextFromContent(msg.content)
-      messages.push({ role: msg.role, content })
+      convertMessage(msg, messages)
     }
   }
 
@@ -28,18 +25,121 @@ export function anthropicToOpenAIRequest(body: Record<string, any>): Record<stri
   if (body.top_p !== undefined) result.top_p = body.top_p
   if (body.stop_sequences) result.stop = body.stop_sequences
 
+  // 转发工具定义：Anthropic tool → OpenAI function。缺了这一步，模型会把工具
+  // 调用当成纯文本（如 DeepSeek 的 <｜DSML｜tool_calls｜>）吐出来。
+  if (Array.isArray(body.tools) && body.tools.length > 0) {
+    const tools = body.tools
+      .filter((t: any) => t && t.name)
+      .map((t: any) => ({
+        type: 'function',
+        function: {
+          name: t.name,
+          description: t.description || '',
+          parameters: t.input_schema || { type: 'object', properties: {} },
+        },
+      }))
+    if (tools.length > 0) result.tools = tools
+  }
+
+  if (body.tool_choice) {
+    result.tool_choice = mapToolChoice(body.tool_choice)
+  }
+
   return result
+}
+
+/**
+ * Convert one Anthropic message into one or more OpenAI messages.
+ * - assistant tool_use blocks → assistant.tool_calls
+ * - user tool_result blocks   → separate { role: 'tool', tool_call_id } messages
+ */
+function convertMessage(msg: any, out: Array<Record<string, any>>): void {
+  const role = msg.role
+  const content = msg.content
+
+  if (typeof content === 'string') {
+    out.push({ role, content })
+    return
+  }
+  if (!Array.isArray(content)) {
+    out.push({ role, content: content == null ? '' : String(content) })
+    return
+  }
+
+  if (role === 'assistant') {
+    let text = ''
+    const toolCalls: Array<Record<string, any>> = []
+    for (const block of content) {
+      if (block.type === 'text') {
+        text += block.text || ''
+      } else if (block.type === 'tool_use') {
+        toolCalls.push({
+          id: block.id,
+          type: 'function',
+          function: {
+            name: block.name,
+            arguments: JSON.stringify(block.input ?? {}),
+          },
+        })
+      }
+    }
+    const m: Record<string, any> = { role: 'assistant', content: text || null }
+    if (toolCalls.length > 0) m.tool_calls = toolCalls
+    out.push(m)
+    return
+  }
+
+  // role === 'user'：可能混有 text / tool_result（image 暂只提取文本）
+  const textParts: string[] = []
+  for (const block of content) {
+    if (block.type === 'text') {
+      textParts.push(block.text || '')
+    } else if (block.type === 'tool_result') {
+      out.push({
+        role: 'tool',
+        tool_call_id: block.tool_use_id,
+        content: extractToolResultText(block.content),
+      })
+    }
+  }
+  if (textParts.length > 0) {
+    out.push({ role: 'user', content: textParts.join('') })
+  }
 }
 
 export function openAIToAnthropicResponse(body: Record<string, any>): Record<string, any> {
   const choice = body.choices?.[0]
-  const content = choice?.message?.content || ''
+  const message = choice?.message || {}
+
+  const contentBlocks: Array<Record<string, any>> = []
+  if (message.content) {
+    contentBlocks.push({ type: 'text', text: message.content })
+  }
+  if (Array.isArray(message.tool_calls)) {
+    for (const tc of message.tool_calls) {
+      let input: unknown = {}
+      try {
+        input = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {}
+      } catch {
+        input = {}
+      }
+      contentBlocks.push({
+        type: 'tool_use',
+        id: tc.id || `toolu_${Date.now()}`,
+        name: tc.function?.name || '',
+        input,
+      })
+    }
+  }
+  if (contentBlocks.length === 0) {
+    contentBlocks.push({ type: 'text', text: '' })
+  }
 
   return {
     id: body.id?.replace('chatcmpl-', 'msg_') || `msg_${Date.now()}`,
     type: 'message',
     role: 'assistant',
-    content: [{ type: 'text', text: content }],
+    content: contentBlocks,
     model: body.model || '',
     stop_reason: mapFinishReason(choice?.finish_reason),
     stop_sequence: null,
@@ -59,6 +159,28 @@ function extractTextFromContent(content: any): string {
       .join('')
   }
   return String(content)
+}
+
+function extractToolResultText(content: any): string {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    return content
+      .filter((block: any) => block.type === 'text')
+      .map((block: any) => block.text || '')
+      .join('')
+  }
+  return content == null ? '' : String(content)
+}
+
+function mapToolChoice(toolChoice: any): any {
+  if (typeof toolChoice === 'string') return toolChoice
+  switch (toolChoice?.type) {
+    case 'auto': return 'auto'
+    case 'any': return 'required'
+    case 'none': return 'none'
+    case 'tool': return { type: 'function', function: { name: toolChoice.name } }
+    default: return 'auto'
+  }
 }
 
 function mapFinishReason(reason: string | undefined): string {
