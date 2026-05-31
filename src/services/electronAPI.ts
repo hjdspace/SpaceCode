@@ -192,6 +192,20 @@ export const api = {
     }
     return Promise.resolve({ success: false, data: null, error: 'loadGuiSettings not available' })
   },
+
+  loadHooksSettings: (scope?: string): Promise<{ success: boolean; data: string | null; error?: string }> => {
+    if (electronAPI?.loadHooksSettings) {
+      return electronAPI.loadHooksSettings(scope)
+    }
+    return Promise.resolve({ success: false, data: null, error: 'loadHooksSettings not available' })
+  },
+  saveHooksSettings: (hooksJson: string, scope?: string): Promise<{ success: boolean; error?: string }> => {
+    if (electronAPI?.saveHooksSettings) {
+      return electronAPI.saveHooksSettings(hooksJson, scope)
+    }
+    return Promise.resolve({ success: false, error: 'saveHooksSettings not available' })
+  },
+
   getTokenUsageStats: (): Promise<{ success: boolean; data?: TokenStatsResult; error?: string }> => {
     if (electronAPI?.getTokenUsageStats) {
       return electronAPI.getTokenUsageStats()

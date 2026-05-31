@@ -516,19 +516,7 @@ app.whenReady().then(() => {
     info('EngineSource', `Engine source changed to: ${source}`)
     const needsProxy = source === 'installed'
     if (needsProxy) {
-      const guiSettings = await loadGuiSettings()
-      const authMethod = guiSettings?.authMethod
-      if (authMethod && !['anthropic_compatible', 'claudeai', 'console'].includes(authMethod)) {
-        const proxyConfig = buildProxyConfigFromSettings(guiSettings)
-        if (proxyConfig) {
-          try {
-            await proxyManager.start(proxyConfig)
-            info('EngineSource', 'Proxy started after engine source change')
-          } catch (err) {
-            warn('EngineSource', 'Failed to start proxy after engine source change:', err)
-          }
-        }
-      }
+      info('EngineSource', 'Installed CLI with non-Anthropic provider — Shadow Home will handle provider config per session')
     } else {
       if (proxyManager.isRunning()) {
         try {
@@ -581,15 +569,7 @@ app.whenReady().then(() => {
   ;(async () => {
     const guiSettings = await loadGuiSettings()
     if (guiSettings?.engineSource === 'installed' && !['anthropic_compatible', 'claudeai', 'console'].includes(guiSettings?.authMethod)) {
-      const proxyConfig = buildProxyConfigFromSettings(guiSettings)
-      if (proxyConfig) {
-        try {
-          await proxyManager.start(proxyConfig)
-          info('Startup', 'Auto-started proxy for installed CLI mode')
-        } catch (err) {
-          warn('Startup', 'Auto-start proxy failed:', err)
-        }
-      }
+      info('Startup', 'Installed CLI with non-Anthropic provider detected — Shadow Home will handle provider config per session')
     }
   })()
 })
@@ -1241,7 +1221,12 @@ function syncApiConfigToSettingsJson(guiSettingsJson: string): void {
     if (!authMethod) return
 
     const engineSource = guiSettings.engineSource
-    const useProxy = engineSource === 'installed' && authMethod !== 'anthropic' && authMethod !== 'oauth'
+    const useShadowHome = engineSource === 'installed' && authMethod !== 'anthropic' && authMethod !== 'oauth'
+
+    if (useShadowHome) {
+      debug('Settings', `Skipping settings.json sync — Shadow Home will handle provider config for installed CLI with non-Anthropic provider`)
+      return
+    }
 
     const settingsPath = getClaudeSettingsPath()
     let existingSettings: Record<string, any> = {}
@@ -1270,7 +1255,7 @@ function syncApiConfigToSettingsJson(guiSettingsJson: string): void {
       if (config.haikuModel) env.OPENAI_DEFAULT_HAIKU_MODEL = config.haikuModel.trim()
       if (config.sonnetModel) env.OPENAI_DEFAULT_SONNET_MODEL = config.sonnetModel.trim()
       if (config.opusModel) env.OPENAI_DEFAULT_OPUS_MODEL = config.opusModel.trim()
-      modelType = useProxy ? undefined : 'openai'
+      modelType = 'openai'
     } else if (authMethod === 'gemini' && guiSettings.geminiConfig) {
       const config = guiSettings.geminiConfig
       if (config.baseUrl) env.GEMINI_BASE_URL = config.baseUrl.trim()
@@ -1278,7 +1263,7 @@ function syncApiConfigToSettingsJson(guiSettingsJson: string): void {
       if (config.haikuModel) env.GEMINI_DEFAULT_HAIKU_MODEL = config.haikuModel.trim()
       if (config.sonnetModel) env.GEMINI_DEFAULT_SONNET_MODEL = config.sonnetModel.trim()
       if (config.opusModel) env.GEMINI_DEFAULT_OPUS_MODEL = config.opusModel.trim()
-      modelType = useProxy ? undefined : 'gemini'
+      modelType = 'gemini'
     } else if ((authMethod === 'anthropic' || authMethod === 'oauth') && guiSettings.anthropicConfig) {
       const config = guiSettings.anthropicConfig
       if (config.baseUrl) env.ANTHROPIC_BASE_URL = config.baseUrl.trim()
@@ -1289,35 +1274,6 @@ function syncApiConfigToSettingsJson(guiSettingsJson: string): void {
       modelType = undefined
     }
 
-    if (useProxy) {
-      delete existingSettings.modelType
-      delete env.OPENAI_BASE_URL
-      delete env.OPENAI_API_KEY
-      delete env.GEMINI_BASE_URL
-      delete env.GEMINI_API_KEY
-      if (existingSettings.env) {
-        delete existingSettings.env.OPENAI_BASE_URL
-        delete existingSettings.env.OPENAI_API_KEY
-        delete existingSettings.env.OPENAI_MODEL
-        delete existingSettings.env.OPENAI_ENABLE_THINKING
-        delete existingSettings.env.CLAUDE_CODE_USE_OPENAI
-        delete existingSettings.env.GEMINI_BASE_URL
-        delete existingSettings.env.GEMINI_API_KEY
-        delete existingSettings.env.GEMINI_MODEL
-        delete existingSettings.env.CLAUDE_CODE_USE_GEMINI
-        delete existingSettings.env.OPENAI_DEFAULT_HAIKU_MODEL
-        delete existingSettings.env.OPENAI_DEFAULT_SONNET_MODEL
-        delete existingSettings.env.OPENAI_DEFAULT_OPUS_MODEL
-        delete existingSettings.env.GEMINI_DEFAULT_HAIKU_MODEL
-        delete existingSettings.env.GEMINI_DEFAULT_SONNET_MODEL
-        delete existingSettings.env.GEMINI_DEFAULT_OPUS_MODEL
-      }
-      env.ANTHROPIC_BASE_URL = 'http://127.0.0.1:34567'
-      env.ANTHROPIC_API_KEY = 'sk-spacecode-proxy'
-      env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
-      debug('Settings', `Synced API config to settings.json (proxy mode) | removed modelType, OPENAI_BASE_URL, OPENAI_API_KEY, OPENAI_DEFAULT_*`)
-    }
-
     if (Object.keys(env).length > 0) {
       existingSettings.env = { ...(existingSettings.env || {}), ...env }
       debug('Settings', `Synced API config to settings.json | envKeys=[${Object.keys(env).join(',')}]`)
@@ -1326,7 +1282,7 @@ function syncApiConfigToSettingsJson(guiSettingsJson: string): void {
     if (modelType) {
       existingSettings.modelType = modelType
       debug('Settings', `Synced modelType to settings.json | modelType=${modelType}`)
-    } else if (!useProxy) {
+    } else {
       delete existingSettings.modelType
     }
 
@@ -1337,6 +1293,73 @@ function syncApiConfigToSettingsJson(guiSettingsJson: string): void {
     error('Settings', 'Failed to sync API config to settings.json', err)
   }
 }
+
+function getHooksSettingsPath(scope: string): string {
+  if (scope === 'user') {
+    return getClaudeSettingsPath()
+  }
+  const cwd = getProjectCwd()
+  if (scope === 'project') {
+    return join(cwd, '.claude', 'settings.json')
+  }
+  return join(cwd, '.claude', 'settings.local.json')
+}
+
+function getProjectCwd(): string {
+  return (global as any).__projectCwd ?? process.cwd()
+}
+
+ipcMain.handle('settings:loadHooksSettings', async (_event, scope: string = 'user') => {
+  try {
+    const settingsPath = getHooksSettingsPath(scope)
+    if (!existsSync(settingsPath)) {
+      return { success: true, data: '{}' }
+    }
+    const raw = readFileSync(settingsPath, 'utf-8')
+    const parsed = raw.trim() ? JSON.parse(raw) : {}
+    const hooksData = parsed.hooks ?? {}
+    return { success: true, data: JSON.stringify(hooksData) }
+  } catch (err: any) {
+    error('Settings', 'Failed to load hooks settings', err)
+    return { success: false, data: null, error: String(err) }
+  }
+})
+
+ipcMain.handle('settings:saveHooksSettings', async (_event, hooksJson: string, scope: string = 'user') => {
+  try {
+    const settingsPath = getHooksSettingsPath(scope)
+    let existingSettings: Record<string, unknown> = {}
+
+    if (existsSync(settingsPath)) {
+      try {
+        const raw = readFileSync(settingsPath, 'utf-8')
+        if (raw.trim()) {
+          const parsed = JSON.parse(raw)
+          if (parsed && typeof parsed === 'object') {
+            existingSettings = { ...parsed }
+          }
+        }
+      } catch {
+        existingSettings = {}
+      }
+    }
+
+    const newHooks = JSON.parse(hooksJson)
+    existingSettings.hooks = newHooks
+
+    const dirPath = dirname(settingsPath)
+    if (!existsSync(dirPath)) {
+      mkdirSync(dirPath, { recursive: true })
+    }
+    writeFileSync(settingsPath, JSON.stringify(existingSettings, null, 2), 'utf-8')
+
+    info('Settings', `Hooks settings saved to ${settingsPath}`)
+    return { success: true }
+  } catch (err: any) {
+    error('Settings', 'Failed to save hooks settings', err)
+    return { success: false, error: String(err) }
+  }
+})
 
 ipcMain.handle('settings:injectGuiModels', async (_event, models: { primaryModel: string; haikuModel?: string; sonnetModel?: string; opusModel?: string; effortLevel?: 'low' | 'medium' | 'high' | 'max'; permissionMode?: 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions' }) => {
   debug('Settings', 'injectGuiModels', models)

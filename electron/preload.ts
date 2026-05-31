@@ -172,6 +172,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('settings:saveGuiSettings', data),
   loadGuiSettings: (): Promise<{ success: boolean; data: string | null; error?: string }> =>
     ipcRenderer.invoke('settings:loadGuiSettings'),
+
+  // Hooks Settings persistence
+  loadHooksSettings: (scope?: string): Promise<{ success: boolean; data: string | null; error?: string }> =>
+    ipcRenderer.invoke('settings:loadHooksSettings', scope),
+  saveHooksSettings: (hooksJson: string, scope?: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('settings:saveHooksSettings', hooksJson, scope),
+
   getTokenUsageStats: () =>
     ipcRenderer.invoke('stats:getTokenUsage'),
 
