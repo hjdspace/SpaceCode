@@ -73,12 +73,29 @@
         <MessageMetadata v-if="message.role === 'assistant' && message.metadata" :metadata="message.metadata" />
       </template>
     </div>
+
+    <!-- 图片预览灯箱 -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="previewImage" class="image-preview-overlay" @click="closeImagePreview">
+          <button class="image-preview-close" :aria-label="t('common.close')" @click="closeImagePreview">
+            <X :size="20" />
+          </button>
+          <img
+            class="image-preview-full"
+            :src="previewImage.previewUrl"
+            :alt="previewImage.name"
+            @click.stop
+          />
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
 import type { Message, ImageAttachment } from '@/types'
-import { User, Bot, RotateCcw, CheckCircle, XCircle } from 'lucide-vue-next'
+import { User, Bot, RotateCcw, CheckCircle, XCircle, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
@@ -101,6 +118,7 @@ const emit = defineEmits<{
 }>()
 
 const isHovered = ref(false)
+const previewImage = ref<ImageAttachment | null>(null)
 
 const isTaskNotification = computed(() => props.message.metadata?.kind === 'task-notification')
 
@@ -133,7 +151,11 @@ function formatTime(timestamp: number): string {
 }
 
 function showImagePreview(img: ImageAttachment) {
-  window.open(img.previewUrl, '_blank')
+  previewImage.value = img
+}
+
+function closeImagePreview() {
+  previewImage.value = null
 }
 
 function handleToolSubmit(toolId: string, updatedInput: Record<string, unknown>) {
@@ -392,6 +414,57 @@ function handleUserCopy(e: ClipboardEvent) {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+}
+
+// 图片预览灯箱
+.image-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px;
+  background: rgba(0, 0, 0, 0.8);
+  cursor: zoom-out;
+}
+
+.image-preview-full {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+  cursor: default;
+}
+
+.image-preview-close {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  transition: background 0.15s ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.25);
+  }
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 
 .message-content {
