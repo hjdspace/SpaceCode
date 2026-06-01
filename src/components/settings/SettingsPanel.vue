@@ -1,32 +1,52 @@
 <template>
   <div class="settings-page">
-    <!-- Header -->
-    <div class="settings-header">
-      <button class="back-btn" @click="handleBack">
-        <ArrowLeft :size="16" />
-        <span>{{ $t('settings.backToApp') }}</span>
-      </button>
-      <h1 class="settings-title">{{ $t('settings.title') }}</h1>
-      <div class="header-spacer"></div>
-    </div>
-
-    <!-- Body -->
     <div class="settings-body">
-      <!-- Left Navigation -->
-      <nav class="settings-nav">
-        <button
-          v-for="item in menuItems"
-          :key="item.id"
-          class="nav-item"
-          :class="{ active: activeTab === item.id }"
-          @click="switchTab(item.id)"
-        >
-          <component :is="item.icon" :size="18" />
-          <span>{{ item.label }}</span>
-        </button>
-      </nav>
+      <aside class="settings-sidebar">
+        <div class="sidebar-header">
+          <div class="sidebar-logo">
+            <div class="logo-icon">S</div>
+            <span class="logo-text">SpaceCode</span>
+          </div>
+        </div>
 
-      <!-- Right Content -->
+        <nav class="sidebar-nav">
+          <div class="nav-group">
+            <div class="nav-group-title">{{ $t('settings.title') }}</div>
+            <button
+              v-for="item in settingMenuItems"
+              :key="item.id"
+              class="nav-item"
+              :class="{ active: activeTab === item.id }"
+              @click="switchTab(item.id)"
+            >
+              <component :is="item.icon" :size="18" />
+              <span>{{ item.label }}</span>
+            </button>
+          </div>
+
+          <div class="nav-group">
+            <div class="nav-group-title">{{ $t('appearanceSettings.title') }}</div>
+            <button
+              v-for="item in personalMenuItems"
+              :key="item.id"
+              class="nav-item"
+              :class="{ active: activeTab === item.id }"
+              @click="switchTab(item.id)"
+            >
+              <component :is="item.icon" :size="18" />
+              <span>{{ item.label }}</span>
+            </button>
+          </div>
+        </nav>
+
+        <div class="sidebar-footer">
+          <button class="back-btn" @click="handleBack">
+            <ArrowLeft :size="16" />
+            <span>{{ $t('settings.backToApp') }}</span>
+          </button>
+        </div>
+      </aside>
+
       <main class="settings-content">
         <div class="content-scroll">
           <KeepAlive :include="cachedTabs">
@@ -79,7 +99,6 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore, type AuthMethod, type OAuthAccountInfo, type EngineType } from '@/stores/settings'
 
-// 异步加载非首屏组件，减少首屏bundle大小
 const GeneralSettings = defineAsyncComponent(() => import('./GeneralSettings.vue'))
 const ModelSettings = defineAsyncComponent(() => import('./ModelSettings.vue'))
 const McpSettings = defineAsyncComponent(() => import('./McpSettings.vue'))
@@ -93,15 +112,18 @@ const appStore = useAppStore()
 const settingsStore = useSettingsStore()
 const { t } = useI18n()
 
-const menuItems = computed(() => [
+const settingMenuItems = computed(() => [
   { id: 'general', label: t('settings.general'), icon: Settings },
   { id: 'model', label: t('settings.modelSettings'), icon: Bot },
   { id: 'mcp', label: t('settings.mcpServers'), icon: Boxes },
   { id: 'tools', label: t('settings.tools'), icon: Wrench },
+])
+
+const personalMenuItems = computed(() => [
   { id: 'appearance', label: t('settings.appearance'), icon: Palette },
   { id: 'shortcuts', label: t('settings.shortcuts'), icon: Keyboard },
   { id: 'hooks', label: t('settings.hooks'), icon: Zap },
-  { id: 'token-usage', label: 'Token 用量', icon: BarChart3 }
+  { id: 'token-usage', label: 'Token 用量', icon: BarChart3 },
 ])
 
 const activeTab = ref('general')
@@ -119,20 +141,16 @@ const settingsData = ref({
   engineType: 'claude-code' as EngineType
 })
 
-// 缓存已访问的标签页，避免重复渲染
 const visitedTabs = ref<Set<string>>(new Set(['general']))
 const cachedTabs = computed(() => Array.from(visitedTabs.value))
 
-// 切换标签页时记录访问历史
 function switchTab(tabId: string) {
   activeTab.value = tabId
   visitedTabs.value.add(tabId)
 }
 
-// Flag to prevent watch from triggering during load
 let isLoadingSettings = false
 
-// Auto-save on any change
 watch(settingsData, () => {
   if (!isLoadingSettings) {
     saveSettings()
@@ -143,7 +161,6 @@ function onSettingsChange() {
   saveSettings()
 }
 
-// Load settings when mounted
 loadSettings()
 
 function loadSettings() {
@@ -209,47 +226,8 @@ function handleBack() {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
   overflow: hidden;
-}
-
-.settings-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--border-default);
-  background: var(--bg-primary);
-  flex-shrink: 0;
-}
-
-.back-btn {
-  @include reset-button;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border-radius: 8px;
-  color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 500;
-  transition: all 0.2s;
-
-  &:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-}
-
-.settings-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0;
-}
-
-.header-spacer {
-  width: 80px;
 }
 
 .settings-body {
@@ -258,16 +236,64 @@ function handleBack() {
   overflow: hidden;
 }
 
-.settings-nav {
-  width: 220px;
-  background: var(--surface-soft);
-  border-right: 1px solid var(--border-default);
-  padding: 16px 12px;
+.settings-sidebar {
+  width: 260px;
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  overflow-y: auto;
   flex-shrink: 0;
+}
+
+.sidebar-header {
+  padding: 24px 24px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.logo-icon {
+  width: 32px;
+  height: 32px;
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-tertiary));
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.logo-text {
+  font-family: var(--font-display);
+}
+
+.sidebar-nav {
+  flex: 1;
+  padding: 16px 12px;
+  overflow-y: auto;
+  @include scrollbar-thin;
+}
+
+.nav-group {
+  margin-bottom: 8px;
+}
+
+.nav-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 12px 12px 8px;
 }
 
 .nav-item {
@@ -276,45 +302,77 @@ function handleBack() {
   align-items: center;
   gap: 12px;
   padding: 10px 12px;
-  border-radius: 8px;
-  color: var(--text-muted);
-  font-size: 13px;
+  margin-bottom: 2px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
   font-weight: 500;
-  transition: all 0.15s;
+  font-size: 13.5px;
   text-align: left;
+  width: 100%;
+  transition: all var(--transition-fast);
 
   &:hover {
-    background: var(--bg-hover);
+    background: var(--bg-secondary);
     color: var(--text-primary);
   }
 
   &.active {
-    background: rgba(var(--accent-primary-rgb), 0.1);
+    background: var(--accent-primary-glow);
     color: var(--accent-primary);
+  }
+
+  svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+  }
+}
+
+.sidebar-footer {
+  padding: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.back-btn {
+  @include reset-button;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  width: 100%;
+  text-align: left;
+  transition: all var(--transition-fast);
+
+  &:hover {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
   }
 }
 
 .settings-content {
   flex: 1;
   overflow: hidden;
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
 }
 
 .content-scroll {
   height: 100%;
   overflow-y: auto;
-  padding: 32px 40px;
+  padding: 40px 48px;
   @include scrollbar;
 }
 
-// Responsive adjustments
-@media (max-width: 900px) {
-  .settings-nav {
-    width: 180px;
+@media (max-width: 1024px) {
+  .settings-sidebar {
+    width: 220px;
   }
 
   .content-scroll {
-    padding: 24px;
+    padding: 32px 36px;
   }
 }
 
@@ -323,21 +381,46 @@ function handleBack() {
     flex-direction: column;
   }
 
-  .settings-nav {
+  .settings-sidebar {
     width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .sidebar-header {
+    display: none;
+  }
+
+  .sidebar-nav {
     flex-direction: row;
     padding: 8px;
-    border-right: none;
-    border-bottom: 1px solid var(--border-default);
     overflow-x: auto;
 
-    .nav-item {
-      white-space: nowrap;
-
-      span {
-        display: none;
-      }
+    .nav-group {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 0;
     }
+
+    .nav-group-title {
+      display: none;
+    }
+  }
+
+  .nav-item {
+    white-space: nowrap;
+
+    span {
+      display: none;
+    }
+  }
+
+  .sidebar-footer {
+    display: none;
+  }
+
+  .content-scroll {
+    padding: 24px 20px;
   }
 }
 </style>

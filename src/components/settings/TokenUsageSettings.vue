@@ -1,44 +1,43 @@
 <template>
-  <div class="settings-section token-usage-settings">
-    <div class="usage-header">
+  <div class="token-usage-settings">
+    <div class="s-page-header">
       <div>
-        <h2 class="section-title">Token 用量</h2>
-        <p class="section-desc">{{ dateRangeText }}</p>
-        <p class="section-desc">基于本机 Claude Code CLI 会话记录统计</p>
+        <h2 class="s-page-title">Token 用量</h2>
+        <p class="s-page-desc">{{ dateRangeText }} · 基于本机 Claude Code CLI 会话记录统计</p>
       </div>
-      <button class="refresh-btn" :disabled="loading" @click="loadStats">
+      <button class="s-btn s-btn-secondary" :disabled="loading" @click="loadStats">
         <RefreshCw :size="14" :class="{ spinning: loading }" />
         <span>刷新</span>
       </button>
     </div>
 
-    <div v-if="error" class="state-card error-card">{{ error }}</div>
-    <div v-else-if="loading && !stats" class="state-card">正在读取本机会话记录...</div>
+    <div v-if="error" class="s-status-badge error">{{ error }}</div>
+    <div v-else-if="loading && !stats" class="s-card loading-state">正在读取本机会话记录...</div>
     <div v-else-if="stats" class="usage-content">
       <div class="summary-grid">
-        <div class="summary-card">
+        <div class="s-card summary-item">
           <span class="summary-label">今天</span>
           <strong>{{ formatTokens(stats.today.totalTokens) }}</strong>
           <span>{{ stats.today.sessionCount }} 次会话</span>
         </div>
-        <div class="summary-card">
+        <div class="s-card summary-item">
           <span class="summary-label">昨天</span>
           <strong>{{ formatTokens(stats.yesterday.totalTokens) }}</strong>
           <span>{{ stats.yesterday.sessionCount }} 次会话</span>
         </div>
-        <div class="summary-card">
+        <div class="s-card summary-item">
           <span class="summary-label">30 天</span>
           <strong>{{ formatTokens(stats.last30Days.totalTokens) }}</strong>
           <span>{{ stats.last30Days.sessionCount }} 次会话</span>
         </div>
-        <div class="summary-card">
+        <div class="s-card summary-item">
           <span class="summary-label">全部</span>
           <strong>{{ formatTokens(stats.allTime.totalTokens) }}</strong>
           <span>{{ stats.allTime.sessionCount }} 次会话</span>
         </div>
       </div>
 
-      <div class="heatmap-card">
+      <div class="s-card heatmap-section">
         <div class="heatmap-scroll">
           <div class="month-row">
             <span v-for="month in monthLabels" :key="month.key" :style="{ gridColumnStart: month.column }">{{ month.label }}</span>
@@ -82,14 +81,14 @@
       </div>
 
       <div class="detail-grid">
-        <div class="detail-card">
+        <div class="s-card detail-section">
           <h3>Token 构成</h3>
           <div class="stat-row"><span>输入</span><strong>{{ formatNumber(stats.allTime.inputTokens) }}</strong></div>
           <div class="stat-row"><span>输出</span><strong>{{ formatNumber(stats.allTime.outputTokens) }}</strong></div>
           <div class="stat-row"><span>缓存创建</span><strong>{{ formatNumber(stats.allTime.cacheCreationInputTokens) }}</strong></div>
           <div class="stat-row"><span>缓存读取</span><strong>{{ formatNumber(stats.allTime.cacheReadInputTokens) }}</strong></div>
         </div>
-        <div class="detail-card">
+        <div class="s-card detail-section">
           <h3>模型用量</h3>
           <div v-if="modelRows.length === 0" class="empty-text">暂无模型数据</div>
           <div v-for="row in modelRows" :key="row.model" class="model-row">
@@ -221,44 +220,11 @@ onMounted(loadStats)
 </script>
 
 <style lang="scss" scoped>
-.token-usage-settings {
-  max-width: 1160px;
-}
-
-.usage-header {
+.s-page-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 20px;
-}
-
-.section-desc {
-  margin: 4px 0 0;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-.refresh-btn {
-  @include reset-button;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border-default);
-  color: var(--text-secondary);
-  background: var(--surface-soft);
-
-  &:hover:not(:disabled) {
-    color: var(--text-primary);
-    background: var(--bg-hover);
-  }
-
-  &:disabled {
-    opacity: 0.65;
-    cursor: not-allowed;
-  }
 }
 
 .spinning {
@@ -269,22 +235,8 @@ onMounted(loadStats)
   to { transform: rotate(360deg); }
 }
 
-.state-card,
-.summary-card,
-.heatmap-card,
-.detail-card {
-  border: 1px solid var(--border-default);
-  border-radius: 12px;
-  background: var(--surface-card);
-}
-
-.state-card {
-  padding: 24px;
+.loading-state {
   color: var(--text-muted);
-}
-
-.error-card {
-  color: var(--error);
 }
 
 .summary-grid {
@@ -294,8 +246,13 @@ onMounted(loadStats)
   margin-bottom: 18px;
 }
 
-.summary-card {
+.summary-item {
   padding: 14px;
+  margin-bottom: 0;
+
+  &:hover {
+    box-shadow: none;
+  }
 
   .summary-label,
   span:last-child {
@@ -313,11 +270,14 @@ onMounted(loadStats)
   }
 }
 
-.heatmap-card {
+.heatmap-section {
   position: relative;
   padding: 18px 18px 14px;
-  margin-bottom: 18px;
   overflow: visible;
+
+  &:hover {
+    box-shadow: none;
+  }
 }
 
 .heatmap-scroll {
@@ -377,7 +337,7 @@ onMounted(loadStats)
   width: 16px;
   height: 16px;
   border-radius: 4px;
-  border: 1px solid rgba(120, 80, 60, 0.12);
+  border: 1px solid var(--border-subtle);
 }
 
 .heatmap-cell {
@@ -387,16 +347,16 @@ onMounted(loadStats)
   &:hover,
   &.active {
     transform: scale(1.08);
-    border-color: rgba(32, 35, 32, 0.88);
-    box-shadow: 0 0 0 1px rgba(32, 35, 32, 0.32);
+    border-color: var(--text-primary);
+    box-shadow: 0 0 0 1px var(--border-default);
   }
 }
 
-.level-0 { background: rgba(120, 80, 60, 0.045); }
-.level-1 { background: #f7d6cb; }
-.level-2 { background: #efad9f; }
-.level-3 { background: #c96f55; }
-.level-4 { background: #8f4a36; }
+.level-0 { background: var(--bg-tertiary); }
+.level-1 { background: var(--accent-primary-glow); }
+.level-2 { background: color-mix(in srgb, var(--accent-primary-glow), var(--accent-primary)); }
+.level-3 { background: var(--accent-primary); }
+.level-4 { background: var(--accent-primary-hover); }
 
 .heatmap-legend {
   display: flex;
@@ -421,9 +381,9 @@ onMounted(loadStats)
   min-width: 174px;
   padding: 13px 16px;
   border-radius: 10px;
-  background: #292d29;
-  color: #fff7ef;
-  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.28);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-xl);
   pointer-events: none;
 
   strong {
@@ -435,7 +395,7 @@ onMounted(loadStats)
   span {
     font-size: 16px;
     line-height: 1.1;
-    color: #ffe4d9;
+    color: var(--text-secondary);
   }
 }
 
@@ -445,8 +405,9 @@ onMounted(loadStats)
   gap: 14px;
 }
 
-.detail-card {
+.detail-section {
   padding: 16px;
+  margin-bottom: 0;
 
   h3 {
     margin: 0 0 12px;

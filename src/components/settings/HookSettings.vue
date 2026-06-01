@@ -1,6 +1,9 @@
 <template>
-  <div class="settings-section">
-    <h2 class="section-title">{{ t('hookSettings.title') }}</h2>
+  <div class="hook-settings">
+    <div class="s-page-header">
+      <h2 class="s-page-title">{{ t('hookSettings.title') }}</h2>
+      <p class="s-page-desc">自定义会话生命周期钩子函数</p>
+    </div>
 
     <div class="section-content">
       <div class="hooks-header">
@@ -18,7 +21,7 @@
               <component :is="v.icon" :size="14" />
             </button>
           </div>
-          <button class="btn btn-primary" @click="showAddModal = true">
+          <button class="s-btn s-btn-primary" @click="showAddModal = true">
             <Plus :size="14" />
             {{ t('hookSettings.addHook') }}
           </button>
@@ -37,7 +40,6 @@
         </button>
       </div>
 
-      <!-- View A: Card List -->
       <template v-if="viewMode === 'cards'">
         <div class="event-nav">
           <button
@@ -57,7 +59,7 @@
           <div
             v-for="hook in currentEventHooks"
             :key="hook.id"
-            class="hook-card"
+            class="s-card hook-card"
             :class="{ disabled: hook.disabled, expanded: expandedHook === hook.id }"
           >
             <div class="hook-card-header" @click="toggleExpand(hook.id)">
@@ -73,13 +75,13 @@
                 </span>
               </div>
               <div class="hook-actions">
-                <button class="icon-btn" @click.stop="editHook(hook)" :title="t('common.edit')">
+                <button class="s-icon-btn" @click.stop="editHook(hook)" :title="t('common.edit')">
                   <Pencil :size="14" />
                 </button>
-                <button class="icon-btn danger" @click.stop="confirmDelete(hook.id)" :title="t('common.delete')">
+                <button class="s-icon-btn danger" @click.stop="confirmDelete(hook.id)" :title="t('common.delete')">
                   <Trash2 :size="14" />
                 </button>
-                <ChevronDown :size="16" class="expand-icon" :class="{ rotated: expandedHook === hook.id }" />
+                <ChevronDown :size="16" class="s-expand-icon" :class="{ rotated: expandedHook === hook.id }" />
               </div>
             </div>
             <div v-if="expandedHook === hook.id" class="hook-card-body">
@@ -98,11 +100,11 @@
             </div>
           </div>
 
-          <div v-if="currentEventHooks.length === 0" class="empty-state">
-            <Zap :size="48" />
-            <h4>{{ t('hookSettings.noHooks') }}</h4>
-            <p>{{ t('hookSettings.noHooksDesc') }}</p>
-            <button class="btn btn-primary" @click="showAddModal = true">
+          <div v-if="currentEventHooks.length === 0" class="s-empty-state">
+            <Zap :size="48" class="s-empty-state-icon" />
+            <h4 class="s-empty-state-title">{{ t('hookSettings.noHooks') }}</h4>
+            <p class="s-empty-state-description">{{ t('hookSettings.noHooksDesc') }}</p>
+            <button class="s-btn s-btn-primary" @click="showAddModal = true">
               <Plus :size="14" />
               {{ t('hookSettings.addFirstHook') }}
             </button>
@@ -110,7 +112,6 @@
         </div>
       </template>
 
-      <!-- View D: Table -->
       <template v-if="viewMode === 'table'">
         <div class="table-toolbar">
           <input class="search-input" v-model="searchQuery" :placeholder="t('hookSettings.searchPlaceholder')" />
@@ -150,21 +151,20 @@
               <td class="cmd-cell">{{ hook.command }}</td>
               <td style="font-size:12px;color:var(--text-muted);">{{ scopeLabels[hook.scope] }}</td>
               <td class="actions-cell">
-                <button class="icon-btn" @click="editHook(hook)"><Pencil :size="13" /></button>
-                <button class="icon-btn danger" @click="confirmDelete(hook.id)"><Trash2 :size="13" /></button>
+                <button class="s-icon-btn" @click="editHook(hook)"><Pencil :size="13" /></button>
+                <button class="s-icon-btn danger" @click="confirmDelete(hook.id)"><Trash2 :size="13" /></button>
               </td>
             </tr>
           </tbody>
         </table>
 
-        <div v-else class="empty-state">
-          <Zap :size="48" />
-          <h4>{{ t('hookSettings.noHooks') }}</h4>
-          <p>{{ t('hookSettings.noHooksDesc') }}</p>
+        <div v-else class="s-empty-state">
+          <Zap :size="48" class="s-empty-state-icon" />
+          <h4 class="s-empty-state-title">{{ t('hookSettings.noHooks') }}</h4>
+          <p class="s-empty-state-description">{{ t('hookSettings.noHooksDesc') }}</p>
         </div>
       </template>
 
-      <!-- View B: Timeline -->
       <template v-if="viewMode === 'timeline'">
         <div class="timeline-view">
           <div v-for="evt in timelineEvents" :key="evt.value" class="event-group">
@@ -174,7 +174,7 @@
               <span class="event-desc">{{ evt.description }}</span>
               <span class="event-hook-count" v-if="getEventHookCount(evt.value)">{{ getEventHookCount(evt.value) }} {{ t('hookSettings.hookUnit') }}</span>
               <span v-else class="event-hook-count muted">0 {{ t('hookSettings.hookUnit') }}</span>
-              <button v-if="getEventHookCount(evt.value) === 0" class="btn btn-ghost-sm" @click="addHookForEvent(evt.value)">+</button>
+              <button v-if="getEventHookCount(evt.value) === 0" class="btn-ghost-sm" @click="addHookForEvent(evt.value)">+</button>
             </div>
             <div v-if="getEventHookCount(evt.value) > 0" class="event-hook-list">
               <div v-for="hook in getHooksForEvent(evt.value)" :key="hook.id" class="event-hook-item">
@@ -184,8 +184,8 @@
                 <span class="hook-cmd">{{ hook.command }}</span>
                 <span v-if="hook.matcher" class="hook-matcher-tag">{{ hook.matcher }}</span>
                 <div class="hook-actions-inline">
-                  <button class="icon-btn" @click="editHook(hook)"><Pencil :size="12" /></button>
-                  <button class="icon-btn danger" @click="confirmDelete(hook.id)"><Trash2 :size="12" /></button>
+                  <button class="s-icon-btn" @click="editHook(hook)"><Pencil :size="12" /></button>
+                  <button class="s-icon-btn danger" @click="confirmDelete(hook.id)"><Trash2 :size="12" /></button>
                 </div>
               </div>
             </div>
@@ -193,7 +193,6 @@
         </div>
       </template>
 
-      <!-- Add/Edit Modal -->
       <HookEditModal
         v-if="showAddModal"
         :hook="editingHook"
@@ -202,14 +201,13 @@
         @close="closeModal"
       />
 
-      <!-- Delete Confirm -->
       <div v-if="deleteConfirmId" class="form-modal-overlay" @click.self="deleteConfirmId = null">
         <div class="form-modal" style="width:400px;">
           <h3>{{ t('hookSettings.confirmDelete') }}</h3>
           <p style="font-size:13px;color:var(--text-secondary);margin:8px 0 0;">{{ t('hookSettings.confirmDeleteDesc') }}</p>
           <div class="form-actions">
-            <button class="btn btn-secondary" @click="deleteConfirmId = null">{{ t('common.cancel') }}</button>
-            <button class="btn btn-danger" @click="doDelete">{{ t('common.delete') }}</button>
+            <button class="s-btn s-btn-secondary" @click="deleteConfirmId = null">{{ t('common.cancel') }}</button>
+            <button class="s-btn s-danger-btn" @click="doDelete">{{ t('common.delete') }}</button>
           </div>
         </div>
       </div>
@@ -360,8 +358,7 @@ onMounted(() => {
 </script>
 
 <style lang="scss" scoped>
-.settings-section { max-width: 860px; }
-.section-title { font-size: 24px; font-weight: 600; color: var(--text-primary); margin-bottom: 24px; }
+.hook-settings { display: flex; flex-direction: column; gap: 20px; }
 .section-content { display: flex; flex-direction: column; gap: 16px; }
 
 .hooks-header { display: flex; align-items: center; justify-content: space-between; }
@@ -383,7 +380,7 @@ onMounted(() => {
   color: var(--text-muted);
   transition: all 0.15s;
   &:hover { color: var(--text-primary); }
-  &.active { background: var(--bg-primary); color: var(--accent-primary); box-shadow: 0 1px 2px rgba(0,0,0,0.15); }
+  &.active { background: var(--bg-primary); color: var(--accent-primary); box-shadow: var(--shadow-sm); }
 }
 
 .scope-selector { display: flex; gap: 6px; }
@@ -392,20 +389,15 @@ onMounted(() => {
   padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 500;
   border: 1px solid var(--border-default); background: transparent; color: var(--text-muted);
   cursor: pointer; transition: all 0.15s;
-  &:hover { border-color: rgba(255,255,255,0.15); color: var(--text-primary); }
+  &:hover { border-color: var(--border-strong); color: var(--text-primary); }
   &.active { border-color: var(--accent-primary); background: var(--accent-primary-glow); color: var(--accent-primary); }
 }
 
-.btn {
+.btn-ghost-sm {
   @include reset-button;
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 10px 16px; border-radius: 8px; font-size: 13px; font-weight: 500;
-  transition: all 0.2s;
-  &.btn-primary { background: var(--accent-primary); color: white; &:hover:not(:disabled) { background: var(--accent-primary-hover); } }
-  &.btn-secondary { background: var(--surface-soft); border: 1px solid var(--border-default); color: var(--text-primary); &:hover:not(:disabled) { background: var(--bg-hover); } }
-  &.btn-danger { background: rgba(239,68,68,0.12); color: #ef4444; &:hover { background: rgba(239,68,68,0.2); } }
-  &.btn-ghost-sm { @include reset-button; padding: 3px 8px; border-radius: 4px; font-size: 12px; background: transparent; color: var(--text-muted); &:hover { background: var(--bg-hover); color: var(--text-primary); } }
-  &:disabled { opacity: 0.6; cursor: not-allowed; }
+  padding: 3px 8px; border-radius: 4px; font-size: 12px;
+  background: transparent; color: var(--text-muted);
+  &:hover { background: var(--bg-hover); color: var(--text-primary); }
 }
 
 .event-nav {
@@ -422,12 +414,11 @@ onMounted(() => {
 }
 .event-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .event-name { font-family: var(--font-mono); font-size: 11px; }
-.event-count { font-size: 10px; background: rgba(255,255,255,0.06); padding: 1px 6px; border-radius: 4px; }
+.event-count { font-size: 10px; background: var(--surface-soft); padding: 1px 6px; border-radius: 4px; }
 
 .hooks-list { display: flex; flex-direction: column; gap: 8px; }
 
 .hook-card {
-  background: var(--surface-card); border: 1px solid var(--border-default); border-radius: 12px;
   overflow: hidden; transition: all 0.2s;
   &.disabled { opacity: 0.6; }
   &.expanded { border-color: var(--accent-primary); }
@@ -438,11 +429,11 @@ onMounted(() => {
 }
 .hook-toggle {
   position: relative; width: 36px; height: 20px; border-radius: 10px;
-  background: rgba(255,255,255,0.1); cursor: pointer; transition: all 0.2s; flex-shrink: 0;
+  background: var(--border-default); cursor: pointer; transition: all var(--transition-fast); flex-shrink: 0;
   &.on { background: var(--accent-primary); }
   &::after {
     content: ''; position: absolute; top: 2px; left: 2px;
-    width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: all 0.2s;
+    width: 16px; height: 16px; border-radius: 50%; background: var(--bg-elevated); transition: all var(--transition-fast);
   }
   &.on::after { left: 18px; }
 }
@@ -454,33 +445,18 @@ onMounted(() => {
   display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 4px;
   font-size: 11px; font-weight: 500;
   &.tag-event { background: var(--accent-primary-glow); color: var(--accent-primary); }
-  &.tag-command { background: rgba(34,211,238,0.1); color: #22d3ee; }
-  &.tag-prompt { background: rgba(167,139,250,0.1); color: #a78bfa; }
-  &.tag-matcher { background: rgba(245,158,11,0.1); color: #f59e0b; }
+  &.tag-command { background: var(--accent-secondary-glow); color: var(--accent-secondary); }
+  &.tag-prompt { background: var(--accent-tertiary-glow, rgba(124,58,237,0.12)); color: var(--accent-tertiary); }
+  &.tag-matcher { background: var(--warning-glow); color: var(--warning); }
 }
 .hook-actions { display: flex; align-items: center; gap: 4px; }
-.icon-btn {
-  @include reset-button;
-  width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
-  border-radius: 6px; color: var(--text-muted); transition: all 0.2s;
-  &:hover { background: var(--bg-hover); color: var(--text-primary); }
-  &.danger:hover { background: rgba(239,68,68,0.1); color: #ef4444; }
-}
-.expand-icon { color: var(--text-muted); transition: transform 0.2s; margin-left: 4px; &.rotated { transform: rotate(180deg); } }
+.s-expand-icon { color: var(--text-muted); transition: transform 0.2s; margin-left: 4px; &.rotated { transform: rotate(180deg); } }
 
 .hook-card-body { padding: 0 16px 14px; border-top: 1px solid var(--border-default); background: var(--bg-tertiary); }
 .detail-row { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border-default); &:last-child { border-bottom: none; } }
 .detail-label { font-size: 12px; font-weight: 500; color: var(--text-muted); min-width: 80px; }
 .detail-value { font-size: 12px; color: var(--text-primary); font-family: var(--font-mono); background: var(--surface-soft); padding: 4px 8px; border-radius: 4px; word-break: break-all; }
 
-.empty-state {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 16px; padding: 60px 20px; text-align: center; color: var(--text-muted);
-  h4 { font-size: 16px; font-weight: 600; color: var(--text-primary); margin: 0; }
-  p { font-size: 13px; max-width: 300px; margin: 0; }
-}
-
-// Table view
 .table-toolbar { display: flex; gap: 8px; align-items: center; }
 .search-input {
   flex: 1; padding: 8px 12px; background: var(--surface-soft); border: 1px solid var(--border-default);
@@ -505,13 +481,12 @@ onMounted(() => {
 .actions-cell { display: flex; gap: 4px; }
 .toggle-sm {
   position: relative; width: 30px; height: 16px; border-radius: 8px;
-  background: rgba(255,255,255,0.1); cursor: pointer; transition: all 0.2s;
+  background: var(--border-default); cursor: pointer; transition: all var(--transition-fast);
   &.on { background: var(--accent-primary); }
-  &::after { content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; transition: all 0.2s; }
+  &::after { content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--bg-elevated); transition: all var(--transition-fast); }
   &.on::after { left: 16px; }
 }
 
-// Timeline view
 .timeline-view { display: flex; flex-direction: column; gap: 12px; }
 .event-group-header {
   display: flex; align-items: center; gap: 10px;
@@ -535,24 +510,26 @@ onMounted(() => {
 .hook-type-badge {
   padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.05em; flex-shrink: 0;
-  &.badge-command { background: rgba(34,211,238,0.1); color: #22d3ee; }
-  &.badge-prompt { background: rgba(167,139,250,0.1); color: #a78bfa; }
+  &.badge-command { background: var(--accent-secondary-glow); color: var(--accent-secondary); }
+  &.badge-prompt { background: var(--accent-tertiary-glow, rgba(124,58,237,0.12)); color: var(--accent-tertiary); }
 }
 .hook-cmd { flex: 1; font-size: 12px; font-family: var(--font-mono); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hook-matcher-tag { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: rgba(245,158,11,0.1); color: #f59e0b; flex-shrink: 0; }
+.hook-matcher-tag { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: var(--warning-glow); color: var(--warning); flex-shrink: 0; }
 .hook-actions-inline { display: flex; gap: 2px; opacity: 0; transition: opacity 0.15s; }
 .event-hook-item:hover .hook-actions-inline { opacity: 1; }
 
 .form-modal-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  position: fixed; inset: 0; background: var(--surface-glass-active);
   display: flex; align-items: center; justify-content: center; z-index: 100;
 }
 .form-modal {
   width: 520px; max-height: 80vh; overflow-y: auto;
-  background: var(--bg-primary); border-radius: 16px; padding: 24px;
+  background: var(--bg-elevated); border-radius: var(--radius-xl); padding: 24px;
   display: flex; flex-direction: column; gap: 16px;
-  box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+  box-shadow: var(--shadow-xl);
   h3 { font-size: 18px; font-weight: 600; color: var(--text-primary); margin: 0; }
 }
 .form-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 8px; padding-top: 16px; border-top: 1px solid var(--border-default); }
+
+.s-icon-btn.danger:hover { background: var(--error-glow); color: var(--error); }
 </style>

@@ -252,7 +252,7 @@ watch(isOpen, (open) => {
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
   border-radius: 8px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-xl);
   z-index: 100;
   overflow: hidden;
 }

@@ -1,16 +1,18 @@
 <template>
-  <div class="settings-section">
-    <h2 class="section-title">{{ t('appearanceSettings.title') }}</h2>
+  <div class="appearance-settings">
+    <div class="s-page-header">
+      <h2 class="s-page-title">{{ t('appearanceSettings.title') }}</h2>
+      <p class="s-page-desc">自定义界面主题、字体和显示效果</p>
+    </div>
 
-    <div class="section-content">
-      <!-- Theme Selection -->
-      <div class="form-group">
-        <label class="form-label">{{ t('settings.theme') }}</label>
-        <div class="theme-options">
+    <div class="s-card">
+      <div class="s-form-group">
+        <label class="s-form-label">{{ t('settings.theme') }}</label>
+        <div class="s-selection-grid" style="grid-template-columns: repeat(5, 1fr)">
           <button
             v-for="theme in themes"
             :key="theme.id"
-            class="theme-card"
+            class="s-selection-card"
             :class="{ active: config.theme === theme.id }"
             @click="selectTheme(theme.id)"
           >
@@ -20,130 +22,139 @@
               <div class="preview-content"></div>
             </div>
             <div class="theme-name">{{ theme.name }}</div>
-            <Check v-if="config.theme === theme.id" class="theme-check" :size="16" />
+            <span v-if="config.theme === theme.id" class="s-check-badge"><Check :size="14" /></span>
           </button>
         </div>
       </div>
+    </div>
 
-      <!-- Font Settings -->
-      <div class="divider"></div>
-      <h3 class="subsection-title">Font</h3>
-
+    <div class="s-card">
+      <div class="s-section-header">
+        <h3 class="s-section-title">{{ t('settings.font') }}</h3>
+      </div>
+      <div class="s-divider"></div>
       <div class="form-row">
-        <div class="form-group flex-1">
-          <label class="form-label">Font Size</label>
-          <select v-model="config.fontSize" class="form-select">
+        <div class="form-group">
+          <label class="s-form-label">{{ t('settings.fontSize') }}</label>
+          <select v-model="config.fontSize" class="s-form-select">
             <option v-for="size in fontSizes" :key="size" :value="size">{{ size }}px</option>
           </select>
         </div>
-
-        <div class="form-group flex-2">
-          <label class="form-label">Font Family</label>
-          <select v-model="config.fontFamily" class="form-select">
+        <div class="form-group form-group-wide">
+          <label class="s-form-label">{{ t('settings.fontFamily') }}</label>
+          <select v-model="config.fontFamily" class="s-form-select">
             <option v-for="font in fontFamilies" :key="font.id" :value="font.id">{{ font.name }}</option>
           </select>
         </div>
       </div>
-
       <div class="form-group">
-        <label class="form-label">Code Font Family</label>
-        <select v-model="config.codeFontFamily" class="form-select">
+        <label class="s-form-label">{{ t('settings.codeFontFamily') }}</label>
+        <select v-model="config.codeFontFamily" class="s-form-select">
           <option v-for="font in codeFonts" :key="font.id" :value="font.id">{{ font.name }}</option>
         </select>
       </div>
+    </div>
 
-      <!-- UI Density -->
-      <div class="divider"></div>
-      <h3 class="subsection-title">{{ t('settings.density') }}</h3>
-
-      <div class="density-options">
+    <div class="s-card">
+      <div class="s-section-header">
+        <h3 class="s-section-title">{{ t('settings.density') }}</h3>
+      </div>
+      <div class="s-divider"></div>
+      <div class="s-selection-grid" style="grid-template-columns: repeat(3, 1fr)">
         <button
           v-for="density in densities"
           :key="density.id"
-          class="density-btn"
+          class="s-selection-card"
           :class="{ active: config.density === density.id }"
           @click="selectDensity(density.id)"
         >
           <div class="density-preview" :class="density.id">
             <div></div><div></div><div></div>
           </div>
-          <span>{{ density.name }}</span>
+          <span class="density-name">{{ density.name }}</span>
         </button>
       </div>
+    </div>
 
-      <!-- Toggles -->
-      <div class="divider"></div>
-      <h3 class="subsection-title">{{ t('settings.editor') }}</h3>
-
-      <div class="toggle-list">
-        <label class="toggle-item">
-          <div class="toggle-info">
-            <span class="toggle-label">{{ t('settings.showLineNumbers') }}</span>
-            <span class="toggle-desc">{{ t('settings.showLineNumbersDesc') }}</span>
+    <div class="s-card">
+      <div class="s-section-header">
+        <h3 class="s-section-title">{{ t('settings.editor') }}</h3>
+      </div>
+      <div class="s-divider"></div>
+      <div class="s-toggle-wrapper">
+        <label class="s-toggle-item">
+          <div class="s-toggle-info">
+            <span class="s-toggle-label">{{ t('settings.showLineNumbers') }}</span>
+            <span class="s-toggle-description">{{ t('settings.showLineNumbersDesc') }}</span>
           </div>
-          <input type="checkbox" v-model="config.showLineNumbers" class="toggle-switch" />
+          <input type="checkbox" v-model="config.showLineNumbers" class="s-toggle-switch" />
         </label>
 
-        <label class="toggle-item">
-          <div class="toggle-info">
-            <span class="toggle-label">{{ t('settings.wordWrap') }}</span>
-            <span class="toggle-desc">{{ t('settings.wordWrapDesc') }}</span>
+        <label class="s-toggle-item">
+          <div class="s-toggle-info">
+            <span class="s-toggle-label">{{ t('settings.wordWrap') }}</span>
+            <span class="s-toggle-description">{{ t('settings.wordWrapDesc') }}</span>
           </div>
-          <input type="checkbox" v-model="config.wordWrap" class="toggle-switch" />
+          <input type="checkbox" v-model="config.wordWrap" class="s-toggle-switch" />
         </label>
 
-        <label class="toggle-item">
-          <div class="toggle-info">
-            <span class="toggle-label">{{ t('settings.minimap') }}</span>
-            <span class="toggle-desc">{{ t('settings.minimapDesc') }}</span>
+        <label class="s-toggle-item">
+          <div class="s-toggle-info">
+            <span class="s-toggle-label">{{ t('settings.minimap') }}</span>
+            <span class="s-toggle-description">{{ t('settings.minimapDesc') }}</span>
           </div>
-          <input type="checkbox" v-model="config.showMinimap" class="toggle-switch" />
+          <input type="checkbox" v-model="config.showMinimap" class="s-toggle-switch" />
         </label>
 
-        <label class="toggle-item">
-          <div class="toggle-info">
-            <span class="toggle-label">{{ t('appearanceSettings.smoothScrolling') }}</span>
-            <span class="toggle-desc">{{ t('appearanceSettings.smoothScrollingDesc') }}</span>
+        <label class="s-toggle-item">
+          <div class="s-toggle-info">
+            <span class="s-toggle-label">{{ t('appearanceSettings.smoothScrolling') }}</span>
+            <span class="s-toggle-description">{{ t('appearanceSettings.smoothScrollingDesc') }}</span>
           </div>
-          <input type="checkbox" v-model="config.smoothScrolling" class="toggle-switch" />
+          <input type="checkbox" v-model="config.smoothScrolling" class="s-toggle-switch" />
         </label>
       </div>
+    </div>
 
-      <div class="divider"></div>
-      <h3 class="subsection-title">{{ t('contextUsage.settingsSection') }}</h3>
-
-      <div class="toggle-list">
-        <label class="toggle-item">
-          <div class="toggle-info">
-            <span class="toggle-label">{{ t('contextUsage.showInHeader') }}</span>
-            <span class="toggle-desc">{{ t('contextUsage.showInHeaderDesc') }}</span>
+    <div class="s-card">
+      <div class="s-section-header">
+        <h3 class="s-section-title">{{ t('contextUsage.settingsSection') }}</h3>
+      </div>
+      <div class="s-divider"></div>
+      <div class="s-toggle-wrapper">
+        <label class="s-toggle-item">
+          <div class="s-toggle-info">
+            <span class="s-toggle-label">{{ t('contextUsage.showInHeader') }}</span>
+            <span class="s-toggle-description">{{ t('contextUsage.showInHeaderDesc') }}</span>
           </div>
-          <input type="checkbox" v-model="config.showContextUsage" class="toggle-switch" />
+          <input type="checkbox" v-model="config.showContextUsage" class="s-toggle-switch" />
         </label>
 
-        <label class="toggle-item">
-          <div class="toggle-info">
-            <span class="toggle-label">{{ t('contextUsage.showWarningBar') }}</span>
-            <span class="toggle-desc">{{ t('contextUsage.showWarningBarDesc') }}</span>
+        <label class="s-toggle-item">
+          <div class="s-toggle-info">
+            <span class="s-toggle-label">{{ t('contextUsage.showWarningBar') }}</span>
+            <span class="s-toggle-description">{{ t('contextUsage.showWarningBarDesc') }}</span>
           </div>
-          <input type="checkbox" v-model="config.showContextWarningBar" class="toggle-switch" />
+          <input type="checkbox" v-model="config.showContextWarningBar" class="s-toggle-switch" />
         </label>
       </div>
+    </div>
 
-      <!-- Accent Color -->
-      <div class="divider"></div>
-      <h3 class="subsection-title">{{ t('appearanceSettings.accentColor') }}</h3>
-
-      <div class="color-options">
+    <div class="s-card">
+      <div class="s-section-header">
+        <h3 class="s-section-title">{{ t('appearanceSettings.accentColor') }}</h3>
+      </div>
+      <div class="s-divider"></div>
+      <div class="s-color-options">
         <button
           v-for="color in accentColors"
           :key="color.id"
-          class="color-btn"
+          class="s-color-option"
           :class="{ active: config.accentColor === color.id }"
           :style="{ background: color.hex }"
           @click="selectAccent(color.id)"
         >
-          <Check v-if="config.accentColor === color.id" :size="16" />
+          <Check v-if="config.accentColor === color.id" :size="14" />
         </button>
       </div>
     </div>
@@ -193,9 +204,9 @@ const codeFonts = [
 ]
 
 const densities = [
-  { id: 'compact', name: 'Compact' },
-  { id: 'default', name: 'Default' },
-  { id: 'comfortable', name: 'Comfortable' }
+  { id: 'compact', name: t('settings.densityCompact') },
+  { id: 'default', name: t('settings.densityDefault') },
+  { id: 'comfortable', name: t('settings.densityComfortable') }
 ]
 
 const accentColors = [
@@ -401,108 +412,22 @@ function selectAccent(colorId: string) {
 </script>
 
 <style lang="scss" scoped>
-.settings-section {
-  max-width: 720px;
-}
-
-.section-title {
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 24px;
-}
-
-.section-content {
+.appearance-settings {
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
 
-.subsection-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 16px;
 }
 
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-
-  &.flex-1 {
-    flex: 1;
-  }
-
-  &.flex-2 {
-    flex: 2;
-  }
-}
-
-.form-row {
-  display: flex;
-  gap: 16px;
-}
-
-.form-label {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.form-select {
-  padding: 10px 12px;
-  background: var(--surface-soft);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-size: 13px;
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-  padding-right: 36px;
-
-  &:focus {
-    outline: none;
-    border-color: var(--accent-primary);
-    box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb), 0.1);
-  }
-}
-
-.divider {
-  height: 1px;
-  background: var(--border-default);
-  margin: 8px 0;
-}
-
-.theme-options {
-  display: flex;
-  gap: 16px;
-}
-
-.theme-card {
-  @include reset-button;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 12px;
-  background: var(--surface-card);
-  border: 2px solid transparent;
-  border-radius: 12px;
-  transition: all 0.2s;
-  position: relative;
-
-  &:hover {
-    background: var(--bg-hover);
-  }
-
-  &.active {
-    border-color: var(--accent-primary);
-    background: rgba(var(--accent-primary-rgb), 0.05);
-  }
+  gap: 8px;
 }
 
 .theme-preview {
@@ -515,8 +440,7 @@ function selectAccent(colorId: string) {
 
   .preview-header {
     height: 12px;
-    background: var(--bg-tertiary);
-    border-bottom: 1px solid var(--border-default);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   }
 
   .preview-sidebar {
@@ -525,8 +449,7 @@ function selectAccent(colorId: string) {
     top: 12px;
     bottom: 0;
     width: 20px;
-    background: var(--bg-secondary);
-    border-right: 1px solid var(--border-default);
+    border-right: 1px solid rgba(0, 0, 0, 0.06);
   }
 
   .preview-content {
@@ -535,43 +458,42 @@ function selectAccent(colorId: string) {
     right: 0;
     top: 12px;
     bottom: 0;
-    background: var(--bg-primary);
   }
 
   &.light {
-    .preview-header { background: #f1f5f9; }
-    .preview-sidebar { background: #f8fafc; }
+    .preview-header { background: #e7e9ef; }
+    .preview-sidebar { background: #f0f1f5; }
     .preview-content { background: #ffffff; }
   }
 
   &.dark {
-    .preview-header { background: #1e293b; }
-    .preview-sidebar { background: #0f172a; }
-    .preview-content { background: #1e293b; }
+    .preview-header { background: #1f1f1f; }
+    .preview-sidebar { background: #141414; }
+    .preview-content { background: #0d0d0d; }
   }
 
   &.system {
     .preview-header {
-      background: linear-gradient(to right, #f1f5f9 50%, #1e293b 50%);
+      background: linear-gradient(to right, #e7e9ef 50%, #1f1f1f 50%);
     }
     .preview-sidebar {
-      background: linear-gradient(to right, #f8fafc 50%, #0f172a 50%);
+      background: linear-gradient(to right, #f0f1f5 50%, #141414 50%);
     }
     .preview-content {
-      background: linear-gradient(to right, #ffffff 50%, #1e293b 50%);
+      background: linear-gradient(to right, #ffffff 50%, #0d0d0d 50%);
     }
   }
 
   &.anthropic {
-    .preview-header { background: #eeedea; }
-    .preview-sidebar { background: #f5f3ed; }
+    .preview-header { background: #e8e0d2; }
+    .preview-sidebar { background: #efe9de; }
     .preview-content { background: #faf9f5; }
   }
 
   &.anthropic-dark {
-    .preview-header { background: #242322; }
+    .preview-header { background: #252320; }
     .preview-sidebar { background: #1c1b1a; }
-    .preview-content { background: #141413; }
+    .preview-content { background: #181715; }
   }
 }
 
@@ -579,46 +501,6 @@ function selectAccent(colorId: string) {
   font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
-}
-
-.theme-check {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  color: var(--accent-primary);
-}
-
-.density-options {
-  display: flex;
-  gap: 12px;
-}
-
-.density-btn {
-  @include reset-button;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 16px 24px;
-  background: var(--surface-card);
-  border: 2px solid transparent;
-  border-radius: 10px;
-  transition: all 0.2s;
-
-  &:hover {
-    background: var(--bg-hover);
-  }
-
-  &.active {
-    border-color: var(--accent-primary);
-    background: rgba(var(--accent-primary-rgb), 0.05);
-  }
-
-  span {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-primary);
-  }
 }
 
 .density-preview {
@@ -652,105 +534,9 @@ function selectAccent(colorId: string) {
   }
 }
 
-.toggle-list {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.toggle-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 0;
-  cursor: pointer;
-
-  &:hover .toggle-info .toggle-label {
-    color: var(--text-primary);
-  }
-}
-
-.toggle-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.toggle-label {
-  font-size: 14px;
+.density-name {
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
-  transition: color 0.2s;
-}
-
-.toggle-desc {
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
-.toggle-switch {
-  appearance: none;
-  width: 44px;
-  height: 24px;
-  background: var(--bg-tertiary);
-  border-radius: 12px;
-  position: relative;
-  cursor: pointer;
-  transition: all 0.2s;
-  border: 1px solid var(--border-default);
-
-  &::after {
-    content: '';
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 18px;
-    height: 18px;
-    background: white;
-    border-radius: 50%;
-    transition: transform 0.2s;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  }
-
-  &:checked {
-    background: var(--accent-primary);
-    border-color: var(--accent-primary);
-
-    &::after {
-      transform: translateX(20px);
-    }
-  }
-
-  &:focus {
-    outline: none;
-    box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb), 0.1);
-  }
-}
-
-.color-options {
-  display: flex;
-  gap: 12px;
-}
-
-.color-btn {
-  @include reset-button;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  transition: all 0.2s;
-  border: 2px solid transparent;
-
-  &:hover {
-    transform: scale(1.1);
-  }
-
-  &.active {
-    border-color: var(--text-primary);
-    box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--accent-primary);
-  }
 }
 </style>

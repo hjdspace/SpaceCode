@@ -1,242 +1,241 @@
 <template>
-  <div class="settings-section">
-    <h2 class="section-title">{{ $t('settings.modelSettings') }}</h2>
+  <div class="model-settings">
+    <div class="s-page-header">
+      <h1 class="s-page-title">{{ $t('settings.modelSettings') }}</h1>
+      <p class="s-page-desc">配置 AI 模型提供商、API 密钥和模型选择</p>
+    </div>
 
-    <div class="section-content">
-      <!-- Login Method Selection -->
-      <div class="form-group">
-        <label class="form-label">{{ $t('settings.loginMethod') }}</label>
-        <div class="auth-methods-grid">
-          <div
-            v-for="method in authMethods"
-            :key="method.id"
-            class="auth-method-card"
-            :class="{ active: authMethod === method.id }"
-            @click="selectAuthMethod(method.id)"
-          >
-            <div class="method-icon">
-              <component :is="method.icon" :size="20" />
-            </div>
-            <div class="method-info">
-              <div class="method-title">{{ method.title }}</div>
-              <div class="method-desc">{{ method.desc }}</div>
-            </div>
-            <div v-if="authMethod === method.id" class="method-check">
-              <Check :size="16" />
-            </div>
+    <div class="s-card">
+      <div class="s-section-header">
+        <h3 class="s-section-title">{{ $t('settings.loginMethod') }}</h3>
+      </div>
+      <div class="s-selection-grid">
+        <div
+          v-for="method in authMethods"
+          :key="method.id"
+          class="s-selection-card"
+          :class="{ active: authMethod === method.id }"
+          @click="selectAuthMethod(method.id)"
+        >
+          <div class="s-selection-card-icon">
+            <component :is="method.icon" :size="20" />
+          </div>
+          <div class="s-selection-card-title">{{ method.title }}</div>
+          <div class="s-selection-card-desc">{{ method.desc }}</div>
+          <div class="s-check-badge">
+            <Check :size="12" />
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- Dynamic Configuration Based on Auth Method -->
-      <div class="divider"></div>
-
-      <!-- Anthropic Compatible Config -->
-      <template v-if="authMethod === 'anthropic_compatible'">
-        <h3 class="subsection-title">{{ $t('auth.anthropicConfig') }}</h3>
-        <div class="form-group">
-          <label class="form-label">{{ $t('auth.baseUrl') }}</label>
+    <div v-if="authMethod === 'anthropic_compatible'" class="s-card">
+      <div class="s-section-header">
+        <h3 class="s-section-title">{{ $t('auth.anthropicConfig') }}</h3>
+      </div>
+      <div class="s-form-group">
+        <label class="s-form-label">{{ $t('auth.baseUrl') }}</label>
+        <input
+          type="text"
+          v-model="config.anthropic.baseUrl"
+          placeholder="https://api.anthropic.com"
+          class="s-form-input"
+        />
+        <span class="s-form-hint">{{ $t('auth.leaveEmptyDefault') }}</span>
+      </div>
+      <div class="s-form-group">
+        <label class="s-form-label">{{ $t('auth.apiKey') }}</label>
+        <div class="s-input-with-action">
           <input
-            type="text"
-            v-model="config.anthropic.baseUrl"
-            placeholder="https://api.anthropic.com"
-            class="form-input"
+            :type="showApiKey ? 'text' : 'password'"
+            v-model="config.anthropic.apiKey"
+            placeholder="sk-ant-..."
+            class="s-form-input"
           />
-          <span class="form-hint">{{ $t('auth.leaveEmptyDefault') }}</span>
-        </div>
-        <div class="form-group">
-          <label class="form-label">{{ $t('auth.apiKey') }}</label>
-          <div class="input-with-action">
-            <input
-              :type="showApiKey ? 'text' : 'password'"
-              v-model="config.anthropic.apiKey"
-              placeholder="sk-ant-..."
-              class="form-input"
-            />
-            <button class="input-action-btn" @click="showApiKey = !showApiKey">
-              <Eye v-if="!showApiKey" :size="16" />
-              <EyeOff v-else :size="16" />
-            </button>
-          </div>
-        </div>
-        <div class="form-actions-row">
-          <button class="btn btn-secondary" @click="testConnection" :disabled="testing">
-            <Loader2 v-if="testing" :size="14" class="spin" />
-            <Plug v-else :size="14" />
-            {{ testing ? $t('auth.testing') : $t('auth.testConnection') }}
-          </button>
-          <button class="btn btn-secondary" @click="fetchModels" :disabled="fetchingModels">
-            <RefreshCw v-if="fetchingModels" :size="14" class="spin" />
-            <Download v-else :size="14" />
-            {{ fetchingModels ? $t('auth.fetching') : $t('auth.fetchModels') }}
+          <button class="s-btn-icon" @click="showApiKey = !showApiKey">
+            <Eye v-if="!showApiKey" :size="16" />
+            <EyeOff v-else :size="16" />
           </button>
         </div>
+      </div>
+      <div class="form-actions-row">
+        <button class="s-btn s-btn-secondary" @click="testConnection" :disabled="testing">
+          <Loader2 v-if="testing" :size="14" class="spin" />
+          <Plug v-else :size="14" />
+          {{ testing ? $t('auth.testing') : $t('auth.testConnection') }}
+        </button>
+        <button class="s-btn s-btn-secondary" @click="fetchModels" :disabled="fetchingModels">
+          <RefreshCw v-if="fetchingModels" :size="14" class="spin" />
+          <Download v-else :size="14" />
+          {{ fetchingModels ? $t('auth.fetching') : $t('auth.fetchModels') }}
+        </button>
+      </div>
+      <div v-if="connectionStatus" class="s-status-badge" :class="connectionStatus.type">
+        <CheckCircle v-if="connectionStatus.type === 'success'" :size="14" />
+        <XCircle v-if="connectionStatus.type === 'error'" :size="14" />
+        <AlertCircle v-if="connectionStatus.type === 'warning'" :size="14" />
+        <span>{{ connectionStatus.message }}</span>
+      </div>
+    </div>
 
-        <!-- Connection Status -->
-        <div v-if="connectionStatus" class="connection-status" :class="connectionStatus.type">
-          <CheckCircle v-if="connectionStatus.type === 'success'" :size="16" />
-          <XCircle v-if="connectionStatus.type === 'error'" :size="16" />
-          <AlertCircle v-if="connectionStatus.type === 'warning'" :size="16" />
-          <span>{{ connectionStatus.message }}</span>
-        </div>
-      </template>
-
-      <!-- OpenAI Compatible Config -->
-      <template v-else-if="authMethod === 'openai_compatible'">
-        <h3 class="subsection-title">{{ $t('auth.openaiConfig') }}</h3>
-        <div class="form-group">
-          <label class="form-label">{{ $t('auth.baseUrl') }}</label>
+    <div v-else-if="authMethod === 'openai_compatible'" class="s-card">
+      <div class="s-section-header">
+        <h3 class="s-section-title">{{ $t('auth.openaiConfig') }}</h3>
+      </div>
+      <div class="s-form-group">
+        <label class="s-form-label">{{ $t('auth.baseUrl') }}</label>
+        <input
+          type="text"
+          v-model="config.openai.baseUrl"
+          placeholder="https://api.openai.com/v1"
+          class="s-form-input"
+        />
+      </div>
+      <div class="s-form-group">
+        <label class="s-form-label">{{ $t('auth.apiKey') }}</label>
+        <div class="s-input-with-action">
           <input
-            type="text"
-            v-model="config.openai.baseUrl"
-            placeholder="https://api.openai.com/v1"
-            class="form-input"
+            :type="showApiKey ? 'text' : 'password'"
+            v-model="config.openai.apiKey"
+            placeholder="sk-..."
+            class="s-form-input"
           />
-        </div>
-        <div class="form-group">
-          <label class="form-label">{{ $t('auth.apiKey') }}</label>
-          <div class="input-with-action">
-            <input
-              :type="showApiKey ? 'text' : 'password'"
-              v-model="config.openai.apiKey"
-              placeholder="sk-..."
-              class="form-input"
-            />
-            <button class="input-action-btn" @click="showApiKey = !showApiKey">
-              <Eye v-if="!showApiKey" :size="16" />
-              <EyeOff v-else :size="16" />
-            </button>
-          </div>
-        </div>
-        <div class="form-actions-row">
-          <button class="btn btn-secondary" @click="testConnection" :disabled="testing">
-            <Loader2 v-if="testing" :size="14" class="spin" />
-            <Plug v-else :size="14" />
-            {{ testing ? $t('auth.testing') : $t('auth.testConnection') }}
-          </button>
-          <button class="btn btn-secondary" @click="fetchModels" :disabled="fetchingModels">
-            <RefreshCw v-if="fetchingModels" :size="14" class="spin" />
-            <Download v-else :size="14" />
-            {{ fetchingModels ? $t('auth.fetching') : $t('auth.fetchModels') }}
+          <button class="s-btn-icon" @click="showApiKey = !showApiKey">
+            <Eye v-if="!showApiKey" :size="16" />
+            <EyeOff v-else :size="16" />
           </button>
         </div>
+      </div>
+      <div class="form-actions-row">
+        <button class="s-btn s-btn-secondary" @click="testConnection" :disabled="testing">
+          <Loader2 v-if="testing" :size="14" class="spin" />
+          <Plug v-else :size="14" />
+          {{ testing ? $t('auth.testing') : $t('auth.testConnection') }}
+        </button>
+        <button class="s-btn s-btn-secondary" @click="fetchModels" :disabled="fetchingModels">
+          <RefreshCw v-if="fetchingModels" :size="14" class="spin" />
+          <Download v-else :size="14" />
+          {{ fetchingModels ? $t('auth.fetching') : $t('auth.fetchModels') }}
+        </button>
+      </div>
+      <div v-if="connectionStatus" class="s-status-badge" :class="connectionStatus.type">
+        <CheckCircle v-if="connectionStatus.type === 'success'" :size="14" />
+        <XCircle v-if="connectionStatus.type === 'error'" :size="14" />
+        <AlertCircle v-if="connectionStatus.type === 'warning'" :size="14" />
+        <span>{{ connectionStatus.message }}</span>
+      </div>
+    </div>
 
-        <!-- Connection Status -->
-        <div v-if="connectionStatus" class="connection-status" :class="connectionStatus.type">
-          <CheckCircle v-if="connectionStatus.type === 'success'" :size="16" />
-          <XCircle v-if="connectionStatus.type === 'error'" :size="16" />
-          <AlertCircle v-if="connectionStatus.type === 'warning'" :size="16" />
-          <span>{{ connectionStatus.message }}</span>
-        </div>
-      </template>
-
-      <!-- Gemini API Config -->
-      <template v-else-if="authMethod === 'gemini_api'">
-        <h3 class="subsection-title">{{ $t('auth.geminiConfig') }}</h3>
-        <div class="form-group">
-          <label class="form-label">{{ $t('auth.baseUrl') }}</label>
+    <div v-else-if="authMethod === 'gemini_api'" class="s-card">
+      <div class="s-section-header">
+        <h3 class="s-section-title">{{ $t('auth.geminiConfig') }}</h3>
+      </div>
+      <div class="s-form-group">
+        <label class="s-form-label">{{ $t('auth.baseUrl') }}</label>
+        <input
+          type="text"
+          v-model="config.gemini.baseUrl"
+          placeholder="https://generativelanguage.googleapis.com/v1beta"
+          class="s-form-input"
+        />
+        <span class="s-form-hint">{{ $t('auth.leaveEmptyGoogleDefault') }}</span>
+      </div>
+      <div class="s-form-group">
+        <label class="s-form-label">{{ $t('auth.apiKey') }}</label>
+        <div class="s-input-with-action">
           <input
-            type="text"
-            v-model="config.gemini.baseUrl"
-            placeholder="https://generativelanguage.googleapis.com/v1beta"
-            class="form-input"
+            :type="showApiKey ? 'text' : 'password'"
+            v-model="config.gemini.apiKey"
+            placeholder="AIza..."
+            class="s-form-input"
           />
-          <span class="form-hint">{{ $t('auth.leaveEmptyGoogleDefault') }}</span>
-        </div>
-        <div class="form-group">
-          <label class="form-label">{{ $t('auth.apiKey') }}</label>
-          <div class="input-with-action">
-            <input
-              :type="showApiKey ? 'text' : 'password'"
-              v-model="config.gemini.apiKey"
-              placeholder="AIza..."
-              class="form-input"
-            />
-            <button class="input-action-btn" @click="showApiKey = !showApiKey">
-              <Eye v-if="!showApiKey" :size="16" />
-              <EyeOff v-else :size="16" />
-            </button>
-          </div>
-        </div>
-      </template>
-
-      <!-- Claude Account OAuth -->
-      <template v-else-if="authMethod === 'claudeai'">
-        <h3 class="subsection-title">{{ $t('auth.claudeAccount') }}</h3>
-        <div class="oauth-section">
-          <div class="oauth-icon">
-            <Crown :size="32" />
-          </div>
-          <p class="oauth-text">{{ $t('auth.signInClaudeDesc') }}</p>
-          <p class="oauth-hint">{{ $t('auth.oauthHint') }}</p>
-          <button class="btn btn-primary btn-oauth" @click="startOAuthLogin(true)" :disabled="oauthLoading">
-            <LogIn :size="16" />
-            {{ oauthLoading ? $t('auth.connecting') : $t('auth.signInWithClaude') }}
+          <button class="s-btn-icon" @click="showApiKey = !showApiKey">
+            <Eye v-if="!showApiKey" :size="16" />
+            <EyeOff v-else :size="16" />
           </button>
-          <div v-if="oauthAccount" class="oauth-status">
-            <CheckCircle :size="16" class="success-icon" />
-            <span>{{ $t('auth.loggedInAs') }} <strong>{{ oauthAccount.email }}</strong></span>
-            <span class="subscription-badge">{{ oauthAccount.subscription }}</span>
-          </div>
         </div>
-      </template>
+      </div>
+    </div>
 
-      <!-- Console Account OAuth -->
-      <template v-else-if="authMethod === 'console'">
-        <h3 class="subsection-title">{{ $t('auth.anthropicConsole') }}</h3>
-        <div class="oauth-section">
-          <div class="oauth-icon">
-            <Key :size="32" />
-          </div>
-          <p class="oauth-text">{{ $t('auth.signInConsoleDesc') }}</p>
-          <p class="oauth-hint">{{ $t('auth.oauthHint') }}</p>
-          <button class="btn btn-primary btn-oauth" @click="startOAuthLogin(false)" :disabled="oauthLoading">
-            <LogIn :size="16" />
-            {{ oauthLoading ? $t('auth.connecting') : $t('auth.signInWithConsole') }}
-          </button>
-          <div v-if="oauthAccount" class="oauth-status">
-            <CheckCircle :size="16" class="success-icon" />
-            <span>{{ $t('auth.loggedInAs') }} <strong>{{ oauthAccount.email }}</strong></span>
-          </div>
+    <div v-else-if="authMethod === 'claudeai'" class="s-card">
+      <div class="s-section-header">
+        <h3 class="s-section-title">{{ $t('auth.claudeAccount') }}</h3>
+      </div>
+      <div class="oauth-content">
+        <div class="oauth-icon-wrapper">
+          <Crown :size="32" />
         </div>
-      </template>
+        <p class="oauth-text">{{ $t('auth.signInClaudeDesc') }}</p>
+        <p class="oauth-hint">{{ $t('auth.oauthHint') }}</p>
+        <button class="s-btn s-btn-primary" @click="startOAuthLogin(true)" :disabled="oauthLoading">
+          <LogIn :size="16" />
+          {{ oauthLoading ? $t('auth.connecting') : $t('auth.signInWithClaude') }}
+        </button>
+        <div v-if="oauthAccount" class="oauth-status">
+          <CheckCircle :size="16" class="success-icon" />
+          <span>{{ $t('auth.loggedInAs') }} <strong>{{ oauthAccount.email }}</strong></span>
+          <span class="subscription-badge">{{ oauthAccount.subscription }}</span>
+        </div>
+      </div>
+    </div>
 
-      <!-- Model Configuration -->
-      <div class="divider"></div>
-      <h3 class="subsection-title">{{ $t('model.configuration') }}</h3>
+    <div v-else-if="authMethod === 'console'" class="s-card">
+      <div class="s-section-header">
+        <h3 class="s-section-title">{{ $t('auth.anthropicConsole') }}</h3>
+      </div>
+      <div class="oauth-content">
+        <div class="oauth-icon-wrapper">
+          <Key :size="32" />
+        </div>
+        <p class="oauth-text">{{ $t('auth.signInConsoleDesc') }}</p>
+        <p class="oauth-hint">{{ $t('auth.oauthHint') }}</p>
+        <button class="s-btn s-btn-primary" @click="startOAuthLogin(false)" :disabled="oauthLoading">
+          <LogIn :size="16" />
+          {{ oauthLoading ? $t('auth.connecting') : $t('auth.signInWithConsole') }}
+        </button>
+        <div v-if="oauthAccount" class="oauth-status">
+          <CheckCircle :size="16" class="success-icon" />
+          <span>{{ $t('auth.loggedInAs') }} <strong>{{ oauthAccount.email }}</strong></span>
+        </div>
+      </div>
+    </div>
 
-      <div class="form-group">
-        <label class="form-label">{{ $t('model.haikuModel') }} <span class="model-tag">{{ $t('model.fast') }}</span></label>
+    <div class="s-card">
+      <div class="s-section-header">
+        <h3 class="s-section-title">{{ $t('model.configuration') }}</h3>
+      </div>
+      <div class="s-form-group">
+        <label class="s-form-label">{{ $t('model.haikuModel') }} <span class="s-model-tag fast">{{ $t('model.fast') }}</span></label>
         <SearchableSelect
           v-model="config.haikuModel"
           :options="availableModels"
           :placeholder="$t('model.selectModel')"
         />
       </div>
-
-      <div class="form-group">
-        <label class="form-label">{{ $t('model.sonnetModel') }} <span class="model-tag recommended">{{ $t('model.balanced') }}</span></label>
+      <div class="s-form-group">
+        <label class="s-form-label">{{ $t('model.sonnetModel') }} <span class="s-model-tag recommended">{{ $t('model.balanced') }}</span></label>
         <SearchableSelect
           v-model="config.sonnetModel"
           :options="availableModels"
           :placeholder="$t('model.selectModel')"
         />
       </div>
-
-      <div class="form-group">
-        <label class="form-label">{{ $t('model.opusModel') }} <span class="model-tag powerful">{{ $t('model.powerful') }}</span></label>
+      <div class="s-form-group">
+        <label class="s-form-label">{{ $t('model.opusModel') }} <span class="s-model-tag powerful">{{ $t('model.powerful') }}</span></label>
         <SearchableSelect
           v-model="config.opusModel"
           :options="availableModels"
           :placeholder="$t('model.selectModel')"
         />
       </div>
+    </div>
 
-      <div class="context-info-box">
-        <h3 class="subsection-title">{{ $t('contextUsage.modelContextTitle') }}</h3>
-        <p class="context-info-desc">{{ $t('contextUsage.modelContextDesc') }}</p>
-        <ContextUsagePreview :model-id="previewModelId" />
+    <div class="s-card">
+      <div class="s-section-header">
+        <h3 class="s-section-title">{{ $t('contextUsage.modelContextTitle') }}</h3>
       </div>
+      <p class="context-info-desc">{{ $t('contextUsage.modelContextDesc') }}</p>
+      <ContextUsagePreview :model-id="previewModelId" />
     </div>
   </div>
 </template>
@@ -311,22 +310,18 @@ const previewModelId = computed(
   () => settingsStore.config.model || config.value.sonnetModel || 'claude-sonnet-4-6',
 )
 
-// 规范化API URL，确保包含正确的版本路径
 function normalizeApiUrl(baseUrl: string, provider: string): string {
   let url = baseUrl.replace(/\/+$/, '')
 
-  // 根据provider类型确保包含正确的API版本路径
   if (provider === 'anthropic' && !url.includes('/v1')) {
     url += '/v1'
   } else if (provider === 'openai' && !url.includes('/v1')) {
     url += '/v1'
   }
-  // gemini使用v1beta路径，通常已在默认URL中包含
 
   return url
 }
 
-// 根据当前认证方式获取默认模型
 const defaultModels = computed(() => {
   const models: { id: string; name?: string }[] = []
 
@@ -406,7 +401,6 @@ async function testConnection() {
       return
     }
 
-    // 规范化API URL，确保包含正确的版本路径
     const normalizedUrl = normalizeApiUrl(baseUrl, provider)
     const url = `${normalizedUrl}/models`
     const result = await api.httpFetch(url, {
@@ -467,7 +461,6 @@ async function fetchModels() {
       return
     }
 
-    // 规范化API URL，确保包含正确的版本路径
     const normalizedUrl = normalizeApiUrl(baseUrl, provider)
     const url = `${normalizedUrl}/models`
     const result = await api.httpFetch(url, {
@@ -522,307 +515,45 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
 </script>
 
 <style lang="scss" scoped>
-.settings-section {
-  max-width: 720px;
-}
-
-.section-title {
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 24px;
-}
-
-.section-content {
+.model-settings {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-}
-
-.subsection-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.form-label {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.model-tag {
-  font-size: 10px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: var(--bg-tertiary);
-  color: var(--text-muted);
-  font-weight: 500;
-
-  &.recommended {
-    background: rgba(var(--accent-primary-rgb), 0.1);
-    color: var(--accent-primary);
-  }
-
-  &.powerful {
-    background: var(--accent-tertiary-glow);
-    color: var(--accent-tertiary);
-  }
-}
-
-.form-input,
-.form-select {
-  padding: 10px 12px;
-  background: var(--surface-soft);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-size: 13px;
-  transition: all 0.2s;
-
-  &:focus {
-    outline: none;
-    border-color: var(--accent-primary);
-    box-shadow: 0 0 0 3px var(--accent-primary-glow);
-  }
-
-  &::placeholder {
-    color: var(--text-muted);
-  }
-}
-
-.form-hint {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.input-with-action {
-  display: flex;
-  gap: 8px;
-
-  .form-input {
-    flex: 1;
-  }
-}
-
-.input-action-btn {
-  @include reset-button;
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--surface-soft);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  color: var(--text-muted);
-  transition: all 0.2s;
-
-  &:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-    border-color: var(--accent-primary);
-  }
-}
-
-.auth-methods-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-}
-
-.auth-method-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 16px 12px;
-  background: var(--surface-card);
-  border: 2px solid transparent;
-  border-radius: 12px;
-  cursor: pointer;
-  transition: all 0.2s;
-  position: relative;
-
-  &:hover {
-    background: var(--surface-soft);
-    border-color: var(--border-default);
-  }
-
-  &.active {
-    background: rgba(var(--accent-primary-rgb), 0.05);
-    border-color: var(--accent-primary);
-  }
-
-  .method-icon {
-    width: 40px;
-    height: 40px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--bg-tertiary);
-    border-radius: 10px;
-    color: var(--text-muted);
-
-    .auth-method-card.active & {
-      background: var(--accent-primary);
-      color: white;
-    }
-  }
-
-  .method-info {
-    text-align: center;
-  }
-
-  .method-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  .method-desc {
-    font-size: 11px;
-    color: var(--text-muted);
-  }
-
-  .method-check {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    color: var(--accent-primary);
-  }
-}
-
-.divider {
-  height: 1px;
-  background: var(--border-default);
-  margin: 8px 0;
 }
 
 .form-actions-row {
   display: flex;
   gap: 12px;
+  margin-top: 4px;
 }
 
-.connection-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  animation: slideIn 0.2s ease;
-
-  &.success {
-    background: var(--success-glow);
-    color: var(--success);
-  }
-
-  &.error {
-    background: var(--error-glow);
-    color: var(--error);
-  }
-
-  &.warning {
-    background: var(--warning-glow);
-    color: var(--warning);
-  }
-}
-
-@keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.btn {
-  @include reset-button;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  transition: all 0.2s;
-
-  &.btn-primary {
-    background: var(--accent-primary);
-    color: white;
-
-    &:hover:not(:disabled) {
-      background: var(--accent-primary-hover);
-    }
-  }
-
-  &.btn-secondary {
-    background: var(--surface-soft);
-    border: 1px solid var(--border-default);
-    color: var(--text-primary);
-
-    &:hover:not(:disabled) {
-      background: var(--bg-hover);
-      border-color: var(--accent-primary);
-    }
-  }
-
-  &:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-}
-
-.btn-oauth {
-  width: fit-content;
-}
-
-.oauth-section {
+.oauth-content {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 12px;
-  padding: 24px;
-  background: var(--surface-soft);
-  border-radius: 12px;
+}
 
-  .oauth-icon {
-    width: 56px;
-    height: 56px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--bg-tertiary);
-    border-radius: 14px;
-    color: var(--accent-primary);
-  }
+.oauth-icon-wrapper {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  border-radius: 14px;
+  color: var(--accent-primary);
+}
 
-  .oauth-text {
-    font-size: 14px;
-    color: var(--text-primary);
-    margin: 0;
-  }
+.oauth-text {
+  font-size: 14px;
+  color: var(--text-primary);
+  margin: 0;
+}
 
-  .oauth-hint {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin: 0;
-  }
+.oauth-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
 }
 
 .oauth-status {
@@ -831,7 +562,7 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
   gap: 8px;
   padding: 12px 16px;
   background: var(--success-glow);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   color: var(--text-primary);
 
@@ -850,16 +581,8 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
   }
 }
 
-.context-info-box {
-  margin-top: 8px;
-  padding: 14px 16px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--surface-border);
-  background: var(--bg-tertiary);
-}
-
 .context-info-desc {
-  margin: 0;
+  margin: 0 0 12px;
   font-size: 12px;
   line-height: 1.55;
   color: var(--text-muted);

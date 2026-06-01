@@ -1,130 +1,127 @@
 <template>
-  <div class="settings-section">
-    <h2 class="section-title">{{ t('mcpSettings.title') }}</h2>
-    
-    <div class="section-content">
-      <div class="servers-header">
-        <span class="servers-count">{{ t('mcpSettings.enabledCount', { enabled: enabledCount, total: servers.length }) }}</span>
-        <button class="btn btn-primary" @click="showAddForm = true">
-          <Plus :size="14" />
-          {{ t('mcpSettings.addServer') }}
-        </button>
-      </div>
+  <div class="mcp-settings">
+    <div class="s-page-header">
+      <h1 class="s-page-title">{{ t('mcpSettings.title') }}</h1>
+      <p class="s-page-desc">管理 Model Context Protocol 服务器配置</p>
+    </div>
 
-      <!-- Server List -->
-      <div class="servers-list">
-        <div
-          v-for="server in servers"
-          :key="server.id"
-          class="server-card"
-          :class="{ disabled: !server.enabled, expanded: expandedServer === server.id }"
-        >
-          <div class="server-header" @click="toggleExpand(server.id)">
-            <div class="server-toggle">
-              <input
-                type="checkbox"
-                :checked="server.enabled"
-                @change="toggleServer(server.id)"
-                @click.stop
-              />
-            </div>
-            <div class="server-info">
-              <div class="server-name">{{ server.name }}</div>
-              <div class="server-command">{{ server.command }} {{ server.args.join(' ') }}</div>
-            </div>
-            <div class="server-actions">
-              <button class="icon-btn" @click.stop="editServer(server)" :title="t('mcpSettings.edit')">
-                <Pencil :size="14" />
-              </button>
-              <button class="icon-btn danger" @click.stop="deleteServer(server.id)" :title="t('mcpSettings.delete')">
-                <Trash2 :size="14" />
-              </button>
-              <ChevronDown 
-                :size="16" 
-                class="expand-icon"
-                :class="{ rotated: expandedServer === server.id }"
-              />
-            </div>
+    <div class="servers-header">
+      <span class="servers-count">{{ t('mcpSettings.enabledCount', { enabled: enabledCount, total: servers.length }) }}</span>
+      <button class="s-btn s-btn-primary" @click="showAddForm = true">
+        <Plus :size="14" />
+        {{ t('mcpSettings.addServer') }}
+      </button>
+    </div>
+
+    <div class="servers-list">
+      <div
+        v-for="server in servers"
+        :key="server.id"
+        class="s-card server-card"
+        :class="{ disabled: !server.enabled, expanded: expandedServer === server.id }"
+      >
+        <div class="server-header" @click="toggleExpand(server.id)">
+          <div class="server-toggle">
+            <input
+              type="checkbox"
+              :checked="server.enabled"
+              @change="toggleServer(server.id)"
+              @click.stop
+            />
           </div>
-          
-          <!-- Expanded Details -->
-          <div v-if="expandedServer === server.id" class="server-details">
-            <div class="detail-row">
-              <span class="detail-label">{{ t('mcpSettings.command') }}</span>
-              <code class="detail-value">{{ server.command }}</code>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">{{ t('mcpSettings.arguments') }}</span>
-              <code class="detail-value">{{ server.args.join(' ') }}</code>
-            </div>
-            <div v-if="Object.keys(server.env).length > 0" class="detail-row">
-              <span class="detail-label">{{ t('mcpSettings.environment') }}</span>
-              <div class="env-list">
-                <span v-for="(value, key) in server.env" :key="key" class="env-tag">
-                  {{ key }}={{ maskValue(value) }}
-                </span>
-              </div>
+          <div class="server-info">
+            <div class="server-name">{{ server.name }}</div>
+            <div class="server-command">{{ server.command }} {{ server.args.join(' ') }}</div>
+          </div>
+          <div class="server-actions">
+            <button class="s-icon-btn" @click.stop="editServer(server)" :title="t('mcpSettings.edit')">
+              <Pencil :size="14" />
+            </button>
+            <button class="s-icon-btn danger" @click.stop="deleteServer(server.id)" :title="t('mcpSettings.delete')">
+              <Trash2 :size="14" />
+            </button>
+            <ChevronDown
+              :size="16"
+              class="s-expand-icon"
+              :class="{ rotated: expandedServer === server.id }"
+            />
+          </div>
+        </div>
+
+        <div v-if="expandedServer === server.id" class="server-details">
+          <div class="detail-row">
+            <span class="detail-label">{{ t('mcpSettings.command') }}</span>
+            <code class="detail-value">{{ server.command }}</code>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">{{ t('mcpSettings.arguments') }}</span>
+            <code class="detail-value">{{ server.args.join(' ') }}</code>
+          </div>
+          <div v-if="Object.keys(server.env).length > 0" class="detail-row">
+            <span class="detail-label">{{ t('mcpSettings.environment') }}</span>
+            <div class="env-list">
+              <span v-for="(value, key) in server.env" :key="key" class="env-tag">
+                {{ key }}={{ maskValue(value) }}
+              </span>
             </div>
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- Add/Edit Form Modal -->
-      <div v-if="showAddForm" class="form-modal-overlay" @click.self="cancelForm">
-        <div class="form-modal">
-          <h3>{{ editingServer ? t('mcpSettings.editServer') : t('mcpSettings.addMcpServer') }}</h3>
-          
-          <div class="form-group">
-            <label>{{ t('mcpSettings.serverName') }}</label>
-            <input v-model="form.name" :placeholder="t('mcpSettings.serverNamePlaceholder')" class="form-input" />
-          </div>
-          
-          <div class="form-group">
-            <label>{{ t('mcpSettings.commandLabel') }}</label>
-            <input v-model="form.command" :placeholder="t('mcpSettings.commandPlaceholder')" class="form-input" />
-          </div>
-          
-          <div class="form-group">
-            <label>{{ t('mcpSettings.argsLabel') }}</label>
-            <input v-model="form.args" :placeholder="t('mcpSettings.argsPlaceholder')" class="form-input" />
-          </div>
-          
-          <div class="form-group">
-            <label>{{ t('mcpSettings.envVarsLabel') }}</label>
-            <div class="env-inputs">
-              <div v-for="(env, index) in form.envList" :key="index" class="env-row">
-                <input v-model="env.key" :placeholder="t('mcpSettings.keyPlaceholder')" class="form-input env-key" />
-                <input v-model="env.value" :placeholder="t('mcpSettings.valuePlaceholder')" class="form-input env-value" />
-                <button class="icon-btn danger" @click="removeEnv(index)">
-                  <X :size="14" />
-                </button>
-              </div>
-              <button class="btn btn-secondary" @click="addEnv">
-                <Plus :size="14" />
-                {{ t('mcpSettings.addVariable') }}
+    <div v-if="showAddForm" class="form-modal-overlay" @click.self="cancelForm">
+      <div class="form-modal">
+        <h3>{{ editingServer ? t('mcpSettings.editServer') : t('mcpSettings.addMcpServer') }}</h3>
+
+        <div class="s-form-group">
+          <label class="s-form-label">{{ t('mcpSettings.serverName') }}</label>
+          <input v-model="form.name" :placeholder="t('mcpSettings.serverNamePlaceholder')" class="s-form-input" />
+        </div>
+
+        <div class="s-form-group">
+          <label class="s-form-label">{{ t('mcpSettings.commandLabel') }}</label>
+          <input v-model="form.command" :placeholder="t('mcpSettings.commandPlaceholder')" class="s-form-input" />
+        </div>
+
+        <div class="s-form-group">
+          <label class="s-form-label">{{ t('mcpSettings.argsLabel') }}</label>
+          <input v-model="form.args" :placeholder="t('mcpSettings.argsPlaceholder')" class="s-form-input" />
+        </div>
+
+        <div class="s-form-group">
+          <label class="s-form-label">{{ t('mcpSettings.envVarsLabel') }}</label>
+          <div class="env-inputs">
+            <div v-for="(env, index) in form.envList" :key="index" class="env-row">
+              <input v-model="env.key" :placeholder="t('mcpSettings.keyPlaceholder')" class="s-form-input env-key" />
+              <input v-model="env.value" :placeholder="t('mcpSettings.valuePlaceholder')" class="s-form-input env-value" />
+              <button class="s-icon-btn danger" @click="removeEnv(index)">
+                <X :size="14" />
               </button>
             </div>
-          </div>
-          
-          <div class="form-actions">
-            <button class="btn btn-secondary" @click="cancelForm">{{ t('mcpSettings.cancel') }}</button>
-            <button class="btn btn-primary" @click="saveServer" :disabled="!isFormValid">
-              {{ editingServer ? t('mcpSettings.saveChanges') : t('mcpSettings.addServerButton') }}
+            <button class="s-btn s-btn-secondary" @click="addEnv">
+              <Plus :size="14" />
+              {{ t('mcpSettings.addVariable') }}
             </button>
           </div>
         </div>
-      </div>
 
-      <!-- Empty State -->
-      <div v-if="servers.length === 0" class="empty-state">
-        <Boxes :size="48" />
-        <h4>{{ t('mcpSettings.noServers') }}</h4>
-        <p>{{ t('mcpSettings.noServersDesc') }}</p>
-        <button class="btn btn-primary" @click="showAddForm = true">
-          <Plus :size="14" />
-          {{ t('mcpSettings.addFirstServer') }}
-        </button>
+        <div class="form-actions">
+          <button class="s-btn s-btn-secondary" @click="cancelForm">{{ t('mcpSettings.cancel') }}</button>
+          <button class="s-btn s-btn-primary" @click="saveServer" :disabled="!isFormValid">
+            {{ editingServer ? t('mcpSettings.saveChanges') : t('mcpSettings.addServerButton') }}
+          </button>
+        </div>
       </div>
+    </div>
+
+    <div v-if="servers.length === 0" class="s-empty-state">
+      <div class="s-empty-state-icon"><Boxes :size="48" /></div>
+      <div class="s-empty-state-title">{{ t('mcpSettings.noServers') }}</div>
+      <div class="s-empty-state-description">{{ t('mcpSettings.noServersDesc') }}</div>
+      <button class="s-btn s-btn-primary" @click="showAddForm = true">
+        <Plus :size="14" />
+        {{ t('mcpSettings.addFirstServer') }}
+      </button>
     </div>
   </div>
 </template>
@@ -193,8 +190,8 @@ function toggleExpand(serverId: string) {
 }
 
 function toggleServer(serverId: string) {
-  servers.value = servers.value.map(server => 
-    server.id === serverId 
+  servers.value = servers.value.map(server =>
+    server.id === serverId
       ? { ...server, enabled: !server.enabled }
       : server
   )
@@ -255,7 +252,7 @@ function saveServer() {
   })
 
   if (editingServer.value) {
-    servers.value = servers.value.map(server => 
+    servers.value = servers.value.map(server =>
       server.id === editingServer.value!.id
         ? {
             ...server,
@@ -295,18 +292,7 @@ watch(servers, () => {
 </script>
 
 <style lang="scss" scoped>
-.settings-section {
-  max-width: 720px;
-}
-
-.section-title {
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 24px;
-}
-
-.section-content {
+.mcp-settings {
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -330,11 +316,13 @@ watch(servers, () => {
 }
 
 .server-card {
-  background: var(--surface-card);
-  border: 1px solid var(--border-default);
-  border-radius: 12px;
+  padding: 0;
   overflow: hidden;
-  transition: all 0.2s;
+  margin-bottom: 0;
+
+  &:hover {
+    box-shadow: none;
+  }
 
   &.disabled {
     opacity: 0.6;
@@ -391,41 +379,9 @@ watch(servers, () => {
   gap: 4px;
 }
 
-.icon-btn {
-  @include reset-button;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  color: var(--text-muted);
-  transition: all 0.2s;
-
-  &:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-
-  &.danger:hover {
-    background: var(--error-glow);
-    color: var(--error);
-  }
-}
-
-.expand-icon {
-  color: var(--text-muted);
-  transition: transform 0.2s;
-  margin-left: 4px;
-
-  &.rotated {
-    transform: rotate(180deg);
-  }
-}
-
 .server-details {
   padding: 0 16px 16px 46px;
-  border-top: 1px solid var(--border-default);
+  border-top: 1px solid var(--border-subtle);
   background: var(--bg-tertiary);
 }
 
@@ -433,7 +389,7 @@ watch(servers, () => {
   display: flex;
   gap: 12px;
   padding: 12px 0;
-  border-bottom: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-subtle);
 
   &:last-child {
     border-bottom: none;
@@ -453,7 +409,7 @@ watch(servers, () => {
   font-family: var(--font-mono);
   background: var(--surface-soft);
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
 .env-list {
@@ -466,52 +422,16 @@ watch(servers, () => {
   font-size: 11px;
   padding: 4px 8px;
   background: var(--bg-secondary);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   font-family: var(--font-mono);
   color: var(--text-secondary);
-}
-
-.btn {
-  @include reset-button;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  transition: all 0.2s;
-
-  &.btn-primary {
-    background: var(--accent-primary);
-    color: white;
-
-    &:hover:not(:disabled) {
-      background: var(--accent-primary-hover);
-    }
-  }
-
-  &.btn-secondary {
-    background: var(--surface-soft);
-    border: 1px solid var(--border-default);
-    color: var(--text-primary);
-
-    &:hover:not(:disabled) {
-      background: var(--bg-hover);
-      border-color: var(--accent-primary);
-    }
-  }
-
-  &:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
 }
 
 .form-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--surface-glass-active);
+  backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -521,50 +441,19 @@ watch(servers, () => {
 .form-modal {
   width: 480px;
   max-height: 80vh;
-  background: var(--bg-primary);
-  border-radius: 16px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-xl);
   padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-xl);
 
   h3 {
     font-size: 18px;
     font-weight: 600;
     color: var(--text-primary);
     margin: 0;
-  }
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-
-  label {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-primary);
-  }
-}
-
-.form-input {
-  padding: 10px 12px;
-  background: var(--surface-soft);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-size: 13px;
-
-  &:focus {
-    outline: none;
-    border-color: var(--accent-primary);
-    box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb), 0.1);
-  }
-
-  &::placeholder {
-    color: var(--text-muted);
   }
 }
 
@@ -580,6 +469,7 @@ watch(servers, () => {
 
   .env-key {
     width: 120px;
+    flex-shrink: 0;
   }
 
   .env-value {
@@ -593,30 +483,6 @@ watch(servers, () => {
   gap: 12px;
   margin-top: 8px;
   padding-top: 16px;
-  border-top: 1px solid var(--border-default);
-}
-
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  padding: 60px 20px;
-  text-align: center;
-  color: var(--text-muted);
-
-  h4 {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin: 0;
-  }
-
-  p {
-    font-size: 13px;
-    max-width: 300px;
-    margin: 0;
-  }
+  border-top: 1px solid var(--border-subtle);
 }
 </style>

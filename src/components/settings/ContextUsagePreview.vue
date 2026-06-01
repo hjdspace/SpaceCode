@@ -221,7 +221,7 @@ watch(
   position: relative;
   height: 8px;
   margin-bottom: 16px;
-  background: rgba(250, 249, 245, 0.06);
+  background: var(--surface-soft);
   border-radius: 4px;
 }
 
@@ -269,11 +269,11 @@ watch(
   border-radius: 2px;
 
   &.free {
-    background: rgba(250, 249, 245, 0.04);
+    background: var(--bg-tertiary);
   }
 
   &.buffer {
-    background: rgba(217, 119, 87, 0.35);
+    background: var(--accent-primary-glow);
   }
 }
 
@@ -356,7 +356,7 @@ watch(
 
   &.active {
     border-color: var(--accent-primary);
-    background: rgba(217, 119, 87, 0.12);
+    background: var(--accent-primary-glow);
     color: var(--accent-primary);
   }
 }

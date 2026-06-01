@@ -185,19 +185,19 @@ function save() {
 
 <style lang="scss" scoped>
 .form-modal-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  position: fixed; inset: 0; background: var(--surface-glass-active);
   display: flex; align-items: center; justify-content: center; z-index: 100;
 }
 .form-modal {
   width: 520px; max-height: 80vh; overflow-y: auto;
-  background: var(--bg-primary); border-radius: 16px; padding: 24px;
+  background: var(--bg-elevated); border-radius: var(--radius-xl); padding: 24px;
   display: flex; flex-direction: column; gap: 16px;
-  box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+  box-shadow: var(--shadow-xl);
   h3 { font-size: 18px; font-weight: 600; color: var(--text-primary); margin: 0; }
 }
 .form-group { display: flex; flex-direction: column; gap: 6px;
   label { font-size: 13px; font-weight: 500; color: var(--text-primary); }
-  .required { color: #ef4444; }
+  .required { color: var(--error); }
 }
 .form-input {
   padding: 10px 12px; background: var(--surface-soft); border: 1px solid var(--border-default);
@@ -222,7 +222,7 @@ function save() {
   padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 500;
   border: 1px solid var(--border-default); background: transparent; color: var(--text-muted);
   cursor: pointer; transition: all 0.15s;
-  &:hover { border-color: rgba(255,255,255,0.15); color: var(--text-primary); }
+  &:hover { border-color: var(--border-strong); color: var(--text-primary); }
   &.active { border-color: var(--accent-primary); background: var(--accent-primary-glow); color: var(--accent-primary); }
 }
 

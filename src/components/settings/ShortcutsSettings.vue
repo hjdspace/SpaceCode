@@ -1,88 +1,82 @@
 <template>
-  <div class="settings-section">
-    <h2 class="section-title">{{ t('shortcutsSettings.title') }}</h2>
+  <div class="shortcuts-settings">
+    <div class="s-page-header">
+      <h2 class="s-page-title">{{ t('shortcutsSettings.title') }}</h2>
+      <p class="s-page-desc">{{ t('shortcutsSettings.description') }}</p>
+    </div>
 
-    <div class="section-content">
-      <p class="section-desc">
-        {{ t('shortcutsSettings.description') }}
-      </p>
-
-      <!-- Search -->
-      <div class="search-box">
+    <div class="s-card">
+      <div class="s-search-box">
         <Search :size="16" />
         <input
           v-model="searchQuery"
           :placeholder="t('shortcutsSettings.searchPlaceholder')"
-          class="search-input"
+          class="s-search-input"
         />
-      </div>
-
-      <!-- Shortcuts List -->
-      <div class="shortcuts-list">
-        <div
-          v-for="category in filteredCategories"
-          :key="category.id"
-          class="category-section"
-        >
-          <h3 class="category-title">{{ category.name }}</h3>
-
-          <div class="shortcuts-group">
-            <div
-              v-for="shortcut in category.shortcuts"
-              :key="shortcut.id"
-              class="shortcut-item"
-              :class="{ editing: editingShortcut === shortcut.id }"
-              @click="startEdit(shortcut)"
-            >
-              <div class="shortcut-info">
-                <span class="shortcut-name">{{ shortcut.name }}</span>
-                <span class="shortcut-desc">{{ shortcut.description }}</span>
-              </div>
-              <div class="shortcut-keys">
-                <template v-if="editingShortcut === shortcut.id">
-                  <span class="editing-hint">{{ t('shortcutsSettings.pressKeys') }}</span>
-                  <button class="cancel-edit" @click.stop="cancelEdit">{{ t('shortcutsSettings.cancel') }}</button>
-                </template>
-                <template v-else>
-                  <kbd
-                    v-for="(key, index) in formatShortcut(shortcut.keys)"
-                    :key="index"
-                    class="key-badge"
-                  >{{ key }}</kbd>
-                </template>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Empty State -->
-      <div v-if="filteredCategories.length === 0" class="empty-state">
-        <SearchX :size="48" />
-        <h4>{{ t('shortcutsSettings.noShortcutsFound') }}</h4>
-        <p>{{ t('shortcutsSettings.tryDifferentSearch') }}</p>
-      </div>
-
-      <!-- Reset Button -->
-      <div class="shortcuts-footer">
-        <button class="btn btn-secondary" @click="resetShortcuts">
-          <RotateCcw :size="14" />
-          {{ t('shortcutsSettings.resetToDefaults') }}
-        </button>
       </div>
     </div>
 
-    <!-- Key Capture Overlay -->
+    <div
+      v-for="category in filteredCategories"
+      :key="category.id"
+      class="s-card"
+    >
+      <div class="s-section-header">
+        <h3 class="s-section-title">{{ category.name }}</h3>
+      </div>
+
+      <div
+        v-for="shortcut in category.shortcuts"
+        :key="shortcut.id"
+        class="shortcut-item"
+        :class="{ editing: editingShortcut === shortcut.id }"
+        @click="startEdit(shortcut)"
+      >
+        <div class="shortcut-info">
+          <span class="shortcut-name">{{ shortcut.name }}</span>
+          <span class="shortcut-desc">{{ shortcut.description }}</span>
+        </div>
+        <div class="shortcut-keys">
+          <template v-if="editingShortcut === shortcut.id">
+            <span class="editing-hint">{{ t('shortcutsSettings.pressKeys') }}</span>
+            <button class="s-btn s-btn-secondary" @click.stop="cancelEdit">{{ t('shortcutsSettings.cancel') }}</button>
+          </template>
+          <template v-else>
+            <kbd
+              v-for="(key, index) in formatShortcut(shortcut.keys)"
+              :key="index"
+              class="s-kbd"
+            >{{ key }}</kbd>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="filteredCategories.length === 0" class="s-empty-state">
+      <div class="s-empty-state-icon">
+        <SearchX :size="48" />
+      </div>
+      <h4 class="s-empty-state-title">{{ t('shortcutsSettings.noShortcutsFound') }}</h4>
+      <p class="s-empty-state-description">{{ t('shortcutsSettings.tryDifferentSearch') }}</p>
+    </div>
+
+    <div class="shortcuts-footer">
+      <button class="s-btn s-btn-secondary" @click="resetShortcuts">
+        <RotateCcw :size="14" />
+        {{ t('shortcutsSettings.resetToDefaults') }}
+      </button>
+    </div>
+
     <div v-if="editingShortcut" class="key-capture-overlay" tabindex="0" @keydown.capture.prevent="onKeyDown">
       <div class="key-capture-modal">
         <h3>{{ t('shortcutsSettings.enterNewShortcut') }}</h3>
         <p>{{ t('shortcutsSettings.pressCombination') }}</p>
         <div class="captured-keys">
-          <kbd v-for="key in capturedKeys" :key="key" class="key-badge large">{{ key }}</kbd>
+          <kbd v-for="key in capturedKeys" :key="key" class="s-kbd s-kbd-lg">{{ key }}</kbd>
         </div>
         <div class="capture-actions">
-          <button class="btn btn-secondary" @click="cancelEdit">{{ t('shortcutsSettings.cancel') }}</button>
-          <button class="btn btn-primary" @click="saveShortcut" :disabled="capturedKeys.length === 0">
+          <button class="s-btn s-btn-secondary" @click="cancelEdit">{{ t('shortcutsSettings.cancel') }}</button>
+          <button class="s-btn s-btn-primary" @click="saveShortcut" :disabled="capturedKeys.length === 0">
             {{ t('shortcutsSettings.save') }}
           </button>
         </div>
@@ -320,98 +314,20 @@ onMounted(() => {
 </script>
 
 <style lang="scss" scoped>
-.settings-section {
-  max-width: 720px;
-}
-
-.section-title {
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 8px;
-}
-
-.section-desc {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin-bottom: 24px;
-  line-height: 1.5;
-}
-
-.section-content {
+.shortcuts-settings {
   display: flex;
   flex-direction: column;
-  gap: 24px;
-}
-
-.search-box {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  background: var(--surface-soft);
-  border: 1px solid var(--border-default);
-  border-radius: 10px;
-  color: var(--text-muted);
-
-  &:focus-within {
-    border-color: var(--accent-primary);
-    box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb), 0.1);
-  }
-}
-
-.search-input {
-  flex: 1;
-  background: transparent;
-  border: none;
-  color: var(--text-primary);
-  font-size: 14px;
-
-  &:focus {
-    outline: none;
-  }
-
-  &::placeholder {
-    color: var(--text-muted);
-  }
-}
-
-.shortcuts-list {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.category-section {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.category-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin: 0;
-}
-
-.shortcuts-group {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: 12px;
-  overflow: hidden;
+  gap: 16px;
 }
 
 .shortcut-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px;
+  padding: 14px 0;
   cursor: pointer;
-  transition: all 0.15s;
-  border-bottom: 1px solid var(--border-default);
+  transition: all var(--transition-fast);
+  border-bottom: 1px solid var(--border-subtle);
 
   &:last-child {
     border-bottom: none;
@@ -419,10 +335,16 @@ onMounted(() => {
 
   &:hover {
     background: var(--bg-hover);
+    margin: 0 -24px;
+    padding-left: 24px;
+    padding-right: 24px;
   }
 
   &.editing {
-    background: rgba(var(--accent-primary-rgb), 0.05);
+    background: var(--accent-primary-glow);
+    margin: 0 -24px;
+    padding-left: 24px;
+    padding-right: 24px;
   }
 }
 
@@ -449,117 +371,28 @@ onMounted(() => {
   gap: 6px;
 }
 
-.key-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 28px;
-  height: 24px;
-  padding: 0 8px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-
-  &.large {
-    height: 32px;
-    font-size: 14px;
-  }
-}
-
 .editing-hint {
   font-size: 13px;
   color: var(--accent-primary);
   font-style: italic;
 }
 
-.cancel-edit {
-  @include reset-button;
-  font-size: 12px;
-  color: var(--text-muted);
-  padding: 4px 8px;
-  border-radius: 4px;
-
-  &:hover {
-    color: var(--text-primary);
-    background: var(--bg-hover);
-  }
-}
-
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  padding: 60px 20px;
-  text-align: center;
-  color: var(--text-muted);
-
-  h4 {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin: 0;
-  }
-
-  p {
-    font-size: 13px;
-    margin: 0;
-  }
-}
-
 .shortcuts-footer {
   display: flex;
   justify-content: flex-end;
   padding-top: 16px;
-  border-top: 1px solid var(--border-default);
+  border-top: 1px solid var(--border-subtle);
 }
 
-.btn {
-  @include reset-button;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  transition: all 0.2s;
-
-  &.btn-primary {
-    background: var(--accent-primary);
-    color: white;
-
-    &:hover:not(:disabled) {
-      background: var(--accent-primary-hover);
-    }
-  }
-
-  &.btn-secondary {
-    background: var(--surface-soft);
-    border: 1px solid var(--border-default);
-    color: var(--text-primary);
-
-    &:hover:not(:disabled) {
-      background: var(--bg-hover);
-      border-color: var(--accent-primary);
-    }
-  }
-
-  &:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
+.s-kbd-lg {
+  height: 32px;
+  font-size: 14px;
 }
 
 .key-capture-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--overlay-heavy);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -567,15 +400,15 @@ onMounted(() => {
 }
 
 .key-capture-modal {
-  background: var(--bg-primary);
-  border-radius: 16px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-lg);
   padding: 32px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 16px;
   min-width: 320px;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-xl);
 
   h3 {
     font-size: 18px;

@@ -1,80 +1,74 @@
 <template>
-  <div class="settings-section">
-    <h2 class="section-title">{{ t('toolsSettings.title') }}</h2>
+  <div class="tools-settings">
+    <div class="s-page-header">
+      <h2 class="s-page-title">{{ t('toolsSettings.title') }}</h2>
+      <p class="s-page-desc">{{ t('toolsSettings.description') }}</p>
+    </div>
 
-    <div class="section-content">
-      <p class="section-desc">
-        {{ t('toolsSettings.description') }}
-      </p>
-
-      <!-- Tool Categories -->
-      <div class="tool-categories">
-        <div v-for="category in toolCategories" :key="category.id" class="category-card">
-          <div class="category-header">
-            <div class="category-icon" :style="{ background: category.color }">
-              <component :is="category.icon" :size="20" />
-            </div>
-            <div class="category-info">
-              <h3 class="category-name">{{ category.name }}</h3>
-              <span class="category-count">
-                {{ t('toolsSettings.enabledCount', { enabled: getEnabledCount(category.tools), total: category.tools.length }) }}
-              </span>
-            </div>
-            <label class="category-toggle">
-              <input 
-                type="checkbox" 
-                :checked="isCategoryEnabled(category)"
-                @change="toggleCategory(category)"
-              />
-              <span class="toggle-slider"></span>
-            </label>
+    <div class="tool-categories">
+      <div v-for="category in toolCategories" :key="category.id" class="s-card">
+        <div class="category-header">
+          <div class="category-icon" :style="{ background: category.color }">
+            <component :is="category.icon" :size="20" />
           </div>
-          
-          <div class="tools-list">
-            <div
-              v-for="tool in category.tools"
-              :key="tool.id"
-              class="tool-item"
-              :class="{ disabled: !tool.enabled, conditional: tool.availability !== 'always' }"
-            >
-              <label class="tool-toggle">
-                <input
-                  type="checkbox"
-                  :checked="tool.enabled"
-                  @change="toggleTool(tool.id)"
-                />
-                <span class="checkmark"></span>
-              </label>
-              <div class="tool-info">
-                <div class="tool-name-row">
-                  <span class="tool-name">{{ tool.name }}</span>
-                  <span v-if="tool.availability === 'feature-flag'" class="tool-badge feature-flag">{{ tool.featureFlag }}</span>
-                  <span v-else-if="tool.availability === 'env-var'" class="tool-badge env-var">{{ tool.envVar }}</span>
-                  <span v-else-if="tool.availability === 'runtime-check'" class="tool-badge runtime">{{ t('toolsSettings.runtime') }}</span>
-                </div>
-                <span class="tool-desc">{{ tool.description }}</span>
+          <div class="category-info">
+            <h3 class="category-name">{{ category.name }}</h3>
+            <span class="category-count">
+              {{ t('toolsSettings.enabledCount', { enabled: getEnabledCount(category.tools), total: category.tools.length }) }}
+            </span>
+          </div>
+          <input
+            type="checkbox"
+            class="s-toggle-switch"
+            :checked="isCategoryEnabled(category)"
+            @change="toggleCategory(category)"
+          />
+        </div>
+
+        <div class="tools-list">
+          <div
+            v-for="tool in category.tools"
+            :key="tool.id"
+            class="tool-item"
+            :class="{ disabled: !tool.enabled, conditional: tool.availability !== 'always' }"
+          >
+            <label class="tool-toggle">
+              <input
+                type="checkbox"
+                :checked="tool.enabled"
+                @change="toggleTool(tool.id)"
+              />
+              <span class="checkmark"></span>
+            </label>
+            <div class="tool-info">
+              <div class="tool-name-row">
+                <span class="tool-name">{{ tool.name }}</span>
+                <span v-if="tool.availability === 'feature-flag'" class="tool-badge feature-flag">{{ tool.featureFlag }}</span>
+                <span v-else-if="tool.availability === 'env-var'" class="tool-badge env-var">{{ tool.envVar }}</span>
+                <span v-else-if="tool.availability === 'runtime-check'" class="tool-badge runtime">{{ t('toolsSettings.runtime') }}</span>
               </div>
+              <span class="tool-desc">{{ tool.description }}</span>
             </div>
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- Danger Zone -->
-      <div class="divider"></div>
-      <div class="danger-zone">
-        <h3 class="danger-title">
-          <AlertTriangle :size="16" />
-          {{ t('toolsSettings.dangerZone') }}
-        </h3>
-        <div class="danger-item">
-          <div class="danger-info">
-            <span class="danger-label">{{ t('toolsSettings.resetAllLabel') }}</span>
-            <span class="danger-desc">{{ t('toolsSettings.resetAllDesc') }}</span>
-          </div>
-          <button class="btn btn-danger" @click="resetTools">
-            {{ t('toolsSettings.resetButton') }}
-          </button>
+    <div class="s-divider"></div>
+
+    <div class="s-danger-zone">
+      <h3 class="s-danger-zone-title">
+        <AlertTriangle :size="16" />
+        {{ t('toolsSettings.dangerZone') }}
+      </h3>
+      <div class="s-danger-zone-item">
+        <div class="danger-info">
+          <span class="danger-label">{{ t('toolsSettings.resetAllLabel') }}</span>
+          <span class="danger-desc">{{ t('toolsSettings.resetAllDesc') }}</span>
         </div>
+        <button class="s-btn s-danger-btn" @click="resetTools">
+          {{ t('toolsSettings.resetButton') }}
+        </button>
       </div>
     </div>
   </div>
@@ -194,44 +188,32 @@ watch(() => configStore.toolConfigs, () => {
 </script>
 
 <style lang="scss" scoped>
-.settings-section { max-width: 720px; }
-
-.section-title {
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 8px;
+.tools-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
-.section-desc {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin-bottom: 24px;
-  line-height: 1.5;
-}
-
-.section-content { display: flex; flex-direction: column; gap: 20px; }
-
-.tool-categories { display: flex; flex-direction: column; gap: 16px; }
-
-.category-card {
-  background: var(--surface-card);
-  border: 1px solid var(--border-default);
-  border-radius: 12px;
-  overflow: hidden;
+.tool-categories {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .category-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 16px;
-  border-bottom: 1px solid var(--border-default);
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .category-icon {
-  width: 40px; height: 40px;
-  display: flex; align-items: center; justify-content: center;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 10px;
   color: var(--accent-primary);
   flex-shrink: 0;
@@ -240,41 +222,27 @@ watch(() => configStore.toolConfigs, () => {
 .category-info { flex: 1; }
 
 .category-name {
-  font-size: 14px; font-weight: 600;
-  color: var(--text-primary); margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
 }
 
-.category-count { font-size: 12px; color: var(--text-muted); }
-
-.category-toggle {
-  position: relative;
-  width: 44px; height: 24px; cursor: pointer; flex-shrink: 0;
-  input { opacity: 0; width: 0; height: 0; }
-  .toggle-slider {
-    position: absolute; inset: 0;
-    background: var(--bg-tertiary);
-    border-radius: 12px; transition: background 0.2s;
-    &::after {
-      content: ''; position: absolute;
-      top: 2px; left: 2px;
-      width: 20px; height: 20px;
-      background: white; border-radius: 50%;
-      transition: transform 0.2s;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-    }
-  }
-  input:checked + .toggle-slider {
-    background: var(--accent-primary);
-    &::after { transform: translateX(20px); }
-  }
+.category-count {
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
-.tools-list { padding: 8px; }
+.tools-list { padding: 8px 0; }
 
 .tool-item {
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 12px; border-radius: 8px;
-  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+
   &:hover { background: var(--bg-hover); }
   &.disabled { opacity: 0.5; }
   &.conditional { opacity: 0.85; }
@@ -282,84 +250,107 @@ watch(() => configStore.toolConfigs, () => {
 
 .tool-toggle {
   position: relative;
-  width: 18px; height: 18px;
-  cursor: pointer; flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+
   input { opacity: 0; width: 0; height: 0; }
+
   .checkmark {
-    position: absolute; inset: 0;
+    position: absolute;
+    inset: 0;
     background: var(--bg-tertiary);
     border: 2px solid var(--border-default);
-    border-radius: 4px; transition: all 0.15s;
+    border-radius: 4px;
+    transition: all var(--transition-fast);
+
     &::after {
-      content: ''; position: absolute;
-      left: 4px; top: 1px;
-      width: 5px; height: 9px;
-      border: solid white; border-width: 0 2px 2px 0;
+      content: '';
+      position: absolute;
+      left: 4px;
+      top: 1px;
+      width: 5px;
+      height: 9px;
+      border: solid white;
+      border-width: 0 2px 2px 0;
       transform: rotate(45deg) scale(0);
-      transition: transform 0.15s;
+      transition: transform var(--transition-fast);
     }
   }
+
   input:checked + .checkmark {
     background: var(--accent-primary);
     border-color: var(--accent-primary);
+
     &::after { transform: rotate(45deg) scale(1); }
   }
 }
 
-.tool-info { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.tool-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
 
 .tool-name-row {
-  display: flex; align-items: center; gap: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .tool-name {
-  font-size: 13px; font-weight: 500;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text-primary);
 }
 
-.tool-desc { font-size: 11px; color: var(--text-muted); }
+.tool-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
 
 .tool-badge {
-  font-size: 10px; padding: 1px 6px; border-radius: 4px;
-  font-weight: 500; text-transform: uppercase;
-  letter-spacing: 0.3px; flex-shrink: 0;
-  &.feature-flag { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
-  &.env-var { background: rgba(234, 179, 8, 0.15); color: #fbbf24; }
-  &.runtime { background: rgba(14, 165, 233, 0.15); color: #38bdf8; }
-}
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
 
-.divider { height: 1px; background: var(--border-default); margin: 8px 0; }
-
-.danger-zone {
-  background: var(--error-glow);
-  border: 1px solid var(--error);
-  border-radius: 12px; padding: 20px;
-}
-
-.danger-title {
-  display: flex; align-items: center; gap: 8px;
-  font-size: 14px; font-weight: 600;
-  color: var(--error); margin: 0 0 16px 0;
-}
-
-.danger-item { display: flex; align-items: center; justify-content: space-between; }
-
-.danger-info { display: flex; flex-direction: column; gap: 4px; }
-
-.danger-label { font-size: 13px; font-weight: 500; color: var(--text-primary); }
-
-.danger-desc { font-size: 12px; color: var(--text-muted); }
-
-.btn {
-  @include reset-button;
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 10px 16px; border-radius: 8px;
-  font-size: 13px; font-weight: 500; transition: all 0.2s;
-  &.btn-danger {
-    background: var(--error-glow);
-    border: 1px solid var(--error);
-    color: var(--error);
-    &:hover { background: var(--error); color: white; border-color: var(--error); }
+  &.feature-flag {
+    background: var(--accent-tertiary-glow);
+    color: var(--accent-tertiary);
   }
+
+  &.env-var {
+    background: var(--warning-glow);
+    color: var(--warning);
+  }
+
+  &.runtime {
+    background: var(--accent-secondary-glow);
+    color: var(--accent-secondary);
+  }
+}
+
+.danger-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.danger-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.danger-desc {
+  font-size: 12px;
+  color: var(--text-muted);
 }
 </style>

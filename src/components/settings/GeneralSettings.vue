@@ -1,66 +1,84 @@
 <template>
   <div class="settings-section">
-    <h2 class="section-title">{{ $t('settings.general') }}</h2>
+    <div class="s-page-header">
+      <h1 class="s-page-title">{{ $t('settings.general') }}</h1>
+      <p class="s-page-desc">配置语言、引擎和项目根目录等基础设置</p>
+    </div>
 
-    <div class="section-content">
-      <!-- Language Selection -->
-      <div class="form-group">
-        <label class="form-label">{{ $t('settings.language') }}</label>
-        <div class="language-options">
+    <div class="s-card">
+      <div class="s-form-group">
+        <label class="s-form-label">{{ $t('settings.language') }}</label>
+        <div class="s-selection-grid lang-grid">
           <button
             v-for="lang in languages"
             :key="lang.id"
-            class="language-card"
+            class="s-selection-card lang-card"
             :class="{ active: currentLanguage === lang.id }"
             @click="selectLanguage(lang.id)"
           >
-            <span class="language-flag">{{ lang.flag }}</span>
-            <span class="language-name">{{ lang.name }}</span>
-            <Check v-if="currentLanguage === lang.id" class="language-check" :size="16" />
+            <span class="lang-flag">{{ lang.flag }}</span>
+            <span class="lang-name">{{ lang.name }}</span>
+            <span class="s-check-badge"><Check :size="14" /></span>
           </button>
         </div>
-        <span class="form-hint">{{ $t('settings.languageDesc') }}</span>
+        <span class="s-form-hint">{{ $t('settings.languageDesc') }}</span>
       </div>
+    </div>
 
-      <div class="divider"></div>
+    <div class="s-divider"></div>
 
-      <!-- Engine Selection -->
-      <div class="form-group">
-        <label class="form-label">Agent Engine</label>
-        <div class="engine-options">
+    <div class="s-card">
+      <div class="s-form-group">
+        <label class="s-form-label">Agent Engine</label>
+        <div class="s-selection-grid engine-grid">
           <button
-            v-for="engine in engines"
-            :key="engine.id"
-            class="engine-card"
-            :class="{ active: config.engineType === engine.id, disabled: !engine.available }"
-            @click="selectEngine(engine.id)"
-            :disabled="!engine.available"
+            class="s-selection-card"
+            :class="{ active: config.engineType === 'claude-code' }"
+            @click="selectEngine('claude-code')"
           >
-            <span class="engine-name">{{ engine.name }}</span>
-            <span class="engine-desc">{{ engine.desc }}</span>
-            <Check v-if="config.engineType === engine.id" class="engine-check" :size="16" />
+            <span class="s-selection-card-icon brand-icon-wrapper">
+              <svg class="brand-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z"/></svg>
+            </span>
+            <span class="s-selection-card-title">Claude Code</span>
+            <span class="s-selection-card-desc">{{ claudeCodeDesc }}</span>
+            <span class="s-check-badge"><Check :size="14" /></span>
+          </button>
+          <button
+            class="s-selection-card"
+            :class="{ active: config.engineType === 'pi', disabled: !piAvailable }"
+            @click="selectEngine('pi')"
+            :disabled="!piAvailable"
+          >
+            <span class="s-selection-card-icon brand-icon-wrapper">
+              <svg class="brand-icon" viewBox="0 0 800 800" fill="currentColor"><path fill-rule="evenodd" d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z"/><path d="M517.36 400H634.72V634.72H517.36Z"/></svg>
+            </span>
+            <span class="s-selection-card-title">Pi</span>
+            <span class="s-selection-card-desc">{{ piDesc }}</span>
+            <span class="s-check-badge"><Check :size="14" /></span>
           </button>
         </div>
-        <span class="form-hint">Choose which agent engine to use</span>
+        <span class="s-form-hint">Choose which agent engine to use</span>
       </div>
+    </div>
 
-      <EngineSourceSettings v-if="config.engineType === 'claude-code'" />
+    <EngineSourceSettings v-if="config.engineType === 'claude-code'" />
 
-      <div class="divider"></div>
+    <div class="s-divider"></div>
 
-      <!-- Project Settings -->
-      <h3 class="subsection-title">{{ $t('project.settings') }}</h3>
-
-      <div class="form-group">
-        <label class="form-label">{{ $t('project.projectRoot') }}</label>
-        <div class="input-with-action">
+    <div class="s-card">
+      <div class="s-section-header">
+        <h3 class="s-section-title">{{ $t('project.settings') }}</h3>
+      </div>
+      <div class="s-form-group">
+        <label class="s-form-label">{{ $t('project.projectRoot') }}</label>
+        <div class="s-input-with-action">
           <input
             type="text"
             v-model="config.projectRoot"
             placeholder="D:\Projects\my-project"
-            class="form-input"
+            class="s-form-input"
           />
-          <button class="input-action-btn" @click="browseProjectRoot" :title="$t('project.selectFolder')">
+          <button class="s-btn-icon" @click="browseProjectRoot" :title="$t('project.selectFolder')">
             <FolderOpen :size="16" />
           </button>
         </div>
@@ -121,6 +139,19 @@ function selectLanguage(langId: Locale) {
 const piAvailable = ref<boolean | null>(null)
 const piChecking = ref(true)
 
+const claudeCodeDesc = computed(() => {
+  if (settingsStore.engineSource === 'installed') {
+    return 'CLI installed · Use local claude binary'
+  }
+  return 'Bundled · Built-in engine'
+})
+
+const piDesc = computed(() => {
+  if (piChecking.value) return 'Checking SDK...'
+  if (piAvailable.value === false) return 'SDK not installed'
+  return 'Minimalist coding agent'
+})
+
 onMounted(async () => {
   try {
     const electronAPI = (window as any).electronAPI
@@ -145,11 +176,6 @@ onMounted(async () => {
     piChecking.value = false
   }
 })
-
-const engines = computed(() => [
-  { id: 'claude-code' as EngineType, name: 'Claude Code', desc: 'Original claude-code engine', available: true },
-  { id: 'pi' as EngineType, name: 'Pi', desc: piChecking.value ? 'Checking SDK...' : (piAvailable.value === false ? 'SDK not installed' : 'pi-coding-agent engine'), available: piAvailable.value === true }
-])
 
 function selectEngine(engineId: EngineType) {
   if (engineId === 'pi' && piAvailable.value === false) return
@@ -222,199 +248,31 @@ async function browseProjectRoot() {
 </script>
 
 <style lang="scss" scoped>
-.settings-section {
-  max-width: 720px;
+.lang-grid,
+.engine-grid {
+  grid-template-columns: repeat(2, 1fr);
 }
 
-.section-title {
+.lang-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.lang-flag {
   font-size: 24px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 24px;
+  line-height: 1;
 }
 
-.section-content {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.subsection-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.form-label {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.form-input {
-  padding: 10px 12px;
-  background: var(--surface-soft);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-size: 13px;
-  transition: all 0.2s;
-
-  &:focus {
-    outline: none;
-    border-color: var(--accent-primary);
-    box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb), 0.1);
-  }
-
-  &::placeholder {
-    color: var(--text-muted);
-  }
-}
-
-.form-hint {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.input-with-action {
-  display: flex;
-  gap: 8px;
-
-  .form-input {
-    flex: 1;
-  }
-}
-
-.input-action-btn {
-  @include reset-button;
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--surface-soft);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  color: var(--text-muted);
-  transition: all 0.2s;
-
-  &:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-    border-color: var(--accent-primary);
-  }
-}
-
-.divider {
-  height: 1px;
-  background: var(--border-default);
-  margin: 8px 0;
-}
-
-.language-options {
-  display: flex;
-  gap: 12px;
-}
-
-.language-card {
-  @include reset-button;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  background: var(--surface-card);
-  border: 2px solid transparent;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-
-  &:hover {
-    background: var(--bg-hover);
-  }
-
-  &.active {
-    border-color: var(--accent-primary);
-    background: rgba(var(--accent-primary-rgb), 0.05);
-  }
-}
-
-.language-flag {
-  font-size: 20px;
-}
-
-.language-name {
+.lang-name {
   flex: 1;
   font-size: 14px;
   font-weight: 500;
   color: var(--text-primary);
 }
 
-.language-check {
-  color: var(--accent-primary);
-}
-
-.engine-options {
-  display: flex;
-  gap: 12px;
-}
-
-.engine-card {
-  @include reset-button;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  padding: 14px 16px;
-  background: var(--surface-card);
-  border: 2px solid transparent;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  position: relative;
-
-  &:hover:not(:disabled) {
-    background: var(--bg-hover);
-  }
-
-  &.active {
-    border-color: var(--accent-primary);
-    background: rgba(var(--accent-primary-rgb), 0.05);
-  }
-
-  &.disabled,
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-}
-
-.engine-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.engine-desc {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.engine-check {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  color: var(--accent-primary);
+.brand-icon {
+  width: 22px;
+  height: 22px;
 }
 </style>
