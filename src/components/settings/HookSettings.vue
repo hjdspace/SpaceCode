@@ -174,7 +174,7 @@
               <span class="event-desc">{{ evt.description }}</span>
               <span class="event-hook-count" v-if="getEventHookCount(evt.value)">{{ getEventHookCount(evt.value) }} {{ t('hookSettings.hookUnit') }}</span>
               <span v-else class="event-hook-count muted">0 {{ t('hookSettings.hookUnit') }}</span>
-              <button v-if="getEventHookCount(evt.value) === 0" class="btn-ghost-sm" @click="addHookForEvent(evt.value)">+</button>
+              <button v-if="getEventHookCount(evt.value) === 0" class="s-btn btn-ghost-sm" @click="addHookForEvent(evt.value)">+</button>
             </div>
             <div v-if="getEventHookCount(evt.value) > 0" class="event-hook-list">
               <div v-for="hook in getHooksForEvent(evt.value)" :key="hook.id" class="event-hook-item">
