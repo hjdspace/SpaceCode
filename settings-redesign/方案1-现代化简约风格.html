@@ -1,0 +1,1717 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SpaceCode Settings - Minimalist Modern</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --color-bg-primary: #ffffff;
+      --color-bg-secondary: #f8f9fa;
+      --color-bg-tertiary: #f1f3f5;
+      --color-text-primary: #1a1a1a;
+      --color-text-secondary: #4a4a4a;
+      --color-text-muted: #868e96;
+      --color-border: #dee2e6;
+      --color-border-light: #e9ecef;
+      --color-accent: #2563eb;
+      --color-accent-hover: #1d4ed8;
+      --color-accent-light: rgba(37, 99, 235, 0.08);
+      --color-success: #16a34a;
+      --color-error: #dc2626;
+      --color-warning: #f59e0b;
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+      --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
+      --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.08);
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+      --radius-xl: 20px;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+      --transition-fast: 150ms ease;
+      --transition-base: 250ms ease;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.5;
+      color: var(--color-text-primary);
+      background: var(--color-bg-secondary);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    .app-container {
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Sidebar Navigation */
+    .sidebar {
+      width: 260px;
+      background: var(--color-bg-primary);
+      border-right: 1px solid var(--color-border-light);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    .sidebar-header {
+      padding: 24px 24px 20px;
+      border-bottom: 1px solid var(--color-border-light);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--color-text-primary);
+    }
+
+    .logo-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, var(--color-accent), #7c3aed);
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 700;
+      font-size: 16px;
+    }
+
+    .sidebar-nav {
+      flex: 1;
+      padding: 16px 12px;
+      overflow-y: auto;
+    }
+
+    .nav-section-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--color-text-muted);
+      padding: 12px 12px 8px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      margin-bottom: 2px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+      color: var(--color-text-secondary);
+      font-weight: 500;
+      font-size: 13.5px;
+      border: none;
+      background: none;
+      width: 100%;
+      text-align: left;
+    }
+
+    .nav-item:hover {
+      background: var(--color-bg-secondary);
+      color: var(--color-text-primary);
+    }
+
+    .nav-item.active {
+      background: var(--color-accent-light);
+      color: var(--color-accent);
+    }
+
+    .nav-item svg {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+    }
+
+    /* Main Content Area */
+    .main-content {
+      flex: 1;
+      overflow-y: auto;
+      background: var(--color-bg-secondary);
+    }
+
+    .content-wrapper {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 40px 48px;
+    }
+
+    /* Page Header */
+    .page-header {
+      margin-bottom: 36px;
+    }
+
+    .page-title {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--color-text-primary);
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+
+    .page-description {
+      font-size: 15px;
+      color: var(--color-text-muted);
+      line-height: 1.6;
+    }
+
+    /* Section Styles */
+    .settings-section {
+      margin-bottom: 40px;
+    }
+
+    .section-header {
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid var(--color-border);
+    }
+
+    .section-title {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--color-text-primary);
+      letter-spacing: -0.01em;
+    }
+
+    .section-subtitle {
+      font-size: 13px;
+      color: var(--color-text-muted);
+      margin-top: 4px;
+    }
+
+    /* Card Component */
+    .card {
+      background: var(--color-bg-primary);
+      border: 1px solid var(--color-border-light);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      margin-bottom: 16px;
+      transition: all var(--transition-base);
+    }
+
+    .card:hover {
+      box-shadow: var(--shadow-md);
+    }
+
+    .card:last-child {
+      margin-bottom: 0;
+    }
+
+    /* Form Groups */
+    .form-group {
+      margin-bottom: 24px;
+    }
+
+    .form-group:last-child {
+      margin-bottom: 0;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--color-text-primary);
+      margin-bottom: 8px;
+    }
+
+    .form-hint {
+      font-size: 12.5px;
+      color: var(--color-text-muted);
+      margin-top: 6px;
+    }
+
+    /* Input Styles */
+    .input-field {
+      width: 100%;
+      padding: 11px 14px;
+      font-size: 14px;
+      font-family: var(--font-sans);
+      color: var(--color-text-primary);
+      background: var(--color-bg-primary);
+      border: 1.5px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      transition: all var(--transition-fast);
+      outline: none;
+    }
+
+    .input-field:focus {
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px var(--color-accent-light);
+    }
+
+    .input-field::placeholder {
+      color: var(--color-text-muted);
+    }
+
+    .input-with-action {
+      display: flex;
+      gap: 8px;
+    }
+
+    .input-with-action .input-field {
+      flex: 1;
+    }
+
+    /* Button Styles */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 18px;
+      font-size: 13.5px;
+      font-weight: 600;
+      font-family: var(--font-sans);
+      border-radius: var(--radius-sm);
+      border: none;
+      cursor: pointer;
+      transition: all var(--transition-fast);
+      white-space: nowrap;
+    }
+
+    .btn-primary {
+      background: var(--color-accent);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: var(--color-accent-hover);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-md);
+    }
+
+    .btn-secondary {
+      background: var(--color-bg-secondary);
+      color: var(--color-text-primary);
+      border: 1.5px solid var(--color-border);
+    }
+
+    .btn-secondary:hover {
+      background: var(--color-bg-tertiary);
+      border-color: var(--color-text-muted);
+    }
+
+    .btn-icon {
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      background: var(--color-bg-secondary);
+      border: 1.5px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      color: var(--color-text-secondary);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all var(--transition-fast);
+    }
+
+    .btn-icon:hover {
+      background: var(--color-bg-tertiary);
+      color: var(--color-text-primary);
+      border-color: var(--color-accent);
+    }
+
+    /* Toggle Switch */
+    .toggle-wrapper {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--color-border-light);
+    }
+
+    .toggle-wrapper:last-child {
+      border-bottom: none;
+    }
+
+    .toggle-info {
+      flex: 1;
+    }
+
+    .toggle-label {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--color-text-primary);
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .toggle-description {
+      font-size: 13px;
+      color: var(--color-text-muted);
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 48px;
+      height: 26px;
+      appearance: none;
+      background: var(--color-border);
+      border-radius: 13px;
+      cursor: pointer;
+      transition: all var(--transition-fast);
+      flex-shrink: 0;
+    }
+
+    .toggle-switch::after {
+      content: '';
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 20px;
+      height: 20px;
+      background: white;
+      border-radius: 50%;
+      transition: all var(--transition-fast);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .toggle-switch:checked {
+      background: var(--color-accent);
+    }
+
+    .toggle-switch:checked::after {
+      transform: translateX(22px);
+    }
+
+    /* Selection Cards Grid */
+    .selection-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    .selection-card {
+      padding: 18px;
+      background: var(--color-bg-primary);
+      border: 2px solid var(--color-border-light);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+      position: relative;
+    }
+
+    .selection-card:hover {
+      border-color: var(--color-border);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .selection-card.active {
+      border-color: var(--color-accent);
+      background: var(--color-accent-light);
+    }
+
+    .selection-card.disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .selection-card-icon {
+      width: 40px;
+      height: 40px;
+      background: var(--color-bg-tertiary);
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 12px;
+      color: var(--color-text-muted);
+      font-size: 20px;
+    }
+
+    .selection-card.active .selection-card-icon {
+      background: var(--color-accent);
+      color: white;
+    }
+
+    .selection-card-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--color-text-primary);
+      margin-bottom: 4px;
+    }
+
+    .selection-card-desc {
+      font-size: 12px;
+      color: var(--color-text-muted);
+      line-height: 1.4;
+    }
+
+    .check-badge {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      width: 22px;
+      height: 22px;
+      background: var(--color-accent);
+      border-radius: 50%;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      color: white;
+    }
+
+    .selection-card.active .check-badge {
+      display: flex;
+    }
+
+    /* Status Badge */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      font-size: 12.5px;
+      font-weight: 600;
+      border-radius: 20px;
+    }
+
+    .status-badge.success {
+      background: rgba(22, 163, 74, 0.1);
+      color: var(--color-success);
+    }
+
+    .status-badge.error {
+      background: rgba(220, 38, 38, 0.1);
+      color: var(--color-error);
+    }
+
+    .status-badge.warning {
+      background: rgba(245, 158, 11, 0.1);
+      color: var(--color-warning);
+    }
+
+    /* List Items */
+    .list-item {
+      display: flex;
+      align-items: center;
+      padding: 16px;
+      background: var(--color-bg-primary);
+      border: 1px solid var(--color-border-light);
+      border-radius: var(--radius-md);
+      margin-bottom: 8px;
+      transition: all var(--transition-fast);
+    }
+
+    .list-item:hover {
+      border-color: var(--color-border);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .list-item-checkbox {
+      width: 20px;
+      height: 20px;
+      margin-right: 14px;
+      accent-color: var(--color-accent);
+      cursor: pointer;
+    }
+
+    .list-item-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .list-item-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--color-text-primary);
+      margin-bottom: 2px;
+    }
+
+    .list-item-subtitle {
+      font-size: 12.5px;
+      color: var(--color-text-muted);
+      font-family: var(--font-mono);
+    }
+
+    .list-item-actions {
+      display: flex;
+      gap: 6px;
+      margin-left: 12px;
+    }
+
+    /* Color Picker */
+    .color-options {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .color-option {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 3px solid transparent;
+      transition: all var(--transition-fast);
+      position: relative;
+    }
+
+    .color-option:hover {
+      transform: scale(1.1);
+    }
+
+    .color-option.active {
+      border-color: var(--color-text-primary);
+      box-shadow: 0 0 0 2px var(--color-bg-primary), 0 0 0 4px currentColor;
+    }
+
+    /* Keyboard Shortcut Badge */
+    .kbd {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 28px;
+      height: 26px;
+      padding: 0 8px;
+      background: var(--color-bg-tertiary);
+      border: 1px solid var(--color-border);
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+      color: var(--color-text-primary);
+      box-shadow: 0 1px 0 var(--color-border);
+    }
+
+    /* Divider */
+    .divider {
+      height: 1px;
+      background: var(--color-border-light);
+      margin: 24px 0;
+    }
+
+    /* Danger Zone */
+    .danger-zone {
+      background: rgba(220, 38, 38, 0.03);
+      border: 1.5px solid rgba(220, 38, 38, 0.15);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+    }
+
+    .danger-zone-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--color-error);
+      margin-bottom: 16px;
+    }
+
+    .danger-zone-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 0;
+      border-top: 1px solid rgba(220, 38, 38, 0.1);
+    }
+
+    .danger-btn {
+      background: var(--color-error);
+      color: white;
+    }
+
+    .danger-btn:hover {
+      background: #b91c1c;
+    }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: 60px 24px;
+      color: var(--color-text-muted);
+    }
+
+    .empty-state-icon {
+      font-size: 56px;
+      margin-bottom: 16px;
+      opacity: 0.4;
+    }
+
+    .empty-state-title {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--color-text-primary);
+      margin-bottom: 8px;
+    }
+
+    .empty-state-description {
+      font-size: 14px;
+      max-width: 320px;
+      margin: 0 auto 20px;
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: var(--color-bg-primary);
+      border: 1px solid var(--color-border-light);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+    }
+
+    .stat-label {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--color-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      margin-bottom: 8px;
+    }
+
+    .stat-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--color-text-primary);
+      letter-spacing: -0.02em;
+      margin-bottom: 4px;
+    }
+
+    .stat-subtext {
+      font-size: 12.5px;
+      color: var(--color-text-muted);
+    }
+
+    /* Heatmap */
+    .heatmap-container {
+      background: var(--color-bg-primary);
+      border: 1px solid var(--color-border-light);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+
+    .heatmap-grid {
+      display: grid;
+      grid-template-columns: repeat(53, 1fr);
+      gap: 3px;
+      margin-top: 16px;
+    }
+
+    .heatmap-cell {
+      aspect-ratio: 1;
+      border-radius: 3px;
+      background: var(--color-bg-tertiary);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+    }
+
+    .heatmap-cell:hover {
+      transform: scale(1.2);
+      box-shadow: var(--shadow-md);
+    }
+
+    .heatmap-cell.level-1 { background: #bbf7d0; }
+    .heatmap-cell.level-2 { background: #86efac; }
+    .heatmap-cell.level-3 { background: #4ade80; }
+    .heatmap-cell.level-4 { background: #16a34a; }
+
+    /* Modal Overlay */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .modal {
+      background: var(--color-bg-primary);
+      border-radius: var(--radius-xl);
+      padding: 28px;
+      width: 90%;
+      max-width: 520px;
+      box-shadow: var(--shadow-lg);
+    }
+
+    .modal-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--color-text-primary);
+      margin-bottom: 20px;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid var(--color-border-light);
+    }
+
+    /* Responsive Design */
+    @media (max-width: 1024px) {
+      .sidebar {
+        width: 220px;
+      }
+      .content-wrapper {
+        padding: 32px 36px;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .app-container {
+        flex-direction: column;
+      }
+      .sidebar {
+        width: 100%;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--color-border-light);
+      }
+      .sidebar-nav {
+        flex-direction: row;
+        overflow-x: auto;
+        padding: 8px 12px;
+      }
+      .nav-section-title {
+        display: none;
+      }
+      .content-wrapper {
+        padding: 24px 20px;
+      }
+      .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 480px) {
+      .page-title {
+        font-size: 24px;
+      }
+      .selection-grid {
+        grid-template-columns: 1fr;
+      }
+      .stats-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <div class="logo-icon">S</div>
+          <span>SpaceCode</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section-title">设置</div>
+        <button class="nav-item active" onclick="showSection('general')">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.166 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.166 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.166c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.166c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.166-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.166-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          <span>通用设置</span>
+        </button>
+        <button class="nav-item" onclick="showSection('model')">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+          <span>模型配置</span>
+        </button>
+        <button class="nav-item" onclick="showSection('mcp')">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+          <span>MCP 服务器</span>
+        </button>
+        <button class="nav-item" onclick="showSection('tools')">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.166 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.166 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.166c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.166c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.166-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.166-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          <span>工具管理</span>
+        </button>
+
+        <div class="nav-section-title">个性化</div>
+        <button class="nav-item" onclick="showSection('appearance')">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+          <span>外观主题</span>
+        </button>
+        <button class="nav-item" onclick="showSection('shortcuts')">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+          <span>快捷键</span>
+        </button>
+        <button class="nav-item" onclick="showSection('hooks')">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          <span>Hooks</span>
+        </button>
+        <button class="nav-item" onclick="showSection('token-usage')">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+          <span>Token 用量</span>
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <div class="content-wrapper">
+
+        <!-- General Settings Section -->
+        <section id="section-general" class="settings-section">
+          <header class="page-header">
+            <h1 class="page-title">通用设置</h1>
+            <p class="page-description">配置语言、引擎和项目根目录等基础设置</p>
+          </header>
+
+          <div class="card">
+            <div class="form-group">
+              <label class="form-label">界面语言</label>
+              <div class="selection-grid" style="grid-template-columns: repeat(2, 1fr);">
+                <div class="selection-card active" onclick="selectLanguage(this)">
+                  <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 24px;">🇨🇳</span>
+                    <div>
+                      <div class="selection-card-title">简体中文</div>
+                      <div class="selection-card-desc"> Simplified Chinese</div>
+                    </div>
+                  </div>
+                  <div class="check-badge">✓</div>
+                </div>
+                <div class="selection-card" onclick="selectLanguage(this)">
+                  <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 24px;">🇺🇸</span>
+                    <div>
+                      <div class="selection-card-title">English</div>
+                      <div class="selection-card-desc">United States</div>
+                    </div>
+                  </div>
+                  <div class="check-badge">✓</div>
+                </div>
+              </div>
+              <p class="form-hint">更改语言后需要重新加载应用</p>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="form-group">
+              <label class="form-label">Agent 引擎</label>
+              <div class="selection-grid" style="grid-template-columns: repeat(2, 1fr);">
+                <div class="selection-card active" onclick="selectEngine(this)">
+                  <div class="selection-card-icon">⚡</div>
+                  <div class="selection-card-title">Claude Code</div>
+                  <div class="selection-card-desc">原始 claude-code 引擎</div>
+                  <div class="check-badge">✓</div>
+                </div>
+                <div class="selection-card disabled" onclick="selectEngine(this)">
+                  <div class="selection-card-icon">🎯</div>
+                  <div class="selection-card-title">Pi</div>
+                  <div class="selection-card-desc">pi-coding-agent 引擎</div>
+                  <div class="check-badge">✓</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-header" style="margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--color-border-light);">
+              <h2 class="section-title">项目设置</h2>
+            </div>
+            <div class="form-group">
+              <label class="form-label">项目根目录</label>
+              <div class="input-with-action">
+                <input type="text" class="input-field" placeholder="D:\Projects\my-project" value="D:\AI\SpaceCode">
+                <button class="btn-icon" title="选择文件夹">
+                  <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                </button>
+              </div>
+              <p class="form-hint">选择你的项目工作目录</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Model Settings Section -->
+        <section id="section-model" class="settings-section" style="display: none;">
+          <header class="page-header">
+            <h1 class="page-title">模型配置</h1>
+            <p class="page-description">配置 AI 模型提供商、API 密钥和模型选择</p>
+          </header>
+
+          <div class="card">
+            <div class="form-group">
+              <label class="form-label">认证方式</label>
+              <div class="selection-grid">
+                <div class="selection-card active" onclick="selectAuthMethod(this)">
+                  <div class="selection-card-icon">🔷</div>
+                  <div class="selection-card-title">Anthropic</div>
+                  <div class="selection-card-desc">兼容 API</div>
+                  <div class="check-badge">✓</div>
+                </div>
+                <div class="selection-card" onclick="selectAuthMethod(this)">
+                  <div class="selection-card-icon">🤖</div>
+                  <div class="selection-card-title">OpenAI</div>
+                  <div class="selection-card-desc">兼容 API</div>
+                  <div class="check-badge">✓</div>
+                </div>
+                <div class="selection-card" onclick="selectAuthMethod(this)">
+                  <div class="selection-card-icon">✨</div>
+                  <div class="selection-card-title">Gemini</div>
+                  <div class="selection-card-desc">Google API</div>
+                  <div class="check-badge">✓</div>
+                </div>
+                <div class="selection-card" onclick="selectAuthMethod(this)">
+                  <div class="selection-card-icon">👑</div>
+                  <div class="selection-card-title">Claude</div>
+                  <div class="selection-card-desc">账户 OAuth</div>
+                  <div class="check-badge">✓</div>
+                </div>
+                <div class="selection-card" onclick="selectAuthMethod(this)">
+                  <div class="selection-card-icon">🔑</div>
+                  <div class="selection-card-title">Console</div>
+                  <div class="selection-card-desc">API 计费</div>
+                  <div class="check-badge">✓</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-header" style="margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--color-border-light);">
+              <h2 class="section-title">Anthropic 配置</h2>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Base URL</label>
+              <input type="text" class="input-field" placeholder="https://api.anthropic.com" value="">
+              <p class="form-hint">留空使用默认地址</p>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">API Key</label>
+              <div class="input-with-action">
+                <input type="password" class="input-field" placeholder="sk-ant-..." value="">
+                <button class="btn-icon" onclick="togglePasswordVisibility(this)">
+                  <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 12px; margin-top: 20px;">
+              <button class="btn btn-secondary">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                测试连接
+              </button>
+              <button class="btn btn-secondary">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                获取模型列表
+              </button>
+            </div>
+
+            <div class="status-badge success" style="margin-top: 16px;">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+              连接成功！
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-header" style="margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--color-border-light);">
+              <h2 class="section-title">模型选择</h2>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Haiku 模型 <span style="background: var(--color-bg-tertiary); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">快速</span></label>
+              <select class="input-field">
+                <option>claude-3-5-haiku-20241022</option>
+                <option>claude-3-haiku-20240307</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Sonnet 模型 <span style="background: var(--color-accent-light); color: var(--color-accent); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">推荐</span></label>
+              <select class="input-field">
+                <option selected>claude-sonnet-4-20250514</option>
+                <option>claude-3-5-sonnet-20241022</option>
+                <option>claude-3-sonnet-20240229</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Opus 模型 <span style="background: rgba(139, 92, 246, 0.1); color: #8b5cf6; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">强大</span></label>
+              <select class="input-field">
+                <option>claude-3-opus-20240229</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <!-- MCP Settings Section -->
+        <section id="section-mcp" class="settings-section" style="display: none;">
+          <header class="page-header">
+            <h1 class="page-title">MCP 服务器</h1>
+            <p class="page-description">管理 Model Context Protocol 服务器配置</p>
+          </header>
+
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+            <span style="color: var(--color-text-muted); font-size: 13px;">已启用 1 / 共 2 个服务器</span>
+            <button class="btn btn-primary" onclick="showModal()">
+              <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+              添加服务器
+            </button>
+          </div>
+
+          <div class="list-item">
+            <input type="checkbox" class="list-item-checkbox" checked>
+            <div class="list-item-content">
+              <div class="list-item-title">filesystem</div>
+              <div class="list-item-subtitle">npx -y @modelcontextprotocol/server-filesystem .</div>
+            </div>
+            <div class="list-item-actions">
+              <button class="btn-icon" title="编辑">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              </button>
+              <button class="btn-icon danger" title="删除" style="color: var(--color-error);">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              </button>
+              <button class="btn-icon" title="展开">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="list-item" style="opacity: 0.6;">
+            <input type="checkbox" class="list-item-checkbox">
+            <div class="list-item-content">
+              <div class="list-item-title">github</div>
+              <div class="list-item-subtitle">npx -y @modelcontextprotocol/server-github</div>
+            </div>
+            <div class="list-item-actions">
+              <button class="btn-icon" title="编辑">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              </button>
+              <button class="btn-icon danger" title="删除" style="color: var(--color-error);">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              </button>
+              <button class="btn-icon" title="展开">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Appearance Settings Section -->
+        <section id="section-appearance" class="settings-section" style="display: none;">
+          <header class="page-header">
+            <h1 class="page-title">外观主题</h1>
+            <p class="page-description">自定义界面主题、字体和显示效果</p>
+          </header>
+
+          <div class="card">
+            <div class="form-group">
+              <label class="form-label">主题模式</label>
+              <div class="selection-grid" style="grid-template-columns: repeat(5, 1fr);">
+                <div class="selection-card active" onclick="selectTheme(this)" style="padding: 14px;">
+                  <div style="width: 64px; height: 44px; background: linear-gradient(135deg, #f8fafc 50%, #1e293b 50%); border-radius: 6px; margin: 0 auto 10px; border: 1px solid var(--color-border);"></div>
+                  <div class="selection-card-title" style="text-align: center; font-size: 13px;">系统</div>
+                  <div class="check-badge">✓</div>
+                </div>
+                <div class="selection-card" onclick="selectTheme(this)" style="padding: 14px;">
+                  <div style="width: 64px; height: 44px; background: #ffffff; border-radius: 6px; margin: 0 auto 10px; border: 1px solid var(--color-border);"></div>
+                  <div class="selection-card-title" style="text-align: center; font-size: 13px;">浅色</div>
+                  <div class="check-badge">✓</div>
+                </div>
+                <div class="selection-card" onclick="selectTheme(this)" style="padding: 14px;">
+                  <div style="width: 64px; height: 44px; background: #1e293b; border-radius: 6px; margin: 0 auto 10px; border: 1px solid var(--color-border);"></div>
+                  <div class="selection-card-title" style="text-align: center; font-size: 13px;">深色</div>
+                  <div class="check-badge">✓</div>
+                </div>
+                <div class="selection-card" onclick="selectTheme(this)" style="padding: 14px;">
+                  <div style="width: 64px; height: 44px; background: #faf9f5; border-radius: 6px; margin: 0 auto 10px; border: 1px solid var(--color-border);"></div>
+                  <div class="selection-card-title" style="text-align: center; font-size: 13px;">Anthropic</div>
+                  <div class="check-badge">✓</div>
+                </div>
+                <div class="selection-card" onclick="selectTheme(this)" style="padding: 14px;">
+                  <div style="width: 64px; height: 44px; background: #141413; border-radius: 6px; margin: 0 auto 10px; border: 1px solid var(--color-border);"></div>
+                  <div class="selection-card-title" style="text-align: center; font-size: 13px;">Anthropic Dark</div>
+                  <div class="check-badge">✓</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-header" style="margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--color-border-light);">
+              <h2 class="section-title">字体设置</h2>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 16px; margin-bottom: 20px;">
+              <div class="form-group">
+                <label class="form-label">字号</label>
+                <select class="input-field">
+                  <option>12px</option>
+                  <option selected>14px</option>
+                  <option>16px</option>
+                  <option>18px</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">字体族</label>
+                <select class="input-field">
+                  <option selected>系统默认</option>
+                  <option>Inter</option>
+                  <option>SF Pro</option>
+                  <option>Segoe UI</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">代码字体</label>
+              <select class="input-field">
+                <option selected>JetBrains Mono</option>
+                <option>Fira Code</option>
+                <option>Cascadia Code</option>
+                <option>Source Code Pro</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-header" style="margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--color-border-light);">
+              <h2 class="section-title">UI 密度</h2>
+            </div>
+
+            <div class="selection-grid" style="grid-template-columns: repeat(3, 1fr);">
+              <div class="selection-card" onclick="selectDensity(this)" style="padding: 20px;">
+                <div style="display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px;">
+                  <div style="height: 3px; background: var(--color-text-muted); border-radius: 2px; width: 80%;"></div>
+                  <div style="height: 3px; background: var(--color-text-muted); border-radius: 2px; width: 60%;"></div>
+                  <div style="height: 3px; background: var(--color-text-muted); border-radius: 2px; width: 40%;"></div>
+                </div>
+                <div class="selection-card-title" style="text-align: center;">紧凑</div>
+                <div class="check-badge">✓</div>
+              </div>
+              <div class="selection-card active" onclick="selectDensity(this)" style="padding: 20px;">
+                <div style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px;">
+                  <div style="height: 4px; background: var(--color-text-muted); border-radius: 2px; width: 80%;"></div>
+                  <div style="height: 4px; background: var(--color-text-muted); border-radius: 2px; width: 60%;"></div>
+                  <div style="height: 4px; background: var(--color-text-muted); border-radius: 2px; width: 40%;"></div>
+                </div>
+                <div class="selection-card-title" style="text-align: center;">默认</div>
+                <div class="check-badge">✓</div>
+              </div>
+              <div class="selection-card" onclick="selectDensity(this)" style="padding: 20px;">
+                <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px;">
+                  <div style="height: 5px; background: var(--color-text-muted); border-radius: 2px; width: 80%;"></div>
+                  <div style="height: 5px; background: var(--color-text-muted); border-radius: 2px; width: 60%;"></div>
+                  <div style="height: 5px; background: var(--color-text-muted); border-radius: 2px; width: 40%;"></div>
+                </div>
+                <div class="selection-card-title" style="text-align: center;">舒适</div>
+                <div class="check-badge">✓</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-header" style="margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--color-border-light);">
+              <h2 class="section-title">编辑器选项</h2>
+            </div>
+
+            <div class="toggle-wrapper">
+              <div class="toggle-info">
+                <span class="toggle-label">显示行号</span>
+                <span class="toggle-description">在代码编辑器左侧显示行号</span>
+              </div>
+              <input type="checkbox" class="toggle-switch" checked>
+            </div>
+
+            <div class="toggle-wrapper">
+              <div class="toggle-info">
+                <span class="toggle-label">自动换行</span>
+                <span class="toggle-description">长行代码自动换行显示</span>
+              </div>
+              <input type="checkbox" class="toggle-switch" checked>
+            </div>
+
+            <div class="toggle-wrapper">
+              <div class="toggle-info">
+                <span class="toggle-label">小地图</span>
+                <span class="toggle-description">显示代码缩略图预览</span>
+              </div>
+              <input type="checkbox" class="toggle-switch">
+            </div>
+
+            <div class="toggle-wrapper">
+              <div class="toggle-info">
+                <span class="toggle-label">平滑滚动</span>
+                <span class="toggle-description">启用平滑的页面滚动效果</span>
+              </div>
+              <input type="checkbox" class="toggle-switch" checked>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-header" style="margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--color-border-light);">
+              <h2 class="section-title">强调色</h2>
+            </div>
+
+            <div class="color-options">
+              <div class="color-option active" style="background: #3b82f6;" onclick="selectColor(this)"></div>
+              <div class="color-option" style="background: #8b5cf6;" onclick="selectColor(this)"></div>
+              <div class="color-option" style="background: #22c55e;" onclick="selectColor(this)"></div>
+              <div class="color-option" style="background: #f97316;" onclick="selectColor(this)"></div>
+              <div class="color-option" style="background: #ec4899;" onclick="selectColor(this)"></div>
+              <div class="color-option" style="background: #06b6d4;" onclick="selectColor(this)"></div>
+              <div class="color-option" style="background: #d97757;" onclick="selectColor(this)"></div>
+              <div class="color-option" style="background: #6a9bcc;" onclick="selectColor(this)"></div>
+              <div class="color-option" style="background: #788c5d;" onclick="selectColor(this)"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Shortcuts Settings Section -->
+        <section id="section-shortcuts" class="settings-section" style="display: none;">
+          <header class="page-header">
+            <h1 class="page-title">快捷键</h1>
+            <p class="page-description">自定义键盘快捷键以提高工作效率</p>
+          </header>
+
+          <div class="card" style="margin-bottom: 24px;">
+            <div style="display: flex; align-items: center; gap: 12px; padding: 4px; background: var(--color-bg-secondary); border-radius: var(--radius-md);">
+              <svg width="18" height="18" fill="none" stroke="var(--color-text-muted)" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+              <input type="text" placeholder="搜索快捷键..." style="flex: 1; border: none; background: transparent; outline: none; font-size: 14px; color: var(--color-text-primary);">
+            </div>
+          </div>
+
+          <div class="card">
+            <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); margin-bottom: 16px;">通用操作</div>
+
+            <div class="toggle-wrapper" style="cursor: pointer;" onclick="editShortcut(this)">
+              <div class="toggle-info">
+                <span class="toggle-label">新建对话</span>
+                <span class="toggle-description">创建新的聊天会话</span>
+              </div>
+              <div style="display: flex; gap: 6px;">
+                <kbd class="kbd">Ctrl</kbd>
+                <kbd class="kbd">N</kbd>
+              </div>
+            </div>
+
+            <div class="toggle-wrapper" style="cursor: pointer;" onclick="editShortcut(this)">
+              <div class="toggle-info">
+                <span class="toggle-label">关闭对话</span>
+                <span class="toggle-description">关闭当前聊天窗口</span>
+              </div>
+              <div style="display: flex; gap: 6px;">
+                <kbd class="kbd">Ctrl</kbd>
+                <kbd class="kbd">W</kbd>
+              </div>
+            </div>
+
+            <div class="toggle-wrapper" style="cursor: pointer;" onclick="editShortcut(this)">
+              <div class="toggle-info">
+                <span class="toggle-label">搜索对话</span>
+                <span class="toggle-description">快速搜索历史对话</span>
+              </div>
+              <div style="display: flex; gap: 6px;">
+                <kbd class="kbd">Ctrl</kbd>
+                <kbd class="kbd">K</kbd>
+              </div>
+            </div>
+
+            <div class="toggle-wrapper" style="cursor: pointer;" onclick="editShortcut(this)">
+              <div class="toggle-info">
+                <span class="toggle-label">打开设置</span>
+                <span class="toggle-description">打开设置面板</span>
+              </div>
+              <div style="display: flex; gap: 6px;">
+                <kbd class="kbd">Ctrl</kbd>
+                <kbd class="kbd">,</kbd>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); margin-bottom: 16px;">编辑器操作</div>
+
+            <div class="toggle-wrapper" style="cursor: pointer;" onclick="editShortcut(this)">
+              <div class="toggle-info">
+                <span class="toggle-label">发送消息</span>
+                <span class="toggle-description">发送当前输入的消息</span>
+              </div>
+              <kbd class="kbd">Enter</kbd>
+            </div>
+
+            <div class="toggle-wrapper" style="cursor: pointer;" onclick="editShortcut(this)">
+              <div class="toggle-info">
+                <span class="toggle-label">换行</span>
+                <span class="toggle-description">在输入框中插入新行</span>
+              </div>
+              <div style="display: flex; gap: 6px;">
+                <kbd class="kbd">Shift</kbd>
+                <kbd class="kbd">Enter</kbd>
+              </div>
+            </div>
+
+            <div class="toggle-wrapper" style="cursor: pointer;" onclick="editShortcut(this)">
+              <div class="toggle-info">
+                <span class="toggle-label">清空对话</span>
+                <span class="toggle-description">清除当前对话内容</span>
+              </div>
+              <div style="display: flex; gap: 6px;">
+                <kbd class="kbd">Ctrl</kbd>
+                <kbd class="kbd">Shift</kbd>
+                <kbd class="kbd">K</kbd>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; padding-top: 20px; border-top: 1px solid var(--color-border-light);">
+            <button class="btn btn-secondary">
+              <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              重置为默认值
+            </button>
+          </div>
+        </section>
+
+        <!-- Token Usage Section -->
+        <section id="section-token-usage" class="settings-section" style="display: none;">
+          <header class="page-header" style="display: flex; align-items: flex-start; justify-content: space-between;">
+            <div>
+              <h1 class="page-title">Token 用量</h1>
+              <p class="page-description">2024-01-01 - 2025-06-01</p>
+              <p class="page-description" style="margin-top: 4px;">基于本机 Claude Code CLI 会话记录统计</p>
+            </div>
+            <button class="btn btn-secondary">
+              <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              刷新
+            </button>
+          </header>
+
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-label">今天</div>
+              <div class="stat-value">125.6K</div>
+              <div class="stat-subtext">3 次会话</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">昨天</div>
+              <div class="stat-value">89.2K</div>
+              <div class="stat-subtext">5 次会话</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">30 天</div>
+              <div class="stat-value">2.4M</div>
+              <div class="stat-subtext">87 次会话</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">全部</div>
+              <div class="stat-value">18.7M</div>
+              <div class="stat-subtext">1,245 次会话</div>
+            </div>
+          </div>
+
+          <div class="heatmap-container">
+            <h3 style="font-size: 15px; font-weight: 600; margin-bottom: 8px;">使用热力图</h3>
+            <div class="heatmap-grid" id="heatmap"></div>
+            <div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 16px; font-size: 12px; color: var(--color-text-muted);">
+              <span>少</span>
+              <div style="width: 12px; height: 12px; background: var(--color-bg-tertiary); border-radius: 3px;"></div>
+              <div style="width: 12px; height: 12px; background: #bbf7d0; border-radius: 3px;"></div>
+              <div style="width: 12px; height: 12px; background: #86efac; border-radius: 3px;"></div>
+              <div style="width: 12px; height: 12px; background: #4ade80; border-radius: 3px;"></div>
+              <div style="width: 12px; height: 12px; background: #16a34a; border-radius: 3px;"></div>
+              <span>多</span>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+            <div class="card">
+              <h3 style="font-size: 15px; font-weight: 600; margin-bottom: 16px;">Token 构成</h3>
+              <div style="display: flex; justify-content: space-between; padding: 10px 0; border-top: 1px solid var(--color-border-light); font-size: 13px;">
+                <span style="color: var(--color-text-secondary);">输入</span>
+                <strong>12.3M</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding: 10px 0; border-top: 1px solid var(--color-border-light); font-size: 13px;">
+                <span style="color: var(--color-text-secondary);">输出</span>
+                <strong>5.8M</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding: 10px 0; border-top: 1px solid var(--color-border-light); font-size: 13px;">
+                <span style="color: var(--color-text-secondary);">缓存创建</span>
+                <strong>890K</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding: 10px 0; border-top: 1px solid var(--color-border-light); font-size: 13px;">
+                <span style="color: var(--color-text-secondary);">缓存读取</span>
+                <strong>2.1M</strong>
+              </div>
+            </div>
+
+            <div class="card">
+              <h3 style="font-size: 15px; font-weight: 600; margin-bottom: 16px;">模型用量</h3>
+              <div style="display: flex; justify-content: space-between; padding: 10px 0; border-top: 1px solid var(--color-border-light); font-size: 13px;">
+                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">claude-sonnet-4-20250514</span>
+                <strong>8.9M</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding: 10px 0; border-top: 1px solid var(--color-border-light); font-size: 13px;">
+                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">claude-3-5-sonnet-20241022</span>
+                <strong>5.2M</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding: 10px 0; border-top: 1px solid var(--color-border-light); font-size: 13px;">
+                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">claude-3-5-haiku-20241022</span>
+                <strong>3.1M</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding: 10px 0; border-top: 1px solid var(--color-border-light); font-size: 13px;">
+                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">claude-3-opus-20240229</span>
+                <strong>1.5M</strong>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Hooks & Tools Sections (Simplified for demo) -->
+        <section id="section-hooks" class="settings-section" style="display: none;">
+          <header class="page-header">
+            <h1 class="page-title">Hooks 管理</h1>
+            <p class="page-description">自定义会话生命周期钩子函数</p>
+          </header>
+
+          <div class="card">
+            <p style="color: var(--color-text-muted); margin-bottom: 20px;">Hooks 允许你在特定事件发生时执行自定义脚本。支持三种作用域：全局、项目和用户。</p>
+
+            <div class="list-item">
+              <div class="list-item-content">
+                <div class="list-item-title">SessionStart Hook</div>
+                <div class="list-item-subtitle">在新会话开始时执行</div>
+              </div>
+              <button class="btn btn-secondary">配置</button>
+            </div>
+
+            <div class="list-item">
+              <div class="list-item-content">
+                <div class="list-item-title">PreSend Hook</div>
+                <div class="list-item-subtitle">在消息发送前执行</div>
+              </div>
+              <button class="btn btn-secondary">配置</button>
+            </div>
+
+            <div class="list-item">
+              <div class="list-item-content">
+                <div class="list-item-title">PostReceive Hook</div>
+                <div class="list-item-subtitle">在收到响应后执行</div>
+              </div>
+              <button class="btn btn-secondary">配置</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="section-tools" class="settings-section" style="display: none;">
+          <header class="page-header">
+            <h1 class="page-title">工具管理</h1>
+            <p class="page-description">管理和配置可用的 AI 工具集</p>
+          </header>
+
+          <div class="card">
+            <div class="toggle-wrapper">
+              <div class="toggle-info">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #3b82f6, #2563eb); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-size: 18px;">💻</div>
+                  <div>
+                    <span class="toggle-label">终端工具</span>
+                    <span class="toggle-description">已启用 8 / 共 12 个工具</span>
+                  </div>
+                </div>
+              </div>
+              <input type="checkbox" class="toggle-switch" checked>
+            </div>
+
+            <div class="toggle-wrapper">
+              <div class="toggle-info">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #22c55e, #16a34a); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-size: 18px;">📁</div>
+                  <div>
+                    <span class="toggle-label">文件系统</span>
+                    <span class="toggle-description">已启用 6 / 共 8 个工具</span>
+                  </div>
+                </div>
+              </div>
+              <input type="checkbox" class="toggle-switch" checked>
+            </div>
+
+            <div class="toggle-wrapper">
+              <div class="toggle-info">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #f59e0b, #d97706); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-size: 18px;">🔍</div>
+                  <div>
+                    <span class="toggle-label">搜索工具</span>
+                    <span class="toggle-description">已启用 4 / 共 5 个工具</span>
+                  </div>
+                </div>
+              </div>
+              <input type="checkbox" class="toggle-switch" checked>
+            </div>
+          </div>
+
+          <div class="danger-zone">
+            <div class="danger-zone-title">
+              <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+              危险区域
+            </div>
+            <div class="danger-zone-item">
+              <div class="danger-info" style="flex: 1;">
+                <div style="font-weight: 600; font-size: 14px;">重置所有工具配置</div>
+                <div style="font-size: 13px; color: var(--color-text-muted); margin-top: 2px;">将所有工具恢复到默认状态</div>
+              </div>
+              <button class="btn danger-btn">重置</button>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal Example -->
+  <div class="modal-overlay" id="modal" style="display: none;" onclick="hideModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <h2 class="modal-title">添加 MCP 服务器</h2>
+
+      <div class="form-group">
+        <label class="form-label">服务器名称</label>
+        <input type="text" class="input-field" placeholder="例如: filesystem">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">命令</label>
+        <input type="text" class="input-field" placeholder="例如: npx">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">参数</label>
+        <input type="text" class="input-field" placeholder="例如: -y @modelcontextprotocol/server-filesystem .">
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="hideModal()">取消</button>
+        <button class="btn btn-primary">添加服务器</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Navigation
+    function showSection(sectionId) {
+      // Hide all sections
+      document.querySelectorAll('.settings-section').forEach(section => {
+        section.style.display = 'none';
+      });
+
+      // Show selected section
+      document.getElementById('section-' + sectionId).style.display = 'block';
+
+      // Update nav items
+      document.querySelectorAll('.nav-item').forEach(item => {
+        item.classList.remove('active');
+      });
+      event.currentTarget.classList.add('active');
+    }
+
+    // Selection helpers
+    function selectLanguage(element) {
+      element.parentElement.querySelectorAll('.selection-card').forEach(card => {
+        card.classList.remove('active');
+      });
+      element.classList.add('active');
+    }
+
+    function selectEngine(element) {
+      if (element.classList.contains('disabled')) return;
+      element.parentElement.querySelectorAll('.selection-card').forEach(card => {
+        card.classList.remove('active');
+      });
+      element.classList.add('active');
+    }
+
+    function selectAuthMethod(element) {
+      element.parentElement.querySelectorAll('.selection-card').forEach(card => {
+        card.classList.remove('active');
+      });
+      element.classList.add('active');
+    }
+
+    function selectTheme(element) {
+      element.parentElement.querySelectorAll('.selection-card').forEach(card => {
+        card.classList.remove('active');
+      });
+      element.classList.add('active');
+    }
+
+    function selectDensity(element) {
+      element.parentElement.querySelectorAll('.selection-card').forEach(card => {
+        card.classList.remove('active');
+      });
+      element.classList.add('active');
+    }
+
+    function selectColor(element) {
+      document.querySelectorAll('.color-option').forEach(opt => {
+        opt.classList.remove('active');
+      });
+      element.classList.add('active');
+    }
+
+    // Password toggle
+    function togglePasswordVisibility(btn) {
+      const input = btn.previousElementSibling;
+      input.type = input.type === 'password' ? 'text' : 'password';
+    }
+
+    // Modal
+    function showModal() {
+      document.getElementById('modal').style.display = 'flex';
+    }
+
+    function hideModal(event) {
+      if (!event || event.target === event.currentTarget) {
+        document.getElementById('modal').style.display = 'none';
+      }
+    }
+
+    // Edit shortcut (demo)
+    function editShortcut(element) {
+      alert('快捷键编辑功能演示');
+    }
+
+    // Generate heatmap demo data
+    window.addEventListener('DOMContentLoaded', () => {
+      const heatmap = document.getElementById('heatmap');
+      if (heatmap) {
+        for (let i = 0; i < 371; i++) {
+          const cell = document.createElement('div');
+          cell.className = 'heatmap-cell';
+          const level = Math.floor(Math.random() * 5);
+          if (level > 0) cell.classList.add('level-' + level);
+          heatmap.appendChild(cell);
+        }
+      }
+    });
+  </script>
+</body>
+</html>
