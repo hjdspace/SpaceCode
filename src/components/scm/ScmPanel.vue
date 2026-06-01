@@ -585,6 +585,7 @@ async function handleDiscard(file: ScmFile): Promise<void> {
 async function handleCommit(): Promise<void> {
   if (!scmStore.commitMessage.trim() || scmStore.stagedCount === 0) return
   await scmStore.commitChanges()
+  nextTick(() => autoResizeTextarea())
 }
 
 async function handleGenerateCommitMessage(): Promise<void> {

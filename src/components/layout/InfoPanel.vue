@@ -207,7 +207,7 @@ function onDidFailLoad(event: any) {
 .info-panel {
   width: 400px;
   min-width: 300px;
-  max-width: 50vw;
+  max-width: 90vw;
   height: 100%;
   background: var(--surface-glass);
   backdrop-filter: blur(20px);

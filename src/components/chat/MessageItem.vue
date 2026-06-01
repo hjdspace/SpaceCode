@@ -85,7 +85,7 @@ import MarkdownRenderer from '../common/MarkdownRenderer.vue'
 import ReasoningCard from './ReasoningCard.vue'
 import ToolCallList from './ToolCallList.vue'
 import MessageMetadata from './MessageMetadata.vue'
-import { renderMentionChipsToHtml } from '@/utils/mention-chips'
+import { renderContentWithAttachments } from '@/utils/mention-chips'
 
 const { t } = useI18n()
 
@@ -124,7 +124,7 @@ function handleRewindClick() {
 }
 
 const renderedUserContent = computed(() =>
-  renderMentionChipsToHtml(props.message.content || '')
+  renderContentWithAttachments(props.message.content || '', props.message.imageAttachments)
 )
 
 function formatTime(timestamp: number): string {

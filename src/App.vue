@@ -136,7 +136,10 @@ function handleResize(e: MouseEvent) {
     leftWidth.value = Math.min(Math.max(newWidth, minWidth), maxWidth)
   } else if (resizeTarget.value === 'right') {
     const newWidth = startWidth - diff
-    rightWidth.value = Math.min(Math.max(newWidth, minWidth), maxWidth)
+    // Allow the right panel to widen up to nearly the full window so the user
+    // can read complete content, while keeping a minimum main-content area.
+    const rightMaxWidth = Math.max(maxWidth, window.innerWidth - leftWidth.value - 200)
+    rightWidth.value = Math.min(Math.max(newWidth, minWidth), rightMaxWidth)
   }
 }
 
