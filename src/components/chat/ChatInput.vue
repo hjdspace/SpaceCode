@@ -564,6 +564,31 @@ function toggleThinking() {
   }
 }
 
+// 工作台(截图/框选元素)推送内容到输入框
+function injectFromWorkbench(payload: { text?: string; image?: ImageAttachment }) {
+  if (payload.image) {
+    const img: ImageAttachment = { ...payload.image, type: 'image' }
+    attachedImages.value.push(img)
+    editorRef.value?.focus()
+    insertImageChip(img)
+  }
+  if (payload.text) {
+    const editor = editorRef.value
+    if (editor) {
+      editor.focus()
+      const prefix = editor.textContent && !editor.textContent.endsWith('\n') ? '\n' : ''
+      editor.appendChild(document.createTextNode(prefix + payload.text))
+      inputText.value = getEditorPlainText()
+    }
+  }
+}
+
+watch(() => appStore.pendingInputInjection, (payload) => {
+  if (!payload) return
+  injectFromWorkbench(payload)
+  appStore.consumeInputInjection()
+})
+
 // Agent selector state
 const chatStore = useChatStore()
 const showAgentDropdown = ref(false)

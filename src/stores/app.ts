@@ -30,6 +30,21 @@ export interface WebviewTabData {
   title: string
 }
 
+/** 由工作台(截图/框选)推送到聊天输入框的内容载荷 */
+export interface InputInjectPayload {
+  /** 追加到输入框的文字(如结构化改稿描述) */
+  text?: string
+  /** 图片附件(复用聊天输入框的 ImageAttachment 结构) */
+  image?: {
+    id: string
+    name: string
+    type: 'image'
+    mimeType: string
+    previewUrl: string
+    data: string
+  }
+}
+
 export type InfoPanelTabType = 'file' | 'markdown' | 'diff' | 'tool-diff' | 'webview'
 
 export interface InfoPanelTab {
@@ -70,6 +85,10 @@ export const useAppStore = defineStore('app', () => {
   const infoPanelTabs = ref<InfoPanelTab[]>([])
   const activeInfoTabId = ref<string | null>(null)
   const isLoading = ref<boolean>(false)
+
+  // 工作台 -> 输入框 的一次性注入载荷(截图/框选元素整合)。
+  // ChatInput 监听该值, 消费后置空。
+  const pendingInputInjection = ref<InputInjectPayload | null>(null)
 
   let _initialProjectRoot = ''
   try {
@@ -409,11 +428,26 @@ export const useAppStore = defineStore('app', () => {
     closeAllInfoTabs()
   }
 
+  function pushToInput(payload: InputInjectPayload) {
+    pendingInputInjection.value = payload
+  }
+
+  function consumeInputInjection(): InputInjectPayload | null {
+    const p = pendingInputInjection.value
+    pendingInputInjection.value = null
+    return p
+  }
+
+  /** 补全协议: localhost/127.0.0.1/内网 IP 默认 http, 其余默认 https */
+  function normalizeWebUrl(url: string): string {
+    const trimmed = url.trim()
+    if (/^https?:\/\//i.test(trimmed)) return trimmed
+    const isLocal = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\d{1,3}(\.\d{1,3}){3})(:\d+)?/i.test(trimmed)
+    return (isLocal ? 'http://' : 'https://') + trimmed
+  }
+
   function openWebview(url: string) {
-    let normalizedUrl = url.trim()
-    if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
-      normalizedUrl = 'https://' + normalizedUrl
-    }
+    const normalizedUrl = normalizeWebUrl(url)
 
     const tabId = `webview::${normalizedUrl}`
     const existing = infoPanelTabs.value.find(t => t.id === tabId)
@@ -443,10 +477,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function navigateWebview(url: string) {
-    let normalizedUrl = url.trim()
-    if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
-      normalizedUrl = 'https://' + normalizedUrl
-    }
+    const normalizedUrl = normalizeWebUrl(url)
 
     const tab = activeInfoTab.value
     if (tab && tab.type === 'webview') {
@@ -594,6 +625,9 @@ export const useAppStore = defineStore('app', () => {
     webviewTitle,
     isLoading,
     isDark,
+    pendingInputInjection,
+    pushToInput,
+    consumeInputInjection,
     toggleTheme,
     setTheme,
     toggleSidebar,
