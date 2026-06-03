@@ -31,6 +31,7 @@ export default {
   settings: {
     title: 'Settings',
     general: 'General',
+    generalDesc: 'Configure language, engine, and project root',
     modelSettings: 'Models',
     appearance: 'Appearance',
     tools: 'Tools',

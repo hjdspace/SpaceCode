@@ -31,6 +31,7 @@ export default {
   settings: {
     title: '设置',
     general: '通用',
+    generalDesc: '配置语言、引擎和项目根目录等基础设置',
     modelSettings: '模型',
     appearance: '外观',
     tools: '工具',
