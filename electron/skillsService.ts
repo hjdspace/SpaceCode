@@ -1003,6 +1003,19 @@ function checkSkillInstalled(skillName: string, cwd?: string): boolean {
     if (isSkillInstalled(skillName, projectSkills)) return true
   }
 
+  // Also check installed plugin bundles (skills installed as part of a bundle)
+  const pluginRoots = [getGlobalPluginsRoot()]
+  if (cwd) pluginRoots.push(getProjectPluginsRoot(cwd))
+  for (const pluginsRoot of pluginRoots) {
+    const pluginSkills = readPluginSkills(pluginsRoot)
+    // Plugin skills have names like "bundleName:skillName", check both formats
+    if (pluginSkills.some(s => {
+      const parts = s.name.split(':')
+      return s.name.toLowerCase() === skillName.toLowerCase() ||
+        (parts.length === 2 && parts[1].toLowerCase() === skillName.toLowerCase())
+    })) return true
+  }
+
   return false
 }
 
@@ -1119,13 +1132,17 @@ function bundleIsInstalled(bundleName: string, cwd?: string): { installed: boole
   return { installed: false }
 }
 
-function readBundleSkills(bundleDir: string, bundleId: string, bundleName: string, cwd?: string): LocalSkill[] {
+function readBundleSkills(bundleDir: string, bundleId: string, bundleName: string, cwd?: string, bundleInstalled?: boolean): LocalSkill[] {
   const list: LocalSkill[] = []
   const seen = new Set<string>()
   for (const skillsDir of [join(bundleDir, 'skills'), join(bundleDir, '.claude', 'skills'), join(bundleDir, '.claude', 'commands')]) {
-    for (const skill of readLocalSkillsFromDir(skillsDir, bundleDir, cwd, bundleId, bundleName)) {
+    for (let skill of readLocalSkillsFromDir(skillsDir, bundleDir, cwd, bundleId, bundleName)) {
       if (seen.has(skill.skillPath)) continue
       seen.add(skill.skillPath)
+      // If the bundle itself is installed, all its skills are considered installed
+      if (bundleInstalled) {
+        skill.isInstalled = true
+      }
       list.push(skill)
     }
   }
@@ -1158,7 +1175,7 @@ async function handleScanLocalLibrary(
         const bundleName: string = manifest.name || basename(bundleDir)
         const bundleId = bundleDir
         const status = bundleIsInstalled(bundleName, cwd)
-        const skills = readBundleSkills(bundleDir, bundleId, bundleName, cwd)
+        const skills = readBundleSkills(bundleDir, bundleId, bundleName, cwd, status.installed)
         const author = typeof manifest.author === 'string'
           ? manifest.author
           : (manifest.author?.name || undefined)
