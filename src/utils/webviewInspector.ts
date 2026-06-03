@@ -25,13 +25,16 @@ export const INSPECTOR_SCRIPT = `(() => {
   tip.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;background:#fff;color:#222;font:12px/1.5 -apple-system,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.18);border-radius:8px;padding:8px 10px;display:none;min-width:160px;';
   const sizeTag = document.createElement('div');
   sizeTag.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;background:#1677ff;color:#fff;font:11px/1 monospace;padding:2px 6px;border-radius:4px;display:none;';
+  box.dataset.si='1'; tip.dataset.si='1'; sizeTag.dataset.si='1';
 
   let enabled = false;
   let current = null;
   let locked = false;
+  let styleEl = null;
 
   function ensureMounted() {
     [box, tip, sizeTag].forEach(el => { if (!el.parentNode) document.documentElement.appendChild(el); });
+    if (!styleEl) { styleEl = document.createElement('style'); styleEl.textContent = '*:not([data-si]){pointer-events:auto!important}'; document.documentElement.appendChild(styleEl); }
   }
 
   function describe(el) {
@@ -158,6 +161,7 @@ export const INSPECTOR_SCRIPT = `(() => {
     disable() {
       enabled = false; locked = false; current = null;
       box.style.display = tip.style.display = sizeTag.style.display = 'none';
+      if (styleEl) { styleEl.remove(); styleEl = null; }
       document.removeEventListener('mousemove', onMove, true);
       document.removeEventListener('click', onClick, true);
       document.removeEventListener('keydown', onKey, true);

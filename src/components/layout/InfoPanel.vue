@@ -100,7 +100,7 @@
           </div>
 
           <!-- 选中元素后的评论浮条 -->
-          <div v-if="selection" class="comment-bar">
+          <div v-if="selection" class="comment-bar" :style="commentBarStyle">
             <div class="comment-meta">
               <span class="meta-tag">&lt;{{ selection.tagName }}{{ selection.idClass }}&gt;</span>
               <span class="meta-dim">{{ selection.rect.width }}×{{ selection.rect.height }}</span>
@@ -161,6 +161,18 @@ const urlInput = ref('')
 const selectMode = ref(false)
 const selection = ref<InspectorSelection | null>(null)
 const commentText = ref('')
+
+const commentBarStyle = computed(() => {
+  if (!selection.value) return {}
+  const r = selection.value.rect
+  const wvH = webviewRef.value?.clientHeight || 400
+  const barH = 80
+  const gap = 8
+  const top = r.y + r.height + barH + gap < wvH
+    ? r.y + r.height + gap
+    : Math.max(gap, r.y - barH - gap)
+  return { top: `${top}px`, bottom: 'auto' }
+})
 
 watch(() => appStore.webviewUrl, (newUrl) => {
   urlInput.value = newUrl
