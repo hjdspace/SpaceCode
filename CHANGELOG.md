@@ -1,3 +1,32 @@
+## [0.4.5](https://github.com/hjdspace/SpaceCode/compare/v0.4.4...v0.4.5) (2026-06-03)
+
+### Features
+
+* **Mini-Browser 工作台:** 新增内置浏览器工作台与 WebView 检查器支持
+  - 新增 mini-browser-workbench 设计文档，定义工作台架构与交互规范
+  - 新增 webviewInspector 工具模块，支持 WebView 内容检查与调试
+  - 新增 workbench-targets 目标配置工具与单元测试
+  - 更新 ChatInput、MessageItem 组件，集成工作台交互入口
+  - 增强 MarkdownRenderer 与 InfoPanel 渲染能力，适配工作台内容展示
+  - 扩展应用状态管理（app store），新增工作台相关状态字段
+  - 补充中英文国际化条目（zh-CN / en-US）
+* **技能库增强:** 改进技能安装与检测功能
+  - 技能卡片新增安装按钮，支持一键安装本地技能包
+  - 优化技能包（bundle）检测逻辑，提升识别准确率
+
+### Refactor
+
+* **UI/UX Pro Max 技能重构:** 全面重构 UI 设计技能库结构
+  - 将单一 ui-ux-pro-max 拆分为 brand、design-system、design、slides、ui-styling 五个子技能域
+  - 新增品牌设计系统（颜色管理、Logo 规范、视觉识别等）
+  - 新增设计系统技能（组件规格、Token 架构、语义化变量等）
+  - 新增设计技能（Banner、Logo、图标、社交图片生成等）
+  - 新增幻灯片技能（布局模式、策略、HTML 模板等）
+  - 新增 UI 样式技能（Canvas 字体系统、Shadcn 组件、Tailwind 定制等）
+  - 清理旧版 ui-ux-pro-max 技能文件与数据资源
+
+---
+
 ## [0.4.4](https://github.com/hjdspace/SpaceCode/compare/v0.4.3...v0.4.4) (2026-06-01)
 
 ### Features
