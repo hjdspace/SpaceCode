@@ -272,6 +272,12 @@ export class ClaudeCodeProcessManager extends EventEmitter {
       if (config.baseUrl) env.ANTHROPIC_BASE_URL = config.baseUrl
     }
 
+    // 当使用第三方 API（非官方 Anthropic URL）时，engine 默认会关闭 ToolSearch，
+    // 导致所有工具全量加载，浪费大量 token。显式启用以支持按需加载工具。
+    if (config.baseUrl && provider !== 'openai' && provider !== 'gemini') {
+      env.ENABLE_TOOL_SEARCH = 'true'
+    }
+
     // 兼容部分网关/适配器读取 Anthropic 变量的场景
     if (config.apiKey && !env.ANTHROPIC_API_KEY) {
       env.ANTHROPIC_API_KEY = config.apiKey
