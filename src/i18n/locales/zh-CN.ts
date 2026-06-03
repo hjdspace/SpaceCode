@@ -255,6 +255,8 @@ export default {
     addToChat: '添加到对话',
     noFiles: '没有文件',
     selectFolder: '选择文件夹',
+    showHiddenFiles: '显示隐藏文件',
+    hideHiddenFiles: '隐藏隐藏文件',
   },
 
   toolsSettings: {

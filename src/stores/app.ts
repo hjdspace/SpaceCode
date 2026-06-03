@@ -50,6 +50,7 @@ export interface CenterTab {
 }
 
 const PROJECT_ROOT_STORAGE_KEY = 'app_project_root'
+const SHOW_HIDDEN_FILES_STORAGE_KEY = 'app_show_hidden_files'
 
 export type ThemeId = 'light' | 'dark' | 'anthropic' | 'anthropic-dark'
 
@@ -76,6 +77,12 @@ export const useAppStore = defineStore('app', () => {
     _initialProjectRoot = localStorage.getItem(PROJECT_ROOT_STORAGE_KEY) || ''
   } catch { /* ignore */ }
   const projectRoot = ref<string>(_initialProjectRoot)
+
+  let _initialShowHiddenFiles = false
+  try {
+    _initialShowHiddenFiles = localStorage.getItem(SHOW_HIDDEN_FILES_STORAGE_KEY) === 'true'
+  } catch { /* ignore */ }
+  const showHiddenFiles = ref<boolean>(_initialShowHiddenFiles)
 
   const showSkillsManager = ref(false)
   const showTraceViewer = ref(false)
@@ -155,6 +162,13 @@ export const useAppStore = defineStore('app', () => {
 
   function toggleSidebar() {
     sidebarCollapsed.value = !sidebarCollapsed.value
+  }
+
+  function toggleShowHiddenFiles() {
+    showHiddenFiles.value = !showHiddenFiles.value
+    try {
+      localStorage.setItem(SHOW_HIDDEN_FILES_STORAGE_KEY, String(showHiddenFiles.value))
+    } catch { /* ignore */ }
   }
 
   function toggleSettings() {
@@ -584,6 +598,7 @@ export const useAppStore = defineStore('app', () => {
     activeInfoTabId,
     activeInfoTab,
     projectRoot,
+    showHiddenFiles,
     showSkillsManager,
     showTraceViewer,
     showSettings,
@@ -597,6 +612,7 @@ export const useAppStore = defineStore('app', () => {
     toggleTheme,
     setTheme,
     toggleSidebar,
+    toggleShowHiddenFiles,
     toggleSettings,
     showInfoPanel,
     hideInfoPanel,

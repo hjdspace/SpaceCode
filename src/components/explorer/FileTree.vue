@@ -13,6 +13,15 @@
         />
       </div>
       <button
+        class="toggle-hidden-btn"
+        :class="{ active: appStore.showHiddenFiles }"
+        :title="appStore.showHiddenFiles ? t('fileTree.hideHiddenFiles') : t('fileTree.showHiddenFiles')"
+        @click="toggleHiddenFiles"
+      >
+        <EyeOff v-if="appStore.showHiddenFiles" :size="12" />
+        <Eye v-else :size="12" />
+      </button>
+      <button
         class="refresh-btn"
         :class="{ loading }"
         :title="t('fileTree.refresh')"
@@ -74,7 +83,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Search, RefreshCw, FolderOpen } from 'lucide-vue-next'
+import { Search, RefreshCw, FolderOpen, Eye, EyeOff } from 'lucide-vue-next'
 import FileTreeNode from './FileTreeNode.vue'
 import FileContextMenu from './FileContextMenu.vue'
 import { api } from '@/services/electronAPI'
@@ -164,9 +173,11 @@ async function loadDirectory(path: string, depth: number = 0): Promise<TreeNode[
     const entries = await api.readDir(path)
     
     // Filter out hidden files and node_modules
-    const filteredEntries = entries.filter(entry => 
-      !entry.name.startsWith('.') && entry.name !== 'node_modules'
-    )
+    const filteredEntries = entries.filter(entry => {
+      if (entry.name === 'node_modules') return false
+      if (entry.name.startsWith('.') && !appStore.showHiddenFiles) return false
+      return true
+    })
     
     // Sort: directories first, then by name
     filteredEntries.sort((a, b) => {
@@ -250,6 +261,11 @@ async function fetchTree() {
 
 function refreshTree() {
   fetchTree()
+}
+
+function toggleHiddenFiles() {
+  appStore.toggleShowHiddenFiles()
+  refreshTree()
 }
 
 function handleSearch() {
@@ -510,6 +526,28 @@ onUnmounted(() => {
   &:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+}
+
+.toggle-hidden-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+
+  &:hover {
+    background: var(--surface-glass-hover);
+    color: var(--text-primary);
+  }
+
+  &.active {
+    color: var(--accent-primary);
   }
 }
 
