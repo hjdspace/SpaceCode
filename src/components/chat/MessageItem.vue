@@ -71,6 +71,22 @@
         
         <!-- 元数据 -->
         <MessageMetadata v-if="message.role === 'assistant' && message.metadata" :metadata="message.metadata" />
+
+        <!-- 工作台快捷入口: 识别输出中的 localhost/URL/本地 HTML/Markdown -->
+        <div v-if="workbenchTargets.length" class="workbench-hint-bar">
+          <button
+            v-for="target in workbenchTargets"
+            :key="target.kind + '::' + target.value"
+            class="workbench-hint-btn"
+            :title="target.value"
+            @click="openInWorkbench(target)"
+          >
+            <Globe v-if="target.kind === 'url'" :size="13" />
+            <FileText v-else :size="13" />
+            <span class="hint-label">{{ target.label }}</span>
+            <span class="hint-action">{{ t('workbench.openInWorkbench') }}</span>
+          </button>
+        </div>
       </template>
     </div>
 
@@ -95,7 +111,7 @@
 
 <script setup lang="ts">
 import type { Message, ImageAttachment } from '@/types'
-import { User, Bot, RotateCcw, CheckCircle, XCircle, X } from 'lucide-vue-next'
+import { User, Bot, RotateCcw, CheckCircle, XCircle, X, Globe, FileText } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
@@ -103,8 +119,11 @@ import ReasoningCard from './ReasoningCard.vue'
 import ToolCallList from './ToolCallList.vue'
 import MessageMetadata from './MessageMetadata.vue'
 import { renderContentWithAttachments } from '@/utils/mention-chips'
+import { detectWorkbenchTargets, type WorkbenchTarget } from '@/utils/workbench-targets'
+import { useAppStore } from '@/stores/app'
 
 const { t } = useI18n()
+const appStore = useAppStore()
 
 const props = defineProps<{
   message: Message
@@ -121,6 +140,19 @@ const isHovered = ref(false)
 const previewImage = ref<ImageAttachment | null>(null)
 
 const isTaskNotification = computed(() => props.message.metadata?.kind === 'task-notification')
+
+const workbenchTargets = computed<WorkbenchTarget[]>(() => {
+  if (props.message.role !== 'assistant') return []
+  return detectWorkbenchTargets(props.message.content || '')
+})
+
+function openInWorkbench(target: WorkbenchTarget) {
+  if (target.kind === 'url') {
+    appStore.openWebview(target.value)
+  } else {
+    appStore.openFile(target.value)
+  }
+}
 
 const showRewindButton = computed(() => {
   if (!isHovered.value) return false
@@ -599,6 +631,46 @@ function handleUserCopy(e: ClipboardEvent) {
 
 .message-item:hover .rewind-button {
   opacity: 1;
+}
+
+.workbench-hint-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.workbench-hint-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(var(--accent-primary-rgb, 59, 130, 246), 0.3);
+  background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.06);
+  color: var(--accent-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+
+  &:hover {
+    background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.14);
+    border-color: var(--accent-primary);
+  }
+
+  .hint-label {
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+  }
+
+  .hint-action {
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
 }
 
 // 响应式布局

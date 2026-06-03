@@ -57,6 +57,22 @@
           </button>
         </div>
 
+        <div class="webview-tools">
+          <button
+            class="tool-btn"
+            :class="{ active: selectMode }"
+            @click="toggleSelectMode"
+            :title="selectMode ? t('workbench.exitSelect') : t('workbench.selectElement')"
+          >
+            <MousePointerSquareDashed :size="14" />
+            <span>{{ selectMode ? t('workbench.exitSelect') : t('workbench.selectElement') }}</span>
+          </button>
+          <button class="tool-btn" @click="captureViewport" :title="t('workbench.screenshot')">
+            <Camera :size="14" />
+            <span>{{ t('workbench.screenshot') }}</span>
+          </button>
+        </div>
+
         <div class="webview-body">
           <webview
             v-if="appStore.webviewUrl"
@@ -71,6 +87,7 @@
             @did-start-loading="onStartLoading"
             @did-stop-loading="onStopLoading"
             @did-fail-load="onDidFailLoad"
+            @console-message="onConsoleMessage"
           />
 
           <div v-if="appStore.isLoading" class="loading-overlay">
@@ -80,6 +97,33 @@
 
           <div v-if="!appStore.webviewUrl" class="empty-webview">
             <p>点击聊天中的链接在此处查看网页</p>
+          </div>
+
+          <!-- 选中元素后的评论浮条 -->
+          <div v-if="selection" class="comment-bar">
+            <div class="comment-meta">
+              <span class="meta-tag">&lt;{{ selection.tagName }}{{ selection.idClass }}&gt;</span>
+              <span class="meta-dim">{{ selection.rect.width }}×{{ selection.rect.height }}</span>
+              <div class="meta-nav">
+                <button class="nav-mini" @click="moveSelection('up')" title="选父级元素">
+                  <ChevronUp :size="14" />
+                </button>
+                <button class="nav-mini" @click="moveSelection('down')" title="选子级元素">
+                  <ChevronDown :size="14" />
+                </button>
+              </div>
+            </div>
+            <div class="comment-row">
+              <input
+                v-model="commentText"
+                class="comment-input"
+                :placeholder="t('workbench.addComment')"
+                @keyup.enter="sendSelection"
+              />
+              <button class="comment-send" @click="sendSelection" :title="t('workbench.sendToChat')">
+                <ArrowUp :size="16" />
+              </button>
+            </div>
           </div>
         </div>
       </template>
@@ -91,12 +135,19 @@
 import { computed, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useI18n } from 'vue-i18n'
-import { Loader2, ArrowLeft, ArrowRight, RotateCw, ExternalLink } from 'lucide-vue-next'
+import { Loader2, ArrowLeft, ArrowRight, RotateCw, ExternalLink, Camera, MousePointerSquareDashed, ArrowUp, ChevronUp, ChevronDown } from 'lucide-vue-next'
 import InfoPanelTabBar from './InfoPanelTabBar.vue'
 import DiffViewer from '../common/DiffViewer.vue'
 import CodeViewer from '../common/CodeViewer.vue'
 import MarkdownViewer from '../common/MarkdownViewer.vue'
 import ToolDiffViewer from '../common/ToolDiffViewer.vue'
+import {
+  INSPECTOR_SCRIPT,
+  INSPECTOR_SELECT_PREFIX,
+  INSPECTOR_CLEAR_PREFIX,
+  buildSelectionMessage,
+  type InspectorSelection,
+} from '@/utils/webviewInspector'
 
 const appStore = useAppStore()
 const { t } = useI18n()
@@ -105,6 +156,11 @@ const mode = computed(() => appStore.infoPanelMode)
 
 const webviewRef = ref<any>(null)
 const urlInput = ref('')
+
+// 元素框选状态
+const selectMode = ref(false)
+const selection = ref<InspectorSelection | null>(null)
+const commentText = ref('')
 
 watch(() => appStore.webviewUrl, (newUrl) => {
   urlInput.value = newUrl
@@ -201,6 +257,87 @@ function onDidFailLoad(event: any) {
   console.error('[InfoPanel] Webview failed to load:', event.errorCode, event.errorDescription)
   appStore.setWebviewLoading(false)
 }
+
+// ===== 截图 + 元素框选 =====
+
+async function nativeImageToAttachment(rect?: { x: number; y: number; width: number; height: number }) {
+  const wv = webviewRef.value
+  if (!wv?.capturePage) return null
+  const image = rect ? await wv.capturePage(rect) : await wv.capturePage()
+  if (!image || image.isEmpty?.()) return null
+  const dataUrl = image.toDataURL()
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  return {
+    id: crypto.randomUUID(),
+    name: `screenshot-${stamp}.png`,
+    type: 'image' as const,
+    mimeType: 'image/png',
+    previewUrl: dataUrl,
+    data: dataUrl,
+  }
+}
+
+async function captureViewport() {
+  const image = await nativeImageToAttachment()
+  if (image) appStore.pushToInput({ image })
+}
+
+function toggleSelectMode() {
+  const wv = webviewRef.value
+  if (!wv?.executeJavaScript) return
+  selectMode.value = !selectMode.value
+  if (selectMode.value) {
+    wv.executeJavaScript(INSPECTOR_SCRIPT).catch((e: any) => console.error('[InfoPanel] inject inspector failed', e))
+  } else {
+    wv.executeJavaScript('window.__SPACECODE_INSPECTOR__ && window.__SPACECODE_INSPECTOR__.disable()').catch(() => {})
+    selection.value = null
+  }
+}
+
+function moveSelection(dir: 'up' | 'down') {
+  webviewRef.value?.executeJavaScript(
+    `window.__SPACECODE_INSPECTOR__ && window.__SPACECODE_INSPECTOR__.moveSelection(${JSON.stringify(dir)})`
+  ).catch(() => {})
+}
+
+function onConsoleMessage(event: any) {
+  const msg: string = event?.message || ''
+  if (msg.startsWith(INSPECTOR_SELECT_PREFIX)) {
+    try {
+      selection.value = JSON.parse(msg.slice(INSPECTOR_SELECT_PREFIX.length))
+    } catch { /* ignore malformed */ }
+  } else if (msg.startsWith(INSPECTOR_CLEAR_PREFIX)) {
+    selection.value = null
+  }
+}
+
+async function sendSelection() {
+  const sel = selection.value
+  if (!sel) return
+  // 按选中元素的 boundingRect 裁剪区域截图
+  const r = sel.rect
+  const rect = r.width > 0 && r.height > 0
+    ? { x: Math.max(0, r.x), y: Math.max(0, r.y), width: Math.round(r.width), height: Math.round(r.height) }
+    : undefined
+  const image = await nativeImageToAttachment(rect)
+  appStore.pushToInput({
+    text: buildSelectionMessage(sel, commentText.value),
+    image: image || undefined,
+  })
+  // 收尾: 关闭框选, 清空
+  commentText.value = ''
+  selection.value = null
+  selectMode.value = false
+  webviewRef.value?.executeJavaScript('window.__SPACECODE_INSPECTOR__ && window.__SPACECODE_INSPECTOR__.disable()').catch(() => {})
+}
+
+// 切换页面 / 关闭 webview 时重置框选状态
+watch(() => appStore.webviewUrl, () => {
+  selectMode.value = false
+  selection.value = null
+  commentText.value = ''
+})
+
 </script>
 
 <style lang="scss" scoped>
@@ -327,6 +464,136 @@ function onDidFailLoad(event: any) {
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+.webview-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--surface-glass);
+  border-bottom: 1px solid var(--surface-border);
+  flex-shrink: 0;
+
+  .tool-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 26px;
+    padding: 0 10px;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    border: 1px solid var(--surface-border);
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+
+    &:hover {
+      background: var(--surface-glass-hover);
+      color: var(--text-primary);
+    }
+
+    &.active {
+      background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.12);
+      border-color: var(--accent-primary);
+      color: var(--accent-primary);
+    }
+  }
+}
+
+.comment-bar {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 20;
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent-primary);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+
+  .comment-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    font-size: 11px;
+
+    .meta-tag {
+      font-family: var(--font-mono);
+      color: var(--accent-primary);
+    }
+
+    .meta-dim {
+      color: var(--text-muted);
+    }
+
+    .meta-nav {
+      margin-left: auto;
+      display: flex;
+      gap: 4px;
+    }
+
+    .nav-mini {
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--surface-border);
+      background: var(--bg-primary);
+      color: var(--text-secondary);
+      cursor: pointer;
+
+      &:hover {
+        border-color: var(--accent-primary);
+        color: var(--accent-primary);
+      }
+    }
+  }
+
+  .comment-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .comment-input {
+    flex: 1;
+    height: 32px;
+    padding: 0 12px;
+    border-radius: var(--radius-full);
+    border: 1px solid var(--surface-border);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 13px;
+    outline: none;
+
+    &:focus {
+      border-color: var(--accent-primary);
+    }
+  }
+
+  .comment-send {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    border: none;
+    border-radius: 50%;
+    background: var(--accent-primary);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+
+    &:hover {
+      filter: brightness(1.08);
+    }
+  }
 }
 
 .webview-container {

@@ -19,6 +19,15 @@ export default {
     collapse: '收起',
   },
 
+  workbench: {
+    openInWorkbench: '在工作台打开',
+    screenshot: '截图',
+    selectElement: '框选元素',
+    exitSelect: '退出框选',
+    addComment: '描述修改需求...',
+    sendToChat: '发送到对话',
+  },
+
   settings: {
     title: '设置',
     general: '通用',

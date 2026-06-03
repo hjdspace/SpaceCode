@@ -233,15 +233,12 @@ function isExternalURL(url: string): boolean {
     }
     
     const parsed = new URL(url, window.location.origin)
-    
+
     if (!['http:', 'https:'].includes(parsed.protocol)) {
       return false
     }
-    
-    if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
-      return false
-    }
-    
+
+    // localhost / 127.0.0.1 也在右侧微型浏览器中打开(本地开发预览的主场景)
     return true
   } catch {
     return false

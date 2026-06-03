@@ -82,7 +82,14 @@
           <span v-if="s.isInstalled" class="row-status installed">
             <CheckCircle :size="12" /> {{ t('skills.installed') }}
           </span>
-          <span v-else class="row-status">—</span>
+          <button
+            v-else
+            class="row-install-btn"
+            @click.stop="$emit('installSkill', s)"
+          >
+            <Download :size="12" />
+            {{ t('skills.install') }}
+          </button>
         </div>
       </div>
     </div>
@@ -108,6 +115,7 @@ defineEmits<{
   (e: 'install', bundle: LocalSkillBundle): void
   (e: 'uninstall', bundle: LocalSkillBundle): void
   (e: 'selectSkill', skill: LocalSkill): void
+  (e: 'installSkill', skill: LocalSkill): void
 }>()
 
 const { t } = useI18n()
@@ -374,6 +382,27 @@ function truncate(s: string, n: number): string {
 
   &.installed {
     color: #10b981;
+  }
+}
+
+.row-install-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--accent-primary);
+  background: transparent;
+  color: var(--accent-primary);
+  transition: all 0.15s;
+  flex-shrink: 0;
+
+  &:hover {
+    background: var(--accent-primary);
+    color: white;
   }
 }
 
