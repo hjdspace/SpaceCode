@@ -450,6 +450,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     removeCustomDir: (dirPath: string) => ipcRenderer.invoke('skills:remove-custom-dir', dirPath),
   },
 
+  // Image persistence — 聊天图片落盘到 userData，避免 localStorage 配额溢出
+  image: {
+    save: (id: string, dataUrl: string) =>
+      ipcRenderer.invoke('image:save', id, dataUrl) as Promise<{ success: boolean; error?: string }>,
+    load: (id: string) =>
+      ipcRenderer.invoke('image:load', id) as Promise<string | null>,
+  },
+
   // 渲染进程日志桥接
   logger: rendererLogger,
   debug: debugApi,

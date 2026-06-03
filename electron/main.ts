@@ -1492,6 +1492,44 @@ ipcMain.handle('debug:readTraceEvents', async (_event, sessionId: string, maxEve
   return readTraceEvents(sessionId, maxEvents)
 })
 
+// ─── Image Persistence IPC — 聊天图片落盘到 userData，避免 localStorage 配额溢出 ───
+
+function getChatImagesDir(): string {
+  const dir = join(app.getPath('userData'), 'chat-images')
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+  return dir
+}
+
+ipcMain.handle('image:save', async (_event, id: string, dataUrl: string) => {
+  try {
+    // id 来自 crypto.randomUUID()，仅含十六进制与连字符，无路径穿越风险
+    if (!id || typeof id !== 'string' || !/^[0-9a-f-]+$/.test(id)) {
+      return { success: false, error: 'Invalid image id' }
+    }
+    const filePath = join(getChatImagesDir(), `${id}.txt`)
+    writeFileSync(filePath, dataUrl, 'utf-8')
+    return { success: true }
+  } catch (err: any) {
+    error('IPC', 'image:save failed', { id, err })
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('image:load', async (_event, id: string) => {
+  try {
+    if (!id || typeof id !== 'string' || !/^[0-9a-f-]+$/.test(id)) {
+      return null
+    }
+    const filePath = join(getChatImagesDir(), `${id}.txt`)
+    if (!existsSync(filePath)) return null
+    return readFileSync(filePath, 'utf-8')
+  } catch {
+    return null
+  }
+})
+
 // ─── Turn Checkpoint API - 轮次变更追踪 ──────────────────────────
 
 ipcMain.handle('session:getTurnCheckpoints', async (_event, sessionId: string, projectPath?: string) => {

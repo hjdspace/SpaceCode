@@ -275,6 +275,49 @@ function truncateLongMessages(sessions: Session[], maxLength: number = 10000): S
   }))
 }
 
+// 从磁盘恢复历史消息中缺失 previewUrl 的图片（stripLargeAttachmentData 丢弃了 base64）
+async function hydrateImageAttachments(sessions: Session[]): Promise<void> {
+  if (!electronAPI?.image?.load) return
+  const imageApi = electronAPI.image
+
+  for (const session of sessions) {
+    for (const msg of session.messages) {
+      // 恢复 imageAttachments
+      if (msg.imageAttachments?.length) {
+        for (let i = 0; i < msg.imageAttachments.length; i++) {
+          const img = msg.imageAttachments[i]
+          if (img.id && !img.previewUrl && !img.data) {
+            try {
+              const dataUrl = await imageApi.load(img.id)
+              if (dataUrl) {
+                msg.imageAttachments[i] = { ...img, previewUrl: dataUrl, data: dataUrl }
+              }
+            } catch {
+              // 磁盘文件不存在（修复前已存的旧图片），保持占位状态
+            }
+          }
+        }
+      }
+      // 恢复 attachments 中的图片类型
+      if (Array.isArray(msg.attachments)) {
+        for (let i = 0; i < msg.attachments.length; i++) {
+          const att = msg.attachments[i] as any
+          if (att?.type === 'image' && att.id && !att.previewUrl && !att.data) {
+            try {
+              const dataUrl = await imageApi.load(att.id)
+              if (dataUrl) {
+                msg.attachments[i] = { ...att, previewUrl: dataUrl, data: dataUrl }
+              }
+            } catch {
+              // 同上
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 function loadSessionsFromStorage(): Session[] {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
@@ -537,6 +580,9 @@ export const useChatStore = defineStore('chat', () => {
   const settingsStore = useSettingsStore()
 
   const sessions = ref<Session[]>(loadSessionsFromStorage())
+
+  // 异步恢复历史消息中的图片数据（stripLargeAttachmentData 丢弃的 base64 从磁盘补回）
+  void hydrateImageAttachments(sessions.value)
   const lastSessionId = sessions.value.length > 0
     ? [...sessions.value].sort((a, b) => b.updatedAt - a.updatedAt)[0].id
     : null
@@ -1147,6 +1193,15 @@ export const useChatStore = defineStore('chat', () => {
       attachments: attachments?.files,
       imageAttachments: attachments?.images
     }, targetSessionId)
+
+    // 将图片 dataURL 落盘到 Electron userData（fire-and-forget，不阻塞发送）
+    if (attachments?.images?.length) {
+      for (const img of attachments.images) {
+        if (img.id && img.data) {
+          electronAPI?.image?.save?.(img.id, img.data).catch(() => {})
+        }
+      }
+    }
 
     const claudeCode = electronAPI?.claudeCode
     if (!claudeCode) {
