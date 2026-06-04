@@ -50,7 +50,7 @@ function builtinToCommand(cmd: typeof BUILT_IN_COMMANDS[number]): UnifiedCommand
   return {
     name: cmd.name,
     description: cmd.description,
-    source: 'builtin',
+    source: cmd.source ?? 'builtin',
     kind: cmd.kind ?? 'slash_command',
     icon: cmd.icon,
     immediate: cmd.immediate,

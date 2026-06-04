@@ -57,6 +57,7 @@ export const BUILT_IN_COMMANDS: SlashCommand[] = [
     kind: 'immediate',
     immediate: true,
     aliases: ['reset', 'new'],
+    source: 'builtin' as const,
   },
   {
     name: 'cost',
@@ -64,12 +65,14 @@ export const BUILT_IN_COMMANDS: SlashCommand[] = [
     icon: 'Coins',
     kind: 'immediate',
     immediate: true,
+    source: 'builtin' as const,
   },
   {
     name: 'compact',
     description: 'Compress conversation context',
     icon: 'Minimize2',
     kind: 'sdk_command',
+    source: 'builtin' as const,
   },
   {
     name: 'init',
