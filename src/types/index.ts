@@ -225,6 +225,7 @@ export interface SlashCommand {
   kind?: 'immediate' | 'sdk_command' | 'codepilot_command' | 'agent_skill' | 'slash_command'
   immediate?: boolean
   aliases?: string[]
+  source?: 'builtin' | 'bundled' | 'global' | 'project' | 'plugin' | 'mcp'
 }
 
 export interface CommandBadge {
@@ -232,6 +233,7 @@ export interface CommandBadge {
   label: string
   description: string
   kind: 'immediate' | 'sdk_command' | 'codepilot_command' | 'agent_skill' | 'slash_command'
+  source?: 'builtin' | 'bundled' | 'global' | 'project' | 'plugin' | 'mcp'
 }
 
 // ─── Agent Types ──────────────────────────────────────────────────
