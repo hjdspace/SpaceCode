@@ -1,74 +1,87 @@
 <template>
   <div class="tools-settings">
-    <div class="s-page-header">
-      <h2 class="s-page-title">{{ t('toolsSettings.title') }}</h2>
-      <p class="s-page-desc">{{ t('toolsSettings.description') }}</p>
+    <div class="s-masthead">
+      <div class="s-masthead-eyebrow">Settings</div>
+      <h1 class="s-masthead-title">{{ t('toolsSettings.title') }}</h1>
+      <p class="s-masthead-desc">{{ t('toolsSettings.description') }}</p>
     </div>
 
-    <div class="tool-categories">
-      <div v-for="category in toolCategories" :key="category.id" class="s-card">
-        <div class="category-header">
-          <div class="category-icon" :style="{ background: category.color }">
-            <component :is="category.icon" :size="20" />
-          </div>
-          <div class="category-info">
-            <h3 class="category-name">{{ category.name }}</h3>
-            <span class="category-count">
-              {{ t('toolsSettings.enabledCount', { enabled: getEnabledCount(category.tools), total: category.tools.length }) }}
-            </span>
-          </div>
-          <input
-            type="checkbox"
-            class="s-toggle-switch"
-            :checked="isCategoryEnabled(category)"
-            @change="toggleCategory(category)"
-          />
+    <div class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon engine"><Zap :size="14" /></div>
+          <span class="s-panel-title">{{ t('toolsSettings.title') }}</span>
         </div>
-
-        <div class="tools-list">
-          <div
-            v-for="tool in category.tools"
-            :key="tool.id"
-            class="tool-item"
-            :class="{ disabled: !tool.enabled, conditional: tool.availability !== 'always' }"
-          >
-            <label class="tool-toggle">
+      </div>
+      <div class="s-panel-body">
+        <div class="tool-categories">
+          <div v-for="category in toolCategories" :key="category.id" class="s-card">
+            <div class="category-header">
+              <div class="category-icon" :style="{ background: category.color }">
+                <component :is="category.icon" :size="20" />
+              </div>
+              <div class="category-info">
+                <h3 class="category-name">{{ category.name }}</h3>
+                <span class="category-count">
+                  {{ t('toolsSettings.enabledCount', { enabled: getEnabledCount(category.tools), total: category.tools.length }) }}
+                </span>
+              </div>
               <input
                 type="checkbox"
-                :checked="tool.enabled"
-                @change="toggleTool(tool.id)"
+                class="s-toggle-switch"
+                :checked="isCategoryEnabled(category)"
+                @change="toggleCategory(category)"
               />
-              <span class="checkmark"></span>
-            </label>
-            <div class="tool-info">
-              <div class="tool-name-row">
-                <span class="tool-name">{{ tool.name }}</span>
-                <span v-if="tool.availability === 'feature-flag'" class="tool-badge feature-flag">{{ tool.featureFlag }}</span>
-                <span v-else-if="tool.availability === 'env-var'" class="tool-badge env-var">{{ tool.envVar }}</span>
-                <span v-else-if="tool.availability === 'runtime-check'" class="tool-badge runtime">{{ t('toolsSettings.runtime') }}</span>
+            </div>
+
+            <div class="tools-list">
+              <div
+                v-for="tool in category.tools"
+                :key="tool.id"
+                class="tool-item"
+                :class="{ disabled: !tool.enabled, conditional: tool.availability !== 'always' }"
+              >
+                <label class="tool-toggle">
+                  <input
+                    type="checkbox"
+                    :checked="tool.enabled"
+                    @change="toggleTool(tool.id)"
+                  />
+                  <span class="checkmark"></span>
+                </label>
+                <div class="tool-info">
+                  <div class="tool-name-row">
+                    <span class="tool-name">{{ tool.name }}</span>
+                    <span v-if="tool.availability === 'feature-flag'" class="tool-badge feature-flag">{{ tool.featureFlag }}</span>
+                    <span v-else-if="tool.availability === 'env-var'" class="tool-badge env-var">{{ tool.envVar }}</span>
+                    <span v-else-if="tool.availability === 'runtime-check'" class="tool-badge runtime">{{ t('toolsSettings.runtime') }}</span>
+                  </div>
+                  <span class="tool-desc">{{ tool.description }}</span>
+                </div>
               </div>
-              <span class="tool-desc">{{ tool.description }}</span>
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <div class="s-divider"></div>
-
-    <div class="s-danger-zone">
-      <h3 class="s-danger-zone-title">
-        <AlertTriangle :size="16" />
-        {{ t('toolsSettings.dangerZone') }}
-      </h3>
-      <div class="s-danger-zone-item">
-        <div class="danger-info">
-          <span class="danger-label">{{ t('toolsSettings.resetAllLabel') }}</span>
-          <span class="danger-desc">{{ t('toolsSettings.resetAllDesc') }}</span>
+    <div class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon project"><AlertTriangle :size="14" /></div>
+          <span class="s-panel-title">{{ t('toolsSettings.dangerZone') }}</span>
         </div>
-        <button class="s-btn s-danger-btn" @click="resetTools">
-          {{ t('toolsSettings.resetButton') }}
-        </button>
+      </div>
+      <div class="s-panel-body">
+        <div class="s-danger-zone-item">
+          <div class="danger-info">
+            <span class="danger-label">{{ t('toolsSettings.resetAllLabel') }}</span>
+            <span class="danger-desc">{{ t('toolsSettings.resetAllDesc') }}</span>
+          </div>
+          <button class="s-btn s-danger-btn" @click="resetTools">
+            {{ t('toolsSettings.resetButton') }}
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -188,7 +201,10 @@ watch(() => configStore.toolConfigs, () => {
 </script>
 
 <style lang="scss" scoped>
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+
 .tools-settings {
+  max-width: 780px;
   display: flex;
   flex-direction: column;
   gap: 20px;

@@ -1,70 +1,89 @@
 <template>
   <div class="mcp-settings">
-    <div class="s-page-header">
-      <h1 class="s-page-title">{{ t('mcpSettings.title') }}</h1>
-      <p class="s-page-desc">管理 Model Context Protocol 服务器配置</p>
+    <div class="s-masthead">
+      <div class="s-masthead-eyebrow">Settings</div>
+      <h1 class="s-masthead-title">{{ t('mcpSettings.title') }}</h1>
+      <p class="s-masthead-desc">{{ t('mcpSettings.description') || '管理 Model Context Protocol 服务器配置' }}</p>
     </div>
 
-    <div class="servers-header">
-      <span class="servers-count">{{ t('mcpSettings.enabledCount', { enabled: enabledCount, total: servers.length }) }}</span>
-      <button class="s-btn s-btn-primary" @click="showAddForm = true">
-        <Plus :size="14" />
-        {{ t('mcpSettings.addServer') }}
-      </button>
-    </div>
+    <div class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon engine"><Boxes :size="14" /></div>
+          <span class="s-panel-title">{{ t('mcpSettings.title') }}</span>
+        </div>
+        <div>
+          <button class="s-btn s-btn-primary" @click="showAddForm = true">
+            <Plus :size="14" />
+            {{ t('mcpSettings.addServer') }}
+          </button>
+        </div>
+      </div>
+      <div class="s-panel-body">
+        <div class="servers-list">
+          <div
+            v-for="server in servers"
+            :key="server.id"
+            class="s-card server-card"
+            :class="{ disabled: !server.enabled, expanded: expandedServer === server.id }"
+          >
+            <div class="server-header" @click="toggleExpand(server.id)">
+              <div class="server-toggle">
+                <input
+                  type="checkbox"
+                  :checked="server.enabled"
+                  @change="toggleServer(server.id)"
+                  @click.stop
+                />
+              </div>
+              <div class="server-info">
+                <div class="server-name">{{ server.name }}</div>
+                <div class="server-command">{{ server.command }} {{ server.args.join(' ') }}</div>
+              </div>
+              <div class="server-actions">
+                <button class="s-icon-btn" @click.stop="editServer(server)" :title="t('mcpSettings.edit')">
+                  <Pencil :size="14" />
+                </button>
+                <button class="s-icon-btn danger" @click.stop="deleteServer(server.id)" :title="t('mcpSettings.delete')">
+                  <Trash2 :size="14" />
+                </button>
+                <ChevronDown
+                  :size="16"
+                  class="s-expand-icon"
+                  :class="{ rotated: expandedServer === server.id }"
+                />
+              </div>
+            </div>
 
-    <div class="servers-list">
-      <div
-        v-for="server in servers"
-        :key="server.id"
-        class="s-card server-card"
-        :class="{ disabled: !server.enabled, expanded: expandedServer === server.id }"
-      >
-        <div class="server-header" @click="toggleExpand(server.id)">
-          <div class="server-toggle">
-            <input
-              type="checkbox"
-              :checked="server.enabled"
-              @change="toggleServer(server.id)"
-              @click.stop
-            />
-          </div>
-          <div class="server-info">
-            <div class="server-name">{{ server.name }}</div>
-            <div class="server-command">{{ server.command }} {{ server.args.join(' ') }}</div>
-          </div>
-          <div class="server-actions">
-            <button class="s-icon-btn" @click.stop="editServer(server)" :title="t('mcpSettings.edit')">
-              <Pencil :size="14" />
-            </button>
-            <button class="s-icon-btn danger" @click.stop="deleteServer(server.id)" :title="t('mcpSettings.delete')">
-              <Trash2 :size="14" />
-            </button>
-            <ChevronDown
-              :size="16"
-              class="s-expand-icon"
-              :class="{ rotated: expandedServer === server.id }"
-            />
+            <div v-if="expandedServer === server.id" class="server-details">
+              <div class="detail-row">
+                <span class="detail-label">{{ t('mcpSettings.command') }}</span>
+                <code class="detail-value">{{ server.command }}</code>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">{{ t('mcpSettings.arguments') }}</span>
+                <code class="detail-value">{{ server.args.join(' ') }}</code>
+              </div>
+              <div v-if="Object.keys(server.env).length > 0" class="detail-row">
+                <span class="detail-label">{{ t('mcpSettings.environment') }}</span>
+                <div class="env-list">
+                  <span v-for="(value, key) in server.env" :key="key" class="env-tag">
+                    {{ key }}={{ maskValue(value) }}
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div v-if="expandedServer === server.id" class="server-details">
-          <div class="detail-row">
-            <span class="detail-label">{{ t('mcpSettings.command') }}</span>
-            <code class="detail-value">{{ server.command }}</code>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">{{ t('mcpSettings.arguments') }}</span>
-            <code class="detail-value">{{ server.args.join(' ') }}</code>
-          </div>
-          <div v-if="Object.keys(server.env).length > 0" class="detail-row">
-            <span class="detail-label">{{ t('mcpSettings.environment') }}</span>
-            <div class="env-list">
-              <span v-for="(value, key) in server.env" :key="key" class="env-tag">
-                {{ key }}={{ maskValue(value) }}
-              </span>
-            </div>
-          </div>
+        <div v-if="servers.length === 0" class="s-empty-state">
+          <div class="s-empty-state-icon"><Boxes :size="48" /></div>
+          <div class="s-empty-state-title">{{ t('mcpSettings.noServers') }}</div>
+          <div class="s-empty-state-description">{{ t('mcpSettings.noServersDesc') }}</div>
+          <button class="s-btn s-btn-primary" @click="showAddForm = true">
+            <Plus :size="14" />
+            {{ t('mcpSettings.addFirstServer') }}
+          </button>
         </div>
       </div>
     </div>
@@ -292,21 +311,13 @@ watch(servers, () => {
 </script>
 
 <style lang="scss" scoped>
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+
 .mcp-settings {
   display: flex;
   flex-direction: column;
   gap: 20px;
-}
-
-.servers-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.servers-count {
-  font-size: 13px;
-  color: var(--text-muted);
+  max-width: 780px;
 }
 
 .servers-list {

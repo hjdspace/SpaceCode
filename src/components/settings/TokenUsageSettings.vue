@@ -1,11 +1,12 @@
 <template>
   <div class="token-usage-settings">
-    <div class="s-page-header">
+    <div class="s-masthead" style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;">
       <div>
-        <h2 class="s-page-title">Token 用量</h2>
-        <p class="s-page-desc">{{ dateRangeText }} · 基于本机 Claude Code CLI 会话记录统计</p>
+        <div class="s-masthead-eyebrow">Settings</div>
+        <h1 class="s-masthead-title">Token 用量</h1>
+        <p class="s-masthead-desc">{{ dateRangeText }} · 基于本机 Claude Code CLI 会话记录统计</p>
       </div>
-      <button class="s-btn s-btn-secondary" :disabled="loading" @click="loadStats">
+      <button class="s-btn s-btn-secondary" :disabled="loading" @click="loadStats" style="margin-top: 24px;">
         <RefreshCw :size="14" :class="{ spinning: loading }" />
         <span>刷新</span>
       </button>
@@ -14,86 +15,108 @@
     <div v-if="error" class="s-status-badge error">{{ error }}</div>
     <div v-else-if="loading && !stats" class="s-card loading-state">正在读取本机会话记录...</div>
     <div v-else-if="stats" class="usage-content">
-      <div class="summary-grid">
-        <div class="s-card summary-item">
-          <span class="summary-label">今天</span>
-          <strong>{{ formatTokens(stats.today.totalTokens) }}</strong>
-          <span>{{ stats.today.sessionCount }} 次会话</span>
+      <div class="s-panel">
+        <div class="s-panel-header">
+          <div class="s-panel-header-left">
+            <div class="s-panel-icon engine"><Activity :size="14" /></div>
+            <span class="s-panel-title">Token 用量概览</span>
+          </div>
         </div>
-        <div class="s-card summary-item">
-          <span class="summary-label">昨天</span>
-          <strong>{{ formatTokens(stats.yesterday.totalTokens) }}</strong>
-          <span>{{ stats.yesterday.sessionCount }} 次会话</span>
-        </div>
-        <div class="s-card summary-item">
-          <span class="summary-label">30 天</span>
-          <strong>{{ formatTokens(stats.last30Days.totalTokens) }}</strong>
-          <span>{{ stats.last30Days.sessionCount }} 次会话</span>
-        </div>
-        <div class="s-card summary-item">
-          <span class="summary-label">全部</span>
-          <strong>{{ formatTokens(stats.allTime.totalTokens) }}</strong>
-          <span>{{ stats.allTime.sessionCount }} 次会话</span>
+        <div class="s-panel-body">
+          <div class="summary-grid">
+            <div class="summary-item">
+              <span class="summary-label">今天</span>
+              <strong>{{ formatTokens(stats.today.totalTokens) }}</strong>
+              <span>{{ stats.today.sessionCount }} 次会话</span>
+            </div>
+            <div class="summary-item">
+              <span class="summary-label">昨天</span>
+              <strong>{{ formatTokens(stats.yesterday.totalTokens) }}</strong>
+              <span>{{ stats.yesterday.sessionCount }} 次会话</span>
+            </div>
+            <div class="summary-item">
+              <span class="summary-label">30 天</span>
+              <strong>{{ formatTokens(stats.last30Days.totalTokens) }}</strong>
+              <span>{{ stats.last30Days.sessionCount }} 次会话</span>
+            </div>
+            <div class="summary-item">
+              <span class="summary-label">全部</span>
+              <strong>{{ formatTokens(stats.allTime.totalTokens) }}</strong>
+              <span>{{ stats.allTime.sessionCount }} 次会话</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div class="s-card heatmap-section">
-        <div class="heatmap-scroll">
-          <div class="month-row">
-            <span v-for="month in monthLabels" :key="month.key" :style="{ gridColumnStart: month.column }">{{ month.label }}</span>
-          </div>
-          <div class="heatmap-wrap">
-            <div class="weekday-labels">
-              <span>周一</span>
-              <span>周三</span>
-              <span>周五</span>
+      <div class="s-panel">
+        <div class="s-panel-body">
+          <div class="heatmap-section">
+            <div class="heatmap-scroll">
+              <div class="month-row">
+                <span v-for="month in monthLabels" :key="month.key" :style="{ gridColumnStart: month.column }">{{ month.label }}</span>
+              </div>
+              <div class="heatmap-wrap">
+                <div class="weekday-labels">
+                  <span>周一</span>
+                  <span>周三</span>
+                  <span>周五</span>
+                </div>
+                <div class="heatmap-grid">
+                  <div
+                    v-for="day in heatmapDays"
+                    :key="day.date"
+                    class="heatmap-cell"
+                    :class="[`level-${day.level}`, { active: hoveredDay?.date === day.date }]"
+                    @mouseenter="showTooltip(day, $event)"
+                    @mousemove="moveTooltip"
+                    @mouseleave="hideTooltip"
+                  ></div>
+                </div>
+              </div>
             </div>
-            <div class="heatmap-grid">
-              <div
-                v-for="day in heatmapDays"
-                :key="day.date"
-                class="heatmap-cell"
-                :class="[`level-${day.level}`, { active: hoveredDay?.date === day.date }]"
-                @mouseenter="showTooltip(day, $event)"
-                @mousemove="moveTooltip"
-                @mouseleave="hideTooltip"
-              ></div>
+            <div class="heatmap-legend">
+              <span>少</span>
+              <i class="level-0"></i>
+              <i class="level-1"></i>
+              <i class="level-2"></i>
+              <i class="level-3"></i>
+              <i class="level-4"></i>
+              <span>多</span>
+            </div>
+            <div
+              v-if="hoveredDay"
+              class="heatmap-tooltip"
+              :style="{ left: `${tooltipPosition.x}px`, top: `${tooltipPosition.y}px` }"
+            >
+              <strong>{{ formatChineseDate(hoveredDay.date) }}</strong>
+              <span>{{ hoveredDay.sessions }} 次会话 · {{ formatTokens(hoveredDay.tokens) }}</span>
             </div>
           </div>
-        </div>
-        <div class="heatmap-legend">
-          <span>少</span>
-          <i class="level-0"></i>
-          <i class="level-1"></i>
-          <i class="level-2"></i>
-          <i class="level-3"></i>
-          <i class="level-4"></i>
-          <span>多</span>
-        </div>
-        <div
-          v-if="hoveredDay"
-          class="heatmap-tooltip"
-          :style="{ left: `${tooltipPosition.x}px`, top: `${tooltipPosition.y}px` }"
-        >
-          <strong>{{ formatChineseDate(hoveredDay.date) }}</strong>
-          <span>{{ hoveredDay.sessions }} 次会话 · {{ formatTokens(hoveredDay.tokens) }}</span>
         </div>
       </div>
 
       <div class="detail-grid">
-        <div class="s-card detail-section">
-          <h3>Token 构成</h3>
-          <div class="stat-row"><span>输入</span><strong>{{ formatNumber(stats.allTime.inputTokens) }}</strong></div>
-          <div class="stat-row"><span>输出</span><strong>{{ formatNumber(stats.allTime.outputTokens) }}</strong></div>
-          <div class="stat-row"><span>缓存创建</span><strong>{{ formatNumber(stats.allTime.cacheCreationInputTokens) }}</strong></div>
-          <div class="stat-row"><span>缓存读取</span><strong>{{ formatNumber(stats.allTime.cacheReadInputTokens) }}</strong></div>
+        <div class="s-panel">
+          <div class="s-panel-body">
+            <div class="detail-section">
+              <h3>Token 构成</h3>
+              <div class="stat-row"><span>输入</span><strong>{{ formatNumber(stats.allTime.inputTokens) }}</strong></div>
+              <div class="stat-row"><span>输出</span><strong>{{ formatNumber(stats.allTime.outputTokens) }}</strong></div>
+              <div class="stat-row"><span>缓存创建</span><strong>{{ formatNumber(stats.allTime.cacheCreationInputTokens) }}</strong></div>
+              <div class="stat-row"><span>缓存读取</span><strong>{{ formatNumber(stats.allTime.cacheReadInputTokens) }}</strong></div>
+            </div>
+          </div>
         </div>
-        <div class="s-card detail-section">
-          <h3>模型用量</h3>
-          <div v-if="modelRows.length === 0" class="empty-text">暂无模型数据</div>
-          <div v-for="row in modelRows" :key="row.model" class="model-row">
-            <span :title="row.model">{{ row.model }}</span>
-            <strong>{{ formatTokens(row.totalTokens) }}</strong>
+        <div class="s-panel">
+          <div class="s-panel-body">
+            <div class="detail-section">
+              <h3>模型用量</h3>
+              <div v-if="modelRows.length === 0" class="empty-text">暂无模型数据</div>
+              <div v-for="row in modelRows" :key="row.model" class="model-row">
+                <span :title="row.model">{{ row.model }}</span>
+                <strong>{{ formatTokens(row.totalTokens) }}</strong>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -103,7 +126,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { RefreshCw } from 'lucide-vue-next'
+import { RefreshCw, Activity } from 'lucide-vue-next'
 import { api, type TokenStatsDailyEntry, type TokenStatsResult } from '@/services/electronAPI'
 
 const stats = ref<TokenStatsResult | null>(null)
@@ -220,6 +243,15 @@ onMounted(loadStats)
 </script>
 
 <style lang="scss" scoped>
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+
+.token-usage-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 780px;
+}
+
 .s-page-header {
   display: flex;
   align-items: flex-start;
@@ -250,10 +282,6 @@ onMounted(loadStats)
   padding: 14px;
   margin-bottom: 0;
 
-  &:hover {
-    box-shadow: none;
-  }
-
   .summary-label,
   span:last-child {
     display: block;
@@ -272,12 +300,7 @@ onMounted(loadStats)
 
 .heatmap-section {
   position: relative;
-  padding: 18px 18px 14px;
   overflow: visible;
-
-  &:hover {
-    box-shadow: none;
-  }
 }
 
 .heatmap-scroll {
@@ -406,8 +429,7 @@ onMounted(loadStats)
 }
 
 .detail-section {
-  padding: 16px;
-  margin-bottom: 0;
+  padding: 0;
 
   h3 {
     margin: 0 0 12px;

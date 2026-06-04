@@ -1,241 +1,282 @@
 <template>
   <div class="model-settings">
-    <div class="s-page-header">
-      <h1 class="s-page-title">{{ $t('settings.modelSettings') }}</h1>
-      <p class="s-page-desc">配置 AI 模型提供商、API 密钥和模型选择</p>
+    <div class="s-masthead">
+      <div class="s-masthead-eyebrow">Settings</div>
+      <h1 class="s-masthead-title">{{ $t('settings.modelSettings') }}</h1>
+      <p class="s-masthead-desc">{{ $t('settings.modelSettingsDesc') || '配置 AI 模型提供商、API 密钥和模型选择' }}</p>
     </div>
 
-    <div class="s-card">
-      <div class="s-section-header">
-        <h3 class="s-section-title">{{ $t('settings.loginMethod') }}</h3>
+    <div class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon lang"><Server :size="14" /></div>
+          <span class="s-panel-title">{{ $t('settings.loginMethod') }}</span>
+        </div>
       </div>
-      <div class="s-selection-grid">
-        <div
-          v-for="method in authMethods"
-          :key="method.id"
-          class="s-selection-card"
-          :class="{ active: authMethod === method.id }"
-          @click="selectAuthMethod(method.id)"
-        >
-          <div class="s-selection-card-icon">
-            <component :is="method.icon" :size="20" />
+      <div class="s-panel-body">
+        <div class="s-selection-grid">
+          <div
+            v-for="method in authMethods"
+            :key="method.id"
+            class="s-selection-card"
+            :class="{ active: authMethod === method.id }"
+            @click="selectAuthMethod(method.id)"
+          >
+            <div class="s-selection-card-icon">
+              <component :is="method.icon" :size="20" />
+            </div>
+            <div class="s-selection-card-title">{{ method.title }}</div>
+            <div class="s-selection-card-desc">{{ method.desc }}</div>
+            <div class="s-check-badge">
+              <Check :size="12" />
+            </div>
           </div>
-          <div class="s-selection-card-title">{{ method.title }}</div>
-          <div class="s-selection-card-desc">{{ method.desc }}</div>
-          <div class="s-check-badge">
-            <Check :size="12" />
+        </div>
+      </div>
+    </div>
+
+    <div v-if="authMethod === 'anthropic_compatible'" class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon engine"><Server :size="14" /></div>
+          <span class="s-panel-title">{{ $t('auth.anthropicConfig') }}</span>
+        </div>
+      </div>
+      <div class="s-panel-body">
+        <div class="s-form-group">
+          <label class="s-form-label">{{ $t('auth.baseUrl') }}</label>
+          <input
+            type="text"
+            v-model="config.anthropic.baseUrl"
+            placeholder="https://api.anthropic.com"
+            class="s-form-input"
+          />
+          <span class="s-form-hint">{{ $t('auth.leaveEmptyDefault') }}</span>
+        </div>
+        <div class="s-form-group">
+          <label class="s-form-label">{{ $t('auth.apiKey') }}</label>
+          <div class="s-input-with-action">
+            <input
+              :type="showApiKey ? 'text' : 'password'"
+              v-model="config.anthropic.apiKey"
+              placeholder="sk-ant-..."
+              class="s-form-input"
+            />
+            <button class="s-btn-icon" @click="showApiKey = !showApiKey">
+              <Eye v-if="!showApiKey" :size="16" />
+              <EyeOff v-else :size="16" />
+            </button>
+          </div>
+        </div>
+        <div class="form-actions-row">
+          <button class="s-btn s-btn-secondary" @click="testConnection" :disabled="testing">
+            <Loader2 v-if="testing" :size="14" class="spin" />
+            <Plug v-else :size="14" />
+            {{ testing ? $t('auth.testing') : $t('auth.testConnection') }}
+          </button>
+          <button class="s-btn s-btn-secondary" @click="fetchModels" :disabled="fetchingModels">
+            <RefreshCw v-if="fetchingModels" :size="14" class="spin" />
+            <Download v-else :size="14" />
+            {{ fetchingModels ? $t('auth.fetching') : $t('auth.fetchModels') }}
+          </button>
+        </div>
+        <div v-if="connectionStatus" class="s-status-badge" :class="connectionStatus.type">
+          <CheckCircle v-if="connectionStatus.type === 'success'" :size="14" />
+          <XCircle v-if="connectionStatus.type === 'error'" :size="14" />
+          <AlertCircle v-if="connectionStatus.type === 'warning'" :size="14" />
+          <span>{{ connectionStatus.message }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div v-else-if="authMethod === 'openai_compatible'" class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon engine"><Bot :size="14" /></div>
+          <span class="s-panel-title">{{ $t('auth.openaiConfig') }}</span>
+        </div>
+      </div>
+      <div class="s-panel-body">
+        <div class="s-form-group">
+          <label class="s-form-label">{{ $t('auth.baseUrl') }}</label>
+          <input
+            type="text"
+            v-model="config.openai.baseUrl"
+            placeholder="https://api.openai.com/v1"
+            class="s-form-input"
+          />
+        </div>
+        <div class="s-form-group">
+          <label class="s-form-label">{{ $t('auth.apiKey') }}</label>
+          <div class="s-input-with-action">
+            <input
+              :type="showApiKey ? 'text' : 'password'"
+              v-model="config.openai.apiKey"
+              placeholder="sk-..."
+              class="s-form-input"
+            />
+            <button class="s-btn-icon" @click="showApiKey = !showApiKey">
+              <Eye v-if="!showApiKey" :size="16" />
+              <EyeOff v-else :size="16" />
+            </button>
+          </div>
+        </div>
+        <div class="form-actions-row">
+          <button class="s-btn s-btn-secondary" @click="testConnection" :disabled="testing">
+            <Loader2 v-if="testing" :size="14" class="spin" />
+            <Plug v-else :size="14" />
+            {{ testing ? $t('auth.testing') : $t('auth.testConnection') }}
+          </button>
+          <button class="s-btn s-btn-secondary" @click="fetchModels" :disabled="fetchingModels">
+            <RefreshCw v-if="fetchingModels" :size="14" class="spin" />
+            <Download v-else :size="14" />
+            {{ fetchingModels ? $t('auth.fetching') : $t('auth.fetchModels') }}
+          </button>
+        </div>
+        <div v-if="connectionStatus" class="s-status-badge" :class="connectionStatus.type">
+          <CheckCircle v-if="connectionStatus.type === 'success'" :size="14" />
+          <XCircle v-if="connectionStatus.type === 'error'" :size="14" />
+          <AlertCircle v-if="connectionStatus.type === 'warning'" :size="14" />
+          <span>{{ connectionStatus.message }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div v-else-if="authMethod === 'gemini_api'" class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon engine"><Sparkles :size="14" /></div>
+          <span class="s-panel-title">{{ $t('auth.geminiConfig') }}</span>
+        </div>
+      </div>
+      <div class="s-panel-body">
+        <div class="s-form-group">
+          <label class="s-form-label">{{ $t('auth.baseUrl') }}</label>
+          <input
+            type="text"
+            v-model="config.gemini.baseUrl"
+            placeholder="https://generativelanguage.googleapis.com/v1beta"
+            class="s-form-input"
+          />
+          <span class="s-form-hint">{{ $t('auth.leaveEmptyGoogleDefault') }}</span>
+        </div>
+        <div class="s-form-group">
+          <label class="s-form-label">{{ $t('auth.apiKey') }}</label>
+          <div class="s-input-with-action">
+            <input
+              :type="showApiKey ? 'text' : 'password'"
+              v-model="config.gemini.apiKey"
+              placeholder="AIza..."
+              class="s-form-input"
+            />
+            <button class="s-btn-icon" @click="showApiKey = !showApiKey">
+              <Eye v-if="!showApiKey" :size="16" />
+              <EyeOff v-else :size="16" />
+            </button>
           </div>
         </div>
       </div>
     </div>
 
-    <div v-if="authMethod === 'anthropic_compatible'" class="s-card">
-      <div class="s-section-header">
-        <h3 class="s-section-title">{{ $t('auth.anthropicConfig') }}</h3>
+    <div v-else-if="authMethod === 'claudeai'" class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon lang"><Crown :size="14" /></div>
+          <span class="s-panel-title">{{ $t('auth.claudeAccount') }}</span>
+        </div>
       </div>
-      <div class="s-form-group">
-        <label class="s-form-label">{{ $t('auth.baseUrl') }}</label>
-        <input
-          type="text"
-          v-model="config.anthropic.baseUrl"
-          placeholder="https://api.anthropic.com"
-          class="s-form-input"
-        />
-        <span class="s-form-hint">{{ $t('auth.leaveEmptyDefault') }}</span>
-      </div>
-      <div class="s-form-group">
-        <label class="s-form-label">{{ $t('auth.apiKey') }}</label>
-        <div class="s-input-with-action">
-          <input
-            :type="showApiKey ? 'text' : 'password'"
-            v-model="config.anthropic.apiKey"
-            placeholder="sk-ant-..."
-            class="s-form-input"
-          />
-          <button class="s-btn-icon" @click="showApiKey = !showApiKey">
-            <Eye v-if="!showApiKey" :size="16" />
-            <EyeOff v-else :size="16" />
+      <div class="s-panel-body">
+        <div class="oauth-content">
+          <div class="oauth-icon-wrapper">
+            <Crown :size="32" />
+          </div>
+          <p class="oauth-text">{{ $t('auth.signInClaudeDesc') }}</p>
+          <p class="oauth-hint">{{ $t('auth.oauthHint') }}</p>
+          <button class="s-btn s-btn-primary" @click="startOAuthLogin(true)" :disabled="oauthLoading">
+            <LogIn :size="16" />
+            {{ oauthLoading ? $t('auth.connecting') : $t('auth.signInWithClaude') }}
           </button>
+          <div v-if="oauthAccount" class="oauth-status">
+            <CheckCircle :size="16" class="success-icon" />
+            <span>{{ $t('auth.loggedInAs') }} <strong>{{ oauthAccount.email }}</strong></span>
+            <span class="subscription-badge">{{ oauthAccount.subscription }}</span>
+          </div>
         </div>
-      </div>
-      <div class="form-actions-row">
-        <button class="s-btn s-btn-secondary" @click="testConnection" :disabled="testing">
-          <Loader2 v-if="testing" :size="14" class="spin" />
-          <Plug v-else :size="14" />
-          {{ testing ? $t('auth.testing') : $t('auth.testConnection') }}
-        </button>
-        <button class="s-btn s-btn-secondary" @click="fetchModels" :disabled="fetchingModels">
-          <RefreshCw v-if="fetchingModels" :size="14" class="spin" />
-          <Download v-else :size="14" />
-          {{ fetchingModels ? $t('auth.fetching') : $t('auth.fetchModels') }}
-        </button>
-      </div>
-      <div v-if="connectionStatus" class="s-status-badge" :class="connectionStatus.type">
-        <CheckCircle v-if="connectionStatus.type === 'success'" :size="14" />
-        <XCircle v-if="connectionStatus.type === 'error'" :size="14" />
-        <AlertCircle v-if="connectionStatus.type === 'warning'" :size="14" />
-        <span>{{ connectionStatus.message }}</span>
       </div>
     </div>
 
-    <div v-else-if="authMethod === 'openai_compatible'" class="s-card">
-      <div class="s-section-header">
-        <h3 class="s-section-title">{{ $t('auth.openaiConfig') }}</h3>
+    <div v-else-if="authMethod === 'console'" class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon lang"><Key :size="14" /></div>
+          <span class="s-panel-title">{{ $t('auth.anthropicConsole') }}</span>
+        </div>
       </div>
-      <div class="s-form-group">
-        <label class="s-form-label">{{ $t('auth.baseUrl') }}</label>
-        <input
-          type="text"
-          v-model="config.openai.baseUrl"
-          placeholder="https://api.openai.com/v1"
-          class="s-form-input"
-        />
-      </div>
-      <div class="s-form-group">
-        <label class="s-form-label">{{ $t('auth.apiKey') }}</label>
-        <div class="s-input-with-action">
-          <input
-            :type="showApiKey ? 'text' : 'password'"
-            v-model="config.openai.apiKey"
-            placeholder="sk-..."
-            class="s-form-input"
-          />
-          <button class="s-btn-icon" @click="showApiKey = !showApiKey">
-            <Eye v-if="!showApiKey" :size="16" />
-            <EyeOff v-else :size="16" />
+      <div class="s-panel-body">
+        <div class="oauth-content">
+          <div class="oauth-icon-wrapper">
+            <Key :size="32" />
+          </div>
+          <p class="oauth-text">{{ $t('auth.signInConsoleDesc') }}</p>
+          <p class="oauth-hint">{{ $t('auth.oauthHint') }}</p>
+          <button class="s-btn s-btn-primary" @click="startOAuthLogin(false)" :disabled="oauthLoading">
+            <LogIn :size="16" />
+            {{ oauthLoading ? $t('auth.connecting') : $t('auth.signInWithConsole') }}
           </button>
+          <div v-if="oauthAccount" class="oauth-status">
+            <CheckCircle :size="16" class="success-icon" />
+            <span>{{ $t('auth.loggedInAs') }} <strong>{{ oauthAccount.email }}</strong></span>
+          </div>
         </div>
-      </div>
-      <div class="form-actions-row">
-        <button class="s-btn s-btn-secondary" @click="testConnection" :disabled="testing">
-          <Loader2 v-if="testing" :size="14" class="spin" />
-          <Plug v-else :size="14" />
-          {{ testing ? $t('auth.testing') : $t('auth.testConnection') }}
-        </button>
-        <button class="s-btn s-btn-secondary" @click="fetchModels" :disabled="fetchingModels">
-          <RefreshCw v-if="fetchingModels" :size="14" class="spin" />
-          <Download v-else :size="14" />
-          {{ fetchingModels ? $t('auth.fetching') : $t('auth.fetchModels') }}
-        </button>
-      </div>
-      <div v-if="connectionStatus" class="s-status-badge" :class="connectionStatus.type">
-        <CheckCircle v-if="connectionStatus.type === 'success'" :size="14" />
-        <XCircle v-if="connectionStatus.type === 'error'" :size="14" />
-        <AlertCircle v-if="connectionStatus.type === 'warning'" :size="14" />
-        <span>{{ connectionStatus.message }}</span>
       </div>
     </div>
 
-    <div v-else-if="authMethod === 'gemini_api'" class="s-card">
-      <div class="s-section-header">
-        <h3 class="s-section-title">{{ $t('auth.geminiConfig') }}</h3>
+    <div class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon engine"><Bot :size="14" /></div>
+          <span class="s-panel-title">{{ $t('model.configuration') }}</span>
+        </div>
       </div>
-      <div class="s-form-group">
-        <label class="s-form-label">{{ $t('auth.baseUrl') }}</label>
-        <input
-          type="text"
-          v-model="config.gemini.baseUrl"
-          placeholder="https://generativelanguage.googleapis.com/v1beta"
-          class="s-form-input"
-        />
-        <span class="s-form-hint">{{ $t('auth.leaveEmptyGoogleDefault') }}</span>
-      </div>
-      <div class="s-form-group">
-        <label class="s-form-label">{{ $t('auth.apiKey') }}</label>
-        <div class="s-input-with-action">
-          <input
-            :type="showApiKey ? 'text' : 'password'"
-            v-model="config.gemini.apiKey"
-            placeholder="AIza..."
-            class="s-form-input"
+      <div class="s-panel-body">
+        <div class="s-form-group">
+          <label class="s-form-label">{{ $t('model.haikuModel') }} <span class="s-model-tag fast">{{ $t('model.fast') }}</span></label>
+          <SearchableSelect
+            v-model="config.haikuModel"
+            :options="availableModels"
+            :placeholder="$t('model.selectModel')"
           />
-          <button class="s-btn-icon" @click="showApiKey = !showApiKey">
-            <Eye v-if="!showApiKey" :size="16" />
-            <EyeOff v-else :size="16" />
-          </button>
+        </div>
+        <div class="s-form-group">
+          <label class="s-form-label">{{ $t('model.sonnetModel') }} <span class="s-model-tag recommended">{{ $t('model.balanced') }}</span></label>
+          <SearchableSelect
+            v-model="config.sonnetModel"
+            :options="availableModels"
+            :placeholder="$t('model.selectModel')"
+          />
+        </div>
+        <div class="s-form-group">
+          <label class="s-form-label">{{ $t('model.opusModel') }} <span class="s-model-tag powerful">{{ $t('model.powerful') }}</span></label>
+          <SearchableSelect
+            v-model="config.opusModel"
+            :options="availableModels"
+            :placeholder="$t('model.selectModel')"
+          />
         </div>
       </div>
     </div>
 
-    <div v-else-if="authMethod === 'claudeai'" class="s-card">
-      <div class="s-section-header">
-        <h3 class="s-section-title">{{ $t('auth.claudeAccount') }}</h3>
-      </div>
-      <div class="oauth-content">
-        <div class="oauth-icon-wrapper">
-          <Crown :size="32" />
-        </div>
-        <p class="oauth-text">{{ $t('auth.signInClaudeDesc') }}</p>
-        <p class="oauth-hint">{{ $t('auth.oauthHint') }}</p>
-        <button class="s-btn s-btn-primary" @click="startOAuthLogin(true)" :disabled="oauthLoading">
-          <LogIn :size="16" />
-          {{ oauthLoading ? $t('auth.connecting') : $t('auth.signInWithClaude') }}
-        </button>
-        <div v-if="oauthAccount" class="oauth-status">
-          <CheckCircle :size="16" class="success-icon" />
-          <span>{{ $t('auth.loggedInAs') }} <strong>{{ oauthAccount.email }}</strong></span>
-          <span class="subscription-badge">{{ oauthAccount.subscription }}</span>
+    <div class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon project"><BarChart3 :size="14" /></div>
+          <span class="s-panel-title">{{ $t('contextUsage.modelContextTitle') }}</span>
         </div>
       </div>
-    </div>
-
-    <div v-else-if="authMethod === 'console'" class="s-card">
-      <div class="s-section-header">
-        <h3 class="s-section-title">{{ $t('auth.anthropicConsole') }}</h3>
+      <div class="s-panel-body">
+        <p class="context-info-desc">{{ $t('contextUsage.modelContextDesc') }}</p>
+        <ContextUsagePreview :model-id="previewModelId" />
       </div>
-      <div class="oauth-content">
-        <div class="oauth-icon-wrapper">
-          <Key :size="32" />
-        </div>
-        <p class="oauth-text">{{ $t('auth.signInConsoleDesc') }}</p>
-        <p class="oauth-hint">{{ $t('auth.oauthHint') }}</p>
-        <button class="s-btn s-btn-primary" @click="startOAuthLogin(false)" :disabled="oauthLoading">
-          <LogIn :size="16" />
-          {{ oauthLoading ? $t('auth.connecting') : $t('auth.signInWithConsole') }}
-        </button>
-        <div v-if="oauthAccount" class="oauth-status">
-          <CheckCircle :size="16" class="success-icon" />
-          <span>{{ $t('auth.loggedInAs') }} <strong>{{ oauthAccount.email }}</strong></span>
-        </div>
-      </div>
-    </div>
-
-    <div class="s-card">
-      <div class="s-section-header">
-        <h3 class="s-section-title">{{ $t('model.configuration') }}</h3>
-      </div>
-      <div class="s-form-group">
-        <label class="s-form-label">{{ $t('model.haikuModel') }} <span class="s-model-tag fast">{{ $t('model.fast') }}</span></label>
-        <SearchableSelect
-          v-model="config.haikuModel"
-          :options="availableModels"
-          :placeholder="$t('model.selectModel')"
-        />
-      </div>
-      <div class="s-form-group">
-        <label class="s-form-label">{{ $t('model.sonnetModel') }} <span class="s-model-tag recommended">{{ $t('model.balanced') }}</span></label>
-        <SearchableSelect
-          v-model="config.sonnetModel"
-          :options="availableModels"
-          :placeholder="$t('model.selectModel')"
-        />
-      </div>
-      <div class="s-form-group">
-        <label class="s-form-label">{{ $t('model.opusModel') }} <span class="s-model-tag powerful">{{ $t('model.powerful') }}</span></label>
-        <SearchableSelect
-          v-model="config.opusModel"
-          :options="availableModels"
-          :placeholder="$t('model.selectModel')"
-        />
-      </div>
-    </div>
-
-    <div class="s-card">
-      <div class="s-section-header">
-        <h3 class="s-section-title">{{ $t('contextUsage.modelContextTitle') }}</h3>
-      </div>
-      <p class="context-info-desc">{{ $t('contextUsage.modelContextDesc') }}</p>
-      <ContextUsagePreview :model-id="previewModelId" />
     </div>
   </div>
 </template>
@@ -245,7 +286,7 @@ import { ref, computed, onMounted } from 'vue'
 import {
   Server, Bot, Sparkles, Crown, Key, LogIn, CheckCircle,
   Eye, EyeOff, RefreshCw, Plug, Loader2, Download, Check,
-  XCircle, AlertCircle
+  XCircle, AlertCircle, BarChart3
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
@@ -515,9 +556,13 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
 </script>
 
 <style lang="scss" scoped>
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+
 .model-settings {
   display: flex;
   flex-direction: column;
+  max-width: 780px;
+  gap: 20px;
 }
 
 .form-actions-row {

@@ -1,53 +1,66 @@
 <template>
   <div class="shortcuts-settings">
-    <div class="s-page-header">
-      <h2 class="s-page-title">{{ t('shortcutsSettings.title') }}</h2>
-      <p class="s-page-desc">{{ t('shortcutsSettings.description') }}</p>
+    <div class="s-masthead">
+      <div class="s-masthead-eyebrow">Settings</div>
+      <h1 class="s-masthead-title">{{ t('shortcutsSettings.title') }}</h1>
+      <p class="s-masthead-desc">{{ t('shortcutsSettings.description') }}</p>
     </div>
 
-    <div class="s-card">
-      <div class="s-search-box">
-        <Search :size="16" />
-        <input
-          v-model="searchQuery"
-          :placeholder="t('shortcutsSettings.searchPlaceholder')"
-          class="s-search-input"
-        />
+    <div class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon lang"><Search :size="14" /></div>
+          <span class="s-panel-title">{{ t('shortcutsSettings.title') }}</span>
+        </div>
+      </div>
+      <div class="s-panel-body">
+        <div class="s-search-box">
+          <Search :size="16" />
+          <input
+            v-model="searchQuery"
+            :placeholder="t('shortcutsSettings.searchPlaceholder')"
+            class="s-search-input"
+          />
+        </div>
       </div>
     </div>
 
     <div
       v-for="category in filteredCategories"
       :key="category.id"
-      class="s-card"
+      class="s-panel"
     >
-      <div class="s-section-header">
-        <h3 class="s-section-title">{{ category.name }}</h3>
-      </div>
-
-      <div
-        v-for="shortcut in category.shortcuts"
-        :key="shortcut.id"
-        class="shortcut-item"
-        :class="{ editing: editingShortcut === shortcut.id }"
-        @click="startEdit(shortcut)"
-      >
-        <div class="shortcut-info">
-          <span class="shortcut-name">{{ shortcut.name }}</span>
-          <span class="shortcut-desc">{{ shortcut.description }}</span>
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon engine"><Keyboard :size="14" /></div>
+          <span class="s-panel-title">{{ category.name }}</span>
         </div>
-        <div class="shortcut-keys">
-          <template v-if="editingShortcut === shortcut.id">
-            <span class="editing-hint">{{ t('shortcutsSettings.pressKeys') }}</span>
-            <button class="s-btn s-btn-secondary" @click.stop="cancelEdit">{{ t('shortcutsSettings.cancel') }}</button>
-          </template>
-          <template v-else>
-            <kbd
-              v-for="(key, index) in formatShortcut(shortcut.keys)"
-              :key="index"
-              class="s-kbd"
-            >{{ key }}</kbd>
-          </template>
+      </div>
+      <div class="s-panel-body">
+        <div
+          v-for="shortcut in category.shortcuts"
+          :key="shortcut.id"
+          class="shortcut-item"
+          :class="{ editing: editingShortcut === shortcut.id }"
+          @click="startEdit(shortcut)"
+        >
+          <div class="shortcut-info">
+            <span class="shortcut-name">{{ shortcut.name }}</span>
+            <span class="shortcut-desc">{{ shortcut.description }}</span>
+          </div>
+          <div class="shortcut-keys">
+            <template v-if="editingShortcut === shortcut.id">
+              <span class="editing-hint">{{ t('shortcutsSettings.pressKeys') }}</span>
+              <button class="s-btn s-btn-secondary" @click.stop="cancelEdit">{{ t('shortcutsSettings.cancel') }}</button>
+            </template>
+            <template v-else>
+              <kbd
+                v-for="(key, index) in formatShortcut(shortcut.keys)"
+                :key="index"
+                class="s-kbd"
+              >{{ key }}</kbd>
+            </template>
+          </div>
         </div>
       </div>
     </div>
@@ -88,7 +101,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Search, SearchX, RotateCcw } from 'lucide-vue-next'
+import { Search, SearchX, RotateCcw, Keyboard } from 'lucide-vue-next'
 import { debounce } from '@/utils/debounce'
 
 const { t } = useI18n()
@@ -314,10 +327,13 @@ onMounted(() => {
 </script>
 
 <style lang="scss" scoped>
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+
 .shortcuts-settings {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
+  max-width: 780px;
 }
 
 .shortcut-item {

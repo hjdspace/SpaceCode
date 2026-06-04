@@ -1,13 +1,19 @@
 <template>
   <div class="appearance-settings">
-    <div class="s-page-header">
-      <h2 class="s-page-title">{{ t('appearanceSettings.title') }}</h2>
-      <p class="s-page-desc">自定义界面主题、字体和显示效果</p>
+    <div class="s-masthead">
+      <div class="s-masthead-eyebrow">Settings</div>
+      <h1 class="s-masthead-title">{{ t('appearanceSettings.title') }}</h1>
+      <p class="s-masthead-desc">{{ t('appearanceSettings.description') || '自定义界面主题、字体和显示效果' }}</p>
     </div>
 
-    <div class="s-card">
-      <div class="s-form-group">
-        <label class="s-form-label">{{ t('settings.theme') }}</label>
+    <div class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon lang"><Palette :size="14" /></div>
+          <span class="s-panel-title">{{ t('settings.theme') }}</span>
+        </div>
+      </div>
+      <div class="s-panel-body">
         <div class="s-selection-grid" style="grid-template-columns: repeat(5, 1fr)">
           <button
             v-for="theme in themes"
@@ -28,134 +34,154 @@
       </div>
     </div>
 
-    <div class="s-card">
-      <div class="s-section-header">
-        <h3 class="s-section-title">{{ t('settings.font') }}</h3>
+    <div class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon engine"><Type :size="14" /></div>
+          <span class="s-panel-title">{{ t('settings.font') }}</span>
+        </div>
       </div>
-      <div class="s-divider"></div>
-      <div class="form-row">
+      <div class="s-panel-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="s-form-label">{{ t('settings.fontSize') }}</label>
+            <select v-model="config.fontSize" class="s-form-select">
+              <option v-for="size in fontSizes" :key="size" :value="size">{{ size }}px</option>
+            </select>
+          </div>
+          <div class="form-group form-group-wide">
+            <label class="s-form-label">{{ t('settings.fontFamily') }}</label>
+            <select v-model="config.fontFamily" class="s-form-select">
+              <option v-for="font in fontFamilies" :key="font.id" :value="font.id">{{ font.name }}</option>
+            </select>
+          </div>
+        </div>
         <div class="form-group">
-          <label class="s-form-label">{{ t('settings.fontSize') }}</label>
-          <select v-model="config.fontSize" class="s-form-select">
-            <option v-for="size in fontSizes" :key="size" :value="size">{{ size }}px</option>
-          </select>
-        </div>
-        <div class="form-group form-group-wide">
-          <label class="s-form-label">{{ t('settings.fontFamily') }}</label>
-          <select v-model="config.fontFamily" class="s-form-select">
-            <option v-for="font in fontFamilies" :key="font.id" :value="font.id">{{ font.name }}</option>
+          <label class="s-form-label">{{ t('settings.codeFontFamily') }}</label>
+          <select v-model="config.codeFontFamily" class="s-form-select">
+            <option v-for="font in codeFonts" :key="font.id" :value="font.id">{{ font.name }}</option>
           </select>
         </div>
       </div>
-      <div class="form-group">
-        <label class="s-form-label">{{ t('settings.codeFontFamily') }}</label>
-        <select v-model="config.codeFontFamily" class="s-form-select">
-          <option v-for="font in codeFonts" :key="font.id" :value="font.id">{{ font.name }}</option>
-        </select>
+    </div>
+
+    <div class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon project"><Rows :size="14" /></div>
+          <span class="s-panel-title">{{ t('settings.density') }}</span>
+        </div>
+      </div>
+      <div class="s-panel-body">
+        <div class="s-selection-grid" style="grid-template-columns: repeat(3, 1fr)">
+          <button
+            v-for="density in densities"
+            :key="density.id"
+            class="s-selection-card"
+            :class="{ active: config.density === density.id }"
+            @click="selectDensity(density.id)"
+          >
+            <div class="density-preview" :class="density.id">
+              <div></div><div></div><div></div>
+            </div>
+            <span class="density-name">{{ density.name }}</span>
+          </button>
+        </div>
       </div>
     </div>
 
-    <div class="s-card">
-      <div class="s-section-header">
-        <h3 class="s-section-title">{{ t('settings.density') }}</h3>
+    <div class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon engine"><Code2 :size="14" /></div>
+          <span class="s-panel-title">{{ t('settings.editor') }}</span>
+        </div>
       </div>
-      <div class="s-divider"></div>
-      <div class="s-selection-grid" style="grid-template-columns: repeat(3, 1fr)">
-        <button
-          v-for="density in densities"
-          :key="density.id"
-          class="s-selection-card"
-          :class="{ active: config.density === density.id }"
-          @click="selectDensity(density.id)"
-        >
-          <div class="density-preview" :class="density.id">
-            <div></div><div></div><div></div>
-          </div>
-          <span class="density-name">{{ density.name }}</span>
-        </button>
-      </div>
-    </div>
+      <div class="s-panel-body">
+        <div class="s-toggle-wrapper">
+          <label class="s-toggle-item">
+            <div class="s-toggle-info">
+              <span class="s-toggle-label">{{ t('settings.showLineNumbers') }}</span>
+              <span class="s-toggle-description">{{ t('settings.showLineNumbersDesc') }}</span>
+            </div>
+            <input type="checkbox" v-model="config.showLineNumbers" class="s-toggle-switch" />
+          </label>
 
-    <div class="s-card">
-      <div class="s-section-header">
-        <h3 class="s-section-title">{{ t('settings.editor') }}</h3>
-      </div>
-      <div class="s-divider"></div>
-      <div class="s-toggle-wrapper">
-        <label class="s-toggle-item">
-          <div class="s-toggle-info">
-            <span class="s-toggle-label">{{ t('settings.showLineNumbers') }}</span>
-            <span class="s-toggle-description">{{ t('settings.showLineNumbersDesc') }}</span>
-          </div>
-          <input type="checkbox" v-model="config.showLineNumbers" class="s-toggle-switch" />
-        </label>
+          <label class="s-toggle-item">
+            <div class="s-toggle-info">
+              <span class="s-toggle-label">{{ t('settings.wordWrap') }}</span>
+              <span class="s-toggle-description">{{ t('settings.wordWrapDesc') }}</span>
+            </div>
+            <input type="checkbox" v-model="config.wordWrap" class="s-toggle-switch" />
+          </label>
 
-        <label class="s-toggle-item">
-          <div class="s-toggle-info">
-            <span class="s-toggle-label">{{ t('settings.wordWrap') }}</span>
-            <span class="s-toggle-description">{{ t('settings.wordWrapDesc') }}</span>
-          </div>
-          <input type="checkbox" v-model="config.wordWrap" class="s-toggle-switch" />
-        </label>
+          <label class="s-toggle-item">
+            <div class="s-toggle-info">
+              <span class="s-toggle-label">{{ t('settings.minimap') }}</span>
+              <span class="s-toggle-description">{{ t('settings.minimapDesc') }}</span>
+            </div>
+            <input type="checkbox" v-model="config.showMinimap" class="s-toggle-switch" />
+          </label>
 
-        <label class="s-toggle-item">
-          <div class="s-toggle-info">
-            <span class="s-toggle-label">{{ t('settings.minimap') }}</span>
-            <span class="s-toggle-description">{{ t('settings.minimapDesc') }}</span>
-          </div>
-          <input type="checkbox" v-model="config.showMinimap" class="s-toggle-switch" />
-        </label>
-
-        <label class="s-toggle-item">
-          <div class="s-toggle-info">
-            <span class="s-toggle-label">{{ t('appearanceSettings.smoothScrolling') }}</span>
-            <span class="s-toggle-description">{{ t('appearanceSettings.smoothScrollingDesc') }}</span>
-          </div>
-          <input type="checkbox" v-model="config.smoothScrolling" class="s-toggle-switch" />
-        </label>
+          <label class="s-toggle-item">
+            <div class="s-toggle-info">
+              <span class="s-toggle-label">{{ t('appearanceSettings.smoothScrolling') }}</span>
+              <span class="s-toggle-description">{{ t('appearanceSettings.smoothScrollingDesc') }}</span>
+            </div>
+            <input type="checkbox" v-model="config.smoothScrolling" class="s-toggle-switch" />
+          </label>
+        </div>
       </div>
     </div>
 
-    <div class="s-card">
-      <div class="s-section-header">
-        <h3 class="s-section-title">{{ t('contextUsage.settingsSection') }}</h3>
+    <div class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon lang"><BarChart3 :size="14" /></div>
+          <span class="s-panel-title">{{ t('contextUsage.settingsSection') }}</span>
+        </div>
       </div>
-      <div class="s-divider"></div>
-      <div class="s-toggle-wrapper">
-        <label class="s-toggle-item">
-          <div class="s-toggle-info">
-            <span class="s-toggle-label">{{ t('contextUsage.showInHeader') }}</span>
-            <span class="s-toggle-description">{{ t('contextUsage.showInHeaderDesc') }}</span>
-          </div>
-          <input type="checkbox" v-model="config.showContextUsage" class="s-toggle-switch" />
-        </label>
+      <div class="s-panel-body">
+        <div class="s-toggle-wrapper">
+          <label class="s-toggle-item">
+            <div class="s-toggle-info">
+              <span class="s-toggle-label">{{ t('contextUsage.showInHeader') }}</span>
+              <span class="s-toggle-description">{{ t('contextUsage.showInHeaderDesc') }}</span>
+            </div>
+            <input type="checkbox" v-model="config.showContextUsage" class="s-toggle-switch" />
+          </label>
 
-        <label class="s-toggle-item">
-          <div class="s-toggle-info">
-            <span class="s-toggle-label">{{ t('contextUsage.showWarningBar') }}</span>
-            <span class="s-toggle-description">{{ t('contextUsage.showWarningBarDesc') }}</span>
-          </div>
-          <input type="checkbox" v-model="config.showContextWarningBar" class="s-toggle-switch" />
-        </label>
+          <label class="s-toggle-item">
+            <div class="s-toggle-info">
+              <span class="s-toggle-label">{{ t('contextUsage.showWarningBar') }}</span>
+              <span class="s-toggle-description">{{ t('contextUsage.showWarningBarDesc') }}</span>
+            </div>
+            <input type="checkbox" v-model="config.showContextWarningBar" class="s-toggle-switch" />
+          </label>
+        </div>
       </div>
     </div>
 
-    <div class="s-card">
-      <div class="s-section-header">
-        <h3 class="s-section-title">{{ t('appearanceSettings.accentColor') }}</h3>
+    <div class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon project"><Palette :size="14" /></div>
+          <span class="s-panel-title">{{ t('appearanceSettings.accentColor') }}</span>
+        </div>
       </div>
-      <div class="s-divider"></div>
-      <div class="s-color-options">
-        <button
-          v-for="color in accentColors"
-          :key="color.id"
-          class="s-color-option"
-          :class="{ active: config.accentColor === color.id }"
-          :style="{ background: color.hex }"
-          @click="selectAccent(color.id)"
-        >
-          <Check v-if="config.accentColor === color.id" :size="14" />
-        </button>
+      <div class="s-panel-body">
+        <div class="s-color-options">
+          <button
+            v-for="color in accentColors"
+            :key="color.id"
+            class="s-color-option"
+            :class="{ active: config.accentColor === color.id }"
+            :style="{ background: color.hex }"
+            @click="selectAccent(color.id)"
+          >
+            <Check v-if="config.accentColor === color.id" :size="14" />
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -164,7 +190,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Check } from 'lucide-vue-next'
+import { Check, Palette, Type, Rows, Code2, BarChart3 } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore, type AppearanceSettings as AppearanceConfig } from '@/stores/settings'
 import { debounce } from '@/utils/debounce'
@@ -412,7 +438,10 @@ function selectAccent(colorId: string) {
 </script>
 
 <style lang="scss" scoped>
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+
 .appearance-settings {
+  max-width: 780px;
   display: flex;
   flex-direction: column;
   gap: 20px;

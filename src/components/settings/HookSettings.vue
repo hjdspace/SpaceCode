@@ -1,13 +1,17 @@
 <template>
   <div class="hook-settings">
-    <div class="s-page-header">
-      <h2 class="s-page-title">{{ t('hookSettings.title') }}</h2>
-      <p class="s-page-desc">自定义会话生命周期钩子函数</p>
+    <div class="s-masthead">
+      <div class="s-masthead-eyebrow">Settings</div>
+      <h1 class="s-masthead-title">{{ t('hookSettings.title') }}</h1>
+      <p class="s-masthead-desc">{{ t('hookSettings.description') || '自定义会话生命周期钩子函数' }}</p>
     </div>
 
-    <div class="section-content">
-      <div class="hooks-header">
-        <span class="hooks-count">{{ t('hookSettings.enabledCount', { enabled: store.enabledCount, total: store.totalCount }) }}</span>
+    <div class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon engine"><Zap :size="14" /></div>
+          <span class="s-panel-title">{{ t('hookSettings.title') }}</span>
+        </div>
         <div class="header-actions">
           <div class="view-toggle">
             <button
@@ -27,187 +31,188 @@
           </button>
         </div>
       </div>
-
-      <div class="scope-selector">
-        <button
-          v-for="s in scopes"
-          :key="s.value"
-          class="scope-btn"
-          :class="{ active: store.activeScope === s.value }"
-          @click="switchScope(s.value)"
-        >
-          {{ s.label }}
-        </button>
-      </div>
-
-      <template v-if="viewMode === 'cards'">
-        <div class="event-nav">
+      <div class="s-panel-body">
+        <div class="scope-selector">
           <button
-            v-for="evt in eventList"
-            :key="evt.value"
-            class="event-nav-item"
-            :class="{ active: activeEvent === evt.value }"
-            @click="activeEvent = evt.value"
+            v-for="s in scopes"
+            :key="s.value"
+            class="scope-btn"
+            :class="{ active: store.activeScope === s.value }"
+            @click="switchScope(s.value)"
           >
-            <span class="event-dot" :style="{ background: getEventColor(evt.value) }"></span>
-            <span class="event-name">{{ evt.value }}</span>
-            <span class="event-count" v-if="getEventHookCount(evt.value)">{{ getEventHookCount(evt.value) }}</span>
+            {{ s.label }}
           </button>
         </div>
 
-        <div class="hooks-list">
-          <div
-            v-for="hook in currentEventHooks"
-            :key="hook.id"
-            class="s-card hook-card"
-            :class="{ disabled: hook.disabled, expanded: expandedHook === hook.id }"
-          >
-            <div class="hook-card-header" @click="toggleExpand(hook.id)">
-              <div class="hook-toggle" :class="{ on: !hook.disabled }" @click.stop="store.toggleHook(hook.id)"></div>
-              <div class="hook-info">
-                <div class="hook-name">{{ hook.name || hook.command }}</div>
-                <div class="hook-desc">{{ getEventDescription(hook.event) }}</div>
-              </div>
-              <div class="hook-tags">
-                <span v-if="hook.matcher" class="tag tag-matcher">{{ hook.matcher }}</span>
-                <span class="tag" :class="hook.type === 'command' ? 'tag-command' : 'tag-prompt'">
-                  {{ hook.type === 'command' ? 'CMD' : 'LLM' }}
-                </span>
-              </div>
-              <div class="hook-actions">
-                <button class="s-icon-btn" @click.stop="editHook(hook)" :title="t('common.edit')">
-                  <Pencil :size="14" />
-                </button>
-                <button class="s-icon-btn danger" @click.stop="confirmDelete(hook.id)" :title="t('common.delete')">
-                  <Trash2 :size="14" />
-                </button>
-                <ChevronDown :size="16" class="s-expand-icon" :class="{ rotated: expandedHook === hook.id }" />
-              </div>
-            </div>
-            <div v-if="expandedHook === hook.id" class="hook-card-body">
-              <div class="detail-row">
-                <span class="detail-label">{{ hook.type === 'command' ? t('hookSettings.command') : 'Prompt' }}</span>
-                <code class="detail-value">{{ hook.command }}</code>
-              </div>
-              <div class="detail-row">
-                <span class="detail-label">{{ t('hookSettings.timeout') }}</span>
-                <code class="detail-value">{{ hook.timeout }}s</code>
-              </div>
-              <div class="detail-row">
-                <span class="detail-label">{{ t('hookSettings.scope') }}</span>
-                <code class="detail-value">{{ scopeLabels[hook.scope] }}</code>
-              </div>
-            </div>
+        <template v-if="viewMode === 'cards'">
+          <div class="event-nav">
+            <button
+              v-for="evt in eventList"
+              :key="evt.value"
+              class="event-nav-item"
+              :class="{ active: activeEvent === evt.value }"
+              @click="activeEvent = evt.value"
+            >
+              <span class="event-dot" :style="{ background: getEventColor(evt.value) }"></span>
+              <span class="event-name">{{ evt.value }}</span>
+              <span class="event-count" v-if="getEventHookCount(evt.value)">{{ getEventHookCount(evt.value) }}</span>
+            </button>
           </div>
 
-          <div v-if="currentEventHooks.length === 0" class="s-empty-state">
+          <div class="hooks-list">
+            <div
+              v-for="hook in currentEventHooks"
+              :key="hook.id"
+              class="s-card hook-card"
+              :class="{ disabled: hook.disabled, expanded: expandedHook === hook.id }"
+            >
+              <div class="hook-card-header" @click="toggleExpand(hook.id)">
+                <div class="hook-toggle" :class="{ on: !hook.disabled }" @click.stop="store.toggleHook(hook.id)"></div>
+                <div class="hook-info">
+                  <div class="hook-name">{{ hook.name || hook.command }}</div>
+                  <div class="hook-desc">{{ getEventDescription(hook.event) }}</div>
+                </div>
+                <div class="hook-tags">
+                  <span v-if="hook.matcher" class="tag tag-matcher">{{ hook.matcher }}</span>
+                  <span class="tag" :class="hook.type === 'command' ? 'tag-command' : 'tag-prompt'">
+                    {{ hook.type === 'command' ? 'CMD' : 'LLM' }}
+                  </span>
+                </div>
+                <div class="hook-actions">
+                  <button class="s-icon-btn" @click.stop="editHook(hook)" :title="t('common.edit')">
+                    <Pencil :size="14" />
+                  </button>
+                  <button class="s-icon-btn danger" @click.stop="confirmDelete(hook.id)" :title="t('common.delete')">
+                    <Trash2 :size="14" />
+                  </button>
+                  <ChevronDown :size="16" class="s-expand-icon" :class="{ rotated: expandedHook === hook.id }" />
+                </div>
+              </div>
+              <div v-if="expandedHook === hook.id" class="hook-card-body">
+                <div class="detail-row">
+                  <span class="detail-label">{{ hook.type === 'command' ? t('hookSettings.command') : 'Prompt' }}</span>
+                  <code class="detail-value">{{ hook.command }}</code>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">{{ t('hookSettings.timeout') }}</span>
+                  <code class="detail-value">{{ hook.timeout }}s</code>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">{{ t('hookSettings.scope') }}</span>
+                  <code class="detail-value">{{ scopeLabels[hook.scope] }}</code>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="currentEventHooks.length === 0" class="s-empty-state">
+              <Zap :size="48" class="s-empty-state-icon" />
+              <h4 class="s-empty-state-title">{{ t('hookSettings.noHooks') }}</h4>
+              <p class="s-empty-state-description">{{ t('hookSettings.noHooksDesc') }}</p>
+              <button class="s-btn s-btn-primary" @click="showAddModal = true">
+                <Plus :size="14" />
+                {{ t('hookSettings.addFirstHook') }}
+              </button>
+            </div>
+          </div>
+        </template>
+
+        <template v-if="viewMode === 'table'">
+          <div class="table-toolbar">
+            <input class="search-input" v-model="searchQuery" :placeholder="t('hookSettings.searchPlaceholder')" />
+            <select class="filter-select" v-model="filterEvent">
+              <option value="">{{ t('hookSettings.allEvents') }}</option>
+              <option v-for="evt in eventList" :key="evt.value" :value="evt.value">{{ evt.value }}</option>
+            </select>
+            <select class="filter-select" v-model="filterType">
+              <option value="">{{ t('hookSettings.allTypes') }}</option>
+              <option value="command">Command</option>
+              <option value="prompt">Prompt</option>
+            </select>
+          </div>
+
+          <table class="hook-table" v-if="filteredHooks.length > 0">
+            <thead>
+              <tr>
+                <th style="width:40px;"></th>
+                <th>{{ t('hookSettings.name') }}</th>
+                <th>{{ t('hookSettings.event') }}</th>
+                <th>Matcher</th>
+                <th>{{ t('hookSettings.type') }}</th>
+                <th>{{ t('hookSettings.commandOrPrompt') }}</th>
+                <th>{{ t('hookSettings.scope') }}</th>
+                <th style="width:80px;">{{ t('common.edit') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="hook in filteredHooks" :key="hook.id">
+                <td>
+                  <div class="toggle-sm" :class="{ on: !hook.disabled }" @click="store.toggleHook(hook.id)"></div>
+                </td>
+                <td class="name-cell">{{ hook.name || '-' }}</td>
+                <td><span class="tag tag-event" style="font-size:10px;">{{ hook.event }}</span></td>
+                <td><code v-if="hook.matcher">{{ hook.matcher }}</code><span v-else style="color:var(--text-muted);">-</span></td>
+                <td><span class="tag" :class="hook.type === 'command' ? 'tag-command' : 'tag-prompt'" style="font-size:10px;">{{ hook.type === 'command' ? 'CMD' : 'LLM' }}</span></td>
+                <td class="cmd-cell">{{ hook.command }}</td>
+                <td style="font-size:12px;color:var(--text-muted);">{{ scopeLabels[hook.scope] }}</td>
+                <td class="actions-cell">
+                  <button class="s-icon-btn" @click="editHook(hook)"><Pencil :size="13" /></button>
+                  <button class="s-icon-btn danger" @click="confirmDelete(hook.id)"><Trash2 :size="13" /></button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div v-else class="s-empty-state">
             <Zap :size="48" class="s-empty-state-icon" />
             <h4 class="s-empty-state-title">{{ t('hookSettings.noHooks') }}</h4>
             <p class="s-empty-state-description">{{ t('hookSettings.noHooksDesc') }}</p>
-            <button class="s-btn s-btn-primary" @click="showAddModal = true">
-              <Plus :size="14" />
-              {{ t('hookSettings.addFirstHook') }}
-            </button>
           </div>
-        </div>
-      </template>
+        </template>
 
-      <template v-if="viewMode === 'table'">
-        <div class="table-toolbar">
-          <input class="search-input" v-model="searchQuery" :placeholder="t('hookSettings.searchPlaceholder')" />
-          <select class="filter-select" v-model="filterEvent">
-            <option value="">{{ t('hookSettings.allEvents') }}</option>
-            <option v-for="evt in eventList" :key="evt.value" :value="evt.value">{{ evt.value }}</option>
-          </select>
-          <select class="filter-select" v-model="filterType">
-            <option value="">{{ t('hookSettings.allTypes') }}</option>
-            <option value="command">Command</option>
-            <option value="prompt">Prompt</option>
-          </select>
-        </div>
-
-        <table class="hook-table" v-if="filteredHooks.length > 0">
-          <thead>
-            <tr>
-              <th style="width:40px;"></th>
-              <th>{{ t('hookSettings.name') }}</th>
-              <th>{{ t('hookSettings.event') }}</th>
-              <th>Matcher</th>
-              <th>{{ t('hookSettings.type') }}</th>
-              <th>{{ t('hookSettings.commandOrPrompt') }}</th>
-              <th>{{ t('hookSettings.scope') }}</th>
-              <th style="width:80px;">{{ t('common.edit') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="hook in filteredHooks" :key="hook.id">
-              <td>
-                <div class="toggle-sm" :class="{ on: !hook.disabled }" @click="store.toggleHook(hook.id)"></div>
-              </td>
-              <td class="name-cell">{{ hook.name || '-' }}</td>
-              <td><span class="tag tag-event" style="font-size:10px;">{{ hook.event }}</span></td>
-              <td><code v-if="hook.matcher">{{ hook.matcher }}</code><span v-else style="color:var(--text-muted);">-</span></td>
-              <td><span class="tag" :class="hook.type === 'command' ? 'tag-command' : 'tag-prompt'" style="font-size:10px;">{{ hook.type === 'command' ? 'CMD' : 'LLM' }}</span></td>
-              <td class="cmd-cell">{{ hook.command }}</td>
-              <td style="font-size:12px;color:var(--text-muted);">{{ scopeLabels[hook.scope] }}</td>
-              <td class="actions-cell">
-                <button class="s-icon-btn" @click="editHook(hook)"><Pencil :size="13" /></button>
-                <button class="s-icon-btn danger" @click="confirmDelete(hook.id)"><Trash2 :size="13" /></button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-
-        <div v-else class="s-empty-state">
-          <Zap :size="48" class="s-empty-state-icon" />
-          <h4 class="s-empty-state-title">{{ t('hookSettings.noHooks') }}</h4>
-          <p class="s-empty-state-description">{{ t('hookSettings.noHooksDesc') }}</p>
-        </div>
-      </template>
-
-      <template v-if="viewMode === 'timeline'">
-        <div class="timeline-view">
-          <div v-for="evt in timelineEvents" :key="evt.value" class="event-group">
-            <div class="event-group-header">
-              <div class="event-dot-lg" :style="{ background: getEventColor(evt.value) }"></div>
-              <h4>{{ evt.value }}</h4>
-              <span class="event-desc">{{ evt.description }}</span>
-              <span class="event-hook-count" v-if="getEventHookCount(evt.value)">{{ getEventHookCount(evt.value) }} {{ t('hookSettings.hookUnit') }}</span>
-              <span v-else class="event-hook-count muted">0 {{ t('hookSettings.hookUnit') }}</span>
-              <button v-if="getEventHookCount(evt.value) === 0" class="s-btn btn-ghost-sm" @click="addHookForEvent(evt.value)">+</button>
-            </div>
-            <div v-if="getEventHookCount(evt.value) > 0" class="event-hook-list">
-              <div v-for="hook in getHooksForEvent(evt.value)" :key="hook.id" class="event-hook-item">
-                <span class="hook-type-badge" :class="hook.type === 'command' ? 'badge-command' : 'badge-prompt'">
-                  {{ hook.type === 'command' ? 'CMD' : 'LLM' }}
-                </span>
-                <span class="hook-cmd">{{ hook.command }}</span>
-                <span v-if="hook.matcher" class="hook-matcher-tag">{{ hook.matcher }}</span>
-                <div class="hook-actions-inline">
-                  <button class="s-icon-btn" @click="editHook(hook)"><Pencil :size="12" /></button>
-                  <button class="s-icon-btn danger" @click="confirmDelete(hook.id)"><Trash2 :size="12" /></button>
+        <template v-if="viewMode === 'timeline'">
+          <div class="timeline-view">
+            <div v-for="evt in timelineEvents" :key="evt.value" class="event-group">
+              <div class="event-group-header">
+                <div class="event-dot-lg" :style="{ background: getEventColor(evt.value) }"></div>
+                <h4>{{ evt.value }}</h4>
+                <span class="event-desc">{{ evt.description }}</span>
+                <span class="event-hook-count" v-if="getEventHookCount(evt.value)">{{ getEventHookCount(evt.value) }} {{ t('hookSettings.hookUnit') }}</span>
+                <span v-else class="event-hook-count muted">0 {{ t('hookSettings.hookUnit') }}</span>
+                <button v-if="getEventHookCount(evt.value) === 0" class="s-btn btn-ghost-sm" @click="addHookForEvent(evt.value)">+</button>
+              </div>
+              <div v-if="getEventHookCount(evt.value) > 0" class="event-hook-list">
+                <div v-for="hook in getHooksForEvent(evt.value)" :key="hook.id" class="event-hook-item">
+                  <span class="hook-type-badge" :class="hook.type === 'command' ? 'badge-command' : 'badge-prompt'">
+                    {{ hook.type === 'command' ? 'CMD' : 'LLM' }}
+                  </span>
+                  <span class="hook-cmd">{{ hook.command }}</span>
+                  <span v-if="hook.matcher" class="hook-matcher-tag">{{ hook.matcher }}</span>
+                  <div class="hook-actions-inline">
+                    <button class="s-icon-btn" @click="editHook(hook)"><Pencil :size="12" /></button>
+                    <button class="s-icon-btn danger" @click="confirmDelete(hook.id)"><Trash2 :size="12" /></button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      </template>
+        </template>
 
-      <HookEditModal
-        v-if="showAddModal"
-        :hook="editingHook"
-        :default-event="defaultEventForAdd"
-        @save="onSaveHook"
-        @close="closeModal"
-      />
+        <HookEditModal
+          v-if="showAddModal"
+          :hook="editingHook"
+          :default-event="defaultEventForAdd"
+          @save="onSaveHook"
+          @close="closeModal"
+        />
 
-      <div v-if="deleteConfirmId" class="form-modal-overlay" @click.self="deleteConfirmId = null">
-        <div class="form-modal" style="width:400px;">
-          <h3>{{ t('hookSettings.confirmDelete') }}</h3>
-          <p style="font-size:13px;color:var(--text-secondary);margin:8px 0 0;">{{ t('hookSettings.confirmDeleteDesc') }}</p>
-          <div class="form-actions">
-            <button class="s-btn s-btn-secondary" @click="deleteConfirmId = null">{{ t('common.cancel') }}</button>
-            <button class="s-btn s-danger-btn" @click="doDelete">{{ t('common.delete') }}</button>
+        <div v-if="deleteConfirmId" class="form-modal-overlay" @click.self="deleteConfirmId = null">
+          <div class="form-modal" style="width:400px;">
+            <h3>{{ t('hookSettings.confirmDelete') }}</h3>
+            <p style="font-size:13px;color:var(--text-secondary);margin:8px 0 0;">{{ t('hookSettings.confirmDeleteDesc') }}</p>
+            <div class="form-actions">
+              <button class="s-btn s-btn-secondary" @click="deleteConfirmId = null">{{ t('common.cancel') }}</button>
+              <button class="s-btn s-danger-btn" @click="doDelete">{{ t('common.delete') }}</button>
+            </div>
           </div>
         </div>
       </div>
@@ -358,11 +363,9 @@ onMounted(() => {
 </script>
 
 <style lang="scss" scoped>
-.hook-settings { display: flex; flex-direction: column; gap: 20px; }
-.section-content { display: flex; flex-direction: column; gap: 16px; }
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap');
 
-.hooks-header { display: flex; align-items: center; justify-content: space-between; }
-.hooks-count { font-size: 13px; color: var(--text-muted); }
+.hook-settings { display: flex; flex-direction: column; gap: 20px; max-width: 780px; }
 .header-actions { display: flex; align-items: center; gap: 10px; }
 
 .view-toggle {
