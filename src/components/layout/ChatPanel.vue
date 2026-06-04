@@ -496,12 +496,6 @@ function formatModelName(model: string): string {
 }
 
 interface SendOptions {
-  badge?: {
-    command: string
-    label: string
-    description: string
-    kind: string
-  }
   displayLabel?: string
 }
 

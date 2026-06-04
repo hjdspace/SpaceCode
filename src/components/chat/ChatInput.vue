@@ -120,19 +120,6 @@
     </Transition>
 
     <div class="input-wrapper" :class="{ 'has-content': hasContent, 'is-sending': isSending, 'is-optimizing': isOptimizing }">
-      <!-- 命令 Badge — 嵌入输入框内部 -->
-      <Transition name="badge">
-        <div v-if="activeBadge" class="command-badge-bar">
-          <div class="command-badge" :class="`badge-kind-${activeBadge.kind}`">
-            <span class="badge-label">/{{ activeBadge.label }}</span>
-            <span class="badge-description">{{ activeBadge.description }}</span>
-            <button class="badge-remove" @click="clearBadge">
-              <X :size="12" />
-            </button>
-          </div>
-        </div>
-      </Transition>
-
       <!-- 文本输入区域 — contenteditable 支持内联 chip -->
       <div class="textarea-wrapper" @click="focusEditor">
         <div
@@ -483,7 +470,6 @@ interface ContextItem {
 }
 
 interface SendOptions {
-  badge?: CommandBadge
   displayLabel?: string
 }
 
@@ -528,10 +514,6 @@ const showAttachmentMenu = ref(false)
 const attachedFiles = ref<Attachment[]>([])
 const attachedImages = ref<ImageAttachment[]>([])
 const isDragging = ref(false)
-
-// 命令 Badge 系统
-const activeBadge = ref<CommandBadge | null>(null)
-const hasActiveBadge = computed(() => activeBadge.value !== null)
 
 // 模型搜索相关
 const modelSearchQuery = ref('')
@@ -650,8 +632,8 @@ const isLoadingContext = ref(false)
 
 // 使用新的命令系统
 import { BUILT_IN_COMMANDS } from '@/lib/constants/commands'
-import { resolveDirectSlash, dispatchBadge } from '@/lib/message-input-logic'
-import type { CommandBadge } from '@/types'
+import { resolveDirectSlash, dispatchCommandChip, type CommandChipData } from '@/lib/message-input-logic'
+import type { CommandKind } from '@/lib/constants/commands'
 import { useCommandPalette } from '@/composables/useCommandPalette'
 import type { UnifiedCommand } from '@/lib/commands/types'
 
@@ -874,12 +856,11 @@ const selectedModelLabel = computed(() => {
 const hasContent = computed(() => {
   if (inputText.value.trim().length > 0) return true
   if (attachedFiles.value.length > 0) return true
-  if (hasActiveBadge.value) return true
 
   const editor = editorRef.value
   if (!editor) return false
   if (editor.textContent?.trim()) return true
-  return editor.querySelectorAll('.mention-chip').length > 0
+  return editor.querySelectorAll('.mention-chip, .command-chip').length > 0
 })
 const canSend = computed(() => (hasContent.value) && !props.isSending)
 
@@ -899,13 +880,20 @@ function getEditorPlainText(): string {
       if (node instanceof Element && node.classList.contains('mention-chip')) {
         const path = node.getAttribute('data-path')
         const imageId = node.getAttribute('data-image-id')
-        
+
         if (imageId) {
           text += `@image:"${imageId}" `
         } else if (path) {
           const isFolder = node.getAttribute('data-is-folder') === 'true'
           text += isFolder ? `@folder:"${path}" ` : `@file:"${path}" `
         }
+      } else if (node instanceof Element && node.classList.contains('command-chip')) {
+        // Serialize command chip as /cmd:"name":kind:source
+        const command = node.getAttribute('data-command') || ''
+        const kind = node.getAttribute('data-kind') || 'slash_command'
+        const source = node.getAttribute('data-source') || 'builtin'
+        const name = command.startsWith('/') ? command.slice(1) : command
+        text += `/cmd:"${name}":${kind}:${source} `
       } else if (node.nodeType === Node.TEXT_NODE) {
         text += node.textContent || ''
       } else if (node instanceof Element && node.tagName === 'BR') {
@@ -993,6 +981,80 @@ function insertMentionChip(name: string, path: string, isFolder: boolean) {
 
   chip.appendChild(icon)
   chip.appendChild(nameSpan)
+
+  // Insert chip and a trailing space
+  range.deleteContents()
+  range.insertNode(chip)
+
+  // Move cursor after chip
+  const afterRange = document.createRange()
+  afterRange.setStartAfter(chip)
+  afterRange.collapse(true)
+  sel.removeAllRanges()
+  sel.addRange(afterRange)
+
+  // Insert trailing space
+  const spaceNode = document.createTextNode('\u00A0')
+  afterRange.insertNode(spaceNode)
+
+  // Move cursor after space
+  const finalRange = document.createRange()
+  finalRange.setStartAfter(spaceNode)
+  finalRange.collapse(true)
+  sel.removeAllRanges()
+  sel.addRange(finalRange)
+
+  // Sync plain text
+  inputText.value = getEditorPlainText()
+}
+
+/** Insert an inline command chip at current cursor position */
+function insertCommandChip(cmd: { name: string; kind?: string; source?: string }) {
+  const editor = editorRef.value
+  if (!editor) return
+
+  const sel = window.getSelection()
+  if (!sel || !sel.rangeCount) return
+
+  const range = sel.getRangeAt(0)
+
+  const kind = cmd.kind || 'slash_command'
+  const source = cmd.source || 'builtin'
+
+  // Source icon mapping
+  const sourceIcons: Record<string, string> = {
+    builtin: '⚡',
+    bundled: '📦',
+    global: '🌐',
+    project: '📂',
+    plugin: '🧩',
+    mcp: '🔌',
+  }
+
+  // Create the chip span
+  const chip = document.createElement('span')
+  chip.className = `command-chip kind-${kind} source-${source}`
+  chip.setAttribute('contenteditable', 'false')
+  chip.setAttribute('data-command', `/${cmd.name}`)
+  chip.setAttribute('data-kind', kind)
+  chip.setAttribute('data-source', source)
+
+  // Inner structure: source-icon + label + source-tag
+  const iconSpan = document.createElement('span')
+  iconSpan.className = 'chip-source-icon'
+  iconSpan.textContent = sourceIcons[source] || '⚡'
+
+  const labelSpan = document.createElement('span')
+  labelSpan.className = 'chip-label'
+  labelSpan.textContent = `/${cmd.name}`
+
+  const tagSpan = document.createElement('span')
+  tagSpan.className = 'chip-source-tag'
+  tagSpan.textContent = source
+
+  chip.appendChild(iconSpan)
+  chip.appendChild(labelSpan)
+  chip.appendChild(tagSpan)
 
   // Insert chip and a trailing space
   range.deleteContents()
@@ -1352,17 +1414,28 @@ function selectSlashCommand(cmd: SlashCommand) {
   }
 
   commandPalette.closeMenu()
-  clearEditor()
 
-  activeBadge.value = {
-    command: `/${cmd.name}`,
-    label: cmd.name,
-    description: cmd.description || '',
-    kind: cmd.kind || 'slash_command'
+  // Remove the /trigger text from editor
+  const editor = editorRef.value
+  if (editor) {
+    const text = getEditorPlainText()
+    const slashMatch = text.match(/(^|\s)\/([^\s]*)$/)
+    if (slashMatch) {
+      const triggerOffset = slashMatch.index! + (slashMatch[1] ? 1 : 0)
+      removeTriggerText(triggerOffset, slashMatch[0].length - (slashMatch[1] ? 1 : 0))
+    }
   }
+
+  // Insert inline command chip
+  insertCommandChip({
+    name: cmd.name,
+    kind: cmd.kind || 'slash_command',
+    source: (cmd as any).source || 'builtin',
+  })
 
   nextTick(() => {
     editorRef.value?.focus()
+    setCursorToEnd()
     autoResize()
   })
 }
@@ -1929,7 +2002,7 @@ function handleEditorKeydown(event: KeyboardEvent) {
         nodeBefore = container.childNodes[offset - 1]
       }
 
-      if (nodeBefore && nodeBefore instanceof Element && nodeBefore.classList.contains('mention-chip')) {
+      if (nodeBefore && nodeBefore instanceof Element && (nodeBefore.classList.contains('mention-chip') || nodeBefore.classList.contains('command-chip'))) {
         event.preventDefault()
         // Also remove trailing space
         const nextSib = nodeBefore.nextSibling
@@ -1939,17 +2012,19 @@ function handleEditorKeydown(event: KeyboardEvent) {
         nodeBefore.remove()
         inputText.value = getEditorPlainText()
 
-        // Also remove from attachedFiles or attachedImages
-        const path = nodeBefore.getAttribute('data-path')
-        if (path) {
-          const idx = attachedFiles.value.findIndex(f => f.path === path)
-          if (idx >= 0) attachedFiles.value.splice(idx, 1)
-        }
-        
-        const imageId = nodeBefore.getAttribute('data-image-id')
-        if (imageId) {
-          const idx = attachedImages.value.findIndex(img => img.id === imageId)
-          if (idx >= 0) attachedImages.value.splice(idx, 1)
+        // Also remove from attachedFiles or attachedImages (mention-chip only)
+        if (nodeBefore.classList.contains('mention-chip')) {
+          const path = nodeBefore.getAttribute('data-path')
+          if (path) {
+            const idx = attachedFiles.value.findIndex(f => f.path === path)
+            if (idx >= 0) attachedFiles.value.splice(idx, 1)
+          }
+
+          const imageId = nodeBefore.getAttribute('data-image-id')
+          if (imageId) {
+            const idx = attachedImages.value.findIndex(img => img.id === imageId)
+            if (idx >= 0) attachedImages.value.splice(idx, 1)
+          }
         }
       }
     }
@@ -1968,52 +2043,49 @@ function handleSendOrStop() {
 }
 
 function handleSend() {
-  const mentions = collectMentions()
-  if ((!canSend.value && mentions.length === 0 && attachedImages.value.length === 0 && !hasActiveBadge.value) || props.disabled) return
+  if (props.isSending || isOptimizing.value) return
+  if (!hasContent.value && !props.isSending) return
+  if (props.disabled) return
 
   // 如果有打开的斜杠命令菜单或上下文菜单，不执行发送（让菜单处理回车事件）
   if (commandPalette.showMenu.value || showContextMenu.value) return
-
-  // 关闭所有下拉菜单
-  showModelDropdown.value = false
-  showModeDropdown.value = false
-  showAttachmentMenu.value = false
-  showAgentDropdown.value = false
-  closeSlashCommandMenu()
-  closeContextMenu()
-  modelSearchQuery.value = ''
 
   function cleanupAfterCommand() {
     clearEditor()
     attachedFiles.value = []
     attachedImages.value = []
-    activeBadge.value = null
   }
 
   const content = getEditorPlainText().trim()
   const allAttachments = collectAllAttachments()
 
-  if (hasActiveBadge.value && activeBadge.value) {
-    const badge = activeBadge.value
+  // 检查编辑器中是否有 command-chip
+  const editor = editorRef.value
+  const commandChips = editor ? Array.from(editor.querySelectorAll('.command-chip')) : []
 
-    if (badge.kind === 'sdk_command') {
-      const commandName = badge.label
+  if (commandChips.length > 0) {
+    // 从 chip DOM 提取命令信息
+    const chips: CommandChipData[] = commandChips.map((el) => ({
+      command: el.getAttribute('data-command') || '',
+      label: (el.getAttribute('data-command') || '').replace(/^\//, ''),
+      kind: (el.getAttribute('data-kind') || 'slash_command') as CommandKind,
+      source: el.getAttribute('data-source') || 'builtin',
+    }))
+
+    // 检查是否是 sdk_command — 直接 emit slash-command
+    if (chips.length === 1 && chips[0].kind === 'sdk_command') {
+      const commandName = chips[0].label
+      const userContent = content.replace(/\/cmd:"[^"]+":\w+:\w+\s*/g, '').trim()
       cleanupAfterCommand()
-      emit('slash-command', commandName, content, allAttachments)
+      emit('slash-command', commandName, userContent, allAttachments)
       return
     }
 
-    if (badge.kind === 'immediate') {
-      const commandName = badge.label
-      cleanupAfterCommand()
-      emit('slash-command', commandName, content, allAttachments)
-      return
-    }
-
-    const result = dispatchBadge(badge, content)
+    // 其他命令 — 使用 dispatchCommandChip 生成 prompt
+    const userContent = content.replace(/\/cmd:"[^"]+":\w+:\w+\s*/g, '').trim()
+    const result = dispatchCommandChip(chips, userContent)
 
     emit('send', result.prompt, allAttachments, {
-      badge: badge,
       displayLabel: result.displayLabel
     })
 
@@ -2021,22 +2093,20 @@ function handleSend() {
     return
   }
 
-  // 检测是否是斜杠命令
+  // 检测是否是斜杠命令（用户直接输入 /command）
   const slashResult = resolveDirectSlash(content)
 
   if (slashResult.action === 'immediate_command') {
-    // 立即执行命令
     const commandName = content.slice(1).split(/\s+/)[0]
     const commandArgs = content.slice(1 + commandName.length).trim()
     clearEditor()
     emit('slash-command', commandName, commandArgs, allAttachments)
-  } else if (slashResult.action === 'set_badge' && slashResult.badge) {
-    // 设置为 Badge，等待用户添加上下文
-    activeBadge.value = slashResult.badge
-    clearEditor()
-  } else if (slashResult.action === 'unknown_slash_badge' && slashResult.badge) {
-    // 未知命令也作为 Badge 处理
-    activeBadge.value = slashResult.badge
+  } else if (slashResult.action === 'insert_chip' && slashResult.chip) {
+    // 直接输入的命令 — 自动发送
+    const result = dispatchCommandChip([slashResult.chip], '')
+    emit('send', result.prompt, allAttachments, {
+      displayLabel: result.displayLabel
+    })
     clearEditor()
   } else {
     // 普通消息
@@ -2046,12 +2116,6 @@ function handleSend() {
   clearEditor()
   attachedFiles.value = []
   attachedImages.value = []
-}
-
-// 清除 Badge
-function clearBadge() {
-  activeBadge.value = null
-  editorRef.value?.focus()
 }
 
 function selectModel(modelValue: string) {
@@ -2639,6 +2703,64 @@ watch(pendingFile, (file) => {
         background: rgba(34, 197, 94, 0.08);
         border-color: rgba(34, 197, 94, 0.3);
         color: #22c55e;
+      }
+    }
+
+    // Inline command chip styles
+    .command-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      margin: 0 2px;
+      border: 1px solid var(--surface-border);
+      border-radius: 4px;
+      font-size: 12px;
+      line-height: 1.4;
+      vertical-align: baseline;
+      cursor: default;
+      user-select: none;
+      font-family: var(--font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace);
+
+      .chip-source-icon {
+        font-size: 12px;
+        line-height: 1;
+        flex-shrink: 0;
+      }
+
+      .chip-label {
+        font-weight: 600;
+      }
+
+      .chip-source-tag {
+        font-size: 10px;
+        opacity: 0.7;
+        text-transform: capitalize;
+      }
+
+      // Kind-based colors
+      &.kind-sdk_command {
+        background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.08);
+        border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.5);
+        color: var(--accent-primary);
+      }
+
+      &.kind-codepilot_command {
+        background: rgba(245, 158, 11, 0.08);
+        border-color: rgba(245, 158, 11, 0.5);
+        color: #f59e0b;
+      }
+
+      &.kind-agent_skill {
+        background: rgba(16, 185, 129, 0.08);
+        border-color: rgba(16, 185, 129, 0.5);
+        color: #10b981;
+      }
+
+      &.kind-slash_command {
+        background: rgba(99, 102, 241, 0.08);
+        border-color: rgba(99, 102, 241, 0.5);
+        color: #6366f1;
       }
     }
   }
@@ -3288,97 +3410,6 @@ watch(pendingFile, (file) => {
   .item-icon {
     color: var(--accent-primary);
   }
-}
-
-// 命令 Badge 样式 — 嵌入输入框内部
-.command-badge-bar {
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--surface-border);
-  margin-bottom: 8px;
-}
-
-.command-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 10px;
-  font-size: 13px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--surface-border);
-  transition: all 0.15s ease;
-
-  .badge-label {
-    font-weight: 600;
-    color: var(--accent-primary);
-  }
-
-  .badge-description {
-    color: var(--text-secondary);
-    font-size: 12px;
-  }
-
-  .badge-remove {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    color: var(--text-muted);
-    transition: all 0.15s ease;
-    margin-left: 4px;
-
-    &:hover {
-      background: var(--surface-hover);
-      color: var(--text-primary);
-    }
-  }
-
-  // 不同 kind 的样式
-  &.badge-kind-sdk_command {
-    background: rgba(var(--accent-primary-rgb), 0.08);
-    border-color: var(--accent-primary);
-  }
-
-  &.badge-kind-codepilot_command {
-    background: rgba(245, 158, 11, 0.08);
-    border-color: rgba(245, 158, 11, 0.5);
-
-    .badge-label {
-      color: #f59e0b;
-    }
-  }
-
-  &.badge-kind-agent_skill {
-    background: rgba(16, 185, 129, 0.08);
-    border-color: rgba(16, 185, 129, 0.5);
-
-    .badge-label {
-      color: #10b981;
-    }
-  }
-
-  &.badge-kind-slash_command {
-    background: rgba(99, 102, 241, 0.08);
-    border-color: rgba(99, 102, 241, 0.5);
-
-    .badge-label {
-      color: #6366f1;
-    }
-  }
-}
-
-// Badge 过渡动画
-.badge-enter-active,
-.badge-leave-active {
-  transition: all 0.2s ease;
-}
-
-.badge-enter-from,
-.badge-leave-to {
-  opacity: 0;
-  transform: translateY(-8px);
 }
 
 // 过渡动画
