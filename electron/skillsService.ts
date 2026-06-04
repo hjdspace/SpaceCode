@@ -1070,11 +1070,11 @@ function readLocalSkillsFromDir(
         if (!existsSync(skillFile)) continue
         const skill = readLocalSkillFile(skillFile, entry.name, sourceDir, cwd, bundleId, bundleName)
         if (skill) list.push(skill)
-      } else if (entry.isFile() && entry.name.endsWith('.md')) {
+      } else if (entry.isFile() && entry.name === 'SKILL.md') {
+        // Only recognize SKILL.md as skill definition file
+        // Filter out README.md, README.en.md and other non-skill .md files
         const skillFile = join(skillsDir, entry.name)
-        const fallbackName = entry.name.toLowerCase() === 'skill.md'
-          ? basename(skillsDir)
-          : entry.name.replace(/\.md$/i, '')
+        const fallbackName = basename(skillsDir)
         const skill = readLocalSkillFile(skillFile, fallbackName, sourceDir, cwd, bundleId, bundleName)
         if (skill) list.push(skill)
       }
@@ -1246,8 +1246,9 @@ async function handleScanLocalLibrary(
               allSkills.push(skill)
             }
           }
-        } else if (entry.isFile() && entry.name.endsWith('.md')) {
-          const skill = readLocalSkillFile(join(fullPath, entry.name), entry.name.replace(/\.md$/i, ''), fullPath, cwd)
+        } else if (entry.isFile() && entry.name === 'SKILL.md') {
+          // Only recognize SKILL.md as skill definition file in root level
+          const skill = readLocalSkillFile(join(fullPath, entry.name), basename(fullPath), fullPath, cwd)
           if (skill) allSkills.push(skill)
         }
       }
@@ -1356,9 +1357,10 @@ async function handleInstallLocalSkill(
         const entries = existsSync(fullPath) ? readdirSync(fullPath, { withFileTypes: true }) : []
 
         for (const entry of entries) {
+          // Only search for SKILL.md files when installing
           const candidatePath = entry.isDirectory()
             ? join(fullPath, entry.name, 'SKILL.md')
-            : entry.isFile() && entry.name.endsWith('.md')
+            : entry.isFile() && entry.name === 'SKILL.md'
               ? join(fullPath, entry.name)
               : null
 
