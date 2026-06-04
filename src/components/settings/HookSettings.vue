@@ -363,7 +363,6 @@ onMounted(() => {
 </script>
 
 <style lang="scss" scoped>
-@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap');
 
 .hook-settings { display: flex; flex-direction: column; gap: 20px; max-width: 780px; }
 .header-actions { display: flex; align-items: center; gap: 10px; }

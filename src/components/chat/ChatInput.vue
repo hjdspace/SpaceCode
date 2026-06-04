@@ -1039,7 +1039,7 @@ function insertCommandChip(cmd: { name: string; kind?: string; source?: string }
   chip.setAttribute('data-kind', kind)
   chip.setAttribute('data-source', source)
 
-  // Inner structure: source-icon + label + source-tag
+  // Inner structure: source-icon + label
   const iconSpan = document.createElement('span')
   iconSpan.className = 'chip-source-icon'
   iconSpan.textContent = sourceIcons[source] || '⚡'
@@ -1048,13 +1048,8 @@ function insertCommandChip(cmd: { name: string; kind?: string; source?: string }
   labelSpan.className = 'chip-label'
   labelSpan.textContent = `/${cmd.name}`
 
-  const tagSpan = document.createElement('span')
-  tagSpan.className = 'chip-source-tag'
-  tagSpan.textContent = source
-
   chip.appendChild(iconSpan)
   chip.appendChild(labelSpan)
-  chip.appendChild(tagSpan)
 
   // Insert chip and a trailing space
   range.deleteContents()

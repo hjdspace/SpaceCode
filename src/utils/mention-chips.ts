@@ -86,7 +86,6 @@ function buildCommandChipHtml(name: string, kind: string, source: string): strin
     `<span class="${chipClass}" data-command="/${escapeHtml(name)}" data-kind="${escapeHtml(kind)}" data-source="${escapeHtml(source)}">` +
     `<span class="chip-source-icon">${icon}</span>` +
     `<span class="chip-label">/${escapeHtml(name)}</span>` +
-    `<span class="chip-source-tag">${escapeHtml(source)}</span>` +
     `</span>`
   )
 }

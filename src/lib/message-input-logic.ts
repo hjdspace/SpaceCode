@@ -17,6 +17,14 @@ import type { CommandBadge } from '@/types'
 
 // ─── Result types ────────────────────────────────────────────────
 
+/** Parsed command chip data from editor serialization */
+export interface CommandChipData {
+  command: string
+  label: string
+  kind: CommandKind
+  source: string
+}
+
 export interface InsertResult {
   action: 'immediate_command' | 'set_badge' | 'insert_file_mention'
   commandValue?: string
@@ -33,13 +41,12 @@ export type KeyAction =
   | { type: 'popover_navigate'; direction: 'up' | 'down' }
   | { type: 'popover_select' }
   | { type: 'close_popover' }
-  | { type: 'remove_badge' }
   | { type: 'passthrough' }
 
 export interface DirectSlashResult {
-  action: 'immediate_command' | 'set_badge' | 'unknown_slash_badge' | 'not_slash'
+  action: 'immediate_command' | 'insert_chip' | 'not_slash'
   commandValue?: string
-  badge?: CommandBadge
+  chip?: CommandChipData
 }
 
 export interface PopoverItem {
@@ -225,6 +232,31 @@ export function dispatchBadge(
 }
 
 /**
+ * Dispatch logic for inline command chips — generates the final prompt
+ * from one or more command chips plus user content.
+ * Reuses the same prompt generation logic as dispatchBadge.
+ */
+export function dispatchCommandChip(
+  chips: CommandChipData[],
+  userContent: string,
+): BadgeDispatchResult {
+  if (chips.length === 0) {
+    return { prompt: userContent, displayLabel: userContent }
+  }
+
+  // Convert chips to badges for reuse of dispatchBadge logic
+  const badges: CommandBadge[] = chips.map((chip) => ({
+    command: chip.command,
+    label: chip.label,
+    description: '',
+    kind: chip.kind,
+    source: chip.source as any,
+  }))
+
+  return dispatchBadge(badges, userContent)
+}
+
+/**
  * ArrowDown/ArrowUp index cycling logic.
  * Used by handleKeyDown popover navigation in MessageInput.
  */
@@ -259,7 +291,7 @@ export function resolveKeyAction(
     popoverMode: PopoverMode
     popoverHasItems: boolean
     inputValue: string
-    hasBadge: boolean
+    hasBadge: boolean  // 保留参数但不再使用 remove_badge
   },
 ): KeyAction {
   // Popover navigation (skill/file mode)
@@ -270,14 +302,9 @@ export function resolveKeyAction(
     if (key === 'Escape') return { type: 'close_popover' }
   }
 
-  // Backspace removes badge when input is empty
-  if (key === 'Backspace' && !state.inputValue) {
-    if (state.hasBadge) return { type: 'remove_badge' }
-  }
-
-  // Escape removes badge
+  // Escape closes popover only (badge removal handled by DOM backspace)
   if (key === 'Escape') {
-    if (state.hasBadge) return { type: 'remove_badge' }
+    if (state.popoverMode) return { type: 'close_popover' }
   }
 
   return { type: 'passthrough' }
@@ -296,12 +323,12 @@ export function resolveDirectSlash(content: string): DirectSlashResult {
       return { action: 'immediate_command', commandValue: content }
     }
     return {
-      action: 'set_badge',
-      badge: {
+      action: 'insert_chip',
+      chip: {
         command: `/${cmd.name}`,
         label: cmd.name,
-        description: cmd.description || '',
         kind: cmd.kind || 'slash_command',
+        source: (cmd as any).source || 'builtin',
       },
     }
   }
@@ -309,12 +336,12 @@ export function resolveDirectSlash(content: string): DirectSlashResult {
   const skillName = content.slice(1).split(/\s+/)[0]
   if (skillName) {
     return {
-      action: 'unknown_slash_badge',
-      badge: {
+      action: 'insert_chip',
+      chip: {
         command: `/${skillName}`,
         label: skillName,
-        description: '',
         kind: 'slash_command',
+        source: 'builtin',
       },
     }
   }

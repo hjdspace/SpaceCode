@@ -556,57 +556,6 @@ function handleUserCopy(e: ClipboardEvent) {
       color: var(--accent-primary);
     }
   }
-
-  :deep(.command-chip) {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
-    border: 1px solid var(--surface-border);
-    border-radius: 4px;
-    font-size: 12px;
-    line-height: 1.4;
-    vertical-align: baseline;
-    font-family: var(--font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace);
-
-    .chip-source-icon {
-      font-size: 12px;
-      line-height: 1;
-    }
-
-    .chip-label {
-      font-weight: 600;
-    }
-
-    .chip-source-tag {
-      font-size: 10px;
-      opacity: 0.7;
-    }
-
-    &.kind-sdk_command {
-      background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.08);
-      border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.5);
-      color: var(--accent-primary);
-    }
-
-    &.kind-codepilot_command {
-      background: rgba(245, 158, 11, 0.08);
-      border-color: rgba(245, 158, 11, 0.5);
-      color: #f59e0b;
-    }
-
-    &.kind-agent_skill {
-      background: rgba(16, 185, 129, 0.08);
-      border-color: rgba(16, 185, 129, 0.5);
-      color: #10b981;
-    }
-
-    &.kind-slash_command {
-      background: rgba(99, 102, 241, 0.08);
-      border-color: rgba(99, 102, 241, 0.5);
-      color: #6366f1;
-    }
-  }
 }
 
 .message-content {
