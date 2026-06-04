@@ -168,6 +168,27 @@
     </Transition>
 
     <ContextUsageModal v-model:show="showContextModal" />
+
+    <!-- Diff 面板 -->
+    <Transition name="modal">
+      <div v-if="showDiffPanel" class="diff-overlay" @click.self="showDiffPanel = false">
+        <div class="diff-modal">
+          <div class="diff-modal-header">
+            <h3>Git Diff</h3>
+            <button class="diff-close-btn" @click="showDiffPanel = false">×</button>
+          </div>
+          <div class="diff-modal-body">
+            <div v-if="diffPanelLoading" class="diff-loading">
+              <p>Loading diff...</p>
+            </div>
+            <div v-else-if="!diffPanelData" class="diff-empty">
+              <p>Working tree is clean or not a git repository.</p>
+            </div>
+            <DiffExplorer v-else :diffData="diffPanelData" />
+          </div>
+        </div>
+      </div>
+    </Transition>
   </main>
 </template>
 
@@ -198,6 +219,7 @@ import HistorySessionList from '../explorer/HistorySessionList.vue'
 import ContextUsageChip from '../chat/ContextUsageChip.vue'
 import ContextUsageWarningBar from '../chat/ContextUsageWarningBar.vue'
 import ContextUsageModal from '../chat/ContextUsageModal.vue'
+import DiffExplorer from '../chat/DiffExplorer.vue'
 import { useContextUsageStore } from '@/stores/contextUsage'
 import { initLLMService, llmState, updateConfig } from '@/services/llm'
 import { pathsEqual } from '@/utils/recentProjectRoots'
@@ -214,6 +236,9 @@ const electronAPI = (window as any).electronAPI
 const showHistoryModal = ref(false)
 const historySearchQuery = ref('')
 const showContextModal = ref(false)
+const showDiffPanel = ref(false)
+const diffPanelData = ref<any>(null)
+const diffPanelLoading = ref(false)
 const contextUsageStore = useContextUsageStore()
 
 // Rewind state
@@ -571,13 +596,16 @@ async function handleSlashCommand(command: string, args: string, attachments: Al
   // 执行命令
   const result = await executeSlashCommand(command, args)
 
-  // 对于 rewind / context 命令，不添加 assistant 回复（UI 直接打开面板）
+  // 对于 rewind / context / diff 命令，不添加 assistant 回复（UI 直接打开面板）
   const cmd = command.toLowerCase()
   if (cmd === 'rewind' || cmd === 'checkpoint') {
     return
   }
   if (cmd === 'context') {
     showContextModal.value = true
+    return
+  }
+  if (cmd === 'diff') {
     return
   }
 
@@ -624,6 +652,11 @@ async function executeSlashCommand(command: string, args: string): Promise<strin
       // 打开终端标签
       appStore.openTerminalTab(args || undefined)
       return '已打开终端。'
+
+    case 'diff':
+      // 获取 git diff 并展示
+      await fetchAndShowDiff()
+      return ''
 
     case 'settings':
       // 打开设置面板
@@ -699,6 +732,38 @@ Skills from \`~/.claude/commands/\` and project \`.claude/commands/\` are also a
 - Type \`@\` to mention files
 - Use Shift+Enter for new line
 - Select a project folder to enable file operations`
+}
+
+// 获取并展示 Git Diff
+async function fetchAndShowDiff() {
+  const workingDir = chatStore.workingDirectory
+  if (!workingDir) {
+    await chatStore.addMessage({
+      role: 'assistant',
+      content: '未打开项目文件夹，无法执行 diff 命令。'
+    })
+    return
+  }
+
+  diffPanelLoading.value = true
+  diffPanelData.value = null
+  showDiffPanel.value = true
+
+  try {
+    const api = (window as any).electronAPI
+    const result = await api.git.getFullDiff(workingDir)
+    if (!result) {
+      // Not a git repo or error
+      diffPanelData.value = null
+    } else {
+      diffPanelData.value = result
+    }
+  } catch (e) {
+    console.error('[DiffPanel] Failed to fetch diff:', e)
+    diffPanelData.value = null
+  } finally {
+    diffPanelLoading.value = false
+  }
 }
 
 // 生成 Token 用量信息
@@ -1470,6 +1535,136 @@ function buildMessagesFromHistory(rawMessages: any[]): RestoredMessage[] {
   opacity: 0;
 
   .history-modal-content {
+    transform: translateY(-10px) scale(0.98);
+  }
+}
+
+/* Diff Modal */
+.diff-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+}
+
+.diff-modal {
+  background: #ffffff;
+  border-radius: 12px;
+  width: 92vw;
+  max-width: 1200px;
+  height: 85vh;
+  max-height: 800px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+/* 暗色主题适配 */
+:global(.dark) .diff-modal {
+  background: #1a1a2e;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.diff-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+  background: #f8fafc;
+
+  :global(.dark) & {
+    border-bottom-color: #2d3748;
+    background: #16162a;
+  }
+
+  h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: #1a202c;
+
+    :global(.dark) & {
+      color: #e2e8f0;
+    }
+  }
+}
+
+.diff-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #64748b;
+  font-size: 18px;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    background: #e2e8f0;
+    color: #1a202c;
+  }
+
+  :global(.dark) & {
+    color: #94a3b8;
+
+    &:hover {
+      background: #2d3748;
+      color: #e2e8f0;
+    }
+  }
+}
+
+.diff-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: #ffffff;
+
+  :global(.dark) & {
+    background: #1a1a2e;
+  }
+}
+
+.diff-loading,
+.diff-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #64748b;
+  font-size: 13px;
+
+  :global(.dark) & {
+    color: #94a3b8;
+  }
+}
+
+/* Modal Transition */
+.modal-enter-active,
+.modal-leave-active {
+  transition: all 0.25s ease;
+
+  .diff-modal {
+    transition: all 0.25s ease;
+  }
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+
+  .diff-modal {
     transform: translateY(-10px) scale(0.98);
   }
 }

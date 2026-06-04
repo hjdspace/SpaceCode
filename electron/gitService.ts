@@ -90,6 +90,24 @@ export interface GitDiffResult {
   isBinary: boolean
 }
 
+export interface GitFullDiffFileStats {
+  path: string
+  linesAdded: number
+  linesRemoved: number
+  isBinary: boolean
+  isUntracked?: boolean
+}
+
+export interface GitFullDiffResult {
+  stats: {
+    filesCount: number
+    linesAdded: number
+    linesRemoved: number
+  }
+  files: GitFullDiffFileStats[]
+  hunks: Record<string, GitDiffHunk[]>
+}
+
 export interface GitStatusResult {
   isRepo: boolean
   branch: string
@@ -428,6 +446,149 @@ async function getDiff(cwd: string, path: string, staged?: boolean): Promise<Git
   }
 }
 
+async function getFullDiff(cwd: string): Promise<GitFullDiffResult | null> {
+  const isRepo = await isGitRepo(cwd)
+  if (!isRepo) return null
+
+  // Get numstat for file-level stats
+  const numstatResult = await gitExec(['--no-optional-locks', 'diff', 'HEAD', '--numstat'], cwd)
+  if (numstatResult.code !== 0) return null
+
+  // Parse numstat for per-file stats
+  const files: GitFullDiffFileStats[] = []
+  let totalAdded = 0
+  let totalRemoved = 0
+  let fileCount = 0
+
+  const numstatLines = numstatResult.stdout.trim().split('\n').filter(Boolean)
+  for (const line of numstatLines) {
+    const parts = line.split('\t')
+    if (parts.length < 3) continue
+
+    fileCount++
+    const addStr = parts[0]!
+    const remStr = parts[1]!
+    const filePath = parts.slice(2).join('\t')
+    const isBinary = addStr === '-' || remStr === '-'
+    const fileAdded = isBinary ? 0 : parseInt(addStr, 10) || 0
+    const fileRemoved = isBinary ? 0 : parseInt(remStr, 10) || 0
+
+    totalAdded += fileAdded
+    totalRemoved += fileRemoved
+
+    files.push({
+      path: filePath,
+      linesAdded: fileAdded,
+      linesRemoved: fileRemoved,
+      isBinary,
+    })
+  }
+
+  // Get untracked files
+  const untrackedResult = await gitExec(
+    ['--no-optional-locks', 'ls-files', '--others', '--exclude-standard'],
+    cwd,
+  )
+  if (untrackedResult.code === 0 && untrackedResult.stdout.trim()) {
+    const untrackedPaths = untrackedResult.stdout.trim().split('\n').filter(Boolean)
+    for (const filePath of untrackedPaths) {
+      files.push({
+        path: filePath,
+        linesAdded: 0,
+        linesRemoved: 0,
+        isBinary: false,
+        isUntracked: true,
+      })
+      fileCount++
+    }
+  }
+
+  // Get full diff hunks for all files
+  const diffResult = await gitExec(
+    ['--no-optional-locks', 'diff', 'HEAD', '--no-color', '--unified=3'],
+    cwd,
+  )
+
+  const hunks: Record<string, GitDiffHunk[]> = {}
+  if (diffResult.code === 0 && diffResult.stdout.trim()) {
+    const fileDiffs = diffResult.stdout.split(/^diff --git /m).filter(Boolean)
+    for (const fileDiff of fileDiffs) {
+      const lines = fileDiff.split('\n')
+      const headerMatch = lines[0]?.match(/^a\/(.+?) b\/(.+)$/)
+      if (!headerMatch) continue
+      const filePath = headerMatch[2] ?? headerMatch[1] ?? ''
+
+      const fileHunks: GitDiffHunk[] = []
+      let currentHunk: GitDiffHunk | null = null
+      let currentLines: string[] = []
+
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i] ?? ''
+        const hunkMatch = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/)
+
+        if (hunkMatch) {
+          if (currentHunk) {
+            currentHunk.content = currentLines.join('\n')
+            fileHunks.push(currentHunk)
+          }
+          currentHunk = {
+            oldStart: parseInt(hunkMatch[1] ?? '0', 10),
+            oldLines: parseInt(hunkMatch[2] ?? '1', 10),
+            newStart: parseInt(hunkMatch[3] ?? '0', 10),
+            newLines: parseInt(hunkMatch[4] ?? '1', 10),
+            content: '',
+          }
+          currentLines = []
+          continue
+        }
+
+        // Skip diff metadata
+        if (
+          line.startsWith('index ') ||
+          line.startsWith('---') ||
+          line.startsWith('+++') ||
+          line.startsWith('new file') ||
+          line.startsWith('deleted file') ||
+          line.startsWith('old mode') ||
+          line.startsWith('new mode') ||
+          line.startsWith('Binary files')
+        ) {
+          continue
+        }
+
+        if (
+          currentHunk &&
+          (line.startsWith('+') || line.startsWith('-') || line.startsWith(' ') || line === '')
+        ) {
+          currentLines.push(line)
+        }
+      }
+
+      if (currentHunk) {
+        currentHunk.content = currentLines.join('\n')
+        fileHunks.push(currentHunk)
+      }
+
+      if (fileHunks.length > 0) {
+        hunks[filePath] = fileHunks
+      }
+    }
+  }
+
+  // Sort files alphabetically
+  files.sort((a, b) => a.path.localeCompare(b.path))
+
+  return {
+    stats: {
+      filesCount: fileCount,
+      linesAdded: totalAdded,
+      linesRemoved: totalRemoved,
+    },
+    files,
+    hunks,
+  }
+}
+
 async function getBranches(cwd: string): Promise<GitBranch[]> {
   const result = await gitExec(
     ['branch', '-a', '--no-color', '-v', '--abbrev=40'],
@@ -652,6 +813,10 @@ export function registerGitIPCHandlers() {
   ipcMain.handle('git:fetchAll', async (_event, cwd: string) => {
     const result = await gitExec(['fetch', '--all', '--prune'], cwd)
     return { success: result.code === 0, error: result.code !== 0 ? result.stderr : undefined }
+  })
+
+  ipcMain.handle('git:getFullDiff', async (_event, cwd: string) => {
+    return getFullDiff(cwd)
   })
 
   console.log('[GitService] IPC handlers registered')

@@ -92,7 +92,8 @@ export const BUILT_IN_COMMANDS: SlashCommand[] = [
     name: 'diff',
     description: 'Show file diff since last message',
     icon: 'FileDiff',
-    kind: 'sdk_command',
+    kind: 'immediate',
+    immediate: true,
     source: 'builtin' as const,
   },
   {

@@ -226,6 +226,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('git:commit', cwd, message, amend),
     getDiff: (cwd: string, path: string, staged?: boolean): Promise<any> =>
       ipcRenderer.invoke('git:getDiff', cwd, path, staged),
+    getFullDiff: (cwd: string): Promise<any> =>
+      ipcRenderer.invoke('git:getFullDiff', cwd),
     getStagedDiff: (cwd: string): Promise<string> =>
       ipcRenderer.invoke('git:getStagedDiff', cwd),
     showFile: (cwd: string, path: string): Promise<string | null> =>
@@ -463,4 +465,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   debug: debugApi,
   trace: traceApi,
   session: sessionApi,
+
+  // MCP Probe — 直接探测 MCP 服务器（不依赖 engine session）
+  // MCP Config CRUD — 持久化到 <userData>/mcp-servers.json
+  mcp: {
+    getServers: () => ipcRenderer.invoke('mcp:getServers'),
+    addServer: (name: string, server: any) => ipcRenderer.invoke('mcp:addServer', name, server),
+    updateServers: (servers: Record<string, any>) => ipcRenderer.invoke('mcp:updateServers', servers),
+    deleteServer: (name: string) => ipcRenderer.invoke('mcp:deleteServer', name),
+    toggleEnabled: (name: string, enabled: boolean) => ipcRenderer.invoke('mcp:toggleEnabled', name, enabled),
+    probeServer: (config: any) => ipcRenderer.invoke('mcp:probeServer', config),
+  },
 })
