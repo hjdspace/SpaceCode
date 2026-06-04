@@ -32,7 +32,12 @@
               <span v-else class="status-badge configured">Configured</span>
             </div>
             <div class="server-command">
-              {{ server.url || `${server.command} ${server.args?.join(' ') || ''}` }}
+              <span v-if="server.url">{{ server.url }}</span>
+              <span v-else-if="server.command">{{ server.command }} {{ server.args?.join(' ') || '' }}</span>
+              <span v-else class="server-command-missing">
+                <AlertCircle :size="12" />
+                No command or URL configured
+              </span>
             </div>
             <div v-if="getRuntimeStatus(name)?.serverInfo" class="server-version">
               {{ getRuntimeStatus(name)?.serverInfo?.name }} v{{ getRuntimeStatus(name)?.serverInfo?.version }}
@@ -93,7 +98,7 @@
 import { ref, computed } from 'vue'
 import {
   HardDrive, Pencil, Trash2, ChevronDown, RefreshCw,
-  Wifi, Globe, Terminal
+  Wifi, Globe, Terminal, AlertCircle
 } from 'lucide-vue-next'
 import { useMcpStore, type MCPServer, type McpRuntimeStatus } from '@/stores/mcp'
 
@@ -315,6 +320,9 @@ function getServerTypeColor(server: MCPServer): string {
 }
 
 .server-command {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12px;
   color: var(--text-muted);
   font-family: var(--font-mono, monospace);
@@ -322,6 +330,15 @@ function getServerTypeColor(server: MCPServer): string {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.server-command-missing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #f59e0b;
+  font-style: italic;
+  font-family: var(--font-sans, inherit);
 }
 
 .server-version {

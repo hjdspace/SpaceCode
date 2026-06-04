@@ -95,8 +95,15 @@
           </button>
         </div>
 
-        <div v-if="!activeSessionId" class="runtime-empty">
-          No active session
+        <div v-if="!activeSessionId && !runtimeLoading" class="runtime-empty runtime-hint">
+          <Info :size="14" />
+          <div>
+            <div class="runtime-hint-title">No active chat session</div>
+            <div class="runtime-hint-desc">
+              MCP servers are loaded when an engine session starts.
+              Open a chat (or send a message) to connect and view tools.
+            </div>
+          </div>
         </div>
         <div v-else-if="runtimeStatus.length === 0" class="runtime-empty">
           No runtime status available
@@ -107,13 +114,43 @@
             :key="status.name"
             class="runtime-item"
           >
-            <div class="runtime-info">
+            <button
+              class="runtime-summary"
+              :class="{ open: expanded[status.name] }"
+              @click="toggleExpand(status.name)"
+            >
+              <ChevronRight :size="12" class="chev" />
               <span class="status-dot" :class="status.status" />
               <span class="server-name">{{ status.name }}</span>
-            </div>
-            <span class="status-badge" :class="status.status">
-              {{ status.status }}
-            </span>
+              <span v-if="status.tools?.length" class="tool-count">
+                {{ status.tools.length }} tools
+              </span>
+              <span class="status-badge" :class="status.status">
+                {{ status.status }}
+              </span>
+            </button>
+            <ul v-if="expanded[status.name]" class="tool-list">
+              <li
+                v-if="status.status === 'connected' && !status.tools?.length"
+                class="tool-empty"
+              >
+                No tools reported by this server
+              </li>
+              <li
+                v-else-if="status.status !== 'connected'"
+                class="tool-empty"
+              >
+                Tools unavailable — server not connected
+              </li>
+              <li
+                v-for="tool in status.tools"
+                :key="tool.name"
+                class="tool-row"
+              >
+                <span class="tool-name">{{ tool.name }}</span>
+                <span class="tool-desc">{{ tool.description || '—' }}</span>
+              </li>
+            </ul>
           </div>
         </div>
       </div>
@@ -130,9 +167,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
 import {
-  Plus, List, Code, Loader2, Wifi, RefreshCw, ArrowLeft
+  Plus, List, Code, Loader2, Wifi, RefreshCw, ArrowLeft, ChevronRight, Info
 } from 'lucide-vue-next'
 import { useMcpStore, type MCPServer } from '@/stores/mcp'
 import { useAppStore } from '@/stores/app'
@@ -147,6 +184,7 @@ const tab = ref<'list' | 'json'>('list')
 const editorOpen = ref(false)
 const editingName = ref<string | undefined>()
 const editingServer = ref<MCPServer | undefined>()
+const expanded = reactive<Record<string, boolean>>({})
 
 const servers = computed(() => mcpStore.servers)
 const serverList = computed(() => mcpStore.serverList)
@@ -244,6 +282,10 @@ async function handleReconnect(name: string) {
 
 async function fetchRuntimeStatus() {
   await mcpStore.fetchRuntimeStatus()
+}
+
+function toggleExpand(name: string) {
+  expanded[name] = !expanded[name]
 }
 
 onMounted(() => {
@@ -457,6 +499,37 @@ onMounted(() => {
   color: var(--text-muted);
 }
 
+.runtime-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+  padding: 14px 16px;
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-color);
+  border-radius: 8px;
+  color: var(--text-secondary);
+
+  svg {
+    color: var(--accent-primary);
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+}
+
+.runtime-hint-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.runtime-hint-desc {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
 .runtime-list {
   display: flex;
   flex-direction: column;
@@ -465,18 +538,95 @@ onMounted(() => {
 
 .runtime-item {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  background: var(--bg-secondary);
+  flex-direction: column;
   border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
 }
 
-.runtime-info {
+.runtime-summary {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-width: 0;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  transition: background 0.15s;
+
+  &:hover {
+    background: var(--bg-hover);
+  }
+
+  &.open {
+    border-bottom: 1px solid var(--border-color);
+  }
+}
+
+.chev {
+  color: var(--text-muted);
+  transition: transform 0.15s;
+  flex-shrink: 0;
+
+  .runtime-summary.open & {
+    transform: rotate(90deg);
+  }
+}
+
+.tool-count {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: auto;
+  padding: 1px 6px;
+  background: var(--bg-primary);
+  border-radius: 10px;
+}
+
+.tool-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--bg-primary);
+}
+
+.tool-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 12px 8px 32px;
+  border-top: 1px solid var(--border-color);
+  font-size: 12px;
+
+  &:first-child {
+    border-top: none;
+  }
+}
+
+.tool-name {
+  flex: 0 0 220px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.tool-desc {
+  flex: 1;
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool-empty {
+  padding: 8px 12px 8px 32px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 .status-dot {

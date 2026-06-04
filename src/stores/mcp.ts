@@ -16,10 +16,22 @@ export interface MCPServer {
   _source?: string
 }
 
+export interface McpToolInfo {
+  name: string
+  description?: string
+  annotations?: {
+    readOnly?: boolean
+    destructive?: boolean
+    openWorld?: boolean
+  }
+}
+
 export interface McpRuntimeStatus {
   name: string
   status: 'connected' | 'failed' | 'needs-auth' | 'pending' | 'disabled'
   serverInfo?: { name: string; version: string }
+  error?: string
+  tools?: McpToolInfo[]
 }
 
 const MCP_STORAGE_KEY = 'claude_desktop_mcp_servers'
@@ -73,14 +85,38 @@ export const useMcpStore = defineStore('mcp', () => {
   async function fetchRuntimeStatus() {
     runtimeLoading.value = true
     try {
-      if (electronAPI?.mcp?.getRuntimeStatus) {
-        const data = await electronAPI.mcp.getRuntimeStatus()
-        if (data.servers) {
-          runtimeStatus.value = data.servers
+      const claudeCode = electronAPI?.claudeCode
+      if (!claudeCode?.getMcpStatus) return
+
+      // 1. 找一个正在运行的 engine session。
+      //    MCP 连接只在 engine session 启动后才会建立（由 engine 在
+      //    initialize 时去 spawn stdio / 连 SSE / HTTP），所以没有
+      //    active session 就拿不到 runtime 状态。
+      let sessionId: string | null = null
+      if (typeof claudeCode.getActiveSessions === 'function') {
+        const sessions = await claudeCode.getActiveSessions()
+        if (Array.isArray(sessions) && sessions.length > 0) {
+          const first = sessions[0] as { sessionId?: string; id?: string }
+          sessionId = first.sessionId ?? first.id ?? null
         }
-        if (data.sessionId) {
-          activeSessionId.value = data.sessionId
-        }
+      }
+
+      if (!sessionId) {
+        activeSessionId.value = null
+        runtimeStatus.value = []
+        return
+      }
+
+      // 2. 拉取该 session 的 MCP 运行时状态。
+      //    引擎返回的 schema 是 { mcpServers: McpServerStatus[] }
+      //    （见 engine/src/cli/print.ts:2972-2975 的 mcp_status handler）
+      const data = await claudeCode.getMcpStatus(sessionId)
+      if (data && Array.isArray((data as any).mcpServers)) {
+        runtimeStatus.value = (data as any).mcpServers as McpRuntimeStatus[]
+        activeSessionId.value = sessionId
+      } else {
+        activeSessionId.value = sessionId
+        runtimeStatus.value = []
       }
     } catch (err) {
       console.error('Failed to fetch runtime status:', err)
