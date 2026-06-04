@@ -66,6 +66,31 @@ function buildImageChipHtml(image: ImageAttachment): string {
   )
 }
 
+/** Source icon mapping */
+const SOURCE_ICONS: Record<string, string> = {
+  builtin: '⚡',
+  bundled: '📦',
+  global: '🌐',
+  project: '📂',
+  plugin: '🧩',
+  mcp: '🔌',
+}
+
+/**
+ * Build the HTML for a single command chip.
+ */
+function buildCommandChipHtml(name: string, kind: string, source: string): string {
+  const icon = SOURCE_ICONS[source] || '⚡'
+  const chipClass = `command-chip kind-${kind} source-${source}`
+  return (
+    `<span class="${chipClass}" data-command="/${escapeHtml(name)}" data-kind="${escapeHtml(kind)}" data-source="${escapeHtml(source)}">` +
+    `<span class="chip-source-icon">${icon}</span>` +
+    `<span class="chip-label">/${escapeHtml(name)}</span>` +
+    `<span class="chip-source-tag">${escapeHtml(source)}</span>` +
+    `</span>`
+  )
+}
+
 /**
  * Replace `@file:"<path>"` / `@folder:"<path>"` markers with HTML chip
  * spans, leaving all other text untouched. Use this when the surrounding
@@ -104,6 +129,40 @@ export function renderMentionChipsToHtml(text: string): string {
 }
 
 /**
+ * Replace /cmd:"name":kind:source markers with HTML command chip spans,
+ * leaving all other text untouched.
+ */
+export function replaceCommandChipMarkers(text: string): string {
+  if (!text) return ''
+  return text.replace(/\/cmd:"([^"]+)":(\w+):(\w+)/g, (_match, name, kind, source) =>
+    buildCommandChipHtml(name, kind, source)
+  )
+}
+
+/**
+ * Replace command markers with chip HTML AND HTML-escape all surrounding text.
+ * Returns a string safe to insert via v-html where the input is plain text.
+ */
+export function renderCommandChipsToHtml(text: string): string {
+  if (!text) return ''
+
+  const CMD_MARKER_RE = /\/cmd:"([^"]+)":(\w+):(\w+)/g
+  let result = ''
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = CMD_MARKER_RE.exec(text)) !== null) {
+    const [full, name, kind, source] = match
+    result += escapeHtml(text.slice(lastIndex, match.index))
+    result += buildCommandChipHtml(name, kind, source)
+    lastIndex = match.index + full.length
+  }
+
+  result += escapeHtml(text.slice(lastIndex))
+  return result
+}
+
+/**
  * Render mention chips and image previews together.
  */
 export function renderContentWithAttachments(text: string, images?: ImageAttachment[]): string {
@@ -111,28 +170,30 @@ export function renderContentWithAttachments(text: string, images?: ImageAttachm
 
   const imageMap = new Map(images?.map(img => [img.id, img]) || [])
 
-  const MARKER_RE = /@(file|folder|image):"([^"]+)"/g
+  const MARKER_RE = /@(file|folder|image):"([^"]+)"|\/cmd:"([^"]+)":(\w+):(\w+)/g
   let result = ''
   let lastIndex = 0
   let match: RegExpExecArray | null
 
   while ((match = MARKER_RE.exec(text)) !== null) {
-    const [full, kind, value] = match
     result += escapeHtml(text.slice(lastIndex, match.index))
-    
-    if (kind === 'image') {
-      const img = imageMap.get(value)
+
+    if (match[3] !== undefined) {
+      // Command chip marker: /cmd:"name":kind:source
+      result += buildCommandChipHtml(match[3], match[4], match[5])
+    } else if (match[1] === 'image') {
+      const img = imageMap.get(match[2])
       if (img) {
         result += buildImageChipHtml(img)
       } else {
-        // If image not found, just show the text
-        result += escapeHtml(full)
+        result += escapeHtml(match[0])
       }
     } else {
-      result += buildChipHtml(value, kind === 'folder')
+      // file or folder
+      result += buildChipHtml(match[2], match[1] === 'folder')
     }
-    
-    lastIndex = match.index + full.length
+
+    lastIndex = match.index + match[0].length
   }
 
   result += escapeHtml(text.slice(lastIndex))
