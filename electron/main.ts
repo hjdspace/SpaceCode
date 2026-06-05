@@ -934,17 +934,7 @@ ipcMain.handle('shell:openExternal', async (_event, url: string) => {
 
 ipcMain.handle('app:openInEditor', async (_event, editor: ExternalEditor, targetPath: string) => {
   info('IPC', 'app:openInEditor', { editor, targetPath })
-  const supported: ExternalEditor[] = [
-    'vscode',
-    'visualstudio',
-    'cursor',
-    'fileExplorer',
-    'terminal',
-    'gitBash',
-    'wsl',
-    'androidStudio',
-  ]
-  if (!supported.includes(editor)) {
+  if (!EDITOR_LAUNCHERS[editor]) {
     return { success: false, error: 'Unsupported editor' }
   }
   return openPathInEditor(editor, targetPath)
