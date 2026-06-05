@@ -2,8 +2,8 @@
   <div class="mcp-server-list">
     <div v-if="entries.length === 0" class="empty-state">
       <HardDrive :size="40" />
-      <p class="empty-title">No MCP Servers</p>
-      <p class="empty-desc">Add an MCP server to extend Claude's capabilities with custom tools.</p>
+      <p class="empty-title">{{ t('mcpSettings.noServers') }}</p>
+      <p class="empty-desc">{{ t('mcpSettings.noServersDesc') }}</p>
     </div>
     <div v-else class="server-list">
       <div
@@ -29,14 +29,14 @@
               <span v-if="getRuntimeStatus(name)" class="status-badge" :class="getRuntimeStatus(name)?.status">
                 {{ getRuntimeStatusLabel(getRuntimeStatus(name)!.status) }}
               </span>
-              <span v-else class="status-badge configured">Configured</span>
+              <span v-else class="status-badge configured">{{ t('mcpSettings.configured') }}</span>
             </div>
             <div class="server-command">
               <span v-if="server.url">{{ server.url }}</span>
               <span v-else-if="server.command">{{ server.command }} {{ server.args?.join(' ') || '' }}</span>
               <span v-else class="server-command-missing">
                 <AlertCircle :size="12" />
-                No command or URL configured
+                {{ t('mcpSettings.noCommandOrUrl') }}
               </span>
             </div>
             <div v-if="getRuntimeStatus(name)?.serverInfo" class="server-version">
@@ -47,7 +47,7 @@
             <button
               class="action-btn"
               :class="{ probing: getProbeResult(name)?.status === 'probing', disabled: !canProbe(server) }"
-              :title="canProbe(server) ? 'Test Connection' : 'No command or URL configured'"
+              :title="canProbe(server) ? t('mcpSettings.testConnection') : t('mcpSettings.noCommandOrUrl')"
               :disabled="getProbeResult(name)?.status === 'probing' || !canProbe(server)"
               @click.stop="handleProbe(name)"
             >
@@ -57,21 +57,21 @@
             <button
               v-if="getRuntimeStatus(name)?.status === 'failed'"
               class="action-btn"
-              title="Reconnect"
+              :title="t('mcpSettings.reconnect')"
               @click.stop="$emit('reconnect', name)"
             >
               <RefreshCw :size="14" />
             </button>
             <button
               class="action-btn"
-              title="Edit"
+              :title="t('mcpSettings.edit')"
               @click.stop="$emit('edit', name, server)"
             >
               <Pencil :size="14" />
             </button>
             <button
               class="action-btn danger"
-              title="Delete"
+              :title="t('mcpSettings.delete')"
               @click.stop="$emit('delete', name)"
             >
               <Trash2 :size="14" />
@@ -89,7 +89,7 @@
           <!-- Probe Result -->
           <div v-if="getProbeResult(name)" class="detail-section">
             <span class="detail-label">
-              Connection Test
+              {{ t('mcpSettings.connectionTest') }}
               <span class="probe-status" :class="getProbeResult(name)!.status">
                 <Loader2 v-if="getProbeResult(name)!.status === 'probing'" :size="10" class="spin" />
                 {{ probeStatusLabel(getProbeResult(name)!.status) }}
@@ -102,22 +102,22 @@
             <div v-if="getProbeResult(name)!.tools && getProbeResult(name)!.tools!.length > 0" class="probe-tools">
               <div v-for="tool in getProbeResult(name)!.tools" :key="tool.name" class="probe-tool-row">
                 <span class="probe-tool-name">{{ tool.name }}</span>
-                <span class="probe-tool-desc">{{ tool.description || '—' }}</span>
+                <span class="probe-tool-desc">{{ tool.description || t('mcpSettings.noDescription') }}</span>
               </div>
             </div>
             <div v-else-if="getProbeResult(name)!.status === 'connected' && (!getProbeResult(name)!.tools || getProbeResult(name)!.tools!.length === 0)" class="probe-no-tools">
-              Server connected but reported no tools
+              {{ t('mcpSettings.serverConnectedNoTools') }}
             </div>
           </div>
 
           <div v-if="server.args && server.args.length > 0" class="detail-section">
-            <span class="detail-label">Arguments</span>
+            <span class="detail-label">{{ t('mcpSettings.arguments') }}</span>
             <div class="detail-tags">
               <span v-for="(arg, i) in server.args" :key="i" class="detail-tag">{{ arg }}</span>
             </div>
           </div>
           <div v-if="Object.keys(server.env || {}).length > 0" class="detail-section">
-            <span class="detail-label">Environment</span>
+            <span class="detail-label">{{ t('mcpSettings.environment') }}</span>
             <div class="detail-tags">
               <span v-for="key in Object.keys(server.env)" :key="key" class="detail-tag">{{ key }}</span>
             </div>
@@ -130,11 +130,14 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   HardDrive, Pencil, Trash2, ChevronDown, RefreshCw,
   Wifi, Globe, Terminal, AlertCircle, Zap, Loader2
 } from 'lucide-vue-next'
 import { useMcpStore, type MCPServer, type McpRuntimeStatus, type McpProbeResult } from '@/stores/mcp'
+
+const { t } = useI18n()
 
 interface Props {
   servers: Record<string, MCPServer>
@@ -177,20 +180,20 @@ function canProbe(server: MCPServer): boolean {
 
 function probeStatusLabel(status: McpProbeResult['status']): string {
   switch (status) {
-    case 'connected': return 'Connected'
-    case 'failed': return 'Failed'
-    case 'probing': return 'Testing...'
+    case 'connected': return t('mcpSettings.connected')
+    case 'failed': return t('mcpSettings.failed')
+    case 'probing': return t('mcpSettings.testing')
     default: return status
   }
 }
 
 function getRuntimeStatusLabel(status: McpRuntimeStatus['status']): string {
   switch (status) {
-    case 'connected': return 'Connected'
-    case 'failed': return 'Failed'
-    case 'needs-auth': return 'Auth Required'
-    case 'pending': return 'Pending'
-    case 'disabled': return 'Disabled'
+    case 'connected': return t('mcpSettings.connected')
+    case 'failed': return t('mcpSettings.failed')
+    case 'needs-auth': return t('mcpSettings.authRequired')
+    case 'pending': return t('mcpSettings.pending')
+    case 'disabled': return t('mcpSettings.disabled')
     default: return status
   }
 }

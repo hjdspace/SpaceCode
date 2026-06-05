@@ -5,14 +5,14 @@
         <div class="dialog-content">
           <div class="dialog-header">
             <h3 class="dialog-title">
-              {{ isEditing ? `Edit Server: ${originalName}` : 'Add MCP Server' }}
+              {{ isEditing ? `${t('mcpSettings.editServer')}: ${originalName}` : t('mcpSettings.addMcpServer') }}
             </h3>
           </div>
 
           <div class="dialog-body">
             <!-- Server Name -->
             <div class="form-group">
-              <label class="form-label">Server Name</label>
+              <label class="form-label">{{ t('mcpSettings.serverName') }}</label>
               <input
                 v-model="form.name"
                 type="text"
@@ -24,14 +24,14 @@
 
             <!-- Edit Mode Toggle -->
             <div class="form-group">
-              <label class="form-label">Edit Mode</label>
+              <label class="form-label">{{ t('mcpSettings.editMode') }}</label>
               <div class="mode-toggle">
                 <button
                   class="mode-btn"
                   :class="{ active: !jsonMode }"
                   @click="jsonMode = false"
                 >
-                  Form
+                  {{ t('mcpSettings.form') }}
                 </button>
                 <button
                   class="mode-btn"
@@ -39,7 +39,7 @@
                   @click="switchToJsonMode"
                 >
                   <Code :size="14" />
-                  JSON
+                  {{ t('mcpSettings.json') }}
                 </button>
               </div>
             </div>
@@ -47,11 +47,11 @@
             <!-- JSON Mode -->
             <template v-if="jsonMode">
               <div class="form-group">
-                <label class="form-label">Server Configuration (JSON)</label>
+                <label class="form-label">{{ t('mcpSettings.serverConfigJson') }}</label>
                 <p class="form-hint">
-                  Format follows
-                  <a href="https://code.claude.com/docs/en/mcp-quickstart" target="_blank" class="form-link">claude-code MCP config</a>.
-                  Example:
+                  {{ t('mcpSettings.formatFollows') }}
+                  <a href="https://code.claude.com/docs/en/mcp-quickstart" target="_blank" class="form-link">{{ t('mcpSettings.claudeCodeMcpConfig') }}</a>.
+                  {{ t('mcpSettings.example') }}
                 </p>
                 <pre class="json-example">{ "type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"] }</pre>
                 <textarea
@@ -67,7 +67,7 @@
             <template v-else>
               <!-- Server Type -->
               <div class="form-group">
-                <label class="form-label">Server Type</label>
+                <label class="form-label">{{ t('mcpSettings.serverType') }}</label>
                 <div class="type-tabs">
                   <button
                     class="type-tab"
@@ -99,7 +99,7 @@
               <!-- stdio Fields -->
               <template v-if="form.type === 'stdio'">
                 <div class="form-group">
-                  <label class="form-label">Command</label>
+                  <label class="form-label">{{ t('mcpSettings.commandLabel') }}</label>
                   <input
                     v-model="form.command"
                     type="text"
@@ -109,7 +109,7 @@
                 </div>
 
                 <div class="form-group">
-                  <label class="form-label">Arguments (one per line)</label>
+                  <label class="form-label">{{ t('mcpSettings.argsOnePerLine') }}</label>
                   <textarea
                     v-model="argsText"
                     class="form-textarea"
@@ -122,7 +122,7 @@
               <!-- SSE/HTTP Fields -->
               <template v-else>
                 <div class="form-group">
-                  <label class="form-label">URL</label>
+                  <label class="form-label">{{ t('mcpSettings.url') }}</label>
                   <input
                     v-model="form.url"
                     type="text"
@@ -132,7 +132,7 @@
                 </div>
 
                 <div class="form-group">
-                  <label class="form-label">Headers (JSON)</label>
+                  <label class="form-label">{{ t('mcpSettings.headersJson') }}</label>
                   <textarea
                     v-model="headersText"
                     class="form-textarea mono"
@@ -144,7 +144,7 @@
 
               <!-- Environment Variables -->
               <div class="form-group">
-                <label class="form-label">Environment Variables (JSON)</label>
+                <label class="form-label">{{ t('mcpSettings.envVarsJson') }}</label>
                 <textarea
                   v-model="envText"
                   class="form-textarea mono"
@@ -159,10 +159,10 @@
 
           <div class="dialog-footer">
             <button class="btn btn-secondary" @click="handleClose">
-              Cancel
+              {{ t('mcpSettings.cancel') }}
             </button>
             <button class="btn btn-primary" @click="handleSave">
-              {{ isEditing ? 'Save Changes' : 'Add Server' }}
+              {{ isEditing ? t('mcpSettings.saveChanges') : t('mcpSettings.addServerButton') }}
             </button>
           </div>
         </div>
@@ -173,8 +173,11 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Code, Terminal, Wifi, Globe } from 'lucide-vue-next'
 import type { MCPServer, MCPServerType } from '@/stores/mcp'
+
+const { t } = useI18n()
 
 interface Props {
   open: boolean
@@ -285,7 +288,7 @@ function handleSave() {
   error.value = ''
 
   if (!form.value.name.trim()) {
-    error.value = 'Server name is required'
+    error.value = t('mcpSettings.nameRequired')
     return
   }
 
@@ -293,12 +296,12 @@ function handleSave() {
     try {
       const parsed = JSON.parse(jsonText.value)
       if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        error.value = 'JSON must be an object'
+        error.value = t('mcpSettings.jsonMustBeObject')
         return
       }
       emit('save', form.value.name.trim(), parsed)
     } catch {
-      error.value = 'Invalid JSON configuration'
+      error.value = t('mcpSettings.invalidJsonConfig')
     }
     return
   }
@@ -306,12 +309,12 @@ function handleSave() {
   // Form mode validation
   if (form.value.type === 'stdio') {
     if (!form.value.command.trim()) {
-      error.value = 'Command is required for stdio servers'
+      error.value = t('mcpSettings.commandRequired')
       return
     }
   } else {
     if (!form.value.url.trim()) {
-      error.value = 'URL is required for SSE/HTTP servers'
+      error.value = t('mcpSettings.urlRequired')
       return
     }
   }
@@ -322,11 +325,11 @@ function handleSave() {
     if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
       env = Object.keys(parsed).length > 0 ? parsed : undefined
     } else {
-      error.value = 'Environment must be a JSON object'
+      error.value = t('mcpSettings.envMustBeObject')
       return
     }
   } catch {
-    error.value = 'Invalid JSON in environment variables'
+    error.value = t('mcpSettings.invalidEnvJson')
     return
   }
 
@@ -337,11 +340,11 @@ function handleSave() {
       if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
         headers = Object.keys(parsed).length > 0 ? parsed : undefined
       } else {
-        error.value = 'Headers must be a JSON object'
+        error.value = t('mcpSettings.headersMustBeObject')
         return
       }
     } catch {
-      error.value = 'Invalid JSON in headers'
+      error.value = t('mcpSettings.invalidHeadersJson')
       return
     }
   }

@@ -4,20 +4,20 @@
     <div class="mcp-header">
       <div class="header-content">
         <div class="header-left">
-          <button class="back-btn" @click="handleClose" title="返回聊天界面">
+          <button class="back-btn" @click="handleClose" :title="t('mcpSettings.backToChat')">
             <ArrowLeft :size="18" />
           </button>
           <div>
             <h1 class="title">
-              MCP Servers
+              {{ t('mcpSettings.title') }}
               <span v-if="serverCount > 0" class="server-count">({{ serverCount }})</span>
             </h1>
-            <p class="description">Manage Model Context Protocol servers for extending Claude's capabilities</p>
+            <p class="description">{{ t('mcpSettings.description') }}</p>
           </div>
         </div>
         <button class="btn btn-primary" @click="handleAdd">
           <Plus :size="14" />
-          Add Server
+          {{ t('mcpSettings.addServer') }}
         </button>
       </div>
     </div>
@@ -36,7 +36,7 @@
           @click="tab = 'list'"
         >
           <List :size="14" />
-          List
+          {{ t('mcpSettings.tabList') }}
         </button>
         <button
           class="tab-btn"
@@ -44,7 +44,7 @@
           @click="tab = 'json'"
         >
           <Code :size="14" />
-          JSON
+          {{ t('mcpSettings.tabJson') }}
         </button>
       </div>
 
@@ -52,7 +52,7 @@
       <div v-if="tab === 'list'" class="tab-content">
         <div v-if="loading" class="loading-state">
           <Loader2 :size="16" class="spin" />
-          <p>Loading servers...</p>
+          <p>{{ t('mcpSettings.loadingServers') }}</p>
         </div>
         <McpServerList
           v-else
@@ -67,8 +67,7 @@
       <!-- JSON Tab -->
       <div v-else class="tab-content">
         <p v-if="hasClaudeJsonServers" class="json-hint">
-          Servers from ~/.claude.json are managed by Claude CLI and not shown here.
-          Use the list tab to edit or delete them.
+          {{ t('mcpSettings.jsonTabNote') }}
         </p>
         <ConfigEditor
           :value="jsonConfig"
@@ -82,7 +81,7 @@
         <div class="runtime-header">
           <div class="runtime-title">
             <Wifi :size="16" />
-            <span>Runtime Status</span>
+            <span>{{ t('mcpSettings.runtimeStatus') }}</span>
           </div>
           <button
             class="refresh-btn"
@@ -91,22 +90,21 @@
           >
             <Loader2 v-if="runtimeLoading" :size="12" class="spin" />
             <RefreshCw v-else :size="12" />
-            Refresh
+            {{ t('mcpSettings.refresh') }}
           </button>
         </div>
 
         <div v-if="!activeSessionId && !runtimeLoading && probeResultCount === 0" class="runtime-empty runtime-hint">
           <Info :size="14" />
           <div>
-            <div class="runtime-hint-title">No active chat session</div>
+            <div class="runtime-hint-title">{{ t('mcpSettings.noActiveSession') }}</div>
             <div class="runtime-hint-desc">
-              Click the ⚡ Test button on any server to verify connectivity and view tools,
-              or start a chat to let the engine load MCP servers automatically.
+              {{ t('mcpSettings.noActiveSessionDesc') }}
             </div>
           </div>
         </div>
         <div v-else-if="runtimeStatus.length === 0 && probeResultCount === 0" class="runtime-empty">
-          No runtime status available
+          {{ t('mcpSettings.noRuntimeStatus') }}
         </div>
         <div v-else class="runtime-list">
           <!-- Merge engine runtime + probe results -->
@@ -124,7 +122,7 @@
               <span class="status-dot" :class="item.status" />
               <span class="server-name">{{ item.name }}</span>
               <span v-if="item.toolCount > 0" class="tool-count">
-                {{ item.toolCount }} tools
+                {{ item.toolCount }} {{ t('mcpSettings.tools') }}
               </span>
               <span class="status-badge" :class="item.status">
                 {{ item.statusLabel }}
@@ -135,19 +133,19 @@
                 v-if="item.status === 'connected' && item.toolCount === 0"
                 class="tool-empty"
               >
-                No tools reported by this server
+                {{ t('mcpSettings.noToolsReported') }}
               </li>
               <li
                 v-else-if="item.status === 'failed'"
                 class="tool-error"
               >
-                {{ getProbeError(item.name) || 'Connection failed' }}
+                {{ getProbeError(item.name) || t('mcpSettings.connectionFailed') }}
               </li>
               <li
                 v-else-if="item.status !== 'connected' && item.status !== 'probing'"
                 class="tool-empty"
               >
-                Tools unavailable — server not connected
+                {{ t('mcpSettings.toolsUnavailable') }}
               </li>
               <li
                 v-for="tool in item.tools"
@@ -155,7 +153,7 @@
                 class="tool-row"
               >
                 <span class="tool-name">{{ tool.name }}</span>
-                <span class="tool-desc">{{ tool.description || '—' }}</span>
+                <span class="tool-desc">{{ tool.description || t('mcpSettings.noDescription') }}</span>
               </li>
             </ul>
           </div>
@@ -175,6 +173,7 @@
 
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   Plus, List, Code, Loader2, Wifi, RefreshCw, ArrowLeft, ChevronRight, Info
 } from 'lucide-vue-next'
@@ -184,6 +183,7 @@ import McpServerList from './McpServerList.vue'
 import McpServerEditor from './McpServerEditor.vue'
 import ConfigEditor from './ConfigEditor.vue'
 
+const { t } = useI18n()
 const mcpStore = useMcpStore()
 const appStore = useAppStore()
 
@@ -233,7 +233,7 @@ const mergedRuntimeItems = computed<MergedRuntimeItem[]>(() => {
       map.set(name, {
         name,
         status: 'probing',
-        statusLabel: 'Testing...',
+        statusLabel: t('mcpSettings.testing'),
         toolCount: existing?.toolCount ?? 0,
         tools: existing?.tools ?? [],
       })
@@ -241,7 +241,7 @@ const mergedRuntimeItems = computed<MergedRuntimeItem[]>(() => {
       map.set(name, {
         name,
         status: 'connected',
-        statusLabel: 'Connected (tested)',
+        statusLabel: t('mcpSettings.connectedTested'),
         toolCount: probe.tools?.length ?? 0,
         tools: probe.tools ?? [],
       })
@@ -249,7 +249,7 @@ const mergedRuntimeItems = computed<MergedRuntimeItem[]>(() => {
       map.set(name, {
         name,
         status: 'failed',
-        statusLabel: 'Failed',
+        statusLabel: t('mcpSettings.failed'),
         toolCount: 0,
         tools: [],
       })
@@ -292,12 +292,12 @@ function handleEdit(name: string, server: MCPServer) {
 }
 
 async function handleDelete(name: string) {
-  if (!confirm(`Delete server "${name}"?`)) return
+  if (!confirm(t('mcpSettings.deleteConfirm', { name }))) return
   try {
     await mcpStore.deleteServer(name)
   } catch (err) {
     console.error('Failed to delete server:', err)
-    alert(err instanceof Error ? err.message : 'Failed to delete server')
+    alert(err instanceof Error ? err.message : t('mcpSettings.deleteFailed'))
   }
 }
 
@@ -321,7 +321,7 @@ async function handleSave(name: string, server: Omit<MCPServer, 'id' | 'name'>) 
     editorOpen.value = false
   } catch (err) {
     console.error('Failed to save server:', err)
-    alert(err instanceof Error ? err.message : 'Failed to save server')
+    alert(err instanceof Error ? err.message : t('mcpSettings.saveFailed'))
   }
 }
 
@@ -330,7 +330,7 @@ async function handleJsonSave(jsonStr: string) {
     await mcpStore.saveJsonConfig(jsonStr)
   } catch (err) {
     console.error('Failed to save config:', err)
-    alert(err instanceof Error ? err.message : 'Failed to save config')
+    alert(err instanceof Error ? err.message : t('mcpSettings.saveConfigFailed'))
   }
 }
 
@@ -340,7 +340,7 @@ async function handleReconnect(name: string) {
     await mcpStore.fetchRuntimeStatus()
   } catch (err) {
     console.error('Failed to reconnect server:', err)
-    alert(err instanceof Error ? err.message : 'Failed to reconnect server')
+    alert(err instanceof Error ? err.message : t('mcpSettings.reconnectFailed'))
   }
 }
 
