@@ -193,7 +193,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
@@ -242,8 +242,12 @@ const diffPanelLoading = ref(false)
 const contextUsageStore = useContextUsageStore()
 
 // 监听 TitleBar 的 diff 触发
-watch(() => chatStore.diffPanelTrigger, () => {
+const stopDiffWatch = watch(() => chatStore.diffPanelTrigger, () => {
   fetchAndShowDiff()
+})
+
+onBeforeUnmount(() => {
+  stopDiffWatch()
 })
 
 // Rewind state
