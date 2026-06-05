@@ -1,3 +1,54 @@
+## [0.4.6](https://github.com/hjdspace/SpaceCode/compare/v0.4.5...v0.4.6) (2026-06-05)
+
+### Features
+
+* **MCP 工具集成:** 新增完整的 MCP（Model Context Protocol）服务器管理与调用能力
+  - 新增 mcp_tool 命令类型与服务器本地配置持久化、CRUD 操作
+  - 支持 stdio / SSE / HTTP 三种连接类型的连通性探测
+  - 在命令面板展示 MCP 工具并支持快速调用
+  - 新增 MCP 服务器管理页面，支持测试连接与工具列表查看
+  - 新增服务器运行时详情折叠面板，展示工具列表与加载状态
+  - 为 MCP 管理页面补全 zh-CN / en-US 国际化文案
+* **外部编辑器扩展:** 新增多款外部编辑器支持，优化回滚与文件打开体验
+  - 新增 VS Code、Cursor、Visual Studio、WSL 等多款外部编辑器
+  - 重构文件打开菜单，支持一键选择编辑器打开项目
+  - 优化对话回滚逻辑，跳过无变更文件并完善日志统计
+  - 重构 electron 端编辑器启动逻辑，适配跨平台启动参数
+  - 移除冗余的回合检查点清理逻辑，更新多语言文案
+* **/diff 命令:** 新增内置 /diff 命令，支持查看项目 Git 变更详情
+  - 新增 getFullDiff API 获取全量工作区 diff 数据
+  - 新增 DiffExplorer 组件展示文件变更列表和详情
+  - 在聊天面板集成 diff 弹窗 UI，支持暗色主题
+  - 支持展示未跟踪文件、二进制文件和普通 diff 内容
+* **命令芯片 (Command Chips):** 用内联命令芯片替换原命令徽章栏，提升输入与消息展示体验
+  - 新增 Source Serif 4 字体与全局样式
+  - 为 CommandBadge / SlashCommand 新增 source 字段及对应 i18n 标签
+  - 在消息列表中渲染命令芯片
+  - 命令芯片支持序列化与反序列化
+* **聊天图片持久化:** 实现聊天图片持久化存储，避免 localStorage 配额溢出
+* **InfoPanel 优化:** 为评论栏新增动态定位
+* **资源扩充:** 补充大量素材、模板、主题与配置文件
+* **i18n 补全:** 新增通用设置描述的 zh-CN / en-US 翻译
+
+### Bug Fixes
+
+* **聊天面板:** 移除无效的 diffPanelTrigger 监听器，防止内存泄漏
+* **技能服务:** 技能扫描与安装仅识别 SKILL.md，不再误匹配 README 等普通 markdown
+* **命令注册:** 补全 commandRegistry 缺失的 source 字段并使用 cmd.source
+
+### Refactor
+
+* **外部编辑器:** 重构外部编辑器合法性校验，移除硬编码列表，依赖 EDITOR_LAUNCHERS 配置
+* **UI:** 将 diff 审查按钮从 ChatInput 移至 TitleBar，使用 store 变量实现组件间通信
+* **命令芯片:** 移除全局字体导入并简化命令芯片 DOM 结构
+* **设置:** 全面重构设置页面布局，统一面板组件风格
+
+### Chore
+
+* 补充忽略 _temp/ 临时目录，修复 .gitignore 末尾缺少换行符的问题
+
+---
+
 ## [0.4.5](https://github.com/hjdspace/SpaceCode/compare/v0.4.4...v0.4.5) (2026-06-03)
 
 ### Features
