@@ -93,7 +93,15 @@ export interface TokenStatsResult {
   modelUsage: Record<string, TokenStatsSummary>
 }
 
-export type ExternalEditor = 'vscode' | 'gvim'
+export type ExternalEditor =
+  | 'vscode'
+  | 'visualstudio'
+  | 'cursor'
+  | 'fileExplorer'
+  | 'terminal'
+  | 'gitBash'
+  | 'wsl'
+  | 'androidStudio'
 
 export const api = {
   sendMessage: (text: string) => electronAPI?.sendMessage(text) || Promise.resolve({ success: false }),

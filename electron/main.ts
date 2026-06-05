@@ -59,7 +59,99 @@ app.commandLine.appendSwitch('no-sandbox')
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
-type ExternalEditor = 'vscode' | 'gvim'
+type ExternalEditor = 'vscode' | 'visualstudio' | 'cursor' | 'fileExplorer' | 'terminal' | 'gitBash' | 'wsl' | 'androidStudio'
+
+interface EditorLauncher {
+  /** Human-readable editor id (used for error messages / logs). */
+  id: ExternalEditor
+  /** Primary command to spawn. On Windows we let `shell: true` resolve .cmd/.bat shims. */
+  command: (targetPath: string) => string
+  /** Arguments to pass to the command. */
+  args: (targetPath: string) => string[]
+  /** When true the command should be launched without `shell: true` (rare, e.g. explorer.exe). */
+  raw?: boolean
+}
+
+const isWin = process.platform === 'win32'
+const isMac = process.platform === 'darwin'
+
+/** Convert a Windows path to a WSL-friendly POSIX path. */
+function toWslPath(p: string): string {
+  // C:\foo\bar → /mnt/c/foo/bar
+  const m = /^([A-Za-z]):[\\/](.*)$/.exec(p)
+  if (!m) return p.replace(/\\/g, '/')
+  const drive = m[1].toLowerCase()
+  const rest = m[2].replace(/\\/g, '/')
+  return `/mnt/${drive}/${rest}`
+}
+
+const EDITOR_LAUNCHERS: Record<ExternalEditor, EditorLauncher> = {
+  vscode: {
+    id: 'vscode',
+    command: () => 'code',
+    args: (p) => ['-r', p],
+  },
+  visualstudio: {
+    id: 'visualstudio',
+    command: () => (isWin ? 'devenv' : 'visualstudio'),
+    args: (p) => [p],
+  },
+  cursor: {
+    id: 'cursor',
+    command: () => 'cursor',
+    args: (p) => [p],
+  },
+  fileExplorer: {
+    id: 'fileExplorer',
+    // On Windows we can use explorer.exe directly. On macOS / Linux we delegate to `open` / `xdg-open`.
+    command: () => (isWin ? 'explorer.exe' : isMac ? 'open' : 'xdg-open'),
+    args: (p) => [p],
+    raw: isWin,
+  },
+  terminal: {
+    id: 'terminal',
+    command: () => {
+      if (isWin) {
+        // Prefer Windows Terminal when available, fall back to cmd.exe
+        return 'cmd.exe'
+      }
+      if (isMac) return 'open'
+      // Linux: best-effort, common terminals
+      return 'x-terminal-emulator'
+    },
+    args: (p) => {
+      if (isWin) {
+        // `start "" /D <dir> cmd /K` opens a new persistent console in the given dir
+        return ['/c', 'start', '""', '/D', p, 'cmd.exe', '/K', 'cd', '/d', p]
+      }
+      if (isMac) return ['-a', 'Terminal', p]
+      return ['--working-directory', p]
+    },
+  },
+  gitBash: {
+    id: 'gitBash',
+    command: () => {
+      if (isWin) return 'C:\\Program Files\\Git\\git-bash.exe'
+      if (isMac) return '/Applications/GitHub Desktop.app/Contents/Resources/git-bash'
+      return 'git-bash'
+    },
+    args: (p) => (isWin ? [`--cd=${p}`] : ['-c', `cd '${p}' && exec $SHELL`]),
+  },
+  wsl: {
+    id: 'wsl',
+    command: () => 'wsl.exe',
+    args: (p) => ['--cd', toWslPath(p)],
+  },
+  androidStudio: {
+    id: 'androidStudio',
+    command: () => {
+      if (isWin) return 'studio64.exe'
+      if (isMac) return '/Applications/Android Studio.app/Contents/MacOS/studio'
+      return 'studio'
+    },
+    args: (p) => [p],
+  },
+}
 
 function openPathInEditor(editor: ExternalEditor, targetPath: string): Promise<{ success: boolean; error?: string }> {
   return new Promise((resolve) => {
@@ -68,18 +160,26 @@ function openPathInEditor(editor: ExternalEditor, targetPath: string): Promise<{
       return
     }
 
-    const command = editor === 'vscode' ? 'code' : 'gvim'
-    const args = editor === 'vscode' ? ['-r', targetPath] : [targetPath]
+    const launcher = EDITOR_LAUNCHERS[editor]
+    if (!launcher) {
+      resolve({ success: false, error: `Unsupported editor: ${editor}` })
+      return
+    }
+
+    const command = launcher.command(targetPath)
+    const args = launcher.args(targetPath)
+    const useShell = !launcher.raw
+
     const child = spawn(command, args, {
       detached: true,
       stdio: 'ignore',
-      shell: process.platform === 'win32'
+      shell: useShell,
     })
 
     let settled = false
     child.once('error', (err) => {
       settled = true
-      error('IPC', 'app:openInEditor failed', { editor, targetPath, err })
+      error('IPC', 'app:openInEditor failed', { editor, targetPath, command, err })
       resolve({ success: false, error: err.message })
     })
     child.once('spawn', () => {
@@ -834,7 +934,17 @@ ipcMain.handle('shell:openExternal', async (_event, url: string) => {
 
 ipcMain.handle('app:openInEditor', async (_event, editor: ExternalEditor, targetPath: string) => {
   info('IPC', 'app:openInEditor', { editor, targetPath })
-  if (editor !== 'vscode' && editor !== 'gvim') {
+  const supported: ExternalEditor[] = [
+    'vscode',
+    'visualstudio',
+    'cursor',
+    'fileExplorer',
+    'terminal',
+    'gitBash',
+    'wsl',
+    'androidStudio',
+  ]
+  if (!supported.includes(editor)) {
     return { success: false, error: 'Unsupported editor' }
   }
   return openPathInEditor(editor, targetPath)

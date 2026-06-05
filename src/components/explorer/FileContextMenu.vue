@@ -30,9 +30,9 @@
           <span class="menu-label">{{ t('fileTree.openWithVSCode') }}</span>
         </button>
 
-        <button v-if="node?.type === 'file'" class="menu-item" @click="handleOpenInEditor('gvim')">
+        <button v-if="node?.type === 'file'" class="menu-item" @click="handleOpenInEditor('cursor')">
           <span class="menu-icon">📝</span>
-          <span class="menu-label">{{ t('fileTree.openWithGVim') }}</span>
+          <span class="menu-label">{{ t('fileTree.openWithCursor') }}</span>
         </button>
 
         <button v-if="node?.isRoot" class="menu-item" @click="handleOpenInEditor('vscode')">
@@ -126,7 +126,7 @@ const canCut = computed(() => props.node !== null)
 const canRename = computed(() => props.node !== null)
 const canDelete = computed(() => props.node !== null)
 
-type ExternalEditor = 'vscode' | 'gvim'
+type ExternalEditor = 'vscode' | 'visualstudio' | 'cursor' | 'fileExplorer' | 'terminal' | 'gitBash' | 'wsl' | 'androidStudio'
 
 function handleCut() {
   if (!props.node) return

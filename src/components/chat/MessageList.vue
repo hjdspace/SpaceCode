@@ -376,8 +376,6 @@ watch(() => props.messages.length, () => {
 
   if (sessionId && isIdle && hasCompletedTurns.value) {
     debouncedLoadTurnCheckpoints(sessionId)
-  } else if (sessionId && isIdle && !hasCompletedTurns.value) {
-    chatStore.clearTurnCheckpoints()
   }
 })
 

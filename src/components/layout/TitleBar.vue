@@ -26,27 +26,30 @@
     <div class="titlebar-right" style="-webkit-app-region: no-drag">
       <!-- Diff 审查按钮 -->
       <button class="titlebar-btn" @click="chatStore.triggerDiffPanel()" :title="t('titleBar.reviewDiff')">
-        <FileDiff :size="15" />
+        <ReviewChangesIcon />
       </button>
 
+      <!-- 打开项目下拉（默认 VSCode） -->
       <div class="open-file-dropdown" ref="openMenuRef">
-        <button class="titlebar-btn" @click="toggleOpenMenu" :title="t('titleBar.openFile')">
-          <FileCode :size="15" />
-          <ChevronDown :size="12" />
+        <button
+          class="titlebar-btn open-file-trigger"
+          :class="{ 'is-active': showOpenMenu }"
+          @click="toggleOpenMenu"
+          :title="t('titleBar.openFile')"
+        >
+          <VscodeIcon :size="18" />
+          <ChevronDown :size="12" class="trigger-caret" />
         </button>
         <div v-if="showOpenMenu" class="open-file-menu">
-          <button class="open-file-menu-item" @click="openSelectedFile('vscode')">
-            <svg class="menu-icon vscode-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z" fill="#007ACC"/>
-            </svg>
-            <span>{{ t('titleBar.openFileWithVSCode') }}</span>
-          </button>
-          <button class="open-file-menu-item" @click="openSelectedFile('gvim')">
-            <svg class="menu-icon gvim-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM6 10h2v7H6zm4-3h2v10h-2zm4 6h2v4h-2z" fill="#019733"/>
-              <text x="7" y="17" font-family="monospace" font-size="10" font-weight="bold" fill="#019733">V</text>
-            </svg>
-            <span>{{ t('titleBar.openFileWithGVim') }}</span>
+          <button
+            v-for="item in openTargets"
+            :key="item.id"
+            class="open-file-menu-item"
+            @click="openWith(item.id)"
+            :title="t('titleBar.openWith', { editor: t(item.labelKey) })"
+          >
+            <span class="menu-icon" v-html="item.icon"></span>
+            <span class="menu-label">{{ t(item.labelKey) }}</span>
           </button>
         </div>
       </div>
@@ -81,8 +84,8 @@
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { useI18n } from 'vue-i18n'
-import { Menu, Sun, Moon, Minus, Square, Copy, X, FileCode, ChevronDown, FileDiff } from 'lucide-vue-next'
-import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
+import { Menu, Sun, Moon, Minus, Square, Copy, X, ChevronDown } from 'lucide-vue-next'
+import { computed, h, onMounted, onBeforeUnmount, ref } from 'vue'
 import type { ThemeId } from '@/stores/app'
 import { THEME_CYCLE } from '@/stores/app'
 import { api, type ExternalEditor } from '@/services/electronAPI'
@@ -131,19 +134,155 @@ function closeOpenMenu() {
   showOpenMenu.value = false
 }
 
-async function openSelectedFile(editor: ExternalEditor) {
+// 品牌图标（内联 SVG，避免引入额外的图标包）
+const VscodeIcon = () =>
+  h(
+    'svg',
+    {
+      width: 18,
+      height: 18,
+      viewBox: '0 0 24 24',
+      fill: 'none',
+      xmlns: 'http://www.w3.org/2000/svg',
+      'aria-hidden': 'true',
+    },
+    [
+      h('path', {
+        d: 'M17.156 2.156a1.063 1.063 0 0 0-1.114.108l-4.585 3.207-4.99-3.205a1.062 1.062 0 0 0-1.55.246L3.146 5.95a1.063 1.063 0 0 0 .26 1.434L7.75 10.5l-4.344 3.115a1.062 1.062 0 0 0-.26 1.434l1.77 3.44a1.062 1.062 0 0 0 1.55.246l4.99-3.205 4.586 3.207a1.063 1.063 0 0 0 1.114.107l1.78-.776a1.062 1.062 0 0 0 .626-.961V3.893a1.062 1.062 0 0 0-.626-.96l-1.78-.777Z',
+        fill: '#0078D4',
+      }),
+      h('path', {
+        d: 'M12.314 9.75 8.345 12l3.97 2.25L17.062 12 12.314 9.75Z',
+        fill: '#FFFFFF',
+      }),
+    ],
+  )
+
+// 「审查变更」图标 —— 模拟 codex 截图：左侧两个小圆点 + 右侧三条横线
+const ReviewChangesIcon = () =>
+  h(
+    'svg',
+    {
+      width: 16,
+      height: 16,
+      viewBox: '0 0 16 16',
+      fill: 'none',
+      xmlns: 'http://www.w3.org/2000/svg',
+      'aria-hidden': 'true',
+    },
+    [
+      h('circle', { cx: 2.5, cy: 4.5, r: 1.1, stroke: 'currentColor', 'stroke-width': 1.2, fill: 'none' }),
+      h('circle', { cx: 2.5, cy: 11.5, r: 1.1, stroke: 'currentColor', 'stroke-width': 1.2, fill: 'none' }),
+      h('line', { x1: 6.5, y1: 4.5, x2: 14, y2: 4.5, stroke: 'currentColor', 'stroke-width': 1.3, 'stroke-linecap': 'round' }),
+      h('line', { x1: 6.5, y1: 8, x2: 14, y2: 8, stroke: 'currentColor', 'stroke-width': 1.3, 'stroke-linecap': 'round' }),
+      h('line', { x1: 6.5, y1: 11.5, x2: 14, y2: 11.5, stroke: 'currentColor', 'stroke-width': 1.3, 'stroke-linecap': 'round' }),
+    ],
+  )
+
+interface OpenTarget {
+  id: ExternalEditor
+  labelKey: string
+  icon: string
+}
+
+const openTargets: OpenTarget[] = [
+  {
+    id: 'vscode',
+    labelKey: 'titleBar.openWithVSCode',
+    icon: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M17.156 2.156a1.063 1.063 0 0 0-1.114.108l-4.585 3.207-4.99-3.205a1.062 1.062 0 0 0-1.55.246L3.146 5.95a1.063 1.063 0 0 0 .26 1.434L7.75 10.5l-4.344 3.115a1.062 1.062 0 0 0-.26 1.434l1.77 3.44a1.062 1.062 0 0 0 1.55.246l4.99-3.205 4.586 3.207a1.063 1.063 0 0 0 1.114.107l1.78-.776a1.062 1.062 0 0 0 .626-.961V3.893a1.062 1.062 0 0 0-.626-.96l-1.78-.777Z" fill="#0078D4"/>
+      <path d="M12.314 9.75 8.345 12l3.97 2.25L17.062 12 12.314 9.75Z" fill="#FFFFFF"/>
+    </svg>`,
+  },
+  {
+    id: 'visualstudio',
+    labelKey: 'titleBar.openWithVisualStudio',
+    icon: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M14.696 3.546 21 1.5v21l-6.304-2.046V3.546Z" fill="#854CC7"/>
+      <path d="M14.696 8.823 9.652 12l5.044 3.177V8.823Z" fill="#FFFFFF"/>
+      <path d="m9.652 12-6.07 3.823V8.177L9.652 12Z" fill="#FFFFFF" fill-opacity=".9"/>
+      <path d="M3.582 6.27v11.46L1.5 16.5v-9l2.082-1.23Z" fill="#FFFFFF" fill-opacity=".75"/>
+    </svg>`,
+  },
+  {
+    id: 'cursor',
+    labelKey: 'titleBar.openWithCursor',
+    icon: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="2" y="2" width="20" height="20" rx="5" fill="#1F1F1F"/>
+      <path d="M6 8.5 11 18l1.6-4.4L17 12 6 8.5Z" fill="#FFFFFF"/>
+      <path d="M11 18l1.6-4.4L17 12 6 8.5 11 18Z" fill="#FFFFFF"/>
+    </svg>`,
+  },
+  {
+    id: 'fileExplorer',
+    labelKey: 'titleBar.openWithFileExplorer',
+    icon: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.379a1.5 1.5 0 0 1 1.06.44L11.5 7h8A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5v-11Z" fill="#FFCB1F"/>
+      <path d="M3 9h18v1H3z" fill="#E0A800" opacity=".5"/>
+    </svg>`,
+  },
+  {
+    id: 'terminal',
+    labelKey: 'titleBar.openWithTerminal',
+    icon: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="2" y="4" width="20" height="16" rx="2" fill="#1E1E1E"/>
+      <rect x="2" y="4" width="20" height="4" rx="2" fill="#3C3C3C"/>
+      <circle cx="5" cy="6" r="0.8" fill="#FF5F56"/>
+      <circle cx="7.5" cy="6" r="0.8" fill="#FFBD2E"/>
+      <circle cx="10" cy="6" r="0.8" fill="#27C93F"/>
+      <path d="m5.5 11 3 2-3 2" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <path d="M10.5 16h6" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round"/>
+    </svg>`,
+  },
+  {
+    id: 'gitBash',
+    labelKey: 'titleBar.openWithGitBash',
+    icon: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="2" y="2" width="20" height="20" rx="4" fill="#F1502F"/>
+      <path d="M17.5 8.7c-.6-.4-1.3-.5-2-.5-.7 0-1.4.2-2 .5-.4.2-.7.6-.7 1.1 0 .7.5 1 1.4 1.2l1.1.3c.9.3 1.6.7 1.6 1.6 0 .9-.7 1.6-2.1 1.6-.9 0-1.7-.3-2.2-.6l.4-1c.5.3 1.1.5 1.8.5.8 0 1.4-.3 1.4-1 0-.6-.4-.9-1.3-1.1l-1.1-.3c-1-.3-1.7-.8-1.7-1.7 0-1.1 1-1.8 2.1-1.8.8 0 1.5.2 2 .5l-.7 1.7Z" fill="#FFFFFF"/>
+      <path d="M9 14.5c0 .6-.4 1-1 1s-1-.4-1-1V8h2v6.5Z" fill="#FFFFFF"/>
+    </svg>`,
+  },
+  {
+    id: 'wsl',
+    labelKey: 'titleBar.openWithWsl',
+    icon: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="12" r="10" fill="#26A65B"/>
+      <ellipse cx="12" cy="14" rx="5.5" ry="5" fill="#FFFFFF"/>
+      <circle cx="9.5" cy="11" r="0.9" fill="#1F1F1F"/>
+      <circle cx="14.5" cy="11" r="0.9" fill="#1F1F1F"/>
+      <path d="M10.5 14.2c.4.4 1 .7 1.5.7s1.1-.3 1.5-.7" stroke="#F5A623" stroke-width="1" stroke-linecap="round" fill="none"/>
+      <path d="M7 8.5 9 7M17 8.5 15 7" stroke="#F5A623" stroke-width="1" stroke-linecap="round"/>
+    </svg>`,
+  },
+  {
+    id: 'androidStudio',
+    labelKey: 'titleBar.openWithAndroidStudio',
+    icon: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="12" r="10" fill="#3DDC84"/>
+      <path d="M5 16.5c.6-2 1.8-3.4 3-3.4h8c1.2 0 2.4 1.4 3 3.4" fill="#FFFFFF"/>
+      <circle cx="9" cy="10" r="0.9" fill="#1F1F1F"/>
+      <circle cx="15" cy="10" r="0.9" fill="#1F1F1F"/>
+      <path d="M7.5 5l2.5 3.5M16.5 5 14 8.5" stroke="#FFFFFF" stroke-width="1.2" stroke-linecap="round"/>
+    </svg>`,
+  },
+]
+
+async function openWith(editor: ExternalEditor) {
   closeOpenMenu()
-  const result = await api.selectFiles()
-  const targetPath = result.filePaths[0]
-  if (result.canceled || !targetPath) return
+  const projectRoot = (appStore.projectRoot || '').trim()
+  if (!projectRoot) {
+    alert(t('titleBar.noProjectOpen'))
+    return
+  }
   try {
-    const openResult = await api.openInEditor(editor, targetPath)
-    if (!openResult.success) {
-      alert(`打开失败：${openResult.error || editor}`)
+    const result = await api.openInEditor(editor, projectRoot)
+    if (!result.success) {
+      alert(t('titleBar.openFailed', { error: result.error || t('titleBar.openFailedHint') }))
     }
   } catch (err) {
     console.error('[TitleBar] Open in editor error:', err)
-    alert('打开失败，请确认编辑器命令已加入 PATH。')
+    alert(t('titleBar.openFailedHint'))
   }
 }
 
@@ -312,8 +451,27 @@ onBeforeUnmount(() => {
 .open-file-dropdown {
   position: relative;
 
-  .titlebar-btn {
-    gap: 2px;
+  .open-file-trigger {
+    width: auto;
+    padding: 0 6px 0 7px;
+    gap: 3px;
+    color: var(--text-secondary);
+
+    .trigger-caret {
+      opacity: 0.7;
+      transition: transform var(--transition-fast), opacity var(--transition-fast);
+    }
+
+    &.is-active,
+    &:hover {
+      background: var(--surface-hover);
+      color: var(--text-primary);
+
+      .trigger-caret {
+        transform: rotate(180deg);
+        opacity: 1;
+      }
+    }
   }
 }
 
@@ -321,7 +479,7 @@ onBeforeUnmount(() => {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  min-width: 180px;
+  min-width: 220px;
   padding: 6px;
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-md);
@@ -344,7 +502,7 @@ onBeforeUnmount(() => {
 
 .open-file-menu-item {
   width: 100%;
-  padding: 8px 12px;
+  padding: 7px 10px;
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -361,15 +519,19 @@ onBeforeUnmount(() => {
     width: 18px;
     height: 18px;
     flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     transition: transform var(--transition-fast);
 
-    &.vscode-icon {
-      filter: drop-shadow(0 1px 2px rgba(0, 122, 204, 0.3));
+    :deep(svg) {
+      width: 100%;
+      height: 100%;
     }
+  }
 
-    &.gvim-icon {
-      filter: drop-shadow(0 1px 2px rgba(1, 151, 51, 0.3));
-    }
+  .menu-label {
+    line-height: 1;
   }
 
   &:hover {

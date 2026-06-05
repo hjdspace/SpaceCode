@@ -615,19 +615,15 @@ export async function getTurnRewindPreviewFiles(
       projectPath
     )
 
-    if (preview.filesChanged.length > 0) {
-      return {
-        ok: true,
-        files: preview.filesChanged.map(file => file.path),
-        error: null,
-      }
+    return {
+      ok: true,
+      files: preview.filesChanged.map(file => file.path),
+      error: null,
     }
   } catch (err) {
     warn('TurnCheckpoint', 'Failed to build rewind preview', { error: String(err) })
+    return { ok: false, files: [], error: 'Failed to build rewind preview' }
   }
-
-  const trackedFiles = Object.keys(targetSnapshot.snapshot.trackedFileBackups)
-  return { ok: true, files: trackedFiles, error: null }
 }
 
 export async function getTurnCheckpointDiff(
@@ -711,7 +707,11 @@ export async function rewindTurn(
     return { ok: false, error: 'No snapshot found for target message' }
   }
 
+  // 找到下一个快照，用于判断哪些文件在该轮实际发生了变化
+  const nextSnapshot = findNextSnapshotAfter(snapshots, targetSnapshot)
+
   let restoredCount = 0
+  let skippedCount = 0
   let failedCount = 0
 
   for (const [trackingPath, backup] of Object.entries(targetSnapshot.snapshot.trackedFileBackups)) {
@@ -719,25 +719,61 @@ export async function rewindTurn(
 
     try {
       if (backup.backupFileName === null) {
-        // File didn't exist before this turn — delete it
+        // File didn't exist before this turn — delete it (only if it currently exists)
         if (fs.existsSync(expandedPath)) {
           fs.unlinkSync(expandedPath)
           restoredCount++
+        } else {
+          skippedCount++
         }
       } else {
-        // Restore the backup
+        // Restore the backup — but only if the file actually differs from the backup
         const backupPath = path.join(getFileHistoryDir(sessionId), backup.backupFileName)
-        if (fs.existsSync(backupPath)) {
-          const dir = path.dirname(expandedPath)
-          if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true })
-          }
-          fs.copyFileSync(backupPath, expandedPath)
-          restoredCount++
-        } else {
+        if (!fs.existsSync(backupPath)) {
           warn('TurnCheckpoint', `Backup file not found: ${backupPath}`)
           failedCount++
+          continue
         }
+
+        // 读取备份内容，确定该轮开始前的文件状态
+        const backupContent = fs.readFileSync(backupPath, 'utf8')
+
+        // 确定回滚后应该恢复到的目标内容
+        // 对于非最新轮次：目标是下一个快照中该文件的备份（即该轮结束后的状态）
+        // 对于最新轮次：目标是当前磁盘上的文件（即该轮结束后的状态）
+        // 我们需要恢复的是该轮开始前的状态（即 backupContent）
+        // 所以只需比较 backupContent 与当前文件内容
+        let currentContent: string | null = null
+        if (nextSnapshot) {
+          // 非最新轮次：当前文件可能已被后续轮次修改
+          // 需要恢复到该轮开始前的状态，即 backupContent
+          // 但如果当前文件内容已经等于 backupContent，说明该文件在该轮及之后都没被修改，跳过
+          const nextBackup = nextSnapshot.snapshot.trackedFileBackups[trackingPath]
+          if (nextBackup?.backupFileName) {
+            const nextBackupPath = path.join(getFileHistoryDir(sessionId), nextBackup.backupFileName)
+            if (fs.existsSync(nextBackupPath)) {
+              currentContent = fs.readFileSync(nextBackupPath, 'utf8')
+            }
+          }
+        }
+
+        if (currentContent === null) {
+          // 最新轮次或无法从下一快照获取内容，直接读磁盘
+          currentContent = await readFileContent(expandedPath)
+        }
+
+        // 如果当前内容与备份内容相同，说明该文件在该轮没有实际变化，跳过恢复
+        if (currentContent === backupContent) {
+          skippedCount++
+          continue
+        }
+
+        const dir = path.dirname(expandedPath)
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true })
+        }
+        fs.copyFileSync(backupPath, expandedPath)
+        restoredCount++
       }
     } catch (err) {
       error('TurnCheckpoint', `Failed to restore file ${expandedPath}`, { error: String(err) })
@@ -749,6 +785,6 @@ export async function rewindTurn(
     return { ok: false, error: `Failed to restore all ${failedCount} files` }
   }
 
-  info('TurnCheckpoint', `Rewind completed: ${restoredCount} files restored, ${failedCount} failed`)
+  info('TurnCheckpoint', `Rewind completed: ${restoredCount} files restored, ${skippedCount} unchanged (skipped), ${failedCount} failed`)
   return { ok: true, error: failedCount > 0 ? `${failedCount} files could not be restored` : null }
 }
