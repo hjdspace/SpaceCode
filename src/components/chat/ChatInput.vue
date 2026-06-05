@@ -148,17 +148,6 @@
           <!-- 权限模式选择器 -->
           <PermissionModeSelector />
 
-          <!-- Diff 审查按钮 -->
-          <button
-            v-if="showOpenProjectAction"
-            type="button"
-            class="toolbar-btn diff-review-btn"
-            :title="t('chatInput.reviewDiff')"
-            @click="emit('show-diff')"
-          >
-            <FileDiff :size="18" />
-          </button>
-
           <button
             v-if="showOpenProjectAction"
             type="button"
@@ -499,7 +488,6 @@ const emit = defineEmits<{
   'update:effort': [effort: string]
   'update:agent': [agent: string]
   'open-skills': []
-  'show-diff': []
   stop: []
 }>()
 

@@ -87,7 +87,6 @@
         @update:effort="handleEffortChange"
         @update:agent="handleAgentChange"
         @open-skills="handleOpenSkills"
-        @show-diff="fetchAndShowDiff"
         @stop="handleStop"
         :disabled="chatStore.isLoading"
         :is-sending="chatStore.isLoading"
@@ -241,6 +240,11 @@ const showDiffPanel = ref(false)
 const diffPanelData = ref<any>(null)
 const diffPanelLoading = ref(false)
 const contextUsageStore = useContextUsageStore()
+
+// 监听 TitleBar 的 diff 触发
+watch(() => chatStore.diffPanelTrigger, () => {
+  fetchAndShowDiff()
+})
 
 // Rewind state
 const showMessageSelector = ref(false)

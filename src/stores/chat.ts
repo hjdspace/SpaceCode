@@ -591,6 +591,12 @@ export const useChatStore = defineStore('chat', () => {
   const streamingContents = ref<Map<string, string>>(new Map())
   const loadingSessions = ref<Map<string, boolean>>(new Map())
 
+  // Diff 面板触发（TitleBar → ChatPanel 通信）
+  const diffPanelTrigger = ref(0)
+  function triggerDiffPanel() {
+    diffPanelTrigger.value++
+  }
+
   // ────────────────────────────────────────────────────────────────────
   // 权限请求（can_use_tool control_request）
   //
@@ -2214,7 +2220,10 @@ export const useChatStore = defineStore('chat', () => {
       currentProjectRoot.value = session.workingDirectory
     }
 
-    // 2. 异步获取会话状态（后台操作，不阻塞UI）
+    // 2. 切换会话时先清除旧会话的轮次追踪数据，再异步加载新会话的数据
+    clearTurnCheckpoints()
+
+    // 3. 异步获取会话状态（后台操作，不阻塞UI）
     const claudeCode = electronAPI?.claudeCode
     if (claudeCode) {
       try {
@@ -2238,6 +2247,9 @@ export const useChatStore = defineStore('chat', () => {
         // 忽略：保留用户偏好不变
       }
     }
+
+    // 4. 异步加载新会话的轮次追踪数据（不阻塞UI，强制加载确保切换后数据正确）
+    void loadTurnCheckpoints(sessionId, undefined, true)
   }
 
   async function activateSession(sessionId: string): Promise<void> {
@@ -2248,6 +2260,9 @@ export const useChatStore = defineStore('chat', () => {
     if (session.workingDirectory) {
       currentProjectRoot.value = session.workingDirectory
     }
+
+    // 切换会话时清除旧数据并异步加载新会话的轮次追踪
+    clearTurnCheckpoints()
 
     if (session.processStatus === 'suspended') {
       const claudeCode = electronAPI?.claudeCode
@@ -2293,6 +2308,9 @@ export const useChatStore = defineStore('chat', () => {
     } else if ((session.processStatus === 'none' || session.processStatus === 'exited') && session.messages.length > 0) {
       await initClaudeCodeSession(sessionId)
     }
+
+    // 异步加载新会话的轮次追踪数据
+    void loadTurnCheckpoints(sessionId, undefined, true)
   }
 
   function deactivateSession(sessionId: string): void {
@@ -2324,8 +2342,8 @@ export const useChatStore = defineStore('chat', () => {
 
   // ── Turn Checkpoint Actions & Getters ──
   
-  async function loadTurnCheckpoints(sessionId: string, projectPathOverride?: string) {
-    if (!sessionId || isLoadingTurnCards.value) return
+  async function loadTurnCheckpoints(sessionId: string, projectPathOverride?: string, force?: boolean) {
+    if (!sessionId || (isLoadingTurnCards.value && !force)) return
     
     isLoadingTurnCards.value = true
     turnCardsError.value = null
@@ -2947,5 +2965,8 @@ export const useChatStore = defineStore('chat', () => {
     // ========== 优化: 会话加载状态 ==========
     sessionLoadingStates: readonly(sessionLoadingStates),
     isSessionLoading,
+    // Diff 面板触发
+    diffPanelTrigger: readonly(diffPanelTrigger),
+    triggerDiffPanel,
   }
 })

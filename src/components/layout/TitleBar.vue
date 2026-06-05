@@ -24,6 +24,11 @@
 
     <!-- Right section -->
     <div class="titlebar-right" style="-webkit-app-region: no-drag">
+      <!-- Diff 审查按钮 -->
+      <button class="titlebar-btn" @click="chatStore.triggerDiffPanel()" :title="t('titleBar.reviewDiff')">
+        <FileDiff :size="15" />
+      </button>
+
       <div class="open-file-dropdown" ref="openMenuRef">
         <button class="titlebar-btn" @click="toggleOpenMenu" :title="t('titleBar.openFile')">
           <FileCode :size="15" />
@@ -76,7 +81,7 @@
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { useI18n } from 'vue-i18n'
-import { Menu, Sun, Moon, Minus, Square, Copy, X, FileCode, ChevronDown } from 'lucide-vue-next'
+import { Menu, Sun, Moon, Minus, Square, Copy, X, FileCode, ChevronDown, FileDiff } from 'lucide-vue-next'
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import type { ThemeId } from '@/stores/app'
 import { THEME_CYCLE } from '@/stores/app'
