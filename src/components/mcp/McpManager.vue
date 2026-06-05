@@ -95,55 +95,62 @@
           </button>
         </div>
 
-        <div v-if="!activeSessionId && !runtimeLoading" class="runtime-empty runtime-hint">
+        <div v-if="!activeSessionId && !runtimeLoading && probeResultCount === 0" class="runtime-empty runtime-hint">
           <Info :size="14" />
           <div>
             <div class="runtime-hint-title">No active chat session</div>
             <div class="runtime-hint-desc">
-              MCP servers are loaded when an engine session starts.
-              Open a chat (or send a message) to connect and view tools.
+              Click the ⚡ Test button on any server to verify connectivity and view tools,
+              or start a chat to let the engine load MCP servers automatically.
             </div>
           </div>
         </div>
-        <div v-else-if="runtimeStatus.length === 0" class="runtime-empty">
+        <div v-else-if="runtimeStatus.length === 0 && probeResultCount === 0" class="runtime-empty">
           No runtime status available
         </div>
         <div v-else class="runtime-list">
+          <!-- Merge engine runtime + probe results -->
           <div
-            v-for="status in runtimeStatus"
-            :key="status.name"
+            v-for="item in mergedRuntimeItems"
+            :key="item.name"
             class="runtime-item"
           >
             <button
               class="runtime-summary"
-              :class="{ open: expanded[status.name] }"
-              @click="toggleExpand(status.name)"
+              :class="{ open: expanded[item.name] }"
+              @click="toggleExpand(item.name)"
             >
               <ChevronRight :size="12" class="chev" />
-              <span class="status-dot" :class="status.status" />
-              <span class="server-name">{{ status.name }}</span>
-              <span v-if="status.tools?.length" class="tool-count">
-                {{ status.tools.length }} tools
+              <span class="status-dot" :class="item.status" />
+              <span class="server-name">{{ item.name }}</span>
+              <span v-if="item.toolCount > 0" class="tool-count">
+                {{ item.toolCount }} tools
               </span>
-              <span class="status-badge" :class="status.status">
-                {{ status.status }}
+              <span class="status-badge" :class="item.status">
+                {{ item.statusLabel }}
               </span>
             </button>
-            <ul v-if="expanded[status.name]" class="tool-list">
+            <ul v-if="expanded[item.name]" class="tool-list">
               <li
-                v-if="status.status === 'connected' && !status.tools?.length"
+                v-if="item.status === 'connected' && item.toolCount === 0"
                 class="tool-empty"
               >
                 No tools reported by this server
               </li>
               <li
-                v-else-if="status.status !== 'connected'"
+                v-else-if="item.status === 'failed'"
+                class="tool-error"
+              >
+                {{ getProbeError(item.name) || 'Connection failed' }}
+              </li>
+              <li
+                v-else-if="item.status !== 'connected' && item.status !== 'probing'"
                 class="tool-empty"
               >
                 Tools unavailable — server not connected
               </li>
               <li
-                v-for="tool in status.tools"
+                v-for="tool in item.tools"
                 :key="tool.name"
                 class="tool-row"
               >
@@ -171,7 +178,7 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import {
   Plus, List, Code, Loader2, Wifi, RefreshCw, ArrowLeft, ChevronRight, Info
 } from 'lucide-vue-next'
-import { useMcpStore, type MCPServer } from '@/stores/mcp'
+import { useMcpStore, type McpToolInfo, type MCPServer } from '@/stores/mcp'
 import { useAppStore } from '@/stores/app'
 import McpServerList from './McpServerList.vue'
 import McpServerEditor from './McpServerEditor.vue'
@@ -194,6 +201,63 @@ const error = computed(() => mcpStore.error)
 const runtimeStatus = computed(() => mcpStore.runtimeStatus)
 const activeSessionId = computed(() => mcpStore.activeSessionId)
 const serverCount = computed(() => mcpStore.serverCount)
+
+const probeResultCount = computed(() => Object.keys(mcpStore.probeResults).length)
+
+interface MergedRuntimeItem {
+  name: string
+  status: string
+  statusLabel: string
+  toolCount: number
+  tools: McpToolInfo[]
+}
+
+const mergedRuntimeItems = computed<MergedRuntimeItem[]>(() => {
+  const map = new Map<string, MergedRuntimeItem>()
+
+  // 1) 先放 engine runtime status
+  for (const s of runtimeStatus.value) {
+    map.set(s.name, {
+      name: s.name,
+      status: s.status,
+      statusLabel: s.status,
+      toolCount: s.tools?.length ?? 0,
+      tools: s.tools ?? [],
+    })
+  }
+
+  // 2) 再用 probe 结果覆盖（probe 有 description，engine 没有）
+  for (const [name, probe] of Object.entries(mcpStore.probeResults)) {
+    const existing = map.get(name)
+    if (probe.status === 'probing') {
+      map.set(name, {
+        name,
+        status: 'probing',
+        statusLabel: 'Testing...',
+        toolCount: existing?.toolCount ?? 0,
+        tools: existing?.tools ?? [],
+      })
+    } else if (probe.status === 'connected') {
+      map.set(name, {
+        name,
+        status: 'connected',
+        statusLabel: 'Connected (tested)',
+        toolCount: probe.tools?.length ?? 0,
+        tools: probe.tools ?? [],
+      })
+    } else {
+      map.set(name, {
+        name,
+        status: 'failed',
+        statusLabel: 'Failed',
+        toolCount: 0,
+        tools: [],
+      })
+    }
+  }
+
+  return Array.from(map.values())
+})
 
 const hasClaudeJsonServers = computed(() =>
   Object.values(servers.value).some(s => s._source === 'claude.json')
@@ -286,6 +350,10 @@ async function fetchRuntimeStatus() {
 
 function toggleExpand(name: string) {
   expanded[name] = !expanded[name]
+}
+
+function getProbeError(name: string): string | undefined {
+  return mcpStore.probeResults[name]?.error
 }
 
 onMounted(() => {
@@ -629,6 +697,12 @@ onMounted(() => {
   font-style: italic;
 }
 
+.tool-error {
+  padding: 8px 12px 8px 32px;
+  font-size: 11px;
+  color: #dc3545;
+}
+
 .status-dot {
   width: 8px;
   height: 8px;
@@ -643,6 +717,10 @@ onMounted(() => {
     background: #dc3545;
   }
 
+  &.needs-auth {
+    background: #f59e0b;
+  }
+
   &.pending {
     background: var(--accent-primary);
   }
@@ -651,9 +729,15 @@ onMounted(() => {
     background: #9ca3af;
   }
 
-  &.needs-auth {
-    background: #f59e0b;
+  &.probing {
+    background: var(--accent-primary);
+    animation: pulse 1.5s ease-in-out infinite;
   }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 .server-name {

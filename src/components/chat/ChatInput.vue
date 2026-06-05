@@ -50,6 +50,7 @@
             </div>
             <span v-if="cmd.kind === 'agent_skill'" class="item-badge skill">{{ t('chatInput.skillLabel') }}</span>
             <span v-else-if="cmd.kind === 'sdk_command'" class="item-badge sdk">SDK</span>
+            <span v-else-if="cmd.kind === 'mcp_tool'" class="item-badge mcp">MCP</span>
           </button>
         </div>
         <div class="dropdown-section-divider"></div>
@@ -146,6 +147,17 @@
 
           <!-- 权限模式选择器 -->
           <PermissionModeSelector />
+
+          <!-- Diff 审查按钮 -->
+          <button
+            v-if="showOpenProjectAction"
+            type="button"
+            class="toolbar-btn diff-review-btn"
+            :title="t('chatInput.reviewDiff')"
+            @click="emit('show-diff')"
+          >
+            <FileDiff :size="18" />
+          </button>
 
           <button
             v-if="showOpenProjectAction"
@@ -423,6 +435,7 @@ import {
 } from 'lucide-vue-next'
 import { useSettingsStore } from '@/stores/settings'
 import { useSkillsStore } from '@/stores/skills'
+import { useMcpStore } from '@/stores/mcp'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { api } from '@/services/electronAPI'
@@ -457,9 +470,10 @@ interface SlashCommand {
   name: string
   description: string
   icon: any
-  kind?: 'immediate' | 'sdk_command' | 'codepilot_command' | 'agent_skill' | 'slash_command'
+  kind?: 'immediate' | 'sdk_command' | 'codepilot_command' | 'agent_skill' | 'slash_command' | 'mcp_tool'
   immediate?: boolean
   aliases?: string[]
+  source?: string
 }
 
 interface ContextItem {
@@ -485,6 +499,7 @@ const emit = defineEmits<{
   'update:effort': [effort: string]
   'update:agent': [agent: string]
   'open-skills': []
+  'show-diff': []
   stop: []
 }>()
 
@@ -500,6 +515,7 @@ const props = defineProps<{
 
 const settingsStore = useSettingsStore()
 const skillsStore = useSkillsStore()
+const mcpStore = useMcpStore()
 const appStore = useAppStore()
 const { t } = useI18n()
 const { openProjectFromPicker } = useOpenProjectWorkflow()
@@ -662,12 +678,24 @@ const skillCommands = computed<SlashCommand[]>(() => {
   return skillsStore.skills.map(skill => ({
     name: skill.name,
     description: skill.description || `${t('chatInput.skillLabel')}: /${skill.name}`,
-    icon: Zap
+    icon: Zap,
+    kind: 'agent_skill' as const,
+    source: 'skill',
+  }))
+})
+
+const mcpCommands = computed<SlashCommand[]>(() => {
+  return mcpStore.allMcpTools.map(({ serverName, tool }) => ({
+    name: tool.name,
+    description: tool.description || `MCP: ${serverName}`,
+    icon: Webhook,
+    kind: 'mcp_tool' as const,
+    source: 'mcp',
   }))
 })
 
 const allSlashCommands = computed<SlashCommand[]>(() => {
-  return [...builtinSlashCommands.value, ...skillCommands.value]
+  return [...builtinSlashCommands.value, ...skillCommands.value, ...mcpCommands.value]
 })
 
 const filteredSlashCommands = computed<SlashCommand[]>(() => {
@@ -2076,6 +2104,15 @@ function handleSend() {
       return
     }
 
+    // 检查是否是 immediate command — 直接 emit slash-command
+    if (chips.length === 1 && chips[0].kind === 'immediate') {
+      const commandName = chips[0].label
+      const userContent = content.replace(/\/cmd:"[^"]+":\w+:\w+\s*/g, '').trim()
+      cleanupAfterCommand()
+      emit('slash-command', commandName, userContent, allAttachments)
+      return
+    }
+
     // 其他命令 — 使用 dispatchCommandChip 生成 prompt
     const userContent = content.replace(/\/cmd:"[^"]+":\w+:\w+\s*/g, '').trim()
     const result = dispatchCommandChip(chips, userContent)
@@ -2757,6 +2794,12 @@ watch(pendingFile, (file) => {
         border-color: rgba(99, 102, 241, 0.5);
         color: #6366f1;
       }
+
+      &.kind-mcp_tool {
+        background: rgba(245, 158, 11, 0.08);
+        border-color: rgba(245, 158, 11, 0.5);
+        color: #f59e0b;
+      }
     }
   }
 }
@@ -3382,6 +3425,11 @@ watch(pendingFile, (file) => {
     &.sdk {
       background: color-mix(in srgb, var(--text-secondary) 15%, transparent);
       color: var(--text-secondary);
+    }
+
+    &.mcp {
+      background: color-mix(in srgb, #f59e0b 15%, transparent);
+      color: #f59e0b;
     }
   }
 }

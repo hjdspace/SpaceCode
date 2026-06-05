@@ -3,18 +3,21 @@ import { commandRegistry } from '@/lib/commands/commandRegistry'
 import { searchCommands, getGhostText, findMidInputSlashCommand } from '@/lib/commands/commandSearch'
 import type { UnifiedCommand, CommandGroup, GhostText } from '@/lib/commands/types'
 import { useSkillsStore } from '@/stores/skills'
+import { useMcpStore } from '@/stores/mcp'
 
 export function useCommandPalette() {
   const skillsStore = useSkillsStore()
+  const mcpStore = useMcpStore()
 
   const showMenu = ref(false)
   const searchQuery = ref('')
   const selectedIndex = ref(0)
   const triggerPosition = ref<number>(-1)
 
+  // Refresh registry when skills or MCP tools change
   watch(
-    () => skillsStore.skills,
-    (skills) => commandRegistry.refresh(skills),
+    () => [skillsStore.skills, mcpStore.allMcpTools] as const,
+    ([skills, mcpTools]) => commandRegistry.refresh(skills, mcpTools),
     { immediate: true },
   )
 

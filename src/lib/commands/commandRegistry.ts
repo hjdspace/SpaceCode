@@ -1,6 +1,7 @@
 import type { UnifiedCommand, CommandGroup, CommandSource } from './types'
 import { getSourcePriority, getSourceLabel } from './types'
 import type { Skill, SkillSource } from '@/stores/skills'
+import type { McpToolInfo } from '@/stores/mcp'
 import { BUILT_IN_COMMANDS } from '@/lib/constants/commands'
 
 const USAGE_STATS_KEY = 'command_usage_stats'
@@ -58,15 +59,26 @@ function builtinToCommand(cmd: typeof BUILT_IN_COMMANDS[number]): UnifiedCommand
   }
 }
 
+function mcpToolToCommand(entry: { serverName: string; tool: McpToolInfo }): UnifiedCommand {
+  return {
+    name: entry.tool.name,
+    description: entry.tool.description || `MCP tool from ${entry.serverName}`,
+    source: 'mcp',
+    kind: 'mcp_tool',
+    icon: 'Webhook',
+  }
+}
+
 export class CommandRegistry {
   private commands: UnifiedCommand[] = []
   private usageStats: Record<string, number> = loadUsageStats()
 
-  refresh(skills: Skill[]): void {
+  refresh(skills: Skill[], mcpTools: { serverName: string; tool: McpToolInfo }[] = []): void {
     const builtinCommands = BUILT_IN_COMMANDS.map(builtinToCommand)
     const skillCommands = skills.map(skillToCommand)
+    const mcpCommands = mcpTools.map(mcpToolToCommand)
 
-    const all = [...builtinCommands, ...skillCommands]
+    const all = [...builtinCommands, ...skillCommands, ...mcpCommands]
     const seen = new Map<string, UnifiedCommand>()
 
     for (const cmd of all) {

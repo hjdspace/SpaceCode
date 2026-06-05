@@ -48,11 +48,17 @@
             <template v-if="jsonMode">
               <div class="form-group">
                 <label class="form-label">Server Configuration (JSON)</label>
+                <p class="form-hint">
+                  Format follows
+                  <a href="https://code.claude.com/docs/en/mcp-quickstart" target="_blank" class="form-link">claude-code MCP config</a>.
+                  Example:
+                </p>
+                <pre class="json-example">{ "type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"] }</pre>
                 <textarea
                   v-model="jsonText"
                   class="form-textarea json"
                   rows="10"
-                  placeholder='{"command": "npx", "args": ["-y", "@server/name"]}'
+                  placeholder='{"type": "stdio", "command": "npx", "args": ["-y", "@anthropic-ai/codegraph"], "env": {}}'
                 />
               </div>
             </template>
@@ -246,7 +252,7 @@ function resetForm() {
   jsonMode.value = false
   jsonText.value = props.server
     ? JSON.stringify(props.server, null, 2)
-    : '{\n  "command": "",\n  "args": []\n}'
+    : '{\n  "type": "stdio",\n  "command": "",\n  "args": [],\n  "env": {}\n}'
   error.value = ''
 }
 
@@ -538,6 +544,36 @@ function handleSave() {
   font-size: 12px;
   color: #dc3545;
   margin: 0;
+}
+
+.form-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0 0 6px;
+  line-height: 1.5;
+}
+
+.form-link {
+  color: var(--accent-primary);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.json-example {
+  font-size: 11px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin: 0 0 8px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .dialog-footer {

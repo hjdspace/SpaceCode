@@ -1,10 +1,13 @@
-import { ipcMain, BrowserWindow } from 'electron'
+import { ipcMain, BrowserWindow, app } from 'electron'
+import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { join } from 'path'
 import { EngineFactory } from './engines/EngineFactory'
 import type { EngineSessionConfig, AgentInfo } from './engines/types'
 import { info, warn, error, debug } from './logger'
 import { SessionHistoryManager, SessionLite } from './sessionHistoryManager'
 import { detectInstalledCli, checkEnvironment, installCli } from './cliDetector'
 import { proxyManager } from './proxyManager'
+import { probeMcpServer, type McpProbeConfig, type McpProbeResult } from './mcpProbe'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -395,6 +398,76 @@ export function registerClaudeCodeIPC() {
 
   ipcMain.handle('claude-code:isProxyRunning', async () => {
     return proxyManager.isRunning()
+  })
+
+  // ── MCP Probe ── 直接探测 MCP 服务器（不依赖 engine session）
+  ipcMain.handle('mcp:probeServer', async (_, config: McpProbeConfig): Promise<McpProbeResult> => {
+    debug('McpProbe', `Probing server | type=${config.type} | command=${config.command || config.url}`)
+    const result = await probeMcpServer(config)
+    debug('McpProbe', `Probe result | status=${result.status} | tools=${result.tools?.length ?? 0} | error=${result.error || '(none)'}`)
+    return result
+  })
+
+  // ── MCP Config CRUD ── 持久化到 <userData>/mcp-servers.json
+  const MCP_CONFIG_PATH = join(app.getPath('userData'), 'mcp-servers.json')
+
+  function loadMcpConfig(): Record<string, any> {
+    try {
+      if (existsSync(MCP_CONFIG_PATH)) {
+        const raw = JSON.parse(readFileSync(MCP_CONFIG_PATH, 'utf-8'))
+        // Handle both flat format { "server": {...} } and Claude Desktop
+        // nested format { "mcpServers": { "server": {...} } }
+        if (raw && typeof raw === 'object' && raw.mcpServers && typeof raw.mcpServers === 'object' && !raw.command && !raw.type) {
+          return raw.mcpServers
+        }
+        return raw
+      }
+    } catch (e) {
+      warn('McpConfig', `Failed to load config: ${e}`)
+    }
+    return {}
+  }
+
+  function saveMcpConfig(data: Record<string, any>): void {
+    try {
+      writeFileSync(MCP_CONFIG_PATH, JSON.stringify(data, null, 2), 'utf-8')
+    } catch (e) {
+      error('McpConfig', `Failed to save config: ${e}`)
+      throw e
+    }
+  }
+
+  ipcMain.handle('mcp:getServers', async () => {
+    const servers = loadMcpConfig()
+    return { mcpServers: servers }
+  })
+
+  ipcMain.handle('mcp:addServer', async (_event, name: string, server: any) => {
+    const servers = loadMcpConfig()
+    servers[name] = { ...server, _source: 'settings.json' }
+    saveMcpConfig(servers)
+    return { success: true }
+  })
+
+  ipcMain.handle('mcp:updateServers', async (_event, servers: Record<string, any>) => {
+    saveMcpConfig(servers)
+    return { success: true }
+  })
+
+  ipcMain.handle('mcp:deleteServer', async (_event, name: string) => {
+    const servers = loadMcpConfig()
+    delete servers[name]
+    saveMcpConfig(servers)
+    return { success: true }
+  })
+
+  ipcMain.handle('mcp:toggleEnabled', async (_event, name: string, enabled: boolean) => {
+    const servers = loadMcpConfig()
+    if (servers[name]) {
+      servers[name].enabled = enabled
+      saveMcpConfig(servers)
+    }
+    return { success: true }
   })
 }
 

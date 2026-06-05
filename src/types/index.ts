@@ -222,7 +222,7 @@ export interface SlashCommand {
   name: string
   description: string
   icon: string
-  kind?: 'immediate' | 'sdk_command' | 'codepilot_command' | 'agent_skill' | 'slash_command'
+  kind?: 'immediate' | 'sdk_command' | 'codepilot_command' | 'agent_skill' | 'slash_command' | 'mcp_tool'
   immediate?: boolean
   aliases?: string[]
   source?: 'builtin' | 'bundled' | 'global' | 'project' | 'plugin' | 'mcp'
@@ -232,7 +232,7 @@ export interface CommandBadge {
   command: string
   label: string
   description: string
-  kind: 'immediate' | 'sdk_command' | 'codepilot_command' | 'agent_skill' | 'slash_command'
+  kind: 'immediate' | 'sdk_command' | 'codepilot_command' | 'agent_skill' | 'slash_command' | 'mcp_tool'
   source?: 'builtin' | 'bundled' | 'global' | 'project' | 'plugin' | 'mcp'
 }
 

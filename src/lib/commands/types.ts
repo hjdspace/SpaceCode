@@ -6,6 +6,7 @@ export type CommandKind =
   | 'codepilot_command'
   | 'agent_skill'
   | 'slash_command'
+  | 'mcp_tool'
 
 export interface UnifiedCommand {
   name: string

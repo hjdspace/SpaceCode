@@ -225,6 +225,12 @@ export function dispatchBadge(
         : expandedPrompt || badge.command
       return { prompt: finalPrompt, displayLabel }
     }
+    case 'mcp_tool': {
+      const mcpPrompt = userContent
+        ? `Use the MCP tool ${badge.label}. User context: ${userContent}`
+        : `Please use the MCP tool ${badge.label}.`
+      return { prompt: mcpPrompt, displayLabel }
+    }
     default: {
       return { prompt: userContent || badge.command, displayLabel }
     }

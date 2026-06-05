@@ -505,6 +505,7 @@ export default {
     attachFiles: 'Attach files',
     addFolderContext: 'Add folder to context',
     openProjectFolder: 'Open project',
+    reviewDiff: 'Review changes',
     agent: 'Agent',
     default: 'Default',
     defaultAgentDesc: 'Standard Claude Code session',

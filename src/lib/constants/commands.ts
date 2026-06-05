@@ -13,6 +13,7 @@ export type CommandKind =
   | 'codepilot_command' // 展开为预设提示词后发送给 Claude
   | 'agent_skill'    // 技能命令
   | 'slash_command'  // 普通斜杠命令
+  | 'mcp_tool'       // MCP 工具命令
 
 /** Expansion prompts for codepilot and sdk commands (expanded before sending to AI). */
 export const COMMAND_PROMPTS: Record<string, string> = {

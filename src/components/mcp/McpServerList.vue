@@ -45,6 +45,16 @@
           </div>
           <div class="server-actions">
             <button
+              class="action-btn"
+              :class="{ probing: getProbeResult(name)?.status === 'probing', disabled: !canProbe(server) }"
+              :title="canProbe(server) ? 'Test Connection' : 'No command or URL configured'"
+              :disabled="getProbeResult(name)?.status === 'probing' || !canProbe(server)"
+              @click.stop="handleProbe(name)"
+            >
+              <Loader2 v-if="getProbeResult(name)?.status === 'probing'" :size="14" class="spin" />
+              <Zap v-else :size="14" />
+            </button>
+            <button
               v-if="getRuntimeStatus(name)?.status === 'failed'"
               class="action-btn"
               title="Reconnect"
@@ -76,6 +86,30 @@
 
         <!-- Expanded Details -->
         <div v-if="expandedServer === name" class="server-details">
+          <!-- Probe Result -->
+          <div v-if="getProbeResult(name)" class="detail-section">
+            <span class="detail-label">
+              Connection Test
+              <span class="probe-status" :class="getProbeResult(name)!.status">
+                <Loader2 v-if="getProbeResult(name)!.status === 'probing'" :size="10" class="spin" />
+                {{ probeStatusLabel(getProbeResult(name)!.status) }}
+              </span>
+            </span>
+            <div v-if="getProbeResult(name)!.error" class="probe-error">{{ getProbeResult(name)!.error }}</div>
+            <div v-if="getProbeResult(name)!.serverInfo" class="probe-server-info">
+              {{ getProbeResult(name)!.serverInfo!.name }} v{{ getProbeResult(name)!.serverInfo!.version }}
+            </div>
+            <div v-if="getProbeResult(name)!.tools && getProbeResult(name)!.tools!.length > 0" class="probe-tools">
+              <div v-for="tool in getProbeResult(name)!.tools" :key="tool.name" class="probe-tool-row">
+                <span class="probe-tool-name">{{ tool.name }}</span>
+                <span class="probe-tool-desc">{{ tool.description || '—' }}</span>
+              </div>
+            </div>
+            <div v-else-if="getProbeResult(name)!.status === 'connected' && (!getProbeResult(name)!.tools || getProbeResult(name)!.tools!.length === 0)" class="probe-no-tools">
+              Server connected but reported no tools
+            </div>
+          </div>
+
           <div v-if="server.args && server.args.length > 0" class="detail-section">
             <span class="detail-label">Arguments</span>
             <div class="detail-tags">
@@ -98,9 +132,9 @@
 import { ref, computed } from 'vue'
 import {
   HardDrive, Pencil, Trash2, ChevronDown, RefreshCw,
-  Wifi, Globe, Terminal, AlertCircle
+  Wifi, Globe, Terminal, AlertCircle, Zap, Loader2
 } from 'lucide-vue-next'
-import { useMcpStore, type MCPServer, type McpRuntimeStatus } from '@/stores/mcp'
+import { useMcpStore, type MCPServer, type McpRuntimeStatus, type McpProbeResult } from '@/stores/mcp'
 
 interface Props {
   servers: Record<string, MCPServer>
@@ -127,6 +161,27 @@ function toggleExpand(name: string) {
 
 function getRuntimeStatus(name: string): McpRuntimeStatus | undefined {
   return runtimeStatus.value.find(s => s.name === name)
+}
+
+function getProbeResult(name: string): McpProbeResult | undefined {
+  return mcpStore.getProbeResult(name)
+}
+
+function handleProbe(name: string) {
+  mcpStore.probeServer(name)
+}
+
+function canProbe(server: MCPServer): boolean {
+  return !!(server.command || server.url)
+}
+
+function probeStatusLabel(status: McpProbeResult['status']): string {
+  switch (status) {
+    case 'connected': return 'Connected'
+    case 'failed': return 'Failed'
+    case 'probing': return 'Testing...'
+    default: return status
+  }
 }
 
 function getRuntimeStatusLabel(status: McpRuntimeStatus['status']): string {
@@ -375,6 +430,25 @@ function getServerTypeColor(server: MCPServer): string {
     background: rgba(220, 53, 69, 0.1);
     color: #dc3545;
   }
+
+  &.probing {
+    cursor: wait;
+    color: var(--accent-primary);
+  }
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.6;
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .expand-icon {
@@ -422,5 +496,95 @@ function getServerTypeColor(server: MCPServer): string {
   border-radius: 4px;
   font-family: var(--font-mono, monospace);
   color: var(--text-secondary);
+}
+
+// ── Probe Result ──
+
+.probe-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+
+  &.connected {
+    color: #10b981;
+    background: rgba(16, 185, 129, 0.1);
+  }
+
+  &.failed {
+    color: #dc3545;
+    background: rgba(220, 53, 69, 0.1);
+  }
+
+  &.probing {
+    color: var(--accent-primary);
+    background: rgba(var(--accent-primary-rgb), 0.1);
+  }
+}
+
+.probe-error {
+  font-size: 11px;
+  color: #dc3545;
+  padding: 6px 10px;
+  background: rgba(220, 53, 69, 0.06);
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.probe-server-info {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.probe-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.probe-tool-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 10px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border-color);
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.probe-tool-name {
+  flex: 0 0 200px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.probe-tool-desc {
+  flex: 1;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.probe-no-tools {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
 }
 </style>

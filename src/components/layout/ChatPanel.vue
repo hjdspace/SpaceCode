@@ -87,6 +87,7 @@
         @update:effort="handleEffortChange"
         @update:agent="handleAgentChange"
         @open-skills="handleOpenSkills"
+        @show-diff="fetchAndShowDiff"
         @stop="handleStop"
         :disabled="chatStore.isLoading"
         :is-sending="chatStore.isLoading"

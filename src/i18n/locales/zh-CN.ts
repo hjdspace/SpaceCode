@@ -505,6 +505,7 @@ export default {
     attachFiles: '附加文件',
     addFolderContext: '添加文件夹到上下文',
     openProjectFolder: '打开项目',
+    reviewDiff: '审查变更',
     agent: '智能体',
     default: '默认',
     defaultAgentDesc: '标准 Claude Code 会话',

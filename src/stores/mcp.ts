@@ -26,6 +26,14 @@ export interface McpToolInfo {
   }
 }
 
+export interface McpProbeResult {
+  status: 'connected' | 'failed' | 'probing'
+  serverInfo?: { name: string; version: string }
+  tools?: McpToolInfo[]
+  error?: string
+  probedAt?: number
+}
+
 export interface McpRuntimeStatus {
   name: string
   status: 'connected' | 'failed' | 'needs-auth' | 'pending' | 'disabled'
@@ -39,6 +47,12 @@ const MCP_STORAGE_KEY = 'claude_desktop_mcp_servers'
 // Get electron API
 const electronAPI = (window as any).electronAPI
 
+/** Strip Vue reactive Proxy — Electron IPC uses structured clone which
+ *  cannot serialize Proxy objects, causing "An object could not be cloned". */
+function toPlain<T>(obj: T): T {
+  return JSON.parse(JSON.stringify(obj))
+}
+
 export const useMcpStore = defineStore('mcp', () => {
   const servers = ref<Record<string, MCPServer>>({})
   const runtimeStatus = ref<McpRuntimeStatus[]>([])
@@ -46,6 +60,7 @@ export const useMcpStore = defineStore('mcp', () => {
   const runtimeLoading = ref(false)
   const error = ref<string | null>(null)
   const activeSessionId = ref<string | null>(null)
+  const probeResults = ref<Record<string, McpProbeResult>>({})
 
   const serverList = computed(() => Object.entries(servers.value).map(([name, server]) => ({
     ...server,
@@ -58,20 +73,48 @@ export const useMcpStore = defineStore('mcp', () => {
 
   const serverCount = computed(() => Object.keys(servers.value).length)
 
+  /** Normalize raw server data from IPC or localStorage into MCPServer records */
+  function normalizeServers(raw: Record<string, any>): Record<string, MCPServer> {
+    // Handle double-nested { mcpServers: { ... } } that may slip through
+    if (raw.mcpServers && typeof raw.mcpServers === 'object' && !raw.command && !raw.type) {
+      raw = raw.mcpServers
+    }
+
+    const result: Record<string, MCPServer> = {}
+    for (const [name, server] of Object.entries(raw)) {
+      if (!server || typeof server !== 'object') continue
+      // Skip keys that look like wrapper objects rather than server configs
+      if (name === 'mcpServers') continue
+      result[name] = {
+        id: server.id || crypto.randomUUID(),
+        name: server.name || name,
+        command: server.command ?? '',
+        args: server.args || [],
+        env: server.env || {},
+        enabled: server.enabled !== false,
+        type: server.type,
+        url: server.url,
+        headers: server.headers,
+        _source: server._source,
+      }
+    }
+    return result
+  }
+
   async function fetchServers() {
     loading.value = true
     error.value = null
     try {
       if (electronAPI?.mcp?.getServers) {
         const data = await electronAPI.mcp.getServers()
-        if (data.mcpServers) {
-          servers.value = data.mcpServers
+        if (data?.mcpServers) {
+          servers.value = normalizeServers(data.mcpServers)
         }
       } else {
         // Fallback: load from localStorage
         const stored = localStorage.getItem(MCP_STORAGE_KEY)
         if (stored) {
-          servers.value = JSON.parse(stored)
+          servers.value = normalizeServers(JSON.parse(stored))
         }
       }
     } catch (err) {
@@ -129,7 +172,7 @@ export const useMcpStore = defineStore('mcp', () => {
     try {
       const newServer = { ...server, id: crypto.randomUUID(), name }
       if (electronAPI?.mcp?.addServer) {
-        await electronAPI.mcp.addServer(name, server)
+        await electronAPI.mcp.addServer(name, toPlain(server))
       }
       servers.value = { ...servers.value, [name]: newServer }
       localStorage.setItem(MCP_STORAGE_KEY, JSON.stringify(servers.value))
@@ -153,7 +196,7 @@ export const useMcpStore = defineStore('mcp', () => {
       }
 
       if (electronAPI?.mcp?.updateServers) {
-        await electronAPI.mcp.updateServers(updated)
+        await electronAPI.mcp.updateServers(toPlain(updated))
       }
       servers.value = updated
       localStorage.setItem(MCP_STORAGE_KEY, JSON.stringify(servers.value))
@@ -187,8 +230,10 @@ export const useMcpStore = defineStore('mcp', () => {
         updated[name] = { ...updated[name], enabled }
       }
 
-      if (electronAPI?.mcp?.updateServers) {
-        await electronAPI.mcp.updateServers(updated)
+      if (electronAPI?.mcp?.toggleEnabled) {
+        await electronAPI.mcp.toggleEnabled(name, enabled)
+      } else if (electronAPI?.mcp?.updateServers) {
+        await electronAPI.mcp.updateServers(toPlain(updated))
       }
       servers.value = updated
       localStorage.setItem(MCP_STORAGE_KEY, JSON.stringify(servers.value))
@@ -239,7 +284,7 @@ export const useMcpStore = defineStore('mcp', () => {
       const merged = { ...claudeJsonServers, ...settingsServers }
 
       if (electronAPI?.mcp?.updateServers) {
-        await electronAPI.mcp.updateServers(merged)
+        await electronAPI.mcp.updateServers(toPlain(merged))
       }
       servers.value = merged
       localStorage.setItem(MCP_STORAGE_KEY, JSON.stringify(servers.value))
@@ -253,6 +298,97 @@ export const useMcpStore = defineStore('mcp', () => {
     return runtimeStatus.value.find(s => s.name === name)
   }
 
+  function getProbeResult(name: string): McpProbeResult | undefined {
+    return probeResults.value[name]
+  }
+
+  async function probeServer(name: string) {
+    const server = servers.value[name]
+    if (!server) return
+
+    probeResults.value = {
+      ...probeResults.value,
+      [name]: { status: 'probing', probedAt: Date.now() },
+    }
+
+    try {
+      const config = {
+        type: server.type || 'stdio',
+        command: server.command || undefined,
+        args: server.args || [],
+        env: server.env || {},
+        url: server.url || undefined,
+        headers: server.headers || {},
+      }
+
+      const result = await electronAPI?.mcp?.probeServer(toPlain(config))
+      if (result) {
+        probeResults.value = {
+          ...probeResults.value,
+          [name]: {
+            ...result,
+            probedAt: Date.now(),
+          },
+        }
+      } else {
+        probeResults.value = {
+          ...probeResults.value,
+          [name]: { status: 'failed', error: 'No response from probe', probedAt: Date.now() },
+        }
+      }
+    } catch (err) {
+      probeResults.value = {
+        ...probeResults.value,
+        [name]: {
+          status: 'failed',
+          error: err instanceof Error ? err.message : String(err),
+          probedAt: Date.now(),
+        },
+      }
+    }
+  }
+
+  /** Collect all MCP tools from probe results and runtime status */
+  const allMcpTools = computed<{ serverName: string; tool: McpToolInfo }[]>(() => {
+    const tools: { serverName: string; tool: McpToolInfo }[] = []
+    const seen = new Set<string>()
+
+    // 1) From probe results (has description)
+    for (const [serverName, probe] of Object.entries(probeResults.value)) {
+      if (probe.status === 'connected' && probe.tools) {
+        for (const tool of probe.tools) {
+          const key = `${serverName}::${tool.name}`
+          if (!seen.has(key)) {
+            seen.add(key)
+            tools.push({ serverName, tool })
+          }
+        }
+      }
+    }
+
+    // 2) From runtime status
+    for (const rs of runtimeStatus.value) {
+      if (rs.tools) {
+        for (const tool of rs.tools) {
+          const key = `${rs.name}::${tool.name}`
+          if (!seen.has(key)) {
+            seen.add(key)
+            tools.push({ serverName: rs.name, tool })
+          }
+        }
+      }
+    }
+
+    return tools
+  })
+
+  async function probeAllServers() {
+    const names = Object.keys(servers.value).filter(
+      n => servers.value[n].enabled !== false
+    )
+    await Promise.allSettled(names.map(n => probeServer(n)))
+  }
+
   return {
     servers,
     serverList,
@@ -261,6 +397,7 @@ export const useMcpStore = defineStore('mcp', () => {
     runtimeLoading,
     error,
     activeSessionId,
+    probeResults,
     enabledCount,
     serverCount,
     fetchServers,
@@ -272,6 +409,10 @@ export const useMcpStore = defineStore('mcp', () => {
     reconnectServer,
     toggleServerRuntime,
     saveJsonConfig,
-    getRuntimeStatusForServer
+    getRuntimeStatusForServer,
+    getProbeResult,
+    probeServer,
+    probeAllServers,
+    allMcpTools
   }
 })
