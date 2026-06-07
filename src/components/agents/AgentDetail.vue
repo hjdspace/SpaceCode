@@ -35,10 +35,11 @@
         <span class="label">Prompt 预览</span>
         <pre class="prompt-preview">{{ promptBody }}</pre>
       </div>
+    </div>
 
-      <div class="install-section">
-        <span class="label">安装范围</span>
-        <div class="scope-options">
+    <div class="install-section">
+      <span class="label">安装范围</span>
+      <div class="scope-options">
           <label class="scope-option" :class="{ active: scope === 'global' }">
             <input type="radio" v-model="scope" value="global" />
             <span>全局 (~/.claude/agents/)</span>
@@ -64,7 +65,6 @@
           <button class="btn btn-danger" @click="handleUninstall">卸载</button>
         </div>
       </div>
-    </div>
   </div>
 </template>
 
@@ -106,10 +106,12 @@ async function handleUninstall() {
 
 <style lang="scss" scoped>
 .agent-detail {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
   display: flex;
   flex-direction: column;
-  height: 100%;
-  overflow-y: auto;
+  background: var(--bg-primary);
 }
 
 .detail-header {
@@ -143,16 +145,19 @@ async function handleUninstall() {
 }
 
 .detail-body {
-  padding: 20px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
 .detail-section, .detail-row {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .detail-row {
@@ -207,6 +212,16 @@ async function handleUninstall() {
   margin: 0;
 }
 
+.install-section {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
 .scope-options {
   display: flex;
   gap: 12px;
@@ -241,6 +256,7 @@ async function handleUninstall() {
   transition: all 0.15s;
 
   &.btn-primary {
+    justify-content: center;
     background: var(--accent-primary);
     color: white;
     &:hover { background: var(--accent-primary-hover); }

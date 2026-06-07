@@ -51,10 +51,6 @@
         </button>
         <input v-model="currentWorkflow.name" class="wf-title-input" />
         <div class="canvas-actions">
-          <button class="btn btn-secondary" @click="addEdgeMode = !addEdgeMode" :class="{ active: addEdgeMode }">
-            <Link :size="14" />
-            {{ addEdgeMode ? '取消连线' : '连线' }}
-          </button>
           <button class="btn btn-secondary" @click="saveCurrentWorkflow">
             <Save :size="14" />
             {{ t('agents.save') }}
@@ -123,6 +119,8 @@
           <div
             v-for="node in currentWorkflow.nodes"
             :key="node.id"
+            :ref="el => setNodeEl(node.id, el)"
+            :data-node-id="node.id"
             class="workflow-node"
             :class="[`node-${node.type}`, { selected: selectedNodeId === node.id }]"
             :style="{ left: node.position.x + 'px', top: node.position.y + 'px' }"
@@ -217,7 +215,7 @@
             <div class="panel-empty">
               <MousePointer :size="20" />
               <p>点击节点查看属性</p>
-              <p class="panel-hint">拖拽左侧组件到画布添加节点，点击连线按钮连接节点</p>
+              <p class="panel-hint">拖拽左侧组件到画布添加节点，从节点的连接点拖到另一个节点即可连线</p>
             </div>
           </template>
         </div>
@@ -248,7 +246,7 @@
 import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
-  Plus, Pencil, Play, Download, Trash2, ArrowLeft, Save, X, Link, MousePointer,
+  Plus, Pencil, Play, Download, Trash2, ArrowLeft, Save, X, MousePointer,
   Bot, GitBranch, Merge, LogIn, LogOut, Workflow
 } from 'lucide-vue-next'
 import { useAgentsStore } from '@/stores/agents'
@@ -289,7 +287,6 @@ const currentWorkflow = ref<WorkflowDef | null>(null)
 const selectedNodeId = ref<string | null>(null)
 const runningWorkflow = ref<WorkflowDef | null>(null)
 const canvasRef = ref<HTMLElement | null>(null)
-const addEdgeMode = ref(false)
 const connectFrom = ref<{ nodeId: string; port: string } | null>(null)
 const tempEdge = ref<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
 let connectOnMove: ((e: MouseEvent) => void) | null = null
@@ -325,11 +322,20 @@ function getNodeLabel(node: WorkflowNode) {
   return node.data?.label || labels[node.type] || node.type
 }
 
+const nodeSizes = reactive<Record<string, { w: number; h: number }>>({})
+
+function setNodeEl(nodeId: string, el: any) {
+  if (!el) return
+  nodeSizes[nodeId] = { w: el.offsetWidth, h: el.offsetHeight }
+}
+
 function getNodePort(nodeId: string, port: 'in' | 'out') {
   const node = currentWorkflow.value?.nodes.find(n => n.id === nodeId)
   if (!node) return { x: 0, y: 0 }
-  if (port === 'in') return { x: node.position.x + 70, y: node.position.y }
-  return { x: node.position.x + 70, y: node.position.y + 48 }
+  const size = nodeSizes[nodeId] || { w: 140, h: 70 }
+  const cx = node.position.x + size.w / 2
+  if (port === 'in') return { x: cx, y: node.position.y }
+  return { x: cx, y: node.position.y + size.h }
 }
 
 function formatDate(dateStr: string) {
@@ -350,10 +356,6 @@ function selectNode(nodeId: string) {
 function handleCanvasClick() {
   selectedNodeId.value = null
   contextMenu.visible = false
-  if (addEdgeMode.value) {
-    connectFrom.value = null
-    tempEdge.value = null
-  }
 }
 
 function handleDragStart(type: string, event: DragEvent) {
@@ -375,7 +377,6 @@ function handleDrop(event: DragEvent) {
 }
 
 function startDrag(node: WorkflowNode, event: MouseEvent) {
-  if (addEdgeMode.value) return
   // 清理上一次可能残留的监听器
   if (dragOnMove) window.removeEventListener('mousemove', dragOnMove)
   if (dragOnUp) window.removeEventListener('mouseup', dragOnUp)
@@ -397,8 +398,7 @@ function startDrag(node: WorkflowNode, event: MouseEvent) {
   window.addEventListener('mouseup', dragOnUp)
 }
 
-function startConnect(nodeId: string, port: string, event: MouseEvent) {
-  if (!addEdgeMode.value) return
+function startConnect(nodeId: string, port: string, _event: MouseEvent) {
   // 清理上一次可能残留的监听器
   if (connectOnMove) window.removeEventListener('mousemove', connectOnMove)
   if (connectOnUp) window.removeEventListener('mouseup', connectOnUp)
@@ -418,30 +418,19 @@ function startConnect(nodeId: string, port: string, event: MouseEvent) {
     connectOnMove = null
     connectOnUp = null
     tempEdge.value = null
-    // Check if dropped on another node's port
+    // 落点所在节点：通过 DOM 命中识别（端口或节点主体都可）
     if (connectFrom.value && currentWorkflow.value) {
-      const target = (e.target as HTMLElement).closest('.workflow-node')
-      if (target) {
-        // Find node by position match
-        const rect2 = canvasRef.value!.getBoundingClientRect()
-        const dropX = e.clientX - rect2.left
-        const dropY = e.clientY - rect2.top
-        const targetNode = currentWorkflow.value.nodes.find(n => {
-          if (n.id === connectFrom.value!.nodeId) return false
-          return Math.abs(n.position.x + 70 - dropX) < 80 && Math.abs(n.position.y + 24 - dropY) < 40
-        })
-        if (targetNode) {
-          const sourceId = connectFrom.value.nodeId
-          const targetId2 = targetNode.id
-          // Avoid duplicate edges
-          const exists = currentWorkflow.value.edges.some(e => e.source === sourceId && e.target === targetId2)
-          if (!exists) {
-            currentWorkflow.value.edges.push({
-              id: `edge-${Date.now()}`,
-              source: sourceId,
-              target: targetId2,
-            })
-          }
+      const el = (e.target as HTMLElement)?.closest('[data-node-id]') as HTMLElement | null
+      const targetId = el?.dataset.nodeId
+      if (targetId && targetId !== connectFrom.value.nodeId) {
+        const sourceId = connectFrom.value.nodeId
+        const exists = currentWorkflow.value.edges.some(ed => ed.source === sourceId && ed.target === targetId)
+        if (!exists) {
+          currentWorkflow.value.edges.push({
+            id: `edge-${Date.now()}`,
+            source: sourceId,
+            target: targetId,
+          })
         }
       }
     }
@@ -749,13 +738,14 @@ onUnmounted(() => {
 
 .node-port {
   position: absolute;
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: var(--bg-tertiary);
   border: 2px solid var(--border-color);
   z-index: 3;
-  transition: all 0.15s;
+  cursor: crosshair;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
 
   &:hover {
     background: var(--accent-primary);
@@ -765,14 +755,14 @@ onUnmounted(() => {
 }
 
 .port-in {
-  top: -5px;
+  top: -6px;
   left: 50%;
   transform: translateX(-50%);
   &:hover { transform: translateX(-50%) scale(1.3); }
 }
 
 .port-out {
-  bottom: -5px;
+  bottom: -6px;
   left: 50%;
   transform: translateX(-50%);
   &:hover { transform: translateX(-50%) scale(1.3); }

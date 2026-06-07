@@ -68,7 +68,8 @@ function truncatedDesc(agent: AgentDef) {
 }
 
 function handleEdit(agent: AgentDef) {
-  console.log('Edit agent:', agent.agentPath)
+  if (!agent.agentPath) return
+  appStore.openFile(agent.agentPath)
 }
 
 async function handleUninstall(agent: AgentDef, scope: 'global' | 'project') {
