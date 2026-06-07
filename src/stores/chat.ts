@@ -808,6 +808,7 @@ export const useChatStore = defineStore('chat', () => {
     }
     sessions.value.unshift(session)
     currentSessionId.value = session.id
+    clearTurnCheckpoints()
     saveToStorage()
     traceEvent({
       sessionId: session.id,
