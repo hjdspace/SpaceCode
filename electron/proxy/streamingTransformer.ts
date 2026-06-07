@@ -22,14 +22,18 @@ interface OpenAIStreamChunk {
     prompt_tokens?: number
     completion_tokens?: number
     total_tokens?: number
+    prompt_tokens_details?: {
+      cached_tokens?: number
+    }
   }
 }
 
-const enum ContentBlockType {
-  None,
-  Text,
-  ToolUse,
-}
+const ContentBlockType = {
+  None: 0,
+  Text: 1,
+  ToolUse: 2,
+} as const
+type ContentBlockType = (typeof ContentBlockType)[keyof typeof ContentBlockType]
 
 export class OpenAIToAnthropicStreamTransformer {
   private messageStarted = false
@@ -39,13 +43,34 @@ export class OpenAIToAnthropicStreamTransformer {
   private currentToolIndex = -1
   private model = ''
   private messageId = ''
+  // Track usage — all four Anthropic fields, populated from OpenAI usage fields:
+  //   prompt_tokens                       → input_tokens
+  //   completion_tokens                   → output_tokens
+  //   prompt_tokens_details.cached_tokens → cache_read_input_tokens
+  //   (no OpenAI equivalent)              → cache_creation_input_tokens (always 0)
   private inputTokens = 0
   private outputTokens = 0
+  private cachedReadTokens = 0
+  // Rough input-token estimate from the request body. OpenAI-compatible endpoints
+  // only send usage in a trailing chunk (after message_start is already emitted),
+  // so message_start would otherwise carry input_tokens=0. The official Claude CLI
+  // reads input_tokens primarily from message_start, leaving the context-usage
+  // indicator stuck at 0. We seed message_start with this estimate; the real value
+  // (if the endpoint sends one) still overrides it via message_delta.
+  private estimatedInputTokens = 0
+
+  constructor(estimatedInputTokens = 0) {
+    this.estimatedInputTokens = estimatedInputTokens
+  }
+  // Deferred finish: when finish_reason arrives, we defer message_delta/message_stop
+  // until [DONE] so that trailing usage chunks (sent after finish_reason by some
+  // OpenAI-compatible endpoints like DeepSeek) are captured before final counts.
+  private pendingFinishReason: string | null = null
 
   transform(event: { data: string }): string[] {
     if (event.data === '[DONE]') {
       if (!this.finished) {
-        return this.emitClosingEvents()
+        return this.emitClosingEvents(this.pendingFinishReason ?? undefined)
       }
       return []
     }
@@ -60,14 +85,22 @@ export class OpenAIToAnthropicStreamTransformer {
     const output: string[] = []
 
     if (chunk.usage) {
-      this.inputTokens = chunk.usage.prompt_tokens || 0
-      this.outputTokens = chunk.usage.completion_tokens || 0
+      this.inputTokens = chunk.usage.prompt_tokens ?? this.inputTokens
+      this.outputTokens = chunk.usage.completion_tokens ?? this.outputTokens
+      // OpenAI prompt caching: prompt_tokens_details.cached_tokens → cache_read_input_tokens
+      const details = (chunk.usage as any).prompt_tokens_details
+      if (details?.cached_tokens != null) {
+        this.cachedReadTokens = details.cached_tokens
+      }
     }
 
     if (!this.messageStarted) {
       this.messageStarted = true
       this.model = chunk.model || ''
       this.messageId = chunk.id?.replace('chatcmpl-', 'msg_') || `msg_${Date.now()}`
+      // Seed with the real prompt_tokens if this first chunk already carries usage;
+      // otherwise fall back to the request-body estimate so message_start is never 0.
+      const startInputTokens = this.inputTokens > 0 ? this.inputTokens : this.estimatedInputTokens
       output.push(this.formatSSE('message_start', {
         type: 'message_start',
         message: {
@@ -78,7 +111,12 @@ export class OpenAIToAnthropicStreamTransformer {
           model: this.model,
           stop_reason: null,
           stop_sequence: null,
-          usage: { input_tokens: this.inputTokens, output_tokens: 0 },
+          usage: {
+            input_tokens: startInputTokens,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: this.cachedReadTokens,
+          },
         },
       }))
     }
@@ -177,7 +215,12 @@ export class OpenAIToAnthropicStreamTransformer {
     }
 
     if (choice.finish_reason) {
-      output.push(...this.emitClosingEvents(choice.finish_reason))
+      // Defer message_delta/message_stop until [DONE] so that trailing usage
+      // chunks (sent after finish_reason by some OpenAI-compatible endpoints)
+      // are captured before we emit the final token counts.
+      this.pendingFinishReason = choice.finish_reason
+      // Close any open content blocks now, but don't emit message_delta yet.
+      output.push(...this.closeContentBlocks())
     }
 
     return output
@@ -185,7 +228,7 @@ export class OpenAIToAnthropicStreamTransformer {
 
   finish(): string[] {
     if (!this.finished) {
-      return this.emitClosingEvents()
+      return this.emitClosingEvents(this.pendingFinishReason ?? undefined)
     }
     return []
   }
@@ -200,6 +243,10 @@ export class OpenAIToAnthropicStreamTransformer {
     this.messageId = ''
     this.inputTokens = 0
     this.outputTokens = 0
+    this.cachedReadTokens = 0
+    this.pendingFinishReason = null
+    // estimatedInputTokens is intentionally NOT reset — it's a per-request
+    // construction parameter, not stream state.
   }
 
   private emitClosingEvents(finishReason?: string): string[] {
@@ -215,19 +262,40 @@ export class OpenAIToAnthropicStreamTransformer {
       }))
     }
 
+    // Carry all four Anthropic usage fields so the consumer can calculate
+    // context fill from input_tokens + cache tokens. Matches engine layer's
+    // streamAdapter.ts message_delta format.
     output.push(this.formatSSE('message_delta', {
       type: 'message_delta',
       delta: {
         stop_reason: this.mapFinishReason(finishReason),
         stop_sequence: null,
       },
-      usage: { output_tokens: this.outputTokens },
+      usage: {
+        input_tokens: this.inputTokens > 0 ? this.inputTokens : this.estimatedInputTokens,
+        output_tokens: this.outputTokens,
+        cache_read_input_tokens: this.cachedReadTokens,
+        cache_creation_input_tokens: 0,
+      },
     }))
 
     output.push(this.formatSSE('message_stop', {
       type: 'message_stop',
     }))
 
+    return output
+  }
+
+  /** Close any open content block without emitting message_delta/message_stop. */
+  private closeContentBlocks(): string[] {
+    const output: string[] = []
+    if (this.contentBlockType !== ContentBlockType.None) {
+      output.push(this.formatSSE('content_block_stop', {
+        type: 'content_block_stop',
+        index: this.contentBlockIndex,
+      }))
+      this.contentBlockType = ContentBlockType.None
+    }
     return output
   }
 

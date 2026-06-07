@@ -1,3 +1,33 @@
+/**
+ * Rough input-token estimate (~chars/4) over the full Anthropic request body:
+ * system prompt, messages, and tool definitions. Used to seed message_start's
+ * input_tokens for OpenAI-compatible streams, which only report real usage in a
+ * trailing chunk (after message_start is already emitted). Approximate but enough
+ * to keep the context-usage indicator from sitting at 0 until the real value
+ * (if any) arrives via message_delta.
+ */
+export function estimateInputTokens(body: Record<string, any>): number {
+  let chars = 0
+
+  if (body.system) {
+    chars += typeof body.system === 'string'
+      ? body.system.length
+      : JSON.stringify(body.system).length
+  }
+  if (Array.isArray(body.messages)) {
+    for (const msg of body.messages) {
+      chars += typeof msg.content === 'string'
+        ? msg.content.length
+        : JSON.stringify(msg.content ?? '').length
+    }
+  }
+  if (Array.isArray(body.tools)) {
+    chars += JSON.stringify(body.tools).length
+  }
+
+  return Math.ceil(chars / 4)
+}
+
 export function anthropicToOpenAIRequest(body: Record<string, any>): Record<string, any> {
   const messages: Array<Record<string, any>> = []
 
@@ -18,6 +48,10 @@ export function anthropicToOpenAIRequest(body: Record<string, any>): Record<stri
     model: body.model,
     messages,
     stream: body.stream || false,
+    // Request usage data in streaming responses. Without this, OpenAI-compatible
+    // endpoints omit the usage field from SSE chunks, causing token counts to
+    // always show as 0 in the UI.
+    stream_options: { include_usage: true },
   }
 
   if (body.max_tokens !== undefined) result.max_tokens = body.max_tokens
@@ -146,6 +180,8 @@ export function openAIToAnthropicResponse(body: Record<string, any>): Record<str
     usage: {
       input_tokens: body.usage?.prompt_tokens || 0,
       output_tokens: body.usage?.completion_tokens || 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: body.usage?.prompt_tokens_details?.cached_tokens || 0,
     },
   }
 }

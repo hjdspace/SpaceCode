@@ -2,7 +2,7 @@ import * as http from 'http'
 import * as https from 'https'
 import { URL } from 'url'
 import { ProxyConfig, AdapterStatus } from './types'
-import { anthropicToOpenAIRequest, openAIToAnthropicResponse } from './transformer'
+import { anthropicToOpenAIRequest, openAIToAnthropicResponse, estimateInputTokens } from './transformer'
 import { OpenAIToAnthropicStreamTransformer } from './streamingTransformer'
 import { buildUpstreamRequest } from './authHandler'
 import { applyModelMapping } from './modelMapper'
@@ -184,13 +184,16 @@ export class ProxyServer {
 
   private forwardWithTransform(body: Record<string, any>, res: http.ServerResponse): void {
     applyModelMapping(body, this.config.modelMapping)
+    // Estimate input tokens from the original Anthropic body (before conversion)
+    // to seed message_start, since OpenAI-compatible streams omit usage there.
+    const estimatedInputTokens = estimateInputTokens(body)
     const openaiBody = anthropicToOpenAIRequest(body)
     const upstream = buildUpstreamRequest('/v1/messages', openaiBody, this.config)
     const isStream = body.stream === true
     const bodyStr = JSON.stringify(openaiBody)
 
     if (isStream) {
-      this.streamUpstream(upstream, bodyStr, res, true)
+      this.streamUpstream(upstream, bodyStr, res, true, estimatedInputTokens)
     } else {
       this.sendUpstream(upstream, bodyStr, res, true)
     }
@@ -250,6 +253,7 @@ export class ProxyServer {
     body: string,
     clientRes: http.ServerResponse,
     transformStream: boolean,
+    estimatedInputTokens = 0,
   ): void {
     const parsedUrl = new URL(upstream.url)
     const bodyBuffer = Buffer.from(body)
@@ -278,7 +282,7 @@ export class ProxyServer {
         })
 
         const parser = new SSEParser()
-        const transformer = new OpenAIToAnthropicStreamTransformer()
+        const transformer = new OpenAIToAnthropicStreamTransformer(estimatedInputTokens)
 
         upstreamRes.on('data', (chunk: Buffer) => {
           const events = parser.feed(chunk.toString())
