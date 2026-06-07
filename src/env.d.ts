@@ -20,6 +20,20 @@ interface FileStat {
   mtime: number
 }
 
+interface AgentDef {
+  name: string
+  description: string
+  content: string
+  tools?: string[]
+  model?: string
+  color?: string
+  sourceDir: string
+  agentPath: string
+  isInstalled: boolean
+  installedScope?: 'global' | 'project'
+  category: string
+}
+
 interface Window {
   electronAPI: {
     platform: string
@@ -60,6 +74,12 @@ interface Window {
       stash: (cwd: string) => Promise<{ success: boolean; error?: string }>
       stashPop: (cwd: string) => Promise<{ success: boolean; error?: string }>
       fetchAll: (cwd: string) => Promise<{ success: boolean; error?: string }>
+    }
+    agents: {
+      scanLibrary: (cwd?: string) => Promise<{ agents: AgentDef[] }>
+      getInstalled: (cwd?: string) => Promise<{ agents: AgentDef[] }>
+      install: (name: string, scope: 'global' | 'project', cwd?: string) => Promise<void>
+      uninstall: (name: string, scope: 'global' | 'project', cwd?: string) => Promise<void>
     }
     terminal: {
       create: (options?: { cwd?: string; command?: string; env?: Record<string, string> }) => Promise<{ id: string | null; shell?: string; error?: string }>
