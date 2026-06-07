@@ -6,6 +6,7 @@ import { config } from 'dotenv'
 import { TerminalManager } from './terminalManager'
 import { registerGitIPCHandlers } from './gitService'
 import { registerSkillsIPCHandlers, registerLocalLibraryIPCHandlers } from './skillsService'
+import { registerAgentsIPCHandlers } from './agentsService'
 import { registerClaudeCodeIPC, setMainWindow, getPool } from './claudeCodeIPC'
 import { registerPromptOptimizerIPC } from './promptOptimizerIPC'
 import { aggregateLocalTokenStats } from './tokenStatsService'
@@ -607,6 +608,10 @@ app.whenReady().then(() => {
   // Register Local Library IPC handlers
   registerLocalLibraryIPCHandlers()
   info('Startup', 'Local Library IPC handlers registered')
+
+  // Register Agents IPC handlers
+  registerAgentsIPCHandlers()
+  info('Startup', 'Agents IPC handlers registered')
 
   // Register Claude Code IPC handlers
   registerClaudeCodeIPC()

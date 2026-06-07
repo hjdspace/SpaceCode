@@ -452,6 +452,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     removeCustomDir: (dirPath: string) => ipcRenderer.invoke('skills:remove-custom-dir', dirPath),
   },
 
+  // Agents API
+  agents: {
+    scanLibrary: (cwd?: string) => ipcRenderer.invoke('agents:scanLibrary', cwd),
+    install: (agentName: string, scope: 'global' | 'project', cwd?: string) =>
+      ipcRenderer.invoke('agents:install', agentName, scope, cwd),
+    uninstall: (agentName: string, scope: 'global' | 'project', cwd?: string) =>
+      ipcRenderer.invoke('agents:uninstall', agentName, scope, cwd),
+    getInstalled: (cwd?: string) => ipcRenderer.invoke('agents:getInstalled', cwd),
+  },
+
   // Image persistence — 聊天图片落盘到 userData，避免 localStorage 配额溢出
   image: {
     save: (id: string, dataUrl: string) =>
