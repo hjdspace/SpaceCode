@@ -533,6 +533,7 @@ export default {
 
   titleBar: {
     toggleSidebar: 'Toggle Sidebar',
+    connectMobile: 'Connect Mobile',
     lightMode: 'Light Mode',
     darkMode: 'Dark Mode',
     anthropicMode: 'Anthropic',
@@ -555,6 +556,16 @@ export default {
     maximize: 'Maximize',
     restore: 'Restore',
     close: 'Close',
+  },
+
+  mobile: {
+    connectTitle: 'Connect Mobile',
+    scanHint: 'Scan the QR code below with SpaceCode mobile app',
+    lanAddress: 'LAN Address',
+    waitingConnection: 'Waiting for connection...',
+    connected: 'Connected',
+    disconnect: 'Disconnect',
+    cancel: 'Cancel',
   },
 
   sessionTab: {

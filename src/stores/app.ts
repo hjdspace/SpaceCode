@@ -108,6 +108,7 @@ export const useAppStore = defineStore('app', () => {
   const showSettings = ref(false)
   const showMCPManager = ref(false)
   const showAgentManager = ref(false)
+  const showConnectMobile = ref(false)
 
   const activeInfoTab = computed<InfoPanelTab | null>(() => {
     if (!activeInfoTabId.value) return null
@@ -636,6 +637,7 @@ export const useAppStore = defineStore('app', () => {
     showSettings,
     showMCPManager,
     showAgentManager,
+    showConnectMobile,
     webviewUrl,
     webviewHistory,
     currentHistoryIndex,

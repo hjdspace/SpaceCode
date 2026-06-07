@@ -491,4 +491,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
     toggleEnabled: (name: string, enabled: boolean) => ipcRenderer.invoke('mcp:toggleEnabled', name, enabled),
     probeServer: (config: any) => ipcRenderer.invoke('mcp:probeServer', config),
   },
+
+  mobile: {
+    startServer: (): Promise<import('./mobileServerTypes').QRCodeData> =>
+      ipcRenderer.invoke('mobile:startServer'),
+    stopServer: (): Promise<void> =>
+      ipcRenderer.invoke('mobile:stopServer'),
+    getStatus: (): Promise<import('./mobileServerTypes').ServerStatus> =>
+      ipcRenderer.invoke('mobile:getStatus'),
+    onConnected: (callback: (clientInfo: string) => void) => {
+      const handler = (_event: any, clientInfo: string) => callback(clientInfo)
+      ipcRenderer.on('mobile:onConnected', handler)
+      return () => ipcRenderer.removeListener('mobile:onConnected', handler)
+    },
+    onDisconnected: (callback: () => void) => {
+      const handler = () => callback()
+      ipcRenderer.on('mobile:onDisconnected', handler)
+      return () => ipcRenderer.removeListener('mobile:onDisconnected', handler)
+    },
+  },
 })

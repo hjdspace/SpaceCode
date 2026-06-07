@@ -1,0 +1,36 @@
+name: spacecode_mobile
+description: SpaceCode mobile companion app
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  web_socket_channel: ^3.0.0
+  flutter_riverpod: ^2.5.0
+  riverpod_annotation: ^2.3.0
+  go_router: ^14.0.0
+  mobile_scanner: ^5.0.0
+  flutter_markdown: ^0.7.0
+  markdown: ^7.0.0
+  flutter_highlight: ^0.7.0
+  highlight: ^0.7.0
+  shared_preferences: ^2.2.0
+  flutter_animate: ^4.5.0
+  google_fonts: ^6.2.0
+  uuid: ^4.4.0
+  json_annotation: ^4.9.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  build_runner: ^2.4.0
+  riverpod_generator: ^2.4.0
+  json_serializable: ^6.8.0
+
+flutter:
+  uses-material-design: true

@@ -8,6 +8,9 @@ import { registerGitIPCHandlers } from './gitService'
 import { registerSkillsIPCHandlers, registerLocalLibraryIPCHandlers } from './skillsService'
 import { registerAgentsIPCHandlers } from './agentsService'
 import { registerClaudeCodeIPC, setMainWindow, getPool } from './claudeCodeIPC'
+import { MobileServer } from './mobileServer'
+import type { QRCodeData, ServerStatus } from './mobileServerTypes'
+import { buildThemeSyncData } from './themeSyncBuilder'
 import { registerPromptOptimizerIPC } from './promptOptimizerIPC'
 import { aggregateLocalTokenStats } from './tokenStatsService'
 import { initLogger, info, warn, error, debug, isDebugMode, ipc as logIpc, traceEvent, listDebugFiles, readDebugFile, listTraceSessions, readTraceEvents } from './logger'
@@ -617,6 +620,9 @@ app.whenReady().then(() => {
   registerClaudeCodeIPC()
   info('Startup', 'Claude Code IPC handlers registered')
 
+  // Mobile server
+  registerMobileIPCHandlers()
+
   ipcMain.handle('claude-code:engineSourceChanged', async (_, source: string) => {
     info('EngineSource', `Engine source changed to: ${source}`)
     const needsProxy = source === 'installed'
@@ -728,7 +734,113 @@ app.on('before-quit', async () => {
   } catch (err) {
     warn('App', 'Error killing Claude Code sessions', err)
   }
+  if (mobileServer) { await mobileServer.stop(); mobileServer = null }
 })
+
+// ============================================================
+// Mobile Server Integration
+// ============================================================
+let mobileServer: MobileServer | null = null
+
+function registerMobileIPCHandlers(): void {
+  ipcMain.handle('mobile:startServer', async (): Promise<QRCodeData> => {
+    if (mobileServer) {
+      await mobileServer.stop()
+    }
+
+    mobileServer = new MobileServer(
+      async () => null,
+      () => getThemeSyncData()
+    )
+
+    const qrData = await mobileServer.start()
+
+    mobileServer.on('send_message', async ({ sessionId, content, images }: any) => {
+      // 通过 renderer 转发到现有 claudeCode IPC
+      mainWindow?.webContents.send('mobile:relay', { type: 'send_message', data: { sessionId, content, images } })
+    })
+
+    mobileServer.on('abort', ({ sessionId }: any) => {
+      mainWindow?.webContents.send('mobile:relay', { type: 'abort', data: { sessionId } })
+    })
+
+    mobileServer.on('allow_permission', ({ sessionId, toolUseId }: any) => {
+      mainWindow?.webContents.send('mobile:relay', { type: 'allow_permission', data: { sessionId, toolUseId } })
+    })
+
+    mobileServer.on('deny_permission', ({ sessionId, toolUseId }: any) => {
+      mainWindow?.webContents.send('mobile:relay', { type: 'deny_permission', data: { sessionId, toolUseId } })
+    })
+
+    mobileServer.on('submit_tool_answer', ({ sessionId, toolUseId, answer }: any) => {
+      mainWindow?.webContents.send('mobile:relay', { type: 'submit_tool_answer', data: { sessionId, toolUseId, answer } })
+    })
+
+    mobileServer.on('list_sessions', async () => {
+      const sessions = await mainWindow?.webContents.executeJavaScript(
+        `document.querySelector('#app').__vue_app__.config.globalProperties.$store?.state?.sessions || []`
+      )
+      mobileServer?.sendToClient({ type: 'sessions_list', data: { sessions: sessions || [] } })
+    })
+
+    mobileServer.on('list_agents', async () => {
+      mobileServer?.sendToClient({ type: 'agents_list', data: { agents: [] } })
+    })
+
+    mobileServer.on('get_settings', async () => {
+      mobileServer?.sendToClient({ type: 'settings_sync', data: {} })
+    })
+
+    mobileServer.on('connected', (clientInfo: string) => {
+      mainWindow?.webContents.send('mobile:onConnected', clientInfo)
+      forwardEngineEventsToMobile()
+    })
+
+    mobileServer.on('disconnected', () => {
+      mainWindow?.webContents.send('mobile:onDisconnected')
+    })
+
+    return qrData
+  })
+
+  ipcMain.handle('mobile:stopServer', async () => {
+    if (mobileServer) {
+      await mobileServer.stop()
+      mobileServer = null
+    }
+  })
+
+  ipcMain.handle('mobile:getStatus', (): ServerStatus => {
+    return mobileServer?.getStatus() ?? { running: false, connected: false }
+  })
+}
+
+function forwardEngineEventsToMobile(): void {
+  const eventTypes = [
+    'claude-code:stream_event',
+    'claude-code:assistant',
+    'claude-code:tool_use',
+    'claude-code:tool_result',
+    'claude-code:permission_request',
+    'claude-code:result',
+  ]
+
+  for (const eventType of eventTypes) {
+    ipcMain.on(eventType, (_event, data) => {
+      if (mobileServer) {
+        const pushType = eventType.replace('claude-code:', '')
+        mobileServer.sendToClient({ type: pushType as any, data })
+      }
+    })
+  }
+}
+
+function getThemeSyncData() {
+  const settings = { appearance: { theme: 'anthropic-dark' } }
+  const theme = settings?.appearance?.theme || 'system'
+  const effectiveTheme = theme === 'system' ? 'dark' : theme
+  return buildThemeSyncData(effectiveTheme)
+}
 
 // ============================================================
 // IPC Handlers — with logging

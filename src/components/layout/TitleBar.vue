@@ -54,6 +54,11 @@
         </div>
       </div>
 
+      <!-- Connect mobile -->
+      <button class="titlebar-btn" @click="appStore.showConnectMobile = true" :title="t('titleBar.connectMobile')">
+        <Smartphone :size="15" />
+      </button>
+
       <!-- Theme toggle -->
       <button class="titlebar-btn" @click="appStore.toggleTheme" :title="themeTooltip">
         <Sun v-if="appStore.isDark" :size="15" />
@@ -84,7 +89,7 @@
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { useI18n } from 'vue-i18n'
-import { Menu, Sun, Moon, Minus, Square, Copy, X, ChevronDown } from 'lucide-vue-next'
+import { Menu, Sun, Moon, Minus, Square, Copy, X, ChevronDown, Smartphone } from 'lucide-vue-next'
 import { computed, h, onMounted, onBeforeUnmount, ref } from 'vue'
 import type { ThemeId } from '@/stores/app'
 import { THEME_CYCLE } from '@/stores/app'

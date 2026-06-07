@@ -33,6 +33,7 @@
         :style="{ width: rightWidth + 'px' }"
       />
     </div>
+    <ConnectMobileDialog v-model:visible="appStore.showConnectMobile" />
   </div>
 </template>
 
@@ -50,6 +51,7 @@ import SettingsPanel from './components/settings/SettingsPanel.vue'
 import SkillsManager from './components/skills/SkillsManager.vue'
 import AgentManager from './components/agents/AgentManager.vue'
 import McpManager from './components/mcp/McpManager.vue'
+import ConnectMobileDialog from './components/mobile/ConnectMobileDialog.vue'
 import { api } from '@/services/electronAPI'
 import { useShortcuts } from '@/composables/useShortcuts'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'

@@ -533,6 +533,7 @@ export default {
 
   titleBar: {
     toggleSidebar: '切换侧边栏',
+    connectMobile: '连接手机',
     lightMode: '浅色模式',
     darkMode: '深色模式',
     anthropicMode: 'Anthropic 主题',
@@ -555,6 +556,16 @@ export default {
     maximize: '最大化',
     restore: '还原',
     close: '关闭',
+  },
+
+  mobile: {
+    connectTitle: '连接手机',
+    scanHint: '请使用 SpaceCode 手机端扫描以下二维码',
+    lanAddress: '局域网地址',
+    waitingConnection: '等待连接...',
+    connected: '已连接',
+    disconnect: '断开连接',
+    cancel: '取消',
   },
 
   sessionTab: {
