@@ -1,3 +1,40 @@
+## [0.4.7](https://github.com/hjdspace/SpaceCode/compare/v0.4.6...v0.4.7) (2026-06-08)
+
+### Features
+
+* **Agents 智能体系统:** 新增完整的 Agents（代理/智能体）管理与工作流系统
+  - 新增后端 agents 服务，支持扫描、安装、卸载 IPC 通信
+  - 新增前端 agents store，实现库管理、安装与卸载功能
+  - 新增 Agent 相关类型定义与 Electron API 扩展
+  - 新增 UI 组件：AgentCard、AgentDetail、AgentLibrary、InstalledAgents、AgentManager
+  - 将 AgentManager 集成到侧边栏、App.vue 和 i18n 国际化体系
+  - 新增工作流（Workflow）状态管理，支持 CRUD 与导出 IPC 处理
+  - 新增 WorkflowRunner 组件，支持执行状态实时展示
+  - 将 agents-lib 打包集成到 extraResources
+* **聊天会话:** 新建会话时自动清除旧的 turn checkpoints
+* **文档:** 新增 23 个 agent 工具配置文档
+* **远程控制服务器:** 添加根路径重定向逻辑以避免 404 垃圾请求
+
+### Bug Fixes
+
+* **流式响应:** 修复流式响应中上下文 token 计数始终为 0 的问题
+* **Agents 组件:** 修复代理描述为空时的容错处理
+* **路径校验:** 修复 agentName 路径校验并尊重 frontmatter category 字段
+* **文件操作:** 修复工作流导出时的文件操作异步兼容问题
+* **UI 滚动:** 修复代理库滚动问题并重新设计工作流编辑器
+
+### Refactor
+
+* **工作流编辑器:** 重构工作流编辑器与代理详情页，优化整体编辑体验
+* **组件布局:** 优化组件布局与工作流编辑器事件清理逻辑
+* **文件 API:** 改用异步 fs API 重构工作流文件操作
+
+### Chore
+
+* 在 .gitignore 中添加 .codegraph 目录
+
+---
+
 ## [0.4.6](https://github.com/hjdspace/SpaceCode/compare/v0.4.5...v0.4.6) (2026-06-05)
 
 ### Features
