@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
-const electronAPI = (window as any).electronAPI
+const electronAPI = window.electronAPI
 
 export interface AgentDef {
   name: string
@@ -144,6 +144,64 @@ export const useAgentsStore = defineStore('agents', () => {
     searchQuery.value = query
   }
 
+  // Workflow state
+  const workflows = ref<any[]>([])
+  const workflowLoading = ref(false)
+
+  async function fetchWorkflows() {
+    workflowLoading.value = true
+    try {
+      if (electronAPI?.agents?.listWorkflows) {
+        const data = await electronAPI.agents.listWorkflows()
+        workflows.value = data.workflows || []
+      }
+    } catch (err) {
+      console.error('Failed to fetch workflows:', err)
+    } finally {
+      workflowLoading.value = false
+    }
+  }
+
+  async function saveWorkflow(workflow: any) {
+    try {
+      if (electronAPI?.agents?.saveWorkflow) {
+        await electronAPI.agents.saveWorkflow(workflow)
+        await fetchWorkflows()
+        return true
+      }
+      return false
+    } catch (err) {
+      console.error('Failed to save workflow:', err)
+      throw err
+    }
+  }
+
+  async function deleteWorkflow(id: string) {
+    try {
+      if (electronAPI?.agents?.deleteWorkflow) {
+        await electronAPI.agents.deleteWorkflow(id)
+        await fetchWorkflows()
+        return true
+      }
+      return false
+    } catch (err) {
+      console.error('Failed to delete workflow:', err)
+      throw err
+    }
+  }
+
+  async function exportWorkflow(id: string, scope: 'global' | 'project', cwd?: string) {
+    try {
+      if (electronAPI?.agents?.exportWorkflow) {
+        return await electronAPI.agents.exportWorkflow(id, scope, cwd)
+      }
+      return null
+    } catch (err) {
+      console.error('Failed to export workflow:', err)
+      throw err
+    }
+  }
+
   return {
     libraryAgents,
     installedAgents,
@@ -162,5 +220,11 @@ export const useAgentsStore = defineStore('agents', () => {
     uninstallAgent,
     selectCategory,
     setSearchQuery,
+    workflows,
+    workflowLoading,
+    fetchWorkflows,
+    saveWorkflow,
+    deleteWorkflow,
+    exportWorkflow,
   }
 })

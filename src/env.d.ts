@@ -80,6 +80,10 @@ interface Window {
       getInstalled: (cwd?: string) => Promise<{ agents: AgentDef[] }>
       install: (name: string, scope: 'global' | 'project', cwd?: string) => Promise<void>
       uninstall: (name: string, scope: 'global' | 'project', cwd?: string) => Promise<void>
+      listWorkflows: () => Promise<{ workflows: any[] }>
+      saveWorkflow: (workflow: any) => Promise<void>
+      deleteWorkflow: (id: string) => Promise<void>
+      exportWorkflow: (id: string, scope: 'global' | 'project', cwd?: string) => Promise<any>
     }
     terminal: {
       create: (options?: { cwd?: string; command?: string; env?: Record<string, string> }) => Promise<{ id: string | null; shell?: string; error?: string }>
