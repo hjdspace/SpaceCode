@@ -116,7 +116,7 @@ function readAgentFile(filePath: string, cwd?: string): AgentDef | null {
       agentPath: filePath,
       isInstalled: status.installed,
       installedScope: status.scope,
-      category: inferCategory(name),
+      category: (fm?.category as string) || inferCategory(name),
     }
   } catch (err) {
     console.error(`[Agents] Failed to read agent file: ${filePath}`, err)
@@ -156,6 +156,9 @@ async function handleInstallAgent(
   scope: 'global' | 'project',
   cwd?: string
 ): Promise<{ success: boolean }> {
+  if (agentName.includes('/') || agentName.includes('\\') || agentName.includes('..')) {
+    throw new Error('Invalid agent name')
+  }
   const libRoot = getAgentsLibRoot()
   const sourcePath = join(libRoot, `${agentName}.md`)
 
@@ -186,6 +189,9 @@ async function handleUninstallAgent(
   scope: 'global' | 'project',
   cwd?: string
 ): Promise<{ success: boolean }> {
+  if (agentName.includes('/') || agentName.includes('\\') || agentName.includes('..')) {
+    throw new Error('Invalid agent name')
+  }
   const targetDir = scope === 'global' ? getGlobalAgentsDir() : getProjectAgentsDir(cwd || process.cwd())
   const targetPath = join(targetDir, `${agentName}.md`)
 
