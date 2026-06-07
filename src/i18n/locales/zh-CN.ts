@@ -931,4 +931,9 @@ export default {
     saveChanges: '保存更改',
     createHook: '创建 Hook',
   },
+  agents: {
+    searchAgents: '搜索 Agent...',
+    noAgentsFound: '未找到匹配的 Agent',
+    noAgentsYet: '暂无 Agent',
+  },
 }

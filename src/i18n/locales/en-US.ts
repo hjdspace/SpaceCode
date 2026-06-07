@@ -931,4 +931,9 @@ export default {
     saveChanges: 'Save Changes',
     createHook: 'Create Hook',
   },
+  agents: {
+    searchAgents: 'Search agents...',
+    noAgentsFound: 'No agents found',
+    noAgentsYet: 'No agents yet',
+  },
 }
