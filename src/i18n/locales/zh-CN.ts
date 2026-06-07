@@ -171,6 +171,7 @@ export default {
     copyPath: '复制路径',
     removeFromList: '从列表移除',
     debugTrace: '调试追踪',
+    agents: 'Agents',
   },
 
   auth: {

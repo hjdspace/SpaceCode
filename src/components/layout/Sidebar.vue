@@ -128,6 +128,14 @@
             </button>
             <button
               class="feature-nav-item"
+              :class="{ active: appStore.showAgentManager }"
+              @click="handleOpenAgents"
+            >
+              <Cpu :size="14" />
+              <span>{{ t('sidebar.agents') }}</span>
+            </button>
+            <button
+              class="feature-nav-item"
               :class="{ active: appStore.showMCPManager }"
               @click="handleOpenMcp"
             >
@@ -273,7 +281,8 @@ import {
   Zap,
   Plug,
   Activity,
-  History
+  History,
+  Cpu
 } from 'lucide-vue-next'
 
 // Enhanced Components
@@ -342,6 +351,10 @@ function toggleTraceViewer() {
 
 function handleOpenSkills() {
   appStore.showSkillsManager = true
+}
+
+function handleOpenAgents() {
+  appStore.showAgentManager = true
 }
 
 function handleOpenMcp() {

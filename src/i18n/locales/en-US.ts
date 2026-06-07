@@ -171,6 +171,7 @@ export default {
     copyPath: 'Copy Path',
     removeFromList: 'Remove Project',
     debugTrace: 'Debug Trace',
+    agents: 'Agents',
   },
 
   auth: {
