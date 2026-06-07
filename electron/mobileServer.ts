@@ -17,7 +17,7 @@ export class MobileServer extends EventEmitter {
 
   constructor(
     private readonly onMessage: (message: MobileRequest) => Promise<unknown>,
-    private readonly getThemeSyncData: () => ThemeSyncData
+    private readonly getThemeSyncData: () => ThemeSyncData | Promise<ThemeSyncData>
   ) {
     super()
   }
@@ -151,7 +151,7 @@ export class MobileServer extends EventEmitter {
     }
   }
 
-  private handleConnection(ws: WebSocket, req: import('http').IncomingMessage): void {
+  private async handleConnection(ws: WebSocket, req: import('http').IncomingMessage): Promise<void> {
     if (this.client) {
       ws.close(4001, 'Another client already connected')
       return
@@ -169,7 +169,7 @@ export class MobileServer extends EventEmitter {
     this.clientInfo = req.headers['user-agent'] || 'Unknown Device'
     this.missedHeartbeats = 0
 
-    const themeData = this.getThemeSyncData()
+    const themeData = await this.getThemeSyncData()
     this.sendToClient({
       type: 'connected',
       data: {

@@ -778,7 +778,7 @@ function registerMobileIPCHandlers(): void {
 
     mobileServer.on('list_sessions', async () => {
       const sessions = await mainWindow?.webContents.executeJavaScript(
-        `document.querySelector('#app').__vue_app__.config.globalProperties.$store?.state?.sessions || []`
+        `window.__spacecode_api__?.getSessions() || []`
       )
       mobileServer?.sendToClient({ type: 'sessions_list', data: { sessions: sessions || [] } })
     })
@@ -835,11 +835,16 @@ function forwardEngineEventsToMobile(): void {
   }
 }
 
-function getThemeSyncData() {
-  const settings = { appearance: { theme: 'anthropic-dark' } }
-  const theme = settings?.appearance?.theme || 'system'
-  const effectiveTheme = theme === 'system' ? 'dark' : theme
-  return buildThemeSyncData(effectiveTheme)
+async function getThemeSyncData() {
+  try {
+    const data = await mainWindow?.webContents.executeJavaScript(
+      `window.__spacecode_api__?.getThemeData() || null`
+    )
+    if (data) {
+      return buildThemeSyncData(data.effectiveTheme, data.appearance)
+    }
+  } catch {}
+  return buildThemeSyncData('dark')
 }
 
 // ============================================================

@@ -185,6 +185,18 @@ onMounted(() => {
     recordRecentProjectRoot(initialProjectRoot)
   }
 
+  // 暴露全局 API 供主进程通过 executeJavaScript 调用，避免直接访问 Vue 内部实现
+  ;(window as any).__spacecode_api__ = {
+    getThemeData: () => ({
+      effectiveTheme: appStore.theme,
+      appearance: {
+        accentColor: settingsStore.appearance.accentColor,
+        density: settingsStore.appearance.density,
+      },
+    }),
+    getSessions: () => chatStore.sessions || [],
+  }
+
   // 监听打开技能管理器事件
   window.addEventListener('open-skills-manager', handleOpenSkillsManager)
 
