@@ -115,6 +115,10 @@
       {
         "from": "skills-lib",
         "to": "skills-lib"
+      },
+      {
+        "from": "agents-lib",
+        "to": "agents-lib"
       }
     ],
     "win": {
