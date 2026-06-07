@@ -345,10 +345,12 @@ async function handleExportWorkflow(
   cwd?: string
 ): Promise<{ content: string; path: string }> {
   const filePath = join(await getWorkflowsDir(), `${id}.json`)
-  if (!existsSync(filePath)) {
+  try {
+    await fsp.access(filePath)
+  } catch {
     throw new Error(`Workflow '${id}' not found`)
   }
-  const workflow: WorkflowDef = JSON.parse(readFileSync(filePath, 'utf-8'))
+  const workflow: WorkflowDef = JSON.parse(await fsp.readFile(filePath, 'utf-8'))
 
   // Generate agent .md content
   const agentNodes = workflow.nodes.filter(n => n.type === 'agent')
@@ -356,13 +358,15 @@ async function handleExportWorkflow(
   for (const node of agentNodes) {
     if (node.data?.agentName) {
       const agentPath = join(getAgentsLibRoot(), `${node.data.agentName}.md`)
-      if (existsSync(agentPath)) {
-        const content = readFileSync(agentPath, 'utf-8')
+      try {
+        const content = await fsp.readFile(agentPath, 'utf-8')
         const fm = parseYamlFrontMatter(content)
         if (fm?.tools) {
           const tools = Array.isArray(fm.tools) ? fm.tools : [fm.tools]
           tools.forEach((t: string) => allTools.add(t))
         }
+      } catch {
+        // Agent file doesn't exist, skip
       }
     }
   }
