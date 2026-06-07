@@ -63,6 +63,7 @@ const agentsStore = useAgentsStore()
 const appStore = useAppStore()
 
 function truncatedDesc(agent: AgentDef) {
+  if (!agent.description) return ''
   return agent.description.length > 60 ? agent.description.slice(0, 60) + '...' : agent.description
 }
 
