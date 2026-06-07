@@ -5,6 +5,7 @@
 import { ipcMain, app } from 'electron'
 import { join, basename } from 'path'
 import { readFileSync, readdirSync, existsSync, writeFileSync, mkdirSync, unlinkSync } from 'fs'
+import { promises as fsp } from 'fs'
 
 // Types
 export interface AgentDef {
@@ -281,28 +282,34 @@ interface WorkflowDef {
   updatedAt: string
 }
 
-function getWorkflowsDir(): string {
+async function getWorkflowsDir(): Promise<string> {
   const dir = join(app.getPath('home'), '.claude', 'agent-workflows')
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true })
+  try {
+    await fsp.access(dir)
+  } catch {
+    await fsp.mkdir(dir, { recursive: true })
   }
   return dir
 }
 
 async function handleListWorkflows(): Promise<{ workflows: WorkflowDef[] }> {
-  const dir = getWorkflowsDir()
+  const dir = await getWorkflowsDir()
   const workflows: WorkflowDef[] = []
   try {
-    const entries = readdirSync(dir, { withFileTypes: true })
+    const entries = await fsp.readdir(dir, { withFileTypes: true })
     for (const entry of entries) {
       if (entry.isFile() && entry.name.endsWith('.json')) {
         try {
-          const content = readFileSync(join(dir, entry.name), 'utf-8')
+          const content = await fsp.readFile(join(dir, entry.name), 'utf-8')
           workflows.push(JSON.parse(content))
-        } catch {}
+        } catch (err) {
+          console.error(`[Workflows] Failed to read workflow file: ${entry.name}`, err)
+        }
       }
     }
-  } catch {}
+  } catch (err) {
+    console.error('[Workflows] Failed to list workflows:', err)
+  }
   return { workflows }
 }
 
@@ -310,10 +317,10 @@ async function handleSaveWorkflow(
   _event: Electron.IpcMainInvokeEvent,
   workflow: WorkflowDef
 ): Promise<{ success: boolean }> {
-  const dir = getWorkflowsDir()
+  const dir = await getWorkflowsDir()
   const filePath = join(dir, `${workflow.id}.json`)
   workflow.updatedAt = new Date().toISOString()
-  writeFileSync(filePath, JSON.stringify(workflow, null, 2), 'utf-8')
+  await fsp.writeFile(filePath, JSON.stringify(workflow, null, 2), 'utf-8')
   return { success: true }
 }
 
@@ -321,11 +328,13 @@ async function handleDeleteWorkflow(
   _event: Electron.IpcMainInvokeEvent,
   id: string
 ): Promise<{ success: boolean }> {
-  const filePath = join(getWorkflowsDir(), `${id}.json`)
-  if (!existsSync(filePath)) {
+  const filePath = join(await getWorkflowsDir(), `${id}.json`)
+  try {
+    await fsp.access(filePath)
+  } catch {
     throw new Error(`Workflow '${id}' not found`)
   }
-  unlinkSync(filePath)
+  await fsp.unlink(filePath)
   return { success: true }
 }
 
@@ -335,7 +344,7 @@ async function handleExportWorkflow(
   scope: 'global' | 'project',
   cwd?: string
 ): Promise<{ content: string; path: string }> {
-  const filePath = join(getWorkflowsDir(), `${id}.json`)
+  const filePath = join(await getWorkflowsDir(), `${id}.json`)
   if (!existsSync(filePath)) {
     throw new Error(`Workflow '${id}' not found`)
   }
