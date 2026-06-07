@@ -49,3 +49,5 @@ engine/bin/
 pi-engine/
 
 _temp/
+
+.codegraph/
