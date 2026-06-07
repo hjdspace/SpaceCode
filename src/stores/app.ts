@@ -107,6 +107,7 @@ export const useAppStore = defineStore('app', () => {
   const showTraceViewer = ref(false)
   const showSettings = ref(false)
   const showMCPManager = ref(false)
+  const showAgentManager = ref(false)
 
   const activeInfoTab = computed<InfoPanelTab | null>(() => {
     if (!activeInfoTabId.value) return null
@@ -634,6 +635,7 @@ export const useAppStore = defineStore('app', () => {
     showTraceViewer,
     showSettings,
     showMCPManager,
+    showAgentManager,
     webviewUrl,
     webviewHistory,
     currentHistoryIndex,

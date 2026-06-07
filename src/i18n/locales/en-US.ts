@@ -932,8 +932,15 @@ export default {
     createHook: 'Create Hook',
   },
   agents: {
+    title: 'Agent Manager',
+    description: 'Manage and orchestrate your agents',
     searchAgents: 'Search agents...',
     noAgentsFound: 'No agents found',
     noAgentsYet: 'No agents yet',
+    tabLibrary: 'Library',
+    tabInstalled: 'Installed',
+    tabWorkflow: 'Workflow',
+    noInstalledAgents: 'No agents installed yet',
+    uninstallConfirm: 'Are you sure you want to uninstall {name}?',
   },
 }
