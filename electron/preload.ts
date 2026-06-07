@@ -460,6 +460,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     uninstall: (agentName: string, scope: 'global' | 'project', cwd?: string) =>
       ipcRenderer.invoke('agents:uninstall', agentName, scope, cwd),
     getInstalled: (cwd?: string) => ipcRenderer.invoke('agents:getInstalled', cwd),
+    listWorkflows: () => ipcRenderer.invoke('agents:listWorkflows'),
+    saveWorkflow: (workflow: any) => ipcRenderer.invoke('agents:saveWorkflow', workflow),
+    deleteWorkflow: (id: string) => ipcRenderer.invoke('agents:deleteWorkflow', id),
+    exportWorkflow: (id: string, scope: 'global' | 'project', cwd?: string) =>
+      ipcRenderer.invoke('agents:exportWorkflow', id, scope, cwd),
   },
 
   // Image persistence — 聊天图片落盘到 userData，避免 localStorage 配额溢出
