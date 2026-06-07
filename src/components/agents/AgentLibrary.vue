@@ -80,6 +80,7 @@ onMounted(() => {
 <style lang="scss" scoped>
 .agent-library {
   display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   position: relative;
@@ -128,6 +129,7 @@ onMounted(() => {
   padding: 8px;
   border-right: 1px solid var(--border-color);
   overflow-y: auto;
+  min-height: 0;
 }
 
 .category-btn {
@@ -160,6 +162,7 @@ onMounted(() => {
   gap: 12px;
   overflow-y: auto;
   align-content: start;
+  min-height: 0;
 }
 
 .empty-state {
