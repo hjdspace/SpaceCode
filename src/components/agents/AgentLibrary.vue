@@ -83,6 +83,7 @@ onMounted(() => {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
   position: relative;
 }
 
@@ -156,13 +157,13 @@ onMounted(() => {
 
 .agents-grid {
   flex: 1;
+  min-height: 0;
   padding: 16px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 12px;
   overflow-y: auto;
   align-content: start;
-  min-height: 0;
 }
 
 .empty-state {

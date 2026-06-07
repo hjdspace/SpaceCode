@@ -245,7 +245,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Plus, Pencil, Play, Download, Trash2, ArrowLeft, Save, X, Link, MousePointer,
@@ -292,6 +292,8 @@ const canvasRef = ref<HTMLElement | null>(null)
 const addEdgeMode = ref(false)
 const connectFrom = ref<{ nodeId: string; port: string } | null>(null)
 const tempEdge = ref<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
+let connectOnMove: ((e: MouseEvent) => void) | null = null
+let connectOnUp: ((e: MouseEvent) => void) | null = null
 const contextMenu = reactive({ visible: false, x: 0, y: 0, nodeId: null as string | null })
 
 const selectedNode = computed(() => {
@@ -310,6 +312,8 @@ const nodeTypes = [
 let dragNodeType = ''
 let dragNode: WorkflowNode | null = null
 let dragOffset = { x: 0, y: 0 }
+let dragOnMove: ((e: MouseEvent) => void) | null = null
+let dragOnUp: (() => void) | null = null
 
 function getNodeIcon(type: string) {
   const map: Record<string, any> = { input: LogIn, agent: Bot, condition: GitBranch, merge: Merge, output: LogOut }
@@ -372,37 +376,47 @@ function handleDrop(event: DragEvent) {
 
 function startDrag(node: WorkflowNode, event: MouseEvent) {
   if (addEdgeMode.value) return
+  // 清理上一次可能残留的监听器
+  if (dragOnMove) window.removeEventListener('mousemove', dragOnMove)
+  if (dragOnUp) window.removeEventListener('mouseup', dragOnUp)
   dragNode = node
   dragOffset = { x: event.clientX - node.position.x, y: event.clientY - node.position.y }
-  const onMove = (e: MouseEvent) => {
+  dragOnMove = (e: MouseEvent) => {
     if (!dragNode) return
     dragNode.position.x = Math.max(0, e.clientX - dragOffset.x)
     dragNode.position.y = Math.max(0, e.clientY - dragOffset.y)
   }
-  const onUp = () => {
+  dragOnUp = () => {
     dragNode = null
-    window.removeEventListener('mousemove', onMove)
-    window.removeEventListener('mouseup', onUp)
+    window.removeEventListener('mousemove', dragOnMove!)
+    window.removeEventListener('mouseup', dragOnUp!)
+    dragOnMove = null
+    dragOnUp = null
   }
-  window.addEventListener('mousemove', onMove)
-  window.addEventListener('mouseup', onUp)
+  window.addEventListener('mousemove', dragOnMove)
+  window.addEventListener('mouseup', dragOnUp)
 }
 
 function startConnect(nodeId: string, port: string, event: MouseEvent) {
   if (!addEdgeMode.value) return
+  // 清理上一次可能残留的监听器
+  if (connectOnMove) window.removeEventListener('mousemove', connectOnMove)
+  if (connectOnUp) window.removeEventListener('mouseup', connectOnUp)
   connectFrom.value = { nodeId, port }
   const nodePort = getNodePort(nodeId, port as 'in' | 'out')
   tempEdge.value = { x1: nodePort.x, y1: nodePort.y, x2: nodePort.x, y2: nodePort.y }
 
-  const onMove = (e: MouseEvent) => {
+  connectOnMove = (e: MouseEvent) => {
     if (!tempEdge.value || !canvasRef.value) return
     const rect = canvasRef.value.getBoundingClientRect()
     tempEdge.value.x2 = e.clientX - rect.left
     tempEdge.value.y2 = e.clientY - rect.top
   }
-  const onUp = (e: MouseEvent) => {
-    window.removeEventListener('mousemove', onMove)
-    window.removeEventListener('mouseup', onUp)
+  connectOnUp = (e: MouseEvent) => {
+    window.removeEventListener('mousemove', connectOnMove!)
+    window.removeEventListener('mouseup', connectOnUp!)
+    connectOnMove = null
+    connectOnUp = null
     tempEdge.value = null
     // Check if dropped on another node's port
     if (connectFrom.value && currentWorkflow.value) {
@@ -433,8 +447,8 @@ function startConnect(nodeId: string, port: string, event: MouseEvent) {
     }
     connectFrom.value = null
   }
-  window.addEventListener('mousemove', onMove)
-  window.addEventListener('mouseup', onUp)
+  window.addEventListener('mousemove', connectOnMove)
+  window.addEventListener('mouseup', connectOnUp)
 }
 
 function removeNode(nodeId: string) {
@@ -523,6 +537,13 @@ onMounted(() => {
   loadWorkflows()
   const cwd = appStore.projectRoot || undefined
   agentsStore.fetchLibrary(cwd)
+})
+
+onUnmounted(() => {
+  if (dragOnMove) window.removeEventListener('mousemove', dragOnMove)
+  if (dragOnUp) window.removeEventListener('mouseup', dragOnUp)
+  if (connectOnMove) window.removeEventListener('mousemove', connectOnMove)
+  if (connectOnUp) window.removeEventListener('mouseup', connectOnUp)
 })
 </script>
 
