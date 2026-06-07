@@ -1,3 +1,29 @@
+## [0.4.8](https://github.com/hjdspace/SpaceCode/compare/v0.4.7...v0.4.8) (2026-06-08)
+
+### Features
+
+* **移动端配套应用:** 新增 Flutter 跨平台移动端应用及桌面端手机连接功能
+  - 新增完整的 Flutter 移动端项目，支持 Android、iOS、macOS、Linux、Windows、Web 六端
+  - 实现移动端聊天功能：消息列表、流式文本、Markdown 渲染、代码块高亮、思考过程展示
+  - 实现工具调用卡片与权限请求卡片，支持移动端审批操作
+  - 实现会话列表与代理卡片展示
+  - 实现设置页面与主题同步服务
+  - 新增 QR 扫码连接页面，支持扫描桌面端二维码快速配对
+  - 新增 WebSocket 连接服务与自定义通信协议
+* **桌面端手机连接:** 新增桌面端手机联动功能
+  - 新增 MobileServer 模块，提供 WebSocket 服务与二维码生成
+  - 新增 ConnectMobileDialog 组件，支持扫码连接与连接状态展示
+  - 新增 ThemeSyncBuilder 实现桌面端主题实时同步到移动端
+  - 在标题栏添加手机连接入口按钮
+  - 扩展 Electron API 与 preload 支持移动端连接相关 IPC
+  - 补全中英文国际化文案
+
+### Bug Fixes
+
+* **依赖同步:** 修复 package-lock.json 与 package.json 不同步导致 npm ci 失败的问题
+
+---
+
 ## [0.4.7](https://github.com/hjdspace/SpaceCode/compare/v0.4.6...v0.4.7) (2026-06-08)
 
 ### Features
