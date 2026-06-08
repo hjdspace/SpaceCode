@@ -97,9 +97,7 @@ export function decompressData(data: string): string {
   if (data.startsWith('R:')) return data.slice(2)
   if (data.startsWith('C:')) {
     try {
-      return data.slice(2).replace(/\x00(\w+)\x01/g, (match, len) => {
-        return match
-      })
+      return data.slice(2).replace(/\x00\w+\x01/g, '')
     } catch {
       return data.slice(2)
     }

@@ -49,9 +49,7 @@ function decompressData(data: string): string {
   if (data.startsWith('R:')) return data.slice(2)
   if (data.startsWith('C:')) {
     try {
-      return data.slice(2).replace(/\x00(\w+)\x01/g, (match) => {
-        return match
-      })
+      return data.slice(2).replace(/\x00\w+\x01/g, '')
     } catch {
       return data.slice(2)
     }
@@ -424,10 +422,8 @@ describe('decompressData', () => {
     const compressed = compressData(data)
     if (compressed.startsWith('C:')) {
       const decompressed = decompressData(compressed)
-      // The current decompressData keeps markers (identity replace)
-      // so the result is the compressed body, not the original.
-      // This matches the actual source code behavior.
-      assert.strictEqual(decompressed, compressed.slice(2))
+      // After fix, decompressData should restore the original data
+      assert.strictEqual(decompressed, data)
     }
   })
 
