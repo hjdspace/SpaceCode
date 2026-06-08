@@ -173,14 +173,20 @@ function transformFileLinks(html: string): string {
 
     const replaced = text.replace(
       regex,
-      (_match, filePath: string, startLine: string | undefined, endLine: string | undefined) => {
+      (_match, p1: string, p2: string, p3: string | undefined, p4: string | undefined) => {
+        // 行内代码正则无 prefix 捕获组；普通正则第 1 组是 prefix
+        const hasPrefixGroup = !inInlineCode
+        const prefix = hasPrefixGroup ? p1 : ''
+        const filePath = hasPrefixGroup ? p2 : p1
+        const startLine = hasPrefixGroup ? p3 : p2
+        const endLine = hasPrefixGroup ? p4 : p3
         const displayName = getDisplayName(filePath)
         const suffix = startLine
           ? (endLine ? `:${startLine}-${endLine}` : `:${startLine}`)
           : ''
         const startAttr = startLine ? ` data-line-number="${startLine}"` : ''
         const endAttr = endLine ? ` data-end-line-number="${endLine}"` : ''
-        return `<span class="file-link" data-file-path="${escapeHtml(filePath)}"${startAttr}${endAttr} title="${escapeHtml(filePath + suffix)}">${escapeHtml(displayName + suffix)}</span>`
+        return `${prefix}<span class="file-link" data-file-path="${escapeHtml(filePath)}"${startAttr}${endAttr} title="${escapeHtml(filePath + suffix)}">${escapeHtml(displayName + suffix)}</span>`
       }
     )
 
@@ -197,13 +203,18 @@ function transformFileLinks(html: string): string {
 const renderer = new marked.Renderer()
 
 renderer.code = function(code, language) {
-  const lang = language || 'text'
-  
+  let lang = language || 'text'
+
   if (lang.toLowerCase() === 'mermaid') {
     const mermaidId = generateMermaidId()
     return createMermaidContainerHtml(code, mermaidId)
   }
-  
+
+  // Vue SFC 不在 hljs 默认包中，回退到 xml（template/script/style 标签仍能高亮）
+  if (lang.toLowerCase() === 'vue' && !hljs.getLanguage('vue')) {
+    lang = 'xml'
+  }
+
   const validLang = hljs.getLanguage(lang) ? lang : 'plaintext'
   let highlighted: string
   try {
