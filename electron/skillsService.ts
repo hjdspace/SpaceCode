@@ -95,7 +95,12 @@ function getVersionedPluginCachePath(pluginId: string, version: string): string 
 
 function readJsonFile(filePath: string): any | null {
   if (!existsSync(filePath)) return null
-  return JSON.parse(readFileSync(filePath, 'utf-8'))
+  try {
+    return JSON.parse(readFileSync(filePath, 'utf-8'))
+  } catch (e) {
+    console.error(`Failed to parse JSON file ${filePath}:`, e)
+    return null
+  }
 }
 
 function writeJsonFile(filePath: string, value: any): void {
