@@ -72,6 +72,10 @@ function getInstalledPluginsFilePath(): string {
   return join(getGlobalPluginsRoot(), 'installed_plugins.json')
 }
 
+function getKnownMarketplacesFilePath(): string {
+  return join(getGlobalPluginsRoot(), 'known_marketplaces.json')
+}
+
 function getSettingsPath(scope: 'global' | 'project', cwd?: string): string {
   return scope === 'global'
     ? join(app.getPath('home'), '.claude', 'settings.json')
@@ -191,6 +195,42 @@ function setPluginEnabled(pluginId: string, scope: 'global' | 'project', enabled
     enabledPlugins[pluginId] = enabled
   }
   writeJsonFile(settingsPath, { ...settings, enabledPlugins })
+}
+
+function readKnownMarketplacesFile(): Record<string, any> {
+  const raw = readJsonFile(getKnownMarketplacesFilePath())
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+}
+
+function addKnownMarketplaceEntry(marketplaceName: string, installLocation: string): void {
+  const config = readKnownMarketplacesFile()
+  config[marketplaceName] = {
+    source: {
+      source: 'directory',
+      path: installLocation
+    },
+    installLocation,
+    lastUpdated: new Date().toISOString()
+  }
+  writeJsonFile(getKnownMarketplacesFilePath(), config)
+}
+
+function removeKnownMarketplaceEntryIfUnused(marketplaceName: string): void {
+  const data = readInstalledPluginsFile()
+  const stillInstalled = Object.keys(data.plugins).some(pluginId =>
+    pluginId.endsWith(`@${marketplaceName}`)
+  )
+  if (stillInstalled) return
+
+  const config = readKnownMarketplacesFile()
+  delete config[marketplaceName]
+  writeJsonFile(getKnownMarketplacesFilePath(), config)
+}
+
+function getMarketplaceNameFromPluginId(pluginId: string): string | null {
+  const atIndex = pluginId.lastIndexOf('@')
+  if (atIndex < 0 || atIndex === pluginId.length - 1) return null
+  return pluginId.slice(atIndex + 1)
 }
 
 function isInstallPathReferenced(installPath: string): boolean {
@@ -1468,6 +1508,7 @@ async function handleInstallLocalBundle(
 
     addInstalledPluginEntry(pluginId, scope, targetDir, info.version, cwd)
     setPluginEnabled(pluginId, scope, true, cwd)
+    addKnownMarketplaceEntry(info.marketplaceName, targetDir)
 
     const legacyTargetDir = join(getGlobalPluginsRoot(), bundleName)
     if (existsSync(legacyTargetDir) && legacyTargetDir !== targetDir) {
@@ -1500,6 +1541,10 @@ async function handleUninstallLocalBundle(
             rmSync(installPath, { recursive: true, force: true })
             removed.push(installPath)
           }
+        }
+        const marketplaceName = getMarketplaceNameFromPluginId(pluginId)
+        if (marketplaceName) {
+          removeKnownMarketplaceEntryIfUnused(marketplaceName)
         }
       }
     }
