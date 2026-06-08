@@ -15,6 +15,7 @@ pluginManagement {
         maven { url = uri("https://maven.aliyun.com/repository/google") }
         maven { url = uri("https://maven.aliyun.com/repository/central") }
         maven { url = uri("https://mirrors.cloud.tencent.com/nexus/repository/maven-public/") }
+        maven { url = uri("http://download.flutter.io"); isAllowInsecureProtocol = true }
         google()
         mavenCentral()
         gradlePluginPortal()
