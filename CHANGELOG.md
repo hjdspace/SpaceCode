@@ -1,3 +1,35 @@
+## [0.4.9](https://github.com/hjdspace/SpaceCode/compare/v0.4.8...v0.4.9) (2026-06-09)
+
+### Features
+
+* **会话消息:** 实现会话消息从 JSONL 文件补全和文件链接优化
+* **插件市场:** 新增 marketplace 插件管理相关功能
+
+### Bug Fixes
+
+* **MarkdownRenderer:** 修复行内代码块链接渲染和 Vue 代码高亮问题
+* **sessionPersistence:** 修复解压数据时错误保留匹配标记的问题
+* **skillsService:** 为 readJsonFile 添加异常捕获和错误日志
+
+### Refactor
+
+* **electronAPI:** 统一使用 electronAPI 模块，重构多处 window.electronAPI 调用
+* **skillsService:** 重构插件管理系统，适配 Claude Code 新插件规范
+* **主题与会话:** 重构主题和会话数据获取方式，使用全局 API 替代直接 Vue 内部访问
+
+### Build
+
+* **Android:** 添加 Flutter 国内镜像源与 Gradle 优化配置
+* **Android:** 禁用 Kotlin 增量编译以避免 Windows 缓存损坏
+* **Android:** 移除 Flutter 镜像仓库的不安全 HTTP 协议配置
+* **Android:** 配置国内镜像加速构建
+
+### Chore
+
+* 移除未使用的 2 个依赖
+
+---
+
 ## [0.4.8](https://github.com/hjdspace/SpaceCode/compare/v0.4.7...v0.4.8) (2026-06-08)
 
 ### Features
