@@ -12,10 +12,33 @@ import { useTaskManager } from '@/composables/useTaskManager'
 import { getCompletedTurnTargets } from '@/utils/turnCheckpointUtils'
 import { api } from '@/services/electronAPI'
 import { errorHandler } from '@/services/errorHandler'
+import {
+  loadSessionsFromStorage,
+  saveSessionsToStorage,
+  loadProjectsFromStorage,
+  saveProjectsToStorage,
+  getStorageStats as _getStorageStats,
+  setPersistenceLogger,
+  stripLargeAttachmentData,
+} from '@/services/sessionPersistence'
+import {
+  stableTeammateId,
+  getRawTeammateName,
+  getRawTeamName,
+  isTeammateRawMessage,
+  inferTeammateStatus,
+  stringifyRawContent,
+  parseAgentToolOutput,
+  ensureTeamContext,
+  recordAgentToolCall,
+  AGENT_COLORS,
+} from '@/services/teamTranscriptService'
+import {
+  permissionService,
+  type PermissionRequest,
+} from '@/services/permissionService'
 
 const taskManager = useTaskManager()
-
-const electronAPI = (window as any).electronAPI
 
 // ============================================================
 // Renderer Logger — 将日志转发到主进程写入 ~/.claude/debug/
@@ -23,21 +46,24 @@ const electronAPI = (window as any).electronAPI
 const logger = {
   debug: (scope: string, message: string, data?: any) => {
     console.debug(`[${scope}] ${message}`, data ?? '')
-    electronAPI?.logger?.debug?.(scope, message, data)
+    api.trace.event({ source: 'renderer', sessionId: '', actor: 'system', type: 'log', title: `${scope}: ${message}`, metadata: { level: 'debug', data } })
   },
   info: (scope: string, message: string, data?: any) => {
     console.log(`[${scope}] ${message}`, data ?? '')
-    electronAPI?.logger?.info?.(scope, message, data)
+    api.trace.event({ source: 'renderer', sessionId: '', actor: 'system', type: 'log', title: `${scope}: ${message}`, metadata: { level: 'info', data } })
   },
   warn: (scope: string, message: string, data?: any) => {
     console.warn(`[${scope}] ${message}`, data ?? '')
-    electronAPI?.logger?.warn?.(scope, message, data)
+    api.trace.event({ source: 'renderer', sessionId: '', actor: 'system', type: 'log', title: `${scope}: ${message}`, metadata: { level: 'warn', data } })
   },
   error: (scope: string, message: string, data?: any) => {
     console.error(`[${scope}] ${message}`, data ?? '')
-    electronAPI?.logger?.error?.(scope, message, data)
+    api.trace.event({ source: 'renderer', sessionId: '', actor: 'system', type: 'log', title: `${scope}: ${message}`, metadata: { level: 'error', data } })
   },
 }
+
+// 注入 logger 到 sessionPersistence service
+setPersistenceLogger(logger)
 
 const FILE_TOOLS = new Set(['Write', 'FileWrite', 'Edit', 'FileEdit', 'MultiEdit'])
 const COMMAND_TOOLS = new Set(['Bash'])
@@ -57,228 +83,21 @@ function traceEvent(event: {
   metadata?: Record<string, unknown>
   error?: { message: string; stack?: string }
 }) {
-  electronAPI?.trace?.event?.({
+  api.trace.event({
     source: 'renderer',
     ...event,
   })
 }
 
-const STORAGE_KEY = 'chat_sessions_v2'
-const PROJECTS_KEY = 'chat_projects_v2'
-const STORAGE_VERSION = '2.1'
+// Storage constants are now in sessionPersistence.ts
+// STORAGE_KEY, PROJECTS_KEY etc. are imported from there
 
-const STORAGE_QUOTA_LIMIT = 4 * 1024 * 1024
-const STORAGE_WARNING_THRESHOLD = 0.8
-/** Max serialized payload for chat_sessions key (UTF-16 ×2 in localStorage). */
-const SESSION_PAYLOAD_LIMIT = Math.floor(STORAGE_QUOTA_LIMIT * 0.45)
-const MESSAGE_CONTENT_PERSIST_LIMIT = 8_000
-const TOOL_OUTPUT_PERSIST_LIMIT = 4_000
-const REASONING_PERSIST_LIMIT = 2_000
-const TIMELINE_CONTENT_PERSIST_LIMIT = 1_000
-
-let _storageMaintenanceLoggedAt = 0
-const STORAGE_LOG_COOLDOWN_MS = 120_000
-
-function logStorageMaintenance(message: string, data?: unknown) {
-  const now = Date.now()
-  if (now - _storageMaintenanceLoggedAt < STORAGE_LOG_COOLDOWN_MS) return
-  _storageMaintenanceLoggedAt = now
-  logger.debug('ChatStore', message, data)
-}
-
-function estimateUtf16Bytes(text: string): number {
-  return text.length * 2
-}
-
-interface PersistTrimOptions {
-  maxContent?: number
-  maxToolOutput?: number
-  maxReasoning?: number
-  maxTimelineContent?: number
-}
-
-function stripPersistedPayload(
-  sessions: Session[],
-  options: PersistTrimOptions = {},
-): Session[] {
-  const maxContent = options.maxContent ?? MESSAGE_CONTENT_PERSIST_LIMIT
-  const maxToolOutput = options.maxToolOutput ?? TOOL_OUTPUT_PERSIST_LIMIT
-  const maxReasoning = options.maxReasoning ?? REASONING_PERSIST_LIMIT
-  const maxTimelineContent = options.maxTimelineContent ?? TIMELINE_CONTENT_PERSIST_LIMIT
-
-  const truncateText = (text: string, limit: number, suffix: string) =>
-    text.length > limit ? text.slice(0, limit) + suffix : text
-
-  return sessions.map(session => ({
-    ...session,
-    messages: session.messages.map(msg => {
-      const next: Message = { ...msg }
-
-      if (next.content && next.content.length > maxContent) {
-        next.content = truncateText(next.content, maxContent, '\n\n[Truncated for storage]')
-      }
-
-      if (next.reasoning?.content && next.reasoning.content.length > maxReasoning) {
-        next.reasoning = {
-          ...next.reasoning,
-          content: truncateText(next.reasoning.content, maxReasoning, '…'),
-        }
-      }
-
-      if (next.toolCalls?.length) {
-        next.toolCalls = next.toolCalls.map(toolCall => ({
-          ...toolCall,
-          output:
-            toolCall.output && toolCall.output.length > maxToolOutput
-              ? truncateText(toolCall.output, maxToolOutput, '\n[Truncated for storage]')
-              : toolCall.output,
-        }))
-      }
-
-      if (next.toolResults?.length) {
-        next.toolResults = next.toolResults.map(toolResult => ({
-          ...toolResult,
-          output:
-            toolResult.output.length > maxToolOutput
-              ? truncateText(toolResult.output, maxToolOutput, '\n[Truncated for storage]')
-              : toolResult.output,
-        }))
-      }
-
-      if (next.timelineEvents?.length) {
-        next.timelineEvents = next.timelineEvents.map(event => ({
-          ...event,
-          content:
-            event.content && event.content.length > maxTimelineContent
-              ? truncateText(event.content, maxTimelineContent, '…')
-              : event.content,
-        }))
-      }
-
-      return next
-    }),
-  }))
-}
-
-function buildStoragePayload(sessions: Session[]): { payload: string; compressed: boolean } {
-  const jsonData = JSON.stringify(sessions)
-  const compressed = compressData(jsonData)
-  const payload = compressed.length < jsonData.length ? compressed : jsonData
-  return { payload, compressed: payload !== jsonData }
-}
-
-function prepareSessionsForStorage(
-  sessions: Session[],
-  aggressive = false,
-): Session[] {
-  let prepared = stripLargeAttachmentData(sessions)
-  prepared = stripPersistedPayload(
-    prepared,
-    aggressive
-      ? {
-          maxContent: 3_000,
-          maxToolOutput: 1_500,
-          maxReasoning: 800,
-          maxTimelineContent: 400,
-        }
-      : undefined,
-  )
-  if (aggressive) {
-    prepared = cleanupOldSessions(prepared, 20, false)
-    prepared = truncateLongMessages(prepared, 3_000)
-  }
-  return prepared
-}
-
-interface StorageStats {
-  totalSize: number
-  sessionCount: number
-  oldestSessionDate: number
-  compressionRatio: number
-}
-
-function compressData(data: string): string {
-  try {
-    const compressed = data.replace(/([^\x00-\x7F]+|\\u[0-9a-fA-F]{4})+/g, (match) => {
-      return '\x00' + match.length.toString(36) + '\x01' + match
-    })
-    return compressed.length < data.length ? 'C:' + compressed : 'R:' + data
-  } catch {
-    return 'R:' + data
-  }
-}
-
-function decompressData(data: string): string {
-  if (data.startsWith('R:')) return data.slice(2)
-  if (data.startsWith('C:')) {
-    try {
-      return data.slice(2).replace(/\x00(\w+)\x01/g, (match, len) => {
-        return match
-      })
-    } catch {
-      return data.slice(2)
-    }
-  }
-  return data
-}
-
-function getStorageUsage(): number {
-  let total = 0
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i)
-    if (key) {
-      total += localStorage.getItem(key)?.length || 0
-    }
-  }
-  return total * 2
-}
-
-function checkStorageSpace(): { ok: boolean; usage: number; warning: boolean } {
-  const usage = getStorageUsage()
-  return {
-    ok: usage < STORAGE_QUOTA_LIMIT,
-    usage,
-    warning: usage > STORAGE_QUOTA_LIMIT * STORAGE_WARNING_THRESHOLD
-  }
-}
-
-function cleanupOldSessions(
-  sessions: Session[],
-  keepCount: number = 50,
-  log = true,
-): Session[] {
-  if (sessions.length <= keepCount) return sessions
-  const sorted = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)
-  const kept = sorted.slice(0, keepCount)
-  if (log) {
-    logStorageMaintenance(`Dropped ${sessions.length - keepCount} old sessions`, {
-      kept: keepCount,
-    })
-  }
-  return kept
-}
-
-function truncateLongMessages(sessions: Session[], maxLength: number = 10000): Session[] {
-  return sessions.map(session => ({
-    ...session,
-    messages: session.messages.map(msg => {
-      if (msg.content && msg.content.length > maxLength) {
-        return {
-          ...msg,
-          content: msg.content.slice(0, maxLength) + '\n\n[Content truncated due to length]',
-          truncated: true,
-          originalLength: msg.content.length
-        }
-      }
-      return msg
-    })
-  }))
-}
 
 // 从磁盘恢复历史消息中缺失 previewUrl 的图片（stripLargeAttachmentData 丢弃了 base64）
 async function hydrateImageAttachments(sessions: Session[]): Promise<void> {
-  if (!electronAPI?.image?.load) return
-  const imageApi = electronAPI.image
+  // Use the centralized api for image loading
+  const imageLoad = api.image?.load
+  if (!imageLoad) return
 
   for (const session of sessions) {
     for (const msg of session.messages) {
@@ -288,7 +107,7 @@ async function hydrateImageAttachments(sessions: Session[]): Promise<void> {
           const img = msg.imageAttachments[i]
           if (img.id && !img.previewUrl && !img.data) {
             try {
-              const dataUrl = await imageApi.load(img.id)
+              const dataUrl = await imageLoad(img.id)
               if (dataUrl) {
                 msg.imageAttachments[i] = { ...img, previewUrl: dataUrl, data: dataUrl }
               }
@@ -304,7 +123,7 @@ async function hydrateImageAttachments(sessions: Session[]): Promise<void> {
           const att = msg.attachments[i] as any
           if (att?.type === 'image' && att.id && !att.previewUrl && !att.data) {
             try {
-              const dataUrl = await imageApi.load(att.id)
+              const dataUrl = await imageLoad(att.id)
               if (dataUrl) {
                 msg.attachments[i] = { ...att, previewUrl: dataUrl, data: dataUrl }
               }
@@ -318,152 +137,11 @@ async function hydrateImageAttachments(sessions: Session[]): Promise<void> {
   }
 }
 
-function loadSessionsFromStorage(): Session[] {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY)
-    if (saved) {
-      const data = saved.startsWith('C:') || saved.startsWith('R:')
-        ? decompressData(saved)
-        : saved
-      const sessions = JSON.parse(data)
-      return (sessions || []).map((s: any) => ({
-        ...s,
-        processStatus: s.processStatus || 'none',
-        isTabOpen: s.isTabOpen ?? false,
-        lastActivityAt: s.lastActivityAt || s.updatedAt || s.createdAt,
-        expandedView: s.expandedView || 'none',
-        viewingAgentTaskId: s.viewingAgentTaskId,
-        teammateTranscripts: s.teammateTranscripts || {},
-        teamContext: s.teamContext,
-      }))
-    }
-  } catch (e) {
-    console.error('[ChatStore] Failed to load sessions from storage:', e)
-  }
-  return []
-}
 
-// 持久化前剥离图片附件中的超大 base64 字段（data / previewUrl）。
-// 这些 dataURL 通常是几 MB 的字符串；流式回调里每条 chunk 都触发保存时，
-// 重复序列化它们会导致 localStorage 配额溢出 → 触发清理 → 渲染进程卡死 → 黑屏。
-// engine 已经在发送时通过 IPC 收到原始字节，无需再持久化到前端存储。
-function stripLargeAttachmentData(sessions: Session[]): Session[] {
-  return sessions.map(session => ({
-    ...session,
-    messages: session.messages.map(msg => {
-      const hasImages = !!msg.imageAttachments?.length
-      const hasAttImages = Array.isArray(msg.attachments) && msg.attachments.some((a: any) => a?.type === 'image')
-      if (!hasImages && !hasAttImages) return msg
-      const next: any = { ...msg }
-      if (hasImages) {
-        next.imageAttachments = msg.imageAttachments!.map((img: any) => ({
-          id: img.id,
-          name: img.name,
-          type: img.type,
-          mimeType: img.mimeType,
-          // 丢弃 data / previewUrl（base64），重新加载时显示占位
-        }))
-      }
-      if (hasAttImages) {
-        next.attachments = (msg.attachments as any[]).map(att =>
-          att?.type === 'image'
-            ? { id: att.id, name: att.name, type: att.type, mimeType: att.mimeType }
-            : att
-        )
-      }
-      return next
-    })
-  }))
-}
+// loadSessionsFromStorage, stripLargeAttachmentData, saveSessionsToStorage,
+// loadProjectsFromStorage, saveProjectsToStorage, getStorageStats
+// are now imported from @/services/sessionPersistence
 
-function saveSessionsToStorage(sessions: Session[]): boolean {
-  try {
-    let prepared = prepareSessionsForStorage(sessions)
-    let { payload, compressed } = buildStoragePayload(prepared)
-
-    if (estimateUtf16Bytes(payload) > SESSION_PAYLOAD_LIMIT) {
-      logStorageMaintenance('Session payload over limit, applying aggressive trim')
-      prepared = prepareSessionsForStorage(sessions, true)
-      ;({ payload, compressed } = buildStoragePayload(prepared))
-    }
-
-    if (estimateUtf16Bytes(payload) > SESSION_PAYLOAD_LIMIT) {
-      logStorageMaintenance('Session payload still large after trim, keeping recent sessions only')
-      prepared = cleanupOldSessions(prepared, 10, false)
-      prepared = stripPersistedPayload(prepared, {
-        maxContent: 2_000,
-        maxToolOutput: 800,
-        maxReasoning: 500,
-        maxTimelineContent: 200,
-      })
-      const rebuilt = buildStoragePayload(prepared)
-      payload = rebuilt.payload
-      compressed = rebuilt.compressed
-    }
-
-    localStorage.setItem(STORAGE_KEY, payload)
-    localStorage.setItem(
-      `${STORAGE_KEY}_meta`,
-      JSON.stringify({
-        version: STORAGE_VERSION,
-        savedAt: Date.now(),
-        count: prepared.length,
-        compressed,
-      }),
-    )
-    return true
-  } catch (e) {
-    logger.error('ChatStore', 'Failed to save sessions to storage', e)
-    try {
-      const emergencySessions = cleanupOldSessions(sessions, 10, false)
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify(stripPersistedPayload(stripLargeAttachmentData(emergencySessions))),
-      )
-      return true
-    } catch (e2) {
-      logger.error('ChatStore', 'Emergency save also failed', e2)
-      return false
-    }
-  }
-}
-
-function loadProjectsFromStorage(): string[] {
-  try {
-    const saved = localStorage.getItem(PROJECTS_KEY)
-    if (saved) {
-      return JSON.parse(saved) || []
-    }
-  } catch (e) {
-    console.error('[ChatStore] Failed to load projects from storage:', e)
-  }
-  return []
-}
-
-function saveProjectsToStorage(projects: string[]): boolean {
-  try {
-    localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects))
-    return true
-  } catch (e) {
-    console.error('[ChatStore] Failed to save projects to storage:', e)
-    return false
-  }
-}
-
-export function getStorageStats(): StorageStats {
-  const sessions = loadSessionsFromStorage()
-  const usage = getStorageUsage()
-  const metaStr = localStorage.getItem(`${STORAGE_KEY}_meta`)
-  const meta = metaStr ? JSON.parse(metaStr) : null
-  return {
-    totalSize: usage,
-    sessionCount: sessions.length,
-    oldestSessionDate: sessions.length > 0
-      ? Math.min(...sessions.map(s => s.createdAt))
-      : Date.now(),
-    compressionRatio: meta?.compressed ? 0.7 : 1.0
-  }
-}
 
 function updateTaskStateFromToolResult(
   toolCalls: ToolCall[],
@@ -526,54 +204,12 @@ function updateTaskStateFromToolResult(
 
 type TaskStatus = 'pending' | 'in_progress' | 'completed'
 
-const AGENT_COLORS: AgentColor[] = ['red', 'blue', 'green', 'yellow', 'purple', 'orange', 'pink', 'cyan']
 
-function stableTeammateId(raw: any): string {
-  const value = raw?.agentTaskId || raw?.taskId || raw?.agentId || raw?.agentName || raw?.subagent_type || raw?.name || 'teammate'
-  return String(value).trim().toLowerCase().replace(/[^a-z0-9_-]+/gi, '-') || 'teammate'
-}
+// stableTeammateId, getRawTeammateName, getRawTeamName, isTeammateRawMessage,
+// inferTeammateStatus, stringifyRawContent, parseAgentToolOutput,
+// ensureTeamContext, recordAgentToolCall, AGENT_COLORS
+// are now imported from @/services/teamTranscriptService
 
-function getRawTeammateName(raw: any): string {
-  return String(raw?.agentName || raw?.name || raw?.subagent_type || raw?.agentType || 'teammate')
-}
-
-function getRawTeamName(raw: any): string {
-  return String(raw?.teamName || raw?.team_name || raw?.team || 'Agent Team')
-}
-
-function isTeammateRawMessage(raw: any): boolean {
-  return !!raw && typeof raw === 'object' && (raw.type === 'teammate' || raw.isSidechain || raw.agentName || raw.subagent_type)
-}
-
-function inferTeammateStatus(raw: any): TeammateStatus {
-  const value = String(raw?.status || raw?.state || raw?.event || raw?.subtype || '').toLowerCase()
-  if (/fail|error|reject|cancel/.test(value)) return 'failed'
-  if (/complete|done|finish|success|result/.test(value)) return 'completed'
-  if (/idle|wait/.test(value)) return 'idle'
-  return 'running'
-}
-
-function stringifyRawContent(raw: any): string {
-  const content = raw?.message?.content ?? raw?.content ?? raw?.text ?? raw?.output ?? raw?.result
-  if (typeof content === 'string') return content
-  if (Array.isArray(content)) {
-    return content
-      .map((part: any) => {
-        if (typeof part === 'string') return part
-        if (part?.type === 'text' && typeof part.text === 'string') return part.text
-        if (part?.text) return String(part.text)
-        return ''
-      })
-      .filter(Boolean)
-      .join('\n')
-  }
-  if (content == null) return ''
-  try {
-    return JSON.stringify(content)
-  } catch {
-    return String(content)
-  }
-}
 
 export const useChatStore = defineStore('chat', () => {
   const appStore = useAppStore()
@@ -822,7 +458,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function initClaudeCodeSession(sessionId: string): Promise<void> {
-    const claudeCode = electronAPI?.claudeCode
+    const claudeCode = api.claudeCode
     if (!claudeCode) {
       logger.warn('ChatStore', `initClaudeCodeSession: claudeCode API not available`)
       return
@@ -864,7 +500,7 @@ export const useChatStore = defineStore('chat', () => {
 
     try {
       const config = settingsStore.config
-      const cwd = session.workingDirectory || currentProjectRoot.value || await electronAPI.getCwd?.() || '/'
+      const cwd = session.workingDirectory || currentProjectRoot.value || await api.getCwd() || '/'
 
       session.processStatus = 'starting'
       saveToStorage()
@@ -940,19 +576,7 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function ensureTeamContext(session: Session, teamName: string) {
-    if (!session.teamContext) {
-      session.teamContext = {
-        teamName,
-        isLeader: true,
-        teammates: {}
-      }
-    } else if (!session.teamContext.teamName) {
-      session.teamContext.teamName = teamName
-    }
-    session.expandedView = session.expandedView || 'none'
-    session.teammateTranscripts = session.teammateTranscripts || {}
-  }
+  // ensureTeamContext is now imported from @/services/teamTranscriptService
 
   function recordTeammateMessage(raw: any, targetSessionId: string): Message | null {
     if (!isTeammateRawMessage(raw)) return null
@@ -1017,103 +641,11 @@ export const useChatStore = defineStore('chat', () => {
     return message
   }
 
-  function parseAgentToolOutput(output: string): { displayText: string; outputFile?: string } {
-    try {
-      const parsed = JSON.parse(output)
-      const text = Array.isArray(parsed)
-        ? parsed.map((part: any) => typeof part === 'string' ? part : part?.text || '').filter(Boolean).join('\n')
-        : typeof parsed?.text === 'string' ? parsed.text : output
-      const outputFile = text.match(/output_file:\s*([^\n]+)/)?.[1]?.trim()
-      const agentId = text.match(/agentId:\s*([^\s]+)/)?.[1]?.trim()
-      return {
-        displayText: agentId
-          ? `Agent launched successfully.\n\nAgent ID: ${agentId}\n${outputFile ? `Output file: ${outputFile}` : ''}`.trim()
-          : text,
-        outputFile,
-      }
-    } catch {
-      const outputFile = output.match(/output_file:\s*([^\n]+)/)?.[1]?.trim()
-      return { displayText: output, outputFile }
-    }
-  }
+  // parseAgentToolOutput is now imported from @/services/teamTranscriptService
 
-  async function hydrateAgentTranscriptFromFile(sessionId: string, teammateId: string, filePath: string, name: string, status: TeammateStatus, attempts = 8) {
-    try {
-      const content = await electronAPI?.readFile?.(filePath)
-      if (!content?.trim()) {
-        if (attempts > 0) {
-          setTimeout(() => {
-            void hydrateAgentTranscriptFromFile(sessionId, teammateId, filePath, name, status, attempts - 1)
-          }, 1500)
-        }
-        return
-      }
-      const session = sessions.value.find(s => s.id === sessionId)
-      if (!session?.teammateTranscripts) return
-      const transcript = session.teammateTranscripts[teammateId] || []
-      const fileMessageId = `${teammateId}-output-file`
-      const fileMessage: Message = {
-        id: fileMessageId,
-        role: 'assistant',
-        content,
-        timestamp: Date.now(),
-        metadata: {
-          agentTaskId: teammateId,
-          agentName: name,
-          teamName: 'Agent Team',
-          status,
-        }
-      }
-      session.teammateTranscripts[teammateId] = transcript.some(m => m.id === fileMessageId)
-        ? transcript.map(m => m.id === fileMessageId ? fileMessage : m)
-        : [...transcript, fileMessage]
-      const teammate = session.teamContext?.teammates[teammateId]
-      if (teammate) teammate.messageCount = session.teammateTranscripts[teammateId].length
-      saveToStorage()
-    } catch (error) {
-      logger.warn('ChatStore', 'Failed to hydrate agent transcript from output file', { filePath, error: String(error) })
-    }
-  }
+  // hydrateAgentTranscriptFromFile is now in @/services/teamTranscriptService
 
-  function recordAgentToolCall(session: Session, toolCall: ToolCall, status: TeammateStatus = 'running') {
-    if (toolCall.name !== 'Agent') return
-    ensureTeamContext(session, 'Agent Team')
-
-    const input = toolCall.input || {}
-    const teammateId = String(toolCall.id || input.agentTaskId || input.taskId || crypto.randomUUID())
-    const agentType = String(input.agentType || input.type || 'general-purpose')
-    const name = String(input.name || input.agentName || agentType)
-    const existing = session.teamContext!.teammates[teammateId]
-    const color = existing?.color || AGENT_COLORS[Object.keys(session.teamContext!.teammates).length % AGENT_COLORS.length]
-    const transcript = session.teammateTranscripts![teammateId] || []
-
-    if (toolCall.output && !transcript.some(m => m.id === `${toolCall.id}-result`)) {
-      const parsedOutput = parseAgentToolOutput(toolCall.output)
-      session.teammateTranscripts![teammateId] = [...transcript, {
-        id: `${toolCall.id}-result`,
-        role: 'assistant',
-        content: parsedOutput.displayText,
-        timestamp: toolCall.endTime || Date.now(),
-        metadata: {
-          agentTaskId: teammateId,
-          agentName: name,
-          teamName: 'Agent Team',
-          status,
-        }
-      }]
-      if (parsedOutput.outputFile) {
-        void hydrateAgentTranscriptFromFile(session.id, teammateId, parsedOutput.outputFile, name, status)
-      }
-    }
-
-    session.teamContext!.teammates[teammateId] = {
-      name,
-      agentType,
-      status,
-      color,
-      messageCount: session.teammateTranscripts![teammateId]?.length || 0
-    }
-  }
+  // recordAgentToolCall is now imported from @/services/teamTranscriptService
   function viewTeammateTranscript(taskId: string) {
     const session = currentSession.value
     if (!session?.teamContext?.teammates[taskId]) return
@@ -1205,12 +737,12 @@ export const useChatStore = defineStore('chat', () => {
     if (attachments?.images?.length) {
       for (const img of attachments.images) {
         if (img.id && img.data) {
-          electronAPI?.image?.save?.(img.id, img.data).catch(() => {})
+          api.image?.save?.(img.id, img.data).catch(() => {})
         }
       }
     }
 
-    const claudeCode = electronAPI?.claudeCode
+    const claudeCode = api.claudeCode
     if (!claudeCode) {
       logger.error('ChatStore', `sendMessage: claudeCode API not available | sessionId=${targetSessionId.slice(0, 8)}`)
       const classified = errorHandler.handleError(new Error('Claude Code CLI is not available. Please check your configuration.'), {
@@ -2014,7 +1546,7 @@ export const useChatStore = defineStore('chat', () => {
   async function abort(): Promise<void> {
     const sid = currentSessionId.value
     logger.info('ChatStore', `abort | sessionId=${sid?.slice(0, 8) || '(none)'}`)
-    const claudeCode = electronAPI?.claudeCode
+    const claudeCode = api.claudeCode
     if (claudeCode && sid) {
       try {
         await claudeCode.abort(sid)
@@ -2035,7 +1567,7 @@ export const useChatStore = defineStore('chat', () => {
     const session = sessions.value.find(s => s.id === sid)
     if (!session) return
     
-    const claudeCode = electronAPI?.claudeCode
+    const claudeCode = api.claudeCode
     const lastUserMsg = [...session.messages].reverse().find(m => m.role === 'user')
     if (lastUserMsg) {
       const lastAssistantMsg = [...session.messages].reverse().find(m => m.role === 'assistant' && m.metadata?.error)
@@ -2132,7 +1664,7 @@ export const useChatStore = defineStore('chat', () => {
 
     logger.info('ChatStore', `submitToolAnswer: submitting answers | sessionId=${sid.slice(0, 8)} | messageId=${messageId.slice(0, 8)} | toolId=${toolCallId.slice(0, 8)}`)
     
-    const claudeCode = electronAPI?.claudeCode
+    const claudeCode = api.claudeCode
     if (!claudeCode) {
       logger.error('ChatStore', 'submitToolAnswer: claudeCode API not available')
       return
@@ -2158,7 +1690,7 @@ export const useChatStore = defineStore('chat', () => {
 
     logger.info('ChatStore', `skipToolAnswer: skipping tool | sessionId=${sid.slice(0, 8)} | messageId=${messageId.slice(0, 8)} | toolId=${toolCallId.slice(0, 8)}`)
     
-    const claudeCode = electronAPI?.claudeCode
+    const claudeCode = api.claudeCode
     if (!claudeCode) {
       logger.error('ChatStore', 'skipToolAnswer: claudeCode API not available')
       return
@@ -2225,7 +1757,7 @@ export const useChatStore = defineStore('chat', () => {
     clearTurnCheckpoints()
 
     // 3. 异步获取会话状态（后台操作，不阻塞UI）
-    const claudeCode = electronAPI?.claudeCode
+    const claudeCode = api.claudeCode
     if (claudeCode) {
       try {
         // 使用 Promise.race 添加超时，避免长时间阻塞
@@ -2266,7 +1798,7 @@ export const useChatStore = defineStore('chat', () => {
     clearTurnCheckpoints()
 
     if (session.processStatus === 'suspended') {
-      const claudeCode = electronAPI?.claudeCode
+      const claudeCode = api.claudeCode
       if (claudeCode) {
         // If the user switched engines while this session was suspended, the
         // old engine's snapshot is no longer usable. Throw it away and start
@@ -2323,7 +1855,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function deleteSession(sessionId: string) {
-    const claudeCode = electronAPI?.claudeCode
+    const claudeCode = api.claudeCode
     if (claudeCode) {
       try {
         await claudeCode.stop(sessionId)
@@ -2655,7 +2187,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function loadAgents() {
-    const claudeCode = electronAPI?.claudeCode
+    const claudeCode = api.claudeCode
     if (!claudeCode?.listAgents) return
     try {
       const cwd = workingDirectory.value || currentProjectRoot.value || undefined
@@ -2668,7 +2200,7 @@ export const useChatStore = defineStore('chat', () => {
   async function switchAgent(agentType: string) {
     currentAgent.value = agentType
     const sid = currentSessionId.value
-    const claudeCode = electronAPI?.claudeCode
+    const claudeCode = api.claudeCode
     if (claudeCode && sid) {
       const status = await claudeCode.getSessionStatus(sid)
       if (status?.isRunning) {
@@ -2681,7 +2213,7 @@ export const useChatStore = defineStore('chat', () => {
 
   async function switchModel(model: string) {
     const sid = currentSessionId.value
-    const claudeCode = electronAPI?.claudeCode
+    const claudeCode = api.claudeCode
     if (claudeCode && sid) {
       const status = await claudeCode.getSessionStatus(sid)
       if (status?.isRunning) {
@@ -2705,8 +2237,8 @@ export const useChatStore = defineStore('chat', () => {
   // engine 可能在任何时刻（比如 background turn 或者后台 hook）发起授权请求。
   // 单元测试 / SSR 场景下 onPermissionRequest 不存在时安全地降级为 no-op。
   // ────────────────────────────────────────────────────────────────────
-  if (electronAPI?.claudeCode?.onPermissionRequest) {
-    electronAPI.claudeCode.onPermissionRequest((evt: { sessionId: string; data: PermissionRequest }) => {
+  if (api.claudeCode?.onPermissionRequest) {
+    api.claudeCode.onPermissionRequest((evt: { sessionId: string; data: PermissionRequest }) => {
       const sid = evt.sessionId
       const req = evt.data
       if (!req?.toolUseId) {
@@ -2714,33 +2246,20 @@ export const useChatStore = defineStore('chat', () => {
         return
       }
       logger.info('ChatStore', `permission_request | sessionId=${sid.slice(0, 8)} | tool=${req.toolName} | toolUseId=${req.toolUseId.slice(0, 8)} | requestId=${req.requestId.slice(0, 8)}`)
-      let bySession = pendingPermissions.value.get(sid)
-      if (!bySession) {
-        bySession = new Map()
-        pendingPermissions.value.set(sid, bySession)
-      }
-      bySession.set(req.toolUseId, { ...req, sessionId: sid })
-      // Trigger reactivity (Map mutations otherwise don't notify computed/watch)
-      pendingPermissions.value = new Map(pendingPermissions.value)
+      // Delegate to permissionService and sync reactivity
+      permissionService.addPermissionRequest(sid, { ...req, sessionId: sid })
+      pendingPermissions.value = new Map(permissionService.getPendingPermissions())
     })
   }
-  if (electronAPI?.claudeCode?.onPermissionRequestCancelled) {
-    electronAPI.claudeCode.onPermissionRequestCancelled((evt: { sessionId: string; data: { requestId: string; reason?: string } }) => {
+  if (api.claudeCode?.onPermissionRequestCancelled) {
+    api.claudeCode.onPermissionRequestCancelled((evt: { sessionId: string; data: { requestId: string; reason?: string } }) => {
       const sid = evt.sessionId
       const cancelledRequestId = evt.data?.requestId
       if (!cancelledRequestId) return
       logger.info('ChatStore', `permission_request_cancelled | sessionId=${sid.slice(0, 8)} | requestId=${cancelledRequestId.slice(0, 8)} | reason=${evt.data?.reason || '(none)'}`)
-      const bySession = pendingPermissions.value.get(sid)
-      if (!bySession) return
-      // Find by requestId (we index by toolUseId, so we need a scan).
-      for (const [toolUseId, req] of bySession.entries()) {
-        if (req.requestId === cancelledRequestId) {
-          bySession.delete(toolUseId)
-          break
-        }
-      }
-      if (bySession.size === 0) pendingPermissions.value.delete(sid)
-      pendingPermissions.value = new Map(pendingPermissions.value)
+      // Delegate to permissionService and sync reactivity
+      permissionService.removePermissionByRequestId(sid, cancelledRequestId)
+      pendingPermissions.value = new Map(permissionService.getPendingPermissions())
     })
   }
 
@@ -2755,13 +2274,9 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function consumePermissionFor(toolUseId: string, sessionId: string): PermissionRequest | undefined {
-    const bySession = pendingPermissions.value.get(sessionId)
-    if (!bySession) return undefined
-    const req = bySession.get(toolUseId)
-    if (!req) return undefined
-    bySession.delete(toolUseId)
-    if (bySession.size === 0) pendingPermissions.value.delete(sessionId)
-    pendingPermissions.value = new Map(pendingPermissions.value)
+    const req = permissionService.consumePermissionFor(toolUseId, sessionId)
+    // Sync reactivity
+    pendingPermissions.value = new Map(permissionService.getPendingPermissions())
     return req
   }
 
@@ -2782,7 +2297,7 @@ export const useChatStore = defineStore('chat', () => {
   ): Promise<void> {
     const sid = currentSessionId.value
     if (!sid) return
-    const claudeCode = electronAPI?.claudeCode
+    const claudeCode = api.claudeCode
     if (!claudeCode?.allowPermission) {
       logger.error('ChatStore', 'allowPermission: claudeCode.allowPermission not available')
       return
@@ -2817,7 +2332,7 @@ export const useChatStore = defineStore('chat', () => {
   ): Promise<void> {
     const sid = currentSessionId.value
     if (!sid) return
-    const claudeCode = electronAPI?.claudeCode
+    const claudeCode = api.claudeCode
     if (!claudeCode?.denyPermission) {
       logger.error('ChatStore', 'denyPermission: claudeCode.denyPermission not available')
       return
@@ -2842,7 +2357,7 @@ export const useChatStore = defineStore('chat', () => {
    * @param mode - 目标模式（default/plan/acceptEdits/bypassPermissions）
    */
   async function setPermissionMode(mode: PermissionMode): Promise<void> {
-    const claudeCode = electronAPI?.claudeCode
+    const claudeCode = api.claudeCode
     const sid = currentSessionId.value
     const previousMode = currentPermissionMode.value
 

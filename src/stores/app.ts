@@ -3,6 +3,7 @@ import { ref, computed, markRaw } from 'vue'
 import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch } from 'lucide-vue-next'
 import { useChatStore } from './chat'
 import { useTerminalStore } from './terminal'
+import { api } from '@/services/electronAPI'
 
 export interface FileInfo {
   path: string
@@ -287,8 +288,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function openFile(filePath: string, line?: number, endLine?: number) {
-    const api = (window as any).electronAPI
-    if (!api?.readFile) {
+    if (!api.readFile) {
       console.error('[AppStore] readFile API not available')
       return
     }

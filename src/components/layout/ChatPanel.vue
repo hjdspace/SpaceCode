@@ -224,14 +224,13 @@ import { useContextUsageStore } from '@/stores/contextUsage'
 import { initLLMService, llmState, updateConfig } from '@/services/llm'
 import { pathsEqual } from '@/utils/recentProjectRoots'
 import { useChatCommands } from '@/composables/useChatCommands'
+import { api } from '@/services/electronAPI'
 import type { Message } from '@/types'
 
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 const appStore = useAppStore()
 const { t } = useI18n()
-
-const electronAPI = (window as any).electronAPI
 
 const showHistoryModal = ref(false)
 const historySearchQuery = ref('')
@@ -499,7 +498,7 @@ async function handleEffortChange(effort: string) {
 
   // 同步到 ~/.claude/settings.json 以便 CLI 读取
   try {
-    await electronAPI?.injectGuiModelsToSettings?.({
+    await api.injectGuiModelsToSettings({
       primaryModel: settingsStore.getPrimaryModel() || '',
       haikuModel: settingsStore.getHaikuModel(),
       sonnetModel: settingsStore.getSonnetModel(),
@@ -759,7 +758,6 @@ async function fetchAndShowDiff() {
   showDiffPanel.value = true
 
   try {
-    const api = (window as any).electronAPI
     const result = await api.git.getFullDiff(workingDir)
     if (!result) {
       // Not a git repo or error
@@ -917,7 +915,7 @@ function handleCloseTab(tabId: string) {
 
 async function handleRestoreHistorySession(session: any) {
   try {
-    const claudeCode = (window as any).electronAPI?.claudeCode
+    const claudeCode = api.claudeCode
     if (!claudeCode || !session?.sessionId) return
 
     const existingSession = chatStore.sessions.find(s => s.id === session.sessionId)

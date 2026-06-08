@@ -489,4 +489,29 @@ export const api = {
     onDisconnected: (cb: () => void) =>
       electronAPI?.mobile?.onDisconnected(cb) ?? (() => {}),
   },
+
+  // ClaudeCode API — direct access to the claudeCode IPC bridge
+  // Used by chat.ts for session lifecycle, streaming, and permission management.
+  // Returns null when running outside Electron (SSR / unit tests).
+  get claudeCode() {
+    return electronAPI?.claudeCode ?? null
+  },
+
+  // Image API — direct access to the image IPC bridge
+  get image() {
+    return electronAPI?.image ?? null
+  },
+
+  // Logger API — direct access to the logger IPC bridge
+  get logger() {
+    return electronAPI?.logger ?? null
+  },
+
+  // getCwd — get current working directory from main process
+  getCwd: (): Promise<string> => {
+    if (electronAPI?.getCwd) {
+      return electronAPI.getCwd()
+    }
+    return Promise.resolve('/')
+  },
 }
