@@ -3,7 +3,7 @@
  */
 
 import { ipcMain, app } from 'electron'
-import { join, dirname, basename } from 'path'
+import { join, dirname, basename, resolve } from 'path'
 import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSync, unlinkSync, cpSync, rmSync } from 'fs'
 import { net } from 'electron'
 
@@ -56,8 +56,9 @@ function getProjectSkillsDirs(cwd: string): string[] {
 }
 
 /**
- * Plugin install root (Claude Code compatible).
- * Each plugin lives in <root>/<pluginName>/ with .claude-plugin/plugin.json + skills/.
+ * Claude Code plugin metadata root.
+ * CLI-managed plugins are discovered via installed_plugins.json + enabledPlugins,
+ * with materialized sources under <root>/cache/{marketplace}/{plugin}/{version}/.
  */
 function getGlobalPluginsRoot(): string {
   return join(app.getPath('home'), '.claude', 'plugins')
@@ -65,6 +66,169 @@ function getGlobalPluginsRoot(): string {
 
 function getProjectPluginsRoot(cwd: string): string {
   return join(cwd, '.claude', 'plugins')
+}
+
+function getInstalledPluginsFilePath(): string {
+  return join(getGlobalPluginsRoot(), 'installed_plugins.json')
+}
+
+function getSettingsPath(scope: 'global' | 'project', cwd?: string): string {
+  return scope === 'global'
+    ? join(app.getPath('home'), '.claude', 'settings.json')
+    : join(cwd || process.cwd(), '.claude', 'settings.json')
+}
+
+function sanitizePluginPathSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9\-_.]/g, '-')
+}
+
+function getVersionedPluginCachePath(pluginId: string, version: string): string {
+  const [pluginName, marketplaceName = 'unknown'] = pluginId.split('@')
+  return join(
+    getGlobalPluginsRoot(),
+    'cache',
+    sanitizePluginPathSegment(marketplaceName),
+    sanitizePluginPathSegment(pluginName || pluginId),
+    sanitizePluginPathSegment(version)
+  )
+}
+
+function readJsonFile(filePath: string): any | null {
+  if (!existsSync(filePath)) return null
+  return JSON.parse(readFileSync(filePath, 'utf-8'))
+}
+
+function writeJsonFile(filePath: string, value: any): void {
+  mkdirSync(dirname(filePath), { recursive: true })
+  writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf-8')
+}
+
+function readInstalledPluginsFile(): { version: 2; plugins: Record<string, any[]> } {
+  const raw = readJsonFile(getInstalledPluginsFilePath())
+  if (!raw) return { version: 2, plugins: {} }
+
+  if (raw.version === 2 && raw.plugins && typeof raw.plugins === 'object') {
+    return { version: 2, plugins: raw.plugins }
+  }
+
+  if (raw.plugins && typeof raw.plugins === 'object') {
+    const migrated: Record<string, any[]> = {}
+    for (const [pluginId, entry] of Object.entries<any>(raw.plugins)) {
+      migrated[pluginId] = [{
+        scope: 'user',
+        installPath: entry.installPath,
+        version: entry.version,
+        installedAt: entry.installedAt,
+        lastUpdated: entry.lastUpdated,
+        gitCommitSha: entry.gitCommitSha
+      }]
+    }
+    return { version: 2, plugins: migrated }
+  }
+
+  return { version: 2, plugins: {} }
+}
+
+function addInstalledPluginEntry(
+  pluginId: string,
+  scope: 'global' | 'project',
+  installPath: string,
+  version: string,
+  cwd?: string
+): void {
+  const data = readInstalledPluginsFile()
+  const now = new Date().toISOString()
+  const cliScope = scope === 'global' ? 'user' : 'project'
+  const projectPath = scope === 'project' ? (cwd || process.cwd()) : undefined
+  const entries = data.plugins[pluginId] || []
+  const nextEntry = {
+    scope: cliScope,
+    ...(projectPath ? { projectPath } : {}),
+    installPath,
+    version,
+    installedAt: now,
+    lastUpdated: now
+  }
+  const existingIndex = entries.findIndex((entry: any) =>
+    entry.scope === cliScope && entry.projectPath === projectPath
+  )
+  if (existingIndex >= 0) entries[existingIndex] = nextEntry
+  else entries.push(nextEntry)
+  data.plugins[pluginId] = entries
+  writeJsonFile(getInstalledPluginsFilePath(), data)
+}
+
+function removeInstalledPluginEntry(pluginId: string, scope: 'global' | 'project', cwd?: string): string[] {
+  const data = readInstalledPluginsFile()
+  const cliScope = scope === 'global' ? 'user' : 'project'
+  const projectPath = scope === 'project' ? (cwd || process.cwd()) : undefined
+  const entries = data.plugins[pluginId] || []
+  const removedPaths = entries
+    .filter((entry: any) => entry.scope === cliScope && entry.projectPath === projectPath)
+    .map((entry: any) => entry.installPath)
+    .filter(Boolean)
+  const remaining = entries.filter((entry: any) =>
+    !(entry.scope === cliScope && entry.projectPath === projectPath)
+  )
+  if (remaining.length > 0) data.plugins[pluginId] = remaining
+  else delete data.plugins[pluginId]
+  writeJsonFile(getInstalledPluginsFilePath(), data)
+  return removedPaths
+}
+
+function setPluginEnabled(pluginId: string, scope: 'global' | 'project', enabled: boolean | undefined, cwd?: string): void {
+  const settingsPath = getSettingsPath(scope, cwd)
+  const settings = readJsonFile(settingsPath) || {}
+  const enabledPlugins = { ...(settings.enabledPlugins || {}) }
+  if (enabled === undefined) {
+    delete enabledPlugins[pluginId]
+  } else {
+    enabledPlugins[pluginId] = enabled
+  }
+  writeJsonFile(settingsPath, { ...settings, enabledPlugins })
+}
+
+function isInstallPathReferenced(installPath: string): boolean {
+  const data = readInstalledPluginsFile()
+  return Object.values(data.plugins).some(entries =>
+    entries.some((entry: any) => entry.installPath === installPath)
+  )
+}
+
+function getPluginIdsForBundleName(bundleName: string): string[] {
+  const data = readInstalledPluginsFile()
+  return Object.keys(data.plugins).filter(pluginId => pluginId.split('@')[0] === bundleName)
+}
+
+function getLocalBundlePluginInfo(bundleDir: string): { name: string; version: string; marketplaceName: string; source: string; manifest: Record<string, any> } | null {
+  const pluginPath = join(bundleDir, '.claude-plugin', 'plugin.json')
+  const marketplacePath = join(bundleDir, '.claude-plugin', 'marketplace.json')
+  if (!existsSync(pluginPath) && !existsSync(marketplacePath)) return null
+
+  const pluginManifest = existsSync(pluginPath) ? readJsonFile(pluginPath) : null
+  const marketplace = existsSync(marketplacePath) ? readJsonFile(marketplacePath) : null
+  const marketplaceEntry = Array.isArray(marketplace?.plugins)
+    ? marketplace.plugins.find((entry: any) => !pluginManifest?.name || entry.name === pluginManifest.name) || marketplace.plugins[0]
+    : null
+  const manifest = { ...(pluginManifest || {}), ...(marketplaceEntry || {}) }
+  const name = manifest.name || basename(bundleDir)
+  return {
+    name,
+    version: manifest.version || 'unknown',
+    marketplaceName: marketplace?.name || manifest.marketplaceName || 'local-skills',
+    source: marketplaceEntry?.source || './',
+    manifest
+  }
+}
+
+function resolvePluginSourcePath(bundleDir: string, source: string): string {
+  const resolvedBundle = resolve(bundleDir)
+  const sourceSuffix = source.replace(/^\.\//, '')
+  const resolvedSource = resolve(bundleDir, sourceSuffix || '.')
+  if (resolvedSource !== resolvedBundle && !resolvedSource.startsWith(`${resolvedBundle}\\`) && !resolvedSource.startsWith(`${resolvedBundle}/`)) {
+    throw new Error(`Plugin source escapes bundle directory: ${source}`)
+  }
+  return resolvedSource
 }
 
 /**
@@ -1095,37 +1259,42 @@ function getLocalSkillDirs(rootDir: string): string[] {
 }
 
 function readPluginManifest(bundleDir: string): Record<string, any> | null {
-  const manifestPaths = [
-    join(bundleDir, '.claude-plugin', 'plugin.json'),
-    join(bundleDir, '.claude-plugin', 'marketplace.json')
-  ]
-  const manifestPath = manifestPaths.find(path => existsSync(path))
+  const pluginPath = join(bundleDir, '.claude-plugin', 'plugin.json')
+  const marketplacePath = join(bundleDir, '.claude-plugin', 'marketplace.json')
+  const manifestPaths = [pluginPath, marketplacePath]
   console.log(`[LocalLibrary] readPluginManifest checking: ${manifestPaths.join(', ')}`)
-  if (!manifestPath) {
+  if (!existsSync(pluginPath) && !existsSync(marketplacePath)) {
     console.log(`[LocalLibrary] Manifest not found: ${manifestPaths.join(', ')}`)
     return null
   }
   try {
-    const content = readFileSync(manifestPath, 'utf-8')
-    console.log(`[LocalLibrary] Manifest content (${content.length} chars): ${manifestPath}`)
-    const parsed = JSON.parse(content)
-    const manifest = Array.isArray(parsed.plugins) && parsed.plugins.length > 0
-      ? { ...parsed.plugins[0], marketplaceName: parsed.name }
-      : parsed
+    const info = getLocalBundlePluginInfo(bundleDir)
+    if (!info) return null
+    const manifest: Record<string, any> = {
+      ...info.manifest,
+      marketplaceName: info.marketplaceName,
+      source: info.source
+    }
     console.log(`[LocalLibrary] Parsed manifest:`, manifest.name)
     return manifest
   } catch (err) {
-    console.error(`[LocalLibrary] Failed to parse plugin manifest: ${manifestPath}`, err)
+    console.error(`[LocalLibrary] Failed to parse plugin manifest: ${bundleDir}`, err)
     return null
   }
 }
 
 function bundleIsInstalled(bundleName: string, cwd?: string): { installed: boolean; scope?: 'global' | 'project' | 'mixed' } {
-  const hasManifest = (root: string) =>
-    existsSync(join(root, bundleName, '.claude-plugin', 'plugin.json')) ||
-    existsSync(join(root, bundleName, '.claude-plugin', 'marketplace.json'))
-  const inGlobal = hasManifest(getGlobalPluginsRoot())
-  const inProject = cwd ? hasManifest(getProjectPluginsRoot(cwd)) : false
+  const data = readInstalledPluginsFile()
+  const pluginIds = Object.keys(data.plugins).filter(pluginId => pluginId.split('@')[0] === bundleName)
+  const hasScope = (scope: 'user' | 'project') => pluginIds.some(pluginId =>
+    (data.plugins[pluginId] || []).some((entry: any) =>
+      entry.scope === scope && (scope !== 'project' || !cwd || entry.projectPath === cwd)
+    )
+  )
+  const legacyGlobal = existsSync(join(getGlobalPluginsRoot(), bundleName, '.claude-plugin', 'plugin.json')) ||
+    existsSync(join(getGlobalPluginsRoot(), bundleName, '.claude-plugin', 'marketplace.json'))
+  const inGlobal = hasScope('user') || legacyGlobal
+  const inProject = hasScope('project')
   if (inGlobal && inProject) return { installed: true, scope: 'mixed' }
   if (inGlobal) return { installed: true, scope: 'global' }
   if (inProject) return { installed: true, scope: 'project' }
@@ -1278,18 +1447,29 @@ async function handleInstallLocalBundle(
     if (!manifest) {
       throw new Error(`Not a valid plugin bundle (missing .claude-plugin/plugin.json): ${bundleDir}`)
     }
-    const bundleName: string = manifest.name || basename(bundleDir)
-    const root = scope === 'global' ? getGlobalPluginsRoot() : getProjectPluginsRoot(cwd || process.cwd())
-    const targetDir = join(root, bundleName)
+    const info = getLocalBundlePluginInfo(bundleDir)
+    if (!info) {
+      throw new Error(`Not a valid Claude Code plugin bundle: ${bundleDir}`)
+    }
+    const bundleName = info.name
+    const pluginId = `${info.name}@${info.marketplaceName}`
+    const sourceDir = resolvePluginSourcePath(bundleDir, info.source)
+    const targetDir = getVersionedPluginCachePath(pluginId, info.version)
 
-    if (existsSync(targetDir)) {
-      throw new Error(`Bundle '${bundleName}' is already installed at ${targetDir}`)
+    if (!existsSync(targetDir)) {
+      mkdirSync(dirname(targetDir), { recursive: true })
+      cpSync(sourceDir, targetDir, { recursive: true, force: false })
     }
 
-    mkdirSync(dirname(targetDir), { recursive: true })
-    cpSync(bundleDir, targetDir, { recursive: true, force: false })
+    addInstalledPluginEntry(pluginId, scope, targetDir, info.version, cwd)
+    setPluginEnabled(pluginId, scope, true, cwd)
 
-    console.log(`[LocalLibrary] Installed bundle '${bundleName}' to ${targetDir}`)
+    const legacyTargetDir = join(getGlobalPluginsRoot(), bundleName)
+    if (existsSync(legacyTargetDir) && legacyTargetDir !== targetDir) {
+      rmSync(legacyTargetDir, { recursive: true, force: true })
+    }
+
+    console.log(`[LocalLibrary] Installed bundle '${bundleName}' as ${pluginId} to ${targetDir}`)
     return { success: true, bundleName, targetDir }
   } catch (err) {
     console.error('[LocalLibrary] Failed to install bundle:', err)
@@ -1303,17 +1483,40 @@ async function handleUninstallLocalBundle(
   cwd?: string
 ): Promise<{ success: boolean; removed: string[] }> {
   try {
-    const candidates = [
-      join(getGlobalPluginsRoot(), bundleName),
-      ...(cwd ? [join(getProjectPluginsRoot(cwd), bundleName)] : [])
-    ]
     const removed: string[] = []
-    for (const target of candidates) {
-      if (existsSync(target)) {
-        rmSync(target, { recursive: true, force: true })
-        removed.push(target)
+    const pluginIds = getPluginIdsForBundleName(bundleName)
+    const scopes: Array<'global' | 'project'> = cwd ? ['global', 'project'] : ['global']
+
+    for (const pluginId of pluginIds) {
+      for (const scope of scopes) {
+        setPluginEnabled(pluginId, scope, undefined, cwd)
+        for (const installPath of removeInstalledPluginEntry(pluginId, scope, cwd)) {
+          if (existsSync(installPath) && !isInstallPathReferenced(installPath)) {
+            rmSync(installPath, { recursive: true, force: true })
+            removed.push(installPath)
+          }
+        }
       }
     }
+
+    const legacyTarget = join(getGlobalPluginsRoot(), bundleName)
+    if (existsSync(legacyTarget)) {
+      rmSync(legacyTarget, { recursive: true, force: true })
+      removed.push(legacyTarget)
+    }
+
+    const legacyProjectTarget = cwd ? join(cwd, '.claude', 'plugins', bundleName) : null
+    if (legacyProjectTarget && existsSync(legacyProjectTarget)) {
+      rmSync(legacyProjectTarget, { recursive: true, force: true })
+      removed.push(legacyProjectTarget)
+    }
+
+    for (const target of Array.from(new Set(removed))) {
+      if (existsSync(target)) {
+        rmSync(target, { recursive: true, force: true })
+      }
+    }
+
     if (removed.length === 0) {
       throw new Error(`Bundle '${bundleName}' is not installed`)
     }
