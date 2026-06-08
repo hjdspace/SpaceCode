@@ -12,6 +12,7 @@ import { useTaskManager } from '@/composables/useTaskManager'
 import { getCompletedTurnTargets } from '@/utils/turnCheckpointUtils'
 import { api } from '@/services/electronAPI'
 import { errorHandler } from '@/services/errorHandler'
+import { buildMessagesFromHistory } from '@/utils/sessionRestore'
 import {
   loadSessionsFromStorage,
   saveSessionsToStorage,
@@ -138,6 +139,52 @@ async function hydrateImageAttachments(sessions: Session[]): Promise<void> {
 }
 
 
+/**
+ * 异步从 JSONL 文件补全会话消息。
+ *
+ * 应用重启时从 localStorage 加载的会话可能已被截断（MESSAGE_CONTENT_PERSIST_LIMIT），
+ * 但磁盘上的 JSONL 文件保存了完整数据。此函数对当前活跃会话尝试从 JSONL 恢复，
+ * 用完整消息替换截断后的消息，模式与 hydrateImageAttachments 一致：
+ * 先快速展示 localStorage 数据，再异步补全。
+ */
+async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
+  const claudeCode = api.claudeCode
+  if (!claudeCode?.getFullSession) return
+
+  for (const session of sessions) {
+    // 只处理有 workingDirectory 的会话（有对应的 JSONL 文件）
+    const projectPath = session.workingDirectory
+    if (!projectPath) continue
+
+    // 检查是否有消息被截断（含 [Truncated for storage] 标记）
+    const hasTruncated = session.messages.some(
+      msg => typeof msg.content === 'string' && msg.content.includes('[Truncated for storage]')
+    )
+    // 即使没有截断标记，也尝试补全（localStorage 可能丢失了部分消息）
+    try {
+      const fullSession = await claudeCode.getFullSession(projectPath, session.id)
+      if (!fullSession?.messages?.length) continue
+
+      const restoredMessages = buildMessagesFromHistory(fullSession.messages)
+      if (restoredMessages.length === 0) continue
+
+      // 用 JSONL 完整数据替换 localStorage 的截断数据
+      session.messages = restoredMessages.map(msg => ({
+        ...msg,
+        id: msg.id || crypto.randomUUID(),
+        timestamp: Date.now(),
+      })) as Message[]
+
+      if (hasTruncated) {
+        console.log(`[ChatStore] Hydrated truncated session ${session.id} from JSONL (${restoredMessages.length} messages)`)
+      }
+    } catch {
+      // JSONL 文件不存在或解析失败，保持 localStorage 数据
+    }
+  }
+}
+
+
 // loadSessionsFromStorage, stripLargeAttachmentData, saveSessionsToStorage,
 // loadProjectsFromStorage, saveProjectsToStorage, getStorageStats
 // are now imported from @/services/sessionPersistence
@@ -219,6 +266,8 @@ export const useChatStore = defineStore('chat', () => {
 
   // 异步恢复历史消息中的图片数据（stripLargeAttachmentData 丢弃的 base64 从磁盘补回）
   void hydrateImageAttachments(sessions.value)
+  // 异步从 JSONL 文件补全被截断的会话消息（localStorage 有容量限制会截断长内容）
+  void hydrateSessionsFromJsonl(sessions.value)
   const lastSessionId = sessions.value.length > 0
     ? [...sessions.value].sort((a, b) => b.updatedAt - a.updatedAt)[0].id
     : null
