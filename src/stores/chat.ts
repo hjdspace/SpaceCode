@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, nextTick, watch, readonly } from 'vue'
-import type { Session, Message, ToolCall, AgentInfo, ProcessStatus, SessionTurnCheckpoint, TurnChangeCardData, AgentColor, TeammateStatus } from '@/types'
+import type { Session, Message, ToolCall, AgentInfo, ProcessStatus, SessionTurnCheckpoint, TurnChangeCardData, AgentColor, TeammateStatus, TeamContext } from '@/types'
 import type { RewindOption, RewindState } from '@/types/rewind'
 
 // 权限模式类型定义
@@ -228,8 +228,11 @@ async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
             session.teamContext.teammates[teammateId].status = status
             session.teamContext.teammates[teammateId].messageCount = session.teammateTranscripts![teammateId]?.length || 0
           } else {
-            const color = AGENT_COLORS[Object.keys(session.teamContext!.teammates).length % AGENT_COLORS.length]
-            session.teamContext!.teammates[teammateId] = {
+            const color = AGENT_COLORS[Object.keys(session.teamContext?.teammates || {}).length % AGENT_COLORS.length]
+            if (!session.teamContext) {
+              session.teamContext = { teamName: '', isLeader: false, teammates: {} }
+            }
+            session.teamContext.teammates[teammateId] = {
               name: agentName,
               status,
               color,
@@ -255,7 +258,7 @@ async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
 
       // 4. 为已完成/失败的 teammate 添加 task-notification 消息
       if (session.teamContext) {
-        for (const [teammateId, teammate] of Object.entries(session.teamContext.teammates)) {
+        for (const [teammateId, teammate] of Object.entries(session.teamContext.teammates) as [string, TeamContext['teammates'][string]][]) {
           if ((teammate.status === 'completed' || teammate.status === 'failed') &&
               !session.messages.some(m => m.metadata?.kind === 'task-notification' && m.metadata.agentTaskId === teammateId)) {
             session.messages.push({
