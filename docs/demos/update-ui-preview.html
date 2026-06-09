@@ -1,0 +1,1194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SpaceCode - 版本更新 UI 组件预览</title>
+<style>
+/* ============================================================
+   Design Tokens — 复制自项目 _variables.scss
+   ============================================================ */
+:root {
+  --font-display: 'Space Grotesk', 'SF Pro Display', system-ui, -apple-system, sans-serif;
+  --font-body: 'IBM Plex Sans', 'SF Pro Text', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Consolas', monospace;
+
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  /* Light Theme */
+  --bg-primary: #f8f9fb;
+  --bg-secondary: #f0f1f5;
+  --bg-tertiary: #e7e9ef;
+  --bg-elevated: #ffffff;
+  --bg-hover: #e4e6ec;
+  --bg-active: #dbdde5;
+  --surface-hover: var(--bg-hover);
+  --surface-active: var(--bg-active);
+  --surface-border: rgba(24, 25, 31, 0.06);
+  --surface-border-strong: rgba(24, 25, 31, 0.12);
+  --text-primary: #18191f;
+  --text-secondary: #44475a;
+  --text-muted: #6e7191;
+  --text-disabled: #9da1b8;
+  --accent-primary: #0d9488;
+  --accent-primary-hover: #14b8a6;
+  --accent-primary-glow: rgba(13, 148, 136, 0.12);
+  --accent-secondary: #6366f1;
+  --accent-secondary-hover: #818cf8;
+  --success: #059669;
+  --success-glow: rgba(5, 150, 105, 0.15);
+  --warning: #d97706;
+  --warning-glow: rgba(217, 119, 6, 0.15);
+  --error: #dc2626;
+  --error-glow: rgba(220, 38, 38, 0.15);
+  --border-subtle: rgba(24, 25, 31, 0.05);
+  --border-default: rgba(24, 25, 31, 0.09);
+  --border-strong: rgba(24, 25, 31, 0.15);
+  --shadow-sm: 0 1px 2px rgba(24, 25, 31, 0.06);
+  --shadow-md: 0 4px 12px rgba(24, 25, 31, 0.08);
+  --shadow-lg: 0 8px 24px rgba(24, 25, 31, 0.11);
+  --shadow-xl: 0 16px 48px rgba(24, 25, 31, 0.14);
+  --shadow-glow: 0 0 15px var(--accent-primary-glow);
+}
+
+[data-theme='dark'] {
+  --bg-primary: #0d0d0d;
+  --bg-secondary: #141414;
+  --bg-tertiary: #1a1a1a;
+  --bg-elevated: #1f1f1f;
+  --bg-hover: #262626;
+  --bg-active: #2e2e2e;
+  --surface-hover: var(--bg-hover);
+  --surface-active: var(--bg-active);
+  --surface-border: rgba(255, 255, 255, 0.06);
+  --surface-border-strong: rgba(255, 255, 255, 0.12);
+  --text-primary: #f5f5f5;
+  --text-secondary: #a3a3a3;
+  --text-muted: #737373;
+  --text-disabled: #525252;
+  --accent-primary: #3b82f6;
+  --accent-primary-hover: #60a5fa;
+  --accent-primary-glow: rgba(59, 130, 246, 0.25);
+  --accent-secondary: #64748b;
+  --accent-secondary-hover: #94a3b8;
+  --success: #22c55e;
+  --success-glow: rgba(34, 197, 94, 0.2);
+  --warning: #f59e0b;
+  --warning-glow: rgba(245, 158, 11, 0.2);
+  --error: #ef4444;
+  --error-glow: rgba(239, 68, 68, 0.2);
+  --border-subtle: rgba(255, 255, 255, 0.04);
+  --border-default: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.15);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.6);
+  --shadow-glow: 0 0 20px var(--accent-primary-glow);
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============================================================
+   Preview Layout
+   ============================================================ */
+.preview-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 40px 24px;
+}
+
+.preview-section {
+  margin-bottom: 48px;
+}
+
+.preview-section h2 {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  letter-spacing: -0.02em;
+}
+
+.preview-section p {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+}
+
+.theme-toggle-bar {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 9999;
+  display: flex;
+  gap: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 6px;
+  box-shadow: var(--shadow-lg);
+}
+
+.theme-btn {
+  padding: 6px 14px;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+
+.theme-btn.active {
+  background: var(--accent-primary);
+  color: #fff;
+}
+
+/* ============================================================
+   TitleBar — 完整还原 + 版本号 & 更新入口
+   ============================================================ */
+.titlebar {
+  height: 44px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--surface-border);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  position: relative;
+  z-index: 100;
+  user-select: none;
+  flex-shrink: 0;
+  border-radius: var(--radius-lg);
+  margin-bottom: 2px;
+}
+
+.titlebar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sidebar-toggle {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.sidebar-toggle:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.title-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+/* ★ 版本号标签 — 新增 */
+.version-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  background: var(--surface-border);
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+  cursor: default;
+  white-space: nowrap;
+  line-height: 20px;
+}
+
+/* 版本号有更新时的样式 */
+.version-badge.has-update {
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+  cursor: pointer;
+}
+
+.version-badge.has-update:hover {
+  background: var(--accent-primary);
+  color: #fff;
+}
+
+/* 更新指示点 */
+.update-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  flex-shrink: 0;
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.8); }
+}
+
+.titlebar-center {
+  flex: 1;
+  min-width: 20px;
+}
+
+.titlebar-right {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.titlebar-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.titlebar-btn:hover {
+  background: var(--surface-hover);
+  color: var(--accent-secondary);
+}
+
+/* ★ 更新按钮 — 新增 (在 titlebar-right 中) */
+.titlebar-btn.update-btn {
+  position: relative;
+  color: var(--text-muted);
+}
+
+.titlebar-btn.update-btn.has-update {
+  color: var(--accent-primary);
+}
+
+.titlebar-btn.update-btn.has-update::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  border: 2px solid var(--bg-primary);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+.titlebar-btn.update-btn:hover {
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+}
+
+/* ============================================================
+   Update Notification — 顶部滑入通知条
+   ============================================================ */
+.update-notification {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  animation: slideDown 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  margin-bottom: 8px;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.update-notification-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.update-notification-icon.available {
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+}
+
+.update-notification-icon.downloading {
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+}
+
+.update-notification-icon.downloaded {
+  background: var(--success-glow);
+  color: var(--success);
+}
+
+.update-notification-icon.error {
+  background: var(--error-glow);
+  color: var(--error);
+}
+
+.update-notification-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.update-notification-title {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.update-notification-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
+/* 下载进度条 */
+.download-progress {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.download-progress-bar {
+  flex: 1;
+  height: 4px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.download-progress-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: linear-gradient(90deg, var(--accent-primary), var(--accent-primary-hover));
+  transition: width 300ms ease;
+  position: relative;
+}
+
+.download-progress-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255,255,255,0.3) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.download-progress-text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  min-width: 36px;
+  text-align: right;
+}
+
+/* 按钮组 */
+.update-notification-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.btn {
+  padding: 6px 14px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.btn-primary {
+  background: var(--accent-primary);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: var(--accent-primary-hover);
+  box-shadow: var(--shadow-glow);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+}
+
+.btn-ghost:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.btn-success {
+  background: var(--success);
+  color: #fff;
+}
+
+.btn-success:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 0 12px var(--success-glow);
+}
+
+/* 关闭按钮 */
+.update-notification-close {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.update-notification-close:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+/* ============================================================
+   Update Panel — 点击版本号/更新按钮弹出的面板
+   ============================================================ */
+.update-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 340px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  z-index: 1000;
+  animation: panelFadeIn 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+@keyframes panelFadeIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.update-panel-header {
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.update-panel-header h3 {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.update-panel-body {
+  padding: 16px;
+}
+
+.update-panel-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* 版本信息行 */
+.version-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.version-row-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.version-row-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* 更新日志 */
+.release-notes {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.release-notes h4 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.release-note-item {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  padding: 3px 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.release-note-item::before {
+  content: '•';
+  color: var(--accent-primary);
+  flex-shrink: 0;
+  margin-top: -1px;
+}
+
+/* 状态指示器 */
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.status-dot.up-to-date {
+  background: var(--success);
+}
+
+.status-dot.update-available {
+  background: var(--accent-primary);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+.status-dot.checking {
+  background: var(--warning);
+  animation: pulse-dot 1s ease-in-out infinite;
+}
+
+.status-dot.error {
+  background: var(--error);
+}
+
+/* 自动更新开关 */
+.auto-update-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.auto-update-toggle label {
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.toggle-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  border: 1px solid var(--border-default);
+}
+
+.toggle-switch.active {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform var(--transition-fast);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+
+.toggle-switch.active::after {
+  transform: translateX(16px);
+}
+
+/* ============================================================
+   Inline Toast — 轻量级提示（已下载完成时）
+   ============================================================ */
+.update-toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--success-glow);
+  border: 1px solid var(--success);
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--success);
+  animation: slideDown 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.update-toast .btn {
+  padding: 2px 10px;
+  font-size: 11px;
+  background: var(--success);
+  color: #fff;
+  border-radius: var(--radius-full);
+}
+
+.update-toast .btn:hover {
+  filter: brightness(1.1);
+}
+
+/* ============================================================
+   Demo Grid
+   ============================================================ */
+.demo-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.demo-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.demo-label {
+  width: 120px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding-top: 10px;
+  text-align: right;
+}
+
+.demo-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.demo-separator {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 24px 0;
+}
+
+/* 相对定位容器，用于弹出面板 */
+.popup-container {
+  position: relative;
+}
+
+/* Scrollbar */
+.release-notes::-webkit-scrollbar {
+  width: 4px;
+}
+
+.release-notes::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.release-notes::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: var(--radius-full);
+}
+
+.release-notes::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+</style>
+</head>
+<body>
+
+<!-- 主题切换 -->
+<div class="theme-toggle-bar">
+  <button class="theme-btn active" onclick="setTheme('light')">Light</button>
+  <button class="theme-btn" onclick="setTheme('dark')">Dark</button>
+</div>
+
+<div class="preview-container">
+
+  <!-- ============================================================
+       Section 1: TitleBar — 版本号 + 更新入口
+       ============================================================ -->
+  <div class="preview-section">
+    <h2>1. TitleBar — 版本号与更新入口</h2>
+    <p>在标题栏左侧 "SpaceCode" 后添加版本号徽章，右侧添加更新按钮。有新版本时徽章高亮并显示脉冲指示点。</p>
+
+    <div class="demo-grid">
+      <!-- 默认状态：无更新 -->
+      <div class="demo-row">
+        <div class="demo-label">默认状态</div>
+        <div class="demo-content">
+          <div class="titlebar">
+            <div class="titlebar-left">
+              <button class="sidebar-toggle">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+              </button>
+              <div class="title-wrapper">
+                <span class="title">SpaceCode</span>
+                <span class="version-badge">v0.4.9</span>
+              </div>
+            </div>
+            <div class="titlebar-center"></div>
+            <div class="titlebar-right">
+              <button class="titlebar-btn" title="审查变更">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="2.5" cy="4.5" r="1.1" stroke="currentColor" stroke-width="1.2"/><circle cx="2.5" cy="11.5" r="1.1" stroke="currentColor" stroke-width="1.2"/><line x1="6.5" y1="4.5" x2="14" y2="4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="6.5" y1="8" x2="14" y2="8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="6.5" y1="11.5" x2="14" y2="11.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+              </button>
+              <!-- 更新按钮（无更新） -->
+              <button class="titlebar-btn update-btn" title="检查更新">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+              </button>
+              <button class="titlebar-btn" title="切换主题">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 有更新状态 -->
+      <div class="demo-row">
+        <div class="demo-label">有新版本</div>
+        <div class="demo-content">
+          <div class="titlebar">
+            <div class="titlebar-left">
+              <button class="sidebar-toggle">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+              </button>
+              <div class="title-wrapper">
+                <span class="title">SpaceCode</span>
+                <span class="version-badge has-update">
+                  <span class="update-dot"></span>
+                  v0.4.9
+                </span>
+              </div>
+            </div>
+            <div class="titlebar-center"></div>
+            <div class="titlebar-right">
+              <button class="titlebar-btn" title="审查变更">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="2.5" cy="4.5" r="1.1" stroke="currentColor" stroke-width="1.2"/><circle cx="2.5" cy="11.5" r="1.1" stroke="currentColor" stroke-width="1.2"/><line x1="6.5" y1="4.5" x2="14" y2="4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="6.5" y1="8" x2="14" y2="8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="6.5" y1="11.5" x2="14" y2="11.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+              </button>
+              <!-- 更新按钮（有更新） -->
+              <button class="titlebar-btn update-btn has-update" title="新版本可用 v0.5.0">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+              </button>
+              <button class="titlebar-btn" title="切换主题">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-separator"></div>
+
+  <!-- ============================================================
+       Section 2: Update Notification — 通知条
+       ============================================================ -->
+  <div class="preview-section">
+    <h2>2. UpdateNotification — 通知条组件</h2>
+    <p>在应用顶部（TitleBar 下方）滑入显示，包含更新信息、操作按钮和进度条。四种状态展示。</p>
+
+    <div class="demo-grid">
+      <!-- 状态 1：发现新版本 -->
+      <div class="demo-row">
+        <div class="demo-label">发现新版本</div>
+        <div class="demo-content">
+          <div class="update-notification">
+            <div class="update-notification-icon available">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+            </div>
+            <div class="update-notification-body">
+              <div class="update-notification-title">新版本 v0.5.0 可用</div>
+              <div class="update-notification-desc">当前版本 v0.4.9 · 新增代理工作流、性能优化</div>
+            </div>
+            <div class="update-notification-actions">
+              <button class="btn btn-ghost">稍后</button>
+              <button class="btn btn-primary">立即下载</button>
+            </div>
+            <button class="update-notification-close">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 状态 2：下载中 -->
+      <div class="demo-row">
+        <div class="demo-label">下载中</div>
+        <div class="demo-content">
+          <div class="update-notification">
+            <div class="update-notification-icon downloading">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </div>
+            <div class="update-notification-body">
+              <div class="update-notification-title">正在下载 v0.5.0...</div>
+              <div class="download-progress">
+                <div class="download-progress-bar">
+                  <div class="download-progress-fill" style="width: 67%"></div>
+                </div>
+                <span class="download-progress-text">67%</span>
+              </div>
+              <div class="update-notification-desc" style="margin-top: 4px">48.2 MB / 71.8 MB · 12.3 MB/s</div>
+            </div>
+            <div class="update-notification-actions">
+              <button class="btn btn-ghost">取消</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 状态 3：下载完成 -->
+      <div class="demo-row">
+        <div class="demo-label">下载完成</div>
+        <div class="demo-content">
+          <div class="update-notification">
+            <div class="update-notification-icon downloaded">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </div>
+            <div class="update-notification-body">
+              <div class="update-notification-title">v0.5.0 已就绪</div>
+              <div class="update-notification-desc">重启应用以完成安装</div>
+            </div>
+            <div class="update-notification-actions">
+              <button class="btn btn-ghost">稍后重启</button>
+              <button class="btn btn-success">重启安装</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 状态 4：检查失败 -->
+      <div class="demo-row">
+        <div class="demo-label">检查失败</div>
+        <div class="demo-content">
+          <div class="update-notification">
+            <div class="update-notification-icon error">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            </div>
+            <div class="update-notification-body">
+              <div class="update-notification-title">更新检查失败</div>
+              <div class="update-notification-desc">网络连接超时，请检查网络后重试</div>
+            </div>
+            <div class="update-notification-actions">
+              <button class="btn btn-ghost">关闭</button>
+              <button class="btn btn-primary">重试</button>
+            </div>
+            <button class="update-notification-close">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-separator"></div>
+
+  <!-- ============================================================
+       Section 3: Update Panel — 弹出面板
+       ============================================================ -->
+  <div class="preview-section">
+    <h2>3. UpdatePanel — 点击版本号/更新按钮弹出</h2>
+    <p>点击标题栏版本号或更新按钮时弹出，展示当前版本、最新版本、更新日志和操作按钮。</p>
+
+    <div class="demo-grid">
+      <div class="demo-row">
+        <div class="demo-label">有更新</div>
+        <div class="demo-content">
+          <div class="popup-container">
+            <div class="update-panel" style="position: relative; top: 0; right: 0; width: 100%; max-width: 380px;">
+              <div class="update-panel-header">
+                <h3>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+                  版本更新
+                </h3>
+              </div>
+              <div class="update-panel-body">
+                <div class="version-row">
+                  <span class="version-row-label">当前版本</span>
+                  <span class="version-row-value">v0.4.9</span>
+                </div>
+                <div class="version-row">
+                  <span class="version-row-label">最新版本</span>
+                  <span class="version-row-value" style="color: var(--accent-primary)">v0.5.0</span>
+                </div>
+                <div class="version-row">
+                  <span class="version-row-label">状态</span>
+                  <span class="status-indicator">
+                    <span class="status-dot update-available"></span>
+                    <span style="color: var(--accent-primary)">有更新可用</span>
+                  </span>
+                </div>
+                <div class="release-notes">
+                  <h4>v0.5.0 更新内容</h4>
+                  <div class="release-note-item">新增代理工作流编排功能</div>
+                  <div class="release-note-item">优化大文件 diff 渲染性能</div>
+                  <div class="release-note-item">修复终端中文输入法兼容问题</div>
+                  <div class="release-note-item">新增自动更新检测与推送</div>
+                  <div class="release-note-item">优化深色模式下的对比度</div>
+                </div>
+              </div>
+              <div class="update-panel-footer">
+                <div class="auto-update-toggle">
+                  <div class="toggle-switch active" onclick="this.classList.toggle('active')"></div>
+                  <label>自动检查更新</label>
+                </div>
+                <button class="btn btn-primary">下载更新</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="demo-row">
+        <div class="demo-label">已是最新</div>
+        <div class="demo-content">
+          <div class="popup-container">
+            <div class="update-panel" style="position: relative; top: 0; right: 0; width: 100%; max-width: 380px;">
+              <div class="update-panel-header">
+                <h3>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                  版本更新
+                </h3>
+              </div>
+              <div class="update-panel-body">
+                <div class="version-row">
+                  <span class="version-row-label">当前版本</span>
+                  <span class="version-row-value">v0.5.0</span>
+                </div>
+                <div class="version-row">
+                  <span class="version-row-label">最新版本</span>
+                  <span class="version-row-value">v0.5.0</span>
+                </div>
+                <div class="version-row">
+                  <span class="version-row-label">状态</span>
+                  <span class="status-indicator">
+                    <span class="status-dot up-to-date"></span>
+                    <span style="color: var(--success)">已是最新版本</span>
+                  </span>
+                </div>
+                <div style="margin-top: 16px; text-align: center; padding: 20px 0;">
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                  <div style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">上次检查: 2 分钟前</div>
+                </div>
+              </div>
+              <div class="update-panel-footer">
+                <div class="auto-update-toggle">
+                  <div class="toggle-switch active" onclick="this.classList.toggle('active')"></div>
+                  <label>自动检查更新</label>
+                </div>
+                <button class="btn btn-ghost">检查更新</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-separator"></div>
+
+  <!-- ============================================================
+       Section 4: Inline Toast — 轻量提示
+       ============================================================ -->
+  <div class="preview-section">
+    <h2>4. Inline Toast — 轻量级提示</h2>
+    <p>下载完成后的轻量提示，嵌入 TitleBar 右侧区域，不遮挡内容。</p>
+
+    <div class="demo-grid">
+      <div class="demo-row">
+        <div class="demo-label">下载完成 Toast</div>
+        <div class="demo-content">
+          <div class="titlebar">
+            <div class="titlebar-left">
+              <button class="sidebar-toggle">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+              </button>
+              <div class="title-wrapper">
+                <span class="title">SpaceCode</span>
+                <span class="version-badge">v0.4.9</span>
+              </div>
+            </div>
+            <div class="titlebar-center"></div>
+            <div class="titlebar-right" style="gap: 8px;">
+              <!-- Toast 嵌入 -->
+              <div class="update-toast">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                v0.5.0 已就绪
+                <button class="btn">重启安装</button>
+              </div>
+              <button class="titlebar-btn" title="切换主题">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-separator"></div>
+
+  <!-- ============================================================
+       Section 5: 完整交互流程
+       ============================================================ -->
+  <div class="preview-section">
+    <h2>5. 完整交互流程示意</h2>
+    <p>从检测到更新 → 下载 → 安装重启的完整流程。</p>
+
+    <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center; justify-content: center; padding: 20px 0;">
+      <!-- Step 1 -->
+      <div style="text-align: center;">
+        <div style="width: 48px; height: 48px; border-radius: 50%; background: var(--accent-primary-glow); color: var(--accent-primary); display: flex; align-items: center; justify-content: center; margin: 0 auto 8px; font-family: var(--font-display); font-weight: 700; font-size: 18px;">1</div>
+        <div style="font-size: 12px; font-weight: 600; color: var(--text-primary);">检测到更新</div>
+        <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">版本号高亮<br>脉冲指示点</div>
+      </div>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+      <!-- Step 2 -->
+      <div style="text-align: center;">
+        <div style="width: 48px; height: 48px; border-radius: 50%; background: var(--accent-primary-glow); color: var(--accent-primary); display: flex; align-items: center; justify-content: center; margin: 0 auto 8px; font-family: var(--font-display); font-weight: 700; font-size: 18px;">2</div>
+        <div style="font-size: 12px; font-weight: 600; color: var(--text-primary);">通知条弹出</div>
+        <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">显示版本信息<br>下载/稍后按钮</div>
+      </div>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+      <!-- Step 3 -->
+      <div style="text-align: center;">
+        <div style="width: 48px; height: 48px; border-radius: 50%; background: var(--accent-primary-glow); color: var(--accent-primary); display: flex; align-items: center; justify-content: center; margin: 0 auto 8px; font-family: var(--font-display); font-weight: 700; font-size: 18px;">3</div>
+        <div style="font-size: 12px; font-weight: 600; color: var(--text-primary);">下载中</div>
+        <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">进度条实时更新<br>速度/大小显示</div>
+      </div>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+      <!-- Step 4 -->
+      <div style="text-align: center;">
+        <div style="width: 48px; height: 48px; border-radius: 50%; background: var(--success-glow); color: var(--success); display: flex; align-items: center; justify-content: center; margin: 0 auto 8px; font-family: var(--font-display); font-weight: 700; font-size: 18px;">4</div>
+        <div style="font-size: 12px; font-weight: 600; color: var(--text-primary);">下载完成</div>
+        <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Toast 轻提示<br>重启安装按钮</div>
+      </div>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+      <!-- Step 5 -->
+      <div style="text-align: center;">
+        <div style="width: 48px; height: 48px; border-radius: 50%; background: var(--success-glow); color: var(--success); display: flex; align-items: center; justify-content: center; margin: 0 auto 8px; font-family: var(--font-display); font-weight: 700; font-size: 18px;">5</div>
+        <div style="font-size: 12px; font-weight: 600; color: var(--text-primary);">重启安装</div>
+        <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">退出时自动安装<br>下次启动即新版</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function setTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  document.querySelectorAll('.theme-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.textContent.toLowerCase() === theme);
+  });
+}
+</script>
+
+</body>
+</html>
