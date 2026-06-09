@@ -10,6 +10,15 @@
       </button>
       <div class="title-wrapper">
         <span class="title">SpaceCode</span>
+        <span
+          class="version-badge"
+          :class="{ 'has-update': hasUpdate }"
+          @click="handleVersionClick"
+          :title="hasUpdate ? t('update.newVersionAvailable', { version: updateInfo?.version }) : `v${appVersion}`"
+        >
+          <span v-if="hasUpdate" class="update-dot"></span>
+          v{{ appVersion }}
+        </span>
       </div>
 
       <!-- Session title (when in a session) -->
@@ -59,6 +68,16 @@
         <Smartphone :size="15" />
       </button>
 
+      <!-- Update button -->
+      <button
+        class="titlebar-btn update-btn"
+        :class="{ 'has-update': hasUpdate }"
+        @click="handleUpdateClick"
+        :title="updateButtonTitle"
+      >
+        <RefreshCwIcon :size="15" />
+      </button>
+
       <!-- Theme toggle -->
       <button class="titlebar-btn" @click="appStore.toggleTheme" :title="themeTooltip">
         <Sun v-if="appStore.isDark" :size="15" />
@@ -89,15 +108,55 @@
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { useI18n } from 'vue-i18n'
-import { Menu, Sun, Moon, Minus, Square, Copy, X, ChevronDown, Smartphone } from 'lucide-vue-next'
+import { Menu, Sun, Moon, Minus, Square, Copy, X, ChevronDown, Smartphone, RefreshCw as RefreshCwIcon } from 'lucide-vue-next'
 import { computed, h, onMounted, onBeforeUnmount, ref } from 'vue'
 import type { ThemeId } from '@/stores/app'
 import { THEME_CYCLE } from '@/stores/app'
 import { api, type ExternalEditor } from '@/services/electronAPI'
+import { useAutoUpdate } from '@/composables/useAutoUpdate'
 
 const appStore = useAppStore()
 const chatStore = useChatStore()
 const { t } = useI18n()
+
+// Auto update composable
+const {
+  status: updateStatus,
+  updateInfo,
+  appVersion,
+  checkForUpdates,
+  downloadUpdate,
+  installAndRestart,
+  dismiss: dismissUpdate,
+} = useAutoUpdate()
+
+const hasUpdate = computed(() => updateStatus.value === 'available' || updateStatus.value === 'downloaded')
+
+const updateButtonTitle = computed(() => {
+  switch (updateStatus.value) {
+    case 'available': return t('update.newVersionAvailable', { version: updateInfo.value?.version })
+    case 'downloading': return t('update.downloading', { version: updateInfo.value?.version })
+    case 'downloaded': return t('update.readyToInstall', { version: updateInfo.value?.version })
+    case 'checking': return t('update.checking')
+    default: return t('update.checkForUpdates')
+  }
+})
+
+function handleVersionClick() {
+  if (hasUpdate.value) {
+    downloadUpdate()
+  }
+}
+
+function handleUpdateClick() {
+  if (updateStatus.value === 'downloaded') {
+    installAndRestart()
+  } else if (updateStatus.value === 'available') {
+    downloadUpdate()
+  } else {
+    checkForUpdates()
+  }
+}
 
 const THEME_LABELS: Record<ThemeId, string> = {
   light: t('titleBar.lightMode'),
@@ -385,7 +444,7 @@ onBeforeUnmount(() => {
   .title-wrapper {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
   }
 
   .title {
@@ -395,6 +454,49 @@ onBeforeUnmount(() => {
     letter-spacing: -0.02em;
     color: var(--text-primary);
     white-space: nowrap;
+  }
+
+  .version-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 8px;
+    border-radius: var(--radius-full);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    background: var(--surface-border);
+    color: var(--text-muted);
+    transition: all var(--transition-fast);
+    cursor: default;
+    white-space: nowrap;
+    line-height: 20px;
+
+    &.has-update {
+      background: var(--accent-primary-glow);
+      color: var(--accent-primary);
+      cursor: pointer;
+
+      &:hover {
+        background: var(--accent-primary);
+        color: #fff;
+      }
+    }
+  }
+
+  .update-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-primary);
+    flex-shrink: 0;
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(0.8); }
   }
 
   .title-separator {
@@ -450,6 +552,33 @@ onBeforeUnmount(() => {
   &:focus-visible {
     outline: 2px solid var(--accent-primary);
     outline-offset: 2px;
+  }
+
+  &.update-btn {
+    position: relative;
+    color: var(--text-muted);
+
+    &.has-update {
+      color: var(--accent-primary);
+
+      &::after {
+        content: '';
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--accent-primary);
+        border: 2px solid var(--bg-primary);
+        animation: pulse-dot 2s ease-in-out infinite;
+      }
+
+      &:hover {
+        background: var(--accent-primary-glow);
+        color: var(--accent-primary);
+      }
+    }
   }
 }
 

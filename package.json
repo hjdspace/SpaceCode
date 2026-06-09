@@ -43,6 +43,7 @@
     "cors": "^2.8.6",
     "diff": "^5.2.0",
     "dotenv": "^16.4.5",
+    "electron-updater": "^6.8.9",
     "express": "^5.2.1",
     "fuse.js": "^7.3.0",
     "glob": "^13.0.6",
@@ -84,6 +85,11 @@
     "appId": "com.spacecode.desktop",
     "productName": "SpaceCode",
     "icon": "icons",
+    "publish": {
+      "provider": "github",
+      "owner": "hjdspace",
+      "repo": "SpaceCode"
+    },
     "directories": {
       "output": "release"
     },

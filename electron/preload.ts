@@ -510,4 +510,43 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('mobile:onDisconnected', handler)
     },
   },
+
+  // Auto Update API
+  update: {
+    check: (): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('update:check'),
+    download: (): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('update:download'),
+    installAndRestart: () =>
+      ipcRenderer.invoke('update:installAndRestart'),
+    onAvailable: (callback: (info: { version: string; releaseDate: string; releaseNotes: any; releaseName?: string }) => void) => {
+      const wrapper = (_: any, info: any) => callback(info)
+      ipcRenderer.on('update:available', wrapper)
+      return () => ipcRenderer.removeListener('update:available', wrapper)
+    },
+    onNotAvailable: (callback: () => void) => {
+      const wrapper = () => callback()
+      ipcRenderer.on('update:not-available', wrapper)
+      return () => ipcRenderer.removeListener('update:not-available', wrapper)
+    },
+    onDownloadProgress: (callback: (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void) => {
+      const wrapper = (_: any, progress: any) => callback(progress)
+      ipcRenderer.on('update:download-progress', wrapper)
+      return () => ipcRenderer.removeListener('update:download-progress', wrapper)
+    },
+    onDownloaded: (callback: (info: { version: string }) => void) => {
+      const wrapper = (_: any, info: any) => callback(info)
+      ipcRenderer.on('update:downloaded', wrapper)
+      return () => ipcRenderer.removeListener('update:downloaded', wrapper)
+    },
+    onError: (callback: (error: string) => void) => {
+      const wrapper = (_: any, error: string) => callback(error)
+      ipcRenderer.on('update:error', wrapper)
+      return () => ipcRenderer.removeListener('update:error', wrapper)
+    },
+  },
+
+  // App version
+  getAppVersion: (): Promise<string> =>
+    ipcRenderer.invoke('app:getVersion'),
 })

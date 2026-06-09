@@ -1,6 +1,17 @@
 <template>
   <div class="app-container" :data-theme="appStore.theme">
     <TitleBar />
+    <UpdateNotification
+      :status="updateStatus"
+      :update-info="updateInfo"
+      :download-progress="downloadProgress"
+      :error-message="errorMessage"
+      :app-version="appVersion"
+      @check="checkForUpdates"
+      @download="downloadUpdate"
+      @install="installAndRestart"
+      @dismiss="dismissUpdate"
+    />
     <div class="main-content" ref="mainContent">
       <Sidebar
         :collapsed="appStore.sidebarCollapsed"
@@ -52,14 +63,29 @@ import SkillsManager from './components/skills/SkillsManager.vue'
 import AgentManager from './components/agents/AgentManager.vue'
 import McpManager from './components/mcp/McpManager.vue'
 import ConnectMobileDialog from './components/mobile/ConnectMobileDialog.vue'
+import UpdateNotification from './components/common/UpdateNotification.vue'
 import { api } from '@/services/electronAPI'
 import { useShortcuts } from '@/composables/useShortcuts'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
+import { useAutoUpdate } from '@/composables/useAutoUpdate'
 import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
 
 const appStore = useAppStore()
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
+
+// Auto update
+const {
+  status: updateStatus,
+  updateInfo,
+  downloadProgress,
+  errorMessage,
+  appVersion,
+  checkForUpdates,
+  downloadUpdate,
+  installAndRestart,
+  dismiss: dismissUpdate,
+} = useAutoUpdate()
 const { openProjectByPath } = useOpenProjectWorkflow()
 
 // 事件处理函数（提升到组件作用域，供 onMounted/onUnmounted 使用）

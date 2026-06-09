@@ -8,6 +8,7 @@ import { registerGitIPCHandlers } from './gitService'
 import { registerSkillsIPCHandlers, registerLocalLibraryIPCHandlers } from './skillsService'
 import { registerAgentsIPCHandlers } from './agentsService'
 import { registerClaudeCodeIPC, setMainWindow, getPool } from './claudeCodeIPC'
+import { initAutoUpdater, registerAutoUpdaterIPC, destroyAutoUpdater } from './autoUpdaterService'
 import { MobileServer } from './mobileServer'
 import type { QRCodeData, ServerStatus } from './mobileServerTypes'
 import { buildThemeSyncData } from './themeSyncBuilder'
@@ -656,6 +657,15 @@ app.whenReady().then(() => {
   registerPromptOptimizerIPC()
   info('Startup', 'Prompt Optimizer IPC handlers registered')
 
+  // Register Auto Updater IPC handlers (always register, but only init in production)
+  registerAutoUpdaterIPC()
+  if (!isDev) {
+    initAutoUpdater(mainWindow!)
+    info('Startup', 'Auto updater initialized')
+  } else {
+    info('Startup', 'Auto updater skipped (dev mode)')
+  }
+
   // Create system tray for all platforms
   createTray()
   info('Startup', `System tray created | total elapsed=${Date.now() - startTime}ms`)
@@ -714,6 +724,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', async () => {
   info('App', 'App quitting')
   destroyTray()
+  destroyAutoUpdater()
   try { globalShortcut.unregisterAll() } catch {}
   try {
     await proxyManager.stop()
