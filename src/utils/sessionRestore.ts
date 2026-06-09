@@ -302,10 +302,23 @@ export function buildMessagesFromHistory(rawMessages: any[]): RestoredMessage[] 
       }
       if (!text.trim()) continue
       const tag = raw.agentName || raw.subagent_type || 'teammate'
+      const rawTeammateId = raw?.agentTaskId || raw?.taskId || raw?.agentId || raw?.agentName || raw?.subagent_type || raw?.name || tag
+      const teammateId = String(rawTeammateId).trim().toLowerCase().replace(/[^a-z0-9_-]+/gi, '-') || 'teammate'
+      const statusStr = String(raw?.status || raw?.state || raw?.event || raw?.subtype || '').toLowerCase()
+      const status: 'failed' | 'completed' | 'running' = /fail|error|reject|cancel/.test(statusStr) ? 'failed'
+        : /complete|done|finish|success|result/.test(statusStr) ? 'completed'
+        : 'running'
       messages.push({
         id: messageId,
         role: 'system',
         content: `[${tag}] ${text}`,
+        metadata: {
+          kind: 'teammate-message',
+          agentTaskId: teammateId,
+          agentName: tag,
+          teamName: raw?.teamName || raw?.team_name || raw?.team || 'Agent Team',
+          status,
+        },
       })
     }
   }

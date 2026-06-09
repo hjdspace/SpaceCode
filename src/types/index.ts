@@ -136,7 +136,7 @@ export interface MessageMetadata {
   duration?: number
   warning?: string
   error?: ClassifiedError
-  kind?: 'task-notification'
+  kind?: 'task-notification' | 'teammate-message'
   agentTaskId?: string
   agentName?: string
   teamName?: string

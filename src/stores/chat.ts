@@ -175,6 +175,106 @@ async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
         timestamp: Date.now(),
       })) as Message[]
 
+      // 重建 teamContext 和 teammateTranscripts
+      // JSONL 恢复只还原了 messages，但 team 结构需要从 tool_calls 和 teammate 消息中重建
+      session.teamContext = undefined
+      session.teammateTranscripts = {}
+
+      // 1. 从 Agent tool_calls 重建团队结构和 transcript 摘要
+      for (const msg of session.messages) {
+        if (msg.toolCalls) {
+          for (const toolCall of msg.toolCalls) {
+            if (toolCall.name === 'Agent') {
+              recordAgentToolCall(session, toolCall, toolCall.status === 'completed' ? 'completed' : toolCall.status === 'error' ? 'failed' : 'running')
+            }
+          }
+        }
+      }
+
+      // 2. 将 teammate 消息从 session.messages 移到 teammateTranscripts
+      const teammateMsgIndices: number[] = []
+      for (let i = 0; i < session.messages.length; i++) {
+        const msg = session.messages[i]
+        if (msg.role === 'system' && msg.metadata?.kind === 'teammate-message') {
+          const teammateId = msg.metadata.agentTaskId!
+          const agentName = msg.metadata.agentName || 'teammate'
+          const teamName = msg.metadata.teamName || 'Agent Team'
+          const status = (msg.metadata.status || 'running') as TeammateStatus
+
+          ensureTeamContext(session, teamName)
+
+          const transcript = session.teammateTranscripts![teammateId] || []
+          // 去掉 [tag] 前缀，与实时流 recordTeammateMessage 的行为一致
+          const cleanContent = msg.content.replace(/^\[.*?\]\s*/, '')
+          const transcriptMsg: Message = {
+            id: msg.id || crypto.randomUUID(),
+            role: 'assistant',
+            content: cleanContent,
+            timestamp: msg.timestamp || Date.now(),
+            metadata: {
+              agentTaskId: teammateId,
+              agentName,
+              teamName,
+              status,
+            },
+          }
+
+          if (!transcript.some(m => m.id === transcriptMsg.id)) {
+            session.teammateTranscripts![teammateId] = [...transcript, transcriptMsg]
+          }
+
+          // 更新或创建 teammate 条目
+          if (session.teamContext?.teammates[teammateId]) {
+            session.teamContext.teammates[teammateId].status = status
+            session.teamContext.teammates[teammateId].messageCount = session.teammateTranscripts![teammateId]?.length || 0
+          } else {
+            const color = AGENT_COLORS[Object.keys(session.teamContext!.teammates).length % AGENT_COLORS.length]
+            session.teamContext!.teammates[teammateId] = {
+              name: agentName,
+              status,
+              color,
+              messageCount: session.teammateTranscripts![teammateId]?.length || 0,
+            }
+          }
+
+          teammateMsgIndices.push(i)
+        }
+      }
+
+      // 从 messages 中移除 teammate 消息（它们已移到 teammateTranscripts）
+      if (teammateMsgIndices.length > 0) {
+        session.messages = session.messages.filter((_, i) => !teammateMsgIndices.includes(i))
+      }
+
+      // 3. 按 timestamp 排序每个 teammate 的 transcript
+      if (session.teammateTranscripts) {
+        for (const teammateId of Object.keys(session.teammateTranscripts)) {
+          session.teammateTranscripts[teammateId].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+        }
+      }
+
+      // 4. 为已完成/失败的 teammate 添加 task-notification 消息
+      if (session.teamContext) {
+        for (const [teammateId, teammate] of Object.entries(session.teamContext.teammates)) {
+          if ((teammate.status === 'completed' || teammate.status === 'failed') &&
+              !session.messages.some(m => m.metadata?.kind === 'task-notification' && m.metadata.agentTaskId === teammateId)) {
+            session.messages.push({
+              id: crypto.randomUUID(),
+              role: 'system',
+              content: `${teammate.name} ${teammate.status === 'completed' ? 'completed' : 'failed'}.`,
+              timestamp: Date.now(),
+              metadata: {
+                kind: 'task-notification',
+                agentTaskId: teammateId,
+                agentName: teammate.name,
+                teamName: session.teamContext.teamName,
+                status: teammate.status,
+              },
+            })
+          }
+        }
+      }
+
       if (hasTruncated) {
         console.log(`[ChatStore] Hydrated truncated session ${session.id} from JSONL (${restoredMessages.length} messages)`)
       }
