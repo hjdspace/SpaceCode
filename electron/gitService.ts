@@ -176,7 +176,7 @@ async function getStatus(cwd: string): Promise<GitStatusResult> {
 
   // Get status with porcelain v2 (no -z flag, use line-based parsing)
   const statusResult = await gitExec(
-    ['status', '--porcelain=v2', '--branch', '--renames'],
+    ['status', '-c', 'core.quotePath=false', '--porcelain=v2', '--branch', '--renames'],
     cwd
   )
 
@@ -451,7 +451,7 @@ async function getFullDiff(cwd: string): Promise<GitFullDiffResult | null> {
   if (!isRepo) return null
 
   // Get numstat for file-level stats
-  const numstatResult = await gitExec(['--no-optional-locks', 'diff', 'HEAD', '--numstat'], cwd)
+  const numstatResult = await gitExec(['--no-optional-locks', '-c', 'core.quotePath=false', 'diff', 'HEAD', '--numstat'], cwd)
   if (numstatResult.code !== 0) return null
 
   // Parse numstat for per-file stats
@@ -486,7 +486,7 @@ async function getFullDiff(cwd: string): Promise<GitFullDiffResult | null> {
 
   // Get untracked files
   const untrackedResult = await gitExec(
-    ['--no-optional-locks', 'ls-files', '--others', '--exclude-standard'],
+    ['--no-optional-locks', '-c', 'core.quotePath=false', 'ls-files', '--others', '--exclude-standard'],
     cwd,
   )
   if (untrackedResult.code === 0 && untrackedResult.stdout.trim()) {
@@ -505,7 +505,7 @@ async function getFullDiff(cwd: string): Promise<GitFullDiffResult | null> {
 
   // Get full diff hunks for all files
   const diffResult = await gitExec(
-    ['--no-optional-locks', 'diff', 'HEAD', '--no-color', '--unified=3'],
+    ['--no-optional-locks', '-c', 'core.quotePath=false', 'diff', 'HEAD', '--no-color', '--unified=3'],
     cwd,
   )
 

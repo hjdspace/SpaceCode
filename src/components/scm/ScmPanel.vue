@@ -475,10 +475,12 @@ function getFileName(path: string): string {
 
 function truncatePath(path: string, maxLen = 20): string {
   const normalized = path.replace(/\\/g, '/')
-  if (normalized.length <= maxLen) return normalized
   const parts = normalized.split('/')
-  if (parts.length <= 1) return parts[0]
-  return '...' + '/' + parts.slice(-2).join('/')
+  if (parts.length <= 1) return '' // 无目录部分，不显示
+  const dirParts = parts.slice(0, -1) // 去掉文件名，只保留目录
+  const dirPath = dirParts.join('/')
+  if (dirPath.length <= maxLen) return dirPath
+  return '.../' + dirParts.slice(-2).join('/')
 }
 
 function getStatusClass(file: ScmFile): string {
