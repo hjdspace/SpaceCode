@@ -71,11 +71,17 @@
       <!-- Update button -->
       <button
         class="titlebar-btn update-btn"
-        :class="{ 'has-update': hasUpdate }"
+        :class="{
+          'has-update': hasUpdate,
+          'is-checking': updateStatus === 'checking',
+          'is-up-to-date': updateStatus === 'up-to-date',
+          'is-error': updateStatus === 'error',
+        }"
         @click="handleUpdateClick"
         :title="updateButtonTitle"
+        :disabled="updateStatus === 'checking' || updateStatus === 'downloading'"
       >
-        <RefreshCwIcon :size="15" />
+        <RefreshCwIcon :size="15" class="update-icon" />
       </button>
 
       <!-- Theme toggle -->
@@ -138,6 +144,8 @@ const updateButtonTitle = computed(() => {
     case 'downloading': return t('update.downloading', { version: updateInfo.value?.version })
     case 'downloaded': return t('update.readyToInstall', { version: updateInfo.value?.version })
     case 'checking': return t('update.checking')
+    case 'up-to-date': return t('update.upToDate')
+    case 'error': return t('update.checkFailed')
     default: return t('update.checkForUpdates')
   }
 })
@@ -149,6 +157,10 @@ function handleVersionClick() {
 }
 
 function handleUpdateClick() {
+  if (updateStatus.value === 'checking' || updateStatus.value === 'downloading') {
+    // 检查中或下载中，忽略重复点击
+    return
+  }
   if (updateStatus.value === 'downloaded') {
     installAndRestart()
   } else if (updateStatus.value === 'available') {
@@ -558,6 +570,25 @@ onBeforeUnmount(() => {
     position: relative;
     color: var(--text-muted);
 
+    .update-icon {
+      transition: transform 0.2s ease;
+    }
+
+    &.is-checking {
+      .update-icon {
+        animation: spin 1s linear infinite;
+      }
+      color: var(--accent-secondary);
+    }
+
+    &.is-up-to-date {
+      color: var(--color-success, #22c55e);
+    }
+
+    &.is-error {
+      color: var(--color-error, #ef4444);
+    }
+
     &.has-update {
       color: var(--accent-primary);
 
@@ -579,7 +610,17 @@ onBeforeUnmount(() => {
         color: var(--accent-primary);
       }
     }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
   }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .open-file-dropdown {

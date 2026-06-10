@@ -1,11 +1,18 @@
 import { autoUpdater } from 'electron-updater'
-import { ipcMain, BrowserWindow } from 'electron'
+import { app, ipcMain, BrowserWindow } from 'electron'
 import { info, warn, error } from './logger'
 
 let mainWindow: BrowserWindow | null = null
 
 // 定期检查定时器
 let checkInterval: ReturnType<typeof setInterval> | null = null
+
+// 安全发送消息到渲染进程
+function sendToRenderer(channel: string, ...args: any[]) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, ...args)
+  }
+}
 
 export function initAutoUpdater(win: BrowserWindow) {
   mainWindow = win
@@ -17,13 +24,13 @@ export function initAutoUpdater(win: BrowserWindow) {
   // 检查更新失败
   autoUpdater.on('error', (err) => {
     error('AutoUpdater', 'Update error', err)
-    mainWindow?.webContents.send('update:error', err?.message || String(err))
+    sendToRenderer('update:error', err?.message || String(err))
   })
 
   // 发现新版本
   autoUpdater.on('update-available', (updateInfo) => {
     info('AutoUpdater', `Update available: ${updateInfo.version}`)
-    mainWindow?.webContents.send('update:available', {
+    sendToRenderer('update:available', {
       version: updateInfo.version,
       releaseDate: updateInfo.releaseDate,
       releaseNotes: updateInfo.releaseNotes,
@@ -34,12 +41,12 @@ export function initAutoUpdater(win: BrowserWindow) {
   // 当前已是最新
   autoUpdater.on('update-not-available', () => {
     info('AutoUpdater', 'App is up to date')
-    mainWindow?.webContents.send('update:not-available')
+    sendToRenderer('update:not-available')
   })
 
   // 下载进度
   autoUpdater.on('download-progress', (progress) => {
-    mainWindow?.webContents.send('update:download-progress', {
+    sendToRenderer('update:download-progress', {
       bytesPerSecond: progress.bytesPerSecond,
       percent: progress.percent,
       transferred: progress.transferred,
@@ -50,7 +57,7 @@ export function initAutoUpdater(win: BrowserWindow) {
   // 下载完成
   autoUpdater.on('update-downloaded', (updateInfo) => {
     info('AutoUpdater', `Update downloaded: ${updateInfo.version}`)
-    mainWindow?.webContents.send('update:downloaded', {
+    sendToRenderer('update:downloaded', {
       version: updateInfo.version,
     })
   })
@@ -85,6 +92,9 @@ async function checkForUpdates() {
 export function registerAutoUpdaterIPC() {
   // 手动检查更新
   ipcMain.handle('update:check', async () => {
+    if (!app.isPackaged) {
+      return { success: false, error: 'Updates not available in development mode' }
+    }
     try {
       await autoUpdater.checkForUpdates()
       return { success: true }
@@ -96,6 +106,9 @@ export function registerAutoUpdaterIPC() {
 
   // 下载更新
   ipcMain.handle('update:download', async () => {
+    if (!app.isPackaged) {
+      return { success: false, error: 'Updates not available in development mode' }
+    }
     try {
       await autoUpdater.downloadUpdate()
       return { success: true }
@@ -107,12 +120,13 @@ export function registerAutoUpdaterIPC() {
 
   // 安装更新并重启
   ipcMain.handle('update:installAndRestart', () => {
+    if (!app.isPackaged) return
     info('AutoUpdater', 'Installing update and restarting')
     autoUpdater.quitAndInstall()
   })
 
   // 获取当前版本
   ipcMain.handle('app:getVersion', () => {
-    return autoUpdater.currentVersion.version
+    return app.getVersion()
   })
 }

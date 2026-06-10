@@ -29,6 +29,26 @@ export function useAutoUpdate() {
   let unsubProgress: (() => void) | null = null
   let unsubDownloaded: (() => void) | null = null
   let unsubError: (() => void) | null = null
+  let transientTimer: ReturnType<typeof setTimeout> | null = null
+
+  function clearTransientTimer() {
+    if (transientTimer) {
+      clearTimeout(transientTimer)
+      transientTimer = null
+    }
+  }
+
+  /** 将 transient 状态（up-to-date / error）在指定毫秒后自动重置为 idle */
+  function scheduleReset(delay = 3000) {
+    clearTransientTimer()
+    transientTimer = setTimeout(() => {
+      if (status.value === 'up-to-date' || status.value === 'error') {
+        status.value = 'idle'
+        errorMessage.value = ''
+      }
+      transientTimer = null
+    }, delay)
+  }
 
   onMounted(async () => {
     // 获取当前版本
@@ -46,6 +66,7 @@ export function useAutoUpdate() {
 
     unsubNotAvailable = api.update.onNotAvailable(() => {
       status.value = 'up-to-date'
+      scheduleReset(3000)
     })
 
     unsubProgress = api.update.onDownloadProgress((progress) => {
@@ -61,10 +82,12 @@ export function useAutoUpdate() {
     unsubError = api.update.onError((err) => {
       status.value = 'error'
       errorMessage.value = err
+      scheduleReset(5000)
     })
   })
 
   onUnmounted(() => {
+    clearTransientTimer()
     unsubAvailable?.()
     unsubNotAvailable?.()
     unsubProgress?.()
@@ -73,6 +96,7 @@ export function useAutoUpdate() {
   })
 
   async function checkForUpdates() {
+    clearTransientTimer()
     status.value = 'checking'
     errorMessage.value = ''
     try {
@@ -80,10 +104,13 @@ export function useAutoUpdate() {
       if (!result.success) {
         status.value = 'error'
         errorMessage.value = result.error || 'Unknown error'
+        scheduleReset(5000)
       }
+      // 成功时由 onAvailable / onNotAvailable 回调设置状态
     } catch (err: any) {
       status.value = 'error'
       errorMessage.value = err.message
+      scheduleReset(5000)
     }
   }
 
