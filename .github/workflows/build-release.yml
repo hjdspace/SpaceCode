@@ -199,6 +199,7 @@ jobs:
           fromTag: ${{ steps.prev_tag.outputs.prev_tag }}
           toTag: ${{ github.ref_name }}
           configuration: .github/changelog-config.json
+          commitMode: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish release
