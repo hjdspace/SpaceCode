@@ -302,70 +302,7 @@
             </button>
           </div>
 
-          <!-- Agent 选择器 -->
-          <div class="agent-selector" ref="agentSelectorRef">
-            <button
-              class="toolbar-btn agent-btn"
-              @click="toggleAgentDropdown"
-              :class="{ 'has-agent': selectedAgent }"
-            >
-              <Cpu :size="14" />
-              <span class="agent-name">{{ selectedAgentLabel }}</span>
-              <ChevronDown :size="14" class="dropdown-icon" :class="{ open: showAgentDropdown }" />
-            </button>
-            <Transition name="dropdown">
-              <div v-if="showAgentDropdown" class="agent-dropdown" v-click-outside="closeAgentDropdown">
-                <div class="dropdown-header">
-                  <span>{{ t('chatInput.agent') }}</span>
-                </div>
-                <div class="dropdown-list" ref="agentListRef">
-                  <!-- Default (no agent) -->
-                  <button
-                    class="dropdown-item"
-                    :class="{ active: !selectedAgent }"
-                    @click="selectAgent('')"
-                    @mouseenter="highlightedAgent = ''"
-                  >
-                    <span class="item-name">{{ t('chatInput.default') }}</span>
-                    <span class="item-desc">{{ t('chatInput.defaultAgentDesc') }}</span>
-                    <Check v-if="!selectedAgent" :size="14" class="check-icon" />
-                  </button>
-                  <!-- Built-in agents -->
-                  <template v-if="builtInAgents.length">
-                    <div class="dropdown-section-label">{{ t('chatInput.builtIn') }}</div>
-                    <button
-                      v-for="agent in builtInAgents"
-                      :key="agent.agentType"
-                      class="dropdown-item"
-                      :class="{ active: selectedAgent === agent.agentType, highlighted: highlightedAgent === agent.agentType }"
-                      @click="selectAgent(agent.agentType)"
-                      @mouseenter="highlightedAgent = agent.agentType"
-                    >
-                      <span class="item-name">{{ getAgentName(agent.agentType) }}</span>
-                      <span class="item-desc">{{ getAgentDescription(agent.agentType, agent.description) }}</span>
-                      <Check v-if="selectedAgent === agent.agentType" :size="14" class="check-icon" />
-                    </button>
-                  </template>
-                  <!-- Custom agents -->
-                  <template v-if="customAgents.length">
-                    <div class="dropdown-section-label">{{ t('chatInput.custom') }}</div>
-                    <button
-                      v-for="agent in customAgents"
-                      :key="agent.agentType"
-                      class="dropdown-item"
-                      :class="{ active: selectedAgent === agent.agentType, highlighted: highlightedAgent === agent.agentType }"
-                      @click="selectAgent(agent.agentType)"
-                      @mouseenter="highlightedAgent = agent.agentType"
-                    >
-                      <span class="item-name">{{ agent.agentType }}</span>
-                      <span class="item-desc">{{ agent.description }}</span>
-                      <Check v-if="selectedAgent === agent.agentType" :size="14" class="check-icon" />
-                    </button>
-                  </template>
-                </div>
-              </div>
-            </Transition>
-          </div>
+
 
           <!-- 提示词优化进行中提示 -->
           <Transition name="optimize-hint">
@@ -422,6 +359,70 @@
           <Folder :size="16" />
           <span>{{ t('chatInput.addFolderContext') }}</span>
         </button>
+
+        <!-- 智能体入口 - hover 触发二级菜单 -->
+        <div
+          class="attachment-item agent-trigger"
+          @mouseenter="handleAgentTriggerEnter"
+          @mouseleave="handleAgentTriggerLeave"
+        >
+          <Cpu :size="16" />
+          <span>{{ t('chatInput.agent') }}</span>
+          <span v-if="selectedAgent" class="agent-active-dot"></span>
+          <ChevronRight :size="14" class="submenu-arrow" />
+
+          <!-- 二级子菜单 -->
+          <Transition name="submenu">
+            <div
+              v-if="showAgentSubmenu"
+              class="agent-submenu"
+              @mouseenter="handleSubmenuEnter"
+              @mouseleave="handleSubmenuLeave"
+            >
+              <div class="submenu-header">{{ t('chatInput.agent') }}</div>
+              <div class="submenu-list">
+                <button
+                  class="submenu-item"
+                  :class="{ active: !selectedAgent }"
+                  @click="selectAgent('')"
+                >
+                  <span class="item-name">{{ t('chatInput.default') }}</span>
+                  <span class="item-desc">{{ t('chatInput.defaultAgentDesc') }}</span>
+                  <Check v-if="!selectedAgent" :size="14" class="check-icon" />
+                </button>
+                <template v-if="builtInAgents.length">
+                  <div class="submenu-section-label">{{ t('chatInput.builtIn') }}</div>
+                  <button
+                    v-for="agent in builtInAgents"
+                    :key="agent.agentType"
+                    class="submenu-item"
+                    :class="{ active: selectedAgent === agent.agentType }"
+                    @click="selectAgent(agent.agentType)"
+                  >
+                    <span class="item-name">{{ getAgentName(agent.agentType) }}</span>
+                    <span class="item-desc">{{ getAgentDescription(agent.agentType, agent.description) }}</span>
+                    <Check v-if="selectedAgent === agent.agentType" :size="14" class="check-icon" />
+                  </button>
+                </template>
+                <template v-if="customAgents.length">
+                  <div class="submenu-section-label">{{ t('chatInput.custom') }}</div>
+                  <button
+                    v-for="agent in customAgents"
+                    :key="agent.agentType"
+                    class="submenu-item"
+                    :class="{ active: selectedAgent === agent.agentType }"
+                    @click="selectAgent(agent.agentType)"
+                  >
+                    <span class="item-name">{{ agent.agentType }}</span>
+                    <span class="item-desc">{{ agent.description }}</span>
+                    <Check v-if="selectedAgent === agent.agentType" :size="14" class="check-icon" />
+                  </button>
+                </template>
+              </div>
+            </div>
+          </Transition>
+        </div>
+
         <button
           v-if="showOpenProjectAction"
           type="button"
@@ -455,7 +456,7 @@ import {
   Code, GitBranch, Bug, Bookmark, Layers, MessageSquare, Eye, Cpu, Brain,
   Sparkles, Image, FileDiff, Play, FolderPlus, Download, Shield, ListTree,
   Webhook, Activity, Palette, Command, Keyboard, RotateCcw, GitCommit,
-  Archive, Clock
+  Archive, Clock, ChevronRight
 } from 'lucide-vue-next'
 import { useSettingsStore } from '@/stores/settings'
 import { useSkillsStore } from '@/stores/skills'
@@ -644,11 +645,8 @@ watch(() => appStore.pendingInputInjection, (payload) => {
 
 // Agent selector state
 const chatStore = useChatStore()
-const showAgentDropdown = ref(false)
-const agentSelectorRef = ref<HTMLElement | null>(null)
-const agentListRef = ref<HTMLElement | null>(null)
-const highlightedAgent = ref<string>('')
 const selectedAgent = ref<string>(chatStore.currentAgent || '')
+const showAgentSubmenu = ref(false)
 
 function focusEditor() {
   nextTick(() => {
@@ -665,12 +663,6 @@ function focusEditor() {
 // Computed: split agents into built-in and custom
 const builtInAgents = computed(() => chatStore.availableAgents.filter(a => a.source === 'built-in'))
 const customAgents = computed(() => chatStore.availableAgents.filter(a => a.source !== 'built-in'))
-const selectedAgentLabel = computed(() => {
-  if (!selectedAgent.value) return t('chatInput.agent')
-  // Try to get translated name for built-in agents
-  const translatedName = t(`chatInput.agents.${selectedAgent.value}.name`)
-  return translatedName !== `chatInput.agents.${selectedAgent.value}.name` ? translatedName : selectedAgent.value
-})
 
 // Helper function to get agent display name
 function getAgentName(agentType: string): string {
@@ -2375,19 +2367,42 @@ function closeModeDropdown() {
 }
 
 // Agent selector functions
-function toggleAgentDropdown() {
-  showAgentDropdown.value = !showAgentDropdown.value
+let agentSubmenuTimer: ReturnType<typeof setTimeout> | null = null
+
+function handleAgentTriggerEnter() {
+  if (agentSubmenuTimer) {
+    clearTimeout(agentSubmenuTimer)
+    agentSubmenuTimer = null
+  }
+  showAgentSubmenu.value = true
+}
+
+function handleAgentTriggerLeave() {
+  agentSubmenuTimer = setTimeout(() => {
+    showAgentSubmenu.value = false
+  }, 150)
+}
+
+function handleSubmenuEnter() {
+  if (agentSubmenuTimer) {
+    clearTimeout(agentSubmenuTimer)
+    agentSubmenuTimer = null
+  }
+  showAgentSubmenu.value = true
+}
+
+function handleSubmenuLeave() {
+  agentSubmenuTimer = setTimeout(() => {
+    showAgentSubmenu.value = false
+  }, 150)
 }
 
 function selectAgent(agentType: string) {
   selectedAgent.value = agentType
-  showAgentDropdown.value = false
+  showAgentSubmenu.value = false
+  showAttachmentMenu.value = false
   // Sync to parent and chat store
   emit('update:agent', agentType)
-}
-
-function closeAgentDropdown() {
-  showAgentDropdown.value = false
 }
 
 function handleAddClick() {
@@ -3231,19 +3246,16 @@ watch(pendingFile, (file) => {
 }
 
 .model-selector,
-.mode-selector,
-.agent-selector {
+.mode-selector {
   position: relative;
 }
 
 .model-btn,
-.mode-btn,
-.agent-btn {
+.mode-btn {
   background: transparent;
 
   .model-name,
-  .mode-name,
-  .agent-name {
+  .mode-name {
     font-weight: 500;
     max-width: 120px;
     @include truncate;
@@ -3265,10 +3277,6 @@ watch(pendingFile, (file) => {
 
   &.has-error {
     color: var(--error-color, #dc2626);
-  }
-
-  &.has-agent {
-    color: var(--accent-primary, #6366f1);
   }
 }
 
@@ -3296,8 +3304,7 @@ watch(pendingFile, (file) => {
 
 // 下拉菜单通用样式
 .model-dropdown,
-.mode-dropdown,
-.agent-dropdown {
+.mode-dropdown {
   position: absolute;
   bottom: 100%;
   left: 0;
@@ -3313,38 +3320,6 @@ watch(pendingFile, (file) => {
 
 .model-dropdown {
   min-width: 280px;
-}
-
-.agent-dropdown {
-  min-width: 300px;
-
-  .dropdown-item {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-  }
-
-  .item-desc {
-    font-size: 11px;
-    color: var(--text-muted);
-    line-height: 1.3;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: -webkit-box;
-    line-clamp: 2;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-  }
-
-  .dropdown-section-label {
-    padding: 6px 16px 4px;
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-muted);
-    opacity: 0.7;
-  }
 }
 
 .dropdown-header {
@@ -3603,13 +3578,13 @@ watch(pendingFile, (file) => {
   position: absolute;
   bottom: 80px;
   left: 32px;
-  min-width: 200px;
+  min-width: 220px;
   background: var(--bg-primary);
   border: 1px solid var(--surface-border);
   border-radius: 12px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
   z-index: 100;
-  overflow: hidden;
+  overflow: visible;
   padding: 4px;
 }
 
@@ -3632,6 +3607,135 @@ watch(pendingFile, (file) => {
   svg {
     color: var(--text-secondary);
   }
+}
+
+// 智能体触发项
+.agent-trigger {
+  position: relative;
+  cursor: default;
+
+  .submenu-arrow {
+    margin-left: auto;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    transition: color 0.15s;
+  }
+
+  .agent-active-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-primary);
+    position: absolute;
+    right: 30px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  &:hover .submenu-arrow {
+    color: var(--text-primary);
+  }
+}
+
+// 二级子菜单
+.agent-submenu {
+  position: absolute;
+  left: 100%;
+  bottom: 0;
+  margin-left: 4px;
+  min-width: 200px;
+  max-height: 340px;
+  background: var(--bg-primary);
+  border: 1px solid var(--surface-border);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+  z-index: 110;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.submenu-header {
+  padding: 10px 14px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.submenu-list {
+  overflow-y: auto;
+  padding: 4px;
+  max-height: 280px;
+}
+
+.submenu-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  text-align: left;
+  gap: 2px 8px;
+
+  &:hover {
+    background: var(--surface-hover);
+  }
+
+  &.active {
+    background: rgba(var(--accent-primary-rgb), 0.1);
+  }
+
+  .item-name {
+    font-weight: 500;
+    flex: 1;
+  }
+
+  .item-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 160px;
+  }
+
+  .check-icon {
+    color: var(--accent-primary);
+    flex-shrink: 0;
+  }
+}
+
+.submenu-section-label {
+  padding: 6px 12px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+// 子菜单过渡动画
+.submenu-enter-active,
+.submenu-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.submenu-enter-from,
+.submenu-leave-to {
+  opacity: 0;
+  transform: translateX(-4px);
 }
 
 // 斜杠命令菜单
