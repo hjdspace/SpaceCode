@@ -201,11 +201,56 @@
             >
               <Loader2 v-if="isLoadingModels" :size="14" class="loading-icon spin" />
               <span class="model-name">{{ selectedModelLabel }}</span>
+              <span v-if="selectedMode" class="model-mode-pill">{{ modeLabel(selectedMode) }}</span>
               <ChevronDown :size="14" class="dropdown-icon" :class="{ open: showModelDropdown }" />
             </button>
             <!-- 模型下拉菜单 -->
             <Transition name="dropdown">
-              <div v-if="showModelDropdown" class="model-dropdown" v-click-outside="closeModelDropdown">
+              <div v-if="showModelDropdown" ref="mainDropdownRef" class="model-dropdown" v-click-outside="closeModelDropdown">
+                <!-- 推理深度选择区（合并到模型下拉） -->
+                <div class="dropdown-section">
+                  <div class="dropdown-section-title">{{ t('chat.reasoning') }}</div>
+                  <div class="dropdown-list reasoning-list">
+                    <button
+                      v-for="mode in availableModes"
+                      :key="mode"
+                      class="dropdown-item"
+                      :class="{ active: selectedMode === mode }"
+                      @click="selectMode(mode)"
+                    >
+                      <span class="item-name">{{ modeLabel(mode) }}</span>
+                      <Check v-if="selectedMode === mode" :size="14" class="check-icon" />
+                    </button>
+                  </div>
+                </div>
+                <div class="dropdown-section-divider"></div>
+                <!-- 当前选中模型（点击展开二级菜单） -->
+                <div class="dropdown-section">
+                  <button
+                    ref="modelTriggerRowRef"
+                    class="dropdown-item dropdown-item-trigger"
+                    :class="{ 'submenu-open': showModelSubmenu }"
+                    @click="toggleModelSubmenu"
+                    @mouseenter="showModelSubmenu = true"
+                    @mouseleave="onCurrentModelRowLeave"
+                  >
+                    <span class="item-name">{{ selectedModelLabel || t('model.selectModel') }}</span>
+                    <ChevronRight :size="14" class="check-icon" />
+                  </button>
+                </div>
+              </div>
+            </Transition>
+            <!-- 模型二级子菜单（浮层，定位到主 dropdown 左上方） -->
+            <Transition name="dropdown">
+              <div
+                v-if="showModelSubmenu"
+                ref="modelSubmenuRef"
+                class="model-submenu"
+                :style="modelSubmenuStyle"
+                @mouseenter="onModelSubmenuEnter"
+                @mouseleave="onModelSubmenuLeave"
+                v-click-outside="closeModelSubmenu"
+              >
                 <div class="dropdown-header">
                   <span>{{ t('auth.model') }}</span>
                   <button
@@ -218,22 +263,6 @@
                     <RefreshCw :size="12" :class="{ spin: isLoadingModels }" />
                   </button>
                 </div>
-                <!-- 搜索框 -->
-                <div class="search-box">
-                  <Search :size="14" class="search-icon" />
-                  <input
-                    ref="modelSearchInput"
-                    v-model="modelSearchQuery"
-                    type="text"
-                    :placeholder="t('chatInput.searchModels')"
-                    @click.stop
-                    @keydown.stop
-                  />
-                  <button v-if="modelSearchQuery" class="clear-btn" @click.stop="modelSearchQuery = ''">
-                    <X :size="12" />
-                  </button>
-                </div>
-                <!-- 模型列表 -->
                 <div class="dropdown-list" ref="modelListRef">
                   <div v-if="isLoadingModels && filteredModels.length === 0" class="dropdown-loading">
                     <Loader2 :size="16" class="spin" />
@@ -259,31 +288,6 @@
                   >
                     <span class="item-name">{{ model.label }}</span>
                     <Check v-if="selectedModel === model.value" :size="14" class="check-icon" />
-                  </button>
-                </div>
-              </div>
-            </Transition>
-          </div>
-
-          <!-- 推理深度选择器 -->
-          <div class="mode-selector">
-            <button class="toolbar-btn mode-btn" @click="showModeDropdown = !showModeDropdown">
-              <span class="mode-name">{{ selectedMode }}</span>
-              <ChevronDown :size="14" class="dropdown-icon" :class="{ open: showModeDropdown }" />
-            </button>
-            <!-- 模式下拉菜单 -->
-            <Transition name="dropdown">
-              <div v-if="showModeDropdown" class="mode-dropdown" v-click-outside="closeModeDropdown">
-                <div class="dropdown-list">
-                  <button
-                    v-for="mode in availableModes"
-                    :key="mode"
-                    class="dropdown-item"
-                    :class="{ active: selectedMode === mode }"
-                    @click="selectMode(mode)"
-                  >
-                    <span class="item-name">{{ mode }}</span>
-                    <Check v-if="selectedMode === mode" :size="14" class="check-icon" />
                   </button>
                 </div>
               </div>
@@ -549,7 +553,7 @@ const inputText = ref('')
 const editorRef = ref<HTMLElement | null>(null)
 const containerRef = ref<HTMLElement | null>(null)
 const showModelDropdown = ref(false)
-const showModeDropdown = ref(false)
+const showModelSubmenu = ref(false)
 const showAttachmentMenu = ref(false)
 const attachedFiles = ref<Attachment[]>([])
 const attachedImages = ref<ImageAttachment[]>([])
@@ -593,6 +597,10 @@ const modelSearchInput = ref<HTMLInputElement | null>(null)
 const modelSelectorRef = ref<HTMLElement | null>(null)
 const modelListRef = ref<HTMLElement | null>(null)
 const highlightedModel = ref<string | null>(null)
+const modelSubmenuRef = ref<HTMLElement | null>(null)
+const mainDropdownRef = ref<HTMLElement | null>(null)
+const modelTriggerRowRef = ref<HTMLElement | null>(null)
+let submenuCloseTimer: ReturnType<typeof setTimeout> | null = null
 
 // 模型加载状态
 const isLoadingModels = ref(false)
@@ -646,6 +654,9 @@ watch(() => appStore.pendingInputInjection, (payload) => {
 // Agent selector state
 const chatStore = useChatStore()
 const selectedAgent = ref<string>(chatStore.currentAgent || '')
+watch(() => chatStore.currentAgent, (newAgent) => {
+  selectedAgent.value = newAgent || ''
+})
 const showAgentSubmenu = ref(false)
 
 function focusEditor() {
@@ -775,7 +786,7 @@ const filteredContextItems = computed<ContextItem[]>(() => {
   return contextItems.value
 })
 
-// 硬编码的默认模型（作为后备）
+// 硬编码的默认模型（作为最后的后备）
 const defaultModels = computed<ModelOption[]>(() => {
   const models: ModelOption[] = []
 
@@ -809,36 +820,48 @@ const defaultModels = computed<ModelOption[]>(() => {
   return models
 })
 
-// 合并 fetched models 和默认模型
-const availableModels = computed<ModelOption[]>(() => {
-  const models = [...fetchedModels.value]
-
-  // 添加默认模型中不在 fetched models 中的
-  defaultModels.value.forEach(defaultModel => {
-    if (!models.some(m => m.value === defaultModel.value)) {
-      models.push(defaultModel)
-    }
-  })
-
-  // 添加用户自定义配置的模型
-  let customModel = ''
+// 从设置中获取当前 provider 配置的 haiku/sonnet/opus 模型
+function getConfiguredProviderModels(): ModelOption[] {
+  let config: { haikuModel: string; sonnetModel: string; opusModel: string } | null = null
   switch (settingsStore.authMethod) {
     case 'anthropic_compatible':
-      customModel = settingsStore.anthropicConfig.sonnetModel
+      config = settingsStore.anthropicConfig
       break
     case 'openai_compatible':
-      customModel = settingsStore.openaiConfig.sonnetModel
+      config = settingsStore.openaiConfig
       break
     case 'gemini_api':
-      customModel = settingsStore.geminiConfig.sonnetModel
+      config = settingsStore.geminiConfig
       break
   }
+  if (!config) return []
 
-  if (customModel && !models.some(m => m.value === customModel)) {
-    models.unshift({ label: customModel, value: customModel })
+  const result: ModelOption[] = []
+  const seen = new Set<string>()
+  for (const value of [config.haikuModel, config.sonnetModel, config.opusModel]) {
+    if (value && !seen.has(value)) {
+      seen.add(value)
+      result.push({ label: value, value })
+    }
+  }
+  return result
+}
+
+// 模型列表合并逻辑：
+// 1. 优先使用从 BASE_URL 获取的 fetchedModels
+// 2. 若无法获取，则使用用户在设置-模型页面配置的 haiku/sonnet/opus 模型
+// 3. 最后才 fallback 到硬编码默认模型
+const availableModels = computed<ModelOption[]>(() => {
+  if (fetchedModels.value.length > 0) {
+    return [...fetchedModels.value]
   }
 
-  return models
+  const configured = getConfiguredProviderModels()
+  if (configured.length > 0) {
+    return configured
+  }
+
+  return [...defaultModels.value]
 })
 
 // 搜索过滤后的模型列表
@@ -1302,17 +1325,6 @@ async function handleOptimizePrompt() {
     console.error('Prompt optimization error:', error)
   } finally {
     isOptimizing.value = false
-  }
-}
-
-// 切换模型下拉菜单
-function toggleModelDropdown() {
-  showModelDropdown.value = !showModelDropdown.value
-  if (showModelDropdown.value) {
-    nextTick(() => {
-      modelSearchInput.value?.focus()
-      highlightedModel.value = selectedModel.value
-    })
   }
 }
 
@@ -2343,6 +2355,7 @@ function restoreStash() {
 
 function selectModel(modelValue: string) {
   selectedModel.value = modelValue
+  showModelSubmenu.value = false
   showModelDropdown.value = false
   modelSearchQuery.value = ''
 
@@ -2352,18 +2365,85 @@ function selectModel(modelValue: string) {
 
 function closeModelDropdown() {
   showModelDropdown.value = false
+  showModelSubmenu.value = false
   modelSearchQuery.value = ''
 }
 
+function toggleModelDropdown() {
+  showModelDropdown.value = !showModelDropdown.value
+  if (!showModelDropdown.value) {
+    showModelSubmenu.value = false
+  }
+}
+
+function toggleModelSubmenu() {
+  showModelSubmenu.value = !showModelSubmenu.value
+}
+
+// 鼠标离开当前模型行时，延迟关闭子菜单（允许用户移入子菜单）
+function onCurrentModelRowLeave() {
+  if (submenuCloseTimer) {
+    clearTimeout(submenuCloseTimer)
+    submenuCloseTimer = null
+  }
+  submenuCloseTimer = setTimeout(() => {
+    showModelSubmenu.value = false
+  }, 120)
+}
+
+function onModelSubmenuEnter() {
+  if (submenuCloseTimer) {
+    clearTimeout(submenuCloseTimer)
+    submenuCloseTimer = null
+  }
+}
+
+function onModelSubmenuLeave() {
+  if (submenuCloseTimer) {
+    clearTimeout(submenuCloseTimer)
+  }
+  submenuCloseTimer = setTimeout(() => {
+    showModelSubmenu.value = false
+  }, 120)
+}
+
+function closeModelSubmenu() {
+  showModelSubmenu.value = false
+}
+
+// 二级子菜单定位：从主 dropdown 右侧弹出，底部与触发行对齐
+const modelSubmenuStyle = computed<Record<string, string>>(() => {
+  const mainDropdown = mainDropdownRef.value
+  const triggerRow = modelTriggerRowRef.value
+  const style: Record<string, string> = {}
+  if (!mainDropdown || !triggerRow) return style
+
+  const mainDropdownRect = mainDropdown.getBoundingClientRect()
+  const triggerRowRect = triggerRow.getBoundingClientRect()
+
+  // 子菜单底部对齐到触发行的底部
+  style.bottom = `${window.innerHeight - triggerRowRect.bottom}px`
+  // 左侧对齐到主 dropdown 右边缘 + 4px 间距
+  style.left = `${mainDropdownRect.right + 4}px`
+  style.position = 'fixed'
+
+  return style
+})
+
 function selectMode(mode: EffortMode) {
   selectedMode.value = mode
-  showModeDropdown.value = false
   // 同步推理深度到父组件和后端
   emit('update:effort', mode)
 }
 
-function closeModeDropdown() {
-  showModeDropdown.value = false
+// 推理深度显示文案映射
+function modeLabel(mode: EffortMode): string {
+  switch (mode) {
+    case 'low': return 'Low'
+    case 'medium': return 'Medium'
+    case 'high': return 'High'
+    case 'max': return 'Extra High'
+  }
 }
 
 // Agent selector functions
@@ -3245,20 +3325,28 @@ watch(pendingFile, (file) => {
   }
 }
 
-.model-selector,
-.mode-selector {
+.model-selector {
   position: relative;
 }
 
-.model-btn,
-.mode-btn {
+.model-btn {
   background: transparent;
 
-  .model-name,
-  .mode-name {
+  .model-name {
     font-weight: 500;
-    max-width: 120px;
+    max-width: 160px;
     @include truncate;
+  }
+
+  .model-mode-pill {
+    flex-shrink: 0;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: var(--bg-tertiary, rgba(0, 0, 0, 0.04));
+    border-radius: 6px;
+    line-height: 1.4;
   }
 
   .dropdown-icon {
@@ -3303,13 +3391,12 @@ watch(pendingFile, (file) => {
 }
 
 // 下拉菜单通用样式
-.model-dropdown,
-.mode-dropdown {
+.model-dropdown {
   position: absolute;
   bottom: 100%;
   left: 0;
   margin-bottom: 8px;
-  min-width: 180px;
+  min-width: 240px;
   background: var(--bg-primary);
   border: 1px solid var(--surface-border);
   border-radius: 12px;
@@ -3318,8 +3405,25 @@ watch(pendingFile, (file) => {
   overflow: hidden;
 }
 
-.model-dropdown {
-  min-width: 280px;
+// 模型二级子菜单（fixed 定位，从主 dropdown 右侧弹出）
+.model-submenu {
+  min-width: 220px;
+  max-height: 360px;
+  background: var(--bg-primary);
+  border: 1px solid var(--surface-border);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+  z-index: 110;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+// 触发二级子菜单的当前模型行
+.dropdown-item-trigger {
+  &.submenu-open {
+    background: var(--surface-hover);
+  }
 }
 
 .dropdown-header {
@@ -3414,6 +3518,29 @@ watch(pendingFile, (file) => {
   max-height: 280px;
   overflow-y: auto;
   padding: 4px;
+}
+
+.reasoning-list {
+  max-height: none;
+}
+
+.dropdown-section {
+  padding: 4px 4px 6px;
+}
+
+.dropdown-section-title {
+  padding: 6px 12px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.dropdown-section-divider {
+  height: 1px;
+  background: var(--surface-border);
+  margin: 0;
 }
 
 .dropdown-loading,

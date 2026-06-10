@@ -74,7 +74,7 @@ export default {
   chat: {
     inputPlaceholder: '输入消息...',
     thinking: '思考中...',
-    reasoning: '推理过程',
+    reasoning: '推理',
     tools: '工具调用',
     tasks: '任务列表',
     metadata: '元数据',
