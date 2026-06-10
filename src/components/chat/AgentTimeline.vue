@@ -14,11 +14,18 @@
 
     <!-- Timeline event list -->
     <div class="timeline-events">
+      <!-- 全局任务看板 -->
+      <TaskListCard
+        v-if="allTasks.length && shouldShowTaskBoard"
+        :tasks="allTasks"
+        class="timeline-task-board"
+      />
+
       <div
-        v-for="(event, index) in timelineEvents"
+        v-for="(event, index) in visibleTimelineEvents"
         :key="event.id"
         class="timeline-event"
-        :class="[`event-${event.type}`, `status-${event.status}`, { 'is-last': index === timelineEvents.length - 1 }]"
+        :class="[`event-${event.type}`, `status-${event.status}`, { 'is-last': index === visibleTimelineEvents.length - 1 }]"
       >
         <!-- Timeline connector -->
         <div v-if="event.type === 'metadata'" class="event-node">
@@ -27,7 +34,7 @@
             <X v-else-if="event.status === 'error'" :size="11" />
             <component v-else :is="event.icon" :size="11" />
           </div>
-          <div v-if="index < timelineEvents.length - 1" class="event-line"></div>
+          <div v-if="index < visibleTimelineEvents.length - 1" class="event-line"></div>
         </div>
         <div v-else class="event-spacer"></div>
 
@@ -68,6 +75,11 @@
               :tool-name="getPendingPermission(event.toolCall!.id)!.toolName"
               :input="getPendingPermission(event.toolCall!.id)!.input"
             />
+          </template>
+
+          <!-- Task list inline card (when not showing global board) -->
+          <template v-else-if="event.type === 'tool_call' && event.taskItems?.length && !shouldShowTaskBoard">
+            <TaskListCard :tasks="event.taskItems" class="event-task-inline" />
           </template>
 
           <!-- Generic tool call event -->
@@ -134,6 +146,8 @@ import type { Message, ToolCall, MessageMetadata, ClassifiedError } from '@/type
 import type { Component } from 'vue'
 import { computed, markRaw, onMounted, reactive, watch, ref } from 'vue'
 import { hasToolComponent, resolveToolComponent } from '@/components/chat/tools/index'
+import TaskListCard, { type TaskListItem } from './TaskListCard.vue'
+import { useTaskManager } from '@/composables/useTaskManager'
 import PermissionRequestCard from './tools/PermissionRequestCard.vue'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
 import ErrorCard from '../common/ErrorCard.vue'
@@ -142,10 +156,14 @@ import { useChatStore } from '@/stores/chat'
 import {
   Loader2, X, ChevronDown, Bot, AlertCircle,
   Terminal, FileText, FileEdit, Search, Globe, Wand2, Folder, Code,
-  MessageCircle, Info
+  MessageCircle, Info, ListChecks
 } from 'lucide-vue-next'
 
 const EmptyIcon = () => null
+
+const TASK_STATUSES = new Set(['pending', 'in_progress', 'completed'])
+const TASK_LIST_TOOL_NAMES = new Set(['TodoWrite', 'TaskList', 'TaskCreate', 'TaskUpdate'])
+const TASK_LIST_ONLY_TOOL_NAMES = new Set(['TaskList', 'TaskCreate', 'TaskUpdate'])
 
 const emit = defineEmits<{
   toolSubmit: [toolId: string, updatedInput: Record<string, unknown>]
@@ -174,6 +192,7 @@ interface TimelineEvent {
   metadata?: MessageMetadata
   specialComponent?: Component
   classifiedError?: ClassifiedError
+  taskItems?: TaskListItem[]
 }
 
 const props = defineProps<{
@@ -184,6 +203,7 @@ const props = defineProps<{
 const expandedEvents = reactive<Record<string, boolean>>({})
 
 const chatStore = useChatStore()
+const taskManager = useTaskManager()
 
 function getPendingPermission(toolUseId: string) {
   return chatStore.getPendingPermissionForToolUse(toolUseId)
@@ -233,6 +253,9 @@ const TOOL_LABEL_MAP: Record<string, string> = {
   WebSearch: 'Web search',
   CodebaseSearch: 'Codebase search',
   TodoWrite: 'Update tasks',
+  TaskCreate: 'Create task',
+  TaskUpdate: 'Update task',
+  TaskList: 'List tasks',
 }
 
 // Keyed by tool NAME (not id): the same Vue component is reused across
@@ -282,9 +305,19 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
       tool.id,
       tool.name,
       tool.status,
+      getTaskStateContentKey(tool),
       getToolContentKey(tool),
       specialComponents[tool.name] ? 1 : 0,
     ].join(':')))
+    .join(',')
+  const metadataStateKey = msgs
+    .map(msg => [
+      msg.id,
+      msg.metadata?.model || '',
+      msg.metadata?.inputTokens || '',
+      msg.metadata?.outputTokens || '',
+      msg.metadata?.duration || '',
+    ].join(':'))
     .join(',')
   // 必须把流式文本/推理内容也纳入缓存键, 否则纯 text_delta 流式更新时
   // (msg 数量/ID/工具状态都不变) 缓存命中 -> 返回旧的 TimelineEvent[] ->
@@ -308,8 +341,9 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
       tlKey,
     ].join(':')
   }).join(';')
+  const finalMetadataMessageId = props.loading ? '' : getFinalMetadataMessageId(msgs)
   const key = msgs.length > 0
-    ? `${msgs.length}-${msgs[0]?.id}-${msgs[msgs.length - 1]?.id}-${toolStateKey}-${contentStateKey}`
+    ? `${msgs.length}-${msgs[0]?.id}-${msgs[msgs.length - 1]?.id}-${toolStateKey}-${metadataStateKey}-${contentStateKey}-${finalMetadataMessageId}`
     : 'empty'
 
   if (_cachedTimelineEvents && _cachedTimelineKey === key) {
@@ -342,6 +376,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
             toolCall: tool,
             messageId: msg.id,
             specialComponent: specialComponents[tool.name] ? markRaw(specialComponents[tool.name]) : undefined,
+            taskItems: getTaskListItems(tool),
           })
           continue
         }
@@ -386,6 +421,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
           toolCall: tool,
           messageId: msg.id,
           specialComponent: specialComponents[tool.name] ? markRaw(specialComponents[tool.name]) : undefined,
+          taskItems: getTaskListItems(tool),
         })
       }
     }
@@ -419,7 +455,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
       }
     }
 
-    if (msg.metadata && (msg.metadata.model || msg.metadata.inputTokens || msg.metadata.duration)) {
+    if (msg.id === finalMetadataMessageId && hasFinalMetadata(msg.metadata)) {
       events.push({
         id: `${msg.id}-meta`,
         type: 'metadata',
@@ -454,6 +490,32 @@ const timelineEvents = computed<TimelineEvent[]>(() => {
   // 这样当特殊组件异步加载完成后，computed 会自动重新计算
   const _componentDeps = Object.keys(specialComponents).join(',')
   return buildTimelineEvents(props.messages)
+})
+
+const visibleTimelineEvents = computed<TimelineEvent[]>(() => {
+  const events = timelineEvents.value
+  // 找到最后一个有 taskItems 的任务工具事件
+  let latestTaskEventIdx = -1
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i]
+    if (e.type === 'tool_call' && e.toolCall &&
+        TASK_LIST_TOOL_NAMES.has(e.toolCall.name) && e.taskItems?.length) {
+      latestTaskEventIdx = i
+      break
+    }
+  }
+
+  return events.filter((event, index) => {
+    if (event.type !== 'tool_call' || !event.toolCall) return true
+    const name = event.toolCall.name
+    if (!TASK_LIST_TOOL_NAMES.has(name)) return true
+    // 没有 taskItems 的任务专用工具（TaskCreate/TaskUpdate/TaskList）隐藏
+    if (!event.taskItems?.length && TASK_LIST_ONLY_TOOL_NAMES.has(name)) return false
+    // 有 taskItems 时只保留最后一个，其余隐藏（避免重复显示）
+    if (event.taskItems?.length) return index === latestTaskEventIdx
+    // TodoWrite 没有 taskItems 时保留（显示为通用行）
+    return true
+  })
 })
 
 const overallStatus = computed(() => {
@@ -526,6 +588,19 @@ function getToolContentKey(tool: ToolCall): string {
   ].join(':')
 }
 
+function getTaskStateContentKey(tool: ToolCall): string {
+  if (!TASK_LIST_TOOL_NAMES.has(tool.name)) return ''
+  const input = tool.input || {}
+  const taskId = input.taskId || input.id || ''
+  const existingTask = typeof taskId === 'string' ? taskManager.getTaskById(taskId) : undefined
+  return [
+    existingTask?.content || '',
+    existingTask?.description || '',
+    existingTask?.status || '',
+    input.subject || input.description || input.content || input.title || input.status || '',
+  ].join(':')
+}
+
 function getSpecialComponentKey(event: TimelineEvent): string {
   return event.toolCall ? `${event.toolCall.id}:${getToolContentKey(event.toolCall)}` : event.id
 }
@@ -565,6 +640,123 @@ function formatOutput(output: string): string {
   const maxLen = 800
   if (output.length > maxLen) return output.slice(0, maxLen) + '\n... (truncated)'
   return output
+}
+
+// ========== Task list parsing ==========
+
+function hasFinalMetadata(metadata?: MessageMetadata): boolean {
+  return !!(metadata?.model || metadata?.inputTokens || metadata?.outputTokens || metadata?.duration)
+}
+
+function getFinalMetadataMessageId(msgs: Message[]): string {
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const msg = msgs[i]
+    if (hasFinalMetadata(msg.metadata)) return msg.id
+  }
+  return ''
+}
+
+const allTasks = computed(() => {
+  return taskManager.getAllTasks().map(task => ({
+    id: task.id,
+    content: task.description || task.content,
+    status: task.status,
+    owner: task.owner,
+    blockedBy: task.blockedBy
+  } as TaskListItem))
+})
+
+const shouldShowTaskBoard = computed(() => allTasks.value.length > 1)
+
+function toTaskListItem(task: {
+  id?: string
+  content?: string
+  description?: string
+  status?: string
+  owner?: string
+  blockedBy?: string[]
+}): TaskListItem | null {
+  const status = task.status
+  const content = task.description || task.content
+  if (!content || !status || !TASK_STATUSES.has(status)) return null
+  return {
+    id: task.id,
+    content,
+    status: status as TaskListItem['status'],
+    owner: task.owner,
+    blockedBy: task.blockedBy
+  }
+}
+
+function getTaskDisplayContent(input: Record<string, any>, fallback?: string): string {
+  const value = input.description || input.subject || input.content || input.title || fallback
+  return typeof value === 'string' ? value : ''
+}
+
+function getTaskListItems(toolCall: ToolCall): TaskListItem[] {
+  if (toolCall.name === 'TodoWrite') return parseTodoWriteItems(toolCall.input)
+  if (toolCall.name === 'TaskList') return parseTaskListOutput(toolCall.output)
+  if (toolCall.name === 'TaskCreate') return parseTaskCreateOutput(toolCall.output, toolCall.input)
+  if (toolCall.name === 'TaskUpdate') return parseTaskUpdateOutput(toolCall.output, toolCall.input)
+  return []
+}
+
+function parseTodoWriteItems(input: Record<string, any>): TaskListItem[] {
+  if (!Array.isArray(input.todos)) return []
+  return input.todos
+    .map((todo) => toTaskListItem(todo))
+    .filter((todo): todo is TaskListItem => !!todo)
+}
+
+function parseTaskListOutput(output?: string): TaskListItem[] {
+  if (!output || output === 'No tasks found') return []
+  return output.split('\n').reduce<TaskListItem[]>((items, line) => {
+    const match = line.match(/^#([^\s]+) \[(pending|in_progress|completed)\] (.*?)(?: \(([^)]+)\))?(?: \[blocked by (.+)\])?$/)
+    if (!match) return items
+    items.push({
+      id: match[1],
+      status: match[2] as TaskListItem['status'],
+      content: match[3],
+      owner: match[4],
+      blockedBy: match[5]?.split(', ').filter(Boolean) || []
+    })
+    return items
+  }, [])
+}
+
+function parseTaskCreateOutput(output?: string, input: Record<string, any> = {}): TaskListItem[] {
+  if (!output) return []
+  const match = output.match(/^Task #(\d+) created successfully: (.+)$/)
+  if (!match) return []
+  const content = getTaskDisplayContent(input, match[2])
+  return [{
+    id: match[1],
+    content,
+    status: 'pending'
+  }]
+}
+
+function parseTaskUpdateOutput(output?: string, input: Record<string, any> = {}): TaskListItem[] {
+  const updatedMatch = output?.match(/^Updated task #(\d+)/)
+  const inputTaskId = typeof input.taskId === 'string' ? input.taskId : undefined
+  const taskId = updatedMatch?.[1] || inputTaskId
+  if (!taskId) return []
+
+  const existingTask = taskManager.getTaskById(taskId)
+  const statusChangeMatch = output?.match(/statusChange: (\w+) -> (\w+)/)
+  const inputStatus = typeof input.status === 'string' ? input.status : undefined
+  const status = existingTask?.status || inputStatus || (statusChangeMatch ? statusChangeMatch[2] : undefined)
+  const fallbackContent = existingTask?.description || existingTask?.content
+  const content = getTaskDisplayContent(input, fallbackContent)
+
+  if (!content || !status || !TASK_STATUSES.has(status)) return []
+  return [{
+    id: taskId,
+    content,
+    status: status as TaskListItem['status'],
+    owner: existingTask?.owner,
+    blockedBy: existingTask?.blockedBy
+  }]
 }
 </script>
 
@@ -627,6 +819,14 @@ function formatOutput(output: string): string {
 .timeline-events {
   margin-left: 14px;
   padding-left: 0;
+}
+
+.timeline-task-board {
+  margin-bottom: 8px;
+}
+
+.event-task-inline {
+  margin: 4px 0;
 }
 
 .timeline-event {

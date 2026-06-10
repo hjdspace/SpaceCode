@@ -31,7 +31,7 @@
       >
         <!-- Task items (non-card) -->
         <template v-if="tool.taskItems.length && !shouldShowTaskBoard">
-          <TaskListCard :tasks="tool.taskItems" class="timeline-task-inline" />
+          <TaskListCard :tasks="allTasks" class="timeline-task-inline" />
         </template>
 
         <!-- Special tool cards rendered inline -->
