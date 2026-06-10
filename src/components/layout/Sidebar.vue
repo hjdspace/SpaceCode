@@ -142,6 +142,14 @@
               <Plug :size="14" />
               <span>MCP</span>
             </button>
+            <button
+              class="feature-nav-item"
+              :class="{ active: appStore.showCronManager }"
+              @click="handleOpenCron"
+            >
+              <Clock :size="14" />
+              <span>{{ t('sidebar.cron') }}</span>
+            </button>
           </div>
 
           <!-- Separator -->
@@ -282,7 +290,8 @@ import {
   Plug,
   Activity,
   History,
-  Cpu
+  Cpu,
+  Clock
 } from 'lucide-vue-next'
 
 // Enhanced Components
@@ -359,6 +368,10 @@ function handleOpenAgents() {
 
 function handleOpenMcp() {
   appStore.showMCPManager = true  // 使用全局状态，平铺显示在 center-panel
+}
+
+function handleOpenCron() {
+  appStore.showCronManager = true
 }
 
 function handleTerminalClick() {

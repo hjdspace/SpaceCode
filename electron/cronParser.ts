@@ -206,7 +206,7 @@ export function cronToHuman(cronExpr: string): string {
     const isWeekdays = (fields.dayOfWeek === '1-5') ||
       (Array.isArray(fields.dayOfWeek) &&
         fields.dayOfWeek.length === 5 &&
-        [1, 2, 3, 4, 5].every(d => fields.dayOfWeek.includes(d)))
+        [1, 2, 3, 4, 5].every(d => (fields.dayOfWeek as number[]).includes(d)))
 
     if (isAll(fields.dayOfMonth) && isAll(fields.month) && isAll(fields.dayOfWeek) &&
         isAll(fields.hour) && Array.isArray(fields.minute)) {

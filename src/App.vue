@@ -29,6 +29,7 @@
           <SkillsManager v-else-if="appStore.showSkillsManager" />
           <AgentManager v-else-if="appStore.showAgentManager" />
           <McpManager v-else-if="appStore.showMCPManager" />
+          <CronManager v-else-if="appStore.showCronManager" />
           <ChatPanel v-else-if="!appStore.showTraceViewer" />
           <TraceViewer v-else />
         </div>
@@ -62,6 +63,7 @@ import SettingsPanel from './components/settings/SettingsPanel.vue'
 import SkillsManager from './components/skills/SkillsManager.vue'
 import AgentManager from './components/agents/AgentManager.vue'
 import McpManager from './components/mcp/McpManager.vue'
+import CronManager from './components/cron/CronManager.vue'
 import ConnectMobileDialog from './components/mobile/ConnectMobileDialog.vue'
 import UpdateNotification from './components/common/UpdateNotification.vue'
 import { api } from '@/services/electronAPI'

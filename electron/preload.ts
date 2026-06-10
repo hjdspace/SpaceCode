@@ -549,4 +549,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // App version
   getAppVersion: (): Promise<string> =>
     ipcRenderer.invoke('app:getVersion'),
+
+  // Cron API
+  cron: {
+    list: (projectRoot: string) => ipcRenderer.invoke('cron:list', projectRoot),
+    create: (projectRoot: string, task: any) => ipcRenderer.invoke('cron:create', projectRoot, task),
+    update: (projectRoot: string, id: string, updates: any) => ipcRenderer.invoke('cron:update', projectRoot, id, updates),
+    delete: (projectRoot: string, id: string) => ipcRenderer.invoke('cron:delete', projectRoot, id),
+    run: (projectRoot: string, id: string) => ipcRenderer.invoke('cron:run', projectRoot, id),
+    runs: (projectRoot: string, limit?: number) => ipcRenderer.invoke('cron:runs', projectRoot, limit),
+    taskRuns: (projectRoot: string, taskId: string) => ipcRenderer.invoke('cron:taskRuns', projectRoot, taskId),
+    validate: (cron: string) => ipcRenderer.invoke('cron:validate', cron),
+    describe: (cron: string) => ipcRenderer.invoke('cron:describe', cron),
+    onTaskFired: (callback: (data: any) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
+      ipcRenderer.on('cron:onTaskFired', wrapper)
+      return () => ipcRenderer.removeListener('cron:onTaskFired', wrapper)
+    },
+    onRunCompleted: (callback: (data: any) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
+      ipcRenderer.on('cron:onRunCompleted', wrapper)
+      return () => ipcRenderer.removeListener('cron:onRunCompleted', wrapper)
+    },
+  },
 })

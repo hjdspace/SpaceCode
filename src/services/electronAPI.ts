@@ -573,4 +573,30 @@ export const api = {
     }
     return Promise.resolve('0.0.0')
   },
+
+  // Cron API
+  cron: {
+    list: (projectRoot: string): Promise<any[]> =>
+      electronAPI?.cron?.list(projectRoot) || Promise.resolve([]),
+    create: (projectRoot: string, task: any): Promise<any> =>
+      electronAPI?.cron?.create(projectRoot, task) || Promise.resolve(null),
+    update: (projectRoot: string, id: string, updates: any): Promise<void> =>
+      electronAPI?.cron?.update(projectRoot, id, updates) || Promise.resolve(),
+    delete: (projectRoot: string, id: string): Promise<void> =>
+      electronAPI?.cron?.delete(projectRoot, id) || Promise.resolve(),
+    run: (projectRoot: string, id: string): Promise<any> =>
+      electronAPI?.cron?.run(projectRoot, id) || Promise.resolve(null),
+    runs: (projectRoot: string, limit?: number): Promise<any[]> =>
+      electronAPI?.cron?.runs(projectRoot, limit) || Promise.resolve([]),
+    taskRuns: (projectRoot: string, taskId: string): Promise<any[]> =>
+      electronAPI?.cron?.taskRuns(projectRoot, taskId) || Promise.resolve([]),
+    validate: (cron: string): Promise<{ valid: boolean; error?: string }> =>
+      electronAPI?.cron?.validate(cron) || Promise.resolve({ valid: false, error: 'Cron API not available' }),
+    describe: (cron: string): Promise<string> =>
+      electronAPI?.cron?.describe(cron) || Promise.resolve(cron),
+    onTaskFired: (callback: (data: any) => void): (() => void) | null =>
+      electronAPI?.cron?.onTaskFired(callback) || null,
+    onRunCompleted: (callback: (data: any) => void): (() => void) | null =>
+      electronAPI?.cron?.onRunCompleted(callback) || null,
+  },
 }

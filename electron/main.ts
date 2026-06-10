@@ -7,6 +7,7 @@ import { TerminalManager } from './terminalManager'
 import { registerGitIPCHandlers } from './gitService'
 import { registerSkillsIPCHandlers, registerLocalLibraryIPCHandlers } from './skillsService'
 import { registerAgentsIPCHandlers } from './agentsService'
+import { registerCronIPCHandlers } from './cronService'
 import { registerClaudeCodeIPC, setMainWindow, getPool } from './claudeCodeIPC'
 import { initAutoUpdater, registerAutoUpdaterIPC, destroyAutoUpdater } from './autoUpdaterService'
 import { MobileServer } from './mobileServer'
@@ -616,6 +617,10 @@ app.whenReady().then(() => {
   // Register Agents IPC handlers
   registerAgentsIPCHandlers()
   info('Startup', 'Agents IPC handlers registered')
+
+  // Register Cron IPC handlers
+  registerCronIPCHandlers(() => (global as any).__projectCwd ?? null)
+  info('Startup', 'Cron IPC handlers registered')
 
   // Register Claude Code IPC handlers
   registerClaudeCodeIPC()
