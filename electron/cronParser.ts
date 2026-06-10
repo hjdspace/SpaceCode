@@ -65,9 +65,7 @@ function parseField(field: string, name: FieldName): number[] | string {
   if (field === '*') return '*'
 
   // Single pure number: return as number array (e.g. "0" → [0], "9" → [9])
-  // Exception: dayOfWeek "7" → string "0" (Sunday alias)
   if (/^\d+$/.test(field)) {
-    if (name === 'dayOfWeek' && field === '7') return '0'
     return expandField(field, name)
   }
 
@@ -173,11 +171,38 @@ export function computeNextCronRun(cronExpr: string, from: Date): Date {
 export function cronToHuman(cronExpr: string): string {
   try {
     const fields = parseCronExpression(cronExpr)
+
+    const isAll = (f: number[] | string) => f === '*'
+    const isStepField = (f: number[] | string) => typeof f === 'string' && f.includes('/')
+    const getStepValue = (f: string) => {
+      const match = f.match(/\/(\d+)$/)
+      return match ? parseInt(match[1], 10) : null
+    }
+
+    // Step minute: */N → "每N分钟"
+    if (isStepField(fields.minute) && isAll(fields.hour) && isAll(fields.dayOfMonth) && isAll(fields.month) && isAll(fields.dayOfWeek)) {
+      const step = getStepValue(fields.minute as string)
+      if (step) return `每${step}分钟`
+    }
+
+    // Step hour: */N → "每N小时"
+    if (isStepField(fields.hour) && isAll(fields.dayOfMonth) && isAll(fields.month) && isAll(fields.dayOfWeek)) {
+      const step = getStepValue(fields.hour as string)
+      if (step) return `每${step}小时`
+    }
+
+    // For string fields (step/range/list), skip time extraction and fall through
+    if (typeof fields.minute !== 'number' && !Array.isArray(fields.minute) && fields.minute !== '*') {
+      return cronExpr
+    }
+    if (typeof fields.hour !== 'number' && !Array.isArray(fields.hour) && fields.hour !== '*') {
+      return cronExpr
+    }
+
     const minuteArr = Array.isArray(fields.minute) ? fields.minute[0] : 0
     const hourArr = Array.isArray(fields.hour) ? fields.hour[0] : 0
     const time = `${String(hourArr).padStart(2, '0')}:${String(minuteArr).padStart(2, '0')}`
 
-    const isAll = (f: number[] | string) => f === '*'
     const isWeekdays = (fields.dayOfWeek === '1-5') ||
       (Array.isArray(fields.dayOfWeek) &&
         fields.dayOfWeek.length === 5 &&
