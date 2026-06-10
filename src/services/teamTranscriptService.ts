@@ -91,7 +91,8 @@ export function recordAgentToolCall(session: Session, toolCall: ToolCall, status
   const input = toolCall.input || {}
   const teammateId = String(toolCall.id || input.agentTaskId || input.taskId || crypto.randomUUID())
   const agentType = String(input.agentType || input.type || 'general-purpose')
-  const name = String(input.name || input.agentName || agentType)
+  // 与引擎 UI 层 userFacingName() 保持一致：general-purpose 显示为 "Agent"
+  const name = String(input.name || input.agentName || (agentType === 'general-purpose' ? 'Agent' : agentType))
   const existing = session.teamContext!.teammates[teammateId]
   const color = existing?.color || AGENT_COLORS[Object.keys(session.teamContext!.teammates).length % AGENT_COLORS.length]
   const transcript = session.teammateTranscripts![teammateId] || []

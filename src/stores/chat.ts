@@ -256,27 +256,11 @@ async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
         }
       }
 
-      // 4. 为已完成/失败的 teammate 添加 task-notification 消息
-      if (session.teamContext) {
-        for (const [teammateId, teammate] of Object.entries(session.teamContext.teammates) as [string, TeamContext['teammates'][string]][]) {
-          if ((teammate.status === 'completed' || teammate.status === 'failed') &&
-              !session.messages.some(m => m.metadata?.kind === 'task-notification' && m.metadata.agentTaskId === teammateId)) {
-            session.messages.push({
-              id: crypto.randomUUID(),
-              role: 'system',
-              content: `${teammate.name} ${teammate.status === 'completed' ? 'completed' : 'failed'}.`,
-              timestamp: Date.now(),
-              metadata: {
-                kind: 'task-notification',
-                agentTaskId: teammateId,
-                agentName: teammate.name,
-                teamName: session.teamContext.teamName,
-                status: teammate.status,
-              },
-            })
-          }
-        }
-      }
+      // 4. JSONL 恢复时不额外生成 task-notification 消息
+      // 原因：JSONL 中原始的 tool_result 已包含完成状态信息，
+      // 恢复时凭空添加的 task-notification 在原始会话中并不存在，
+      // 会导致历史会话末尾多出 "Agent completed." 等冗余消息。
+      // task-notification 只应在实时流中由引擎主动推送时生成（见 recordTeammateMessage）。
 
       if (hasTruncated) {
         console.log(`[ChatStore] Hydrated truncated session ${session.id} from JSONL (${restoredMessages.length} messages)`)
