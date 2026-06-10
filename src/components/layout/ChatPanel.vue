@@ -451,6 +451,27 @@ watch(
   },
 )
 
+// AI 回复完成后，自动发送 pending 队列中的消息
+watch(() => chatStore.isLoading, async (loading, prevLoading) => {
+  if (prevLoading && !loading) {
+    const sid = chatStore.currentSessionId
+    if (!sid) return
+
+    const pending = chatStore.getPendingMessages(sid)
+    if (pending.length === 0) return
+
+    // 逐条发送（保持 FIFO 顺序）
+    for (const msg of pending) {
+      await handleSend(msg.content, {
+        files: msg.attachments as Attachment[],
+        images: msg.images as ImageAttachment[],
+      })
+    }
+
+    chatStore.clearPendingMessages(sid)
+  }
+})
+
 // 监听 settings 变化同步模型
 watch(() => settingsStore.config.model, (newModel) => {
   if (newModel && newModel !== currentModel.value) {

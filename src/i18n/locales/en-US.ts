@@ -637,6 +637,9 @@ export default {
     sourcePlugin: 'Plugin',
     sourceMcp: 'MCP',
     promptStashed: 'Prompt stashed — press Ctrl+S to restore, or auto-restores after response',
+    recallPending: 'Recall to input',
+    removePending: 'Remove',
+    pendingHint: 'Waiting to send...',
   },
 
   skills: {

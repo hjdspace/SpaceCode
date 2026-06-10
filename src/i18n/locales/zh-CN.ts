@@ -637,6 +637,9 @@ export default {
     sourcePlugin: '插件',
     sourceMcp: 'MCP',
     promptStashed: '提示词已暂存 — 按 Ctrl+S 恢复，或等待回复后自动恢复',
+    recallPending: '撤回到输入框',
+    removePending: '移除',
+    pendingHint: '等待发送中...',
   },
 
   skills: {

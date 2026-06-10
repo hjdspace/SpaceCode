@@ -406,6 +406,49 @@ export const useChatStore = defineStore('chat', () => {
     return sessionStash.value.has(sessionId)
   }
 
+  // ────────────────────────────────────────────────────────────────────
+  // Pending Messages（AI 回复期间的消息队列）— 按 sessionId 存储
+  // ────────────────────────────────────────────────────────────────────
+  interface PendingMessage {
+    id: string
+    content: string
+    attachments: { name: string; path: string; isFolder: boolean }[]
+    images: { id: string; name: string; type: 'image'; mimeType: string; previewUrl: string; data: string }[]
+    displayLabel?: string
+    createdAt: number
+  }
+  const pendingMessages = ref<Map<string, PendingMessage[]>>(new Map())
+
+  function addPendingMessage(sessionId: string, msg: PendingMessage) {
+    const queue = pendingMessages.value.get(sessionId) || []
+    queue.push(msg)
+    pendingMessages.value.set(sessionId, [...queue])
+  }
+
+  function removePendingMessage(sessionId: string, msgId: string) {
+    const queue = pendingMessages.value.get(sessionId) || []
+    const idx = queue.findIndex(m => m.id === msgId)
+    if (idx >= 0) queue.splice(idx, 1)
+    pendingMessages.value.set(sessionId, [...queue])
+  }
+
+  function recallPendingMessage(sessionId: string, msgId: string): PendingMessage | undefined {
+    const queue = pendingMessages.value.get(sessionId) || []
+    const idx = queue.findIndex(m => m.id === msgId)
+    if (idx < 0) return undefined
+    const [msg] = queue.splice(idx, 1)
+    pendingMessages.value.set(sessionId, [...queue])
+    return msg
+  }
+
+  function getPendingMessages(sessionId: string): PendingMessage[] {
+    return pendingMessages.value.get(sessionId) || []
+  }
+
+  function clearPendingMessages(sessionId: string) {
+    pendingMessages.value.delete(sessionId)
+  }
+
   // Diff 面板触发（TitleBar → ChatPanel 通信）
   const diffPanelTrigger = ref(0)
   function triggerDiffPanel() {
@@ -2669,5 +2712,12 @@ export const useChatStore = defineStore('chat', () => {
     getStash,
     clearStash,
     hasStash,
+    // Pending Messages
+    pendingMessages: readonly(pendingMessages),
+    addPendingMessage,
+    removePendingMessage,
+    recallPendingMessage,
+    getPendingMessages,
+    clearPendingMessages,
   }
 })

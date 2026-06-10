@@ -120,6 +120,24 @@
       </div>
     </Transition>
 
+    <!-- Pending Messages Bar（AI 回复期间的消息队列） -->
+    <div v-if="currentPendingMessages.length > 0" class="pending-messages-bar">
+      <div
+        v-for="msg in currentPendingMessages"
+        :key="msg.id"
+        class="pending-message-item"
+      >
+        <Clock :size="14" class="pending-icon" />
+        <span class="pending-text">{{ msg.displayLabel || msg.content }}</span>
+        <button class="pending-action-btn" @click="recallPendingMsg(msg.id)" :title="t('chatInput.recallPending')">
+          <ArrowUp :size="14" />
+        </button>
+        <button class="pending-action-btn" @click="removePendingMsg(msg.id)" :title="t('chatInput.removePending')">
+          <X :size="14" />
+        </button>
+      </div>
+    </div>
+
     <div class="input-wrapper" :class="{ 'has-content': hasContent, 'is-sending': isSending, 'is-optimizing': isOptimizing }">
       <!-- 文本输入区域 — contenteditable 支持内联 chip -->
       <div class="textarea-wrapper" @click="focusEditor">
@@ -428,7 +446,7 @@ import {
   Code, GitBranch, Bug, Bookmark, Layers, MessageSquare, Eye, Cpu, Brain,
   Sparkles, Image, FileDiff, Play, FolderPlus, Download, Shield, ListTree,
   Webhook, Activity, Palette, Command, Keyboard, RotateCcw, GitCommit,
-  Archive
+  Archive, Clock
 } from 'lucide-vue-next'
 import { useSettingsStore } from '@/stores/settings'
 import { useSkillsStore } from '@/stores/skills'
@@ -529,6 +547,33 @@ const isDragging = ref(false)
 
 // Stash 状态
 const showStashHint = ref(false)
+
+// Pending Messages
+const currentPendingMessages = computed(() => {
+  const sid = chatStore.currentSessionId
+  if (!sid) return []
+  return chatStore.getPendingMessages(sid)
+})
+
+function recallPendingMsg(msgId: string) {
+  const sid = chatStore.currentSessionId
+  if (!sid) return
+  const recalled = chatStore.recallPendingMessage(sid, msgId)
+  if (recalled) {
+    inputText.value = recalled.content
+    if (editorRef.value) {
+      editorRef.value.innerText = recalled.content
+    }
+    attachedFiles.value = recalled.attachments.map(f => ({ ...f }))
+    attachedImages.value = recalled.images.map(img => ({ ...img }))
+    nextTick(() => focusEditor())
+  }
+}
+
+function removePendingMsg(msgId: string) {
+  const sid = chatStore.currentSessionId
+  if (sid) chatStore.removePendingMessage(sid, msgId)
+}
 
 // 模型搜索相关
 const modelSearchQuery = ref('')
@@ -2014,6 +2059,31 @@ function handleEditorKeydown(event: KeyboardEvent) {
 
   // Shift+Enter = newline (default contenteditable behavior)
 
+  // ArrowUp: 输入框为空时，撤回最近一条 pending 消息到输入框
+  if (event.key === 'ArrowUp' && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+    const content = getEditorPlainText().trim()
+    if (!content) {
+      const sid = chatStore.currentSessionId
+      if (sid) {
+        const pending = chatStore.getPendingMessages(sid)
+        if (pending.length > 0) {
+          event.preventDefault()
+          const lastMsg = pending[pending.length - 1]
+          const recalled = chatStore.recallPendingMessage(sid, lastMsg.id)
+          if (recalled) {
+            inputText.value = recalled.content
+            if (editorRef.value) {
+              editorRef.value.innerText = recalled.content
+            }
+            attachedFiles.value = recalled.attachments.map(f => ({ ...f }))
+            attachedImages.value = recalled.images.map(img => ({ ...img }))
+            nextTick(() => focusEditor())
+          }
+        }
+      }
+    }
+  }
+
   // Backspace: if cursor is right after a chip, delete the whole chip
   if (event.key === 'Backspace') {
     const sel = window.getSelection()
@@ -2073,12 +2143,37 @@ function handleSendOrStop() {
 }
 
 function handleSend() {
-  if (props.isSending || isOptimizing.value) return
+  if (isOptimizing.value) return
   if (!hasContent.value && !props.isSending) return
   if (props.disabled) return
 
   // 如果有打开的斜杠命令菜单或上下文菜单，不执行发送（让菜单处理回车事件）
   if (commandPalette.showMenu.value || showContextMenu.value) return
+
+  const content = getEditorPlainText().trim()
+  const allAttachments = collectAllAttachments()
+
+  // AI 正在回复时，消息进入 pending 队列而非直接发送
+  if (props.isSending) {
+    if (!content && allAttachments.files.length === 0 && allAttachments.images.length === 0) return
+
+    const sid = chatStore.currentSessionId
+    if (!sid) return
+
+    chatStore.addPendingMessage(sid, {
+      id: crypto.randomUUID(),
+      content,
+      attachments: allAttachments.files.map(f => ({ ...f })),
+      images: allAttachments.images.map(img => ({ ...img })),
+      displayLabel: content.slice(0, 80),
+      createdAt: Date.now(),
+    })
+
+    clearEditor()
+    attachedFiles.value = []
+    attachedImages.value = []
+    return
+  }
 
   function cleanupAfterCommand() {
     clearEditor()
@@ -2617,6 +2712,64 @@ watch(pendingFile, (file) => {
   flex-grow: 0;
   position: relative;
   border-top: 1px solid var(--surface-border);
+}
+
+// Pending Messages Bar
+.pending-messages-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 20px 8px;
+}
+
+.pending-message-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-secondary);
+  border: 1px dashed var(--accent-primary);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--text-secondary);
+  opacity: 0.85;
+  transition: opacity 0.2s ease;
+
+  &:hover {
+    opacity: 1;
+  }
+
+  .pending-icon {
+    color: var(--accent-primary);
+    flex-shrink: 0;
+  }
+
+  .pending-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pending-action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: var(--radius-sm);
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+
+    &:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+  }
 }
 
 .input-wrapper {
