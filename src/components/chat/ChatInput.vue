@@ -2162,16 +2162,12 @@ function handleSendOrStop() {
 
 function handleSend(steerMode = false) {
   if (isOptimizing.value) return
-  if (props.disabled) return
 
-  // 如果有打开的斜杠命令菜单或上下文菜单，不执行发送（让菜单处理回车事件）
-  if (commandPalette.showMenu.value || showContextMenu.value) return
-
-  const content = getEditorPlainText().trim()
-  const allAttachments = collectAllAttachments()
-
-  // AI 正在回复时
+  // AI 正在回复时，允许消息进入队列（不受 disabled 限制）
   if (props.isSending) {
+    const content = getEditorPlainText().trim()
+    const allAttachments = collectAllAttachments()
+
     if (!content && allAttachments.files.length === 0 && allAttachments.images.length === 0) return
 
     const sid = chatStore.currentSessionId
@@ -2203,6 +2199,15 @@ function handleSend(steerMode = false) {
     }
     return
   }
+
+  // AI 空闲时，disabled 生效
+  if (props.disabled) return
+
+  // 如果有打开的斜杠命令菜单或上下文菜单，不执行发送（让菜单处理回车事件）
+  if (commandPalette.showMenu.value || showContextMenu.value) return
+
+  const content = getEditorPlainText().trim()
+  const allAttachments = collectAllAttachments()
 
   // AI 空闲时正常发送
   if (!hasContent.value) return
@@ -2689,15 +2694,8 @@ watch(() => chatStore.currentSessionId, () => {
   }
 })
 
-// AI 回复完成后，自动恢复暂存的 prompt
-watch(() => props.isSending, (sending, prevSending) => {
-  if (prevSending && !sending) {
-    const sid = chatStore.currentSessionId
-    if (sid && chatStore.hasStash(sid)) {
-      nextTick(() => restoreStash())
-    }
-  }
-})
+// AI 回复完成后，暂存的 prompt 已由 ChatPanel 转为 pending message 自动发送
+// 此处不再 restoreStash，避免 stash 被同时恢复到输入框和发送出去
 
 // Watch disabled/isSending to toggle contenteditable
 watch([() => props.disabled, () => props.isSending], ([disabled, sending]) => {

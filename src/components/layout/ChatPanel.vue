@@ -457,8 +457,28 @@ watch(() => chatStore.isLoading, async (loading, prevLoading) => {
     const sid = chatStore.currentSessionId
     if (!sid) return
 
+    // 将暂存的 prompt（Ctrl+S）转为 pending message，由下方逻辑自动发送
+    if (chatStore.hasStash(sid)) {
+      const stash = chatStore.getStash(sid)
+      if (stash && (stash.text.trim() || stash.attachments.length > 0 || stash.images.length > 0)) {
+        chatStore.addPendingMessage(sid, {
+          id: crypto.randomUUID(),
+          content: stash.text,
+          attachments: stash.attachments.map(f => ({ ...f })),
+          images: stash.images.map(img => ({ ...img })),
+          displayLabel: stash.text.slice(0, 80),
+          priority: 'later',
+          createdAt: Date.now(),
+        })
+        chatStore.clearStash(sid)
+      }
+    }
+
     const pending = chatStore.getPendingMessages(sid)
     if (pending.length === 0) return
+
+    // 先清除队列，防止 await handleSend 期间 watcher 重新触发导致重复发送
+    chatStore.clearPendingMessages(sid)
 
     // 逐条发送（保持 FIFO 顺序）
     for (const msg of pending) {
@@ -467,8 +487,6 @@ watch(() => chatStore.isLoading, async (loading, prevLoading) => {
         images: msg.images as ImageAttachment[],
       })
     }
-
-    chatStore.clearPendingMessages(sid)
   }
 })
 
