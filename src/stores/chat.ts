@@ -415,6 +415,7 @@ export const useChatStore = defineStore('chat', () => {
     attachments: { name: string; path: string; isFolder: boolean }[]
     images: { id: string; name: string; type: 'image'; mimeType: string; previewUrl: string; data: string }[]
     displayLabel?: string
+    priority: 'now' | 'later'  // now = steering(注入当前turn), later = queue(等turn结束后发送)
     createdAt: number
   }
   const pendingMessages = ref<Map<string, PendingMessage[]>>(new Map())

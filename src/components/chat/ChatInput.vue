@@ -126,9 +126,11 @@
         v-for="msg in currentPendingMessages"
         :key="msg.id"
         class="pending-message-item"
+        :class="{ 'pending-later': msg.priority === 'later' }"
       >
         <Clock :size="14" class="pending-icon" />
         <span class="pending-text">{{ msg.displayLabel || msg.content }}</span>
+        <span class="pending-priority-tag">{{ msg.priority === 'later' ? t('chatInput.priorityLater') : t('chatInput.priorityNow') }}</span>
         <button class="pending-action-btn" @click="recallPendingMsg(msg.id)" :title="t('chatInput.recallPending')">
           <ArrowUp :size="14" />
         </button>
@@ -158,6 +160,13 @@
           <div v-if="showStashHint" class="stash-hint">
             <Archive :size="14" />
             <span>{{ t('chatInput.promptStashed') }}</span>
+          </div>
+        </Transition>
+        <!-- Steering 提示浮层 -->
+        <Transition name="stash-fade">
+          <div v-if="showSteerHint" class="steer-hint">
+            <Zap :size="14" />
+            <span>{{ t('chatInput.messageSteered') }}</span>
           </div>
         </Transition>
       </div>
@@ -547,6 +556,8 @@ const isDragging = ref(false)
 
 // Stash 状态
 const showStashHint = ref(false)
+// Steering 提示状态
+const showSteerHint = ref(false)
 
 // Pending Messages
 const currentPendingMessages = computed(() => {
@@ -2050,10 +2061,17 @@ function handleEditorKeydown(event: KeyboardEvent) {
     return
   }
 
-  // Enter without Shift = send
+  // Ctrl+Enter / Cmd+Enter: steering（now 优先级）— AI 回复期间直接注入当前 turn
+  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.shiftKey) {
+    event.preventDefault()
+    handleSend(true)  // steerMode = true
+    return
+  }
+
+  // Enter without Shift = send（AI 回复期间 → later 队列）
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault()
-    handleSend()
+    handleSend(false)  // steerMode = false
     return
   }
 
@@ -2142,9 +2160,8 @@ function handleSendOrStop() {
   handleSend()
 }
 
-function handleSend() {
+function handleSend(steerMode = false) {
   if (isOptimizing.value) return
-  if (!hasContent.value && !props.isSending) return
   if (props.disabled) return
 
   // 如果有打开的斜杠命令菜单或上下文菜单，不执行发送（让菜单处理回车事件）
@@ -2153,36 +2170,48 @@ function handleSend() {
   const content = getEditorPlainText().trim()
   const allAttachments = collectAllAttachments()
 
-  // AI 正在回复时，消息进入 pending 队列而非直接发送
+  // AI 正在回复时
   if (props.isSending) {
     if (!content && allAttachments.files.length === 0 && allAttachments.images.length === 0) return
 
     const sid = chatStore.currentSessionId
     if (!sid) return
 
-    chatStore.addPendingMessage(sid, {
-      id: crypto.randomUUID(),
-      content,
-      attachments: allAttachments.files.map(f => ({ ...f })),
-      images: allAttachments.images.map(img => ({ ...img })),
-      displayLabel: content.slice(0, 80),
-      createdAt: Date.now(),
-    })
-
-    clearEditor()
-    attachedFiles.value = []
-    attachedImages.value = []
+    if (steerMode) {
+      // Ctrl+Enter: steering（now 优先级）— 直接发送，CLI h2A 队列自动注入当前 turn
+      emit('send', content, allAttachments)
+      clearEditor()
+      attachedFiles.value = []
+      attachedImages.value = []
+      // 显示 steering 提示
+      showSteerHint.value = true
+      setTimeout(() => { showSteerHint.value = false }, 2000)
+    } else {
+      // Enter: later 优先级 — 进入 pending 队列，等 turn 结束后发送
+      chatStore.addPendingMessage(sid, {
+        id: crypto.randomUUID(),
+        content,
+        attachments: allAttachments.files.map(f => ({ ...f })),
+        images: allAttachments.images.map(img => ({ ...img })),
+        displayLabel: content.slice(0, 80),
+        priority: 'later',
+        createdAt: Date.now(),
+      })
+      clearEditor()
+      attachedFiles.value = []
+      attachedImages.value = []
+    }
     return
   }
+
+  // AI 空闲时正常发送
+  if (!hasContent.value) return
 
   function cleanupAfterCommand() {
     clearEditor()
     attachedFiles.value = []
     attachedImages.value = []
   }
-
-  const content = getEditorPlainText().trim()
-  const allAttachments = collectAllAttachments()
 
   // 检查编辑器中是否有 command-chip
   const editor = editorRef.value
@@ -2751,6 +2780,29 @@ watch(pendingFile, (file) => {
     white-space: nowrap;
   }
 
+  .pending-priority-tag {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  &.pending-later .pending-priority-tag {
+    color: #6366f1;
+    background: rgba(99, 102, 241, 0.1);
+    border: 1px solid rgba(99, 102, 241, 0.2);
+  }
+
+  &:not(.pending-later) .pending-priority-tag {
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+  }
+
   .pending-action-btn {
     display: flex;
     align-items: center;
@@ -2869,6 +2921,27 @@ watch(pendingFile, (file) => {
 .stash-fade-leave-to {
   opacity: 0;
   transform: translateX(-50%) translateY(4px);
+}
+
+// Steering 提示浮层
+.steer-hint {
+  position: absolute;
+  top: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  background: #f59e0b;
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  white-space: nowrap;
+  z-index: 10;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 // 提示词优化进行中文字提示

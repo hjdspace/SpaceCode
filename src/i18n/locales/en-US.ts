@@ -640,6 +640,9 @@ export default {
     recallPending: 'Recall to input',
     removePending: 'Remove',
     pendingHint: 'Waiting to send...',
+    priorityLater: 'Queue',
+    priorityNow: 'Steer',
+    messageSteered: 'Message steered into current turn',
   },
 
   skills: {

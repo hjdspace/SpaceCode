@@ -640,6 +640,9 @@ export default {
     recallPending: '撤回到输入框',
     removePending: '移除',
     pendingHint: '等待发送中...',
+    priorityLater: '排队',
+    priorityNow: '插队',
+    messageSteered: '消息已注入当前对话',
   },
 
   skills: {
