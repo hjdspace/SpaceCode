@@ -135,6 +135,13 @@
         ></div>
         <!-- 提示词优化 shimmer 扫光层 -->
         <div v-if="isOptimizing" class="optimize-shimmer" aria-hidden="true"></div>
+        <!-- Stash 提示浮层 -->
+        <Transition name="stash-fade">
+          <div v-if="showStashHint" class="stash-hint">
+            <Archive :size="14" />
+            <span>{{ t('chatInput.promptStashed') }}</span>
+          </div>
+        </Transition>
       </div>
 
       <!-- 底部工具栏：+ 号、模型选择、发送按钮 -->
@@ -420,7 +427,8 @@ import {
   Minimize2, Stethoscope, FilePlus, Zap, FolderOpen, Terminal, Settings,
   Code, GitBranch, Bug, Bookmark, Layers, MessageSquare, Eye, Cpu, Brain,
   Sparkles, Image, FileDiff, Play, FolderPlus, Download, Shield, ListTree,
-  Webhook, Activity, Palette, Command, Keyboard, RotateCcw, GitCommit
+  Webhook, Activity, Palette, Command, Keyboard, RotateCcw, GitCommit,
+  Archive
 } from 'lucide-vue-next'
 import { useSettingsStore } from '@/stores/settings'
 import { useSkillsStore } from '@/stores/skills'
@@ -518,6 +526,9 @@ const showAttachmentMenu = ref(false)
 const attachedFiles = ref<Attachment[]>([])
 const attachedImages = ref<ImageAttachment[]>([])
 const isDragging = ref(false)
+
+// Stash 状态
+const showStashHint = ref(false)
 
 // 模型搜索相关
 const modelSearchQuery = ref('')
@@ -1986,6 +1997,14 @@ function handleEditorKeydown(event: KeyboardEvent) {
     }
   }
 
+  // Ctrl+S / Cmd+S: Stash prompt
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+    event.preventDefault()
+    event.stopPropagation()
+    handleStash()
+    return
+  }
+
   // Enter without Shift = send
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault()
@@ -2136,6 +2155,69 @@ function handleSend() {
   clearEditor()
   attachedFiles.value = []
   attachedImages.value = []
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Prompt Stash（Ctrl+S 暂存/恢复输入）
+// ────────────────────────────────────────────────────────────────────
+function handleStash() {
+  const sid = chatStore.currentSessionId
+  if (!sid) return
+
+  const content = getEditorPlainText().trim()
+
+  // 如果当前输入为空且已有暂存内容 → 恢复暂存（toggle 行为）
+  if (!content && attachedFiles.value.length === 0 && attachedImages.value.length === 0) {
+    if (chatStore.hasStash(sid)) {
+      restoreStash()
+    }
+    return
+  }
+
+  // 暂存当前内容到 chat store（按 sessionId 存储）
+  chatStore.stashPrompt(sid, {
+    text: content,
+    attachments: attachedFiles.value.map(f => ({ ...f })),
+    images: attachedImages.value.map(img => ({ ...img })),
+    editorHtml: editorRef.value?.innerHTML || '',
+  })
+
+  // 清空编辑器
+  clearEditor()
+  attachedFiles.value = []
+  attachedImages.value = []
+
+  // 显示 stash 提示
+  showStashHint.value = true
+  setTimeout(() => { showStashHint.value = false }, 2500)
+}
+
+function restoreStash() {
+  const sid = chatStore.currentSessionId
+  if (!sid) return
+
+  const stash = chatStore.getStash(sid)
+  if (!stash) return
+
+  // 恢复编辑器内容
+  const editor = editorRef.value
+  if (editor && stash.editorHtml) {
+    editor.innerHTML = stash.editorHtml
+  }
+
+  // 恢复附件
+  attachedFiles.value = stash.attachments.map(f => ({ ...f }))
+  attachedImages.value = stash.images.map(img => ({ ...img }))
+
+  // 更新 inputText
+  inputText.value = stash.text
+
+  // 清除暂存
+  chatStore.clearStash(sid)
+  showStashHint.value = false
+
+  // 聚焦编辑器
+  nextTick(() => focusEditor())
 }
 
 function selectModel(modelValue: string) {
@@ -2476,6 +2558,21 @@ watch(showModelDropdown, (open) => {
 
 watch(() => chatStore.currentSessionId, () => {
   focusEditor()
+  // 切换会话时，如果新会话有暂存内容，自动恢复
+  const sid = chatStore.currentSessionId
+  if (sid && chatStore.hasStash(sid)) {
+    nextTick(() => restoreStash())
+  }
+})
+
+// AI 回复完成后，自动恢复暂存的 prompt
+watch(() => props.isSending, (sending, prevSending) => {
+  if (prevSending && !sending) {
+    const sid = chatStore.currentSessionId
+    if (sid && chatStore.hasStash(sid)) {
+      nextTick(() => restoreStash())
+    }
+  }
 })
 
 // Watch disabled/isSending to toggle contenteditable
@@ -2588,6 +2685,37 @@ watch(pendingFile, (file) => {
   100% {
     background-position: -120% 0;
   }
+}
+
+// Stash 提示浮层
+.stash-hint {
+  position: absolute;
+  top: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  background: var(--accent-primary);
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  white-space: nowrap;
+  z-index: 10;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.stash-fade-enter-active,
+.stash-fade-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.stash-fade-enter-from,
+.stash-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(4px);
 }
 
 // 提示词优化进行中文字提示

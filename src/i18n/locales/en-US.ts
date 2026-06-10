@@ -636,6 +636,7 @@ export default {
     sourceProject: 'Project',
     sourcePlugin: 'Plugin',
     sourceMcp: 'MCP',
+    promptStashed: 'Prompt stashed — press Ctrl+S to restore, or auto-restores after response',
   },
 
   skills: {

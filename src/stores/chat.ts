@@ -379,6 +379,33 @@ export const useChatStore = defineStore('chat', () => {
   const streamingContents = ref<Map<string, string>>(new Map())
   const loadingSessions = ref<Map<string, boolean>>(new Map())
 
+  // ────────────────────────────────────────────────────────────────────
+  // Prompt Stash（Ctrl+S 暂存输入）— 按 sessionId 存储，切换会话不丢失
+  // ────────────────────────────────────────────────────────────────────
+  interface PromptStashData {
+    text: string
+    attachments: { name: string; path: string; isFolder: boolean }[]
+    images: { id: string; name: string; type: 'image'; mimeType: string; previewUrl: string; data: string }[]
+    editorHtml: string
+  }
+  const sessionStash = ref<Map<string, PromptStashData>>(new Map())
+
+  function stashPrompt(sessionId: string, data: PromptStashData) {
+    sessionStash.value.set(sessionId, data)
+  }
+
+  function getStash(sessionId: string): PromptStashData | undefined {
+    return sessionStash.value.get(sessionId)
+  }
+
+  function clearStash(sessionId: string) {
+    sessionStash.value.delete(sessionId)
+  }
+
+  function hasStash(sessionId: string): boolean {
+    return sessionStash.value.has(sessionId)
+  }
+
   // Diff 面板触发（TitleBar → ChatPanel 通信）
   const diffPanelTrigger = ref(0)
   function triggerDiffPanel() {
@@ -2636,5 +2663,11 @@ export const useChatStore = defineStore('chat', () => {
     // Diff 面板触发
     diffPanelTrigger: readonly(diffPanelTrigger),
     triggerDiffPanel,
+    // Prompt Stash
+    sessionStash: readonly(sessionStash),
+    stashPrompt,
+    getStash,
+    clearStash,
+    hasStash,
   }
 })

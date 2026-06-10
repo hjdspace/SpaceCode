@@ -636,6 +636,7 @@ export default {
     sourceProject: '项目',
     sourcePlugin: '插件',
     sourceMcp: 'MCP',
+    promptStashed: '提示词已暂存 — 按 Ctrl+S 恢复，或等待回复后自动恢复',
   },
 
   skills: {
