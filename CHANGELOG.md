@@ -1,3 +1,45 @@
+## [0.5.0](https://github.com/hjdspace/SpaceCode/compare/v0.4.9...v0.5.0) (2026-06-11)
+
+### Features
+
+* **cron:** 新增定时任务管理功能
+* **cron:** add cronFileStore with CRUD operations and atomic writes
+* **cron:** add task run logger with persistence and stale cleanup
+* **cron:** add cron expression parser with validation and human-readable description
+* **chat:** 实现全局任务看板和任务列表优化
+* **chatInput:** add model search and clear function
+* **auto-update:** 新增自动状态重置与UI优化
+* **消息队列:** 实现消息队列优先级支持（steering vs queue）
+* **消息队列:** 实现 AI 回复期间消息队列（Pending Messages）功能
+* **快捷键:** 实现 Claude-Code Ctrl+S 功能
+* **更新:** 桌面应用版本更新方案
+
+### Bug Fixes
+
+* **cronParser:** 修复 cronParser 三个 bug 并补充测试覆盖
+* **chatPanel:** 修复待发消息发送队列异常时消息丢失问题
+* **teamTranscript,chatStore:** 修正会话恢复和agent名称显示问题
+* **session:** 修复从JSONL恢复会话时子代理输出未正确归入teammateTranscripts的问题
+* **scm:** 修复中文文件路径乱码及文件名重复显示问题
+
+### Refactor
+
+* **chat:** 重构聊天输入框的模型和推理模式选择UI
+* **chat:** 重构智能体选择器为悬浮子菜单形式
+* **chat:** 重构消息发送与暂存逻辑，优化发送流程
+
+### Style
+
+* 替换硬编码样式为CSS变量，统一主题适配
+
+### CI
+
+* **github:** add auto changelog for releases
+
+### Chore
+
+* 本地技能库增加多个技能
+
 ## [0.4.9](https://github.com/hjdspace/SpaceCode/compare/v0.4.8...v0.4.9) (2026-06-09)
 
 ### Features
