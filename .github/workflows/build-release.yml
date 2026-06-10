@@ -179,10 +179,31 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get previous tag
+        id: prev_tag
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          echo "prev_tag=${PREV_TAG}" >> $GITHUB_OUTPUT
+          echo "Previous tag: ${PREV_TAG:-none}"
+
+      - name: Build Changelog
+        id: changelog
+        uses: mikepenz/release-changelog-builder-action@v5
+        with:
+          fromTag: ${{ steps.prev_tag.outputs.prev_tag }}
+          toTag: ${{ github.ref_name }}
+          configuration: .github/changelog-config.json
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release edit "${GITHUB_REF_NAME}" --draft=false
-          echo "Release published."
+          gh release edit "${GITHUB_REF_NAME}" --draft=false --notes "${{ steps.changelog.outputs.changelog }}"
+          echo "Release published with changelog."

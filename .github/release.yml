@@ -1,0 +1,34 @@
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+      - skip-changelog
+  categories:
+    - title: 💥 Breaking Changes（破坏性变更）
+      labels:
+        - Semver-Major
+        - breaking-change
+    - title: ✨ New Features（新功能）
+      labels:
+        - Semver-Minor
+        - enhancement
+        - feature
+    - title: 🐛 Bug Fixes（问题修复）
+      labels:
+        - bug
+        - fix
+        - bugfix
+    - title: ⚡ Performance（性能优化）
+      labels:
+        - performance
+        - perf
+    - title: 📝 Documentation（文档更新）
+      labels:
+        - documentation
+        - docs
+    - title: 📦 Dependencies（依赖更新）
+      labels:
+        - dependencies
+    - title: 🔧 Other Changes（其他变更）
+      labels:
+        - "*"
