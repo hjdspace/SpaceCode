@@ -225,13 +225,9 @@ const emptyMessage = computed(() => {
   border: none;
   border-radius: 0;
   overflow: hidden;
-  background: #ffffff;
+  background: var(--bg-primary);
   font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   font-size: 12px;
-
-  :global(.dark) & {
-    background: #1a1a2e;
-  }
 }
 
 .diff-explorer-header {
@@ -239,14 +235,9 @@ const emptyMessage = computed(() => {
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border-bottom: 1px solid var(--surface-border);
+  background: var(--surface-soft);
   flex-shrink: 0;
-
-  :global(.dark) & {
-    border-bottom-color: #2d3748;
-    background: #16213e;
-  }
 }
 
 .diff-explorer-title {
@@ -254,21 +245,13 @@ const emptyMessage = computed(() => {
   align-items: center;
   gap: 8px;
   font-weight: 600;
-  color: #1a202c;
-
-  :global(.dark) & {
-    color: #e2e8f0;
-  }
+  color: var(--text-primary);
 }
 
 .diff-explorer-subtitle {
-  color: #94a3b8;
+  color: var(--text-muted);
   font-weight: 400;
   font-size: 11px;
-
-  :global(.dark) & {
-    color: #64748b;
-  }
 }
 
 .diff-explorer-stats {
@@ -276,29 +259,31 @@ const emptyMessage = computed(() => {
   align-items: center;
   gap: 10px;
   font-size: 11px;
-  color: #64748b;
-
-  :global(.dark) & {
-    color: #94a3b8;
-  }
+  color: var(--text-muted);
 }
 
 .stat-files {
-  color: #64748b;
-
-  :global(.dark) & {
-    color: #94a3b8;
-  }
+  color: var(--text-muted);
 }
 
 .stat-additions {
   color: #16a34a;
   font-weight: 600;
+
+  :global([data-theme="dark"]) &,
+  :global([data-theme="anthropic-dark"]) & {
+    color: #4ade80;
+  }
 }
 
 .stat-deletions {
   color: #dc2626;
   font-weight: 600;
+
+  :global([data-theme="dark"]) &,
+  :global([data-theme="anthropic-dark"]) & {
+    color: #f87171;
+  }
 }
 
 .diff-explorer-body {
@@ -312,15 +297,10 @@ const emptyMessage = computed(() => {
 .diff-file-list {
   width: 260px;
   min-width: 200px;
-  border-right: 1px solid #e2e8f0;
+  border-right: 1px solid var(--surface-border);
   overflow-y: auto;
-  background: #f8fafc;
+  background: var(--surface-soft);
   flex-shrink: 0;
-
-  :global(.dark) & {
-    border-right-color: #2d3748;
-    background: #16213e;
-  }
 }
 
 .diff-file-item {
@@ -330,34 +310,18 @@ const emptyMessage = computed(() => {
   padding: 6px 12px;
   cursor: pointer;
   gap: 8px;
-  border-bottom: 1px solid #e2e8f0;
-  color: #4a5568;
-
-  :global(.dark) & {
-    border-bottom-color: #2d3748;
-    color: #94a3b8;
-  }
+  border-bottom: 1px solid var(--surface-border);
+  color: var(--text-secondary);
 
   &:hover {
-    background: #e2e8f0;
-    color: #1a202c;
-
-    :global(.dark) & {
-      background: #2d3748;
-      color: #e2e8f0;
-    }
+    background: var(--surface-hover);
+    color: var(--text-primary);
   }
 
   &.selected {
-    background: #dbeafe;
-    color: #1e40af;
-    border-left: 3px solid #3b82f6;
-
-    :global(.dark) & {
-      background: #1e3a5f;
-      color: #60a5fa;
-      border-left-color: #3b82f6;
-    }
+    background: var(--accent-primary-glow);
+    color: var(--accent-primary);
+    border-left: 3px solid var(--accent-primary);
   }
 }
 
@@ -378,11 +342,7 @@ const emptyMessage = computed(() => {
 
   svg {
     flex-shrink: 0;
-    color: #94a3b8;
-
-    :global(.dark) & {
-      color: #64748b;
-    }
+    color: var(--text-muted);
   }
 }
 
@@ -395,13 +355,9 @@ const emptyMessage = computed(() => {
 }
 
 .untracked-label {
-  color: #94a3b8;
+  color: var(--text-muted);
   font-style: italic;
   font-size: 10px;
-
-  :global(.dark) & {
-    color: #64748b;
-  }
 }
 
 .binary-label {
@@ -417,11 +373,7 @@ const emptyMessage = computed(() => {
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
-  background: #ffffff;
-
-  :global(.dark) & {
-    background: #1a1a2e;
-  }
+  background: var(--bg-primary);
 }
 
 .diff-detail-header {
@@ -429,18 +381,12 @@ const emptyMessage = computed(() => {
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border-bottom: 1px solid var(--surface-border);
+  background: var(--surface-soft);
   font-weight: 500;
   font-size: 12px;
   flex-shrink: 0;
-  color: #1a202c;
-
-  :global(.dark) & {
-    border-bottom-color: #2d3748;
-    background: #16213e;
-    color: #e2e8f0;
-  }
+  color: var(--text-primary);
 }
 
 .diff-detail-path {
@@ -457,26 +403,17 @@ const emptyMessage = computed(() => {
 
 .diff-notice {
   padding: 20px;
-  color: #94a3b8;
+  color: var(--text-muted);
   font-style: italic;
   font-size: 12px;
   line-height: 1.6;
 
-  :global(.dark) & {
-    color: #64748b;
-  }
-
   code {
-    background: #f1f5f9;
+    background: var(--surface-hover);
     padding: 1px 6px;
     border-radius: 3px;
     font-style: normal;
-    color: #334155;
-
-    :global(.dark) & {
-      background: #2d3748;
-      color: #e2e8f0;
-    }
+    color: var(--text-primary);
   }
 }
 
@@ -493,12 +430,12 @@ const emptyMessage = computed(() => {
   min-height: 22px;
 
   &.header {
-    background: #f1f5f9;
+    background: var(--surface-hover);
     color: #1e40af;
     font-weight: 500;
 
-    :global(.dark) & {
-      background: #1e293b;
+    :global([data-theme="dark"]) &,
+    :global([data-theme="anthropic-dark"]) & {
       color: #60a5fa;
     }
 
@@ -506,7 +443,8 @@ const emptyMessage = computed(() => {
     .line-content {
       color: #1e40af;
 
-      :global(.dark) & {
+      :global([data-theme="dark"]) &,
+      :global([data-theme="anthropic-dark"]) & {
         color: #60a5fa;
       }
     }
@@ -515,14 +453,16 @@ const emptyMessage = computed(() => {
   &.add {
     background: #f0fdf4;
 
-    :global(.dark) & {
+    :global([data-theme="dark"]) &,
+    :global([data-theme="anthropic-dark"]) & {
       background: #0f1f1a;
     }
 
     .line-number.new {
       background: #dcfce7;
 
-      :global(.dark) & {
+      :global([data-theme="dark"]) &,
+      :global([data-theme="anthropic-dark"]) & {
         background: #1a3528;
       }
     }
@@ -530,7 +470,8 @@ const emptyMessage = computed(() => {
     .line-content {
       color: #15803d;
 
-      :global(.dark) & {
+      :global([data-theme="dark"]) &,
+      :global([data-theme="anthropic-dark"]) & {
         color: #4ade80;
       }
     }
@@ -539,14 +480,16 @@ const emptyMessage = computed(() => {
   &.remove {
     background: #fef2f2;
 
-    :global(.dark) & {
+    :global([data-theme="dark"]) &,
+    :global([data-theme="anthropic-dark"]) & {
       background: #2d1417;
     }
 
     .line-number.old {
       background: #fee2e2;
 
-      :global(.dark) & {
+      :global([data-theme="dark"]) &,
+      :global([data-theme="anthropic-dark"]) & {
         background: #421f22;
       }
     }
@@ -554,7 +497,8 @@ const emptyMessage = computed(() => {
     .line-content {
       color: #dc2626;
 
-      :global(.dark) & {
+      :global([data-theme="dark"]) &,
+      :global([data-theme="anthropic-dark"]) & {
         color: #f87171;
       }
     }
@@ -573,22 +517,14 @@ const emptyMessage = computed(() => {
   min-width: 50px;
   padding: 0 8px;
   text-align: right;
-  color: #94a3b8;
+  color: var(--text-muted);
   user-select: none;
   flex-shrink: 0;
   font-size: 11px;
   line-height: 1.6;
 
-  :global(.dark) & {
-    color: #64748b;
-  }
-
   &.old {
-    border-right: 1px solid #e2e8f0;
-
-    :global(.dark) & {
-      border-right-color: #2d3748;
-    }
+    border-right: 1px solid var(--surface-border);
   }
 }
 
@@ -599,15 +535,11 @@ const emptyMessage = computed(() => {
   width: 18px;
   min-width: 18px;
   text-align: center;
-  color: #94a3b8;
+  color: var(--text-muted);
   user-select: none;
   flex-shrink: 0;
   font-size: 11px;
   line-height: 1.6;
-
-  :global(.dark) & {
-    color: #64748b;
-  }
 }
 
 .line-content {
@@ -617,12 +549,8 @@ const emptyMessage = computed(() => {
   overflow-wrap: break-word;
   padding: 0 8px;
   min-width: 0;
-  color: #334155;
+  color: var(--text-primary);
   line-height: 1.6;
-
-  :global(.dark) & {
-    color: #cbd5e1;
-  }
 }
 
 .diff-explorer-empty,
@@ -631,11 +559,7 @@ const emptyMessage = computed(() => {
   align-items: center;
   justify-content: center;
   padding: 40px;
-  color: #94a3b8;
+  color: var(--text-muted);
   font-size: 13px;
-
-  :global(.dark) & {
-    color: #64748b;
-  }
 }
 </style>

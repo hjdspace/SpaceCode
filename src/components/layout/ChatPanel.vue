@@ -1325,7 +1325,7 @@ async function handleRestoreHistorySession(session: any) {
 }
 
 .diff-modal {
-  background: #ffffff;
+  background: var(--bg-elevated);
   border-radius: 12px;
   width: 92vw;
   max-width: 1200px;
@@ -1337,35 +1337,20 @@ async function handleRestoreHistorySession(session: any) {
   overflow: hidden;
 }
 
-/* 暗色主题适配 */
-:global(.dark) .diff-modal {
-  background: #1a1a2e;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-}
-
 .diff-modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 14px 20px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--surface-border);
   flex-shrink: 0;
-  background: #f8fafc;
-
-  :global(.dark) & {
-    border-bottom-color: #2d3748;
-    background: #16162a;
-  }
+  background: var(--surface-soft);
 
   h3 {
     margin: 0;
     font-size: 15px;
     font-weight: 600;
-    color: #1a202c;
-
-    :global(.dark) & {
-      color: #e2e8f0;
-    }
+    color: var(--text-primary);
   }
 }
 
@@ -1378,23 +1363,14 @@ async function handleRestoreHistorySession(session: any) {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 18px;
   cursor: pointer;
   transition: all 0.2s;
 
   &:hover {
-    background: #e2e8f0;
-    color: #1a202c;
-  }
-
-  :global(.dark) & {
-    color: #94a3b8;
-
-    &:hover {
-      background: #2d3748;
-      color: #e2e8f0;
-    }
+    background: var(--surface-hover);
+    color: var(--text-primary);
   }
 }
 
@@ -1402,11 +1378,7 @@ async function handleRestoreHistorySession(session: any) {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  background: #ffffff;
-
-  :global(.dark) & {
-    background: #1a1a2e;
-  }
+  background: var(--bg-primary);
 }
 
 .diff-loading,
@@ -1415,12 +1387,8 @@ async function handleRestoreHistorySession(session: any) {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 13px;
-
-  :global(.dark) & {
-    color: #94a3b8;
-  }
 }
 
 /* Modal Transition */
