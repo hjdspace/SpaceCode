@@ -263,6 +263,18 @@
                     <RefreshCw :size="12" :class="{ spin: isLoadingModels }" />
                   </button>
                 </div>
+                <div class="dropdown-search-box">
+                  <Search :size="14" class="search-icon" />
+                  <input
+                    ref="modelSearchInput"
+                    v-model="modelSearchQuery"
+                    type="text"
+                    :placeholder="t('chatInput.searchModels')"
+                  />
+                  <button v-if="modelSearchQuery" class="clear-btn" @click="modelSearchQuery = ''">
+                    <X :size="12" />
+                  </button>
+                </div>
                 <div class="dropdown-list" ref="modelListRef">
                   <div v-if="isLoadingModels && filteredModels.length === 0" class="dropdown-loading">
                     <Loader2 :size="16" class="spin" />
@@ -2776,6 +2788,17 @@ onUnmounted(() => {
 // 清理事件监听
 watch(showModelDropdown, (open) => {
   if (!open) {
+    modelSearchQuery.value = ''
+  }
+})
+
+// 子菜单打开时自动聚焦搜索框
+watch(showModelSubmenu, (open) => {
+  if (open) {
+    nextTick(() => {
+      modelSearchInput.value?.focus()
+    })
+  } else {
     modelSearchQuery.value = ''
   }
 })
