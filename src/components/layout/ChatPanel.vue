@@ -474,14 +474,13 @@ watch(() => chatStore.isLoading, async (loading, prevLoading) => {
       }
     }
 
-    const pending = chatStore.getPendingMessages(sid)
-    if (pending.length === 0) return
+    // 逐条取出并发送，避免一次性清除队列导致异常时消息丢失
+    while (true) {
+      const pending = chatStore.getPendingMessages(sid)
+      if (pending.length === 0) break
+      const msg = chatStore.recallPendingMessage(sid, pending[0].id)
+      if (!msg) break
 
-    // 先清除队列，防止 await handleSend 期间 watcher 重新触发导致重复发送
-    chatStore.clearPendingMessages(sid)
-
-    // 逐条发送（保持 FIFO 顺序）
-    for (const msg of pending) {
       await handleSend(msg.content, {
         files: msg.attachments as Attachment[],
         images: msg.images as ImageAttachment[],
