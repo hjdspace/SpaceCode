@@ -255,7 +255,7 @@ function getServerTypeColor(server: MCPServer): string {
 
 .server-card {
   background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   border-radius: 10px;
   overflow: hidden;
   transition: all 0.15s;
@@ -330,7 +330,7 @@ function getServerTypeColor(server: MCPServer): string {
   font-weight: 500;
   padding: 2px 6px;
   border-radius: 4px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   color: var(--text-muted);
 }
 
@@ -348,8 +348,8 @@ function getServerTypeColor(server: MCPServer): string {
   }
 
   &.failed {
-    border-color: #dc3545;
-    color: #dc3545;
+    border-color: var(--error);
+    color: var(--error);
     background: rgba(220, 53, 69, 0.1);
   }
 
@@ -372,7 +372,7 @@ function getServerTypeColor(server: MCPServer): string {
   }
 
   &.configured {
-    border-color: var(--border-color);
+    border-color: var(--border-default);
     color: var(--text-muted);
   }
 }
@@ -431,7 +431,7 @@ function getServerTypeColor(server: MCPServer): string {
 
   &.danger:hover {
     background: rgba(220, 53, 69, 0.1);
-    color: #dc3545;
+    color: var(--error);
   }
 
   &.probing {
@@ -466,7 +466,7 @@ function getServerTypeColor(server: MCPServer): string {
 
 .server-details {
   padding: 12px 16px 16px 44px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-default);
   background: var(--bg-tertiary);
 }
 
@@ -495,7 +495,7 @@ function getServerTypeColor(server: MCPServer): string {
   font-size: 11px;
   padding: 3px 8px;
   background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   border-radius: 4px;
   font-family: var(--font-mono, monospace);
   color: var(--text-secondary);
@@ -520,7 +520,7 @@ function getServerTypeColor(server: MCPServer): string {
   }
 
   &.failed {
-    color: #dc3545;
+    color: var(--error);
     background: rgba(220, 53, 69, 0.1);
   }
 
@@ -532,7 +532,7 @@ function getServerTypeColor(server: MCPServer): string {
 
 .probe-error {
   font-size: 11px;
-  color: #dc3545;
+  color: var(--error);
   padding: 6px 10px;
   background: rgba(220, 53, 69, 0.06);
   border-radius: 4px;
@@ -549,7 +549,7 @@ function getServerTypeColor(server: MCPServer): string {
   display: flex;
   flex-direction: column;
   gap: 0;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   border-radius: 6px;
   overflow: hidden;
 }
@@ -560,7 +560,7 @@ function getServerTypeColor(server: MCPServer): string {
   gap: 12px;
   padding: 7px 10px;
   font-size: 12px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
 
   &:last-child {
     border-bottom: none;

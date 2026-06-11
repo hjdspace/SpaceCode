@@ -137,8 +137,8 @@ function truncate(s: string, n: number): string {
 <style scoped lang="scss">
 .bundle-card {
   background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
   overflow: hidden;
   transition: all 0.2s ease;
 
@@ -193,7 +193,7 @@ function truncate(s: string, n: number): string {
 .version-badge {
   font-size: 11px;
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: var(--bg-tertiary);
   color: var(--text-secondary);
   font-family: var(--font-mono, monospace);
@@ -204,7 +204,7 @@ function truncate(s: string, n: number): string {
   align-items: center;
   gap: 2px;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   font-size: 10px;
   font-weight: 500;
   border: 1px solid #10b981;
@@ -235,7 +235,7 @@ function truncate(s: string, n: number): string {
 
 .meta-chip {
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: var(--bg-tertiary);
   color: var(--text-secondary);
   font-size: 10px;
@@ -254,12 +254,12 @@ function truncate(s: string, n: number): string {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
-  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 
   &:hover {
     background: var(--bg-tertiary);
@@ -268,11 +268,11 @@ function truncate(s: string, n: number): string {
 
   svg.rotated {
     transform: rotate(180deg);
-    transition: transform 0.15s;
+    transition: transform var(--transition-fast);
   }
 
   svg {
-    transition: transform 0.15s;
+    transition: transform var(--transition-fast);
   }
 }
 
@@ -281,12 +281,12 @@ function truncate(s: string, n: number): string {
   align-items: center;
   gap: 4px;
   padding: 6px 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   border: none;
-  transition: opacity 0.15s;
+  transition: opacity var(--transition-fast);
 
   &:disabled {
     opacity: 0.6;
@@ -313,7 +313,7 @@ function truncate(s: string, n: number): string {
 }
 
 .bundle-body {
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-default);
   background: var(--bg-primary);
   padding: 8px 12px 12px;
 }
@@ -336,9 +336,9 @@ function truncate(s: string, n: number): string {
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--transition-fast);
 
   &:hover {
     background: var(--bg-tertiary);
@@ -390,14 +390,14 @@ function truncate(s: string, n: number): string {
   align-items: center;
   gap: 3px;
   padding: 3px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   font-size: 11px;
   font-weight: 500;
   cursor: pointer;
   border: 1px solid var(--accent-primary);
   background: transparent;
   color: var(--accent-primary);
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
   flex-shrink: 0;
 
   &:hover {

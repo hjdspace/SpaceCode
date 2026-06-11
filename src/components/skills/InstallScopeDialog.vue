@@ -136,7 +136,7 @@ function handleCancel() {
   align-items: center;
   gap: 12px;
   padding: 14px 16px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -201,7 +201,7 @@ function handleCancel() {
 
   &.btn-secondary {
     background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--border-default);
     color: var(--text-primary);
 
     &:hover {

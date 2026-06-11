@@ -73,7 +73,7 @@ watch(() => props.value, (newValue) => {
 
 <style lang="scss" scoped>
 .config-editor {
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -84,7 +84,7 @@ watch(() => props.value, (newValue) => {
   justify-content: space-between;
   padding: 10px 12px;
   background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .editor-label {
@@ -121,7 +121,7 @@ watch(() => props.value, (newValue) => {
   gap: 8px;
   padding: 10px 12px;
   background: var(--bg-tertiary);
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-default);
 }
 
 .config-preview {
@@ -169,7 +169,7 @@ watch(() => props.value, (newValue) => {
 
   &.btn-secondary {
     background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--border-default);
     color: var(--text-primary);
 
     &:hover {

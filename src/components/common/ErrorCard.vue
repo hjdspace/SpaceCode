@@ -181,11 +181,11 @@ const headerIcon = computed(() => {
 }
 
 .retry-btn {
-  border-color: rgba(99, 102, 241, 0.3);
+  border-color: color-mix(in srgb, var(--accent-secondary) 30%, transparent);
   color: var(--accent-primary);
 
   &:hover {
-    background: rgba(99, 102, 241, 0.1);
+    background: color-mix(in srgb, var(--accent-secondary) 10%, transparent);
   }
 }
 </style>

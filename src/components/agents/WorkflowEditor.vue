@@ -545,7 +545,7 @@ onUnmounted(() => {
 
 .workflow-toolbar {
   padding: 12px 16px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
 }
 
@@ -563,8 +563,8 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 14px 16px;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
   background: var(--bg-secondary);
 }
 
@@ -587,14 +587,14 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   padding: 10px 16px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
   background: var(--bg-secondary);
 }
 
 .back-btn {
   display: flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px; border-radius: 6px; border: none;
+  width: 28px; height: 28px; border-radius: var(--radius-sm); border: none;
   background: transparent; color: var(--text-muted); cursor: pointer;
   &:hover { background: var(--bg-hover); color: var(--text-primary); }
 }
@@ -618,7 +618,7 @@ onUnmounted(() => {
 .node-sidebar {
   width: 200px;
   flex-shrink: 0;
-  border-right: 1px solid var(--border-color);
+  border-right: 1px solid var(--border-default);
   background: var(--bg-secondary);
   display: flex;
   flex-direction: column;
@@ -647,11 +647,11 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
   background: var(--bg-primary);
   cursor: grab;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
   &:hover { border-color: var(--accent-primary); background: var(--bg-hover); }
   &:active { cursor: grabbing; }
 }
@@ -659,7 +659,7 @@ onUnmounted(() => {
 .node-type-icon {
   width: 32px;
   height: 32px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -697,7 +697,7 @@ onUnmounted(() => {
   position: relative;
   overflow: auto;
   background: var(--bg-primary);
-  background-image: radial-gradient(circle, var(--border-color) 1px, transparent 1px);
+  background-image: radial-gradient(circle, var(--border-default) 1px, transparent 1px);
   background-size: 20px 20px;
   min-height: 0;
 }
@@ -718,8 +718,8 @@ onUnmounted(() => {
 .workflow-node {
   position: absolute;
   min-width: 140px;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
   background: var(--bg-secondary);
   cursor: grab;
   user-select: none;
@@ -742,7 +742,7 @@ onUnmounted(() => {
   height: 12px;
   border-radius: 50%;
   background: var(--bg-tertiary);
-  border: 2px solid var(--border-color);
+  border: 2px solid var(--border-default);
   z-index: 3;
   cursor: crosshair;
   transition: background 0.15s, border-color 0.15s, transform 0.15s;
@@ -771,7 +771,7 @@ onUnmounted(() => {
 .node-header {
   display: flex; align-items: center; gap: 6px;
   padding: 6px 10px; font-size: 11px; font-weight: 600;
-  color: var(--text-secondary); border-bottom: 1px solid var(--border-color);
+  color: var(--text-secondary); border-bottom: 1px solid var(--border-default);
 }
 
 .node-label { flex: 1; }
@@ -780,7 +780,7 @@ onUnmounted(() => {
   display: flex; align-items: center; justify-content: center;
   width: 18px; height: 18px; border-radius: 3px; border: none;
   background: transparent; color: var(--text-muted); cursor: pointer;
-  opacity: 0; transition: all 0.15s;
+  opacity: 0; transition: all var(--transition-fast);
   &:hover { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
   .workflow-node:hover & { opacity: 1; }
 }
@@ -797,7 +797,7 @@ onUnmounted(() => {
 .properties-panel {
   width: 260px;
   flex-shrink: 0;
-  border-left: 1px solid var(--border-color);
+  border-left: 1px solid var(--border-default);
   background: var(--bg-secondary);
   display: flex;
   flex-direction: column;
@@ -810,7 +810,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
 }
 
@@ -821,7 +821,7 @@ onUnmounted(() => {
 
 .panel-close {
   display: flex; align-items: center; justify-content: center;
-  width: 24px; height: 24px; border-radius: 4px; border: none;
+  width: 24px; height: 24px; border-radius: var(--radius-xs); border: none;
   background: transparent; color: var(--text-muted); cursor: pointer;
   &:hover { background: var(--bg-hover); color: var(--text-primary); }
 }
@@ -848,22 +848,22 @@ onUnmounted(() => {
 .prop-group { display: flex; flex-direction: column; gap: 6px; }
 .prop-label { font-size: 11px; font-weight: 500; color: var(--text-muted); }
 .prop-input, .prop-select, .prop-textarea {
-  width: 100%; padding: 6px 8px; border-radius: 4px;
-  border: 1px solid var(--border-color); background: var(--bg-primary);
+  width: 100%; padding: 6px 8px; border-radius: var(--radius-xs);
+  border: 1px solid var(--border-default); background: var(--bg-primary);
   color: var(--text-primary); font-size: 12px;
   &:focus { outline: none; border-color: var(--accent-primary); }
 }
 .prop-textarea { resize: vertical; font-family: inherit; }
 .prop-hint { font-size: 10px; color: var(--text-muted); line-height: 1.4; }
-.prop-actions { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-color); }
+.prop-actions { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-default); }
 
 // Context menu
 .context-menu {
   position: fixed;
   z-index: 100;
   background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
   padding: 4px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.2);
   min-width: 140px;
@@ -871,20 +871,20 @@ onUnmounted(() => {
 
 .menu-item {
   display: flex; align-items: center; gap: 8px;
-  width: 100%; padding: 8px 12px; border: none; border-radius: 4px;
+  width: 100%; padding: 8px 12px; border: none; border-radius: var(--radius-xs);
   background: transparent; color: #ef4444; font-size: 12px; cursor: pointer;
   &:hover { background: rgba(239, 68, 68, 0.08); }
 }
 
 .btn {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 12px; border-radius: 6px; font-size: 12px;
-  font-weight: 500; border: none; cursor: pointer; transition: all 0.15s;
+  padding: 6px 12px; border-radius: var(--radius-sm); font-size: 12px;
+  font-weight: 500; border: none; cursor: pointer; transition: all var(--transition-fast);
 
   &.btn-primary { background: var(--accent-primary); color: white; &:hover { background: var(--accent-primary-hover); } }
   &.btn-primary-sm { background: var(--accent-primary); color: white; padding: 4px 10px; &:hover { background: var(--accent-primary-hover); } }
   &.btn-secondary {
-    background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary);
+    background: var(--bg-secondary); border: 1px solid var(--border-default); color: var(--text-primary);
     &:hover { border-color: var(--accent-primary); }
     &.active { border-color: var(--accent-primary); color: var(--accent-primary); background: rgba(59, 130, 246, 0.08); }
   }

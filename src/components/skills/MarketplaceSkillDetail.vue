@@ -182,7 +182,7 @@ watch(() => props.skill, () => {
 .detail-header {
   flex-shrink: 0;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
   background: var(--bg-secondary);
 }
 
@@ -301,7 +301,7 @@ watch(() => props.skill, () => {
   }
 
   &.btn-danger {
-    background: #dc3545;
+    background: var(--error);
     color: white;
 
     &:hover {

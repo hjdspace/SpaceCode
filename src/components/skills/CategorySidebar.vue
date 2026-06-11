@@ -126,7 +126,7 @@ function getDirectoryName(path: string): string {
 .category-sidebar {
   width: 200px;
   background: var(--bg-secondary);
-  border-right: 1px solid var(--border-color);
+  border-right: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -201,7 +201,7 @@ function getDirectoryName(path: string): string {
 .directories-section {
   margin-top: auto;
   padding-top: 16px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-default);
 }
 
 .section-header {
@@ -219,7 +219,7 @@ function getDirectoryName(path: string): string {
   justify-content: center;
   border-radius: 6px;
   background: transparent;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   cursor: pointer;
   color: var(--text-secondary);
   transition: all 0.2s;

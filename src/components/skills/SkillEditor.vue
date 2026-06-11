@@ -243,7 +243,7 @@ function handleKeyDown(e: KeyboardEvent) {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 16px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
   background: var(--bg-secondary);
   flex-shrink: 0;
 }
@@ -280,7 +280,7 @@ function handleKeyDown(e: KeyboardEvent) {
   border-radius: 4px;
   font-size: 10px;
   font-weight: 500;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   color: var(--text-muted);
   flex-shrink: 0;
 
@@ -337,7 +337,7 @@ function handleKeyDown(e: KeyboardEvent) {
   }
 
   &.btn-danger {
-    background: #dc3545;
+    background: var(--error);
     color: white;
 
     &:hover {
@@ -349,7 +349,7 @@ function handleKeyDown(e: KeyboardEvent) {
 .toolbar-divider {
   width: 1px;
   height: 16px;
-  background: var(--border-color);
+  background: var(--border-default);
   margin: 0 4px;
 }
 
@@ -470,7 +470,7 @@ function handleKeyDown(e: KeyboardEvent) {
 
 .split-left {
   flex: 1;
-  border-right: 1px solid var(--border-color);
+  border-right: 1px solid var(--border-default);
 }
 
 .split-right {
@@ -479,7 +479,7 @@ function handleKeyDown(e: KeyboardEvent) {
 
 .editor-footer {
   padding: 8px 16px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-default);
   background: var(--bg-secondary);
   flex-shrink: 0;
 }

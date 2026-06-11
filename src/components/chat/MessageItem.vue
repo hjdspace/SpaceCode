@@ -651,8 +651,8 @@ function handleUserCopy(e: ClipboardEvent) {
     }
 
     &.kind-slash_command {
-      background: rgba(99, 102, 241, 0.08);
-      border-color: rgba(99, 102, 241, 0.5);
+      background: var(--accent-secondary-glow);
+      border-color: color-mix(in srgb, var(--accent-secondary) 50%, transparent);
       color: #6366f1;
     }
   }

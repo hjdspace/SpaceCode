@@ -16,6 +16,7 @@
         class="toggle-hidden-btn"
         :class="{ active: appStore.showHiddenFiles }"
         :title="appStore.showHiddenFiles ? t('fileTree.hideHiddenFiles') : t('fileTree.showHiddenFiles')"
+        aria-label="切换隐藏文件"
         @click="toggleHiddenFiles"
       >
         <EyeOff v-if="appStore.showHiddenFiles" :size="12" />
@@ -25,6 +26,7 @@
         class="refresh-btn"
         :class="{ loading }"
         :title="t('fileTree.refresh')"
+        aria-label="刷新文件树"
         @click="refreshTree"
         :disabled="loading"
       >

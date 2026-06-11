@@ -22,15 +22,16 @@
             class="history-btn"
             @click="showHistoryModal = true"
             title="历史会话"
+            aria-label="历史会话"
           >
             <History :size="16" />
           </button>
           <span class="agent-badge" v-if="chatStore.currentAgent" :title="chatStore.currentAgent">
-            <span class="badge-dot agent-dot"></span>
+            <span class="badge-dot agent-dot" aria-hidden="true"></span>
             {{ chatStore.currentAgent }}
           </span>
           <span class="model-badge" v-if="currentModel" :title="currentModel">
-            <span class="badge-dot"></span>
+            <span class="badge-dot" aria-hidden="true"></span>
             {{ formatModelName(currentModel) }}
           </span>
           <ContextUsageChip
@@ -38,11 +39,11 @@
             @open="showContextModal = true"
           />
           <span class="provider-badge" v-if="provider">
-            <span class="badge-dot"></span>
+            <span class="badge-dot" aria-hidden="true"></span>
             {{ provider.toUpperCase() }}
           </span>
           <span class="status-indicator" :class="{ configured: isConfigured }">
-            <span class="status-dot"></span>
+            <span class="status-dot" aria-hidden="true"></span>
             <span class="status-text">{{ isConfigured ? t('chat.ready') : t('chat.notConfigured') }}</span>
           </span>
         </div>
@@ -1118,9 +1119,9 @@ async function handleRestoreHistorySession(session: any) {
 }
 
 .agent-badge {
-  background: rgba(99, 102, 241, 0.1);
+  background: color-mix(in srgb, var(--accent-secondary) 10%, transparent);
   color: var(--accent-primary, #6366f1);
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  border: 1px solid color-mix(in srgb, var(--accent-secondary) 30%, transparent);
 
   .badge-dot {
     width: 6px;

@@ -61,7 +61,7 @@ function handleClose() {
 
 .agent-header {
   flex-shrink: 0;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
   padding: 16px 20px 12px;
   background: var(--bg-secondary);
 }

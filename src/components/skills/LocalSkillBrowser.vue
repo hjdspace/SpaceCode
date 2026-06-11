@@ -253,7 +253,7 @@ async function handleRemoveDirectory(dirPath: string) {
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
   gap: 12px;
 }
 
@@ -264,7 +264,7 @@ async function handleRemoveDirectory(dirPath: string) {
   gap: 8px;
   padding: 8px 12px;
   background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
 
   input {
@@ -390,14 +390,14 @@ async function handleRemoveDirectory(dirPath: string) {
   :deep(.category-sidebar) {
     width: 100%;
     border-right: none;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-default);
     max-height: 200px;
   }
 
   :deep(.skill-detail) {
     width: 100%;
     border-left: none;
-    border-top: 1px solid var(--border-color);
+    border-top: 1px solid var(--border-default);
   }
 
   :deep(.no-selection) {

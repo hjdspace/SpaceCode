@@ -154,7 +154,7 @@ watch(
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
   font-size: 13px;
 
   .file-name {
@@ -221,7 +221,7 @@ watch(
   padding-right: 12px;
   padding-left: 12px;
   background: var(--bg-secondary);
-  border-right: 1px solid var(--border-color);
+  border-right: 1px solid var(--border-default);
   user-select: none;
   text-align: right;
 

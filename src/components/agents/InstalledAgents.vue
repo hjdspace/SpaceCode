@@ -115,7 +115,7 @@ onMounted(() => {
   justify-content: space-between;
   padding: 10px 12px;
   border-radius: 6px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   background: var(--bg-secondary);
 }
 

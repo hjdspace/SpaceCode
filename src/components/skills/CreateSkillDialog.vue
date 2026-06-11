@@ -254,7 +254,7 @@ async function handleCreate() {
   align-items: center;
   gap: 4px;
   padding: 8px 12px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   border-radius: 6px;
   background: var(--bg-secondary);
 }
@@ -288,7 +288,7 @@ async function handleCreate() {
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   border-radius: 6px;
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -322,7 +322,7 @@ async function handleCreate() {
 
 .template-btn {
   padding: 6px 12px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   border-radius: 4px;
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -343,7 +343,7 @@ async function handleCreate() {
 
 .error-text {
   font-size: 12px;
-  color: #dc3545;
+  color: var(--error);
   margin: 0;
 }
 
@@ -382,7 +382,7 @@ async function handleCreate() {
 
   &.btn-secondary {
     background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--border-default);
     color: var(--text-primary);
 
     &:hover:not(:disabled) {

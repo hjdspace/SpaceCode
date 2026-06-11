@@ -8,16 +8,16 @@
         <ChevronDown :size="12" />
       </div>
       <div class="scm-actions">
-        <button class="scm-action-btn" @click="handleRefresh" :title="t('scm.refresh')">
+        <button class="scm-action-btn" @click="handleRefresh" :title="t('scm.refresh')" aria-label="刷新">
           <RefreshCw :size="14" :class="{ spinning: scmStore.isLoading }" />
         </button>
-        <button class="scm-action-btn" @click="handlePull" :title="t('scm.pull')">
+        <button class="scm-action-btn" @click="handlePull" :title="t('scm.pull')" aria-label="拉取">
           <ArrowDown :size="14" />
         </button>
-        <button class="scm-action-btn" @click="handlePush" :title="t('scm.push')">
+        <button class="scm-action-btn" @click="handlePush" :title="t('scm.push')" aria-label="推送">
           <ArrowUp :size="14" />
         </button>
-        <button class="scm-action-btn" @click="handleStash" :title="t('scm.stash')">
+        <button class="scm-action-btn" @click="handleStash" :title="t('scm.stash')" aria-label="暂存">
           <Archive :size="14" />
         </button>
       </div>
@@ -27,7 +27,7 @@
     <div v-if="showBranchDropdown" class="branch-dropdown" @click.stop>
       <div class="branch-dropdown-header">
         <span>{{ t('scm.branches') }}</span>
-        <button class="branch-create-btn" @click="showCreateBranch = true">
+        <button class="branch-create-btn" @click="showCreateBranch = true" aria-label="新建分支">
           <Plus :size="12" />
         </button>
       </div>
@@ -123,16 +123,16 @@
           <ChevronRight :size="12" :class="{ rotated: !stagedCollapsed }" />
           <span class="group-title">{{ t('scm.changes') }}</span>
           <div class="group-actions-right">
-            <button class="group-icon-btn" :title="t('scm.discardAllChanges')" @click.stop="handleDiscardAll">
+            <button class="group-icon-btn" :title="t('scm.discardAllChanges')" @click.stop="handleDiscardAll" aria-label="放弃所有更改">
               <Trash2 :size="14" />
             </button>
-            <button class="group-icon-btn" :title="t('scm.stageAllChanges')" @click.stop="handleStageAll">
+            <button class="group-icon-btn" :title="t('scm.stageAllChanges')" @click.stop="handleStageAll" aria-label="暂存所有更改">
               <Check :size="14" />
             </button>
-            <button class="group-icon-btn" :title="t('scm.refresh')" @click.stop="handleRefresh">
+            <button class="group-icon-btn" :title="t('scm.refresh')" @click.stop="handleRefresh" aria-label="刷新">
               <RefreshCw :size="14" />
             </button>
-            <button class="group-icon-btn more" :title="t('scm.moreActions')" @click.stop="showMoreMenu = !showMoreMenu">
+            <button class="group-icon-btn more" :title="t('scm.moreActions')" @click.stop="showMoreMenu = !showMoreMenu" aria-label="更多操作">
               <MoreHorizontal :size="14" />
             </button>
           </div>
@@ -153,9 +153,9 @@
               <span class="file-name" :title="file.path">{{ getFileName(file.path) }}</span>
               <span class="file-path-truncated" :title="file.path">{{ truncatePath(file.path) }}</span>
               <div class="file-actions">
-                <button class="file-action-btn" @click.stop="handleCopyPath(file)" :title="t('scm.copyPath')"><Copy :size="12" /></button>
-                <button class="file-action-btn" @click.stop="handleUnstage(file)" :title="t('scm.unstage')"><Undo2 :size="12" /></button>
-                <button class="file-action-btn" @click.stop="handleStage(file)" :title="t('scm.stage')"><Plus :size="12" /></button>
+                <button class="file-action-btn" @click.stop="handleCopyPath(file)" :title="t('scm.copyPath')" aria-label="复制路径"><Copy :size="12" /></button>
+                <button class="file-action-btn" @click.stop="handleUnstage(file)" :title="t('scm.unstage')" aria-label="取消暂存"><Undo2 :size="12" /></button>
+                <button class="file-action-btn" @click.stop="handleStage(file)" :title="t('scm.stage')" aria-label="暂存"><Plus :size="12" /></button>
               </div>
             </div>
           </template>
@@ -174,9 +174,9 @@
               <span class="file-name" :title="file.path">{{ getFileName(file.path) }}</span>
               <span class="file-path-truncated" :title="file.path">{{ truncatePath(file.path) }}</span>
               <div class="file-actions">
-                  <button class="file-action-btn" @click.stop="handleCopyPath(file)" :title="t('scm.copyPath')"><Copy :size="12" /></button>
-                  <button class="file-action-btn discard" @click.stop="handleDiscard(file)" :title="t('scm.discardChanges')"><Undo2 :size="12" /></button>
-                  <button class="file-action-btn" @click.stop="handleStage(file)" :title="t('scm.stage')"><Plus :size="12" /></button>
+                  <button class="file-action-btn" @click.stop="handleCopyPath(file)" :title="t('scm.copyPath')" aria-label="复制路径"><Copy :size="12" /></button>
+                  <button class="file-action-btn discard" @click.stop="handleDiscard(file)" :title="t('scm.discardChanges')" aria-label="放弃更改"><Undo2 :size="12" /></button>
+                  <button class="file-action-btn" @click.stop="handleStage(file)" :title="t('scm.stage')" aria-label="暂存"><Plus :size="12" /></button>
                 </div>
             </div>
             <div
@@ -191,7 +191,7 @@
               <span class="file-name" :title="file.path">{{ getFileName(file.path) }}</span>
               <span class="file-path-truncated" :title="file.path">{{ truncatePath(file.path) }}</span>
               <div class="file-actions">
-                  <button class="file-action-btn" @click.stop="handleStage(file)" :title="t('scm.stage')"><Plus :size="12" /></button>
+                  <button class="file-action-btn" @click.stop="handleStage(file)" :title="t('scm.stage')" aria-label="暂存"><Plus :size="12" /></button>
                 </div>
             </div>
           </template>
@@ -243,19 +243,19 @@
             <GitMerge :size="13" />
             <span>自动</span>
           </button>
-          <button class="graph-tool-btn" :class="{ active: graphViewMode === 'linear' }" @click.stop="graphViewMode = 'linear'" title="Linear">
+          <button class="graph-tool-btn" :class="{ active: graphViewMode === 'linear' }" @click.stop="graphViewMode = 'linear'" title="Linear" aria-label="线性视图">
             <CircleDot :size="13" />
           </button>
-          <button class="graph-tool-btn" @click.stop="handleFetchAll" title="Fetch All">
+          <button class="graph-tool-btn" @click.stop="handleFetchAll" title="Fetch All" aria-label="获取全部">
             <ArrowDownToLine :size="13" />
           </button>
-          <button class="graph-tool-btn" @click.stop="handlePull" title="Pull">
+          <button class="graph-tool-btn" @click.stop="handlePull" title="Pull" aria-label="拉取">
             <ArrowDown :size="13" />
           </button>
-          <button class="graph-tool-btn" @click.stop="handlePush" title="Push">
+          <button class="graph-tool-btn" @click.stop="handlePush" title="Push" aria-label="推送">
             <ArrowUp :size="13" />
           </button>
-          <button class="graph-tool-btn" @click.stop="handleRefreshGraph" title="Refresh Graph">
+          <button class="graph-tool-btn" @click.stop="handleRefreshGraph" title="Refresh Graph" aria-label="刷新图形">
             <RefreshCw :size="13" :class="{ spinning: graphLoading }" />
           </button>
         </div>
@@ -929,7 +929,7 @@ onUnmounted(() => {
 
   &.primary {
     flex: 1;
-    background: #6ecf9e;
+    background: var(--success);
     color: white;
     border-radius: var(--radius-md) 0 0 var(--radius-md);
     &:hover { background: #5bc48e; }
@@ -938,7 +938,7 @@ onUnmounted(() => {
   &.dropdown {
     width: 32px;
     padding: 0;
-    background: #6ecf9e;
+    background: var(--success);
     color: white;
     border-radius: 0 var(--radius-md) var(--radius-md) 0;
     &:hover { background: #5bc48e; }

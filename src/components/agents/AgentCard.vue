@@ -40,7 +40,7 @@ const categoryLabel = computed(() => categoryInfo.value.label)
 <style lang="scss" scoped>
 .agent-card {
   border-radius: 8px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   background: var(--bg-secondary);
   padding: 14px;
   cursor: pointer;

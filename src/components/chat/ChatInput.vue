@@ -2900,7 +2900,7 @@ watch(pendingFile, (file) => {
     font-size: 11px;
     font-weight: 600;
     padding: 2px 6px;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     white-space: nowrap;
     flex-shrink: 0;
     text-transform: uppercase;
@@ -2909,8 +2909,8 @@ watch(pendingFile, (file) => {
 
   &.pending-later .pending-priority-tag {
     color: #6366f1;
-    background: rgba(99, 102, 241, 0.1);
-    border: 1px solid rgba(99, 102, 241, 0.2);
+    background: color-mix(in srgb, var(--accent-secondary) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-secondary) 20%, transparent);
   }
 
   &:not(.pending-later) .pending-priority-tag {
@@ -2931,7 +2931,7 @@ watch(pendingFile, (file) => {
     color: var(--text-muted);
     cursor: pointer;
     flex-shrink: 0;
-    transition: all 0.15s ease;
+    transition: all var(--transition-fast);
 
     &:hover {
       background: var(--bg-hover);
@@ -2959,8 +2959,8 @@ watch(pendingFile, (file) => {
   }
 
   &.is-optimizing {
-    border-color: rgba(99, 102, 241, 0.45);
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.08);
+    border-color: color-mix(in srgb, var(--accent-secondary) 45%, transparent);
+    box-shadow: 0 0 0 3px var(--accent-secondary-glow);
 
     .inline-editor {
       opacity: 0.55;
@@ -2975,7 +2975,7 @@ watch(pendingFile, (file) => {
 .optimize-shimmer {
   position: absolute;
   inset: -4px -8px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   pointer-events: none;
   overflow: hidden;
   z-index: 1;
@@ -2988,7 +2988,7 @@ watch(pendingFile, (file) => {
       110deg,
       transparent 0%,
       transparent 35%,
-      rgba(99, 102, 241, 0.18) 50%,
+      color-mix(in srgb, var(--accent-secondary) 18%, transparent) 50%,
       rgba(168, 85, 247, 0.14) 55%,
       transparent 70%,
       transparent 100%
@@ -3067,12 +3067,12 @@ watch(pendingFile, (file) => {
   gap: 6px;
   margin-left: 4px;
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   font-size: 12px;
   line-height: 1;
   color: #6366f1;
-  background: rgba(99, 102, 241, 0.08);
-  border: 1px solid rgba(99, 102, 241, 0.18);
+  background: var(--accent-secondary-glow);
+  border: 1px solid color-mix(in srgb, var(--accent-secondary) 18%, transparent);
   white-space: nowrap;
   user-select: none;
 
@@ -3162,7 +3162,7 @@ watch(pendingFile, (file) => {
       margin: 0 2px;
       background: var(--bg-secondary);
       border: 1px solid var(--surface-border);
-      border-radius: 4px;
+      border-radius: var(--radius-xs);
       font-size: 12px;
       line-height: 1.4;
       vertical-align: baseline;
@@ -3204,7 +3204,7 @@ watch(pendingFile, (file) => {
       padding: 2px 8px;
       margin: 0 2px;
       border: 1px solid var(--surface-border);
-      border-radius: 4px;
+      border-radius: var(--radius-xs);
       font-size: 12px;
       line-height: 1.4;
       vertical-align: baseline;
@@ -3248,8 +3248,8 @@ watch(pendingFile, (file) => {
       }
 
       &.kind-slash_command {
-        background: rgba(99, 102, 241, 0.08);
-        border-color: rgba(99, 102, 241, 0.5);
+        background: var(--accent-secondary-glow);
+        border-color: color-mix(in srgb, var(--accent-secondary) 50%, transparent);
         color: #6366f1;
       }
 
@@ -3322,11 +3322,11 @@ watch(pendingFile, (file) => {
   align-items: center;
   gap: 4px;
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 13px;
   color: var(--text-secondary);
   background: transparent;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast);
 
   &:hover {
     background: var(--surface-hover);
@@ -3368,7 +3368,7 @@ watch(pendingFile, (file) => {
     font-weight: 500;
     color: var(--text-muted);
     background: var(--bg-tertiary, rgba(0, 0, 0, 0.04));
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     line-height: 1.4;
   }
 
@@ -3422,7 +3422,7 @@ watch(pendingFile, (file) => {
   min-width: 240px;
   background: var(--bg-primary);
   border: 1px solid var(--surface-border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
   z-index: 100;
   overflow: hidden;
@@ -3434,7 +3434,7 @@ watch(pendingFile, (file) => {
   max-height: 360px;
   background: var(--bg-primary);
   border: 1px solid var(--surface-border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
   z-index: 110;
   overflow: hidden;
@@ -3468,10 +3468,10 @@ watch(pendingFile, (file) => {
   justify-content: center;
   width: 24px;
   height: 24px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
   background: transparent;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast);
 
   &:hover:not(:disabled) {
     background: var(--surface-hover);
@@ -3520,7 +3520,7 @@ watch(pendingFile, (file) => {
     border: none;
     color: var(--text-muted);
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
 
     &:hover {
       background: var(--surface-hover);
@@ -3588,10 +3588,10 @@ watch(pendingFile, (file) => {
   padding: 6px 12px;
   background: var(--accent-primary);
   color: white;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 500;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast);
 
   &:hover {
     background: var(--accent-primary-hover);
@@ -3604,11 +3604,11 @@ watch(pendingFile, (file) => {
   justify-content: space-between;
   width: 100%;
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 13px;
   color: var(--text-primary);
   background: transparent;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast);
   text-align: left;
 
   &:hover,
@@ -3731,7 +3731,7 @@ watch(pendingFile, (file) => {
   min-width: 220px;
   background: var(--bg-primary);
   border: 1px solid var(--surface-border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
   z-index: 100;
   overflow: visible;
@@ -3744,11 +3744,11 @@ watch(pendingFile, (file) => {
   gap: 10px;
   width: 100%;
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 13px;
   color: var(--text-primary);
   background: transparent;
-  transition: background 0.15s ease;
+  transition: background var(--transition-fast);
 
   &:hover {
     background: var(--surface-hover);
@@ -3768,7 +3768,7 @@ watch(pendingFile, (file) => {
     margin-left: auto;
     color: var(--text-muted);
     flex-shrink: 0;
-    transition: color 0.15s;
+    transition: color var(--transition-fast);
   }
 
   .agent-active-dot {
@@ -3797,7 +3797,7 @@ watch(pendingFile, (file) => {
   max-height: 340px;
   background: var(--bg-primary);
   border: 1px solid var(--surface-border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
   z-index: 110;
   overflow: hidden;
@@ -3827,13 +3827,13 @@ watch(pendingFile, (file) => {
   align-items: center;
   width: 100%;
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 13px;
   color: var(--text-primary);
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: background var(--transition-fast);
   text-align: left;
   gap: 2px 8px;
 
@@ -3896,7 +3896,7 @@ watch(pendingFile, (file) => {
   max-height: 320px;
   background: var(--bg-primary);
   border: 1px solid var(--surface-border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.16);
   z-index: 1000;
   overflow: hidden;
@@ -3939,7 +3939,7 @@ watch(pendingFile, (file) => {
     border: none;
     color: var(--text-muted);
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
 
     &:hover {
       background: var(--surface-hover);
@@ -4005,7 +4005,7 @@ watch(pendingFile, (file) => {
   .item-badge {
     font-size: 10px;
     padding: 1px 6px;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.3px;
@@ -4036,7 +4036,7 @@ watch(pendingFile, (file) => {
   font-size: 13px;
   color: var(--text-secondary);
   background: transparent;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast);
   text-align: left;
 
   &:hover {

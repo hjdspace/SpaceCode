@@ -119,7 +119,7 @@
               @click="toggleExpand(item.name)"
             >
               <ChevronRight :size="12" class="chev" />
-              <span class="status-dot" :class="item.status" />
+              <span class="status-dot" :class="item.status" aria-hidden="true" />
               <span class="server-name">{{ item.name }}</span>
               <span v-if="item.toolCount > 0" class="tool-count">
                 {{ item.toolCount }} {{ t('mcpSettings.tools') }}
@@ -373,7 +373,7 @@ onMounted(() => {
 .mcp-header {
   flex-shrink: 0;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
   background: var(--bg-secondary);
 }
 
@@ -395,7 +395,7 @@ onMounted(() => {
   justify-content: center;
   width: 32px;
   height: 32px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: none;
   background: transparent;
   color: var(--text-muted);
@@ -437,12 +437,12 @@ onMounted(() => {
 .error-banner {
   padding: 12px 16px;
   background: rgba(220, 53, 69, 0.1);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   margin-bottom: 16px;
 
   p {
     font-size: 13px;
-    color: #dc3545;
+    color: var(--error);
     margin: 0;
   }
 }
@@ -458,14 +458,14 @@ onMounted(() => {
   align-items: center;
   gap: 6px;
   padding: 8px 14px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   font-weight: 500;
   border: none;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 
   &:hover {
     background: var(--bg-hover);
@@ -512,7 +512,7 @@ onMounted(() => {
 }
 
 .runtime-section {
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-default);
   padding-top: 16px;
 }
 
@@ -541,14 +541,14 @@ onMounted(() => {
   align-items: center;
   gap: 4px;
   padding: 6px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   font-size: 11px;
   font-weight: 500;
   border: none;
   background: var(--bg-secondary);
   color: var(--text-primary);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 
   &:hover:not(:disabled) {
     background: var(--bg-hover);
@@ -574,8 +574,8 @@ onMounted(() => {
   text-align: left;
   padding: 14px 16px;
   background: var(--bg-secondary);
-  border: 1px dashed var(--border-color);
-  border-radius: 8px;
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
 
   svg {
@@ -607,9 +607,9 @@ onMounted(() => {
 .runtime-item {
   display: flex;
   flex-direction: column;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
 }
 
 .runtime-summary {
@@ -624,20 +624,20 @@ onMounted(() => {
   text-align: left;
   color: inherit;
   font: inherit;
-  transition: background 0.15s;
+  transition: background var(--transition-fast);
 
   &:hover {
     background: var(--bg-hover);
   }
 
   &.open {
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-default);
   }
 }
 
 .chev {
   color: var(--text-muted);
-  transition: transform 0.15s;
+  transition: transform var(--transition-fast);
   flex-shrink: 0;
 
   .runtime-summary.open & {
@@ -666,7 +666,7 @@ onMounted(() => {
   align-items: baseline;
   gap: 12px;
   padding: 8px 12px 8px 32px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-default);
   font-size: 12px;
 
   &:first-child {
@@ -700,7 +700,7 @@ onMounted(() => {
 .tool-error {
   padding: 8px 12px 8px 32px;
   font-size: 11px;
-  color: #dc3545;
+  color: var(--error);
 }
 
 .status-dot {
@@ -714,7 +714,7 @@ onMounted(() => {
   }
 
   &.failed {
-    background: #dc3545;
+    background: var(--error);
   }
 
   &.needs-auth {
@@ -753,8 +753,8 @@ onMounted(() => {
   font-size: 10px;
   font-weight: 500;
   padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border-default);
   text-transform: lowercase;
 
   &.connected {
@@ -763,8 +763,8 @@ onMounted(() => {
   }
 
   &.failed {
-    border-color: #dc3545;
-    color: #dc3545;
+    border-color: var(--error);
+    color: var(--error);
   }
 
   &.pending {
@@ -788,12 +788,12 @@ onMounted(() => {
   align-items: center;
   gap: 6px;
   padding: 8px 14px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 500;
   border: none;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 
   &.btn-primary {
     background: var(--accent-primary);

@@ -12,28 +12,28 @@
       <!-- Left Icon Area - Status Indicators (CodePilot-style) -->
       <div class="status-indicator">
         <!-- Loading: Switching session -->
-        <span v-if="isLoading" class="loading-indicator" title="切换中...">
+        <span v-if="isLoading" class="loading-indicator" aria-hidden="true" title="切换中...">
           <span class="spinner-small"></span>
         </span>
         <!-- Active/Starting: Spinning circle -->
-        <span v-else-if="processStatus === 'active' || processStatus === 'starting'" class="spinning-indicator">
+        <span v-else-if="processStatus === 'active' || processStatus === 'starting'" class="spinning-indicator" aria-hidden="true">
           <span class="spinner"></span>
         </span>
         <!-- Idle: Green dot -->
-        <span v-else-if="processStatus === 'idle'" class="idle-indicator">
+        <span v-else-if="processStatus === 'idle'" class="idle-indicator" aria-hidden="true">
           <span class="dot"></span>
         </span>
         <!-- Suspended: Yellow dot -->
-        <span v-else-if="processStatus === 'suspended'" class="suspended-indicator">
+        <span v-else-if="processStatus === 'suspended'" class="suspended-indicator" aria-hidden="true">
           <span class="dot"></span>
         </span>
         <!-- Streaming Indicator with ping animation (legacy) -->
-        <span v-else-if="isStreaming" class="streaming-indicator">
+        <span v-else-if="isStreaming" class="streaming-indicator" aria-hidden="true">
           <span class="ping" />
           <span class="dot" />
         </span>
         <!-- Approval Indicator -->
-        <span v-else-if="needsApproval" class="approval-badge">
+        <span v-else-if="needsApproval" class="approval-badge" aria-hidden="true">
           <Bell :size="10" />
         </span>
       </div>
@@ -61,6 +61,7 @@
         <button
           ref="menuTriggerRef"
           class="menu-trigger"
+          aria-label="会话菜单"
           @click.stop="toggleMenu"
         >
           <MoreVertical :size="16" />

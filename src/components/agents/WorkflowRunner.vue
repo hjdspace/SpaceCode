@@ -174,7 +174,7 @@ function stopExecution() {
   max-height: 80vh;
   background: var(--bg-primary);
   border-radius: 12px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -185,7 +185,7 @@ function stopExecution() {
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
 
   h3 { font-size: 14px; font-weight: 600; color: var(--text-primary); margin: 0; }
 }
@@ -210,7 +210,7 @@ function stopExecution() {
 
 .input-textarea {
   width: 100%; padding: 10px; border-radius: 6px;
-  border: 1px solid var(--border-color); background: var(--bg-secondary);
+  border: 1px solid var(--border-default); background: var(--bg-secondary);
   color: var(--text-primary); font-size: 13px; resize: vertical; font-family: inherit;
   &:focus { outline: none; border-color: var(--accent-primary); }
 }
@@ -227,7 +227,7 @@ function stopExecution() {
 .exec-node {
   padding: 10px 12px;
   border-radius: 6px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   background: var(--bg-secondary);
 
   &.status-running { border-color: rgba(59, 130, 246, 0.5); }
@@ -265,7 +265,7 @@ function stopExecution() {
 
 .runner-footer {
   padding: 12px 20px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-default);
   display: flex;
   justify-content: flex-end;
 }

@@ -119,7 +119,7 @@ async function handleUninstall() {
   align-items: center;
   gap: 10px;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
 }
 
@@ -218,7 +218,7 @@ async function handleUninstall() {
   flex-direction: column;
   gap: 10px;
   padding: 14px 20px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-default);
   background: var(--bg-secondary);
 }
 
@@ -233,7 +233,7 @@ async function handleUninstall() {
   gap: 6px;
   padding: 8px 12px;
   border-radius: 6px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   cursor: pointer;
   font-size: 12px;
   color: var(--text-secondary);

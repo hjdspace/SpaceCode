@@ -176,7 +176,7 @@ async function handleRemove(dirPath: string) {
   align-items: center;
   justify-content: space-between;
   padding: 20px 24px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .modal-title {
@@ -249,7 +249,7 @@ async function handleRemove(dirPath: string) {
   gap: 8px;
   padding: 10px 12px;
   background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   font-size: 13px;
 
@@ -296,7 +296,7 @@ async function handleRemove(dirPath: string) {
 
 .add-section {
   padding-top: 16px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-default);
 }
 
 .input-group {
@@ -307,7 +307,7 @@ async function handleRemove(dirPath: string) {
 .path-input {
   flex: 1;
   padding: 10px 12px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   background: var(--bg-primary);
   color: var(--text-primary);
@@ -362,7 +362,7 @@ async function handleRemove(dirPath: string) {
 
 .modal-footer {
   padding: 16px 24px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-default);
   display: flex;
   justify-content: flex-end;
 }
@@ -371,7 +371,7 @@ async function handleRemove(dirPath: string) {
   padding: 8px 20px;
   border-radius: 8px;
   background: transparent;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 500;

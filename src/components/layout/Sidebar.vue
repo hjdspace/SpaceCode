@@ -1,5 +1,5 @@
 <template>
-  <aside class="sidebar" :class="{ collapsed: props.collapsed }" :data-collapsed="props.collapsed">
+  <aside class="sidebar" :class="{ collapsed: props.collapsed }" :data-collapsed="props.collapsed" aria-label="侧边栏导航">
     <!-- Icon Navigation Rail (CodePilot-style) -->
     <div class="sidebar-icons" :class="{ 'mac-icons': isMac }">
       <!-- New Chat Button (Top) -->
@@ -8,12 +8,13 @@
         :disabled="creatingChat"
         @click="handleNewChat"
         :title="t('sidebar.newConversation')"
+        aria-label="新建会话"
       >
         <Plus :size="20" />
         <span class="icon-label">{{ t('sidebar.new') }}</span>
       </button>
 
-      <div class="icon-divider"></div>
+      <div class="icon-divider" aria-hidden="true"></div>
 
       <!-- History Tab -->
       <button
@@ -21,6 +22,7 @@
         :class="{ active: activeTab === 'history' }"
         @click="handleTabClick('history')"
         :title="t('sidebar.chatHistory')"
+        aria-label="聊天记录"
       >
         <MessageSquare :size="20" />
         <span class="icon-label">{{ t('sidebar.chats') }}</span>
@@ -32,6 +34,7 @@
         :class="{ active: activeTab === 'explorer' }"
         @click="handleTabClick('explorer')"
         :title="t('sidebar.explorer')"
+        aria-label="文件浏览器"
       >
         <FolderTree :size="20" />
         <span class="icon-label">{{ t('sidebar.explorer') }}</span>
@@ -43,9 +46,10 @@
         :class="{ active: activeTab === 'scm' }"
         @click="handleTabClick('scm')"
         :title="t('sidebar.sourceControl')"
+        aria-label="源代码管理"
       >
         <GitBranch :size="20" />
-        <span v-if="scmStore.totalChanges > 0" class="scm-badge">
+        <span v-if="scmStore.totalChanges > 0" class="scm-badge" aria-hidden="true">
           {{ scmStore.totalChanges }}
         </span>
         <span class="icon-label">{{ t('sidebar.sourceControl') }}</span>
@@ -57,6 +61,7 @@
         :class="{ active: activeTab === 'terminal' }"
         @click="handleTerminalClick"
         :title="t('sidebar.terminal')"
+        aria-label="终端"
       >
         <TerminalIcon :size="20" />
         <span class="icon-label">{{ t('sidebar.terminal') }}</span>
@@ -68,13 +73,14 @@
         :class="{ active: appStore.showTraceViewer }"
         @click="toggleTraceViewer"
         :title="t('sidebar.debugTrace')"
+        aria-label="调试追踪"
       >
         <Activity :size="20" />
         <span class="icon-label">{{ t('sidebar.debugTrace') }}</span>
       </button>
 
       <!-- Spacer to push settings to bottom -->
-      <div class="icon-spacer"></div>
+      <div class="icon-spacer" aria-hidden="true"></div>
 
       <!-- Settings Button -->
       <button
@@ -82,6 +88,7 @@
         :class="{ active: appStore.showSettings }"
         @click="appStore.toggleSettings()"
         :title="t('sidebar.settings')"
+        aria-label="设置"
       >
         <Settings :size="20" />
         <span class="icon-label">{{ t('sidebar.settings') }}</span>
@@ -110,6 +117,7 @@
             <button
               class="search-btn"
               :title="t('sidebar.searchConversations')"
+              aria-label="搜索会话"
               @click="handleOpenSearch"
             >
               <Search :size="14" />
@@ -233,6 +241,7 @@
                 class="terminal-action-btn"
                 @click="handleNewTerminal"
                 :title="t('sidebar.terminal')"
+                aria-label="新建终端"
               >
                 <Plus :size="14" />
               </button>

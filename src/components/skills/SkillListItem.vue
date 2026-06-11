@@ -130,7 +130,7 @@ const showDelete = computed(() => hovered.value && !props.readonly && props.skil
   font-size: 10px;
   font-weight: 500;
   color: var(--text-muted);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   background: var(--bg-tertiary);
 }
 </style>

@@ -266,7 +266,7 @@ onMounted(() => {
 
 .skills-header {
   flex-shrink: 0;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
   padding: 16px 20px 12px;
   background: var(--bg-secondary);
 }
@@ -388,7 +388,7 @@ onMounted(() => {
 .search-input {
   width: 100%;
   padding: 8px 10px 8px 32px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   border-radius: 6px;
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -443,7 +443,7 @@ onMounted(() => {
 
 .divider {
   width: 1px;
-  background: var(--border-color);
+  background: var(--border-default);
   flex-shrink: 0;
 }
 
@@ -506,7 +506,7 @@ onMounted(() => {
 
   &.btn-secondary {
     background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--border-default);
     color: var(--text-primary);
 
     &:hover {

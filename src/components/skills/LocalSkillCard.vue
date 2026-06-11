@@ -104,7 +104,7 @@ const isInstalling = computed(() => props.installing)
 <style scoped lang="scss">
 .local-skill-card {
   background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   border-radius: 12px;
   padding: 16px;
   cursor: pointer;
@@ -190,7 +190,7 @@ const isInstalling = computed(() => props.installing)
   gap: 8px;
   margin-top: auto;
   padding-top: 8px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-default);
 }
 
 .source-text {

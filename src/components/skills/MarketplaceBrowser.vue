@@ -141,7 +141,7 @@ onMounted(() => {
 .search-input {
   width: 100%;
   padding: 8px 10px 8px 32px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   border-radius: 6px;
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -190,7 +190,7 @@ onMounted(() => {
 
 .error-title {
   font-size: 12px;
-  color: #dc3545;
+  color: var(--error);
   margin: 0;
 }
 
@@ -220,7 +220,7 @@ onMounted(() => {
 
 .divider {
   width: 1px;
-  background: var(--border-color);
+  background: var(--border-default);
   flex-shrink: 0;
 }
 

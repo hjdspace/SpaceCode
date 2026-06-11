@@ -32,6 +32,7 @@
         v-if="workingDirectory !== ''"
         class="action-btn"
         :title="t('sidebar.newConversation')"
+        aria-label="新建会话"
         @click.stop="$emit('create-session', $event)"
       >
         <Plus :size="14" />
@@ -42,6 +43,7 @@
         <button
           class="action-btn"
           :title="t('common.moreOptions')"
+          aria-label="项目菜单"
           @click.stop="toggleMenu"
         >
           <MoreVertical :size="14" />

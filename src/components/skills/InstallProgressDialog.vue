@@ -154,7 +154,7 @@ watch(() => props.open, (isOpen) => {
   align-items: center;
   gap: 12px;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .status-icon {
@@ -168,7 +168,7 @@ watch(() => props.open, (isOpen) => {
   }
 
   .error {
-    color: #dc3545;
+    color: var(--error);
   }
 }
 
@@ -208,7 +208,7 @@ watch(() => props.open, (isOpen) => {
   display: flex;
   justify-content: flex-end;
   padding: 12px 16px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-default);
 }
 
 .btn {

@@ -19,7 +19,7 @@
             <code class="address">{{ qrData?.url || '...' }}</code>
           </div>
           <div class="status-line">
-            <span class="status-dot waiting"></span>
+            <span class="status-dot waiting" aria-hidden="true"></span>
             <span>{{ t('mobile.waitingConnection') || '等待连接...' }}</span>
           </div>
         </template>
@@ -27,7 +27,7 @@
         <template v-else>
           <div class="connected-state">
             <div class="status-line">
-              <span class="status-dot connected"></span>
+              <span class="status-dot connected" aria-hidden="true"></span>
               <span>{{ t('mobile.connected') || '已连接' }}: {{ status.clientInfo }}</span>
             </div>
           </div>

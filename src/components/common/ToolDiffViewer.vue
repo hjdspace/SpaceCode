@@ -341,7 +341,7 @@ async function handleRevert() {
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
   font-size: 12px;
   font-weight: 500;
   color: var(--text-primary);
@@ -392,7 +392,7 @@ async function handleRevert() {
   gap: 4px;
   padding: 4px 10px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   font-size: 11px;
   font-weight: 500;
   cursor: pointer;
@@ -515,7 +515,7 @@ async function handleRevert() {
   width: 26px;
   height: 26px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;

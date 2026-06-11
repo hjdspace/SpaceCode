@@ -89,7 +89,7 @@ onMounted(() => {
 
 .library-toolbar {
   padding: 12px 16px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
 }
 
@@ -108,7 +108,7 @@ onMounted(() => {
 .search-input {
   width: 100%;
   padding: 8px 10px 8px 32px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   border-radius: 6px;
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -128,7 +128,7 @@ onMounted(() => {
   width: 160px;
   flex-shrink: 0;
   padding: 8px;
-  border-right: 1px solid var(--border-color);
+  border-right: 1px solid var(--border-default);
   overflow-y: auto;
   min-height: 0;
 }

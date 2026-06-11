@@ -389,7 +389,7 @@ function handleSave() {
   max-height: 85vh;
   overflow-y: auto;
   background: var(--bg-primary);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
   display: flex;
   flex-direction: column;
@@ -427,8 +427,8 @@ function handleSave() {
 
 .form-input {
   padding: 10px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
   background: var(--bg-secondary);
   color: var(--text-primary);
   font-size: 13px;
@@ -454,8 +454,8 @@ function handleSave() {
 
 .form-textarea {
   padding: 10px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
   background: var(--bg-secondary);
   color: var(--text-primary);
   font-size: 13px;
@@ -491,14 +491,14 @@ function handleSave() {
   align-items: center;
   gap: 6px;
   padding: 8px 14px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 500;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   background: var(--bg-secondary);
   color: var(--text-primary);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 
   &:hover {
     border-color: var(--accent-primary);
@@ -523,14 +523,14 @@ function handleSave() {
   justify-content: center;
   gap: 6px;
   padding: 10px 14px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 500;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
   background: var(--bg-secondary);
   color: var(--text-primary);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 
   &:hover {
     border-color: var(--accent-primary);
@@ -545,7 +545,7 @@ function handleSave() {
 
 .error-text {
   font-size: 12px;
-  color: #dc3545;
+  color: var(--error);
   margin: 0;
 }
 
@@ -570,8 +570,8 @@ function handleSave() {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
   color: var(--text-secondary);
   background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
   padding: 8px 10px;
   margin: 0 0 8px;
   overflow-x: auto;
@@ -591,12 +591,12 @@ function handleSave() {
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   font-weight: 500;
   border: none;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 
   &.btn-primary {
     background: var(--accent-primary);
@@ -609,7 +609,7 @@ function handleSave() {
 
   &.btn-secondary {
     background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--border-default);
     color: var(--text-primary);
 
     &:hover {
