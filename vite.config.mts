@@ -17,6 +17,14 @@ export default defineConfig({
       {
         entry: 'electron/main.ts',
         vite: {
+          css: {
+            preprocessorOptions: {
+              scss: {
+                api: 'modern-compiler',
+                silenceDeprecations: ['legacy-js-api'],
+              }
+            }
+          },
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
@@ -41,6 +49,14 @@ export default defineConfig({
           options.reload()
         },
         vite: {
+          css: {
+            preprocessorOptions: {
+              scss: {
+                api: 'modern-compiler',
+                silenceDeprecations: ['legacy-js-api'],
+              }
+            }
+          },
           build: {
             outDir: 'dist-electron'
           }
@@ -95,8 +111,9 @@ export default defineConfig({
   css: {
     preprocessorOptions: {
       scss: {
+        api: 'modern-compiler',
         silenceDeprecations: ['legacy-js-api'],
-        additionalData: `@use "@/styles/variables" as *; @use "@/styles/mixins" as *`
+        additionalData: `@use "@/styles/variables" as *; @use "@/styles/mixins" as *;`
       }
     }
   },
