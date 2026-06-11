@@ -32,10 +32,10 @@
   "ignore_labels": ["ignore-for-release", "skip-changelog"],
   "sort": {
     "order": "ASC",
-    "on_property": "mergedAt"
+    "on_property": "commitDate"
   },
   "template": "#{{CHANGELOG}}\n\n**Full Changelog**: https://github.com/{{OWNER}}/{{REPOSITORY}}/compare/{{fromTag}}...{{toTag}}",
-  "pr_template": "- #{{TITLE}} (#{{NUMBER}}) @#{{AUTHOR}}",
+  "pr_template": "- #{{TITLE}} @#{{AUTHOR}}",
   "empty_template": "- 暂无变更",
   "label_extractor": [
     {
