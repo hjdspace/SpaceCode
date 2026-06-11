@@ -1,0 +1,143 @@
+name: PR Triage
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: pr-triage-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  triage:
+    name: label-and-summarize
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply deterministic PR labels and summary
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner
+            const repo = context.repo.repo
+            const issue_number = context.payload.pull_request.number
+
+            const managedLabels = {
+              'area:frontend': '1d76db',
+              'area:electron': '0e8a16',
+              'area:engine': '5319e7',
+              'area:docs': '0075ca',
+              'area:ci': 'fbca04',
+            }
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner,
+              repo,
+              pull_number: issue_number,
+              per_page: 100,
+            })
+            const filenames = files.map((file) => file.filename)
+            const currentLabels = new Set((context.payload.pull_request.labels || []).map((label) => label.name))
+
+            const areas = new Set()
+
+            for (const filename of filenames) {
+              if (filename.startsWith('src/')) areas.add('area:frontend')
+              if (filename.startsWith('electron/')) areas.add('area:electron')
+              if (filename.startsWith('engine/')) areas.add('area:engine')
+              if (filename.startsWith('docs/') || filename.startsWith('release-notes/')) areas.add('area:docs')
+              if (filename.startsWith('.github/')) areas.add('area:ci')
+            }
+
+            for (const [name, color] of Object.entries(managedLabels)) {
+              try {
+                await github.rest.issues.createLabel({
+                  owner,
+                  repo,
+                  name,
+                  color,
+                })
+              } catch (error) {
+                if (error.status !== 422) throw error
+              }
+            }
+
+            const desiredLabels = [...areas]
+            if (desiredLabels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number,
+                labels: desiredLabels,
+              })
+            }
+
+            for (const label of Object.keys(managedLabels)) {
+              if (!areas.has(label) && currentLabels.has(label)) {
+                try {
+                  await github.rest.issues.removeLabel({
+                    owner,
+                    repo,
+                    issue_number,
+                    name: label,
+                  })
+                } catch (error) {
+                  if (error.status !== 404) throw error
+                }
+              }
+            }
+
+            const marker = '<!-- pr-triage -->'
+            const areaText = [...areas].filter((label) => label.startsWith('area:')).sort().join(', ') || 'none'
+
+            const riskNotes = []
+            if (filenames.some((file) => file.startsWith('electron/'))) {
+              riskNotes.push('Electron main process changed: verify IPC handlers, preload API, and app startup.')
+            }
+            if (filenames.some((file) => file.startsWith('engine/'))) {
+              riskNotes.push('Engine changed: verify engine build, session lifecycle, and AI model communication.')
+            }
+            if (filenames.some((file) => file.startsWith('.github/workflows/'))) {
+              riskNotes.push('CI workflow changed: inspect workflow behavior itself.')
+            }
+            if (riskNotes.length === 0) {
+              riskNotes.push('No special risk notes from changed paths.')
+            }
+
+            const body = [
+              marker,
+              '## PR triage',
+              '',
+              `**Changed areas:** ${areaText}`,
+              '',
+              '**Risk notes:**',
+              riskNotes.map((note) => `- ${note}`).join('\n'),
+            ].join('\n')
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            })
+            const existing = comments.find((comment) => comment.body && comment.body.includes(marker))
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              })
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body,
+              })
+            }
