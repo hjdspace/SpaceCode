@@ -178,34 +178,38 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Get previous tag
-        id: prev_tag
+      - name: Read version
+        id: version
+        shell: bash
         run: |
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          echo "prev_tag=${PREV_TAG}" >> $GITHUB_OUTPUT
-          echo "Previous tag: ${PREV_TAG:-none}"
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Build Changelog
-        id: changelog
-        uses: mikepenz/release-changelog-builder-action@v5
-        with:
-          fromTag: ${{ steps.prev_tag.outputs.prev_tag }}
-          toTag: ${{ github.ref_name }}
-          configuration: .github/changelog-config.json
-          commitMode: true
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Load release notes
+        id: release_notes
+        shell: bash
+        run: |
+          NOTES_FILE="release-notes/v${{ steps.version.outputs.value }}.md"
+          if [ ! -f "$NOTES_FILE" ]; then
+            echo "::warning::Missing release notes file: $NOTES_FILE, using empty notes"
+            echo "body=_" >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo 'body<<__RELEASE_NOTES__'
+              cat "$NOTES_FILE"
+              echo
+              echo '__RELEASE_NOTES__'
+            } >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release edit "${GITHUB_REF_NAME}" --draft=false --notes "${{ steps.changelog.outputs.changelog }}"
-          echo "Release published with changelog."
+          gh release edit "${GITHUB_REF_NAME}" --draft=false --notes "${{ steps.release_notes.outputs.body }}"
+          echo "Release published with release notes."
