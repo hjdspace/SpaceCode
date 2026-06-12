@@ -336,7 +336,7 @@ async function installPiSdk() {
 }
 
 function selectEngine(engineId: EngineType) {
-  if (engineId === 'pi' && piAvailable.value === false) return
+  if (engineId === 'pi' && (piAvailable.value === false || piInstalling.value)) return
   if (config.value.engineType === engineId) return
 
   const previousEngine = config.value.engineType

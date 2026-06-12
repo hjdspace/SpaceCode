@@ -103,21 +103,9 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Search, SearchX, RotateCcw, Keyboard } from 'lucide-vue-next'
 import { debounce } from '@/utils/debounce'
+import type { Shortcut, ShortcutCategory } from '@/composables/useShortcuts'
 
 const { t } = useI18n()
-export interface Shortcut {
-  id: string
-  name: string
-  description: string
-  keys: string[]
-  defaultKeys: string[]
-}
-
-export interface ShortcutCategory {
-  id: string
-  name: string
-  shortcuts: Shortcut[]
-}
 
 export interface ShortcutsConfig {
   categories: ShortcutCategory[]

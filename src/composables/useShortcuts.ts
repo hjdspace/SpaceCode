@@ -1,5 +1,18 @@
 import { ref, onMounted, onUnmounted } from 'vue'
-import type { ShortcutCategory, Shortcut } from '@/components/settings/ShortcutsSettings.vue'
+
+export interface Shortcut {
+  id: string
+  name: string
+  description: string
+  keys: string[]
+  defaultKeys: string[]
+}
+
+export interface ShortcutCategory {
+  id: string
+  name: string
+  shortcuts: Shortcut[]
+}
 
 export interface ShortcutHandler {
   (event: KeyboardEvent): void | boolean
@@ -154,7 +167,7 @@ export function useShortcuts(handlers: ShortcutHandlers = {}) {
 export function getShortcutById(id: string): Shortcut | undefined {
   const categories = loadShortcuts()
   for (const category of categories) {
-    const shortcut = category.shortcuts.find(s => s.id === id)
+    const shortcut = category.shortcuts.find((s: Shortcut) => s.id === id)
     if (shortcut) return shortcut
   }
   return undefined
