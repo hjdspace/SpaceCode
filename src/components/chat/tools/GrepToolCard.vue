@@ -69,7 +69,7 @@ function openInPanel() {
 .status-running .grep-icon-wrapper { background: rgba(59, 130, 246, 0.12); color: #60a5fa; }
 .status-error .grep-icon-wrapper { background: rgba(239, 68, 68, 0.12); color: #f87171; }
 .grep-label { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #a78bfa; flex-shrink: 0; }
-.grep-query { font-family: 'JetBrains Mono', monospace; font-size: 12px; background: rgba(139,92,246,0.1); padding: 1px 6px; border-radius: 3px; color: #c4b5fd; }
+.grep-query { font-family: var(--font-mono); font-size: 12px; background: rgba(139,92,246,0.1); padding: 1px 6px; border-radius: 3px; color: #c4b5fd; }
 .grep-count { font-size: 11px; color: var(--text-tertiary); flex-shrink: 0; }
 .panel-btn { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; border: none; background: transparent; color: var(--text-tertiary); cursor: pointer; flex-shrink: 0; transition: all 0.15s; &:hover { background: rgba(255,255,255,0.1); color: var(--text-primary); } }
 .expand-icon { color: var(--text-tertiary); transition: transform 0.15s; &.is-expanded { transform: rotate(180deg); } }

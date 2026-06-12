@@ -372,7 +372,7 @@ async function handleRevert() {
 .diff-stats {
   display: flex;
   gap: 6px;
-  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   flex-shrink: 0;
 
@@ -423,7 +423,7 @@ async function handleRevert() {
   flex: 1;
   overflow: auto;
   min-height: 0; /* 关键：允许在 flex 容器中正确收缩 */
-  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
 

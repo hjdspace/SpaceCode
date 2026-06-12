@@ -569,7 +569,7 @@ onUnmounted(() => {
 }
 
 .wf-info { flex: 1; min-width: 0; }
-.wf-name { font-size: 14px; font-weight: 600; color: var(--text-primary); margin: 0 0 4px; }
+.wf-name { font-size: var(--font-size-base); font-weight: 600; color: var(--text-primary); margin: 0 0 4px; }
 .wf-desc { font-size: 12px; color: var(--text-muted); margin: 0 0 4px; }
 .wf-meta { font-size: 11px; color: var(--text-muted); }
 

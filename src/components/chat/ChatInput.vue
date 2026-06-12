@@ -3530,7 +3530,7 @@ watch(pendingFile, (file) => {
 
   .ghost-text {
     color: var(--text-muted);
-    font-size: 14px;
+    font-size: var(--font-size-base);
     opacity: 0.5;
     pointer-events: none;
     white-space: nowrap;

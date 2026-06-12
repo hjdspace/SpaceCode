@@ -249,7 +249,7 @@ watch(
   overflow-x: auto;
 
   code {
-    font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 13px;
     line-height: 1.6;
     white-space: pre;

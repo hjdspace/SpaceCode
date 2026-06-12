@@ -1079,7 +1079,7 @@ async function handleRestoreHistorySession(session: any) {
   
   h2 {
     font-family: var(--font-display);
-    font-size: 15px;
+    font-size: calc(var(--font-size-base) + 1px);
     font-weight: 600;
     color: var(--text-primary);
     @include truncate;

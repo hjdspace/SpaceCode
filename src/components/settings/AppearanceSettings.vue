@@ -361,15 +361,15 @@ watch(() => config.value.accentColor, (newColor) => {
 
 watch(() => config.value.fontSize, () => {
   fontStore.applyFontSettings()
-}, { immediate: false })
+}, { immediate: true })
 
 watch(() => config.value.fontFamily, () => {
   fontStore.applyFontSettings()
-}, { immediate: false })
+}, { immediate: true })
 
 watch(() => config.value.codeFontFamily, () => {
   fontStore.applyFontSettings()
-}, { immediate: false })
+}, { immediate: true })
 
 watch(() => config.value.density, (newDensity) => {
   scheduleUpdate('density', () => applyDensity(newDensity))

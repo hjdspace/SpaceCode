@@ -196,7 +196,7 @@ function handleOverlayClick() {
 }
 
 .message-preview {
-  font-size: 14px;
+  font-size: var(--font-size-base);
   color: var(--text-primary);
   line-height: 1.4;
   flex: 1;

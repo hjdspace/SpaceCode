@@ -416,7 +416,7 @@ onMounted(() => {
 }
 
 .server-count {
-  font-size: 14px;
+  font-size: var(--font-size-base);
   font-weight: 400;
   color: var(--text-muted);
   margin-left: 8px;

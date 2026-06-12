@@ -479,7 +479,7 @@ function handleSubmit() {
 }
 
 .question-title {
-  font-size: 14px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--text-secondary);
   margin-bottom: 12px;

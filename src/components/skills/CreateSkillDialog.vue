@@ -261,7 +261,7 @@ async function handleCreate() {
 
 .name-prefix {
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: var(--font-size-base);
 }
 
 .form-input {
