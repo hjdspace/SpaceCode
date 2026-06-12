@@ -151,7 +151,7 @@ async function openInPanel() {
   border-radius: 4px;
   background: #0d1117;
   color: #c9d1d9;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;
   overflow: auto;

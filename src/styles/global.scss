@@ -16,7 +16,7 @@ html, body {
   height: 100%;
   overflow: hidden;
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: var(--font-size-base);
   line-height: 1.6;
   color: var(--text-primary);
   background: var(--bg-primary);
@@ -82,7 +82,7 @@ code {
 
 pre {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: calc(var(--font-size-base) - 1px);
   line-height: 1.7;
   background: var(--bg-secondary);
   padding: 16px;

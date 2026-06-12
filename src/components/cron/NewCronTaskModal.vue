@@ -532,7 +532,7 @@ textarea.form-input {
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: var(--font-size-base);
   font-family: var(--font-mono);
   text-align: center;
   outline: none;

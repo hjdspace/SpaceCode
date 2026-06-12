@@ -465,7 +465,7 @@ onBeforeUnmount(() => {
 
   .title {
     font-family: var(--font-display);
-    font-size: 15px;
+    font-size: calc(var(--font-size-base) + 1px);
     font-weight: 700;
     letter-spacing: -0.02em;
     color: var(--text-primary);

@@ -363,7 +363,7 @@ function handleSubmit() {
   flex: 1;
   
   h3 {
-    font-size: 15px;
+    font-size: calc(var(--font-size-base) + 1px);
     font-weight: 600;
     color: var(--text-primary);
     margin-bottom: 2px;
@@ -663,7 +663,7 @@ function handleSubmit() {
   }
   
   .header-text h3 {
-    font-size: 14px;
+    font-size: var(--font-size-base);
   }
   
   .card-body {

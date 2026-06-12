@@ -172,7 +172,7 @@ watch(() => props.toolCall.status, (status) => {
   flex-shrink: 0;
 }
 .bash-label { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #4ade80; flex-shrink: 0; }
-.bash-cmd-preview { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-secondary); }
+.bash-cmd-preview { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); }
 .bash-duration { color: var(--text-tertiary); font-size: 11px; flex-shrink: 0; }
 .expand-icon { color: var(--text-tertiary); transition: transform 0.15s; &.is-expanded { transform: rotate(180deg); } }
 

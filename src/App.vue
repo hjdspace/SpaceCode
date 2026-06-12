@@ -54,6 +54,7 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
+import { useFontStore } from '@/stores/font'
 import TitleBar from './components/layout/TitleBar.vue'
 import Sidebar from './components/layout/Sidebar.vue'
 import ChatPanel from './components/layout/ChatPanel.vue'
@@ -189,6 +190,10 @@ function stopResize() {
 }
 
 onMounted(() => {
+  // 初始化字体配置
+  const fontStore = useFontStore()
+  fontStore.applyFontSettings()
+
   document.documentElement.setAttribute('data-theme', appStore.theme)
 
   watch(() => settingsStore.appearance.theme, (newTheme) => {

@@ -80,7 +80,7 @@
 .s-form-select {
   width: 100%;
   padding: 11px 14px;
-  font-size: 14px;
+  font-size: var(--font-size-base);
   font-family: var(--font-body);
   color: var(--text-primary);
   background: var(--bg-elevated);
@@ -304,7 +304,7 @@
 }
 
 .s-selection-card-title {
-  font-size: 14px;
+  font-size: var(--font-size-base);
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 4px;
@@ -437,7 +437,7 @@
 }
 
 .s-empty-state-description {
-  font-size: 14px;
+  font-size: var(--font-size-base);
   max-width: 320px;
   margin: 0 auto 20px;
 }
@@ -510,7 +510,7 @@
   background: transparent;
   border: none;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: var(--font-size-base);
   outline: none;
 
   &::placeholder {
@@ -788,7 +788,7 @@
 
 .s-chevron {
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: var(--font-size-base);
   opacity: 0.5;
 }
 

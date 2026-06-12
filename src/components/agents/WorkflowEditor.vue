@@ -600,7 +600,7 @@ onUnmounted(() => {
 }
 
 .wf-title-input {
-  flex: 1; border: none; background: transparent; font-size: 14px;
+  flex: 1; border: none; background: transparent; font-size: var(--font-size-base);
   font-weight: 600; color: var(--text-primary);
   &:focus { outline: none; }
 }

@@ -269,7 +269,7 @@ async function handleCreate() {
   border: none;
   background: transparent;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: var(--font-size-base);
   outline: none;
 
   &::placeholder {

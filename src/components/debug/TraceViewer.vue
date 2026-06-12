@@ -457,7 +457,7 @@ onMounted(loadData)
   align-items: center;
   gap: 8px;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: var(--font-size-base);
   font-weight: 600;
 }
 

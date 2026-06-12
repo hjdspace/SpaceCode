@@ -352,7 +352,7 @@ async function handleRevert() {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 11px;
     min-width: 0;
   }
@@ -434,7 +434,7 @@ async function handleRevert() {
   }
 
   code {
-    font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 13px;
     line-height: 1.6;
     white-space: pre;

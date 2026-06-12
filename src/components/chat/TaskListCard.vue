@@ -91,7 +91,7 @@ function toggleExpand() {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
+  font-size: var(--font-size-base);
   font-weight: 500;
 }
 

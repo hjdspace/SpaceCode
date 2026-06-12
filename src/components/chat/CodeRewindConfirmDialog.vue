@@ -192,7 +192,7 @@ function handleCancel() {
 .confirm-button {
   padding: 10px 24px;
   border-radius: 8px;
-  font-size: 14px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;

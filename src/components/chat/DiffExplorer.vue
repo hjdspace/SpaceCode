@@ -226,7 +226,7 @@ const emptyMessage = computed(() => {
   border-radius: 0;
   overflow: hidden;
   background: var(--bg-primary);
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 

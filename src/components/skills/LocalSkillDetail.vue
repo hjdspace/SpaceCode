@@ -442,7 +442,7 @@ watch(() => props.skill?.name, () => {
   border-left: 1px solid var(--surface-border);
 
   p {
-    font-size: 14px;
+    font-size: var(--font-size-base);
     text-align: center;
     max-width: 200px;
   }

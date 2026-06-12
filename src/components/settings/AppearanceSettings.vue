@@ -193,6 +193,7 @@ import { useI18n } from 'vue-i18n'
 import { Check, Palette, Type, Rows, Code2, BarChart3 } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore, type AppearanceSettings as AppearanceConfig } from '@/stores/settings'
+import { useFontStore } from '@/stores/font'
 import { debounce } from '@/utils/debounce'
 
 const { t } = useI18n()
@@ -203,6 +204,7 @@ const emit = defineEmits<{
 
 const appStore = useAppStore()
 const settingsStore = useSettingsStore()
+const fontStore = useFontStore()
 
 const themes = [
   { id: 'system', name: t('appearanceSettings.themeSystem') },
@@ -315,28 +317,6 @@ function applyAccentColor(colorId: string) {
   }
 }
 
-// Apply font settings
-function applyFontSettings(config: AppearanceConfig) {
-  document.documentElement.style.setProperty('--font-size-base', `${config.fontSize}px`)
-
-  const fontFamilyMap: Record<string, string> = {
-    'system': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-    'inter': '"Inter", -apple-system, BlinkMacSystemFont, sans-serif',
-    'sf-pro': '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
-    'segoe': '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif'
-  }
-  document.documentElement.style.setProperty('--font-family-base', fontFamilyMap[config.fontFamily] || fontFamilyMap.system)
-
-  const codeFontMap: Record<string, string> = {
-    'jetbrains': '"JetBrains Mono", "Fira Code", monospace',
-    'fira': '"Fira Code", "JetBrains Mono", monospace',
-    'cascadia': '"Cascadia Code", "Fira Code", monospace',
-    'source-code': '"Source Code Pro", monospace',
-    'consolas': 'Consolas, Monaco, monospace'
-  }
-  document.documentElement.style.setProperty('--font-family-mono', codeFontMap[config.codeFontFamily] || codeFontMap.jetbrains)
-}
-
 // Apply density
 function applyDensity(density: string) {
   document.documentElement.setAttribute('data-density', density)
@@ -380,16 +360,16 @@ watch(() => config.value.accentColor, (newColor) => {
 }, { immediate: true })
 
 watch(() => config.value.fontSize, () => {
-  scheduleUpdate('fontSettings', () => applyFontSettings(config.value))
-}, { immediate: true })
+  fontStore.applyFontSettings()
+}, { immediate: false })
 
 watch(() => config.value.fontFamily, () => {
-  scheduleUpdate('fontSettings', () => applyFontSettings(config.value))
-}, { immediate: true })
+  fontStore.applyFontSettings()
+}, { immediate: false })
 
 watch(() => config.value.codeFontFamily, () => {
-  scheduleUpdate('fontSettings', () => applyFontSettings(config.value))
-}, { immediate: true })
+  fontStore.applyFontSettings()
+}, { immediate: false })
 
 watch(() => config.value.density, (newDensity) => {
   scheduleUpdate('density', () => applyDensity(newDensity))

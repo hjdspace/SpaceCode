@@ -226,7 +226,7 @@ watch(
   text-align: right;
 
   .line-number {
-    font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 13px;
     line-height: 1.6;
     color: var(--text-muted);
@@ -267,7 +267,7 @@ watch(
   color: var(--text-muted);
 
   p {
-    font-size: 14px;
+    font-size: var(--font-size-base);
   }
 }
 </style>

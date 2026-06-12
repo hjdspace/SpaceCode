@@ -443,7 +443,7 @@ watch(() => props.content, (newVal, oldVal) => {
 
 <style lang="scss" scoped>
 .markdown-renderer {
-  font-size: 14px;
+  font-size: var(--font-size-base);
   line-height: 1.7;
   color: var(--text-primary);
   word-wrap: break-word;
@@ -490,8 +490,8 @@ watch(() => props.content, (newVal, oldVal) => {
     margin: 12px 0;
 
     code {
-      font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', Consolas, monospace;
-      font-size: 13px;
+      font-family: var(--font-mono);
+      font-size: calc(var(--font-size-base) - 1px);
       line-height: 1.5;
       background: transparent;
     }
@@ -612,7 +612,7 @@ watch(() => props.content, (newVal, oldVal) => {
     color: var(--accent-primary);
     text-decoration: underline;
     cursor: pointer;
-    font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 0.95em;
     padding: 0 2px;
     border-radius: 2px;
@@ -647,8 +647,8 @@ watch(() => props.content, (newVal, oldVal) => {
     padding: 16px;
     margin: 12px 0;
     overflow-x: auto;
-    font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', Consolas, monospace;
-    font-size: 13px;
+    font-family: var(--font-mono);
+    font-size: calc(var(--font-size-base) - 1px);
     color: var(--text-primary);
     
     &.rendered {
@@ -672,7 +672,7 @@ watch(() => props.content, (newVal, oldVal) => {
     border-radius: var(--radius-md);
     padding: 12px;
     color: #ef4444;
-    font-size: 13px;
+    font-size: calc(var(--font-size-base) - 1px);
     margin: 12px 0;
   }
 }

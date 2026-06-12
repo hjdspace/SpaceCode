@@ -64,7 +64,7 @@ const examples = [
 }
 
 .empty-desc {
-  font-size: 14px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
   max-width: 360px;
   line-height: 1.6;
@@ -80,7 +80,7 @@ const examples = [
   color: #fff;
   border: none;
   border-radius: var(--radius-md);
-  font-size: 14px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
   transition: all var(--transition-fast);

@@ -184,7 +184,7 @@ function truncate(s: string, n: number): string {
 }
 
 .bundle-name {
-  font-size: 15px;
+  font-size: calc(var(--font-size-base) + 1px);
   font-weight: 600;
   margin: 0;
   color: var(--text-primary);

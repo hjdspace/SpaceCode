@@ -187,7 +187,7 @@ function stopExecution() {
   padding: 16px 20px;
   border-bottom: 1px solid var(--border-default);
 
-  h3 { font-size: 14px; font-weight: 600; color: var(--text-primary); margin: 0; }
+  h3 { font-size: var(--font-size-base); font-weight: 600; color: var(--text-primary); margin: 0; }
 }
 
 .close-btn {

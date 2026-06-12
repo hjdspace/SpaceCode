@@ -124,7 +124,7 @@ onUnmounted(() => {
   }
 
   .empty-text {
-    font-size: 14px;
+    font-size: var(--font-size-base);
     margin: 0;
   }
 

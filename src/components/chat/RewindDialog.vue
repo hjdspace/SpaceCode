@@ -414,7 +414,7 @@ watch(() => props.show, (isShow) => {
 }
 
 .rewind-option-name {
-  font-size: 14px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--text-primary);
 }

@@ -102,7 +102,7 @@ async function openInPanel() {
 .status-running .read-icon-wrapper { background: rgba(59, 130, 246, 0.12); color: #60a5fa; }
 .status-error .read-icon-wrapper { background: rgba(239, 68, 68, 0.12); color: #f87171; }
 .read-label { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #60a5fa; flex-shrink: 0; }
-.read-file-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-secondary); }
+.read-file-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); }
 .panel-btn { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; border: none; background: transparent; color: var(--text-tertiary); cursor: pointer; flex-shrink: 0; transition: all 0.15s; &:hover { background: rgba(255,255,255,0.1); color: var(--text-primary); } }
 .expand-icon { color: var(--text-tertiary); transition: transform 0.15s; &.is-expanded { transform: rotate(180deg); } }
 .read-body { border-top: 1px solid var(--surface-border); }
@@ -111,7 +111,7 @@ async function openInPanel() {
 .code-content {
   margin: 0;
   padding: 12px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
   overflow-x: auto;

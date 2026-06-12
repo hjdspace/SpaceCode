@@ -433,7 +433,7 @@ onMounted(loadStats)
   h3 {
     margin: 0 0 12px;
     color: var(--text-primary);
-    font-size: 15px;
+    font-size: calc(var(--font-size-base) + 1px);
   }
 }
 

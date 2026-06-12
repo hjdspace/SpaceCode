@@ -43,11 +43,11 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
 .status-running .glob-icon-wrapper { background: rgba(59, 130, 246, 0.12); color: #60a5fa; }
 .status-error .glob-icon-wrapper { background: rgba(239, 68, 68, 0.12); color: #f87171; }
 .glob-label { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #a78bfa; flex-shrink: 0; }
-.glob-pattern { font-family: 'JetBrains Mono', monospace; font-size: 12px; background: rgba(139,92,246,0.1); padding: 1px 6px; border-radius: 3px; color: #c4b5fd; }
+.glob-pattern { font-family: var(--font-mono); font-size: 12px; background: rgba(139,92,246,0.1); padding: 1px 6px; border-radius: 3px; color: #c4b5fd; }
 .glob-count { font-size: 11px; color: var(--text-tertiary); flex-shrink: 0; }
 .expand-icon { color: var(--text-tertiary); transition: transform 0.15s; &.is-expanded { transform: rotate(180deg); } }
 .glob-body { border-top: 1px solid var(--surface-border); }
-.file-list { margin: 0; padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6; overflow: auto; max-height: 350px; white-space: pre; background: #0d1117; color: #f0f6fc; border-radius: 4px; }
+.file-list { margin: 0; padding: 12px; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; overflow: auto; max-height: 350px; white-space: pre; background: #0d1117; color: #f0f6fc; border-radius: 4px; }
 .spin-icon { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>

@@ -1081,7 +1081,7 @@ onMounted(() => {
   }
 
   h4 {
-    font-size: 15px;
+    font-size: calc(var(--font-size-base) + 1px);
     font-weight: 600;
     color: var(--text-primary);
   }

@@ -116,7 +116,7 @@ function escapeHtml(text: string): string {
     font-size: 12px;
     font-weight: 500;
     color: var(--text-secondary);
-    font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
+    font-family: var(--font-mono);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -195,7 +195,7 @@ function escapeHtml(text: string): string {
   margin: 0;
   padding: 0;
   overflow-x: auto;
-  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.6;
   color: var(--text-primary);

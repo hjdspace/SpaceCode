@@ -344,7 +344,7 @@ async function openInPanel() {
   margin: 0;
   padding: 10px 12px;
   border-radius: 4px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;
   overflow-x: auto;

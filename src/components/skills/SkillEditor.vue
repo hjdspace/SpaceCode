@@ -423,7 +423,7 @@ function handleKeyDown(e: KeyboardEvent) {
   overflow: auto;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: var(--font-size-base);
   line-height: 1.6;
 
   :deep(h1), :deep(h2), :deep(h3), :deep(h4), :deep(h5), :deep(h6) {

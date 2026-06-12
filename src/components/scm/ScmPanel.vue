@@ -1373,7 +1373,7 @@ onUnmounted(() => {
     color: var(--text-muted);
     margin-bottom: 4px;
   }
-  h4 { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+  h4 { font-size: var(--font-size-base); font-weight: 600; color: var(--text-primary); }
   p  { font-size: 11px; color: var(--text-muted); line-height: 1.5; max-width: 200px; }
 }
 

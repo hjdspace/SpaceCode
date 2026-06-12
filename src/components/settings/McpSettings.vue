@@ -369,7 +369,7 @@ watch(servers, () => {
 }
 
 .server-name {
-  font-size: 14px;
+  font-size: var(--font-size-base);
   font-weight: 600;
   color: var(--text-primary);
 }

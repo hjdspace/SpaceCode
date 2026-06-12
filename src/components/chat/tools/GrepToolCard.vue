@@ -74,7 +74,7 @@ function openInPanel() {
 .panel-btn { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; border: none; background: transparent; color: var(--text-tertiary); cursor: pointer; flex-shrink: 0; transition: all 0.15s; &:hover { background: rgba(255,255,255,0.1); color: var(--text-primary); } }
 .expand-icon { color: var(--text-tertiary); transition: transform 0.15s; &.is-expanded { transform: rotate(180deg); } }
 .grep-body { border-top: 1px solid var(--surface-border); }
-.search-results { margin: 0; padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6; overflow: auto; max-height: 400px; white-space: pre; background: #0d1117; color: #f0f6fc; border-radius: 4px; }
+.search-results { margin: 0; padding: 12px; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; overflow: auto; max-height: 400px; white-space: pre; background: #0d1117; color: #f0f6fc; border-radius: 4px; }
 .spin-icon { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>

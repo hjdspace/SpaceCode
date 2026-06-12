@@ -623,7 +623,7 @@ onUnmounted(() => {
 .dialog-input {
   width: 100%;
   padding: 10px 12px;
-  font-size: 14px;
+  font-size: var(--font-size-base);
   border: 1px solid var(--surface-border, #e5e7eb);
   border-radius: var(--radius-md, 6px);
   background: var(--bg-elevated, #ffffff);

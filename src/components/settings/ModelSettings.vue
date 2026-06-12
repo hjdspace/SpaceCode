@@ -589,7 +589,7 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
 }
 
 .oauth-text {
-  font-size: 14px;
+  font-size: var(--font-size-base);
   color: var(--text-primary);
   margin: 0;
 }

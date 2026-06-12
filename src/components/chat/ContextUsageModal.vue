@@ -409,7 +409,7 @@ watch(
 }
 
 .model-name {
-  font-size: 15px;
+  font-size: calc(var(--font-size-base) + 1px);
   font-weight: 600;
   margin-bottom: 6px;
 }

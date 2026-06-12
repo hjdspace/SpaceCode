@@ -220,7 +220,7 @@ function handleClose() {
   color: var(--text-primary);
 
   :deep(h2) {
-    font-size: 15px;
+    font-size: calc(var(--font-size-base) + 1px);
     font-weight: 600;
     margin: 20px 0 8px;
     color: var(--text-primary);
@@ -231,7 +231,7 @@ function handleClose() {
   }
 
   :deep(h3) {
-    font-size: 14px;
+    font-size: var(--font-size-base);
     font-weight: 600;
     margin: 16px 0 6px;
     color: var(--text-primary);

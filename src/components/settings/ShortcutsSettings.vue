@@ -421,7 +421,7 @@ onMounted(() => {
   }
 
   p {
-    font-size: 14px;
+    font-size: var(--font-size-base);
     color: var(--text-muted);
     margin: 0;
   }

@@ -3139,7 +3139,7 @@ watch(pendingFile, (file) => {
     outline: none;
     background: transparent;
     color: var(--text-primary);
-    font-size: 15px;
+    font-size: calc(var(--font-size-base) + 1px);
     line-height: 1.5;
     max-height: 200px;
     padding: 0;
@@ -3922,7 +3922,7 @@ watch(pendingFile, (file) => {
     background: transparent;
     border: none;
     color: var(--text-primary);
-    font-size: 14px;
+    font-size: var(--font-size-base);
     outline: none;
 
     &::placeholder {

@@ -510,7 +510,7 @@ function handleUserCopy(e: ClipboardEvent) {
 }
 
 .message-content {
-  font-size: 14px;
+  font-size: var(--font-size-base);
   line-height: 1.6;
   color: var(--text-primary);
   user-select: text;
@@ -559,7 +559,7 @@ function handleUserCopy(e: ClipboardEvent) {
 }
 
 .message-content {
-  font-size: 14px;
+  font-size: var(--font-size-base);
   line-height: 1.6;
   color: var(--text-primary);
   user-select: text;
@@ -784,7 +784,7 @@ function handleUserCopy(e: ClipboardEvent) {
   }
 
   .message-content {
-    font-size: 14px;
+    font-size: var(--font-size-base);
   }
 
   .message-header {
