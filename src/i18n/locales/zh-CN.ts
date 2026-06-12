@@ -544,6 +544,7 @@ export default {
     anthropicDarkMode: 'Anthropic 暗色主题',
     openFile: '在外部打开',
     reviewDiff: '审查变更',
+    togglePanel: '切换面板',
     openWith: '使用 {editor} 打开',
     openWithVSCode: 'VS Code',
     openWithVisualStudio: 'Visual Studio',
@@ -560,6 +561,20 @@ export default {
     maximize: '最大化',
     restore: '还原',
     close: '关闭',
+  },
+
+  panel: {
+    home: '主页',
+    review: '代码审查',
+    terminal: '终端',
+    browser: '浏览器',
+    files: '文件',
+  },
+
+  quickOpen: {
+    placeholder: '按文件名搜索...',
+    noProject: '请先打开一个项目',
+    noResults: '没有匹配的文件',
   },
 
   mobile: {

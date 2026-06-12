@@ -544,6 +544,7 @@ export default {
     anthropicDarkMode: 'Anthropic Dark',
     openFile: 'Open in external app',
     reviewDiff: 'Review changes',
+    togglePanel: 'Toggle panel',
     openWith: 'Open with {editor}',
     openWithVSCode: 'VS Code',
     openWithVisualStudio: 'Visual Studio',
@@ -560,6 +561,20 @@ export default {
     maximize: 'Maximize',
     restore: 'Restore',
     close: 'Close',
+  },
+
+  panel: {
+    home: 'Home',
+    review: 'Review',
+    terminal: 'Terminal',
+    browser: 'Browser',
+    files: 'Files',
+  },
+
+  quickOpen: {
+    placeholder: 'Search files by name...',
+    noProject: 'Open a project first',
+    noResults: 'No matching files',
   },
 
   mobile: {

@@ -46,7 +46,7 @@ export interface InputInjectPayload {
   }
 }
 
-export type InfoPanelTabType = 'file' | 'markdown' | 'diff' | 'tool-diff' | 'webview'
+export type InfoPanelTabType = 'file' | 'markdown' | 'diff' | 'tool-diff' | 'webview' | 'terminal'
 
 export interface InfoPanelTab {
   id: string
@@ -76,6 +76,10 @@ export const useAppStore = defineStore('app', () => {
   const theme = ref<ThemeId>('light')
   const sidebarCollapsed = ref(false)
   const infoPanelVisible = ref(false)
+  // 右侧面板「启动器」状态：为真时面板显示 4 个工具入口，而非具体标签内容
+  const panelHome = ref(false)
+  // 文件模糊搜索快速打开弹窗
+  const showFileQuickOpen = ref(false)
   const completedToolActions = ref<Set<string>>(new Set())
   const currentLine = ref<number>(0)
   const currentEndLine = ref<number>(0)
@@ -202,6 +206,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function openInfoTab(tab: InfoPanelTab) {
+    panelHome.value = false
     const existing = infoPanelTabs.value.find(t => t.id === tab.id)
     if (existing) {
       activeInfoTabId.value = existing.id
@@ -246,6 +251,60 @@ export const useAppStore = defineStore('app', () => {
 
   function hideInfoPanel() {
     closeAllInfoTabs()
+  }
+
+  /** 标题栏面板按钮：切换右侧面板显隐；打开时进入启动器 */
+  function toggleInfoPanel() {
+    if (infoPanelVisible.value) {
+      infoPanelVisible.value = false
+    } else {
+      infoPanelVisible.value = true
+      panelHome.value = true
+    }
+  }
+
+  /** 回到右侧面板启动器（4 个工具入口） */
+  function goPanelHome() {
+    infoPanelVisible.value = true
+    panelHome.value = true
+  }
+
+  /** 在右侧面板打开终端 */
+  function openTerminalInPanel() {
+    openInfoTab({
+      id: 'terminal-panel',
+      type: 'terminal',
+      title: 'Terminal',
+      icon: markRaw(TerminalIcon),
+      data: null,
+      closeable: true
+    })
+  }
+
+  /** 在右侧面板打开一个空白浏览器标签，用户在地址栏输入网址 */
+  function openBlankWebview() {
+    const tabId = 'webview::new'
+    const existing = infoPanelTabs.value.find(t => t.id === tabId)
+    if (existing) {
+      panelHome.value = false
+      activeInfoTabId.value = existing.id
+      infoPanelVisible.value = true
+      return
+    }
+    const webviewData: WebviewTabData = {
+      url: '',
+      history: [],
+      historyIndex: -1,
+      title: ''
+    }
+    openInfoTab({
+      id: tabId,
+      type: 'webview',
+      title: 'New Tab',
+      icon: markRaw(Globe),
+      data: webviewData,
+      closeable: true
+    })
   }
 
   function showToolDiff(data: ToolDiffData) {
@@ -620,6 +679,8 @@ export const useAppStore = defineStore('app', () => {
     theme,
     sidebarCollapsed,
     infoPanelVisible,
+    panelHome,
+    showFileQuickOpen,
     infoPanelMode,
     currentFile,
     currentLine,
@@ -656,6 +717,10 @@ export const useAppStore = defineStore('app', () => {
     toggleSettings,
     showInfoPanel,
     hideInfoPanel,
+    toggleInfoPanel,
+    goPanelHome,
+    openTerminalInPanel,
+    openBlankWebview,
     showToolDiff,
     markToolActionCompleted,
     setCurrentFile,

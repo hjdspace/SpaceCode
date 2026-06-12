@@ -46,6 +46,7 @@
       />
     </div>
     <ConnectMobileDialog v-model:visible="appStore.showConnectMobile" />
+    <FileQuickOpen />
   </div>
 </template>
 
@@ -66,6 +67,7 @@ import AgentManager from './components/agents/AgentManager.vue'
 import McpManager from './components/mcp/McpManager.vue'
 import CronManager from './components/cron/CronManager.vue'
 import ConnectMobileDialog from './components/mobile/ConnectMobileDialog.vue'
+import FileQuickOpen from './components/layout/FileQuickOpen.vue'
 import UpdateNotification from './components/common/UpdateNotification.vue'
 import { api } from '@/services/electronAPI'
 import { useShortcuts } from '@/composables/useShortcuts'

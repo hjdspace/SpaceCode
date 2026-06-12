@@ -3,6 +3,8 @@
     <InfoPanelTabBar />
 
     <div class="panel-content">
+      <PanelLauncher v-if="showLauncher" />
+      <template v-else>
       <DiffViewer v-if="mode === 'diff'" />
       <CodeViewer v-else-if="mode === 'file'" />
       <MarkdownViewer
@@ -11,6 +13,8 @@
         :file-name="appStore.currentFile?.name"
       />
       <ToolDiffViewer v-else-if="mode === 'tool-diff'" />
+
+      <TerminalPanel v-else-if="mode === 'terminal'" />
 
       <template v-else-if="mode === 'webview'">
         <div class="webview-nav">
@@ -127,6 +131,7 @@
           </div>
         </div>
       </template>
+      </template>
     </div>
   </aside>
 </template>
@@ -137,6 +142,8 @@ import { useAppStore } from '@/stores/app'
 import { useI18n } from 'vue-i18n'
 import { Loader2, ArrowLeft, ArrowRight, RotateCw, ExternalLink, Camera, MousePointerSquareDashed, ArrowUp, ChevronUp, ChevronDown } from 'lucide-vue-next'
 import InfoPanelTabBar from './InfoPanelTabBar.vue'
+import PanelLauncher from './PanelLauncher.vue'
+import TerminalPanel from '../terminal/TerminalPanel.vue'
 import DiffViewer from '../common/DiffViewer.vue'
 import CodeViewer from '../common/CodeViewer.vue'
 import MarkdownViewer from '../common/MarkdownViewer.vue'
@@ -153,6 +160,7 @@ const appStore = useAppStore()
 const { t } = useI18n()
 
 const mode = computed(() => appStore.infoPanelMode)
+const showLauncher = computed(() => appStore.panelHome || appStore.infoPanelTabs.length === 0)
 
 const webviewRef = ref<any>(null)
 const urlInput = ref('')

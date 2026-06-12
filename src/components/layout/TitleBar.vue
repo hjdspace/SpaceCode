@@ -33,11 +33,6 @@
 
     <!-- Right section -->
     <div class="titlebar-right" style="-webkit-app-region: no-drag">
-      <!-- Diff 审查按钮 -->
-      <button class="titlebar-btn" @click="chatStore.triggerDiffPanel()" :title="t('titleBar.reviewDiff')">
-        <ReviewChangesIcon />
-      </button>
-
       <!-- 打开项目下拉（默认 VSCode） -->
       <div class="open-file-dropdown" ref="openMenuRef">
         <button
@@ -84,10 +79,14 @@
         <RefreshCwIcon :size="15" class="update-icon" />
       </button>
 
-      <!-- Theme toggle -->
-      <button class="titlebar-btn" @click="appStore.toggleTheme" :title="themeTooltip">
-        <Sun v-if="appStore.isDark" :size="15" />
-        <Moon v-else :size="15" />
+      <!-- Toggle right panel -->
+      <button
+        class="titlebar-btn"
+        :class="{ 'is-active': appStore.infoPanelVisible }"
+        @click="appStore.toggleInfoPanel()"
+        :title="t('titleBar.togglePanel')"
+      >
+        <PanelRight :size="16" />
       </button>
 
       <!-- Windows: spacer for system overlay controls (min/max/close ~138px) -->
@@ -114,10 +113,8 @@
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { useI18n } from 'vue-i18n'
-import { Menu, Sun, Moon, Minus, Square, Copy, X, ChevronDown, Smartphone, RefreshCw as RefreshCwIcon } from 'lucide-vue-next'
+import { Menu, Minus, Square, Copy, X, ChevronDown, Smartphone, RefreshCw as RefreshCwIcon, PanelRight } from 'lucide-vue-next'
 import { computed, h, onMounted, onBeforeUnmount, ref } from 'vue'
-import type { ThemeId } from '@/stores/app'
-import { THEME_CYCLE } from '@/stores/app'
 import { api, type ExternalEditor } from '@/services/electronAPI'
 import { useAutoUpdate } from '@/composables/useAutoUpdate'
 
@@ -174,20 +171,6 @@ function handleUpdateClick() {
   }
 }
 
-const THEME_LABELS: Record<ThemeId, string> = {
-  light: t('titleBar.lightMode'),
-  dark: t('titleBar.darkMode'),
-  anthropic: t('titleBar.anthropicMode'),
-  'anthropic-dark': t('titleBar.anthropicDarkMode')
-}
-
-const themeTooltip = computed(() => {
-  const currentIndex = THEME_CYCLE.indexOf(appStore.theme)
-  const nextIndex = (currentIndex + 1) % THEME_CYCLE.length
-  const nextTheme = THEME_CYCLE[nextIndex]
-  return `Switch to ${THEME_LABELS[nextTheme]}`
-})
-
 const platform = typeof window !== 'undefined' && window.electronAPI?.platform
   ? window.electronAPI.platform
   : (typeof navigator !== 'undefined' ? navigator.platform : '')
@@ -235,27 +218,6 @@ const VscodeIcon = () =>
         d: 'M12.314 9.75 8.345 12l3.97 2.25L17.062 12 12.314 9.75Z',
         fill: '#FFFFFF',
       }),
-    ],
-  )
-
-// 「审查变更」图标 —— 模拟 codex 截图：左侧两个小圆点 + 右侧三条横线
-const ReviewChangesIcon = () =>
-  h(
-    'svg',
-    {
-      width: 16,
-      height: 16,
-      viewBox: '0 0 16 16',
-      fill: 'none',
-      xmlns: 'http://www.w3.org/2000/svg',
-      'aria-hidden': 'true',
-    },
-    [
-      h('circle', { cx: 2.5, cy: 4.5, r: 1.1, stroke: 'currentColor', 'stroke-width': 1.2, fill: 'none' }),
-      h('circle', { cx: 2.5, cy: 11.5, r: 1.1, stroke: 'currentColor', 'stroke-width': 1.2, fill: 'none' }),
-      h('line', { x1: 6.5, y1: 4.5, x2: 14, y2: 4.5, stroke: 'currentColor', 'stroke-width': 1.3, 'stroke-linecap': 'round' }),
-      h('line', { x1: 6.5, y1: 8, x2: 14, y2: 8, stroke: 'currentColor', 'stroke-width': 1.3, 'stroke-linecap': 'round' }),
-      h('line', { x1: 6.5, y1: 11.5, x2: 14, y2: 11.5, stroke: 'currentColor', 'stroke-width': 1.3, 'stroke-linecap': 'round' }),
     ],
   )
 
@@ -568,6 +530,11 @@ onBeforeUnmount(() => {
 
   &:active {
     background: var(--surface-active);
+  }
+
+  &.is-active {
+    background: var(--surface-active);
+    color: var(--accent-secondary);
   }
 
   &:focus-visible {

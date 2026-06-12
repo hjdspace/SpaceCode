@@ -1,5 +1,8 @@
 <template>
   <div class="info-panel-tab-bar" v-if="tabs.length > 0">
+    <button class="home-btn" :class="{ active: appStore.panelHome }" @click="handleGoHome" :title="t('panel.home')">
+      <LayoutGrid :size="14" />
+    </button>
     <div class="tabs-scroll-container" ref="scrollContainer">
       <div
         v-for="tab in tabs"
@@ -31,7 +34,7 @@
 import { computed, ref } from 'vue'
 import { useAppStore, type InfoPanelTab } from '@/stores/app'
 import { useI18n } from 'vue-i18n'
-import { X } from 'lucide-vue-next'
+import { X, LayoutGrid } from 'lucide-vue-next'
 
 const appStore = useAppStore()
 const { t } = useI18n()
@@ -41,7 +44,12 @@ const tabs = computed<InfoPanelTab[]>(() => appStore.infoPanelTabs)
 const activeTabId = computed(() => appStore.activeInfoTabId)
 
 function handleTabClick(tab: InfoPanelTab) {
+  appStore.panelHome = false
   appStore.activeInfoTabId = tab.id
+}
+
+function handleGoHome() {
+  appStore.goPanelHome()
 }
 
 function handleClose(tabId: string) {
@@ -171,6 +179,31 @@ function handleClosePanel() {
   .info-tab:hover &,
   .info-tab.active & {
     opacity: 1;
+  }
+}
+
+.home-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #9ca3af);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  border-right: 1px solid var(--surface-border, #e5e7eb);
+
+  &:hover {
+    background: var(--surface-glass-hover, rgba(0,0,0,0.05));
+    color: var(--text-primary, #111827);
+  }
+
+  &.active {
+    color: var(--accent-primary);
   }
 }
 
