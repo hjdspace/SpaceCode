@@ -218,7 +218,20 @@ export class ProxyManager extends EventEmitter {
 
   private resolveProxyScript(): string {
     if (app.isPackaged) {
-      return path.join(process.resourcesPath, 'electron', 'proxy', 'index.js')
+      // 打包后，main.js 位于 app.asar/dist-electron/main.js，
+      // proxy 脚本由 build:proxy 编译到 dist-electron/proxy/index.js。
+      // 由于 dist-electron/proxy 被配置为 asarUnpack，文件实际存在于
+      // app.asar.unpacked/dist-electron/proxy/index.js。
+      // 主进程中 __dirname 指向 asar 内路径，Electron fs 会自动重定向；
+      // 但代理子进程使用 ELECTRON_RUN_AS_NODE=1，不支持 asar 路径重定向，
+      // 因此需要显式解析到 app.asar.unpacked 路径。
+      const asarPath = path.join(__dirname, 'proxy', 'index.js')
+      const unpackedPath = asarPath.replace(/\.asar([\\/])/, '.asar.unpacked$1')
+      // 优先使用 unpacked 路径（子进程需要），如果不存在则回退到 asar 路径
+      if (fs.existsSync(unpackedPath)) {
+        return unpackedPath
+      }
+      return asarPath
     }
     const compiledPath = path.join(__dirname, 'proxy', 'index.js')
     if (fs.existsSync(compiledPath)) {

@@ -971,6 +971,7 @@ export class SessionProcess extends EventEmitter {
       if (config.baseUrl) env.ANTHROPIC_BASE_URL = config.baseUrl
     }
 
+    // 兼容部分网关/适配器读取 Anthropic 变量的场景
     if (config.apiKey && !env.ANTHROPIC_API_KEY) {
       env.ANTHROPIC_API_KEY = config.apiKey
     }
