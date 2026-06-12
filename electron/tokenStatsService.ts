@@ -208,7 +208,7 @@ export function aggregateLocalTokenStats(): TokenStatsResult {
     generatedAt: new Date().toISOString(),
     sourceDir,
     firstDate: daily[0]?.date || null,
-    lastDate: daily.at(-1)?.date || null,
+    lastDate: daily.length > 0 ? daily[daily.length - 1].date : null,
     today: summarize(daily.filter(day => day.date === todayKey)),
     yesterday: summarize(daily.filter(day => day.date === yesterdayKey)),
     last30Days: summarize(daily.filter(day => inRange(day.date, start30Key, todayKey))),
