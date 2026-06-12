@@ -84,6 +84,7 @@
     "vue-tsc": "^2.0.6"
   },
   "build": {
+    "npmRebuild": false,
     "appId": "com.spacecode.desktop",
     "productName": "SpaceCode",
     "icon": "icons",

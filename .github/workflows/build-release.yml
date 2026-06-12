@@ -111,9 +111,9 @@ jobs:
               set -e
               apt-get update -qq && apt-get install -y -qq python3 build-essential >/dev/null
               ln -sf /usr/bin/python3 /usr/local/bin/python || true
-              npx --yes @electron/rebuild@^3 -f -w node-pty
+              npx --yes @electron/rebuild@^3 -f -w node-pty,bufferutil,utf-8-validate
             "
-          sudo chown -R "$(id -u):$(id -g)" node_modules/node-pty .electron-cache 2>/dev/null || true
+          sudo chown -R "$(id -u):$(id -g)" node_modules/node-pty node_modules/bufferutil node_modules/utf-8-validate .electron-cache 2>/dev/null || true
 
           echo "=== Verifying node-pty native binary glibc requirement ==="
           PTY_NODE="node_modules/node-pty/build/Release/pty.node"
@@ -132,9 +132,7 @@ jobs:
         if: matrix.platform != 'linux'
         shell: bash
         run: |
-          # 使用 @electron/rebuild（新包名，老包 electron-rebuild 已弃用）
-          # 针对当前项目安装的 Electron 版本重新编译 node-pty
-          npx --yes @electron/rebuild@^3 -f -w node-pty
+          npx --yes @electron/rebuild@^3 -f -w node-pty,bufferutil,utf-8-validate
 
           echo "=== Verifying node-pty native binary ==="
           NODE_PTY_DIR="node_modules/node-pty"
