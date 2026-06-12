@@ -1,5 +1,7 @@
 import { autoUpdater } from 'electron-updater'
 import { app, ipcMain, BrowserWindow } from 'electron'
+import fs from 'fs/promises'
+import path from 'path'
 import { info, warn, error } from './logger'
 
 // GitHub 私有仓库更新所需的 Token
@@ -150,8 +152,6 @@ export function registerAutoUpdaterIPC() {
   ipcMain.handle('changelog:getReleaseNotes', async (_event, version: string) => {
     try {
       // 1. 尝试读取本地 release-notes/v{version}.md
-      const fs = await import('fs/promises')
-      const path = await import('path')
       const notesPath = app.isPackaged
         ? path.join(process.resourcesPath, 'release-notes', `v${version}.md`)
         : path.join(__dirname, '../release-notes', `v${version}.md`)
