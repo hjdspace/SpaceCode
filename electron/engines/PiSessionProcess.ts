@@ -46,6 +46,7 @@ export class PiSessionProcess extends EventEmitter {
       // Determine spawn command based on what resolveCliPath returned
       let command: string
       let spawnArgs: string[]
+      let launcherEnv: Record<string, string> | undefined
 
       if (cliPath === 'pi') {
         // Global `pi` CLI command
@@ -56,16 +57,23 @@ export class PiSessionProcess extends EventEmitter {
         command = 'npx'
         spawnArgs = ['@mariozechner/pi-coding-agent', '--mode', 'rpc', ...baseArgs]
       } else {
-        // Direct path to cli.js - run with node
-        command = 'node'
+        // Direct path to cli.js — prefer ELECTRON_RUN_AS_NODE over bun.
+        // Bun may buffer stdout in chunk mode, causing streaming events to be delayed
+        // until the buffer fills or the process exits. Node.js (ELECTRON_RUN_AS_NODE)
+        // flushes stdout on each \n, which is required for real-time RPC events.
+        command = process.execPath
         spawnArgs = [cliPath, '--mode', 'rpc', ...baseArgs]
+        launcherEnv = { ELECTRON_RUN_AS_NODE: '1' }
+        info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Using ELECTRON_RUN_AS_NODE | execPath=${process.execPath} | entry=${cliPath}`)
       }
 
-      info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Starting Pi RPC process | command=${command} | args=${spawnArgs.join(' ')}`)
+      const spawnEnv = launcherEnv ? { ...env, ...launcherEnv } : env
+
+      info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Starting Pi RPC process | command=${command} | args=${spawnArgs.join(' ')} | envKeys=${launcherEnv ? Object.keys(launcherEnv).join(',') : '(none)'}`)
 
       this._process = spawn(command, spawnArgs, {
         cwd: this.config.cwd,
-        env,
+        env: spawnEnv,
         stdio: ['pipe', 'pipe', 'pipe'],
       })
 
@@ -442,12 +450,16 @@ export class PiSessionProcess extends EventEmitter {
     }
 
     // Strategy 5: Check if `pi` CLI is available globally
+    // Use `where`/`which` to get the actual path, then verify it's executable.
     try {
       const { execSync } = require('child_process')
       const cmd = process.platform === 'win32' ? 'where pi' : 'which pi'
-      execSync(cmd, { stdio: 'ignore' })
-      info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (global 'pi' command)`)
-      return 'pi'
+      const output = execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim()
+      const piPath = output.split(/\r?\n/)[0]?.trim()
+      if (piPath && fs.existsSync(piPath)) {
+        info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (global 'pi' command): ${piPath}`)
+        return 'pi'
+      }
     } catch {
       // pi not available globally
     }
@@ -455,6 +467,72 @@ export class PiSessionProcess extends EventEmitter {
     // Fallback: try to use npx
     warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] No pi CLI found, falling back to npx`)
     return 'npx'
+  }
+
+  /**
+   * Resolve the path to a usable bun binary for running the Pi CLI.
+   * Checks: bundled bun in engine/bin → platform-specific bundled bun → global bun.
+   * Returns null if no usable bun is found (caller should fall back to ELECTRON_RUN_AS_NODE).
+   */
+  private resolveBunPath(): string | null {
+    const platform = process.platform
+    const arch = process.arch
+
+    // 1. Bundled bun in engine/bin (same location as Claude Code engine)
+    const bunName = platform === 'win32' ? 'bun.exe' : 'bun'
+    const resourcesDir = process.resourcesPath || ''
+    const bundledBun = path.join(resourcesDir, 'engine', 'bin', bunName)
+    if (this.isProbableBunExecutable(bundledBun)) {
+      return bundledBun
+    }
+
+    // 2. Platform-specific bundled bun
+    const platformSuffix = platform === 'win32' ? 'windows-x64'
+      : platform === 'darwin' ? (arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64')
+      : 'linux-x64'
+    const platformSpecificBun = path.join(resourcesDir, 'engine', 'bin', `bun-${platformSuffix}`)
+    if (this.isProbableBunExecutable(platformSpecificBun)) {
+      return platformSpecificBun
+    }
+    if (platform === 'win32') {
+      const exe = `${platformSpecificBun}.exe`
+      if (this.isProbableBunExecutable(exe)) {
+        return exe
+      }
+    }
+
+    // 3. Dev mode: check relative to __dirname
+    const devBun = path.resolve(__dirname, '../../engine/bin', bunName)
+    if (this.isProbableBunExecutable(devBun)) {
+      return devBun
+    }
+
+    // 4. Global bun
+    try {
+      const { execSync } = require('child_process')
+      const cmd = platform === 'win32' ? 'where bun' : 'which bun'
+      const output = execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim()
+      const globalBun = output.split(/\r?\n/)[0]?.trim()
+      if (globalBun && this.isProbableBunExecutable(globalBun)) {
+        return globalBun
+      }
+    } catch {
+      // bun not available globally
+    }
+
+    return null
+  }
+
+  /**
+   * Check if a file exists and looks like a real bun executable (not a placeholder or LFS pointer).
+   */
+  private isProbableBunExecutable(absPath: string): boolean {
+    try {
+      const st = fs.statSync(absPath)
+      return st.isFile() && st.size >= 256 * 1024
+    } catch {
+      return false
+    }
   }
 
   /**
@@ -513,44 +591,174 @@ export class PiSessionProcess extends EventEmitter {
     const provider = this.resolveEffectiveProvider()
 
     if (this.config.apiKey) {
-      // Populate the env var(s) pi-ai reads for this provider so auth works without
-      // requiring the user to pre-configure ~/.pi/agent/auth.json.
-      const envKeysByProvider: Record<string, string[]> = {
-        openai: ['OPENAI_API_KEY'],
-        openrouter: ['OPENROUTER_API_KEY'],
-        anthropic: ['ANTHROPIC_API_KEY'],
-        google: ['GEMINI_API_KEY'],
-        deepseek: ['DEEPSEEK_API_KEY'],
-        groq: ['GROQ_API_KEY'],
-        xai: ['XAI_API_KEY'],
-        cerebras: ['CEREBRAS_API_KEY'],
-        moonshotai: ['MOONSHOT_API_KEY'],
-        'moonshotai-cn': ['MOONSHOT_API_KEY'],
-        minimax: ['MINIMAX_API_KEY'],
-        'minimax-cn': ['MINIMAX_API_KEY'],
-        mistral: ['MISTRAL_API_KEY'],
-        'vercel-ai-gateway': ['AI_GATEWAY_API_KEY'],
-        fireworks: ['FIREWORKS_API_KEY'],
-        zai: ['ZAI_API_KEY'],
-      }
-      const keys = (provider && envKeysByProvider[provider]) || ['ANTHROPIC_API_KEY']
-      for (const key of keys) {
-        env[key] = this.config.apiKey
+      if (this.shouldUseCompatProvider()) {
+        // The compat provider uses apiKey: "OPENAI_API_KEY" in models.json,
+        // so Pi CLI will read the key from this env var.
+        env['OPENAI_API_KEY'] = this.config.apiKey
+      } else {
+        // Populate the env var(s) pi-ai reads for this provider so auth works without
+        // requiring the user to pre-configure ~/.pi/agent/auth.json.
+        const envKeysByProvider: Record<string, string[]> = {
+          openai: ['OPENAI_API_KEY'],
+          openrouter: ['OPENROUTER_API_KEY'],
+          anthropic: ['ANTHROPIC_API_KEY'],
+          google: ['GEMINI_API_KEY'],
+          deepseek: ['DEEPSEEK_API_KEY'],
+          groq: ['GROQ_API_KEY'],
+          xai: ['XAI_API_KEY'],
+          cerebras: ['CEREBRAS_API_KEY'],
+          moonshotai: ['MOONSHOT_API_KEY'],
+          'moonshotai-cn': ['MOONSHOT_API_KEY'],
+          minimax: ['MINIMAX_API_KEY'],
+          'minimax-cn': ['MINIMAX_API_KEY'],
+          mistral: ['MISTRAL_API_KEY'],
+          'vercel-ai-gateway': ['AI_GATEWAY_API_KEY'],
+          fireworks: ['FIREWORKS_API_KEY'],
+          zai: ['ZAI_API_KEY'],
+        }
+        const keys = (provider && envKeysByProvider[provider]) || ['ANTHROPIC_API_KEY']
+        for (const key of keys) {
+          env[key] = this.config.apiKey
+        }
       }
     }
 
-    // Note: pi-ai does not read OPENAI_BASE_URL. Built-in providers have their baseUrl
-    // baked into the model registry (openrouter → https://openrouter.ai/api/v1, etc.)
-    // so the baseUrl passed in config is only used to detect which provider to use.
-    // For truly custom endpoints, the user needs a models.json entry.
+    // If a custom baseUrl is provided, write it to ~/.pi/agent/models.json
+    // so Pi CLI's model registry picks up the custom endpoint.
+    // Pi CLI does not read OPENAI_BASE_URL — the baseUrl is baked into the
+    // built-in model registry. The only way to override it is via models.json.
+    if (this.config.baseUrl && provider) {
+      this.writeModelsJsonOverride(provider, this.config.baseUrl)
+    }
 
     return env
+  }
+
+  /**
+   * Name of the compatibility provider we create in models.json when the user
+   * configures a custom baseUrl with the `openai` provider. The built-in
+   * `openai` provider defaults to the OpenAI Responses API (`/v1/responses`),
+   * but most third-party OpenAI-compatible endpoints only support the Chat
+   * Completions API (`/v1/chat/completions`). The compat provider uses
+   * `api: "openai-completions"` to route requests correctly.
+   */
+  private static readonly COMPAT_PROVIDER_NAME = 'openai-compat'
+
+  /**
+   * Determine if we should use a compatibility provider instead of the built-in
+   * `openai` provider. Returns true when:
+   *   - The effective provider is `openai`
+   *   - A custom baseUrl is configured
+   *   - The baseUrl is NOT the real OpenAI endpoint (api.openai.com)
+   *
+   * When detectProviderFromBaseUrl() recognizes the baseUrl (e.g. deepseek,
+   * openrouter), resolveEffectiveProvider() returns that provider instead of
+   * `openai`, so this method returns false — those providers already use
+   * `openai-completions` API.
+   */
+  private shouldUseCompatProvider(): boolean {
+    const provider = this.resolveEffectiveProvider()
+    if (provider !== 'openai') return false
+    if (!this.config.baseUrl) return false
+    const lower = this.config.baseUrl.toLowerCase()
+    if (lower.includes('api.openai.com')) return false
+    return true
+  }
+
+  /**
+   * Write a models.json override so Pi CLI can use custom OpenAI-compatible
+   * endpoints.
+   *
+   * When the effective provider is `openai` with a custom (non-OpenAI) baseUrl,
+   * we create a separate `openai-compat` provider entry that uses the
+   * `openai-completions` API (`/v1/chat/completions`) instead of the default
+   * `openai-responses` API (`/v1/responses`). Most third-party endpoints only
+   * support Chat Completions.
+   *
+   * For other providers, we simply set the baseUrl override.
+   */
+  private writeModelsJsonOverride(provider: string, baseUrl: string): void {
+    try {
+      const configDir = path.join(os.homedir(), '.pi', 'agent')
+      const modelsJsonPath = path.join(configDir, 'models.json')
+
+      // Read existing models.json if present
+      let existing: any = { providers: {} }
+      if (fs.existsSync(modelsJsonPath)) {
+        try {
+          existing = JSON.parse(fs.readFileSync(modelsJsonPath, 'utf-8'))
+          if (!existing.providers) existing.providers = {}
+        } catch {
+          existing = { providers: {} }
+        }
+      }
+
+      if (this.shouldUseCompatProvider()) {
+        // Create a custom provider that uses openai-completions API
+        // instead of the default openai-responses API
+        const compatName = PiSessionProcess.COMPAT_PROVIDER_NAME
+        if (!existing.providers[compatName]) {
+          existing.providers[compatName] = {}
+        }
+        const cp = existing.providers[compatName]
+        cp.name = 'OpenAI Compatible'
+        cp.api = 'openai-completions'
+        cp.baseUrl = baseUrl
+        cp.apiKey = 'OPENAI_API_KEY'
+        cp.compat = {
+          supportsStore: false,
+          supportsDeveloperRole: false,
+          supportsReasoningEffort: false,
+          maxTokensField: 'max_tokens',
+          supportsStrictMode: false,
+        }
+
+        // Add the model if specified
+        if (this.config.model) {
+          const modelId = this.config.model.replace(/^openai\//i, '')
+          if (!cp.models) cp.models = []
+          // Remove existing entry for this model to avoid duplicates
+          cp.models = cp.models.filter((m: any) => m.id !== modelId)
+          cp.models.push({
+            id: modelId,
+            name: modelId,
+            reasoning: false,
+            input: ['text'],
+            contextWindow: 128000,
+            maxTokens: 16384,
+          })
+        }
+
+        info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Wrote models.json compat provider | provider=${compatName} | api=openai-completions | baseUrl=${baseUrl} | model=${this.config.model}`)
+      } else {
+        // Original behavior: just set baseUrl for the provider
+        if (!existing.providers[provider]) {
+          existing.providers[provider] = {}
+        }
+        existing.providers[provider].baseUrl = baseUrl
+        info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Wrote models.json override | provider=${provider} | baseUrl=${baseUrl}`)
+      }
+
+      // Ensure directory exists
+      if (!fs.existsSync(configDir)) {
+        fs.mkdirSync(configDir, { recursive: true })
+      }
+
+      fs.writeFileSync(modelsJsonPath, JSON.stringify(existing, null, 2), 'utf-8')
+    } catch (err) {
+      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to write models.json override`, err)
+    }
   }
 
   private buildArgs(): string[] {
     const args: string[] = []
 
-    const provider = this.resolveEffectiveProvider()
+    // When using the compat provider (openai-compat), pass that as --provider
+    // so Pi CLI resolves the model from our custom models.json entry.
+    const provider = this.shouldUseCompatProvider()
+      ? PiSessionProcess.COMPAT_PROVIDER_NAME
+      : this.resolveEffectiveProvider()
+
     if (provider) {
       args.push('--provider', provider)
     }

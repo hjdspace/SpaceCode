@@ -152,6 +152,78 @@ export function registerClaudeCodeIPC() {
     return EngineFactory.isEngineAvailableAsync(engineType as any)
   })
 
+  ipcMain.handle('claude-code:installPiSdk', async () => {
+    info('ClaudeCodeIPC', '→ installPiSdk')
+    try {
+      const { spawn } = require('child_process') as typeof import('child_process')
+      const platform = process.platform
+
+      // Try npm first, then bun
+      const installers: Array<{ cmd: string; args: string[]; label: string }> = [
+        { cmd: 'npm', args: ['install', '-g', '@mariozechner/pi-coding-agent'], label: 'npm' },
+      ]
+
+      // Check if bun is available (bundled or global)
+      const bunName = platform === 'win32' ? 'bun.exe' : 'bun'
+      const resourcesDir = process.resourcesPath || ''
+      const bundledBun = join(resourcesDir, 'engine', 'bin', bunName)
+      const devBun = join(__dirname, '../../engine/bin', bunName)
+
+      const fs = require('fs') as typeof import('fs')
+      if (fs.existsSync(bundledBun) || fs.existsSync(devBun)) {
+        const bunPath = fs.existsSync(bundledBun) ? bundledBun : devBun
+        installers.push({ cmd: bunPath, args: ['install', '-g', '@mariozechner/pi-coding-agent'], label: 'bundled bun' })
+      }
+      installers.push({ cmd: 'bun', args: ['install', '-g', '@mariozechner/pi-coding-agent'], label: 'global bun' })
+
+      let lastError: string | null = null
+      for (const installer of installers) {
+        try {
+          info('ClaudeCodeIPC', `Trying ${installer.label}: ${installer.cmd} ${installer.args.join(' ')}`)
+          const result = await new Promise<{ success: boolean; error?: string }>((resolve) => {
+            const child = spawn(installer.cmd, installer.args, {
+              stdio: ['pipe', 'pipe', 'pipe'],
+              shell: platform === 'win32',
+            })
+            let stdout = ''
+            let stderr = ''
+            child.stdout?.on('data', (d: Buffer) => { stdout += d.toString() })
+            child.stderr?.on('data', (d: Buffer) => { stderr += d.toString() })
+            child.on('close', (code: number | null) => {
+              if (code === 0) {
+                resolve({ success: true })
+              } else {
+                resolve({ success: false, error: `${installer.label} exited with code ${code}: ${stderr.trim() || stdout.trim()}` })
+              }
+            })
+            child.on('error', (err: Error) => {
+              resolve({ success: false, error: `${installer.label} failed: ${err.message}` })
+            })
+            // Timeout after 120 seconds
+            setTimeout(() => {
+              child.kill()
+              resolve({ success: false, error: `${installer.label} timed out after 120s` })
+            }, 120_000)
+          })
+
+          if (result.success) {
+            info('ClaudeCodeIPC', `Pi SDK installed successfully via ${installer.label}`)
+            return { success: true }
+          }
+          lastError = result.error || 'Unknown error'
+          info('ClaudeCodeIPC', `${installer.label} failed: ${lastError}`)
+        } catch (err) {
+          lastError = String(err)
+        }
+      }
+
+      return { success: false, error: lastError || 'No installer available. Please install Node.js or Bun first.' }
+    } catch (err) {
+      error('ClaudeCodeIPC', 'installPiSdk failed', err)
+      return { success: false, error: String(err) }
+    }
+  })
+
   ipcMain.handle('claude-code:submitToolAnswer', async (_, sessionId: string, toolCallId: string, answers: Record<string, string>) => {
     info('ClaudeCodeIPC', `→ submitToolAnswer | sessionId=${sessionId.slice(0, 8)} | toolId=${toolCallId.slice(0, 8)} | answers=${JSON.stringify(answers)}`)
     const startMs = Date.now()

@@ -1086,12 +1086,13 @@ interface LocalSkillBundle {
 }
 
 const CUSTOM_DIRS_STORAGE_KEY = 'local_skill_custom_dirs'
-const CUSTOM_DIRS_FILE = join(app.getPath('userData'), 'custom-skill-dirs.json')
+const getCustomDirsFile = () => join(app.getPath('userData'), 'custom-skill-dirs.json')
 
 function loadCustomDirsFromFile(): string[] {
   try {
-    if (existsSync(CUSTOM_DIRS_FILE)) {
-      const content = readFileSync(CUSTOM_DIRS_FILE, 'utf-8')
+    const customDirsFile = getCustomDirsFile()
+    if (existsSync(customDirsFile)) {
+      const content = readFileSync(customDirsFile, 'utf-8')
       return JSON.parse(content)
     }
   } catch (err) {
@@ -1102,7 +1103,7 @@ function loadCustomDirsFromFile(): string[] {
 
 function saveCustomDirsToFile(directories: string[]): void {
   try {
-    writeFileSync(CUSTOM_DIRS_FILE, JSON.stringify(directories, null, 2), 'utf-8')
+    writeFileSync(getCustomDirsFile(), JSON.stringify(directories, null, 2), 'utf-8')
   } catch (err) {
     console.error('[LocalLibrary] Failed to save custom directories to file:', err)
     throw err

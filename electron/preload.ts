@@ -279,6 +279,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('claude-code:listAgents', cwd, engineType),
     isEngineAvailable: (engineType: string) =>
       ipcRenderer.invoke('claude-code:isEngineAvailable', engineType),
+    installPiSdk: () =>
+      ipcRenderer.invoke('claude-code:installPiSdk'),
     updateThinkingLevel: (sessionId: string, enabled: boolean) =>
       ipcRenderer.invoke('claude-code:updateThinkingLevel', sessionId, enabled),
     // 会话历史相关

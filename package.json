@@ -98,12 +98,11 @@
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
-      "node_modules/node-pty/**/*",
-      "node_modules/@mariozechner/**/*"
+      "node_modules/**/*"
     ],
     "asarUnpack": [
-      "node_modules/node-pty/**/*",
-      "node_modules/@mariozechner/**/*"
+      "node_modules/**/*",
+      "dist-electron/proxy/**/*"
     ],
     "extraResources": [
       {

@@ -177,15 +177,21 @@ function loadNodePty(): any {
 
 let pty: any
 let ptyLoadError: Error | null = null
-try {
-  pty = loadNodePty()
-  console.log('[TerminalManager] node-pty loaded successfully')
-} catch (error) {
-  ptyLoadError = error as Error
-  console.warn(
-    '[TerminalManager] node-pty not available, terminal feature will be disabled:',
-    error
-  )
+let ptyLoaded = false
+
+function ensurePtyLoaded() {
+  if (ptyLoaded) return
+  ptyLoaded = true
+  try {
+    pty = loadNodePty()
+    console.log('[TerminalManager] node-pty loaded successfully')
+  } catch (error) {
+    ptyLoadError = error as Error
+    console.warn(
+      '[TerminalManager] node-pty not available, terminal feature will be disabled:',
+      error
+    )
+  }
 }
 
 interface TerminalInstance {
@@ -198,6 +204,7 @@ export class TerminalManager {
   private terminals: Map<string, TerminalInstance> = new Map()
 
   create(cwd?: string, command?: string, env?: Record<string, string>): string {
+    ensurePtyLoaded()
     if (!pty) {
       const baseMsg = 'node-pty is not available'
       if (ptyLoadError) {

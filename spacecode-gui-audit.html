@@ -1,0 +1,2112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="canvas:aspect-ratio" content="16:9" />
+<title>SpaceCode GUI 设计诊断报告</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+/* ── Seed Tokens ── */
+:root {
+  --seed-bg: #08090a;
+  --seed-fg: #f7f8f8;
+  --seed-primary: #5e6ad2;
+  --seed-accent: #7170ff;
+  --seed-surface: #0f1011;
+  --seed-radius: 8px;
+
+  --bg-page: var(--seed-bg);
+  --bg-panel: #0f1011;
+  --bg-elevated: #191a1b;
+  --bg-hover: #28282c;
+
+  --fg-primary: var(--seed-fg);
+  --fg-secondary: #d0d6e0;
+  --fg-tertiary: #8a8f98;
+  --fg-quaternary: #62666d;
+
+  --accent: var(--seed-primary);
+  --accent-bright: var(--seed-accent);
+  --accent-hover: #828fff;
+
+  --border-subtle: rgba(255,255,255,0.05);
+  --border-standard: rgba(255,255,255,0.08);
+  --border-strong: rgba(255,255,255,0.12);
+
+  --surface-1: rgba(255,255,255,0.02);
+  --surface-2: rgba(255,255,255,0.04);
+  --surface-3: rgba(255,255,255,0.05);
+
+  --success: #27a644;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --caution: #f97316;
+
+  --p0: #ef4444;
+  --p1: #f59e0b;
+  --p2: #3b82f6;
+
+  --chart-grid: rgba(255,255,255,0.06);
+  --chart-label: #d0d6e0;
+  --tooltip-bg: #191a1b;
+  --tooltip-border: rgba(255,255,255,0.08);
+
+  --code-keyword: #c792ea;
+  --code-string: #c3e88d;
+  --code-prop: #82aaff;
+  --code-value: #f78c6c;
+  --code-comment: #546e7a;
+
+  --swatch-light-bg: #f8f9fb;
+  --swatch-light-accent: #0d9488;
+  --swatch-light-text: #1f2937;
+  --swatch-light-muted: #6e7191;
+  --swatch-light-border: #e5e7eb;
+
+  --swatch-dark-bg: #0d0d0d;
+  --swatch-dark-accent: #3b82f6;
+  --swatch-dark-text: #d4d4d4;
+  --swatch-dark-muted: #6b7280;
+  --swatch-dark-border: #2d2d2d;
+
+  --swatch-anth-bg: #faf9f5;
+  --swatch-anth-accent: #cc785c;
+  --swatch-anth-text: #2c2c2c;
+  --swatch-anth-muted: #8c8680;
+  --swatch-anth-border: #e5e0d8;
+
+  --swatch-anthd-bg: #181715;
+  --swatch-anthd-accent: #cc785c;
+  --swatch-anthd-text: #d4cfc8;
+  --swatch-anthd-muted: #7a756e;
+  --swatch-anthd-border: #2e2b28;
+
+  --contrast-muted-light: #6e7191;
+  --contrast-disabled-light: #9da1b8;
+  --contrast-accent-light: #0d9488;
+
+  --font-body: 'Inter Variable', Inter, SF Pro Display, -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Berkeley Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: var(--seed-radius);
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+
+  --sidebar-w: 240px;
+  --topbar-h: 56px;
+}
+
+/* ── Reset & Base ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.6;
+  color: var(--fg-secondary);
+  background: var(--bg-page);
+  overflow-x: hidden;
+}
+
+::selection {
+  background: rgba(94,106,210,0.3);
+  color: var(--fg-primary);
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+
+/* ── Layout ── */
+.layout {
+  min-height: 100vh;
+}
+
+/* ── Top Nav ── */
+.top-nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(8,9,10,0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.top-nav-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 16px;
+  height: 48px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.top-nav-inner::-webkit-scrollbar { display: none; }
+
+.top-nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 20px;
+  flex-shrink: 0;
+}
+
+.top-nav-brand-name {
+  font-size: 15px;
+  font-weight: 590;
+  color: var(--fg-primary);
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.top-nav-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border-standard);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 510;
+  color: var(--fg-tertiary);
+  text-decoration: none;
+  transition: color 150ms, background 150ms;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.nav-link:hover {
+  color: var(--fg-secondary);
+  background: var(--surface-1);
+}
+
+.nav-link.active {
+  color: var(--fg-primary);
+  background: var(--surface-2);
+}
+
+.nav-link svg {
+  width: 14px; height: 14px;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.nav-link.active svg { opacity: 1; }
+
+/* ── Main ── */
+.main-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ── Topbar ── */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.topbar-title {
+  font-size: 13px;
+  font-weight: 510;
+  color: var(--fg-quaternary);
+  letter-spacing: 0;
+}
+
+.topbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--fg-quaternary);
+}
+
+.topbar-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 510;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-standard);
+  background: var(--surface-1);
+  color: var(--fg-tertiary);
+}
+
+/* ── Sections ── */
+.section {
+  padding: 40px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.section:last-child { border-bottom: none; }
+
+.section-header {
+  margin-bottom: 32px;
+}
+
+.section-eyebrow {
+  font-size: 12px;
+  font-weight: 510;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-bright);
+  margin-bottom: 8px;
+}
+
+.section-title {
+  font-size: 32px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  color: var(--fg-primary);
+  line-height: 1.13;
+}
+
+.section-desc {
+  font-size: 16px;
+  color: var(--fg-tertiary);
+  margin-top: 8px;
+  max-width: 65ch;
+  line-height: 1.6;
+}
+
+/* ── Hero ── */
+.hero {
+  padding: 40px 0 32px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.hero-title {
+  font-size: 48px;
+  font-weight: 510;
+  letter-spacing: -0.022em;
+  color: var(--fg-primary);
+  line-height: 1.0;
+  margin-bottom: 12px;
+}
+
+.hero-subtitle {
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--fg-tertiary);
+  line-height: 1.6;
+  letter-spacing: -0.01em;
+  max-width: 60ch;
+}
+
+/* ── Score Row ── */
+.score-row {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) 1fr;
+  gap: 24px;
+  margin-top: 32px;
+  align-items: start;
+}
+
+.radar-container {
+  background: var(--surface-1);
+  border: 1px solid var(--border-standard);
+  border-radius: var(--radius-xl);
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.kpi-card {
+  background: var(--surface-1);
+  border: 1px solid var(--border-standard);
+  border-radius: var(--radius-xl);
+  padding: 20px;
+  transition: background 200ms;
+}
+
+.kpi-card:hover { background: var(--surface-2); }
+
+.kpi-label {
+  font-size: 12px;
+  font-weight: 510;
+  letter-spacing: 0.02em;
+  color: var(--fg-quaternary);
+  margin-bottom: 8px;
+}
+
+.kpi-value {
+  font-size: 36px;
+  font-weight: 510;
+  letter-spacing: -0.02em;
+  color: var(--fg-primary);
+  line-height: 1;
+}
+
+.kpi-value .kpi-unit {
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--fg-tertiary);
+  margin-left: 4px;
+}
+
+.kpi-delta {
+  font-size: 13px;
+  font-weight: 510;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.kpi-delta.positive { color: var(--success); }
+.kpi-delta.negative { color: var(--danger); }
+.kpi-delta.neutral { color: var(--fg-quaternary); }
+
+/* ── Dimension Cards ── */
+.dim-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.dim-card {
+  background: var(--surface-1);
+  border: 1px solid var(--border-standard);
+  border-radius: var(--radius-xl);
+  padding: 24px;
+  cursor: pointer;
+  transition: background 200ms, border-color 200ms;
+  text-decoration: none;
+  display: block;
+  color: inherit;
+}
+
+.dim-card:hover {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
+
+.dim-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.dim-card-title {
+  font-size: 16px;
+  font-weight: 590;
+  color: var(--fg-primary);
+  letter-spacing: -0.01em;
+}
+
+.dim-score {
+  font-size: 20px;
+  font-weight: 510;
+  letter-spacing: -0.02em;
+}
+
+.dim-score.good { color: var(--success); }
+.dim-score.warn { color: var(--warning); }
+.dim-score.bad { color: var(--danger); }
+
+.dim-card-desc {
+  font-size: 14px;
+  color: var(--fg-tertiary);
+  line-height: 1.5;
+}
+
+.dim-issue-count {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.issue-pill {
+  font-size: 11px;
+  font-weight: 510;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  letter-spacing: 0.02em;
+}
+
+.issue-pill.p0 { background: rgba(239,68,68,0.15); color: var(--p0); }
+.issue-pill.p1 { background: rgba(245,158,11,0.15); color: var(--p1); }
+.issue-pill.p2 { background: rgba(59,130,246,0.15); color: var(--p2); }
+
+/* ── Issue List ── */
+.issue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.issue-item {
+  background: var(--surface-1);
+  border: 1px solid var(--border-standard);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  transition: background 150ms;
+}
+
+.issue-item:hover { background: var(--surface-2); }
+
+.issue-item-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.severity-badge {
+  font-size: 11px;
+  font-weight: 590;
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.severity-badge.p0 { background: rgba(239,68,68,0.2); color: var(--p0); }
+.severity-badge.p1 { background: rgba(245,158,11,0.2); color: var(--p1); }
+.severity-badge.p2 { background: rgba(59,130,246,0.2); color: var(--p2); }
+
+.issue-title {
+  font-size: 15px;
+  font-weight: 510;
+  color: var(--fg-primary);
+}
+
+.issue-desc {
+  font-size: 14px;
+  color: var(--fg-tertiary);
+  line-height: 1.5;
+  margin-top: 4px;
+}
+
+.issue-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.file-tag {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--fg-tertiary);
+  border: 1px solid var(--border-subtle);
+}
+
+/* ── Code Blocks ── */
+.code-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.code-block {
+  background: rgba(0,0,0,0.3);
+  border: 1px solid var(--border-standard);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.code-block-header {
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 510;
+  color: var(--fg-quaternary);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.code-block-header .label-before { color: var(--danger); }
+.code-block-header .label-after { color: var(--success); }
+
+.code-block pre {
+  padding: 16px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-secondary);
+  overflow-x: auto;
+  white-space: pre;
+  margin: 0;
+}
+
+.code-block pre .kw { color: var(--code-keyword); }
+.code-block pre .str { color: var(--code-string); }
+.code-block pre .prop { color: var(--code-prop); }
+.code-block pre .val { color: var(--code-value); }
+.code-block pre .comment { color: var(--code-comment); font-style: italic; }
+.code-block pre .del { background: rgba(239,68,68,0.12); display: block; margin: 0 -16px; padding: 0 16px; }
+.code-block pre .add { background: rgba(39,166,68,0.12); display: block; margin: 0 -16px; padding: 0 16px; }
+
+/* ── Theme Swatches ── */
+.theme-swatches {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.theme-swatch {
+  background: var(--surface-1);
+  border: 1px solid var(--border-standard);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+}
+
+.swatch-name {
+  font-size: 14px;
+  font-weight: 510;
+  color: var(--fg-primary);
+  margin-bottom: 12px;
+}
+
+.swatch-colors {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.swatch-dot {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.08);
+}
+
+/* ── Stats Bar ── */
+.stats-bar {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.stat-bar-item {
+  background: var(--surface-1);
+  border: 1px solid var(--border-standard);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+}
+
+.stat-bar-label {
+  font-size: 13px;
+  font-weight: 510;
+  color: var(--fg-tertiary);
+  margin-bottom: 8px;
+}
+
+.stat-bar-track {
+  height: 6px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.stat-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 600ms cubic-bezier(0.4,0,0.2,1);
+}
+
+.stat-bar-fill.good { background: var(--success); }
+.stat-bar-fill.warn { background: var(--warning); }
+.stat-bar-fill.bad { background: var(--danger); }
+
+.stat-bar-value {
+  font-size: 12px;
+  font-weight: 510;
+  color: var(--fg-quaternary);
+  margin-top: 6px;
+  text-align: right;
+}
+
+/* ── Heatmap ── */
+.heatmap {
+  margin-top: 24px;
+}
+
+.heatmap-row {
+  display: grid;
+  grid-template-columns: 200px 1fr 80px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.heatmap-file {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--fg-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.heatmap-bar {
+  height: 20px;
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+.heatmap-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 500ms cubic-bezier(0.4,0,0.2,1);
+}
+
+.heatmap-bar-fill.critical { background: linear-gradient(90deg, #ef4444, #f97316); }
+.heatmap-bar-fill.high { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+.heatmap-bar-fill.medium { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+
+.heatmap-size {
+  font-size: 13px;
+  font-weight: 510;
+  color: var(--fg-quaternary);
+  text-align: right;
+}
+
+/* ── Roadmap ── */
+.roadmap-filters {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.filter-btn {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 510;
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-standard);
+  background: transparent;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  transition: all 150ms;
+}
+
+.filter-btn:hover {
+  background: var(--surface-1);
+  color: var(--fg-secondary);
+}
+
+.filter-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.roadmap-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.roadmap-item {
+  background: var(--surface-1);
+  border: 1px solid var(--border-standard);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 16px;
+  align-items: start;
+  transition: background 150ms;
+}
+
+.roadmap-item:hover { background: var(--surface-2); }
+
+.roadmap-priority {
+  font-size: 11px;
+  font-weight: 590;
+  padding: 3px 10px;
+  border-radius: var(--radius-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+
+.roadmap-priority.p0 { background: rgba(239,68,68,0.15); color: var(--p0); }
+.roadmap-priority.p1 { background: rgba(245,158,11,0.15); color: var(--p1); }
+.roadmap-priority.p2 { background: rgba(59,130,246,0.15); color: var(--p2); }
+
+.roadmap-body {
+  min-width: 0;
+}
+
+.roadmap-title {
+  font-size: 15px;
+  font-weight: 510;
+  color: var(--fg-primary);
+  margin-bottom: 4px;
+}
+
+.roadmap-desc {
+  font-size: 14px;
+  color: var(--fg-tertiary);
+  line-height: 1.5;
+}
+
+.roadmap-meta {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--fg-quaternary);
+}
+
+.roadmap-effort {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.effort-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--fg-quaternary);
+}
+
+.roadmap-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: start;
+  margin-top: 2px;
+}
+
+.roadmap-tag {
+  font-size: 11px;
+  font-weight: 510;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-subtle);
+  color: var(--fg-quaternary);
+  white-space: nowrap;
+}
+
+/* ── Collapsible ── */
+.collapsible-toggle {
+  background: none;
+  border: none;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 510;
+  color: var(--accent-bright);
+  cursor: pointer;
+  padding: 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 150ms;
+}
+
+.collapsible-toggle:hover { color: var(--accent-hover); }
+
+.collapsible-toggle svg {
+  width: 14px; height: 14px;
+  transition: transform 200ms;
+}
+
+.collapsible-toggle.open svg { transform: rotate(90deg); }
+
+.collapsible-content {
+  display: none;
+  margin-top: 8px;
+}
+
+.collapsible-content.open { display: block; }
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+  .score-row { grid-template-columns: 1fr; }
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .code-compare { grid-template-columns: 1fr; }
+  .theme-swatches { grid-template-columns: repeat(2, 1fr); }
+  .stats-bar { grid-template-columns: 1fr; }
+  .section { padding: 32px 0; }
+  .hero { padding: 32px 0 24px; }
+  .hero-title { font-size: 32px; }
+}
+
+@media (max-width: 600px) {
+  .kpi-grid { grid-template-columns: 1fr; }
+  .dim-grid { grid-template-columns: 1fr; }
+  .heatmap-row { grid-template-columns: 120px 1fr 60px; }
+  .roadmap-item { grid-template-columns: 1fr; }
+  .roadmap-tags { margin-top: 8px; }
+  .main-content { padding: 0 16px; }
+  .topbar { flex-direction: column; align-items: flex-start; gap: 6px; }
+}
+
+/* ── Animations ── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-up {
+  animation: fadeUp 400ms cubic-bezier(0.4,0,0.2,1) forwards;
+  opacity: 0;
+}
+
+.fade-up:nth-child(2) { animation-delay: 60ms; }
+.fade-up:nth-child(3) { animation-delay: 120ms; }
+.fade-up:nth-child(4) { animation-delay: 180ms; }
+.fade-up:nth-child(5) { animation-delay: 240ms; }
+
+/* ── Accessibility Table ── */
+.a11y-table {
+  width: 100%;
+  margin-top: 20px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.a11y-table th {
+  font-size: 12px;
+  font-weight: 510;
+  letter-spacing: 0.02em;
+  color: var(--fg-quaternary);
+  text-align: left;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-standard);
+}
+
+.a11y-table td {
+  font-size: 14px;
+  color: var(--fg-secondary);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.a11y-table tr:hover td { background: var(--surface-1); }
+
+.contrast-sample {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.contrast-box {
+  width: 32px; height: 20px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 510;
+}
+
+.pass-tag { color: var(--success); font-weight: 510; }
+.fail-tag { color: var(--danger); font-weight: 510; }
+.marginal-tag { color: var(--warning); font-weight: 510; }
+</style>
+</head>
+<body>
+
+<div class="layout" data-component="Layout" data-od-id="layout-root">
+
+  <!-- ── Top Navigation ── -->
+  <nav class="top-nav" data-component="Top Nav" data-od-id="topnav">
+    <div class="top-nav-inner">
+      <div class="top-nav-brand">
+        <span class="brand-dot"></span>
+        <span class="top-nav-brand-name">SpaceCode 诊断</span>
+      </div>
+      <div class="top-nav-divider"></div>
+      <a class="nav-link active" href="#hero-summary" data-nav="hero-summary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        总览
+      </a>
+      <a class="nav-link" href="#design-system" data-nav="design-system">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4m-9-9h4m14 0h4"/></svg>
+        设计系统
+      </a>
+      <a class="nav-link" href="#interaction-ux" data-nav="interaction-ux">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 15l-2 5L9 9l11 4-5 2z"/><path d="M15 15l5 5"/></svg>
+        交互体验
+      </a>
+      <a class="nav-link" href="#accessibility" data-nav="accessibility">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 8a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm-4 4h8m-4 0v8"/></svg>
+        可访问性
+      </a>
+      <a class="nav-link" href="#visual-language" data-nav="visual-language">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
+        视觉语言
+      </a>
+      <a class="nav-link" href="#architecture" data-nav="architecture">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+        组件架构
+      </a>
+      <div class="top-nav-divider"></div>
+      <a class="nav-link" href="#roadmap" data-nav="roadmap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3h18v18H3z"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+        路线图
+      </a>
+    </div>
+  </nav>
+
+  <!-- ── Main Content ── -->
+  <main class="main-content" data-component="Main Content" data-od-id="main">
+
+    <!-- Topbar -->
+    <div class="topbar" data-component="Top Bar" data-od-id="topbar">
+      <div class="topbar-title">GUI 设计诊断报告 · v0.5.0 · 2026-06-11</div>
+      <div class="topbar-meta">
+        <span class="topbar-badge">Electron + Vue 3</span>
+        <span>成熟度 7.5 / 10</span>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- SECTION 1: Hero Summary -->
+    <!-- ═══════════════════════════════════════════ -->
+    <section class="hero section" id="hero-summary" data-component="Hero Summary" data-od-id="hero-summary">
+      <div class="section-header">
+        <div class="section-eyebrow">总览</div>
+        <h1 class="hero-title">GUI 设计诊断</h1>
+        <p class="hero-subtitle">基于对 SpaceCode 全部 Vue 组件源码、SCSS 令牌体系和 Pinia 状态管理的深入分析，本报告从五大维度系统诊断当前 GUI 的设计质量，并给出按优先级排序的优化路线图。</p>
+      </div>
+
+      <div class="score-row">
+        <!-- Radar Chart -->
+        <div class="radar-container" data-component="Radar Chart" data-od-id="radar">
+          <canvas id="radarChart" width="280" height="280" role="img" aria-label="SpaceCode 五维度设计评分雷达图：设计系统 72 分，交互体验 68 分，可访问性 45 分，视觉语言 78 分，组件架构 62 分"></canvas>
+        </div>
+
+        <!-- KPI Cards -->
+        <div class="kpi-grid" data-component="KPI Cards" data-od-id="kpi-grid">
+          <div class="kpi-card fade-up">
+            <div class="kpi-label">发现问题总数</div>
+            <div class="kpi-value">27</div>
+            <div class="kpi-delta neutral">跨 5 大维度分布</div>
+          </div>
+          <div class="kpi-card fade-up">
+            <div class="kpi-label">P0 严重问题</div>
+            <div class="kpi-value" style="color: var(--p0)">5</div>
+            <div class="kpi-delta negative">需要立即修复</div>
+          </div>
+          <div class="kpi-card fade-up">
+            <div class="kpi-label">P1 重要问题</div>
+            <div class="kpi-value" style="color: var(--p1)">12</div>
+            <div class="kpi-delta neutral">建议近期处理</div>
+          </div>
+          <div class="kpi-card fade-up">
+            <div class="kpi-label">P2 改善建议</div>
+            <div class="kpi-value" style="color: var(--p2)">10</div>
+            <div class="kpi-delta neutral">可纳入规划</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dimension Quick Links -->
+      <div class="dim-grid" style="margin-top: 32px;" data-component="Dimension Cards" data-od-id="dim-cards">
+        <a class="dim-card fade-up" href="#design-system">
+          <div class="dim-card-header">
+            <div class="dim-card-title">设计系统一致性</div>
+            <div class="dim-score warn">72</div>
+          </div>
+          <div class="dim-card-desc">双令牌系统共存、硬编码颜色、按钮样式重复定义</div>
+          <div class="dim-issue-count">
+            <span class="issue-pill p0">P0 x2</span>
+            <span class="issue-pill p1">P1 x3</span>
+            <span class="issue-pill p2">P2 x2</span>
+          </div>
+        </a>
+        <a class="dim-card fade-up" href="#interaction-ux">
+          <div class="dim-card-header">
+            <div class="dim-card-title">交互体验</div>
+            <div class="dim-score warn">68</div>
+          </div>
+          <div class="dim-card-desc">超大组件复杂度、resize 缺少键盘替代、下拉菜单 ARIA 缺失</div>
+          <div class="dim-issue-count">
+            <span class="issue-pill p0">P0 x1</span>
+            <span class="issue-pill p1">P1 x3</span>
+            <span class="issue-pill p2">P2 x2</span>
+          </div>
+        </a>
+        <a class="dim-card fade-up" href="#accessibility">
+          <div class="dim-card-header">
+            <div class="dim-card-title">可访问性</div>
+            <div class="dim-score bad">45</div>
+          </div>
+          <div class="dim-card-desc">色彩对比度不足、键盘导航缺口、屏幕阅读器支持薄弱</div>
+          <div class="dim-issue-count">
+            <span class="issue-pill p0">P0 x1</span>
+            <span class="issue-pill p1">P1 x3</span>
+            <span class="issue-pill p2">P2 x1</span>
+          </div>
+        </a>
+        <a class="dim-card fade-up" href="#visual-language">
+          <div class="dim-card-header">
+            <div class="dim-card-title">视觉语言</div>
+            <div class="dim-score good">78</div>
+          </div>
+          <div class="dim-card-desc">间距系统化程度低、圆角/过渡令牌使用率不一致</div>
+          <div class="dim-issue-count">
+            <span class="issue-pill p0">P0 x0</span>
+            <span class="issue-pill p1">P1 x2</span>
+            <span class="issue-pill p2">P2 x3</span>
+          </div>
+        </a>
+        <a class="dim-card fade-up" href="#architecture">
+          <div class="dim-card-header">
+            <div class="dim-card-title">组件架构</div>
+            <div class="dim-score warn">62</div>
+          </div>
+          <div class="dim-card-desc">巨型组件文件、事件总线耦合、重复 CSS 定义</div>
+          <div class="dim-issue-count">
+            <span class="issue-pill p0">P0 x1</span>
+            <span class="issue-pill p1">P1 x3</span>
+            <span class="issue-pill p2">P2 x2</span>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- SECTION 2: Design System Consistency -->
+    <!-- ═══════════════════════════════════════════ -->
+    <section class="section" id="design-system" data-component="Design System" data-od-id="design-system">
+      <div class="section-header">
+        <div class="section-eyebrow">维度一</div>
+        <h2 class="section-title">设计系统一致性</h2>
+        <p class="section-desc">SpaceCode 拥有四套精心设计的主题（Light / Dark / Anthropic / Anthropic Dark），每套包含 70+ CSS 变量。但新旧两套令牌系统共存导致了视觉不一致。</p>
+      </div>
+
+      <!-- Theme Swatches -->
+      <div class="theme-swatches" data-component="Theme Swatches" data-od-id="theme-swatches">
+        <div class="theme-swatch">
+          <div class="swatch-name">Light (Mist Slate)</div>
+          <div class="swatch-colors">
+            <div class="swatch-dot" style="background: var(--swatch-light-bg)" title="#f8f9fb"></div>
+            <div class="swatch-dot" style="background: var(--swatch-light-accent)" title="Teal Accent"></div>
+            <div class="swatch-dot" style="background: var(--swatch-light-text)" title="Text Primary"></div>
+            <div class="swatch-dot" style="background: var(--swatch-light-muted)" title="Text Muted"></div>
+            <div class="swatch-dot" style="background: var(--swatch-light-border)" title="Border"></div>
+          </div>
+        </div>
+        <div class="theme-swatch">
+          <div class="swatch-name">Dark</div>
+          <div class="swatch-colors">
+            <div class="swatch-dot" style="background: var(--swatch-dark-bg)" title="#0d0d0d"></div>
+            <div class="swatch-dot" style="background: var(--swatch-dark-accent)" title="Blue Accent"></div>
+            <div class="swatch-dot" style="background: var(--swatch-dark-text)" title="Text Primary"></div>
+            <div class="swatch-dot" style="background: var(--swatch-dark-muted)" title="Text Muted"></div>
+            <div class="swatch-dot" style="background: var(--swatch-dark-border)" title="Border"></div>
+          </div>
+        </div>
+        <div class="theme-swatch">
+          <div class="swatch-name">Anthropic</div>
+          <div class="swatch-colors">
+            <div class="swatch-dot" style="background: var(--swatch-anth-bg)" title="#faf9f5"></div>
+            <div class="swatch-dot" style="background: var(--swatch-anth-accent)" title="Coral Accent"></div>
+            <div class="swatch-dot" style="background: var(--swatch-anth-text)" title="Text Primary"></div>
+            <div class="swatch-dot" style="background: var(--swatch-anth-muted)" title="Text Muted"></div>
+            <div class="swatch-dot" style="background: var(--swatch-anth-border)" title="Border"></div>
+          </div>
+        </div>
+        <div class="theme-swatch">
+          <div class="swatch-name">Anthropic Dark</div>
+          <div class="swatch-colors">
+            <div class="swatch-dot" style="background: var(--swatch-anthd-bg)" title="#181715"></div>
+            <div class="swatch-dot" style="background: var(--swatch-anthd-accent)" title="Coral Accent"></div>
+            <div class="swatch-dot" style="background: var(--swatch-anthd-text)" title="Text Primary"></div>
+            <div class="swatch-dot" style="background: var(--swatch-anthd-muted)" title="Text Muted"></div>
+            <div class="swatch-dot" style="background: var(--swatch-anthd-border)" title="Border"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Issues -->
+      <div class="issue-list" data-component="Issue List" data-od-id="ds-issues">
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p0">P0</span>
+            <span class="issue-title">双令牌系统共存导致视觉断裂</span>
+          </div>
+          <div class="issue-desc">旧令牌系统（<code>--bg-primary</code>、<code>--border-color</code>、<code>--bg-hover</code>）与新令牌系统（<code>--surface-border</code>、<code>--surface-glass-hover</code>、<code>--radius-sm</code>）同时存在于 <code>_variables.scss</code> 中，不同组件引用不同的令牌集，导致同一应用内视觉风格不统一。</div>
+          <div class="issue-files">
+            <span class="file-tag">src/components/mcp/McpManager.vue</span>
+            <span class="file-tag">src/components/skills/SkillsManager.vue</span>
+            <span class="file-tag">src/components/scm/ScmPanel.vue</span>
+          </div>
+          <div class="code-compare">
+            <div class="code-block">
+              <div class="code-block-header"><span class="label-before">旧令牌（MCP/Skills 组件）</span></div>
+              <pre><span class="del">background: <span class="kw">var</span>(<span class="prop">--bg-primary</span>);</span>
+<span class="del">border: 1px solid <span class="kw">var</span>(<span class="prop">--border-color</span>);</span>
+<span class="del">border-radius: <span class="val">8px</span>; <span class="comment">/* 硬编码 */</span></span>
+<span class="del">color: <span class="kw">var</span>(<span class="prop">--text-primary</span>);</span></pre>
+            </div>
+            <div class="code-block">
+              <div class="code-block-header"><span class="label-after">新令牌（SCM 组件）</span></div>
+              <pre><span class="add">background: <span class="kw">var</span>(<span class="prop">--surface-glass</span>);</span>
+<span class="add">border: 1px solid <span class="kw">var</span>(<span class="prop">--surface-border</span>);</span>
+<span class="add">border-radius: <span class="kw">var</span>(<span class="prop">--radius-lg</span>);</span>
+<span class="add">color: <span class="kw">var</span>(<span class="prop">--fg-primary</span>);</span></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p0">P0</span>
+            <span class="issue-title">硬编码颜色值绕过了主题系统</span>
+          </div>
+          <div class="issue-desc">多处组件使用了硬编码的十六进制颜色值，导致切换主题时这些元素无法跟随变化。SCM 的提交按钮使用 <code>#6ecf9e</code> 而非 <code>var(--success)</code>；MCP 组件的错误状态使用 <code>#dc3545</code> 而非 <code>var(--error)</code>；Agent badge 使用 <code>rgba(99, 102, 241, ...)</code>。</div>
+          <div class="issue-files">
+            <span class="file-tag">src/components/scm/ScmPanel.vue</span>
+            <span class="file-tag">src/components/mcp/ConfigEditor.vue</span>
+            <span class="file-tag">src/components/layout/ChatPanel.vue</span>
+          </div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p1">P1</span>
+            <span class="issue-title">按钮样式在 4+ 组件中重复定义</span>
+          </div>
+          <div class="issue-desc"><code>.btn</code> 类在 ConfigEditor.vue、McpManager.vue、McpServerEditor.vue、SkillsManager.vue 中各自独立定义，padding、font-size、border-radius 值各不相同。应提取为共享组件或全局 SCSS 类。</div>
+          <div class="issue-files">
+            <span class="file-tag">src/components/mcp/ConfigEditor.vue</span>
+            <span class="file-tag">src/components/mcp/McpManager.vue</span>
+            <span class="file-tag">src/components/mcp/McpServerEditor.vue</span>
+            <span class="file-tag">src/components/skills/SkillsManager.vue</span>
+          </div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p1">P1</span>
+            <span class="issue-title">过渡 (transition) 值硬编码不一致</span>
+          </div>
+          <div class="issue-desc">设计令牌已定义 <code>--transition-fast (150ms)</code>、<code>--transition-normal (250ms)</code>，但部分组件仍使用 <code>transition: all 0.2s ease</code> 等硬编码值，导致动画节奏不统一。</div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p1">P1</span>
+            <span class="issue-title">模态框模式不统一</span>
+          </div>
+          <div class="issue-desc">McpManagerModal 使用简单 overlay + close 模式，McpServerEditor 使用 header/body/footer 对话框模式，Skills 的 CreateSkillDialog 又是另一种布局。缺乏统一的 AppModal / AppDialog 基础组件。</div>
+        </div>
+      </div>
+
+      <!-- Migration stats -->
+      <div class="stats-bar" data-component="Token Migration Stats" data-od-id="token-stats">
+        <div class="stat-bar-item">
+          <div class="stat-bar-label">旧令牌使用率</div>
+          <div class="stat-bar-track">
+            <div class="stat-bar-fill warn" style="width: 38%"></div>
+          </div>
+          <div class="stat-bar-value">38% — 约 15 个组件仍使用旧令牌</div>
+        </div>
+        <div class="stat-bar-item">
+          <div class="stat-bar-label">新令牌使用率</div>
+          <div class="stat-bar-track">
+            <div class="stat-bar-fill good" style="width: 62%"></div>
+          </div>
+          <div class="stat-bar-value">62% — 约 24 个组件已迁移</div>
+        </div>
+        <div class="stat-bar-item">
+          <div class="stat-bar-label">硬编码颜色占比</div>
+          <div class="stat-bar-track">
+            <div class="stat-bar-fill bad" style="width: 22%"></div>
+          </div>
+          <div class="stat-bar-value">22% — 约 35 处硬编码 hex/rgba 值</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- SECTION 3: Interaction UX -->
+    <!-- ═══════════════════════════════════════════ -->
+    <section class="section" id="interaction-ux" data-component="Interaction UX" data-od-id="interaction-ux">
+      <div class="section-header">
+        <div class="section-eyebrow">维度二</div>
+        <h2 class="section-title">交互体验</h2>
+        <p class="section-desc">SpaceCode 实现了丰富的交互模式（斜杠命令面板、@ 文件提及、内容可编辑区域的内联芯片），但部分核心交互存在可维护性和可用性风险。</p>
+      </div>
+
+      <div class="issue-list">
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p0">P0</span>
+            <span class="issue-title">ChatInput.vue 超过 2000 行，承载过多职责</span>
+          </div>
+          <div class="issue-desc">该单文件组件同时处理斜杠命令、文件提及、模型选择、Agent 选择、附件管理、拖放上传、提示词优化、ContentEditable 管理、粘贴处理等至少 9 项独立功能。这严重影响了可维护性和可测试性。应拆分为 3-5 个 composables 和子组件。</div>
+          <div class="issue-files">
+            <span class="file-tag">src/components/chat/ChatInput.vue (~2000 lines)</span>
+          </div>
+          <div class="code-compare">
+            <div class="code-block">
+              <div class="code-block-header"><span class="label-before">当前：单一巨型组件</span></div>
+              <pre><span class="comment">// ChatInput.vue - 全部功能耦合在一起</span>
+<span class="kw">const</span> handleInput = () => {
+  <span class="comment">// 斜杠命令检测</span>
+  <span class="comment">// @ 文件提及触发</span>
+  <span class="comment">// ContentEditable 同步</span>
+  <span class="comment">// 芯片渲染</span>
+  <span class="comment">// ... 200+ 行逻辑</span>
+}</pre>
+            </div>
+            <div class="code-block">
+              <div class="code-block-header"><span class="label-after">建议：职责拆分</span></div>
+              <pre><span class="comment">// composables/</span>
+<span class="add">useSlashCommands.ts   <span class="comment">// 斜杠命令逻辑</span></span>
+<span class="add">useFileMentions.ts    <span class="comment">// @ 文件提及</span></span>
+<span class="add">useContentEditable.ts <span class="comment">// 编辑器管理</span></span>
+<span class="add">useAttachments.ts     <span class="comment">// 附件与拖放</span></span>
+<span class="add">usePromptOptimizer.ts <span class="comment">// 提示词优化</span></span></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p1">P1</span>
+            <span class="issue-title">面板 resize 手柄缺少键盘替代方案</span>
+          </div>
+          <div class="issue-desc">App.vue 和 ScmPanel.vue 中的面板宽度/高度调节仅支持鼠标拖拽（mousedown → mousemove → mouseup），没有键盘快捷键替代。无法使用鼠标操作的用户无法调整面板尺寸。</div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p1">P1</span>
+            <span class="issue-title">自定义下拉菜单缺少 ARIA 角色标注</span>
+          </div>
+          <div class="issue-desc">斜杠命令面板、上下文菜单、模型选择器、附件菜单等自定义弹出组件手动管理焦点，但未实现 <code>role="listbox"</code>、<code>role="option"</code>、<code>aria-expanded</code>、<code>aria-activedescendant</code> 等必要的 ARIA 属性。</div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p1">P1</span>
+            <span class="issue-title">跨组件通信使用 CustomEvent 事件总线</span>
+          </div>
+          <div class="issue-desc">大量使用 <code>window.dispatchEvent(new CustomEvent(...))</code> 进行跨组件通信（如 'open-skills-manager'、'session-created'、'split-screen-requested' 等），这种模式脆弱且难以追踪。应改用 Pinia store 或 provide/inject 模式。</div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p2">P2</span>
+            <span class="issue-title">面板宽度使用内联样式而非 CSS 变量</span>
+          </div>
+          <div class="issue-desc">App.vue 通过 <code>:style="{ width: ... }"</code> 动态设置侧边栏和信息面板宽度，而非使用 CSS 自定义属性。这导致宽度变化无法通过 CSS transition 实现平滑动画。</div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p2">P2</span>
+            <span class="issue-title">缺少桌面级响应式断点处理</span>
+          </div>
+          <div class="issue-desc">作为桌面 Electron 应用，仅在 MessageItem.vue 中有一个 <code>@media (max-width: 768px)</code> 查询。当用户将面板 resize 到很窄的宽度时，缺乏对应的自适应布局。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- SECTION 4: Accessibility -->
+    <!-- ═══════════════════════════════════════════ -->
+    <section class="section" id="accessibility" data-component="Accessibility" data-od-id="accessibility">
+      <div class="section-header">
+        <div class="section-eyebrow">维度三</div>
+        <h2 class="section-title">可访问性</h2>
+        <p class="section-desc">可访问性是 SpaceCode 当前最薄弱的环节。色彩对比度、键盘导航和屏幕阅读器支持均存在明显缺口。</p>
+      </div>
+
+      <!-- Contrast Analysis Table -->
+      <h3 style="font-size: 20px; font-weight: 590; color: var(--fg-primary); letter-spacing: -0.012em; margin-bottom: 4px;">色彩对比度分析</h3>
+      <p style="font-size: 14px; color: var(--fg-tertiary); margin-bottom: 16px;">以下列出在 Light 主题下对比度不足的颜色组合（WCAG AA 标准要求正文文本 &ge; 4.5:1，大号文本 &ge; 3:1）：</p>
+
+      <table class="a11y-table" data-component="Contrast Table" data-od-id="contrast-table">
+        <thead>
+          <tr>
+            <th>颜色组合</th>
+            <th>前景色</th>
+            <th>背景色</th>
+            <th>对比度</th>
+            <th>用途</th>
+            <th>状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>--text-muted / --bg-primary</td>
+            <td><span class="contrast-sample"><span class="contrast-box" style="background: var(--contrast-muted-light); color: var(--swatch-light-bg)">Aa</span></span></td>
+            <td>var(--swatch-light-bg)</td>
+            <td>3.8:1</td>
+            <td>小文本（14px）</td>
+            <td><span class="fail-tag">不通过 AA</span></td>
+          </tr>
+          <tr>
+            <td>--text-disabled / --bg-primary</td>
+            <td><span class="contrast-sample"><span class="contrast-box" style="background: var(--contrast-disabled-light); color: var(--swatch-light-bg)">Aa</span></span></td>
+            <td>var(--swatch-light-bg)</td>
+            <td>2.5:1</td>
+            <td>禁用状态文本</td>
+            <td><span class="fail-tag">不通过 AA</span></td>
+          </tr>
+          <tr>
+            <td>--text-muted / --bg-primary</td>
+            <td><span class="contrast-sample"><span class="contrast-box" style="background: var(--contrast-muted-light); color: var(--swatch-light-bg)">Aa</span></span></td>
+            <td>var(--swatch-light-bg)</td>
+            <td>3.8:1</td>
+            <td>大号文本（18px+）</td>
+            <td><span class="marginal-tag">勉强通过</span></td>
+          </tr>
+          <tr>
+            <td>--accent (teal) / --bg-primary</td>
+            <td><span class="contrast-sample"><span class="contrast-box" style="background: var(--contrast-accent-light); color: var(--swatch-light-bg)">Aa</span></span></td>
+            <td>var(--swatch-light-bg)</td>
+            <td>3.4:1</td>
+            <td>链接 / 可点击文本</td>
+            <td><span class="fail-tag">不通过 AA</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="issue-list" style="margin-top: 32px;">
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p0">P0</span>
+            <span class="issue-title">--text-muted 在 Light 主题正文中对比度不达标</span>
+          </div>
+          <div class="issue-desc"><code>--text-muted (#6e7191)</code> 在 <code>--bg-primary (#f8f9fb)</code> 上的对比度仅为 3.8:1，低于 WCAG AA 标准要求的 4.5:1（小文本）。这是 Light 主题下最常见的文字颜色之一，影响范围广泛。建议将 Light 主题的 muted 色加深至 <code>#5c5f7a</code> 左右（对比度 &ge; 4.5:1）。</div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p1">P1</span>
+            <span class="issue-title">侧边栏图标按钮缺少 aria-label</span>
+          </div>
+          <div class="issue-desc">侧边栏图标导航栏的按钮仅使用 <code>title</code> 属性提供提示，缺少 <code>aria-label</code>。屏幕阅读器用户无法理解这些图标的功能。状态指示器（<code>.status-dot</code>、<code>.badge-dot</code>）纯视觉表达，无文字替代。</div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p1">P1</span>
+            <span class="issue-title">自定义弹出组件的键盘导航不完整</span>
+          </div>
+          <div class="issue-desc">斜杠命令面板支持方向键和 Enter，但缺少 Escape 关闭、Tab 循环、Home/End 跳至首尾等标准键盘交互。MCP 服务器列表和技能列表不支持箭头键导航和 Enter 选择。</div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p1">P1</span>
+            <span class="issue-title">resize 手柄无键盘替代</span>
+          </div>
+          <div class="issue-desc">三栏布局的面板宽度调整和 SCM 面板的内部拆分器仅支持鼠标拖拽。需要添加键盘替代方案（如 Ctrl + 方向键调整面板宽度）。</div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p2">P2</span>
+            <span class="issue-title">缺少高对比度模式</span>
+          </div>
+          <div class="issue-desc">虽然提供了四套主题，但没有专门针对高对比度需求的主题选项。建议在设置中增加一个 "高对比度" 开关或主题预设。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- SECTION 5: Visual Language -->
+    <!-- ═══════════════════════════════════════════ -->
+    <section class="section" id="visual-language" data-component="Visual Language" data-od-id="visual-language">
+      <div class="section-header">
+        <div class="section-eyebrow">维度四</div>
+        <h2 class="section-title">视觉语言</h2>
+        <p class="section-desc">SpaceCode 的视觉语言基础扎实：四套字体族选择精良（Space Grotesk、IBM Plex Sans、JetBrains Mono、Source Serif 4），玻璃态表面系统和辉光效果营造了现代感。但系统化程度仍有提升空间。</p>
+      </div>
+
+      <h3 style="font-size: 20px; font-weight: 590; color: var(--fg-primary); letter-spacing: -0.012em; margin-bottom: 16px;">排版系统</h3>
+
+      <div class="stats-bar" data-component="Typography Stats" data-od-id="typo-stats">
+        <div class="stat-bar-item">
+          <div class="stat-bar-label">字体族定义完整度</div>
+          <div class="stat-bar-track">
+            <div class="stat-bar-fill good" style="width: 90%"></div>
+          </div>
+          <div class="stat-bar-value">90% — 4 字体族 + 完整 fallback 链</div>
+        </div>
+        <div class="stat-bar-item">
+          <div class="stat-bar-label">间距令牌系统化程度</div>
+          <div class="stat-bar-track">
+            <div class="stat-bar-fill bad" style="width: 30%"></div>
+          </div>
+          <div class="stat-bar-value">30% — 未定义正式间距刻度</div>
+        </div>
+        <div class="stat-bar-item">
+          <div class="stat-bar-label">圆角令牌使用率</div>
+          <div class="stat-bar-track">
+            <div class="stat-bar-fill warn" style="width: 65%"></div>
+          </div>
+          <div class="stat-bar-value">65% — 约 35% 组件仍硬编码 px 值</div>
+        </div>
+      </div>
+
+      <div class="issue-list" style="margin-top: 32px;">
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p1">P1</span>
+            <span class="issue-title">间距值缺乏正式的令牌化刻度</span>
+          </div>
+          <div class="issue-desc">当前的间距值是非正式的（4px、6px、8px、10px、12px、16px、20px、24px、32px 等），各组件自由选取，缺乏统一的间距刻度令牌。建议定义 <code>--space-1 (4px)</code> 到 <code>--space-8 (32px)</code> 的间距系统，在 <code>_variables.scss</code> 中集中管理。</div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p1">P1</span>
+            <span class="issue-title">圆角和过渡令牌未被一致采用</span>
+          </div>
+          <div class="issue-desc">设计令牌已定义 <code>--radius-xs (4px)</code> 到 <code>--radius-xl (16px)</code> 以及 <code>--transition-fast/normal/slow</code>，但约 35% 的组件仍使用硬编码的 <code>border-radius: 8px</code>、<code>transition: all 0.2s ease</code> 等值。</div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p2">P2</span>
+            <span class="issue-title">字体大小设置项未全局生效</span>
+          </div>
+          <div class="issue-desc">外观设置中允许选择字体大小，但全局 CSS 使用固定 <code>14px</code> 基准值，设置值存储后未通过 CSS 变量传播到所有组件。建议将字号设置绑定到 <code>--font-size-base</code> 变量。</div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p2">P2</span>
+            <span class="issue-title">TitleBar 使用内联 SVG 而非 Lucide 图标</span>
+          </div>
+          <div class="issue-desc">项目统一使用 lucide-vue-next 图标库，但 TitleBar.vue 中 VS Code 图标和 review-changes 图标使用了内联 SVG render 函数，风格与其他图标不一致。</div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p2">P2</span>
+            <span class="issue-title">MessageItem.vue 中 CSS 块重复定义</span>
+          </div>
+          <div class="issue-desc"><code>.message-item.notification</code>、<code>.task-notification-card</code>、<code>.message-item</code> 等 CSS 块在同一 <code>&lt;style&gt;</code> 区域重复定义 3-4 次（第 266-344 行和第 738-808 行），增加维护负担并可能产生优先级冲突。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- SECTION 6: Component Architecture -->
+    <!-- ═══════════════════════════════════════════ -->
+    <section class="section" id="architecture" data-component="Architecture" data-od-id="architecture">
+      <div class="section-header">
+        <div class="section-eyebrow">维度五</div>
+        <h2 class="section-title">组件架构</h2>
+        <p class="section-desc">组件架构评估聚焦于文件大小健康度、职责单一性和代码复用率。SpaceCode 的部分核心组件已超出合理复杂度边界。</p>
+      </div>
+
+      <h3 style="font-size: 20px; font-weight: 590; color: var(--fg-primary); letter-spacing: -0.012em; margin-bottom: 4px;">组件体积热力图</h3>
+      <p style="font-size: 14px; color: var(--fg-tertiary); margin-bottom: 16px;">以下为体积最大的 Vue 组件文件。超过 500 行的组件应考虑拆分。</p>
+
+      <div class="heatmap" data-component="Component Heatmap" data-od-id="heatmap">
+        <div class="heatmap-row">
+          <div class="heatmap-file">ScmPanel.vue</div>
+          <div class="heatmap-bar"><div class="heatmap-bar-fill critical" style="width: 100%"></div></div>
+          <div class="heatmap-size">44.5 KB</div>
+        </div>
+        <div class="heatmap-row">
+          <div class="heatmap-file">ChatInput.vue</div>
+          <div class="heatmap-bar"><div class="heatmap-bar-fill critical" style="width: 88%"></div></div>
+          <div class="heatmap-size">~2000 行</div>
+        </div>
+        <div class="heatmap-row">
+          <div class="heatmap-file">Sidebar.vue</div>
+          <div class="heatmap-bar"><div class="heatmap-bar-fill critical" style="width: 78%"></div></div>
+          <div class="heatmap-size">~1140 行</div>
+        </div>
+        <div class="heatmap-row">
+          <div class="heatmap-file">ChatPanel.vue</div>
+          <div class="heatmap-bar"><div class="heatmap-bar-fill high" style="width: 72%"></div></div>
+          <div class="heatmap-size">~1000 行</div>
+        </div>
+        <div class="heatmap-row">
+          <div class="heatmap-file">MessageItem.vue</div>
+          <div class="heatmap-bar"><div class="heatmap-bar-fill high" style="width: 58%"></div></div>
+          <div class="heatmap-size">~810 行</div>
+        </div>
+        <div class="heatmap-row">
+          <div class="heatmap-file">SkillsManager.vue</div>
+          <div class="heatmap-bar"><div class="heatmap-bar-fill medium" style="width: 48%"></div></div>
+          <div class="heatmap-size">~650 行</div>
+        </div>
+        <div class="heatmap-row">
+          <div class="heatmap-file">SettingsPanel.vue</div>
+          <div class="heatmap-bar"><div class="heatmap-bar-fill medium" style="width: 38%"></div></div>
+          <div class="heatmap-size">~500 行</div>
+        </div>
+      </div>
+
+      <div class="issue-list" style="margin-top: 32px;">
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p0">P0</span>
+            <span class="issue-title">ScmPanel.vue (44.5KB) 是最大的单一组件</span>
+          </div>
+          <div class="issue-desc">SCM 面板包含分支管理、提交输入、文件列表、合并冲突、Git 图形视图等全部 Git 功能，约 1470 行。应拆分为 BranchDropdown、CommitInput、FileList、ConflictList、GitGraph 等子组件。</div>
+          <div class="code-compare">
+            <div class="code-block">
+              <div class="code-block-header"><span class="label-before">当前：单一巨型面板</span></div>
+              <pre><span class="comment">// ScmPanel.vue — 1470 行，全部功能</span>
+<span class="kw">&lt;template&gt;</span>
+  <span class="comment">// 分支显示 + 切换 (120行)</span>
+  <span class="comment">// 提交输入 + AI生成 (180行)</span>
+  <span class="comment">// 文件列表 (200行)</span>
+  <span class="comment">// 合并冲突 (100行)</span>
+  <span class="comment">// Git 图形视图 (300行)</span>
+  <span class="comment">// 工具栏 (80行)</span>
+<span class="kw">&lt;/template&gt;</span></pre>
+            </div>
+            <div class="code-block">
+              <div class="code-block-header"><span class="label-after">建议：子组件拆分</span></div>
+              <pre><span class="comment">// scm/</span>
+<span class="add">ScmPanel.vue         <span class="comment">// 容器组件</span></span>
+<span class="add">BranchDropdown.vue   <span class="comment">// 分支管理</span></span>
+<span class="add">CommitInput.vue      <span class="comment">// 提交输入</span></span>
+<span class="add">FileChangeList.vue   <span class="comment">// 文件变更</span></span>
+<span class="add">ConflictSection.vue  <span class="comment">// 合并冲突</span></span>
+<span class="add">GitGraph.vue         <span class="comment">// 提交图形</span></span></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p1">P1</span>
+            <span class="issue-title">ChatPanel.vue 混合了过多关注点</span>
+          </div>
+          <div class="issue-desc">ChatPanel.vue 超过 1000 行，同时处理会话管理、斜杠命令执行、差异查看、历史恢复、模型切换、消息处理。建议将会话管理和消息处理分离到独立 composable。</div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p1">P1</span>
+            <span class="issue-title">组件对 Electron API 紧耦合</span>
+          </div>
+          <div class="issue-desc">多个组件直接 import <code>@/services/electronAPI</code>，导致组件不可移植、难以进行单元测试。建议通过 provide/inject 或 Pinia action 层间接访问。</div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p1">P1</span>
+            <span class="issue-title">i18n 覆盖率不完整 — 多处硬编码中文</span>
+          </div>
+          <div class="issue-desc">项目已集成 vue-i18n，但 SCM 面板中有大量硬编码中文字符串（"提交"、"图形"、"合并冲突"、"取消暂存所有更改" 等），历史模态框和拖放覆盖层也绕过了 i18n 系统。</div>
+          <div class="issue-files">
+            <span class="file-tag">src/components/scm/ScmPanel.vue</span>
+            <span class="file-tag">src/components/layout/ChatPanel.vue</span>
+          </div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p2">P2</span>
+            <span class="issue-title">缺少共享基础组件库</span>
+          </div>
+          <div class="issue-desc">每个功能区域独立发明按钮、表单输入和布局模式。Settings 组件有一套成熟的 <code>s-</code> 前缀组件系统（s-card、s-btn-primary、s-toggle-switch 等），但其他区域未能复用。</div>
+        </div>
+
+        <div class="issue-item">
+          <div class="issue-item-header">
+            <span class="severity-badge p2">P2</span>
+            <span class="issue-title">SCM 文件列表缺少虚拟滚动</span>
+          </div>
+          <div class="issue-desc">SCM 面板的文件变更列表和 Git 日志可能有数百条记录，当前全量渲染所有 DOM 节点。建议引入虚拟滚动（如 vue-virtual-scroller）优化性能。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- SECTION 7: Optimization Roadmap -->
+    <!-- ═══════════════════════════════════════════ -->
+    <section class="section" id="roadmap" data-component="Roadmap" data-od-id="roadmap">
+      <div class="section-header">
+        <div class="section-eyebrow">行动计划</div>
+        <h2 class="section-title">优化路线图</h2>
+        <p class="section-desc">按优先级和工作量排列的改进项。每项标注了影响范围和预估时间。</p>
+      </div>
+
+      <!-- Filters -->
+      <div class="roadmap-filters" data-component="Filters" data-od-id="roadmap-filters">
+        <button class="filter-btn active" data-filter="all" onclick="filterRoadmap('all')">全部</button>
+        <button class="filter-btn" data-filter="p0" onclick="filterRoadmap('p0')">P0 严重</button>
+        <button class="filter-btn" data-filter="p1" onclick="filterRoadmap('p1')">P1 重要</button>
+        <button class="filter-btn" data-filter="p2" onclick="filterRoadmap('p2')">P2 改善</button>
+        <button class="filter-btn" data-filter="quick" onclick="filterRoadmap('quick')">Quick Win</button>
+        <button class="filter-btn" data-filter="medium" onclick="filterRoadmap('medium')">中等工作量</button>
+        <button class="filter-btn" data-filter="strategic" onclick="filterRoadmap('strategic')">战略性</button>
+      </div>
+
+      <!-- Roadmap Items -->
+      <div class="roadmap-list" data-component="Roadmap List" data-od-id="roadmap-list">
+
+        <div class="roadmap-item" data-priority="p0" data-effort="quick">
+          <div class="roadmap-priority p0">P0</div>
+          <div class="roadmap-body">
+            <div class="roadmap-title">统一令牌系统 — 将旧令牌变量映射为新令牌</div>
+            <div class="roadmap-desc">在 _variables.scss 中将旧变量 (--bg-primary, --border-color 等) 设为新变量的别名，然后批量替换 MCP/Skills 组件中的旧引用。消除双系统共存的视觉断裂。</div>
+            <div class="roadmap-meta">
+              <span class="roadmap-effort"><span class="effort-dot"></span><span class="effort-dot"></span> 1-2 天</span>
+              <span>影响: 15+ 组件</span>
+            </div>
+          </div>
+          <div class="roadmap-tags"><span class="roadmap-tag">Quick Win</span><span class="roadmap-tag">设计系统</span></div>
+        </div>
+
+        <div class="roadmap-item" data-priority="p0" data-effort="quick">
+          <div class="roadmap-priority p0">P0</div>
+          <div class="roadmap-body">
+            <div class="roadmap-title">替换所有硬编码颜色为语义化 CSS 变量</div>
+            <div class="roadmap-desc">将 #6ecf9e → var(--success)、#dc3545 → var(--error)、rgba(99,102,241,...) → var(--accent-secondary) 等。确保主题切换时所有元素正确响应。</div>
+            <div class="roadmap-meta">
+              <span class="roadmap-effort"><span class="effort-dot"></span><span class="effort-dot"></span> 1 天</span>
+              <span>影响: 约 35 处</span>
+            </div>
+          </div>
+          <div class="roadmap-tags"><span class="roadmap-tag">Quick Win</span><span class="roadmap-tag">主题</span></div>
+        </div>
+
+        <div class="roadmap-item" data-priority="p0" data-effort="quick">
+          <div class="roadmap-priority p0">P0</div>
+          <div class="roadmap-body">
+            <div class="roadmap-title">修复 Light 主题 --text-muted 对比度不达标</div>
+            <div class="roadmap-desc">将 Light 主题的 --text-muted 从 #6e7191 加深至 #5c5f7a（对比度从 3.8:1 提升至约 5.1:1），确保 WCAG AA 合规。</div>
+            <div class="roadmap-meta">
+              <span class="roadmap-effort"><span class="effort-dot"></span> 30 分钟</span>
+              <span>影响: Light 主题全局</span>
+            </div>
+          </div>
+          <div class="roadmap-tags"><span class="roadmap-tag">Quick Win</span><span class="roadmap-tag">可访问性</span></div>
+        </div>
+
+        <div class="roadmap-item" data-priority="p0" data-effort="medium">
+          <div class="roadmap-priority p0">P0</div>
+          <div class="roadmap-body">
+            <div class="roadmap-title">拆分 ChatInput.vue 为多个 composables 和子组件</div>
+            <div class="roadmap-desc">将 2000+ 行的 ChatInput.vue 拆分为 useSlashCommands、useFileMentions、useContentEditable、useAttachments、usePromptOptimizer 五个 composable，以及 SlashCommandPalette、FileMentionPicker、ModelSelector 等子组件。</div>
+            <div class="roadmap-meta">
+              <span class="roadmap-effort"><span class="effort-dot"></span><span class="effort-dot"></span><span class="effort-dot"></span> 3-5 天</span>
+              <span>影响: 聊天核心</span>
+            </div>
+          </div>
+          <div class="roadmap-tags"><span class="roadmap-tag">中等</span><span class="roadmap-tag">架构</span></div>
+        </div>
+
+        <div class="roadmap-item" data-priority="p0" data-effort="medium">
+          <div class="roadmap-priority p0">P0</div>
+          <div class="roadmap-body">
+            <div class="roadmap-title">拆分 ScmPanel.vue 为子组件树</div>
+            <div class="roadmap-desc">将 44.5KB 的 SCM 面板拆分为 BranchDropdown、CommitInput、FileChangeList、ConflictSection、GitGraph 五个子组件，主文件仅负责容器布局和状态协调。</div>
+            <div class="roadmap-meta">
+              <span class="roadmap-effort"><span class="effort-dot"></span><span class="effort-dot"></span><span class="effort-dot"></span> 3-5 天</span>
+              <span>影响: SCM 模块</span>
+            </div>
+          </div>
+          <div class="roadmap-tags"><span class="roadmap-tag">中等</span><span class="roadmap-tag">架构</span></div>
+        </div>
+
+        <div class="roadmap-item" data-priority="p1" data-effort="quick">
+          <div class="roadmap-priority p1">P1</div>
+          <div class="roadmap-body">
+            <div class="roadmap-title">提取共享按钮组件或全局 SCSS 按钮类</div>
+            <div class="roadmap-desc">创建 BaseButton.vue 或在 _mixins.scss 中定义统一的按钮样式（primary/ghost/danger），消除 4+ 组件中的 .btn 重复定义。</div>
+            <div class="roadmap-meta">
+              <span class="roadmap-effort"><span class="effort-dot"></span><span class="effort-dot"></span> 1 天</span>
+              <span>影响: 4+ 组件</span>
+            </div>
+          </div>
+          <div class="roadmap-tags"><span class="roadmap-tag">Quick Win</span><span class="roadmap-tag">组件库</span></div>
+        </div>
+
+        <div class="roadmap-item" data-priority="p1" data-effort="quick">
+          <div class="roadmap-priority p1">P1</div>
+          <div class="roadmap-body">
+            <div class="roadmap-title">为侧边栏图标按钮添加 aria-label</div>
+            <div class="roadmap-desc">为 Sidebar.vue 中所有仅图标的按钮添加 aria-label 属性，为状态指示器添加 aria-hidden 和 sr-only 文字替代。</div>
+            <div class="roadmap-meta">
+              <span class="roadmap-effort"><span class="effort-dot"></span> 2 小时</span>
+              <span>影响: Sidebar</span>
+            </div>
+          </div>
+          <div class="roadmap-tags"><span class="roadmap-tag">Quick Win</span><span class="roadmap-tag">可访问性</span></div>
+        </div>
+
+        <div class="roadmap-item" data-priority="p1" data-effort="quick">
+          <div class="roadmap-priority p1">P1</div>
+          <div class="roadmap-body">
+            <div class="roadmap-title">统一 transition 和 border-radius 令牌引用</div>
+            <div class="roadmap-desc">批量搜索替换所有硬编码的 transition 和 border-radius 值为对应的 CSS 变量引用。</div>
+            <div class="roadmap-meta">
+              <span class="roadmap-effort"><span class="effort-dot"></span><span class="effort-dot"></span> 半天</span>
+              <span>影响: ~20 处</span>
+            </div>
+          </div>
+          <div class="roadmap-tags"><span class="roadmap-tag">Quick Win</span><span class="roadmap-tag">一致性</span></div>
+        </div>
+
+        <div class="roadmap-item" data-priority="p1" data-effort="medium">
+          <div class="roadmap-priority p1">P1</div>
+          <div class="roadmap-body">
+            <div class="roadmap-title">为自定义下拉菜单实现完整的 ARIA 支持</div>
+            <div class="roadmap-desc">为斜杠命令面板、模型选择器、附件菜单等添加 role="listbox"、role="option"、aria-expanded、aria-activedescendant，并完善 Escape/Tab/Home/End 键盘导航。</div>
+            <div class="roadmap-meta">
+              <span class="roadmap-effort"><span class="effort-dot"></span><span class="effort-dot"></span><span class="effort-dot"></span> 2-3 天</span>
+              <span>影响: 5+ 弹出组件</span>
+            </div>
+          </div>
+          <div class="roadmap-tags"><span class="roadmap-tag">中等</span><span class="roadmap-tag">可访问性</span></div>
+        </div>
+
+        <div class="roadmap-item" data-priority="p1" data-effort="medium">
+          <div class="roadmap-priority p1">P1</div>
+          <div class="roadmap-body">
+            <div class="roadmap-title">创建统一的 AppModal 和 AppDialog 基础组件</div>
+            <div class="roadmap-desc">统一 MCP、Skills、SCM 等模块中不同的模态框实现，标准化 overlay、动画、布局和无障碍支持。</div>
+            <div class="roadmap-meta">
+              <span class="roadmap-effort"><span class="effort-dot"></span><span class="effort-dot"></span> 1-2 天</span>
+              <span>影响: 3+ 模态框</span>
+            </div>
+          </div>
+          <div class="roadmap-tags"><span class="roadmap-tag">中等</span><span class="roadmap-tag">组件库</span></div>
+        </div>
+
+        <div class="roadmap-item" data-priority="p1" data-effort="medium">
+          <div class="roadmap-priority p1">P1</div>
+          <div class="roadmap-body">
+            <div class="roadmap-title">用 Pinia action 替代 CustomEvent 事件总线</div>
+            <div class="roadmap-desc">将 'open-skills-manager'、'session-created' 等 CustomEvent 通信迁移到 Pinia store 的 action/event 模式，提高可追踪性和类型安全。</div>
+            <div class="roadmap-meta">
+              <span class="roadmap-effort"><span class="effort-dot"></span><span class="effort-dot"></span><span class="effort-dot"></span> 2-3 天</span>
+              <span>影响: 全局通信</span>
+            </div>
+          </div>
+          <div class="roadmap-tags"><span class="roadmap-tag">中等</span><span class="roadmap-tag">架构</span></div>
+        </div>
+
+        <div class="roadmap-item" data-priority="p1" data-effort="medium">
+          <div class="roadmap-priority p1">P1</div>
+          <div class="roadmap-body">
+            <div class="roadmap-title">补全 SCM 面板的 i18n 覆盖</div>
+            <div class="roadmap-desc">审查 ScmPanel.vue 中所有硬编码中文字符串（约 20+ 处），替换为 t() 调用。同步处理 ChatPanel.vue 的历史模态框和拖放覆盖层。</div>
+            <div class="roadmap-meta">
+              <span class="roadmap-effort"><span class="effort-dot"></span><span class="effort-dot"></span> 1 天</span>
+              <span>影响: SCM + Chat</span>
+            </div>
+          </div>
+          <div class="roadmap-tags"><span class="roadmap-tag">中等</span><span class="roadmap-tag">国际化</span></div>
+        </div>
+
+        <div class="roadmap-item" data-priority="p1" data-effort="strategic">
+          <div class="roadmap-priority p1">P1</div>
+          <div class="roadmap-body">
+            <div class="roadmap-title">定义正式间距令牌系统</div>
+            <div class="roadmap-desc">在 _variables.scss 中定义 --space-1 (4px) 到 --space-10 (48px) 的间距刻度，并逐步替换各组件中的硬编码间距值。</div>
+            <div class="roadmap-meta">
+              <span class="roadmap-effort"><span class="effort-dot"></span><span class="effort-dot"></span><span class="effort-dot"></span><span class="effort-dot"></span> 1-2 周</span>
+              <span>影响: 全局</span>
+            </div>
+          </div>
+          <div class="roadmap-tags"><span class="roadmap-tag">战略性</span><span class="roadmap-tag">设计系统</span></div>
+        </div>
+
+        <div class="roadmap-item" data-priority="p2" data-effort="quick">
+          <div class="roadmap-priority p2">P2</div>
+          <div class="roadmap-body">
+            <div class="roadmap-title">将字号设置绑定到 CSS 变量 --font-size-base</div>
+            <div class="roadmap-desc">将外观设置中的字体大小选项通过 CSS 变量 --font-size-base 传播到全局，替换固定的 14px 基准值。</div>
+            <div class="roadmap-meta">
+              <span class="roadmap-effort"><span class="effort-dot"></span> 2 小时</span>
+              <span>影响: 全局排版</span>
+            </div>
+          </div>
+          <div class="roadmap-tags"><span class="roadmap-tag">Quick Win</span><span class="roadmap-tag">排版</span></div>
+        </div>
+
+        <div class="roadmap-item" data-priority="p2" data-effort="quick">
+          <div class="roadmap-priority p2">P2</div>
+          <div class="roadmap-body">
+            <div class="roadmap-title">统一 TitleBar 图标为 Lucide 组件</div>
+            <div class="roadmap-desc">将 TitleBar.vue 中的内联 SVG render 函数替换为 lucide-vue-next 图标组件，保持与项目其他图标的一致性。</div>
+            <div class="roadmap-meta">
+              <span class="roadmap-effort"><span class="effort-dot"></span> 1 小时</span>
+              <span>影响: TitleBar</span>
+            </div>
+          </div>
+          <div class="roadmap-tags"><span class="roadmap-tag">Quick Win</span><span class="roadmap-tag">图标</span></div>
+        </div>
+
+        <div class="roadmap-item" data-priority="p2" data-effort="medium">
+          <div class="roadmap-priority p2">P2</div>
+          <div class="roadmap-body">
+            <div class="roadmap-title">为面板 resize 添加键盘快捷键</div>
+            <div class="roadmap-desc">实现 Ctrl/Cmd + 方向键调整面板宽度的快捷键，为 resize 手柄添加 tabindex 和键盘事件处理。</div>
+            <div class="roadmap-meta">
+              <span class="roadmap-effort"><span class="effort-dot"></span><span class="effort-dot"></span> 1 天</span>
+              <span>影响: 布局交互</span>
+            </div>
+          </div>
+          <div class="roadmap-tags"><span class="roadmap-tag">中等</span><span class="roadmap-tag">可访问性</span></div>
+        </div>
+
+        <div class="roadmap-item" data-priority="p2" data-effort="strategic">
+          <div class="roadmap-priority p2">P2</div>
+          <div class="roadmap-body">
+            <div class="roadmap-title">建立共享基础组件库 (BaseButton, BaseInput, BaseCard)</div>
+            <div class="roadmap-desc">从 Settings 的 s- 组件系统中提炼通用的 BaseButton、BaseInput、BaseCard、BaseToggle 等基础组件，供所有模块复用，逐步替代各模块的本地样式定义。</div>
+            <div class="roadmap-meta">
+              <span class="roadmap-effort"><span class="effort-dot"></span><span class="effort-dot"></span><span class="effort-dot"></span><span class="effort-dot"></span> 2-3 周</span>
+              <span>影响: 全局组件</span>
+            </div>
+          </div>
+          <div class="roadmap-tags"><span class="roadmap-tag">战略性</span><span class="roadmap-tag">组件库</span></div>
+        </div>
+
+        <div class="roadmap-item" data-priority="p2" data-effort="strategic">
+          <div class="roadmap-priority p2">P2</div>
+          <div class="roadmap-body">
+            <div class="roadmap-title">添加高对比度主题预设</div>
+            <div class="roadmap-desc">在现有四套主题基础上，新增一套高对比度主题（文字对比度 &ge; 7:1），满足视觉障碍用户需求。</div>
+            <div class="roadmap-meta">
+              <span class="roadmap-effort"><span class="effort-dot"></span><span class="effort-dot"></span><span class="effort-dot"></span> 2-3 天</span>
+              <span>影响: 主题系统</span>
+            </div>
+          </div>
+          <div class="roadmap-tags"><span class="roadmap-tag">战略性</span><span class="roadmap-tag">可访问性</span></div>
+        </div>
+
+        <div class="roadmap-item" data-priority="p2" data-effort="medium">
+          <div class="roadmap-priority p2">P2</div>
+          <div class="roadmap-body">
+            <div class="roadmap-title">为 SCM 文件列表和 Git 日志引入虚拟滚动</div>
+            <div class="roadmap-desc">引入 vue-virtual-scroller 或自定义虚拟列表，优化大型仓库场景下 SCM 面板的渲染性能。</div>
+            <div class="roadmap-meta">
+              <span class="roadmap-effort"><span class="effort-dot"></span><span class="effort-dot"></span> 1-2 天</span>
+              <span>影响: SCM 性能</span>
+            </div>
+          </div>
+          <div class="roadmap-tags"><span class="roadmap-tag">中等</span><span class="roadmap-tag">性能</span></div>
+        </div>
+
+      </div>
+    </section>
+
+  </main><!-- /main-content -->
+</div><!-- /layout -->
+
+<script>
+// ── Radar Chart ──
+document.addEventListener('DOMContentLoaded', function() {
+  var ctx = document.getElementById('radarChart');
+  if (!ctx || typeof Chart === 'undefined') return;
+
+  var cs = getComputedStyle(document.documentElement);
+  var chartGrid = cs.getPropertyValue('--chart-grid').trim() || 'rgba(255,255,255,0.06)';
+  var chartLabel = cs.getPropertyValue('--chart-label').trim() || '#d0d6e0';
+  var tooltipBg = cs.getPropertyValue('--tooltip-bg').trim() || '#191a1b';
+  var tooltipBorder = cs.getPropertyValue('--tooltip-border').trim() || 'rgba(255,255,255,0.08)';
+  var fgQuaternary = cs.getPropertyValue('--fg-quaternary').trim() || '#62666d';
+  var accentColor = cs.getPropertyValue('--accent').trim() || '#5e6ad2';
+  var accentBright = cs.getPropertyValue('--accent-bright').trim() || '#7170ff';
+  var successColor = cs.getPropertyValue('--success').trim() || '#27a644';
+
+  new Chart(ctx, {
+    type: 'radar',
+    data: {
+      labels: ['设计系统', '交互体验', '可访问性', '视觉语言', '组件架构'],
+      datasets: [{
+        label: '当前评分',
+        data: [72, 68, 45, 78, 62],
+        backgroundColor: accentColor.replace(')', ', 0.15)').replace('rgb', 'rgba'),
+        borderColor: accentBright,
+        borderWidth: 2,
+        pointBackgroundColor: accentBright,
+        pointBorderColor: accentBright,
+        pointRadius: 4,
+        pointHoverRadius: 6
+      }, {
+        label: '目标评分',
+        data: [92, 88, 85, 90, 85],
+        backgroundColor: successColor.replace(')', ', 0.08)').replace('rgb', 'rgba'),
+        borderColor: successColor.replace(')', ', 0.4)').replace('rgb', 'rgba'),
+        borderWidth: 1.5,
+        borderDash: [4, 4],
+        pointBackgroundColor: successColor.replace(')', ', 0.6)').replace('rgb', 'rgba'),
+        pointBorderColor: successColor.replace(')', ', 0.6)').replace('rgb', 'rgba'),
+        pointRadius: 3,
+        pointHoverRadius: 5
+      }]
+    },
+    options: {
+      responsive: false,
+      maintainAspectRatio: true,
+      scales: {
+        r: {
+          beginAtZero: true,
+          max: 100,
+          ticks: {
+            stepSize: 25,
+            color: fgQuaternary,
+            backdropColor: 'transparent',
+            font: { size: 10, family: 'Inter, sans-serif' }
+          },
+          grid: {
+            color: chartGrid,
+            circular: true
+          },
+          angleLines: {
+            color: chartGrid
+          },
+          pointLabels: {
+            color: chartLabel,
+            font: { size: 13, weight: '510', family: 'Inter, sans-serif' }
+          }
+        }
+      },
+      plugins: {
+        legend: {
+          display: true,
+          position: 'bottom',
+          labels: {
+            color: cs.getPropertyValue('--fg-tertiary').trim(),
+            font: { size: 12, weight: '510', family: 'Inter, sans-serif' },
+            padding: 16,
+            usePointStyle: true,
+            pointStyleWidth: 8
+          }
+        },
+        tooltip: {
+          backgroundColor: tooltipBg,
+          borderColor: tooltipBorder,
+          borderWidth: 1,
+          titleColor: cs.getPropertyValue('--fg-primary').trim(),
+          bodyColor: chartLabel,
+          titleFont: { weight: '590', family: 'Inter, sans-serif' },
+          bodyFont: { family: 'Inter, sans-serif' },
+          padding: 12,
+          cornerRadius: 8,
+          callbacks: {
+            label: function(ctx) {
+              return ctx.dataset.label + ': ' + ctx.raw + ' / 100';
+            }
+          }
+        }
+      }
+    }
+  });
+});
+
+// ── Nav Active State ──
+(function() {
+  var links = document.querySelectorAll('.nav-link[data-nav]');
+  var sections = [];
+  links.forEach(function(link) {
+    var id = link.getAttribute('data-nav');
+    var el = document.getElementById(id);
+    if (el) sections.push({ el: el, link: link });
+  });
+
+  function onScroll() {
+    var scrollY = window.scrollY + 60;
+    var current = sections[0];
+    for (var i = 0; i < sections.length; i++) {
+      if (sections[i].el.offsetTop <= scrollY) current = sections[i];
+    }
+    links.forEach(function(l) { l.classList.remove('active'); });
+    if (current) current.link.classList.add('active');
+  }
+
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+
+// ── Roadmap Filter ──
+function filterRoadmap(filter) {
+  var btns = document.querySelectorAll('.filter-btn');
+  btns.forEach(function(b) {
+    b.classList.toggle('active', b.getAttribute('data-filter') === filter);
+  });
+
+  var items = document.querySelectorAll('.roadmap-item');
+  items.forEach(function(item) {
+    var priority = item.getAttribute('data-priority');
+    var effort = item.getAttribute('data-effort');
+    var show = false;
+
+    if (filter === 'all') show = true;
+    else if (filter === 'p0' || filter === 'p1' || filter === 'p2') show = priority === filter;
+    else if (filter === 'quick') show = effort === 'quick';
+    else if (filter === 'medium') show = effort === 'medium';
+    else if (filter === 'strategic') show = effort === 'strategic';
+
+    item.style.display = show ? '' : 'none';
+  });
+}
+
+// ── Collapsible Toggle ──
+document.addEventListener('click', function(e) {
+  var toggle = e.target.closest('.collapsible-toggle');
+  if (!toggle) return;
+  toggle.classList.toggle('open');
+  var content = toggle.nextElementSibling;
+  if (content && content.classList.contains('collapsible-content')) {
+    content.classList.toggle('open');
+  }
+});
+</script>
+
+</body>
+</html>

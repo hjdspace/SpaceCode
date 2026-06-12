@@ -114,7 +114,7 @@
           </div>
           <div
             class="s-engine-tile"
-            :class="{ active: config.engineType === 'pi', disabled: !piAvailable }"
+            :class="{ active: config.engineType === 'pi', disabled: !piAvailable && !piInstalling }"
             @click="selectEngine('pi')"
           >
             <div class="s-engine-tile-head">
@@ -127,6 +127,17 @@
             <div class="s-engine-tile-status">
               <span class="s-status-indicator" :class="piAvailable ? 'online' : 'offline'"></span>
               {{ piDesc }}
+            </div>
+            <button
+              v-if="!piAvailable && !piInstalling && !piChecking"
+              class="s-install-btn"
+              @click.stop="installPiSdk"
+            >
+              {{ $t('settings.installPiSdk') || 'Install Pi SDK' }}
+            </button>
+            <div v-if="piInstalling" class="s-install-progress">
+              <span class="s-spinner"></span>
+              {{ $t('settings.installingPiSdk') || 'Installing...' }}
             </div>
           </div>
         </div>
@@ -225,6 +236,8 @@ function selectLanguage(langId: Locale) {
 
 const piAvailable = ref<boolean | null>(null)
 const piChecking = ref(true)
+const piInstalling = ref(false)
+const piInstallError = ref<string | null>(null)
 
 const claudeCodeDesc = computed(() => {
   if (settingsStore.engineSource === 'installed') {
@@ -242,6 +255,8 @@ const engineSourceLabel = computed(() => {
 
 const piDesc = computed(() => {
   if (piChecking.value) return 'Checking SDK...'
+  if (piInstalling.value) return 'Installing SDK...'
+  if (piInstallError.value) return piInstallError.value
   if (piAvailable.value === false) return 'SDK not installed'
   return 'Minimalist coding agent'
 })
@@ -283,6 +298,42 @@ onMounted(async () => {
     piChecking.value = false
   }
 })
+
+async function checkPiAvailability() {
+  try {
+    const electronAPI = (window as any).electronAPI
+    if (electronAPI?.claudeCode?.isEngineAvailable) {
+      piAvailable.value = await electronAPI.claudeCode.isEngineAvailable('pi')
+    } else {
+      piAvailable.value = false
+    }
+  } catch {
+    piAvailable.value = false
+  }
+}
+
+async function installPiSdk() {
+  piInstalling.value = true
+  piInstallError.value = null
+  try {
+    const electronAPI = (window as any).electronAPI
+    const result = await electronAPI?.claudeCode?.installPiSdk()
+    if (result?.success) {
+      // Re-check availability after installation
+      await checkPiAvailability()
+      if (piAvailable.value) {
+        // Auto-select Pi engine after successful install
+        selectEngine('pi')
+      }
+    } else {
+      piInstallError.value = result?.error || 'Installation failed'
+    }
+  } catch (err) {
+    piInstallError.value = String(err)
+  } finally {
+    piInstalling.value = false
+  }
+}
 
 function selectEngine(engineId: EngineType) {
   if (engineId === 'pi' && piAvailable.value === false) return
@@ -433,5 +484,50 @@ async function browseProjectRoot() {
   margin-top: 16px;
   padding-top: 16px;
   border-top: 1px solid var(--border-subtle);
+}
+
+/* Pi SDK Install Button */
+.s-install-btn {
+  @include reset-button;
+  margin-top: 10px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent-primary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: opacity var(--transition-fast);
+
+  &:hover {
+    opacity: 0.85;
+  }
+
+  &:active {
+    opacity: 0.7;
+  }
+}
+
+.s-install-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.s-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-default);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>

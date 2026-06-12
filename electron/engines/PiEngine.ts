@@ -159,6 +159,12 @@ export class PiEngine implements IEngine {
     return paths
   }
 
+  /**
+   * Check if we have a runtime (bun or ELECTRON_RUN_AS_NODE) available to execute
+   * the Pi CLI. Since PiSessionProcess now uses bundled bun or process.execPath
+   * with ELECTRON_RUN_AS_NODE, the SDK is considered available as long as cli.js
+   * exists on disk — we no longer depend on a system-installed `node`.
+   */
   static async isAvailableAsync(): Promise<boolean> {
     const candidatePaths = PiEngine.getCliCandidatePaths()
 
@@ -174,12 +180,16 @@ export class PiEngine implements IEngine {
     }
 
     // Strategy 6: Check if `pi` CLI is available globally
+    // Verify the actual path exists (where/which can return stale entries)
     try {
       const { execSync } = await import('child_process')
       const cmd = process.platform === 'win32' ? 'where pi' : 'which pi'
-      execSync(cmd, { stdio: 'ignore' })
-      info('PiEngine', 'pi-coding-agent found via global `pi` command')
-      return true
+      const output = execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim()
+      const piPath = output.split(/\r?\n/)[0]?.trim()
+      if (piPath && fs.existsSync(piPath)) {
+        info('PiEngine', `pi-coding-agent found via global 'pi' command: ${piPath}`)
+        return true
+      }
     } catch {
       // pi not available globally
     }
@@ -203,12 +213,16 @@ export class PiEngine implements IEngine {
     }
 
     // Check if `pi` CLI is available globally
+    // Verify the actual path exists (where/which can return stale entries)
     try {
       const { execSync } = require('child_process')
       const cmd = process.platform === 'win32' ? 'where pi' : 'which pi'
-      execSync(cmd, { stdio: 'ignore' })
-      info('PiEngine', 'pi-coding-agent found via global `pi` command')
-      return true
+      const output = execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim()
+      const piPath = output.split(/\r?\n/)[0]?.trim()
+      if (piPath && fs.existsSync(piPath)) {
+        info('PiEngine', `pi-coding-agent found via global 'pi' command: ${piPath}`)
+        return true
+      }
     } catch {
       // pi not available globally
     }
