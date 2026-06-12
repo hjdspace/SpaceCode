@@ -2,6 +2,9 @@ import { autoUpdater } from 'electron-updater'
 import { app, ipcMain, BrowserWindow } from 'electron'
 import { info, warn, error } from './logger'
 
+// GitHub 私有仓库更新所需的 Token
+const GH_TOKEN = process.env.GH_TOKEN || process.env.GITHUB_TOKEN
+
 let mainWindow: BrowserWindow | null = null
 
 // 定期检查定时器
@@ -20,6 +23,19 @@ export function initAutoUpdater(win: BrowserWindow) {
   // 配置 electron-updater
   autoUpdater.autoDownload = false        // 不自动下载，由用户确认
   autoUpdater.autoInstallOnAppQuit = true  // 退出时自动安装已下载的更新
+
+  // 私有仓库需要通过 token 认证访问 GitHub Releases
+  if (GH_TOKEN) {
+    autoUpdater.setFeedURL({
+      provider: 'github',
+      owner: 'hjdspace',
+      repo: 'SpaceCode',
+      token: GH_TOKEN,
+    })
+    info('AutoUpdater', 'GitHub token configured for private repo')
+  } else {
+    warn('AutoUpdater', 'No GH_TOKEN found, update check may fail for private repo')
+  }
 
   // 检查更新失败
   autoUpdater.on('error', (err) => {
