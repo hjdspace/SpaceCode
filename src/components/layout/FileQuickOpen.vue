@@ -1,6 +1,6 @@
 <template>
   <div v-if="appStore.showFileQuickOpen" class="quick-open-overlay" @mousedown.self="close">
-    <div class="quick-open" @keydown="onKeydown">
+    <div class="quick-open" @keydown="onKeydown" tabindex="0">
       <div class="qo-search">
         <Search :size="16" class="qo-search-icon" />
         <input
