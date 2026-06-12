@@ -18,6 +18,10 @@ description: 自动化 GitHub Release 发布流程。分析提交记录、生成
 
 严格按以下步骤执行，**步骤 4 必须暂停等待用户确认**。
 
+### 步骤 0：确认版本号（可选）
+
+若用户在发版请求中指定了目标版本号（如"发版 v1.0.0"、"发布版本 0.5.0"），则使用用户指定的版本号，跳过自动计算。若用户未指定，则按默认规则 patch +1。
+
 ### 步骤 1：分析提交记录
 
 ```bash
@@ -40,8 +44,9 @@ git log <latest-tag>..HEAD --pretty=format:"%h %s"
 ### 步骤 2：更新 CHANGELOG.md
 
 1. 读取当前 `CHANGELOG.md` 首行版本号（如 `0.4.9`）
-2. 版本号自动 +0.0.1（如 `0.4.9` → `0.5.0`）
-3. 在 CHANGELOG.md 顶部插入新版本条目，格式：
+2. 版本号默认 patch +1（如 `0.4.9` → `0.4.10`，而非 `0.5.0`）
+3. 若用户在步骤 1 之前声明了目标版本号，则使用用户指定的版本号
+4. 在 CHANGELOG.md 顶部插入新版本条目，格式：
 
 ```markdown
 ## [x.y.z](https://github.com/<owner>/<repo>/compare/v<previous>...v<x.y.z>) (YYYY-MM-DD)
@@ -117,7 +122,10 @@ git commit -m "chore(release): v<x.y.z>"
 - release-notes 内容摘要
 - commit 信息
 
-使用 AskUserQuestion 询问用户是否确认继续。若用户拒绝，则 `git reset HEAD~1` 撤销提交。
+使用 AskUserQuestion 询问用户是否确认继续，提供以下选项：
+1. **确认发布** — 按当前版本号继续
+2. **修改版本号** — 用户提供新版本号后重新生成 CHANGELOG 和 release-notes
+3. **取消** — `git reset HEAD~1` 撤销提交
 
 ### 步骤 5：推送到远端
 
@@ -145,7 +153,6 @@ Tag 推送后 GitHub Actions 自动触发发布流程。
 
 ## 版本号规则
 
-- 默认 patch +1（0.4.9 → 0.5.0）
-- 若提交中包含 `feat:`，建议 minor +1（0.4.9 → 0.5.0）
-- 若提交中包含 `BREAKING CHANGE`，建议 major +1（0.4.9 → 1.0.0）
-- 用户可在确认步骤中指定任意版本号
+- 默认 patch +1（0.4.9 → 0.4.10，0.0.9 → 0.0.10）
+- 用户可在发版请求中声明目标版本号（如"发版 v1.0.0"或"发布版本 0.5.0"），此时使用用户指定的版本号
+- 用户也可在步骤 4 确认环节修改版本号

@@ -1,3 +1,32 @@
+## [0.5.1](https://github.com/hjdspace/SpaceCode/compare/v0.5.0...v0.5.1) (2026-06-13)
+
+### Features
+
+* **搜索:** 新增文件快速搜索面板与右侧面板启动器
+* **更新日志:** 新增更新日志功能，支持本地/远程加载和弹窗展示
+* **pi-engine:** 一键安装 Pi SDK 并优化引擎运行时
+* **electron:** 为私有仓库更新添加 GitHub token 支持
+* **skill:** github-release skill 新增 release-notes 生成功能
+
+### Bug Fixes
+
+* **shortcuts,settings:** 重构快捷键类型定义并修复引擎选择逻辑
+* **electron:** 修复打包后代理子进程无法加载脚本的问题
+* **ci:** 优化 changelog 模板适配 commit 模式
+
+### Refactor
+
+* **字体:** 统一全局字体配置，移除硬编码字体样式
+* **electron:** 移除动态导入改用静态导入fs和path模块
+* **tokenStatsService:** 替换array.at(-1)为更兼容的写法
+* **构建:** 重构Vite配置并优化项目构建流程
+* **ci:** 用手动 release-notes 替换 changelog-builder
+
+### Style
+
+* 统一替换硬编码字体尺寸为CSS变量，调整部分字体栈为主题变量
+* 统一项目样式规范，优化主题变量与UI细节
+
 ## [0.5.0](https://github.com/hjdspace/SpaceCode/compare/v0.4.9...v0.5.0) (2026-06-11)
 
 ### Features

@@ -52,19 +52,17 @@ function getRepoInfo() {
   return match ? { owner: match[1], repo: match[2] } : { owner: '', repo: '' };
 }
 
-function bumpVersion(current, commits) {
+function bumpVersion(current, commits, userVersion) {
+  // 用户指定版本号时直接使用
+  if (userVersion) return userVersion;
+  // 默认 patch +1（0.0.9 → 0.0.10）
   const [major, minor, patch] = current.split('.').map(Number);
-  const hasBreaking = commits.some(c => c.message.includes('BREAKING CHANGE') || c.message.includes('!:'));
-  const hasFeat = commits.some(c => c.type === 'feat');
-
-  if (hasBreaking) return `${major + 1}.0.0`;
-  if (hasFeat) return `${major}.${minor + 1}.0`;
   return `${major}.${minor}.${patch + 1}`;
 }
 
 // ── 命令: analyze ─────────────────────────────────────────
 
-function cmdAnalyze() {
+function cmdAnalyze(userVersion) {
   const latestTag = getLatestTag();
   const logRange = latestTag ? `${latestTag}..HEAD` : 'HEAD';
   const rawLog = run(`git log ${logRange} --pretty=format:"%h||%s"`);
@@ -89,7 +87,7 @@ function cmdAnalyze() {
   });
 
   const currentVersion = getCurrentVersion();
-  const newVersion = bumpVersion(currentVersion, commits);
+  const newVersion = bumpVersion(currentVersion, commits, userVersion);
 
   console.log(JSON.stringify({
     commits,
@@ -114,7 +112,7 @@ function cmdBump(newVersion) {
   const pkgPath = resolve(ROOT, 'package.json');
   const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
   const oldVersion = pkg.version;
-  pkg.version = newVersion || bumpVersion(oldVersion, []);
+  pkg.version = newVersion || bumpVersion(oldVersion, [], null);
   writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
   console.log(JSON.stringify({ oldVersion, newVersion: pkg.version }));
 }
@@ -196,7 +194,7 @@ function cmdReleaseNotes(newVersion) {
 const [,, command, arg] = process.argv;
 
 switch (command) {
-  case 'analyze':  cmdAnalyze(); break;
+  case 'analyze':  cmdAnalyze(arg); break;
   case 'bump':     cmdBump(arg); break;
   case 'changelog': cmdChangelog(arg); break;
   case 'release-notes': cmdReleaseNotes(arg); break;
