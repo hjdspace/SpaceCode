@@ -145,4 +145,62 @@ export function registerAutoUpdaterIPC() {
   ipcMain.handle('app:getVersion', () => {
     return app.getVersion()
   })
+
+  // 获取指定版本的更新日志
+  ipcMain.handle('changelog:getReleaseNotes', async (_event, version: string) => {
+    try {
+      // 1. 尝试读取本地 release-notes/v{version}.md
+      const fs = await import('fs/promises')
+      const path = await import('path')
+      const notesPath = app.isPackaged
+        ? path.join(process.resourcesPath, 'release-notes', `v${version}.md`)
+        : path.join(__dirname, '../release-notes', `v${version}.md`)
+
+      try {
+        const content = await fs.readFile(notesPath, 'utf-8')
+        return { content, source: 'local' as const }
+      } catch {
+        // 本地文件不存在，尝试远程获取
+      }
+
+      // 2. Fallback: 从 GitHub Releases API 获取
+      const GH_TOKEN = process.env.GH_TOKEN || process.env.GITHUB_TOKEN
+      const headers: Record<string, string> = {
+        'Accept': 'application/vnd.github+json',
+      }
+      if (GH_TOKEN) {
+        headers['Authorization'] = `Bearer ${GH_TOKEN}`
+      }
+
+      const { net } = await import('electron')
+      const request = net.request({
+        url: `https://api.github.com/repos/hjdspace/SpaceCode/releases/tags/v${version}`,
+        headers,
+      })
+
+      const body = await new Promise<string>((resolve, reject) => {
+        let data = ''
+        request.on('response', (response) => {
+          if (response.statusCode !== 200) {
+            reject(new Error(`GitHub API returned ${response.statusCode}`))
+            return
+          }
+          response.on('data', (chunk) => { data += chunk.toString() })
+          response.on('end', () => resolve(data))
+        })
+        request.on('error', reject)
+        request.end()
+      })
+
+      const release = JSON.parse(body)
+      if (release.body) {
+        return { content: release.body, source: 'remote' as const }
+      }
+
+      return null
+    } catch (err) {
+      warn('Changelog', 'Failed to get release notes', err)
+      return null
+    }
+  })
 }

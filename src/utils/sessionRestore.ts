@@ -74,7 +74,9 @@ export function buildMessagesFromHistory(rawMessages: any[]): RestoredMessage[] 
           : crypto.randomUUID()
 
     // ── 用户消息 ────────────────────────────────────────────────────
-    if (raw.type === 'user' && raw.message?.content !== undefined) {
+    // 注意：子代理（sidechain）消息在 JSONL 中同样以 type:'user'/'assistant' 记录，
+    // 必须排除，交由下方 teammate 分支处理，否则会被渲染进主时间线。
+    if (raw.type === 'user' && !raw.isSidechain && raw.message?.content !== undefined) {
       const content = raw.message.content
       const textParts: string[] = []
       const toolResults: Array<{ tool_use_id: string; output: string; isError: boolean }> = []
@@ -148,7 +150,7 @@ export function buildMessagesFromHistory(rawMessages: any[]): RestoredMessage[] 
     }
 
     // ── 助手消息 ────────────────────────────────────────────────────
-    if (raw.type === 'assistant' && raw.message?.content) {
+    if (raw.type === 'assistant' && !raw.isSidechain && raw.message?.content) {
       const content = raw.message.content
       const msgId = typeof raw.message?.id === 'string' && raw.message.id
         ? raw.message.id

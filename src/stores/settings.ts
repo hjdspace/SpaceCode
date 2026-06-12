@@ -55,6 +55,7 @@ export interface AuthSettings {
   appearance?: AppearanceSettings
   engineSource?: EngineSource
   installedCliPath?: string
+  lastViewedChangelogVersion?: string
 }
 
 const SETTINGS_STORAGE_KEY = 'claude_desktop_settings'
@@ -265,6 +266,7 @@ export const useSettingsStore = defineStore('settings', () => {
   })
   const engineSource = ref<EngineSource>((saved as any).engineSource || 'bundled')
   const installedCliPath = ref<string | null>((saved as any).installedCliPath || null)
+  const lastViewedChangelogVersion = ref<string | null>((saved as any).lastViewedChangelogVersion || null)
 
   // Computed: current provider for LLM service compatibility
   const provider = computed(() => {
@@ -426,7 +428,8 @@ export const useSettingsStore = defineStore('settings', () => {
       permissionMode: permissionMode.value,
       appearance: { ...appearance.value },
       engineSource: engineSource.value,
-      installedCliPath: installedCliPath.value ?? undefined
+      installedCliPath: installedCliPath.value ?? undefined,
+      lastViewedChangelogVersion: lastViewedChangelogVersion.value ?? undefined
     }
 
     const serialized = JSON.stringify(data, null, 2)
@@ -472,6 +475,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (settings.appearance) appearance.value = { ...appearance.value, ...settings.appearance }
     if (settings.engineSource) engineSource.value = settings.engineSource
     if (settings.installedCliPath !== undefined) installedCliPath.value = settings.installedCliPath
+    if ((settings as any).lastViewedChangelogVersion !== undefined) lastViewedChangelogVersion.value = (settings as any).lastViewedChangelogVersion
   }
 
   async function loadFromGuiSettingsFile() {
@@ -585,6 +589,7 @@ export const useSettingsStore = defineStore('settings', () => {
     engineSource,
     installedCliPath,
     setEngineSource,
-    setInstalledCliPath
+    setInstalledCliPath,
+    lastViewedChangelogVersion,
   }
 })

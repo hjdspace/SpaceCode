@@ -237,7 +237,8 @@ async function loadFullSession(
   const sessionPath = path.join(getProjectDir(projectPath), `${sessionId}.jsonl`)
   
   if (!fs.existsSync(sessionPath)) {
-    throw new Error(`Session file not found: ${sessionPath}`)
+    debug('SessionHistory', `Session file not found: ${sessionPath}`)
+    return null
   }
   
   const messages: any[] = []

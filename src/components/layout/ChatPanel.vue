@@ -988,6 +988,10 @@ async function handleRestoreHistorySession(session: any) {
     const restoredMessages = buildMessagesFromHistory(fullSession.messages)
 
     for (const msg of restoredMessages) {
+      // 子代理（sidechain）消息会被构建成 teammate-message，仅用于队友转录，
+      // 不应进入主时间线（否则会被渲染成普通用户/助手消息）。其转录由下方
+      // recordTeammateMessage 单独处理。
+      if (msg.metadata?.kind === 'teammate-message') continue
       chatStore.addMessage(msg, restoredSession.id)
     }
 

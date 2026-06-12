@@ -125,6 +125,10 @@ const appStore = useAppStore()
 const chatStore = useChatStore()
 const { t } = useI18n()
 
+const emit = defineEmits<{
+  'openChangelog': []
+}>()
+
 // Auto update composable
 const {
   status: updateStatus,
@@ -481,9 +485,14 @@ onBeforeUnmount(() => {
     background: var(--surface-border);
     color: var(--text-muted);
     transition: all var(--transition-fast);
-    cursor: default;
+    cursor: pointer;
     white-space: nowrap;
     line-height: 20px;
+
+    &:hover {
+      background: var(--surface-hover);
+      color: var(--text-primary);
+    }
 
     &.has-update {
       background: var(--accent-primary-glow);

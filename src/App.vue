@@ -1,6 +1,6 @@
 <template>
   <div class="app-container" :data-theme="appStore.theme">
-    <TitleBar />
+    <TitleBar @open-changelog="handleOpenChangelog" />
     <UpdateNotification
       :status="updateStatus"
       :update-info="updateInfo"
@@ -89,6 +89,10 @@ const {
   dismiss: dismissUpdate,
 } = useAutoUpdate()
 const { openProjectByPath } = useOpenProjectWorkflow()
+
+// Changelog
+const showChangelog = ref(false)
+const changelogVersion = ref('')
 
 // 事件处理函数（提升到组件作用域，供 onMounted/onUnmounted 使用）
 const handleOpenSkillsManager = () => {
@@ -231,6 +235,21 @@ onMounted(() => {
   // 监听打开 MCP 管理器事件
   window.addEventListener('open-mcp-manager', handleOpenMCPManager)
 })
+
+function handleChangelogClose() {
+  if (changelogVersion.value) {
+    settingsStore.lastViewedChangelogVersion = changelogVersion.value
+    settingsStore.saveSettings()
+  }
+}
+
+async function handleOpenChangelog() {
+  const currentVersion = await api.getAppVersion()
+  if (currentVersion && currentVersion !== '0.0.0') {
+    changelogVersion.value = currentVersion
+    showChangelog.value = true
+  }
+}
 
 onUnmounted(() => {
   document.removeEventListener('mousemove', handleResize)

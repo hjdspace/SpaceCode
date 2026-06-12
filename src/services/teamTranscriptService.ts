@@ -50,7 +50,7 @@ export function stringifyRawContent(raw: any): string {
   }
 }
 
-export function parseAgentToolOutput(output: string): { displayText: string; outputFile?: string } {
+export function parseAgentToolOutput(output: string): { displayText: string; outputFile?: string; agentId?: string } {
   try {
     const parsed = JSON.parse(output)
     const text = Array.isArray(parsed)
@@ -63,10 +63,12 @@ export function parseAgentToolOutput(output: string): { displayText: string; out
         ? `Agent launched successfully.\n\nAgent ID: ${agentId}\n${outputFile ? `Output file: ${outputFile}` : ''}`.trim()
         : text,
       outputFile,
+      agentId,
     }
   } catch {
     const outputFile = output.match(/output_file:\s*([^\n]+)/)?.[1]?.trim()
-    return { displayText: output, outputFile }
+    const agentId = output.match(/agentId:\s*([^\s]+)/)?.[1]?.trim()
+    return { displayText: output, outputFile, agentId }
   }
 }
 
@@ -89,28 +91,51 @@ export function recordAgentToolCall(session: Session, toolCall: ToolCall, status
   ensureTeamContext(session, 'Agent Team')
 
   const input = toolCall.input || {}
-  const teammateId = String(toolCall.id || input.agentTaskId || input.taskId || crypto.randomUUID())
+  // 异步启动的子代理，其真实输出通过 sidechain 消息记录，并以引擎生成的 agentId 作为 key。
+  // 这里解析工具输出中的 agentId，优先用它作为 teammateId，使工具卡片与 sidechain 转录合并到同一 teammate，
+  // 否则历史会话重建时会出现“只显示 Output file 占位、看不到子代理输出”的现象。
+  const parsedOutput = toolCall.output ? parseAgentToolOutput(toolCall.output) : null
+  const normalizeId = (v: any) => String(v).trim().toLowerCase().replace(/[^a-z0-9_-]+/gi, '-') || 'teammate'
+  const fallbackId = String(toolCall.id || input.agentTaskId || input.taskId || crypto.randomUUID())
+  const teammateId = parsedOutput?.agentId ? normalizeId(parsedOutput.agentId) : fallbackId
   const agentType = String(input.agentType || input.type || 'general-purpose')
   // 与引擎 UI 层 userFacingName() 保持一致：general-purpose 显示为 "Agent"
   const name = String(input.name || input.agentName || (agentType === 'general-purpose' ? 'Agent' : agentType))
+
+  // 若之前以 toolCall.id 建过占位 teammate（如实时流在 tool_use 阶段先建后补 output），
+  // 重新以 agentId 归并时迁移并清理旧的占位条目，避免出现空的“幽灵”子代理。
+  if (parsedOutput?.agentId && fallbackId !== teammateId) {
+    const ghost = session.teammateTranscripts![fallbackId]
+    if (ghost?.length) {
+      session.teammateTranscripts![teammateId] = [
+        ...(session.teammateTranscripts![teammateId] || []),
+        ...ghost,
+      ]
+    }
+    delete session.teammateTranscripts![fallbackId]
+    delete session.teamContext!.teammates[fallbackId]
+  }
+
   const existing = session.teamContext!.teammates[teammateId]
   const color = existing?.color || AGENT_COLORS[Object.keys(session.teamContext!.teammates).length % AGENT_COLORS.length]
   const transcript = session.teammateTranscripts![teammateId] || []
 
-  if (toolCall.output && !transcript.some(m => m.id === `${toolCall.id}-result`)) {
-    const parsedOutput = parseAgentToolOutput(toolCall.output)
-    session.teammateTranscripts![teammateId] = [...transcript, {
-      id: `${toolCall.id}-result`,
-      role: 'assistant',
-      content: parsedOutput.displayText,
-      timestamp: toolCall.endTime || Date.now(),
-      metadata: {
-        agentTaskId: teammateId,
-        agentName: name,
-        teamName: 'Agent Team',
-        status,
-      }
-    }]
+  if (toolCall.output && parsedOutput) {
+    // 异步启动（带 agentId）的工具结果只是“已启动”占位，真实内容来自 sidechain，无需写入占位消息。
+    if (!parsedOutput.agentId && !transcript.some(m => m.id === `${toolCall.id}-result`)) {
+      session.teammateTranscripts![teammateId] = [...transcript, {
+        id: `${toolCall.id}-result`,
+        role: 'assistant',
+        content: parsedOutput.displayText,
+        timestamp: toolCall.endTime || Date.now(),
+        metadata: {
+          agentTaskId: teammateId,
+          agentName: name,
+          teamName: 'Agent Team',
+          status,
+        }
+      }]
+    }
     if (parsedOutput.outputFile) {
       void hydrateAgentTranscriptFromFile(session, teammateId, parsedOutput.outputFile, name, status)
     }

@@ -566,6 +566,16 @@ export const api = {
     },
   },
 
+  // Changelog API
+  changelog: {
+    getReleaseNotes: (version: string): Promise<{ content: string; source: 'local' | 'remote' } | null> => {
+      if (electronAPI?.changelog?.getReleaseNotes) {
+        return electronAPI.changelog.getReleaseNotes(version)
+      }
+      return Promise.resolve(null)
+    },
+  },
+
   // App version
   getAppVersion: (): Promise<string> => {
     if (electronAPI?.getAppVersion) {

@@ -129,6 +129,10 @@
       {
         "from": "agents-lib",
         "to": "agents-lib"
+      },
+      {
+        "from": "release-notes",
+        "to": "release-notes"
       }
     ],
     "win": {

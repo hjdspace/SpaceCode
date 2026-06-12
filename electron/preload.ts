@@ -548,6 +548,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
+  // Changelog API
+  changelog: {
+    getReleaseNotes: (version: string): Promise<{ content: string; source: 'local' | 'remote' } | null> =>
+      ipcRenderer.invoke('changelog:getReleaseNotes', version),
+  },
+
   // App version
   getAppVersion: (): Promise<string> =>
     ipcRenderer.invoke('app:getVersion'),
