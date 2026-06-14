@@ -1,5 +1,6 @@
 import type { Session, Message, ToolCall, AgentColor, TeammateStatus } from '@/types'
 import { api } from '@/services/electronAPI'
+import { parseSubagentTranscript } from '@/utils/sessionRestore'
 
 export const AGENT_COLORS: AgentColor[] = ['red', 'blue', 'green', 'yellow', 'purple', 'orange', 'pink', 'cyan']
 
@@ -28,21 +29,59 @@ export function inferTeammateStatus(raw: any): TeammateStatus {
   return 'running'
 }
 
+/** Extract readable text from an array of content blocks (Anthropic message format). */
+function extractTextFromContentBlocks(blocks: any[]): string {
+  return blocks
+    .map((part: any) => {
+      if (typeof part === 'string') return part
+      if (part?.type === 'text' && typeof part.text === 'string') return part.text
+      if (part?.text) return String(part.text)
+      // Skip non-text content blocks (tool_use, tool_result, image, etc.)
+      return ''
+    })
+    .filter(Boolean)
+    .join('\n')
+}
+
+/** Try to parse a string that might be JSON into an object; return null on failure. */
+function tryParseJson(value: string): any | null {
+  if (!value || value[0] !== '{' && value[0] !== '[') return null
+  try { return JSON.parse(value) } catch { return null }
+}
+
 export function stringifyRawContent(raw: any): string {
-  const content = raw?.message?.content ?? raw?.content ?? raw?.text ?? raw?.output ?? raw?.result
-  if (typeof content === 'string') return content
-  if (Array.isArray(content)) {
+  if (raw == null) return ''
+
+  // If raw.message is a JSON string (not an object), try to parse it first.
+  // This handles cases where the engine message was double-serialized.
+  let message = raw.message
+  if (typeof message === 'string') {
+    const parsed = tryParseJson(message)
+    if (parsed) message = parsed
+  }
+
+  const content = message?.content ?? raw?.content ?? raw?.text ?? raw?.output ?? raw?.result
+
+  if (typeof content === 'string') {
+    // If the string looks like a JSON array of content blocks, try to parse it
+    const parsed = tryParseJson(content)
+    if (Array.isArray(parsed)) {
+      const extracted = extractTextFromContentBlocks(parsed)
+      if (extracted) return extracted
+    }
     return content
-      .map((part: any) => {
-        if (typeof part === 'string') return part
-        if (part?.type === 'text' && typeof part.text === 'string') return part.text
-        if (part?.text) return String(part.text)
-        return ''
-      })
-      .filter(Boolean)
-      .join('\n')
+  }
+  if (Array.isArray(content)) {
+    return extractTextFromContentBlocks(content)
   }
   if (content == null) return ''
+  // For plain objects, try to extract text field before JSON.stringify fallback
+  if (typeof content === 'object') {
+    if (typeof content.text === 'string') return content.text
+    if (typeof content.result === 'string') return content.result
+    // Handle nested content blocks: {type:'text', text:'...'}
+    if (Array.isArray(content.content)) return extractTextFromContentBlocks(content.content)
+  }
   try {
     return JSON.stringify(content)
   } catch {
@@ -53,9 +92,18 @@ export function stringifyRawContent(raw: any): string {
 export function parseAgentToolOutput(output: string): { displayText: string; outputFile?: string; agentId?: string } {
   try {
     const parsed = JSON.parse(output)
-    const text = Array.isArray(parsed)
-      ? parsed.map((part: any) => typeof part === 'string' ? part : part?.text || '').filter(Boolean).join('\n')
-      : typeof parsed?.text === 'string' ? parsed.text : output
+    let text: string
+    if (Array.isArray(parsed)) {
+      text = parsed.map((part: any) => typeof part === 'string' ? part : part?.text || '').filter(Boolean).join('\n')
+    } else if (typeof parsed?.text === 'string') {
+      text = parsed.text
+    } else {
+      // Handle engine internal message format: {message: {content: [...]}, type: 'user'/'assistant', ...}
+      // Use stringifyRawContent to extract text from the complex object structure.
+      text = stringifyRawContent(parsed)
+      // If extraction produced nothing useful, fall back to raw output
+      if (!text) text = output
+    }
     const outputFile = text.match(/output_file:\s*([^\n]+)/)?.[1]?.trim()
     const agentId = text.match(/agentId:\s*([^\s]+)/)?.[1]?.trim()
     return {
@@ -84,6 +132,26 @@ export function ensureTeamContext(session: Session, teamName: string): void {
   }
   session.expandedView = session.expandedView || 'none'
   session.teammateTranscripts = session.teammateTranscripts || {}
+}
+
+// 记录“以输出文件为权威来源”的子代理（异步 agent）：key = `${sessionId}:${teammateId}`。
+// 这类子代理的转录完全由 .output 文件解析得到，实时 sidechain 事件不再另写转录（避免重复）。
+const agentOutputFiles = new Map<string, { filePath: string; name: string; status: TeammateStatus }>()
+
+/** 该 teammate 的转录是否由输出文件托管（若是，则 recordTeammateMessage 不应再追加，以免重复）。 */
+export function isFileBackedTeammate(sessionId: string, teammateId: string): boolean {
+  return agentOutputFiles.has(`${sessionId}:${teammateId}`)
+}
+
+/**
+ * 重新唤起某个文件托管子代理的输出文件轮询。
+ * 用于：主回合的事件监听被拆除后，异步子代理仍在后台运行——收到该会话的 sidechain
+ * 事件时调用此函数，让轮询链复活，从而近实时跟随子代理输出。若轮询仍在进行则为无操作。
+ */
+export function rekickAgentTranscriptPoll(session: Session, sessionId: string, teammateId: string): void {
+  const info = agentOutputFiles.get(`${sessionId}:${teammateId}`)
+  if (!info) return
+  void hydrateAgentTranscriptFromFile(session, teammateId, info.filePath, info.name, info.status)
 }
 
 export function recordAgentToolCall(session: Session, toolCall: ToolCall, status: TeammateStatus = 'running'): void {
@@ -137,6 +205,8 @@ export function recordAgentToolCall(session: Session, toolCall: ToolCall, status
       }]
     }
     if (parsedOutput.outputFile) {
+      // 标记为“文件托管”：转录以 .output 文件为唯一来源，实时 sidechain 事件不再另写（去重）。
+      agentOutputFiles.set(`${session.id}:${teammateId}`, { filePath: parsedOutput.outputFile, name, status })
       void hydrateAgentTranscriptFromFile(session, teammateId, parsedOutput.outputFile, name, status)
     }
   }
@@ -150,38 +220,79 @@ export function recordAgentToolCall(session: Session, toolCall: ToolCall, status
   }
 }
 
-async function hydrateAgentTranscriptFromFile(session: Session, teammateId: string, filePath: string, name: string, status: TeammateStatus, attempts = 8) {
-  try {
-    const content = await api.readFile(filePath)
-    if (!content?.trim()) {
-      if (attempts > 0) {
-        setTimeout(() => {
-          void hydrateAgentTranscriptFromFile(session, teammateId, filePath, name, status, attempts - 1)
-        }, 1500)
-      }
-      return
-    }
+// 防止同一 (session, teammate, file) 同时启动多条轮询链。
+const activeAgentFilePolls = new Set<string>()
+
+/**
+ * 从子代理输出文件（JSONL 转录）补全并持续跟随 teammate 的转录。
+ *
+ * 旧实现把整份文件内容当作一条 assistant 消息（content = 原始 JSONL），导致子代理页面
+ * 直接显示原始 JSON、未渲染 markdown；且读到内容后即停止，异步子代理运行期间不再更新（无实时）。
+ *
+ * 现在：
+ *  1. 用 parseSubagentTranscript 把 JSONL 解析为标准 Message[]（文本走 MarkdownRenderer、
+ *     工具调用走工具卡片、思考走时间线），整体替换该 teammate 的转录。
+ *  2. 以 1.5s 间隔轮询文件，内容仍在增长时持续重新解析替换 —— 近实时跟随子代理输出；
+ *     连续约 12s 无变化（或达到兜底上限）后停止。轮询链独立于主回合的事件监听，
+ *     因此异步后台子代理在主回合结束后仍能被跟随。
+ */
+async function hydrateAgentTranscriptFromFile(session: Session, teammateId: string, filePath: string, name: string, status: TeammateStatus) {
+  const pollKey = `${session.id}:${teammateId}:${filePath}`
+  if (activeAgentFilePolls.has(pollKey)) return
+  activeAgentFilePolls.add(pollKey)
+
+  let lastLength = -1
+  let stableTicks = 0
+  let remainingTicks = 800 // ~20min 兜底；正常会因内容长时间停止增长而提前结束
+  // 子代理在两次写入之间可能有较长间隔（等待 LLM 首字、长时间工具执行）。
+  // 容忍 ~45s 无变化再停止，避免轮询在子代理仍活跃时过早结束导致“看不到实时输出”。
+  const MAX_STABLE_TICKS = 30
+
+  const applyParsed = (text: string) => {
     if (!session?.teammateTranscripts) return
-    const transcript = session.teammateTranscripts[teammateId] || []
-    const fileMessageId = `${teammateId}-output-file`
-    const fileMessage: Message = {
-      id: fileMessageId,
-      role: 'assistant',
-      content,
-      timestamp: Date.now(),
+    const parsed = parseSubagentTranscript(text)
+    if (parsed.length === 0) return
+    const baseTime = Date.now()
+    session.teammateTranscripts[teammateId] = parsed.map((m, idx) => ({
+      ...m,
+      id: m.id || `${teammateId}-file-${idx}`,
+      timestamp: baseTime + idx,
       metadata: {
+        ...(m.metadata || {}),
         agentTaskId: teammateId,
         agentName: name,
         teamName: 'Agent Team',
         status,
-      }
-    }
-    session.teammateTranscripts[teammateId] = transcript.some(m => m.id === fileMessageId)
-      ? transcript.map(m => m.id === fileMessageId ? fileMessage : m)
-      : [...transcript, fileMessage]
+      },
+    })) as Message[]
     const teammate = session.teamContext?.teammates[teammateId]
     if (teammate) teammate.messageCount = session.teammateTranscripts[teammateId].length
-  } catch (error) {
-    // Silently ignore — the store's version logs the error via logger
   }
+
+  const tick = async () => {
+    let text = ''
+    try {
+      text = (await api.readFile(filePath)) || ''
+    } catch {
+      // 文件暂不可读，下一轮重试
+    }
+    // 仅在内容增长时重新解析并替换，避免无谓的重渲染
+    if (text.trim() && text.length !== lastLength) {
+      applyParsed(text)
+    }
+    if (text.length !== lastLength) {
+      lastLength = text.length
+      stableTicks = 0
+    } else {
+      stableTicks += 1
+    }
+    remainingTicks -= 1
+    if (remainingTicks > 0 && stableTicks < MAX_STABLE_TICKS) {
+      setTimeout(() => { void tick() }, 1500)
+    } else {
+      activeAgentFilePolls.delete(pollKey)
+    }
+  }
+
+  void tick()
 }

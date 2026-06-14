@@ -328,16 +328,33 @@ export class TerminalManager {
 
   private getDefaultShell(): string {
     if (process.platform === 'win32') {
+      // 1. 优先检测 PowerShell 7 (pwsh.exe) — 更现代的版本
+      const pwshPath = path.join(
+        process.env.ProgramFiles || 'C:\\Program Files',
+        'PowerShell', '7', 'pwsh.exe'
+      )
+      if (fs.existsSync(pwshPath)) return pwshPath
+
+      // 2. 通过 ComSpec 环境变量获取系统默认命令解释器（通常是 cmd.exe）
+      if (process.env.ComSpec) {
+        const comSpec = process.env.ComSpec
+        if (fs.existsSync(comSpec)) return comSpec
+      }
+
+      // 3. 兜底：Windows PowerShell (系统自带)
+      const psPath = path.join(
+        process.env.SystemRoot || 'C:\\Windows',
+        'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'
+      )
+      if (fs.existsSync(psPath)) return psPath
       return 'powershell.exe'
     }
-    return process.env.SHELL || '/bin/sh'
+    return process.env.SHELL || '/bin/bash'
   }
 
   private getShellArgs(shell: string): string[] {
     if (process.platform === 'win32') {
-      if (shell.toLowerCase().includes('powershell') || shell.toLowerCase().includes('pwsh')) {
-        return ['-NoLogo']
-      }
+      // 不传 -NoLogo，让用户 profile 正常加载（别名、提示符、模块等）
       return []
     }
     // For Unix shells, start in login mode

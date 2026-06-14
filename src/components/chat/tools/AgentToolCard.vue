@@ -15,9 +15,11 @@
         <div class="block-label">Description</div>
         <p class="desc-text">{{ description }}</p>
       </div>
-      <div v-if="toolCall.output" class="agent-result">
+      <div v-if="parsedOutput" class="agent-result">
         <div class="block-label">Result</div>
-        <pre class="code-block"><code>{{ truncatedOutput }}</code></pre>
+        <div class="result-content">
+          <MarkdownRenderer :content="parsedOutput" />
+        </div>
       </div>
     </div>
   </div>
@@ -27,6 +29,8 @@
 import type { ToolCall } from '@/types'
 import { Bot, ChevronDown, Loader2, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
+import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
+import { parseAgentToolOutput } from '@/services/teamTranscriptService'
 
 const props = defineProps<{ toolCall: ToolCall }>()
 const isExpanded = ref(false)
@@ -34,10 +38,12 @@ const isExpanded = ref(false)
 const statusClass = computed(() => `status-${props.toolCall.status}`)
 const agentType = computed(() => props.toolCall.input?.agentType || props.toolCall.input?.type || 'general-purpose')
 const description = computed(() => props.toolCall.input?.description || '')
-const MAX_OUTPUT = 2000
-const truncatedOutput = computed(() => {
+const MAX_OUTPUT = 4000
+const parsedOutput = computed(() => {
   const o = props.toolCall.output || ''
-  return o.length > MAX_OUTPUT ? o.slice(0, MAX_OUTPUT) + '\n...' : o
+  if (!o) return ''
+  const { displayText } = parseAgentToolOutput(o)
+  return displayText.length > MAX_OUTPUT ? displayText.slice(0, MAX_OUTPUT) + '\n\n...' : displayText
 })
 function toggleExpand() { isExpanded.value = !isExpanded.value }
 </script>
@@ -55,7 +61,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
 .agent-desc-block, .agent-result { padding: 10px 12px; }
 .block-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-tertiary); margin-bottom: 6px; font-weight: 500; }
 .desc-text { margin: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
-.code-block { margin: 0; padding: 10px 12px; border-radius: 4px; font-size: 12px; line-height: 1.5; overflow: auto; max-height: 400px; white-space: pre-wrap; background: #0d1117; color: #f0f6fc; }
+.result-content { padding: 0 12px 12px; max-height: 400px; overflow-y: auto; font-size: 13px; line-height: 1.6; }
 .spin-icon { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>

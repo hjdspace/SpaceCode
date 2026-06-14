@@ -21,7 +21,11 @@ import type { Message } from '@/types'
  */
 export type RestoredMessage = Omit<Message, 'id' | 'timestamp'> & { id?: string }
 
-export function buildMessagesFromHistory(rawMessages: any[]): RestoredMessage[] {
+export function buildMessagesFromHistory(
+  rawMessages: any[],
+  options: { subagentMode?: boolean } = {},
+): RestoredMessage[] {
+  const subagentMode = options.subagentMode === true
   const messages: RestoredMessage[] = []
   // toolUseId → 指向已经创建好的 ToolCall 对象，便于稍后用 tool_result 回填
   const toolCallIndex = new Map<string, { toolCall: any; messageRef: RestoredMessage }>()
@@ -65,6 +69,14 @@ export function buildMessagesFromHistory(rawMessages: any[]): RestoredMessage[] 
       continue
     }
 
+    // 跳过引擎注入的元消息，与引擎 UI（VirtualMessageList：isMeta || isVisibleInTranscriptOnly → 隐藏）保持一致。
+    // 这些消息对模型可见、但不应在转录里渲染。典型例子：调用技能时引擎会插入一条 isMeta 的 user 消息
+    // （内容为 "Base directory for this skill: …" + 技能正文）。实时流不会显示它，
+    // 但历史重建若不过滤，就会把技能正文渲染成一条用户消息（见 bug：技能内容被当成用户发送的消息）。
+    if (raw.isMeta === true || raw.isVisibleInTranscriptOnly === true) {
+      continue
+    }
+
     const ts = parseTimestamp(raw.timestamp)
     const messageId =
       typeof raw.uuid === 'string' && raw.uuid
@@ -76,7 +88,7 @@ export function buildMessagesFromHistory(rawMessages: any[]): RestoredMessage[] 
     // ── 用户消息 ────────────────────────────────────────────────────
     // 注意：子代理（sidechain）消息在 JSONL 中同样以 type:'user'/'assistant' 记录，
     // 必须排除，交由下方 teammate 分支处理，否则会被渲染进主时间线。
-    if (raw.type === 'user' && !raw.isSidechain && raw.message?.content !== undefined) {
+    if (raw.type === 'user' && (subagentMode || !raw.isSidechain) && raw.message?.content !== undefined) {
       const content = raw.message.content
       const textParts: string[] = []
       const toolResults: Array<{ tool_use_id: string; output: string; isError: boolean }> = []
@@ -110,6 +122,17 @@ export function buildMessagesFromHistory(rawMessages: any[]): RestoredMessage[] 
       }
 
       const userText = textParts.join('').trim()
+
+      // 过滤引擎合成的占位/中断消息，与引擎 isNotEmptyMessage 行为一致：
+      // 这些文本对模型可见，但不应渲染成用户气泡。否则历史重建后主时间线会多出
+      // "[Request interrupted by user for tool use]"、"(no content)" 等并非用户真实发送的消息。
+      if (
+        userText === '[Request interrupted by user]' ||
+        userText === '[Request interrupted by user for tool use]' ||
+        userText === '(no content)'
+      ) {
+        continue
+      }
 
       if (!userText && toolResults.length > 0) continue
       if (!userText) continue
@@ -150,7 +173,7 @@ export function buildMessagesFromHistory(rawMessages: any[]): RestoredMessage[] 
     }
 
     // ── 助手消息 ────────────────────────────────────────────────────
-    if (raw.type === 'assistant' && !raw.isSidechain && raw.message?.content) {
+    if (raw.type === 'assistant' && (subagentMode || !raw.isSidechain) && raw.message?.content) {
       const content = raw.message.content
       const msgId = typeof raw.message?.id === 'string' && raw.message.id
         ? raw.message.id
@@ -326,4 +349,28 @@ export function buildMessagesFromHistory(rawMessages: any[]): RestoredMessage[] 
   }
 
   return messages
+}
+
+/**
+ * 解析子代理（异步 agent）输出文件为内部 Message[]。
+ *
+ * 子代理输出文件（…/tasks/<agentId>.output 或 subagents/agent-*.jsonl）本身是一份
+ * Claude Code JSONL 转录，每条记录都带 isSidechain:true。这里以 subagentMode 让这些
+ * sidechain 记录按主对话解析，从而复用 AgentTimeline / 工具卡片 / MarkdownRenderer 渲染，
+ * 而不是把整段 JSONL 文本当作一条消息直接展示（即修复“子代理页面显示原始 JSON、未渲染 markdown”）。
+ */
+export function parseSubagentTranscript(fileContent: string): RestoredMessage[] {
+  if (!fileContent) return []
+  const records: any[] = []
+  for (const line of fileContent.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    try {
+      records.push(JSON.parse(trimmed))
+    } catch {
+      // 跳过无法解析的行
+    }
+  }
+  if (records.length === 0) return []
+  return buildMessagesFromHistory(records, { subagentMode: true })
 }

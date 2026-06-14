@@ -1143,6 +1143,14 @@ export const useChatStore = defineStore('chat', () => {
       const handleAssistant = (event: { sessionId: string; data: any }) => {
         if (event.sessionId !== targetSessionId || isCompleted) return
         const assistant = event.data
+
+        // Route sub-agent (sidechain) messages to teammate transcript
+        // instead of processing them as main agent messages.
+        if (isTeammateRawMessage(assistant)) {
+          recordTeammateMessage(assistant, targetSessionId)
+          return
+        }
+
         logger.info('ChatStore', `[${targetSessionId.slice(0, 8)}] assistant event received`)
 
         const apiUsage = assistant.message?.usage
@@ -1576,6 +1584,13 @@ export const useChatStore = defineStore('chat', () => {
       const handleUser = (event: { sessionId: string; data: any }) => {
         if (event.sessionId !== targetSessionId) return
         const userMsg = event.data
+
+        // Route sub-agent (sidechain) user messages to teammate transcript.
+        if (isTeammateRawMessage(userMsg)) {
+          recordTeammateMessage(userMsg, targetSessionId)
+          return
+        }
+
         if (userMsg.message?.content && Array.isArray(userMsg.message.content)) {
           const toolResults = userMsg.message.content.filter((c: any) => c.type === 'tool_result')
           for (const toolResult of toolResults) {
