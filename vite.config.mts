@@ -30,7 +30,6 @@ export default defineConfig({
             rollupOptions: {
               external: [
                 'electron',
-                'dotenv',
                 'node-pty',
                 '@mariozechner/pi-coding-agent',
                 '@mariozechner/pi-coding-agent/dist/modes/rpc/rpc-client.js',

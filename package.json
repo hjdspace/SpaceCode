@@ -84,7 +84,6 @@
     "vue-tsc": "^2.0.6"
   },
   "build": {
-    "npmRebuild": false,
     "appId": "com.spacecode.desktop",
     "productName": "SpaceCode",
     "icon": "icons",
@@ -99,10 +98,12 @@
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
-      "node_modules/**/*"
+      "node_modules/node-pty/**/*",
+      "node_modules/@mariozechner/**/*"
     ],
     "asarUnpack": [
-      "node_modules/**/*",
+      "node_modules/node-pty/**/*",
+      "node_modules/@mariozechner/**/*",
       "dist-electron/proxy/**/*"
     ],
     "extraResources": [
