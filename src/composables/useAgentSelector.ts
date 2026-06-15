@@ -6,7 +6,7 @@
  * - Agent submenu hover timer
  * - Agent name/description i18n helpers
  */
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useChatStore } from '@/stores/chat'
 import { useI18n } from 'vue-i18n'
 
@@ -83,6 +83,14 @@ export function useAgentSelector(options?: {
       showAgentSubmenu.value = false
     }, 150)
   }
+
+  // Clean up timer on unmount
+  onUnmounted(() => {
+    if (agentSubmenuTimer) {
+      clearTimeout(agentSubmenuTimer)
+      agentSubmenuTimer = null
+    }
+  })
 
   function selectAgent(agentType: string) {
     selectedAgent.value = agentType
