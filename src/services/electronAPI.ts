@@ -297,6 +297,16 @@ export const api = {
       electronAPI?.git?.stashPop(cwd) || Promise.resolve({ success: false, error: 'Git API not available' }),
     fetchAll: (cwd: string): Promise<{ success: boolean; error?: string }> =>
       electronAPI?.git?.fetchAll(cwd) || Promise.resolve({ success: false, error: 'Git API not available' }),
+    watchProject: (cwd: string): Promise<boolean> =>
+      electronAPI?.git?.watchProject(cwd) || Promise.resolve(false),
+    stopWatch: (): Promise<boolean> =>
+      electronAPI?.git?.stopWatch() || Promise.resolve(false),
+    onStatusChanged: (callback: () => void): (() => void) => {
+      if (electronAPI?.git?.onStatusChanged) {
+        return electronAPI.git.onStatusChanged(callback)
+      }
+      return () => {}
+    },
   },
 
   // Agent API

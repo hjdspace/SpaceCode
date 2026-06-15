@@ -274,6 +274,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('git:stashPop', cwd),
     fetchAll: (cwd: string): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('git:fetchAll', cwd),
+    watchProject: (cwd: string): Promise<boolean> =>
+      ipcRenderer.invoke('git:watchProject', cwd),
+    stopWatch: (): Promise<boolean> =>
+      ipcRenderer.invoke('git:stopWatch'),
+    onStatusChanged: (callback: () => void) => {
+      const wrapper = () => callback()
+      ipcRenderer.on('git:statusChanged', wrapper)
+      return () => ipcRenderer.removeListener('git:statusChanged', wrapper)
+    },
   },
 
   claudeCode: {

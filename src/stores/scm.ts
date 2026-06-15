@@ -83,6 +83,7 @@ export const useScmStore = defineStore('scm', () => {
     try {
       const repoStatus = await api.git.getStatus(cwd)
       if (!repoStatus) {
+        console.warn('[SCM] getStatus returned null for cwd:', cwd)
         isRepo.value = false
         return
       }
@@ -96,7 +97,15 @@ export const useScmStore = defineStore('scm', () => {
       unstaged.value = repoStatus.unstaged || []
       untracked.value = repoStatus.untracked || []
       conflicted.value = repoStatus.conflicted || []
+
+      console.log(`[SCM] refresh result: isRepo=${repoStatus.isRepo}, branch=${repoStatus.branch}, staged=${staged.value.length}, unstaged=${unstaged.value.length}, untracked=${untracked.value.length}, conflicted=${conflicted.value.length}`)
+
+      // Start file watcher when we detect a git repo
+      if (repoStatus.isRepo) {
+        startWatching()
+      }
     } catch (e: any) {
+      console.error('[SCM] refresh failed:', e)
       error.value = e.message
       isRepo.value = false
     } finally {
@@ -265,6 +274,24 @@ export const useScmStore = defineStore('scm', () => {
 
   // AI commit message generation state
   const isGeneratingCommitMessage = ref(false)
+
+  // Git file watcher — listen for .git directory changes from main process
+  let removeStatusChangeListener: (() => void) | null = null
+
+  function startWatching(): void {
+    if (removeStatusChangeListener) return // Already listening
+    removeStatusChangeListener = api.git.onStatusChanged(() => {
+      refresh()
+    })
+  }
+
+  function stopWatching(): void {
+    if (removeStatusChangeListener) {
+      removeStatusChangeListener()
+      removeStatusChangeListener = null
+    }
+    api.git.stopWatch().catch(() => {})
+  }
 
   async function generateCommitMessage(): Promise<string> {
     const cwd = appStore.projectRoot
@@ -447,5 +474,7 @@ Generate a commit message based on the above changes.`
     selectFile,
     isGeneratingCommitMessage,
     generateCommitMessage,
+    startWatching,
+    stopWatching,
   }
 })

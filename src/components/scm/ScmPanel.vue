@@ -699,14 +699,16 @@ onMounted(async () => {
   await scmStore.refresh()
   await scmStore.refreshBranches()
   await scmStore.refreshLog(50)
+  // Polling as fallback (event-driven refresh is primary via git:statusChanged)
   refreshTimer = setInterval(() => {
     scmStore.refresh()
-  }, 15000)
+  }, 60000)
   document.addEventListener('click', handleClickOutside)
 })
 
 onUnmounted(() => {
   if (refreshTimer) clearInterval(refreshTimer)
+  scmStore.stopWatching()
   document.removeEventListener('click', handleClickOutside)
   if (removeResizeListeners) removeResizeListeners()
 })

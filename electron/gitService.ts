@@ -7,9 +7,10 @@
 
 import { execFile } from 'child_process'
 import { writeFileSync, unlinkSync, mkdtempSync, rmdirSync } from 'fs'
+import { watch, type FSWatcher } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { ipcMain } from 'electron'
+import { ipcMain, BrowserWindow } from 'electron'
 
 const GIT_TIMEOUT = 10000
 const GIT_BINARY = process.platform === 'win32' ? 'git.exe' : 'git'
@@ -17,7 +18,7 @@ const GIT_BINARY = process.platform === 'win32' ? 'git.exe' : 'git'
 interface ExecResult {
   stdout: string
   stderr: string
-  code: number
+  code: number | string
 }
 
 function gitExec(args: string[], cwd?: string): Promise<ExecResult> {
@@ -32,10 +33,24 @@ function gitExec(args: string[], cwd?: string): Promise<ExecResult> {
         env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
       },
       (error, stdout, stderr) => {
+        let code: number | string = 0
+        if (error) {
+          // Node.js may set error.code to a string (e.g. 'ENOENT', 'ETIMEDOUT')
+          // or a number (process exit code). Normalize to number when possible.
+          const errCode = (error as any).code
+          if (typeof errCode === 'number') {
+            code = errCode
+          } else if (typeof errCode === 'string') {
+            // String codes like 'ENOENT' mean the process didn't even start
+            code = errCode
+          } else {
+            code = 1
+          }
+        }
         resolve({
           stdout: stdout || '',
           stderr: stderr || '',
-          code: error ? (error as any).code || 1 : 0,
+          code,
         })
       }
     )
@@ -162,6 +177,7 @@ async function getStatus(cwd: string): Promise<GitStatusResult> {
   }
 
   if (!(await isGitRepo(cwd))) {
+    console.warn('[GitService] isGitRepo returned false for cwd:', cwd)
     return empty
   }
 
@@ -169,19 +185,39 @@ async function getStatus(cwd: string): Promise<GitStatusResult> {
   const branchResult = await gitExec(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)
   const branch = branchResult.code === 0 ? branchResult.stdout.trim() : ''
 
-  // upstream and ahead/behind will be parsed from porcelain v2 output below
+  // Get upstream info separately (more reliable than parsing from status)
   let upstream: string | null = null
   let ahead = 0
   let behind = 0
+  const upstreamResult = await gitExec(['rev-parse', '--abbrev-ref', '@{upstream}'], cwd)
+  if (upstreamResult.code === 0 && upstreamResult.stdout.trim()) {
+    upstream = upstreamResult.stdout.trim()
+    const abResult = await gitExec(['rev-list', '--left-right', '--count', `${upstream}...HEAD`], cwd)
+    if (abResult.code === 0) {
+      const parts = abResult.stdout.trim().split(/\s+/)
+      if (parts.length === 2) {
+        behind = parseInt(parts[0], 10) || 0
+        ahead = parseInt(parts[1], 10) || 0
+      }
+    }
+  }
 
-  // Get status with porcelain v2 (no -z flag, use line-based parsing)
+  // Try porcelain v2 first, fall back to v1
+  // NOTE: -c core.quotePath=false is a git GLOBAL option, must come BEFORE the subcommand
   const statusResult = await gitExec(
-    ['status', '-c', 'core.quotePath=false', '--porcelain=v2', '--branch', '--renames'],
+    ['-c', 'core.quotePath=false', 'status', '--porcelain=v2', '--branch', '--renames'],
     cwd
   )
 
   if (statusResult.code !== 0) {
-    return { ...empty, isRepo: true, branch, upstream }
+    console.warn('[GitService] git status --porcelain=v2 failed (code:', statusResult.code, '), stderr:', statusResult.stderr)
+    // Fallback to porcelain v1
+    return getStatusPorcelainV1(cwd, branch, upstream, ahead, behind)
+  }
+
+  if (!statusResult.stdout.trim()) {
+    // No changes
+    return { ...empty, isRepo: true, branch, upstream, ahead, behind }
   }
 
   const staged: GitStatusFile[] = []
@@ -190,19 +226,23 @@ async function getStatus(cwd: string): Promise<GitStatusResult> {
   const conflicted: GitStatusFile[] = []
 
   // Parse porcelain v2 output line by line
-  for (const line of statusResult.stdout.split('\n')) {
+  // Handle CRLF: split by \n and trim \r from each line
+  for (const rawLine of statusResult.stdout.split('\n')) {
+    const line = rawLine.replace(/\r$/, '')
     if (!line) continue
 
     if (line.startsWith('# ')) {
-      // Branch info lines from porcelain v2
+      // Branch info lines from porcelain v2 (already parsed above, but keep as fallback)
       if (line.startsWith('# branch.upstream ')) {
-        upstream = line.substring('# branch.upstream '.length).trim()
+        if (!upstream) upstream = line.substring('# branch.upstream '.length).trim()
       } else if (line.startsWith('# branch.ab ')) {
-        const abStr = line.substring('# branch.ab '.length).trim()
-        const abMatch = abStr.match(/^\+(\d+)\s+-(\d+)$/)
-        if (abMatch) {
-          ahead = parseInt(abMatch[1], 10)
-          behind = parseInt(abMatch[2], 10)
+        if (ahead === 0 && behind === 0) {
+          const abStr = line.substring('# branch.ab '.length).trim()
+          const abMatch = abStr.match(/^\+(\d+)\s+-(\d+)$/)
+          if (abMatch) {
+            ahead = parseInt(abMatch[1], 10)
+            behind = parseInt(abMatch[2], 10)
+          }
         }
       }
       continue
@@ -316,6 +356,131 @@ async function getStatus(cwd: string): Promise<GitStatusResult> {
       // Ignored - skip
     }
   }
+
+  console.log(`[GitService] getStatus v2 result: staged=${staged.length}, unstaged=${unstaged.length}, untracked=${untracked.length}, conflicted=${conflicted.length}`)
+
+  return {
+    isRepo: true,
+    branch,
+    upstream,
+    ahead,
+    behind,
+    staged,
+    unstaged,
+    untracked,
+    conflicted,
+  }
+}
+
+/**
+ * Fallback: parse git status --porcelain (v1) output
+ * Format: XY PATH or XY ORIG_PATH -> PATH
+ */
+async function getStatusPorcelainV1(
+  cwd: string,
+  branch: string,
+  upstream: string | null,
+  ahead: number,
+  behind: number
+): Promise<GitStatusResult> {
+  const empty: GitStatusResult = {
+    isRepo: true, branch, upstream, ahead, behind,
+    staged: [], unstaged: [], untracked: [], conflicted: [],
+  }
+
+  const statusResult = await gitExec(
+    ['-c', 'core.quotePath=false', 'status', '--porcelain', '--renames'],
+    cwd
+  )
+
+  if (statusResult.code !== 0) {
+    console.error('[GitService] git status --porcelain v1 also failed (code:', statusResult.code, '), stderr:', statusResult.stderr)
+    return empty
+  }
+
+  if (!statusResult.stdout.trim()) {
+    return empty
+  }
+
+  const staged: GitStatusFile[] = []
+  const unstaged: GitStatusFile[] = []
+  const untracked: GitStatusFile[] = []
+  const conflicted: GitStatusFile[] = []
+
+  for (const rawLine of statusResult.stdout.split('\n')) {
+    const line = rawLine.replace(/\r$/, '')
+    if (!line) continue
+
+    // v1 format: XY PATH or XY ORIG -> PATH
+    const statusCodeX = line[0]
+    const statusCodeY = line[1]
+    let filePath = line.substring(3) // skip "XY "
+
+    // Handle rename: "XY old_path -> new_path"
+    let originalPath: string | undefined
+    const arrowIdx = filePath.indexOf(' -> ')
+    if (arrowIdx >= 0) {
+      originalPath = filePath.substring(0, arrowIdx)
+      filePath = filePath.substring(arrowIdx + 4)
+    }
+
+    // Untracked
+    if (statusCodeX === '?' && statusCodeY === '?') {
+      untracked.push({
+        path: filePath,
+        statusCode: '?',
+        status: 'untracked',
+        staged: false,
+        isTracked: false,
+      })
+      continue
+    }
+
+    // Ignored
+    if (statusCodeX === '!' && statusCodeY === '!') {
+      continue
+    }
+
+    const isStaged = statusCodeX !== ' ' && statusCodeX !== '?' && statusCodeX !== '!'
+    const isUnstaged = statusCodeY !== ' ' && statusCodeY !== '?' && statusCodeY !== '!'
+
+    if (isStaged) {
+      staged.push({
+        path: filePath,
+        originalPath,
+        statusCode: statusCodeX,
+        status: parseStatusCode(statusCodeX),
+        staged: true,
+        isTracked: true,
+      })
+    }
+
+    if (isUnstaged) {
+      unstaged.push({
+        path: filePath,
+        originalPath,
+        statusCode: statusCodeY,
+        status: parseStatusCode(statusCodeY),
+        staged: false,
+        isTracked: true,
+      })
+    }
+
+    // Conflict detection
+    if (statusCodeX === 'U' || statusCodeY === 'U' ||
+        (statusCodeX === 'A' && statusCodeY === 'A') ||
+        (statusCodeX === 'D' && statusCodeY === 'D')) {
+      conflicted.push({
+        path: filePath,
+        statusCode: `${statusCodeX}${statusCodeY}`,
+        status: 'conflict',
+        staged: isStaged,
+        isTracked: true,
+      })
+    }
+  }
+
+  console.log(`[GitService] getStatus v1 fallback result: staged=${staged.length}, unstaged=${unstaged.length}, untracked=${untracked.length}, conflicted=${conflicted.length}`)
 
   return {
     isRepo: true,
@@ -722,6 +887,92 @@ async function stashPop(cwd: string): Promise<{ success: boolean; error?: string
 }
 
 // ============================================================================
+// Git File Watcher — watches .git directory for changes and notifies renderer
+// ============================================================================
+
+let gitWatcher: FSWatcher | null = null
+let worktreeWatcher: FSWatcher | null = null
+let watchedProjectRoot: string | null = null
+let debounceTimer: ReturnType<typeof setTimeout> | null = null
+const DEBOUNCE_MS = 300
+
+function notifyRendererStatusChanged(): void {
+  const windows = BrowserWindow.getAllWindows()
+  for (const win of windows) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('git:statusChanged')
+    }
+  }
+}
+
+function startGitWatcher(projectRoot: string): void {
+  // Stop existing watcher if watching a different project
+  if (gitWatcher && watchedProjectRoot !== projectRoot) {
+    stopGitWatcher()
+  }
+
+  if (gitWatcher) return // Already watching this project
+
+  watchedProjectRoot = projectRoot
+  const gitDir = join(projectRoot, '.git')
+
+  // Watch .git directory for index/HEAD/refs changes (staging, committing, branching)
+  try {
+    gitWatcher = watch(gitDir, { recursive: true }, (_event, filename) => {
+      if (!filename) return
+      const relevantPrefixes = ['index', 'HEAD', 'refs/', 'objects/']
+      const isRelevant = relevantPrefixes.some(p => filename.startsWith(p))
+      if (!isRelevant) return
+
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => {
+        notifyRendererStatusChanged()
+        debounceTimer = null
+      }, DEBOUNCE_MS)
+    })
+    console.log(`[GitService] Watching .git directory: ${gitDir}`)
+  } catch (e) {
+    console.warn(`[GitService] Failed to watch .git directory: ${gitDir}`, e)
+  }
+
+  // Watch worktree for file modifications (only top-level to detect new/deleted files)
+  // This catches external editor changes that don't touch .git immediately
+  try {
+    worktreeWatcher = watch(projectRoot, (_event, filename) => {
+      if (!filename) return
+      // Ignore .git changes (already watched above) and node_modules
+      if (filename.startsWith('.git') || filename.startsWith('node_modules')) return
+
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => {
+        notifyRendererStatusChanged()
+        debounceTimer = null
+      }, DEBOUNCE_MS)
+    })
+    console.log(`[GitService] Watching worktree: ${projectRoot}`)
+  } catch (e) {
+    console.warn(`[GitService] Failed to watch worktree: ${projectRoot}`, e)
+  }
+}
+
+function stopGitWatcher(): void {
+  if (gitWatcher) {
+    gitWatcher.close()
+    gitWatcher = null
+  }
+  if (worktreeWatcher) {
+    worktreeWatcher.close()
+    worktreeWatcher = null
+  }
+  watchedProjectRoot = null
+  if (debounceTimer) {
+    clearTimeout(debounceTimer)
+    debounceTimer = null
+  }
+  console.log('[GitService] Stopped git watchers')
+}
+
+// ============================================================================
 // IPC Handler Registration
 // ============================================================================
 
@@ -735,7 +986,12 @@ export function registerGitIPCHandlers() {
   })
 
   ipcMain.handle('git:getStatus', async (_event, cwd: string) => {
-    return getStatus(cwd)
+    const result = await getStatus(cwd)
+    // Auto-start watcher when we detect a git repo
+    if (result.isRepo) {
+      startGitWatcher(cwd)
+    }
+    return result
   })
 
   ipcMain.handle('git:stage', async (_event, cwd: string, paths: string[]) => {
@@ -817,6 +1073,18 @@ export function registerGitIPCHandlers() {
 
   ipcMain.handle('git:getFullDiff', async (_event, cwd: string) => {
     return getFullDiff(cwd)
+  })
+
+  // Watch project for git changes
+  ipcMain.handle('git:watchProject', async (_event, cwd: string) => {
+    startGitWatcher(cwd)
+    return true
+  })
+
+  // Stop watching
+  ipcMain.handle('git:stopWatch', async () => {
+    stopGitWatcher()
+    return true
   })
 
   console.log('[GitService] IPC handlers registered')
