@@ -904,6 +904,7 @@ export default {
       models: 'models',
       loadFailed: 'Failed to load trace data',
       noSessions: 'No trace sessions found',
+      noResults: 'No sessions match your search',
       collecting: 'Collecting',
       paused: 'Paused',
       settings: 'Settings',

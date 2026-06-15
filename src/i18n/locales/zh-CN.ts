@@ -904,6 +904,7 @@ export default {
       models: '模型',
       loadFailed: '加载追踪数据失败',
       noSessions: '暂无追踪会话',
+      noResults: '没有匹配的会话',
       collecting: '采集中',
       paused: '已暂停',
       settings: '设置',

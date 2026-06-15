@@ -1,15 +1,18 @@
 <template>
   <div class="trace-viewer" role="region" :aria-label="t('trace.title')">
-    <!-- cc-haha 复刻：Trace 列表 + Trace 会话详情 双视图 -->
-    <TraceListPage
-      v-if="!selectedSessionId"
-      @select-session="handleSelectSession"
-    />
-    <TraceSessionPage
-      v-else
-      :session-id="selectedSessionId"
-      @back="selectedSessionId = null"
-    />
+    <Transition name="view-slide" mode="out-in">
+      <TraceListPage
+        v-if="!selectedSessionId"
+        key="list"
+        @select-session="handleSelectSession"
+      />
+      <TraceSessionPage
+        v-else
+        key="session"
+        :session-id="selectedSessionId"
+        @back="selectedSessionId = null"
+      />
+    </Transition>
   </div>
 </template>
 
@@ -37,5 +40,18 @@ function handleSelectSession(sessionId: string) {
   overflow: hidden;
   background: var(--bg-primary);
   overscroll-behavior: contain;
+}
+
+.view-slide-enter-active,
+.view-slide-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.view-slide-enter-from {
+  opacity: 0;
+  transform: translateX(12px);
+}
+.view-slide-leave-to {
+  opacity: 0;
+  transform: translateX(-12px);
 }
 </style>
