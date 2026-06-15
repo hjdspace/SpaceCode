@@ -381,9 +381,53 @@ export const api = {
       electronAPI?.debug?.readTraceEvents(sessionId, maxEvents) || Promise.resolve({ success: false, error: 'Debug API not available' }),
   },
 
-  // Trace API
+  // Trace API — fully replicated from cc-haha
   trace: {
     event: (event: AgentTraceEvent) => electronAPI?.trace?.event(event),
+    /** 获取 trace 会话列表（cc-haha 兼容接口） */
+    list: (params?: { limit?: number; offset?: number; query?: string }): Promise<import('@/types/trace').TraceSessionList> => {
+      if (electronAPI?.trace?.list) return electronAPI.trace.list(params)
+      // 降级：从现有 debug API 构建
+      return (async () => {
+        const sessions = await (electronAPI?.debug?.listTraceSessions() || Promise.resolve([]))
+        return {
+          traces: sessions.map((s: import('./electronAPI').TraceSessionEntry) => ({
+            sessionId: s.sessionId,
+            session: null,
+            summary: { apiCalls: 0, failedCalls: 0, totalDurationMs: 0, totalInputTokens: 0, totalOutputTokens: 0, models: [], updatedAt: null },
+            fileSize: s.size,
+            fileUpdatedAt: new Date(s.modifiedAt).toISOString(),
+          })),
+          total: sessions.length,
+          storageDir: '',
+          settings: { enabled: true, storageDir: '' },
+        }
+      })()
+    },
+    /** 获取单个 trace 会话详情 */
+    getTrace: (sessionId: string): Promise<{ success: boolean; data?: import('@/types/trace').TraceSession; error?: string }> => {
+      if (electronAPI?.trace?.getTrace) return electronAPI.trace.getTrace(sessionId)
+      return Promise.resolve({ success: false, error: 'Not available' })
+    },
+    /** 获取单个 call 的完整详情 */
+    getTraceCall: (sessionId: string, callId: string): Promise<{ call?: import('@/types/trace').TraceCallRecord } | null> => {
+      if (electronAPI?.trace?.getTraceCall) return electronAPI.trace.getTraceCall(sessionId, callId)
+      return Promise.resolve(null)
+    },
+    /** 获取 trace 采集设置 */
+    getSettings: (): Promise<import('@/types/trace').TraceCaptureSettings | null> => {
+      if (electronAPI?.trace?.getSettings) return electronAPI.trace.getSettings()
+      return Promise.resolve(null)
+    },
+    /** 更新 trace 采集设置 */
+    updateSettings: (settings: { enabled: boolean }): Promise<{ success: boolean; error?: string }> => {
+      if (electronAPI?.trace?.updateSettings) return electronAPI.trace.updateSettings(settings)
+      return Promise.resolve({ success: false, error: 'Not available' })
+    },
+    /** 在独立窗口中打开 trace 详情 */
+    openWindow: (sessionId: string): void => {
+      if (electronAPI?.trace?.openWindow) electronAPI.trace.openWindow(sessionId)
+    },
   },
 
   // Terminal API

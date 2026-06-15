@@ -32,6 +32,8 @@ import {
   parseAgentToolOutput,
   ensureTeamContext,
   recordAgentToolCall,
+  isFileBackedTeammate,
+  rekickAgentTranscriptPoll,
   AGENT_COLORS,
 } from '@/services/teamTranscriptService'
 import {
@@ -812,6 +814,23 @@ export const useChatStore = defineStore('chat', () => {
         teamName,
         status,
       }
+    }
+
+    // 文件托管的异步子代理：转录以 .output 文件为唯一来源，这里不再追加消息（否则与文件解析结果重复）。
+    // 但仍要刷新 teammate 状态，并唤醒可能已停止的输出文件轮询，使后台子代理输出近实时跟随。
+    if (isFileBackedTeammate(targetSessionId, teammateId)) {
+      session.teamContext!.teammates[teammateId] = {
+        name,
+        agentType: raw?.agentType || raw?.subagent_type,
+        status,
+        color,
+        messageCount: session.teammateTranscripts![teammateId]?.length || transcript.length,
+      }
+      rekickAgentTranscriptPoll(session, targetSessionId, teammateId)
+      session.updatedAt = Date.now()
+      session.lastActivityAt = Date.now()
+      saveToStorage()
+      return null
     }
 
     if (text.trim() && !transcript.some(m => m.id === message.id)) {

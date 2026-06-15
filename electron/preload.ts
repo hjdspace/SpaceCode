@@ -39,6 +39,24 @@ const debugApi = {
 
 const traceApi = {
   event: (event: any) => ipcRenderer.send('trace:event', event),
+  /** cc-haha 复刻: 获取 trace 会话列表 */
+  list: (params?: { limit?: number; offset?: number; query?: string }) =>
+    ipcRenderer.invoke('trace:list', params),
+  /** cc-haha 复刻: 获取单个 trace 会话详情 */
+  getTrace: (sessionId: string) =>
+    ipcRenderer.invoke('trace:getTrace', sessionId),
+  /** cc-haha 复刻: 获取单个 call 的完整详情 */
+  getTraceCall: (sessionId: string, callId: string) =>
+    ipcRenderer.invoke('trace:getTraceCall', sessionId, callId),
+  /** cc-haha 复刻: 获取 trace 采集设置 */
+  getSettings: () =>
+    ipcRenderer.invoke('trace:getSettings'),
+  /** cc-haha 复刻: 更新 trace 采集设置 */
+  updateSettings: (settings: { enabled: boolean }) =>
+    ipcRenderer.invoke('trace:updateSettings', settings),
+  /** cc-haha 复刻: 在独立窗口中打开 trace 详情 */
+  openWindow: (sessionId: string) =>
+    ipcRenderer.send('trace:openWindow', sessionId),
 }
 
 // Turn Checkpoint API - 轮次变更追踪

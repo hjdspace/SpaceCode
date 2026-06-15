@@ -110,6 +110,13 @@ export function isDebugMode(): boolean {
 }
 
 /**
+ * 获取 trace 目录路径
+ */
+export function getTraceDir(): string {
+  return traceDir || ''
+}
+
+/**
  * DEBUG 级别日志 — 仅 debug 模式下写文件，始终输出到 console
  */
 export function debug(scope: string, message: string, data?: any): void {

@@ -15,7 +15,7 @@ import type { QRCodeData, ServerStatus } from './mobileServerTypes'
 import { buildThemeSyncData } from './themeSyncBuilder'
 import { registerPromptOptimizerIPC } from './promptOptimizerIPC'
 import { aggregateLocalTokenStats } from './tokenStatsService'
-import { initLogger, info, warn, error, debug, isDebugMode, ipc as logIpc, traceEvent, listDebugFiles, readDebugFile, listTraceSessions, readTraceEvents } from './logger'
+import { initLogger, info, warn, error, debug, isDebugMode, ipc as logIpc, traceEvent, listDebugFiles, readDebugFile, listTraceSessions, readTraceEvents, getTraceDir } from './logger'
 import { proxyManager } from './proxyManager'
 import type { ProxyConfig } from './proxy/types'
 
@@ -1728,6 +1728,70 @@ ipcMain.handle('debug:listTraceSessions', async () => {
 
 ipcMain.handle('debug:readTraceEvents', async (_event, sessionId: string, maxEvents?: number) => {
   return readTraceEvents(sessionId, maxEvents)
+})
+
+// ============================================================
+// cc-haha 复刻: Trace API IPC Handlers
+// ============================================================
+ipcMain.handle('trace:list', async (_event, params?: { limit?: number; offset?: number; query?: string }) => {
+  const sessions = listTraceSessions()
+  const query = params?.query?.toLowerCase() || ''
+  let filtered = sessions
+  if (query) {
+    filtered = sessions.filter(s => s.sessionId.toLowerCase().includes(query))
+  }
+  const offset = params?.offset || 0
+  const limit = params?.limit || 50
+  const paged = filtered.slice(offset, offset + limit)
+  return {
+    traces: paged.map(s => ({
+      sessionId: s.sessionId,
+      session: null,
+      summary: { apiCalls: 0, failedCalls: 0, totalDurationMs: 0, totalInputTokens: 0, totalOutputTokens: 0, models: [], updatedAt: null },
+      fileSize: s.size,
+      fileUpdatedAt: new Date(s.modifiedAt).toISOString(),
+    })),
+    total: filtered.length,
+    storageDir: getTraceDir() || '',
+    settings: { enabled: true, storageDir: getTraceDir() || '' },
+  }
+})
+
+ipcMain.handle('trace:getTrace', async (_event, sessionId: string) => {
+  try {
+    const result = readTraceEvents(sessionId, 5000)
+    if (!result.success) return { success: false, error: result.error }
+    return {
+      success: true,
+      data: {
+        sessionId,
+        session: null,
+        summary: { apiCalls: 0, failedCalls: 0, totalDurationMs: 0, totalInputTokens: 0, totalOutputTokens: 0, models: [], updatedAt: null },
+        calls: [],
+        events: [],
+      },
+    }
+  } catch (err) {
+    return { success: false, error: String(err) }
+  }
+})
+
+ipcMain.handle('trace:getTraceCall', async (_event, _sessionId: string, _callId: string) => {
+  // 在当前基于 AgentTraceEvent 的模型中没有独立的 call 概念
+  return null
+})
+
+ipcMain.handle('trace:getSettings', async () => {
+  return { enabled: true, storageDir: getTraceDir() || '' }
+})
+
+ipcMain.handle('trace:updateSettings', async (_event, _settings: { enabled: boolean }) => {
+  return { success: true }
+})
+
+ipcMain.on('trace:openWindow', (_event, _sessionId: string) => {
+  // TODO: 实现独立 BrowserWindow 打开 trace 详情
+  // 参考 cc-haha 的 openTraceWindow() 实现
 })
 
 // ─── Image Persistence IPC — 聊天图片落盘到 userData，避免 localStorage 配额溢出 ───
