@@ -416,6 +416,14 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function openTerminalTab(autoCommand?: string, env?: Record<string, string>, cwd?: string) {
+    // 关闭所有可能阻塞中央面板的全屏视图，确保终端能被用户看到
+    showSettings.value = false
+    showSkillsManager.value = false
+    showAgentManager.value = false
+    showMCPManager.value = false
+    showCronManager.value = false
+    showTraceViewer.value = false
+
     const terminalStore = useTerminalStore()
     const tabId = terminalStore.createTab({ autoCommand, env, cwd })
     if (tabId) {
