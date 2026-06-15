@@ -73,7 +73,7 @@ export function useImageHandler() {
   /** Read a local image file as data URL via Electron API */
   async function readLocalImageAsDataUrl(filePath: string): Promise<string> {
     try {
-      const fileData = await (api as any).readFile?.(filePath, { encoding: 'base64' })
+      const fileData = await api.readFileAsBase64(filePath)
       if (fileData) {
         const mimeType = getMimeTypeFromFileName(filePath)
         return `data:${mimeType};base64,${fileData}`

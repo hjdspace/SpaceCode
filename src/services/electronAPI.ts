@@ -109,6 +109,7 @@ export const api = {
   getAppState: () => electronAPI?.getAppState() || Promise.resolve({ sessions: [], currentSessionId: null, theme: 'dark' }),
   readDir: (dirPath: string): Promise<FileEntry[]> => electronAPI?.readDir(dirPath) || Promise.resolve([]),
   readFile: (filePath: string): Promise<string | null> => electronAPI?.readFile(filePath) || Promise.resolve(null),
+  readFileAsBase64: (filePath: string): Promise<string | null> => electronAPI?.readFileAsBase64(filePath) || Promise.resolve(null),
   writeFile: (filePath: string, content: string): Promise<{ success: boolean; error?: string }> =>
     electronAPI?.writeFile(filePath, content) || Promise.resolve({ success: false, error: 'writeFile not available' }),
   stat: (filePath: string): Promise<FileStat | null> => electronAPI?.stat(filePath) || Promise.resolve(null),

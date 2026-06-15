@@ -926,6 +926,15 @@ ipcMain.handle('fs:readFile', async (_event, filePath: string) => {
   }
 })
 
+ipcMain.handle('fs:readFileAsBase64', async (_event, filePath: string) => {
+  try {
+    const buffer = readFileSync(filePath)
+    return buffer.toString('base64')
+  } catch {
+    return null
+  }
+})
+
 ipcMain.handle('fs:writeFile', async (_event, filePath: string, content: string) => {
   debug('IPC', 'fs:writeFile', { filePath })
   try {
