@@ -117,13 +117,22 @@ function buildMessageGroups(msgs: Message[]): MessageGroup[] {
 
   const groups: MessageGroup[] = []
   let currentGroup: MessageGroup | null = null
+  const usedKeys = new Set<string>()
 
   for (const msg of msgs) {
     const groupType = msg.role === 'user' ? 'user' : 'assistant'
 
     if (!currentGroup || currentGroup.type !== groupType) {
+      // Ensure unique key: prefer msg.id, but append suffix if duplicated
+      let key = msg.id
+      let suffix = 1
+      while (usedKeys.has(key)) {
+        key = `${msg.id}-${suffix++}`
+      }
+      usedKeys.add(key)
+
       currentGroup = {
-        id: msg.id,
+        id: key,
         type: groupType,
         messages: [msg]
       }

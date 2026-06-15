@@ -5,7 +5,6 @@ import * as fs from 'fs'
 import * as os from 'os'
 import { randomUUID } from 'crypto'
 import { app } from 'electron'
-import { SessionConfig } from './claudeCodeProcessManager'
 import { proxyManager } from './proxyManager'
 import { info, warn, error, debug, processRaw, setSessionLogPath, sdkMessage, traceEvent } from './logger'
 import {
@@ -16,6 +15,33 @@ import {
   type CanUseToolRequest,
   type ElicitationRequest,
 } from './controlProtocol'
+
+export interface SessionConfig {
+  cwd: string
+  model?: string
+  provider?: 'anthropic' | 'openai' | 'gemini' | string
+  baseUrl?: string
+  /** CLI 支持的权限模式: acceptEdits, bypassPermissions, default, dontAsk, plan */
+  permissionMode?: 'acceptEdits' | 'bypassPermissions' | 'default' | 'dontAsk' | 'plan'
+  /** 推理深度: low, medium, high, max */
+  effortLevel?: 'low' | 'medium' | 'high' | 'max'
+  systemPrompt?: string
+  appendSystemPrompt?: string
+  maxTurns?: number
+  maxBudgetUsd?: number
+  apiKey?: string
+  verbose?: boolean
+  /** Agent type for the session (e.g. 'general-purpose', 'Explore', 'Plan'). Passed as --agent flag. */
+  agent?: string
+  /** 允许的工具列表（传给 CLI --allowedTools），空数组或 undefined 表示允许全部 */
+  allowedTools?: string[]
+  /** 是否启用 thinking 模式 (extended thinking) */
+  thinkingEnabled?: boolean
+  /** 要恢复的会话 ID，使用 --resume 参数启动 */
+  resumeSessionId?: string
+  engineSource?: 'bundled' | 'installed'
+  installedCliPath?: string
+}
 
 export type ProcessStatus = 'starting' | 'active' | 'idle' | 'suspended' | 'exited'
 

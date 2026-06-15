@@ -919,7 +919,6 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
 })
 
 ipcMain.handle('fs:readFile', async (_event, filePath: string) => {
-  debug('IPC', 'fs:readFile', { filePath })
   try {
     return readFileSync(filePath, 'utf-8')
   } catch {

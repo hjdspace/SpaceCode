@@ -1,6 +1,6 @@
 import type { BrowserWindow } from 'electron'
 import { ClaudeCodeProcessPool } from '../claudeCodeProcessPool'
-import { SessionConfig } from '../claudeCodeProcessManager'
+import { SessionConfig } from '../sessionProcess'
 import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment, PermissionDecision, PermissionMode } from './types'
 import * as fs from 'fs'
 import * as path from 'path'

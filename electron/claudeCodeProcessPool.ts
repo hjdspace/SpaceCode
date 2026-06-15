@@ -1,6 +1,5 @@
 import { BrowserWindow } from 'electron'
-import { SessionProcess, ProcessStatus } from './sessionProcess'
-import { SessionConfig } from './claudeCodeProcessManager'
+import { SessionProcess, ProcessStatus, SessionConfig } from './sessionProcess'
 import { info, warn, error, debug } from './logger'
 
 const MAX_PROCESSES = 3
