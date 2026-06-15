@@ -280,6 +280,11 @@ export const useScmStore = defineStore('scm', () => {
 
   function startWatching(): void {
     if (removeStatusChangeListener) return // Already listening
+    // Ensure main process file watcher is started so we receive git:statusChanged events
+    const cwd = appStore.projectRoot
+    if (cwd) {
+      api.git.watchProject(cwd).catch(() => {})
+    }
     removeStatusChangeListener = api.git.onStatusChanged(() => {
       refresh()
     })
