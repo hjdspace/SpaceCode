@@ -507,6 +507,51 @@ export function useContentEditor(options?: {
     return editor.querySelectorAll('.mention-chip, .command-chip').length > 0
   }
 
+  // ── Backspace chip deletion ────────────────────────────────────
+
+  /** Handle backspace key - delete whole chip if cursor is right after it.
+   *  Returns info about what was deleted so the caller can update their state. */
+  function handleBackspaceChip(event: KeyboardEvent): { deleted: true; type: 'mention' | 'command'; path?: string; imageId?: string } | { deleted: false } {
+    const sel = window.getSelection()
+    if (!sel || !sel.isCollapsed || !sel.rangeCount) return { deleted: false }
+
+    const range = sel.getRangeAt(0)
+    const container = range.startContainer
+    const offset = range.startOffset
+
+    let nodeBefore: Node | null = null
+    if (container.nodeType === Node.TEXT_NODE && offset === 0) {
+      nodeBefore = container.previousSibling
+    } else if (container.nodeType === Node.ELEMENT_NODE && offset > 0) {
+      nodeBefore = container.childNodes[offset - 1]
+    }
+
+    if (!nodeBefore || !(nodeBefore instanceof Element)) return { deleted: false }
+    if (!nodeBefore.classList.contains('mention-chip') && !nodeBefore.classList.contains('command-chip')) {
+      return { deleted: false }
+    }
+
+    event.preventDefault()
+
+    // Remove trailing space
+    const nextSib = nodeBefore.nextSibling
+    if (nextSib && nextSib.nodeType === Node.TEXT_NODE && nextSib.textContent === '\u00A0') {
+      nextSib.remove()
+    }
+
+    const isMention = nodeBefore.classList.contains('mention-chip')
+    const path = nodeBefore.getAttribute('data-path')
+    const imageId = nodeBefore.getAttribute('data-image-id')
+
+    nodeBefore.remove()
+    inputText.value = getEditorPlainText()
+
+    if (isMention) {
+      return { deleted: true, type: 'mention', path: path || undefined, imageId: imageId || undefined }
+    }
+    return { deleted: true, type: 'command' }
+  }
+
   return {
     // State
     editorRef,
@@ -545,5 +590,8 @@ export function useContentEditor(options?: {
 
     // Content check
     hasContent,
+
+    // Backspace chip deletion
+    handleBackspaceChip,
   }
 }

@@ -392,15 +392,15 @@
             <div
               v-if="showAgentSubmenu"
               class="agent-submenu"
-              @mouseenter="handleSubmenuEnter"
-              @mouseleave="handleSubmenuLeave"
+              @mouseenter="handleAgentSubmenuEnter"
+              @mouseleave="handleAgentSubmenuLeave"
             >
               <div class="submenu-header">{{ t('chatInput.agent') }}</div>
               <div class="submenu-list">
                 <button
                   class="submenu-item"
                   :class="{ active: !selectedAgent }"
-                  @click="selectAgent('')"
+                  @click="selectAgentAndCloseMenu('')"
                 >
                   <span class="item-name">{{ t('chatInput.default') }}</span>
                   <span class="item-desc">{{ t('chatInput.defaultAgentDesc') }}</span>
@@ -413,7 +413,7 @@
                     :key="agent.agentType"
                     class="submenu-item"
                     :class="{ active: selectedAgent === agent.agentType }"
-                    @click="selectAgent(agent.agentType)"
+                    @click="selectAgentAndCloseMenu(agent.agentType)"
                   >
                     <span class="item-name">{{ getAgentName(agent.agentType) }}</span>
                     <span class="item-desc">{{ getAgentDescription(agent.agentType, agent.description) }}</span>
@@ -427,7 +427,7 @@
                     :key="agent.agentType"
                     class="submenu-item"
                     :class="{ active: selectedAgent === agent.agentType }"
-                    @click="selectAgent(agent.agentType)"
+                    @click="selectAgentAndCloseMenu(agent.agentType)"
                   >
                     <span class="item-name">{{ agent.agentType }}</span>
                     <span class="item-desc">{{ agent.description }}</span>
@@ -488,7 +488,10 @@ import { useContentEditor, getMimeTypeFromFileName } from '@/composables/useCont
 import { usePromptStash } from '@/composables/usePromptStash'
 import { useDragDrop } from '@/composables/useDragDrop'
 import { useImageHandler } from '@/composables/useImageHandler'
+import { useAgentSelector } from '@/composables/useAgentSelector'
+import { useFileAttachments } from '@/composables/useFileAttachments'
 import type { ImageAttachment, Attachment, AllAttachments, SendOptions } from '@/composables/types'
+import { vClickOutside } from '@/directives/vClickOutside'
 
 // Re-export types for backward compatibility (other components import from ChatInput)
 export type { ImageAttachment, Attachment, AllAttachments, SendOptions } from '@/composables/types'
@@ -578,8 +581,8 @@ const {
   insertMentionChip, insertCommandChip, insertImageChip,
   removeTriggerText, setEditorContent, clearEditor,
   collectMentions, collectAllAttachments, autoResize,
-  buildChipElementFromMarker, insertPastedTextWithMarkers,
-  hasContent: editorHasContent,
+  insertPastedTextWithMarkers,
+  hasContent: editorHasContent, handleBackspaceChip,
 } = editor
 
 // Prompt stash
@@ -594,14 +597,52 @@ const { isDragging } = dragDrop
 const imageHandler = useImageHandler()
 const { attachedImages, handleImageFile: handleImageFileFromComposable, readLocalImageAsDataUrl, clearImages } = imageHandler
 
+// Agent selector
+const agentSelector = useAgentSelector({
+  onUpdateAgent: (a) => emit('update:agent', a),
+})
+const {
+  selectedAgent, showAgentSubmenu, builtInAgents, customAgents,
+  handleTriggerEnter: handleAgentTriggerEnter,
+  handleTriggerLeave: handleAgentTriggerLeave,
+  handleSubmenuEnter: handleAgentSubmenuEnter,
+  handleSubmenuLeave: handleAgentSubmenuLeave,
+  selectAgent,
+  getAgentDisplayName, getAgentDisplayDescription,
+} = agentSelector
+
+// Aliases for template compatibility
+const getAgentName = getAgentDisplayName
+const getAgentDescription = getAgentDisplayDescription
+
+// Wrapper that also closes attachment menu
+function selectAgentAndCloseMenu(agentType: string) {
+  selectAgent(agentType)
+  closeAttachmentMenu()
+}
+
+// File attachments
+const fileAttachments = useFileAttachments({
+  workingDirectory: () => props.workingDirectory || '',
+  onInsertChip: (name, path, isFolder) => insertMentionChip(name, path, isFolder),
+})
+const {
+  attachedFiles, showAttachmentMenu,
+  addFile: addFileAttachment,
+  clearFiles, handleAddClick, closeAttachmentMenu,
+  handleAttachFile, handleAttachFolder, handleBrowseFiles: handleBrowseFilesBase,
+} = fileAttachments
+
+// Wrapper that also closes context menu (template compatibility)
+function handleBrowseFiles() {
+  closeContextMenu()
+  handleBrowseFilesBase()
+}
+
 // ── Local state (not extracted) ──────────────────────────────────
-const attachedFiles = ref<Attachment[]>([])
-const showAttachmentMenu = ref(false)
 const isOptimizing = ref(false)
 const showSteerHint = ref(false)
 const thinkingEnabled = ref(settingsStore.thinkingEnabled)
-const selectedAgent = ref<string>(chatStore.currentAgent || '')
-const showAgentSubmenu = ref(false)
 
 // ── Computed ─────────────────────────────────────────────────────
 const hasContent = computed(() => editorHasContent(attachedFiles.value, attachedImages.value))
@@ -612,10 +653,6 @@ const currentPendingMessages = computed(() => {
   if (!sid) return []
   return chatStore.getPendingMessages(sid)
 })
-
-// Agent selector computed
-const builtInAgents = computed(() => chatStore.availableAgents.filter(a => a.source === 'built-in'))
-const customAgents = computed(() => chatStore.availableAgents.filter(a => a.source !== 'built-in'))
 
 // Model submenu style (depends on DOM refs from useModelSelector)
 const modelSubmenuStyle = computed<Record<string, string>>(() => {
@@ -665,17 +702,6 @@ function toggleThinking() {
   if (sid) {
     api.updateThinkingLevel(sid, thinkingEnabled.value).catch(() => {})
   }
-}
-
-// ── Agent helpers ────────────────────────────────────────────────
-function getAgentName(agentType: string): string {
-  const translatedName = t(`chatInput.agents.${agentType}.name`)
-  return translatedName !== `chatInput.agents.${agentType}.name` ? translatedName : agentType
-}
-
-function getAgentDescription(agentType: string, originalDescription: string): string {
-  const translatedDesc = t(`chatInput.agents.${agentType}.description`)
-  return translatedDesc !== `chatInput.agents.${agentType}.description` ? translatedDesc : originalDescription
 }
 
 // ── Workbench injection ──────────────────────────────────────────
@@ -905,41 +931,15 @@ function handleEditorKeydown(event: KeyboardEvent) {
 
   // Backspace: delete whole chip if cursor is right after it
   if (event.key === 'Backspace') {
-    const sel = window.getSelection()
-    if (sel && sel.isCollapsed && sel.rangeCount) {
-      const range = sel.getRangeAt(0)
-      const container = range.startContainer
-      const offset = range.startOffset
-
-      let nodeBefore: Node | null = null
-      if (container.nodeType === Node.TEXT_NODE && offset === 0) {
-        nodeBefore = container.previousSibling
-      } else if (container.nodeType === Node.ELEMENT_NODE && offset > 0) {
-        nodeBefore = container.childNodes[offset - 1]
+    const result = handleBackspaceChip(event)
+    if (result.deleted && result.type === 'mention') {
+      if (result.path) {
+        const idx = attachedFiles.value.findIndex(f => f.path === result.path)
+        if (idx >= 0) attachedFiles.value.splice(idx, 1)
       }
-
-      if (nodeBefore && nodeBefore instanceof Element && (nodeBefore.classList.contains('mention-chip') || nodeBefore.classList.contains('command-chip'))) {
-        event.preventDefault()
-        const nextSib = nodeBefore.nextSibling
-        if (nextSib && nextSib.nodeType === Node.TEXT_NODE && nextSib.textContent === '\u00A0') {
-          nextSib.remove()
-        }
-        nodeBefore.remove()
-        inputText.value = getEditorPlainText()
-
-        if (nodeBefore.classList.contains('mention-chip')) {
-          const path = nodeBefore.getAttribute('data-path')
-          if (path) {
-            const idx = attachedFiles.value.findIndex(f => f.path === path)
-            if (idx >= 0) attachedFiles.value.splice(idx, 1)
-          }
-
-          const imageId = nodeBefore.getAttribute('data-image-id')
-          if (imageId) {
-            const idx = attachedImages.value.findIndex(img => img.id === imageId)
-            if (idx >= 0) attachedImages.value.splice(idx, 1)
-          }
-        }
+      if (result.imageId) {
+        const idx = attachedImages.value.findIndex(img => img.id === result.imageId)
+        if (idx >= 0) attachedImages.value.splice(idx, 1)
       }
     }
   }
@@ -1380,74 +1380,6 @@ function handleDrop(e: DragEvent) {
 }
 
 // ── File attachment actions ──────────────────────────────────────
-async function handleBrowseFiles() {
-  closeContextMenu()
-  try {
-    const result = await api.selectFiles()
-    if (!result.canceled && result.filePaths.length > 0) {
-      for (const filePath of result.filePaths) {
-        const name = props.workingDirectory
-          ? filePath.replace(props.workingDirectory, '').replace(/^[/\\]/, '')
-          : filePath.split(/[/\\]/).pop() || filePath
-
-        if (!attachedFiles.value.some(f => f.path === filePath)) {
-          attachedFiles.value.push({
-            name,
-            path: filePath,
-            isFolder: false
-          })
-          insertMentionChip(name, filePath, false)
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Failed to browse files:', error)
-  }
-}
-
-async function handleAttachFile() {
-  closeAttachmentMenu()
-  try {
-    const result = await api.selectFiles()
-    if (!result.canceled && result.filePaths.length > 0) {
-      for (const filePath of result.filePaths) {
-        const name = filePath.split(/[\\/]/).pop() || filePath
-        if (!attachedFiles.value.some(f => f.path === filePath)) {
-          attachedFiles.value.push({
-            name,
-            path: filePath,
-            isFolder: false
-          })
-          insertMentionChip(name, filePath, false)
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Failed to select files:', error)
-  }
-}
-
-async function handleAttachFolder() {
-  closeAttachmentMenu()
-  try {
-    const result = await api.selectFolder()
-    if (!result.canceled && result.filePaths.length > 0) {
-      const folderPath = result.filePaths[0]
-      const name = folderPath.split(/[\\/]/).pop() || folderPath
-      if (!attachedFiles.value.some(f => f.path === folderPath)) {
-        attachedFiles.value.push({
-          name,
-          path: folderPath,
-          isFolder: true
-        })
-        insertMentionChip(name, folderPath, true)
-      }
-    }
-  } catch (error) {
-    console.error('Failed to select folder:', error)
-  }
-}
-
 async function handleAttachImage() {
   closeAttachmentMenu()
   try {
@@ -1483,72 +1415,6 @@ async function handleOpenProjectFolder() {
   await openProjectFromPicker()
 }
 
-// ── Attachment menu ──────────────────────────────────────────────
-function handleAddClick() {
-  showAttachmentMenu.value = !showAttachmentMenu.value
-}
-
-function closeAttachmentMenu() {
-  showAttachmentMenu.value = false
-}
-
-// ── Agent selector ───────────────────────────────────────────────
-let agentSubmenuTimer: ReturnType<typeof setTimeout> | null = null
-
-function handleAgentTriggerEnter() {
-  if (agentSubmenuTimer) {
-    clearTimeout(agentSubmenuTimer)
-    agentSubmenuTimer = null
-  }
-  showAgentSubmenu.value = true
-}
-
-function handleAgentTriggerLeave() {
-  agentSubmenuTimer = setTimeout(() => {
-    showAgentSubmenu.value = false
-  }, 150)
-}
-
-function handleSubmenuEnter() {
-  if (agentSubmenuTimer) {
-    clearTimeout(agentSubmenuTimer)
-    agentSubmenuTimer = null
-  }
-  showAgentSubmenu.value = true
-}
-
-function handleSubmenuLeave() {
-  agentSubmenuTimer = setTimeout(() => {
-    showAgentSubmenu.value = false
-  }, 150)
-}
-
-function selectAgent(agentType: string) {
-  selectedAgent.value = agentType
-  showAgentSubmenu.value = false
-  showAttachmentMenu.value = false
-  emit('update:agent', agentType)
-}
-
-// ── vClickOutside directive ──────────────────────────────────────
-const vClickOutside = {
-  mounted(el: HTMLElement, binding: any) {
-    const clickHandler = (event: Event) => {
-      if (!(el === event.target || el.contains(event.target as Node))) {
-        binding.value()
-      }
-    }
-    ;(el as any).__clickOutside__ = clickHandler
-    document.addEventListener('click', clickHandler, true)
-  },
-  unmounted(el: HTMLElement) {
-    const clickHandler = (el as any).__clickOutside__
-    if (clickHandler) {
-      document.removeEventListener('click', clickHandler, true)
-    }
-  }
-}
-
 // ── Lifecycle & Watchers ─────────────────────────────────────────
 onMounted(() => {
   initializeModelSelector(props.modelValue)
@@ -1574,11 +1440,6 @@ watch(() => props.modelValue, (newValue) => {
   if (newValue && newValue !== selectedModel.value) {
     selectedModel.value = newValue
   }
-})
-
-// Watch agent changes from chat store
-watch(() => chatStore.currentAgent, (newAgent) => {
-  selectedAgent.value = newAgent || ''
 })
 
 // Watch workbench injection
