@@ -60,6 +60,10 @@ const label = computed(() => {
     .status-dot {
       background: #818cf8;
       animation: dot-pulse 1.4s ease-in-out infinite;
+
+      @media (prefers-reduced-motion: reduce) {
+        animation: none;
+      }
     }
   }
 }
