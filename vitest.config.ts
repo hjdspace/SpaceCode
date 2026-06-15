@@ -8,6 +8,15 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['electron/__tests__/**/*.test.ts'],
+    include: [
+      'electron/__tests__/**/*.test.ts',
+      'tests/composables/**/*.test.ts',
+    ],
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      // Old tests using Node.js native test runner (not vitest compatible)
+      'tests/composables/useChatCommands.rewind.test.ts',
+    ],
   },
 })
