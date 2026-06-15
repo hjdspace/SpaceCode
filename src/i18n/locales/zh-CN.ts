@@ -1141,4 +1141,64 @@ export default {
     loadFailed: '加载更新日志失败',
     noContent: '暂无更新日志内容',
   },
+
+  sessionContext: {
+    // Env Panel
+    environment: '环境',
+    settings: '设置',
+    close: '关闭',
+    changes: '更改',
+    local: '本地',
+    noBranch: '无分支',
+    commitOrPush: '提交或推送',
+    githubCliUnavailable: 'GitHub CLI 不可用',
+    sources: '来源',
+    noSourcesYet: '暂无来源',
+
+    // Task Panel
+    gitTools: 'Git 工具',
+    more: '更多',
+    popOut: '弹出',
+    commit: '提交 ...',
+    progress: '进程 {completed}/{total}',
+    noTasks: '暂无待办任务',
+    completedCount: '已完成 {count} 项',
+    pendingCount: '待处理 {count} 项',
+    continue: '继续',
+
+    // Review Panel
+    review: '审查',
+    branch: '分支',
+    createPR: '创建 PR',
+    loadingDiff: '正在加载 diff...',
+    noDiffAvailable: '暂无 diff 数据',
+    noFileChanges: '此会话中没有文件变更',
+    diffUnavailable: 'Diff 不可用',
+    failedToLoadDiff: '加载 diff 失败',
+    noProjectRoot: '无项目根目录',
+
+    // Branch Panel
+    branchManagement: '分支管理',
+    searchBranch: '搜索分支...',
+    branches: '分支',
+    uncommittedChanges: '未提交的更改: {count} 个文件',
+    noMatchingBranches: '未找到匹配的分支',
+    createAndCheckout: '创建并检出新分支...',
+    gitGraph: 'Git 图谱',
+
+    // Commit Dialog
+    commitChanges: '提交更改',
+    commitDesc: '将当前 workspace 内的未提交更改保存为一次提交。',
+    currentBranch: '当前分支',
+    fileCount: '{count} 个文件',
+    commitMessage: '提交消息',
+    commitMessagePlaceholder: '留空以自动生成提交消息',
+    commitHint: '留空时会使用当前模型生成 Conventional Commit 提交消息。',
+    generateCommitFailed: '生成提交消息失败，请重试或手动填写。',
+    commitFailed: '提交失败，请重试。',
+    cancel: '取消',
+    generating: '生成中...',
+    submitting: '提交中...',
+    generateAndCommit: '生成并提交',
+  },
 }

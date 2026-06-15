@@ -48,91 +48,116 @@
           </span>
         </div>
       </div>
-      
-      <div class="chat-panel-body">
-        <NoProjectHome v-if="showNoProjectWelcome" />
 
-        <template v-else>
-          <TeammateTranscriptHeader
-            v-if="chatStore.isViewingTeammate"
-            :teammate="chatStore.viewedTeammate"
-            @back="chatStore.backToLeaderView"
+      <!-- Body: flex-row with chat left + panel right -->
+      <div class="chat-body-row">
+        <!-- Left: Chat area -->
+        <div class="chat-main">
+          <div class="chat-panel-body">
+            <NoProjectHome v-if="showNoProjectWelcome" />
+
+            <template v-else>
+              <TeammateTranscriptHeader
+                v-if="chatStore.isViewingTeammate"
+                :teammate="chatStore.viewedTeammate"
+                @back="chatStore.backToLeaderView"
+              />
+
+              <MessageList
+                :messages="chatStore.displayMessages"
+                :loading="chatStore.isLoading"
+                @tool-submit="handleToolSubmit"
+                @tool-skip="handleToolSkip"
+                @rewind="handleMessageRewind"
+              />
+            </template>
+          </div>
+
+          <TeamStatusBar
+            v-if="!showNoProjectWelcome"
+            :team-context="chatStore.currentTeamContext"
+            :viewing-agent-task-id="chatStore.currentViewedAgentTaskId"
+            @view-teammate="chatStore.viewTeammateTranscript"
           />
 
-          <MessageList
-            :messages="chatStore.displayMessages"
-            :loading="chatStore.isLoading"
-            @tool-submit="handleToolSubmit"
-            @tool-skip="handleToolSkip"
-            @rewind="handleMessageRewind"
+          <ContextUsageWarningBar
+            v-if="!showNoProjectWelcome"
+            @open="showContextModal = true"
           />
-        </template>
+
+          <ChatInput
+            @send="handleSend"
+            @slash-command="handleSlashCommand"
+            @update:model="handleModelChange"
+            @update:effort="handleEffortChange"
+            @update:agent="handleAgentChange"
+            @open-skills="handleOpenSkills"
+            @stop="handleStop"
+            :disabled="chatStore.isLoading"
+            :is-sending="chatStore.isLoading"
+            :model-value="currentModel"
+            :working-directory="chatStore.workingDirectory"
+            :placeholder="t('chat.askAnything')"
+            :show-open-project-action="showNoProjectWelcome"
+          />
+          <ToastNotification />
+
+          <!-- Rewind Dialog -->
+          <RewindDialog
+            :show="chatStore.rewindState.showDialog"
+            :selected-message-id="chatStore.rewindState.selectedMessageId"
+            :message-content="rewindSelectedMessageContent"
+            :selected-option="chatStore.rewindState.selectedOption"
+            :summarize-feedback="chatStore.rewindState.summarizeFeedback"
+            :is-rewinding="chatStore.rewindState.isRewinding"
+            :error="chatStore.rewindState.error"
+            :diff-stats="null"
+            @update:show="chatStore.setShowRewindDialog"
+            @update:selected-option="chatStore.setRewindSelectedOption"
+            @update:summarize-feedback="chatStore.setRewindSummarizeFeedback"
+            @confirm="handleRewindConfirm"
+            @cancel="handleRewindCancel"
+          />
+
+          <!-- Code Rewind Confirmation Dialog -->
+          <CodeRewindConfirmDialog
+            :show="chatStore.rewindState.showCodeConfirm"
+            :files="[...chatStore.rewindState.filesToRewind]"
+            :is-loading="chatStore.rewindState.isRewinding"
+            @confirm="handleCodeRewindConfirm"
+            @cancel="handleCodeRewindCancel"
+          />
+
+          <!-- Message Selector for /rewind command -->
+          <MessageSelector
+            :show="showMessageSelector"
+            :messages="userMessages"
+            :selected-message-id="chatStore.rewindState.selectedMessageId"
+            @update:show="showMessageSelector = $event"
+            @select="handleMessageSelect"
+            @cancel="showMessageSelector = false"
+          />
+        </div>
+
+        <!-- Right: Env Panel (Git tools sidebar) -->
+        <Transition name="sc-panel-slide">
+          <SessionContextEnvPanel v-if="sessionContext.showEnvPanel" @continue="handleContinue" />
+        </Transition>
+
+        <!-- Right: Detail Panel (tasks/review) -->
+        <Transition name="sc-panel-slide">
+          <SessionContextTaskPanel v-if="sessionContext.showRightPanel" />
+        </Transition>
+
+        <!-- Capsule (shown when env panel is collapsed but has activity) -->
+        <Transition name="sc-capsule-fade">
+          <div v-if="!sessionContext.showEnvPanel && sessionContext.hasActivity" class="sc-capsule" @click="sessionContext.openEnvPanel()">
+            <ClipboardList :size="14" />
+            <span class="sc-capsule-text" v-if="sessionContext.tasks.length > 0">{{ sessionContext.taskProgress.completed }}/{{ sessionContext.taskProgress.total }}</span>
+            <span class="sc-capsule-text" v-else>+{{ sessionContext.gitAdditions }} -{{ sessionContext.gitDeletions }}</span>
+          </div>
+        </Transition>
       </div>
-
-      <TeamStatusBar
-        v-if="!showNoProjectWelcome"
-        :team-context="chatStore.currentTeamContext"
-        :viewing-agent-task-id="chatStore.currentViewedAgentTaskId"
-        @view-teammate="chatStore.viewTeammateTranscript"
-      />
-
-      <ContextUsageWarningBar
-        v-if="!showNoProjectWelcome"
-        @open="showContextModal = true"
-      />
-
-      <ChatInput
-        @send="handleSend"
-        @slash-command="handleSlashCommand"
-        @update:model="handleModelChange"
-        @update:effort="handleEffortChange"
-        @update:agent="handleAgentChange"
-        @open-skills="handleOpenSkills"
-        @stop="handleStop"
-        :disabled="chatStore.isLoading"
-        :is-sending="chatStore.isLoading"
-        :model-value="currentModel"
-        :working-directory="chatStore.workingDirectory"
-        :placeholder="t('chat.askAnything')"
-        :show-open-project-action="showNoProjectWelcome"
-      />
-      <ToastNotification />
-
-      <!-- Rewind Dialog -->
-      <RewindDialog
-        :show="chatStore.rewindState.showDialog"
-        :selected-message-id="chatStore.rewindState.selectedMessageId"
-        :message-content="rewindSelectedMessageContent"
-        :selected-option="chatStore.rewindState.selectedOption"
-        :summarize-feedback="chatStore.rewindState.summarizeFeedback"
-        :is-rewinding="chatStore.rewindState.isRewinding"
-        :error="chatStore.rewindState.error"
-        :diff-stats="null"
-        @update:show="chatStore.setShowRewindDialog"
-        @update:selected-option="chatStore.setRewindSelectedOption"
-        @update:summarize-feedback="chatStore.setRewindSummarizeFeedback"
-        @confirm="handleRewindConfirm"
-        @cancel="handleRewindCancel"
-      />
-
-      <!-- Code Rewind Confirmation Dialog -->
-      <CodeRewindConfirmDialog
-        :show="chatStore.rewindState.showCodeConfirm"
-        :files="[...chatStore.rewindState.filesToRewind]"
-        :is-loading="chatStore.rewindState.isRewinding"
-        @confirm="handleCodeRewindConfirm"
-        @cancel="handleCodeRewindCancel"
-      />
-
-      <!-- Message Selector for /rewind command -->
-      <MessageSelector
-        :show="showMessageSelector"
-        :messages="userMessages"
-        :selected-message-id="chatStore.rewindState.selectedMessageId"
-        @update:show="showMessageSelector = $event"
-        @select="handleMessageSelect"
-        @cancel="showMessageSelector = false"
-      />
     </template>
     
     <!-- History Session Modal -->
@@ -190,6 +215,9 @@
         </div>
       </div>
     </Transition>
+
+    <!-- Session Context Commit Dialog (modal overlay) -->
+    <SessionContextCommitDialog @close="sessionContext.closeCommitDialog()" />
   </main>
 </template>
 
@@ -215,13 +243,17 @@ import ToastNotification from '../common/ToastNotification.vue'
 import RewindDialog from '../chat/RewindDialog.vue'
 import CodeRewindConfirmDialog from '../chat/CodeRewindConfirmDialog.vue'
 import MessageSelector from '../chat/MessageSelector.vue'
-import { History } from 'lucide-vue-next'
+import { History, ClipboardList } from 'lucide-vue-next'
 import HistorySessionList from '../explorer/HistorySessionList.vue'
 import ContextUsageChip from '../chat/ContextUsageChip.vue'
 import ContextUsageWarningBar from '../chat/ContextUsageWarningBar.vue'
 import ContextUsageModal from '../chat/ContextUsageModal.vue'
 import DiffExplorer from '../chat/DiffExplorer.vue'
 import { useContextUsageStore } from '@/stores/contextUsage'
+import { useSessionContext } from '@/stores/sessionContext'
+import SessionContextEnvPanel from '../session-context/SessionContextEnvPanel.vue'
+import SessionContextTaskPanel from '../session-context/SessionContextTaskPanel.vue'
+import SessionContextCommitDialog from '../session-context/SessionContextCommitDialog.vue'
 import { buildMessagesFromHistory } from '@/utils/sessionRestore'
 import { initLLMService, llmState, updateConfig } from '@/services/llm'
 import { pathsEqual } from '@/utils/recentProjectRoots'
@@ -241,6 +273,7 @@ const showDiffPanel = ref(false)
 const diffPanelData = ref<any>(null)
 const diffPanelLoading = ref(false)
 const contextUsageStore = useContextUsageStore()
+const sessionContext = useSessionContext()
 
 // 监听 TitleBar 的 diff 触发
 const stopDiffWatch = watch(() => chatStore.diffPanelTrigger, () => {
@@ -249,7 +282,59 @@ const stopDiffWatch = watch(() => chatStore.diffPanelTrigger, () => {
 
 onBeforeUnmount(() => {
   stopDiffWatch()
+  document.removeEventListener('keydown', handleSessionContextEsc)
 })
+
+// Session Context: ESC to close floating panels
+function handleSessionContextEsc(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    if (sessionContext.showCommitDialog) {
+      sessionContext.closeCommitDialog()
+    } else if (sessionContext.showBranchDropdown) {
+      sessionContext.closeBranchDropdown()
+    } else if (sessionContext.showRightPanel) {
+      sessionContext.closeRightPanel()
+    } else if (sessionContext.showEnvPanel) {
+      sessionContext.closeEnvPanel()
+    }
+  }
+}
+document.addEventListener('keydown', handleSessionContextEsc)
+
+// Session Context: handle continue button from env panel
+function handleContinue() {
+  // Trigger the agent to continue with the current task
+  // This is a placeholder - actual implementation depends on the chat flow
+  console.log('[SessionContext] Continue requested')
+}
+
+// Session Context: sync tasks from taskManager
+watch(
+  () => chatStore.displayMessages,
+  (msgs) => {
+    // Find the latest TodoWrite/TaskList tool call in current session
+    const tasks: typeof sessionContext.tasks = []
+    for (const msg of msgs) {
+      if (!msg.toolCalls) continue
+      for (const tc of msg.toolCalls) {
+        if (tc.name === 'TodoWrite' && tc.input?.todos && Array.isArray(tc.input.todos)) {
+          tasks.length = 0
+          for (const t of tc.input.todos as any[]) {
+            tasks.push({
+              id: t.id,
+              content: t.content || '',
+              status: (t.status as any) || 'pending',
+            })
+          }
+        }
+      }
+    }
+    if (tasks.length > 0) {
+      sessionContext.updateTasks(tasks)
+    }
+  },
+  { deep: true }
+)
 
 // Rewind state
 const showMessageSelector = ref(false)
@@ -435,6 +520,23 @@ onMounted(async () => {
   currentModel.value = settingsStore.config.model || ''
   if (chatStore.currentSessionId) {
     void contextUsageStore.refresh(chatStore.currentSessionId)
+  }
+
+  // Dev helper: expose sessionContext store for console testing
+  if (import.meta.env.DEV) {
+    ;(window as any).__sc = {
+      openEnv: () => sessionContext.openEnvPanel(),
+      closeEnv: () => sessionContext.closeEnvPanel(),
+      openReview: () => sessionContext.openRightPanel('review'),
+      openTasks: () => sessionContext.openRightPanel('tasks'),
+      closeRight: () => sessionContext.closeRightPanel(),
+      toggleBranch: () => sessionContext.toggleBranchDropdown(),
+      openCommit: () => sessionContext.openCommitDialog(),
+      setTasks: (tasks: any[]) => sessionContext.updateTasks(tasks),
+      setGitStats: (stats: any) => sessionContext.updateGitStats(stats),
+      store: sessionContext,
+    }
+    console.log('[Dev] Session Context API: __sc.openEnv() / __sc.openReview() / __sc.setTasks([...])')
   }
 })
 
@@ -1042,6 +1144,26 @@ async function handleRestoreHistorySession(session: any) {
   flex-direction: column;
 }
 
+// New: flex-row body for chat + side panel
+.chat-body-row {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.chat-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  transition: flex 0.3s ease;
+}
+
 .chat-panel-body {
   flex: 1;
   min-height: 0;
@@ -1413,5 +1535,62 @@ async function handleRestoreHistorySession(session: any) {
   .diff-modal {
     transform: translateY(-10px) scale(0.98);
   }
+}
+
+/* Session Context: Panel slide transition */
+.sc-panel-slide-enter-active {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.sc-panel-slide-leave-active {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.sc-panel-slide-enter-from,
+.sc-panel-slide-leave-to {
+  width: 0;
+  opacity: 0;
+  transform: translateX(20px);
+}
+
+/* Session Context: Capsule */
+.sc-capsule {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--surface-border);
+  border-radius: 20px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 10;
+  box-shadow: var(--shadow-md);
+
+  &:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--accent-primary);
+  }
+}
+
+.sc-capsule-text {
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.sc-capsule-fade-enter-active {
+  transition: all 0.3s ease 0.2s;
+}
+.sc-capsule-fade-leave-active {
+  transition: all 0.15s ease;
+}
+.sc-capsule-fade-enter-from,
+.sc-capsule-fade-leave-to {
+  opacity: 0;
+  transform: scale(0.9);
 }
 </style>

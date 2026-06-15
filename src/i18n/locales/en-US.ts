@@ -1141,4 +1141,64 @@ export default {
     loadFailed: 'Failed to load changelog',
     noContent: 'No changelog content available',
   },
+
+  sessionContext: {
+    // Env Panel
+    environment: 'Environment',
+    settings: 'Settings',
+    close: 'Close',
+    changes: 'Changes',
+    local: 'Local',
+    noBranch: 'No branch',
+    commitOrPush: 'Commit or push',
+    githubCliUnavailable: 'GitHub CLI unavailable',
+    sources: 'Sources',
+    noSourcesYet: 'No sources yet',
+
+    // Task Panel
+    gitTools: 'Git Tools',
+    more: 'More',
+    popOut: 'Pop out',
+    commit: 'Commit ...',
+    progress: 'Progress {completed}/{total}',
+    noTasks: 'No pending tasks',
+    completedCount: 'Completed {count}',
+    pendingCount: 'Pending {count}',
+    continue: 'Continue',
+
+    // Review Panel
+    review: 'Review',
+    branch: 'Branch',
+    createPR: 'Create PR',
+    loadingDiff: 'Loading diff...',
+    noDiffAvailable: 'No diff available',
+    noFileChanges: 'No file changes in this session',
+    diffUnavailable: 'Diff unavailable',
+    failedToLoadDiff: 'Failed to load diff',
+    noProjectRoot: 'No project root',
+
+    // Branch Panel
+    branchManagement: 'Branch Management',
+    searchBranch: 'Search branches...',
+    branches: 'Branches',
+    uncommittedChanges: 'Uncommitted changes: {count} files',
+    noMatchingBranches: 'No matching branches found',
+    createAndCheckout: 'Create and checkout new branch...',
+    gitGraph: 'Git Graph',
+
+    // Commit Dialog
+    commitChanges: 'Commit Changes',
+    commitDesc: 'Save uncommitted changes in the current workspace as a commit.',
+    currentBranch: 'Current Branch',
+    fileCount: '{count} files',
+    commitMessage: 'Commit Message',
+    commitMessagePlaceholder: 'Leave empty to auto-generate commit message',
+    commitHint: 'When empty, uses the current model to generate a Conventional Commit message.',
+    generateCommitFailed: 'Failed to generate commit message. Please retry or enter manually.',
+    commitFailed: 'Commit failed. Please retry.',
+    cancel: 'Cancel',
+    generating: 'Generating...',
+    submitting: 'Committing...',
+    generateAndCommit: 'Generate & Commit',
+  },
 }

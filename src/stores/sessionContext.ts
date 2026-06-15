@@ -1,0 +1,204 @@
+/**
+ * Session Context Store — 管理面板系统状态
+ *
+ * 三层 UI:
+ * 1. EnvPanel: 右上角嵌入式卡片（环境概览），展开时对话区域缩小
+ * 2. RightPanel: 右侧内嵌面板（tasks / review），由 EnvPanel 内的操作触发
+ * 3. BranchDropdown: 左侧覆盖层，由点击 "main" 触发
+ */
+
+import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
+
+/** 右侧面板子视图 */
+export type RightPanelView = 'tasks' | 'review'
+
+export interface SessionContextFile {
+  path: string
+  insertions: number
+  deletions: number
+}
+
+export const useSessionContext = defineStore('sessionContext', () => {
+  // === Env Panel (right-top embedded card) ===
+  const showEnvPanel = ref(false)
+
+  // === Right side panel (tasks / review) ===
+  const showRightPanel = ref(false)
+  const rightPanelView = ref<RightPanelView>('tasks')
+
+  // === Branch dropdown overlay ===
+  const showBranchDropdown = ref(false)
+
+  // === Commit dialog ===
+  const showCommitDialog = ref(false)
+
+  // === Task data ===
+  const tasks = ref<Array<{
+    id?: string
+    content: string
+    status: 'pending' | 'in_progress' | 'completed'
+    owner?: string
+    blockedBy?: string[]
+    isSubtask?: boolean
+  }>>([])
+
+  const taskProgress = computed(() => {
+    const total = tasks.value.filter(t => !t.isSubtask).length
+    const completed = tasks.value.filter(t => !t.isSubtask && t.status === 'completed').length
+    return { completed, total }
+  })
+
+  // === Git stats ===
+  const gitAdditions = ref(0)
+  const gitDeletions = ref(0)
+  const changedFiles = ref<SessionContextFile[]>([])
+
+  // === Review state ===
+  const expandedReviewFiles = ref<Set<string>>(new Set())
+
+  // === Computed ===
+  /** 是否有任何面板展开（用于胶囊判断） */
+  const hasActivity = computed(() => tasks.value.length > 0 || gitAdditions.value > 0)
+
+  // === Actions: Env Panel ===
+  function toggleEnvPanel() {
+    showEnvPanel.value = !showEnvPanel.value
+  }
+
+  function openEnvPanel() {
+    showEnvPanel.value = true
+  }
+
+  function closeEnvPanel() {
+    showEnvPanel.value = false
+  }
+
+  // === Actions: Right Panel ===
+  function openRightPanel(view: RightPanelView = 'tasks') {
+    rightPanelView.value = view
+    showRightPanel.value = true
+  }
+
+  function closeRightPanel() {
+    showRightPanel.value = false
+  }
+
+  function switchRightPanelView(view: RightPanelView) {
+    rightPanelView.value = view
+  }
+
+  // === Actions: Branch Dropdown ===
+  function toggleBranchDropdown() {
+    showBranchDropdown.value = !showBranchDropdown.value
+  }
+
+  function closeBranchDropdown() {
+    showBranchDropdown.value = false
+  }
+
+  // === Actions: Commit Dialog ===
+  function openCommitDialog() {
+    showCommitDialog.value = true
+  }
+
+  function closeCommitDialog() {
+    showCommitDialog.value = false
+  }
+
+  // === Actions: Tasks ===
+  function updateTasks(newTasks: typeof tasks.value) {
+    tasks.value = newTasks
+    // Auto-open env panel when agent updates tasks
+    if (newTasks.length > 0 && !showEnvPanel.value) {
+      showEnvPanel.value = true
+    }
+  }
+
+  // === Actions: Git stats ===
+  function updateGitStats(stats: {
+    additions: number
+    deletions: number
+    files: SessionContextFile[]
+  }) {
+    gitAdditions.value = stats.additions
+    gitDeletions.value = stats.deletions
+    changedFiles.value = stats.files
+  }
+
+  // === Actions: Review ===
+  function toggleReviewFile(path: string) {
+    const s = new Set(expandedReviewFiles.value)
+    if (s.has(path)) {
+      s.delete(path)
+    } else {
+      s.add(path)
+    }
+    expandedReviewFiles.value = s
+  }
+
+  function isReviewFileExpanded(path: string): boolean {
+    return expandedReviewFiles.value.has(path)
+  }
+
+  // === Actions: Reset ===
+  function reset() {
+    showEnvPanel.value = false
+    showRightPanel.value = false
+    showBranchDropdown.value = false
+    showCommitDialog.value = false
+    rightPanelView.value = 'tasks'
+    tasks.value = []
+    gitAdditions.value = 0
+    gitDeletions.value = 0
+    changedFiles.value = []
+    expandedReviewFiles.value = new Set()
+  }
+
+  return {
+    // State
+    showEnvPanel,
+    showRightPanel,
+    rightPanelView,
+    showBranchDropdown,
+    showCommitDialog,
+    tasks,
+    taskProgress,
+    gitAdditions,
+    gitDeletions,
+    changedFiles,
+    expandedReviewFiles,
+    hasActivity,
+
+    // Env panel
+    toggleEnvPanel,
+    openEnvPanel,
+    closeEnvPanel,
+
+    // Right panel
+    openRightPanel,
+    closeRightPanel,
+    switchRightPanelView,
+
+    // Branch dropdown
+    toggleBranchDropdown,
+    closeBranchDropdown,
+
+    // Commit
+    openCommitDialog,
+    closeCommitDialog,
+
+    // Tasks
+    updateTasks,
+
+    // Git
+    updateGitStats,
+
+    // Review
+    toggleReviewFile,
+    isReviewFileExpanded,
+
+    // Reset
+    reset,
+  }
+})
