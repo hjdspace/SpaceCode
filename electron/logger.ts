@@ -1,5 +1,6 @@
 import { join } from 'path'
 import { existsSync, mkdirSync, appendFileSync, readdirSync, unlinkSync, statSync, readFileSync } from 'fs'
+import { readFile, readdir, stat } from 'fs/promises'
 import { app } from 'electron'
 import * as os from 'os'
 
@@ -244,20 +245,21 @@ export function readDebugFile(filePath: string, maxBytes = 1024 * 1024): { succe
   }
 }
 
-export function listTraceSessions(): Array<{ sessionId: string; path: string; size: number; modifiedAt: number; eventCount: number }> {
+export async function listTraceSessions(): Promise<Array<{ sessionId: string; path: string; size: number; modifiedAt: number; eventCount: number }>> {
   ensureTraceDir()
   const sessions: Array<{ sessionId: string; path: string; size: number; modifiedAt: number; eventCount: number }> = []
   try {
-    for (const name of readdirSync(traceDir)) {
+    const names = await readdir(traceDir)
+    for (const name of names) {
       if (!name.startsWith('session-') || !name.endsWith('.jsonl')) continue
       const path = join(traceDir, name)
-      const stat = statSync(path)
-      const content = readFileSync(path, 'utf8')
+      const statResult = await stat(path)
+      const content = await readFile(path, 'utf8')
       sessions.push({
         sessionId: name.slice('session-'.length, -'.jsonl'.length),
         path,
-        size: stat.size,
-        modifiedAt: stat.mtime.getTime(),
+        size: statResult.size,
+        modifiedAt: statResult.mtime.getTime(),
         eventCount: content.split(/\r?\n/).filter(Boolean).length,
       })
     }
@@ -265,14 +267,15 @@ export function listTraceSessions(): Array<{ sessionId: string; path: string; si
   return sessions.sort((a, b) => b.modifiedAt - a.modifiedAt)
 }
 
-export function readTraceEvents(sessionId: string, maxEvents = 1000): { success: boolean; events?: AgentTraceEvent[]; error?: string } {
+export async function readTraceEvents(sessionId: string, maxEvents = 1000): Promise<{ success: boolean; events?: AgentTraceEvent[]; error?: string }> {
   try {
     ensureTraceDir()
     const filePath = join(traceDir, `session-${sanitizeFilePart(sessionId)}.jsonl`)
     if (!isAllowedDebugPath(filePath) || !existsSync(filePath)) {
       return { success: false, error: 'Trace session not found' }
     }
-    const lines = readFileSync(filePath, 'utf8').split(/\r?\n/).filter(Boolean)
+    const content = await readFile(filePath, 'utf8')
+    const lines = content.split(/\r?\n/).filter(Boolean)
     const events = lines.slice(Math.max(0, lines.length - maxEvents)).map(line => {
       try { return JSON.parse(line) as AgentTraceEvent } catch { return null }
     }).filter(Boolean) as AgentTraceEvent[]

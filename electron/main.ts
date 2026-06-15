@@ -1734,7 +1734,7 @@ ipcMain.handle('debug:readTraceEvents', async (_event, sessionId: string, maxEve
 // cc-haha 复刻: Trace API IPC Handlers
 // ============================================================
 ipcMain.handle('trace:list', async (_event, params?: { limit?: number; offset?: number; query?: string }) => {
-  const sessions = listTraceSessions()
+  const sessions = await listTraceSessions()
   const query = params?.query?.toLowerCase() || ''
   let filtered = sessions
   if (query) {
@@ -1744,8 +1744,8 @@ ipcMain.handle('trace:list', async (_event, params?: { limit?: number; offset?: 
   const limit = params?.limit || 50
   const paged = filtered.slice(offset, offset + limit)
   return {
-    traces: paged.map(s => {
-      const evtResult = readTraceEvents(s.sessionId, 5000)
+    traces: await Promise.all(paged.map(async s => {
+      const evtResult = await readTraceEvents(s.sessionId, 5000)
       const evts = evtResult.success ? (evtResult.events || []) as unknown as AgentTraceEventForTrace[] : []
       const calls = evts.filter(isLlmCallEvent).map(eventToCallRecord)
       const summary = buildTraceSummary(calls, evts)
@@ -1756,7 +1756,7 @@ ipcMain.handle('trace:list', async (_event, params?: { limit?: number; offset?: 
         fileSize: s.size,
         fileUpdatedAt: new Date(s.modifiedAt).toISOString(),
       }
-    }),
+    })),
     total: filtered.length,
     storageDir: getTraceDir() || '',
     settings: { enabled: true, storageDir: getTraceDir() || '' },
@@ -1870,7 +1870,7 @@ function buildTraceSummary(calls: Record<string, unknown>[], events: AgentTraceE
 
 ipcMain.handle('trace:getTrace', async (_event, sessionId: string) => {
   try {
-    const result = readTraceEvents(sessionId, 5000)
+    const result = await readTraceEvents(sessionId, 5000)
     if (!result.success) return { success: false, error: result.error }
     const events = (result.events || []) as unknown as AgentTraceEventForTrace[]
     const calls = events.filter(isLlmCallEvent).map(eventToCallRecord)
@@ -1893,7 +1893,7 @@ ipcMain.handle('trace:getTrace', async (_event, sessionId: string) => {
 
 ipcMain.handle('trace:getTraceCall', async (_event, sessionId: string, callId: string) => {
   try {
-    const result = readTraceEvents(sessionId, 5000)
+    const result = await readTraceEvents(sessionId, 5000)
     if (!result.success) return null
     const events = (result.events || []) as unknown as AgentTraceEventForTrace[]
     const callEvent = events.find(e => (e.id && e.id === callId) || (isLlmCallEvent(e) && `call-${e.type}-${e.timestamp}` === callId))
