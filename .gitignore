@@ -36,6 +36,7 @@ Desktop.ini
 .claude-code-memory/
 
 .trae/
+.qoder/
 .assistant/
 .pytest_cache/
 
