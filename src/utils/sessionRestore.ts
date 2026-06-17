@@ -39,6 +39,13 @@ export function buildMessagesFromHistory(
     return Number.isFinite(t) ? t : Date.now()
   }
 
+  const stripSystemReminders = (text: string): string => {
+    if (!text) return ''
+    // 与引擎 computeStickyPromptText 行为保持一致：移除 <system-reminder>…</system-reminder>
+    // 包裹块（可能跨行、可能多段），保留剩余文本用于「是否为 XML 合成消息」判定。
+    return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, '').trim()
+  }
+
   const stringifyToolResult = (content: any): string => {
     if (content == null) return ''
     if (typeof content === 'string') return content
