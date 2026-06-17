@@ -152,7 +152,7 @@
               <Plus :size="13" />
               {{ t('sessionContext.createAndCheckout') }}
             </button>
-            <button class="sc-branch-footer-btn">
+            <button class="sc-branch-footer-btn" disabled>
               <Network :size="13" />
               {{ t('sessionContext.gitGraph') }}
             </button>
@@ -213,22 +213,43 @@ async function handleCheckout(branchName: string) {
   }
 }
 
-function handleCreateBranch() {
-  console.log('[EnvPanel] Create branch requested')
+async function handleCreateBranch() {
+  const name = branchSearch.value.trim()
+  if (!name) return
+  try {
+    const result = await scmStore.createBranch(name, true)
+    if (result?.success) {
+      branchSearch.value = ''
+      sessionContext.closeBranchDropdown()
+    }
+  } catch (e: any) {
+    console.error('[EnvPanel] Create branch failed:', e)
+  }
 }
 </script>
 
 <style lang="scss" scoped>
 .sc-env-panel {
+  position: absolute;
+  right: 12px;
+  top: 12px;
   width: 300px;
-  flex-shrink: 0;
-  background: var(--bg-secondary);
-  border-left: 1px solid var(--surface-border);
+  max-height: calc(100% - 24px);
+  z-index: 20;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  position: relative;
-  height: 100%;
+
+  // Glassmorphism
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  box-shadow:
+    var(--glass-shadow-1),
+    var(--glass-shadow-2),
+    var(--glass-inset);
 }
 
 // Header
@@ -236,8 +257,8 @@ function handleCreateBranch() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--surface-border);
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--glass-divider);
   flex-shrink: 0;
 }
 
@@ -256,7 +277,7 @@ function handleCreateBranch() {
   width: 26px;
   height: 26px;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -265,12 +286,12 @@ function handleCreateBranch() {
   justify-content: center;
   transition: all 150ms ease;
 
-  &:hover { background: var(--bg-hover); color: var(--text-primary); }
+  &:hover { background: var(--glass-hover); color: var(--text-primary); }
 }
 
 // Env section
 .sc-env-section {
-  border-bottom: 1px solid var(--surface-border);
+  border-bottom: 1px solid var(--glass-divider);
   padding: 2px 0;
 }
 
@@ -289,7 +310,7 @@ function handleCreateBranch() {
   font-family: inherit;
   font-size: 12px;
 
-  &:hover { background: var(--bg-hover); }
+  &:hover { background: var(--glass-hover); }
 }
 
 .sc-row-icon { color: var(--text-muted); flex-shrink: 0; }
@@ -322,7 +343,7 @@ function handleCreateBranch() {
 
 .sc-progress-bar {
   height: 2px;
-  background: var(--bg-tertiary);
+  background: var(--glass-divider);
   border-radius: 1px;
   overflow: hidden;
 }
@@ -342,7 +363,7 @@ function handleCreateBranch() {
 
   &::-webkit-scrollbar { width: 5px; }
   &::-webkit-scrollbar-track { background: transparent; }
-  &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+  &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 3px; }
 }
 
 .sc-task-group {
@@ -365,7 +386,7 @@ function handleCreateBranch() {
   font-weight: 500;
   transition: background 150ms ease;
 
-  &:hover { background: var(--bg-hover); }
+  &:hover { background: var(--glass-hover); }
 }
 
 .sc-group-arrow {
@@ -450,47 +471,49 @@ function handleCreateBranch() {
 // Footer
 .sc-panel-footer {
   padding: 8px 12px;
-  border-top: 1px solid var(--surface-border);
+  border-top: 1px solid var(--glass-divider);
   flex-shrink: 0;
 }
 
 .sc-continue-btn {
   width: 100%;
   height: 30px;
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-hover);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--glass-hover);
   color: var(--text-secondary);
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
   transition: all 150ms ease;
 
-  &:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+  &:hover { background: var(--glass-hover); color: var(--text-primary); }
 }
 
 // Branch dropdown overlay
 .sc-branch-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 10;
-  background: rgba(0, 0, 0, 0.25);
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.3);
   display: flex;
 }
 
 .sc-branch-dropdown {
   width: 280px;
-  background: var(--bg-secondary);
-  border-right: 1px solid var(--surface-border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  border-right: 1px solid var(--glass-border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 4px 0 16px rgba(0, 0, 0, 0.2);
+  box-shadow: 4px 0 16px rgba(0, 0, 0, 0.3);
 }
 
 .sc-branch-header {
   padding: 10px 12px;
-  border-bottom: 1px solid var(--surface-border);
+  border-bottom: 1px solid var(--glass-divider);
   position: relative;
 }
 
@@ -507,9 +530,9 @@ function handleCreateBranch() {
   width: 100%;
   height: 30px;
   padding: 0 10px 0 30px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-sm);
+  background: var(--glass-hover);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
   color: var(--text-primary);
   font-size: 12px;
   font-family: inherit;
@@ -534,7 +557,7 @@ function handleCreateBranch() {
 
   &::-webkit-scrollbar { width: 5px; }
   &::-webkit-scrollbar-track { background: transparent; }
-  &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+  &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 3px; }
 }
 
 .sc-branch-item {
@@ -552,7 +575,7 @@ function handleCreateBranch() {
   font-family: inherit;
   font-size: 13px;
 
-  &:hover { background: var(--bg-hover); }
+  &:hover { background: var(--glass-hover); }
   &.active .sc-branch-name { font-weight: 500; }
 }
 
@@ -579,7 +602,7 @@ function handleCreateBranch() {
 }
 
 .sc-branch-footer {
-  border-top: 1px solid var(--surface-border);
+  border-top: 1px solid var(--glass-divider);
   padding: 4px 0;
 }
 
@@ -598,7 +621,8 @@ function handleCreateBranch() {
   font-family: inherit;
   font-size: 12px;
 
-  &:hover { background: var(--bg-hover); color: var(--text-primary); }
+  &:hover { background: var(--glass-hover); color: var(--text-primary); }
+  &:disabled { cursor: not-allowed; opacity: 0.4; &:hover { background: transparent; color: var(--text-secondary); } }
 }
 
 // Branch slide transition

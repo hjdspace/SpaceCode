@@ -128,6 +128,16 @@ $grid-opacity: 0.01;
   --noise-opacity: #{$noise-opacity};
   --grid-opacity: #{$grid-opacity};
 
+  /* Glassmorphism System - Light */
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-highlight: rgba(255, 255, 255, 0.6);
+  --glass-divider: rgba(0, 0, 0, 0.06);
+  --glass-hover: rgba(0, 0, 0, 0.04);
+  --glass-shadow-1: 0 8px 32px rgba(24, 25, 31, 0.12);
+  --glass-shadow-2: 0 2px 8px rgba(24, 25, 31, 0.06);
+  --glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+
   /* Code Block Syntax Highlighting - Mist Slate Palette */
   --code-bg: #eef0f5;
   --code-fg: #18191f;
@@ -246,8 +256,18 @@ $grid-opacity: 0.01;
   --gdc-remove-bg-color: rgba(198, 69, 69, 0.1);
   --gdc-remove-text-color: #c64545;
   --gdc-remove-gutter-bg-color: rgba(198, 69, 69, 0.07);
-  --gdc-gutter-bg-color: #efe9de;
+  --gdc-gutter-bg-color: #e5e0d5;
   --gdc-gutter-text-color: #8e8b82;
+
+  /* Glassmorphism System - Anthropic Light */
+  --glass-bg: rgba(250, 249, 245, 0.72);
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-highlight: rgba(255, 255, 255, 0.5);
+  --glass-divider: rgba(0, 0, 0, 0.06);
+  --glass-hover: rgba(0, 0, 0, 0.04);
+  --glass-shadow-1: 0 8px 32px rgba(0, 0, 0, 0.1);
+  --glass-shadow-2: 0 2px 8px rgba(0, 0, 0, 0.05);
+  --glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.45);
 }
 
 [data-theme='anthropic-dark'] {
@@ -283,6 +303,16 @@ $grid-opacity: 0.01;
   --accent-primary: #cc785c;
   --accent-primary-hover: #dd8a6e;
   --accent-primary-glow: rgba(204, 120, 92, 0.2);
+
+  /* Glassmorphism System - Anthropic Dark */
+  --glass-bg: rgba(28, 27, 26, 0.82);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-highlight: rgba(255, 255, 255, 0.04);
+  --glass-divider: rgba(255, 255, 255, 0.06);
+  --glass-hover: rgba(255, 255, 255, 0.05);
+  --glass-shadow-1: 0 8px 32px rgba(0, 0, 0, 0.28);
+  --glass-shadow-2: 0 2px 8px rgba(0, 0, 0, 0.16);
+  --glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 
   /* Secondary & Tertiary Accents - Brand Teal & Amber (Brighter for dark bg) */
   --accent-secondary: #5db8a6;
@@ -371,6 +401,16 @@ $grid-opacity: 0.01;
   --text-secondary: #a3a3a3;
   --text-muted: #737373;
   --text-disabled: #525252;
+
+  /* Glassmorphism System - Pure Dark */
+  --glass-bg: rgba(20, 20, 20, 0.82);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-highlight: rgba(255, 255, 255, 0.04);
+  --glass-divider: rgba(255, 255, 255, 0.06);
+  --glass-hover: rgba(255, 255, 255, 0.05);
+  --glass-shadow-1: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --glass-shadow-2: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   
   /* Single accent color - clean blue */
   --accent-primary: #3b82f6;

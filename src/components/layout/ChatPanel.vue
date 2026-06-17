@@ -139,8 +139,8 @@
           />
         </div>
 
-        <!-- Right: Env Panel (Git tools sidebar) -->
-        <Transition name="sc-panel-slide">
+        <!-- Right: Env Panel (floating glassmorphism card) -->
+        <Transition name="sc-env-fade">
           <SessionContextEnvPanel v-if="sessionContext.showEnvPanel" @continue="handleContinue" />
         </Transition>
 
@@ -1537,7 +1537,20 @@ async function handleRestoreHistorySession(session: any) {
   }
 }
 
-/* Session Context: Panel slide transition */
+/* Session Context: Env panel floating card transition */
+.sc-env-fade-enter-active {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.sc-env-fade-leave-active {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.sc-env-fade-enter-from,
+.sc-env-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.96);
+}
+
+/* Session Context: Panel slide transition (for right detail panel) */
 .sc-panel-slide-enter-active {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -1559,21 +1572,28 @@ async function handleRestoreHistorySession(session: any) {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--surface-border);
+  padding: 6px 14px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  border: 1px solid var(--glass-border);
   border-radius: 20px;
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.2s ease;
-  z-index: 10;
-  box-shadow: var(--shadow-md);
+  z-index: 15;
+  box-shadow:
+    var(--glass-shadow-2),
+    var(--glass-inset);
 
   &:hover {
-    background: var(--bg-hover);
+    background: var(--glass-hover);
     color: var(--text-primary);
-    border-color: var(--accent-primary);
+    border-color: var(--glass-border);
+    box-shadow:
+      var(--glass-shadow-1),
+      var(--glass-inset);
   }
 }
 

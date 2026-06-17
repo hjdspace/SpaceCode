@@ -357,8 +357,6 @@ async function getStatus(cwd: string): Promise<GitStatusResult> {
     }
   }
 
-  console.log(`[GitService] getStatus v2 result: staged=${staged.length}, unstaged=${unstaged.length}, untracked=${untracked.length}, conflicted=${conflicted.length}`)
-
   return {
     isRepo: true,
     branch,
