@@ -1160,7 +1160,7 @@ export default {
     gitTools: 'Git Tools',
     more: 'More',
     popOut: 'Pop out',
-    commit: 'Commit ...',
+    commit: 'Commit',
     progress: 'Progress {completed}/{total}',
     noTasks: 'No pending tasks',
     completedCount: 'Completed {count}',
@@ -1225,5 +1225,23 @@ export default {
     generating: 'Generating...',
     submitting: 'Committing...',
     generateAndCommit: 'Generate & Commit',
+
+    // Git Ops Menu
+    gitOps: 'Git Operations',
+    push: 'Push',
+    createBranch: 'Create Branch',
+
+    // Push Dialog
+    pushChanges: 'Push Changes',
+    pushDesc: 'Push the latest commits from the current branch to the remote branch.',
+    remoteBranch: 'Remote Branch',
+    syncStatus: 'Sync Status',
+    aheadCount: 'Ahead {count}',
+    behindCount: 'Behind {count}',
+    nextStep: 'Next Step',
+    pushAction: 'Push',
+    pushing: 'Pushing...',
+    pushFailed: 'Push failed. Please retry.',
+    pushSuccess: 'Push successful',
   },
 }

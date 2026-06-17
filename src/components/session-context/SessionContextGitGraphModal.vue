@@ -211,7 +211,7 @@ watch(() => sessionContext.showGitGraphModal, (show) => {
 }
 
 .graph-modal {
-  width: 920px;
+  width: 1000px;
   max-width: 94vw;
   height: 80vh;
   max-height: 700px;
@@ -281,6 +281,8 @@ watch(() => sessionContext.showGitGraphModal, (show) => {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .graph-loading,
@@ -296,17 +298,20 @@ watch(() => sessionContext.showGitGraphModal, (show) => {
 }
 
 .graph-content {
-  height: 100%;
-  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 
-  &::-webkit-scrollbar { width: 6px; }
+  &::-webkit-scrollbar { width: 6px; height: 6px; }
   &::-webkit-scrollbar-track { background: transparent; }
   &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
 }
 
 .graph-table {
   width: 100%;
+  min-width: 600px;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 .graph-table thead {
@@ -344,11 +349,11 @@ watch(() => sessionContext.showGitGraphModal, (show) => {
 }
 
 // Column widths
-.col-graph { width: 44px; min-width: 44px; text-align: center; }
-.col-subject { width: auto; }
-.col-date { width: 100px; min-width: 100px; }
-.col-author { width: 120px; min-width: 120px; }
-.col-hash { width: 80px; min-width: 80px; }
+.col-graph { width: 44px; text-align: center; }
+.col-subject { width: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.col-date { width: 100px; }
+.col-author { width: 120px; }
+.col-hash { width: 90px; }
 
 // Timeline
 .timeline-cell {

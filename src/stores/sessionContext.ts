@@ -43,6 +43,12 @@ export const useSessionContext = defineStore('sessionContext', () => {
   // === Git Graph Modal ===
   const showGitGraphModal = ref(false)
 
+  // === Push Dialog ===
+  const showPushDialog = ref(false)
+
+  // === Git Operations Menu (on commit row) ===
+  const showGitOpsMenu = ref(false)
+
   // === Task data ===
   const tasks = ref<Array<{
     id?: string
@@ -166,6 +172,24 @@ export const useSessionContext = defineStore('sessionContext', () => {
     showGitGraphModal.value = false
   }
 
+  // === Actions: Push Dialog ===
+  function openPushDialog() {
+    showPushDialog.value = true
+  }
+
+  function closePushDialog() {
+    showPushDialog.value = false
+  }
+
+  // === Actions: Git Ops Menu ===
+  function toggleGitOpsMenu() {
+    showGitOpsMenu.value = !showGitOpsMenu.value
+  }
+
+  function closeGitOpsMenu() {
+    showGitOpsMenu.value = false
+  }
+
   // === Actions: Tasks ===
   function updateTasks(newTasks: typeof tasks.value) {
     tasks.value = newTasks
@@ -207,6 +231,8 @@ export const useSessionContext = defineStore('sessionContext', () => {
     showCommitDialog.value = false
     showCreateBranchDialog.value = false
     showGitGraphModal.value = false
+    showPushDialog.value = false
+    showGitOpsMenu.value = false
     showPanelMenu.value = false
     panelExpandMode.value = 'auto'
     userOverride.value = false
@@ -235,6 +261,8 @@ export const useSessionContext = defineStore('sessionContext', () => {
     showCommitDialog,
     showCreateBranchDialog,
     showGitGraphModal,
+    showPushDialog,
+    showGitOpsMenu,
     showPanelMenu,
     panelExpandMode,
     userOverride,
@@ -275,6 +303,14 @@ export const useSessionContext = defineStore('sessionContext', () => {
     // Git Graph
     openGitGraphModal,
     closeGitGraphModal,
+
+    // Push
+    openPushDialog,
+    closePushDialog,
+
+    // Git Ops Menu
+    toggleGitOpsMenu,
+    closeGitOpsMenu,
 
     // Tasks
     updateTasks,

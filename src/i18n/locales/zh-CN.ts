@@ -1160,7 +1160,7 @@ export default {
     gitTools: 'Git 工具',
     more: '更多',
     popOut: '弹出',
-    commit: '提交 ...',
+    commit: '提交',
     progress: '进程 {completed}/{total}',
     noTasks: '暂无待办任务',
     completedCount: '已完成 {count} 项',
@@ -1225,5 +1225,23 @@ export default {
     generating: '生成中...',
     submitting: '提交中...',
     generateAndCommit: '生成并提交',
+
+    // Git Ops Menu
+    gitOps: 'Git 操作',
+    push: '推送',
+    createBranch: '创建分支',
+
+    // Push Dialog
+    pushChanges: '推送更改',
+    pushDesc: '将当前分支最新提交推送到远程分支。',
+    remoteBranch: '远程分支',
+    syncStatus: '同步状态',
+    aheadCount: '领先 {count}',
+    behindCount: '落后 {count}',
+    nextStep: '后续步骤',
+    pushAction: '推送',
+    pushing: '推送中...',
+    pushFailed: '推送失败，请重试。',
+    pushSuccess: '推送成功',
   },
 }

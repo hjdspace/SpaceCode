@@ -753,48 +753,112 @@ async function getFullDiff(cwd: string): Promise<GitFullDiffResult | null> {
 }
 
 async function getBranches(cwd: string): Promise<GitBranch[]> {
+  // Use `for-each-ref` instead of `git branch -a -v` because its output is
+  // machine-parseable and doesn't depend on locale, padding, or commit subject
+  // shape. Each line has a stable `|`-separated layout we control.
+  //
+  // Fields:
+  //   refname                  → full path, e.g. "refs/heads/main"
+  //   refname:short            → "main", "origin/main"
+  //   HEAD                     → "*" if currently checked out, else " "
+  //   symref                   → non-empty for symbolic refs (e.g. origin/HEAD → origin/main)
+  //   upstream:short           → upstream tracking branch (local refs only)
+  //   upstream:track,nobracket → "ahead 2, behind 1" (no surrounding [])
+  const FORMAT = [
+    '%(refname)',
+    '%(refname:short)',
+    '%(HEAD)',
+    '%(symref)',
+    '%(upstream:short)',
+    '%(upstream:track,nobracket)',
+  ].join('|')
+
   const result = await gitExec(
-    ['branch', '-a', '--no-color', '-v', '--abbrev=40'],
-    cwd
+    ['for-each-ref', `--format=${FORMAT}`, 'refs/heads', 'refs/remotes'],
+    cwd,
   )
+
+  // Fallback to `git branch -a` if for-each-ref fails (very old git, etc.)
   if (result.code !== 0) {
-    return []
+    console.warn('[GitService] for-each-ref failed, falling back:', result.stderr)
+    return getBranchesFallback(cwd)
   }
+
+  // Determine the current branch via rev-parse so we can mark it correctly even
+  // when the HEAD field is blank (detached HEAD case).
+  const headResult = await gitExec(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)
+  const currentBranch = headResult.code === 0 ? headResult.stdout.trim() : ''
 
   const branches: GitBranch[] = []
-  for (const line of result.stdout.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
+  for (const rawLine of result.stdout.split('\n')) {
+    const line = rawLine.replace(/\r$/, '')
+    if (!line) continue
 
-    const current = line.startsWith('*')
-    const match = trimmed.replace(/^\*\s+/, '').match(/^([^\s]+)\s+([0-9a-f]{7,40})(?:\s+\[(.*?)\])?\s+(.*)/)
-    if (match) {
-      const name = match[1]
-      const isRemote = name.startsWith('remotes/')
-      let upstream: string | undefined
-      let ahead: number | undefined
-      let behind: number | undefined
+    const parts = line.split('|')
+    if (parts.length < 6) continue
+    const [fullRef, shortRef, headMark, symref, upstreamShort, trackInfo] = parts
+    const name = (shortRef || '').trim()
+    if (!name) continue
 
-      if (match[3]) {
-        // Parse upstream tracking info like "origin/main: ahead 2, behind 1"
-        const tracking = match[3]
-        upstream = tracking.split(':')[0]
-        const aheadMatch = tracking.match(/ahead (\d+)/)
-        const behindMatch = tracking.match(/behind (\d+)/)
-        if (aheadMatch) ahead = parseInt(aheadMatch[1], 10)
-        if (behindMatch) behind = parseInt(behindMatch[1], 10)
-      }
+    // Skip symbolic refs (e.g. refs/remotes/origin/HEAD → refs/remotes/origin/main).
+    if (symref && symref.trim()) continue
 
-      branches.push({
-        name: isRemote ? name : name,
-        current,
-        isRemote,
-        upstream,
-        ahead,
-        behind,
-      })
-    }
+    const isRemote = fullRef.startsWith('refs/remotes/')
+    const aheadBehind = parseTrackInfo(trackInfo)
+
+    branches.push({
+      name,
+      current: headMark === '*' || (!isRemote && name === currentBranch),
+      isRemote,
+      upstream: upstreamShort || undefined,
+      ...aheadBehind,
+    })
   }
+
+  console.log(`[GitService] getBranches found ${branches.length} branches (current: ${currentBranch})`)
+  return branches
+}
+
+function parseTrackInfo(track: string | undefined): { ahead?: number; behind?: number } {
+  if (!track) return {}
+  const aheadMatch = track.match(/ahead (\d+)/)
+  const behindMatch = track.match(/behind (\d+)/)
+  return {
+    ahead: aheadMatch ? parseInt(aheadMatch[1], 10) : undefined,
+    behind: behindMatch ? parseInt(behindMatch[1], 10) : undefined,
+  }
+}
+
+async function getBranchesFallback(cwd: string): Promise<GitBranch[]> {
+  // Minimal fallback: parse `git branch -a --no-color` output without -v so we
+  // never depend on commit subject formatting.
+  const currentResult = await gitExec(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)
+  const currentBranch = currentResult.code === 0 ? currentResult.stdout.trim() : ''
+
+  const result = await gitExec(['branch', '-a', '--no-color'], cwd)
+  if (result.code !== 0) return []
+
+  const branches: GitBranch[] = []
+  for (const rawLine of result.stdout.split('\n')) {
+    const line = rawLine.replace(/\r$/, '')
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('(')) continue // detached HEAD marker
+
+    // Skip the symbolic remote HEAD line: "remotes/origin/HEAD -> origin/main"
+    if (trimmed.includes(' -> ')) continue
+
+    const isCurrent = line.startsWith('*')
+    const name = trimmed.replace(/^\*?\s+/, '')
+    if (!name) continue
+
+    const isRemote = name.startsWith('remotes/')
+    branches.push({
+      name: isRemote ? name.replace(/^remotes\//, '') : name,
+      current: isCurrent || name === currentBranch,
+      isRemote,
+    })
+  }
+
   return branches
 }
 

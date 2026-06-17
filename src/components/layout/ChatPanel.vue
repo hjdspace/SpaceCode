@@ -230,6 +230,9 @@
 
     <!-- Session Context Git Graph Modal -->
     <SessionContextGitGraphModal />
+
+    <!-- Session Context Push Dialog -->
+    <SessionContextPushDialog />
   </main>
 </template>
 
@@ -268,6 +271,7 @@ import SessionContextTaskPanel from '../session-context/SessionContextTaskPanel.
 import SessionContextCommitDialog from '../session-context/SessionContextCommitDialog.vue'
 import SessionContextCreateBranchDialog from '../session-context/SessionContextCreateBranchDialog.vue'
 import SessionContextGitGraphModal from '../session-context/SessionContextGitGraphModal.vue'
+import SessionContextPushDialog from '../session-context/SessionContextPushDialog.vue'
 import { buildMessagesFromHistory } from '@/utils/sessionRestore'
 import { initLLMService, llmState, updateConfig } from '@/services/llm'
 import { pathsEqual } from '@/utils/recentProjectRoots'
@@ -304,12 +308,16 @@ function handleSessionContextEsc(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     if (sessionContext.showCommitDialog) {
       sessionContext.closeCommitDialog()
+    } else if (sessionContext.showPushDialog) {
+      sessionContext.closePushDialog()
     } else if (sessionContext.showCreateBranchDialog) {
       sessionContext.closeCreateBranchDialog()
     } else if (sessionContext.showGitGraphModal) {
       sessionContext.closeGitGraphModal()
     } else if (sessionContext.showPanelMenu) {
       sessionContext.closePanelMenu()
+    } else if (sessionContext.showGitOpsMenu) {
+      sessionContext.closeGitOpsMenu()
     } else if (sessionContext.showBranchDropdown) {
       sessionContext.closeBranchDropdown()
     } else if (sessionContext.showRightPanel) {
@@ -1181,13 +1189,63 @@ async function handleRestoreHistorySession(session: any) {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  // Smooth shift so the chat column makes room for the floating env panel.
-  // 300 (panel) + 12 (right gutter) + 12 (left gutter) = 324px
-  padding-right: 0;
-  transition: flex 0.3s ease, padding 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: flex 0.3s ease;
 
-  &.with-env-panel {
-    padding-right: 324px;
+  // Establish a size container so the chrome can react to the actual width
+  // available to the chat column (independent of viewport / sidebar width).
+  container-type: inline-size;
+  container-name: chat-main;
+
+  // When the floating env panel is open, the chat column needs to make room
+  // for it (300 + 12 + 12 = 324px) — but only when there isn't enough room
+  // beside the chat. In a wide / fullscreen window we keep the chat at its
+  // natural width and let the card hover above the right gutter; in a
+  // narrow window we shift the chrome left so the card doesn't sit on top
+  // of the input. The message scrollbar must remain anchored to the far-
+  // right edge in both modes.
+  --env-shoulder: 0px;
+  &.with-env-panel { --env-shoulder: 324px; }
+
+  // Smooth transitions for chrome siblings (status bars, input, etc.).
+  > * {
+    transition: margin 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .chat-panel-body > * {
+    transition: margin 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  // The actual messages content (inside the full-width scroll container) is
+  // always padded when the panel is open: this is what produces the
+  // "shift the chat left without narrowing it" behavior the user expects in
+  // wide windows — the centered 900px column slides left rather than being
+  // squeezed. The scrollbar itself stays glued to the far-right edge of
+  // .message-list.
+  :deep(.messages-container) {
+    transition: padding 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-sizing: border-box;
+  }
+  &.with-env-panel :deep(.messages-container) {
+    padding-right: var(--env-shoulder);
+  }
+}
+
+// Narrow chat column: not enough room beside the chat for both the chat
+// chrome (input box, status bars, project welcome, teammate header) AND the
+// floating env panel. Push the chrome left so the card doesn't overlap the
+// input. In a wider column we deliberately skip this rule — the chrome
+// keeps its natural width and the floating card simply hovers over the
+// right gutter (acceptable per design: there's room there anyway).
+@container chat-main (max-width: 1280px) {
+  .chat-main.with-env-panel > :not(.chat-panel-body) {
+    margin-right: var(--env-shoulder);
+  }
+  .chat-main.with-env-panel .chat-panel-body > * {
+    margin-right: var(--env-shoulder);
+  }
+  // .message-list stays full-width so its scrollbar sits at the row's
+  // right edge regardless of mode.
+  .chat-main.with-env-panel .chat-panel-body > .message-list {
+    margin-right: 0;
   }
 }
 

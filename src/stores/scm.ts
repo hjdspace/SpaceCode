@@ -166,8 +166,18 @@ export const useScmStore = defineStore('scm', () => {
 
   async function refreshBranches() {
     const cwd = appStore.projectRoot
-    if (!cwd) return
-    branches.value = await api.git.getBranches(cwd)
+    if (!cwd) {
+      console.warn('[SCM] refreshBranches skipped: no projectRoot')
+      return
+    }
+    try {
+      const result = await api.git.getBranches(cwd)
+      branches.value = result
+      console.log(`[SCM] refreshBranches: loaded ${result.length} branches`)
+    } catch (e) {
+      console.error('[SCM] refreshBranches failed:', e)
+      branches.value = []
+    }
   }
 
   async function checkoutBranch(ref: string) {
