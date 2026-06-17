@@ -52,7 +52,11 @@
       <!-- Body: flex-row with chat left + panel right -->
       <div class="chat-body-row">
         <!-- Left: Chat area -->
-        <div class="chat-main" :class="{ 'with-env-panel': sessionContext.showEnvPanel }">
+        <div
+          ref="chatMainRef"
+          class="chat-main"
+          :class="{ 'with-env-panel': sessionContext.showEnvPanel, 'chat-main-wide': chatMainHasRoom }"
+        >
           <div class="chat-panel-body">
             <NoProjectHome v-if="showNoProjectWelcome" />
 
@@ -237,7 +241,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
@@ -293,6 +297,36 @@ const diffPanelLoading = ref(false)
 const contextUsageStore = useContextUsageStore()
 const sessionContext = useSessionContext()
 
+const CHAT_MAIN_WIDE_THRESHOLD = 1024
+const chatMainRef = ref<HTMLElement | null>(null)
+const chatMainHasRoom = ref(false)
+let chatMainResizeObserver: ResizeObserver | null = null
+
+// React to chat-main mounting/unmounting (e.g. terminal tab ↔ chat tab) and
+// to its width changing (window resize, sidebar toggle, right detail panel
+// open/close). When the column is wide enough we apply `.chat-main-wide`,
+// which the SCSS below uses to push the chat content leftward to make
+// room for the floating env panel.
+watchEffect((onCleanup) => {
+  const el = chatMainRef.value
+  if (!el || typeof ResizeObserver === 'undefined') return
+
+  const updateHasRoom = (width: number) => {
+    chatMainHasRoom.value = width >= CHAT_MAIN_WIDE_THRESHOLD
+  }
+
+  updateHasRoom(el.getBoundingClientRect().width)
+
+  const observer = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const width = entry.contentRect?.width ?? entry.target.getBoundingClientRect().width
+      updateHasRoom(width)
+    }
+  })
+  observer.observe(el)
+  onCleanup(() => observer.disconnect())
+})
+
 // 监听 TitleBar 的 diff 触发
 const stopDiffWatch = watch(() => chatStore.diffPanelTrigger, () => {
   fetchAndShowDiff()
@@ -301,6 +335,10 @@ const stopDiffWatch = watch(() => chatStore.diffPanelTrigger, () => {
 onBeforeUnmount(() => {
   stopDiffWatch()
   document.removeEventListener('keydown', handleSessionContextEsc)
+  if (chatMainResizeObserver) {
+    chatMainResizeObserver.disconnect()
+    chatMainResizeObserver = null
+  }
 })
 
 // Session Context: ESC to close floating panels
@@ -549,6 +587,8 @@ onMounted(async () => {
   if (chatStore.currentSessionId) {
     void contextUsageStore.refresh(chatStore.currentSessionId)
   }
+
+  // chat-main width is observed by the watchEffect above (reactive to chatMainRef)
 
   // Dev helper: expose sessionContext store for console testing
   if (import.meta.env.DEV) {
@@ -1191,62 +1231,52 @@ async function handleRestoreHistorySession(session: any) {
   overflow: hidden;
   transition: flex 0.3s ease;
 
-  // Establish a size container so the chrome can react to the actual width
-  // available to the chat column (independent of viewport / sidebar width).
-  container-type: inline-size;
-  container-name: chat-main;
-
-  // When the floating env panel is open, the chat column needs to make room
-  // for it (300 + 12 + 12 = 324px) — but only when there isn't enough room
-  // beside the chat. In a wide / fullscreen window we keep the chat at its
-  // natural width and let the card hover above the right gutter; in a
-  // narrow window we shift the chrome left so the card doesn't sit on top
-  // of the input. The message scrollbar must remain anchored to the far-
-  // right edge in both modes.
+  // 300 (panel width) + 12 (right margin) + 12 (gutter to chat) = 324.
   --env-shoulder: 0px;
   &.with-env-panel { --env-shoulder: 324px; }
 
-  // Smooth transitions for chrome siblings (status bars, input, etc.).
+  // Smooth transitions for chrome siblings and inner body items.
   > * {
     transition: margin 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
   .chat-panel-body > * {
     transition: margin 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
-
-  // The actual messages content (inside the full-width scroll container) is
-  // always padded when the panel is open: this is what produces the
-  // "shift the chat left without narrowing it" behavior the user expects in
-  // wide windows — the centered 900px column slides left rather than being
-  // squeezed. The scrollbar itself stays glued to the far-right edge of
-  // .message-list.
   :deep(.messages-container) {
     transition: padding 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     box-sizing: border-box;
   }
-  &.with-env-panel :deep(.messages-container) {
-    padding-right: var(--env-shoulder);
-  }
-}
 
-// Narrow chat column: not enough room beside the chat for both the chat
-// chrome (input box, status bars, project welcome, teammate header) AND the
-// floating env panel. Push the chrome left so the card doesn't overlap the
-// input. In a wider column we deliberately skip this rule — the chrome
-// keeps its natural width and the floating card simply hovers over the
-// right gutter (acceptable per design: there's room there anyway).
-@container chat-main (max-width: 1280px) {
-  .chat-main.with-env-panel > :not(.chat-panel-body) {
+  // Wide chat column (`.chat-main-wide`, set from JS via ResizeObserver when
+  // the column is at least CHAT_MAIN_WIDE_THRESHOLD px): there's room beside
+  // the chat for the floating env panel, so push the chat content
+  // (chrome + messages) leftward by the panel's width. The chrome (input,
+  // status bars, headers) and the centered 900px message column slide left
+  // together; the card sits cleanly to the right and never overlaps the
+  // input. This is the "fullscreen → keep width unchanged, just shift the
+  // whole chat left" branch.
+  &.with-env-panel.chat-main-wide > :not(.chat-panel-body) {
     margin-right: var(--env-shoulder);
   }
-  .chat-main.with-env-panel .chat-panel-body > * {
+  &.with-env-panel.chat-main-wide .chat-panel-body > * {
     margin-right: var(--env-shoulder);
   }
   // .message-list stays full-width so its scrollbar sits at the row's
   // right edge regardless of mode.
-  .chat-main.with-env-panel .chat-panel-body > .message-list {
+  &.with-env-panel.chat-main-wide .chat-panel-body > .message-list {
     margin-right: 0;
   }
+  // Pad the inner messages container so the centered max-width content
+  // re-centers within the (chat-main − 324) area — i.e. shifts left
+  // without being squeezed.
+  &.with-env-panel.chat-main-wide :deep(.messages-container) {
+    padding-right: var(--env-shoulder);
+  }
+
+  // NOTE: when the column is NOT wide enough we deliberately do nothing:
+  // the chat keeps its natural full width and the floating env panel is
+  // allowed to overlap the right edge — there simply isn't enough
+  // horizontal room to do both.
 }
 
 .chat-panel-body {
