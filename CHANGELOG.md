@@ -1,3 +1,48 @@
+## [0.5.2](https://github.com/hjdspace/SpaceCode/compare/v0.5.1...v0.5.2) (2026-06-18)
+
+### Features
+
+* **trace:** 实现完整的链路追踪功能
+* **trace:** 实现完整的trace会话详情与调用详情展示
+* **trace:** 重构TraceListPage和TraceSessionPage组件界面及功能
+* **session-context:** 新增会话上下文面板系统
+* **session-context:** add panel expand mode and fix memory leak
+* **session-context-ui:** 新增创建分支和Git图表面板
+* **scm:** 实现git仓库变更事件驱动刷新，替代轮询
+* **scm:** 启动监听前确保开启项目文件监听
+* **git:** 新增Git推送功能，优化分支获取逻辑与环境面板
+* **electron:** add fs:readFileAsBase64 api to read file as base64
+* **sidechain:** 完善子代理协作与终端体验
+* **skill:** 新增前端代码审查技能及相关参考文档
+
+### Bug Fixes
+
+* **sessionRestore:** 修复子代理会话重复渲染与错误渲染问题
+* **app-store:** 打开终端前关闭各类全屏面板
+* **trace:** 修复trace相关IPC调用的异步处理问题
+
+### Refactor
+
+* **chat-panel:** 优化环境面板适配逻辑，使用ResizeObserver动态调整布局
+* **env-panel:** 替换为玻璃态浮动面板并优化交互
+* **chat:** 优化实时子代理消息的归属与展示逻辑
+* **chat-input:** 抽离聊天输入框相关逻辑为独立组合式函数
+* **chat-input:** 抽离复用逻辑到独立组合式函数与指令
+* **gitService:** 替换console日志为debug日志
+* **sessionRestore:** 同步stripSystemReminders逻辑与引擎行为
+* **sessionRestore:** add stripSystemReminders helper function
+* **useAgentSelector:** add timer cleanup on unmount
+* **会话配置:** 重构会话配置与进程管理代码
+
+### Style
+
+* **chatPanel:** 调整聊天面板宽度阈值及相关注释
+* **traceStatusPill:** 为状态圆点添加减少动画偏好适配
+
+### Build
+
+* **Electron:** 精简打包依赖，缩小安装包体积
+
 ## [0.5.1](https://github.com/hjdspace/SpaceCode/compare/v0.5.0...v0.5.1) (2026-06-13)
 
 ### Features
