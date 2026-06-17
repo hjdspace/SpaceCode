@@ -11,6 +11,7 @@ import { watch, type FSWatcher } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { ipcMain, BrowserWindow } from 'electron'
+import { debug } from './logger'
 
 const GIT_TIMEOUT = 10000
 const GIT_BINARY = process.platform === 'win32' ? 'git.exe' : 'git'
@@ -478,7 +479,7 @@ async function getStatusPorcelainV1(
     }
   }
 
-  console.log(`[GitService] getStatus v1 fallback result: staged=${staged.length}, unstaged=${unstaged.length}, untracked=${untracked.length}, conflicted=${conflicted.length}`)
+  debug('GitService', `getStatus v1 fallback result: staged=${staged.length}, unstaged=${unstaged.length}, untracked=${untracked.length}, conflicted=${conflicted.length}`)
 
   return {
     isRepo: true,
@@ -815,7 +816,7 @@ async function getBranches(cwd: string): Promise<GitBranch[]> {
     })
   }
 
-  console.log(`[GitService] getBranches found ${branches.length} branches (current: ${currentBranch})`)
+  debug('GitService', `getBranches found ${branches.length} branches (current: ${currentBranch})`)
   return branches
 }
 
@@ -992,7 +993,7 @@ function startGitWatcher(projectRoot: string): void {
         debounceTimer = null
       }, DEBOUNCE_MS)
     })
-    console.log(`[GitService] Watching .git directory: ${gitDir}`)
+    debug('GitService', `Watching .git directory: ${gitDir}`)
   } catch (e) {
     console.warn(`[GitService] Failed to watch .git directory: ${gitDir}`, e)
   }
@@ -1011,7 +1012,7 @@ function startGitWatcher(projectRoot: string): void {
         debounceTimer = null
       }, DEBOUNCE_MS)
     })
-    console.log(`[GitService] Watching worktree: ${projectRoot}`)
+    debug('GitService', `Watching worktree: ${projectRoot}`)
   } catch (e) {
     console.warn(`[GitService] Failed to watch worktree: ${projectRoot}`, e)
   }
@@ -1031,7 +1032,7 @@ function stopGitWatcher(): void {
     clearTimeout(debounceTimer)
     debounceTimer = null
   }
-  console.log('[GitService] Stopped git watchers')
+  debug('GitService', 'Stopped git watchers')
 }
 
 // ============================================================================
@@ -1149,5 +1150,5 @@ export function registerGitIPCHandlers() {
     return true
   })
 
-  console.log('[GitService] IPC handlers registered')
+  debug('GitService', 'IPC handlers registered')
 }
