@@ -134,6 +134,15 @@ export function buildMessagesFromHistory(
         continue
       }
 
+      // 过滤引擎注入的 XML 标签合成消息，与引擎 VirtualMessageList 行为一致
+      // （computeStickyPromptText：去除 system-reminder 后若以 '<' 开头则不渲染）。
+      // 覆盖 <task-notification>（子代理完成通知）、<bash-stdout>、<command-message>、
+      // <teammate-message>、<local-command-stdout> 等——它们对模型可见，但不是用户真实输入。
+      // 修复：重开会话时子代理输出（<task-notification> 内含 result）被当成用户消息渲染。
+      if (stripSystemReminders(userText).startsWith('<')) {
+        continue
+      }
+
       if (!userText && toolResults.length > 0) continue
       if (!userText) continue
 
@@ -372,5 +381,48 @@ export function parseSubagentTranscript(fileContent: string): RestoredMessage[] 
     }
   }
   if (records.length === 0) return []
-  return buildMessagesFromHistory(records, { subagentMode: true })
+  return buildMessagesFromHistory(keepLastSubagentRun(records), { subagentMode: true })
+}
+
+/**
+ * 子代理被重跑/续跑时，引擎会把多次运行 **追加** 到同一个输出文件，导致同一任务提示与
+ * 助手回复出现多遍（用户报告的“用户/Agent 消息出现两遍”）。
+ *
+ * 一次运行的起点是「任务提示」用户记录——它的 uuid 由 deriveUUID(parentUuid, 0) 派生，
+ * 重跑时父上下文相同故 uuid 相同。据此切分运行：当同一个「提示型」用户 uuid 再次出现，
+ * 即视为新一轮运行的开始，只保留最后一轮（内容最完整、最新）。
+ *
+ * 注意：仅把「文本型」用户记录（content 为字符串，或含 text 块且不含 tool_result）当作提示边界；
+ * tool_result 用户记录的 uuid 各不相同，不会误判。多轮对话（SendMessage 追问）的后续提示
+ * uuid 不同，也不会被误切。
+ */
+function keepLastSubagentRun(records: any[]): any[] {
+  const isPromptUser = (r: any): boolean => {
+    if (!r || r.type !== 'user') return false
+    const c = r.message?.content
+    if (typeof c === 'string') return c.trim().length > 0
+    if (Array.isArray(c)) {
+      const hasToolResult = c.some((b: any) => b?.type === 'tool_result')
+      const hasText = c.some((b: any) => b?.type === 'text' && typeof b.text === 'string' && b.text.trim())
+      return hasText && !hasToolResult
+    }
+    return false
+  }
+
+  const seen = new Set<string>()
+  let lastRunStart = 0
+  for (let i = 0; i < records.length; i++) {
+    const r = records[i]
+    if (!isPromptUser(r)) continue
+    const uid = typeof r.uuid === 'string' ? r.uuid : ''
+    if (!uid) continue
+    if (seen.has(uid)) {
+      // 同一提示 uuid 再次出现 → 新一轮运行起点
+      lastRunStart = i
+    } else {
+      seen.add(uid)
+    }
+  }
+
+  return lastRunStart > 0 ? records.slice(lastRunStart) : records
 }
