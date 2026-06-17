@@ -39,11 +39,21 @@ export function buildMessagesFromHistory(
     return Number.isFinite(t) ? t : Date.now()
   }
 
+  // 与引擎 computeStickyPromptText / stripSystemReminders 行为保持一致：
+  // 只移除位于文本**开头**的 <system-reminder>…</system-reminder> 块（可能多段），
+  // 保留中间和末尾的文本。用于「是否为 XML 合成消息」判定。
+  // 注意：engine/src/components/messageActions.tsx 已有同名导出，但 engine/ 不在 src
+  // 的 TS 编译范围内，无法直接导入，故在此保持逻辑同步。
   const stripSystemReminders = (text: string): string => {
     if (!text) return ''
-    // 与引擎 computeStickyPromptText 行为保持一致：移除 <system-reminder>…</system-reminder>
-    // 包裹块（可能跨行、可能多段），保留剩余文本用于「是否为 XML 合成消息」判定。
-    return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, '').trim()
+    const CLOSE = '</system-reminder>'
+    let t = text.trimStart()
+    while (t.startsWith('<system-reminder>')) {
+      const end = t.indexOf(CLOSE)
+      if (end < 0) break
+      t = t.slice(end + CLOSE.length).trimStart()
+    }
+    return t
   }
 
   const stringifyToolResult = (content: any): string => {
