@@ -37,6 +37,12 @@ export const useSessionContext = defineStore('sessionContext', () => {
   const panelExpandMode = ref<PanelExpandMode>('auto')
   const userOverride = ref(false) // true = user manually toggled, overrides auto mode
 
+  // === Create Branch Dialog ===
+  const showCreateBranchDialog = ref(false)
+
+  // === Git Graph Modal ===
+  const showGitGraphModal = ref(false)
+
   // === Task data ===
   const tasks = ref<Array<{
     id?: string
@@ -142,6 +148,24 @@ export const useSessionContext = defineStore('sessionContext', () => {
     showCommitDialog.value = false
   }
 
+  // === Actions: Create Branch Dialog ===
+  function openCreateBranchDialog() {
+    showCreateBranchDialog.value = true
+  }
+
+  function closeCreateBranchDialog() {
+    showCreateBranchDialog.value = false
+  }
+
+  // === Actions: Git Graph Modal ===
+  function openGitGraphModal() {
+    showGitGraphModal.value = true
+  }
+
+  function closeGitGraphModal() {
+    showGitGraphModal.value = false
+  }
+
   // === Actions: Tasks ===
   function updateTasks(newTasks: typeof tasks.value) {
     tasks.value = newTasks
@@ -181,6 +205,8 @@ export const useSessionContext = defineStore('sessionContext', () => {
     showRightPanel.value = false
     showBranchDropdown.value = false
     showCommitDialog.value = false
+    showCreateBranchDialog.value = false
+    showGitGraphModal.value = false
     showPanelMenu.value = false
     panelExpandMode.value = 'auto'
     userOverride.value = false
@@ -207,6 +233,8 @@ export const useSessionContext = defineStore('sessionContext', () => {
     rightPanelView,
     showBranchDropdown,
     showCommitDialog,
+    showCreateBranchDialog,
+    showGitGraphModal,
     showPanelMenu,
     panelExpandMode,
     userOverride,
@@ -239,6 +267,14 @@ export const useSessionContext = defineStore('sessionContext', () => {
     // Commit
     openCommitDialog,
     closeCommitDialog,
+
+    // Create Branch
+    openCreateBranchDialog,
+    closeCreateBranchDialog,
+
+    // Git Graph
+    openGitGraphModal,
+    closeGitGraphModal,
 
     // Tasks
     updateTasks,

@@ -55,7 +55,7 @@
       </button>
 
       <!-- Branch: click → toggle branch dropdown -->
-      <button class="sc-row" @click="sessionContext.toggleBranchDropdown()">
+      <button class="sc-row" @click="handleToggleBranchDropdown()">
         <GitBranch :size="13" class="sc-row-icon" />
         <span class="sc-row-label">{{ scmStore.branch || 'main' }}</span>
         <ChevronDown :size="11" class="sc-row-arrow" :class="{ rotated: sessionContext.showBranchDropdown }" />
@@ -181,11 +181,11 @@
           </div>
         </div>
         <div class="sc-branch-footer">
-          <button class="sc-branch-footer-btn" @click="handleCreateBranch">
+          <button class="sc-branch-footer-btn" @click="handleOpenCreateBranch">
             <Plus :size="13" />
             {{ t('sessionContext.createAndCheckout') }}
           </button>
-          <button class="sc-branch-footer-btn" disabled>
+          <button class="sc-branch-footer-btn" @click="handleOpenGitGraph">
             <Network :size="13" />
             {{ t('sessionContext.gitGraph') }}
           </button>
@@ -255,26 +255,32 @@ function toggleGroup(group: 'completed' | 'pending') {
   groups[group] = !groups[group]
 }
 
+function handleToggleBranchDropdown() {
+  sessionContext.toggleBranchDropdown()
+  // Load branches when opening the dropdown
+  if (sessionContext.showBranchDropdown) {
+    scmStore.refreshBranches()
+  }
+}
+
+function handleOpenCreateBranch() {
+  // Close branch dropdown first, then open create dialog
+  sessionContext.closeBranchDropdown()
+  sessionContext.openCreateBranchDialog()
+}
+
+function handleOpenGitGraph() {
+  // Close branch dropdown first, then open git graph modal
+  sessionContext.closeBranchDropdown()
+  sessionContext.openGitGraphModal()
+}
+
 async function handleCheckout(branchName: string) {
   try {
     await scmStore.checkoutBranch(branchName)
     sessionContext.closeBranchDropdown()
   } catch (e: any) {
     console.error('[EnvPanel] Checkout failed:', e)
-  }
-}
-
-async function handleCreateBranch() {
-  const name = branchSearch.value.trim()
-  if (!name) return
-  try {
-    const result = await scmStore.createBranch(name, true)
-    if (result?.success) {
-      branchSearch.value = ''
-      sessionContext.closeBranchDropdown()
-    }
-  } catch (e: any) {
-    console.error('[EnvPanel] Create branch failed:', e)
   }
 }
 </script>

@@ -1189,6 +1189,27 @@ export default {
     noMatchingBranches: 'No matching branches found',
     createAndCheckout: 'Create and checkout new branch...',
     gitGraph: 'Git Graph',
+    refreshGraph: 'Refresh',
+
+    // Create Branch Dialog
+    createBranchTitle: 'Create and Checkout New Branch',
+    createBranchDesc: 'Create a new local branch based on the current HEAD and switch to it immediately.',
+    branchNameLabel: 'Branch Name',
+    branchNamePlaceholder: 'e.g. feature/git-branch-switcher',
+    createBranchHint: 'Only supports creating and switching from current HEAD for now.',
+    createAndSwitch: 'Create & Switch',
+    createBranchFailed: 'Failed to create branch',
+    branchNameRequired: 'Please enter a branch name',
+
+    // Git Graph Modal
+    gitGraphTitle: 'Git Graph',
+    loadingGraph: 'Loading commit history...',
+    noCommits: 'No commits yet',
+    loadGraphFailed: 'Failed to load commit history',
+    commitSubject: 'Subject',
+    commitDate: 'Date',
+    commitAuthor: 'Author',
+    commitHash: 'Hash',
 
     // Commit Dialog
     commitChanges: 'Commit Changes',

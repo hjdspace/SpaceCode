@@ -52,7 +52,7 @@
       <!-- Body: flex-row with chat left + panel right -->
       <div class="chat-body-row">
         <!-- Left: Chat area -->
-        <div class="chat-main">
+        <div class="chat-main" :class="{ 'with-env-panel': sessionContext.showEnvPanel }">
           <div class="chat-panel-body">
             <NoProjectHome v-if="showNoProjectWelcome" />
 
@@ -224,6 +224,12 @@
 
     <!-- Session Context Commit Dialog (modal overlay) -->
     <SessionContextCommitDialog @close="sessionContext.closeCommitDialog()" />
+
+    <!-- Session Context Create Branch Dialog -->
+    <SessionContextCreateBranchDialog />
+
+    <!-- Session Context Git Graph Modal -->
+    <SessionContextGitGraphModal />
   </main>
 </template>
 
@@ -260,6 +266,8 @@ import { useSessionContext } from '@/stores/sessionContext'
 import SessionContextEnvPanel from '../session-context/SessionContextEnvPanel.vue'
 import SessionContextTaskPanel from '../session-context/SessionContextTaskPanel.vue'
 import SessionContextCommitDialog from '../session-context/SessionContextCommitDialog.vue'
+import SessionContextCreateBranchDialog from '../session-context/SessionContextCreateBranchDialog.vue'
+import SessionContextGitGraphModal from '../session-context/SessionContextGitGraphModal.vue'
 import { buildMessagesFromHistory } from '@/utils/sessionRestore'
 import { initLLMService, llmState, updateConfig } from '@/services/llm'
 import { pathsEqual } from '@/utils/recentProjectRoots'
@@ -296,6 +304,10 @@ function handleSessionContextEsc(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     if (sessionContext.showCommitDialog) {
       sessionContext.closeCommitDialog()
+    } else if (sessionContext.showCreateBranchDialog) {
+      sessionContext.closeCreateBranchDialog()
+    } else if (sessionContext.showGitGraphModal) {
+      sessionContext.closeGitGraphModal()
     } else if (sessionContext.showPanelMenu) {
       sessionContext.closePanelMenu()
     } else if (sessionContext.showBranchDropdown) {
@@ -1169,7 +1181,14 @@ async function handleRestoreHistorySession(session: any) {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  transition: flex 0.3s ease;
+  // Smooth shift so the chat column makes room for the floating env panel.
+  // 300 (panel) + 12 (right gutter) + 12 (left gutter) = 324px
+  padding-right: 0;
+  transition: flex 0.3s ease, padding 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  &.with-env-panel {
+    padding-right: 324px;
+  }
 }
 
 .chat-panel-body {

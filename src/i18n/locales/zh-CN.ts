@@ -1189,6 +1189,27 @@ export default {
     noMatchingBranches: '未找到匹配的分支',
     createAndCheckout: '创建并检出新分支...',
     gitGraph: 'Git 图谱',
+    refreshGraph: '刷新',
+
+    // Create Branch Dialog
+    createBranchTitle: '创建并检出新分支',
+    createBranchDesc: '基于当前 HEAD 创建一个新的本地分支，并在创建成功后立即切换过去。',
+    branchNameLabel: '分支名',
+    branchNamePlaceholder: '例如 feature/git-branch-switcher',
+    createBranchHint: '首版只支持基于当前 HEAD 创建并切换。',
+    createAndSwitch: '创建并切换',
+    createBranchFailed: '创建分支失败',
+    branchNameRequired: '请输入分支名',
+
+    // Git Graph Modal
+    gitGraphTitle: 'Git 图谱',
+    loadingGraph: '加载提交历史中...',
+    noCommits: '暂无提交记录',
+    loadGraphFailed: '加载提交历史失败',
+    commitSubject: '提交说明',
+    commitDate: '日期',
+    commitAuthor: '作者',
+    commitHash: '哈希',
 
     // Commit Dialog
     commitChanges: '提交更改',
