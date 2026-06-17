@@ -297,10 +297,18 @@ const diffPanelLoading = ref(false)
 const contextUsageStore = useContextUsageStore()
 const sessionContext = useSessionContext()
 
-const CHAT_MAIN_WIDE_THRESHOLD = 1024
+// When the floating env panel is open it needs ~324px (300 panel + 12 right
+// margin + 12 gutter). The centered message column has max-width 900px. So we
+// only "reserve room" (shift the chat left) when there's genuinely enough
+// space to do so WITHOUT squeezing that 900px column: chat-main width must be
+// at least 900 + 324 = 1224px.
+//
+// Below this threshold (small / windowed app): reserve nothing — the env
+// panel floats on top of the chat's right edge and may overlap it, which is
+// fine because there simply isn't enough horizontal room to fit both.
+const CHAT_MAIN_WIDE_THRESHOLD = 900 + 324 // 1224px
 const chatMainRef = ref<HTMLElement | null>(null)
 const chatMainHasRoom = ref(false)
-let chatMainResizeObserver: ResizeObserver | null = null
 
 // React to chat-main mounting/unmounting (e.g. terminal tab ↔ chat tab) and
 // to its width changing (window resize, sidebar toggle, right detail panel
@@ -335,10 +343,6 @@ const stopDiffWatch = watch(() => chatStore.diffPanelTrigger, () => {
 onBeforeUnmount(() => {
   stopDiffWatch()
   document.removeEventListener('keydown', handleSessionContextEsc)
-  if (chatMainResizeObserver) {
-    chatMainResizeObserver.disconnect()
-    chatMainResizeObserver = null
-  }
 })
 
 // Session Context: ESC to close floating panels
