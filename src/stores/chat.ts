@@ -23,7 +23,6 @@ import {
   stripLargeAttachmentData,
 } from '@/services/sessionPersistence'
 import {
-  stableTeammateId,
   getRawTeammateName,
   getRawTeamName,
   isTeammateRawMessage,
@@ -34,6 +33,7 @@ import {
   recordAgentToolCall,
   isFileBackedTeammate,
   rekickAgentTranscriptPoll,
+  resolveTeammateId,
   AGENT_COLORS,
 } from '@/services/teamTranscriptService'
 import {
@@ -792,14 +792,17 @@ export const useChatStore = defineStore('chat', () => {
     const session = sessions.value.find(s => s.id === targetSessionId)
     if (!session) return null
 
-    const teammateId = stableTeammateId(raw)
-    const name = getRawTeammateName(raw)
+    // 通过 parent_tool_use_id 归并到与 Agent 工具卡片相同的 teammate（实时子代理消息只带此字段）。
+    const teammateId = resolveTeammateId(targetSessionId, raw)
     const teamName = getRawTeamName(raw)
     const status = inferTeammateStatus(raw)
     const text = stringifyRawContent(raw)
     ensureTeamContext(session, teamName)
 
     const existing = session.teamContext!.teammates[teammateId]
+    // 名称优先复用已建条目（recordAgentToolCall 据 Agent 工具入参解析出的 "Explore"/"Agent" 等），
+    // 实时子代理消息本身不带 agentName。
+    const name = existing?.name || getRawTeammateName(raw)
     const color = existing?.color || AGENT_COLORS[Object.keys(session.teamContext!.teammates).length % AGENT_COLORS.length]
     const transcript = session.teammateTranscripts![teammateId] || []
     const messageId = raw?.uuid || raw?.message?.id || raw?.id || crypto.randomUUID()
@@ -816,12 +819,12 @@ export const useChatStore = defineStore('chat', () => {
       }
     }
 
-    // 文件托管的异步子代理：转录以 .output 文件为唯一来源，这里不再追加消息（否则与文件解析结果重复）。
+    // 文件托管的异步子代理：转录以 .output 文件为唯一来源，这里不再写入消息（否则与文件解析结果重复）。
     // 但仍要刷新 teammate 状态，并唤醒可能已停止的输出文件轮询，使后台子代理输出近实时跟随。
     if (isFileBackedTeammate(targetSessionId, teammateId)) {
       session.teamContext!.teammates[teammateId] = {
         name,
-        agentType: raw?.agentType || raw?.subagent_type,
+        agentType: existing?.agentType || raw?.agentType || raw?.subagent_type,
         status,
         color,
         messageCount: session.teammateTranscripts![teammateId]?.length || transcript.length,
@@ -833,13 +836,23 @@ export const useChatStore = defineStore('chat', () => {
       return null
     }
 
-    if (text.trim() && !transcript.some(m => m.id === message.id)) {
-      session.teammateTranscripts![teammateId] = [...transcript, message]
+    // 流式子代理（同步，无 output_file）：以消息 id（uuid/msgId）upsert。
+    // 引擎按 message_snapshot 多次推送同一 uuid 的 assistant 消息（内容渐增），
+    // 必须“存在则替换内容”而非跳过，否则只显示第一帧、看不到流式增长。
+    if (text.trim()) {
+      const idx = transcript.findIndex(m => m.id === message.id)
+      if (idx >= 0) {
+        const next = [...transcript]
+        next[idx] = { ...next[idx], content: text, metadata: { ...next[idx].metadata, status } }
+        session.teammateTranscripts![teammateId] = next
+      } else {
+        session.teammateTranscripts![teammateId] = [...transcript, message]
+      }
     }
 
     session.teamContext!.teammates[teammateId] = {
       name,
-      agentType: raw?.agentType || raw?.subagent_type,
+      agentType: existing?.agentType || raw?.agentType || raw?.subagent_type,
       status,
       color,
       messageCount: session.teammateTranscripts![teammateId]?.length || transcript.length

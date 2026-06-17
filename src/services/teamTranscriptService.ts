@@ -18,7 +18,51 @@ export function getRawTeamName(raw: any): string {
 }
 
 export function isTeammateRawMessage(raw: any): boolean {
-  return !!raw && typeof raw === 'object' && (raw.type === 'teammate' || raw.isSidechain || raw.agentName || raw.subagent_type)
+  return !!raw && typeof raw === 'object' && (
+    raw.type === 'teammate' ||
+    raw.isSidechain ||
+    raw.agentName ||
+    raw.subagent_type ||
+    // 实时子代理消息（来自引擎 SDK 流）唯一可靠的标识：parent_tool_use_id 指向
+    // 父 Agent 工具调用。它们不带 isSidechain/agentName，必须靠此字段识别，
+    // 否则会被当成主 agent 消息处理（污染主时间线 + 子代理页无实时输出）。
+    !!raw.parent_tool_use_id ||
+    !!raw.parentToolUseId
+  )
+}
+
+/** 统一的 teammateId 归一化：小写 + 仅保留 [a-z0-9_-]。 */
+export function normalizeTeammateId(value: any): string {
+  return String(value ?? '').trim().toLowerCase().replace(/[^a-z0-9_-]+/gi, '-') || 'teammate'
+}
+
+// 父 Agent 工具调用 id → 该子代理转录所用的规范 teammateId。
+// 实时子代理消息只带 parent_tool_use_id，通过此映射归并到与 Agent 工具卡片相同的 teammate。
+// key 形如 `${sessionId}:${parentToolUseId}`。
+const parentToolUseToTeammate = new Map<string, string>()
+
+export function registerTeammateForToolUse(sessionId: string, toolUseId: string, teammateId: string): void {
+  if (!toolUseId) return
+  parentToolUseToTeammate.set(`${sessionId}:${toolUseId}`, teammateId)
+}
+
+export function teammateIdForParentToolUse(sessionId: string, parentToolUseId: string): string | undefined {
+  if (!parentToolUseId) return undefined
+  return parentToolUseToTeammate.get(`${sessionId}:${parentToolUseId}`)
+}
+
+/**
+ * 解析 raw 消息归属的 teammateId。
+ * 优先用 parent_tool_use_id（实时子代理消息）经映射归并；映射缺失时回退为
+ * normalizeTeammateId(parentToolUseId)，该回退值与 recordAgentToolCall 对同步子代理的
+ * teammateId（normalizeTeammateId(toolCall.id)）一致，保证实时消息与工具卡片落到同一 teammate。
+ */
+export function resolveTeammateId(sessionId: string, raw: any): string {
+  const parentId = raw?.parent_tool_use_id || raw?.parentToolUseId
+  if (parentId) {
+    return teammateIdForParentToolUse(sessionId, parentId) || normalizeTeammateId(parentId)
+  }
+  return stableTeammateId(raw)
 }
 
 export function inferTeammateStatus(raw: any): TeammateStatus {
@@ -163,9 +207,10 @@ export function recordAgentToolCall(session: Session, toolCall: ToolCall, status
   // 这里解析工具输出中的 agentId，优先用它作为 teammateId，使工具卡片与 sidechain 转录合并到同一 teammate，
   // 否则历史会话重建时会出现“只显示 Output file 占位、看不到子代理输出”的现象。
   const parsedOutput = toolCall.output ? parseAgentToolOutput(toolCall.output) : null
-  const normalizeId = (v: any) => String(v).trim().toLowerCase().replace(/[^a-z0-9_-]+/gi, '-') || 'teammate'
-  const fallbackId = String(toolCall.id || input.agentTaskId || input.taskId || crypto.randomUUID())
-  const teammateId = parsedOutput?.agentId ? normalizeId(parsedOutput.agentId) : fallbackId
+  // 归一化与 resolveTeammateId 保持一致：同步子代理用 normalizeTeammateId(toolCall.id)，
+  // 这样实时消息（parent_tool_use_id = toolCall.id）回退归并时能落到同一 teammate。
+  const fallbackId = normalizeTeammateId(toolCall.id || input.agentTaskId || input.taskId || crypto.randomUUID())
+  const teammateId = parsedOutput?.agentId ? normalizeTeammateId(parsedOutput.agentId) : fallbackId
   const agentType = String(input.agentType || input.type || 'general-purpose')
   // 与引擎 UI 层 userFacingName() 保持一致：general-purpose 显示为 "Agent"
   const name = String(input.name || input.agentName || (agentType === 'general-purpose' ? 'Agent' : agentType))
@@ -182,15 +227,20 @@ export function recordAgentToolCall(session: Session, toolCall: ToolCall, status
     }
     delete session.teammateTranscripts![fallbackId]
     delete session.teamContext!.teammates[fallbackId]
+    parentToolUseToTeammate.delete(`${session.id}:${fallbackId}`)
   }
+
+  // 注册映射：实时子代理消息（parent_tool_use_id = toolCall.id）据此归并到本 teammate。
+  registerTeammateForToolUse(session.id, String(toolCall.id), teammateId)
 
   const existing = session.teamContext!.teammates[teammateId]
   const color = existing?.color || AGENT_COLORS[Object.keys(session.teamContext!.teammates).length % AGENT_COLORS.length]
   const transcript = session.teammateTranscripts![teammateId] || []
 
   if (toolCall.output && parsedOutput) {
-    // 异步启动（带 agentId）的工具结果只是“已启动”占位，真实内容来自 sidechain，无需写入占位消息。
-    if (!parsedOutput.agentId && !transcript.some(m => m.id === `${toolCall.id}-result`)) {
+    // 同步子代理（无 agentId、无 output_file）的真实输出只在工具结果文本里。仅当转录为空时才写入
+    // 占位消息——若实时流已把子代理逐条消息写入本 teammate，则跳过，避免“逐条消息 + 整段汇总”重复。
+    if (!parsedOutput.agentId && transcript.length === 0) {
       session.teammateTranscripts![teammateId] = [...transcript, {
         id: `${toolCall.id}-result`,
         role: 'assistant',
