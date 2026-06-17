@@ -1,17 +1,48 @@
 <template>
-  <div class="sc-env-panel">
+  <div class="sc-env-panel" :class="{ 'sc-env-shifted': sessionContext.showRightPanel }">
+    <div class="sc-panel-inner">
     <!-- Header -->
     <div class="sc-panel-header">
       <span class="sc-panel-title">{{ t('sessionContext.gitTools') }}</span>
       <div class="sc-header-actions">
-        <button class="sc-icon-btn" :title="t('sessionContext.more')">
+        <button class="sc-icon-btn" :title="t('sessionContext.more')" @click="sessionContext.togglePanelMenu()">
           <MoreHorizontal :size="14" />
         </button>
-        <button class="sc-icon-btn" :title="t('sessionContext.close')" @click="sessionContext.closeEnvPanel()">
-          <X :size="14" />
+        <button class="sc-icon-btn sc-collapse-btn" :title="t('sessionContext.collapsePanel')" @click="sessionContext.closeEnvPanel()">
+          <Maximize2 :size="14" />
         </button>
       </div>
     </div>
+
+    <!-- Panel menu dropdown -->
+    <Transition name="sc-menu-fade">
+      <div v-if="sessionContext.showPanelMenu" class="sc-panel-menu" @click.stop>
+        <button
+          class="sc-menu-item"
+          :class="{ active: sessionContext.panelExpandMode === 'auto' }"
+          @click="sessionContext.setPanelExpandMode('auto')"
+        >
+          <span class="sc-menu-label">{{ t('sessionContext.autoExpand') }}</span>
+          <Check v-if="sessionContext.panelExpandMode === 'auto'" :size="14" class="sc-menu-check" />
+        </button>
+        <button
+          class="sc-menu-item"
+          :class="{ active: sessionContext.panelExpandMode === 'always-expand' }"
+          @click="sessionContext.setPanelExpandMode('always-expand')"
+        >
+          <span class="sc-menu-label">{{ t('sessionContext.alwaysExpand') }}</span>
+          <Check v-if="sessionContext.panelExpandMode === 'always-expand'" :size="14" class="sc-menu-check" />
+        </button>
+        <button
+          class="sc-menu-item"
+          :class="{ active: sessionContext.panelExpandMode === 'always-collapse' }"
+          @click="sessionContext.setPanelExpandMode('always-collapse')"
+        >
+          <span class="sc-menu-label">{{ t('sessionContext.alwaysCollapse') }}</span>
+          <Check v-if="sessionContext.panelExpandMode === 'always-collapse'" :size="14" class="sc-menu-check" />
+        </button>
+      </div>
+    </Transition>
 
     <!-- Env rows -->
     <div class="sc-env-section">
@@ -34,6 +65,8 @@
       <button class="sc-row" @click="sessionContext.openCommitDialog()">
         <GitCommit :size="13" class="sc-row-icon" />
         <span class="sc-row-label">{{ t('sessionContext.commit') }}</span>
+        <span class="sc-stat-add" v-if="sessionContext.gitAdditions > 0">+{{ sessionContext.gitAdditions }}</span>
+        <span class="sc-stat-del" v-if="sessionContext.gitDeletions > 0">-{{ sessionContext.gitDeletions }}</span>
       </button>
     </div>
 
@@ -113,50 +146,49 @@
         {{ t('sessionContext.continue') }}
       </button>
     </div>
+    </div>
 
-    <!-- Branch dropdown overlay (slides from left) -->
+    <!-- Branch dropdown (slides from left, beside card) -->
     <Transition name="sc-branch-slide">
-      <div v-if="sessionContext.showBranchDropdown" class="sc-branch-overlay" @click.self="sessionContext.closeBranchDropdown()">
-        <div class="sc-branch-dropdown">
-          <div class="sc-branch-header">
-            <Search :size="13" class="sc-branch-search-icon" />
-            <input
-              v-model="branchSearch"
-              class="sc-branch-search-input"
-              type="text"
-              :placeholder="t('sessionContext.searchBranch')"
-            />
+      <div v-if="sessionContext.showBranchDropdown" class="sc-branch-dropdown">
+        <div class="sc-branch-header">
+          <Search :size="13" class="sc-branch-search-icon" />
+          <input
+            v-model="branchSearch"
+            class="sc-branch-search-input"
+            type="text"
+            :placeholder="t('sessionContext.searchBranch')"
+          />
+        </div>
+        <div class="sc-branch-section-label">{{ t('sessionContext.branches') }}</div>
+        <div class="sc-branch-list">
+          <button
+            v-for="b in filteredBranches"
+            :key="b.name"
+            class="sc-branch-item"
+            :class="{ active: b.current }"
+            @click="handleCheckout(b.name)"
+          >
+            <GitBranch :size="13" class="sc-branch-icon" />
+            <span class="sc-branch-name">{{ b.name }}</span>
+            <Check v-if="b.current" :size="14" class="sc-branch-check" />
+          </button>
+          <div v-if="scmStore.unstaged.length + scmStore.untracked.length > 0" class="sc-branch-info">
+            {{ t('sessionContext.uncommittedChanges', { count: scmStore.unstaged.length + scmStore.untracked.length }) }}
           </div>
-          <div class="sc-branch-section-label">{{ t('sessionContext.branches') }}</div>
-          <div class="sc-branch-list">
-            <button
-              v-for="b in filteredBranches"
-              :key="b.name"
-              class="sc-branch-item"
-              :class="{ active: b.current }"
-              @click="handleCheckout(b.name)"
-            >
-              <GitBranch :size="13" class="sc-branch-icon" />
-              <span class="sc-branch-name">{{ b.name }}</span>
-              <Check v-if="b.current" :size="14" class="sc-branch-check" />
-            </button>
-            <div v-if="scmStore.unstaged.length + scmStore.untracked.length > 0" class="sc-branch-info">
-              {{ t('sessionContext.uncommittedChanges', { count: scmStore.unstaged.length + scmStore.untracked.length }) }}
-            </div>
-            <div v-if="filteredBranches.length === 0" class="sc-branch-empty">
-              {{ t('sessionContext.noMatchingBranches') }}
-            </div>
+          <div v-if="filteredBranches.length === 0" class="sc-branch-empty">
+            {{ t('sessionContext.noMatchingBranches') }}
           </div>
-          <div class="sc-branch-footer">
-            <button class="sc-branch-footer-btn" @click="handleCreateBranch">
-              <Plus :size="13" />
-              {{ t('sessionContext.createAndCheckout') }}
-            </button>
-            <button class="sc-branch-footer-btn" disabled>
-              <Network :size="13" />
-              {{ t('sessionContext.gitGraph') }}
-            </button>
-          </div>
+        </div>
+        <div class="sc-branch-footer">
+          <button class="sc-branch-footer-btn" @click="handleCreateBranch">
+            <Plus :size="13" />
+            {{ t('sessionContext.createAndCheckout') }}
+          </button>
+          <button class="sc-branch-footer-btn" disabled>
+            <Network :size="13" />
+            {{ t('sessionContext.gitGraph') }}
+          </button>
         </div>
       </div>
     </Transition>
@@ -164,10 +196,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
-  MoreHorizontal, X, FilePlus, GitBranch, GitCommit, ChevronDown,
+  MoreHorizontal, Maximize2, FilePlus, GitBranch, GitCommit, ChevronDown,
   CheckCircle2, Loader2, Circle, Search, Check, Plus, Network
 } from 'lucide-vue-next'
 import { useSessionContext } from '@/stores/sessionContext'
@@ -192,6 +224,25 @@ const completedTasks = computed(() => sessionContext.tasks.filter(t => t.status 
 const inProgressTasks = computed(() => sessionContext.tasks.filter(t => t.status === 'in_progress'))
 const pendingTasks = computed(() => sessionContext.tasks.filter(t => t.status === 'pending'))
 const hasPendingOrInProgress = computed(() => pendingTasks.value.length > 0 || inProgressTasks.value.length > 0)
+
+// Click outside to close panel menu and branch dropdown
+function handleClickOutside(e: MouseEvent) {
+  if (sessionContext.showPanelMenu) {
+    const target = e.target as HTMLElement
+    if (!target.closest('.sc-panel-menu') && !target.closest('.sc-icon-btn')) {
+      sessionContext.closePanelMenu()
+    }
+  }
+  if (sessionContext.showBranchDropdown) {
+    const target = e.target as HTMLElement
+    if (!target.closest('.sc-branch-dropdown') && !target.closest('.sc-row')) {
+      sessionContext.closeBranchDropdown()
+    }
+  }
+}
+
+onMounted(() => document.addEventListener('mousedown', handleClickOutside))
+onUnmounted(() => document.removeEventListener('mousedown', handleClickOutside))
 
 const filteredBranches = computed(() => {
   const q = branchSearch.value.toLowerCase().trim()
@@ -238,14 +289,31 @@ async function handleCreateBranch() {
   z-index: 20;
   display: flex;
   flex-direction: column;
+  overflow: visible;
+  transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  // When the right detail panel (tasks/review) is open, slide left so it
+  // doesn't sit on top of and block the panel content.
+  // SessionContextTaskPanel width is 420px → shift by 420px + 12px gutter.
+  &.sc-env-shifted {
+    right: 432px;
+  }
+}
+
+// Inner content wrapper (clips to rounded corners)
+.sc-panel-inner {
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
+  border-radius: 14px;
+  flex: 1;
+  min-height: 0;
 
   // Glassmorphism
   background: var(--glass-bg);
   backdrop-filter: blur(20px) saturate(1.2);
   -webkit-backdrop-filter: blur(20px) saturate(1.2);
   border: 1px solid var(--glass-border);
-  border-radius: 14px;
   box-shadow:
     var(--glass-shadow-1),
     var(--glass-shadow-2),
@@ -287,6 +355,68 @@ async function handleCreateBranch() {
   transition: all 150ms ease;
 
   &:hover { background: var(--glass-hover); color: var(--text-primary); }
+}
+
+// Panel menu dropdown
+.sc-panel-menu {
+  position: absolute;
+  top: 44px;
+  right: 14px;
+  z-index: 30;
+  min-width: 160px;
+  padding: 4px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  box-shadow: var(--glass-shadow-1), var(--glass-shadow-2);
+}
+
+.sc-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 150ms ease;
+
+  &:hover {
+    background: var(--glass-hover);
+    color: var(--text-primary);
+  }
+
+  &.active {
+    color: var(--text-primary);
+  }
+}
+
+.sc-menu-label {
+  flex: 1;
+  text-align: left;
+}
+
+.sc-menu-check {
+  color: #4ade80;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+// Menu transition
+.sc-menu-fade-enter-active,
+.sc-menu-fade-leave-active {
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+.sc-menu-fade-enter-from,
+.sc-menu-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.96);
 }
 
 // Env section
@@ -490,25 +620,23 @@ async function handleCreateBranch() {
   &:hover { background: var(--glass-hover); color: var(--text-primary); }
 }
 
-// Branch dropdown overlay
-.sc-branch-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  background: rgba(0, 0, 0, 0.3);
-  display: flex;
-}
-
+// Branch dropdown (positioned to the LEFT of the card)
 .sc-branch-dropdown {
+  position: absolute;
+  top: 0;
+  right: calc(100% + 8px);
   width: 280px;
+  max-height: 100%;
+  z-index: 25;
   background: var(--glass-bg);
   backdrop-filter: blur(20px) saturate(1.2);
   -webkit-backdrop-filter: blur(20px) saturate(1.2);
-  border-right: 1px solid var(--glass-border);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 4px 0 16px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--glass-shadow-1), var(--glass-shadow-2), var(--glass-inset);
 }
 
 .sc-branch-header {
@@ -625,9 +753,9 @@ async function handleCreateBranch() {
   &:disabled { cursor: not-allowed; opacity: 0.4; &:hover { background: transparent; color: var(--text-secondary); } }
 }
 
-// Branch slide transition
+// Branch slide transition (slides out from left)
 .sc-branch-slide-enter-active { transition: all 0.2s ease-out; }
 .sc-branch-slide-leave-active { transition: all 0.15s ease-in; }
-.sc-branch-slide-enter-from { opacity: 0; .sc-branch-dropdown { transform: translateX(-20px); } }
-.sc-branch-slide-leave-to { opacity: 0; .sc-branch-dropdown { transform: translateX(-20px); } }
+.sc-branch-slide-enter-from { opacity: 0; transform: translateX(-12px); }
+.sc-branch-slide-leave-to { opacity: 0; transform: translateX(-12px); }
 </style>

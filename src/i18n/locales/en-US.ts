@@ -1147,6 +1147,7 @@ export default {
     environment: 'Environment',
     settings: 'Settings',
     close: 'Close',
+    collapsePanel: 'Collapse',
     changes: 'Changes',
     local: 'Local',
     noBranch: 'No branch',
@@ -1165,6 +1166,9 @@ export default {
     completedCount: 'Completed {count}',
     pendingCount: 'Pending {count}',
     continue: 'Continue',
+    autoExpand: 'Auto Expand',
+    alwaysExpand: 'Always Expand',
+    alwaysCollapse: 'Always Collapse',
 
     // Review Panel
     review: 'Review',

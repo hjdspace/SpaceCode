@@ -8,10 +8,11 @@
  */
 
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 
 /** 右侧面板子视图 */
 export type RightPanelView = 'tasks' | 'review'
+export type PanelExpandMode = 'auto' | 'always-expand' | 'always-collapse'
 
 export interface SessionContextFile {
   path: string
@@ -32,6 +33,9 @@ export const useSessionContext = defineStore('sessionContext', () => {
 
   // === Commit dialog ===
   const showCommitDialog = ref(false)
+  const showPanelMenu = ref(false)
+  const panelExpandMode = ref<PanelExpandMode>('auto')
+  const userOverride = ref(false) // true = user manually toggled, overrides auto mode
 
   // === Task data ===
   const tasks = ref<Array<{
@@ -64,14 +68,18 @@ export const useSessionContext = defineStore('sessionContext', () => {
   // === Actions: Env Panel ===
   function toggleEnvPanel() {
     showEnvPanel.value = !showEnvPanel.value
+    userOverride.value = true
   }
 
   function openEnvPanel() {
     showEnvPanel.value = true
+    userOverride.value = false // clear override, let mode take over
   }
 
+  /** User manually collapses → becomes capsule */
   function closeEnvPanel() {
     showEnvPanel.value = false
+    userOverride.value = true // user explicitly collapsed
   }
 
   // === Actions: Right Panel ===
@@ -89,6 +97,34 @@ export const useSessionContext = defineStore('sessionContext', () => {
   }
 
   // === Actions: Branch Dropdown ===
+  function togglePanelMenu() {
+    showPanelMenu.value = !showPanelMenu.value
+  }
+
+  function closePanelMenu() {
+    showPanelMenu.value = false
+  }
+
+  function setPanelExpandMode(mode: PanelExpandMode) {
+    panelExpandMode.value = mode
+    showPanelMenu.value = false
+    userOverride.value = false // mode change → re-evaluate from scratch
+    evaluateAutoExpand()
+  }
+
+  /** Evaluate whether panel should be expanded in 'auto' mode */
+  function evaluateAutoExpand() {
+    if (userOverride.value) return
+    if (panelExpandMode.value === 'always-expand') {
+      showEnvPanel.value = true
+    } else if (panelExpandMode.value === 'always-collapse') {
+      showEnvPanel.value = false
+    } else {
+      // auto: follow activity
+      showEnvPanel.value = hasActivity.value
+    }
+  }
+
   function toggleBranchDropdown() {
     showBranchDropdown.value = !showBranchDropdown.value
   }
@@ -109,10 +145,7 @@ export const useSessionContext = defineStore('sessionContext', () => {
   // === Actions: Tasks ===
   function updateTasks(newTasks: typeof tasks.value) {
     tasks.value = newTasks
-    // Auto-open env panel when agent updates tasks
-    if (newTasks.length > 0 && !showEnvPanel.value) {
-      showEnvPanel.value = true
-    }
+    evaluateAutoExpand()
   }
 
   // === Actions: Git stats ===
@@ -124,6 +157,7 @@ export const useSessionContext = defineStore('sessionContext', () => {
     gitAdditions.value = stats.additions
     gitDeletions.value = stats.deletions
     changedFiles.value = stats.files
+    evaluateAutoExpand()
   }
 
   // === Actions: Review ===
@@ -147,6 +181,9 @@ export const useSessionContext = defineStore('sessionContext', () => {
     showRightPanel.value = false
     showBranchDropdown.value = false
     showCommitDialog.value = false
+    showPanelMenu.value = false
+    panelExpandMode.value = 'auto'
+    userOverride.value = false
     rightPanelView.value = 'tasks'
     tasks.value = []
     gitAdditions.value = 0
@@ -155,6 +192,14 @@ export const useSessionContext = defineStore('sessionContext', () => {
     expandedReviewFiles.value = new Set()
   }
 
+  // === Auto mode watcher: when activity changes, clear user override and re-evaluate ===
+  watch(hasActivity, () => {
+    if (panelExpandMode.value === 'auto') {
+      userOverride.value = false
+      evaluateAutoExpand()
+    }
+  })
+
   return {
     // State
     showEnvPanel,
@@ -162,6 +207,9 @@ export const useSessionContext = defineStore('sessionContext', () => {
     rightPanelView,
     showBranchDropdown,
     showCommitDialog,
+    showPanelMenu,
+    panelExpandMode,
+    userOverride,
     tasks,
     taskProgress,
     gitAdditions,
@@ -174,6 +222,7 @@ export const useSessionContext = defineStore('sessionContext', () => {
     toggleEnvPanel,
     openEnvPanel,
     closeEnvPanel,
+    evaluateAutoExpand,
 
     // Right panel
     openRightPanel,
@@ -181,6 +230,9 @@ export const useSessionContext = defineStore('sessionContext', () => {
     switchRightPanelView,
 
     // Branch dropdown
+    togglePanelMenu,
+    closePanelMenu,
+    setPanelExpandMode,
     toggleBranchDropdown,
     closeBranchDropdown,
 

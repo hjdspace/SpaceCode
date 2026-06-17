@@ -1147,6 +1147,7 @@ export default {
     environment: '环境',
     settings: '设置',
     close: '关闭',
+    collapsePanel: '折叠',
     changes: '更改',
     local: '本地',
     noBranch: '无分支',
@@ -1165,6 +1166,9 @@ export default {
     completedCount: '已完成 {count} 项',
     pendingCount: '待处理 {count} 项',
     continue: '继续',
+    autoExpand: '自动展开',
+    alwaysExpand: '始终展开',
+    alwaysCollapse: '始终收起',
 
     // Review Panel
     review: '审查',

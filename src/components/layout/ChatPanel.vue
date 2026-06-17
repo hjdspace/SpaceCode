@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <main class="chat-panel">
     <SessionTabBar
       @new-session="handleNewSession"
@@ -149,12 +149,18 @@
           <SessionContextTaskPanel v-if="sessionContext.showRightPanel" />
         </Transition>
 
-        <!-- Capsule (shown when env panel is collapsed but has activity) -->
+        <!-- Capsule (shown when env panel is collapsed: by user, by activity, or always-collapse mode) -->
         <Transition name="sc-capsule-fade">
-          <div v-if="!sessionContext.showEnvPanel && sessionContext.hasActivity" class="sc-capsule" @click="sessionContext.openEnvPanel()">
+          <div
+            v-if="!sessionContext.showEnvPanel && (sessionContext.hasActivity || sessionContext.userOverride || sessionContext.panelExpandMode === 'always-collapse')"
+            class="sc-capsule"
+            :class="{ 'sc-capsule-shifted': sessionContext.showRightPanel }"
+            @click="sessionContext.openEnvPanel()"
+          >
             <ClipboardList :size="14" />
             <span class="sc-capsule-text" v-if="sessionContext.tasks.length > 0">{{ sessionContext.taskProgress.completed }}/{{ sessionContext.taskProgress.total }}</span>
-            <span class="sc-capsule-text" v-else>+{{ sessionContext.gitAdditions }} -{{ sessionContext.gitDeletions }}</span>
+            <span class="sc-capsule-text" v-else-if="sessionContext.gitAdditions > 0 || sessionContext.gitDeletions > 0">+{{ sessionContext.gitAdditions }} -{{ sessionContext.gitDeletions }}</span>
+            <span class="sc-capsule-text" v-else>{{ t('sessionContext.gitTools') }}</span>
           </div>
         </Transition>
       </div>
@@ -290,6 +296,8 @@ function handleSessionContextEsc(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     if (sessionContext.showCommitDialog) {
       sessionContext.closeCommitDialog()
+    } else if (sessionContext.showPanelMenu) {
+      sessionContext.closePanelMenu()
     } else if (sessionContext.showBranchDropdown) {
       sessionContext.closeBranchDropdown()
     } else if (sessionContext.showRightPanel) {
@@ -1150,7 +1158,7 @@ async function handleRestoreHistorySession(session: any) {
   display: flex;
   flex-direction: row;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
   position: relative;
 }
 
@@ -1581,7 +1589,7 @@ async function handleRestoreHistorySession(session: any) {
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.2s ease, right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 15;
   box-shadow:
     var(--glass-shadow-2),
@@ -1594,6 +1602,12 @@ async function handleRestoreHistorySession(session: any) {
     box-shadow:
       var(--glass-shadow-1),
       var(--glass-inset);
+  }
+
+  // Mirror the env panel: when the right detail panel is open, slide left
+  // so the capsule doesn't sit on top of it.
+  &.sc-capsule-shifted {
+    right: 432px;
   }
 }
 

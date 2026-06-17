@@ -34,6 +34,7 @@ import {
   isFileBackedTeammate,
   rekickAgentTranscriptPoll,
   resolveTeammateId,
+  clearSessionToolUseMappings,
   AGENT_COLORS,
 } from '@/services/teamTranscriptService'
 import {
@@ -2123,6 +2124,8 @@ export const useChatStore = defineStore('chat', () => {
       }
       loadingSessions.value.delete(sessionId)
       streamingContents.value.delete(sessionId)
+      // 清理模块级 Map 中该会话的工具调用映射，避免长时间运行后内存持续增长
+      clearSessionToolUseMappings(sessionId)
       saveToStorage()
     }
   }

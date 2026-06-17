@@ -52,6 +52,18 @@ export function teammateIdForParentToolUse(sessionId: string, parentToolUseId: s
 }
 
 /**
+ * 清理某个会话在 parentToolUseToTeammate 中的全部映射条目。
+ * 必须在会话销毁时调用，否则模块级 Map 会随会话更替持续增长（内存泄漏）。
+ */
+export function clearSessionToolUseMappings(sessionId: string): void {
+  if (!sessionId) return
+  const prefix = `${sessionId}:`
+  for (const key of parentToolUseToTeammate.keys()) {
+    if (key.startsWith(prefix)) parentToolUseToTeammate.delete(key)
+  }
+}
+
+/**
  * 解析 raw 消息归属的 teammateId。
  * 优先用 parent_tool_use_id（实时子代理消息）经映射归并；映射缺失时回退为
  * normalizeTeammateId(parentToolUseId)，该回退值与 recordAgentToolCall 对同步子代理的
