@@ -980,6 +980,7 @@ export default {
 
   hookSettings: {
     title: 'Hook Management',
+    description: 'Customize session lifecycle hooks',
     enabledCount: '{enabled} / {total} enabled',
     addHook: 'Add Hook',
     editHook: 'Edit Hook',

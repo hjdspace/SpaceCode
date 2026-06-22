@@ -980,6 +980,7 @@ export default {
 
   hookSettings: {
     title: 'Hook 管理',
+    description: '自定义会话生命周期钩子函数',
     enabledCount: '{enabled} / {total} 已启用',
     addHook: '添加 Hook',
     editHook: '编辑 Hook',
