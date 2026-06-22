@@ -135,6 +135,10 @@
       {
         "from": "release-notes",
         "to": "release-notes"
+      },
+      {
+        "from": "resources/builtin-hooks",
+        "to": "builtin-hooks"
       }
     ],
     "win": {

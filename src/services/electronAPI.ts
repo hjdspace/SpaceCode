@@ -215,6 +215,19 @@ export const api = {
     return Promise.resolve({ success: false, error: 'saveHooksSettings not available' })
   },
 
+  getBuiltinHooksRoot: (): Promise<{ success: boolean; path?: string; error?: string }> => {
+    if (electronAPI?.getBuiltinHooksRoot) {
+      return electronAPI.getBuiltinHooksRoot()
+    }
+    return Promise.resolve({ success: false, error: 'getBuiltinHooksRoot not available' })
+  },
+  checkNode: (): Promise<{ success: boolean; version?: string; error?: string }> => {
+    if (electronAPI?.checkNode) {
+      return electronAPI.checkNode()
+    }
+    return Promise.resolve({ success: false, error: 'checkNode not available' })
+  },
+
   getTokenUsageStats: (): Promise<{ success: boolean; data?: TokenStatsResult; error?: string }> => {
     if (electronAPI?.getTokenUsageStats) {
       return electronAPI.getTokenUsageStats()

@@ -1629,6 +1629,43 @@ ipcMain.handle('settings:saveHooksSettings', async (_event, hooksJson: string, s
   }
 })
 
+ipcMain.handle('settings:getBuiltinHooksRoot', async () => {
+  try {
+    // 开发模式：项目根 resources/builtin-hooks
+    // 生产模式：electron-builder 通过 extraResources 把 builtin-hooks/ 复制到 resources/ 下
+    const devPath = resolve(join(__dirname, '..', '..', 'resources', 'builtin-hooks'))
+    if (existsSync(devPath)) {
+      return { success: true, path: devPath }
+    }
+    const prodPath = join(process.resourcesPath, 'builtin-hooks')
+    if (existsSync(prodPath)) {
+      return { success: true, path: prodPath }
+    }
+    return { success: false, error: 'Builtin hooks directory not found' }
+  } catch (err: any) {
+    error('Settings', 'Failed to resolve builtin hooks root', err)
+    return { success: false, error: String(err) }
+  }
+})
+
+ipcMain.handle('settings:checkNode', async () => {
+  try {
+    const { spawnSync } = await import('child_process')
+    const result = spawnSync('node', ['--version'], {
+      encoding: 'utf-8',
+      windowsHide: true,
+      timeout: 5000,
+    })
+    if (result.error || result.status !== 0) {
+      return { success: false, error: 'node command not found in PATH' }
+    }
+    const version = String(result.stdout || '').trim()
+    return { success: true, version }
+  } catch (err: any) {
+    return { success: false, error: String(err) }
+  }
+})
+
 ipcMain.handle('settings:injectGuiModels', async (_event, models: { primaryModel: string; haikuModel?: string; sonnetModel?: string; opusModel?: string; effortLevel?: 'low' | 'medium' | 'high' | 'max'; permissionMode?: 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions' }) => {
   debug('Settings', 'injectGuiModels', models)
   try {

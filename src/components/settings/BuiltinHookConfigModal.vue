@@ -90,10 +90,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { reactive, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Eye, EyeOff, CheckCircle } from 'lucide-vue-next'
-import { getBuiltinHook, getBuiltinProvider } from '@/types/builtinHooks'
+import { getBuiltinHook, getBuiltinProvider, getSharedEccRoot, setSharedEccRoot, isEccProvider } from '@/types/builtinHooks'
 import { SCOPE_LABELS } from '@/types/hooks'
 import type { HookScope } from '@/types/hooks'
 import type { BuiltinHookDefinition } from '@/types/builtinHooks'
@@ -118,6 +118,12 @@ const form = reactive({
   providerId: props.initialProviderId ?? '',
   config: { ...(props.initialConfig ?? {}) } as Record<string, string>,
   scope: (props.initialScope ?? 'user') as HookScope,
+})
+
+// 自动选择唯一 provider（如 ECC hook 只有一个 provider）
+const autoSelectProvider = computed(() => {
+  const providers = def.value?.providers ?? []
+  return providers.length === 1 ? providers[0].id : null
 })
 
 const showPassword = reactive<Record<string, boolean>>({})
@@ -147,8 +153,12 @@ const isValid = computed(() => {
 function selectProvider(id: string) {
   if (form.providerId !== id) {
     form.providerId = id
-    // 切换 provider 时，清空旧配置
+    // 切换 provider 时，清空旧配置，但 ECC root 跨 hook 共享
+    const eccRoot = form.config.eccRoot
     form.config = {}
+    if (isEccProvider(id) && eccRoot) {
+      form.config.eccRoot = eccRoot
+    }
   }
 }
 
@@ -158,7 +168,20 @@ function togglePassword(key: string) {
 
 function save() {
   if (!isValid.value) return
+  // 保存 ECC root 为共享值，方便其他 ECC hook 直接使用
+  if (isEccProvider(form.providerId) && form.config.eccRoot) {
+    setSharedEccRoot(form.config.eccRoot)
+  }
   emit('apply', props.builtinId, form.providerId, { ...form.config }, form.scope)
+}
+
+// 初始化：自动选 provider 并预填共享 ECC root
+const initProvider = autoSelectProvider.value
+if (initProvider && !form.providerId) {
+  form.providerId = initProvider
+}
+if (isEccProvider(form.providerId) && !form.config.eccRoot) {
+  form.config.eccRoot = getSharedEccRoot()
 }
 </script>
 

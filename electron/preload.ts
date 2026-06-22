@@ -199,6 +199,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveHooksSettings: (hooksJson: string, scope?: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('settings:saveHooksSettings', hooksJson, scope),
 
+  // Builtin hooks
+  getBuiltinHooksRoot: (): Promise<{ success: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('settings:getBuiltinHooksRoot'),
+  checkNode: (): Promise<{ success: boolean; version?: string; error?: string }> =>
+    ipcRenderer.invoke('settings:checkNode'),
+
   getTokenUsageStats: () =>
     ipcRenderer.invoke('stats:getTokenUsage'),
 
