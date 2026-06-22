@@ -581,9 +581,16 @@ export const useAppStore = defineStore('app', () => {
   /** 补全协议: localhost/127.0.0.1/内网 IP 默认 http, 其余默认 https */
   function normalizeWebUrl(url: string): string {
     const trimmed = url.trim()
-    if (/^https?:\/\//i.test(trimmed)) return trimmed
+    if (/^(https?|file):\/\//i.test(trimmed)) return trimmed
     const isLocal = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\d{1,3}(\.\d{1,3}){3})(:\d+)?/i.test(trimmed)
     return (isLocal ? 'http://' : 'https://') + trimmed
+  }
+
+  /** 将本地文件路径转为 file:// URL 并在内置浏览器打开（用于预览 .html 等产物） */
+  function openFileInWebview(filePath: string) {
+    const normalized = filePath.replace(/\\/g, '/')
+    const url = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
+    openWebview(url)
   }
 
   function openWebview(url: string) {
@@ -807,6 +814,7 @@ export const useAppStore = defineStore('app', () => {
     setProjectRoot,
     closeProject,
     openWebview,
+    openFileInWebview,
     navigateWebview,
     goBackWebview,
     goForwardWebview,

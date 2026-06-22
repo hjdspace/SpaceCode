@@ -106,6 +106,17 @@
           <!-- Work / Code Mode Tabs -->
           <ModeTabs @select="handleModeSelect" />
 
+          <!-- Work mode toolbar: workspace switcher + reopen Artifacts -->
+          <div v-if="appStore.mode === 'work' && appStore.workWorkspaceConfirmed" class="work-bar">
+            <button class="work-bar-chip" :title="appStore.workWorkspace" @click="handleChangeWorkspace">
+              <FolderOpen :size="13" />
+              <span class="work-bar-path">{{ workWorkspaceLabel }}</span>
+            </button>
+            <button class="work-bar-btn" :title="t('artifacts.title')" @click="handleOpenArtifacts">
+              <Package :size="14" />
+            </button>
+          </div>
+
           <!-- Top Action Bar: New Conversation + Search -->
           <div class="chat-toolbar">
             <button
@@ -303,7 +314,9 @@ import {
   Activity,
   History,
   Cpu,
-  Clock
+  Clock,
+  FolderOpen,
+  Package
 } from 'lucide-vue-next'
 
 // Enhanced Components
@@ -317,6 +330,7 @@ import { api } from '@/services/electronAPI'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useFileToChat } from '@/composables/useFileToChat'
 import { pathsEqual } from '@/utils/recentProjectRoots'
+import { useDialog } from '@/composables/useDialog'
 
 interface TreeNode {
   name: string
@@ -335,6 +349,7 @@ const scmStore = useScmStore()
 const { t } = useI18n()
 const { openProjectFromPicker } = useOpenProjectWorkflow()
 const { addFileToFile } = useFileToChat()
+const { showAlert, showConfirm } = useDialog()
 
 const activeTab = ref<'explorer' | 'scm' | 'history' | 'terminal'>('history')
 // const showMcpManager = ref(false) // 已迁移到 appStore.showMCPManager
@@ -343,6 +358,23 @@ const activeTab = ref<'explorer' | 'scm' | 'history' | 'terminal'>('history')
 const filteredSessions = computed(() =>
   chatStore.sessions.filter(s => (s.mode || 'code') === appStore.mode)
 )
+
+// Work 工作区目录显示名
+const workWorkspaceLabel = computed(() => {
+  const p = appStore.workWorkspace
+  if (!p) return t('work.chooseFolder')
+  return p.split(/[\\/]/).filter(Boolean).pop() || p
+})
+
+// 重新设置 Work 工作目录（随时可改）
+function handleChangeWorkspace() {
+  appStore.showWorkOnboarding = true
+}
+
+// 重新打开 Artifacts 面板（关闭后可再次打开）
+function handleOpenArtifacts() {
+  appStore.openArtifactsPanel()
+}
 
 // 切换模式后回到历史面板（确保用户能立即看到该模式下的会话）
 function handleModeSelect(mode: 'work' | 'code') {
@@ -512,7 +544,7 @@ async function handleNewChat() {
     window.dispatchEvent(new CustomEvent('session-created'))
   } catch (error) {
     console.error('Failed to create session:', error)
-    alert(t('sidebar.failedCreateConversation'))
+    await showAlert(t('sidebar.failedCreateConversation'))
   } finally {
     creatingChat.value = false
   }
@@ -534,6 +566,12 @@ async function handleSelectSession(sessionId: string) {
     chatStore.selectSession(sessionId)
     appStore.switchToSessionTab(sessionId)
 
+    // Work 会话：恢复时自动重开 Artifacts 面板
+    const selected = chatStore.sessions.find(s => s.id === sessionId)
+    if (selected?.mode === 'work') {
+      appStore.openArtifactsPanel()
+    }
+
     // 2. 异步加载会话数据（后台操作，不阻塞UI）
     await nextTick()
 
@@ -552,7 +590,7 @@ async function handleDeleteSession(e: MouseEvent, sessionId: string) {
   e.preventDefault()
   e.stopPropagation()
 
-  if (!confirm(t('sidebar.deleteConversation'))) return
+  if (!await showConfirm(t('sidebar.deleteConversation'), { variant: 'danger' })) return
 
   try {
     const tab = appStore.centerTabs.find(t => t.sessionId === sessionId)
@@ -619,7 +657,7 @@ async function handleRemoveProject(workingDirectory: string) {
     }
   } catch (error) {
     console.error('Failed to remove project:', error)
-    alert(t('sidebar.failedRemoveProject'))
+    await showAlert(t('sidebar.failedRemoveProject'))
   }
 }
 
@@ -946,6 +984,56 @@ onUnmounted(() => {
     border: 1px solid var(--surface-border);
     border-radius: var(--radius-sm);
   }
+}
+
+// Work mode toolbar (workspace switcher + Artifacts re-open)
+.work-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 6px;
+  flex-shrink: 0;
+}
+
+.work-bar-chip {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  background: var(--surface-glass);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-family: inherit;
+
+  &:hover { color: var(--accent-primary); border-color: var(--accent-primary); }
+
+  .work-bar-path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.work-bar-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: var(--text-muted);
+  background: var(--surface-glass);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+
+  &:hover { color: var(--accent-primary); border-color: var(--accent-primary); }
 }
 
 // Enhanced History Panel Styles (CodePilot-style)

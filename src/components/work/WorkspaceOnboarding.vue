@@ -42,20 +42,27 @@ const appStore = useAppStore()
 
 const defaultPath = ref('')
 const busy = ref(false)
+// 打开时是否已确认过工作区（用于区分“首次设置”与“后续更改”）
+const wasConfirmed = ref(false)
 
 // 打开时解析默认目录用于展示
 watch(() => appStore.showWorkOnboarding, async (visible) => {
-  if (visible && !defaultPath.value) {
-    try {
-      defaultPath.value = await api.ensureDefaultWorkspace()
-    } catch { /* ignore */ }
+  if (visible) {
+    wasConfirmed.value = appStore.workWorkspaceConfirmed
+    if (!defaultPath.value) {
+      try {
+        defaultPath.value = await api.ensureDefaultWorkspace()
+      } catch { /* ignore */ }
+    }
   }
 })
 
 function finish() {
   appStore.showWorkOnboarding = false
-  // 设置完成后打开助手画廊，引导用户选择专业助手
-  appStore.showWorkGallery = true
+  // 仅在“首次设置”后引导进入助手画廊；后续更改工作区不打断当前会话
+  if (!wasConfirmed.value) {
+    appStore.showWorkGallery = true
+  }
 }
 
 async function useDefault() {

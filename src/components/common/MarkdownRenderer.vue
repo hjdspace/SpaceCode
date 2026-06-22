@@ -73,7 +73,12 @@ function transformFileLinks(html: string): string {
     'd.ts', 'd.mts', 'mts', 'mjs', 'cjs', 'cts'
   ]
 
-  const extPattern = fileExtensions.join('|').replace(/\./g, '\\.')
+  // 按长度降序排列，确保正则交替优先匹配更长的扩展名（如 html 先于 h、d.ts 先于 ts），
+  // 否则 'interactive.html' 会被截断为 'interactive.h'
+  const extPattern = [...fileExtensions]
+    .sort((a, b) => b.length - a.length)
+    .join('|')
+    .replace(/\./g, '\\.')
 
   // 无扩展名文件正则片段
   const extlessNames = Array.from(EXTENSIONLESS_FILES)

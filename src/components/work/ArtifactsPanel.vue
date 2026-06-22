@@ -45,14 +45,21 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RotateCw, PackageOpen, ExternalLink, FolderOpen } from 'lucide-vue-next'
 import { useChatStore } from '@/stores/chat'
+import { useAppStore } from '@/stores/app'
 import { api, type ArtifactEntry } from '@/services/electronAPI'
 
 const { t } = useI18n()
 const chatStore = useChatStore()
+const appStore = useAppStore()
 
 const files = ref<ArtifactEntry[]>([])
 const loading = ref(false)
 let timer: ReturnType<typeof setInterval> | null = null
+
+// 已见过的产物路径；用于检测"新生成"的可预览文件并自动打开
+const seenPaths = new Set<string>()
+let primed = false
+const PREVIEWABLE = new Set(['html', 'htm'])
 
 const workingDir = computed(() => chatStore.workingDirectory || '')
 const outputsHint = computed(() => workingDir.value ? `${workingDir.value}/outputs` : 'outputs/')
@@ -66,7 +73,19 @@ async function refresh() {
   loading.value = true
   try {
     const res = await api.artifacts.list(dir)
-    files.value = res.artifacts || []
+    const list = res.artifacts || []
+    files.value = list
+
+    // 检测新出现的可预览文件（如 .html），自动在内置浏览器打开（每个文件仅一次）
+    const fresh = list.filter(f => !seenPaths.has(f.path))
+    list.forEach(f => seenPaths.add(f.path))
+    if (primed) {
+      const preview = fresh.find(f => PREVIEWABLE.has(f.ext))
+      if (preview) {
+        appStore.openFileInWebview(preview.path)
+      }
+    }
+    primed = true
   } catch (err) {
     console.error('[Artifacts] list failed:', err)
   } finally {
@@ -102,7 +121,12 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-watch(workingDir, refresh)
+watch(workingDir, () => {
+  // 切换工作目录：重置去重状态，避免把既有文件当成新生成
+  seenPaths.clear()
+  primed = false
+  refresh()
+})
 
 onMounted(() => {
   refresh()
