@@ -98,7 +98,7 @@ const wechatTaskCompleteProviders: BuiltinHookProvider[] = [
       const title = enc(cfg.title || 'SpaceCode 任务已完成')
       const content = enc(cfg.content || '会话已结束，请查看 SpaceCode')
       // PushPlus 支持 GET 调用，跨平台 curl 兼容
-      return `curl -s -o /dev/null "http://www.pushplus.plus/send?token=${token}&title=${title}&content=${content}&template=txt"`
+      return `curl -s -o /dev/null "https://www.pushplus.plus/send?token=${token}&title=${title}&content=${content}&template=txt"`
     },
   },
   {
