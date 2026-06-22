@@ -2521,7 +2521,10 @@ export const useChatStore = defineStore('chat', () => {
     session.assistantId = assistant.name
     saveToStorage()
 
-    // 5. 启动引擎
+    // 5. 打开 Artifacts 面板（展示 outputs/ 产物）
+    appStore.openArtifactsPanel()
+
+    // 6. 启动引擎
     await initClaudeCodeSession(session.id)
     return session
   }

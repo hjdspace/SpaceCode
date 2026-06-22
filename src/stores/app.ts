@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, markRaw } from 'vue'
-import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch } from 'lucide-vue-next'
+import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch, Package } from 'lucide-vue-next'
 import { useChatStore } from './chat'
 import { useTerminalStore } from './terminal'
 import { api } from '@/services/electronAPI'
@@ -46,7 +46,7 @@ export interface InputInjectPayload {
   }
 }
 
-export type InfoPanelTabType = 'file' | 'markdown' | 'diff' | 'tool-diff' | 'webview' | 'terminal'
+export type InfoPanelTabType = 'file' | 'markdown' | 'diff' | 'tool-diff' | 'webview' | 'terminal' | 'artifacts'
 
 export interface InfoPanelTab {
   id: string
@@ -295,6 +295,18 @@ export const useAppStore = defineStore('app', () => {
   function goPanelHome() {
     infoPanelVisible.value = true
     panelHome.value = true
+  }
+
+  /** 在右侧面板打开 Work 产物（Artifacts）面板 */
+  function openArtifactsPanel() {
+    openInfoTab({
+      id: 'artifacts-panel',
+      type: 'artifacts',
+      title: 'Artifacts',
+      icon: markRaw(Package),
+      data: null,
+      closeable: true
+    })
   }
 
   /** 在右侧面板打开终端 */
@@ -779,6 +791,7 @@ export const useAppStore = defineStore('app', () => {
     toggleInfoPanel,
     goPanelHome,
     openTerminalInPanel,
+    openArtifactsPanel,
     openBlankWebview,
     showToolDiff,
     markToolActionCompleted,

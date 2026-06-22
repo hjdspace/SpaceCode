@@ -7,6 +7,14 @@ export interface FileEntry {
   isFile: boolean
 }
 
+export interface ArtifactEntry {
+  name: string
+  path: string
+  ext: string
+  size: number
+  mtime: number
+}
+
 export interface FileStat {
   size: number
   isDirectory: boolean
@@ -255,6 +263,16 @@ export const api = {
       return electronAPI.ensureDir(dirPath)
     }
     return Promise.resolve(false)
+  },
+
+  // Work artifacts (outputs/ folder)
+  artifacts: {
+    list: (workingDir: string): Promise<{ artifacts: ArtifactEntry[] }> =>
+      electronAPI?.artifacts?.list(workingDir) || Promise.resolve({ artifacts: [] }),
+    open: (filePath: string): Promise<{ success: boolean; error?: string }> =>
+      electronAPI?.artifacts?.open(filePath) || Promise.resolve({ success: false }),
+    reveal: (filePath: string): Promise<{ success: boolean }> =>
+      electronAPI?.artifacts?.reveal(filePath) || Promise.resolve({ success: false }),
   },
 
   // File selection dialog

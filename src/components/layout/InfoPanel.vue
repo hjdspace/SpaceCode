@@ -14,6 +14,8 @@
       />
       <ToolDiffViewer v-else-if="mode === 'tool-diff'" />
 
+      <ArtifactsPanel v-else-if="mode === 'artifacts'" />
+
       <TerminalPanel v-else-if="mode === 'terminal'" />
 
       <template v-else-if="mode === 'webview'">
@@ -143,6 +145,7 @@ import { useI18n } from 'vue-i18n'
 import { Loader2, ArrowLeft, ArrowRight, RotateCw, ExternalLink, Camera, MousePointerSquareDashed, ArrowUp, ChevronUp, ChevronDown } from 'lucide-vue-next'
 import InfoPanelTabBar from './InfoPanelTabBar.vue'
 import PanelLauncher from './PanelLauncher.vue'
+import ArtifactsPanel from '../work/ArtifactsPanel.vue'
 import TerminalPanel from '../terminal/TerminalPanel.vue'
 import DiffViewer from '../common/DiffViewer.vue'
 import CodeViewer from '../common/CodeViewer.vue'

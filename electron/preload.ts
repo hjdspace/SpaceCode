@@ -462,6 +462,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   ensureDir: (dirPath: string): Promise<boolean> =>
     ipcRenderer.invoke('workspace:ensureDir', dirPath),
 
+  // Work artifacts (outputs/ folder)
+  artifacts: {
+    list: (workingDir: string) => ipcRenderer.invoke('artifacts:list', workingDir),
+    open: (filePath: string) => ipcRenderer.invoke('artifacts:open', filePath),
+    reveal: (filePath: string) => ipcRenderer.invoke('artifacts:reveal', filePath),
+  },
+
   // File selection dialog
   selectFiles: (): Promise<{ canceled: boolean; filePaths: string[] }> =>
     ipcRenderer.invoke('dialog:selectFiles'),
