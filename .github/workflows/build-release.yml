@@ -19,7 +19,7 @@ jobs:
             platform: linux
             bun_target: bun-linux-x64
             bun_ext: ""
-          - os: windows-latest
+          - os: windows-2022
             platform: win
             bun_target: bun-windows-x64
             bun_ext: ".exe"
