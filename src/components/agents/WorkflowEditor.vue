@@ -14,7 +14,7 @@
         <div class="wf-info">
           <h4 class="wf-name">{{ wf.name }}</h4>
           <p class="wf-desc">{{ wf.description || t('agents.noDescription') }}</p>
-          <span class="wf-meta">{{ wf.nodes.length }} 个节点 · {{ formatDate(wf.updatedAt) }}</span>
+          <span class="wf-meta">{{ wf.nodes.length }} {{ t('workflow.nodeCount') }} · {{ formatDate(wf.updatedAt) }}</span>
         </div>
         <div class="wf-actions">
           <button class="btn btn-ghost" @click="editWorkflow(wf)">
@@ -61,7 +61,7 @@
       <div class="canvas-main">
         <!-- Left: Node palette -->
         <div class="node-sidebar">
-          <h4 class="sidebar-title">组件</h4>
+          <h4 class="sidebar-title">{{ t('workflow.components') }}</h4>
           <div class="node-type-list">
             <div
               v-for="nt in nodeTypes"
@@ -135,18 +135,18 @@
             <div class="node-header">
               <component :is="getNodeIcon(node.type)" :size="12" />
               <span class="node-label">{{ getNodeLabel(node) }}</span>
-              <button class="node-delete-btn" @click.stop="removeNode(node.id)" title="删除节点">
+              <button class="node-delete-btn" @click.stop="removeNode(node.id)" :title="t('workflow.deleteNode')">
                 <X :size="10" />
               </button>
             </div>
             <div v-if="node.type === 'agent'" class="node-body">
-              {{ node.data.agentName || '未选择 Agent' }}
+              {{ node.data.agentName || t('workflow.noAgentSelected') }}
             </div>
             <div v-else-if="node.type === 'condition'" class="node-body">
-              {{ node.data.condition || '未设置条件' }}
+              {{ node.data.condition || t('workflow.noConditionSet') }}
             </div>
             <div v-else-if="node.type === 'merge'" class="node-body">
-              {{ node.data.strategy === 'summarize' ? 'LLM 总结' : '直接拼接' }}
+              {{ node.data.strategy === 'summarize' ? t('workflow.llmSummary') : t('workflow.directConcat') }}
             </div>
           </div>
         </div>
@@ -155,7 +155,7 @@
         <div class="properties-panel" :class="{ visible: selectedNode }">
           <template v-if="selectedNode">
             <div class="panel-header">
-              <h4 class="panel-title">{{ getNodeLabel(selectedNode) }} 属性</h4>
+              <h4 class="panel-title">{{ getNodeLabel(selectedNode) }} {{ t('workflow.properties') }}</h4>
               <button class="panel-close" @click="selectedNodeId = null">
                 <X :size="14" />
               </button>
@@ -163,50 +163,50 @@
             <div class="panel-body">
               <!-- Common: label -->
               <div class="prop-group">
-                <label class="prop-label">显示名称</label>
-                <input v-model="selectedNode.data.label" class="prop-input" placeholder="自定义名称" />
+                <label class="prop-label">{{ t('workflow.displayName') }}</label>
+                <input v-model="selectedNode.data.label" class="prop-input" :placeholder="t('workflow.customNamePlaceholder')" />
               </div>
 
               <!-- Agent node -->
               <div v-if="selectedNode.type === 'agent'" class="prop-group">
-                <label class="prop-label">Agent</label>
+                <label class="prop-label">{{ t('workflow.agentLabel') }}</label>
                 <select v-model="selectedNode.data.agentName" class="prop-select">
-                  <option value="">选择 Agent</option>
+                  <option value="">{{ t('workflow.selectAgent') }}</option>
                   <option v-for="a in agentsStore.libraryAgents" :key="a.name" :value="a.name">{{ a.name }}</option>
                 </select>
-                <label class="prop-label">输入模板</label>
+                <label class="prop-label">{{ t('workflow.inputTemplate') }}</label>
                 <textarea v-model="selectedNode.data.inputTemplate" class="prop-textarea" rows="3"
-                  placeholder="可用变量：{{prevOutput}}, {{input}}" />
+                  :placeholder="t('workflow.variablesPlaceholder')" />
               </div>
 
               <!-- Condition node -->
               <div v-else-if="selectedNode.type === 'condition'" class="prop-group">
-                <label class="prop-label">条件描述</label>
+                <label class="prop-label">{{ t('workflow.conditionDesc') }}</label>
                 <textarea v-model="selectedNode.data.condition" class="prop-textarea" rows="3"
-                  placeholder="自然语言条件描述，由 LLM 判断" />
-                <div class="prop-hint">条件为真走下方第一个出口，为假走第二个出口</div>
+                  :placeholder="t('workflow.conditionPlaceholder')" />
+                <div class="prop-hint">{{ t('workflow.conditionHint') }}</div>
               </div>
 
               <!-- Merge node -->
               <div v-else-if="selectedNode.type === 'merge'" class="prop-group">
-                <label class="prop-label">合并策略</label>
+                <label class="prop-label">{{ t('workflow.mergeStrategy') }}</label>
                 <select v-model="selectedNode.data.strategy" class="prop-select">
-                  <option value="concat">直接拼接</option>
-                  <option value="summarize">LLM 总结</option>
+                  <option value="concat">{{ t('workflow.directConcat') }}</option>
+                  <option value="summarize">{{ t('workflow.llmSummary') }}</option>
                 </select>
-                <label v-if="selectedNode.data.strategy === 'summarize'" class="prop-label">总结提示词</label>
+                <label v-if="selectedNode.data.strategy === 'summarize'" class="prop-label">{{ t('workflow.summaryPrompt') }}</label>
                 <textarea
                   v-if="selectedNode.data.strategy === 'summarize'"
                   v-model="selectedNode.data.prompt"
                   class="prop-textarea" rows="2"
-                  placeholder="总结时的提示词（可选）"
+                  :placeholder="t('workflow.summaryPromptPlaceholder')"
                 />
               </div>
 
               <!-- Delete -->
               <div class="prop-group prop-actions">
                 <button class="btn btn-danger-ghost" @click="removeNode(selectedNode.id)">
-                  <Trash2 :size="12" /> 删除此节点
+                  <Trash2 :size="12" /> {{ t('workflow.deleteThisNode') }}
                 </button>
               </div>
             </div>
@@ -214,8 +214,8 @@
           <template v-else>
             <div class="panel-empty">
               <MousePointer :size="20" />
-              <p>点击节点查看属性</p>
-              <p class="panel-hint">拖拽左侧组件到画布添加节点，从节点的连接点拖到另一个节点即可连线</p>
+              <p>{{ t('workflow.clickToViewProps') }}</p>
+              <p class="panel-hint">{{ t('workflow.dragHint') }}</p>
             </div>
           </template>
         </div>
@@ -229,7 +229,7 @@
       :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
     >
       <button class="menu-item" @click="removeNode(contextMenu.nodeId!); contextMenu.visible = false">
-        <Trash2 :size="12" /> 删除节点
+        <Trash2 :size="12" /> {{ t('workflow.deleteNode') }}
       </button>
     </div>
 
@@ -299,11 +299,11 @@ const selectedNode = computed(() => {
 })
 
 const nodeTypes = [
-  { type: 'input', label: '输入', desc: '工作流入口', icon: LogIn },
-  { type: 'agent', label: 'Agent', desc: '执行 AI Agent', icon: Bot },
-  { type: 'condition', label: '条件', desc: '条件分支判断', icon: GitBranch },
-  { type: 'merge', label: '聚合', desc: '合并多个分支', icon: Merge },
-  { type: 'output', label: '输出', desc: '工作流出口', icon: LogOut },
+  { type: 'input', label: t('workflow.input'), desc: t('workflow.inputDesc'), icon: LogIn },
+  { type: 'agent', label: t('workflow.agentLabel'), desc: t('workflow.agentNode'), icon: Bot },
+  { type: 'condition', label: t('workflow.condition'), desc: t('workflow.conditionDesc2'), icon: GitBranch },
+  { type: 'merge', label: t('workflow.merge'), desc: t('workflow.mergeDesc'), icon: Merge },
+  { type: 'output', label: t('workflow.output'), desc: t('workflow.outputDesc'), icon: LogOut },
 ]
 
 let dragNodeType = ''
@@ -318,7 +318,7 @@ function getNodeIcon(type: string) {
 }
 
 function getNodeLabel(node: WorkflowNode) {
-  const labels: Record<string, string> = { input: '输入', agent: 'Agent', condition: '条件', merge: '聚合', output: '输出' }
+  const labels: Record<string, string> = { input: t('workflow.input'), agent: t('workflow.agentLabel'), condition: t('workflow.condition'), merge: t('workflow.merge'), output: t('workflow.output') }
   return node.data?.label || labels[node.type] || node.type
 }
 
@@ -343,8 +343,8 @@ function formatDate(dateStr: string) {
   const d = new Date(dateStr)
   const now = new Date()
   const diff = now.getTime() - d.getTime()
-  if (diff < 3600000) return Math.floor(diff / 60000) + ' 分钟前'
-  if (diff < 86400000) return Math.floor(diff / 3600000) + ' 小时前'
+  if (diff < 3600000) return Math.floor(diff / 60000) + ' ' + t('workflow.minutesAgo')
+  if (diff < 86400000) return Math.floor(diff / 3600000) + ' ' + t('workflow.hoursAgo')
   return d.toLocaleDateString()
 }
 
@@ -463,7 +463,7 @@ function createNewWorkflow() {
   const id = `wf-${Date.now()}`
   currentWorkflow.value = {
     id,
-    name: '新编排',
+    name: t('workflow.newWorkflow'),
     nodes: [
       { id: 'node-input', type: 'input', position: { x: 80, y: 150 }, data: {} },
       { id: 'node-output', type: 'output', position: { x: 600, y: 150 }, data: {} },
@@ -503,11 +503,11 @@ async function deleteWorkflow(id: string) {
 }
 
 async function exportWorkflow(wf: WorkflowDef) {
-  const scope = confirm('导出到全局目录？(取消则导出到项目目录)') ? 'global' : 'project'
+  const scope = confirm(t('workflow.exportGlobalConfirm')) ? 'global' : 'project'
   const cwd = appStore.projectRoot || undefined
   try {
     const result = await electronAPI?.agents?.exportWorkflow(wf.id, scope, cwd)
-    if (result) alert(`已导出到 ${result.path}`)
+    if (result) alert(t('workflow.exportSuccess', { path: result.path }))
   } catch (err) {
     console.error('Failed to export workflow:', err)
   }

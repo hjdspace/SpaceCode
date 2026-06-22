@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <main class="chat-panel">
     <SessionTabBar
       @new-session="handleNewSession"
@@ -21,8 +21,8 @@
           <button
             class="history-btn"
             @click="showHistoryModal = true"
-            title="历史会话"
-            aria-label="历史会话"
+            :title="t('chatPanel.historyConversations')"
+            :aria-label="t('chatPanel.historyConversations')"
           >
             <History :size="16" />
           </button>
@@ -74,6 +74,8 @@
                 @tool-skip="handleToolSkip"
                 @rewind="handleMessageRewind"
               />
+
+              <RecommendedPrompts />
             </template>
           </div>
 
@@ -179,7 +181,7 @@
       >
         <div class="history-modal-content">
           <div class="history-modal-header">
-            <h3>📜 恢复历史会话</h3>
+            <h3>{{ t('chatPanel.restoreHistory') }}</h3>
             <button class="history-close-btn" @click="showHistoryModal = false">×</button>
           </div>
           
@@ -188,7 +190,7 @@
             <input
               type="text"
               v-model="historySearchQuery"
-              placeholder="🔍 搜索会话标题、路径..."
+              :placeholder="t('chatPanel.searchPlaceholder')"
               class="history-search-input"
               autofocus
             />
@@ -210,15 +212,15 @@
       <div v-if="showDiffPanel" class="diff-overlay" @click.self="showDiffPanel = false">
         <div class="diff-modal">
           <div class="diff-modal-header">
-            <h3>Git Diff</h3>
+            <h3>{{ t('chatPanel.gitDiff') }}</h3>
             <button class="diff-close-btn" @click="showDiffPanel = false">×</button>
           </div>
           <div class="diff-modal-body">
             <div v-if="diffPanelLoading" class="diff-loading">
-              <p>Loading diff...</p>
+              <p>{{ t('chatPanel.loadingDiff') }}</p>
             </div>
             <div v-else-if="!diffPanelData" class="diff-empty">
-              <p>Working tree is clean or not a git repository.</p>
+              <p>{{ t('chatPanel.workingTreeClean') }}</p>
             </div>
             <DiffExplorer v-else :diffData="diffPanelData" />
           </div>
@@ -247,6 +249,7 @@ import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import { useAppStore } from '@/stores/app'
 import MessageList from '../chat/MessageList.vue'
+import RecommendedPrompts from '../chat/RecommendedPrompts.vue'
 import TeamStatusBar from '../chat/TeamStatusBar.vue'
 import TeammateTranscriptHeader from '../chat/TeammateTranscriptHeader.vue'
 import ChatInput, { type Attachment, type ImageAttachment } from '../chat/ChatInput.vue'
@@ -861,7 +864,7 @@ async function executeSlashCommand(command: string, args: string): Promise<strin
         chatStore.currentSession.messages = []
         chatStore.currentSession.title = t('common.newChat')
       }
-      return '对话已清除。'
+      return t('chatPanel.commandCleared')
 
     case 'cost':
       return generateCostMessage()
@@ -873,7 +876,7 @@ async function executeSlashCommand(command: string, args: string): Promise<strin
     case 'terminal':
       // 打开终端标签
       appStore.openTerminalTab(args || undefined)
-      return '已打开终端。'
+      return t('chatPanel.commandTerminalOpened')
 
     case 'diff':
       // 获取 git diff 并展示
@@ -883,17 +886,17 @@ async function executeSlashCommand(command: string, args: string): Promise<strin
     case 'settings':
       // 打开设置面板
       window.dispatchEvent(new CustomEvent('open-settings'))
-      return '已打开设置面板。'
+      return t('chatPanel.commandSettingsOpened')
 
     case 'skills':
       // 打开技能管理器
       window.dispatchEvent(new CustomEvent('open-skills-manager'))
-      return '已打开技能管理器。'
+      return t('chatPanel.commandSkillsOpened')
 
     case 'mcp':
       // 打开 MCP 管理器
       window.dispatchEvent(new CustomEvent('open-mcp-manager'))
-      return '已打开 MCP 服务器管理器。'
+      return t('chatPanel.commandMcpOpened')
 
     case 'rewind':
     case 'checkpoint':
@@ -904,11 +907,11 @@ async function executeSlashCommand(command: string, args: string): Promise<strin
       const currentTheme = settingsStore.appearance.theme
       const isDark = currentTheme === 'dark' || currentTheme === 'anthropic-dark'
       settingsStore.updateAppearance({ theme: isDark ? 'light' : 'dark' })
-      return isDark ? '已切换到浅色主题。' : '已切换到深色主题。'
+      return isDark ? t('chatPanel.commandThemeLight') : t('chatPanel.commandThemeDark')
     }
 
     case 'vim':
-      return 'Vim 模式切换功能开发中。'
+      return t('chatPanel.commandVimWip')
 
     case 'keybindings':
       return generateKeybindingsMessage()
@@ -924,7 +927,7 @@ async function executeSlashCommand(command: string, args: string): Promise<strin
         })
         return ''
       }
-      return `未知命令: /${command}\n输入 /help 查看可用命令。`
+      return t('chatPanel.commandUnknown', { command })
     }
   }
 }
@@ -935,25 +938,25 @@ function generateHelpMessage(): string {
   const sdk = BUILT_IN_COMMANDS.filter((c) => c.kind === 'sdk_command')
   const codepilot = BUILT_IN_COMMANDS.filter((c) => c.kind === 'codepilot_command')
 
-  return `## Available Commands
+  return `## ${t('chatPanel.helpTitle')}
 
-### Instant Commands
+### ${t('chatPanel.helpInstant')}
 ${immediate.map((c) => `- **/${c.name}** — ${c.description}`).join('\n')}
 
-### SDK Commands (sent to Claude Code)
+### ${t('chatPanel.helpSdk')}
 ${sdk.map((c) => `- **/${c.name}** — ${c.description}`).join('\n')}
 
-### CodePilot Commands (expanded before sending)
+### ${t('chatPanel.helpCodepilot')}
 ${codepilot.map((c) => `- **/${c.name}** — ${c.description}`).join('\n')}
 
-### Custom Skills
-Skills from \`~/.claude/commands/\` and project \`.claude/commands/\` are also available via \`/\`.
+### ${t('chatPanel.helpCustomSkills')}
+${t('chatPanel.helpCustomSkillsDesc')}
 
-**Tips:**
-- Type \`/\` to browse commands and skills
-- Type \`@\` to mention files
-- Use Shift+Enter for new line
-- Select a project folder to enable file operations`
+**${t('chatPanel.helpTips')}**:
+- ${t('chatPanel.helpTipBrowse')}
+- ${t('chatPanel.helpTipMention')}
+- ${t('chatPanel.helpTipNewline')}
+- ${t('chatPanel.helpTipProject')}`
 }
 
 // 获取并展示 Git Diff
@@ -962,7 +965,7 @@ async function fetchAndShowDiff() {
   if (!workingDir) {
     await chatStore.addMessage({
       role: 'assistant',
-      content: '未打开项目文件夹，无法执行 diff 命令。'
+      content: t('chatPanel.commandDiffNoProject')
     })
     return
   }
@@ -1010,59 +1013,59 @@ function generateCostMessage(): string {
   const totalTokens = totalInput + totalOutput
 
   if (turnCount === 0) {
-    return `## Token Usage\n\nNo messages yet. Send a message to see token usage estimates.`
+    return `## ${t('chatPanel.costTitle')}\n\n${t('chatPanel.costNoMessages')}`
   }
 
-  return `## Token Usage (Estimated)
+  return `## ${t('chatPanel.costTitleEstimated')}
 
-| Metric | Count |
+| ${t('chatPanel.costMetric')} | ${t('chatPanel.costCount')} |
 |--------|-------|
-| Input tokens | ${totalInput.toLocaleString()} |
-| Output tokens | ${totalOutput.toLocaleString()} |
-| **Total tokens** | **${totalTokens.toLocaleString()}** |
-| Turns | ${turnCount} |
+| ${t('chatPanel.costInputTokens')} | ${totalInput.toLocaleString()} |
+| ${t('chatPanel.costOutputTokens')} | ${totalOutput.toLocaleString()} |
+| **${t('chatPanel.costTotalTokens')}** | **${totalTokens.toLocaleString()}** |
+| ${t('chatPanel.costTurns')} | ${turnCount} |
 
-*Note: These are rough estimates based on character count. Actual token counts may vary.*`
+*${t('chatPanel.costNote')}*`
 }
 
 // 生成上下文信息
 function generateContextMessage(): string {
   const session = chatStore.currentSession
-  if (!session) return '当前没有活动会话。'
+  if (!session) return t('chatPanel.commandNoSession')
 
   const messageCount = session.messages.length
   const userMessages = session.messages.filter((m) => m.role === 'user').length
   const assistantMessages = session.messages.filter((m) => m.role === 'assistant').length
 
-  let context = `## Current Context
+  let context = `## ${t('chatPanel.contextTitle')}
 
-| Metric | Value |
+| ${t('chatPanel.contextMetric')} | ${t('chatPanel.contextValue')} |
 |--------|-------|
-| Total messages | ${messageCount} |
-| User messages | ${userMessages} |
-| Assistant messages | ${assistantMessages} |
+| ${t('chatPanel.contextTotalMessages')} | ${messageCount} |
+| ${t('chatPanel.contextUserMessages')} | ${userMessages} |
+| ${t('chatPanel.contextAssistantMessages')} | ${assistantMessages} |
 `
 
   if (session.workingDirectory) {
-    context += `| Working directory | \`${session.workingDirectory}\` |`
+    context += `| ${t('chatPanel.contextWorkingDirectory')} | \`${session.workingDirectory}\` |`
   }
 
   return context
 }
 
 function generateKeybindingsMessage(): string {
-  return `## Keyboard Shortcuts
+  return `## ${t('chatPanel.keybindingsTitle')}
 
-| Shortcut | Action |
+| ${t('chatPanel.keybindingsShortcut')} | ${t('chatPanel.keybindingsAction')} |
 |----------|--------|
-| Enter | Send message |
-| Shift+Enter | New line |
-| / | Open command palette |
-| @ | Mention file |
-| Escape | Close menu / Remove badge |
-| ↑↓ | Navigate menu |
-| Tab | Accept suggestion |
-| Ctrl+Z | Undo |`
+| Enter | ${t('chatPanel.keybindingsSendMessage')} |
+| Shift+Enter | ${t('chatPanel.keybindingsNewLine')} |
+| / | ${t('chatPanel.keybindingsCommandPalette')} |
+| @ | ${t('chatPanel.keybindingsMentionFile')} |
+| Escape | ${t('chatPanel.keybindingsCloseMenu')} |
+| ↑↓ | ${t('chatPanel.keybindingsNavigate')} |
+| Tab | ${t('chatPanel.keybindingsAcceptSuggestion')} |
+| Ctrl+Z | ${t('chatPanel.keybindingsUndo')} |`
 }
 
 // 处理打开技能管理器
@@ -1094,7 +1097,7 @@ async function handleToolSkip(messageId: string, toolId: string) {
   console.log('[ChatPanel] Tool skip:', { messageId, toolId })
 
   if (chatStore.hasPendingPermissionForToolUse(toolId)) {
-    await chatStore.denyPermission(messageId, toolId, 'User skipped the questions')
+    await chatStore.denyPermission(messageId, toolId, t('chatPanel.userSkippedQuestions'))
     return
   }
   // Fallback for legacy path
@@ -1154,7 +1157,7 @@ async function handleRestoreHistorySession(session: any) {
 
     const restoredSession = chatStore.createSession(
       session.metadata?.customTitle ||
-      (session.firstUserMessage ? session.firstUserMessage.slice(0, 60) : '历史会话恢复'),
+      (session.firstUserMessage ? session.firstUserMessage.slice(0, 60) : t('chatPanel.historyRestoreTitle')),
       session.projectPath,
       session.sessionId
     )
@@ -1289,6 +1292,7 @@ async function handleRestoreHistorySession(session: any) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
 }
 
 .chat-header {

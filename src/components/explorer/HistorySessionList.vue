@@ -1,15 +1,15 @@
 <template>
   <div class="history-session-list">
     <div v-if="loading" class="loading-state">
-      <span>加载中...</span>
+      <span>{{ t('explorer.loading') }}</span>
     </div>
 
     <div v-else-if="sessions.length === 0" class="empty-state">
-      <span>暂无历史会话</span>
+      <span>{{ t('explorer.noHistory') }}</span>
     </div>
 
     <div v-else-if="searchQuery && filteredSessions.length === 0" class="empty-state">
-      <span>未找到匹配 "{{ searchQuery }}" 的会话</span>
+      <span>{{ t('explorer.noMatchSearch', { query: searchQuery }) }}</span>
     </div>
 
     <div v-else class="session-items">
@@ -40,7 +40,7 @@
         :disabled="loadingMore"
         @click.stop="loadMore"
       >
-        {{ loadingMore ? '加载中...' : `加载更多 (${sessions.length - displayLimit})` }}
+        {{ loadingMore ? t('explorer.loading') : t('explorer.loadMore', { count: sessions.length - displayLimit }) }}
       </button>
     </div>
   </div>
@@ -48,6 +48,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 
@@ -79,6 +80,7 @@ const displayLimit = ref(20) // 初始显示数量
 const INITIAL_LIMIT = 20
 const LOAD_MORE_COUNT = 20
 
+const { t } = useI18n()
 const appStore = useAppStore()
 const chatStore = useChatStore()
 
@@ -151,19 +153,19 @@ function formatTime(timestamp?: number): string {
   const diff = now - timestamp
 
   if (diff < 60000) {
-    return '刚刚'
+    return t('explorer.justNow')
   }
 
   if (diff < 3600000) {
-    return `${Math.floor(diff / 60000)}分钟前`
+    return t('explorer.minutesAgo', { count: Math.floor(diff / 60000) })
   }
 
   if (diff < 86400000) {
-    return `${Math.floor(diff / 3600000)}小时前`
+    return t('explorer.hoursAgo', { count: Math.floor(diff / 3600000) })
   }
 
   if (diff < 604800000) {
-    return `${Math.floor(diff / 86400000)}天前`
+    return t('explorer.daysAgo', { count: Math.floor(diff / 86400000) })
   }
 
   const date = new Date(timestamp)
@@ -182,7 +184,7 @@ function getSessionTitle(session: SessionLite): string {
     const preview = session.firstUserMessage.slice(0, 60)
     return preview.length < session.firstUserMessage.length ? preview + '...' : preview
   }
-  return `Session ${(session.sessionId || session.id || '').slice(0, 8)}`
+  return t('explorer.sessionLabel', { id: (session.sessionId || session.id || '').slice(0, 8) })
 }
 
 onMounted(() => {

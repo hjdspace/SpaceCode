@@ -6,7 +6,7 @@
         <X v-else-if="toolCall.status === 'error'" :size="14" />
         <FilePlus v-else :size="14" />
       </div>
-      <span class="write-label">Write</span>
+      <span class="write-label">{{ t('toolCards.write') }}</span>
       <span class="write-path">{{ filePath }}</span>
       <span v-if="outputSummary" class="write-summary">{{ outputSummary }}</span>
       <button
@@ -20,14 +20,14 @@
     </div>
     <div v-if="isExpanded" class="write-body">
       <div v-if="toolCall.input.content" class="content-preview">
-        <div class="block-label">Content Preview</div>
+        <div class="block-label">{{ t('toolCards.writeContentPreview') }}</div>
         <pre class="code-block"><code v-html="highlightedPreview"></code></pre>
         <div v-if="previewTruncated" class="truncated-notice">
-          ... (truncated, {{ (toolCall.input.content || '').length }} total chars)
+          {{ t('toolCards.writeTruncated', { total: (toolCall.input.content || '').length }) }}
         </div>
       </div>
       <div v-if="toolCall.output" class="result-block">
-        <div class="block-label">Result</div>
+        <div class="block-label">{{ t('toolCards.writeResult') }}</div>
         <pre class="code-block"><code>{{ toolCall.output }}</code></pre>
       </div>
     </div>
@@ -49,11 +49,11 @@ const appStore = useAppStore()
 const { t } = useI18n()
 
 const statusClass = computed(() => `status-${props.toolCall.status}`)
-const filePath = computed(() => props.toolCall.input?.file_path || props.toolCall.input?.path || 'unknown')
+const filePath = computed(() => props.toolCall.input?.file_path || props.toolCall.input?.path || t('toolCards.writeUnknownFile'))
 const outputSummary = computed(() => {
   const out = props.toolCall.output || ''
-  if (out.includes('successfully')) return '✓ Written'
-  if (out.includes('Error') || out.includes('error')) return '✗ Failed'
+  if (out.includes('successfully')) return t('toolCards.writeSuccess')
+  if (out.includes('Error') || out.includes('error')) return t('toolCards.writeFailed')
   return null
 })
 const PREVIEW_MAX = 800

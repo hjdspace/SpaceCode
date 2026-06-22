@@ -16,7 +16,7 @@
         class="toggle-hidden-btn"
         :class="{ active: appStore.showHiddenFiles }"
         :title="appStore.showHiddenFiles ? t('fileTree.hideHiddenFiles') : t('fileTree.showHiddenFiles')"
-        aria-label="切换隐藏文件"
+        :aria-label="t('explorer.toggleHiddenFiles')"
         @click="toggleHiddenFiles"
       >
         <EyeOff v-if="appStore.showHiddenFiles" :size="12" />
@@ -26,7 +26,7 @@
         class="refresh-btn"
         :class="{ loading }"
         :title="t('fileTree.refresh')"
-        aria-label="刷新文件树"
+        :aria-label="t('explorer.refreshFileTree')"
         @click="refreshTree"
         :disabled="loading"
       >
@@ -250,7 +250,7 @@ async function fetchTree() {
     expandedPaths.value = new Set([rootPath])
   } catch (err) {
     if ((err as Error).name !== 'AbortError') {
-      error.value = 'Failed to load file tree'
+      error.value = t('explorer.failedLoadFileTree')
       console.error('Error loading file tree:', err)
       treeData.value = []
     }

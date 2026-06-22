@@ -8,16 +8,16 @@
         <ChevronDown :size="12" />
       </div>
       <div class="scm-actions">
-        <button class="scm-action-btn" @click="handleRefresh" :title="t('scm.refresh')" aria-label="刷新">
+        <button class="scm-action-btn" @click="handleRefresh" :title="t('scm.refresh')" :aria-label="t('scm.refreshAria')">
           <RefreshCw :size="14" :class="{ spinning: scmStore.isLoading }" />
         </button>
-        <button class="scm-action-btn" @click="handlePull" :title="t('scm.pull')" aria-label="拉取">
+        <button class="scm-action-btn" @click="handlePull" :title="t('scm.pull')" :aria-label="t('scm.pullAria')">
           <ArrowDown :size="14" />
         </button>
-        <button class="scm-action-btn" @click="handlePush" :title="t('scm.push')" aria-label="推送">
+        <button class="scm-action-btn" @click="handlePush" :title="t('scm.push')" :aria-label="t('scm.pushAria')">
           <ArrowUp :size="14" />
         </button>
-        <button class="scm-action-btn" @click="handleStash" :title="t('scm.stash')" aria-label="暂存">
+        <button class="scm-action-btn" @click="handleStash" :title="t('scm.stash')" :aria-label="t('scm.stashAria')">
           <Archive :size="14" />
         </button>
       </div>
@@ -27,7 +27,7 @@
     <div v-if="showBranchDropdown" class="branch-dropdown" @click.stop>
       <div class="branch-dropdown-header">
         <span>{{ t('scm.branches') }}</span>
-        <button class="branch-create-btn" @click="showCreateBranch = true" aria-label="新建分支">
+        <button class="branch-create-btn" @click="showCreateBranch = true" :aria-label="t('scm.newBranchAria')">
           <Plus :size="12" />
         </button>
       </div>
@@ -72,7 +72,7 @@
         ></textarea>
         <button
           class="ai-commit-btn"
-          title="AI 生成提交消息"
+          :title="t('scm.aiCommitMessage')"
           @click="handleGenerateCommitMessage"
           :class="{ generating: scmStore.isGeneratingCommitMessage }"
         >
@@ -84,7 +84,7 @@
           class="commit-btn primary"
           @click="handleCommit()"
         >
-          <Check :size="14" /> 提交
+          <Check :size="14" /> {{ t('scm.commitButton') }}
         </button>
         <div class="dropdown-wrapper">
           <button
@@ -123,16 +123,16 @@
           <ChevronRight :size="12" :class="{ rotated: !stagedCollapsed }" />
           <span class="group-title">{{ t('scm.changes') }}</span>
           <div class="group-actions-right">
-            <button class="group-icon-btn" :title="t('scm.discardAllChanges')" @click.stop="handleDiscardAll" aria-label="放弃所有更改">
+            <button class="group-icon-btn" :title="t('scm.discardAllChanges')" @click.stop="handleDiscardAll" :aria-label="t('scm.discardAllAria')">
               <Trash2 :size="14" />
             </button>
-            <button class="group-icon-btn" :title="t('scm.stageAllChanges')" @click.stop="handleStageAll" aria-label="暂存所有更改">
+            <button class="group-icon-btn" :title="t('scm.stageAllChanges')" @click.stop="handleStageAll" :aria-label="t('scm.stageAllAria')">
               <Check :size="14" />
             </button>
-            <button class="group-icon-btn" :title="t('scm.refresh')" @click.stop="handleRefresh" aria-label="刷新">
+            <button class="group-icon-btn" :title="t('scm.refresh')" @click.stop="handleRefresh" :aria-label="t('scm.refreshAria')">
               <RefreshCw :size="14" />
             </button>
-            <button class="group-icon-btn more" :title="t('scm.moreActions')" @click.stop="showMoreMenu = !showMoreMenu" aria-label="更多操作">
+            <button class="group-icon-btn more" :title="t('scm.moreActions')" @click.stop="showMoreMenu = !showMoreMenu" :aria-label="t('scm.moreActionsAria')">
               <MoreHorizontal :size="14" />
             </button>
           </div>
@@ -153,9 +153,9 @@
               <span class="file-name" :title="file.path">{{ getFileName(file.path) }}</span>
               <span class="file-path-truncated" :title="file.path">{{ truncatePath(file.path) }}</span>
               <div class="file-actions">
-                <button class="file-action-btn" @click.stop="handleCopyPath(file)" :title="t('scm.copyPath')" aria-label="复制路径"><Copy :size="12" /></button>
-                <button class="file-action-btn" @click.stop="handleUnstage(file)" :title="t('scm.unstage')" aria-label="取消暂存"><Undo2 :size="12" /></button>
-                <button class="file-action-btn" @click.stop="handleStage(file)" :title="t('scm.stage')" aria-label="暂存"><Plus :size="12" /></button>
+                <button class="file-action-btn" @click.stop="handleCopyPath(file)" :title="t('scm.copyPath')" :aria-label="t('scm.copyPathAria')"><Copy :size="12" /></button>
+                <button class="file-action-btn" @click.stop="handleUnstage(file)" :title="t('scm.unstage')" :aria-label="t('scm.unstageAria')"><Undo2 :size="12" /></button>
+                <button class="file-action-btn" @click.stop="handleStage(file)" :title="t('scm.stage')" :aria-label="t('scm.stageAria')"><Plus :size="12" /></button>
               </div>
             </div>
           </template>
@@ -174,9 +174,9 @@
               <span class="file-name" :title="file.path">{{ getFileName(file.path) }}</span>
               <span class="file-path-truncated" :title="file.path">{{ truncatePath(file.path) }}</span>
               <div class="file-actions">
-                  <button class="file-action-btn" @click.stop="handleCopyPath(file)" :title="t('scm.copyPath')" aria-label="复制路径"><Copy :size="12" /></button>
-                  <button class="file-action-btn discard" @click.stop="handleDiscard(file)" :title="t('scm.discardChanges')" aria-label="放弃更改"><Undo2 :size="12" /></button>
-                  <button class="file-action-btn" @click.stop="handleStage(file)" :title="t('scm.stage')" aria-label="暂存"><Plus :size="12" /></button>
+                  <button class="file-action-btn" @click.stop="handleCopyPath(file)" :title="t('scm.copyPath')" :aria-label="t('scm.copyPathAria')"><Copy :size="12" /></button>
+                  <button class="file-action-btn discard" @click.stop="handleDiscard(file)" :title="t('scm.discardChanges')" :aria-label="t('scm.discardChangesAria')"><Undo2 :size="12" /></button>
+                  <button class="file-action-btn" @click.stop="handleStage(file)" :title="t('scm.stage')" :aria-label="t('scm.stageAria')"><Plus :size="12" /></button>
                 </div>
             </div>
             <div
@@ -191,7 +191,7 @@
               <span class="file-name" :title="file.path">{{ getFileName(file.path) }}</span>
               <span class="file-path-truncated" :title="file.path">{{ truncatePath(file.path) }}</span>
               <div class="file-actions">
-                  <button class="file-action-btn" @click.stop="handleStage(file)" :title="t('scm.stage')" aria-label="暂存"><Plus :size="12" /></button>
+                  <button class="file-action-btn" @click.stop="handleStage(file)" :title="t('scm.stage')" :aria-label="t('scm.stageAria')"><Plus :size="12" /></button>
                 </div>
             </div>
           </template>
@@ -205,7 +205,7 @@
       <div v-if="scmStore.conflicted.length > 0" class="change-group conflicts">
         <div class="group-header" @click="conflictsCollapsed = !conflictsCollapsed">
           <ChevronRight :size="12" :class="{ rotated: !conflictsCollapsed }" />
-          <span class="group-title conflict-title">合并冲突</span>
+          <span class="group-title conflict-title">{{ t('scm.mergeConflicts') }}</span>
           <span class="group-count conflict-count">{{ scmStore.conflicted.length }}</span>
         </div>
         <div v-show="!conflictsCollapsed" class="group-content">
@@ -237,32 +237,32 @@
     >
       <div class="graph-header" @click="graphCollapsed = !graphCollapsed">
         <ChevronRight :size="12" :class="{ rotated: !graphCollapsed }" />
-        <span class="graph-title">图形</span>
+        <span class="graph-title">{{ t('scm.graph') }}</span>
         <div class="graph-toolbar">
-          <button class="graph-tool-btn" :class="{ active: graphViewMode === 'auto' }" @click.stop="graphViewMode = 'auto'" title="Auto Layout">
+          <button class="graph-tool-btn" :class="{ active: graphViewMode === 'auto' }" @click.stop="graphViewMode = 'auto'" :title="t('scm.auto')">
             <GitMerge :size="13" />
-            <span>自动</span>
+            <span>{{ t('scm.auto') }}</span>
           </button>
-          <button class="graph-tool-btn" :class="{ active: graphViewMode === 'linear' }" @click.stop="graphViewMode = 'linear'" title="Linear" aria-label="线性视图">
+          <button class="graph-tool-btn" :class="{ active: graphViewMode === 'linear' }" @click.stop="graphViewMode = 'linear'" :title="t('scm.linearViewAria')" :aria-label="t('scm.linearViewAria')">
             <CircleDot :size="13" />
           </button>
-          <button class="graph-tool-btn" @click.stop="handleFetchAll" title="Fetch All" aria-label="获取全部">
+          <button class="graph-tool-btn" @click.stop="handleFetchAll" :title="t('scm.fetchAllAria')" :aria-label="t('scm.fetchAllAria')">
             <ArrowDownToLine :size="13" />
           </button>
-          <button class="graph-tool-btn" @click.stop="handlePull" title="Pull" aria-label="拉取">
+          <button class="graph-tool-btn" @click.stop="handlePull" :title="t('scm.pullAria2')" :aria-label="t('scm.pullAria2')">
             <ArrowDown :size="13" />
           </button>
-          <button class="graph-tool-btn" @click.stop="handlePush" title="Push" aria-label="推送">
+          <button class="graph-tool-btn" @click.stop="handlePush" :title="t('scm.pushAria2')" :aria-label="t('scm.pushAria2')">
             <ArrowUp :size="13" />
           </button>
-          <button class="graph-tool-btn" @click.stop="handleRefreshGraph" title="Refresh Graph" aria-label="刷新图形">
+          <button class="graph-tool-btn" @click.stop="handleRefreshGraph" :title="t('scm.refreshGraphAria')" :aria-label="t('scm.refreshGraphAria')">
             <RefreshCw :size="13" :class="{ spinning: graphLoading }" />
           </button>
         </div>
       </div>
       <div v-show="!graphCollapsed" class="graph-content">
-        <div v-if="graphLoading" class="graph-loading">加载中...</div>
-        <div v-else-if="scmStore.log.length === 0 && scmStore.isRepo" class="no-commits">没有提交记录</div>
+        <div v-if="graphLoading" class="graph-loading">{{ t('scm.loadingCommits') }}</div>
+        <div v-else-if="scmStore.log.length === 0 && scmStore.isRepo" class="no-commits">{{ t('scm.noCommits') }}</div>
         <div v-else class="commit-graph-list">
           <div
             v-for="(entry, idx) in scmStore.log"
@@ -303,8 +303,8 @@
       <div class="empty-icon">
         <GitBranch :size="28" />
       </div>
-      <h4>源代码管理</h4>
-      <p>若要查看更改建议，请打开文件夹。</p>
+      <h4>{{ t('scm.scmTitle') }}</h4>
+      <p>{{ t('scm.scmOpenFolder') }}</p>
     </div>
 
     <!-- Error -->
@@ -319,32 +319,32 @@
         <Check :size="12" /> {{ t('scm.stageAllChanges') }}
       </button>
       <button class="more-menu-item" @click="handleUnstageAll(); showMoreMenu = false">
-        <Undo2 :size="12" /> 取消暂存所有更改
+        <Undo2 :size="12" /> {{ t('scm.unstageAll') }}
       </button>
       <button class="more-menu-item danger" @click="handleDiscardAll(); showMoreMenu = false">
-        <Trash2 :size="12" /> 丢弃所有更改
+        <Trash2 :size="12" /> {{ t('scm.discardAll') }}
       </button>
       <div class="more-menu-divider"></div>
       <button class="more-menu-item" @click="handleRefresh(); showMoreMenu = false">
-        <RefreshCw :size="12" /> 刷新状态
+        <RefreshCw :size="12" /> {{ t('scm.refreshStatus') }}
       </button>
     </div>
 
     <!-- Create branch dialog -->
     <div v-if="showCreateBranch" class="create-branch-dialog" @click.self="showCreateBranch = false">
       <div class="dialog-content">
-        <h4>创建分支</h4>
+        <h4>{{ t('scm.createBranch') }}</h4>
         <input
           v-model="newBranchName"
           class="branch-name-input"
-          placeholder="分支名称"
+          :placeholder="t('scm.branchNamePlaceholder')"
           @keydown.enter="handleCreateBranch"
           ref="branchInput"
         />
         <div class="dialog-actions">
           <button class="dialog-btn cancel" @click="showCreateBranch = false">{{ t('common.cancel') }}</button>
           <button class="dialog-btn create" :disabled="!newBranchName.trim()" @click="handleCreateBranch">
-            创建并切换
+            {{ t('scm.createAndSwitch') }}
           </button>
         </div>
       </div>
@@ -572,7 +572,7 @@ async function handleDiscardAll(): Promise<void> {
   ]
   if (allPaths.length === 0) return
   // Confirm before discarding
-  if (!confirm(`确定要丢弃 ${allPaths.length} 个文件的更改吗？此操作不可恢复。`)) return
+  if (!confirm(t('scm.confirmDiscard', { count: allPaths.length }))) return
   await scmStore.discardFileChanges(allPaths)
 }
 

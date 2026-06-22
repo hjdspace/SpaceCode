@@ -22,7 +22,7 @@
             class="nav-btn"
             @click="handleGoBack"
             :disabled="!canGoBack"
-            title="后退"
+            :title="t('infoPanel.back')"
           >
             <ArrowLeft :size="14" />
           </button>
@@ -30,14 +30,14 @@
             class="nav-btn"
             @click="handleGoForward"
             :disabled="!canGoForward"
-            title="前进"
+            :title="t('infoPanel.forward')"
           >
             <ArrowRight :size="14" />
           </button>
           <button
             class="nav-btn"
             @click="handleRefresh"
-            title="刷新"
+            :title="t('infoPanel.refresh')"
           >
             <RotateCw :size="14" />
           </button>
@@ -46,7 +46,7 @@
             <input
               v-model="urlInput"
               @keyup.enter="handleNavigate"
-              placeholder="输入网址..."
+              :placeholder="t('infoPanel.urlPlaceholder')"
               class="url-input"
               type="text"
             />
@@ -55,7 +55,7 @@
           <button
             class="nav-btn external-btn"
             @click="handleOpenInBrowser"
-            title="在系统浏览器中打开"
+            :title="t('infoPanel.openInBrowser')"
           >
             <ExternalLink :size="14" />
           </button>
@@ -96,11 +96,11 @@
 
           <div v-if="appStore.isLoading" class="loading-overlay">
             <Loader2 :size="24" class="spin-icon" />
-            <span>正在加载...</span>
+            <span>{{ t('infoPanel.loading') }}</span>
           </div>
 
           <div v-if="!appStore.webviewUrl" class="empty-webview">
-            <p>点击聊天中的链接在此处查看网页</p>
+            <p>{{ t('infoPanel.clickLinkHint') }}</p>
           </div>
 
           <!-- 选中元素后的评论浮条 -->
@@ -109,10 +109,10 @@
               <span class="meta-tag">&lt;{{ selection.tagName }}{{ selection.idClass }}&gt;</span>
               <span class="meta-dim">{{ selection.rect.width }}×{{ selection.rect.height }}</span>
               <div class="meta-nav">
-                <button class="nav-mini" @click="moveSelection('up')" title="选父级元素">
+                <button class="nav-mini" @click="moveSelection('up')" :title="t('infoPanel.selectParent')">
                   <ChevronUp :size="14" />
                 </button>
-                <button class="nav-mini" @click="moveSelection('down')" title="选子级元素">
+                <button class="nav-mini" @click="moveSelection('down')" :title="t('infoPanel.selectChild')">
                   <ChevronDown :size="14" />
                 </button>
               </div>

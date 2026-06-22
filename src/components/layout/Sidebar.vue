@@ -1,5 +1,5 @@
 <template>
-  <aside class="sidebar" :class="{ collapsed: props.collapsed }" :data-collapsed="props.collapsed" aria-label="侧边栏导航">
+  <aside class="sidebar" :class="{ collapsed: props.collapsed }" :data-collapsed="props.collapsed" :aria-label="t('sidebar.sidebarNav')">
     <!-- Icon Navigation Rail (CodePilot-style) -->
     <div class="sidebar-icons" :class="{ 'mac-icons': isMac }">
       <!-- New Chat Button (Top) -->
@@ -8,7 +8,7 @@
         :disabled="creatingChat"
         @click="handleNewChat"
         :title="t('sidebar.newConversation')"
-        aria-label="新建会话"
+        :aria-label="t('sidebar.newSession')"
       >
         <Plus :size="20" />
         <span class="icon-label">{{ t('sidebar.new') }}</span>
@@ -22,7 +22,7 @@
         :class="{ active: activeTab === 'history' }"
         @click="handleTabClick('history')"
         :title="t('sidebar.chatHistory')"
-        aria-label="聊天记录"
+        :aria-label="t('sidebar.chatHistory')"
       >
         <MessageSquare :size="20" />
         <span class="icon-label">{{ t('sidebar.chats') }}</span>
@@ -34,7 +34,7 @@
         :class="{ active: activeTab === 'explorer' }"
         @click="handleTabClick('explorer')"
         :title="t('sidebar.explorer')"
-        aria-label="文件浏览器"
+        :aria-label="t('sidebar.fileExplorer')"
       >
         <FolderTree :size="20" />
         <span class="icon-label">{{ t('sidebar.explorer') }}</span>
@@ -46,7 +46,7 @@
         :class="{ active: activeTab === 'scm' }"
         @click="handleTabClick('scm')"
         :title="t('sidebar.sourceControl')"
-        aria-label="源代码管理"
+        :aria-label="t('sidebar.sourceControl')"
       >
         <GitBranch :size="20" />
         <span v-if="scmStore.totalChanges > 0" class="scm-badge" aria-hidden="true">
@@ -61,7 +61,7 @@
         :class="{ active: activeTab === 'terminal' }"
         @click="handleTerminalClick"
         :title="t('sidebar.terminal')"
-        aria-label="终端"
+        :aria-label="t('sidebar.terminal')"
       >
         <TerminalIcon :size="20" />
         <span class="icon-label">{{ t('sidebar.terminal') }}</span>
@@ -73,7 +73,7 @@
         :class="{ active: appStore.showTraceViewer }"
         @click="toggleTraceViewer"
         :title="t('sidebar.debugTrace')"
-        aria-label="调试追踪"
+        :aria-label="t('sidebar.debugTrace')"
       >
         <Activity :size="20" />
         <span class="icon-label">{{ t('sidebar.debugTrace') }}</span>
@@ -88,7 +88,7 @@
         :class="{ active: appStore.showSettings }"
         @click="appStore.toggleSettings()"
         :title="t('sidebar.settings')"
-        aria-label="设置"
+        :aria-label="t('sidebar.settings')"
       >
         <Settings :size="20" />
         <span class="icon-label">{{ t('sidebar.settings') }}</span>
@@ -102,6 +102,9 @@
         <div v-show="activeTab === 'history'" key="history" class="panel history-panel">
           <!-- macOS Traffic Lights Spacing -->
           <div class="traffic-lights-spacer" :class="{ 'mac-spacer': isMac }"></div>
+
+          <!-- Work / Code Mode Tabs -->
+          <ModeTabs @select="handleModeSelect" />
 
           <!-- Top Action Bar: New Conversation + Search -->
           <div class="chat-toolbar">
@@ -117,7 +120,7 @@
             <button
               class="search-btn"
               :title="t('sidebar.searchConversations')"
-              aria-label="搜索会话"
+              :aria-label="t('sidebar.searchSession')"
               @click="handleOpenSearch"
             >
               <Search :size="14" />
@@ -179,7 +182,7 @@
           <!-- Session List with Enhanced Features -->
           <div class="session-list-container">
             <SessionList
-              :sessions="chatStore.sessions"
+              :sessions="filteredSessions"
               :active-id="chatStore.currentSessionId || undefined"
               :active-streaming-sessions="streamingSessions"
               :pending-approval-sessions="pendingApprovalSessions"
@@ -241,7 +244,7 @@
                 class="terminal-action-btn"
                 @click="handleNewTerminal"
                 :title="t('sidebar.terminal')"
-                aria-label="新建终端"
+                :aria-label="t('sidebar.newTerminal')"
               >
                 <Plus :size="14" />
               </button>
@@ -279,7 +282,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useChatStore } from '@/stores/chat'
 import { useAppStore } from '@/stores/app'
@@ -304,6 +307,7 @@ import {
 } from 'lucide-vue-next'
 
 // Enhanced Components
+import ModeTabs from './ModeTabs.vue'
 import SessionList from '../explorer/SessionList.vue'
 import FileTree from '../explorer/FileTree.vue'
 import ScmPanel from '../scm/ScmPanel.vue'
@@ -334,6 +338,25 @@ const { addFileToFile } = useFileToChat()
 
 const activeTab = ref<'explorer' | 'scm' | 'history' | 'terminal'>('history')
 // const showMcpManager = ref(false) // 已迁移到 appStore.showMCPManager
+
+// 按当前 Work/Code 模式过滤会话列表（旧会话无 mode 字段时视为 'code'）
+const filteredSessions = computed(() =>
+  chatStore.sessions.filter(s => (s.mode || 'code') === appStore.mode)
+)
+
+// 切换模式后回到历史面板（确保用户能立即看到该模式下的会话）
+function handleModeSelect(mode: 'work' | 'code') {
+  activeTab.value = 'history'
+  if (mode === 'work') {
+    // 首次进入 Work：引导设置工作区；否则关闭可能打开的画廊
+    if (!appStore.workWorkspaceConfirmed) {
+      appStore.showWorkOnboarding = true
+    }
+  } else {
+    // 回到 Code：关闭 Work 专属视图
+    appStore.showWorkGallery = false
+  }
+}
 
 // Platform detection for titlebar spacing
 const platform = typeof window !== 'undefined' && window.electronAPI?.platform
@@ -464,6 +487,16 @@ async function handleFileSelect(node: TreeNode) {
 
 // Enhanced Session Management (CodePilot-style)
 async function handleNewChat() {
+  // Work 模式：新建会话 = 选择专业助手（先确保工作区已设置）
+  if (appStore.mode === 'work') {
+    if (!appStore.workWorkspaceConfirmed) {
+      appStore.showWorkOnboarding = true
+    } else {
+      appStore.showWorkGallery = true
+    }
+    return
+  }
+
   creatingChat.value = true
 
   try {
@@ -479,7 +512,7 @@ async function handleNewChat() {
     window.dispatchEvent(new CustomEvent('session-created'))
   } catch (error) {
     console.error('Failed to create session:', error)
-    alert('Failed to create new conversation. Please try again.')
+    alert(t('sidebar.failedCreateConversation'))
   } finally {
     creatingChat.value = false
   }
@@ -497,6 +530,7 @@ async function handleSelectSession(sessionId: string) {
 
   try {
     // 1. 立即切换UI状态（同步操作，<1ms）
+    appStore.showWorkGallery = false
     chatStore.selectSession(sessionId)
     appStore.switchToSessionTab(sessionId)
 
@@ -585,7 +619,7 @@ async function handleRemoveProject(workingDirectory: string) {
     }
   } catch (error) {
     console.error('Failed to remove project:', error)
-    alert('Failed to remove project. Please try again.')
+    alert(t('sidebar.failedRemoveProject'))
   }
 }
 

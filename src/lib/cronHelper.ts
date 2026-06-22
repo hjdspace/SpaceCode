@@ -3,11 +3,12 @@
  * These are simplified parsers — the backend handles the authoritative scheduling.
  */
 
-const WEEKDAY_NAMES = ['日', '一', '二', '三', '四', '五', '六']
-const WEEKDAY_NAMES_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+import { i18n } from '@/i18n'
+
+const t = i18n.global.t.bind(i18n.global)
 
 /**
- * Convert a 5-field cron expression to a human-readable Chinese description.
+ * Convert a 5-field cron expression to a human-readable description.
  * Supports common patterns: every minute, hourly, daily, weekly, monthly, specific times.
  */
 export function cronToHuman(cron: string): string {
@@ -19,48 +20,49 @@ export function cronToHuman(cron: string): string {
 
   // Every minute: * * * * *
   if (minute === '*' && hour === '*' && dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
-    return '每分钟'
+    return t('cronHelper.everyMinute')
   }
 
   // Every N minutes: */N * * * *
   if (minute.startsWith('*/') && hour === '*' && dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
     const n = minute.slice(2)
-    return `每 ${n} 分钟`
+    return t('cronHelper.everyNMinutes', { n })
   }
 
   // Every hour at minute M: M * * * *
   if (minute !== '*' && hour === '*' && dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
-    return `每小时 :${minute.padStart(2, '0')}`
+    return t('cronHelper.hourlyAt', { minute: minute.padStart(2, '0') })
   }
 
   // Every day at HH:MM: M H * * *
   if (minute !== '*' && hour !== '*' && dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
-    return `每天 ${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`
+    return t('cronHelper.dailyAt', { hour: hour.padStart(2, '0'), minute: minute.padStart(2, '0') })
   }
 
   // Weekdays at HH:MM: M H * * 1-5
   if (minute !== '*' && hour !== '*' && dayOfMonth === '*' && month === '*' && dayOfWeek === '1-5') {
-    return `工作日 ${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`
+    return t('cronHelper.weekdayAt', { hour: hour.padStart(2, '0'), minute: minute.padStart(2, '0') })
   }
 
   // Specific day of week at HH:MM: M H * * N
   if (minute !== '*' && hour !== '*' && dayOfMonth === '*' && month === '*' && dayOfWeek !== '*') {
     const dayNum = parseInt(dayOfWeek, 10)
+    const weekdays = t('cronHelper.weekdays') as unknown as string[]
     if (!isNaN(dayNum) && dayNum >= 0 && dayNum <= 6) {
-      return `每${WEEKDAY_NAMES[dayNum]} ${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`
+      return t('cronHelper.everyWeekday', { weekday: weekdays[dayNum], hour: hour.padStart(2, '0'), minute: minute.padStart(2, '0') })
     }
     // Range like 1-5 already handled above, fallback
-    return `每周${dayOfWeek} ${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`
+    return t('cronHelper.weeklyOn', { weekday: dayOfWeek, hour: hour.padStart(2, '0'), minute: minute.padStart(2, '0') })
   }
 
   // Monthly on day D at HH:MM: M H D * *
   if (minute !== '*' && hour !== '*' && dayOfMonth !== '*' && month === '*' && dayOfWeek === '*') {
-    return `每月 ${dayOfMonth}日 ${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`
+    return t('cronHelper.monthlyOn', { day: dayOfMonth, hour: hour.padStart(2, '0'), minute: minute.padStart(2, '0') })
   }
 
   // Specific date: M H D M * (one-shot like)
   if (minute !== '*' && hour !== '*' && dayOfMonth !== '*' && month !== '*' && dayOfWeek === '*') {
-    return `${month}月${dayOfMonth}日 ${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`
+    return t('cronHelper.yearlyOn', { month, day: dayOfMonth, hour: hour.padStart(2, '0'), minute: minute.padStart(2, '0') })
   }
 
   // Fallback: return the raw expression
@@ -144,7 +146,7 @@ function matchesField(field: string, value: number, min: number, max: number): b
 }
 
 /**
- * Format a Date as a relative or absolute "next fire" string in Chinese.
+ * Format a Date as a relative or absolute "next fire" string.
  */
 export function formatNextFire(date: Date | null): string {
   if (!date) return ''
@@ -153,30 +155,31 @@ export function formatNextFire(date: Date | null): string {
   const diffMs = date.getTime() - now.getTime()
   const diffMin = Math.round(diffMs / 60000)
 
-  if (diffMin < 1) return '即将执行'
-  if (diffMin < 60) return `${diffMin} 分钟后`
+  if (diffMin < 1) return t('cronHelper.upcoming')
+  if (diffMin < 60) return t('cronHelper.inNMinutes', { count: diffMin })
 
   const diffHours = Math.floor(diffMin / 60)
   if (diffHours < 24) {
     const isToday = date.getDate() === now.getDate() && date.getMonth() === now.getMonth()
     if (isToday) {
-      return `今天 ${pad(date.getHours())}:${pad(date.getMinutes())}`
+      return t('cronHelper.todayAt', { time: `${pad(date.getHours())}:${pad(date.getMinutes())}` })
     }
-    return `${diffHours} 小时后`
+    return t('cronHelper.inNHours', { count: diffHours })
   }
 
   const diffDays = Math.floor(diffHours / 24)
   if (diffDays === 1) {
-    return `明天 ${pad(date.getHours())}:${pad(date.getMinutes())}`
+    return t('cronHelper.tomorrowAt', { time: `${pad(date.getHours())}:${pad(date.getMinutes())}` })
   }
 
   if (diffDays < 7) {
-    return `${WEEKDAY_NAMES_EN[date.getDay()]} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+    const weekdays = t('cronHelper.weekdays') as unknown as string[]
+    return `${weekdays[date.getDay()]} ${pad(date.getHours())}:${pad(date.getMinutes())}`
   }
 
   // Same year
   if (date.getFullYear() === now.getFullYear()) {
-    return `${date.getMonth() + 1}月${date.getDate()}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`
+    return t('cronHelper.dateAt', { month: date.getMonth() + 1, day: date.getDate(), time: `${pad(date.getHours())}:${pad(date.getMinutes())}` })
   }
 
   return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${pad(date.getHours())}:${pad(date.getMinutes())}`

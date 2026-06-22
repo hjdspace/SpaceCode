@@ -9,44 +9,44 @@
 
     <div class="detail-body">
       <div class="detail-section">
-        <span class="label">描述</span>
+        <span class="label">{{ t('agentDetail.description') }}</span>
         <p class="value">{{ agent.description }}</p>
       </div>
 
       <div class="detail-row">
         <div class="detail-item">
-          <span class="label">模型</span>
+          <span class="label">{{ t('agentDetail.model') }}</span>
           <span class="value">{{ agent.model || 'inherit' }}</span>
         </div>
         <div class="detail-item">
-          <span class="label">分类</span>
+          <span class="label">{{ t('agentDetail.category') }}</span>
           <span class="value">{{ categoryLabel }}</span>
         </div>
       </div>
 
       <div v-if="agent.tools?.length" class="detail-section">
-        <span class="label">工具</span>
+        <span class="label">{{ t('agentDetail.tools') }}</span>
         <div class="tools-list">
           <span v-for="tool in agent.tools" :key="tool" class="tool-tag">{{ tool }}</span>
         </div>
       </div>
 
       <div class="detail-section">
-        <span class="label">Prompt 预览</span>
+        <span class="label">{{ t('agentDetail.promptPreview') }}</span>
         <pre class="prompt-preview">{{ promptBody }}</pre>
       </div>
     </div>
 
     <div class="install-section">
-      <span class="label">安装范围</span>
+      <span class="label">{{ t('agentDetail.installScope') }}</span>
       <div class="scope-options">
           <label class="scope-option" :class="{ active: scope === 'global' }">
             <input type="radio" v-model="scope" value="global" />
-            <span>全局 (~/.claude/agents/)</span>
+            <span>{{ t('agentDetail.globalScope') }}</span>
           </label>
           <label class="scope-option" :class="{ active: scope === 'project' }">
             <input type="radio" v-model="scope" value="project" />
-            <span>项目 (.claude/agents/)</span>
+            <span>{{ t('agentDetail.projectScope') }}</span>
           </label>
         </div>
         <button
@@ -57,12 +57,12 @@
         >
           <Loader2 v-if="agentsStore.installingName === agent.name" :size="14" class="spin" />
           <Download v-else :size="14" />
-          安装 Agent
+          {{ t('agentDetail.installAgent') }}
         </button>
         <div v-else class="installed-info">
           <CheckCircle :size="14" />
-          <span>已安装（{{ agent.installedScope === 'global' ? '全局' : '项目' }}）</span>
-          <button class="btn btn-danger" @click="handleUninstall">卸载</button>
+          <span>{{ t('agentDetail.installed', { scope: agent.installedScope === 'global' ? t('agentDetail.globalScope') : t('agentDetail.projectScope') }) }}</span>
+          <button class="btn btn-danger" @click="handleUninstall">{{ t('agentDetail.uninstall') }}</button>
         </div>
       </div>
   </div>
@@ -70,6 +70,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ArrowLeft, Download, CheckCircle, Loader2 } from 'lucide-vue-next'
 import { useAgentsStore, AGENT_CATEGORIES, type AgentDef } from '@/stores/agents'
 import { useAppStore } from '@/stores/app'
@@ -77,12 +78,14 @@ import { useAppStore } from '@/stores/app'
 const props = defineProps<{ agent: AgentDef }>()
 defineEmits<{ back: [] }>()
 
+const { t } = useI18n()
+
 const agentsStore = useAgentsStore()
 const appStore = useAppStore()
 const scope = ref<'global' | 'project'>('project')
 
 const categoryLabel = computed(() =>
-  AGENT_CATEGORIES.find(c => c.id === props.agent.category)?.label || '通用'
+  AGENT_CATEGORIES.find(c => c.id === props.agent.category)?.label || t('agentDetail.general')
 )
 
 const promptBody = computed(() => {

@@ -6,7 +6,7 @@
         <X v-else-if="toolCall.status === 'error'" :size="14" />
         <Globe v-else :size="14" />
       </div>
-      <span class="fetch-label">WebFetch</span>
+      <span class="fetch-label">{{ t('toolCards.webFetch') }}</span>
       <span class="fetch-url">{{ urlDisplay }}</span>
       <button
         class="panel-btn"
@@ -19,11 +19,11 @@
     </div>
     <div v-if="isExpanded" class="fetch-body">
       <div v-if="prompt" class="fetch-prompt">
-        <div class="block-label">Prompt</div>
+        <div class="block-label">{{ t('toolCards.webFetchPrompt') }}</div>
         <p class="prompt-text">{{ prompt }}</p>
       </div>
       <div v-if="toolCall.output" class="fetch-content">
-        <div class="block-label">Fetched Content</div>
+        <div class="block-label">{{ t('toolCards.webFetchContent') }}</div>
         <pre class="content-preview"><code>{{ truncatedContent }}</code></pre>
       </div>
     </div>
@@ -54,7 +54,7 @@ const prompt = computed(() => props.toolCall.input?.prompt || '')
 const MAX_CONTENT = 3000
 const truncatedContent = computed(() => {
   const c = props.toolCall.output || ''
-  return c.length > MAX_CONTENT ? c.slice(0, MAX_CONTENT) + '\n... (truncated)' : c
+  return c.length > MAX_CONTENT ? c.slice(0, MAX_CONTENT) + '\n' + t('toolCards.webFetchTruncated') : c
 })
 function toggleExpand() { isExpanded.value = !isExpanded.value }
 

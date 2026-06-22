@@ -2,7 +2,7 @@
   <div class="session-list">
     <!-- Empty State -->
     <div v-if="projectGroups.length === 0" class="empty-state">
-      <span>暂无会话</span>
+      <span>{{ t('explorer.noSessions') }}</span>
     </div>
 
     <!-- Project Groups -->
@@ -66,7 +66,7 @@
                 class="show-more-btn"
                 @click="toggleExpanded(group.workingDirectory)"
               >
-                {{ isGroupExpanded(group.workingDirectory) ? 'Show less' : `Show more (${getHiddenCount(group)})` }}
+                {{ isGroupExpanded(group.workingDirectory) ? t('explorer.showLess') : t('explorer.showMore', { count: getHiddenCount(group) }) }}
               </button>
             </div>
           </div>
@@ -78,6 +78,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { Session } from '@/types'
 import { MessageSquare } from 'lucide-vue-next'
 import SessionListItem from './SessionListItem.vue'
@@ -89,6 +90,8 @@ import {
   saveCollapsedProjects,
   COLLAPSED_INITIALIZED_KEY
 } from '@/utils/chat-list-utils'
+
+const { t } = useI18n()
 
 const SESSION_TRUNCATE_LIMIT = 10
 const MAX_TOTAL_SESSIONS = 100 // 全局最大会话数限制

@@ -148,7 +148,7 @@ const isFileOperation = computed(() =>
 )
 
 const filePath = computed(() => 
-  (props.input.file_path as string) || 'Unknown file'
+  (props.input.file_path as string) || t('toolCards.permissionUnknownFile')
 )
 
 const commandText = computed(() => 

@@ -5,7 +5,7 @@
       <div class="timeline-avatar">
         <Bot :size="16" />
       </div>
-      <span class="timeline-agent-name">Agent</span>
+      <span class="timeline-agent-name">{{ t('timeline.agent') }}</span>
       <span class="timeline-status-badge" :class="overallStatus">
         <Loader2 v-if="overallStatus === 'running'" :size="10" class="spin-icon" />
         {{ statusLabel }}
@@ -43,7 +43,7 @@
           <!-- Reasoning event -->
           <template v-if="event.type === 'reasoning'">
             <div class="event-row" @click="toggleEvent(event.id)">
-              <span class="event-label">Thinking</span>
+              <span class="event-label">{{ t('timeline.thinking') }}</span>
               <span v-if="event.duration" class="event-duration">{{ event.duration }}s</span>
               <ChevronDown v-if="event.content" :size="12" class="event-chevron" :class="{ expanded: expandedEvents[event.id] }" />
             </div>
@@ -145,6 +145,7 @@
 import type { Message, ToolCall, MessageMetadata, ClassifiedError } from '@/types'
 import type { Component } from 'vue'
 import { computed, markRaw, onMounted, reactive, watch, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { hasToolComponent, resolveToolComponent } from '@/components/chat/tools/index'
 import TaskListCard, { type TaskListItem } from './TaskListCard.vue'
 import { useTaskManager } from '@/composables/useTaskManager'
@@ -204,6 +205,7 @@ const expandedEvents = reactive<Record<string, boolean>>({})
 
 const chatStore = useChatStore()
 const taskManager = useTaskManager()
+const { t } = useI18n()
 
 function getPendingPermission(toolUseId: string) {
   return chatStore.getPendingPermissionForToolUse(toolUseId)
@@ -236,26 +238,29 @@ const TOOL_ICON_MAP: Record<string, Component> = {
   CodebaseSearch: Search,
 }
 
-const TOOL_LABEL_MAP: Record<string, string> = {
-  Bash: 'Run command',
-  Read: 'Read file',
-  FileRead: 'Read file',
-  Write: 'Write file',
-  FileWrite: 'Write file',
-  Edit: 'Edit file',
-  FileEdit: 'Edit file',
-  MultiEdit: 'Multi edit',
-  Glob: 'Search files',
-  Grep: 'Grep search',
-  Agent: 'Sub-agent',
-  Skill: 'Skill',
-  WebFetch: 'Fetch URL',
-  WebSearch: 'Web search',
-  CodebaseSearch: 'Codebase search',
-  TodoWrite: 'Update tasks',
-  TaskCreate: 'Create task',
-  TaskUpdate: 'Update task',
-  TaskList: 'List tasks',
+function getToolLabel(tool: string): string {
+  const map: Record<string, string> = {
+    Bash: t('timeline.tools.bash'),
+    Read: t('timeline.tools.read'),
+    FileRead: t('timeline.tools.read'),
+    Write: t('timeline.tools.write'),
+    FileWrite: t('timeline.tools.write'),
+    Edit: t('timeline.tools.edit'),
+    FileEdit: t('timeline.tools.edit'),
+    MultiEdit: t('timeline.tools.multiEdit'),
+    Glob: t('timeline.tools.glob'),
+    Grep: t('timeline.tools.grep'),
+    Agent: t('timeline.tools.agent'),
+    Skill: t('timeline.tools.skill'),
+    WebFetch: t('timeline.tools.webFetch'),
+    WebSearch: t('timeline.tools.webSearch'),
+    CodebaseSearch: t('timeline.tools.codebaseSearch'),
+    TodoWrite: t('timeline.tools.updateTasks'),
+    TaskCreate: t('timeline.tools.createTask'),
+    TaskUpdate: t('timeline.tools.updateTask'),
+    TaskList: t('timeline.tools.listTasks'),
+  }
+  return map[tool] || tool
 }
 
 // Keyed by tool NAME (not id): the same Vue component is reused across
@@ -369,7 +374,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
             type: 'tool_call',
             status: tool.status,
             icon: markRaw(icon),
-            label: TOOL_LABEL_MAP[tool.name] || tool.name,
+            label: getToolLabel(tool.name),
             content: '',
             target: getToolTarget(tool),
             duration: getToolDuration(tool) || undefined,
@@ -386,7 +391,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
             type: 'reasoning',
             status: event.status,
             icon: markRaw(EmptyIcon),
-            label: 'Thinking',
+            label: t('timeline.thinking'),
             content: event.content || '',
           })
           continue
@@ -397,7 +402,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
             type: 'text',
             status: event.status,
             icon: markRaw(MessageCircle),
-            label: 'Response',
+            label: t('timeline.response'),
             content: event.content || '',
           })
           continue
@@ -414,7 +419,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
           type: 'tool_call',
           status: tool.status,
           icon: markRaw(icon),
-          label: TOOL_LABEL_MAP[tool.name] || tool.name,
+          label: getToolLabel(tool.name),
           content: '',
           target: getToolTarget(tool),
           duration: getToolDuration(tool) || undefined,
@@ -437,7 +442,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
           type: 'reasoning',
           status: isThinking ? 'running' : 'completed',
           icon: markRaw(EmptyIcon),
-          label: 'Thinking',
+          label: t('timeline.thinking'),
           content: msg.reasoning.content || '',
           duration: duration || undefined,
         })
@@ -449,7 +454,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
           type: 'text',
           status: 'completed',
           icon: markRaw(MessageCircle),
-          label: 'Response',
+          label: t('timeline.response'),
           content: msg.content,
         })
       }
@@ -461,7 +466,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
         type: 'metadata',
         status: 'completed',
         icon: markRaw(Info),
-        label: 'Info',
+        label: t('timeline.info'),
         content: '',
         metadata: msg.metadata,
       })
@@ -473,7 +478,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
         type: 'error',
         status: 'error',
         icon: markRaw(AlertCircle),
-        label: 'Error',
+        label: t('timeline.error'),
         content: '',
         classifiedError: msg.metadata.error,
       })
@@ -563,11 +568,11 @@ const statusLabel = computed(() => {
     const running = timelineEvents.value.find(e => e.status === 'running')
     if (running) return running.label
     const lastMsg = props.messages[props.messages.length - 1]
-    if (lastMsg?.toolCalls?.some(t => t.status === 'running')) return 'Working...'
-    return 'Responding...'
+    if (lastMsg?.toolCalls?.some(tc => tc.status === 'running')) return t('timeline.working')
+    return t('timeline.responding')
   }
-  if (overallStatus.value === 'error') return 'Error'
-  return 'Done'
+  if (overallStatus.value === 'error') return t('timeline.error')
+  return t('timeline.done')
 })
 
 function toggleEvent(eventId: string) {
@@ -638,7 +643,7 @@ function formatInput(tool: ToolCall): string {
 
 function formatOutput(output: string): string {
   const maxLen = 800
-  if (output.length > maxLen) return output.slice(0, maxLen) + '\n... (truncated)'
+  if (output.length > maxLen) return output.slice(0, maxLen) + t('timeline.truncated')
   return output
 }
 

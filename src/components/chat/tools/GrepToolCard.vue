@@ -6,9 +6,9 @@
         <X v-else-if="toolCall.status === 'error'" :size="14" />
         <TextSearch v-else :size="14" />
       </div>
-      <span class="grep-label">Grep</span>
+      <span class="grep-label">{{ t('toolCards.grep') }}</span>
       <code class="grep-query">{{ query }}</code>
-      <span v-if="matchCount !== null" class="grep-count">{{ matchCount }} matches</span>
+      <span v-if="matchCount !== null" class="grep-count">{{ matchCount }} {{ t('toolCards.grepMatches') }}</span>
       <button
         class="panel-btn"
         @click.stop="openInPanel"
@@ -44,7 +44,7 @@ const matchCount = computed(() => {
   const lines = out.split('\n').filter(l => l.includes(':'))
   return lines.length
 })
-const formattedOutput = computed(() => props.toolCall.output || 'No results')
+const formattedOutput = computed(() => props.toolCall.output || t('toolCards.grepNoResults'))
 function toggleExpand() { isExpanded.value = !isExpanded.value }
 
 function openInPanel() {

@@ -6,17 +6,17 @@
         <X v-else-if="toolCall.status === 'error'" :size="14" />
         <Bot v-else :size="14" />
       </div>
-      <span class="agent-label">Agent</span>
+      <span class="agent-label">{{ t('toolCards.agent') }}</span>
       <span class="agent-type">{{ agentType }}</span>
       <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
     </div>
     <div v-if="isExpanded" class="agent-body">
       <div v-if="description" class="agent-desc-block">
-        <div class="block-label">Description</div>
+        <div class="block-label">{{ t('toolCards.agentDescription') }}</div>
         <p class="desc-text">{{ description }}</p>
       </div>
       <div v-if="parsedOutput" class="agent-result">
-        <div class="block-label">Result</div>
+        <div class="block-label">{{ t('toolCards.agentResult') }}</div>
         <div class="result-content">
           <MarkdownRenderer :content="parsedOutput" />
         </div>
@@ -29,11 +29,13 @@
 import type { ToolCall } from '@/types'
 import { Bot, ChevronDown, Loader2, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
 import { parseAgentToolOutput } from '@/services/teamTranscriptService'
 
 const props = defineProps<{ toolCall: ToolCall }>()
 const isExpanded = ref(false)
+const { t } = useI18n()
 
 const statusClass = computed(() => `status-${props.toolCall.status}`)
 const agentType = computed(() => props.toolCall.input?.agentType || props.toolCall.input?.type || 'general-purpose')

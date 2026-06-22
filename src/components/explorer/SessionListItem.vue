@@ -12,7 +12,7 @@
       <!-- Left Icon Area - Status Indicators (CodePilot-style) -->
       <div class="status-indicator">
         <!-- Loading: Switching session -->
-        <span v-if="isLoading" class="loading-indicator" aria-hidden="true" title="切换中...">
+        <span v-if="isLoading" class="loading-indicator" aria-hidden="true" :title="t('explorer.switching')">
           <span class="spinner-small"></span>
         </span>
         <!-- Active/Starting: Spinning circle -->
@@ -61,7 +61,7 @@
         <button
           ref="menuTriggerRef"
           class="menu-trigger"
-          aria-label="会话菜单"
+          :aria-label="t('explorer.sessionMenu')"
           @click.stop="toggleMenu"
         >
           <MoreVertical :size="16" />
@@ -86,23 +86,23 @@
             @click="handleSplitScreen"
           >
             <Columns :size="14" />
-            <span>分屏</span>
+            <span>{{ t('explorer.splitView') }}</span>
           </button>
           <!-- Rename Conversation (重命名对话) -->
           <button class="menu-item" @click="handleRename">
             <Pencil :size="14" />
-            <span>重命名对话</span>
+            <span>{{ t('explorer.renameConversation') }}</span>
           </button>
           <!-- Copy Session ID (复制对话 ID) -->
           <button class="menu-item" @click="handleCopyId">
             <Copy :size="14" />
-            <span>复制对话 ID</span>
+            <span>{{ t('explorer.copyConversationId') }}</span>
           </button>
           <div class="menu-divider" />
           <!-- Delete Conversation (删除对话) -->
           <button class="menu-item destructive" @click="handleDelete">
             <Trash2 :size="14" />
-            <span>删除对话</span>
+            <span>{{ t('explorer.deleteConversation') }}</span>
           </button>
         </div>
       </Transition>

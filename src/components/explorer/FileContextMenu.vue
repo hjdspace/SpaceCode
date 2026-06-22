@@ -174,11 +174,11 @@ async function handleOpenInEditor(editor: ExternalEditor) {
   try {
     const result = await api.openInEditor(editor, props.node.path)
     if (!result.success) {
-      alert(`打开失败：${result.error || editor}`)
+      alert(t('explorer.openFailed', { error: result.error || editor }))
     }
   } catch (err) {
     console.error('[FileContextMenu] Open in editor error:', err)
-    alert('打开失败，请确认编辑器命令已加入 PATH。')
+    alert(t('explorer.openFailedPath'))
   }
   emit('close')
 }
@@ -192,7 +192,7 @@ function handleRename() {
 async function handleDelete() {
   if (!props.node) return
   
-  const confirmed = confirm(`确定要删除 "${props.node.name}" 吗？\n\n此操作将把文件移至回收站。`)
+  const confirmed = confirm(t('explorer.confirmDelete', { name: props.node.name }))
   if (!confirmed) return
   
   try {
@@ -201,11 +201,11 @@ async function handleDelete() {
       console.log('[FileContextMenu] Deleted:', props.node.path)
       emit('delete', props.node)
     } else {
-      alert(`删除失败：${result.error}`)
+      alert(t('explorer.deleteFailed', { error: result.error }))
     }
   } catch (err) {
     console.error('[FileContextMenu] Delete error:', err)
-    alert('删除失败，请重试。')
+    alert(t('explorer.deleteFailedRetry'))
   }
   emit('close')
 }

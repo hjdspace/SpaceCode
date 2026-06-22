@@ -6,17 +6,17 @@
         <X v-else-if="toolCall.status === 'error'" :size="14" />
         <Zap v-else :size="14" />
       </div>
-      <span class="skill-label">Skill</span>
+      <span class="skill-label">{{ t('toolCards.skill') }}</span>
       <span class="skill-name">/{{ skillName }}</span>
       <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
     </div>
     <div v-if="isExpanded" class="skill-body">
       <div v-if="promptArg" class="skill-prompt">
-        <div class="block-label">Prompt Argument</div>
+        <div class="block-label">{{ t('toolCards.skillPromptArg') }}</div>
         <pre><code>{{ promptArg }}</code></pre>
       </div>
       <div v-if="toolCall.output" class="skill-result">
-        <div class="block-label">Result</div>
+        <div class="block-label">{{ t('toolCards.skillResult') }}</div>
         <pre class="code-block"><code>{{ toolCall.output }}</code></pre>
       </div>
     </div>
@@ -27,9 +27,11 @@
 import type { ToolCall } from '@/types'
 import { Zap, ChevronDown, Loader2, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 const props = defineProps<{ toolCall: ToolCall }>()
 const isExpanded = ref(false)
+const { t } = useI18n()
 
 const statusClass = computed(() => `status-${props.toolCall.status}`)
 const skillName = computed(() => props.toolCall.input?.skill || props.toolCall.input?.command || 'unknown')

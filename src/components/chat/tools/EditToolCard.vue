@@ -6,7 +6,7 @@
         <X v-else-if="toolCall.status === 'error'" :size="14" />
         <FileEdit v-else :size="14" />
       </div>
-      <span class="edit-label">Edit</span>
+      <span class="edit-label">{{ t('toolCards.edit') }}</span>
       <span class="edit-path">{{ filePath }}</span>
       <button
         class="panel-btn"
@@ -32,12 +32,12 @@
 
       <!-- 无 diff 数据时的回退显示 -->
       <div v-else class="empty-diff">
-        <span>No changes to display</span>
+        <span>{{ t('toolCards.editNoChanges') }}</span>
       </div>
 
       <!-- Result 输出 -->
       <div v-if="toolCall.output" class="result-section">
-        <div class="block-label">Result</div>
+        <div class="block-label">{{ t('toolCards.editResult') }}</div>
         <pre class="code-block result-text"><code>{{ toolCall.output }}</code></pre>
       </div>
     </div>
@@ -61,7 +61,7 @@ const appStore = useAppStore()
 const { t } = useI18n()
 
 const statusClass = computed(() => `status-${props.toolCall.status}`)
-const filePath = computed(() => props.toolCall.input?.file_path || props.toolCall.input?.path || 'unknown')
+const filePath = computed(() => props.toolCall.input?.file_path || props.toolCall.input?.path || t('toolCards.editUnknownFile'))
 
 function toggleExpand() { isExpanded.value = !isExpanded.value }
 

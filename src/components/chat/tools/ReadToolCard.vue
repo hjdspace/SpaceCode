@@ -6,7 +6,7 @@
         <X v-else-if="toolCall.status === 'error'" :size="14" />
         <FileText v-else :size="14" />
       </div>
-      <span class="read-label">Read</span>
+      <span class="read-label">{{ t('toolCards.read') }}</span>
       <span class="read-file-path">{{ filePath }}</span>
       <button
         class="panel-btn"
@@ -20,9 +20,9 @@
 
     <div v-if="isExpanded" class="read-body">
       <div class="read-meta-row">
-        <span class="meta-item" v-if="offset"><ArrowUp :size="11" /> Line {{ offset }}</span>
-        <span class="meta-item" v-if="limit"><ArrowDown :size="11" /> {{ limit }} lines</span>
-        <span class="meta-item"><FileOutput :size="11" /> {{ outputLines }} lines</span>
+        <span class="meta-item" v-if="offset"><ArrowUp :size="11" /> {{ t('toolCards.readLine', { offset }) }}</span>
+        <span class="meta-item" v-if="limit"><ArrowDown :size="11" /> {{ t('toolCards.readLines', { count: limit }) }}</span>
+        <span class="meta-item"><FileOutput :size="11" /> {{ t('toolCards.readLines', { count: outputLines }) }}</span>
       </div>
       <pre class="code-content"><code v-html="highlightedOutput"></code></pre>
     </div>
@@ -44,14 +44,14 @@ const appStore = useAppStore()
 const { t } = useI18n()
 
 const statusClass = computed(() => `status-${props.toolCall.status}`)
-const filePath = computed(() => props.toolCall.input?.file_path || props.toolCall.input?.path || 'unknown')
+const filePath = computed(() => props.toolCall.input?.file_path || props.toolCall.input?.path || t('toolCards.readUnknownFile'))
 const offset = computed(() => props.toolCall.input?.offset)
 const limit = computed(() => props.toolCall.input?.limit)
 const outputLines = computed(() => (props.toolCall.output || '').split('\n').length)
 
 const highlightedOutput = computed(() => {
   const content = props.toolCall.output || ''
-  if (!content) return '(empty file)'
+  if (!content) return t('toolCards.readEmptyFile')
 
   const language = appStore.getLanguageFromPath(filePath.value)
 

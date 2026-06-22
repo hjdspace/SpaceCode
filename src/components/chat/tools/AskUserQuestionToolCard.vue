@@ -30,7 +30,7 @@
           <div class="question-title">
             <span v-if="currentQuestion.header" class="chip">{{ currentQuestion.header }}</span>
             <span>{{ currentQuestion.question }}</span>
-            <span v-if="currentQuestion.multiSelect" class="multi-hint">多选</span>
+            <span v-if="currentQuestion.multiSelect" class="multi-hint">{{ t('askUser.multiSelect') }}</span>
           </div>
 
           <div class="options-grid">
@@ -48,12 +48,12 @@
           </div>
 
           <div class="custom-input-wrap">
-            <label class="custom-input-label">没有合适的选项？自己输入：</label>
+            <label class="custom-input-label">{{ t('askUser.customInputHint') }}</label>
             <textarea
               v-model="customInputs[currentPage]"
               class="custom-input"
               rows="2"
-              placeholder="在此输入你自己的答案（可选）"
+              :placeholder="t('askUser.customInputPlaceholder')"
               :disabled="!isPending"
               @input="onCustomInput(currentPage)"
             />
@@ -77,7 +77,7 @@
         :disabled="!isPending || currentPage === 0"
         @click="goPrev"
       >
-        上一页
+        {{ t('askUser.prevPage') }}
       </button>
       <button
         v-if="isPaged && !isLastPage"
@@ -85,7 +85,7 @@
         :disabled="!isPending || !isQuestionAnswered(currentPage)"
         @click="goNext"
       >
-        下一页
+        {{ t('askUser.nextPage') }}
       </button>
       <button
         v-if="!isPaged || isLastPage"
@@ -101,6 +101,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { MessageCircleQuestion } from 'lucide-vue-next'
 import type { ToolCall } from '@/types'
 import { useChatStore } from '@/stores/chat'
@@ -135,6 +136,7 @@ const emit = defineEmits<{
   skip: []
 }>()
 
+const { t } = useI18n()
 const chatStore = useChatStore()
 
 const questions = computed<Question[]>(() => {
@@ -185,27 +187,27 @@ const currentQuestion = computed<Question | undefined>(() => questions.value[cur
 const isLastPage = computed(() => currentPage.value >= questions.value.length - 1)
 
 const title = computed(() => {
-  if (!isPending.value) return '已回答'
-  return isPaged.value ? '快速选择' : '请做出选择'
+  if (!isPending.value) return t('askUser.answered')
+  return isPaged.value ? t('askUser.quickSelect') : t('askUser.pleaseSelect')
 })
 
 const statusText = computed(() => {
-  if (!isPending.value) return '本次提问已结束'
+  if (!isPending.value) return t('askUser.questionEnded')
   const count = questions.value.length
-  return count > 1 ? `${count}个问题需要您的选择` : '1个问题'
+  return count > 1 ? t('askUser.questionsCount', { count }) : t('askUser.oneQuestion')
 })
 
 const skipText = computed(() => {
-  return isPaged.value ? '跳过全部' : '跳过'
+  return isPaged.value ? t('askUser.skipAll') : t('askUser.skip')
 })
 
 const submitText = computed(() => {
   const totalQuestions = questions.value.length
   const answeredQuestions = answeredQuestionCount.value
 
-  if (answeredQuestions === 0) return '请先选择'
-  if (answeredQuestions === totalQuestions) return '提交答案'
-  return `已答 ${answeredQuestions}/${totalQuestions}`
+  if (answeredQuestions === 0) return t('askUser.pleaseSelectFirst')
+  if (answeredQuestions === totalQuestions) return t('askUser.submitAnswer')
+  return t('askUser.answeredProgress', { answered: answeredQuestions, total: totalQuestions })
 })
 
 const selections = ref<Map<string, string>>(new Map())

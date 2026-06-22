@@ -1,10 +1,12 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
-import { createI18nInstance, getSavedLanguage } from './i18n'
+import { i18n, getSavedLanguage } from './i18n'
 import './styles/global.scss'
 
-const i18n = createI18nInstance(getSavedLanguage())
+// Set locale from saved preference
+const savedLocale = getSavedLanguage()
+i18n.global.locale.value = savedLocale
 
 const app = createApp(App)
 app.use(createPinia())

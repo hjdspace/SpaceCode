@@ -6,9 +6,9 @@
         <X v-else-if="toolCall.status === 'error'" :size="14" />
         <Search v-else :size="14" />
       </div>
-      <span class="glob-label">Glob</span>
+      <span class="glob-label">{{ t('toolCards.glob') }}</span>
       <code class="glob-pattern">{{ pattern }}</code>
-      <span v-if="matchCount !== null" class="glob-count">{{ matchCount }} results</span>
+      <span v-if="matchCount !== null" class="glob-count">{{ matchCount }} {{ t('toolCards.globResults') }}</span>
       <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
     </div>
     <div v-if="isExpanded" class="glob-body">
@@ -21,9 +21,11 @@
 import type { ToolCall } from '@/types'
 import { Search, ChevronDown, Loader2, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 const props = defineProps<{ toolCall: ToolCall }>()
 const isExpanded = ref(false)
+const { t } = useI18n()
 
 const statusClass = computed(() => `status-${props.toolCall.status}`)
 const pattern = computed(() => props.toolCall.input?.pattern || props.toolCall.input?.path || '*')
@@ -32,7 +34,7 @@ const matchCount = computed(() => {
   if (!out || out === 'No matching files') return 0
   return out.split('\n').filter(l => l.trim()).length
 })
-const formattedOutput = computed(() => props.toolCall.output || 'No results')
+const formattedOutput = computed(() => props.toolCall.output || t('toolCards.globNoResults'))
 function toggleExpand() { isExpanded.value = !isExpanded.value }
 </script>
 

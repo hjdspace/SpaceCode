@@ -6,13 +6,13 @@
         <X v-else-if="toolCall.status === 'error'" :size="14" />
         <Search v-else :size="14" />
       </div>
-      <span class="search-label">WebSearch</span>
+      <span class="search-label">{{ t('toolCards.webSearch') }}</span>
       <span class="search-query">{{ queryDisplay }}</span>
       <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
     </div>
     <div v-if="isExpanded" class="search-body">
       <div v-if="toolCall.output" class="search-results">
-        <div class="block-label">Results</div>
+        <div class="block-label">{{ t('toolCards.webSearchResults') }}</div>
         <pre class="results-content"><code>{{ toolCall.output }}</code></pre>
       </div>
     </div>
@@ -23,9 +23,11 @@
 import type { ToolCall } from '@/types'
 import { Search, ChevronDown, Loader2, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 const props = defineProps<{ toolCall: ToolCall }>()
 const isExpanded = ref(false)
+const { t } = useI18n()
 
 const statusClass = computed(() => `status-${props.toolCall.status}`)
 const queryDisplay = computed(() => {
