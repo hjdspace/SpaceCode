@@ -77,8 +77,9 @@ function escapeHtml(text: string): string {
 function toggleExpand() { isExpanded.value = !isExpanded.value }
 
 async function openInPanel() {
-  const fp = props.toolCall.input?.file_path || props.toolCall.input?.path
-  if (!fp) return
+  const rawFp = props.toolCall.input?.file_path || props.toolCall.input?.path
+  if (!rawFp) return
+  const fp = appStore.resolveSessionPath(rawFp)
 
   const content = await api.readFile(fp)
   if (content === null) return
