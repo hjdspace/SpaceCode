@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-
-const electronAPI = window.electronAPI
+import { api } from '@/services/electronAPI'
 
 export interface AgentDef {
   name: string
@@ -80,10 +79,8 @@ export const useAgentsStore = defineStore('agents', () => {
     loading.value = true
     error.value = null
     try {
-      if (electronAPI?.agents?.scanLibrary) {
-        const data = await electronAPI.agents.scanLibrary(cwd)
-        libraryAgents.value = data.agents || []
-      }
+      const data = await api.agents.scanLibrary(cwd)
+      libraryAgents.value = data.agents || []
     } catch (err) {
       console.error('Failed to fetch agent library:', err)
       error.value = err instanceof Error ? err.message : 'Failed to fetch agent library'
@@ -94,10 +91,8 @@ export const useAgentsStore = defineStore('agents', () => {
 
   async function fetchInstalled(cwd?: string) {
     try {
-      if (electronAPI?.agents?.getInstalled) {
-        const data = await electronAPI.agents.getInstalled(cwd)
-        installedAgents.value = data.agents || []
-      }
+      const data = await api.agents.getInstalled(cwd)
+      installedAgents.value = data.agents || []
     } catch (err) {
       console.error('Failed to fetch installed agents:', err)
     }
@@ -106,17 +101,14 @@ export const useAgentsStore = defineStore('agents', () => {
   async function installAgent(name: string, scope: 'global' | 'project', cwd?: string) {
     installingName.value = name
     try {
-      if (electronAPI?.agents?.install) {
-        await electronAPI.agents.install(name, scope, cwd)
-        const agent = libraryAgents.value.find(a => a.name === name)
-        if (agent) {
-          agent.isInstalled = true
-          agent.installedScope = scope
-        }
-        await fetchInstalled(cwd)
-        return true
+      await api.agents.install(name, scope, cwd)
+      const agent = libraryAgents.value.find(a => a.name === name)
+      if (agent) {
+        agent.isInstalled = true
+        agent.installedScope = scope
       }
-      return false
+      await fetchInstalled(cwd)
+      return true
     } catch (err) {
       console.error('Failed to install agent:', err)
       throw err
@@ -127,17 +119,14 @@ export const useAgentsStore = defineStore('agents', () => {
 
   async function uninstallAgent(name: string, scope: 'global' | 'project', cwd?: string) {
     try {
-      if (electronAPI?.agents?.uninstall) {
-        await electronAPI.agents.uninstall(name, scope, cwd)
-        const agent = libraryAgents.value.find(a => a.name === name)
-        if (agent) {
-          agent.isInstalled = false
-          agent.installedScope = undefined
-        }
-        await fetchInstalled(cwd)
-        return true
+      await api.agents.uninstall(name, scope, cwd)
+      const agent = libraryAgents.value.find(a => a.name === name)
+      if (agent) {
+        agent.isInstalled = false
+        agent.installedScope = undefined
       }
-      return false
+      await fetchInstalled(cwd)
+      return true
     } catch (err) {
       console.error('Failed to uninstall agent:', err)
       throw err
@@ -159,10 +148,8 @@ export const useAgentsStore = defineStore('agents', () => {
   async function fetchWorkflows() {
     workflowLoading.value = true
     try {
-      if (electronAPI?.agents?.listWorkflows) {
-        const data = await electronAPI.agents.listWorkflows()
-        workflows.value = data.workflows || []
-      }
+      const data = await api.agents.listWorkflows()
+      workflows.value = data.workflows || []
     } catch (err) {
       console.error('Failed to fetch workflows:', err)
     } finally {
@@ -172,12 +159,9 @@ export const useAgentsStore = defineStore('agents', () => {
 
   async function saveWorkflow(workflow: any) {
     try {
-      if (electronAPI?.agents?.saveWorkflow) {
-        await electronAPI.agents.saveWorkflow(workflow)
-        await fetchWorkflows()
-        return true
-      }
-      return false
+      await api.agents.saveWorkflow(workflow)
+      await fetchWorkflows()
+      return true
     } catch (err) {
       console.error('Failed to save workflow:', err)
       throw err
@@ -186,12 +170,9 @@ export const useAgentsStore = defineStore('agents', () => {
 
   async function deleteWorkflow(id: string) {
     try {
-      if (electronAPI?.agents?.deleteWorkflow) {
-        await electronAPI.agents.deleteWorkflow(id)
-        await fetchWorkflows()
-        return true
-      }
-      return false
+      await api.agents.deleteWorkflow(id)
+      await fetchWorkflows()
+      return true
     } catch (err) {
       console.error('Failed to delete workflow:', err)
       throw err
@@ -200,10 +181,7 @@ export const useAgentsStore = defineStore('agents', () => {
 
   async function exportWorkflow(id: string, scope: 'global' | 'project', cwd?: string) {
     try {
-      if (electronAPI?.agents?.exportWorkflow) {
-        return await electronAPI.agents.exportWorkflow(id, scope, cwd)
-      }
-      return null
+      return await api.agents.exportWorkflow(id, scope, cwd)
     } catch (err) {
       console.error('Failed to export workflow:', err)
       throw err

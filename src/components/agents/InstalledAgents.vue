@@ -57,10 +57,12 @@ import { useI18n } from 'vue-i18n'
 import { Bot, Pencil, Trash2 } from 'lucide-vue-next'
 import { useAgentsStore, type AgentDef } from '@/stores/agents'
 import { useAppStore } from '@/stores/app'
+import { useDialog } from '@/composables/useDialog'
 
 const { t } = useI18n()
 const agentsStore = useAgentsStore()
 const appStore = useAppStore()
+const { showConfirm } = useDialog()
 
 function truncatedDesc(agent: AgentDef) {
   if (!agent.description) return ''
@@ -73,7 +75,7 @@ function handleEdit(agent: AgentDef) {
 }
 
 async function handleUninstall(agent: AgentDef, scope: 'global' | 'project') {
-  if (!confirm(t('agents.uninstallConfirm', { name: agent.name }))) return
+  if (!await showConfirm(t('agents.uninstallConfirm', { name: agent.name }), { variant: 'danger' })) return
   const cwd = appStore.projectRoot || undefined
   await agentsStore.uninstallAgent(agent.name, scope, cwd)
 }

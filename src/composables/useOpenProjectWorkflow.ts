@@ -4,6 +4,7 @@ import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import { api } from '@/services/electronAPI'
 import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
+import { useDialog } from '@/composables/useDialog'
 
 function dispatchSessionCreated() {
   window.dispatchEvent(new CustomEvent('session-created'))
@@ -22,6 +23,7 @@ export function useOpenProjectWorkflow() {
   const appStore = useAppStore()
   const chatStore = useChatStore()
   const settingsStore = useSettingsStore()
+  const { showAlert } = useDialog()
 
   function syncProjectRootToSettings(path: string) {
     settingsStore.projectRoot = path
@@ -43,7 +45,7 @@ export function useOpenProjectWorkflow() {
       dispatchSessionCreated()
     } catch (error) {
       console.error('[useOpenProjectWorkflow] openProjectFromPicker failed:', error)
-      alert('Failed to select folder. Please try again.')
+      await showAlert('Failed to select folder. Please try again.')
     }
   }
 

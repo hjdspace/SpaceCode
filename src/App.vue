@@ -49,6 +49,7 @@
     <ConnectMobileDialog v-model:visible="appStore.showConnectMobile" />
     <WorkspaceOnboarding />
     <FileQuickOpen />
+    <DialogProvider />
   </div>
 </template>
 
@@ -73,6 +74,7 @@ import WorkspaceOnboarding from './components/work/WorkspaceOnboarding.vue'
 import ConnectMobileDialog from './components/mobile/ConnectMobileDialog.vue'
 import FileQuickOpen from './components/layout/FileQuickOpen.vue'
 import UpdateNotification from './components/common/UpdateNotification.vue'
+import DialogProvider from './components/common/DialogProvider.vue'
 import { api } from '@/services/electronAPI'
 import { useShortcuts } from '@/composables/useShortcuts'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'

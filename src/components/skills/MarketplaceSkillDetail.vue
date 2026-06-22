@@ -144,7 +144,7 @@ async function fetchReadme() {
       props.skill.source,
       props.skill.skillId
     )
-    readme.value = result?.content || null
+    readme.value = result || null
   } finally {
     readmeLoading.value = false
   }

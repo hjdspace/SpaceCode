@@ -1,0 +1,1419 @@
+import { defineStore } from 'pinia'
+import { ref, computed, watch, readonly } from 'vue'
+import type { Session, Message, ToolCall, AgentInfo, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus } from '@/types'
+import type { RewindOption, RewindState } from '@/types/rewind'
+import { useSettingsStore } from './settings'
+import { useAppStore } from './app'
+import { useTaskManager } from '@/composables/useTaskManager'
+import { getCompletedTurnTargets } from '@/utils/turnCheckpointUtils'
+import { api } from '@/services/electronAPI'
+import { errorHandler } from '@/services/errorHandler'
+import { buildMessagesFromHistory } from '@/utils/sessionRestore'
+import {
+  loadSessionsFromStorage,
+  saveSessionsToStorage,
+  loadProjectsFromStorage,
+  saveProjectsToStorage,
+  setPersistenceLogger,
+  stripLargeAttachmentData,
+} from '@/services/sessionPersistence'
+import {
+  getRawTeammateName,
+  getRawTeamName,
+  isTeammateRawMessage,
+  inferTeammateStatus,
+  stringifyRawContent,
+  ensureTeamContext,
+  recordAgentToolCall,
+  isFileBackedTeammate,
+  rekickAgentTranscriptPoll,
+  resolveTeammateId,
+  clearSessionToolUseMappings,
+  AGENT_COLORS,
+} from '@/services/teamTranscriptService'
+
+const taskManager = useTaskManager()
+
+// ============================================================
+// Renderer Logger
+// ============================================================
+const logger = {
+  debug: (scope: string, message: string, data?: any) => {
+    console.debug(`[${scope}] ${message}`, data ?? '')
+    api.trace.event({ source: 'renderer', sessionId: '', actor: 'system', type: 'log', title: `${scope}: ${message}`, metadata: { level: 'debug', data } })
+  },
+  info: (scope: string, message: string, data?: any) => {
+    console.log(`[${scope}] ${message}`, data ?? '')
+    api.trace.event({ source: 'renderer', sessionId: '', actor: 'system', type: 'log', title: `${scope}: ${message}`, metadata: { level: 'info', data } })
+  },
+  warn: (scope: string, message: string, data?: any) => {
+    console.warn(`[${scope}] ${message}`, data ?? '')
+    api.trace.event({ source: 'renderer', sessionId: '', actor: 'system', type: 'log', title: `${scope}: ${message}`, metadata: { level: 'warn', data } })
+  },
+  error: (scope: string, message: string, data?: any) => {
+    console.error(`[${scope}] ${message}`, data ?? '')
+    api.trace.event({ source: 'renderer', sessionId: '', actor: 'system', type: 'log', title: `${scope}: ${message}`, metadata: { level: 'error', data } })
+  },
+}
+
+setPersistenceLogger(logger)
+
+function traceEvent(event: {
+  sessionId: string
+  messageId?: string
+  actor: 'user' | 'assistant' | 'tool' | 'system'
+  type: string
+  status?: 'started' | 'running' | 'completed' | 'failed'
+  title?: string
+  input?: unknown
+  output?: unknown
+  artifacts?: Array<{ kind: string; path?: string; content?: string }>
+  evidence?: Array<{ kind: string; result?: string; detail: string }>
+  metadata?: Record<string, unknown>
+  error?: { message: string; stack?: string }
+}) {
+  api.trace.event({
+    source: 'renderer',
+    ...event,
+  })
+}
+
+async function hydrateImageAttachments(sessions: Session[]): Promise<void> {
+  const imageLoad = api.image?.load
+  if (!imageLoad) return
+
+  for (const session of sessions) {
+    for (const msg of session.messages) {
+      if (msg.imageAttachments?.length) {
+        for (let i = 0; i < msg.imageAttachments.length; i++) {
+          const img = msg.imageAttachments[i]
+          if (img.id && !img.previewUrl && !img.data) {
+            try {
+              const dataUrl = await imageLoad(img.id)
+              if (dataUrl) {
+                msg.imageAttachments[i] = { ...img, previewUrl: dataUrl, data: dataUrl }
+              }
+            } catch {
+              // 磁盘文件不存在，保持占位状态
+            }
+          }
+        }
+      }
+      if (Array.isArray(msg.attachments)) {
+        for (let i = 0; i < msg.attachments.length; i++) {
+          const att = msg.attachments[i] as any
+          if (att?.type === 'image' && att.id && !att.previewUrl && !att.data) {
+            try {
+              const dataUrl = await imageLoad(att.id)
+              if (dataUrl) {
+                msg.attachments[i] = { ...att, previewUrl: dataUrl, data: dataUrl }
+              }
+            } catch {
+              // 同上
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
+  const claudeCode = api.claudeCode
+  if (!claudeCode?.getFullSession) return
+
+  for (const session of sessions) {
+    const projectPath = session.workingDirectory
+    if (!projectPath) continue
+
+    const hasTruncated = session.messages.some(
+      msg => typeof msg.content === 'string' && msg.content.includes('[Truncated for storage]')
+    )
+    try {
+      const fullSession = await claudeCode.getFullSession(projectPath, session.id)
+      if (!fullSession?.messages?.length) continue
+
+      const restoredMessages = buildMessagesFromHistory(fullSession.messages)
+      if (restoredMessages.length === 0) continue
+
+      session.messages = restoredMessages.map(msg => ({
+        ...msg,
+        id: msg.id || crypto.randomUUID(),
+        timestamp: Date.now(),
+      })) as Message[]
+
+      session.teamContext = undefined
+      session.teammateTranscripts = {}
+
+      for (const msg of session.messages) {
+        if (msg.toolCalls) {
+          for (const toolCall of msg.toolCalls) {
+            if (toolCall.name === 'Agent') {
+              recordAgentToolCall(session, toolCall, toolCall.status === 'completed' ? 'completed' : toolCall.status === 'error' ? 'failed' : 'running')
+            }
+          }
+        }
+      }
+
+      const teammateMsgIndices: number[] = []
+      for (let i = 0; i < session.messages.length; i++) {
+        const msg = session.messages[i]
+        if (msg.role === 'system' && msg.metadata?.kind === 'teammate-message') {
+          const teammateId = msg.metadata.agentTaskId!
+          const agentName = msg.metadata.agentName || 'teammate'
+          const teamName = msg.metadata.teamName || 'Agent Team'
+          const status = (msg.metadata.status || 'running') as TeammateStatus
+
+          ensureTeamContext(session, teamName)
+
+          const transcript = session.teammateTranscripts![teammateId] || []
+          const cleanContent = msg.content.replace(/^\[.*?\]\s*/, '')
+          const transcriptMsg: Message = {
+            id: msg.id || crypto.randomUUID(),
+            role: 'assistant',
+            content: cleanContent,
+            timestamp: msg.timestamp || Date.now(),
+            metadata: {
+              agentTaskId: teammateId,
+              agentName,
+              teamName,
+              status,
+            },
+          }
+
+          if (!transcript.some(m => m.id === transcriptMsg.id)) {
+            session.teammateTranscripts![teammateId] = [...transcript, transcriptMsg]
+          }
+
+          if (session.teamContext?.teammates[teammateId]) {
+            session.teamContext.teammates[teammateId].status = status
+            session.teamContext.teammates[teammateId].messageCount = session.teammateTranscripts![teammateId]?.length || 0
+          } else {
+            const color = AGENT_COLORS[Object.keys(session.teamContext?.teammates || {}).length % AGENT_COLORS.length]
+            if (!session.teamContext) {
+              session.teamContext = { teamName: '', isLeader: false, teammates: {} }
+            }
+            session.teamContext.teammates[teammateId] = {
+              name: agentName,
+              status,
+              color,
+              messageCount: session.teammateTranscripts![teammateId]?.length || 0,
+            }
+          }
+
+          teammateMsgIndices.push(i)
+        }
+      }
+
+      if (teammateMsgIndices.length > 0) {
+        session.messages = session.messages.filter((_, i) => !teammateMsgIndices.includes(i))
+      }
+
+      if (session.teammateTranscripts) {
+        for (const teammateId of Object.keys(session.teammateTranscripts)) {
+          session.teammateTranscripts[teammateId].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+        }
+      }
+
+      if (hasTruncated) {
+        console.log(`[ChatStore] Hydrated truncated session ${session.id} from JSONL (${restoredMessages.length} messages)`)
+      }
+    } catch {
+      // JSONL 文件不存在或解析失败，保持 localStorage 数据
+    }
+  }
+}
+
+function updateTaskStateFromToolResult(
+  toolCalls: ToolCall[],
+  resultToolUseId: string,
+  resultOutput: string
+) {
+  const toolCall = toolCalls.find(tc => tc.id === resultToolUseId)
+  if (!toolCall) return
+  const toolName = toolCall.name
+  if (toolName === 'TaskCreate') {
+    const match = resultOutput.match(/^Task #(\d+) created successfully: (.+)$/m)
+    if (match) {
+      taskManager.createTask(match[1], match[2], toolCall.input?.description)
+    }
+  } else if (toolName === 'TaskUpdate') {
+    const idMatch = resultOutput.match(/^Updated task #(\d+)/)
+    if (idMatch) {
+      const taskId = idMatch[1]
+      const updates: { status?: 'pending' | 'in_progress' | 'completed', owner?: string } = {}
+      const statusMatch = resultOutput.match(/status\w*:\s*(\w+)\s*->\s*(\w+)/i)
+      if (statusMatch) {
+        const newStatus = statusMatch[2]
+        if (['pending', 'in_progress', 'completed'].includes(newStatus)) {
+          updates.status = newStatus as 'pending' | 'in_progress' | 'completed'
+        }
+      }
+      const ownerMatch = resultOutput.match(/owner\w*:\s*([^,\n]+)/i)
+      if (ownerMatch) {
+        updates.owner = ownerMatch[1].trim()
+      }
+      taskManager.updateTask(taskId, updates)
+    }
+  } else if (toolName === 'TaskList') {
+    if (resultOutput === 'No tasks found') {
+      taskManager.clearTasks()
+      return
+    }
+    const tasks: Array<{
+      id: string
+      content: string
+      status: 'pending' | 'in_progress' | 'completed'
+      owner?: string
+      blockedBy?: string[]
+    }> = []
+    const lines = resultOutput.split('\n')
+    for (const line of lines) {
+      const match = line.match(/^#([^\s]+) \[(pending|in_progress|completed)\] (.*?)(?: \(([^)]+)\))?(?: \[blocked by (.+)\])?$/)
+      if (!match) continue
+      tasks.push({
+        id: match[1],
+        status: match[2] as 'pending' | 'in_progress' | 'completed',
+        content: match[3],
+        owner: match[4],
+        blockedBy: match[5]?.split(', ').filter(Boolean) || []
+      })
+    }
+    taskManager.syncTasksFromList(tasks)
+  }
+}
+
+export const useChatSessionStore = defineStore('chatSession', () => {
+  const appStore = useAppStore()
+  const settingsStore = useSettingsStore()
+
+  const sessions = ref<Session[]>(loadSessionsFromStorage())
+
+  void hydrateImageAttachments(sessions.value)
+  void hydrateSessionsFromJsonl(sessions.value)
+  const lastSessionId = sessions.value.length > 0
+    ? [...sessions.value].sort((a, b) => b.updatedAt - a.updatedAt)[0].id
+    : null
+  const currentSessionId = ref<string | null>(lastSessionId)
+
+  // ────────────────────────────────────────────────────────────────────
+  // Prompt Stash
+  // ────────────────────────────────────────────────────────────────────
+  interface PromptStashData {
+    text: string
+    attachments: { name: string; path: string; isFolder: boolean }[]
+    images: { id: string; name: string; type: 'image'; mimeType: string; previewUrl: string; data: string }[]
+    editorHtml: string
+  }
+  const sessionStash = ref<Map<string, PromptStashData>>(new Map())
+
+  function stashPrompt(sessionId: string, data: PromptStashData) {
+    sessionStash.value.set(sessionId, data)
+  }
+
+  function getStash(sessionId: string): PromptStashData | undefined {
+    return sessionStash.value.get(sessionId)
+  }
+
+  function clearStash(sessionId: string) {
+    sessionStash.value.delete(sessionId)
+  }
+
+  function hasStash(sessionId: string): boolean {
+    return sessionStash.value.has(sessionId)
+  }
+
+  // Diff 面板触发
+  const diffPanelTrigger = ref(0)
+  function triggerDiffPanel() {
+    diffPanelTrigger.value++
+  }
+
+  // ── Turn Change Card 状态 ──
+  const turnCheckpoints = ref<SessionTurnCheckpoint[]>([])
+  const isLoadingTurnCards = ref(false)
+  const turnCardsError = ref<string | null>(null)
+  const rewindingTurnId = ref<string | null>(null)
+
+  // ── Rewind 状态 ──
+  const rewindState = ref<RewindState>({
+    showDialog: false,
+    selectedMessageId: null,
+    selectedOption: 'both',
+    summarizeFeedback: '',
+    isRewinding: false,
+    error: null,
+    showCodeConfirm: false,
+    filesToRewind: [],
+  })
+
+  const pendingInputText = ref<string>('')
+
+  const currentAgent = ref<string>('')
+  const availableAgents = ref<AgentInfo[]>([])
+
+  const projects = ref<string[]>(loadProjectsFromStorage())
+  const currentProjectRoot = ref<string>('')
+
+  const currentSession = computed(() =>
+    sessions.value.find(s => s.id === currentSessionId.value) || null
+  )
+
+  const currentMessages = computed(() =>
+    currentSession.value?.messages || []
+  )
+
+  const currentTeamContext = computed(() => currentSession.value?.teamContext || null)
+
+  const currentViewedAgentTaskId = computed(() => currentSession.value?.viewingAgentTaskId)
+
+  const viewedTeammate = computed(() => {
+    const taskId = currentViewedAgentTaskId.value
+    if (!taskId) return null
+    return currentTeamContext.value?.teammates[taskId] || null
+  })
+
+  const displayMessages = computed(() => {
+    const session = currentSession.value
+    const teammateId = session?.viewingAgentTaskId
+    if (!session || !teammateId) return session?.messages || []
+    return session.teammateTranscripts?.[teammateId] || []
+  })
+
+  const isViewingTeammate = computed(() => !!currentSession.value?.viewingAgentTaskId)
+
+  const workingDirectory = computed(() =>
+    currentSession.value?.workingDirectory || currentProjectRoot.value || ''
+  )
+
+  const allProjects = computed(() => {
+    const projectSet = new Set<string>()
+    for (const session of sessions.value) {
+      if (session.workingDirectory) {
+        projectSet.add(session.workingDirectory)
+      }
+    }
+    for (const project of projects.value) {
+      projectSet.add(project)
+    }
+    return Array.from(projectSet)
+  })
+
+  function getCurrentConfig() {
+    return settingsStore.config
+  }
+
+  // 节流持久化
+  let _saveScheduled = false
+  let _saveTrailing = false
+  let _lastSaveAt = 0
+  const SAVE_INTERVAL_MS = 600
+
+  function flushSaveNow() {
+    _saveScheduled = false
+    _saveTrailing = false
+    _lastSaveAt = Date.now()
+    saveSessionsToStorage(sessions.value)
+  }
+
+  function saveToStorage() {
+    const now = Date.now()
+    const elapsed = now - _lastSaveAt
+    if (elapsed >= SAVE_INTERVAL_MS && !_saveScheduled) {
+      _lastSaveAt = now
+      saveSessionsToStorage(sessions.value)
+      return
+    }
+    _saveTrailing = true
+    if (_saveScheduled) return
+    _saveScheduled = true
+    const wait = Math.max(0, SAVE_INTERVAL_MS - elapsed)
+    setTimeout(() => {
+      _saveScheduled = false
+      if (_saveTrailing) {
+        _saveTrailing = false
+        _lastSaveAt = Date.now()
+        saveSessionsToStorage(sessions.value)
+      }
+    }, wait)
+  }
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', flushSaveNow)
+  }
+
+  function saveProjects() {
+    saveProjectsToStorage(projects.value)
+  }
+
+  watch(
+    () => sessions.value,
+    () => {
+      saveToStorage()
+    },
+    { deep: true }
+  )
+
+  function addProject(projectPath: string) {
+    if (!projects.value.includes(projectPath)) {
+      projects.value.push(projectPath)
+      saveProjects()
+    }
+    currentProjectRoot.value = projectPath
+  }
+
+  function removeProject(projectPath: string) {
+    const index = projects.value.indexOf(projectPath)
+    if (index > -1) {
+      projects.value.splice(index, 1)
+      saveProjects()
+    }
+    if (currentProjectRoot.value === projectPath) {
+      currentProjectRoot.value = ''
+    }
+  }
+
+  function switchProject(projectPath: string) {
+    currentProjectRoot.value = projectPath
+  }
+
+  function createSession(title = 'New Chat', workingDirectory?: string, sessionId?: string): Session {
+    const id = sessionId || crypto.randomUUID()
+
+    const session: Session = {
+      id,
+      title,
+      messages: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      workingDirectory: workingDirectory || currentProjectRoot.value || undefined,
+      processStatus: 'none',
+      isTabOpen: true,
+      lastActivityAt: Date.now(),
+      mode: appStore.mode
+    }
+    sessions.value.unshift(session)
+    currentSessionId.value = session.id
+    clearTurnCheckpoints()
+    saveToStorage()
+    traceEvent({
+      sessionId: session.id,
+      actor: 'system',
+      type: sessionId ? 'session_restored' : 'session_created',
+      status: 'completed',
+      title: sessionId ? 'Chat session restored from history' : 'Chat session created',
+      metadata: { title: session.title, workingDirectory: session.workingDirectory },
+    })
+    return session
+  }
+
+  async function initClaudeCodeSession(sessionId: string): Promise<void> {
+    const claudeCode = api.claudeCode
+    if (!claudeCode) {
+      logger.warn('ChatStore', `initClaudeCodeSession: claudeCode API not available`)
+      return
+    }
+
+    const session = sessions.value.find(s => s.id === sessionId)
+    if (!session) {
+      logger.warn('ChatStore', `initClaudeCodeSession: session not found | id=${sessionId.slice(0, 8)}`)
+      return
+    }
+
+    const desiredEngine = settingsStore.engineType
+    const status = await claudeCode.getSessionStatus(sessionId)
+    if (status?.isRunning) {
+      const currentEngine = session.engineType
+      if (currentEngine && currentEngine !== desiredEngine) {
+        logger.info('ChatStore', `initClaudeCodeSession: engine changed (${currentEngine} → ${desiredEngine}), restarting | id=${sessionId.slice(0, 8)}`)
+        const resumeId = status.engineSessionId || session.engineSessionId
+        try {
+          await claudeCode.stop(sessionId)
+        } catch (e) {
+          logger.warn('ChatStore', `initClaudeCodeSession: stop failed before engine switch | id=${sessionId.slice(0, 8)}`, { error: String(e) })
+        }
+        session._resumeSessionId = resumeId || undefined
+      } else {
+        logger.info('ChatStore', `initClaudeCodeSession: session already running | id=${sessionId.slice(0, 8)}`)
+        // 已在运行的会话：若后端模式与用户偏好不一致，则下发用户偏好
+        // 需要获取 controlStore 的 currentPermissionMode，通过延迟导入避免循环依赖
+        const { useChatControlStore } = await import('./chatControl')
+        const controlStore = useChatControlStore()
+        if (status?.permissionMode && status.permissionMode !== controlStore.currentPermissionMode) {
+          try {
+            await claudeCode.setPermissionMode?.(sessionId, controlStore.currentPermissionMode)
+          } catch (e) {
+            logger.warn('ChatStore', `initClaudeCodeSession: failed to apply preferred mode | id=${sessionId.slice(0, 8)}`, { error: String(e) })
+          }
+        }
+        return
+      }
+    }
+
+    try {
+      const config = settingsStore.config
+      const cwd = session.workingDirectory || currentProjectRoot.value || await api.getCwd() || '/'
+
+      session.processStatus = 'starting'
+      saveToStorage()
+
+      // 延迟导入获取 currentPermissionMode
+      const { useChatControlStore } = await import('./chatControl')
+      const controlStore = useChatControlStore()
+
+      logger.info('ChatStore', `initClaudeCodeSession: starting session | id=${sessionId.slice(0, 8)} | engine=${desiredEngine} | cwd=${cwd} | provider=${config.provider} | model=${config.model} | baseUrl=${config.baseUrl || '(empty)'} | apiKey=${config.apiKey ? '***set' : '(empty)'} | agent=${currentAgent.value || '(none)'}`)
+      traceEvent({
+        sessionId,
+        actor: 'system',
+        type: 'engine_session_start',
+        status: 'started',
+        title: 'Starting engine session',
+        metadata: {
+          cwd,
+          engineType: desiredEngine,
+          provider: config.provider,
+          model: config.model,
+          baseUrl: config.baseUrl || '',
+          agent: currentAgent.value || '',
+        },
+      })
+
+      await claudeCode.startSession(sessionId, {
+        cwd,
+        apiKey: config.apiKey,
+        baseUrl: config.baseUrl,
+        provider: config.provider,
+        model: config.model,
+        effortLevel: config.effortLevel,
+        permissionMode: controlStore.currentPermissionMode,
+        agent: currentAgent.value || undefined,
+        thinkingEnabled: settingsStore.thinkingEnabled,
+        engineType: desiredEngine,
+        engineSource: settingsStore.engineSource,
+        installedCliPath: settingsStore.installedCliPath ?? undefined,
+        resumeSessionId: session._resumeSessionId,
+      })
+
+      delete session._resumeSessionId
+
+      session.engineType = desiredEngine
+      saveToStorage()
+
+      logger.info('ChatStore', `initClaudeCodeSession: session started successfully | id=${sessionId.slice(0, 8)}`)
+      traceEvent({
+        sessionId,
+        actor: 'system',
+        type: 'engine_session_start',
+        status: 'completed',
+        title: 'Engine session started',
+      })
+
+    } catch (error) {
+      const classified = errorHandler.handleError(error, {
+        sessionId,
+        provider: settingsStore.config.provider,
+        model: settingsStore.config.model,
+        baseUrl: settingsStore.config.baseUrl,
+        phase: 'init',
+      })
+      logger.error('ChatStore', `initClaudeCodeSession: failed to start session | id=${sessionId.slice(0, 8)}`, { error: String(error), category: classified.category })
+      traceEvent({
+        sessionId,
+        actor: 'system',
+        type: 'engine_session_start',
+        status: 'failed',
+        title: 'Engine session failed to start',
+        error: { message: classified.technicalDetail },
+      })
+      session.processStatus = 'exited'
+      saveToStorage()
+    }
+  }
+
+  function recordTeammateMessage(raw: any, targetSessionId: string): Message | null {
+    if (!isTeammateRawMessage(raw)) return null
+    const session = sessions.value.find(s => s.id === targetSessionId)
+    if (!session) return null
+
+    const teammateId = resolveTeammateId(targetSessionId, raw)
+    const teamName = getRawTeamName(raw)
+    const status = inferTeammateStatus(raw)
+    const text = stringifyRawContent(raw)
+    ensureTeamContext(session, teamName)
+
+    const existing = session.teamContext!.teammates[teammateId]
+    const name = existing?.name || getRawTeammateName(raw)
+    const color = existing?.color || AGENT_COLORS[Object.keys(session.teamContext!.teammates).length % AGENT_COLORS.length]
+    const transcript = session.teammateTranscripts![teammateId] || []
+    const messageId = raw?.uuid || raw?.message?.id || raw?.id || crypto.randomUUID()
+    const message: Message = {
+      id: String(messageId),
+      role: raw?.role === 'user' ? 'user' : 'assistant',
+      content: text,
+      timestamp: raw?.timestamp ? Date.parse(raw.timestamp) || Date.now() : Date.now(),
+      metadata: {
+        agentTaskId: teammateId,
+        agentName: name,
+        teamName,
+        status,
+      }
+    }
+
+    if (isFileBackedTeammate(targetSessionId, teammateId)) {
+      session.teamContext!.teammates[teammateId] = {
+        name,
+        agentType: existing?.agentType || raw?.agentType || raw?.subagent_type,
+        status,
+        color,
+        messageCount: session.teammateTranscripts![teammateId]?.length || transcript.length,
+      }
+      rekickAgentTranscriptPoll(session, targetSessionId, teammateId)
+      session.updatedAt = Date.now()
+      session.lastActivityAt = Date.now()
+      saveToStorage()
+      return null
+    }
+
+    if (text.trim()) {
+      const idx = transcript.findIndex(m => m.id === message.id)
+      if (idx >= 0) {
+        const next = [...transcript]
+        next[idx] = { ...next[idx], content: text, metadata: { ...next[idx].metadata, status } }
+        session.teammateTranscripts![teammateId] = next
+      } else {
+        session.teammateTranscripts![teammateId] = [...transcript, message]
+      }
+    }
+
+    session.teamContext!.teammates[teammateId] = {
+      name,
+      agentType: existing?.agentType || raw?.agentType || raw?.subagent_type,
+      status,
+      color,
+      messageCount: session.teammateTranscripts![teammateId]?.length || transcript.length
+    }
+
+    if ((status === 'completed' || status === 'failed') && !session.messages.some(m => m.metadata?.kind === 'task-notification' && m.metadata.agentTaskId === teammateId && m.metadata.status === status)) {
+      session.messages.push({
+        id: crypto.randomUUID(),
+        role: 'system',
+        content: `${name} ${status === 'completed' ? 'completed' : 'failed'}.`,
+        timestamp: Date.now(),
+        metadata: {
+          kind: 'task-notification',
+          agentTaskId: teammateId,
+          agentName: name,
+          teamName,
+          status,
+        }
+      })
+    }
+
+    session.updatedAt = Date.now()
+    session.lastActivityAt = Date.now()
+    saveToStorage()
+    return message
+  }
+
+  function viewTeammateTranscript(taskId: string) {
+    const session = currentSession.value
+    if (!session?.teamContext?.teammates[taskId]) return
+    session.viewingAgentTaskId = taskId
+    session.expandedView = 'teammates'
+    saveToStorage()
+  }
+
+  function backToLeaderView() {
+    const session = currentSession.value
+    if (!session) return
+    session.viewingAgentTaskId = undefined
+    session.expandedView = session.teamContext ? 'teammates' : 'none'
+    saveToStorage()
+  }
+
+  function addMessage(message: Omit<Message, 'id' | 'timestamp'> & { id?: string }, targetSessionId?: string): Message {
+    const sid = targetSessionId || currentSessionId.value
+    if (!sid) {
+      createSession()
+    }
+
+    const sessionId = sid || currentSessionId.value!
+    const newMessage: Message = {
+      ...message,
+      id: message.id || crypto.randomUUID(),
+      timestamp: Date.now()
+    }
+
+    const session = sessions.value.find(s => s.id === sessionId)
+    if (session) {
+      const existingIndex = session.messages.findIndex(m => m.id === newMessage.id)
+      if (existingIndex >= 0) {
+        session.messages[existingIndex] = newMessage
+      } else {
+        session.messages.push(newMessage)
+      }
+      session.updatedAt = Date.now()
+      session.lastActivityAt = Date.now()
+
+      for (const toolCall of newMessage.toolCalls || []) {
+        recordAgentToolCall(session, toolCall, toolCall.status === 'completed' ? 'completed' : toolCall.status === 'error' ? 'failed' : 'running')
+      }
+
+      if (session.messages.length === 1 && newMessage.role === 'user') {
+        const newTitle = newMessage.content.slice(0, 50) + (newMessage.content.length > 50 ? '...' : '')
+        session.title = newTitle
+        appStore.updateSessionTabTitle(sessionId, newTitle)
+      }
+      saveToStorage()
+    }
+
+    return newMessage
+  }
+
+  function updateMessage(messageId: string, updates: Partial<Message>, targetSessionId?: string) {
+    const sid = targetSessionId || currentSessionId.value
+    const session = sessions.value.find(s => s.id === sid)
+    if (session) {
+      const index = session.messages.findIndex(m => m.id === messageId)
+      if (index >= 0) {
+        const updatedMessage = { ...session.messages[index], ...updates }
+        session.messages = [
+          ...session.messages.slice(0, index),
+          updatedMessage,
+          ...session.messages.slice(index + 1)
+        ]
+        saveToStorage()
+      }
+    }
+  }
+
+  function updateToolCall(messageId: string, toolCallId: string, status: ToolCall['status']) {
+    const sid = currentSessionId.value
+    const session = sessions.value.find(s => s.id === sid)
+    if (!session) return
+
+    const primary = session.messages.find(m => m.id === messageId)
+    const tc = primary?.toolCalls?.find(t => t.id === toolCallId)
+    if (tc) {
+      tc.status = status
+      saveToStorage()
+      return
+    }
+
+    for (const message of session.messages) {
+      const fallback = message.toolCalls?.find(t => t.id === toolCallId)
+      if (fallback) {
+        fallback.status = status
+        saveToStorage()
+        return
+      }
+    }
+  }
+
+  // ========== 优化: 即时UI反馈 + 异步数据加载 ==========
+  const sessionLoadingStates = ref<Map<string, boolean>>(new Map())
+
+  function setSessionLoading(sessionId: string, loading: boolean) {
+    const newMap = new Map(sessionLoadingStates.value)
+    if (loading) {
+      newMap.set(sessionId, true)
+    } else {
+      newMap.delete(sessionId)
+    }
+    sessionLoadingStates.value = newMap
+  }
+
+  function isSessionLoading(sessionId: string): boolean {
+    return sessionLoadingStates.value.get(sessionId) ?? false
+  }
+
+  async function selectSession(sessionId: string) {
+    currentSessionId.value = sessionId
+
+    const session = sessions.value.find(s => s.id === sessionId)
+    if (session?.workingDirectory) {
+      currentProjectRoot.value = session.workingDirectory
+    }
+
+    clearTurnCheckpoints()
+
+    const claudeCode = api.claudeCode
+    if (claudeCode) {
+      try {
+        const statusPromise = claudeCode.getSessionStatus(sessionId)
+        const timeoutPromise = new Promise<null>((_, reject) =>
+          setTimeout(() => reject(new Error('timeout')), 2000)
+        )
+        const status = await Promise.race([statusPromise, timeoutPromise]).catch(() => null)
+
+        if (status?.isRunning && status.permissionMode) {
+          const { useChatControlStore } = await import('./chatControl')
+          const controlStore = useChatControlStore()
+          if (status.permissionMode !== controlStore.currentPermissionMode) {
+            try {
+              await claudeCode.setPermissionMode?.(sessionId, controlStore.currentPermissionMode)
+            } catch (e) {
+              logger.warn('ChatStore', `selectSession: failed to apply preferred mode | id=${sessionId.slice(0, 8)}`, { error: String(e) })
+            }
+          }
+        }
+      } catch {
+        // 忽略：保留用户偏好不变
+      }
+    }
+
+    void loadTurnCheckpoints(sessionId, undefined, true)
+  }
+
+  async function activateSession(sessionId: string): Promise<void> {
+    const session = sessions.value.find(s => s.id === sessionId)
+    if (!session) return
+
+    currentSessionId.value = sessionId
+    if (session.workingDirectory) {
+      currentProjectRoot.value = session.workingDirectory
+    }
+
+    clearTurnCheckpoints()
+
+    if (session.processStatus === 'suspended') {
+      const claudeCode = api.claudeCode
+      if (claudeCode) {
+        const desiredEngine = settingsStore.engineType
+        if (session.engineType && session.engineType !== desiredEngine) {
+          logger.info('ChatStore', `activateSession: suspended session uses engine=${session.engineType}, current=${desiredEngine} — restarting fresh | id=${sessionId.slice(0, 8)}`)
+          try {
+            await claudeCode.stop(sessionId)
+          } catch {}
+          session.processStatus = 'none'
+          saveToStorage()
+          if (session.messages.length > 0) {
+            await initClaudeCodeSession(sessionId)
+          }
+          return
+        }
+
+        try {
+          session.processStatus = 'starting'
+          saveToStorage()
+          await claudeCode.resumeSession(sessionId)
+          session.processStatus = 'active'
+          saveToStorage()
+          const status = await claudeCode.getSessionStatus(sessionId)
+          if (status?.permissionMode) {
+            const { useChatControlStore } = await import('./chatControl')
+            const controlStore = useChatControlStore()
+            if (status.permissionMode !== controlStore.currentPermissionMode) {
+              try {
+                await claudeCode.setPermissionMode?.(sessionId, controlStore.currentPermissionMode)
+              } catch (e) {
+                logger.warn('ChatStore', `activateSession: failed to apply preferred mode | id=${sessionId.slice(0, 8)}`, { error: String(e) })
+              }
+            }
+          }
+        } catch (error) {
+          console.error('[ChatStore] Failed to resume session:', error)
+          session.processStatus = 'exited'
+          saveToStorage()
+        }
+      }
+    } else if ((session.processStatus === 'none' || session.processStatus === 'exited') && session.messages.length > 0) {
+      await initClaudeCodeSession(sessionId)
+    }
+
+    void loadTurnCheckpoints(sessionId, undefined, true)
+  }
+
+  function deactivateSession(sessionId: string): void {
+    const session = sessions.value.find(s => s.id === sessionId)
+    if (session) {
+      session.isTabOpen = false
+      saveToStorage()
+    }
+  }
+
+  async function deleteSession(sessionId: string) {
+    const claudeCode = api.claudeCode
+    if (claudeCode) {
+      try {
+        await claudeCode.stop(sessionId)
+      } catch {}
+    }
+    const index = sessions.value.findIndex(s => s.id === sessionId)
+    if (index > -1) {
+      sessions.value.splice(index, 1)
+      if (currentSessionId.value === sessionId) {
+        currentSessionId.value = sessions.value[0]?.id || null
+      }
+      clearSessionToolUseMappings(sessionId)
+      saveToStorage()
+    }
+  }
+
+  // ── Turn Checkpoint Actions & Getters ──
+
+  async function loadTurnCheckpoints(sessionId: string, projectPathOverride?: string, force?: boolean) {
+    if (!sessionId || (isLoadingTurnCards.value && !force)) return
+
+    isLoadingTurnCards.value = true
+    turnCardsError.value = null
+
+    try {
+      const projectPath = projectPathOverride
+        || sessions.value.find(s => s.id === sessionId)?.workingDirectory
+        || workingDirectory.value
+      const result = await api.session.getTurnCheckpoints(sessionId, projectPath)
+      if (result.ok) {
+        turnCheckpoints.value = result.checkpoints
+      } else {
+        turnCardsError.value = result.error || 'Failed to load turn checkpoints'
+        turnCheckpoints.value = []
+      }
+    } catch (err) {
+      turnCardsError.value = err instanceof Error ? err.message : 'Unknown error'
+      turnCheckpoints.value = []
+    } finally {
+      isLoadingTurnCards.value = false
+    }
+  }
+
+  async function undoTurn(sessionId: string, targetUserMessageId: string, userMessageIndex?: number) {
+    if (!sessionId || rewindingTurnId.value) return
+
+    rewindingTurnId.value = targetUserMessageId
+
+    try {
+      const projectPath = workingDirectory.value
+      const result = await api.session.rewindTurn(sessionId, {
+        targetUserMessageId,
+        userMessageIndex
+      }, projectPath)
+
+      if (!result.ok) {
+        throw new Error(result.error || 'Failed to rewind turn')
+      }
+
+      await loadTurnCheckpoints(sessionId)
+    } catch (err) {
+      logger.error('ChatStore', 'Failed to undo turn', { error: err })
+      throw err
+    } finally {
+      rewindingTurnId.value = null
+    }
+  }
+
+  function clearTurnCheckpoints() {
+    turnCheckpoints.value = []
+    turnCardsError.value = null
+  }
+
+  // ── Rewind 状态管理方法 ──
+
+  function setShowRewindDialog(show: boolean) {
+    rewindState.value.showDialog = show
+  }
+
+  function setRewindSelectedMessage(messageId: string | null) {
+    rewindState.value.selectedMessageId = messageId
+  }
+
+  function setRewindSelectedOption(option: RewindOption) {
+    rewindState.value.selectedOption = option
+  }
+
+  function setRewindSummarizeFeedback(feedback: string) {
+    rewindState.value.summarizeFeedback = feedback
+  }
+
+  function resetRewindState() {
+    rewindState.value = {
+      showDialog: false,
+      selectedMessageId: null,
+      selectedOption: 'both',
+      summarizeFeedback: '',
+      isRewinding: false,
+      error: null,
+      showCodeConfirm: false,
+      filesToRewind: [],
+    }
+  }
+
+  function setRewindError(error: string | null) {
+    rewindState.value.error = error
+  }
+
+  function setShowCodeConfirm(show: boolean) {
+    rewindState.value.showCodeConfirm = show
+  }
+
+  function setFilesToRewind(files: string[]) {
+    rewindState.value.filesToRewind = files
+  }
+
+  function setPendingInputText(text: string) {
+    pendingInputText.value = text
+  }
+
+  function clearPendingInputText() {
+    pendingInputText.value = ''
+  }
+
+  async function loadFilesToRewind(sessionId: string, messageId: string): Promise<string[]> {
+    try {
+      const projectPath = sessions.value.find(s => s.id === sessionId)?.workingDirectory
+        || workingDirectory.value
+      const session = sessions.value.find(s => s.id === sessionId)
+      const userMessageIndex = session
+        ? session.messages.filter(m => m.role === 'user').findIndex(m => m.id === messageId)
+        : -1
+
+      const result = await api.session.getTurnRewindPreviewFiles(
+        sessionId,
+        messageId,
+        userMessageIndex >= 0 ? userMessageIndex : undefined,
+        projectPath
+      )
+
+      if (result.ok && result.files.length > 0) {
+        return result.files
+      }
+
+      if (session && turnCheckpoints.value.length > 0) {
+        const completedTurns = getCompletedTurnTargets(session.messages)
+        const turnIndex = completedTurns.findIndex(turn => turn.messageId === messageId)
+        if (turnIndex >= 0 && completedTurns.length === turnCheckpoints.value.length) {
+          const checkpoint = turnCheckpoints.value[turnIndex]
+          if (checkpoint?.code?.filesChanged?.length) {
+            return checkpoint.code.filesChanged.map(file => file.path)
+          }
+        }
+      }
+
+      if (!result.ok) {
+        logger.warn('ChatStore', 'Failed to load rewind preview files', { error: result.error })
+      }
+
+      return result.ok ? result.files : []
+    } catch (err) {
+      logger.error('ChatStore', 'Failed to load files to rewind', { error: err })
+      return []
+    }
+  }
+
+  async function rewindSession(
+    sessionId: string,
+    targetUserMessageId: string,
+    mode: 'both' | 'conversation' | 'code'
+  ): Promise<void> {
+    if (!sessionId) {
+      rewindState.value.error = 'Session ID is required'
+      return
+    }
+
+    if (rewindState.value.isRewinding) {
+      return
+    }
+
+    rewindState.value.isRewinding = true
+    rewindState.value.error = null
+
+    let codeError: string | null = null
+    let conversationError: string | null = null
+
+    try {
+      if (mode === 'both' || mode === 'code') {
+        try {
+          const projectPath = workingDirectory.value
+          const session = sessions.value.find(s => s.id === sessionId)
+          const userMessageIndex = session
+            ? session.messages.filter(m => m.role === 'user').findIndex(m => m.id === targetUserMessageId)
+            : -1
+
+          logger.info('ChatStore', 'Rewinding code', { sessionId, targetUserMessageId, userMessageIndex, projectPath })
+          const result = await api.session.rewindTurn(sessionId, {
+            targetUserMessageId,
+            userMessageIndex: userMessageIndex >= 0 ? userMessageIndex : undefined,
+          }, projectPath)
+
+          if (!result.ok) {
+            codeError = result.error || 'Failed to rewind code'
+            logger.error('ChatStore', 'Code rewind failed', { error: codeError })
+          } else {
+            logger.info('ChatStore', 'Code rewind succeeded')
+          }
+        } catch (err) {
+          codeError = err instanceof Error ? err.message : 'Unknown error during code rewind'
+          logger.error('ChatStore', 'Code rewind exception', { error: codeError })
+        }
+
+        if (mode === 'both' && codeError) {
+          logger.warn('ChatStore', 'Skipping conversation rewind due to code rewind failure', { error: codeError })
+        }
+      }
+
+      if (mode === 'conversation' || (mode === 'both' && !codeError)) {
+        try {
+          const session = sessions.value.find(s => s.id === sessionId)
+          if (session) {
+            const targetIndex = session.messages.findIndex(m => m.id === targetUserMessageId)
+            if (targetIndex >= 0) {
+              const messagesToRemove = session.messages.slice(targetIndex)
+              const targetMessage = session.messages[targetIndex]
+              const lastUserMessage = [...messagesToRemove].reverse().find(m => m.role === 'user')
+
+              if (lastUserMessage) {
+                pendingInputText.value = lastUserMessage.content || ''
+                logger.info('ChatStore', 'Stored user message for input restoration', {
+                  messageId: lastUserMessage.id,
+                  contentLength: pendingInputText.value.length
+                })
+              } else if (targetMessage?.role === 'user') {
+                pendingInputText.value = targetMessage.content || ''
+                logger.info('ChatStore', 'Stored target user message for input restoration', {
+                  messageId: targetMessage.id,
+                  contentLength: pendingInputText.value.length
+                })
+              } else {
+                pendingInputText.value = ''
+              }
+
+              session.messages = session.messages.slice(0, targetIndex)
+              saveToStorage()
+              logger.info('ChatStore', 'Conversation rewind succeeded', { targetIndex, remainingMessages: session.messages.length })
+            } else {
+              conversationError = 'Target message not found in session'
+              logger.error('ChatStore', conversationError)
+            }
+          } else {
+            conversationError = 'Session not found'
+            logger.error('ChatStore', conversationError)
+          }
+        } catch (err) {
+          conversationError = err instanceof Error ? err.message : 'Unknown error during conversation rewind'
+          logger.error('ChatStore', 'Conversation rewind exception', { error: conversationError })
+        }
+      }
+    } catch (err) {
+      rewindState.value.error = err instanceof Error ? err.message : 'Unknown error during rewind'
+      rewindState.value.isRewinding = false
+      return
+    }
+
+    if (codeError && conversationError) {
+      rewindState.value.error = `Code: ${codeError}\nConversation: ${conversationError}`
+    } else if (codeError) {
+      rewindState.value.error = codeError
+    } else if (conversationError) {
+      rewindState.value.error = conversationError
+    }
+
+    rewindState.value.isRewinding = false
+
+    if (codeError || conversationError) {
+      throw new Error(rewindState.value.error || 'Rewind failed')
+    }
+  }
+
+  async function summarizeTurn(
+    _sessionId: string,
+    _targetUserMessageId: string,
+    _feedback: string
+  ): Promise<void> {
+    return Promise.resolve()
+  }
+
+  const turnChangeCards = computed<TurnChangeCardData[]>(() => {
+    if (turnCheckpoints.value.length === 0) return []
+
+    const latestIndex = turnCheckpoints.value.length - 1
+
+    return turnCheckpoints.value.map((checkpoint, index) => ({
+      checkpoint,
+      workDir: checkpoint.workDir ?? null,
+      isLatest: index === latestIndex,
+      targetUserMessageId: checkpoint.target.targetUserMessageId
+    })).filter(card =>
+      card.checkpoint.code.available &&
+      card.checkpoint.code.filesChanged.length > 0
+    )
+  })
+
+  function migrateOldData() {
+    try {
+      const oldKeys = Object.keys(localStorage).filter(k => k.startsWith('chat_sessions_'))
+      if (oldKeys.length > 0 && sessions.value.length === 0) {
+        for (const key of oldKeys) {
+          try {
+            const oldSessions = JSON.parse(localStorage.getItem(key) || '[]')
+            sessions.value = [...sessions.value, ...oldSessions]
+            localStorage.removeItem(key)
+          } catch {}
+        }
+      }
+    } catch {}
+  }
+
+  async function loadAgents() {
+    const claudeCode = api.claudeCode
+    if (!claudeCode?.listAgents) return
+    try {
+      const cwd = workingDirectory.value || currentProjectRoot.value || undefined
+      availableAgents.value = await claudeCode.listAgents(cwd)
+    } catch (error) {
+      console.error('[ChatStore] Failed to load agents:', error)
+    }
+  }
+
+  async function switchAgent(agentType: string) {
+    currentAgent.value = agentType
+    const sid = currentSessionId.value
+    const claudeCode = api.claudeCode
+    if (claudeCode && sid) {
+      const status = await claudeCode.getSessionStatus(sid)
+      if (status?.isRunning) {
+        await claudeCode.stop(sid)
+        await initClaudeCodeSession(sid)
+      }
+    }
+    console.log('[ChatStore] Agent switched to:', agentType || '(default)')
+  }
+
+  async function switchModel(model: string) {
+    const sid = currentSessionId.value
+    const claudeCode = api.claudeCode
+    if (claudeCode && sid) {
+      const status = await claudeCode.getSessionStatus(sid)
+      if (status?.isRunning) {
+        await claudeCode.stop(sid)
+        await initClaudeCodeSession(sid)
+      }
+    }
+    console.log('[ChatStore] Model switched to:', model)
+  }
+
+  async function startWorkAssistantSession(assistant: {
+    name: string
+    skills?: string[]
+    permission?: string
+  }): Promise<Session> {
+    const cwd = appStore.workWorkspace || appStore.projectRoot || undefined
+
+    try {
+      await api.agents.install(assistant.name, 'global', cwd)
+    } catch { /* already installed or unavailable */ }
+
+    if (api.skills && cwd) {
+      for (const skill of assistant.skills || []) {
+        try {
+          await api.skills.installLocal(skill, 'project', cwd)
+        } catch { /* already installed or unavailable */ }
+      }
+    }
+
+    currentAgent.value = assistant.name
+    if (assistant.permission) {
+      const { useChatControlStore } = await import('./chatControl')
+      const controlStore = useChatControlStore()
+      controlStore.setPermissionMode(assistant.permission as any)
+    }
+
+    const session = createSession(assistant.name, cwd)
+    session.assistantId = assistant.name
+    saveToStorage()
+
+    appStore.openArtifactsPanel()
+
+    await initClaudeCodeSession(session.id)
+    return session
+  }
+
+  sessions.value.forEach(s => {
+    if (s.processStatus !== 'none' && s.processStatus !== 'exited') {
+      s.processStatus = 'none'
+    }
+  })
+
+  migrateOldData()
+
+  return {
+    sessions,
+    currentSessionId,
+    currentSession,
+    currentMessages,
+    displayMessages,
+    currentTeamContext,
+    currentViewedAgentTaskId,
+    viewedTeammate,
+    isViewingTeammate,
+    workingDirectory,
+    projects,
+    allProjects,
+    currentProjectRoot,
+    currentAgent,
+    availableAgents,
+    createSession,
+    initClaudeCodeSession,
+    addMessage,
+    updateMessage,
+    updateToolCall,
+    viewTeammateTranscript,
+    backToLeaderView,
+    recordTeammateMessage,
+    selectSession,
+    activateSession,
+    deactivateSession,
+    deleteSession,
+    getCurrentConfig,
+    saveToStorage,
+    flushSaveNow,
+    addProject,
+    removeProject,
+    switchProject,
+    loadAgents,
+    switchAgent,
+    switchModel,
+    startWorkAssistantSession,
+    // Turn Checkpoints
+    turnCheckpoints: readonly(turnCheckpoints),
+    turnChangeCards,
+    isLoadingTurnCards,
+    turnCardsError,
+    rewindingTurnId: readonly(rewindingTurnId),
+    loadTurnCheckpoints,
+    undoTurn,
+    clearTurnCheckpoints,
+    // Rewind
+    rewindState: readonly(rewindState),
+    pendingInputText: readonly(pendingInputText),
+    setShowRewindDialog,
+    setRewindSelectedMessage,
+    setRewindSelectedOption,
+    setRewindSummarizeFeedback,
+    resetRewindState,
+    setRewindError,
+    setShowCodeConfirm,
+    setFilesToRewind,
+    setPendingInputText,
+    clearPendingInputText,
+    loadFilesToRewind,
+    rewindSession,
+    summarizeTurn,
+    // 会话加载状态
+    sessionLoadingStates: readonly(sessionLoadingStates),
+    isSessionLoading,
+    setSessionLoading,
+    // Diff 面板触发
+    diffPanelTrigger: readonly(diffPanelTrigger),
+    triggerDiffPanel,
+    // Prompt Stash
+    sessionStash: readonly(sessionStash),
+    stashPrompt,
+    getStash,
+    clearStash,
+    hasStash,
+    // Expose for sub-stores
+    logger,
+    traceEvent,
+    updateTaskStateFromToolResult,
+  }
+})

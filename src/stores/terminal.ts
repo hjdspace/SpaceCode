@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, markRaw } from 'vue'
 import { Terminal as TerminalIcon } from 'lucide-vue-next'
+import { api } from '@/services/electronAPI'
 
 export interface TerminalTab {
   id: string
@@ -239,10 +240,7 @@ export const useTerminalStore = defineStore('terminal', () => {
     const instance = embeddedInstances.value.get(toolCallId)
     if (instance && instance.terminalId) {
       try {
-        const electronAPI = (window as any).electronAPI
-        if (electronAPI?.terminal?.kill) {
-          electronAPI.terminal.kill(instance.terminalId)
-        }
+        api.terminal.kill(instance.terminalId)
       } catch (e) {
         console.warn('[TerminalStore] Failed to kill embedded terminal:', e)
       }

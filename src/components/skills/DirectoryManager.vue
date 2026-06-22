@@ -97,6 +97,7 @@ import {
   Trash2,
   Plus
 } from 'lucide-vue-next'
+import { useDialog } from '@/composables/useDialog'
 
 const props = defineProps<{
   modelValue: boolean
@@ -110,6 +111,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const { showConfirm } = useDialog()
 const newDirPath = ref('')
 const errorMessage = ref('')
 
@@ -140,7 +142,7 @@ async function handleAdd() {
 }
 
 async function handleRemove(dirPath: string) {
-  if (confirm(t('skills.directoryManager.removeConfirm'))) {
+  if (await showConfirm(t('skills.directoryManager.removeConfirm'), { variant: 'danger' })) {
     emit('remove', dirPath)
   }
 }

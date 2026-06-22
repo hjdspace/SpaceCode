@@ -58,7 +58,7 @@ export const useCronStore = defineStore('cron', () => {
 
   async function createTask(projectRoot: string, input: Omit<CronTask, 'id' | 'createdAt'>) {
     const task = await api.cron.create(projectRoot, input)
-    tasks.value.push(task)
+    if (task) tasks.value.push(task)
     return task
   }
 

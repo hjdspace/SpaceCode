@@ -107,11 +107,13 @@ import {
 import { useConfigStore } from '@/stores/config'
 import { TOOL_CATEGORIES, TOOL_REGISTRY, type ToolDefinition, type ToolCategory } from '@/lib/tool-registry'
 import { debounce } from '@/utils/debounce'
+import { useDialog } from '@/composables/useDialog'
 
 const { t } = useI18n()
 const emit = defineEmits<{ 'change': [] }>()
 
 const configStore = useConfigStore()
+const { showConfirm } = useDialog()
 
 interface DisplayTool {
   id: string
@@ -186,8 +188,8 @@ function toggleTool(toolId: string) {
   configStore.toggleTool(toolId)
 }
 
-function resetTools() {
-  if (confirm(t('toolsSettings.resetConfirm'))) {
+async function resetTools() {
+  if (await showConfirm(t('toolsSettings.resetConfirm'), { variant: 'warning' })) {
     localStorage.removeItem('tools_config')
     location.reload()
   }

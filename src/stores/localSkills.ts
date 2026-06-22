@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-
-const electronAPI = (window as any).electronAPI
+import { api } from '@/services/electronAPI'
 
 export interface LocalSkill {
   name: string
@@ -145,16 +144,10 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
     loading.value = true
     error.value = null
     try {
-      if (electronAPI?.skills?.scanLocalLibrary) {
-        const dirPaths = allDirectoryPaths.value
-        const data = await electronAPI.skills.scanLocalLibrary(dirPaths, cwd)
-        skills.value = data.skills || []
-        bundles.value = data.bundles || []
-      } else {
-        console.warn('Electron API not available for scanning local library')
-        skills.value = []
-        bundles.value = []
-      }
+      const dirPaths = allDirectoryPaths.value
+      const data = await api.skills.scanLocalLibrary(dirPaths, cwd)
+      skills.value = data.skills || []
+      bundles.value = data.bundles || []
     } catch (err) {
       console.error('Failed to fetch local skills:', err)
       error.value = err instanceof Error ? err.message : 'Failed to fetch local skills'
@@ -166,17 +159,14 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
   async function installSkill(skillName: string, scope: 'global' | 'project', cwd?: string) {
     installingId.value = skillName
     try {
-      if (electronAPI?.skills?.installLocal) {
-        const skill = skills.value.find(s => s.name === skillName)
-        await electronAPI.skills.installLocal(skillName, scope, cwd, skill?.skillPath)
-        if (skill) {
-          skill.isInstalled = true
-          skill.installedScope = scope
-          skill.installedAt = new Date()
-        }
-        return true
+      const skill = skills.value.find(s => s.name === skillName)
+      await api.skills.installLocal(skillName, scope, cwd, skill?.skillPath)
+      if (skill) {
+        skill.isInstalled = true
+        skill.installedScope = scope
+        skill.installedAt = new Date()
       }
-      return false
+      return true
     } catch (err) {
       console.error('Failed to install skill:', err)
       throw err
@@ -187,17 +177,14 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
 
   async function uninstallSkill(skillName: string, cwd?: string) {
     try {
-      if (electronAPI?.skills?.uninstallLocal) {
-        await electronAPI.skills.uninstallLocal(skillName, cwd)
-        const skill = skills.value.find(s => s.name === skillName)
-        if (skill) {
-          skill.isInstalled = false
-          skill.installedScope = undefined
-          skill.installedAt = undefined
-        }
-        return true
+      await api.skills.uninstallLocal(skillName, cwd)
+      const skill = skills.value.find(s => s.name === skillName)
+      if (skill) {
+        skill.isInstalled = false
+        skill.installedScope = undefined
+        skill.installedAt = undefined
       }
-      return false
+      return true
     } catch (err) {
       console.error('Failed to uninstall skill:', err)
       throw err
@@ -207,12 +194,9 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
   async function installBundle(bundleId: string, scope: 'global' | 'project', cwd?: string) {
     installingId.value = bundleId
     try {
-      if (electronAPI?.skills?.installLocalBundle) {
-        await electronAPI.skills.installLocalBundle(bundleId, scope, cwd)
-        await fetchLocalSkills(cwd)
-        return true
-      }
-      return false
+      await api.skills.installLocalBundle(bundleId, scope, cwd)
+      await fetchLocalSkills(cwd)
+      return true
     } catch (err) {
       console.error('Failed to install bundle:', err)
       throw err
@@ -223,12 +207,9 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
 
   async function uninstallBundle(bundleName: string, cwd?: string) {
     try {
-      if (electronAPI?.skills?.uninstallLocalBundle) {
-        await electronAPI.skills.uninstallLocalBundle(bundleName, cwd)
-        await fetchLocalSkills(cwd)
-        return true
-      }
-      return false
+      await api.skills.uninstallLocalBundle(bundleName, cwd)
+      await fetchLocalSkills(cwd)
+      return true
     } catch (err) {
       console.error('Failed to uninstall bundle:', err)
       throw err
@@ -237,15 +218,12 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
 
   async function addCustomDirectory(dirPath: string) {
     try {
-      if (electronAPI?.skills?.addCustomDir) {
-        await electronAPI.skills.addCustomDir(dirPath)
-        if (!customDirectories.value.includes(dirPath)) {
-          customDirectories.value.push(dirPath)
-        }
-        await fetchLocalSkills()
-        return true
+      await api.skills.addCustomDir(dirPath)
+      if (!customDirectories.value.includes(dirPath)) {
+        customDirectories.value.push(dirPath)
       }
-      return false
+      await fetchLocalSkills()
+      return true
     } catch (err) {
       console.error('Failed to add custom directory:', err)
       throw err
@@ -254,16 +232,13 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
 
   async function removeCustomDirectory(dirPath: string) {
     try {
-      if (electronAPI?.skills?.removeCustomDir) {
-        await electronAPI.skills.removeCustomDir(dirPath)
-        customDirectories.value = customDirectories.value.filter(d => d !== dirPath)
-        if (selectedDirectory.value === dirPath) {
-          selectedDirectory.value = null
-        }
-        await fetchLocalSkills()
-        return true
+      await api.skills.removeCustomDir(dirPath)
+      customDirectories.value = customDirectories.value.filter(d => d !== dirPath)
+      if (selectedDirectory.value === dirPath) {
+        selectedDirectory.value = null
       }
-      return false
+      await fetchLocalSkills()
+      return true
     } catch (err) {
       console.error('Failed to remove custom directory:', err)
       throw err
@@ -272,10 +247,8 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
 
   async function loadCustomDirectories() {
     try {
-      if (electronAPI?.skills?.getCustomDirs) {
-        const data = await electronAPI.skills.getCustomDirs()
-        customDirectories.value = data.directories || []
-      }
+      const data = await api.skills.getCustomDirs()
+      customDirectories.value = data.directories || []
     } catch (err) {
       console.error('Failed to load custom directories:', err)
     }

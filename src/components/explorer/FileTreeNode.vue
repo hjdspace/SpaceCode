@@ -91,6 +91,7 @@ import {
   FileType
 } from 'lucide-vue-next'
 import { api } from '@/services/electronAPI'
+import { useDialog } from '@/composables/useDialog'
 
 interface TreeNode {
   name: string
@@ -123,6 +124,8 @@ const emit = defineEmits<{
   refresh: []
   contextmenu: [event: MouseEvent, node: TreeNode]
 }>()
+
+const { showAlert } = useDialog()
 
 // Rename State
 const isRenaming = ref(false)
@@ -192,12 +195,12 @@ async function confirmRename() {
       console.log('[FileTreeNode] Renamed to:', newName)
       emit('refresh')
     } else {
-      alert(`重命名失败：${result.error}`)
+      await showAlert(`重命名失败：${result.error}`)
       cancelRename()
     }
   } catch (err) {
     console.error('[FileTreeNode] Rename error:', err)
-    alert('重命名失败，请重试。')
+    await showAlert('重命名失败，请重试。')
     cancelRename()
   }
   

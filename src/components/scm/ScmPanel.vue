@@ -364,10 +364,12 @@ import {
   GitMerge, ArrowDownToLine, Trash2, Sparkles
 } from 'lucide-vue-next'
 import type { ScmFile, ScmLogEntry } from '@/stores/scm'
+import { useDialog } from '@/composables/useDialog'
 
 const scmStore = useScmStore()
 const appStore = useAppStore()
 const { t } = useI18n()
+const { showConfirm } = useDialog()
 
 const stagedCollapsed = ref(false)
 const conflictsCollapsed = ref(false)
@@ -572,7 +574,7 @@ async function handleDiscardAll(): Promise<void> {
   ]
   if (allPaths.length === 0) return
   // Confirm before discarding
-  if (!confirm(t('scm.confirmDiscard', { count: allPaths.length }))) return
+  if (!await showConfirm(t('scm.confirmDiscard', { count: allPaths.length }), { variant: 'danger' })) return
   await scmStore.discardFileChanges(allPaths)
 }
 

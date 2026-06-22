@@ -164,10 +164,12 @@ import { getBuiltinProvider } from '@/types/builtinHooks'
 import type { HookScope } from '@/types/hooks'
 import { useBuiltinHooksStore } from '@/stores/builtinHooks'
 import { api as electronAPIService } from '@/services/electronAPI'
+import { useDialog } from '@/composables/useDialog'
 import BuiltinHookConfigModal from './BuiltinHookConfigModal.vue'
 
 const { t } = useI18n()
 const store = useBuiltinHooksStore()
+const { showAlert } = useDialog()
 
 const expanded = ref(true)
 const configModalId = ref<string | null>(null)
@@ -325,7 +327,7 @@ async function onToggle(builtinId: string) {
   if (def && nodeStatus.value === 'missing') {
     const needsNode = def.providers.some(p => p.requiresNode)
     if (needsNode) {
-      alert(t('hookSettings.builtin.nodeRequiredAlert'))
+      await showAlert(t('hookSettings.builtin.nodeRequiredAlert'))
       return
     }
   }

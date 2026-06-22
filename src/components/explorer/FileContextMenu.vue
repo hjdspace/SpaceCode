@@ -89,8 +89,10 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
 import { useAppStore } from '@/stores/app'
+import { useDialog } from '@/composables/useDialog'
 
 const { t } = useI18n()
+const { showAlert, showConfirm } = useDialog()
 interface TreeNode {
   name: string
   path: string
@@ -174,11 +176,11 @@ async function handleOpenInEditor(editor: ExternalEditor) {
   try {
     const result = await api.openInEditor(editor, props.node.path)
     if (!result.success) {
-      alert(t('explorer.openFailed', { error: result.error || editor }))
+      await showAlert(t('explorer.openFailed', { error: result.error || editor }))
     }
   } catch (err) {
     console.error('[FileContextMenu] Open in editor error:', err)
-    alert(t('explorer.openFailedPath'))
+    await showAlert(t('explorer.openFailedPath'))
   }
   emit('close')
 }
@@ -192,7 +194,7 @@ function handleRename() {
 async function handleDelete() {
   if (!props.node) return
   
-  const confirmed = confirm(t('explorer.confirmDelete', { name: props.node.name }))
+  const confirmed = await showConfirm(t('explorer.confirmDelete', { name: props.node.name }), { variant: 'danger' })
   if (!confirmed) return
   
   try {
@@ -201,11 +203,11 @@ async function handleDelete() {
       console.log('[FileContextMenu] Deleted:', props.node.path)
       emit('delete', props.node)
     } else {
-      alert(t('explorer.deleteFailed', { error: result.error }))
+      await showAlert(t('explorer.deleteFailed', { error: result.error }))
     }
   } catch (err) {
     console.error('[FileContextMenu] Delete error:', err)
-    alert(t('explorer.deleteFailedRetry'))
+    await showAlert(t('explorer.deleteFailedRetry'))
   }
   emit('close')
 }

@@ -47,10 +47,9 @@ export interface McpRuntimeStatus {
   tools?: McpToolInfo[]
 }
 
-const MCP_STORAGE_KEY = 'claude_desktop_mcp_servers'
+import { api } from '@/services/electronAPI'
 
-// Get electron API
-const electronAPI = (window as any).electronAPI
+const MCP_STORAGE_KEY = 'claude_desktop_mcp_servers'
 
 /** Strip Vue reactive Proxy — Electron IPC uses structured clone which
  *  cannot serialize Proxy objects, causing "An object could not be cloned". */
@@ -158,11 +157,9 @@ export const useMcpStore = defineStore('mcp', () => {
     error.value = null
     try {
       let rawServers: Record<string, MCPServer> = {}
-      if (electronAPI?.mcp?.getServers) {
-        const data = await electronAPI.mcp.getServers()
-        if (data?.mcpServers) {
-          rawServers = normalizeServers(data.mcpServers)
-        }
+      const data = await api.mcp.getServers()
+      if (data?.mcpServers) {
+        rawServers = normalizeServers(data.mcpServers)
       } else {
         // Fallback: load from localStorage
         const stored = localStorage.getItem(MCP_STORAGE_KEY)
@@ -176,14 +173,16 @@ export const useMcpStore = defineStore('mcp', () => {
       servers.value = merged
 
       // 把新增的内置预设持久化一次，保证下次加载时状态一致
-      if (changed && electronAPI?.mcp?.updateServers) {
+      if (changed) {
         try {
-          await electronAPI.mcp.updateServers(toPlain(merged))
+          await api.mcp.updateServers(toPlain(merged))
         } catch (err) {
           console.error('Failed to persist builtin MCP presets:', err)
         }
       }
-      localStorage.setItem(MCP_STORAGE_KEY, JSON.stringify(merged))
+      if (changed) {
+        localStorage.setItem(MCP_STORAGE_KEY, JSON.stringify(merged))
+      }
     } catch (err) {
       console.error('Failed to fetch MCP servers:', err)
       error.value = 'Failed to connect to API'
@@ -195,7 +194,7 @@ export const useMcpStore = defineStore('mcp', () => {
   async function fetchRuntimeStatus() {
     runtimeLoading.value = true
     try {
-      const claudeCode = electronAPI?.claudeCode
+      const claudeCode = api.claudeCode
       if (!claudeCode?.getMcpStatus) return
 
       // 1. 找一个正在运行的 engine session。
@@ -238,9 +237,7 @@ export const useMcpStore = defineStore('mcp', () => {
   async function addServer(name: string, server: Omit<MCPServer, 'id' | 'name'>) {
     try {
       const newServer = { ...server, id: crypto.randomUUID(), name }
-      if (electronAPI?.mcp?.addServer) {
-        await electronAPI.mcp.addServer(name, toPlain(server))
-      }
+      await api.mcp.addServer(name, toPlain(server))
       servers.value = { ...servers.value, [name]: newServer }
       localStorage.setItem(MCP_STORAGE_KEY, JSON.stringify(servers.value))
     } catch (err) {
@@ -262,9 +259,7 @@ export const useMcpStore = defineStore('mcp', () => {
         updated[name] = { ...server, id: original?.id || crypto.randomUUID(), name, _source: original?._source }
       }
 
-      if (electronAPI?.mcp?.updateServers) {
-        await electronAPI.mcp.updateServers(toPlain(updated))
-      }
+      await api.mcp.updateServers(toPlain(updated))
       servers.value = updated
       localStorage.setItem(MCP_STORAGE_KEY, JSON.stringify(servers.value))
       return true
@@ -281,9 +276,7 @@ export const useMcpStore = defineStore('mcp', () => {
       throw new Error('builtinServerCannotDelete')
     }
     try {
-      if (electronAPI?.mcp?.deleteServer) {
-        await electronAPI.mcp.deleteServer(name)
-      }
+      await api.mcp.deleteServer(name)
       const updated = { ...servers.value }
       delete updated[name]
       servers.value = updated
@@ -302,10 +295,10 @@ export const useMcpStore = defineStore('mcp', () => {
         updated[name] = { ...updated[name], enabled }
       }
 
-      if (electronAPI?.mcp?.toggleEnabled) {
-        await electronAPI.mcp.toggleEnabled(name, enabled)
-      } else if (electronAPI?.mcp?.updateServers) {
-        await electronAPI.mcp.updateServers(toPlain(updated))
+      try {
+        await api.mcp.toggleEnabled(name, enabled)
+      } catch {
+        await api.mcp.updateServers(toPlain(updated))
       }
       servers.value = updated
       localStorage.setItem(MCP_STORAGE_KEY, JSON.stringify(servers.value))
@@ -318,9 +311,7 @@ export const useMcpStore = defineStore('mcp', () => {
   async function reconnectServer(serverName: string) {
     if (!activeSessionId.value) return
     try {
-      if (electronAPI?.mcp?.reconnectServer) {
-        await electronAPI.mcp.reconnectServer(activeSessionId.value, serverName)
-      }
+      await api.mcp.reconnectServer(activeSessionId.value, serverName)
     } catch (err) {
       console.error('Failed to reconnect server:', err)
     }
@@ -329,9 +320,7 @@ export const useMcpStore = defineStore('mcp', () => {
   async function toggleServerRuntime(serverName: string, enabled: boolean) {
     if (!activeSessionId.value) return
     try {
-      if (electronAPI?.mcp?.toggleServerRuntime) {
-        await electronAPI.mcp.toggleServerRuntime(activeSessionId.value, serverName, enabled)
-      }
+      await api.mcp.toggleServerRuntime(activeSessionId.value, serverName, enabled)
     } catch (err) {
       console.error('Failed to toggle server runtime:', err)
     }
@@ -358,9 +347,7 @@ export const useMcpStore = defineStore('mcp', () => {
 
       const merged = { ...preservedServers, ...settingsServers }
 
-      if (electronAPI?.mcp?.updateServers) {
-        await electronAPI.mcp.updateServers(toPlain(merged))
-      }
+      await api.mcp.updateServers(toPlain(merged))
       servers.value = merged
       localStorage.setItem(MCP_STORAGE_KEY, JSON.stringify(servers.value))
     } catch (err) {
@@ -396,7 +383,7 @@ export const useMcpStore = defineStore('mcp', () => {
         headers: server.headers || {},
       }
 
-      const result = await electronAPI?.mcp?.probeServer(toPlain(config))
+      const result = await api.mcp.probeServer(toPlain(config))
       if (result) {
         probeResults.value = {
           ...probeResults.value,

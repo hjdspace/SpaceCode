@@ -111,9 +111,138 @@ export type ExternalEditor =
   | 'wsl'
   | 'androidStudio'
 
+export interface GitDiffHunk {
+  oldStart: number
+  oldLines: number
+  newStart: number
+  newLines: number
+  content?: string
+  [key: string]: unknown
+}
+
+export interface GitDiffResult {
+  path?: string
+  hunks?: GitDiffHunk[]
+  additions?: number
+  deletions?: number
+  [key: string]: unknown
+}
+
+export interface GitStatusFile {
+  path: string
+  originalPath?: string
+  index?: string
+  working_dir?: string
+  statusCode: string
+  status: 'modified' | 'added' | 'deleted' | 'renamed' | 'copied' | 'untracked' | 'ignored' | 'conflict'
+  staged: boolean
+  isTracked: boolean
+  [key: string]: unknown
+}
+
+export interface GitStatus {
+  isRepo: boolean
+  branch: string
+  upstream?: string | null
+  ahead: number
+  behind: number
+  staged: GitStatusFile[]
+  unstaged: GitStatusFile[]
+  untracked: GitStatusFile[]
+  conflicted: GitStatusFile[]
+  [key: string]: unknown
+}
+
+export interface GitBranch {
+  name: string
+  current: boolean
+  isRemote: boolean
+  commit?: string
+  upstream?: string
+  ahead?: number
+  behind?: number
+  [key: string]: unknown
+}
+
+export interface GitLogEntry {
+  hash: string
+  shortHash: string
+  subject: string
+  message: string
+  author: string
+  date: string
+  refs: string
+  [key: string]: unknown
+}
+
+export interface CronTask {
+  id: string
+  cron: string
+  prompt: string
+  createdAt: number
+  lastFiredAt?: number
+  recurring?: boolean
+  permanent?: boolean
+  name?: string
+  description?: string
+  enabled?: boolean
+  frequency?: string
+  scheduledTime?: string
+  command?: string
+  projectRoot?: string
+  [key: string]: unknown
+}
+
+export interface CronRunEntry {
+  id: string
+  taskId: string
+  taskName: string
+  status: 'running' | 'completed' | 'failed' | 'timeout'
+  startedAt: string
+  completedAt?: string
+  prompt: string
+  output?: string
+  error?: string
+  durationMs?: number
+  sessionId?: string
+  [key: string]: unknown
+}
+
+export interface CliDetectionResult {
+  available: boolean
+  path: string | null
+  version: string | null
+  versionCompatible?: boolean
+  [key: string]: unknown
+}
+
+export interface EnvironmentCheckResult {
+  node: { available: boolean; version: string | null; path: string | null }
+  npm: { available: boolean; version: string | null; path: string | null }
+  git: { available: boolean; version: string | null; path: string | null }
+  [key: string]: unknown
+}
+
+export interface ProxyStatus {
+  running: boolean
+  port: number
+  pid?: number
+  requestsProcessed: number
+  errorsCount: number
+  lastError?: string
+  [key: string]: unknown
+}
+
+export interface InstallProgress {
+  stage: 'downloading' | 'installing' | 'verifying' | 'done' | 'error'
+  message: string
+  percent?: number
+  [key: string]: unknown
+}
+
 export const api = {
   sendMessage: (text: string) => electronAPI?.sendMessage(text) || Promise.resolve({ success: false }),
-  onMessage: (callback: (msg: any) => void) => electronAPI?.onMessage(callback),
+  onMessage: (callback: (msg: unknown) => void) => electronAPI?.onMessage(callback),
   getAppState: () => electronAPI?.getAppState() || Promise.resolve({ sessions: [], currentSessionId: null, theme: 'dark' }),
   readDir: (dirPath: string): Promise<FileEntry[]> => electronAPI?.readDir(dirPath) || Promise.resolve([]),
   readFile: (filePath: string): Promise<string | null> => electronAPI?.readFile(filePath) || Promise.resolve(null),
@@ -144,13 +273,13 @@ export const api = {
     }
     return Promise.resolve(undefined)
   },
-  showDiff: (diff: any) => electronAPI?.showDiff(diff),
-  onDiffRequested: (callback: (diff: any) => void) => electronAPI?.onDiffRequested(callback),
+  showDiff: (diff: unknown) => electronAPI?.showDiff(diff),
+  onDiffRequested: (callback: (diff: unknown) => void) => electronAPI?.onDiffRequested(callback),
   showInfoPanel: (mode: 'diff' | 'file' | 'markdown' | 'tool-diff' | 'webview') => electronAPI?.showInfoPanel(mode),
   hideInfoPanel: () => electronAPI?.hideInfoPanel(),
   onShowInfoPanel: (callback: (mode: string) => void) => electronAPI?.onShowInfoPanel(callback),
   onHideInfoPanel: (callback: () => void) => electronAPI?.onHideInfoPanel(callback),
-  onToolResult: (callback: (result: any) => void) => electronAPI?.onToolResult(callback),
+  onToolResult: (callback: (result: unknown) => void) => electronAPI?.onToolResult(callback),
   onMenuNewChat: (callback: () => void) => {
     if (electronAPI?.onMenuNewChat) {
       electronAPI.onMenuNewChat(callback)
@@ -300,7 +429,7 @@ export const api = {
       electronAPI?.git?.isRepo(cwd) || Promise.resolve(false),
     getRoot: (cwd: string): Promise<string | null> =>
       electronAPI?.git?.getRoot(cwd) || Promise.resolve(null),
-    getStatus: (cwd: string): Promise<any> =>
+    getStatus: (cwd: string): Promise<GitStatus | null> =>
       electronAPI?.git?.getStatus(cwd) || Promise.resolve(null),
     stage: (cwd: string, paths: string[]): Promise<boolean> =>
       electronAPI?.git?.stage(cwd, paths) || Promise.resolve(false),
@@ -312,15 +441,15 @@ export const api = {
       electronAPI?.git?.unstageAll(cwd) || Promise.resolve(false),
     commit: (cwd: string, message: string, amend?: boolean): Promise<{ success: boolean; hash?: string; error?: string }> =>
       electronAPI?.git?.commit(cwd, message, amend) || Promise.resolve({ success: false, error: 'Git API not available' }),
-    getDiff: (cwd: string, path: string, staged?: boolean): Promise<any> =>
+    getDiff: (cwd: string, path: string, staged?: boolean): Promise<GitDiffResult | null> =>
       electronAPI?.git?.getDiff(cwd, path, staged) || Promise.resolve(null),
-    getFullDiff: (cwd: string): Promise<any> =>
-      electronAPI?.git?.getFullDiff(cwd) || Promise.resolve(null),
+    getFullDiff: (cwd: string): Promise<string> =>
+      electronAPI?.git?.getFullDiff(cwd) || Promise.resolve(''),
     getStagedDiff: (cwd: string): Promise<string> =>
       electronAPI?.git?.getStagedDiff(cwd) || Promise.resolve(''),
     showFile: (cwd: string, path: string): Promise<string | null> =>
       electronAPI?.git?.showFile(cwd, path) || Promise.resolve(null),
-    getBranches: (cwd: string): Promise<any[]> =>
+    getBranches: (cwd: string): Promise<GitBranch[]> =>
       electronAPI?.git?.getBranches(cwd) || Promise.resolve([]),
     checkout: (cwd: string, ref: string): Promise<{ success: boolean; error?: string }> =>
       electronAPI?.git?.checkout(cwd, ref) || Promise.resolve({ success: false, error: 'Git API not available' }),
@@ -328,7 +457,7 @@ export const api = {
       electronAPI?.git?.createBranch(cwd, name, checkoutTo) || Promise.resolve({ success: false, error: 'Git API not available' }),
     deleteBranch: (cwd: string, name: string, force?: boolean): Promise<{ success: boolean; error?: string }> =>
       electronAPI?.git?.deleteBranch(cwd, name, force) || Promise.resolve({ success: false, error: 'Git API not available' }),
-    getLog: (cwd: string, count?: number): Promise<any[]> =>
+    getLog: (cwd: string, count?: number): Promise<GitLogEntry[]> =>
       electronAPI?.git?.getLog(cwd, count) || Promise.resolve([]),
     discardChanges: (cwd: string, paths: string[]): Promise<boolean> =>
       electronAPI?.git?.discardChanges(cwd, paths) || Promise.resolve(false),
@@ -362,6 +491,22 @@ export const api = {
       }
       return Promise.resolve([])
     },
+    scanLibrary: (cwd?: string): Promise<any> =>
+      electronAPI?.agents?.scanLibrary(cwd) || Promise.resolve({ agents: [] }),
+    getInstalled: (cwd?: string): Promise<any> =>
+      electronAPI?.agents?.getInstalled(cwd) || Promise.resolve({ agents: [] }),
+    install: (name: string, scope: string, cwd?: string): Promise<void> =>
+      electronAPI?.agents?.install(name, scope, cwd) || Promise.resolve(),
+    uninstall: (name: string, scope: string, cwd?: string): Promise<void> =>
+      electronAPI?.agents?.uninstall(name, scope, cwd) || Promise.resolve(),
+    listWorkflows: (): Promise<any> =>
+      electronAPI?.agents?.listWorkflows() || Promise.resolve({ workflows: [] }),
+    saveWorkflow: (workflow: unknown): Promise<void> =>
+      electronAPI?.agents?.saveWorkflow(workflow) || Promise.resolve(),
+    deleteWorkflow: (id: string): Promise<void> =>
+      electronAPI?.agents?.deleteWorkflow(id) || Promise.resolve(),
+    exportWorkflow: (id: string, scope: string, cwd?: string): Promise<any> =>
+      electronAPI?.agents?.exportWorkflow(id, scope, cwd) || Promise.resolve(null),
   },
 
   updateThinkingLevel: (sessionId: string, enabled: boolean): Promise<void> => {
@@ -378,35 +523,35 @@ export const api = {
     return Promise.resolve(undefined)
   },
 
-  detectInstalledCli: (): Promise<any> => {
+  detectInstalledCli: (): Promise<CliDetectionResult | null> => {
     if (electronAPI?.claudeCode?.detectInstalledCli) {
       return electronAPI.claudeCode.detectInstalledCli()
     }
     return Promise.resolve(null)
   },
 
-  checkEnvironment: (): Promise<any> => {
+  checkEnvironment: (): Promise<EnvironmentCheckResult | null> => {
     if (electronAPI?.claudeCode?.checkEnvironment) {
       return electronAPI.claudeCode.checkEnvironment()
     }
     return Promise.resolve(null)
   },
 
-  installCli: (): Promise<any> => {
+  installCli: (): Promise<{ success: boolean; error?: string } | null> => {
     if (electronAPI?.claudeCode?.installCli) {
       return electronAPI.claudeCode.installCli()
     }
     return Promise.resolve(null)
   },
 
-  onInstallProgress: (callback: (progress: any) => void): (() => void) => {
+  onInstallProgress: (callback: (progress: InstallProgress) => void): (() => void) => {
     if (electronAPI?.claudeCode?.onInstallProgress) {
       return electronAPI.claudeCode.onInstallProgress(callback)
     }
     return () => {}
   },
 
-  getProxyStatus: (): Promise<any> => {
+  getProxyStatus: (): Promise<ProxyStatus | null> => {
     if (electronAPI?.claudeCode?.getProxyStatus) {
       return electronAPI.claudeCode.getProxyStatus()
     }
@@ -634,7 +779,7 @@ export const api = {
         electronAPI.update.installAndRestart()
       }
     },
-    onAvailable: (callback: (info: { version: string; releaseDate: string; releaseNotes: any; releaseName?: string }) => void): (() => void) => {
+    onAvailable: (callback: (info: { version: string; releaseDate: string; releaseNotes: string; releaseName?: string }) => void): (() => void) => {
       if (electronAPI?.update?.onAvailable) {
         return electronAPI.update.onAvailable(callback)
       }
@@ -686,27 +831,85 @@ export const api = {
 
   // Cron API
   cron: {
-    list: (projectRoot: string): Promise<any[]> =>
+    list: (projectRoot: string): Promise<CronTask[]> =>
       electronAPI?.cron?.list(projectRoot) || Promise.resolve([]),
-    create: (projectRoot: string, task: any): Promise<any> =>
+    create: (projectRoot: string, task: Omit<CronTask, 'id'>): Promise<CronTask | null> =>
       electronAPI?.cron?.create(projectRoot, task) || Promise.resolve(null),
-    update: (projectRoot: string, id: string, updates: any): Promise<void> =>
+    update: (projectRoot: string, id: string, updates: Partial<CronTask>): Promise<void> =>
       electronAPI?.cron?.update(projectRoot, id, updates) || Promise.resolve(),
     delete: (projectRoot: string, id: string): Promise<void> =>
       electronAPI?.cron?.delete(projectRoot, id) || Promise.resolve(),
-    run: (projectRoot: string, id: string): Promise<any> =>
+    run: (projectRoot: string, id: string): Promise<{ success: boolean; error?: string } | null> =>
       electronAPI?.cron?.run(projectRoot, id) || Promise.resolve(null),
-    runs: (projectRoot: string, limit?: number): Promise<any[]> =>
+    runs: (projectRoot: string, limit?: number): Promise<CronRunEntry[]> =>
       electronAPI?.cron?.runs(projectRoot, limit) || Promise.resolve([]),
-    taskRuns: (projectRoot: string, taskId: string): Promise<any[]> =>
+    taskRuns: (projectRoot: string, taskId: string): Promise<CronRunEntry[]> =>
       electronAPI?.cron?.taskRuns(projectRoot, taskId) || Promise.resolve([]),
     validate: (cron: string): Promise<{ valid: boolean; error?: string }> =>
       electronAPI?.cron?.validate(cron) || Promise.resolve({ valid: false, error: 'Cron API not available' }),
     describe: (cron: string): Promise<string> =>
       electronAPI?.cron?.describe(cron) || Promise.resolve(cron),
-    onTaskFired: (callback: (data: any) => void): (() => void) | null =>
+    onTaskFired: (callback: (data: { taskId: string; taskName: string; [key: string]: unknown }) => void): (() => void) | null =>
       electronAPI?.cron?.onTaskFired(callback) || null,
-    onRunCompleted: (callback: (data: any) => void): (() => void) | null =>
+    onRunCompleted: (callback: (data: { runId: string; taskId: string; status: string; [key: string]: unknown }) => void): (() => void) | null =>
       electronAPI?.cron?.onRunCompleted(callback) || null,
+  },
+
+  // MCP API
+  mcp: {
+    getServers: (): Promise<any> =>
+      electronAPI?.mcp?.getServers() || Promise.resolve(null),
+    updateServers: (servers: Record<string, unknown>): Promise<void> =>
+      electronAPI?.mcp?.updateServers(servers) || Promise.resolve(),
+    addServer: (name: string, config: unknown): Promise<void> =>
+      electronAPI?.mcp?.addServer(name, config) || Promise.resolve(),
+    deleteServer: (name: string): Promise<void> =>
+      electronAPI?.mcp?.deleteServer(name) || Promise.resolve(),
+    toggleEnabled: (name: string, enabled: boolean): Promise<void> =>
+      electronAPI?.mcp?.toggleEnabled(name, enabled) || Promise.resolve(),
+    reconnectServer: (sessionId: string, serverName: string): Promise<void> =>
+      electronAPI?.mcp?.reconnectServer(sessionId, serverName) || Promise.resolve(),
+    toggleServerRuntime: (sessionId: string, serverName: string, enabled: boolean): Promise<void> =>
+      electronAPI?.mcp?.toggleServerRuntime(sessionId, serverName, enabled) || Promise.resolve(),
+    probeServer: (config: unknown): Promise<any> =>
+      electronAPI?.mcp?.probeServer(config) || Promise.resolve(null),
+  },
+
+  // Skills API
+  skills: {
+    getSkills: (cwd?: string): Promise<any> =>
+      electronAPI?.skills?.getSkills(cwd) || Promise.resolve({ skills: [] }),
+    getBundledSkills: (): Promise<any> =>
+      electronAPI?.skills?.getBundledSkills() || Promise.resolve({ skills: [] }),
+    createSkill: (name: string, scope: string, content: string, cwd?: string): Promise<any> =>
+      electronAPI?.skills?.createSkill(name, scope, content, cwd) || Promise.resolve(null),
+    saveSkill: (skill: unknown, content: string): Promise<any> =>
+      electronAPI?.skills?.saveSkill(skill, content) || Promise.resolve(null),
+    deleteSkill: (filePath: string): Promise<void> =>
+      electronAPI?.skills?.deleteSkill(filePath) || Promise.resolve(),
+    searchMarketplace: (query: string): Promise<any> =>
+      electronAPI?.skills?.searchMarketplace(query) || Promise.resolve({ skills: [] }),
+    installMarketplaceSkill: (source: string, skillId: string, global: boolean, cwd?: string): Promise<any> =>
+      electronAPI?.skills?.installMarketplaceSkill(source, skillId, global, cwd) || Promise.resolve({ success: false }),
+    uninstallMarketplaceSkill: (skillName: string, global: boolean, cwd?: string): Promise<void> =>
+      electronAPI?.skills?.uninstallMarketplaceSkill(skillName, global, cwd) || Promise.resolve(),
+    fetchMarketplaceReadme: (source: string, skillId: string): Promise<string | null> =>
+      electronAPI?.skills?.fetchMarketplaceReadme(source, skillId) || Promise.resolve(null),
+    scanLocalLibrary: (dirPaths: string[], cwd?: string): Promise<any> =>
+      electronAPI?.skills?.scanLocalLibrary(dirPaths, cwd) || Promise.resolve({ skills: [], bundles: [] }),
+    installLocal: (skillName: string, scope: string, cwd?: string, skillPath?: string): Promise<void> =>
+      electronAPI?.skills?.installLocal(skillName, scope, cwd, skillPath) || Promise.resolve(),
+    uninstallLocal: (skillName: string, cwd?: string): Promise<void> =>
+      electronAPI?.skills?.uninstallLocal(skillName, cwd) || Promise.resolve(),
+    installLocalBundle: (bundleId: string, scope: string, cwd?: string): Promise<void> =>
+      electronAPI?.skills?.installLocalBundle(bundleId, scope, cwd) || Promise.resolve(),
+    uninstallLocalBundle: (bundleName: string, cwd?: string): Promise<void> =>
+      electronAPI?.skills?.uninstallLocalBundle(bundleName, cwd) || Promise.resolve(),
+    addCustomDir: (dirPath: string): Promise<void> =>
+      electronAPI?.skills?.addCustomDir(dirPath) || Promise.resolve(),
+    removeCustomDir: (dirPath: string): Promise<void> =>
+      electronAPI?.skills?.removeCustomDir(dirPath) || Promise.resolve(),
+    getCustomDirs: (): Promise<any> =>
+      electronAPI?.skills?.getCustomDirs() || Promise.resolve({ directories: [] }),
   },
 }

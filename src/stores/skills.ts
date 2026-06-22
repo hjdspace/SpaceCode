@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { api } from '@/services/electronAPI'
 
 export type SkillSource = 'global' | 'project' | 'plugin' | 'installed' | 'builtin'
 export type InstalledSource = 'agents' | 'claude'
@@ -25,9 +26,6 @@ export interface MarketplaceSkill {
 
 const SKILLS_STORAGE_KEY = 'claude_desktop_skills'
 
-// Get electron API
-const electronAPI = (window as any).electronAPI
-
 export const useSkillsStore = defineStore('skills', () => {
   const skills = ref<Skill[]>([])
   const marketplaceSkills = ref<MarketplaceSkill[]>([])
@@ -46,23 +44,12 @@ export const useSkillsStore = defineStore('skills', () => {
     error.value = null
     try {
       let userSkills: Skill[] = []
-      // Use IPC instead of HTTP API
-      if (electronAPI?.skills?.getSkills) {
-        const data = await electronAPI.skills.getSkills(cwd)
-        userSkills = data.skills || []
-      } else {
-        // Fallback: load from localStorage
-        const stored = localStorage.getItem(SKILLS_STORAGE_KEY)
-        if (stored) {
-          userSkills = JSON.parse(stored)
-        }
-      }
+      const data = await api.skills.getSkills(cwd)
+      userSkills = data.skills || []
 
       let bundled: Skill[] = []
-      if (electronAPI?.skills?.getBundledSkills) {
-        const data = await electronAPI.skills.getBundledSkills()
-        bundled = data.skills || []
-      }
+      const bundledData = await api.skills.getBundledSkills()
+      bundled = bundledData.skills || []
 
       skills.value = [...userSkills, ...bundled]
     } catch (err) {
@@ -75,10 +62,9 @@ export const useSkillsStore = defineStore('skills', () => {
 
   async function createSkill(name: string, scope: 'global' | 'project', content: string, cwd?: string) {
     try {
-      if (electronAPI?.skills?.createSkill) {
-        const data = await electronAPI.skills.createSkill(name, scope, content, cwd)
+      const data = await api.skills.createSkill(name, scope, content, cwd)
+      if (data?.skill) {
         skills.value.push(data.skill)
-        // Save to localStorage as fallback
         localStorage.setItem(SKILLS_STORAGE_KEY, JSON.stringify(skills.value))
         return data.skill
       } else {
@@ -105,8 +91,8 @@ export const useSkillsStore = defineStore('skills', () => {
       throw new Error('Built-in skills cannot be modified')
     }
     try {
-      if (electronAPI?.skills?.saveSkill) {
-        const data = await electronAPI.skills.saveSkill(skill, content)
+      const data = await api.skills.saveSkill(skill, content)
+      if (data?.skill) {
         const index = skills.value.findIndex(s =>
           s.name === skill.name &&
           s.source === data.skill.source &&
@@ -141,10 +127,7 @@ export const useSkillsStore = defineStore('skills', () => {
       throw new Error('Built-in skills cannot be deleted')
     }
     try {
-      if (electronAPI?.skills?.deleteSkill) {
-        // Only pass the filePath (serializable string) instead of the whole skill object
-        await electronAPI.skills.deleteSkill(skill.filePath)
-      }
+      await api.skills.deleteSkill(skill.filePath)
       skills.value = skills.value.filter(s =>
         !(s.name === skill.name &&
           s.source === skill.source &&
@@ -160,13 +143,8 @@ export const useSkillsStore = defineStore('skills', () => {
   async function searchMarketplace(query: string) {
     marketplaceLoading.value = true
     try {
-      if (electronAPI?.skills?.searchMarketplace) {
-        const data = await electronAPI.skills.searchMarketplace(query)
-        marketplaceSkills.value = data.skills || []
-      } else {
-        // Fallback: return empty results
-        marketplaceSkills.value = []
-      }
+      const data = await api.skills.searchMarketplace(query)
+      marketplaceSkills.value = data.skills || []
     } catch (err) {
       console.error('Failed to search marketplace:', err)
       marketplaceSkills.value = []
@@ -177,11 +155,8 @@ export const useSkillsStore = defineStore('skills', () => {
 
   async function installMarketplaceSkill(source: string, skillId: string, global: boolean = true, cwd?: string): Promise<{ success: boolean; logs: string[]; error?: string }> {
     try {
-      if (electronAPI?.skills?.installMarketplaceSkill) {
-        const result = await electronAPI.skills.installMarketplaceSkill(source, skillId, global, cwd)
-        return result
-      }
-      return { success: false, logs: ['Electron API not available'], error: 'Electron API not available' }
+      const result = await api.skills.installMarketplaceSkill(source, skillId, global, cwd)
+      return result
     } catch (err) {
       console.error('Failed to install skill:', err)
       throw err
@@ -190,9 +165,7 @@ export const useSkillsStore = defineStore('skills', () => {
 
   async function uninstallMarketplaceSkill(skillName: string, global: boolean = true, cwd?: string) {
     try {
-      if (electronAPI?.skills?.uninstallMarketplaceSkill) {
-        await electronAPI.skills.uninstallMarketplaceSkill(skillName, global, cwd)
-      }
+      await api.skills.uninstallMarketplaceSkill(skillName, global, cwd)
       return true
     } catch (err) {
       console.error('Failed to uninstall skill:', err)
@@ -202,10 +175,7 @@ export const useSkillsStore = defineStore('skills', () => {
 
   async function fetchMarketplaceReadme(source: string, skillId: string) {
     try {
-      if (electronAPI?.skills?.fetchMarketplaceReadme) {
-        return await electronAPI.skills.fetchMarketplaceReadme(source, skillId)
-      }
-      return null
+      return await api.skills.fetchMarketplaceReadme(source, skillId)
     } catch (err) {
       console.error('Failed to fetch readme:', err)
       return null

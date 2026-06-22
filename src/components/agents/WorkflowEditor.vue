@@ -251,11 +251,13 @@ import {
 } from 'lucide-vue-next'
 import { useAgentsStore } from '@/stores/agents'
 import { useAppStore } from '@/stores/app'
+import { useDialog } from '@/composables/useDialog'
 import WorkflowRunner from './WorkflowRunner.vue'
 
 const { t } = useI18n()
 const agentsStore = useAgentsStore()
 const appStore = useAppStore()
+const { showAlert, showConfirm } = useDialog()
 const electronAPI = (window as any).electronAPI
 
 interface WorkflowNode {
@@ -493,7 +495,7 @@ async function saveCurrentWorkflow() {
 }
 
 async function deleteWorkflow(id: string) {
-  if (!confirm(t('agents.deleteWorkflowConfirm'))) return
+  if (!await showConfirm(t('agents.deleteWorkflowConfirm'), { variant: 'danger' })) return
   try {
     await electronAPI?.agents?.deleteWorkflow(id)
     await loadWorkflows()
@@ -503,11 +505,11 @@ async function deleteWorkflow(id: string) {
 }
 
 async function exportWorkflow(wf: WorkflowDef) {
-  const scope = confirm(t('workflow.exportGlobalConfirm')) ? 'global' : 'project'
+  const scope = await showConfirm(t('workflow.exportGlobalConfirm')) ? 'global' : 'project'
   const cwd = appStore.projectRoot || undefined
   try {
     const result = await electronAPI?.agents?.exportWorkflow(wf.id, scope, cwd)
-    if (result) alert(t('workflow.exportSuccess', { path: result.path }))
+    if (result) await showAlert(t('workflow.exportSuccess', { path: result.path }))
   } catch (err) {
     console.error('Failed to export workflow:', err)
   }

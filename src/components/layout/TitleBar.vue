@@ -117,10 +117,12 @@ import { Menu, Minus, Square, Copy, X, ChevronDown, Smartphone, RefreshCw as Ref
 import { computed, h, onMounted, onBeforeUnmount, ref } from 'vue'
 import { api, type ExternalEditor } from '@/services/electronAPI'
 import { useAutoUpdate } from '@/composables/useAutoUpdate'
+import { useDialog } from '@/composables/useDialog'
 
 const appStore = useAppStore()
 const chatStore = useChatStore()
 const { t } = useI18n()
+const { showAlert } = useDialog()
 
 const emit = defineEmits<{
   'openChangelog': []
@@ -314,17 +316,17 @@ async function openWith(editor: ExternalEditor) {
   closeOpenMenu()
   const projectRoot = (appStore.projectRoot || '').trim()
   if (!projectRoot) {
-    alert(t('titleBar.noProjectOpen'))
+    await showAlert(t('titleBar.noProjectOpen'))
     return
   }
   try {
     const result = await api.openInEditor(editor, projectRoot)
     if (!result.success) {
-      alert(t('titleBar.openFailed', { error: result.error || t('titleBar.openFailedHint') }))
+      await showAlert(t('titleBar.openFailed', { error: result.error || t('titleBar.openFailedHint') }))
     }
   } catch (err) {
     console.error('[TitleBar] Open in editor error:', err)
-    alert(t('titleBar.openFailedHint'))
+    await showAlert(t('titleBar.openFailedHint'))
   }
 }
 

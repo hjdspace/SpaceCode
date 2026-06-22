@@ -122,6 +122,7 @@ import {
 } from 'lucide-vue-next'
 import { useLocalSkillsStore, type LocalSkill, type LocalSkillBundle } from '../../stores/localSkills'
 import { useAppStore } from '@/stores/app'
+import { useDialog } from '@/composables/useDialog'
 import CategorySidebar from './CategorySidebar.vue'
 import SkillGrid from './SkillGrid.vue'
 import LocalSkillDetail from './LocalSkillDetail.vue'
@@ -132,6 +133,7 @@ import LocalSkillBundleCard from './LocalSkillBundleCard.vue'
 const { t } = useI18n()
 const store = useLocalSkillsStore()
 const appStore = useAppStore()
+const { showAlert, showConfirm } = useDialog()
 const selectedSkill = ref<LocalSkill | null>(null)
 const showDirectoryManager = ref(false)
 const showInstallScope = ref(false)
@@ -163,7 +165,7 @@ async function handleInstall(name: string, scope?: 'global' | 'project') {
       emit('installed')
     } catch (err) {
       console.error('Failed to install skill:', err)
-      alert(`Failed to install: ${err instanceof Error ? err.message : err}`)
+      await showAlert(`Failed to install: ${err instanceof Error ? err.message : err}`)
     }
   } else {
     pendingInstall.value = { kind: 'skill', name }
@@ -179,14 +181,14 @@ function handleBundleInstall(bundle: LocalSkillBundle) {
 }
 
 async function handleBundleUninstall(bundle: LocalSkillBundle) {
-  if (!confirm(t('skills.bundle.confirmUninstall', { name: bundle.name }))) return
+  if (!await showConfirm(t('skills.bundle.confirmUninstall', { name: bundle.name }), { variant: 'danger' })) return
   try {
     const cwd = appStore.projectRoot || undefined
     await store.uninstallBundle(bundle.name, cwd)
     emit('installed')
   } catch (err) {
     console.error('Failed to uninstall bundle:', err)
-    alert(`Failed to uninstall bundle: ${err instanceof Error ? err.message : err}`)
+    await showAlert(`Failed to uninstall bundle: ${err instanceof Error ? err.message : err}`)
   }
 }
 
@@ -204,7 +206,7 @@ async function handleInstallScopeConfirm(scope: 'global' | 'project') {
     emit('installed')
   } catch (err) {
     console.error('Failed to install:', err)
-    alert(`Failed to install: ${err instanceof Error ? err.message : err}`)
+    await showAlert(`Failed to install: ${err instanceof Error ? err.message : err}`)
   }
 }
 
@@ -213,20 +215,20 @@ async function handleUninstall(name: string) {
     const cwd = appStore.projectRoot || undefined
     await store.uninstallSkill(name, cwd)
     emit('installed')
-    alert(t('skills.uninstallSuccess'))
+    await showAlert(t('skills.uninstallSuccess'))
   } catch (err) {
     console.error('Failed to uninstall skill:', err)
-    alert(`Failed to uninstall: ${err instanceof Error ? err.message : err}`)
+    await showAlert(`Failed to uninstall: ${err instanceof Error ? err.message : err}`)
   }
 }
 
 async function handleAddDirectory(dirPath: string) {
   try {
     await store.addCustomDirectory(dirPath)
-    alert(t('skills.directoryManager.addSuccess'))
+    await showAlert(t('skills.directoryManager.addSuccess'))
   } catch (err) {
     console.error('Failed to add directory:', err)
-    alert(`Failed to add: ${err instanceof Error ? err.message : err}`)
+    await showAlert(`Failed to add: ${err instanceof Error ? err.message : err}`)
   }
 }
 
@@ -235,7 +237,7 @@ async function handleRemoveDirectory(dirPath: string) {
     await store.removeCustomDirectory(dirPath)
   } catch (err) {
     console.error('Failed to remove directory:', err)
-    alert(`Failed to remove: ${err instanceof Error ? err.message : err}`)
+    await showAlert(`Failed to remove: ${err instanceof Error ? err.message : err}`)
   }
 }
 </script>

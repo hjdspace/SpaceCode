@@ -150,8 +150,10 @@ import { ref, computed, watch, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus, Pencil, Trash2, ChevronDown, X, Boxes } from 'lucide-vue-next'
 import { debounce } from '@/utils/debounce'
+import { useDialog } from '@/composables/useDialog'
 
 const { t } = useI18n()
+const { showConfirm } = useDialog()
 const emit = defineEmits<{
   'change': []
 }>()
@@ -227,8 +229,8 @@ function editServer(server: MCPServer) {
   showAddForm.value = true
 }
 
-function deleteServer(serverId: string) {
-  if (confirm('Are you sure you want to delete this server?')) {
+async function deleteServer(serverId: string) {
+  if (await showConfirm('Are you sure you want to delete this server?', { variant: 'danger' })) {
     servers.value = servers.value.filter(s => s.id !== serverId)
     if (expandedServer.value === serverId) {
       expandedServer.value = null

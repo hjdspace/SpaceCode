@@ -168,6 +168,7 @@ import { useI18n } from 'vue-i18n'
 import { Plus, Search, Zap, ArrowLeft } from 'lucide-vue-next'
 import { useSkillsStore, type Skill } from '@/stores/skills'
 import { useAppStore } from '@/stores/app'
+import { useDialog } from '@/composables/useDialog'
 import SkillListItem from './SkillListItem.vue'
 import SkillEditor from './SkillEditor.vue'
 import CreateSkillDialog from './CreateSkillDialog.vue'
@@ -177,6 +178,7 @@ import LocalSkillBrowser from './LocalSkillBrowser.vue'
 const { t } = useI18n()
 const skillsStore = useSkillsStore()
 const appStore = useAppStore()
+const { showAlert, showConfirm } = useDialog()
 
 function handleClose() {
   appStore.showSkillsManager = false
@@ -224,7 +226,7 @@ async function handleCreate(name: string, scope: 'global' | 'project', content: 
     showCreate.value = false
   } catch (err) {
     console.error('Failed to create skill:', err)
-    alert(err instanceof Error ? err.message : 'Failed to create skill')
+    await showAlert(err instanceof Error ? err.message : 'Failed to create skill')
   }
 }
 
@@ -233,13 +235,13 @@ async function handleSave(skill: Skill, content: string) {
     await skillsStore.saveSkill(skill, content)
   } catch (err) {
     console.error('Failed to save skill:', err)
-    alert(err instanceof Error ? err.message : 'Failed to save skill')
+    await showAlert(err instanceof Error ? err.message : 'Failed to save skill')
   }
 }
 
 async function handleDelete(skill: Skill) {
   if (skill.source === 'builtin') return
-  if (!confirm(t('skills.deleteConfirm', { name: skill.name }))) return
+  if (!await showConfirm(t('skills.deleteConfirm', { name: skill.name }), { variant: 'danger' })) return
   try {
     await skillsStore.deleteSkill(skill)
     if (isSelected(skill)) {
@@ -247,7 +249,7 @@ async function handleDelete(skill: Skill) {
     }
   } catch (err) {
     console.error('Failed to delete skill:', err)
-    alert(err instanceof Error ? err.message : 'Failed to delete skill')
+    await showAlert(err instanceof Error ? err.message : 'Failed to delete skill')
   }
 }
 

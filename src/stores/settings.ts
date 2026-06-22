@@ -56,12 +56,13 @@ export interface AuthSettings {
   engineSource?: EngineSource
   installedCliPath?: string
   lastViewedChangelogVersion?: string
+  effortLevel?: 'low' | 'medium' | 'high' | 'max'
 }
 
 const SETTINGS_STORAGE_KEY = 'claude_desktop_settings'
 const LEGACY_STORAGE_KEY = 'llm_settings'
 
-const electronAPI = (window as any).electronAPI
+// All Electron API calls go through the centralized api wrapper
 
 function createDefaultProviderConfig(): ProviderConfig {
   return {
@@ -143,16 +144,14 @@ function loadLegacySettings(): Partial<AuthSettings> {
 
 async function loadEnvSettings(): Promise<Partial<AuthSettings>> {
   try {
-    if (!electronAPI?.getEnv) return {}
-
-    const llmProvider = await electronAPI.getEnv('LLM_PROVIDER')
-    const anthropicKey = await electronAPI.getEnv('ANTHROPIC_API_KEY')
-    const openaiKey = await electronAPI.getEnv('OPENAI_API_KEY')
-    const openaiBaseUrl = await electronAPI.getEnv('OPENAI_BASE_URL')
-    const anthropicBaseUrl = await electronAPI.getEnv('ANTHROPIC_BASE_URL')
-    const openaiModel = await electronAPI.getEnv('OPENAI_MODEL')
-    const geminiKey = await electronAPI.getEnv('GEMINI_API_KEY')
-    const geminiBaseUrl = await electronAPI.getEnv('GEMINI_BASE_URL')
+    const llmProvider = await api.getEnv('LLM_PROVIDER')
+    const anthropicKey = await api.getEnv('ANTHROPIC_API_KEY')
+    const openaiKey = await api.getEnv('OPENAI_API_KEY')
+    const openaiBaseUrl = await api.getEnv('OPENAI_BASE_URL')
+    const anthropicBaseUrl = await api.getEnv('ANTHROPIC_BASE_URL')
+    const openaiModel = await api.getEnv('OPENAI_MODEL')
+    const geminiKey = await api.getEnv('GEMINI_API_KEY')
+    const geminiBaseUrl = await api.getEnv('GEMINI_BASE_URL')
 
     // 优先根据 LLM_PROVIDER 环境变量判断
     if (llmProvider === 'openai' || llmProvider === 'openai_compatible') {
@@ -247,12 +246,12 @@ export const useSettingsStore = defineStore('settings', () => {
   })
   const oauthAccount = ref<OAuthAccountInfo | null>(saved.oauthAccount || null)
   const projectRoot = ref(saved.projectRoot || '')
-  const effortLevel = ref<'low' | 'medium' | 'high' | 'max'>((saved as any).effortLevel || 'high')
-  const thinkingEnabled = ref<boolean>((saved as any).thinkingEnabled !== undefined ? (saved as any).thinkingEnabled : true)
-  const language = ref<Locale>((saved as any).language || detectSystemLanguage())
-  const engineType = ref<EngineType>((saved as any).engineType || 'claude-code')
-  const permissionMode = ref<PermissionMode>(((saved as any).permissionMode as PermissionMode) || 'default')
-  const appearance = ref<AppearanceSettings>((saved as any).appearance || {
+  const effortLevel = ref<'low' | 'medium' | 'high' | 'max'>(saved.effortLevel || 'high')
+  const thinkingEnabled = ref<boolean>(saved.thinkingEnabled !== undefined ? saved.thinkingEnabled : true)
+  const language = ref<Locale>(saved.language || detectSystemLanguage())
+  const engineType = ref<EngineType>(saved.engineType || 'claude-code')
+  const permissionMode = ref<PermissionMode>(saved.permissionMode || 'default')
+  const appearance = ref<AppearanceSettings>(saved.appearance || {
     theme: 'system',
     fontSize: 14,
     fontFamily: 'system',
@@ -264,9 +263,9 @@ export const useSettingsStore = defineStore('settings', () => {
     smoothScrolling: true,
     accentColor: 'blue'
   })
-  const engineSource = ref<EngineSource>((saved as any).engineSource || 'bundled')
-  const installedCliPath = ref<string | null>((saved as any).installedCliPath || null)
-  const lastViewedChangelogVersion = ref<string | null>((saved as any).lastViewedChangelogVersion || null)
+  const engineSource = ref<EngineSource>(saved.engineSource || 'bundled')
+  const installedCliPath = ref<string | null>(saved.installedCliPath || null)
+  const lastViewedChangelogVersion = ref<string | null>(saved.lastViewedChangelogVersion || null)
 
   // Computed: current provider for LLM service compatibility
   const provider = computed(() => {
@@ -414,7 +413,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function saveSettings() {
-    const data: AuthSettings & { effortLevel?: string; language?: Locale; engineType?: EngineType; permissionMode?: PermissionMode; appearance?: AppearanceSettings } = {
+    const data: AuthSettings = {
       authMethod: authMethod.value,
       anthropicConfig: { ...anthropicConfig.value },
       openaiConfig: { ...openaiConfig.value },
@@ -460,7 +459,7 @@ export const useSettingsStore = defineStore('settings', () => {
     saveSettings()
   }
 
-  function applySettings(settings: Partial<AuthSettings> & { effortLevel?: 'low' | 'medium' | 'high' | 'max'; language?: Locale; engineType?: EngineType; appearance?: AppearanceSettings }) {
+  function applySettings(settings: Partial<AuthSettings>) {
     if (settings.authMethod) authMethod.value = settings.authMethod
     if (settings.anthropicConfig) anthropicConfig.value = { ...createDefaultProviderConfig(), ...settings.anthropicConfig }
     if (settings.openaiConfig) openaiConfig.value = { ...createDefaultProviderConfig(), ...settings.openaiConfig }
@@ -471,17 +470,17 @@ export const useSettingsStore = defineStore('settings', () => {
     if (settings.thinkingEnabled !== undefined) thinkingEnabled.value = settings.thinkingEnabled
     if (settings.language) language.value = settings.language
     if (settings.engineType) engineType.value = settings.engineType
-    if ((settings as any).permissionMode) permissionMode.value = (settings as any).permissionMode as PermissionMode
+    if (settings.permissionMode) permissionMode.value = settings.permissionMode
     if (settings.appearance) appearance.value = { ...appearance.value, ...settings.appearance }
     if (settings.engineSource) engineSource.value = settings.engineSource
     if (settings.installedCliPath !== undefined) installedCliPath.value = settings.installedCliPath
-    if ((settings as any).lastViewedChangelogVersion !== undefined) lastViewedChangelogVersion.value = (settings as any).lastViewedChangelogVersion
+    if (settings.lastViewedChangelogVersion !== undefined) lastViewedChangelogVersion.value = settings.lastViewedChangelogVersion
   }
 
   async function loadFromGuiSettingsFile() {
     const result = await api.loadGuiSettings()
     if (result.success && result.data) {
-      applySettings(parseSavedSettings(result.data) as Partial<AuthSettings> & { effortLevel?: 'low' | 'medium' | 'high' | 'max'; language?: Locale })
+      applySettings(parseSavedSettings(result.data))
       localStorage.setItem(SETTINGS_STORAGE_KEY, result.data)
     }
   }
@@ -501,37 +500,38 @@ export const useSettingsStore = defineStore('settings', () => {
       }
     }
     if (envSettings.anthropicConfig) {
-      for (const [key, value] of Object.entries(envSettings.anthropicConfig)) {
-        if (value && !(anthropicConfig.value as any)[key]) {
-          (anthropicConfig.value as any)[key] = value
+      for (const key of Object.keys(envSettings.anthropicConfig) as (keyof ProviderConfig)[]) {
+        const value = envSettings.anthropicConfig[key]
+        if (value && !anthropicConfig.value[key]) {
+          anthropicConfig.value[key] = value
         }
       }
     }
     if (envSettings.openaiConfig) {
-      for (const [key, value] of Object.entries(envSettings.openaiConfig)) {
-        if (value && !(openaiConfig.value as any)[key]) {
-          (openaiConfig.value as any)[key] = value
+      for (const key of Object.keys(envSettings.openaiConfig) as (keyof ProviderConfig)[]) {
+        const value = envSettings.openaiConfig[key]
+        if (value && !openaiConfig.value[key]) {
+          openaiConfig.value[key] = value
         }
       }
     }
     if (envSettings.geminiConfig) {
-      for (const [key, value] of Object.entries(envSettings.geminiConfig)) {
-        if (value && !(geminiConfig.value as any)[key]) {
-          (geminiConfig.value as any)[key] = value
+      for (const key of Object.keys(envSettings.geminiConfig) as (keyof ProviderConfig)[]) {
+        const value = envSettings.geminiConfig[key]
+        if (value && !geminiConfig.value[key]) {
+          geminiConfig.value[key] = value
         }
       }
     }
 
-    const envAny = envSettings as Record<string, any>
-
-    if (envAny.effortLevel !== undefined && !effortLevel.value) {
-      effortLevel.value = envAny.effortLevel as 'low' | 'medium' | 'high' | 'max'
+    if (envSettings.effortLevel !== undefined && !effortLevel.value) {
+      effortLevel.value = envSettings.effortLevel
     }
     if (envSettings.language && !language.value) {
-      language.value = envSettings.language as Locale
+      language.value = envSettings.language
     }
     if (envSettings.engineType && !engineType.value) {
-      engineType.value = envSettings.engineType as EngineType
+      engineType.value = envSettings.engineType
     }
     if (envSettings.appearance) {
       updateAppearance(envSettings.appearance)

@@ -2,27 +2,55 @@ import type { Session, Message, ToolCall, AgentColor, TeammateStatus } from '@/t
 import { api } from '@/services/electronAPI'
 import { parseSubagentTranscript } from '@/utils/sessionRestore'
 
+interface RawTeammateMessage {
+  type?: string
+  isSidechain?: boolean
+  agentTaskId?: string
+  taskId?: string
+  agentId?: string
+  agentName?: string
+  agentType?: string
+  subagent_type?: string
+  name?: string
+  teamName?: string
+  team_name?: string
+  team?: string
+  status?: string
+  state?: string
+  event?: string
+  subtype?: string
+  message?: unknown
+  content?: unknown
+  text?: string
+  output?: unknown
+  result?: unknown
+  parent_tool_use_id?: string
+  parentToolUseId?: string
+}
+
+type ContentBlock = string | { type: string; text?: string; [key: string]: unknown }
+
 export const AGENT_COLORS: AgentColor[] = ['red', 'blue', 'green', 'yellow', 'purple', 'orange', 'pink', 'cyan']
 
-export function stableTeammateId(raw: any): string {
+export function stableTeammateId(raw: RawTeammateMessage): string {
   const value = raw?.agentTaskId || raw?.taskId || raw?.agentId || raw?.agentName || raw?.subagent_type || raw?.name || 'teammate'
   return String(value).trim().toLowerCase().replace(/[^a-z0-9_-]+/gi, '-') || 'teammate'
 }
 
-export function getRawTeammateName(raw: any): string {
+export function getRawTeammateName(raw: RawTeammateMessage): string {
   return String(raw?.agentName || raw?.name || raw?.subagent_type || raw?.agentType || 'teammate')
 }
 
-export function getRawTeamName(raw: any): string {
+export function getRawTeamName(raw: RawTeammateMessage): string {
   return String(raw?.teamName || raw?.team_name || raw?.team || 'Agent Team')
 }
 
-export function isTeammateRawMessage(raw: any): boolean {
+export function isTeammateRawMessage(raw: RawTeammateMessage): boolean {
   return !!raw && typeof raw === 'object' && (
     raw.type === 'teammate' ||
-    raw.isSidechain ||
-    raw.agentName ||
-    raw.subagent_type ||
+    !!raw.isSidechain ||
+    !!raw.agentName ||
+    !!raw.subagent_type ||
     // 实时子代理消息（来自引擎 SDK 流）唯一可靠的标识：parent_tool_use_id 指向
     // 父 Agent 工具调用。它们不带 isSidechain/agentName，必须靠此字段识别，
     // 否则会被当成主 agent 消息处理（污染主时间线 + 子代理页无实时输出）。
@@ -32,7 +60,7 @@ export function isTeammateRawMessage(raw: any): boolean {
 }
 
 /** 统一的 teammateId 归一化：小写 + 仅保留 [a-z0-9_-]。 */
-export function normalizeTeammateId(value: any): string {
+export function normalizeTeammateId(value: string | number | null | undefined): string {
   return String(value ?? '').trim().toLowerCase().replace(/[^a-z0-9_-]+/gi, '-') || 'teammate'
 }
 
@@ -69,7 +97,7 @@ export function clearSessionToolUseMappings(sessionId: string): void {
  * normalizeTeammateId(parentToolUseId)，该回退值与 recordAgentToolCall 对同步子代理的
  * teammateId（normalizeTeammateId(toolCall.id)）一致，保证实时消息与工具卡片落到同一 teammate。
  */
-export function resolveTeammateId(sessionId: string, raw: any): string {
+export function resolveTeammateId(sessionId: string, raw: RawTeammateMessage): string {
   const parentId = raw?.parent_tool_use_id || raw?.parentToolUseId
   if (parentId) {
     return teammateIdForParentToolUse(sessionId, parentId) || normalizeTeammateId(parentId)
@@ -77,7 +105,7 @@ export function resolveTeammateId(sessionId: string, raw: any): string {
   return stableTeammateId(raw)
 }
 
-export function inferTeammateStatus(raw: any): TeammateStatus {
+export function inferTeammateStatus(raw: RawTeammateMessage): TeammateStatus {
   const value = String(raw?.status || raw?.state || raw?.event || raw?.subtype || '').toLowerCase()
   if (/fail|error|reject|cancel/.test(value)) return 'failed'
   if (/complete|done|finish|success|result/.test(value)) return 'completed'
@@ -86,9 +114,9 @@ export function inferTeammateStatus(raw: any): TeammateStatus {
 }
 
 /** Extract readable text from an array of content blocks (Anthropic message format). */
-function extractTextFromContentBlocks(blocks: any[]): string {
+function extractTextFromContentBlocks(blocks: ContentBlock[]): string {
   return blocks
-    .map((part: any) => {
+    .map((part: ContentBlock) => {
       if (typeof part === 'string') return part
       if (part?.type === 'text' && typeof part.text === 'string') return part.text
       if (part?.text) return String(part.text)
@@ -100,23 +128,24 @@ function extractTextFromContentBlocks(blocks: any[]): string {
 }
 
 /** Try to parse a string that might be JSON into an object; return null on failure. */
-function tryParseJson(value: string): any | null {
+function tryParseJson(value: string): unknown {
   if (!value || value[0] !== '{' && value[0] !== '[') return null
   try { return JSON.parse(value) } catch { return null }
 }
 
-export function stringifyRawContent(raw: any): string {
+export function stringifyRawContent(raw: RawTeammateMessage): string {
   if (raw == null) return ''
 
   // If raw.message is a JSON string (not an object), try to parse it first.
   // This handles cases where the engine message was double-serialized.
-  let message = raw.message
+  let message: unknown = raw.message
   if (typeof message === 'string') {
     const parsed = tryParseJson(message)
     if (parsed) message = parsed
   }
 
-  const content = message?.content ?? raw?.content ?? raw?.text ?? raw?.output ?? raw?.result
+  const msgObj = message as Record<string, unknown> | null | undefined
+  const content = msgObj?.content ?? raw?.content ?? raw?.text ?? raw?.output ?? raw?.result
 
   if (typeof content === 'string') {
     // If the string looks like a JSON array of content blocks, try to parse it
@@ -133,10 +162,11 @@ export function stringifyRawContent(raw: any): string {
   if (content == null) return ''
   // For plain objects, try to extract text field before JSON.stringify fallback
   if (typeof content === 'object') {
-    if (typeof content.text === 'string') return content.text
-    if (typeof content.result === 'string') return content.result
+    const obj = content as Record<string, unknown>
+    if (typeof obj.text === 'string') return obj.text
+    if (typeof obj.result === 'string') return obj.result
     // Handle nested content blocks: {type:'text', text:'...'}
-    if (Array.isArray(content.content)) return extractTextFromContentBlocks(content.content)
+    if (Array.isArray(obj.content)) return extractTextFromContentBlocks(obj.content as ContentBlock[])
   }
   try {
     return JSON.stringify(content)
@@ -150,7 +180,7 @@ export function parseAgentToolOutput(output: string): { displayText: string; out
     const parsed = JSON.parse(output)
     let text: string
     if (Array.isArray(parsed)) {
-      text = parsed.map((part: any) => typeof part === 'string' ? part : part?.text || '').filter(Boolean).join('\n')
+      text = parsed.map((part: ContentBlock) => typeof part === 'string' ? part : part?.text || '').filter(Boolean).join('\n')
     } else if (typeof parsed?.text === 'string') {
       text = parsed.text
     } else {

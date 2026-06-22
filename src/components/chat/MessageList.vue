@@ -54,7 +54,7 @@ import { getCompletedTurnTargets, type RewindTurnTarget } from '@/utils/turnChec
 
 const { t } = useI18n()
 const chatStore = useChatStore()
-const { turnChangeCards: storeTurnChangeCards } = storeToRefs(chatStore)
+const storeTurnChangeCards = computed(() => chatStore.turnChangeCards)
 
 const emit = defineEmits<{
   toolSubmit: [messageId: string, toolId: string, updatedInput: Record<string, unknown>]

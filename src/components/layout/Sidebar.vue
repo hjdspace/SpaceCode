@@ -635,7 +635,7 @@ function handleCreateSessionInProject(e: MouseEvent, workingDirectory: string) {
 }
 
 async function handleRemoveProject(workingDirectory: string) {
-  if (!confirm(t('sidebar.removeProject'))) return
+  if (!await showConfirm(t('sidebar.removeProject'), { variant: 'danger' })) return
 
   try {
     const sessionsToRemove = chatStore.sessions.filter(s => s.workingDirectory === workingDirectory)

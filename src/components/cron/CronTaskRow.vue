@@ -54,6 +54,7 @@ import { useI18n } from 'vue-i18n'
 import { useCronStore, type CronTask } from '@/stores/cron'
 import { useAppStore } from '@/stores/app'
 import { cronToHuman, computeNextCronRun, formatNextFire } from '@/lib/cronHelper'
+import { useDialog } from '@/composables/useDialog'
 import CronRunsPanel from './CronRunsPanel.vue'
 
 const props = defineProps<{
@@ -64,6 +65,7 @@ const props = defineProps<{
 const { t } = useI18n()
 const cronStore = useCronStore()
 const appStore = useAppStore()
+const { showConfirm } = useDialog()
 
 const statusClass = computed(() => {
   if (props.task.enabled === false) return 'paused'
@@ -99,12 +101,9 @@ function handleToggle() {
   }
 }
 
-function handleDelete() {
+async function handleDelete() {
   const name = props.task.name || props.task.id
-  const confirmed = window.confirm(
-    t('cron.deleteConfirm', { name })
-  )
-  if (!confirmed) return
+  if (!await showConfirm(t('cron.deleteConfirm', { name }), { variant: 'danger' })) return
   const projectRoot = appStore.projectRoot
   if (projectRoot) {
     cronStore.deleteTask(projectRoot, props.task.id)

@@ -104,8 +104,10 @@ import { useI18n } from 'vue-i18n'
 import { Search, SearchX, RotateCcw, Keyboard } from 'lucide-vue-next'
 import { debounce } from '@/utils/debounce'
 import type { Shortcut, ShortcutCategory } from '@/composables/useShortcuts'
+import { useDialog } from '@/composables/useDialog'
 
 const { t } = useI18n()
+const { showConfirm } = useDialog()
 
 export interface ShortcutsConfig {
   categories: ShortcutCategory[]
@@ -301,8 +303,8 @@ function saveShortcut() {
   cancelEdit()
 }
 
-function resetShortcuts() {
-  if (confirm(t('shortcutsSettings.resetConfirm'))) {
+async function resetShortcuts() {
+  if (await showConfirm(t('shortcutsSettings.resetConfirm'), { variant: 'warning' })) {
     shortcutCategories.value = JSON.parse(JSON.stringify(defaultShortcuts))
   }
 }

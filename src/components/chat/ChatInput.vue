@@ -8,117 +8,37 @@
     @drop="handleDrop"
   >
     <!-- 斜杠命令弹窗 -->
-    <Transition name="dropdown">
-      <div
-        v-if="showSlashCommandMenu"
-        class="slash-command-menu"
-        :style="slashMenuPosition"
-        v-click-outside="closeSlashCommandMenu"
-      >
-        <div class="dropdown-search-box">
-          <Search :size="14" class="search-icon" />
-          <input
-            ref="slashSearchInput"
-            v-model="commandPalette.searchQuery.value"
-            type="text"
-            :placeholder="t('chatInput.searchCommands')"
-            readonly
-            tabindex="-1"
-          />
-          <span v-if="commandPalette.ghostText.value" class="ghost-text">{{ commandPalette.ghostText.value.suffix }}</span>
-          <button v-if="commandPalette.searchQuery.value" class="clear-btn" @click="clearSlashSearch">
-            <X :size="12" />
-          </button>
-        </div>
-        <div class="dropdown-section-title">{{ t('chatInput.commands') }}</div>
-        <div class="dropdown-list" ref="slashListRef">
-          <div v-if="filteredSlashCommands.length === 0" class="dropdown-empty">
-            <span>{{ t('chatInput.noMatchingCommands') }}</span>
-          </div>
-          <button
-            v-for="(cmd, idx) in filteredSlashCommands"
-            :key="cmd.name"
-            class="dropdown-item"
-            :class="{ highlighted: highlightedSlashCommand === cmd.name }"
-            @click="selectSlashCommand(cmd)"
-            @mouseenter="commandPalette.selectedIndex.value = idx"
-          >
-            <component :is="cmd.icon" :size="16" class="item-icon" />
-            <div class="item-content">
-              <span class="item-name">{{ cmd.name }}</span>
-              <span class="item-description">{{ cmd.description }}</span>
-            </div>
-            <span v-if="cmd.kind === 'agent_skill'" class="item-badge skill">{{ t('chatInput.skillLabel') }}</span>
-            <span v-else-if="cmd.kind === 'sdk_command'" class="item-badge sdk">SDK</span>
-            <span v-else-if="cmd.kind === 'mcp_tool'" class="item-badge mcp">MCP</span>
-          </button>
-        </div>
-        <div class="dropdown-section-divider"></div>
-        <button class="dropdown-footer-item" @click="openSkillsManager">
-          <Zap :size="14" class="item-icon" />
-          <span>{{ t('chatInput.manageSkills') }}</span>
-        </button>
-      </div>
-    </Transition>
+    <SlashCommandMenu
+      :visible="showSlashCommandMenu"
+      :position="slashMenuPosition"
+      :search-query="commandPalette.searchQuery.value"
+      :ghost-text="commandPalette.ghostText.value"
+      :commands="filteredSlashCommands"
+      :highlighted-command="highlightedSlashCommand"
+      @select="selectSlashCommand"
+      @navigate="(idx: number) => commandPalette.selectedIndex.value = idx"
+      @close="closeSlashCommandMenu"
+      @update:search-query="(val: string) => commandPalette.updateSearch(val)"
+      @clear-search="clearSlashSearch"
+      @open-skills-manager="openSkillsManager"
+    />
 
     <!-- @ 上下文弹窗 -->
-    <Transition name="dropdown">
-      <div
-        v-if="showContextMenu"
-        class="context-menu"
-        :style="contextMenuPosition"
-        v-click-outside="closeContextMenu"
-      >
-        <div class="dropdown-search-box">
-          <Search :size="14" class="search-icon" />
-          <input
-            ref="contextSearchInput"
-            v-model="contextSearchQuery"
-            type="text"
-            :placeholder="t('chatInput.searchFiles')"
-            readonly
-            tabindex="-1"
-          />
-          <button v-if="contextSearchQuery" class="clear-btn" @click="clearContextSearch">
-            <X :size="12" />
-          </button>
-        </div>
-        <div class="dropdown-section-title">{{ t('chatInput.addContext') }}</div>
-        <div class="dropdown-list" ref="contextListRef">
-          <div v-if="isLoadingContext" class="dropdown-loading">
-            <Loader2 :size="16" class="spin" />
-            <span>{{ t('chatInput.searching') }}</span>
-          </div>
-          <div v-else-if="filteredContextItems.length === 0" class="dropdown-empty">
-            <span>{{ t('chatInput.noMatchingFiles') }}</span>
-          </div>
-          <button
-            v-for="item in filteredContextItems"
-            :key="item.path"
-            class="dropdown-item"
-            :class="{ highlighted: highlightedContextItem === item.path }"
-            @click="selectContextItem(item)"
-            @mouseenter="highlightedContextItem = item.path"
-          >
-            <component
-              :is="item.type === 'directory' ? Folder : FileText"
-              :size="16"
-              class="item-icon"
-              :class="{ 'is-folder': item.type === 'directory' }"
-            />
-            <div class="item-content">
-              <span class="item-name">{{ item.name }}</span>
-              <span class="item-path">{{ item.relativePath }}</span>
-            </div>
-          </button>
-        </div>
-        <div class="dropdown-section-divider"></div>
-        <button class="dropdown-footer-item" @click="handleBrowseFiles">
-          <FolderOpen :size="14" class="item-icon" />
-          <span>{{ t('chatInput.browseFiles') }}</span>
-        </button>
-      </div>
-    </Transition>
+    <ContextMenu
+      ref="contextMenuRef"
+      :visible="showContextMenu"
+      :position="contextMenuPosition"
+      :search-query="contextSearchQuery"
+      :items="filteredContextItems"
+      :highlighted-item="highlightedContextItem"
+      :is-loading="isLoadingContext"
+      @select="selectContextItem"
+      @navigate="(path: string) => highlightedContextItem = path"
+      @close="closeContextMenu"
+      @update:search-query="(val: string) => contextSearchQuery = val"
+      @clear-search="clearContextSearch"
+      @browse-files="handleBrowseFiles"
+    />
 
     <!-- Pending Messages Bar（AI 回复期间的消息队列） -->
     <div v-if="currentPendingMessages.length > 0" class="pending-messages-bar">
@@ -364,95 +284,19 @@
     <ChatContextToolbar v-if="appStore.projectRoot" />
 
     <!-- 附件菜单弹窗 -->
-    <Transition name="dropdown">
-      <div v-if="showAttachmentMenu" class="attachment-menu" v-click-outside="closeAttachmentMenu">
-        <button class="attachment-item" @click="handleAttachImage">
-          <Image :size="16" />
-          <span>添加图片</span>
-        </button>
-        <button class="attachment-item" @click="handleAttachFile">
-          <FileText :size="16" />
-          <span>{{ t('chatInput.attachFiles') }}</span>
-        </button>
-        <button class="attachment-item" @click="handleAttachFolder">
-          <Folder :size="16" />
-          <span>{{ t('chatInput.addFolderContext') }}</span>
-        </button>
-
-        <!-- 智能体入口 - hover 触发二级菜单 -->
-        <div
-          class="attachment-item agent-trigger"
-          @mouseenter="handleAgentTriggerEnter"
-          @mouseleave="handleAgentTriggerLeave"
-        >
-          <Cpu :size="16" />
-          <span>{{ t('chatInput.agent') }}</span>
-          <span v-if="selectedAgent" class="agent-active-dot"></span>
-          <ChevronRight :size="14" class="submenu-arrow" />
-
-          <!-- 二级子菜单 -->
-          <Transition name="submenu">
-            <div
-              v-if="showAgentSubmenu"
-              class="agent-submenu"
-              @mouseenter="handleAgentSubmenuEnter"
-              @mouseleave="handleAgentSubmenuLeave"
-            >
-              <div class="submenu-header">{{ t('chatInput.agent') }}</div>
-              <div class="submenu-list">
-                <button
-                  class="submenu-item"
-                  :class="{ active: !selectedAgent }"
-                  @click="selectAgentAndCloseMenu('')"
-                >
-                  <span class="item-name">{{ t('chatInput.default') }}</span>
-                  <span class="item-desc">{{ t('chatInput.defaultAgentDesc') }}</span>
-                  <Check v-if="!selectedAgent" :size="14" class="check-icon" />
-                </button>
-                <template v-if="builtInAgents.length">
-                  <div class="submenu-section-label">{{ t('chatInput.builtIn') }}</div>
-                  <button
-                    v-for="agent in builtInAgents"
-                    :key="agent.agentType"
-                    class="submenu-item"
-                    :class="{ active: selectedAgent === agent.agentType }"
-                    @click="selectAgentAndCloseMenu(agent.agentType)"
-                  >
-                    <span class="item-name">{{ getAgentName(agent.agentType) }}</span>
-                    <span class="item-desc">{{ getAgentDescription(agent.agentType, agent.description) }}</span>
-                    <Check v-if="selectedAgent === agent.agentType" :size="14" class="check-icon" />
-                  </button>
-                </template>
-                <template v-if="customAgents.length">
-                  <div class="submenu-section-label">{{ t('chatInput.custom') }}</div>
-                  <button
-                    v-for="agent in customAgents"
-                    :key="agent.agentType"
-                    class="submenu-item"
-                    :class="{ active: selectedAgent === agent.agentType }"
-                    @click="selectAgentAndCloseMenu(agent.agentType)"
-                  >
-                    <span class="item-name">{{ agent.agentType }}</span>
-                    <span class="item-desc">{{ agent.description }}</span>
-                    <Check v-if="selectedAgent === agent.agentType" :size="14" class="check-icon" />
-                  </button>
-                </template>
-              </div>
-            </div>
-          </Transition>
-        </div>
-
-        <button
-          v-if="showOpenProjectAction"
-          type="button"
-          class="attachment-item"
-          @click="handleOpenProjectFolder"
-        >
-          <FolderOpen :size="16" />
-          <span>{{ t('chatInput.openProjectFolder') }}</span>
-        </button>
-      </div>
-    </Transition>
+    <AttachmentMenu
+      :visible="showAttachmentMenu"
+      :selected-agent="selectedAgent"
+      :built-in-agents="builtInAgents"
+      :custom-agents="customAgents"
+      :show-open-project-action="!!showOpenProjectAction"
+      @attach-image="handleAttachImage"
+      @attach-file="handleAttachFile"
+      @attach-folder="handleAttachFolder"
+      @select-agent="selectAgentAndCloseMenu"
+      @open-project-folder="handleOpenProjectFolder"
+      @close="closeAttachmentMenu"
+    />
     
     <!-- 拖拽遮罩 -->
     <Transition name="fade">
@@ -469,12 +313,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import {
-  ArrowUp, Plus, ChevronDown, Check, FileText, Folder, Square, X,
-  Search, Loader2, RefreshCw, AlertCircle, Zap, FolderOpen, Cpu, Brain,
+  ArrowUp, Plus, ChevronDown, Check, Square, X,
+  Search, Loader2, RefreshCw, AlertCircle, Zap, FolderOpen, Brain,
   Sparkles, Image, ChevronRight, Archive, Clock
 } from 'lucide-vue-next'
 import { useSettingsStore } from '@/stores/settings'
 import ChatContextToolbar from './ChatContextToolbar.vue'
+import SlashCommandMenu from './SlashCommandMenu.vue'
+import ContextMenu from './ContextMenu.vue'
+import AttachmentMenu from './AttachmentMenu.vue'
 import { useSkillsStore } from '@/stores/skills'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
@@ -555,10 +402,9 @@ const {
 // Slash commands
 const slashCommands = useSlashCommands()
 const {
-  slashSearchInput, slashListRef, slashTriggerPosition, slashMenuPosition,
-  allSlashCommands, filteredSlashCommands, showSlashCommandMenu,
-  slashSearchQuery, highlightedSlashCommand, builtinSlashCommands,
-  skillCommands, mcpCommands,
+  slashTriggerPosition, slashMenuPosition,
+  filteredSlashCommands, showSlashCommandMenu,
+  highlightedSlashCommand,
   navigateSlashCommands, closeSlashCommandMenu, openSkillsManager: openSkillsManagerBase,
   commandPalette, iconMap,
 } = slashCommands
@@ -568,9 +414,9 @@ const contextMenu = useContextMenu({
   workingDirectory: () => props.workingDirectory || '',
 })
 const {
-  showContextMenu, contextSearchQuery, contextSearchInput, contextListRef,
+  showContextMenu, contextSearchQuery,
   highlightedContextItem, contextTriggerPosition, contextMenuPosition,
-  contextItems, isLoadingContext, filteredContextItems,
+  isLoadingContext, filteredContextItems,
   loadContextItems, closeContextMenu,
 } = contextMenu
 
@@ -606,18 +452,9 @@ const agentSelector = useAgentSelector({
   onUpdateAgent: (a) => emit('update:agent', a),
 })
 const {
-  selectedAgent, showAgentSubmenu, builtInAgents, customAgents,
-  handleTriggerEnter: handleAgentTriggerEnter,
-  handleTriggerLeave: handleAgentTriggerLeave,
-  handleSubmenuEnter: handleAgentSubmenuEnter,
-  handleSubmenuLeave: handleAgentSubmenuLeave,
+  selectedAgent, builtInAgents, customAgents,
   selectAgent,
-  getAgentDisplayName, getAgentDisplayDescription,
 } = agentSelector
-
-// Aliases for template compatibility
-const getAgentName = getAgentDisplayName
-const getAgentDescription = getAgentDisplayDescription
 
 // Wrapper that also closes attachment menu
 function selectAgentAndCloseMenu(agentType: string) {
@@ -647,6 +484,7 @@ function handleBrowseFiles() {
 const isOptimizing = ref(false)
 const showSteerHint = ref(false)
 const thinkingEnabled = ref(settingsStore.thinkingEnabled)
+const contextMenuRef = ref<InstanceType<typeof ContextMenu> | null>(null)
 
 // ── Computed ─────────────────────────────────────────────────────
 const hasContent = computed(() => editorHasContent(attachedFiles.value, attachedImages.value))
@@ -1142,7 +980,8 @@ function navigateContextItems(direction: number) {
   highlightedContextItem.value = items[newIndex].path
 
   nextTick(() => {
-    const highlightedEl = contextListRef.value?.querySelector('.highlighted')
+    const listEl = contextMenuRef.value?.listRef
+    const highlightedEl = listEl?.querySelector('.highlighted')
     highlightedEl?.scrollIntoView({ block: 'nearest' })
   })
 }
@@ -2389,187 +2228,8 @@ watch(pendingFile, (file) => {
   }
 }
 
-// 附件菜单
-.attachment-menu {
-  position: absolute;
-  bottom: 80px;
-  left: 32px;
-  min-width: 220px;
-  background: var(--bg-primary);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
-  z-index: 100;
-  overflow: visible;
-  padding: 4px;
-}
 
-.attachment-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
-  font-size: 13px;
-  color: var(--text-primary);
-  background: transparent;
-  transition: background var(--transition-fast);
-
-  &:hover {
-    background: var(--surface-hover);
-  }
-
-  svg {
-    color: var(--text-secondary);
-  }
-}
-
-// 智能体触发项
-.agent-trigger {
-  position: relative;
-  cursor: default;
-
-  .submenu-arrow {
-    margin-left: auto;
-    color: var(--text-muted);
-    flex-shrink: 0;
-    transition: color var(--transition-fast);
-  }
-
-  .agent-active-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--accent-primary);
-    position: absolute;
-    right: 30px;
-    top: 50%;
-    transform: translateY(-50%);
-  }
-
-  &:hover .submenu-arrow {
-    color: var(--text-primary);
-  }
-}
-
-// 二级子菜单
-.agent-submenu {
-  position: absolute;
-  left: 100%;
-  bottom: 0;
-  margin-left: 4px;
-  min-width: 200px;
-  max-height: 340px;
-  background: var(--bg-primary);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
-  z-index: 110;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.submenu-header {
-  padding: 10px 14px 8px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
-  border-bottom: 1px solid var(--surface-border);
-}
-
-.submenu-list {
-  overflow-y: auto;
-  padding: 4px;
-  max-height: 280px;
-}
-
-.submenu-item {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  width: 100%;
-  padding: 8px 12px;
-  border-radius: var(--radius-md);
-  font-size: 13px;
-  color: var(--text-primary);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  transition: background var(--transition-fast);
-  text-align: left;
-  gap: 2px 8px;
-
-  &:hover {
-    background: var(--surface-hover);
-  }
-
-  &.active {
-    background: rgba(var(--accent-primary-rgb), 0.1);
-  }
-
-  .item-name {
-    font-weight: 500;
-    flex: 1;
-  }
-
-  .item-desc {
-    font-size: 11px;
-    color: var(--text-muted);
-    width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 160px;
-  }
-
-  .check-icon {
-    color: var(--accent-primary);
-    flex-shrink: 0;
-  }
-}
-
-.submenu-section-label {
-  padding: 6px 12px 4px;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
-  opacity: 0.7;
-}
-
-// 子菜单过渡动画
-.submenu-enter-active,
-.submenu-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
-}
-
-.submenu-enter-from,
-.submenu-leave-to {
-  opacity: 0;
-  transform: translateX(-4px);
-}
-
-// 斜杠命令菜单
-.slash-command-menu,
-.context-menu {
-  position: fixed;
-  width: 320px;
-  max-height: 320px;
-  background: var(--bg-primary);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.16);
-  z-index: 1000;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
+// dropdown-search-box 仍被模型下拉菜单使用
 .dropdown-search-box {
   display: flex;
   align-items: center;
@@ -2611,107 +2271,6 @@ watch(pendingFile, (file) => {
       background: var(--surface-hover);
       color: var(--text-primary);
     }
-  }
-}
-
-.dropdown-section-title {
-  padding: 8px 16px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
-  background: var(--bg-secondary);
-}
-
-.dropdown-section-divider {
-  height: 1px;
-  background: var(--surface-border);
-  margin: 4px 0;
-}
-
-.slash-command-menu .dropdown-item,
-.context-menu .dropdown-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 10px 16px;
-  text-align: left;
-
-  .item-icon {
-    color: var(--text-secondary);
-    flex-shrink: 0;
-    margin-top: 2px;
-
-    &.is-folder {
-      color: var(--accent-primary);
-    }
-  }
-
-  .item-content {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .item-name {
-    font-weight: 500;
-    color: var(--text-primary);
-  }
-
-  .item-description,
-  .item-path {
-    font-size: 12px;
-    color: var(--text-muted);
-    @include truncate;
-  }
-
-  .item-badge {
-    font-size: 10px;
-    padding: 1px 6px;
-    border-radius: var(--radius-xs);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-    flex-shrink: 0;
-
-    &.skill {
-      background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
-      color: var(--accent-primary);
-    }
-
-    &.sdk {
-      background: color-mix(in srgb, var(--text-secondary) 15%, transparent);
-      color: var(--text-secondary);
-    }
-
-    &.mcp {
-      background: color-mix(in srgb, #f59e0b 15%, transparent);
-      color: #f59e0b;
-    }
-  }
-}
-
-.dropdown-footer-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  background: transparent;
-  transition: all var(--transition-fast);
-  text-align: left;
-
-  &:hover {
-    background: var(--surface-hover);
-    color: var(--text-primary);
-  }
-
-  .item-icon {
-    color: var(--accent-primary);
   }
 }
 

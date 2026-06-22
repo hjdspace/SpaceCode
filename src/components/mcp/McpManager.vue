@@ -261,6 +261,7 @@ import {
 import { useMcpStore, type McpToolInfo, type MCPServer } from '@/stores/mcp'
 import { useAppStore } from '@/stores/app'
 import { BUILTIN_MCP_PRESETS, findBuiltinPreset } from '@/lib/builtinMcp'
+import { useDialog } from '@/composables/useDialog'
 import McpServerList from './McpServerList.vue'
 import McpServerEditor from './McpServerEditor.vue'
 import ConfigEditor from './ConfigEditor.vue'
@@ -268,6 +269,7 @@ import ConfigEditor from './ConfigEditor.vue'
 const { t } = useI18n()
 const mcpStore = useMcpStore()
 const appStore = useAppStore()
+const { showAlert, showConfirm } = useDialog()
 
 const tab = ref<'list' | 'json'>('list')
 const editorOpen = ref(false)
@@ -405,15 +407,15 @@ function handleEdit(name: string, server: MCPServer) {
 }
 
 async function handleDelete(name: string) {
-  if (!confirm(t('mcpSettings.deleteConfirm', { name }))) return
+  if (!await showConfirm(t('mcpSettings.deleteConfirm', { name }), { variant: 'danger' })) return
   try {
     await mcpStore.deleteServer(name)
   } catch (err) {
     console.error('Failed to delete server:', err)
     if (err instanceof Error && err.message === 'builtinServerCannotDelete') {
-      alert(t('mcpSettings.builtinCannotDelete'))
+      await showAlert(t('mcpSettings.builtinCannotDelete'))
     } else {
-      alert(err instanceof Error ? err.message : t('mcpSettings.deleteFailed'))
+      await showAlert(err instanceof Error ? err.message : t('mcpSettings.deleteFailed'))
     }
   }
 }
@@ -476,7 +478,7 @@ async function handleSave(name: string, server: Omit<MCPServer, 'id' | 'name'>) 
     editorOpen.value = false
   } catch (err) {
     console.error('Failed to save server:', err)
-    alert(err instanceof Error ? err.message : t('mcpSettings.saveFailed'))
+    await showAlert(err instanceof Error ? err.message : t('mcpSettings.saveFailed'))
   }
 }
 
@@ -485,7 +487,7 @@ async function handleJsonSave(jsonStr: string) {
     await mcpStore.saveJsonConfig(jsonStr)
   } catch (err) {
     console.error('Failed to save config:', err)
-    alert(err instanceof Error ? err.message : t('mcpSettings.saveConfigFailed'))
+    await showAlert(err instanceof Error ? err.message : t('mcpSettings.saveConfigFailed'))
   }
 }
 
@@ -495,7 +497,7 @@ async function handleReconnect(name: string) {
     await mcpStore.fetchRuntimeStatus()
   } catch (err) {
     console.error('Failed to reconnect server:', err)
-    alert(err instanceof Error ? err.message : t('mcpSettings.reconnectFailed'))
+    await showAlert(err instanceof Error ? err.message : t('mcpSettings.reconnectFailed'))
   }
 }
 

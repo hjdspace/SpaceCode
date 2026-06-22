@@ -90,7 +90,7 @@ export const useScmStore = defineStore('scm', () => {
 
       isRepo.value = repoStatus.isRepo
       branch.value = repoStatus.branch || ''
-      upstream.value = repoStatus.upstream
+      upstream.value = repoStatus.upstream ?? null
       ahead.value = repoStatus.ahead || 0
       behind.value = repoStatus.behind || 0
       staged.value = repoStatus.staged || []
