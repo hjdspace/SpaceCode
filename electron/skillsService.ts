@@ -1307,10 +1307,7 @@ function getLocalSkillDirs(rootDir: string): string[] {
 function readPluginManifest(bundleDir: string): Record<string, any> | null {
   const pluginPath = join(bundleDir, '.claude-plugin', 'plugin.json')
   const marketplacePath = join(bundleDir, '.claude-plugin', 'marketplace.json')
-  const manifestPaths = [pluginPath, marketplacePath]
-  console.log(`[LocalLibrary] readPluginManifest checking: ${manifestPaths.join(', ')}`)
   if (!existsSync(pluginPath) && !existsSync(marketplacePath)) {
-    console.log(`[LocalLibrary] Manifest not found: ${manifestPaths.join(', ')}`)
     return null
   }
   try {
@@ -1383,7 +1380,6 @@ async function handleScanLocalLibrary(
       try {
         const manifest = readPluginManifest(bundleDir)
         if (!manifest) {
-          console.log(`[LocalLibrary] Not a bundle (no manifest): ${bundleDir}`)
           return false
         }
         console.log(`[LocalLibrary] Found bundle: ${bundleDir} -> ${manifest.name}`)
