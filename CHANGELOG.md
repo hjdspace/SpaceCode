@@ -1,3 +1,45 @@
+## [0.5.3](https://github.com/hjdspace/SpaceCode/compare/v0.5.2...v0.5.3) (2026-06-23)
+
+### Features
+
+* **mcp:** 实现 MCP 服务器主动注入与活跃列表查询能力
+* **mcp:** 新增内置 MCP 依赖一键安装与状态检测功能
+* **mcp:** add builtin MCP server management support
+* **workspace:** add workspace toolbar, auto-preview html artifacts & fix link regex
+* **artifacts:** 新增产物面板功能，支持查看和管理工作产出文件
+* **prototype:** 新增三个原型页面，包含Dashboard配置页和终端卡片样式
+* **mode:** 新增工作模式与专业助手生态
+* **hooks:** 新增内置钩子系统与相关功能
+* **hooks:** 新增内置钩子系统与聊天上下文工具栏
+
+### Bug Fixes
+
+* **chat/ReadToolCard:** 修复文件路径未解析的问题
+* **BashToolCard:** 修复BashToolCard中的颜色代码错误和注释翻译
+* **builtinHooks:** improve build command error handling and messages
+* **builtinHooks:** 修正PushPlus通知的请求域名
+
+### Refactor
+
+* **chat:** 重构Bash工具卡片，移除内嵌终端并新增终端页跳转
+* **utils:** 优化外部链接打开与产物扫描逻辑，新增路径解析工具
+* **modal:** 重构弹窗系统，统一使用组合式API弹窗管理
+* **builtinHooks:** 重构ECC hook实现，新增路径修复功能
+* **i18n:** 全局化多语言支持，替换硬编码文本
+* **skillsService:** 移除多余的调试日志
+
+### Style
+
+* **chat,composables:** 清理代码并补充注释
+
+### Chore
+
+* 新增XSS防护并优化代码结构
+
+### Documentation
+
+* **i18n:** add hook settings description for zh-CN and en-US
+
 ## [0.5.2](https://github.com/hjdspace/SpaceCode/compare/v0.5.1...v0.5.2) (2026-06-18)
 
 ### Features
