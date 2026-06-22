@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案D · Dashboard 可视化状态</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg-page: #f8f9fb;
+    --bg-card: #ffffff;
+    --bg-soft: #f3f4f8;
+    --bg-hover: #e4e6ec;
+    --bg-input: #f3f4f8;
+    --text-primary: #18191f;
+    --text-secondary: #44475a;
+    --text-muted: #6e7191;
+    --accent: #0d9488;
+    --accent-hover: #14b8a6;
+    --accent-soft: rgba(13, 148, 136, 0.06);
+    --accent-glow: rgba(13, 148, 136, 0.12);
+    --indigo: #6366f1;
+    --indigo-soft: rgba(99, 102, 241, 0.06);
+    --amber: #d97706;
+    --amber-soft: rgba(217, 119, 6, 0.06);
+    --success: #059669;
+    --success-soft: rgba(5, 150, 105, 0.08);
+    --error: #dc2626;
+    --border: #e7e9ef;
+    --border-light: #ecedf2;
+    --radius: 10px;
+    --radius-sm: 6px;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.04);
+    --shadow-md: 0 2px 12px rgba(0,0,0,0.06);
+    --mono: 'JetBrains Mono', 'SF Mono', monospace;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg-page);
+    color: var(--text-primary);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 40px 32px 80px;
+  }
+
+  /* ── Header ── */
+  .page-header {
+    margin-bottom: 32px;
+  }
+
+  .page-title {
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  .page-desc {
+    font-size: 14px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+
+  /* ── Status Bar ── */
+  .status-bar {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+
+  .status-card {
+    padding: 16px 18px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .status-card-label {
+    font-size: 11.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+
+  .status-card-value {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .status-indicator {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .status-indicator.online { background: var(--success); box-shadow: 0 0 6px rgba(5,150,105,0.4); }
+  .status-indicator.offline { background: var(--text-muted); }
+  .status-indicator.warning { background: var(--amber); }
+
+  .status-card-sub {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  /* ── Settings Panel ── */
+  .panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    margin-bottom: 20px;
+    overflow: hidden;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-light);
+  }
+
+  .panel-header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .panel-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+  }
+
+  .panel-icon.lang { background: var(--indigo-soft); color: var(--indigo); }
+  .panel-icon.engine { background: var(--accent-soft); color: var(--accent); }
+  .panel-icon.project { background: var(--amber-soft); color: var(--amber); }
+
+  .panel-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .panel-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 99px;
+  }
+
+  .panel-badge.active {
+    background: var(--success-soft);
+    color: var(--success);
+  }
+
+  .panel-body {
+    padding: 16px 20px;
+  }
+
+  /* ── Language Row (Apple HIG dropdown style) ── */
+  .lang-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+
+  .lang-row:hover {
+    background: #fafafa;
+  }
+
+  .lang-row-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .lang-row-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+    background: linear-gradient(135deg, #3b82f6, #6366f1);
+    color: #fff;
+  }
+
+  .lang-row-info {
+    min-width: 0;
+  }
+
+  .lang-row-label {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .lang-row-sublabel {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 1px;
+  }
+
+  .lang-row-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .lang-row-value {
+    font-size: 13.5px;
+    color: var(--text-muted);
+  }
+
+  .chevron {
+    color: var(--text-muted);
+    font-size: 14px;
+    opacity: 0.5;
+  }
+
+  /* ── Engine Selector ── */
+  .engine-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .engine-tile {
+    padding: 16px;
+    border: 2px solid var(--border-light);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+    background: var(--bg-card);
+  }
+
+  .engine-tile:hover {
+    border-color: var(--border);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .engine-tile.selected {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .engine-tile.disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .engine-tile-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .engine-tile-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .engine-tile-icon.claude {
+    background: linear-gradient(135deg, #d97706, #f59e0b);
+    color: #fff;
+  }
+
+  .engine-tile-icon.pi {
+    background: var(--bg-soft);
+    color: var(--text-muted);
+  }
+
+  .engine-tile-name {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .engine-tile-desc {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+
+  .engine-tile-status {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 10px;
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+
+  .engine-tile.selected .engine-tile-status {
+    color: var(--accent);
+  }
+
+  .engine-tile:not(.selected) .engine-tile-status {
+    color: var(--text-muted);
+  }
+
+  .engine-tile-check {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+  }
+
+  /* ── Source Row ── */
+  .source-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--bg-soft);
+    border-radius: var(--radius-sm);
+    margin-top: 12px;
+  }
+
+  .source-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .source-select {
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--text-primary);
+    background: var(--bg-card);
+    cursor: pointer;
+    outline: none;
+  }
+
+  /* ── Project Path ── */
+  .path-group {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .path-mono {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1.5px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-family: var(--mono);
+    color: var(--text-primary);
+    background: var(--bg-input);
+    outline: none;
+    transition: all 0.15s;
+  }
+
+  .path-mono:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+    background: var(--bg-card);
+  }
+
+  .path-action {
+    padding: 10px 16px;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .path-action:hover {
+    background: var(--bg-hover);
+    border-color: #ccc;
+  }
+
+  /* ── Plan Label ── */
+  .plan-label {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    padding: 6px 14px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 6px;
+    z-index: 100;
+    letter-spacing: 0.02em;
+  }
+</style>
+</head>
+<body>
+
+<div class="plan-label">方案 D · Dashboard 可视化状态</div>
+
+<div class="page">
+  <div class="page-header">
+    <h1 class="page-title">通用设置</h1>
+    <p class="page-desc">配置语言、引擎和项目根目录等基础设置</p>
+  </div>
+
+  <!-- Status Overview -->
+  <div class="status-bar">
+    <div class="status-card">
+      <div class="status-card-label">语言</div>
+      <div class="status-card-value">
+        <span class="status-indicator online"></span>
+        简体中文
+      </div>
+      <div class="status-card-sub">已激活</div>
+    </div>
+    <div class="status-card">
+      <div class="status-card-label">引擎</div>
+      <div class="status-card-value">
+        <span class="status-indicator online"></span>
+        Claude Code
+      </div>
+      <div class="status-card-sub">Bundled · 运行中</div>
+    </div>
+    <div class="status-card">
+      <div class="status-card-label">项目</div>
+      <div class="status-card-value">
+        <span class="status-indicator warning"></span>
+        my-project
+      </div>
+      <div class="status-card-sub">D:\Projects\</div>
+    </div>
+  </div>
+
+  <!-- Language Panel -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-header-left">
+        <div class="panel-icon lang">🌐</div>
+        <span class="panel-title">界面语言</span>
+      </div>
+      <span class="panel-badge active">已设置</span>
+    </div>
+    <div class="panel-body">
+      <div class="lang-row">
+        <div class="lang-row-left">
+          <div class="lang-row-icon">🌐</div>
+          <div class="lang-row-info">
+            <div class="lang-row-label">界面语言</div>
+            <div class="lang-row-sublabel">更改后将立即生效</div>
+          </div>
+        </div>
+        <div class="lang-row-right">
+          <span class="lang-row-value">简体中文</span>
+          <span class="chevron">›</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Engine Panel -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-header-left">
+        <div class="panel-icon engine">⚡</div>
+        <span class="panel-title">Agent Engine</span>
+      </div>
+      <span class="panel-badge active">运行中</span>
+    </div>
+    <div class="panel-body">
+      <div class="engine-grid">
+        <div class="engine-tile selected">
+          <span class="engine-tile-check">✓</span>
+          <div class="engine-tile-head">
+            <div class="engine-tile-icon claude">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z"/></svg>
+            </div>
+            <span class="engine-tile-name">Claude Code</span>
+          </div>
+          <div class="engine-tile-desc">Anthropic 官方编码引擎，内置集成，开箱即用。</div>
+          <div class="engine-tile-status">
+            <span class="status-indicator online"></span>
+            使用中 · Bundled
+          </div>
+        </div>
+        <div class="engine-tile disabled">
+          <div class="engine-tile-head">
+            <div class="engine-tile-icon pi">
+              <svg width="20" height="20" viewBox="0 0 800 800" fill="currentColor"><path fill-rule="evenodd" d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z"/><path d="M517.36 400H634.72V634.72H517.36Z"/></svg>
+            </div>
+            <span class="engine-tile-name">Pi</span>
+          </div>
+          <div class="engine-tile-desc">极简编码代理，需要安装 Pi SDK。</div>
+          <div class="engine-tile-status">
+            <span class="status-indicator offline"></span>
+            SDK 未安装
+          </div>
+        </div>
+      </div>
+      <div class="source-row">
+        <span class="source-label">引擎来源</span>
+        <select class="source-select">
+          <option selected>Bundled（内置）</option>
+          <option>Installed CLI</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Project Panel -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-header-left">
+        <div class="panel-icon project">📁</div>
+        <span class="panel-title">项目根目录</span>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="path-group">
+        <input type="text" class="path-mono" value="D:\Projects\my-project" />
+        <button class="path-action">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+          浏览
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

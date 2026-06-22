@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Session Context 悬浮面板 - UI 原型</title>
+<style>
+  /* === Reset & Base === */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-primary: #181715;
+    --bg-secondary: #1c1b1a;
+    --bg-tertiary: #1f1e1b;
+    --bg-elevated: #252320;
+    --bg-hover: #2a2826;
+    --bg-active: #333130;
+    --text-primary: #e8e6e3;
+    --text-secondary: #a8a29e;
+    --text-muted: #78716c;
+    --accent-primary: #0d9488;
+    --accent-primary-hover: #14b8a6;
+    --success: #059669;
+    --warning: #d97706;
+    --error: #dc2626;
+    --surface-border: rgba(255, 255, 255, 0.08);
+    --surface-border-strong: rgba(255, 255, 255, 0.14);
+    --font-body: 'IBM Plex Sans', 'SF Pro Text', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --shadow-lg: 0 8px 32px rgba(0,0,0,0.4);
+    --shadow-xl: 0 16px 48px rgba(0,0,0,0.5);
+    --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  body {
+    font-family: var(--font-body);
+    background: #0d0d0d;
+    color: var(--text-primary);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  /* === Demo Controls === */
+  .demo-bar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 48px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--surface-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    z-index: 2000;
+    padding: 0 16px;
+  }
+  .demo-bar button {
+    height: 30px;
+    padding: 0 14px;
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 12px;
+    font-family: var(--font-body);
+    transition: all var(--transition-fast);
+  }
+  .demo-bar button:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .demo-bar button.active { background: var(--accent-primary); color: #fff; border-color: var(--accent-primary); }
+  .demo-label { color: var(--text-muted); font-size: 11px; margin-right: 8px; }
+
+  /* === Panel Base === */
+  .panel {
+    position: fixed;
+    top: 64px;
+    right: 24px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xl);
+    z-index: 900;
+    display: none;
+    overflow: hidden;
+    animation: panelSlideIn 0.25s ease-out;
+  }
+  .panel.visible { display: block; }
+
+  @keyframes panelSlideIn {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--surface-border);
+  }
+  .panel-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel-close {
+    width: 24px; height: 24px;
+    border: none; border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    transition: all var(--transition-fast);
+  }
+  .panel-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+  /* === Row Item === */
+  .row-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 16px;
+    cursor: pointer;
+    transition: background var(--transition-fast);
+    border: none;
+    background: transparent;
+    color: var(--text-primary);
+    width: 100%;
+    text-align: left;
+    font-family: var(--font-body);
+    font-size: 13px;
+  }
+  .row-item:hover { background: var(--bg-hover); }
+  .row-icon {
+    width: 18px; height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .row-label { flex: 1; }
+  .row-value { color: var(--text-secondary); font-size: 12px; }
+  .row-arrow { color: var(--text-muted); font-size: 10px; }
+
+  /* Stats */
+  .stat-add { color: var(--success); font-family: var(--font-mono); font-size: 12px; }
+  .stat-del { color: var(--error); font-family: var(--font-mono); font-size: 12px; }
+
+  /* Section divider */
+  .section-divider {
+    padding: 8px 16px 4px;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  /* ============================================================
+     PANEL 1: Environment
+     ============================================================ */
+  #env-panel { width: 280px; }
+
+  .env-header-actions {
+    display: flex; gap: 4px;
+  }
+  .env-header-actions button {
+    width: 24px; height: 24px;
+    border: none; border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-fast);
+  }
+  .env-header-actions button:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+  .sources-empty {
+    padding: 12px 16px 16px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  /* ============================================================
+     PANEL 2: Task List
+     ============================================================ */
+  #task-panel { width: 360px; }
+
+  .task-header-actions {
+    display: flex; gap: 4px;
+  }
+  .task-header-actions button {
+    width: 28px; height: 28px;
+    border: none; border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    transition: all var(--transition-fast);
+  }
+  .task-header-actions button:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+  .task-env-section {
+    border-bottom: 1px solid var(--surface-border);
+  }
+
+  .task-progress-header {
+    padding: 10px 16px 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .task-progress-bar {
+    height: 2px;
+    background: var(--bg-tertiary);
+    margin: 0 16px 8px;
+    border-radius: 1px;
+    overflow: hidden;
+  }
+  .task-progress-fill {
+    height: 100%;
+    background: var(--accent-primary);
+    border-radius: 1px;
+    transition: width 0.4s ease;
+  }
+
+  .task-list { padding: 0 12px 12px; }
+  .task-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 4px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text-secondary);
+  }
+  .task-item.completed { color: var(--text-muted); }
+  .task-item.completed .task-text { text-decoration: line-through; }
+  .task-item.in_progress { color: var(--text-primary); }
+  .task-item.subtask { padding-left: 28px; }
+
+  .task-icon {
+    width: 16px; height: 16px;
+    flex-shrink: 0;
+    margin-top: 1px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .task-icon.completed { color: var(--success); }
+  .task-icon.in_progress { color: var(--accent-primary); }
+  .task-icon.pending { color: var(--text-muted); }
+
+  .task-text { flex: 1; min-width: 0; }
+
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .spin { animation: spin 1s linear infinite; }
+
+  /* ============================================================
+     PANEL 3: Review / Diff
+     ============================================================ */
+  #review-panel { width: 540px; max-height: calc(100vh - 88px); display: none; flex-direction: column; }
+  #review-panel.visible { display: flex; }
+
+  .review-tabs {
+    display: flex;
+    gap: 0;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--surface-border);
+  }
+  .review-tab {
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all var(--transition-fast);
+    font-family: var(--font-body);
+  }
+  .review-tab.active { color: var(--text-primary); border-bottom-color: var(--accent-primary); }
+  .review-tab:hover:not(.active) { color: var(--text-secondary); }
+
+  .review-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--surface-border);
+  }
+  .review-branch-btn {
+    display: flex; align-items: center; gap: 6px;
+    height: 28px; padding: 0 10px;
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    font-family: var(--font-body);
+    transition: all var(--transition-fast);
+  }
+  .review-branch-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .review-stats { margin-left: auto; display: flex; gap: 6px; }
+  .review-action-btn {
+    height: 26px;
+    padding: 0 10px;
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 11px;
+    cursor: pointer;
+    font-family: var(--font-body);
+    transition: all var(--transition-fast);
+  }
+  .review-action-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+  .review-file-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+  .review-file-list::-webkit-scrollbar { width: 6px; }
+  .review-file-list::-webkit-scrollbar-track { background: transparent; }
+  .review-file-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+  .file-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 16px;
+    cursor: pointer;
+    transition: background var(--transition-fast);
+    border: none;
+    background: transparent;
+    color: var(--text-primary);
+    width: 100%;
+    text-align: left;
+    font-family: var(--font-body);
+    font-size: 12px;
+  }
+  .file-row:hover { background: var(--bg-hover); }
+  .file-row .file-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-primary); flex-shrink: 0; }
+  .file-row .file-path {
+    flex: 1;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .file-row .file-stats { display: flex; gap: 6px; flex-shrink: 0; }
+
+  /* Diff view */
+  .diff-block {
+    border-top: 1px solid var(--surface-border);
+    background: var(--bg-primary);
+  }
+  .diff-file-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: var(--bg-tertiary);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--surface-border);
+  }
+  .diff-lines { font-family: var(--font-mono); font-size: 12px; line-height: 1.6; }
+  .diff-line {
+    display: flex;
+    align-items: stretch;
+    min-height: 20px;
+  }
+  .diff-line .ln {
+    min-width: 36px;
+    padding: 0 6px;
+    text-align: right;
+    color: var(--text-muted);
+    user-select: none;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .diff-line .prefix {
+    width: 16px;
+    text-align: center;
+    user-select: none;
+    flex-shrink: 0;
+    font-weight: 700;
+  }
+  .diff-line .code { flex: 1; padding: 0 8px; white-space: pre; }
+  .diff-line.add { background: rgba(5, 150, 105, 0.08); }
+  .diff-line.add .prefix, .diff-line.add .code { color: var(--success); }
+  .diff-line.add .ln { background: rgba(5, 150, 105, 0.12); }
+  .diff-line.del { background: rgba(220, 38, 38, 0.08); }
+  .diff-line.del .prefix, .diff-line.del .code { color: var(--error); }
+  .diff-line.del .ln { background: rgba(220, 38, 38, 0.12); }
+  .diff-line.ctx .code { color: var(--text-muted); }
+
+  .diff-collapse {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    font-size: 11px;
+    cursor: pointer;
+    border: none;
+    width: 100%;
+    font-family: var(--font-body);
+    transition: background var(--transition-fast);
+  }
+  .diff-collapse:hover { background: var(--bg-hover); }
+  .diff-collapse .collapse-arrow { font-size: 10px; }
+
+  /* ============================================================
+     PANEL 4: Branch
+     ============================================================ */
+  #branch-panel { width: 280px; }
+
+  .branch-search {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--surface-border);
+  }
+  .branch-search-input {
+    width: 100%;
+    height: 32px;
+    padding: 0 10px 0 32px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-family: var(--font-body);
+    outline: none;
+    transition: border-color var(--transition-fast);
+  }
+  .branch-search-input:focus { border-color: var(--accent-primary); }
+  .branch-search-input::placeholder { color: var(--text-muted); }
+  .branch-search-wrap {
+    position: relative;
+  }
+  .branch-search-icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    font-size: 12px;
+    pointer-events: none;
+  }
+
+  .branch-section-label {
+    padding: 8px 16px 4px;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+
+  .branch-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: background var(--transition-fast);
+    border: none;
+    background: transparent;
+    color: var(--text-primary);
+    width: 100%;
+    text-align: left;
+    font-family: var(--font-body);
+    font-size: 13px;
+  }
+  .branch-item:hover { background: var(--bg-hover); }
+  .branch-item .branch-icon { color: var(--text-muted); flex-shrink: 0; }
+  .branch-item .branch-name { flex: 1; }
+  .branch-item .branch-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+    padding-left: 26px;
+    padding-bottom: 2px;
+  }
+  .branch-item .branch-check { color: var(--success); flex-shrink: 0; font-size: 14px; }
+  .branch-item.active .branch-name { font-weight: 500; }
+
+  .branch-footer {
+    border-top: 1px solid var(--surface-border);
+    padding: 4px 0;
+  }
+  .branch-footer-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: background var(--transition-fast);
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    width: 100%;
+    text-align: left;
+    font-family: var(--font-body);
+    font-size: 12px;
+  }
+  .branch-footer-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+  /* ============================================================
+     PANEL 5: Commit Dialog
+     ============================================================ */
+  .commit-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 1000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.15s ease;
+  }
+  .commit-overlay.visible { display: flex; }
+
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .commit-dialog {
+    width: 480px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--surface-border-strong);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xl);
+    animation: dialogSlideUp 0.2s ease-out;
+    overflow: hidden;
+  }
+  @keyframes dialogSlideUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .commit-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px 12px;
+  }
+  .commit-title { font-size: 16px; font-weight: 600; color: var(--text-primary); }
+  .commit-close {
+    width: 28px; height: 28px;
+    border: none; border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    transition: all var(--transition-fast);
+  }
+  .commit-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+  .commit-body { padding: 0 20px 16px; }
+  .commit-desc { font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.5; }
+
+  .commit-info-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+  }
+  .commit-info-label { font-size: 13px; color: var(--text-muted); }
+  .commit-info-value {
+    font-size: 13px;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .commit-msg-section { margin-top: 16px; }
+  .commit-msg-label { font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-bottom: 8px; }
+  .commit-textarea {
+    width: 100%;
+    min-height: 80px;
+    padding: 10px 12px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    resize: vertical;
+    outline: none;
+    transition: border-color var(--transition-fast);
+  }
+  .commit-textarea:focus { border-color: var(--accent-primary); }
+  .commit-textarea::placeholder { color: var(--text-muted); }
+  .commit-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 6px;
+    line-height: 1.4;
+  }
+  .commit-error {
+    font-size: 12px;
+    color: var(--error);
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .commit-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--surface-border);
+  }
+  .btn-cancel {
+    height: 34px;
+    padding: 0 16px;
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 13px;
+    font-family: var(--font-body);
+    transition: all var(--transition-fast);
+  }
+  .btn-cancel:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .btn-primary {
+    height: 34px;
+    padding: 0 16px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--text-primary);
+    color: var(--bg-primary);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: var(--font-body);
+    transition: all var(--transition-fast);
+  }
+  .btn-primary:hover { opacity: 0.9; }
+
+  /* === SVG Icons (inline) === */
+  .icon { display: inline-flex; align-items: center; justify-content: center; }
+</style>
+</head>
+<body>
+
+<!-- Demo Control Bar -->
+<div class="demo-bar">
+  <span class="demo-label">切换面板：</span>
+  <button onclick="showPanel('env')" id="btn-env">Environment</button>
+  <button onclick="showPanel('task')" id="btn-task">Task List</button>
+  <button onclick="showPanel('review')" id="btn-review">Review / Diff</button>
+  <button onclick="showPanel('branch')" id="btn-branch">Branch</button>
+  <button onclick="showPanel('commit')" id="btn-commit">Commit Dialog</button>
+  <button onclick="showPanel(null)" style="margin-left:12px;opacity:0.7;">✕ 关闭全部</button>
+</div>
+
+<!-- ============================================================
+     PANEL 1: Environment Overview
+     ============================================================ -->
+<div id="env-panel" class="panel">
+  <div class="panel-header">
+    <div class="panel-title">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+      Environment
+    </div>
+    <div class="env-header-actions">
+      <button title="设置">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+      <button class="panel-close" onclick="showPanel(null)">×</button>
+    </div>
+  </div>
+
+  <button class="row-item" onclick="showPanel('review')">
+    <span class="row-icon">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+    </span>
+    <span class="row-label">Changes</span>
+    <span class="stat-add">+6,495</span>
+    <span class="stat-del">-1,632</span>
+  </button>
+
+  <div class="row-item" style="cursor:default;">
+    <span class="row-icon">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
+    </span>
+    <span class="row-label">Local</span>
+    <span class="row-arrow">▾</span>
+  </div>
+
+  <button class="row-item" onclick="showPanel('branch')">
+    <span class="row-icon">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 9v4a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V9"/></svg>
+    </span>
+    <span class="row-label">main</span>
+    <span class="row-arrow">▾</span>
+  </button>
+
+  <button class="row-item" onclick="showPanel('commit')">
+    <span class="row-icon">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><line x1="12" y1="3" x2="12" y2="9"/><line x1="12" y1="15" x2="12" y2="21"/></svg>
+    </span>
+    <span class="row-label">Commit or push</span>
+  </button>
+
+  <div class="row-item" style="cursor:default;">
+    <span class="row-icon">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+    </span>
+    <span class="row-label" style="color:var(--text-muted)">GitHub CLI unavailable</span>
+  </div>
+
+  <div class="section-divider">Sources</div>
+  <div class="sources-empty">No sources yet</div>
+</div>
+
+<!-- ============================================================
+     PANEL 2: Task List
+     ============================================================ -->
+<div id="task-panel" class="panel">
+  <div class="panel-header">
+    <div class="panel-title">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14,2 14,8 20,8"/><path d="m9 15 2 2 4-4"/></svg>
+      Git 工具
+    </div>
+    <div class="task-header-actions">
+      <button title="更多">···</button>
+      <button title="弹出">↗</button>
+      <button class="panel-close" onclick="showPanel(null)">×</button>
+    </div>
+  </div>
+
+  <!-- Compact env section -->
+  <div class="task-env-section">
+    <button class="row-item" onclick="showPanel('review')">
+      <span class="row-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+      </span>
+      <span class="row-label">更改</span>
+      <span class="stat-add">+2</span>
+      <span class="stat-del">-0</span>
+    </button>
+    <button class="row-item" onclick="showPanel('branch')">
+      <span class="row-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 9v4a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V9"/></svg>
+      </span>
+      <span class="row-label">main</span>
+      <span class="row-arrow">▾</span>
+    </button>
+    <button class="row-item" onclick="showPanel('commit')">
+      <span class="row-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><line x1="12" y1="3" x2="12" y2="9"/><line x1="12" y1="15" x2="12" y2="21"/></svg>
+      </span>
+      <span class="row-label">提交 ...</span>
+    </button>
+  </div>
+
+  <!-- Task progress -->
+  <div class="task-progress-header">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+    进程 1/6
+  </div>
+  <div class="task-progress-bar">
+    <div class="task-progress-fill" style="width: 16.7%"></div>
+  </div>
+
+  <div class="task-list">
+    <!-- Completed task -->
+    <div class="task-item completed">
+      <span class="task-icon completed">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      </span>
+      <span class="task-text">探索子代理（sidechain/subagent）相关代码，理解数据流</span>
+    </div>
+    <!-- Sub-task (in progress) -->
+    <div class="task-item subtask in_progress">
+      <span class="task-icon in_progress">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+      </span>
+      <span class="task-text">定位子代理流式输出问题的根因（引擎是否转发 stream_event / 前端如何路由）</span>
+    </div>
+    <!-- Pending tasks -->
+    <div class="task-item pending">
+      <span class="task-icon pending">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
+      </span>
+      <span class="task-text">定位子代理消息重复显示问题的根因</span>
+    </div>
+    <div class="task-item pending">
+      <span class="task-icon pending">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
+      </span>
+      <span class="task-text">实现子代理流式输出修复</span>
+    </div>
+    <div class="task-item pending">
+      <span class="task-icon pending">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
+      </span>
+      <span class="task-text">实现消息重复显示修复</span>
+    </div>
+    <div class="task-item pending">
+      <span class="task-icon pending">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
+      </span>
+      <span class="task-text">验证修复</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     PANEL 3: Review / Diff
+     ============================================================ -->
+<div id="review-panel" class="panel">
+  <div class="review-tabs">
+    <button class="review-tab active">Review</button>
+  </div>
+  <div class="review-toolbar">
+    <button class="review-branch-btn" onclick="showPanel('branch')">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 9v4a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V9"/></svg>
+      Branch ▾
+    </button>
+    <div class="review-stats">
+      <span class="stat-add">+6,495</span>
+      <span class="stat-del">-1,632</span>
+    </div>
+    <button class="review-action-btn" onclick="showPanel('commit')">Commit or push</button>
+    <button class="review-action-btn">Create PR</button>
+    <button class="panel-close" onclick="showPanel(null)" style="margin-left:4px;">×</button>
+  </div>
+
+  <div class="review-file-list">
+    <!-- File rows -->
+    <div class="file-row">
+      <span class="file-dot"></span>
+      <span class="file-path">.agents/skills/frontend-code-review/references/best-practices.md</span>
+      <span class="file-stats"><span class="stat-add">+128</span><span class="stat-del">-51</span></span>
+    </div>
+    <div class="file-row">
+      <span class="file-dot"></span>
+      <span class="file-path">.claude/commands/security-checklist.md</span>
+      <span class="file-stats"><span class="stat-add">+45</span><span class="stat-del">-12</span></span>
+    </div>
+
+    <!-- Expanded file with diff -->
+    <div class="file-row" style="background:var(--bg-hover);">
+      <span class="file-dot"></span>
+      <span class="file-path">electron/engines/ClaudeCodeEngine.ts</span>
+      <span class="file-stats"><span class="stat-add">+1</span><span class="stat-del">-1</span></span>
+    </div>
+    <div class="diff-block">
+      <div class="diff-file-header">ClaudeCodeEngine.ts</div>
+      <div class="diff-lines">
+        <div class="diff-line add"><span class="ln">1</span><span class="prefix">+</span><span class="code">import type { BrowserWindow } from 'electron'</span></div>
+        <div class="diff-line add"><span class="ln">2</span><span class="prefix">+</span><span class="code">import { ClaudeCodeProcessPool } from '../claudeCodeProcessPool'</span></div>
+        <div class="diff-line del"><span class="ln">3</span><span class="prefix">-</span><span class="code">import { SessionConfig } from '../claudeCodeProcessManager'</span></div>
+        <div class="diff-line add"><span class="ln">4</span><span class="prefix">+</span><span class="code">import { SessionConfig } from '../sessionProcess'</span></div>
+        <div class="diff-line add"><span class="ln">5</span><span class="prefix">+</span><span class="code">import * as fs from 'fs'</span></div>
+        <div class="diff-line add"><span class="ln">6</span><span class="prefix">+</span><span class="code">import * as path from 'path'</span></div>
+        <button class="diff-collapse">
+          <span class="collapse-arrow">▸</span>
+          215 unmodified lines
+        </button>
+      </div>
+    </div>
+
+    <!-- More files -->
+    <div class="file-row">
+      <span class="file-dot"></span>
+      <span class="file-path">electron/claudeCodeProcessManager.ts</span>
+      <span class="file-stats"><span class="stat-add">+0</span><span class="stat-del">-518</span></span>
+    </div>
+    <div class="file-row">
+      <span class="file-dot"></span>
+      <span class="file-path">electron/claudeCodeProcessPool.ts</span>
+      <span class="file-stats"><span class="stat-add">+1</span><span class="stat-del">-2</span></span>
+    </div>
+    <div class="file-row">
+      <span class="file-dot"></span>
+      <span class="file-path">src/components/chat/ChatInput.vue</span>
+      <span class="file-stats"><span class="stat-add">+234</span><span class="stat-del">-89</span></span>
+    </div>
+    <div class="file-row">
+      <span class="file-dot"></span>
+      <span class="file-path">src/stores/chat.ts</span>
+      <span class="file-stats"><span class="stat-add">+456</span><span class="stat-del">-123</span></span>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     PANEL 4: Branch
+     ============================================================ -->
+<div id="branch-panel" class="panel">
+  <div class="panel-header">
+    <div class="panel-title">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 9v4a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V9"/></svg>
+      分支管理
+    </div>
+    <button class="panel-close" onclick="showPanel(null)">×</button>
+  </div>
+
+  <div class="branch-search">
+    <div class="branch-search-wrap">
+      <span class="branch-search-icon">🔍</span>
+      <input class="branch-search-input" type="text" placeholder="搜索分支..." />
+    </div>
+  </div>
+
+  <div class="branch-section-label">分支</div>
+
+  <button class="branch-item active">
+    <span class="branch-icon">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 9v4a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V9"/></svg>
+    </span>
+    <span class="branch-name">main</span>
+    <span class="branch-check">✓</span>
+  </button>
+  <div class="branch-item" style="cursor:default;padding-top:0;padding-left:40px;">
+    <span style="font-size:11px;color:var(--text-muted);">未提交的更改: 1 个文件</span>
+  </div>
+
+  <button class="branch-item">
+    <span class="branch-icon">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 9v4a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V9"/></svg>
+    </span>
+    <span class="branch-name">save/detached-head-changes</span>
+  </button>
+  <button class="branch-item">
+    <span class="branch-icon">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 9v4a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V9"/></svg>
+    </span>
+    <span class="branch-name">reputably-mulch</span>
+  </button>
+  <button class="branch-item">
+    <span class="branch-icon">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 9v4a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V9"/></svg>
+    </span>
+    <span class="branch-name">feat/upgrade-engine-v2.4.0</span>
+  </button>
+
+  <div class="branch-footer">
+    <button class="branch-footer-btn">
+      <span>+</span> 创建并检出新分支...
+    </button>
+    <button class="branch-footer-btn">
+      <span>📌</span> Git 图谱
+    </button>
+  </div>
+</div>
+
+<!-- ============================================================
+     PANEL 5: Commit Dialog
+     ============================================================ -->
+<div id="commit-overlay" class="commit-overlay">
+  <div class="commit-dialog">
+    <div class="commit-header">
+      <span class="commit-title">提交更改</span>
+      <button class="commit-close" onclick="showPanel(null)">×</button>
+    </div>
+    <div class="commit-body">
+      <p class="commit-desc">将当前 workspace 内的未提交更改保存为一次提交。</p>
+
+      <div class="commit-info-row">
+        <span class="commit-info-label">当前分支</span>
+        <span class="commit-info-value">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 9v4a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V9"/></svg>
+          main
+        </span>
+      </div>
+
+      <div class="commit-info-row">
+        <span class="commit-info-label">更改</span>
+        <span class="commit-info-value">
+          2 个文件 <span class="stat-add">+6</span> <span class="stat-del">-1</span>
+        </span>
+      </div>
+
+      <div class="commit-msg-section">
+        <div class="commit-msg-label">提交消息</div>
+        <textarea class="commit-textarea" placeholder="留空以自动生成提交消息"></textarea>
+        <div class="commit-hint">留空时会使用当前模型生成 Conventional Commit 提交消息。</div>
+        <div class="commit-error">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          生成提交消息失败，请重试或手动填写。
+        </div>
+      </div>
+    </div>
+    <div class="commit-footer">
+      <button class="btn-cancel" onclick="showPanel(null)">取消</button>
+      <button class="btn-primary">生成并提交</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const panels = ['env-panel', 'task-panel', 'review-panel', 'branch-panel'];
+  const buttons = ['btn-env', 'btn-task', 'btn-review', 'btn-branch', 'btn-commit'];
+  const overlay = document.getElementById('commit-overlay');
+
+  function showPanel(name) {
+    // Hide all panels
+    panels.forEach(id => document.getElementById(id).classList.remove('visible'));
+    overlay.classList.remove('visible');
+    buttons.forEach(id => document.getElementById(id).classList.remove('active'));
+
+    if (!name) return;
+
+    if (name === 'commit') {
+      overlay.classList.add('visible');
+      document.getElementById('btn-commit').classList.add('active');
+    } else {
+      const panelId = name + '-panel';
+      document.getElementById(panelId).classList.add('visible');
+      const btnId = 'btn-' + name;
+      document.getElementById(btnId).classList.add('active');
+    }
+  }
+
+  // ESC to close
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') showPanel(null);
+  });
+
+  // Show env panel by default
+  showPanel('env');
+</script>
+</body>
+</html>

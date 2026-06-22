@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>BashToolCard 展开样式优化原型</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #1a1d23;
+    padding: 32px;
+    color: #e6edf3;
+  }
+  h1 { font-size: 16px; margin-bottom: 8px; color: #e6edf3; }
+  .desc { font-size: 12px; color: #8b949e; margin-bottom: 24px; line-height: 1.6; }
+  .section { margin-bottom: 32px; }
+  .section-title { font-size: 12px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 12px; font-weight: 600; }
+
+  /* ===== 卡片基础样式（与现有保持一致） ===== */
+  .bash-tool-card {
+    border-radius: 6px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.08);
+    overflow: hidden;
+    font-size: 13px;
+    max-width: 720px;
+  }
+  .bash-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; cursor: pointer;
+    transition: background 0.15s;
+  }
+  .bash-header:hover { background: rgba(255,255,255,0.03); }
+  .bash-icon-wrapper {
+    width: 22px; height: 22px; border-radius: 4px;
+    background: rgba(34, 197, 94, 0.12);
+    color: #4ade80;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .bash-icon-wrapper.running { background: rgba(59, 130, 246, 0.12); color: #60a5fa; }
+  .bash-icon-wrapper.error { background: rgba(239, 68, 68, 0.12); color: #f87171; }
+  .bash-label {
+    font-weight: 600; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    color: #4ade80; flex-shrink: 0;
+  }
+  .bash-label.running { color: #60a5fa; }
+  .bash-label.error { color: #f87171; }
+  .bash-cmd-preview {
+    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: 'JetBrains Mono', Consolas, monospace;
+    font-size: 12px; color: #8b949e;
+  }
+  .bash-duration { color: #6e7681; font-size: 11px; flex-shrink: 0; }
+  .expand-icon {
+    color: #6e7681; transition: transform 0.15s;
+    display: inline-block;
+  }
+  .expand-icon.is-expanded { transform: rotate(180deg); }
+  .header-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+  .action-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; border-radius: 4px;
+    border: none; background: transparent;
+    color: #8b949e; cursor: pointer; transition: all 0.15s;
+  }
+  .action-btn:hover { background: rgba(255,255,255,0.1); color: #e6edf3; }
+
+  /* ===== 展开后的终端窗口样式（核心优化） ===== */
+  .bash-body { border-top: 1px solid rgba(255,255,255,0.08); padding: 10px 12px; }
+
+  .terminal-window {
+    background: #0d1117;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.1);
+    overflow: hidden;
+  }
+
+  /* 终端窗口栏 */
+  .terminal-titlebar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px;
+    background: #161b22;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .traffic-lights { display: flex; gap: 6px; }
+  .light { width: 11px; height: 11px; border-radius: 50%; }
+  .light.red { background: #ff5f56; }
+  .light.yellow { background: #ffbd2e; }
+  .light.green { background: #27c93f; }
+  .terminal-title {
+    font-size: 11px; color: #8b949e;
+    font-family: 'JetBrains Mono', Consolas, monospace;
+    flex: 1; text-align: center;
+  }
+  .terminal-status-badge {
+    font-size: 10px; padding: 2px 6px; border-radius: 4px;
+    font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .terminal-status-badge.running { background: rgba(59,130,246,0.15); color: #60a5fa; }
+  .terminal-status-badge.completed { background: rgba(34,197,94,0.15); color: #4ade80; }
+  .terminal-status-badge.error { background: rgba(239,68,68,0.15); color: #f87171; }
+
+  /* 终端内容区 */
+  .terminal-content {
+    padding: 10px 12px;
+    font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    color: #c9d1d9;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+  .terminal-content::-webkit-scrollbar { width: 6px; }
+  .terminal-content::-webkit-scrollbar-track { background: transparent; }
+  .terminal-content::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+
+  /* 命令行 */
+  .term-command {
+    display: flex; align-items: baseline;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+  .term-prompt {
+    color: #4ade80;
+    flex-shrink: 0;
+    user-select: none;
+  }
+  .term-cwd { color: #60a5fa; flex-shrink: 0; }
+  .term-cmd-text { color: #e6edf3; word-break: break-all; white-space: pre-wrap; }
+
+  /* 输出区 */
+  .term-output {
+    color: #c9d1d9;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin-top: 2px;
+  }
+  .term-output.error { color: #f87171; }
+
+  /* 退出码 */
+  .term-exit {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px dashed rgba(255,255,255,0.08);
+    font-size: 11px;
+    color: #6e7681;
+  }
+  .term-exit .exit-code { color: #4ade80; }
+  .term-exit.error .exit-code { color: #f87171; }
+
+  /* 光标闪烁（运行中） */
+  .cursor {
+    display: inline-block;
+    width: 7px; height: 14px;
+    background: #c9d1d9;
+    vertical-align: text-bottom;
+    animation: blink 1s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* spinner */
+  .spinner {
+    display: inline-block; width: 10px; height: 10px;
+    border: 1.5px solid rgba(96,165,250,0.3);
+    border-top-color: #60a5fa;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+    margin-right: 4px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* 折叠态隐藏 body */
+  .bash-tool-card.collapsed .bash-body { display: none; }
+
+  /* 说明标注 */
+  .annotation {
+    margin-top: 8px;
+    font-size: 11px;
+    color: #6e7681;
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+
+<h1>BashToolCard 展开样式优化原型</h1>
+<p class="desc">
+  核心改动：展开后默认用「终端窗口」样式统一渲染命令 + 输出，不再分成两个独立块。<br>
+  命令以 <code>$</code> 提示符形式显示在终端内，输出紧跟其后，视觉上接近真实终端。<br>
+  下方展示折叠态、运行中、完成、错误四种状态。
+</p>
+
+<!-- 1. 折叠状态 -->
+<div class="section">
+  <div class="section-title">1. 折叠状态（点击 header 展开）</div>
+  <div class="bash-tool-card collapsed">
+    <div class="bash-header">
+      <div class="bash-icon-wrapper">$</div>
+      <span class="bash-label">Bash</span>
+      <span class="bash-cmd-preview">npm run build</span>
+      <span class="bash-duration">2.3s</span>
+      <div class="header-actions">
+        <span class="expand-icon">▾</span>
+      </div>
+    </div>
+    <div class="bash-body">
+      <div class="terminal-window">
+        <div class="terminal-titlebar">
+          <div class="traffic-lights"><span class="light red"></span><span class="light yellow"></span><span class="light green"></span></div>
+          <span class="terminal-title">bash — npm run build</span>
+          <span class="terminal-status-badge completed">completed</span>
+        </div>
+        <div class="terminal-content">
+          <div class="term-command">
+            <span class="term-prompt">$</span>
+            <span class="term-cmd-text">npm run build</span>
+          </div>
+          <div class="term-output">> spacecode@1.0.0 build
+> vite build
+
+vite v5.4.0 building for production...
+✓ 342 modules transformed.
+dist/index.html                  0.46 kB │ gzip:  0.30 kB
+dist/assets/index-3f8a2b.css    12.34 kB │ gzip:  3.21 kB
+dist/assets/index-9c1d4e.js    287.65 kB │ gzip: 92.18 kB
+✓ built in 2.31s</div>
+          <div class="term-exit">Process exited with code <span class="exit-code">0</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 2. 展开状态 - 运行中 -->
+<div class="section">
+  <div class="section-title">2. 展开状态 · 运行中（running）</div>
+  <div class="bash-tool-card">
+    <div class="bash-header">
+      <div class="bash-icon-wrapper running">
+        <span class="spinner" style="width:12px;height:12px;"></span>
+      </div>
+      <span class="bash-label running">Bash</span>
+      <span class="bash-cmd-preview">npm run dev</span>
+      <span class="bash-duration">3.2s</span>
+      <div class="header-actions">
+        <span class="expand-icon is-expanded">▾</span>
+      </div>
+    </div>
+    <div class="bash-body">
+      <div class="terminal-window">
+        <div class="terminal-titlebar">
+          <div class="traffic-lights"><span class="light red"></span><span class="light yellow"></span><span class="light green"></span></div>
+          <span class="terminal-title">bash — npm run dev</span>
+          <span class="terminal-status-badge running">running</span>
+        </div>
+        <div class="terminal-content">
+          <div class="term-command">
+            <span class="term-prompt">$</span>
+            <span class="term-cwd">~/spacecode</span>
+            <span class="term-cmd-text">npm run dev</span>
+          </div>
+          <div class="term-output">> spacecode@1.0.0 dev
+> vite
+
+  VITE v5.4.0  ready in 312 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose<span class="cursor"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 3. 展开状态 - 完成 -->
+<div class="section">
+  <div class="section-title">3. 展开状态 · 完成（completed）</div>
+  <div class="bash-tool-card">
+    <div class="bash-header">
+      <div class="bash-icon-wrapper">$</div>
+      <span class="bash-label">Bash</span>
+      <span class="bash-cmd-preview">git status</span>
+      <span class="bash-duration">0.2s</span>
+      <div class="header-actions">
+        <span class="expand-icon is-expanded">▾</span>
+      </div>
+    </div>
+    <div class="bash-body">
+      <div class="terminal-window">
+        <div class="terminal-titlebar">
+          <div class="traffic-lights"><span class="light red"></span><span class="light yellow"></span><span class="light green"></span></div>
+          <span class="terminal-title">bash — git status</span>
+          <span class="terminal-status-badge completed">completed</span>
+        </div>
+        <div class="terminal-content">
+          <div class="term-command">
+            <span class="term-prompt">$</span>
+            <span class="term-cwd">~/spacecode</span>
+            <span class="term-cmd-text">git status</span>
+          </div>
+          <div class="term-output">On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add &lt;file&gt;..." to update what will be committed)
+  (use "git restore &lt;file&gt;..." to discard changes in working directory)
+        modified:   src/components/chat/tools/BashToolCard.vue
+
+no changes added to commit (use "git add" and/or "git commit -a")</div>
+          <div class="term-exit">Process exited with code <span class="exit-code">0</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 4. 展开状态 - 错误 -->
+<div class="section">
+  <div class="section-title">4. 展开状态 · 错误（error）</div>
+  <div class="bash-tool-card">
+    <div class="bash-header">
+      <div class="bash-icon-wrapper error">✕</div>
+      <span class="bash-label error">Bash</span>
+      <span class="bash-cmd-preview">npm run test</span>
+      <span class="bash-duration">1.8s</span>
+      <div class="header-actions">
+        <span class="expand-icon is-expanded">▾</span>
+      </div>
+    </div>
+    <div class="bash-body">
+      <div class="terminal-window">
+        <div class="terminal-titlebar">
+          <div class="traffic-lights"><span class="light red"></span><span class="light yellow"></span><span class="light green"></span></div>
+          <span class="terminal-title">bash — npm run test</span>
+          <span class="terminal-status-badge error">error</span>
+        </div>
+        <div class="terminal-content">
+          <div class="term-command">
+            <span class="term-prompt">$</span>
+            <span class="term-cwd">~/spacecode</span>
+            <span class="term-cmd-text">npm run test</span>
+          </div>
+          <div class="term-output error">> spacecode@1.0.0 test
+> vitest run
+
+ FAIL  src/components/chat/tools/BashToolCard.spec.ts > BashToolCard > renders command
+AssertionError: expected "Bash" but received "bash"
+
+ ❯ src/components/chat/tools/BashToolCard.spec.ts:18:23
+
+Test Files  1 failed (1 failed)
+     Tests  1 failed (1 failed)
+   Start at  10:23:45
+   Duration  1.82s</div>
+          <div class="term-exit error">Process exited with code <span class="exit-code">1</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 5. 长输出截断 -->
+<div class="section">
+  <div class="section-title">5. 长输出截断（超过 3000 字符）</div>
+  <div class="bash-tool-card">
+    <div class="bash-header">
+      <div class="bash-icon-wrapper">$</div>
+      <span class="bash-label">Bash</span>
+      <span class="bash-cmd-preview">find . -type f -name "*.ts"</span>
+      <span class="bash-duration">0.5s</span>
+      <div class="header-actions">
+        <span class="expand-icon is-expanded">▾</span>
+      </div>
+    </div>
+    <div class="bash-body">
+      <div class="terminal-window">
+        <div class="terminal-titlebar">
+          <div class="traffic-lights"><span class="light red"></span><span class="light yellow"></span><span class="light green"></span></div>
+          <span class="terminal-title">bash — find . -type f</span>
+          <span class="terminal-status-badge completed">completed</span>
+        </div>
+        <div class="terminal-content">
+          <div class="term-command">
+            <span class="term-prompt">$</span>
+            <span class="term-cwd">~/spacecode</span>
+            <span class="term-cmd-text">find . -type f -name "*.ts"</span>
+          </div>
+          <div class="term-output">./src/main.ts
+./src/App.ts
+./src/types/index.ts
+./src/stores/chat.ts
+./src/stores/terminal.ts
+./src/components/chat/ChatView.vue
+...（省略 200+ 行）...
+./src/utils/helpers.ts</div>
+          <div class="term-exit">
+            Process exited with code <span class="exit-code">0</span>
+            <span style="margin-left:12px;color:#8b949e;">· 输出已截断，显示前 3000 字符</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="annotation">注：长输出仍走截断逻辑，截断提示放在退出码行右侧。</div>
+</div>
+
+</body>
+</html>

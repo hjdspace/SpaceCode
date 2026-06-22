@@ -1,0 +1,1785 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cron 定时任务管理</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================
+   CSS Variables — 4 Theme Support
+   ============================================ */
+:root {
+  --font-display: 'Space Grotesk', 'SF Pro Display', system-ui, sans-serif;
+  --font-body: 'IBM Plex Sans', 'SF Pro Text', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  /* Light Theme */
+  --bg-primary: #f8f9fb;
+  --bg-secondary: #f0f1f5;
+  --bg-tertiary: #e7e9ef;
+  --bg-elevated: #ffffff;
+  --bg-hover: #e4e6ec;
+  --bg-active: #dbdde5;
+
+  --surface-soft: #f3f4f8;
+  --surface-card: #ecedf2;
+  --surface-strong: #e3e5ec;
+
+  --surface-glass: rgba(24, 25, 31, 0.02);
+  --surface-glass-hover: rgba(24, 25, 31, 0.04);
+  --surface-glass-active: rgba(24, 25, 31, 0.06);
+  --surface-border: rgba(24, 25, 31, 0.06);
+  --surface-border-strong: rgba(24, 25, 31, 0.12);
+
+  --text-primary: #18191f;
+  --text-secondary: #44475a;
+  --text-muted: #6e7191;
+  --text-disabled: #9da1b8;
+
+  --accent-primary: #0d9488;
+  --accent-primary-hover: #14b8a6;
+  --accent-primary-glow: rgba(13, 148, 136, 0.12);
+
+  --accent-secondary: #6366f1;
+  --accent-secondary-hover: #818cf8;
+  --accent-secondary-glow: rgba(99, 102, 241, 0.12);
+
+  --success: #059669;
+  --success-glow: rgba(5, 150, 105, 0.15);
+  --warning: #d97706;
+  --warning-glow: rgba(217, 119, 6, 0.15);
+  --error: #dc2626;
+  --error-glow: rgba(220, 38, 38, 0.15);
+
+  --border-subtle: rgba(24, 25, 31, 0.05);
+  --border-default: rgba(24, 25, 31, 0.09);
+  --border-strong: rgba(24, 25, 31, 0.15);
+
+  --shadow-sm: 0 1px 2px rgba(24, 25, 31, 0.06);
+  --shadow-md: 0 4px 12px rgba(24, 25, 31, 0.08);
+  --shadow-lg: 0 8px 24px rgba(24, 25, 31, 0.11);
+  --shadow-xl: 0 16px 48px rgba(24, 25, 31, 0.14);
+}
+
+[data-theme='dark'] {
+  --bg-primary: #1a1b1e;
+  --bg-secondary: #222328;
+  --bg-tertiary: #2a2c33;
+  --bg-elevated: #282a31;
+  --bg-hover: #33353e;
+  --bg-active: #3d3f4a;
+
+  --surface-soft: #1e2024;
+  --surface-card: #26282e;
+  --surface-strong: #2e3038;
+
+  --surface-glass: rgba(255, 255, 255, 0.02);
+  --surface-glass-hover: rgba(255, 255, 255, 0.04);
+  --surface-glass-active: rgba(255, 255, 255, 0.06);
+  --surface-border: rgba(255, 255, 255, 0.06);
+  --surface-border-strong: rgba(255, 255, 255, 0.12);
+
+  --text-primary: #e4e5eb;
+  --text-secondary: #a9abb8;
+  --text-muted: #7a7d8e;
+  --text-disabled: #555766;
+
+  --accent-primary: #14b8a6;
+  --accent-primary-hover: #2dd4bf;
+  --accent-primary-glow: rgba(20, 184, 166, 0.15);
+
+  --accent-secondary: #818cf8;
+  --accent-secondary-hover: #a5b4fc;
+  --accent-secondary-glow: rgba(129, 140, 248, 0.12);
+
+  --success: #34d399;
+  --success-glow: rgba(52, 211, 153, 0.15);
+  --warning: #fbbf24;
+  --warning-glow: rgba(251, 191, 36, 0.15);
+  --error: #f87171;
+  --error-glow: rgba(248, 113, 113, 0.15);
+
+  --border-subtle: rgba(255, 255, 255, 0.04);
+  --border-default: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.15);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.3);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme='anthropic'] {
+  --bg-primary: #faf9f5;
+  --bg-secondary: #efe9de;
+  --bg-tertiary: #e8e0d2;
+  --bg-elevated: #faf9f5;
+  --bg-hover: #e5e0d5;
+  --bg-active: #dcd6c8;
+
+  --surface-soft: #f5f0e8;
+  --surface-card: #efe9de;
+  --surface-strong: #e8e0d2;
+
+  --surface-glass: rgba(20, 20, 19, 0.015);
+  --surface-glass-hover: rgba(20, 20, 19, 0.03);
+  --surface-glass-active: rgba(20, 20, 19, 0.05);
+  --surface-border: rgba(20, 20, 19, 0.06);
+  --surface-border-strong: rgba(20, 20, 19, 0.12);
+
+  --text-primary: #141413;
+  --text-secondary: #3d3d3a;
+  --text-muted: #6c6a64;
+  --text-disabled: #8e8b82;
+
+  --accent-primary: #cc785c;
+  --accent-primary-hover: #a9583e;
+  --accent-primary-glow: rgba(204, 120, 92, 0.15);
+
+  --accent-secondary: #5db8a6;
+  --accent-secondary-hover: #4da894;
+  --accent-secondary-glow: rgba(93, 184, 166, 0.12);
+
+  --success: #5db8a6;
+  --success-glow: rgba(93, 184, 166, 0.15);
+  --warning: #e8a55a;
+  --warning-glow: rgba(232, 165, 90, 0.15);
+  --error: #c75050;
+  --error-glow: rgba(199, 80, 80, 0.15);
+
+  --border-subtle: rgba(20, 20, 19, 0.05);
+  --border-default: rgba(20, 20, 19, 0.09);
+  --border-strong: rgba(20, 20, 19, 0.15);
+
+  --shadow-sm: 0 1px 2px rgba(20, 20, 19, 0.06);
+  --shadow-md: 0 4px 12px rgba(20, 20, 19, 0.08);
+  --shadow-lg: 0 8px 24px rgba(20, 20, 19, 0.1);
+  --shadow-xl: 0 16px 48px rgba(20, 20, 19, 0.12);
+}
+
+[data-theme='anthropic-dark'] {
+  --bg-primary: #1c1917;
+  --bg-secondary: #231f1b;
+  --bg-tertiary: #2c2622;
+  --bg-elevated: #262220;
+  --bg-hover: #352e28;
+  --bg-active: #3f362e;
+
+  --surface-soft: #201d19;
+  --surface-card: #28241f;
+  --surface-strong: #302a24;
+
+  --surface-glass: rgba(255, 248, 235, 0.015);
+  --surface-glass-hover: rgba(255, 248, 235, 0.03);
+  --surface-glass-active: rgba(255, 248, 235, 0.05);
+  --surface-border: rgba(255, 248, 235, 0.06);
+  --surface-border-strong: rgba(255, 248, 235, 0.12);
+
+  --text-primary: #e8e0d2;
+  --text-secondary: #b5a898;
+  --text-muted: #8a7e70;
+  --text-disabled: #635a4e;
+
+  --accent-primary: #cc785c;
+  --accent-primary-hover: #e08a6e;
+  --accent-primary-glow: rgba(204, 120, 92, 0.18);
+
+  --accent-secondary: #5db8a6;
+  --accent-secondary-hover: #7acab9;
+  --accent-secondary-glow: rgba(93, 184, 166, 0.12);
+
+  --success: #5db8a6;
+  --success-glow: rgba(93, 184, 166, 0.15);
+  --warning: #e8a55a;
+  --warning-glow: rgba(232, 165, 90, 0.15);
+  --error: #e07070;
+  --error-glow: rgba(224, 112, 112, 0.15);
+
+  --border-subtle: rgba(255, 248, 235, 0.04);
+  --border-default: rgba(255, 248, 235, 0.08);
+  --border-strong: rgba(255, 248, 235, 0.15);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+
+/* ============================================
+   Reset & Base
+   ============================================ */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+}
+
+input, textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* ============================================
+   Theme Switcher (Demo Only)
+   ============================================ */
+.theme-switcher {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 9999;
+  display: flex;
+  gap: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 6px;
+  box-shadow: var(--shadow-md);
+}
+
+.theme-btn {
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+
+.theme-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.theme-btn.active {
+  background: var(--accent-primary);
+  color: #fff;
+}
+
+/* ============================================
+   Layout Shell — Simulates App Center Panel
+   ============================================ */
+.app-shell {
+  display: flex;
+  height: 100vh;
+}
+
+.sidebar-mock {
+  width: 48px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-default);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.sidebar-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+  font-size: 16px;
+}
+
+.sidebar-icon:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.sidebar-icon.active {
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+}
+
+.sidebar-spacer {
+  flex: 1;
+}
+
+.main-panel {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* ============================================
+   Cron Manager — Header
+   ============================================ */
+.cron-manager {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.cron-header {
+  padding: 20px 28px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.cron-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cron-header-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cron-header-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.cron-title {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.cron-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.btn-create {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: var(--accent-primary);
+  color: #fff;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  transition: all var(--transition-fast);
+  box-shadow: 0 1px 3px rgba(13, 148, 136, 0.25);
+}
+
+.btn-create:hover {
+  background: var(--accent-primary-hover);
+  box-shadow: 0 2px 8px rgba(13, 148, 136, 0.3);
+  transform: translateY(-1px);
+}
+
+.btn-create svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ============================================
+   Statistics Cards
+   ============================================ */
+.cron-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  padding: 20px 28px;
+  flex-shrink: 0;
+}
+
+.stat-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  transition: all var(--transition-fast);
+}
+
+.stat-card:hover {
+  border-color: var(--border-default);
+  box-shadow: var(--shadow-sm);
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.stat-value {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.stat-card.total .stat-value { color: var(--accent-secondary); }
+.stat-card.enabled .stat-value { color: var(--success); }
+.stat-card.disabled .stat-value { color: var(--warning); }
+.stat-card.oneshot .stat-value { color: var(--accent-primary); }
+
+/* ============================================
+   Task List
+   ============================================ */
+.cron-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 28px 28px;
+}
+
+.task-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.task-list-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.task-filter-group {
+  display: flex;
+  gap: 4px;
+}
+
+.task-filter-btn {
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.task-filter-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.task-filter-btn.active {
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+  font-weight: 500;
+}
+
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ============================================
+   Task Row
+   ============================================ */
+.task-row {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 14px 18px;
+  transition: all var(--transition-fast);
+}
+
+.task-row:hover {
+  border-color: var(--border-default);
+  box-shadow: var(--shadow-sm);
+}
+
+.task-row.disabled {
+  opacity: 0.6;
+}
+
+.task-row-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.task-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.task-status-dot.active {
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success-glow);
+}
+
+.task-status-dot.paused {
+  background: var(--warning);
+}
+
+.task-status-dot.stopped {
+  background: var(--text-disabled);
+}
+
+.task-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.task-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+
+.task-badge.recurring {
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+}
+
+.task-badge.oneshot {
+  background: var(--accent-secondary-glow);
+  color: var(--accent-secondary);
+}
+
+.task-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.task-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.task-meta-item svg {
+  width: 13px;
+  height: 13px;
+  opacity: 0.7;
+}
+
+.task-cron-expr {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-disabled);
+  background: var(--bg-secondary);
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+}
+
+.task-next-fire {
+  color: var(--accent-primary);
+  font-weight: 500;
+}
+
+.task-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.task-action-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.task-action-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.task-action-btn.danger:hover {
+  background: var(--error-glow);
+  color: var(--error);
+}
+
+.task-action-btn.primary:hover {
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+}
+
+.task-action-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ============================================
+   Task Runs Panel (Expandable)
+   ============================================ */
+.task-runs-panel {
+  margin-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 12px;
+}
+
+.runs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.runs-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.runs-close-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-xs);
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.runs-close-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.runs-close-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.run-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.run-item:hover {
+  background: var(--surface-glass-hover);
+}
+
+.run-status-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 10px;
+}
+
+.run-status-icon.completed {
+  background: var(--success-glow);
+  color: var(--success);
+}
+
+.run-status-icon.failed {
+  background: var(--error-glow);
+  color: var(--error);
+}
+
+.run-status-icon.running {
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.run-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.run-time {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.run-detail {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.run-output-btn {
+  font-size: 11px;
+  color: var(--accent-primary);
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  transition: all var(--transition-fast);
+}
+
+.run-output-btn:hover {
+  background: var(--accent-primary-glow);
+}
+
+/* ============================================
+   Empty State
+   ============================================ */
+.cron-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 40px;
+  text-align: center;
+}
+
+.empty-icon {
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-xl);
+  background: var(--surface-card);
+  color: var(--text-disabled);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.empty-icon svg {
+  width: 36px;
+  height: 36px;
+}
+
+.empty-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.empty-desc {
+  font-size: 14px;
+  color: var(--text-muted);
+  max-width: 360px;
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+.btn-create-first {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  background: var(--accent-primary);
+  color: #fff;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 500;
+  transition: all var(--transition-fast);
+  box-shadow: 0 2px 8px rgba(13, 148, 136, 0.25);
+}
+
+.btn-create-first:hover {
+  background: var(--accent-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.3);
+}
+
+.btn-create-first svg {
+  width: 18px;
+  height: 18px;
+}
+
+.empty-examples {
+  margin-top: 32px;
+  text-align: left;
+  max-width: 360px;
+}
+
+.empty-examples-title {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+
+.empty-example-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.empty-example-bullet {
+  color: var(--accent-primary);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* ============================================
+   Modal Overlay
+   ============================================ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  opacity: 0;
+  visibility: hidden;
+  transition: all var(--transition-normal);
+}
+
+.modal-overlay.visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.modal {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  width: 520px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  transform: translateY(12px) scale(0.97);
+  transition: transform var(--transition-normal);
+}
+
+.modal-overlay.visible .modal {
+  transform: translateY(0) scale(1);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.modal-title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.modal-close {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.modal-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.modal-close svg {
+  width: 18px;
+  height: 18px;
+}
+
+.modal-body {
+  padding: 20px 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* ============================================
+   Form Elements
+   ============================================ */
+.form-group {
+  margin-bottom: 18px;
+}
+
+.form-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.form-label .optional {
+  color: var(--text-disabled);
+  font-weight: 400;
+  margin-left: 4px;
+}
+
+.form-input {
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 13px;
+  transition: all var(--transition-fast);
+  outline: none;
+}
+
+.form-input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-primary-glow);
+}
+
+.form-input::placeholder {
+  color: var(--text-disabled);
+}
+
+textarea.form-input {
+  resize: vertical;
+  min-height: 80px;
+  line-height: 1.5;
+}
+
+/* Frequency Selector */
+.frequency-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.frequency-option {
+  padding: 10px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+  cursor: pointer;
+}
+
+.frequency-option:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.frequency-option.selected {
+  background: var(--accent-primary-glow);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+/* Time Picker */
+.time-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.time-input {
+  width: 64px;
+  padding: 9px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: var(--font-mono);
+  text-align: center;
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.time-input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-primary-glow);
+}
+
+.time-separator {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* Task Type Radio */
+.type-group {
+  display: flex;
+  gap: 16px;
+}
+
+.type-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.type-radio {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.type-option.selected .type-radio {
+  border-color: var(--accent-primary);
+}
+
+.type-option.selected .type-radio::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+}
+
+/* Cron Preview */
+.cron-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  margin-top: 6px;
+}
+
+.cron-preview-expr {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--accent-primary);
+  font-weight: 500;
+}
+
+.cron-preview-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.cron-preview-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border-default);
+}
+
+/* Buttons */
+.btn {
+  padding: 8px 18px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  transition: all var(--transition-fast);
+}
+
+.btn-secondary {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+}
+
+.btn-secondary:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.btn-primary {
+  background: var(--accent-primary);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(13, 148, 136, 0.2);
+}
+
+.btn-primary:hover {
+  background: var(--accent-primary-hover);
+  box-shadow: 0 2px 6px rgba(13, 148, 136, 0.3);
+}
+
+/* ============================================
+   View Toggle (for demo)
+   ============================================ */
+.view-toggle {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 9999;
+  display: flex;
+  gap: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 6px;
+  box-shadow: var(--shadow-md);
+}
+
+.view-btn {
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+
+.view-btn:hover {
+  background: var(--bg-hover);
+}
+
+.view-btn.active {
+  background: var(--accent-secondary);
+  color: #fff;
+}
+
+/* ============================================
+   Scrollbar
+   ============================================ */
+.cron-content::-webkit-scrollbar,
+.modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.cron-content::-webkit-scrollbar-track,
+.modal-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cron-content::-webkit-scrollbar-thumb,
+.modal-body::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+
+.cron-content::-webkit-scrollbar-thumb:hover,
+.modal-body::-webkit-scrollbar-thumb:hover {
+  background: var(--text-disabled);
+}
+</style>
+</head>
+<body>
+
+<!-- Theme Switcher (Demo) -->
+<div class="theme-switcher">
+  <button class="theme-btn active" onclick="setTheme('')">Light</button>
+  <button class="theme-btn" onclick="setTheme('dark')">Dark</button>
+  <button class="theme-btn" onclick="setTheme('anthropic')">Anthropic</button>
+  <button class="theme-btn" onclick="setTheme('anthropic-dark')">A-Dark</button>
+</div>
+
+<!-- View Toggle (Demo) -->
+<div class="view-toggle">
+  <button class="view-btn active" onclick="setView('list')">任务列表</button>
+  <button class="view-btn" onclick="setView('empty')">空状态</button>
+  <button class="view-btn" onclick="setView('modal')">新建弹窗</button>
+</div>
+
+<!-- App Shell -->
+<div class="app-shell">
+  <!-- Sidebar Mock -->
+  <div class="sidebar-mock">
+    <div class="sidebar-icon" title="新对话">+</div>
+    <div class="sidebar-icon" title="历史">💬</div>
+    <div class="sidebar-icon" title="文件">📁</div>
+    <div class="sidebar-icon" title="Git">🔀</div>
+    <div class="sidebar-icon" title="终端">⌨</div>
+    <div class="sidebar-icon" title="调试">📊</div>
+    <div class="sidebar-icon active" title="定时任务">⏰</div>
+    <div class="sidebar-spacer"></div>
+    <div class="sidebar-icon" title="设置">⚙</div>
+  </div>
+
+  <!-- Main Panel -->
+  <div class="main-panel">
+    <div class="cron-manager">
+
+      <!-- Header -->
+      <div class="cron-header">
+        <div class="cron-header-left">
+          <div class="cron-header-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </div>
+          <div>
+            <div class="cron-title">定时任务</div>
+            <div class="cron-subtitle">管理项目的自动化任务调度</div>
+          </div>
+        </div>
+        <button class="btn-create" onclick="showModal()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          新建任务
+        </button>
+      </div>
+
+      <!-- ===== LIST VIEW ===== -->
+      <div id="view-list">
+        <!-- Statistics -->
+        <div class="cron-stats">
+          <div class="stat-card total">
+            <div class="stat-label">全部</div>
+            <div class="stat-value">5</div>
+          </div>
+          <div class="stat-card enabled">
+            <div class="stat-label">启用</div>
+            <div class="stat-value">3</div>
+          </div>
+          <div class="stat-card disabled">
+            <div class="stat-label">禁用</div>
+            <div class="stat-value">1</div>
+          </div>
+          <div class="stat-card oneshot">
+            <div class="stat-label">一次性</div>
+            <div class="stat-value">1</div>
+          </div>
+        </div>
+
+        <!-- Task List -->
+        <div class="cron-content">
+          <div class="task-list-header">
+            <div class="task-list-title">任务列表</div>
+            <div class="task-filter-group">
+              <button class="task-filter-btn active">全部</button>
+              <button class="task-filter-btn">启用</button>
+              <button class="task-filter-btn">禁用</button>
+              <button class="task-filter-btn">一次性</button>
+            </div>
+          </div>
+
+          <div class="task-list">
+            <!-- Task 1: Active Recurring -->
+            <div class="task-row">
+              <div class="task-row-main">
+                <div class="task-status-dot active"></div>
+                <div class="task-info">
+                  <div class="task-name-row">
+                    <span class="task-name">每日代码审查</span>
+                    <span class="task-badge recurring">循环</span>
+                  </div>
+                  <div class="task-meta">
+                    <span class="task-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      每天 09:00
+                    </span>
+                    <span class="task-cron-expr">0 9 * * *</span>
+                    <span class="task-meta-item task-next-fire">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                      下次: 明天 09:00
+                    </span>
+                  </div>
+                </div>
+                <div class="task-actions">
+                  <button class="task-action-btn primary" title="立即执行">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  </button>
+                  <button class="task-action-btn" title="执行记录" onclick="toggleRuns(this)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                  </button>
+                  <button class="task-action-btn" title="编辑">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  </button>
+                  <button class="task-action-btn" title="禁用">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+                  </button>
+                  <button class="task-action-btn danger" title="删除">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  </button>
+                </div>
+              </div>
+              <!-- Expanded Runs Panel -->
+              <div class="task-runs-panel" style="display:none;">
+                <div class="runs-header">
+                  <span class="runs-title">执行记录</span>
+                  <button class="runs-close-btn" onclick="toggleRuns(this)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </div>
+                <div class="run-item">
+                  <div class="run-status-icon completed">&#10003;</div>
+                  <div class="run-info">
+                    <div class="run-time">2026-06-10 09:00</div>
+                    <div class="run-detail">耗时 2m 30s · 审查了 12 个文件</div>
+                  </div>
+                  <button class="run-output-btn">查看输出</button>
+                </div>
+                <div class="run-item">
+                  <div class="run-status-icon failed">&#10007;</div>
+                  <div class="run-info">
+                    <div class="run-time">2026-06-09 09:00</div>
+                    <div class="run-detail">执行超时 · 10 分钟限制</div>
+                  </div>
+                  <button class="run-output-btn">查看错误</button>
+                </div>
+                <div class="run-item">
+                  <div class="run-status-icon completed">&#10003;</div>
+                  <div class="run-info">
+                    <div class="run-time">2026-06-08 09:00</div>
+                    <div class="run-detail">耗时 1m 45s · 审查了 8 个文件</div>
+                  </div>
+                  <button class="run-output-btn">查看输出</button>
+                </div>
+                <div class="run-item">
+                  <div class="run-status-icon completed">&#10003;</div>
+                  <div class="run-info">
+                    <div class="run-time">2026-06-07 09:00</div>
+                    <div class="run-detail">耗时 3m 12s · 审查了 15 个文件</div>
+                  </div>
+                  <button class="run-output-btn">查看输出</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Task 2: Active Recurring -->
+            <div class="task-row">
+              <div class="task-row-main">
+                <div class="task-status-dot active"></div>
+                <div class="task-info">
+                  <div class="task-name-row">
+                    <span class="task-name">依赖安全检查</span>
+                    <span class="task-badge recurring">循环</span>
+                  </div>
+                  <div class="task-meta">
+                    <span class="task-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      每小时
+                    </span>
+                    <span class="task-cron-expr">0 * * * *</span>
+                    <span class="task-meta-item task-next-fire">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                      下次: 15:00
+                    </span>
+                  </div>
+                </div>
+                <div class="task-actions">
+                  <button class="task-action-btn primary" title="立即执行">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  </button>
+                  <button class="task-action-btn" title="执行记录">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                  </button>
+                  <button class="task-action-btn" title="编辑">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  </button>
+                  <button class="task-action-btn" title="禁用">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+                  </button>
+                  <button class="task-action-btn danger" title="删除">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Task 3: Active Recurring (Weekdays) -->
+            <div class="task-row">
+              <div class="task-row-main">
+                <div class="task-status-dot active"></div>
+                <div class="task-info">
+                  <div class="task-name-row">
+                    <span class="task-name">工作日站会摘要</span>
+                    <span class="task-badge recurring">循环</span>
+                  </div>
+                  <div class="task-meta">
+                    <span class="task-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      工作日 10:00
+                    </span>
+                    <span class="task-cron-expr">0 10 * * 1-5</span>
+                    <span class="task-meta-item task-next-fire">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                      下次: 周三 10:00
+                    </span>
+                  </div>
+                </div>
+                <div class="task-actions">
+                  <button class="task-action-btn primary" title="立即执行">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  </button>
+                  <button class="task-action-btn" title="执行记录">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                  </button>
+                  <button class="task-action-btn" title="编辑">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  </button>
+                  <button class="task-action-btn" title="禁用">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+                  </button>
+                  <button class="task-action-btn danger" title="删除">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Task 4: Disabled -->
+            <div class="task-row disabled">
+              <div class="task-row-main">
+                <div class="task-status-dot paused"></div>
+                <div class="task-info">
+                  <div class="task-name-row">
+                    <span class="task-name">周报生成</span>
+                    <span class="task-badge recurring">循环</span>
+                  </div>
+                  <div class="task-meta">
+                    <span class="task-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      每周五 17:00
+                    </span>
+                    <span class="task-cron-expr">0 17 * * 5</span>
+                    <span class="task-meta-item" style="color: var(--warning);">
+                      已禁用
+                    </span>
+                  </div>
+                </div>
+                <div class="task-actions">
+                  <button class="task-action-btn primary" title="立即执行">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  </button>
+                  <button class="task-action-btn" title="执行记录">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                  </button>
+                  <button class="task-action-btn" title="编辑">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  </button>
+                  <button class="task-action-btn" title="启用">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+                  </button>
+                  <button class="task-action-btn danger" title="删除">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Task 5: One-shot -->
+            <div class="task-row">
+              <div class="task-row-main">
+                <div class="task-status-dot active"></div>
+                <div class="task-info">
+                  <div class="task-name-row">
+                    <span class="task-name">上线前最终检查</span>
+                    <span class="task-badge oneshot">一次性</span>
+                  </div>
+                  <div class="task-meta">
+                    <span class="task-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      2026-06-15 08:00
+                    </span>
+                    <span class="task-cron-expr">0 8 15 6 *</span>
+                    <span class="task-meta-item task-next-fire">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                      下次: 6月15日 08:00
+                    </span>
+                  </div>
+                </div>
+                <div class="task-actions">
+                  <button class="task-action-btn primary" title="立即执行">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  </button>
+                  <button class="task-action-btn" title="执行记录">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                  </button>
+                  <button class="task-action-btn" title="编辑">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  </button>
+                  <button class="task-action-btn" title="禁用">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+                  </button>
+                  <button class="task-action-btn danger" title="删除">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== EMPTY STATE ===== -->
+      <div id="view-empty" style="display:none;">
+        <div class="cron-empty">
+          <div class="empty-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </div>
+          <div class="empty-title">还没有定时任务</div>
+          <div class="empty-desc">创建定时任务，让 AI 按计划自动执行重复性工作，节省你的时间</div>
+          <button class="btn-create-first" onclick="showModal()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            创建第一个任务
+          </button>
+          <div class="empty-examples">
+            <div class="empty-examples-title">你可以这样使用</div>
+            <div class="empty-example-item">
+              <span class="empty-example-bullet">&#9656;</span>
+              <span>每天 9:00 自动审查最近的代码变更</span>
+            </div>
+            <div class="empty-example-item">
+              <span class="empty-example-bullet">&#9656;</span>
+              <span>每周五 17:00 生成本周工作总结</span>
+            </div>
+            <div class="empty-example-item">
+              <span class="empty-example-bullet">&#9656;</span>
+              <span>每小时检查依赖包的安全更新</span>
+            </div>
+            <div class="empty-example-item">
+              <span class="empty-example-bullet">&#9656;</span>
+              <span>指定时间执行一次性部署前检查</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ===== NEW TASK MODAL ===== -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">新建定时任务</div>
+      <button class="modal-close" onclick="hideModal()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <!-- Task Name -->
+      <div class="form-group">
+        <label class="form-label">任务名称</label>
+        <input type="text" class="form-input" placeholder="例如：每日代码审查" value="每日代码审查">
+      </div>
+
+      <!-- Description -->
+      <div class="form-group">
+        <label class="form-label">任务描述 <span class="optional">可选</span></label>
+        <input type="text" class="form-input" placeholder="简要描述任务用途">
+      </div>
+
+      <!-- Frequency -->
+      <div class="form-group">
+        <label class="form-label">执行频率</label>
+        <div class="frequency-grid">
+          <div class="frequency-option" onclick="selectFrequency(this)">每小时</div>
+          <div class="frequency-option selected" onclick="selectFrequency(this)">每天</div>
+          <div class="frequency-option" onclick="selectFrequency(this)">工作日</div>
+          <div class="frequency-option" onclick="selectFrequency(this)">每周</div>
+          <div class="frequency-option" onclick="selectFrequency(this)">每月</div>
+          <div class="frequency-option" onclick="selectFrequency(this)">自定义</div>
+        </div>
+      </div>
+
+      <!-- Time -->
+      <div class="form-group">
+        <label class="form-label">执行时间</label>
+        <div class="time-picker-row">
+          <input type="text" class="time-input" value="09" maxlength="2">
+          <span class="time-separator">:</span>
+          <input type="text" class="time-input" value="00" maxlength="2">
+        </div>
+      </div>
+
+      <!-- Task Type -->
+      <div class="form-group">
+        <label class="form-label">任务类型</label>
+        <div class="type-group">
+          <div class="type-option selected" onclick="selectType(this)">
+            <div class="type-radio"></div>
+            <span>循环执行</span>
+          </div>
+          <div class="type-option" onclick="selectType(this)">
+            <div class="type-radio"></div>
+            <span>仅执行一次</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Prompt -->
+      <div class="form-group">
+        <label class="form-label">执行提示词</label>
+        <textarea class="form-input" placeholder="输入触发时要执行的提示词..." rows="4">审查最近24小时的代码提交，关注以下方面：
+1. 潜在的安全漏洞
+2. 代码风格一致性
+3. 性能问题
+4. 测试覆盖率</textarea>
+      </div>
+
+      <!-- Cron Preview -->
+      <div class="cron-preview">
+        <span class="cron-preview-expr">0 9 * * *</span>
+        <span class="cron-preview-sep"></span>
+        <span class="cron-preview-desc">每天 09:00</span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="hideModal()">取消</button>
+      <button class="btn btn-primary" onclick="hideModal()">创建任务</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Theme
+function setTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  document.querySelectorAll('.theme-btn').forEach(btn => btn.classList.remove('active'));
+  event.target.classList.add('active');
+}
+
+// View toggle
+function setView(view) {
+  document.getElementById('view-list').style.display = view === 'list' ? '' : 'none';
+  document.getElementById('view-empty').style.display = view === 'empty' ? '' : 'none';
+  if (view === 'modal') showModal();
+  document.querySelectorAll('.view-btn').forEach(btn => btn.classList.remove('active'));
+  event.target.classList.add('active');
+}
+
+// Modal
+function showModal() {
+  document.getElementById('modal-overlay').classList.add('visible');
+}
+
+function hideModal() {
+  document.getElementById('modal-overlay').classList.remove('visible');
+}
+
+// Toggle runs panel
+function toggleRuns(btn) {
+  const row = btn.closest('.task-row');
+  const panel = row.querySelector('.task-runs-panel');
+  if (panel) {
+    panel.style.display = panel.style.display === 'none' ? '' : 'none';
+  }
+}
+
+// Frequency selector
+function selectFrequency(el) {
+  el.parentElement.querySelectorAll('.frequency-option').forEach(opt => opt.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+// Type selector
+function selectType(el) {
+  el.parentElement.querySelectorAll('.type-option').forEach(opt => opt.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+// Close modal on overlay click
+document.getElementById('modal-overlay').addEventListener('click', function(e) {
+  if (e.target === this) hideModal();
+});
+
+// Close modal on Escape
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') hideModal();
+});
+</script>
+
+</body>
+</html>
