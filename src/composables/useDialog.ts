@@ -1,5 +1,8 @@
 import { ref } from 'vue'
 
+// 单例状态：故意定义在模块作用域，使所有 useDialog() 调用共享同一份状态。
+// DialogProvider 通过 useDialog() 读取状态渲染弹窗，其他组件通过 useDialog() 调用 showAlert/showConfirm 触发弹窗。
+// 若将状态移入 useDialog() 内部，各组件将持有独立状态，DialogProvider 无法响应其他组件触发的弹窗。
 const alertDialogState = ref<{
   visible: boolean
   message: string

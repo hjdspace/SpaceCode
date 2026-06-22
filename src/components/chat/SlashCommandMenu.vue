@@ -13,7 +13,6 @@
           :value="searchQuery"
           type="text"
           :placeholder="t('chatInput.searchCommands')"
-          readonly
           tabindex="-1"
           @input="$emit('update:searchQuery', ($event.target as HTMLInputElement).value)"
         />
