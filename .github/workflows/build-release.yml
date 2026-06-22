@@ -56,7 +56,7 @@ jobs:
 
       - name: Set up MSVC Dev Tools (Windows)
         if: matrix.platform == 'win'
-        uses: ilammy/msvc-dev-tools@v1
+        uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
 
