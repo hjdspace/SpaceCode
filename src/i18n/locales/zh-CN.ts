@@ -1,4 +1,4 @@
-﻿export default {
+export default {
   common: {
     save: '保存',
     cancel: '取消',
@@ -1538,7 +1538,7 @@
   },
   toolCards: {
     bash: 'Bash',
-    bashRunInTerminal: '在终端中运行',
+    bashRunInTerminal: '在终端页面查看',
     bashCommand: '$ 命令',
     bashTerminal: '终端',
     bashRunning: '运行中',
@@ -1546,6 +1546,7 @@
     bashError: '错误',
     bashOutput: '输出',
     bashOutputTruncated: '... (输出已截断)',
+    bashExitCode: '退出码 {code}',
     read: '读取',
     readLine: '行 {offset}',
     readLines: '{count} 行',

@@ -1539,7 +1539,7 @@ export default {
   },
   toolCards: {
     bash: 'Bash',
-    bashRunInTerminal: 'Run in terminal',
+    bashRunInTerminal: 'Open in terminal page',
     bashCommand: '$ Command',
     bashTerminal: 'Terminal',
     bashRunning: 'Running',
@@ -1547,6 +1547,7 @@ export default {
     bashError: 'Error',
     bashOutput: 'Output',
     bashOutputTruncated: '... (output truncated)',
+    bashExitCode: 'Exit code {code}',
     read: 'Read',
     readLine: 'Line {offset}',
     readLines: '{count} lines',
