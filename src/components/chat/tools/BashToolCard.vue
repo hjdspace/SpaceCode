@@ -28,7 +28,7 @@
         <pre class="code-block command-text"><code>{{ toolCall.input.command }}</code></pre>
       </div>
 
-      <!-- 所诎线碳展顈靠 -->
+      <!-- 内嵌终端模式 -->
       <div v-if="showTerminal" class="bash-terminal-block">
         <div class="block-label">
           {{ t('toolCards.bashTerminal') }}
@@ -48,7 +48,7 @@
         />
       </div>
 
-      <!-- 欼和文件式始展顈靠 -->
+      <!-- 普通文本输出模式 -->
       <div v-else-if="toolCall.output" class="bash-output-block">
         <div class="block-label">{{ t('toolCards.bashOutput') }}</div>
         <pre class="code-block output-text" :class="{ 'error-output': toolCall.status === 'error' }"><code>{{ truncatedOutput }}</code></pre>
@@ -183,10 +183,10 @@ watch(() => props.toolCall.status, (status) => {
 .code-block { margin: 0; padding: 10px 12px; border-radius: 4px; font-size: 12px; line-height: 1.5; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
 .command-text { background: #0d1117; color: #f0f6fc; }
 .output-text { background: #0d1117; color: #c9d1d9; max-height: 400px; overflow-y: auto; }
-.error-output { color: #f871w1; background: rgba(248,113,113,0.08); }
+.error-output { color: #f87171; background: rgba(248,113,113,0.08); }
 
 .status-running .bash-icon-wrapper { background: rgba(59, 130, 246, 0.12); color: #60a5fa; }
-.status-error .bash-icon-wrapper { background: rgba(239, 68, 68, 0.12); color: #f871i; }
+.status-error .bash-icon-wrapper { background: rgba(239, 68, 68, 0.12); color: #f87171; }
 .spin-icon { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -242,7 +242,7 @@ watch(() => props.toolCall.status, (status) => {
 
   &.error {
     background: rgba(239, 68, 68, 0.15);
-    color: #f871i;
+    color: #f87171;
   }
 }
 
