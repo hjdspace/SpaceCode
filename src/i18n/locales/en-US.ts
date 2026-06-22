@@ -594,6 +594,11 @@ export default {
     installFailed: 'Installation failed',
     installNodejs: 'Install Node.js',
     depInstallHint: 'Installs {command} automatically via your system package manager.',
+    // CLI 加载状态
+    activeInCli: 'Loaded',
+    activeInCliHint: 'This MCP server will be injected into the next Claude Code session.',
+    cliLoadedSummary: '{count} MCP server(s) will be loaded into Claude Code:',
+    cliLoadedHint: 'Changes take effect on the next conversation.',
     yourServers: 'Your Servers',
     enabled: 'Enabled',
     builtin: {

@@ -224,12 +224,30 @@ export const useMcpStore = defineStore('mcp', () => {
     checkAllBuiltinDependencies().catch(err =>
       console.warn('Failed to check builtin MCP dependencies:', err)
     )
+    // 同步「会被注入到 CLI」的服务器名列表，供 UI 显示「已加载到 Claude Code」徽标
+    fetchActiveMcpNames().catch(() => {})
   }
 
   /**
    * 并行检测所有内置 MCP 预设声明的依赖命令是否在 PATH 上可用，
    * 把结果写入 dependencyStatus（按命令名去重）。
    */
+  /**
+   * 拉取当前会被注入到 claude-code CLI 的 MCP 服务器名列表。
+   *
+   * 这是「真正能在对话里调到的服务器」的权威列表（buildArgs 写出去的就是它）。
+   * 启用 / 禁用 / 安装依赖完成后都应该刷新一次，让 UI 上「已加载到 CLI」徽标
+   * 始终反映真实状态。
+   */
+  async function fetchActiveMcpNames(): Promise<void> {
+    try {
+      const names = await api.mcp.getActiveMcpNames()
+      activeMcpNames.value = Array.isArray(names) ? names : []
+    } catch (err) {
+      console.warn('Failed to fetch active MCP names:', err)
+    }
+  }
+
   async function checkAllBuiltinDependencies() {
     const commands = new Set<string>()
     for (const preset of BUILTIN_MCP_PRESETS) {
@@ -415,6 +433,8 @@ export const useMcpStore = defineStore('mcp', () => {
       }
       servers.value = updated
       localStorage.setItem(MCP_STORAGE_KEY, JSON.stringify(servers.value))
+      // 启用/禁用会改变下次 CLI spawn 时实际加载的 MCP 列表，立刻刷新一次
+      fetchActiveMcpNames().catch(() => {})
     } catch (err) {
       console.error('Failed to toggle MCP server:', err)
       await fetchServers()
@@ -597,5 +617,8 @@ export const useMcpStore = defineStore('mcp', () => {
     checkDependency,
     checkAllBuiltinDependencies,
     installDependency,
+    // CLI 已加载的 MCP 服务器名列表（用于「已加载到 Claude Code」徽标）
+    activeMcpNames,
+    fetchActiveMcpNames,
   }
 })
