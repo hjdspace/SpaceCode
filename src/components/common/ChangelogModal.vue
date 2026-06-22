@@ -37,6 +37,7 @@ import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { X, RefreshCw } from 'lucide-vue-next'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { api } from '@/services/electronAPI'
 
 const props = defineProps<{
@@ -58,7 +59,8 @@ const error = ref<string | null>(null)
 const renderedContent = computed(() => {
   if (!content.value) return ''
   try {
-    return marked(content.value)
+    const raw = marked(content.value)
+    return DOMPurify.sanitize(raw as string)
   } catch {
     return content.value
   }

@@ -10,6 +10,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import hljs from 'highlight.js'
 import { useAppStore } from '@/stores/app'
 import { api } from '@/services/electronAPI'
@@ -271,9 +272,13 @@ function renderMarkdown(content: string, withFileLinks: boolean): string {
     const normalized = normalizeLineReferences(content)
     const contentWithChips = replaceMentionChipMarkers(normalized)
     const rendered = marked.parse(contentWithChips) as string
+    // XSS 防护: 对 marked 输出进行 HTML 净化，保留文件链接所需的自定义属性
+    const sanitized = DOMPurify.sanitize(rendered, {
+      ADD_ATTR: ['data-file-path', 'data-line-number', 'data-end-line-number']
+    })
     // 仅在尾随/最终渲染时执行 transformFileLinks: 它需要构造完整的临时 DOM
     // 并遍历所有文本节点, 在流式高频更新中重复执行是渲染进程崩溃的主要诱因.
-    return withFileLinks ? transformFileLinks(rendered) : rendered
+    return withFileLinks ? transformFileLinks(sanitized) : sanitized
   } catch {
     return content
   }

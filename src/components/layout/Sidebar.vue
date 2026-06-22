@@ -279,7 +279,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useChatStore } from '@/stores/chat'
 import { useAppStore } from '@/stores/app'
@@ -606,45 +606,62 @@ function handleSplitScreen(sessionId: string) {
   window.dispatchEvent(new CustomEvent('split-screen-requested', { detail: { sessionId } }))
 }
 
+// 事件处理函数（提升到组件作用域，供 onUnmounted 清理使用）
+function handleStreamingStart(e: Event) {
+  const detail = (e as CustomEvent).detail
+  if (detail?.sessionId) {
+    streamingSessions.value.add(detail.sessionId)
+  }
+}
+
+function handleStreamingEnd(e: Event) {
+  const detail = (e as CustomEvent).detail
+  if (detail?.sessionId) {
+    streamingSessions.value.delete(detail.sessionId)
+  }
+}
+
+function handleApprovalRequired(e: Event) {
+  const detail = (e as CustomEvent).detail
+  if (detail?.sessionId) {
+    pendingApprovalSessions.value.add(detail.sessionId)
+  }
+}
+
+function handleApprovalResolved(e: Event) {
+  const detail = (e as CustomEvent).detail
+  if (detail?.sessionId) {
+    pendingApprovalSessions.value.delete(detail.sessionId)
+  }
+}
+
+function handleOpenSettings() {
+  appStore.showSettings = true
+}
+
 // Lifecycle
 onMounted(() => {
   // Load workspace path if available
   workspacePath.value = appStore.projectRoot || ''
 
   // Listen for streaming status updates
-  window.addEventListener('session-streaming-start', (e: Event) => {
-    const detail = (e as CustomEvent).detail
-    if (detail?.sessionId) {
-      streamingSessions.value.add(detail.sessionId)
-    }
-  })
-
-  window.addEventListener('session-streaming-end', (e: Event) => {
-    const detail = (e as CustomEvent).detail
-    if (detail?.sessionId) {
-      streamingSessions.value.delete(detail.sessionId)
-    }
-  })
+  window.addEventListener('session-streaming-start', handleStreamingStart)
+  window.addEventListener('session-streaming-end', handleStreamingEnd)
 
   // Listen for approval requests
-  window.addEventListener('session-approval-required', (e: Event) => {
-    const detail = (e as CustomEvent).detail
-    if (detail?.sessionId) {
-      pendingApprovalSessions.value.add(detail.sessionId)
-    }
-  })
-
-  window.addEventListener('session-approval-resolved', (e: Event) => {
-    const detail = (e as CustomEvent).detail
-    if (detail?.sessionId) {
-      pendingApprovalSessions.value.delete(detail.sessionId)
-    }
-  })
+  window.addEventListener('session-approval-required', handleApprovalRequired)
+  window.addEventListener('session-approval-resolved', handleApprovalResolved)
 
   // Listen for open settings event
-  window.addEventListener('open-settings', () => {
-    appStore.showSettings = true
-  })
+  window.addEventListener('open-settings', handleOpenSettings)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('session-streaming-start', handleStreamingStart)
+  window.removeEventListener('session-streaming-end', handleStreamingEnd)
+  window.removeEventListener('session-approval-required', handleApprovalRequired)
+  window.removeEventListener('session-approval-resolved', handleApprovalResolved)
+  window.removeEventListener('open-settings', handleOpenSettings)
 })
 </script>
 

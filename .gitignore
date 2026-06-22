@@ -48,6 +48,7 @@ engine/bin/
 .workbuddy/
 .assistant/
 pi-engine/
+frontend-code-review/
 
 _temp/
 

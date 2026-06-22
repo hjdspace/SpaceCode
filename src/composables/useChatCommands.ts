@@ -7,7 +7,7 @@
 
 import { ref, computed } from 'vue'
 import type { Message, Session } from '@/types'
-import { BUILT_IN_COMMANDS, findCommand, type CommandKind } from '@/lib/constants/commands'
+import { BUILT_IN_COMMANDS, findCommand, COMMAND_PROMPTS, type CommandKind } from '@/lib/constants/commands'
 
 export interface CommandBadge {
   command: string
@@ -129,7 +129,6 @@ export function useChatCommands(options: UseChatCommandsOptions) {
       }
 
       case 'codepilot_command': {
-        const { COMMAND_PROMPTS } = require('@/lib/constants/commands')
         const expandedPrompt = COMMAND_PROMPTS[badge.command] || ''
         const finalPrompt = userContent
           ? `${expandedPrompt}\n\nUser context: ${userContent}`

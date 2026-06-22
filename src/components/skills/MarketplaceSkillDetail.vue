@@ -95,6 +95,7 @@ import {
 } from 'lucide-vue-next'
 import { useSkillsStore, type MarketplaceSkill } from '@/stores/skills'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import InstallProgressDialog from './InstallProgressDialog.vue'
 import InstallScopeDialog from './InstallScopeDialog.vue'
 
@@ -131,7 +132,8 @@ const displayContent = computed(() => {
 })
 
 const renderedReadme = computed(() => {
-  return marked(displayContent.value || '', { gfm: true })
+  const raw = marked(displayContent.value || '', { gfm: true })
+  return DOMPurify.sanitize(raw as string)
 })
 
 async function fetchReadme() {

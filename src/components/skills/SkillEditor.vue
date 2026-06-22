@@ -121,6 +121,7 @@ import {
 } from 'lucide-vue-next'
 import type { Skill } from '@/stores/skills'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { useSkillTranslation } from '@/composables/useSkillTranslation'
 
 const { t } = useI18n()
@@ -166,7 +167,8 @@ const sourceLabel = computed(() => {
 })
 
 const renderedContent = computed(() => {
-  return marked(displayContent.value || '', { gfm: true })
+  const raw = marked(displayContent.value || '', { gfm: true })
+  return DOMPurify.sanitize(raw as string)
 })
 
 watch(() => props.skill, (newSkill) => {
