@@ -122,8 +122,9 @@ function escapeHtml(text: string): string {
 }
 
 async function openInPanel() {
-  const fp = props.toolCall.input?.file_path || props.toolCall.input?.path
-  if (!fp) return
+  const rawFp = props.toolCall.input?.file_path || props.toolCall.input?.path
+  if (!rawFp) return
+  const fp = appStore.resolveSessionPath(rawFp)
 
   const modifiedContent = await api.readFile(fp)
   if (modifiedContent === null) return

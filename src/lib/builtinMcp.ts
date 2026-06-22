@@ -21,6 +21,19 @@ export interface BuiltinMcpPreset {
   homepage: string
   /** 运行该 MCP 需要的额外依赖说明（用于 tooltip） */
   requirements?: string
+  /**
+   * 该 MCP 启动所依赖的外部命令（如 cdp-bridge 依赖 uvx，chrome-devtools 依赖 npx）。
+   *
+   * - `command`：要在 PATH 上检测的命令名。
+   * - `installer`：能一键装上该命令的安装器标识；不填则只展示「未安装」+「了解更多」外链，
+   *   不提供一键安装按钮（例如 `npx` 随 Node 自带，我们不在这里装 Node）。
+   * - `installerDocs`：当 installer 未填或自动安装失败时，跳转到的官方文档链接。
+   */
+  dependency?: {
+    command: string
+    installer?: 'uv'
+    installerDocs?: string
+  }
   /** 服务器配置（不含 id/name/_source，由 store 注入） */
   config: Omit<MCPServer, 'id' | 'name' | 'enabled'>
 }
@@ -33,6 +46,11 @@ export const BUILTIN_MCP_PRESETS: BuiltinMcpPreset[] = [
       '连接你正在使用的真实浏览器（已登录态），让模型读取标签页、扫描页面、执行 JS、截图与导航。需配合浏览器扩展使用。',
     homepage: 'https://github.com/Unagi-cq/cdp-bridge-mcp',
     requirements: '需要安装 uv（uvx 命令）并加载配套的 Chromium 扩展',
+    dependency: {
+      command: 'uvx',
+      installer: 'uv',
+      installerDocs: 'https://docs.astral.sh/uv/getting-started/installation/',
+    },
     config: {
       type: 'stdio',
       command: 'uvx',
@@ -47,6 +65,11 @@ export const BUILTIN_MCP_PRESETS: BuiltinMcpPreset[] = [
       '通过 Chrome DevTools 控制和检查实时 Chrome 浏览器，支持性能分析、网络调试、截图与控制台日志。适合自动化与调试场景。',
     homepage: 'https://github.com/ChromeDevTools/chrome-devtools-mcp',
     requirements: '需要 Node.js LTS 与 Chrome 稳定版',
+    dependency: {
+      command: 'npx',
+      // npx 随 Node.js 自带，不提供一键安装；只给官方下载页指引
+      installerDocs: 'https://nodejs.org/en/download',
+    },
     config: {
       type: 'stdio',
       command: 'npx',

@@ -585,6 +585,15 @@ export default {
     builtinBadge: 'Built-in',
     builtinRequirements: 'Requires',
     builtinCannotDelete: 'Built-in MCP servers cannot be deleted. You can disable them instead.',
+    // Dependency check / one-click install
+    depChecking: 'Checking...',
+    depInstalled: 'Installed',
+    depMissing: 'Not installed',
+    installDependency: 'Install',
+    installingDependency: 'Installing...',
+    installFailed: 'Installation failed',
+    installNodejs: 'Install Node.js',
+    depInstallHint: 'Installs {command} automatically via your system package manager.',
     yourServers: 'Your Servers',
     enabled: 'Enabled',
     builtin: {

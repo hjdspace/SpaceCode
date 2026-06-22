@@ -100,7 +100,83 @@
                   <div class="builtin-command">
                     <span class="mono">{{ entry.command }} {{ entry.args.join(' ') }}</span>
                   </div>
-                  <p v-if="entry.preset.requirements" class="builtin-req">
+
+                  <!-- 依赖状态 / 一键安装 -->
+                  <div v-if="entry.depCommand" class="builtin-dep">
+                    <!-- 安装进行中 -->
+                    <template v-if="entry.isInstallingDep">
+                      <div class="builtin-dep-row installing">
+                        <Loader2 :size="12" class="spin" />
+                        <span class="builtin-dep-cmd">{{ entry.depCommand }}</span>
+                        <span class="builtin-dep-msg">
+                          {{ entry.installProgress?.message || t('mcpSettings.installingDependency') }}
+                        </span>
+                      </div>
+                      <div v-if="entry.installProgress?.percent != null" class="builtin-dep-bar">
+                        <div
+                          class="builtin-dep-bar-fill"
+                          :style="{ width: `${entry.installProgress.percent}%` }"
+                        />
+                      </div>
+                    </template>
+
+                    <!-- 检测中（首次加载，store 尚未返回） -->
+                    <div
+                      v-else-if="entry.depStatus === null"
+                      class="builtin-dep-row checking"
+                    >
+                      <Loader2 :size="12" class="spin" />
+                      <span class="builtin-dep-cmd">{{ entry.depCommand }}</span>
+                      <span class="builtin-dep-msg">{{ t('mcpSettings.depChecking') }}</span>
+                    </div>
+
+                    <!-- 依赖已装 -->
+                    <div
+                      v-else-if="entry.depStatus?.available"
+                      class="builtin-dep-row ok"
+                    >
+                      <CheckCircle2 :size="12" />
+                      <span class="builtin-dep-cmd">{{ entry.depCommand }}</span>
+                      <span class="builtin-dep-msg">{{ dependencyStatusLabel(entry.depStatus) }}</span>
+                    </div>
+
+                    <!-- 依赖缺失：一键安装 OR 外链 -->
+                    <div v-else class="builtin-dep-row missing">
+                      <XCircle :size="12" />
+                      <span class="builtin-dep-cmd">{{ entry.depCommand }}</span>
+                      <span class="builtin-dep-msg">{{ t('mcpSettings.depMissing') }}</span>
+                      <button
+                        v-if="entry.preset.dependency?.installer"
+                        class="builtin-dep-install-btn"
+                        :disabled="!!mcpStore.installingDependency"
+                        :title="t('mcpSettings.depInstallHint', { command: entry.preset.dependency.installer })"
+                        @click="handleInstallDependency(entry.preset.key)"
+                      >
+                        <Download :size="11" />
+                        {{ t('mcpSettings.installDependency') }}
+                      </button>
+                      <button
+                        v-else-if="entry.preset.dependency?.installerDocs"
+                        class="builtin-dep-install-btn external"
+                        @click="handleInstallDependency(entry.preset.key)"
+                      >
+                        <ExternalLink :size="11" />
+                        {{ entry.depCommand === 'npx'
+                          ? t('mcpSettings.installNodejs')
+                          : t('mcpSettings.installDependency') }}
+                      </button>
+                    </div>
+
+                    <!-- 安装出错 -->
+                    <p
+                      v-if="!entry.isInstallingDep && mcpStore.installError && entry.preset.dependency?.installer && mcpStore.installingDependency === null && entry.depStatus && !entry.depStatus.available"
+                      class="builtin-dep-error"
+                    >
+                      {{ t('mcpSettings.installFailed') }}: {{ mcpStore.installError }}
+                    </p>
+                  </div>
+
+                  <p v-else-if="entry.preset.requirements" class="builtin-req">
                     {{ t('mcpSettings.builtinRequirements') }}: {{ entry.preset.requirements }}
                   </p>
                 </div>
@@ -256,7 +332,7 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Plus, List, Code, Loader2, Wifi, RefreshCw, ArrowLeft, ChevronRight, Info,
-  ExternalLink, Boxes, Zap
+  ExternalLink, Boxes, Zap, CheckCircle2, XCircle, Download
 } from 'lucide-vue-next'
 import { useMcpStore, type McpToolInfo, type MCPServer } from '@/stores/mcp'
 import { useAppStore } from '@/stores/app'
@@ -355,6 +431,13 @@ const hasBuiltinServers = computed(() =>
 const builtinEntries = computed(() => {
   return BUILTIN_MCP_PRESETS.map(preset => {
     const server = servers.value[preset.key]
+    const depCmd = preset.dependency?.command
+    // 依赖状态：null 表示尚未检测过（首次加载），undefined 表示无依赖声明
+    const depStatus = depCmd ? mcpStore.dependencyStatus[depCmd] ?? null : undefined
+    const isInstallingThis = !!(
+      preset.dependency?.installer &&
+      mcpStore.installingDependency === preset.dependency.installer
+    )
     return {
       preset,
       enabled: server ? server.enabled !== false : false,
@@ -364,6 +447,11 @@ const builtinEntries = computed(() => {
       // 运行时状态（用于在面板上展示连接结果）
       runtime: mcpStore.getRuntimeStatusForServer(preset.key),
       probe: mcpStore.getProbeResult(preset.key),
+      // 依赖检测 / 安装状态
+      depCommand: depCmd,
+      depStatus,
+      isInstallingDep: isInstallingThis,
+      installProgress: isInstallingThis ? mcpStore.installProgress : null,
     }
   })
 })
@@ -444,6 +532,52 @@ async function handleBuiltinToggle(key: string, enabled: boolean) {
 /** 对内置 MCP 执行一次连接测试 */
 function handleBuiltinProbe(key: string) {
   mcpStore.probeServer(key)
+}
+
+/**
+ * 一键安装某个内置 MCP 所缺失的依赖（如 uv → uvx）。
+ *
+ * 没有 installer 字段（如 chrome-devtools 缺 npx）的预设走外链分支，
+ * 直接打开官方下载页让用户手动装；store 那一层不接这种情况。
+ */
+async function handleInstallDependency(presetKey: string) {
+  const preset = findBuiltinPreset(presetKey)
+  if (!preset?.dependency) return
+
+  // 无 installer：打开外链让用户自己装
+  if (!preset.dependency.installer) {
+    if (preset.dependency.installerDocs) {
+      window.open(preset.dependency.installerDocs, '_blank', 'noopener,noreferrer')
+    }
+    return
+  }
+
+  // 防止同时点多次：installingDependency 非空时 store 会直接拒绝
+  if (mcpStore.installingDependency) return
+
+  const result = await mcpStore.installDependency(preset.dependency.installer)
+  if (!result.success && result.error) {
+    console.warn(`Failed to install ${preset.dependency.installer}:`, result.error)
+    // 失败时回退到外链（store 里 cliDetector 已经 openExternal 过一次，这里
+    // 仅在 store 调用都没成功的情况下再兜底，避免用户看不到任何反馈）
+    if (preset.dependency.installerDocs) {
+      window.open(preset.dependency.installerDocs, '_blank', 'noopener,noreferrer')
+    }
+  }
+}
+
+/** 依赖状态文案：null = 检测中；命中字段后按是否 available 取文案 */
+function dependencyStatusLabel(
+  depStatus: { available: boolean; version: string | null } | null | undefined
+): string {
+  if (depStatus === null) return t('mcpSettings.depChecking')
+  if (!depStatus) return ''
+  if (depStatus.available) {
+    return depStatus.version
+      ? `${t('mcpSettings.depInstalled')} · ${depStatus.version.replace(/^[a-zA-Z]+\s*/, '')}`
+      : t('mcpSettings.depInstalled')
+  }
+  return t('mcpSettings.depMissing')
 }
 
 /** 内置 MCP 卡片上的状态文案 */
@@ -804,6 +938,94 @@ onMounted(() => {
   color: var(--text-muted);
   margin: 0;
   font-style: italic;
+}
+
+/* 依赖状态行（替代静态 builtin-req） */
+.builtin-dep {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.builtin-dep-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+
+  &.ok { color: #10b981; }
+  &.missing { color: var(--error); }
+  &.checking { color: var(--text-muted); }
+  &.installing { color: var(--accent-primary); }
+}
+
+.builtin-dep-cmd {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+}
+
+.builtin-dep-msg {
+  color: var(--text-secondary);
+}
+
+.builtin-dep-row.ok .builtin-dep-msg { color: var(--text-secondary); }
+.builtin-dep-row.missing .builtin-dep-msg { color: var(--error); }
+
+.builtin-dep-install-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid var(--accent-primary);
+  background: var(--accent-primary);
+  color: var(--bg-primary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+
+  &:hover:not(:disabled) {
+    filter: brightness(1.1);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  &.external {
+    background: transparent;
+    color: var(--accent-primary);
+  }
+}
+
+.builtin-dep-bar {
+  height: 3px;
+  background: var(--bg-primary);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.builtin-dep-bar-fill {
+  height: 100%;
+  background: var(--accent-primary);
+  transition: width 0.2s ease;
+}
+
+.builtin-dep-error {
+  font-size: 10px;
+  color: var(--error);
+  margin: 0;
+  line-height: 1.4;
 }
 
 .builtin-card-bottom {

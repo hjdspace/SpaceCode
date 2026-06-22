@@ -1,4 +1,4 @@
-import { execFile } from 'child_process'
+import { execFile, spawn } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
@@ -12,9 +12,15 @@ const MIN_CLI_VERSION = '1.0.0'
 
 function execFileAsync(command: string, args: string[] = [], timeout = 15000, forceShell = false): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const useShell = forceShell || (isWindows && command.endsWith('.cmd'))
+    // Windows 上 .cmd/.bat 不是真正的可执行文件，必须通过 shell 解释。
+    // 否则 execFile 会直接 ENOENT —— 这就是早先 npx (npx.cmd) 检测假阴性的根因。
+    const lower = command.toLowerCase()
+    const useShell = forceShell || (isWindows && (lower.endsWith('.cmd') || lower.endsWith('.bat') || lower.endsWith('.ps1')))
+    // 走 shell 时路径可能含空格（如 "C:\Program Files\nodejs\npx.cmd"），需要加引号
+    // 防止 shell 在空格处拆参数；非 shell 模式 execFile 自己会处理空格。
+    const finalCommand = useShell && command.includes(' ') ? `"${command}"` : command
     const options: import('child_process').ExecFileOptions = { timeout, windowsHide: true, shell: useShell }
-    execFile(command, args, options, (err, stdout, stderr) => {
+    execFile(finalCommand, args, options, (err, stdout, stderr) => {
       if (err) return reject(err)
       resolve({ stdout: String(stdout).trim(), stderr: String(stderr).trim() })
     })
@@ -125,12 +131,29 @@ async function checkEnvItem(name: string, versionArgs: string[] = ['--version'])
     if (!envPath) {
       return { available: false, version: null, path: null }
     }
-    const { stdout } = await execFileAsync(name, versionArgs)
+    // 用 findInPath 返回的**完整路径**（含 .cmd/.bat 后缀）来跑 --version。
+    //
+    // 原因：Node 的 child_process.execFile 在 Windows 上不识别 PATHEXT —— 它只查
+    // 精确文件名。如果传裸命令名（如 'npx'），但 PATH 里只有 'npx.cmd'，会触发
+    // ENOENT 落入 catch，UI 就误报"未安装"。execFileAsync 内部已根据
+    // command.endsWith('.cmd') 自动启用 shell，只要把完整路径传进去就能命中。
+    const { stdout } = await execFileAsync(envPath, versionArgs)
     const version = stdout.split(/\r?\n/)[0] || null
     return { available: true, version, path: envPath }
   } catch {
     return { available: false, version: null, path: null }
   }
+}
+
+/**
+ * 通用「命令是否可用」检测。返回命令是否存在、版本与路径。
+ *
+ * 用于 MCP 内置服务器的依赖检测（如 cdp-bridge 依赖 uvx、chrome-devtools
+ * 依赖 npx）。复用 findInPath + --version，避免每个调用点各写一套
+ * where/which 逻辑。
+ */
+export async function isCommandAvailable(command: string): Promise<EnvItemStatus> {
+  return checkEnvItem(command, ['--version'])
 }
 
 export async function checkEnvironment(): Promise<EnvironmentCheck> {
@@ -265,6 +288,99 @@ export async function installCli(
     onProgress({ stage: 'error', message: errMsg, percent: 100 })
     warn(SCOPE, 'Installation failed', { error: errMsg })
     return { success: false, error: errMsg }
+  }
+}
+
+/**
+ * 通过 `curl ... | sh` 形式的安装脚本装一个依赖（Linux 上 uv 的官方安装方式）。
+ * 用 spawn 跑 shell，实时 drain stdout/stderr，resolve on close。
+ */
+function installWithScript(
+  script: string,
+  onProgress: (p: InstallProgress) => void,
+  label: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('sh', ['-c', script], { stdio: ['ignore', 'pipe', 'pipe'] })
+    let stderr = ''
+    child.stderr?.on('data', (d: Buffer) => { stderr += d.toString() })
+    // drain stdout（脚本可能有进度输出）
+    child.stdout?.on('data', () => {})
+    child.on('close', (code: number | null) => {
+      if (code === 0) {
+        onProgress({ stage: 'installing', message: `${label} installed`, percent: 80 })
+        resolve()
+      } else {
+        reject(new Error(`${label} install script exited with code ${code}: ${stderr.trim()}`))
+      }
+    })
+    child.on('error', (err: Error) => reject(err))
+  })
+}
+
+const UV_INSTALL_DOCS = 'https://docs.astral.sh/uv/getting-started/installation/'
+
+/**
+ * 安装一个 MCP 依赖命令。当前支持 `uv`（提供 uvx）。
+ *
+ * 平台策略：
+ * - Windows: winget install astral-sh.uv
+ * - macOS:   brew install uv
+ * - Linux:   curl -LsSf https://astral.sh/uv/install.sh | sh
+ *
+ * 安装后用 isCommandAvailable('uvx') 验证；失败时打开官方文档并返回错误。
+ * 全程通过 onProgress 推 InstallProgress（downloading/installing/verifying/done/error）。
+ */
+export async function installCommand(
+  cmd: 'uv',
+  onProgress: (p: InstallProgress) => void,
+): Promise<{ success: boolean; error?: string }> {
+  info(SCOPE, `Starting dependency installation: ${cmd}`)
+
+  try {
+    onProgress({ stage: 'downloading', message: `Downloading ${cmd}...`, percent: 10 })
+
+    if (isWindows) {
+      await installWithWinget('astral-sh.uv', onProgress)
+    } else if (process.platform === 'darwin') {
+      await installWithBrew('uv', onProgress)
+    } else {
+      // Linux / 其他 Unix：走官方 install script
+      await installWithScript(
+        'curl -LsSf https://astral.sh/uv/install.sh | sh',
+        onProgress,
+        'uv',
+      )
+    }
+
+    onProgress({ stage: 'verifying', message: 'Verifying installation...', percent: 90 })
+
+    // uv 安装后会提供 uvx 命令；检测 uvx 是否可用
+    const uvxStatus = await isCommandAvailable('uvx')
+    if (uvxStatus.available) {
+      onProgress({ stage: 'done', message: `${cmd} installed successfully`, percent: 100 })
+      info(SCOPE, `${cmd} installed successfully`, { version: uvxStatus.version, path: uvxStatus.path })
+      return { success: true }
+    }
+
+    // 可能 uv 装好了但 uvx 还没进 PATH（新开终端才生效）。再测一次 uv 本身。
+    const uvStatus = await isCommandAvailable('uv')
+    if (uvStatus.available) {
+      onProgress({ stage: 'done', message: `${cmd} installed (restart shell to refresh PATH)`, percent: 100 })
+      info(SCOPE, `${cmd} installed but uvx not on PATH yet`, { version: uvStatus.version })
+      return { success: true }
+    }
+
+    onProgress({ stage: 'error', message: 'Installation completed but uvx not detected', percent: 100 })
+    warn(SCOPE, 'uvx not detected after installation')
+    return { success: false, error: 'Installation completed but uvx not detected in PATH. You may need to restart your shell.' }
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err)
+    onProgress({ stage: 'error', message: errMsg, percent: 100 })
+    warn(SCOPE, `${cmd} installation failed, opening docs`, { error: errMsg })
+    // 自动安装失败时打开官方文档，让用户手动装
+    shell.openExternal(UV_INSTALL_DOCS)
+    return { success: false, error: `Failed to install ${cmd} automatically. Installation guide opened: ${errMsg}` }
   }
 }
 

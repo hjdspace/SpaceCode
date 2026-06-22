@@ -540,6 +540,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteServer: (name: string) => ipcRenderer.invoke('mcp:deleteServer', name),
     toggleEnabled: (name: string, enabled: boolean) => ipcRenderer.invoke('mcp:toggleEnabled', name, enabled),
     probeServer: (config: any) => ipcRenderer.invoke('mcp:probeServer', config),
+    // 依赖检测 / 一键安装（用于内置 MCP 缺失依赖时的引导）
+    checkDependency: (command: string) => ipcRenderer.invoke('mcp:checkDependency', command),
+    installDependency: (command: 'uv') => ipcRenderer.invoke('mcp:installDependency', command),
+    onInstallProgress: (callback: (progress: any) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
+      ipcRenderer.on('mcp:installProgress', wrapper)
+      return () => ipcRenderer.removeListener('mcp:installProgress', wrapper)
+    },
   },
 
   mobile: {

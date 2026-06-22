@@ -585,6 +585,15 @@ export default {
     builtinBadge: '内置',
     builtinRequirements: '需要',
     builtinCannotDelete: '内置 MCP 服务器不可删除，但可以关闭。',
+    // 依赖检测 / 一键安装
+    depChecking: '检测中...',
+    depInstalled: '已安装',
+    depMissing: '未安装',
+    installDependency: '一键安装',
+    installingDependency: '正在安装...',
+    installFailed: '安装失败',
+    installNodejs: '安装 Node.js',
+    depInstallHint: '通过系统包管理器自动安装 {command}。',
     yourServers: '你的服务器',
     enabled: '已启用',
     builtin: {

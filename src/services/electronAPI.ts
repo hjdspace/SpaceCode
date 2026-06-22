@@ -873,6 +873,13 @@ export const api = {
       electronAPI?.mcp?.toggleServerRuntime(sessionId, serverName, enabled) || Promise.resolve(),
     probeServer: (config: unknown): Promise<any> =>
       electronAPI?.mcp?.probeServer(config) || Promise.resolve(null),
+    // 依赖检测 / 一键安装（用于内置 MCP 缺失依赖时的引导）
+    checkDependency: (command: string): Promise<any> =>
+      electronAPI?.mcp?.checkDependency(command) || Promise.resolve(null),
+    installDependency: (command: 'uv'): Promise<any> =>
+      electronAPI?.mcp?.installDependency(command) || Promise.resolve({ success: false, error: 'electronAPI unavailable' }),
+    onInstallProgress: (callback: (progress: any) => void): (() => void) =>
+      electronAPI?.mcp?.onInstallProgress?.(callback) || (() => {}),
   },
 
   // Skills API

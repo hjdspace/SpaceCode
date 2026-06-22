@@ -5,7 +5,7 @@ import { EngineFactory } from './engines/EngineFactory'
 import type { EngineSessionConfig, AgentInfo } from './engines/types'
 import { info, warn, error, debug } from './logger'
 import { SessionHistoryManager, SessionLite } from './sessionHistoryManager'
-import { detectInstalledCli, checkEnvironment, installCli } from './cliDetector'
+import { detectInstalledCli, checkEnvironment, installCli, isCommandAvailable, installCommand } from './cliDetector'
 import { proxyManager } from './proxyManager'
 import { probeMcpServer, type McpProbeConfig, type McpProbeResult } from './mcpProbe'
 
@@ -478,6 +478,23 @@ export function registerClaudeCodeIPC() {
     const result = await probeMcpServer(config)
     debug('McpProbe', `Probe result | status=${result.status} | tools=${result.tools?.length ?? 0} | error=${result.error || '(none)'}`)
     return result
+  })
+
+  // ── MCP Dependency Check ── 检测内置 MCP 服务器依赖的命令（uvx/npx 等）是否可用
+  ipcMain.handle('mcp:checkDependency', async (_, command: string) => {
+    debug('McpDependency', `Checking dependency | command=${command}`)
+    const status = await isCommandAvailable(command)
+    debug('McpDependency', `Result | available=${status.available} | version=${status.version || '(none)'}`)
+    return status
+  })
+
+  // ── MCP Dependency Install ── 一键安装缺失的依赖（当前仅支持 uv → 提供 uvx）
+  ipcMain.handle('mcp:installDependency', async (event, command: 'uv') => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    info('McpDependency', `Installing dependency | command=${command}`)
+    return installCommand(command, (progress) => {
+      win?.webContents.send('mcp:installProgress', progress)
+    })
   })
 
   // ── MCP Config CRUD ── 持久化到 <userData>/mcp-servers.json

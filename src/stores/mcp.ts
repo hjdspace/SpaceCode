@@ -6,6 +6,20 @@ import {
   isBuiltinServer,
 } from '@/lib/builtinMcp'
 
+/** 内置 MCP 依赖命令的检测结果（来自 electron 的 EnvItemStatus）*/
+export interface McpDependencyStatus {
+  available: boolean
+  version: string | null
+  path: string | null
+}
+
+/** 内置 MCP 依赖安装进度（来自 electron 的 InstallProgress）*/
+export interface McpInstallProgress {
+  stage: 'downloading' | 'installing' | 'verifying' | 'done' | 'error'
+  message: string
+  percent?: number
+}
+
 export type MCPServerType = 'stdio' | 'sse' | 'http'
 
 export interface MCPServer {
@@ -65,6 +79,18 @@ export const useMcpStore = defineStore('mcp', () => {
   const error = ref<string | null>(null)
   const activeSessionId = ref<string | null>(null)
   const probeResults = ref<Record<string, McpProbeResult>>({})
+
+  // ── 内置 MCP 依赖检测 / 一键安装 ──
+  /** 按命令名（如 'uvx' / 'npx'）缓存的依赖检测结果 */
+  const dependencyStatus = ref<Record<string, McpDependencyStatus>>({})
+  /** 当前正在安装的安装器标识（如 'uv'），null 表示空闲 */
+  const installingDependency = ref<string | null>(null)
+  /** 当前安装进度（仅 installingDependency 非空时有效） */
+  const installProgress = ref<McpInstallProgress | null>(null)
+  /** 最近一次依赖安装失败的错误信息（成功后清空） */
+  const installError = ref<string | null>(null)
+  /** electron IPC 进度订阅句柄，store 销毁时复用 */
+  let installProgressUnsub: (() => void) | null = null
 
   const serverList = computed(() => Object.entries(servers.value).map(([name, server]) => ({
     ...server,
@@ -188,6 +214,90 @@ export const useMcpStore = defineStore('mcp', () => {
       error.value = 'Failed to connect to API'
     } finally {
       loading.value = false
+    }
+
+    // 拉完服务器列表后，顺手把内置 MCP 的依赖命令也探一遍，让 UI 立刻
+    // 显示「已安装/未安装」状态。失败不阻塞 fetchServers 主流程。
+    checkAllBuiltinDependencies().catch(err =>
+      console.warn('Failed to check builtin MCP dependencies:', err)
+    )
+  }
+
+  /**
+   * 并行检测所有内置 MCP 预设声明的依赖命令是否在 PATH 上可用，
+   * 把结果写入 dependencyStatus（按命令名去重）。
+   */
+  async function checkAllBuiltinDependencies() {
+    const commands = new Set<string>()
+    for (const preset of BUILTIN_MCP_PRESETS) {
+      if (preset.dependency?.command) commands.add(preset.dependency.command)
+    }
+    await Promise.allSettled(
+      Array.from(commands).map(async cmd => {
+        const result = await api.mcp.checkDependency(cmd)
+        if (result && typeof result === 'object') {
+          dependencyStatus.value = { ...dependencyStatus.value, [cmd]: result }
+        }
+      })
+    )
+  }
+
+  /**
+   * 单独检测某个命令（用于安装后立刻刷新状态）。
+   */
+  async function checkDependency(command: string): Promise<McpDependencyStatus | null> {
+    const result = await api.mcp.checkDependency(command)
+    if (result && typeof result === 'object') {
+      dependencyStatus.value = { ...dependencyStatus.value, [command]: result }
+      return result
+    }
+    return null
+  }
+
+  /**
+   * 一键安装某个依赖（当前 installer 仅支持 'uv'，安装后会提供 uvx 命令）。
+   *
+   * 副作用：
+   * - 订阅 mcp:installProgress 通道实时更新 installProgress；
+   * - 完成后重新 checkAllBuiltinDependencies；
+   * - 若安装成功，对所有依赖该命令的内置 MCP 自动 probe 一次，让连接状态即时刷新。
+   */
+  async function installDependency(installer: 'uv'): Promise<{ success: boolean; error?: string }> {
+    if (installingDependency.value) {
+      return { success: false, error: 'Another installation is in progress' }
+    }
+    installingDependency.value = installer
+    installError.value = null
+    installProgress.value = { stage: 'downloading', message: 'Starting...', percent: 0 }
+
+    // 订阅安装进度
+    installProgressUnsub?.()
+    installProgressUnsub = api.mcp.onInstallProgress((progress: McpInstallProgress) => {
+      installProgress.value = progress
+    })
+
+    try {
+      const result = await api.mcp.installDependency(installer)
+      if (result?.success) {
+        // 重新检测所有依赖，并对依赖刚装好的命令的内置 MCP 触发一次 probe
+        await checkAllBuiltinDependencies()
+        for (const preset of BUILTIN_MCP_PRESETS) {
+          if (preset.dependency?.installer === installer) {
+            probeServer(preset.key).catch(() => {})
+          }
+        }
+        return { success: true }
+      }
+      installError.value = result?.error || 'Installation failed'
+      return { success: false, error: installError.value || undefined }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      installError.value = msg
+      return { success: false, error: msg }
+    } finally {
+      installingDependency.value = null
+      installProgressUnsub?.()
+      installProgressUnsub = null
     }
   }
 
@@ -475,6 +585,14 @@ export const useMcpStore = defineStore('mcp', () => {
     getProbeResult,
     probeServer,
     probeAllServers,
-    allMcpTools
+    allMcpTools,
+    // 内置 MCP 依赖检测 / 一键安装
+    dependencyStatus,
+    installingDependency,
+    installProgress,
+    installError,
+    checkDependency,
+    checkAllBuiltinDependencies,
+    installDependency,
   }
 })
