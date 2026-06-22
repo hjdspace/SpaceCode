@@ -15,6 +15,7 @@ import {
   type CanUseToolRequest,
   type ElicitationRequest,
 } from './controlProtocol'
+import { buildEnabledMcpConfig } from './mcpConfigStore'
 
 export interface SessionConfig {
   cwd: string
@@ -904,6 +905,37 @@ export class SessionProcess extends EventEmitter {
     const claudeDir = path.join(os.homedir(), '.claude')
     if (fs.existsSync(claudeDir)) {
       args.push('--add-dir', claudeDir)
+    }
+
+    // ── 注入 SpaceCode 管理的 MCP 服务器 ──
+    //
+    // UI 在 <userData>/mcp-servers.json 里维护了一份 MCP 服务器配置（含
+    // 内置预设和用户自建项）。但 claude-code CLI 默认只从 ~/.claude.json
+    // 和工程级 .mcp.json 发现服务器，不会读我们这份文件，所以如果不主动
+    // 注入，用户在 UI 上启用的 MCP 在对话里完全调不到。
+    //
+    // 做法：把所有 enabled=true 的服务器导出成 CLI schema，写到一个临时
+    // JSON 文件，作为 --mcp-config 传进去。文件命名带 sessionId + 时间戳，
+    // 避免多会话/多窗口并发写同一份。
+    try {
+      const cliConfig = buildEnabledMcpConfig()
+      if (cliConfig && Object.keys(cliConfig.mcpServers).length > 0) {
+        const mcpDir = path.join(os.tmpdir(), 'SpaceCode')
+        try { fs.mkdirSync(mcpDir, { recursive: true }) } catch {}
+        const mcpPath = path.join(
+          mcpDir,
+          `mcp-${this.sessionId.slice(0, 8)}-${Date.now()}.json`,
+        )
+        fs.writeFileSync(mcpPath, JSON.stringify(cliConfig, null, 2), 'utf8')
+        args.push('--mcp-config', mcpPath)
+        debug(
+          'SessionProcess',
+          `[${this.sessionId.slice(0, 8)}] Injected MCP config | path=${mcpPath} | servers=${Object.keys(cliConfig.mcpServers).join(',')}`,
+        )
+      }
+    } catch (err) {
+      // MCP 配置注入失败不应阻塞会话启动，CLI 仍可从 ~/.claude.json 加载
+      warn('SessionProcess', `Failed to inject MCP config: ${err}`)
     }
 
     args.push('--thinking', config.thinkingEnabled ? 'enabled' : 'disabled')

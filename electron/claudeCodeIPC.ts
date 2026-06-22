@@ -8,6 +8,7 @@ import { SessionHistoryManager, SessionLite } from './sessionHistoryManager'
 import { detectInstalledCli, checkEnvironment, installCli, isCommandAvailable, installCommand } from './cliDetector'
 import { proxyManager } from './proxyManager'
 import { probeMcpServer, type McpProbeConfig, type McpProbeResult } from './mcpProbe'
+import { loadMcpConfig, saveMcpConfig, buildEnabledMcpConfig } from './mcpConfigStore'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -498,33 +499,8 @@ export function registerClaudeCodeIPC() {
   })
 
   // ── MCP Config CRUD ── 持久化到 <userData>/mcp-servers.json
-  const MCP_CONFIG_PATH = join(app.getPath('userData'), 'mcp-servers.json')
-
-  function loadMcpConfig(): Record<string, any> {
-    try {
-      if (existsSync(MCP_CONFIG_PATH)) {
-        const raw = JSON.parse(readFileSync(MCP_CONFIG_PATH, 'utf-8'))
-        // Handle both flat format { "server": {...} } and Claude Desktop
-        // nested format { "mcpServers": { "server": {...} } }
-        if (raw && typeof raw === 'object' && raw.mcpServers && typeof raw.mcpServers === 'object' && !raw.command && !raw.type) {
-          return raw.mcpServers
-        }
-        return raw
-      }
-    } catch (e) {
-      warn('McpConfig', `Failed to load config: ${e}`)
-    }
-    return {}
-  }
-
-  function saveMcpConfig(data: Record<string, any>): void {
-    try {
-      writeFileSync(MCP_CONFIG_PATH, JSON.stringify(data, null, 2), 'utf-8')
-    } catch (e) {
-      error('McpConfig', `Failed to save config: ${e}`)
-      throw e
-    }
-  }
+  // 文件路径与加载/保存逻辑共享自 mcpConfigStore，供 sessionProcess 的
+  // --mcp-config 注入路径复用，避免两边各自实现导致行为分歧。
 
   ipcMain.handle('mcp:getServers', async () => {
     const servers = loadMcpConfig()
@@ -557,6 +533,17 @@ export function registerClaudeCodeIPC() {
       saveMcpConfig(servers)
     }
     return { success: true }
+  })
+
+  /**
+   * 返回当前会被注入到 claude-code CLI 的 MCP 服务器名称列表。
+   *
+   * 用于 UI 给已注册到 CLI 的服务器加一个「Claude Code 已加载」标记，
+   * 让用户能直观看到哪些 MCP 真正在对话里可用。
+   */
+  ipcMain.handle('mcp:getActiveMcpNames', async () => {
+    const cfg = buildEnabledMcpConfig()
+    return cfg ? Object.keys(cfg.mcpServers) : []
   })
 }
 

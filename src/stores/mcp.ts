@@ -92,6 +92,9 @@ export const useMcpStore = defineStore('mcp', () => {
   /** electron IPC 进度订阅句柄，store 销毁时复用 */
   let installProgressUnsub: (() => void) | null = null
 
+  /** 当前会被注入到 claude-code CLI 的 MCP 服务器名列表（用于「已加载」徽标） */
+  const activeMcpNames = ref<string[]>([])
+
   const serverList = computed(() => Object.entries(servers.value).map(([name, server]) => ({
     ...server,
     name

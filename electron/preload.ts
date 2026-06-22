@@ -548,6 +548,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('mcp:installProgress', wrapper)
       return () => ipcRenderer.removeListener('mcp:installProgress', wrapper)
     },
+    // 查询当前会被注入到 CLI 的 MCP 服务器名列表（用于「已加载」标记）
+    getActiveMcpNames: () => ipcRenderer.invoke('mcp:getActiveMcpNames'),
   },
 
   mobile: {

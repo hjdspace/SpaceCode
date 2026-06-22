@@ -880,6 +880,8 @@ export const api = {
       electronAPI?.mcp?.installDependency(command) || Promise.resolve({ success: false, error: 'electronAPI unavailable' }),
     onInstallProgress: (callback: (progress: any) => void): (() => void) =>
       electronAPI?.mcp?.onInstallProgress?.(callback) || (() => {}),
+    getActiveMcpNames: (): Promise<string[]> =>
+      electronAPI?.mcp?.getActiveMcpNames?.() || Promise.resolve([]),
   },
 
   // Skills API
