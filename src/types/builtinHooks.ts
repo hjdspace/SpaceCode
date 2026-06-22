@@ -463,7 +463,7 @@ export async function buildProviderCommand(
   if (provider.buildCommand) {
     return provider.buildCommand(config)
   }
-  throw new Error(`Provider ${provider.id} has no buildCommand`)
+  throw new Error(`Provider "${provider.id}" 未实现 buildCommand 或 buildCommandAsync，至少需要实现其中一个`)
 }
 
 export function providerRequiresNode(provider: BuiltinHookProvider): boolean {

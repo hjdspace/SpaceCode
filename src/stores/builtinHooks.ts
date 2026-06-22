@@ -127,7 +127,13 @@ export const useBuiltinHooksStore = defineStore('builtinHooks', () => {
       await hooksStore.loadFromSettingsFile()
     }
 
-    const command = await buildProviderCommand(provider, cur.config)
+    let command: string
+    try {
+      command = await buildProviderCommand(provider, cur.config)
+    } catch (err) {
+      console.error('[BuiltinHooksStore] buildProviderCommand failed:', err)
+      return { ok: false, error: 'build command failed' }
+    }
     const name = buildBuiltinHookName(def, provider)
 
     // 若旧的 installedHookId 仍存在则先移除（处理重新启用 / 重新配置）
