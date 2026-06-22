@@ -13,6 +13,24 @@
     </div>
 
     <div v-if="expanded" class="builtin-body">
+      <!-- Node 状态提示：检测失败时给出明显告警 -->
+      <div v-if="nodeStatus === 'missing'" class="node-banner warn">
+        <AlertCircle :size="14" />
+        <div class="node-banner-text">
+          <strong>{{ t('hookSettings.builtin.nodeMissing') }}</strong>
+          <div>{{ t('hookSettings.builtin.nodeMissingHint') }}</div>
+        </div>
+        <a href="https://nodejs.org/" target="_blank" class="node-link">nodejs.org →</a>
+      </div>
+      <div v-else-if="nodeStatus === 'ok'" class="node-banner ok">
+        <CheckCircle :size="12" />
+        <span>{{ t('hookSettings.builtin.nodeOk', { version: nodeVersion }) }}</span>
+        <button class="node-repair-btn" @click="onRepairPaths" :disabled="repairing">
+          <Wrench :size="11" />
+          {{ repairing ? t('hookSettings.builtin.repairing') : t('hookSettings.builtin.repairPaths') }}
+        </button>
+      </div>
+
       <div class="builtin-toolbar">
         <input
           class="search-input"
@@ -139,12 +157,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Package, ChevronDown, Settings, CheckCircle, AlertCircle } from 'lucide-vue-next'
+import { Package, ChevronDown, Settings, CheckCircle, AlertCircle, Wrench } from 'lucide-vue-next'
 import { getBuiltinProvider } from '@/types/builtinHooks'
 import type { HookScope } from '@/types/hooks'
 import { useBuiltinHooksStore } from '@/stores/builtinHooks'
+import { api as electronAPIService } from '@/services/electronAPI'
 import BuiltinHookConfigModal from './BuiltinHookConfigModal.vue'
 
 const { t } = useI18n()
@@ -155,6 +174,36 @@ const configModalId = ref<string | null>(null)
 const searchQuery = ref('')
 const sourceFilter = ref('')
 const expandedEvents = ref(new Set<string>())
+
+// Node 检测状态
+const nodeStatus = ref<'unknown' | 'ok' | 'missing'>('unknown')
+const nodeVersion = ref('')
+const repairing = ref(false)
+
+onMounted(async () => {
+  try {
+    const res = await electronAPIService.checkNode()
+    if (res.success && res.version) {
+      nodeStatus.value = 'ok'
+      nodeVersion.value = res.version
+    } else {
+      nodeStatus.value = 'missing'
+    }
+  } catch {
+    nodeStatus.value = 'missing'
+  }
+})
+
+async function onRepairPaths() {
+  if (repairing.value) return
+  repairing.value = true
+  try {
+    const res = await store.repairAllInstalledHooks()
+    console.info('[BuiltinHooksSection] repair updated', res.updated, 'hooks')
+  } finally {
+    repairing.value = false
+  }
+}
 
 interface EditDefaults {
   providerId: string
@@ -269,15 +318,24 @@ async function onToggle(builtinId: string) {
   const st = store.getState(builtinId)
   if (st.enabled) {
     await store.disable(builtinId)
-  } else {
-    if (!store.isConfigured(builtinId)) {
-      onConfigure(builtinId)
+    return
+  }
+  // 启用前检查：若 hook 的 provider 需要 node 且未检测到，提示用户
+  const def = store.definitions.find(d => d.id === builtinId)
+  if (def && nodeStatus.value === 'missing') {
+    const needsNode = def.providers.some(p => p.requiresNode)
+    if (needsNode) {
+      alert(t('hookSettings.builtin.nodeRequiredAlert'))
       return
     }
-    const result = await store.enable(builtinId)
-    if (!result.ok) {
-      onConfigure(builtinId)
-    }
+  }
+  if (!store.isConfigured(builtinId)) {
+    onConfigure(builtinId)
+    return
+  }
+  const result = await store.enable(builtinId)
+  if (!result.ok) {
+    onConfigure(builtinId)
   }
 }
 
@@ -333,6 +391,31 @@ async function onApplyConfig(
 .builtin-toolbar {
   display: flex; flex-direction: column; gap: 8px;
   padding: 10px 0;
+}
+
+.node-banner {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-radius: 6px; margin-top: 10px;
+  font-size: 11px;
+  &.warn { background: var(--warning-glow); color: var(--warning); border: 1px solid var(--warning); }
+  &.ok { background: var(--accent-primary-glow); color: var(--accent-primary); }
+  .node-banner-text { flex: 1;
+    strong { display: block; font-size: 12px; margin-bottom: 2px; }
+    div { color: var(--text-secondary); font-size: 11px; }
+  }
+}
+.node-link {
+  color: inherit; text-decoration: underline; font-size: 11px;
+  &:hover { opacity: 0.8; }
+}
+.node-repair-btn {
+  @include reset-button;
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-left: auto; padding: 3px 8px; border-radius: 4px;
+  background: transparent; border: 1px solid currentColor;
+  font-size: 10px; cursor: pointer;
+  &:hover:not(:disabled) { background: var(--bg-hover); }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .search-input {
   padding: 7px 10px; background: var(--surface-soft); border: 1px solid var(--border-default);

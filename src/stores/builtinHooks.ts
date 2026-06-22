@@ -6,6 +6,7 @@ import {
   getBuiltinHook,
   getBuiltinProvider,
   buildBuiltinHookName,
+  buildProviderCommand,
   type BuiltinHookDefinition,
   type BuiltinHookProvider,
 } from '@/types/builtinHooks'
@@ -126,7 +127,7 @@ export const useBuiltinHooksStore = defineStore('builtinHooks', () => {
       await hooksStore.loadFromSettingsFile()
     }
 
-    const command = provider.buildCommand(cur.config)
+    const command = await buildProviderCommand(provider, cur.config)
     const name = buildBuiltinHookName(def, provider)
 
     // 若旧的 installedHookId 仍存在则先移除（处理重新启用 / 重新配置）
@@ -242,9 +243,9 @@ export const useBuiltinHooksStore = defineStore('builtinHooks', () => {
    * 注意：HookFlatItem.id 与 name 都不会持久化到 settings.json，
    * 重新 loadFromSettingsFile 后 id 会重生、name 会变成空串。
    * 因此这里通过 (event + scope + command) 来匹配——command 中嵌入了用户
-   * 的 token/url 等配置，足以保证唯一性。
+   * 的 token/url 等配置，或 ECC hook 的脚本绝对路径，足以保证唯一性。
    */
-  function reconcile() {
+  async function reconcile() {
     const hooksStore = useHooksStore()
     let changed = false
     for (const [id, s] of Object.entries(state.value)) {
@@ -252,7 +253,13 @@ export const useBuiltinHooksStore = defineStore('builtinHooks', () => {
       const def = getBuiltinHook(id)
       const provider = def ? getBuiltinProvider(id, s.providerId) : undefined
       if (!def || !provider) continue
-      const expectedCommand = provider.buildCommand(s.config)
+      let expectedCommand: string
+      try {
+        expectedCommand = await buildProviderCommand(provider, s.config)
+      } catch (err) {
+        console.error('[BuiltinHooksStore] reconcile buildCommand failed:', err)
+        continue
+      }
       const matched = hooksStore.hooks.find(
         (h: HookFlatItem) =>
           h.event === def.event &&
@@ -261,7 +268,6 @@ export const useBuiltinHooksStore = defineStore('builtinHooks', () => {
           h.command === expectedCommand,
       )
       if (matched) {
-        // 把 UI 用的 name 补回去，并刷新 installedHookId 关联
         const expectedName = buildBuiltinHookName(def, provider)
         if (matched.name !== expectedName) {
           hooksStore.updateHook(matched.id, { name: expectedName })
@@ -279,6 +285,62 @@ export const useBuiltinHooksStore = defineStore('builtinHooks', () => {
     if (changed) saveState()
   }
 
+  /**
+   * 路径修复：遍历所有已启用的内置 hook，按当前内置脚本根重新构建命令，
+   * 并写回 settings.json。处理用户重装到不同盘符的场景。
+   */
+  async function repairAllInstalledHooks(): Promise<{ updated: number }> {
+    const hooksStore = useHooksStore()
+    let updated = 0
+    const scopes = new Set<HookScope>()
+    for (const s of Object.values(state.value)) {
+      if (s.enabled && s.scope) scopes.add(s.scope)
+    }
+    for (const scope of scopes) {
+      if (hooksStore.activeScope !== scope) {
+        hooksStore.activeScope = scope
+        await hooksStore.loadFromSettingsFile()
+      }
+      for (const [id, s] of Object.entries(state.value)) {
+        if (!s.enabled || s.scope !== scope) continue
+        const def = getBuiltinHook(id)
+        const provider = def ? getBuiltinProvider(id, s.providerId) : undefined
+        if (!def || !provider) continue
+        let newCommand: string
+        try {
+          newCommand = await buildProviderCommand(provider, s.config)
+        } catch (err) {
+          console.error('[BuiltinHooksStore] repair buildCommand failed:', err)
+          continue
+        }
+        const expectedName = buildBuiltinHookName(def, provider)
+        // 先按 installedHookId 找，找不到再按名字+event 兜底
+        let target = s.installedHookId
+          ? hooksStore.hooks.find((h: HookFlatItem) => h.id === s.installedHookId)
+          : undefined
+        if (!target) {
+          target = hooksStore.hooks.find(
+            (h: HookFlatItem) =>
+              h.event === def.event &&
+              h.scope === scope &&
+              h.type === 'command' &&
+              h.name === expectedName,
+          )
+        }
+        if (target && target.command !== newCommand) {
+          hooksStore.updateHook(target.id, { command: newCommand })
+          updated++
+        }
+        if (target && s.installedHookId !== target.id) {
+          state.value[id] = { ...s, installedHookId: target.id }
+        }
+      }
+      await hooksStore.saveToSettingsFile()
+    }
+    saveState()
+    return { updated }
+  }
+
   return {
     state,
     definitions,
@@ -291,6 +353,7 @@ export const useBuiltinHooksStore = defineStore('builtinHooks', () => {
     applyAndEnable,
     reconfigure,
     reconcile,
+    repairAllInstalledHooks,
   }
 })
 
