@@ -141,6 +141,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { api } from '@/services/electronAPI'
 import { useI18n } from 'vue-i18n'
 import { Loader2, ArrowLeft, ArrowRight, RotateCw, ExternalLink, Camera, MousePointerSquareDashed, ArrowUp, ChevronUp, ChevronDown } from 'lucide-vue-next'
 import InfoPanelTabBar from './InfoPanelTabBar.vue'
@@ -241,12 +242,7 @@ function handleNavigate() {
 
 function handleOpenInBrowser() {
   if (appStore.webviewUrl) {
-    const electronAPI = (window as any).electronAPI
-    if (electronAPI?.shellOpenExternal) {
-      electronAPI.shellOpenExternal(appStore.webviewUrl)
-    } else {
-      window.open(appStore.webviewUrl, '_blank')
-    }
+    api.openExternal(appStore.webviewUrl)
   }
 }
 

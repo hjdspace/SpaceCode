@@ -39,6 +39,7 @@ import type { ToolCall } from '@/types'
 import { FilePlus, ChevronDown, ExternalLink, Loader2, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { useChatStore } from '@/stores/chat'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
 import hljs from 'highlight.js'
@@ -46,7 +47,18 @@ import hljs from 'highlight.js'
 const props = defineProps<{ toolCall: ToolCall }>()
 const isExpanded = ref(false)
 const appStore = useAppStore()
+const chatStore = useChatStore()
 const { t } = useI18n()
+
+/** 将相对路径（如 outputs/x.html）解析为绝对路径，优先用当前会话的工作目录 */
+function resolveToolPath(fp: string): string {
+  const isAbsolute = /^([a-zA-Z]:[\\/]|[\\/]{2}|\/)/.test(fp)
+  if (isAbsolute) return fp
+  const root = (chatStore.workingDirectory || appStore.projectRoot || '').replace(/[\\/]+$/, '')
+  if (!root) return fp
+  const sep = root.includes('\\') && !root.includes('/') ? '\\' : '/'
+  return `${root}${sep}${fp.replace(/^[.\\/]+/, '')}`
+}
 
 const statusClass = computed(() => `status-${props.toolCall.status}`)
 const filePath = computed(() => props.toolCall.input?.file_path || props.toolCall.input?.path || t('toolCards.writeUnknownFile'))
@@ -94,8 +106,15 @@ function escapeHtml(text: string): string {
 function toggleExpand() { isExpanded.value = !isExpanded.value }
 
 async function openInPanel() {
-  const fp = props.toolCall.input?.file_path || props.toolCall.input?.path
-  if (!fp) return
+  const rawFp = props.toolCall.input?.file_path || props.toolCall.input?.path
+  if (!rawFp) return
+  const fp = resolveToolPath(rawFp)
+
+  // 可在内置浏览器预览的产物（html）直接用 webview 打开
+  if (/\.html?$/i.test(fp)) {
+    appStore.openFileInWebview(fp)
+    return
+  }
 
   const modifiedContent = await api.readFile(fp)
   if (modifiedContent === null) return

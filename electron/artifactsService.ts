@@ -20,6 +20,19 @@ export interface ArtifactEntry {
 
 const OUTPUTS_DIRNAME = 'outputs'
 
+// 过程产物 / 噪声目录：不递归、不展示（避免 node_modules 等刷屏）
+const NOISE_DIRS = new Set([
+  'node_modules', '.git', '.cache', 'dist', 'build', 'out',
+  '__pycache__', '.venv', 'venv', '.next', '.nuxt', '.svelte-kit',
+  'coverage', '.pytest_cache', '.mypy_cache', 'vendor', '.idea', '.vscode',
+])
+
+// 噪声文件：构建/锁定/隐藏文件，不作为"成果"展示
+const NOISE_FILES = new Set([
+  'package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
+  '.gitignore', '.ds_store', 'thumbs.db',
+])
+
 function listArtifacts(workingDir: string): ArtifactEntry[] {
   if (!workingDir || typeof workingDir !== 'string') return []
   const outputsDir = join(workingDir, OUTPUTS_DIRNAME)
@@ -34,8 +47,15 @@ function listArtifacts(workingDir: string): ArtifactEntry[] {
       return
     }
     for (const entry of entries) {
+      const lower = entry.name.toLowerCase()
+      // 跳过隐藏项与噪声目录
+      if (entry.name.startsWith('.')) continue
       const full = join(dir, entry.name)
-      if (entry.isFile()) {
+      if (entry.isDirectory()) {
+        if (NOISE_DIRS.has(lower) || depth <= 0) continue
+        walk(full, depth - 1)
+      } else if (entry.isFile()) {
+        if (NOISE_FILES.has(lower)) continue
         try {
           const st = statSync(full)
           const dot = entry.name.lastIndexOf('.')
@@ -47,12 +67,10 @@ function listArtifacts(workingDir: string): ArtifactEntry[] {
             mtime: st.mtimeMs,
           })
         } catch { /* ignore */ }
-      } else if (entry.isDirectory() && depth > 0) {
-        walk(full, depth - 1)
       }
     }
   }
-  walk(outputsDir, 2)
+  walk(outputsDir, 3)
 
   // 最近修改在前
   results.sort((a, b) => b.mtime - a.mtime)
