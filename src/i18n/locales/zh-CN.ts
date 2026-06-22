@@ -1021,6 +1021,32 @@ export default {
     enableOnCreate: '创建后立即启用',
     saveChanges: '保存更改',
     createHook: '创建 Hook',
+    builtin: {
+      title: '内置 Hook',
+      subtitle: '一键启用常用场景',
+      description: '从下方列表中选择需要的内置 Hook 并完成配置，开启后会自动注册到当前作用域。',
+      enable: '启用',
+      disable: '关闭',
+      configureAction: '配置',
+      configureTitle: '配置内置 Hook',
+      selectProvider: '选择推送方式',
+      providerHint: '不同方式所需的凭据不同，请按需选择。',
+      viewDocs: '查看文档 →',
+      scopeHint: '建议选择「用户级」，这样所有项目都会生效。',
+      confirmAndEnable: '确认并启用',
+      runningVia: '当前通过',
+      configuredButDisabled: '已配置但未启用',
+      notConfigured: '尚未配置',
+      cat: {
+        notification: '通知',
+        safety: '安全',
+        workflow: '工作流',
+      },
+      'wechat-task-complete': {
+        name: '任务完成微信通知',
+        description: '当 Agent 完成任务时（Stop 事件），通过微信推送通知，方便挂机长任务。',
+      },
+    },
   },
   agents: {
     title: 'Agent 管理',
@@ -1244,5 +1270,12 @@ export default {
     pushing: '推送中...',
     pushFailed: '推送失败，请重试。',
     pushSuccess: '推送成功',
+  },
+
+  contextToolbar: {
+    searchProjects: '搜索项目...',
+    noProjects: '未找到项目',
+    addNewProject: '添加新项目',
+    noProject: '不使用项目',
   },
 }

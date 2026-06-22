@@ -360,6 +360,9 @@
       </div>
     </div>
 
+    <!-- Context Toolbar (Project / Git Branch) -->
+    <ChatContextToolbar v-if="appStore.projectRoot" />
+
     <!-- 附件菜单弹窗 -->
     <Transition name="dropdown">
       <div v-if="showAttachmentMenu" class="attachment-menu" v-click-outside="closeAttachmentMenu">
@@ -471,6 +474,7 @@ import {
   Sparkles, Image, ChevronRight, Archive, Clock
 } from 'lucide-vue-next'
 import { useSettingsStore } from '@/stores/settings'
+import ChatContextToolbar from './ChatContextToolbar.vue'
 import { useSkillsStore } from '@/stores/skills'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'

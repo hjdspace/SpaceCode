@@ -1021,6 +1021,32 @@ export default {
     enableOnCreate: 'Enable on creation',
     saveChanges: 'Save Changes',
     createHook: 'Create Hook',
+    builtin: {
+      title: 'Built-in Hooks',
+      subtitle: 'One-click common patterns',
+      description: 'Select built-in hooks from the list below and complete configuration. When enabled, hooks are automatically registered to the current scope.',
+      enable: 'Enable',
+      disable: 'Disable',
+      configureAction: 'Configure',
+      configureTitle: 'Configure Built-in Hook',
+      selectProvider: 'Select delivery method',
+      providerHint: 'Different methods require different credentials. Choose according to your needs.',
+      viewDocs: 'View docs →',
+      scopeHint: 'Recommended: select "User" scope to apply to all projects.',
+      confirmAndEnable: 'Confirm & Enable',
+      runningVia: 'Currently using',
+      configuredButDisabled: 'Configured but disabled',
+      notConfigured: 'Not configured yet',
+      cat: {
+        notification: 'Notification',
+        safety: 'Safety',
+        workflow: 'Workflow',
+      },
+      'wechat-task-complete': {
+        name: 'WeChat Task Completion Alert',
+        description: 'Sends a WeChat notification when the Agent finishes its task (Stop event) — ideal for long-running background tasks.',
+      },
+    },
   },
   agents: {
     title: 'Agent Manager',
@@ -1244,5 +1270,12 @@ export default {
     pushing: 'Pushing...',
     pushFailed: 'Push failed. Please retry.',
     pushSuccess: 'Push successful',
+  },
+
+  contextToolbar: {
+    searchProjects: 'Search projects...',
+    noProjects: 'No projects found',
+    addNewProject: 'Add new project',
+    noProject: "Don't work in a project",
   },
 }

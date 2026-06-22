@@ -137,12 +137,29 @@ export const useHooksStore = defineStore('hooks', () => {
   async function loadFromSettingsFile() {
     loading.value = true
     try {
-      const result = await api.loadHooksSettings()
+      const result = await api.loadHooksSettings(activeScope.value)
       if (result.success && result.data) {
         const parsed = JSON.parse(result.data)
-        const items = fromRawConfig(parsed, activeScope.value)
+        // 兼容历史数据：旧版本前端会把整个 { hooks: ... } 一并写入 settings.json，
+        // 导致磁盘上出现 { hooks: { hooks: {...} } } 的双重包装，后端再读出
+        // parsed.hooks 后仍然多一层。这里检测到嵌套就向下解一层。
+        const wasWrapped =
+          parsed && typeof parsed === 'object' && 'hooks' in parsed && Object.keys(parsed).length === 1
+        const rawConfig = (wasWrapped
+          ? (parsed as Record<string, unknown>).hooks
+          : parsed) as RawHooksConfig
+        const items = fromRawConfig(rawConfig, activeScope.value)
         hooks.value = items
         saveToStorage(HOOKS_STORAGE_KEY, hooks.value)
+        // 检测到双重包装时自动把正确格式回写磁盘，避免引擎读取到非法结构
+        if (wasWrapped) {
+          try {
+            await api.saveHooksSettings(JSON.stringify(rawConfig, null, 2), activeScope.value)
+            console.info('[HooksStore] Migrated legacy double-wrapped hooks config')
+          } catch (mergeErr) {
+            console.error('[HooksStore] Failed to migrate legacy hooks config:', mergeErr)
+          }
+        }
       }
     } catch (e) {
       console.error('[HooksStore] Failed to load from settings file:', e)
@@ -154,7 +171,9 @@ export const useHooksStore = defineStore('hooks', () => {
   async function saveToSettingsFile() {
     try {
       const config = toRawConfig()
-      const jsonStr = JSON.stringify({ hooks: config }, null, 2)
+      // 后端会自行把内容写入 settings.json 的 hooks 字段，因此这里直接传裸 config，
+      // 避免出现 { hooks: { hooks: ... } } 的双重包装（旧实现的 bug）。
+      const jsonStr = JSON.stringify(config, null, 2)
       await api.saveHooksSettings(jsonStr, activeScope.value)
     } catch (e) {
       console.error('[HooksStore] Failed to save to settings file:', e)

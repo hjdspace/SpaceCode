@@ -6,6 +6,8 @@
       <p class="s-masthead-desc">{{ t('hookSettings.description') || '自定义会话生命周期钩子函数' }}</p>
     </div>
 
+    <BuiltinHooksSection />
+
     <div class="s-panel">
       <div class="s-panel-header">
         <div class="s-panel-header-left">
@@ -225,12 +227,15 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus, Pencil, Trash2, ChevronDown, Zap, LayoutList, Table2, GitBranch } from 'lucide-vue-next'
 import { useHooksStore } from '@/stores/hooks'
+import { useBuiltinHooksStore } from '@/stores/builtinHooks'
 import { HOOK_EVENTS, SCOPE_LABELS, getEventDescription } from '@/types/hooks'
 import type { HookEventType, HookScope, HookFlatItem } from '@/types/hooks'
 import HookEditModal from './HookEditModal.vue'
+import BuiltinHooksSection from './BuiltinHooksSection.vue'
 
 const { t } = useI18n()
 const store = useHooksStore()
+const builtinStore = useBuiltinHooksStore()
 
 const viewMode = ref<'cards' | 'table' | 'timeline'>('cards')
 const activeEvent = ref<HookEventType>('PreToolUse')
@@ -316,7 +321,9 @@ function toggleExpand(id: string) {
 
 function switchScope(scope: HookScope) {
   store.activeScope = scope
-  store.loadFromSettingsFile()
+  store.loadFromSettingsFile().then(() => {
+    builtinStore.reconcile()
+  })
 }
 
 function editHook(hook: HookFlatItem) {
@@ -358,7 +365,9 @@ function doDelete() {
 }
 
 onMounted(() => {
-  store.loadFromSettingsFile()
+  store.loadFromSettingsFile().then(() => {
+    builtinStore.reconcile()
+  })
 })
 </script>
 
