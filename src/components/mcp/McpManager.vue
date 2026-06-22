@@ -54,19 +54,99 @@
           <Loader2 :size="16" class="spin" />
           <p>{{ t('mcpSettings.loadingServers') }}</p>
         </div>
-        <McpServerList
-          v-else
-          :servers="servers"
-          @edit="handleEdit"
-          @delete="handleDelete"
-          @toggle-enabled="handleToggleEnabled"
-          @reconnect="handleReconnect"
-        />
+        <template v-else>
+          <!-- Built-in MCP Servers -->
+          <section v-if="builtinEntries.length > 0" class="builtin-section">
+            <div class="builtin-header">
+              <div class="builtin-title">
+                <Boxes :size="16" />
+                <span>{{ t('mcpSettings.builtinTitle') }}</span>
+              </div>
+              <span class="builtin-subtitle">{{ t('mcpSettings.builtinSubtitle') }}</span>
+            </div>
+
+            <div class="builtin-grid">
+              <div
+                v-for="entry in builtinEntries"
+                :key="entry.preset.key"
+                class="builtin-card"
+                :class="{ enabled: entry.enabled }"
+              >
+                <div class="builtin-card-top">
+                  <div class="builtin-card-head">
+                    <div class="builtin-card-title-row">
+                      <span class="builtin-card-name">{{ entry.preset.name }}</span>
+                      <span class="builtin-badge">{{ t('mcpSettings.builtinBadge') }}</span>
+                      <span
+                        v-if="entry.probe"
+                        class="builtin-status"
+                        :class="entry.probe.status"
+                      >
+                        <Loader2 v-if="entry.probe.status === 'probing'" :size="10" class="spin" />
+                        {{ builtinStatusLabel(entry.probe.status) }}
+                      </span>
+                    </div>
+                    <a
+                      :href="entry.preset.homepage"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="builtin-homepage"
+                      :title="entry.preset.homepage"
+                    >
+                      <ExternalLink :size="12" />
+                    </a>
+                  </div>
+                  <p class="builtin-desc">{{ builtinPresetDesc(entry.preset.key) }}</p>
+                  <div class="builtin-command">
+                    <span class="mono">{{ entry.command }} {{ entry.args.join(' ') }}</span>
+                  </div>
+                  <p v-if="entry.preset.requirements" class="builtin-req">
+                    {{ t('mcpSettings.builtinRequirements') }}: {{ entry.preset.requirements }}
+                  </p>
+                </div>
+
+                <div class="builtin-card-bottom">
+                  <button
+                    class="builtin-test-btn"
+                    :disabled="entry.probe?.status === 'probing'"
+                    @click="handleBuiltinProbe(entry.preset.key)"
+                  >
+                    <Loader2 v-if="entry.probe?.status === 'probing'" :size="12" class="spin" />
+                    <Zap v-else :size="12" />
+                    {{ t('mcpSettings.testConnection') }}
+                  </button>
+                  <label class="builtin-toggle">
+                    <input
+                      type="checkbox"
+                      :checked="entry.enabled"
+                      @change="handleBuiltinToggle(entry.preset.key, ($event.target as HTMLInputElement).checked)"
+                    />
+                    <span class="builtin-toggle-label">
+                      {{ entry.enabled ? t('mcpSettings.enabled') : t('mcpSettings.disabled') }}
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- User-defined servers -->
+          <div class="user-section-title" v-if="Object.keys(userServers).length > 0 || !loading">
+            {{ t('mcpSettings.yourServers') }}
+          </div>
+          <McpServerList
+            :servers="userServers"
+            @edit="handleEdit"
+            @delete="handleDelete"
+            @toggle-enabled="handleToggleEnabled"
+            @reconnect="handleReconnect"
+          />
+        </template>
       </div>
 
       <!-- JSON Tab -->
       <div v-else class="tab-content">
-        <p v-if="hasClaudeJsonServers" class="json-hint">
+        <p v-if="hasClaudeJsonServers || hasBuiltinServers" class="json-hint">
           {{ t('mcpSettings.jsonTabNote') }}
         </p>
         <ConfigEditor
@@ -175,10 +255,12 @@
 import { ref, computed, reactive, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
-  Plus, List, Code, Loader2, Wifi, RefreshCw, ArrowLeft, ChevronRight, Info
+  Plus, List, Code, Loader2, Wifi, RefreshCw, ArrowLeft, ChevronRight, Info,
+  ExternalLink, Boxes, Zap
 } from 'lucide-vue-next'
 import { useMcpStore, type McpToolInfo, type MCPServer } from '@/stores/mcp'
 import { useAppStore } from '@/stores/app'
+import { BUILTIN_MCP_PRESETS, findBuiltinPreset } from '@/lib/builtinMcp'
 import McpServerList from './McpServerList.vue'
 import McpServerEditor from './McpServerEditor.vue'
 import ConfigEditor from './ConfigEditor.vue'
@@ -263,6 +345,37 @@ const hasClaudeJsonServers = computed(() =>
   Object.values(servers.value).some(s => s._source === 'claude.json')
 )
 
+const hasBuiltinServers = computed(() =>
+  Object.values(servers.value).some(s => s._source === 'builtin')
+)
+
+/** 内置 MCP 预设 + 当前启用状态的合并视图，供「内置 MCP」面板渲染 */
+const builtinEntries = computed(() => {
+  return BUILTIN_MCP_PRESETS.map(preset => {
+    const server = servers.value[preset.key]
+    return {
+      preset,
+      enabled: server ? server.enabled !== false : false,
+      // 用户可能修改过 command/args，展示实际配置而非预设默认值
+      command: server?.command || preset.config.command || '',
+      args: server?.args || preset.config.args || [],
+      // 运行时状态（用于在面板上展示连接结果）
+      runtime: mcpStore.getRuntimeStatusForServer(preset.key),
+      probe: mcpStore.getProbeResult(preset.key),
+    }
+  })
+})
+
+/** 用户自建服务器（排除 claude.json 只读项与内置预设），传给 McpServerList */
+const userServers = computed(() => {
+  const result: Record<string, MCPServer> = {}
+  for (const [name, server] of Object.entries(servers.value)) {
+    if (server._source === 'builtin') continue
+    result[name] = server
+  }
+  return result
+})
+
 function handleClose() {
   appStore.showMCPManager = false
 }
@@ -270,7 +383,7 @@ function handleClose() {
 const jsonConfig = computed(() => {
   const filtered = Object.fromEntries(
     Object.entries(servers.value)
-      .filter(([, v]) => v._source !== 'claude.json')
+      .filter(([, v]) => v._source !== 'claude.json' && v._source !== 'builtin')
       .map(([k, v]) => {
         const { _source, id, name, ...rest } = v
         return [k, rest]
@@ -297,7 +410,11 @@ async function handleDelete(name: string) {
     await mcpStore.deleteServer(name)
   } catch (err) {
     console.error('Failed to delete server:', err)
-    alert(err instanceof Error ? err.message : t('mcpSettings.deleteFailed'))
+    if (err instanceof Error && err.message === 'builtinServerCannotDelete') {
+      alert(t('mcpSettings.builtinCannotDelete'))
+    } else {
+      alert(err instanceof Error ? err.message : t('mcpSettings.deleteFailed'))
+    }
   }
 }
 
@@ -307,6 +424,44 @@ async function handleToggleEnabled(name: string, enabled: boolean) {
   } catch (err) {
     console.error('Failed to toggle server:', err)
   }
+}
+
+/** 内置 MCP 开关。首次开启时确保服务器记录存在（store 已注入），直接切换 enabled。 */
+async function handleBuiltinToggle(key: string, enabled: boolean) {
+  try {
+    await mcpStore.toggleServerEnabled(key, enabled)
+    // 开启后自动探测一次，让用户立刻看到连接结果
+    if (enabled) {
+      mcpStore.probeServer(key)
+    }
+  } catch (err) {
+    console.error('Failed to toggle builtin MCP:', err)
+  }
+}
+
+/** 对内置 MCP 执行一次连接测试 */
+function handleBuiltinProbe(key: string) {
+  mcpStore.probeServer(key)
+}
+
+/** 内置 MCP 卡片上的状态文案 */
+function builtinStatusLabel(status: 'connected' | 'failed' | 'probing'): string {
+  switch (status) {
+    case 'connected': return t('mcpSettings.connected')
+    case 'failed': return t('mcpSettings.failed')
+    case 'probing': return t('mcpSettings.testing')
+    default: return status
+  }
+}
+
+/** 取内置 MCP 的描述文案（i18n，回退到预设默认值） */
+function builtinPresetDesc(key: string): string {
+  const preset = findBuiltinPreset(key)
+  if (!preset) return ''
+  // 优先使用 i18n 文案（mcpSettings.builtin.<key>Desc），找不到再回退到预设默认描述
+  const i18nKey = `mcpSettings.builtin.${key}Desc`
+  const translated = t(i18nKey)
+  return translated === i18nKey ? preset.description : translated
 }
 
 async function handleSave(name: string, server: Omit<MCPServer, 'id' | 'name'>) {
@@ -480,6 +635,236 @@ onMounted(() => {
 
 .tab-content {
   margin-bottom: 24px;
+}
+
+/* ── Built-in MCP Servers section ── */
+.builtin-section {
+  margin-bottom: 24px;
+}
+
+.builtin-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.builtin-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text-primary);
+
+  svg {
+    color: var(--accent-primary);
+  }
+}
+
+.builtin-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.builtin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.builtin-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  padding: 14px;
+  transition: border-color var(--transition-fast);
+
+  &:hover {
+    border-color: var(--accent-primary);
+  }
+
+  &.enabled {
+    border-color: rgba(16, 185, 129, 0.5);
+  }
+}
+
+.builtin-card-top {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.builtin-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.builtin-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.builtin-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.builtin-badge {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(var(--accent-primary-rgb), 0.15);
+  color: var(--accent-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.builtin-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-default);
+
+  &.connected {
+    color: #10b981;
+    border-color: #10b981;
+    background: rgba(16, 185, 129, 0.1);
+  }
+
+  &.failed {
+    color: var(--error);
+    border-color: var(--error);
+    background: rgba(220, 53, 69, 0.1);
+  }
+
+  &.probing {
+    color: var(--accent-primary);
+    border-color: var(--accent-primary);
+    background: rgba(var(--accent-primary-rgb), 0.1);
+  }
+}
+
+.builtin-homepage {
+  display: inline-flex;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  padding: 2px;
+  border-radius: 4px;
+  transition: all var(--transition-fast);
+
+  &:hover {
+    color: var(--accent-primary);
+    background: var(--bg-hover);
+  }
+}
+
+.builtin-desc {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.builtin-command {
+  font-size: 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  padding: 4px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  .mono {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+    color: var(--text-muted);
+  }
+}
+
+.builtin-req {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin: 0;
+  font-style: italic;
+}
+
+.builtin-card-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-default);
+}
+
+.builtin-test-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--border-default);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+
+  &:hover:not(:disabled) {
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: wait;
+  }
+}
+
+.builtin-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+
+  input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+    accent-color: var(--accent-primary);
+  }
+}
+
+.builtin-toggle-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.user-section-title {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 12px;
 }
 
 .loading-state {

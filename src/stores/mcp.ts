@@ -1,5 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import {
+  BUILTIN_MCP_PRESETS,
+  BUILTIN_MCP_SOURCE,
+  isBuiltinServer,
+} from '@/lib/builtinMcp'
 
 export type MCPServerType = 'stdio' | 'sse' | 'http'
 
@@ -101,22 +106,84 @@ export const useMcpStore = defineStore('mcp', () => {
     return result
   }
 
+  /**
+   * 同步内置 MCP 预设到已加载的服务器列表。
+   *
+   * 行为约定：
+   * - 内置预设默认 **disabled**（它们依赖 uv/npx 与浏览器扩展等外部环境，
+   *   自动启用可能触发连接失败）。用户在 UI 上手动开启后才生效。
+   * - 如果某个内置服务器已经存在于配置中（用户之前开关过/改过），**保留
+   *   用户的现有状态**（enabled、args、env 等都不覆盖），只补上 `_source`
+   *   标记与缺失字段。
+   * - 仅在内存里合并；持久化由调用方（fetchServers）在有变化时触发一次。
+   *
+   * @returns 是否发生了变更（需要持久化）
+   */
+  function syncBuiltinServers(existing: Record<string, MCPServer>): { servers: Record<string, MCPServer>; changed: boolean } {
+    let changed = false
+    const merged: Record<string, MCPServer> = { ...existing }
+
+    for (const preset of BUILTIN_MCP_PRESETS) {
+      const current = merged[preset.key]
+      if (current) {
+        // 已存在：保留用户状态，仅确保 _source 标记存在
+        if (current._source !== BUILTIN_MCP_SOURCE) {
+          merged[preset.key] = { ...current, _source: BUILTIN_MCP_SOURCE }
+          changed = true
+        }
+        continue
+      }
+
+      // 不存在：注入默认（disabled）的内置服务器
+      merged[preset.key] = {
+        id: crypto.randomUUID(),
+        name: preset.name,
+        command: preset.config.command ?? '',
+        args: preset.config.args ?? [],
+        env: preset.config.env ?? {},
+        enabled: false,
+        type: preset.config.type,
+        url: preset.config.url,
+        headers: preset.config.headers,
+        _source: BUILTIN_MCP_SOURCE,
+      }
+      changed = true
+    }
+
+    return { servers: merged, changed }
+  }
+
   async function fetchServers() {
     loading.value = true
     error.value = null
     try {
+      let rawServers: Record<string, MCPServer> = {}
       if (electronAPI?.mcp?.getServers) {
         const data = await electronAPI.mcp.getServers()
         if (data?.mcpServers) {
-          servers.value = normalizeServers(data.mcpServers)
+          rawServers = normalizeServers(data.mcpServers)
         }
       } else {
         // Fallback: load from localStorage
         const stored = localStorage.getItem(MCP_STORAGE_KEY)
         if (stored) {
-          servers.value = normalizeServers(JSON.parse(stored))
+          rawServers = normalizeServers(JSON.parse(stored))
         }
       }
+
+      // 注入/同步内置 MCP 预设（默认 disabled，不覆盖用户已改过的状态）
+      const { servers: merged, changed } = syncBuiltinServers(rawServers)
+      servers.value = merged
+
+      // 把新增的内置预设持久化一次，保证下次加载时状态一致
+      if (changed && electronAPI?.mcp?.updateServers) {
+        try {
+          await electronAPI.mcp.updateServers(toPlain(merged))
+        } catch (err) {
+          console.error('Failed to persist builtin MCP presets:', err)
+        }
+      }
+      localStorage.setItem(MCP_STORAGE_KEY, JSON.stringify(merged))
     } catch (err) {
       console.error('Failed to fetch MCP servers:', err)
       error.value = 'Failed to connect to API'
@@ -208,6 +275,11 @@ export const useMcpStore = defineStore('mcp', () => {
   }
 
   async function deleteServer(name: string) {
+    // 内置 MCP 不允许删除，只能在 UI 上关闭。删除后下次 fetchServers
+    // 会重新注入，对用户来说就是「删不掉」，所以直接拦截并提示。
+    if (isBuiltinServer(servers.value[name])) {
+      throw new Error('builtinServerCannotDelete')
+    }
     try {
       if (electronAPI?.mcp?.deleteServer) {
         await electronAPI.mcp.deleteServer(name)
@@ -269,10 +341,13 @@ export const useMcpStore = defineStore('mcp', () => {
     try {
       const parsed = JSON.parse(jsonStr) as Record<string, Omit<MCPServer, 'id' | 'name'>>
 
-      const claudeJsonServers: Record<string, MCPServer> = {}
+      // 保留两类不可通过 JSON 编辑覆盖的服务器：
+      //   1. _source === 'claude.json'：由 Claude CLI 管理，只读
+      //   2. _source === 'builtin'    ：内置预设，状态由列表页开关管理
+      const preservedServers: Record<string, MCPServer> = {}
       for (const [name, server] of Object.entries(servers.value)) {
-        if (server._source === 'claude.json') {
-          claudeJsonServers[name] = server
+        if (server._source === 'claude.json' || server._source === BUILTIN_MCP_SOURCE) {
+          preservedServers[name] = server
         }
       }
 
@@ -281,7 +356,7 @@ export const useMcpStore = defineStore('mcp', () => {
         settingsServers[name] = { ...server, id: crypto.randomUUID(), name, _source: 'settings.json' }
       }
 
-      const merged = { ...claudeJsonServers, ...settingsServers }
+      const merged = { ...preservedServers, ...settingsServers }
 
       if (electronAPI?.mcp?.updateServers) {
         await electronAPI.mcp.updateServers(toPlain(merged))
