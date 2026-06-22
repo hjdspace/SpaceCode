@@ -20,6 +20,22 @@ export interface AgentDef {
   isInstalled: boolean
   installedScope?: 'global' | 'project'
   category: string
+  /** Work / Code 模式归属（缺省 'code'）。 */
+  mode?: 'work' | 'code'
+  /** 展示用头像（emoji 或图标名）。 */
+  avatar?: string
+  /** 该助手默认权限模式。 */
+  permission?: string
+  /** 绑定的技能名（选中时注入会话 .claude/skills）。 */
+  skills?: string[]
+  /** 绑定的 MCP id。 */
+  mcps?: string[]
+  /** 推荐起手 prompt。 */
+  recommendedPrompts?: string[]
+  /** 中文描述（i18n）。 */
+  descriptionZh?: string
+  /** 中文推荐 prompt（i18n）。 */
+  recommendedPromptsZh?: string[]
 }
 
 // Constants
@@ -49,20 +65,41 @@ function getProjectAgentsDir(cwd: string): string {
 }
 
 function parseYamlFrontMatter(content: string): Record<string, any> | null {
-  const match = content.match(/^---\n([\s\S]*?)\n---/)
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)
   if (!match) return null
   try {
     const yaml = match[1]
     const result: Record<string, any> = {}
-    const lines = yaml.split('\n')
-    for (const line of lines) {
+    const lines = yaml.split('\n').map(l => l.replace(/\r$/, ''))
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      // 跳过块列表的子项（已被其 key 行消费）与空行
+      if (!line.trim() || /^\s+-\s/.test(line)) continue
       const colonIndex = line.indexOf(':')
       if (colonIndex === -1) continue
       const key = line.slice(0, colonIndex).trim()
       let value: string | string[] = line.slice(colonIndex + 1).trim()
-      if (typeof value === 'string' && value.startsWith('[') && value.endsWith(']')) {
-        value = value.slice(1, -1).split(',').map(item => item.trim().replace(/^['"]|['"]$/g, ''))
-      } else if (typeof value === 'string' && (value.startsWith('"') || value.startsWith("'"))) {
+
+      if (value === '') {
+        // 可能是 YAML 块列表：后续缩进的 "- xxx" 行
+        const items: string[] = []
+        let j = i + 1
+        while (j < lines.length && /^\s+-\s/.test(lines[j])) {
+          items.push(lines[j].replace(/^\s+-\s/, '').trim().replace(/^['"]|['"]$/g, ''))
+          j++
+        }
+        if (items.length > 0) {
+          result[key] = items
+          i = j - 1
+          continue
+        }
+        result[key] = ''
+        continue
+      }
+
+      if (value.startsWith('[') && value.endsWith(']')) {
+        value = value.slice(1, -1).split(',').map(item => item.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean)
+      } else if (value.startsWith('"') || value.startsWith("'")) {
         value = value.slice(1, -1)
       }
       result[key] = value
@@ -71,6 +108,12 @@ function parseYamlFrontMatter(content: string): Record<string, any> | null {
   } catch {
     return null
   }
+}
+
+function toStringArray(value: unknown): string[] | undefined {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean)
+  if (typeof value === 'string' && value.trim()) return [value.trim()]
+  return undefined
 }
 
 function inferCategory(name: string): string {
@@ -104,6 +147,7 @@ function readAgentFile(filePath: string, cwd?: string): AgentDef | null {
     const tools = fm?.tools ? (Array.isArray(fm.tools) ? fm.tools : [fm.tools]) : undefined
     const model = fm?.model
     const color = fm?.color
+    const mode = fm?.mode === 'work' ? 'work' : (fm?.mode === 'code' ? 'code' : undefined)
     const status = checkAgentInstalled(name, cwd)
 
     return {
@@ -118,6 +162,14 @@ function readAgentFile(filePath: string, cwd?: string): AgentDef | null {
       isInstalled: status.installed,
       installedScope: status.scope,
       category: (fm?.category as string) || inferCategory(name),
+      mode,
+      avatar: typeof fm?.avatar === 'string' ? fm.avatar : undefined,
+      permission: typeof fm?.permission === 'string' ? fm.permission : undefined,
+      skills: toStringArray(fm?.skills),
+      mcps: toStringArray(fm?.mcps),
+      recommendedPrompts: toStringArray(fm?.recommendedPrompts),
+      descriptionZh: typeof fm?.description_zh === 'string' ? fm.description_zh : undefined,
+      recommendedPromptsZh: toStringArray(fm?.recommendedPrompts_zh),
     }
   } catch (err) {
     console.error(`[Agents] Failed to read agent file: ${filePath}`, err)
@@ -136,19 +188,44 @@ async function handleScanLibrary(
     return { agents }
   }
 
-  try {
-    const entries = readdirSync(libRoot, { withFileTypes: true })
+  // 递归扫描根目录及一层子目录（如 agents-lib/work/），收集所有 .md 助手
+  const scanDir = (dir: string, depth: number) => {
+    let entries
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch (err) {
+      console.error('[Agents] Failed to scan dir:', dir, err)
+      return
+    }
     for (const entry of entries) {
+      const full = join(dir, entry.name)
       if (entry.isFile() && entry.name.endsWith('.md')) {
-        const agent = readAgentFile(join(libRoot, entry.name), cwd)
+        const agent = readAgentFile(full, cwd)
         if (agent) agents.push(agent)
+      } else if (entry.isDirectory() && depth > 0) {
+        scanDir(full, depth - 1)
       }
     }
-  } catch (err) {
-    console.error('[Agents] Failed to scan library:', err)
   }
+  scanDir(libRoot, 1)
 
   return { agents }
+}
+
+/** 在 agents-lib 根目录及一层子目录中查找某助手的源 .md 路径。 */
+function findAgentSourcePath(agentName: string): string | null {
+  const libRoot = getAgentsLibRoot()
+  const direct = join(libRoot, `${agentName}.md`)
+  if (existsSync(direct)) return direct
+  try {
+    for (const entry of readdirSync(libRoot, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        const nested = join(libRoot, entry.name, `${agentName}.md`)
+        if (existsSync(nested)) return nested
+      }
+    }
+  } catch { /* ignore */ }
+  return null
 }
 
 async function handleInstallAgent(
@@ -160,10 +237,9 @@ async function handleInstallAgent(
   if (agentName.includes('/') || agentName.includes('\\') || agentName.includes('..')) {
     throw new Error('Invalid agent name')
   }
-  const libRoot = getAgentsLibRoot()
-  const sourcePath = join(libRoot, `${agentName}.md`)
+  const sourcePath = findAgentSourcePath(agentName)
 
-  if (!existsSync(sourcePath)) {
+  if (!sourcePath) {
     throw new Error(`Agent '${agentName}' not found in library`)
   }
 

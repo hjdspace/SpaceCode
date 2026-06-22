@@ -1192,6 +1192,36 @@ ipcMain.handle('system:getCwd', async () => {
   return process.cwd()
 })
 
+// Work 模式：解析并确保默认工作目录（~/Documents/SpaceCode）存在
+ipcMain.handle('workspace:ensureDefaultWork', async () => {
+  debug('IPC', 'workspace:ensureDefaultWork')
+  let base: string
+  try {
+    base = app.getPath('documents')
+  } catch {
+    base = app.getPath('home')
+  }
+  const dir = join(base, 'SpaceCode')
+  try {
+    mkdirSync(dir, { recursive: true })
+  } catch (err) {
+    debug('IPC', 'workspace:ensureDefaultWork mkdir failed', err)
+  }
+  return dir
+})
+
+// 确保指定目录存在（用于 Work 工作区选定后建目录）
+ipcMain.handle('workspace:ensureDir', async (_e, dirPath: string) => {
+  debug('IPC', 'workspace:ensureDir')
+  if (!dirPath || typeof dirPath !== 'string') return false
+  try {
+    mkdirSync(dirPath, { recursive: true })
+    return true
+  } catch {
+    return false
+  }
+})
+
 // Folder selection dialog handler
 ipcMain.handle('dialog:selectFolder', async () => {
   debug('IPC', 'dialog:selectFolder')

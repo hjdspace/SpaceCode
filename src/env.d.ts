@@ -32,6 +32,14 @@ interface AgentDef {
   isInstalled: boolean
   installedScope?: 'global' | 'project'
   category: string
+  mode?: 'work' | 'code'
+  avatar?: string
+  permission?: string
+  skills?: string[]
+  mcps?: string[]
+  recommendedPrompts?: string[]
+  descriptionZh?: string
+  recommendedPromptsZh?: string[]
 }
 
 interface Window {

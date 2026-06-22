@@ -182,6 +182,10 @@ export interface Session {
   lastActivityAt: number
   /** Temporary: set when switching engines to resume the previous session on the new engine. */
   _resumeSessionId?: string
+  /** Work / Code 模式归属（旧会话无此字段时视为 'code'）。 */
+  mode?: 'work' | 'code'
+  /** Work 模式下绑定的专业助手 id。 */
+  assistantId?: string
 }
 
 export interface FileNode {

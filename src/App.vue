@@ -30,6 +30,7 @@
           <AgentManager v-else-if="appStore.showAgentManager" />
           <McpManager v-else-if="appStore.showMCPManager" />
           <CronManager v-else-if="appStore.showCronManager" />
+          <WorkAssistantGallery v-else-if="appStore.showWorkGallery" />
           <ChatPanel v-else-if="!appStore.showTraceViewer" />
           <TraceViewer v-else />
         </div>
@@ -46,6 +47,7 @@
       />
     </div>
     <ConnectMobileDialog v-model:visible="appStore.showConnectMobile" />
+    <WorkspaceOnboarding />
     <FileQuickOpen />
   </div>
 </template>
@@ -66,6 +68,8 @@ import SkillsManager from './components/skills/SkillsManager.vue'
 import AgentManager from './components/agents/AgentManager.vue'
 import McpManager from './components/mcp/McpManager.vue'
 import CronManager from './components/cron/CronManager.vue'
+import WorkAssistantGallery from './components/work/WorkAssistantGallery.vue'
+import WorkspaceOnboarding from './components/work/WorkspaceOnboarding.vue'
 import ConnectMobileDialog from './components/mobile/ConnectMobileDialog.vue'
 import FileQuickOpen from './components/layout/FileQuickOpen.vue'
 import UpdateNotification from './components/common/UpdateNotification.vue'

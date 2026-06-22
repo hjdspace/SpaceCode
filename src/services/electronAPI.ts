@@ -243,6 +243,20 @@ export const api = {
     return Promise.resolve({ canceled: true, filePaths: [] })
   },
 
+  // Work workspace helpers
+  ensureDefaultWorkspace: (): Promise<string> => {
+    if (electronAPI?.ensureDefaultWorkspace) {
+      return electronAPI.ensureDefaultWorkspace()
+    }
+    return Promise.resolve('')
+  },
+  ensureDir: (dirPath: string): Promise<boolean> => {
+    if (electronAPI?.ensureDir) {
+      return electronAPI.ensureDir(dirPath)
+    }
+    return Promise.resolve(false)
+  },
+
   // File selection dialog
   selectFiles: (): Promise<{ canceled: boolean; filePaths: string[] }> => {
     if (electronAPI?.selectFiles) {

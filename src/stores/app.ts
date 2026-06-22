@@ -67,6 +67,12 @@ export interface CenterTab {
 
 const PROJECT_ROOT_STORAGE_KEY = 'app_project_root'
 const SHOW_HIDDEN_FILES_STORAGE_KEY = 'app_show_hidden_files'
+const MODE_STORAGE_KEY = 'app_mode'
+const WORK_WORKSPACE_STORAGE_KEY = 'app_work_workspace'
+const WORK_WORKSPACE_CONFIRMED_STORAGE_KEY = 'app_work_workspace_confirmed'
+
+/** 工作模式：code = 编码模式（默认）；work = 办公助手模式 */
+export type AppMode = 'work' | 'code'
 
 export type ThemeId = 'light' | 'dark' | 'anthropic' | 'anthropic-dark'
 
@@ -108,6 +114,25 @@ export const useAppStore = defineStore('app', () => {
   } catch { /* ignore */ }
   const showHiddenFiles = ref<boolean>(_initialShowHiddenFiles)
 
+  // ── Work / Code 模式状态 ──────────────────────────────
+  let _initialMode: AppMode = 'code'
+  try {
+    _initialMode = localStorage.getItem(MODE_STORAGE_KEY) === 'work' ? 'work' : 'code'
+  } catch { /* ignore */ }
+  const mode = ref<AppMode>(_initialMode)
+
+  let _initialWorkWorkspace = ''
+  try {
+    _initialWorkWorkspace = localStorage.getItem(WORK_WORKSPACE_STORAGE_KEY) || ''
+  } catch { /* ignore */ }
+  const workWorkspace = ref<string>(_initialWorkWorkspace)
+
+  let _initialWorkConfirmed = false
+  try {
+    _initialWorkConfirmed = localStorage.getItem(WORK_WORKSPACE_CONFIRMED_STORAGE_KEY) === 'true'
+  } catch { /* ignore */ }
+  const workWorkspaceConfirmed = ref<boolean>(_initialWorkConfirmed)
+
   const showSkillsManager = ref(false)
   const showTraceViewer = ref(false)
   const showSettings = ref(false)
@@ -115,6 +140,9 @@ export const useAppStore = defineStore('app', () => {
   const showAgentManager = ref(false)
   const showConnectMobile = ref(false)
   const showCronManager = ref(false)
+  // Work 模式：专业助手画廊 / 工作区引导
+  const showWorkGallery = ref(false)
+  const showWorkOnboarding = ref(false)
 
   const activeInfoTab = computed<InfoPanelTab | null>(() => {
     if (!activeInfoTabId.value) return null
@@ -504,6 +532,22 @@ export const useAppStore = defineStore('app', () => {
     } catch { /* ignore */ }
   }
 
+  function setMode(m: AppMode) {
+    mode.value = m
+    try {
+      localStorage.setItem(MODE_STORAGE_KEY, m)
+    } catch { /* ignore */ }
+  }
+
+  function setWorkWorkspace(path: string) {
+    workWorkspace.value = path
+    workWorkspaceConfirmed.value = true
+    try {
+      localStorage.setItem(WORK_WORKSPACE_STORAGE_KEY, path)
+      localStorage.setItem(WORK_WORKSPACE_CONFIRMED_STORAGE_KEY, 'true')
+    } catch { /* ignore */ }
+  }
+
   function closeProject() {
     projectRoot.value = ''
     try {
@@ -702,6 +746,11 @@ export const useAppStore = defineStore('app', () => {
     activeInfoTab,
     projectRoot,
     showHiddenFiles,
+    mode,
+    workWorkspace,
+    workWorkspaceConfirmed,
+    setMode,
+    setWorkWorkspace,
     showSkillsManager,
     showTraceViewer,
     showSettings,
@@ -709,6 +758,8 @@ export const useAppStore = defineStore('app', () => {
     showAgentManager,
     showConnectMobile,
     showCronManager,
+    showWorkGallery,
+    showWorkOnboarding,
     webviewUrl,
     webviewHistory,
     currentHistoryIndex,

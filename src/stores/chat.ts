@@ -650,7 +650,8 @@ export const useChatStore = defineStore('chat', () => {
       workingDirectory: workingDirectory || currentProjectRoot.value || undefined,
       processStatus: 'none',
       isTabOpen: true,
-      lastActivityAt: Date.now()
+      lastActivityAt: Date.now(),
+      mode: appStore.mode
     }
     sessions.value.unshift(session)
     currentSessionId.value = session.id
@@ -2481,6 +2482,50 @@ export const useChatStore = defineStore('chat', () => {
     console.log('[ChatStore] Model switched to:', model)
   }
 
+  /**
+   * Work 模式：选中专业助手 → 装配并启动一个新会话。
+   * - 将助手 persona 安装为全局 agent（已安装则忽略）
+   * - 将助手绑定的技能安装到工作区 .claude/skills（已安装则忽略）
+   * - 应用 persona / 权限，在 Work 工作区创建会话并启动引擎
+   */
+  async function startWorkAssistantSession(assistant: {
+    name: string
+    skills?: string[]
+    permission?: string
+  }): Promise<Session> {
+    const cwd = appStore.workWorkspace || appStore.projectRoot || undefined
+
+    // 1. 安装 persona（全局），失败/已存在均忽略
+    try {
+      await window.electronAPI?.agents?.install(assistant.name, 'global', cwd)
+    } catch { /* already installed or unavailable */ }
+
+    // 2. 安装绑定技能到工作区（project 作用域），失败/已存在均忽略
+    const skillsApi = (window as any).electronAPI?.skills
+    if (skillsApi?.installLocal && cwd) {
+      for (const skill of assistant.skills || []) {
+        try {
+          await skillsApi.installLocal(skill, 'project', cwd)
+        } catch { /* already installed or unavailable */ }
+      }
+    }
+
+    // 3. 应用 persona 与权限
+    currentAgent.value = assistant.name
+    if (assistant.permission) {
+      currentPermissionMode.value = assistant.permission as PermissionMode
+    }
+
+    // 4. 在 Work 工作区创建会话（createSession 依据 appStore.mode 标记为 'work'）
+    const session = createSession(assistant.name, cwd)
+    session.assistantId = assistant.name
+    saveToStorage()
+
+    // 5. 启动引擎
+    await initClaudeCodeSession(session.id)
+    return session
+  }
+
   sessions.value.forEach(s => {
     if (s.processStatus !== 'none' && s.processStatus !== 'exited') {
       s.processStatus = 'none'
@@ -2699,6 +2744,7 @@ export const useChatStore = defineStore('chat', () => {
     loadAgents,
     switchAgent,
     switchModel,
+    startWorkAssistantSession,
     submitToolAnswer,
     skipToolAnswer,
     // can_use_tool / control_request
