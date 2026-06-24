@@ -2286,8 +2286,11 @@ export async function getMcpToolsCommandsAndResources(
     ScopedMcpServerConfig,
   ]): Promise<void> => {
     try {
+      // [DEBUG-SC-COMPUTER-USE] trace processServer entry
+      console.error(`[DEBUG-SC-CU] processServer entry | name=${name} | type=${config.type} | command=${(config as any).command} | args=${JSON.stringify((config as any).args)}`)
       // Check if server is disabled - if so, just add it to state without connecting
       if (isMcpServerDisabled(name)) {
+        console.error(`[DEBUG-SC-CU] server disabled | name=${name}`)
         onConnectionAttempt({
           client: {
             name,

@@ -5,20 +5,26 @@
   <!-- Split：递归渲染两个孩子 + 中间分隔条 -->
   <div
     v-else
+    ref="splitElRef"
     class="pane-split"
     :class="splitNode.direction"
     :style="splitStyle"
   >
     <PaneNodeView :node="splitNode.children[0]" />
-    <div class="pane-divider" :class="splitNode.direction" />
+    <PaneDivider
+      :split-id="splitNode.id"
+      :direction="splitNode.direction"
+      :container-ref="splitElRef"
+    />
     <PaneNodeView :node="splitNode.children[1]" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { PaneNode, PaneLeaf, PaneSplit } from '@/stores/splitLayout'
 import PaneLeafView from './PaneLeafView.vue'
+import PaneDivider from './PaneDivider.vue'
 
 const props = defineProps<{
   node: PaneNode
@@ -26,6 +32,7 @@ const props = defineProps<{
 
 const isLeaf = computed(() => props.node.type === 'leaf')
 const splitNode = computed(() => props.node as PaneSplit)
+const splitElRef = ref<HTMLElement | null>(null)
 
 const splitStyle = computed(() => {
   if (props.node.type !== 'split') return {}
@@ -58,24 +65,6 @@ const splitStyle = computed(() => {
   &.column {
     grid-template-rows: var(--pane-ratio-1) 4px var(--pane-ratio-2);
     grid-template-columns: 100%;
-  }
-}
-
-.pane-divider {
-  background: var(--surface-border, transparent);
-  transition: background 0.15s ease;
-
-  &.row {
-    cursor: col-resize;
-    width: 4px;
-  }
-  &.column {
-    cursor: row-resize;
-    height: 4px;
-  }
-
-  &:hover {
-    background: var(--accent-primary, #3b82f6);
   }
 }
 </style>

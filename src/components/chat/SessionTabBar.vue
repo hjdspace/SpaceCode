@@ -6,7 +6,9 @@
         :key="tab.id"
         class="session-tab"
         :class="{ active: tab.id === activeTabId }"
+        draggable="true"
         @click="handleTabClick(tab)"
+        @dragstart="onTabDragStart($event, tab)"
       >
         <span class="tab-status" :class="getStatusClass(tab.sessionId)">
           <span v-if="getStatusClass(tab.sessionId) === 'active'" class="spinner"></span>
@@ -69,6 +71,19 @@ function handleTabClick(tab: CenterTab) {
     chatStore.selectSession(tab.sessionId)
     emit('switch-session', tab.sessionId)
   }
+}
+
+/**
+ * 拖拽 tab 到 pane —— 通过自定义 MIME 类型传递 tab 信息，由
+ * PaneLeafView.onDrop 接收并执行 split/replace。
+ */
+function onTabDragStart(e: DragEvent, tab: CenterTab) {
+  if (!e.dataTransfer) return
+  const payload = JSON.stringify({ tabId: tab.id, sessionId: tab.sessionId ?? null })
+  e.dataTransfer.setData('application/spacecode-tab', payload)
+  // 同时设置 text/plain 作为 fallback（部分浏览器调试用）
+  e.dataTransfer.setData('text/plain', tab.label || tab.id)
+  e.dataTransfer.effectAllowed = 'move'
 }
 
 function handleClose(tabId: string) {
