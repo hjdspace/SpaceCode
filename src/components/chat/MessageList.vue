@@ -28,6 +28,10 @@
           :card-data="item.card!"
           class="turn-change-card-wrapper"
         />
+        <ArtifactSummaryCard
+          v-else-if="item.type === 'artifact-card'"
+          :artifacts="item.artifacts!"
+        />
       </template>
 
       <div v-if="props.loading" class="typing-indicator">
@@ -47,6 +51,7 @@ import { storeToRefs } from 'pinia'
 import MessageItem from './MessageItem.vue'
 import AgentTimeline from './AgentTimeline.vue'
 import CurrentTurnChangeCard from './CurrentTurnChangeCard.vue'
+import ArtifactSummaryCard from './ArtifactSummaryCard.vue'
 import { MessageSquare } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useChatStore } from '@/stores/chat'
@@ -74,10 +79,11 @@ interface MessageGroup {
 }
 
 interface DisplayItem {
-  type: 'user-group' | 'assistant-group' | 'turn-card'
+  type: 'user-group' | 'assistant-group' | 'turn-card' | 'artifact-card'
   key: string
   group?: MessageGroup
   card?: TurnChangeCardData
+  artifacts?: import('@/types').ArtifactSummaryEntry[]
 }
 
 // ========== 优化1: 消息分组计算缓存 (类似useMemo) ==========
@@ -154,16 +160,38 @@ const messageGroups = computed<MessageGroup[]>(() => {
   return buildMessageGroups(props.messages)
 })
 
+// 若某助手分组的回合产生了产物（仅办公模式），返回对应的产物卡片项，否则 null
+function artifactCardItem(group: MessageGroup): DisplayItem | null {
+  if (chatStore.currentSession?.mode !== 'work') return null
+  const withArtifacts = group.messages.find(
+    m => m.metadata?.artifacts && m.metadata.artifacts.length > 0
+  )
+  if (!withArtifacts) return null
+  return {
+    type: 'artifact-card',
+    key: `artifact-card-${group.id}`,
+    artifacts: withArtifacts.metadata!.artifacts,
+  }
+}
+
 function buildDisplayItems(
   groups: MessageGroup[],
   cards: TurnChangeCardData[]
 ): DisplayItem[] {
   if (cards.length === 0) {
-    return groups.map(g => ({
-      type: g.type === 'user' ? 'user-group' : 'assistant-group',
-      key: g.id,
-      group: g,
-    }))
+    const items: DisplayItem[] = []
+    for (const g of groups) {
+      items.push({
+        type: g.type === 'user' ? 'user-group' : 'assistant-group',
+        key: g.id,
+        group: g,
+      })
+      if (g.type === 'assistant') {
+        const ac = artifactCardItem(g)
+        if (ac) items.push(ac)
+      }
+    }
+    return items
   }
 
   const items: DisplayItem[] = []
@@ -182,6 +210,8 @@ function buildDisplayItems(
         i++
         const assistantGroup = groups[i]
         items.push({ type: 'assistant-group', key: assistantGroup.id, group: assistantGroup })
+        const acUser = artifactCardItem(assistantGroup)
+        if (acUser) items.push(acUser)
       }
 
       const card = cards.find(
@@ -198,6 +228,8 @@ function buildDisplayItems(
       }
     } else {
       items.push({ type: 'assistant-group', key: group.id, group })
+      const acElse = artifactCardItem(group)
+      if (acElse) items.push(acElse)
     }
   }
 
