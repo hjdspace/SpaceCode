@@ -22,6 +22,10 @@ export interface SessionMetadata {
 }
 
 function getClaudeConfigHomeDir(): string {
+  // 与引擎 envUtils.ts 对齐：优先读 CLAUDE_CONFIG_DIR，否则回退到 XDG_CONFIG_HOME 或 ~/.claude
+  if (process.env.CLAUDE_CONFIG_DIR) {
+    return process.env.CLAUDE_CONFIG_DIR
+  }
   const xdgConfigHome = process.env.XDG_CONFIG_HOME
   if (xdgConfigHome) {
     return path.join(xdgConfigHome, 'claude')
@@ -298,7 +302,7 @@ export const SessionHistoryManager = {
 
   formatTimestamp(timestamp?: number): string {
     if (!timestamp) return ''
-    
+
     const date = new Date(timestamp)
     const now = new Date()
     const diff = now.getTime() - date.getTime()
@@ -310,5 +314,15 @@ export const SessionHistoryManager = {
       return date.toLocaleDateString(undefined, { weekday: 'short' })
     }
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  },
+
+  /**
+   * 构造子代理 sidechain transcript JSONL 的绝对路径。
+   * 与引擎 getAgentTranscriptPath 逻辑一致：
+   *   {configHome}/projects/{sanitizePath(realpath(cwd))}/{sessionId}/subagents/agent-{agentId}.jsonl
+   * 前端用此路径直接轮询 transcript，绕过 .output 符号链接（Windows 上符号链接创建失败导致空文件）。
+   */
+  getAgentTranscriptPath(projectPath: string, sessionId: string, agentId: string): string {
+    return path.join(getProjectDir(projectPath), sessionId, 'subagents', `agent-${agentId}.jsonl`)
   },
 }
