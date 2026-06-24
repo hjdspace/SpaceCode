@@ -11,7 +11,7 @@
  */
 
 import { computed, type Ref } from 'vue'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
 
 export interface SessionTaskItem {
   id?: string
@@ -33,7 +33,7 @@ export interface SessionTaskProgress {
 export function useSessionTaskProgress(
   sessionIdRef: Ref<string | null | undefined> | (() => string | null | undefined),
 ) {
-  const chatStore = useChatStore()
+  const chatStore = useChatSessionStore()
 
   const sessionId = computed(() => {
     return typeof sessionIdRef === 'function'
