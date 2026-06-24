@@ -439,6 +439,15 @@ export function registerClaudeCodeIPC() {
     }
   })
 
+  ipcMain.handle('claude-code:resolveAgentTranscriptPath', async (_, projectPath: string, sessionId: string, agentId: string) => {
+    try {
+      return SessionHistoryManager.getAgentTranscriptPath(projectPath, sessionId, agentId)
+    } catch (err) {
+      error('ClaudeCodeIPC', `✗ resolveAgentTranscriptPath`, { error: String(err) })
+      return null
+    }
+  })
+
   ipcMain.handle('claude-code:restoreSession', async (_, sessionId: string, projectPath: string) => {
     info('ClaudeCodeIPC', `→ restoreSession | sessionId=${sessionId.slice(0, 8)} | projectPath=${projectPath}`)
     try {
