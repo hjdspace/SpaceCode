@@ -31,6 +31,11 @@ export interface WebviewTabData {
   title: string
 }
 
+export interface ScmDiffTabData {
+  filePath: string
+  staged: boolean
+}
+
 /** 由工作台(截图/框选)推送到聊天输入框的内容载荷 */
 export interface InputInjectPayload {
   /** 追加到输入框的文字(如结构化改稿描述) */
@@ -53,7 +58,7 @@ export interface InfoPanelTab {
   type: InfoPanelTabType
   title: string
   icon: any
-  data: FileInfo | ToolDiffData | WebviewTabData | null
+  data: FileInfo | ToolDiffData | WebviewTabData | ScmDiffTabData | null
   closeable: boolean
 }
 
@@ -701,12 +706,16 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  function openScmDiff(filePath: string) {
+  function openScmDiff(filePath: string, isStaged: boolean = false) {
     const tabId = `diff::${filePath}`
     const existing = infoPanelTabs.value.find(t => t.id === tabId)
     if (existing) {
       activeInfoTabId.value = existing.id
       infoPanelVisible.value = true
+      // Keep staged status fresh in case the file was staged/unstaged since the tab was opened
+      if (existing.data) {
+        (existing.data as ScmDiffTabData).staged = isStaged
+      }
       return
     }
 
@@ -715,7 +724,7 @@ export const useAppStore = defineStore('app', () => {
       type: 'diff',
       title: filePath.split(/[\\/]/).pop() || filePath,
       icon: markRaw(FileDiff),
-      data: null,
+      data: { filePath, staged: isStaged },
       closeable: true
     })
   }
