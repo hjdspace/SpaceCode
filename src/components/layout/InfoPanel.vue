@@ -80,6 +80,17 @@
         </div>
 
         <div class="webview-body">
+          <!-- HTML PPT 操作提示条：仅当预览本地 outputs 下的 .html 产物时显示 -->
+          <div v-if="isHtmlPptPreview" class="html-ppt-hint">
+            <span class="hint-label">{{ t('infoPanel.htmlPptHint') }}</span>
+            <span class="hint-keys">
+              <kbd>←</kbd><kbd>→</kbd> {{ t('infoPanel.kbdNav') }}
+              <kbd>T</kbd> {{ t('infoPanel.kbdTheme') }}
+              <kbd>S</kbd> {{ t('infoPanel.kbdPresenter') }}
+              <kbd>F</kbd> {{ t('infoPanel.kbdFullscreen') }}
+            </span>
+          </div>
+
           <webview
             v-if="appStore.webviewUrl"
             :src="appStore.webviewUrl"
@@ -194,6 +205,13 @@ const canGoBack = computed(() => appStore.currentHistoryIndex > 0)
 const canGoForward = computed(() =>
   appStore.currentHistoryIndex < appStore.webviewHistory.length - 1
 )
+
+// 判断当前 webview 是否在预览本地 HTML PPT 产物（file:// 协议 + .html 后缀）
+// 仅这类页面才显示键盘操作提示条
+const isHtmlPptPreview = computed(() => {
+  const url = appStore.webviewUrl || ''
+  return url.startsWith('file://') && /\.html?$/i.test(url)
+})
 
 function handleGoBack() {
   if (canGoBack.value) {
@@ -483,6 +501,51 @@ watch(() => appStore.webviewUrl, () => {
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+.html-ppt-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 12px;
+  background: var(--surface-glass-active, rgba(99, 102, 241, 0.08));
+  border-bottom: 1px solid var(--surface-border);
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+
+  .hint-label {
+    font-weight: 600;
+    color: var(--accent-primary);
+    letter-spacing: 0.3px;
+  }
+
+  .hint-keys {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    color: var(--text-muted);
+  }
+
+  kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+    margin: 0 2px;
+    font-family: var(--font-mono, monospace);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-primary);
+    background: var(--bg-secondary, var(--bg-primary));
+    border: 1px solid var(--surface-border);
+    border-radius: 3px;
+    box-shadow: 0 1px 0 var(--surface-border);
+  }
 }
 
 .webview-tools {

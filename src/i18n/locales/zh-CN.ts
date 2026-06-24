@@ -636,6 +636,11 @@ export default {
     clickLinkHint: '点击聊天中的链接在此处查看网页',
     selectParent: '选父级元素',
     selectChild: '选子级元素',
+    htmlPptHint: 'HTML 演示文稿快捷键：',
+    kbdNav: '翻页',
+    kbdTheme: '切换主题',
+    kbdPresenter: '演讲者模式',
+    kbdFullscreen: '全屏',
   },
 
   titleBar: {

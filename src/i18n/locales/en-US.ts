@@ -636,6 +636,11 @@ export default {
     clickLinkHint: 'Click a link in chat to view the webpage here',
     selectParent: 'Select parent element',
     selectChild: 'Select child element',
+    htmlPptHint: 'HTML presentation shortcuts:',
+    kbdNav: 'navigate',
+    kbdTheme: 'cycle theme',
+    kbdPresenter: 'presenter mode',
+    kbdFullscreen: 'fullscreen',
   },
 
   titleBar: {
