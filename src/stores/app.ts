@@ -583,6 +583,15 @@ export const useAppStore = defineStore('app', () => {
     } catch { /* ignore */ }
   }
 
+  function clearWorkWorkspace() {
+    workWorkspace.value = ''
+    workWorkspaceConfirmed.value = false
+    try {
+      localStorage.removeItem(WORK_WORKSPACE_STORAGE_KEY)
+      localStorage.removeItem(WORK_WORKSPACE_CONFIRMED_STORAGE_KEY)
+    } catch { /* ignore */ }
+  }
+
   function closeProject() {
     projectRoot.value = ''
     try {
@@ -797,6 +806,7 @@ export const useAppStore = defineStore('app', () => {
     workWorkspaceConfirmed,
     setMode,
     setWorkWorkspace,
+    clearWorkWorkspace,
     showSkillsManager,
     showTraceViewer,
     showSettings,

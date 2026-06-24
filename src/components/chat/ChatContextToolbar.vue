@@ -58,8 +58,8 @@
       </Transition>
     </div>
 
-    <!-- Git Branch Selector -->
-    <div class="ctx-selector" ref="branchSelectorRef">
+    <!-- Git Branch Selector (Code 模式专属) -->
+    <div v-if="!isWorkMode" class="ctx-selector" ref="branchSelectorRef">
       <button class="ctx-trigger" :class="{ active: showBranchDropdown }" @click="toggleBranchDropdown">
         <GitBranch :size="13" class="ctx-icon" />
         <span class="ctx-label">{{ currentBranch }}</span>
@@ -139,6 +139,14 @@ const scmStore = useScmStore()
 const sessionContext = useSessionContext()
 const { openProjectFromPicker, openProjectByPath } = useOpenProjectWorkflow()
 
+// ── Work / Code 模式适配 ──────────────────────────────────────────
+const isWorkMode = computed(() => appStore.mode === 'work')
+
+/** 当前模式下的工作目录路径（work 用 workWorkspace，code 用 projectRoot） */
+const currentWorkspacePath = computed(() =>
+  isWorkMode.value ? appStore.workWorkspace : appStore.projectRoot
+)
+
 // --- Project Selector ---
 const showProjectDropdown = ref(false)
 const projectSearch = ref('')
@@ -146,7 +154,7 @@ const projectSelectorRef = ref<HTMLElement | null>(null)
 const projectSearchInput = ref<HTMLInputElement | null>(null)
 
 const projectName = computed(() => {
-  const root = appStore.projectRoot
+  const root = currentWorkspacePath.value
   if (!root) return t('contextToolbar.noProject')
   return root.split(/[/\\]/).filter(Boolean).pop() || root
 })
@@ -189,7 +197,7 @@ function shortPath(path: string): string {
 }
 
 function isCurrent(path: string): boolean {
-  return pathsEqual(path, appStore.projectRoot)
+  return pathsEqual(path, currentWorkspacePath.value)
 }
 
 function toggleProjectDropdown() {
@@ -208,18 +216,31 @@ function closeProjectDropdown() {
 function switchToProject(path: string) {
   closeProjectDropdown()
   if (isCurrent(path)) return
-  openProjectByPath(path)
+  if (isWorkMode.value) {
+    appStore.setWorkWorkspace(path)
+  } else {
+    openProjectByPath(path)
+  }
 }
 
 async function addNewProject() {
   closeProjectDropdown()
-  await openProjectFromPicker()
+  if (isWorkMode.value) {
+    // Work 模式：打开工作区引导（文件夹选择器）
+    appStore.showWorkOnboarding = true
+  } else {
+    await openProjectFromPicker()
+  }
 }
 
 function clearProject() {
   closeProjectDropdown()
-  appStore.closeProject()
-  chatStore.switchProject('')
+  if (isWorkMode.value) {
+    appStore.clearWorkWorkspace()
+  } else {
+    appStore.closeProject()
+    chatStore.switchProject('')
+  }
 }
 
 // --- Branch Selector ---
@@ -269,7 +290,7 @@ function createNewBranch() {
 
 // --- Lifecycle ---
 onMounted(() => {
-  if (appStore.projectRoot) {
+  if (currentWorkspacePath.value) {
     scmStore.refreshBranches()
   }
 })

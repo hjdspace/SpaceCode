@@ -76,6 +76,7 @@
               />
 
               <RecommendedPrompts />
+              <WorkAssistantShortcuts />
             </template>
           </div>
 
@@ -107,6 +108,14 @@
             :show-open-project-action="showNoProjectWelcome"
           />
           <ToastNotification />
+
+          <!-- Work 模式自动路由：多助手匹配时的选择弹窗 -->
+          <WorkAssistantPicker
+            v-model:visible="pickerVisible"
+            :candidates="pickerCandidates"
+            @confirm="onPickerConfirm"
+            @cancel="onPickerCancel"
+          />
 
           <!-- Rewind Dialog -->
           <RewindDialog
@@ -250,6 +259,8 @@ import { useSettingsStore } from '@/stores/settings'
 import { useAppStore } from '@/stores/app'
 import MessageList from '../chat/MessageList.vue'
 import RecommendedPrompts from '../chat/RecommendedPrompts.vue'
+import WorkAssistantShortcuts from '../work/WorkAssistantShortcuts.vue'
+import WorkAssistantPicker from '../work/WorkAssistantPicker.vue'
 import TeamStatusBar from '../chat/TeamStatusBar.vue'
 import TeammateTranscriptHeader from '../chat/TeammateTranscriptHeader.vue'
 import ChatInput, { type Attachment, type ImageAttachment } from '../chat/ChatInput.vue'
@@ -283,6 +294,8 @@ import { buildMessagesFromHistory } from '@/utils/sessionRestore'
 import { initLLMService, llmState, updateConfig } from '@/services/llm'
 import { pathsEqual } from '@/utils/recentProjectRoots'
 import { useChatCommands } from '@/composables/useChatCommands'
+import { useWorkRouter } from '@/composables/useWorkRouter'
+import type { AgentDef } from '@/stores/agents'
 import { api } from '@/services/electronAPI'
 import type { Message } from '@/types'
 
@@ -299,6 +312,49 @@ const diffPanelData = ref<any>(null)
 const diffPanelLoading = ref(false)
 const contextUsageStore = useContextUsageStore()
 const sessionContext = useSessionContext()
+
+// ── Work 模式自动路由：助手选择弹窗 ──────────────────────────────
+const pickerVisible = ref(false)
+const pickerCandidates = ref<AgentDef[]>([])
+let pickerResolve: ((a: AgentDef | null) => void) | null = null
+
+function pickAssistant(candidates: AgentDef[]): Promise<AgentDef | null> {
+  pickerCandidates.value = candidates
+  pickerVisible.value = true
+  return new Promise(resolve => { pickerResolve = resolve })
+}
+
+function onPickerConfirm(a: AgentDef) {
+  pickerVisible.value = false
+  pickerResolve?.(a)
+  pickerResolve = null
+}
+
+function onPickerCancel() {
+  pickerVisible.value = false
+  pickerResolve?.(null)
+  pickerResolve = null
+}
+
+type RouteOutcome =
+  | { kind: 'routed'; assistant: AgentDef }
+  | { kind: 'cancel' }
+  | { kind: 'passthrough' }
+
+/** Work 模式发送前路由：匹配助手 / 咨询用户 / 透传 */
+async function routeWorkSend(content: string): Promise<RouteOutcome> {
+  const { route } = useWorkRouter()
+  const result = route(content)
+  if (result.type === 'match' && result.assistant) {
+    return { kind: 'routed', assistant: result.assistant }
+  }
+  if (result.type === 'ask' && result.candidates.length > 0) {
+    const chosen = await pickAssistant(result.candidates)
+    if (!chosen) return { kind: 'cancel' }
+    return { kind: 'routed', assistant: chosen }
+  }
+  return { kind: 'passthrough' }
+}
 
 // When the floating env panel is open it needs ~324px (300 panel + 12 right
 // margin + 12 gutter). The centered message column has max-width 900px. So we
@@ -758,6 +814,31 @@ async function handleSend(content: string, attachments: AllAttachments, options?
   console.log('[ChatPanel] handleSend called:', content.slice(0, 50))
   const hasContent = content.trim().length > 0 || attachments.files.length > 0 || attachments.images.length > 0
   if (!hasContent) return
+
+  // Work 模式自动路由：空会话且未选助手时，根据输入匹配专业助手。
+  // 单命中 → 直接创建助手会话；多命中/模糊 → 弹出选择；无匹配 → 透传到当前会话。
+  if (
+    appStore.mode === 'work' &&
+    chatStore.currentSession?.mode === 'work' &&
+    !chatStore.currentSession?.assistantId &&
+    chatStore.displayMessages.length === 0
+  ) {
+    const outcome = await routeWorkSend(content.trim())
+    if (outcome.kind === 'cancel') return
+    if (outcome.kind === 'routed' && outcome.assistant) {
+      try {
+        const session = await chatStore.startWorkAssistantSession({
+          name: outcome.assistant.name,
+          skills: outcome.assistant.skills,
+          permission: outcome.assistant.permission,
+        })
+        appStore.openSessionTab(session.id, session.title)
+      } catch (err) {
+        console.error('[ChatPanel] Failed to start routed assistant session:', err)
+      }
+    }
+    // passthrough：不创建助手会话，直接发送到当前空 work 会话
+  }
 
   const userTyped = content.trim()
   let messageContent = userTyped

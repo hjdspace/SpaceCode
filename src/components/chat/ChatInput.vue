@@ -112,6 +112,18 @@
             <FolderOpen :size="18" />
           </button>
 
+          <!-- Work 模式：助手画廊入口（按需弹出） -->
+          <button
+            v-if="appStore.mode === 'work'"
+            type="button"
+            class="toolbar-btn work-context-chip"
+            :title="t('work.galleryEntry')"
+            @click="appStore.showWorkGallery = true"
+          >
+            <LayoutGrid :size="15" />
+            <span class="chip-label">{{ t('work.galleryEntry') }}</span>
+          </button>
+
           <!-- 模型选择器 - 使用可搜索下拉 -->
           <div class="model-selector" ref="modelSelectorRef">
             <button
@@ -280,8 +292,8 @@
       </div>
     </div>
 
-    <!-- Context Toolbar (Project / Git Branch) -->
-    <ChatContextToolbar v-if="appStore.projectRoot" />
+    <!-- Context Toolbar (Project / Git Branch) — Work 模式下也显示，用于工作目录选择 -->
+    <ChatContextToolbar v-if="appStore.projectRoot || appStore.mode === 'work'" />
 
     <!-- 附件菜单弹窗 -->
     <AttachmentMenu
@@ -315,7 +327,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import {
   ArrowUp, Plus, ChevronDown, Check, Square, X,
   Search, Loader2, RefreshCw, AlertCircle, Zap, FolderOpen, Brain,
-  Sparkles, Image, ChevronRight, Archive, Clock
+  Sparkles, Image, ChevronRight, Archive, Clock, LayoutGrid
 } from 'lucide-vue-next'
 import { useSettingsStore } from '@/stores/settings'
 import ChatContextToolbar from './ChatContextToolbar.vue'
@@ -1836,6 +1848,35 @@ watch(pendingFile, (file) => {
   &:hover {
     background: var(--surface-hover);
     color: var(--text-primary);
+  }
+}
+
+// Work 模式工具栏 chip：目录 / 画廊入口
+.work-context-chip {
+  gap: 5px;
+  padding: 6px 10px;
+  font-size: 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  background: var(--surface-glass);
+  max-width: 180px;
+
+  .chip-label {
+    @include truncate;
+    flex-shrink: 1;
+    min-width: 0;
+  }
+
+  &:hover {
+    color: var(--accent-primary);
+    border-color: var(--accent-primary);
+    background: var(--surface-glass-hover);
+  }
+
+  &.set {
+    color: var(--accent-primary);
+    border-color: color-mix(in srgb, var(--accent-primary) 40%, transparent);
+    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
   }
 }
 
