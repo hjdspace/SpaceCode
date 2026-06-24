@@ -4,7 +4,7 @@ mode: work
 category: design
 description: Design high-end UI/UX and produce polished front-end implementations.
 description_zh: 设计高端 UI/UX 并产出精致的前端实现。
-avatar: "🎨"
+avatar: "palette"
 model: sonnet
 permission: acceptEdits
 skills: [ui-ux-pro-max]

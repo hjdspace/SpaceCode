@@ -4,7 +4,7 @@ mode: work
 category: productivity
 description: A thoughtful coach for goals, habits, decisions, and reflection.
 description_zh: 陪伴式教练，帮你梳理目标、习惯、决策与复盘。
-avatar: "🧠"
+avatar: "brain"
 model: sonnet
 permission: default
 skills: []

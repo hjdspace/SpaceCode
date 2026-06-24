@@ -2,7 +2,9 @@
   <Transition name="rp-fade">
     <div v-if="visible" class="recommended-prompts">
       <div class="rp-header">
-        <span class="rp-avatar">{{ assistant?.avatar || '🤖' }}</span>
+        <span class="rp-avatar" :style="assistant ? workAvatarStyle(assistant.category) : {}">
+          <component :is="workAssistantIcon(assistant?.avatar)" :size="18" />
+        </span>
         <div class="rp-titles">
           <div class="rp-name">{{ assistantName }}</div>
           <div class="rp-hint">{{ t('work.promptHint') }}</div>
@@ -28,6 +30,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { useAgentsStore } from '@/stores/agents'
+import { workAssistantIcon, workAvatarStyle, workDisplayName } from '@/utils/workAssistant'
 
 const { t, locale } = useI18n()
 const appStore = useAppStore()
@@ -45,7 +48,7 @@ const isZh = computed(() => String(locale.value).toLowerCase().startsWith('zh'))
 const assistantName = computed(() => {
   const a = assistant.value
   if (!a) return ''
-  return a.name.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+  return workDisplayName(a.name)
 })
 
 const prompts = computed<string[]>(() => {
@@ -102,9 +105,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
   border-radius: var(--radius-md);
-  background: var(--bg-secondary, var(--bg-primary));
 }
 
 .rp-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }

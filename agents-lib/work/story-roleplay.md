@@ -4,7 +4,7 @@ mode: work
 category: creative
 description: Collaborative storytelling and character role-play.
 description_zh: 协作式故事创作与角色扮演。
-avatar: "🎭"
+avatar: "drama"
 model: sonnet
 permission: default
 skills: []

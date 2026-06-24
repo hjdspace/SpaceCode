@@ -4,7 +4,7 @@ mode: work
 category: finance
 description: Turn raw data (CSV/numbers) into a polished Excel dashboard (.xlsx) with charts.
 description_zh: 把原始数据（CSV/数字）做成带图表的 Excel 数据看板（.xlsx）。
-avatar: "📉"
+avatar: "layout-dashboard"
 model: sonnet
 permission: acceptEdits
 skills: [xlsx]

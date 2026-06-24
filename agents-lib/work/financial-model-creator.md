@@ -4,7 +4,7 @@ mode: work
 category: finance
 description: Build financial models (.xlsx) with industry-standard formatting and zero formula errors.
 description_zh: 构建财务模型（.xlsx），遵循行业标准格式，公式零错误。
-avatar: "💰"
+avatar: "coins"
 model: sonnet
 permission: acceptEdits
 skills: [xlsx]

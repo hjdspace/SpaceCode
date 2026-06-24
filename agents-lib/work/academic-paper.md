@@ -4,7 +4,7 @@ mode: work
 category: research
 description: Write structured academic papers (.docx) with sections, citations, and figures.
 description_zh: 撰写结构化学术论文（.docx），含章节、引用与图表。
-avatar: "🎓"
+avatar: "graduation-cap"
 model: sonnet
 permission: acceptEdits
 skills: [docx, pdf]

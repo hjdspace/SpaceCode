@@ -4,7 +4,7 @@ mode: work
 category: productivity
 description: Draft and adapt social posts and job listings across platforms.
 description_zh: 撰写并适配多平台的社媒文案与招聘信息。
-avatar: "📣"
+avatar: "megaphone"
 model: sonnet
 permission: default
 skills: []

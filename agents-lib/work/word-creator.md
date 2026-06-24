@@ -4,7 +4,7 @@ mode: work
 category: office
 description: Create polished, editable Word (.docx) documents — reports, memos, letters, templates.
 description_zh: 生成专业、可编辑的 Word 文档（.docx）——报告、备忘录、信函、模板。
-avatar: "📝"
+avatar: "file-text"
 model: sonnet
 permission: acceptEdits
 skills: [docx]

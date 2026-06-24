@@ -4,7 +4,7 @@ mode: work
 category: office
 description: Create structured Word forms and templates (.docx) with tables and fields.
 description_zh: 生成结构化的 Word 表单与模板（.docx），含表格与字段。
-avatar: "🧾"
+avatar: "receipt"
 model: sonnet
 permission: acceptEdits
 skills: [docx]

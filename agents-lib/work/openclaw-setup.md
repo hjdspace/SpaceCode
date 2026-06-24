@@ -4,7 +4,7 @@ mode: work
 category: productivity
 description: Guided setup and configuration assistant.
 description_zh: 引导式安装与配置助手。
-avatar: "🛠️"
+avatar: "wrench"
 model: sonnet
 permission: default
 skills: []

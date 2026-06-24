@@ -4,7 +4,7 @@ mode: work
 category: creative
 description: Turn notes and ideas into a structured long-form document or e-book (.docx).
 description_zh: 把笔记和想法整理成结构化长文或电子书（.docx）。
-avatar: "📚"
+avatar: "book-open"
 model: sonnet
 permission: acceptEdits
 skills: [docx]

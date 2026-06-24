@@ -4,7 +4,7 @@ mode: work
 category: creative
 description: Prototype small browser games and interactive 3D scenes.
 description_zh: 快速原型化浏览器小游戏与交互式 3D 场景。
-avatar: "🎮"
+avatar: "gamepad-2"
 model: sonnet
 permission: acceptEdits
 skills: [web-artifacts-builder]

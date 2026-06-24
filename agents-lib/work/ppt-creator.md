@@ -4,7 +4,7 @@ mode: work
 category: office
 description: Create editable PowerPoint (.pptx) presentations from outlines, documents, or ideas.
 description_zh: 根据大纲、文档或想法生成可编辑的 PPT 演示文稿（.pptx）。
-avatar: "📊"
+avatar: "presentation"
 model: sonnet
 permission: acceptEdits
 skills: [pptx]

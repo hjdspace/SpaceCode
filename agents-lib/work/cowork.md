@@ -4,7 +4,7 @@ mode: work
 category: productivity
 description: Autonomous task execution — research, files, and office deliverables end to end.
 description_zh: 自主任务执行——研究、文件操作与办公产物一站式完成。
-avatar: "🤝"
+avatar: "handshake"
 model: sonnet
 permission: acceptEdits
 skills: [planning-with-files, pptx, docx, xlsx]

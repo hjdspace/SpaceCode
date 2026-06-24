@@ -4,7 +4,7 @@ mode: work
 category: office
 description: Create editable Excel (.xlsx) spreadsheets — trackers, reports, formulas, charts.
 description_zh: 生成可编辑的 Excel 表格（.xlsx）——追踪表、报表、公式、图表。
-avatar: "📈"
+avatar: "file-spreadsheet"
 model: sonnet
 permission: acceptEdits
 skills: [xlsx]

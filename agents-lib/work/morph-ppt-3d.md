@@ -4,7 +4,7 @@ mode: work
 category: creative
 description: Create bold 3D-styled presentations with depth and dynamic visuals.
 description_zh: 制作富有立体感与动态视觉的 3D 风格演示文稿。
-avatar: "🧊"
+avatar: "box"
 model: sonnet
 permission: acceptEdits
 skills: [pptx]

@@ -4,7 +4,7 @@ mode: work
 category: office
 description: Create visually rich presentations with smooth morph-style transitions.
 description_zh: 制作带平滑过渡动效的视觉化演示文稿。
-avatar: "✨"
+avatar: "sparkles"
 model: sonnet
 permission: acceptEdits
 skills: [pptx]

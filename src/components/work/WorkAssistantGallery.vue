@@ -50,10 +50,12 @@
           :disabled="starting"
           @click="handleSelect(a)"
         >
-          <div class="card-avatar">{{ a.avatar || '🤖' }}</div>
+          <div class="card-avatar" :style="workAvatarStyle(a.category)">
+            <component :is="workAssistantIcon(a.avatar)" :size="20" />
+          </div>
           <div class="card-body">
             <div class="card-head">
-              <div class="card-name">{{ displayName(a) }}</div>
+              <div class="card-name">{{ workDisplayName(a.name) }}</div>
               <span v-if="formatTag(a)" class="card-tag" :class="`tag-${formatTag(a)}`">{{ formatTag(a) }}</span>
             </div>
             <div class="card-desc">{{ displayDesc(a) }}</div>
@@ -71,6 +73,7 @@ import { Search, Bot, X, FolderOpen } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { useAgentsStore, type AgentDef } from '@/stores/agents'
+import { workAssistantIcon, workAvatarStyle, workDisplayName } from '@/utils/workAssistant'
 
 const { t, locale } = useI18n()
 const appStore = useAppStore()
@@ -110,7 +113,7 @@ const filtered = computed(() => {
   const q = query.value.trim().toLowerCase()
   if (q) {
     list = list.filter(a =>
-      displayName(a).toLowerCase().includes(q) ||
+      workDisplayName(a.name).toLowerCase().includes(q) ||
       displayDesc(a).toLowerCase().includes(q)
     )
   }
@@ -125,11 +128,6 @@ const workspaceLabel = computed(() => {
 
 function isZh() {
   return String(locale.value).toLowerCase().startsWith('zh')
-}
-
-function displayName(a: AgentDef): string {
-  // id (kebab) → Title Case
-  return a.name.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 }
 
 function displayDesc(a: AgentDef): string {
@@ -307,9 +305,7 @@ onMounted(loadLibrary)
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
   border-radius: var(--radius-md);
-  background: var(--bg-secondary, var(--bg-primary));
 }
 
 .card-body { min-width: 0; }
