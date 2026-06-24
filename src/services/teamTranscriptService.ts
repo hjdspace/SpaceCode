@@ -220,9 +220,10 @@ export function ensureTeamContext(session: Session, teamName: string): void {
   session.teammateTranscripts = session.teammateTranscripts || {}
 }
 
-// 记录“以输出文件为权威来源”的子代理（异步 agent）：key = `${sessionId}:${teammateId}`。
-// 这类子代理的转录完全由 .output 文件解析得到，实时 sidechain 事件不再另写转录（避免重复）。
-const agentOutputFiles = new Map<string, { filePath: string; name: string; status: TeammateStatus }>()
+// 记录"以输出文件为权威来源"的子代理（异步 agent）：key = `${sessionId}:${teammateId}`。
+// 这类子代理的转录完全由 transcript 文件解析得到，实时 sidechain 事件不再另写转录（避免重复）。
+// agentId 用于在 Windows（符号链接失败）时直接解析 transcript JSONL 路径，绕过 .output 空文件。
+const agentOutputFiles = new Map<string, { filePath: string; name: string; status: TeammateStatus; agentId?: string }>()
 
 /** 该 teammate 的转录是否由输出文件托管（若是，则 recordTeammateMessage 不应再追加，以免重复）。 */
 export function isFileBackedTeammate(sessionId: string, teammateId: string): boolean {
@@ -237,7 +238,7 @@ export function isFileBackedTeammate(sessionId: string, teammateId: string): boo
 export function rekickAgentTranscriptPoll(session: Session, sessionId: string, teammateId: string): void {
   const info = agentOutputFiles.get(`${sessionId}:${teammateId}`)
   if (!info) return
-  void hydrateAgentTranscriptFromFile(session, teammateId, info.filePath, info.name, info.status)
+  void hydrateAgentTranscriptFromFile(session, teammateId, info.filePath, info.name, info.status, info.agentId)
 }
 
 export function recordAgentToolCall(session: Session, toolCall: ToolCall, status: TeammateStatus = 'running'): void {
@@ -297,9 +298,10 @@ export function recordAgentToolCall(session: Session, toolCall: ToolCall, status
       }]
     }
     if (parsedOutput.outputFile) {
-      // 标记为“文件托管”：转录以 .output 文件为唯一来源，实时 sidechain 事件不再另写（去重）。
-      agentOutputFiles.set(`${session.id}:${teammateId}`, { filePath: parsedOutput.outputFile, name, status })
-      void hydrateAgentTranscriptFromFile(session, teammateId, parsedOutput.outputFile, name, status)
+      // 标记为“文件托管”：转录以 transcript 文件为唯一来源，实时 sidechain 事件不再另写（去重）。
+      // 同时存储 agentId，用于在 Windows（符号链接失败）时直接解析 transcript JSONL 路径。
+      agentOutputFiles.set(`${session.id}:${teammateId}`, { filePath: parsedOutput.outputFile, name, status, agentId: parsedOutput.agentId })
+      void hydrateAgentTranscriptFromFile(session, teammateId, parsedOutput.outputFile, name, status, parsedOutput.agentId)
     }
   }
 
@@ -327,17 +329,36 @@ const activeAgentFilePolls = new Set<string>()
  *  2. 以 1.5s 间隔轮询文件，内容仍在增长时持续重新解析替换 —— 近实时跟随子代理输出；
  *     连续约 12s 无变化（或达到兜底上限）后停止。轮询链独立于主回合的事件监听，
  *     因此异步后台子代理在主回合结束后仍能被跟随。
+ *  3. 当 agentId 可用时，优先通过 IPC 解析真实 transcript JSONL 路径进行轮询，
+ *     绕过 .output 符号链接（Windows 上符号链接创建失败导致空文件）。
  */
-async function hydrateAgentTranscriptFromFile(session: Session, teammateId: string, filePath: string, name: string, status: TeammateStatus) {
+async function hydrateAgentTranscriptFromFile(session: Session, teammateId: string, filePath: string, name: string, status: TeammateStatus, agentId?: string) {
   const pollKey = `${session.id}:${teammateId}:${filePath}`
   if (activeAgentFilePolls.has(pollKey)) return
   activeAgentFilePolls.add(pollKey)
+
+  // 解析真实 transcript JSONL 路径，绕过 .output 符号链接。
+  // Windows 上符号链接创建失败时 .output 是空普通文件，真实转录在
+  // ~/.claude/projects/{sanitized-cwd}/{sessionId}/subagents/agent-{agentId}.jsonl
+  let transcriptPath = filePath
+  if (agentId && session.workingDirectory) {
+    try {
+      const resolved = await api.claudeCode?.resolveAgentTranscriptPath(
+        session.workingDirectory,
+        session.id,
+        agentId,
+      )
+      if (resolved) transcriptPath = resolved
+    } catch {
+      // 解析失败时回退到 .output 文件路径
+    }
+  }
 
   let lastLength = -1
   let stableTicks = 0
   let remainingTicks = 800 // ~20min 兜底；正常会因内容长时间停止增长而提前结束
   // 子代理在两次写入之间可能有较长间隔（等待 LLM 首字、长时间工具执行）。
-  // 容忍 ~45s 无变化再停止，避免轮询在子代理仍活跃时过早结束导致“看不到实时输出”。
+  // 容忍 ~45s 无变化再停止，避免轮询在子代理仍活跃时过早结束导致"看不到实时输出"。
   const MAX_STABLE_TICKS = 30
 
   const applyParsed = (text: string) => {
@@ -364,7 +385,7 @@ async function hydrateAgentTranscriptFromFile(session: Session, teammateId: stri
   const tick = async () => {
     let text = ''
     try {
-      text = (await api.readFile(filePath)) || ''
+      text = (await api.readFile(transcriptPath)) || ''
     } catch {
       // 文件暂不可读，下一轮重试
     }
