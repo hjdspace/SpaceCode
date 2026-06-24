@@ -72,6 +72,15 @@ export class ClaudeCodeProcessPool {
         } catch (e) {
           warn('ProcessPool', `[${sessionId.slice(0, 8)}] Failed to apply pending permission mode`, { error: String(e) })
         }
+      } else if (config.permissionMode && config.permissionMode !== 'bypassPermissions') {
+        // engine 因 --dangerously-skip-permissions 启动为 bypass 模式，
+        // 启动后切回用户配置的模式，同时保留运行时切换到 bypass 的能力。
+        info('ProcessPool', `[${sessionId.slice(0, 8)}] Restoring user permission mode | mode=${config.permissionMode}`)
+        try {
+          await proc.setPermissionMode(config.permissionMode as any)
+        } catch (e) {
+          warn('ProcessPool', `[${sessionId.slice(0, 8)}] Failed to restore user permission mode`, { error: String(e) })
+        }
       }
     } catch (err) {
       error('ProcessPool', `[${sessionId.slice(0, 8)}] Failed to start session`, { error: String(err) })
@@ -102,6 +111,15 @@ export class ClaudeCodeProcessPool {
           this.pendingPermissionModes.delete(sessionId)
         } catch (e) {
           warn('ProcessPool', `[${sessionId.slice(0, 8)}] Failed to apply pending permission mode after resume`, { error: String(e) })
+        }
+      } else if (proc.config.permissionMode && proc.config.permissionMode !== 'bypassPermissions') {
+        // engine 因 --dangerously-skip-permissions 启动为 bypass 模式，
+        // resume 后切回用户配置的模式，同时保留运行时切换到 bypass 的能力。
+        info('ProcessPool', `[${sessionId.slice(0, 8)}] Restoring user permission mode after resume | mode=${proc.config.permissionMode}`)
+        try {
+          await proc.setPermissionMode(proc.config.permissionMode as any)
+        } catch (e) {
+          warn('ProcessPool', `[${sessionId.slice(0, 8)}] Failed to restore user permission mode after resume`, { error: String(e) })
         }
       }
     } catch (err) {

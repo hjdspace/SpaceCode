@@ -896,9 +896,11 @@ export class SessionProcess extends EventEmitter {
     }
     const permissionMode = config.permissionMode || 'default'
     args.push('--permission-mode', permissionMode)
-    // 始终允许运行时切换到 bypassPermissions；该参数只是开启选项，不会默认跳过权限网关，
-    // 当前模式仍由 --permission-mode 控制。
-    args.push('--allow-dangerously-skip-permissions')
+    // 使用 --dangerously-skip-permissions 使 engine 启动时 isBypassPermissionsModeAvailable=true，
+    // 从而允许运行时切换到 bypassPermissions 模式。
+    // engine 会因此启动为 bypass 模式（优先级高于 --permission-mode），
+    // 进程启动后由 ProcessPool 立即通过 setPermissionMode 切回用户配置的模式。
+    args.push('--dangerously-skip-permissions')
     if (config.effortLevel) args.push('--effort', config.effortLevel)
     if (config.systemPrompt) args.push('--system-prompt', config.systemPrompt)
 
