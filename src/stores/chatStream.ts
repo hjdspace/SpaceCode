@@ -48,6 +48,17 @@ export const useChatStreamStore = defineStore('chatStream', () => {
     sessionStore.currentSessionId ? (streamingContents.value.get(sessionStore.currentSessionId) ?? '') : ''
   )
 
+  // ── By-id selectors（分屏多 pane 场景按 sessionId 直接读取，不依赖全局 current）──
+  function getIsLoading(sessionId: string | null | undefined): boolean {
+    if (!sessionId) return false
+    return loadingSessions.value.get(sessionId) ?? false
+  }
+
+  function getStreamingContent(sessionId: string | null | undefined): string {
+    if (!sessionId) return ''
+    return streamingContents.value.get(sessionId) ?? ''
+  }
+
   // ────────────────────────────────────────────────────────────────────
   // Pending Messages
   // ────────────────────────────────────────────────────────────────────
@@ -1125,6 +1136,8 @@ export const useChatStreamStore = defineStore('chatStream', () => {
     loadingSessions,
     isLoading,
     streamingContent,
+    getIsLoading,
+    getStreamingContent,
     sendMessage,
     abort,
     retryLastMessage,

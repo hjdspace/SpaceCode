@@ -29,8 +29,7 @@
           <span class="agent-badge" v-if="chatStore.currentAgent" :title="chatStore.currentAgent">
             <span class="badge-dot agent-dot" aria-hidden="true"></span>
             {{ chatStore.currentAgent }}
-          </span>
-          <span class="model-badge" v-if="currentModel" :title="currentModel">
+          </span>          <span class="model-badge" v-if="currentModel" :title="currentModel">
             <span class="badge-dot" aria-hidden="true"></span>
             {{ formatModelName(currentModel) }}
           </span>
@@ -62,14 +61,14 @@
 
             <template v-else>
               <TeammateTranscriptHeader
-                v-if="chatStore.isViewingTeammate"
-                :teammate="chatStore.viewedTeammate"
+                v-if="paneIsViewingTeammate"
+                :teammate="paneViewedTeammate"
                 @back="chatStore.backToLeaderView"
               />
 
               <MessageList
-                :messages="chatStore.displayMessages"
-                :loading="chatStore.isLoading"
+                :messages="paneMessages"
+                :loading="paneIsLoading"
                 @tool-submit="handleToolSubmit"
                 @tool-skip="handleToolSkip"
                 @rewind="handleMessageRewind"
@@ -82,8 +81,8 @@
 
           <TeamStatusBar
             v-if="!showNoProjectWelcome"
-            :team-context="chatStore.currentTeamContext"
-            :viewing-agent-task-id="chatStore.currentViewedAgentTaskId"
+            :team-context="paneTeamContext"
+            :viewing-agent-task-id="paneViewedAgentTaskId"
             @view-teammate="chatStore.viewTeammateTranscript"
           />
 
@@ -100,10 +99,10 @@
             @update:agent="handleAgentChange"
             @open-skills="handleOpenSkills"
             @stop="handleStop"
-            :disabled="chatStore.isLoading"
-            :is-sending="chatStore.isLoading"
+            :disabled="paneIsLoading"
+            :is-sending="paneIsLoading"
             :model-value="currentModel"
-            :working-directory="chatStore.workingDirectory"
+            :working-directory="paneWorkingDirectory"
             :placeholder="t('chat.askAnything')"
             :show-open-project-action="showNoProjectWelcome"
           />
@@ -304,6 +303,47 @@ const settingsStore = useSettingsStore()
 const appStore = useAppStore()
 const { t } = useI18n()
 
+// ── Pane props（分屏多 pane 时由 SplitContainer 传入；未传入 = 单屏，行为
+//    与改造前完全一致：所有 pane-scoped 计算回退到全局 current*） ──
+const props = defineProps<{
+  /** 当前 pane 绑定的会话 id；未传时回退到 chatStore.currentSessionId */
+  sessionId?: string
+  /** 所在 pane 的 id（用于焦点/active 同步等高级用法；当前阶段未消费） */
+  paneId?: string
+}>()
+
+/** 用 prop 或 current 解析出本 pane 实际绑定的会话 id（可能为空字符串） */
+const paneSessionId = computed(() => props.sessionId || chatStore.currentSessionId || '')
+
+/** Pane-scoped 数据：始终响应式跟踪所在 session（无 prop 时即 current 行为） */
+const paneSession = computed(() =>
+  props.sessionId ? chatStore.getSession(paneSessionId.value) : chatStore.currentSession
+)
+const paneMessages = computed(() =>
+  props.sessionId ? chatStore.getDisplayMessages(paneSessionId.value) : chatStore.displayMessages
+)
+const paneRawMessages = computed(() =>
+  props.sessionId ? chatStore.getSessionMessages(paneSessionId.value) : chatStore.currentMessages
+)
+const paneIsLoading = computed(() =>
+  props.sessionId ? chatStore.getIsLoading(paneSessionId.value) : chatStore.isLoading
+)
+const paneWorkingDirectory = computed(() =>
+  props.sessionId ? chatStore.getWorkingDirectory(paneSessionId.value) : chatStore.workingDirectory
+)
+const paneTeamContext = computed(() =>
+  props.sessionId ? chatStore.getTeamContext(paneSessionId.value) : chatStore.currentTeamContext
+)
+const paneViewedAgentTaskId = computed(() =>
+  props.sessionId ? chatStore.getViewedAgentTaskId(paneSessionId.value) : chatStore.currentViewedAgentTaskId
+)
+const paneIsViewingTeammate = computed(() =>
+  props.sessionId ? chatStore.getIsViewingTeammate(paneSessionId.value) : chatStore.isViewingTeammate
+)
+const paneViewedTeammate = computed(() =>
+  props.sessionId ? chatStore.getViewedTeammate(paneSessionId.value) : chatStore.viewedTeammate
+)
+
 const showHistoryModal = ref(false)
 const historySearchQuery = ref('')
 const showContextModal = ref(false)
@@ -471,12 +511,12 @@ const showMessageSelector = ref(false)
 const rewindSelectedMessageContent = computed(() => {
   const messageId = chatStore.rewindState.selectedMessageId
   if (!messageId) return ''
-  const message = chatStore.currentSession?.messages.find(m => m.id === messageId)
+  const message = paneSession.value?.messages.find(m => m.id === messageId)
   return message?.content || ''
 })
 
 const userMessages = computed(() =>
-  chatStore.currentSession?.messages
+  paneSession.value?.messages
     .filter(m => m.role === 'user')
     .map(m => ({
       id: m.id,
@@ -494,7 +534,7 @@ async function handleRewindConfirm() {
 
   if (option === 'summarize') {
     chatStore.summarizeTurn(
-      chatStore.currentSessionId || '',
+      paneSessionId.value || '',
       messageId,
       chatStore.rewindState.summarizeFeedback
     )
@@ -513,17 +553,17 @@ async function handleRewindConfirm() {
 }
 
 async function openCodeRewindConfirm() {
-  if (!chatStore.rewindState.selectedMessageId || !chatStore.currentSessionId) return
+  if (!chatStore.rewindState.selectedMessageId || !paneSessionId.value) return
 
   if (chatStore.turnChangeCards.length === 0) {
     await chatStore.loadTurnCheckpoints(
-      chatStore.currentSessionId,
-      chatStore.workingDirectory || undefined
+      paneSessionId.value,
+      paneWorkingDirectory.value || undefined
     )
   }
 
   const files = await chatStore.loadFilesToRewind(
-    chatStore.currentSessionId,
+    paneSessionId.value,
     chatStore.rewindState.selectedMessageId
   )
 
@@ -554,7 +594,7 @@ async function executeRewind() {
 
   try {
     await chatStore.rewindSession(
-      chatStore.currentSessionId || '',
+      paneSessionId.value || '',
       messageId,
       option as 'both' | 'conversation' | 'code'
     )
@@ -585,8 +625,8 @@ function handleMessageRewind(message: Message) {
 }
 
 const chatCommands = useChatCommands({
-  sessionId: chatStore.currentSessionId || '',
-  messages: chatStore.currentMessages,
+  sessionId: paneSessionId.value,
+  messages: paneRawMessages.value,
   onOpenSkills: () => {
     handleOpenSkills()
   },
@@ -595,7 +635,7 @@ const chatCommands = useChatCommands({
   },
 })
 
-const currentSession = computed(() => chatStore.currentSession)
+const currentSession = computed(() => paneSession.value)
 const provider = computed(() => llmState.provider.value)
 const isConfigured = computed(() => llmState.isConfigured.value)
 
@@ -647,8 +687,8 @@ const currentModel = ref('')
 onMounted(async () => {
   await initLLMService()
   currentModel.value = settingsStore.config.model || ''
-  if (chatStore.currentSessionId) {
-    void contextUsageStore.refresh(chatStore.currentSessionId)
+  if (paneSessionId.value) {
+    void contextUsageStore.refresh(paneSessionId.value)
   }
 
   // chat-main width is observed by the watchEffect above (reactive to chatMainRef)
@@ -672,7 +712,7 @@ onMounted(async () => {
 })
 
 watch(
-  () => [chatStore.currentSessionId, chatStore.isLoading] as const,
+  () => [paneSessionId.value, paneIsLoading.value] as const,
   ([sid, loading], prev) => {
     if (!sid) {
       contextUsageStore.clear()
@@ -686,9 +726,9 @@ watch(
 )
 
 // AI 回复完成后，自动发送 pending 队列中的消息
-watch(() => chatStore.isLoading, async (loading, prevLoading) => {
+watch(() => paneIsLoading.value, async (loading, prevLoading) => {
   if (prevLoading && !loading) {
-    const sid = chatStore.currentSessionId
+    const sid = paneSessionId.value
     if (!sid) return
 
     // 将暂存的 prompt（Ctrl+S）转为 pending message，由下方逻辑自动发送
@@ -819,9 +859,9 @@ async function handleSend(content: string, attachments: AllAttachments, options?
   // 单命中 → 直接创建助手会话；多命中/模糊 → 弹出选择；无匹配 → 透传到当前会话。
   if (
     appStore.mode === 'work' &&
-    chatStore.currentSession?.mode === 'work' &&
-    !chatStore.currentSession?.assistantId &&
-    chatStore.displayMessages.length === 0
+    paneSession.value?.mode === 'work' &&
+    !paneSession.value?.assistantId &&
+    paneMessages.value.length === 0
   ) {
     const outcome = await routeWorkSend(content.trim())
     if (outcome.kind === 'cancel') return
@@ -844,8 +884,8 @@ async function handleSend(content: string, attachments: AllAttachments, options?
   // （选择助手时不立即弹出，等用户真正开始使用助手再展开）
   if (
     appStore.mode === 'work' &&
-    chatStore.currentSession?.mode === 'work' &&
-    chatStore.currentSession?.assistantId &&
+    paneSession.value?.mode === 'work' &&
+    paneSession.value?.assistantId &&
     !appStore.infoPanelTabs.some(t => t.id === 'artifacts-panel')
   ) {
     appStore.openArtifactsPanel()
@@ -938,7 +978,7 @@ import { BUILT_IN_COMMANDS, COMMAND_PROMPTS, findCommand, type CommandKind } fro
 
 // 执行斜杠命令
 async function executeSlashCommand(command: string, args: string): Promise<string> {
-  const workingDir = chatStore.workingDirectory
+  const workingDir = paneWorkingDirectory.value
   const cmd = findCommand(command)
 
   // 使用新的命令系统处理
@@ -952,9 +992,9 @@ async function executeSlashCommand(command: string, args: string): Promise<strin
       // 先中断任何正在进行的请求，重置 loading 状态
       await chatStore.abort()
       // 清除当前会话的消息
-      if (chatStore.currentSession) {
-        chatStore.currentSession.messages = []
-        chatStore.currentSession.title = t('common.newChat')
+      if (paneSession.value) {
+        paneSession.value.messages = []
+        paneSession.value.title = t('common.newChat')
       }
       return t('chatPanel.commandCleared')
 
@@ -1053,7 +1093,7 @@ ${t('chatPanel.helpCustomSkillsDesc')}
 
 // 获取并展示 Git Diff
 async function fetchAndShowDiff() {
-  const workingDir = chatStore.workingDirectory
+  const workingDir = paneWorkingDirectory.value
   if (!workingDir) {
     await chatStore.addMessage({
       role: 'assistant',
@@ -1084,7 +1124,7 @@ async function fetchAndShowDiff() {
 
 // 生成 Token 用量信息
 function generateCostMessage(): string {
-  const messages = chatStore.currentMessages
+  const messages = paneRawMessages.value
   let totalInput = 0
   let totalOutput = 0
   let turnCount = 0
@@ -1122,7 +1162,7 @@ function generateCostMessage(): string {
 
 // 生成上下文信息
 function generateContextMessage(): string {
-  const session = chatStore.currentSession
+  const session = paneSession.value
   if (!session) return t('chatPanel.commandNoSession')
 
   const messageCount = session.messages.length

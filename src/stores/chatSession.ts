@@ -386,6 +386,48 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     currentSession.value?.workingDirectory || currentProjectRoot.value || ''
   )
 
+  // ── By-id selectors（供分屏多 pane 场景按 sessionId 直接读取，不依赖全局 current）──
+  // 这些函数都是「响应式安全」的：内部读取 sessions.value，包在 computed 里使用即可。
+  function getSession(sessionId: string | null | undefined): Session | null {
+    if (!sessionId) return null
+    return sessions.value.find(s => s.id === sessionId) || null
+  }
+
+  function getSessionMessages(sessionId: string | null | undefined): Message[] {
+    return getSession(sessionId)?.messages || []
+  }
+
+  /** 等价于 displayMessages，但作用于任意 sessionId（包括队友转录回退） */
+  function getDisplayMessages(sessionId: string | null | undefined): Message[] {
+    const s = getSession(sessionId)
+    if (!s) return []
+    const teammateId = s.viewingAgentTaskId
+    if (!teammateId) return s.messages || []
+    return s.teammateTranscripts?.[teammateId] || []
+  }
+
+  function getWorkingDirectory(sessionId: string | null | undefined): string {
+    return getSession(sessionId)?.workingDirectory || currentProjectRoot.value || ''
+  }
+
+  function getTeamContext(sessionId: string | null | undefined) {
+    return getSession(sessionId)?.teamContext || null
+  }
+
+  function getViewedAgentTaskId(sessionId: string | null | undefined): string | undefined {
+    return getSession(sessionId)?.viewingAgentTaskId
+  }
+
+  function getViewedTeammate(sessionId: string | null | undefined) {
+    const taskId = getViewedAgentTaskId(sessionId)
+    if (!taskId) return null
+    return getTeamContext(sessionId)?.teammates[taskId] || null
+  }
+
+  function getIsViewingTeammate(sessionId: string | null | undefined): boolean {
+    return !!getViewedAgentTaskId(sessionId)
+  }
+
   const allProjects = computed(() => {
     const projectSet = new Set<string>()
     for (const session of sessions.value) {
@@ -1347,6 +1389,15 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     viewedTeammate,
     isViewingTeammate,
     workingDirectory,
+    // By-id selectors（分屏多 pane 用）
+    getSession,
+    getSessionMessages,
+    getDisplayMessages,
+    getWorkingDirectory,
+    getTeamContext,
+    getViewedAgentTaskId,
+    getViewedTeammate,
+    getIsViewingTeammate,
     projects,
     allProjects,
     currentProjectRoot,
