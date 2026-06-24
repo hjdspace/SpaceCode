@@ -17,6 +17,21 @@ import {
 } from './controlProtocol'
 import { buildEnabledMcpConfig } from './mcpConfigStore'
 
+/**
+ * 当 sc-computer-use MCP 启用时追加到 system prompt 的可用性提示。
+ *
+ * Claude Code 原生 computer-use 依赖 Anthropic API 后端检测 mcp__computer-use__*
+ * 工具名来注入 COMPUTER_USE_MCP_AVAILABILITY_HINT。SpaceCode 因保留名冲突改用
+ * sc-computer-use，后端不会注入该提示；非 Anthropic 模型更是完全没有此机制。
+ * 这里手动补上等价提示，让 LLM 知道自己有桌面控制能力、工具命名约定和使用时机。
+ */
+const COMPUTER_USE_AVAILABILITY_HINT = [
+  'You have access to the sc-computer-use MCP server, which provides desktop control tools. All its tools are prefixed with `mcp__sc-computer-use__`.',
+  'Capabilities: take screenshots, move/click the mouse, type text, press keys, scroll, open native applications, manage windows, read/write the clipboard, and run batch action sequences.',
+  'When the user asks to operate a desktop application, interact with native UI, or perform any task requiring GUI interaction (e.g. opening an app, clicking buttons, filling forms), use these tools.',
+  'Workflow: first call `mcp__sc-computer-use__request_access` to obtain session permission, then call `mcp__sc-computer-use__screenshot` to see the current screen state before performing any action. After each action, take a new screenshot to verify the result.',
+].join(' ')
+
 export interface SessionConfig {
   cwd: string
   model?: string
@@ -887,15 +902,33 @@ export class SessionProcess extends EventEmitter {
     if (config.effortLevel) args.push('--effort', config.effortLevel)
     if (config.systemPrompt) args.push('--system-prompt', config.systemPrompt)
 
+    // 提前加载 MCP 配置：既用于下方 computer-use 可用性提示，也用于后续
+    // --mcp-config 注入，避免重复读取磁盘。
+    let enabledMcpConfig: ReturnType<typeof buildEnabledMcpConfig> = null
+    try {
+      enabledMcpConfig = buildEnabledMcpConfig()
+    } catch (err) {
+      warn('SessionProcess', `Failed to load MCP config: ${err}`)
+    }
+
+    // 当内置 sc-computer-use MCP 启用时，向 system prompt 追加可用性提示。
+    // key 与 src/lib/builtinMcp.ts 的 preset key 对齐。
+    const computerUseHint =
+      enabledMcpConfig && 'sc-computer-use' in enabledMcpConfig.mcpServers
+        ? COMPUTER_USE_AVAILABILITY_HINT
+        : ''
+
     const askUserGuidance = [
       'When you need to ask the user clarifying questions, present choices, or gather preferences, you MUST use the AskUserQuestion tool instead of writing questions as plain text.',
       'If AskUserQuestion is not in your available tool list (it may be deferred behind ToolSearch), first call ToolSearch({query: "select:AskUserQuestion"}) to load its schema, then call it.',
       'This applies to all skills including brainstorming — always use AskUserQuestion for interactive questions with options.',
     ].join(' ')
-    const finalAppendPrompt = config.appendSystemPrompt
-      ? config.appendSystemPrompt + '\n\n' + askUserGuidance
-      : askUserGuidance
-    args.push('--append-system-prompt', finalAppendPrompt)
+    const appendParts = [
+      config.appendSystemPrompt,
+      computerUseHint,
+      askUserGuidance,
+    ].filter(Boolean)
+    args.push('--append-system-prompt', appendParts.join('\n\n'))
     if (config.maxTurns) args.push('--max-turns', String(config.maxTurns))
     if (config.maxBudgetUsd) args.push('--max-budget-usd', String(config.maxBudgetUsd))
     if (config.agent) args.push('--agent', config.agent)
@@ -920,20 +953,21 @@ export class SessionProcess extends EventEmitter {
     // 做法：把所有 enabled=true 的服务器导出成 CLI schema，写到一个临时
     // JSON 文件，作为 --mcp-config 传进去。文件命名带 sessionId + 时间戳，
     // 避免多会话/多窗口并发写同一份。
+    //
+    // 复用上方已加载的 enabledMcpConfig，不再重复读取磁盘。
     try {
-      const cliConfig = buildEnabledMcpConfig()
-      if (cliConfig && Object.keys(cliConfig.mcpServers).length > 0) {
+      if (enabledMcpConfig && Object.keys(enabledMcpConfig.mcpServers).length > 0) {
         const mcpDir = path.join(os.tmpdir(), 'SpaceCode')
         try { fs.mkdirSync(mcpDir, { recursive: true }) } catch {}
         const mcpPath = path.join(
           mcpDir,
           `mcp-${this.sessionId.slice(0, 8)}-${Date.now()}.json`,
         )
-        fs.writeFileSync(mcpPath, JSON.stringify(cliConfig, null, 2), 'utf8')
+        fs.writeFileSync(mcpPath, JSON.stringify(enabledMcpConfig, null, 2), 'utf8')
         args.push('--mcp-config', mcpPath)
         debug(
           'SessionProcess',
-          `[${this.sessionId.slice(0, 8)}] Injected MCP config | path=${mcpPath} | servers=${Object.keys(cliConfig.mcpServers).join(',')}`,
+          `[${this.sessionId.slice(0, 8)}] Injected MCP config | path=${mcpPath} | servers=${Object.keys(enabledMcpConfig.mcpServers).join(',')}`,
         )
       }
     } catch (err) {
