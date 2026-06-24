@@ -31,7 +31,7 @@
           <McpManager v-else-if="appStore.showMCPManager" />
           <CronManager v-else-if="appStore.showCronManager" />
           <WorkAssistantGallery v-else-if="appStore.showWorkGallery" />
-          <ChatPanel v-else-if="!appStore.showTraceViewer" />
+          <SplitContainer v-else-if="!appStore.showTraceViewer" />
           <TraceViewer v-else />
         </div>
       </div>
@@ -61,7 +61,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useFontStore } from '@/stores/font'
 import TitleBar from './components/layout/TitleBar.vue'
 import Sidebar from './components/layout/Sidebar.vue'
-import ChatPanel from './components/layout/ChatPanel.vue'
+import SplitContainer from './components/layout/SplitContainer.vue'
 import InfoPanel from './components/layout/InfoPanel.vue'
 import TraceViewer from './components/debug/TraceViewer.vue'
 import SettingsPanel from './components/settings/SettingsPanel.vue'

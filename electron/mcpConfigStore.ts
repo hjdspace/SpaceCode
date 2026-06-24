@@ -138,13 +138,18 @@ const BUNDLED_MCP_SERVERS: Record<string, { pkgPath: string }> = {
  */
 function resolveBundledMcpCommand(pkgRelPath: string): { bunPath: string; serverPath: string } | null {
   // 打包模式：resources/ 下含 engine/bin/bun 与 mcp-vendor/
-  // 开发模式：回退到项目根（需先跑 npm run copy-mcp-vendor 与 copy-bun）
-  const resourcesPath = app.isPackaged ? process.resourcesPath : join(__dirname, '..', '..')
+  // 开发模式：__dirname 的深度取决于构建方式——直接从 electron/ 跑 TS 时
+  // 项目根是上一层；编译到 out/main/ 等子目录时项目根是上两层。依次尝试。
   const bunName = process.platform === 'win32' ? 'bun.exe' : 'bun'
-  const bunPath = join(resourcesPath, 'engine', 'bin', bunName)
-  const serverPath = join(resourcesPath, pkgRelPath)
-  if (existsSync(bunPath) && existsSync(serverPath)) {
-    return { bunPath, serverPath }
+  const candidates = app.isPackaged
+    ? [process.resourcesPath]
+    : [join(__dirname, '..'), join(__dirname, '..', '..')]
+  for (const base of candidates) {
+    const bunPath = join(base, 'engine', 'bin', bunName)
+    const serverPath = join(base, pkgRelPath)
+    if (existsSync(bunPath) && existsSync(serverPath)) {
+      return { bunPath, serverPath }
+    }
   }
   return null
 }
