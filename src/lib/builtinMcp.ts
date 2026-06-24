@@ -34,6 +34,14 @@ export interface BuiltinMcpPreset {
     installer?: 'uv'
     installerDocs?: string
   }
+  /**
+   * 是否为预打包服务器：构建时已将依赖打入安装包 <resources>/mcp-vendor/。
+   * 为 true 时，electron/mcpConfigStore.ts 的 buildEnabledMcpConfig() 会用
+   * 打包内的 bun + 预装 server.js 解析绝对路径覆盖 config.command/args；
+   * 若预打包路径不存在（如开发模式未运行 copy-mcp-vendor），回退到 config
+   * 里的 npx 配置。bundled 预设通常不设 dependency（打包模式无需外部命令）。
+   */
+  bundled?: boolean
   /** 服务器配置（不含 id/name/_source，由 store 注入） */
   config: Omit<MCPServer, 'id' | 'name' | 'enabled'>
 }
@@ -77,7 +85,39 @@ export const BUILTIN_MCP_PRESETS: BuiltinMcpPreset[] = [
       env: {},
     },
   },
+  {
+    // 注意：key 不能用 'computer-use' —— 该名字被 Claude Code 引擎列为保留名
+    // （COMPUTER_USE_MCP_SERVER_NAME，由 CHICAGO_MCP feature 控制），外部
+    // --mcp-config 一旦命中会直接 process.exit(1)。详见 engine/src/main.tsx
+    // 的 reservedNameError 检查。这里用 'sc-computer-use' 前缀避免冲突。
+    key: 'sc-computer-use',
+    name: 'Computer Use MCP',
+    description:
+      '让模型直接控制桌面：截图、鼠标、键盘、剪贴板、窗口与应用管理。基于 Rust 原生模块，支持 Windows/macOS/Linux，适合操作原生应用、安装器、模态对话框等 UI-only 场景。',
+    homepage: 'https://www.npmjs.com/package/@zavora-ai/computer-use-mcp',
+    requirements: '已随安装包内置，无需额外下载',
+    bundled: true,
+    config: {
+      type: 'stdio',
+      // 回退配置：当预打包路径不存在（开发模式未运行 copy-mcp-vendor）时使用
+      command: 'npx',
+      args: ['--yes', '--prefer-offline', '@zavora-ai/computer-use-mcp'],
+      env: {},
+    },
+  },
 ]
+
+/**
+ * 历史 key → 当前 key 的迁移映射。
+ *
+ * 早期版本内置预设 key 曾为 'computer-use'，与 Claude Code 引擎保留名冲突
+ * （会导致 CLI 启动即 exit(1)）。改名后，老用户 mcp-servers.json 里仍可能
+ * 残留旧 key 记录，syncBuiltinServers 会据此把它迁移到新 key 并删除旧记录，
+ * 避免旧记录继续被 buildEnabledMcpConfig 注入 CLI 触发保留名错误。
+ */
+export const DEPRECATED_BUILTIN_KEY_ALIASES: Record<string, string> = {
+  'computer-use': 'sc-computer-use',
+}
 
 /** 标记内置服务器的来源 */
 export const BUILTIN_MCP_SOURCE = 'builtin'

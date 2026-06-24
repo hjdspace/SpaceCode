@@ -45,6 +45,9 @@ release/
 # Bun binaries (downloaded during build)
 engine/bin/
 
+# Bundled computer-use MCP server (installed during build by scripts/copy-mcp-vendor.cjs)
+mcp-vendor/
+
 .workbuddy/
 .assistant/
 pi-engine/
