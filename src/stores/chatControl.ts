@@ -7,6 +7,8 @@ import {
   type PermissionRequest,
 } from '@/services/permissionService'
 import { useChatSessionStore } from './chatSession'
+import { errorHandler } from '@/services/errorHandler'
+import { ErrorCategory } from '@/types'
 
 // 权限模式类型定义
 type PermissionMode = 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions'
@@ -180,12 +182,24 @@ export const useChatControlStore = defineStore('chatControl', () => {
         logger.info('ChatStore', `setPermissionMode | sessionId=${sid.slice(0, 8)} | mode=${mode}`)
         await claudeCode.setPermissionMode(sid, mode)
       } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error)
         logger.error('ChatStore', 'setPermissionMode: backend rejected mode switch, reverting UI', { error, previousMode })
         currentPermissionMode.value = previousMode
         try {
           settingsStore.permissionMode = previousMode
           settingsStore.saveSettings()
         } catch {}
+        if (errMsg.includes('not launched with --dangerously-skip-permissions')) {
+          errorHandler.pushToast({
+            id: crypto.randomUUID(),
+            category: ErrorCategory.CONFIG_ERROR,
+            title: '无法切换到完全信任模式',
+            message: '当前会话启动时未开启 bypass 权限支持，请新建会话后再试。',
+            autoDismiss: true,
+            dismissAfter: 5000,
+            createdAt: Date.now(),
+          })
+        }
       }
     } else if (sid) {
       logger.warn('ChatStore', `setPermissionMode: IPC not available, updating local state only | mode=${mode}`)

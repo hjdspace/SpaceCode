@@ -879,7 +879,10 @@ export class SessionProcess extends EventEmitter {
     if (config.model && !useProxy) {
       args.push('--model', config.model)
     }
-    if (config.permissionMode) args.push('--permission-mode', config.permissionMode)
+    const permissionMode = config.permissionMode || 'default'
+    args.push('--permission-mode', permissionMode)
+    // 始终允许运行时切换到 bypassPermissions；该参数只是开启选项，不会默认跳过权限网关，
+    // 当前模式仍由 --permission-mode 控制。
     args.push('--allow-dangerously-skip-permissions')
     if (config.effortLevel) args.push('--effort', config.effortLevel)
     if (config.systemPrompt) args.push('--system-prompt', config.systemPrompt)

@@ -2,8 +2,8 @@
   <div class="diff-viewer">
     <div class="diff-header">
       <FileDiff :size="14" />
-      <span v-if="diffData">{{ diffData.path }}</span>
-      <span v-else-if="scmStore.selectedFile">{{ scmStore.selectedFile.path }}</span>
+      <span v-if="diffData?.path">{{ diffData.path }}</span>
+      <span v-else-if="diffTarget">{{ diffTarget.filePath }}</span>
       <span v-else>Code Changes</span>
       <div class="diff-header-actions" v-if="diffData">
         <span class="diff-stats" v-if="diffData.additions || diffData.deletions">
@@ -41,7 +41,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { FileDiff } from 'lucide-vue-next'
 import { useScmStore } from '@/stores/scm'
-import { useAppStore } from '@/stores/app'
+import { useAppStore, type ScmDiffTabData } from '@/stores/app'
 import { api } from '@/services/electronAPI'
 
 interface DiffLine {
@@ -58,8 +58,22 @@ const appStore = useAppStore()
 const diffData = ref<any>(null)
 const isLoading = ref(false)
 
+// Resolve the diff target from the active diff tab; fall back to the SCM panel
+// selection so the viewer also reacts to clicks in the source control panel.
+const diffTarget = computed<{ filePath: string; staged: boolean } | null>(() => {
+  const tab = appStore.activeInfoTab
+  if (tab && tab.type === 'diff' && tab.data) {
+    const d = tab.data as ScmDiffTabData
+    return { filePath: d.filePath, staged: d.staged }
+  }
+  if (scmStore.selectedFile) {
+    return { filePath: scmStore.selectedFile.path, staged: scmStore.selectedFileStaged }
+  }
+  return null
+})
+
 const emptyMessage = computed(() => {
-  if (!scmStore.selectedFile) return 'Select a file to view changes'
+  if (!diffTarget.value) return 'Select a file to view changes'
   if (!scmStore.isRepo) return 'Not a git repository'
   return 'No changes to display'
 })
@@ -116,7 +130,8 @@ const diffLines = computed<DiffLine[]>(() => {
 })
 
 async function loadDiff() {
-  if (!scmStore.selectedFile || !appStore.projectRoot) {
+  const target = diffTarget.value
+  if (!target || !appStore.projectRoot) {
     diffData.value = null
     return
   }
@@ -125,8 +140,8 @@ async function loadDiff() {
   try {
     const result = await api.git.getDiff(
       appStore.projectRoot,
-      scmStore.selectedFile.path,
-      scmStore.selectedFileStaged
+      target.filePath,
+      target.staged
     )
     diffData.value = result
   } catch (e) {
@@ -137,6 +152,17 @@ async function loadDiff() {
   }
 }
 
+// Reload when the active tab changes (switching / closing tabs in the panel)
+watch(
+  () => appStore.activeInfoTabId,
+  () => {
+    if (appStore.infoPanelMode === 'diff') {
+      loadDiff()
+    }
+  }
+)
+
+// Reload when the SCM panel selection changes (clicking a file in source control)
 watch(
   () => [scmStore.selectedFile, scmStore.selectedFileStaged],
   () => {
