@@ -47,6 +47,7 @@ import { RotateCw, PackageOpen, ExternalLink, FolderOpen } from 'lucide-vue-next
 import { useChatStore } from '@/stores/chat'
 import { useAppStore } from '@/stores/app'
 import { api, type ArtifactEntry } from '@/services/electronAPI'
+import { iconFor, formatSize } from '@/utils/artifactFormat'
 
 const { t } = useI18n()
 const chatStore = useChatStore()
@@ -105,26 +106,6 @@ async function open(f: ArtifactEntry) {
 
 async function reveal(f: ArtifactEntry) {
   await api.artifacts.reveal(f.path)
-}
-
-function iconFor(ext: string): string {
-  const map: Record<string, string> = {
-    pptx: '📊', ppt: '📊',
-    docx: '📝', doc: '📝',
-    xlsx: '📈', xls: '📈', csv: '📈',
-    pdf: '📄',
-    png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️', svg: '🖼️', webp: '🖼️',
-    md: '📋', txt: '📋',
-    html: '🌐', htm: '🌐',
-    json: '🔧',
-  }
-  return map[ext] || '📁'
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
 watch(currentSessionId, () => {
