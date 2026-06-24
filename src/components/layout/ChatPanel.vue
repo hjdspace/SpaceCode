@@ -314,6 +314,7 @@ const contextUsageStore = useContextUsageStore()
 const sessionContext = useSessionContext()
 
 // ── Work 模式自动路由：助手选择弹窗 ──────────────────────────────
+const { route: routeWork } = useWorkRouter()
 const pickerVisible = ref(false)
 const pickerCandidates = ref<AgentDef[]>([])
 let pickerResolve: ((a: AgentDef | null) => void) | null = null
@@ -343,8 +344,7 @@ type RouteOutcome =
 
 /** Work 模式发送前路由：匹配助手 / 咨询用户 / 透传 */
 async function routeWorkSend(content: string): Promise<RouteOutcome> {
-  const { route } = useWorkRouter()
-  const result = route(content)
+  const result = routeWork(content)
   if (result.type === 'match' && result.assistant) {
     return { kind: 'routed', assistant: result.assistant }
   }
@@ -838,6 +838,17 @@ async function handleSend(content: string, attachments: AllAttachments, options?
       }
     }
     // passthrough：不创建助手会话，直接发送到当前空 work 会话
+  }
+
+  // Work 助手会话：用户首次发送消息时展开 Artifacts 面板
+  // （选择助手时不立即弹出，等用户真正开始使用助手再展开）
+  if (
+    appStore.mode === 'work' &&
+    chatStore.currentSession?.mode === 'work' &&
+    chatStore.currentSession?.assistantId &&
+    !appStore.infoPanelTabs.some(t => t.id === 'artifacts-panel')
+  ) {
+    appStore.openArtifactsPanel()
   }
 
   const userTyped = content.trim()

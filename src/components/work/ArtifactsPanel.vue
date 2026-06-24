@@ -64,6 +64,10 @@ const PREVIEWABLE = new Set(['html', 'htm'])
 const workingDir = computed(() => chatStore.workingDirectory || '')
 const outputsHint = computed(() => workingDir.value ? `${workingDir.value}/outputs` : 'outputs/')
 
+// 当前会话创建时间：用于过滤掉历史会话残留的产物（所有 Work 会话共享同一 outputs 目录）
+const sessionCreatedAt = computed(() => chatStore.currentSession?.createdAt ?? 0)
+const currentSessionId = computed(() => chatStore.currentSessionId)
+
 async function refresh() {
   const dir = workingDir.value
   if (!dir) {
@@ -73,7 +77,9 @@ async function refresh() {
   loading.value = true
   try {
     const res = await api.artifacts.list(dir)
-    const list = res.artifacts || []
+    // 只显示当前会话创建之后生成的产物（容差 1s 处理时钟精度边界）
+    const cutoff = sessionCreatedAt.value - 1000
+    const list = (res.artifacts || []).filter(f => f.mtime >= cutoff)
     files.value = list
 
     // 检测新出现的可预览文件（如 .html），自动在内置浏览器打开（每个文件仅一次）
@@ -120,6 +126,14 @@ function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
+
+watch(currentSessionId, () => {
+  // 切换会话：重置去重状态和列表，避免显示上一个会话的产物
+  seenPaths.clear()
+  primed = false
+  files.value = []
+  refresh()
+})
 
 watch(workingDir, () => {
   // 切换工作目录：重置去重状态，避免把既有文件当成新生成

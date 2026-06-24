@@ -1321,8 +1321,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     session.assistantId = assistant.name
     saveToStorage()
 
-    appStore.openArtifactsPanel()
-
+    // 不在此处立即展开 Artifacts 面板：用户尚未发送消息、LLM 尚未生成产物。
+    // 改为在 ChatPanel.handleSend 中，用户首次发送消息时再展开。
     await initClaudeCodeSession(session.id)
     return session
   }
