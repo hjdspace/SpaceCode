@@ -881,9 +881,9 @@ export class SessionProcess extends EventEmitter {
     }
     const permissionMode = config.permissionMode || 'default'
     args.push('--permission-mode', permissionMode)
-    // 仅当用户明确选择 bypassPermissions 时才允许跳过权限；否则保持权限网关启用，
-    // 让 Edit/Write/Bash 经 --permission-prompt-tool stdio 触发弹窗（含后台 agent 自动续跑期间）。
-    if (permissionMode === 'bypassPermissions') args.push('--allow-dangerously-skip-permissions')
+    // 始终允许运行时切换到 bypassPermissions；该参数只是开启选项，不会默认跳过权限网关，
+    // 当前模式仍由 --permission-mode 控制。
+    args.push('--allow-dangerously-skip-permissions')
     if (config.effortLevel) args.push('--effort', config.effortLevel)
     if (config.systemPrompt) args.push('--system-prompt', config.systemPrompt)
 
