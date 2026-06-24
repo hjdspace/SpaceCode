@@ -70,6 +70,8 @@ export default {
     empty: '暂无成果文件',
     open: '打开',
     reveal: '在文件夹中显示',
+    summaryTitle: '产物汇总',
+    summaryCount: '{count} 个文件',
   },
 
   workbench: {
