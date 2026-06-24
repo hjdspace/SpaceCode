@@ -26,6 +26,7 @@ export interface LocalSkillBundle {
   homepage?: string
   license?: string
   keywords?: string[]
+  category: string
   bundleDir: string
   hasHooks: boolean
   hasCommands: boolean
@@ -103,6 +104,10 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
   const filteredBundles = computed(() => {
     let result = bundles.value
 
+    if (selectedCategory.value !== 'all') {
+      result = result.filter(b => b.category === selectedCategory.value)
+    }
+
     if (selectedDirectory.value) {
       const sel = selectedDirectory.value
       result = result.filter(b => isWithinDirectory(b.bundleDir, sel))
@@ -126,9 +131,12 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
 
   const categoryStats = computed(() => {
     const freeSkills = skills.value.filter(s => !s.bundleId)
-    const stats: Record<string, number> = { all: freeSkills.length }
+    const stats: Record<string, number> = { all: freeSkills.length + bundles.value.length }
     freeSkills.forEach(skill => {
       stats[skill.category] = (stats[skill.category] || 0) + 1
+    })
+    bundles.value.forEach(bundle => {
+      stats[bundle.category] = (stats[bundle.category] || 0) + 1
     })
     return stats
   })

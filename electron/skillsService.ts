@@ -1076,6 +1076,7 @@ interface LocalSkillBundle {
   homepage?: string
   license?: string
   keywords?: string[]
+  category: string           // 推断出的分类 id（与 LocalSkill.category 同一体系）
   bundleDir: string          // absolute path
   hasHooks: boolean
   hasCommands: boolean
@@ -1200,6 +1201,34 @@ function inferCategory(skillPath: string, content: string): string {
   }
 
   return 'other'
+}
+
+/**
+ * 推断 bundle 的分类。三级回退策略：
+ * 1. manifest 显式声明的 category 字段
+ * 2. 子技能分类的众数（最能反映 bundle 实际用途）
+ * 3. 由 bundle 元信息（name/description/keywords）走 inferCategory 兜底
+ */
+function inferBundleCategory(
+  manifest: Record<string, any>,
+  bundleDir: string,
+  childSkills: LocalSkill[]
+): string {
+  if (typeof manifest.category === 'string' && manifest.category.trim()) {
+    return manifest.category.toLowerCase().replace(/[\s_]+/g, '-')
+  }
+
+  if (childSkills.length > 0) {
+    const counts: Record<string, number> = {}
+    for (const s of childSkills) {
+      counts[s.category] = (counts[s.category] || 0) + 1
+    }
+    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
+  }
+
+  const name = manifest.name || basename(bundleDir)
+  const pseudoContent = [name, manifest.description || '', ...(Array.isArray(manifest.keywords) ? manifest.keywords : [])].join('\n')
+  return inferCategory(bundleDir, pseudoContent)
 }
 
 function checkSkillInstalled(skillName: string, cwd?: string): boolean {
@@ -1399,6 +1428,7 @@ async function handleScanLocalLibrary(
           homepage: manifest.homepage,
           license: manifest.license,
           keywords: Array.isArray(manifest.keywords) ? manifest.keywords : undefined,
+          category: inferBundleCategory(manifest, bundleDir, skills),
           bundleDir,
           hasHooks: existsSync(join(bundleDir, 'hooks')),
           hasCommands: existsSync(join(bundleDir, 'commands')),
