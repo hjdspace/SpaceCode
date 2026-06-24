@@ -1142,6 +1142,66 @@ function parseYamlFrontMatter(content: string): Record<string, any> | null {
   }
 }
 
+/**
+ * 分类覆盖表 —— 按技能名 / Bundle 名强制指定分类，优先级最高。
+ * 避免依赖关键词推断（inferCategory）导致的误分类，且不修改第三方技能文件，
+ * 技能更新后分类不会丢失。键为 SKILL.md frontmatter 的 name 或 plugin.json 的 name。
+ */
+const CATEGORY_OVERRIDES: Record<string, string> = {
+  // AI/机器学习：约束 AI 行为、AI 工作流、LLM/MCP 技术相关
+  'caveman': 'ai-ml',
+  'planning-with-files': 'ai-ml',
+  'superpowers': 'ai-ml',
+  'claude-api': 'ai-ml',
+  'mcp-builder': 'ai-ml',
+  'grill-with-docs': 'ai-ml',
+  'grill-me': 'ai-ml',
+  'handoff': 'ai-ml',
+  'skill-creator': 'ai-ml',
+  'write-a-skill': 'ai-ml',
+  'setup-matt-pocock-skills': 'ai-ml',
+  'karpathy-guidelines': 'ai-ml',
+
+  // 前端设计：UI/UX、前端代码、设计工具
+  'ui-ux-pro-max': 'frontend-design',
+  'theme-factory': 'frontend-design',
+  'frontend-design': 'frontend-design',
+  'impeccable': 'frontend-design',
+  'web-artifacts-builder': 'frontend-design',
+  'frontend-code-review': 'frontend-design',
+  'huashu-design': 'frontend-design',
+  'prototype': 'frontend-design',
+  'brand-guidelines': 'frontend-design',
+
+  // 开发工具：测试、调试、架构、工程流程
+  'webapp-testing': 'development',
+  'diagnose': 'development',
+  'tdd': 'development',
+  'improve-codebase-architecture': 'development',
+  'zoom-out': 'development',
+  'setup-pre-commit': 'development',
+  'triage': 'development',
+  'to-prd': 'development',
+  'to-issues': 'development',
+  'doc-coauthoring': 'development',
+
+  // 办公文档
+  'docx': 'office',
+  'pptx': 'office',
+  'xlsx': 'office',
+  'pdf': 'office',
+  'guizang-ppt-skill': 'office',
+  'html-ppt': 'office',
+
+  // 创意/艺术
+  'canvas-design': 'creative',
+  'algorithmic-art': 'creative',
+  'slack-gif-creator': 'creative',
+
+  // 沟通协作
+  'internal-comms': 'communication',
+}
+
 function inferCategory(skillPath: string, content: string): string {
   const frontMatter = parseYamlFrontMatter(content)
 
@@ -1214,10 +1274,19 @@ function inferBundleCategory(
   bundleDir: string,
   childSkills: LocalSkill[]
 ): string {
+  const bundleName: string = manifest.name || basename(bundleDir)
+
+  // 0. 覆盖表优先（集中维护，不依赖关键词推断）
+  if (CATEGORY_OVERRIDES[bundleName]) {
+    return CATEGORY_OVERRIDES[bundleName]
+  }
+
+  // 1. manifest 显式声明的 category 字段
   if (typeof manifest.category === 'string' && manifest.category.trim()) {
     return manifest.category.toLowerCase().replace(/[\s_]+/g, '-')
   }
 
+  // 2. 子技能分类众数（最能反映 bundle 实际用途）
   if (childSkills.length > 0) {
     const counts: Record<string, number> = {}
     for (const s of childSkills) {
@@ -1226,6 +1295,7 @@ function inferBundleCategory(
     return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
   }
 
+  // 3. 由 bundle 元信息走 inferCategory 兜底
   const name = manifest.name || basename(bundleDir)
   const pseudoContent = [name, manifest.description || '', ...(Array.isArray(manifest.keywords) ? manifest.keywords : [])].join('\n')
   return inferCategory(bundleDir, pseudoContent)
@@ -1278,7 +1348,7 @@ function readLocalSkillFile(
       name,
       description,
       content,
-      category: inferCategory(skillFile, content),
+      category: CATEGORY_OVERRIDES[name] || inferCategory(skillFile, content),
       tags,
       sourceDir,
       skillPath: skillFile,
