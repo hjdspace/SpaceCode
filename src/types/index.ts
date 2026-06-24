@@ -113,6 +113,15 @@ export interface ToolResult {
   isError?: boolean
 }
 
+/** 产物汇总卡片的单条文件项（与 electronAPI 的 ArtifactEntry 形态一致，随消息持久化）。 */
+export interface ArtifactSummaryEntry {
+  name: string
+  path: string
+  ext: string
+  size: number
+  mtime: number
+}
+
 export interface MessageMetadata {
   model?: string
   // Cumulative-per-turn usage from SDK `result.usage`. Suitable for
@@ -141,6 +150,8 @@ export interface MessageMetadata {
   agentName?: string
   teamName?: string
   status?: TeammateStatus
+  /** 办公模式：本回合新生成/修改的产物文件（仅 work 模式会话写入）。 */
+  artifacts?: ArtifactSummaryEntry[]
 }
 
 export type ProcessStatus = 'none' | 'starting' | 'active' | 'idle' | 'suspended' | 'exited'
