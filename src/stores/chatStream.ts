@@ -110,9 +110,14 @@ export const useChatStreamStore = defineStore('chatStream', () => {
   const updateTimelineEvent = (sessionId: string, ts: TurnState, eventId: string, updates: Partial<NonNullable<Message['timelineEvents']>[number]>) => {
     const msg = getAssistantMessage(sessionId, ts)
     if (!msg?.timelineEvents) return
-    msg.timelineEvents = msg.timelineEvents.map(event =>
-      event.id === eventId ? { ...event, ...updates } : event
-    )
+    // 直接修改 event 属性，不创建新数组。
+    // 流式期间每个 text_delta/thinking_delta 都会调用此方法，
+    // 使用 map 创建新数组会导致 O(n) 复制 + 触发大量响应式更新。
+    // Vue 3 的 reactive 代理会正确追踪属性修改。
+    const event = msg.timelineEvents.find(e => e.id === eventId)
+    if (event) {
+      Object.assign(event, updates)
+    }
   }
 
   const ensureTextTimelineEvent = (sessionId: string, ts: TurnState): string => {
@@ -299,7 +304,9 @@ export const useChatStreamStore = defineStore('chatStream', () => {
             content: `${reasoningEvent?.content || ''}${ev.delta.thinking}`,
             status: 'running'
           })
-          sessionStore.saveToStorage()
+          // 不在此处调用 saveToStorage()：thinking_delta 每秒可达数十次，
+          // 频繁持久化会阻塞主线程。thinking 内容会在 turn 结束时
+          // 由 handleResult 中的 saveToStorage() 统一持久化。
         }
       }
     }
@@ -1004,7 +1011,10 @@ export const useChatStreamStore = defineStore('chatStream', () => {
         ts.resolve?.()
         endTurn(sid, ts)
         const s = sessionStore.sessions.find(s => s.id === sid)
-        if (s) s.processStatus = 'idle'
+        if (s) {
+          s.processStatus = 'idle'
+          sessionStore.saveToStorage()
+        }
       }
     }
   }

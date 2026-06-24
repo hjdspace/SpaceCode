@@ -248,6 +248,7 @@ const listRef = ref<HTMLElement | null>(null)
 const shouldAutoScrollRef = ref(true)
 const isProgrammaticScrollingRef = ref(false)
 const lastSessionIdRef = ref<string | null>(null)
+let _scrollRafScheduled = false
 
 const SCROLL_BOTTOM_THRESHOLD = 80 // 像素阈值，判断是否在底部附近
 
@@ -256,22 +257,22 @@ function isNearScrollBottom(element: HTMLElement): boolean {
 }
 
 function scrollToBottom(behavior: 'auto' | 'smooth' = 'auto') {
-  const applyScroll = () => {
+  // 节流：流式期间 streamScrollSignal 每个 delta 都会触发 scrollToBottom，
+  // 使用 rAF 合并同一帧内的多次调用，避免每个 delta 触发 3 次滚动（nextTick + rAF + setTimeout）。
+  if (_scrollRafScheduled) return
+  _scrollRafScheduled = true
+  requestAnimationFrame(() => {
+    _scrollRafScheduled = false
     if (!listRef.value || !shouldAutoScrollRef.value) return
     isProgrammaticScrollingRef.value = true
     listRef.value.scrollTo({
       top: listRef.value.scrollHeight,
       behavior,
     })
-    setTimeout(() => {
+    // 在下一帧清除标志，避免 scroll 事件误判
+    requestAnimationFrame(() => {
       isProgrammaticScrollingRef.value = false
-    }, 0)
-  }
-
-  nextTick(() => {
-    applyScroll()
-    requestAnimationFrame(applyScroll)
-    setTimeout(applyScroll, 120)
+    })
   })
 }
 

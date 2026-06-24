@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed, watch, readonly } from 'vue'
+import { ref, computed, readonly } from 'vue'
 import type { Session, Message, ToolCall, AgentInfo, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus } from '@/types'
 import type { RewindOption, RewindState } from '@/types/rewind'
 import { useSettingsStore } from './settings'
@@ -407,7 +407,11 @@ export const useChatSessionStore = defineStore('chatSession', () => {
   let _saveScheduled = false
   let _saveTrailing = false
   let _lastSaveAt = 0
-  const SAVE_INTERVAL_MS = 600
+  // 流式响应期间（text_delta/thinking_delta）会频繁调用 saveToStorage，
+  // 每次 saveSessionsToStorage 都会同步遍历所有会话+消息、JSON.stringify、
+  // 压缩并 localStorage.setItem（同步阻塞主线程）。
+  // 600ms 节流在长会话中仍会导致明显卡顿，提升到 2000ms 可将写入频率降低 3 倍。
+  const SAVE_INTERVAL_MS = 2000
 
   function flushSaveNow() {
     _saveScheduled = false
@@ -446,13 +450,11 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     saveProjectsToStorage(projects.value)
   }
 
-  watch(
-    () => sessions.value,
-    () => {
-      saveToStorage()
-    },
-    { deep: true }
-  )
+  // 注意：不使用 deep watch 监听 sessions 变化来触发持久化。
+  // deep watch 会在每次响应式变化时深度遍历整个 sessions 树（所有会话的所有消息的所有属性），
+  // 在流式响应期间（每秒数十次 delta），这会导致 O(n×m) 的遍历开销，严重卡死 UI。
+  // 所有修改 sessions 的方法（addMessage、updateMessage、handleResult 等）都已显式调用 saveToStorage，
+  // 因此这个 deep watch 是冗余的，移除它可消除流式期间最大的性能瓶颈。
 
   function addProject(projectPath: string) {
     if (!projects.value.includes(projectPath)) {
@@ -774,14 +776,13 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     const sid = targetSessionId || currentSessionId.value
     const session = sessions.value.find(s => s.id === sid)
     if (session) {
-      const index = session.messages.findIndex(m => m.id === messageId)
-      if (index >= 0) {
-        const updatedMessage = { ...session.messages[index], ...updates }
-        session.messages = [
-          ...session.messages.slice(0, index),
-          updatedMessage,
-          ...session.messages.slice(index + 1)
-        ]
+      const msg = session.messages.find(m => m.id === messageId)
+      if (msg) {
+        // 直接修改属性，不创建新数组。
+        // 流式期间每个 text_delta 都会调用 updateMessage，
+        // 使用 spread + slice 创建新数组会导致 O(n) 复制 + 触发下游所有 computed 重建。
+        // Vue 3 的 reactive 代理会正确追踪属性修改，下游组件通过属性访问建立响应式依赖。
+        Object.assign(msg, updates)
         saveToStorage()
       }
     }
