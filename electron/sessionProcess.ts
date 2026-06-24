@@ -26,10 +26,10 @@ import { buildEnabledMcpConfig } from './mcpConfigStore'
  * 这里手动补上等价提示，让 LLM 知道自己有桌面控制能力、工具命名约定和使用时机。
  */
 const COMPUTER_USE_AVAILABILITY_HINT = [
-  'You have access to the sc-computer-use MCP server, which provides desktop control tools. All its tools are prefixed with `mcp__sc-computer-use__`.',
-  'Capabilities: take screenshots, move/click the mouse, type text, press keys, scroll, open native applications, manage windows, read/write the clipboard, and run batch action sequences.',
-  'When the user asks to operate a desktop application, interact with native UI, or perform any task requiring GUI interaction (e.g. opening an app, clicking buttons, filling forms), use these tools.',
-  'Workflow: first call `mcp__sc-computer-use__request_access` to obtain session permission, then call `mcp__sc-computer-use__screenshot` to see the current screen state before performing any action. After each action, take a new screenshot to verify the result.',
+  'You have access to the sc-computer-use MCP server for desktop control (screenshots, mouse, keyboard, clipboard, window/app management). Tools are prefixed with `mcp__sc-computer-use__`.',
+  'If these tools are not directly in your tool list, they may be deferred behind ToolSearch. In that case, load them first: call ToolSearch with query `select:mcp__sc-computer-use__request_access` to load the access tool, then repeat for other tools as needed (e.g. `select:mcp__sc-computer-use__screenshot`, `select:mcp__sc-computer-use__open_application`).',
+  'Workflow: first call `mcp__sc-computer-use__request_access` to obtain session permission, then call `mcp__sc-computer-use__screenshot` to see the current screen before performing any action. After each action, take a new screenshot to verify the result.',
+  'When the user asks to operate a desktop application, interact with native UI, or perform any GUI task (e.g. opening an app, clicking buttons, filling forms), use these tools. Do NOT just describe what you would do — actually call the tools.',
 ].join(' ')
 
 export interface SessionConfig {
