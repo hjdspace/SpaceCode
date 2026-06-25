@@ -594,6 +594,11 @@ export default {
     installFailed: '安装失败',
     installNodejs: '安装 Node.js',
     depInstallHint: '通过系统包管理器自动安装 {command}。',
+    // CLI 加载状态
+    activeInCli: '已加载',
+    activeInCliHint: '此 MCP 服务器会在下次对话时注入 Claude Code。',
+    cliLoadedSummary: '将有 {count} 个 MCP 服务器加载到 Claude Code：',
+    cliLoadedHint: '改动会在下一次对话生效。',
     yourServers: '你的服务器',
     enabled: '已启用',
     builtin: {
@@ -636,6 +641,11 @@ export default {
     clickLinkHint: '点击聊天中的链接在此处查看网页',
     selectParent: '选父级元素',
     selectChild: '选子级元素',
+    htmlPptHint: 'HTML 演示文稿快捷键：',
+    kbdNav: '翻页',
+    kbdTheme: '切换主题',
+    kbdPresenter: '演讲者模式',
+    kbdFullscreen: '全屏',
   },
 
   titleBar: {

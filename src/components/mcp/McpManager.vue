@@ -65,6 +65,18 @@
               <span class="builtin-subtitle">{{ t('mcpSettings.builtinSubtitle') }}</span>
             </div>
 
+            <!-- CLI 加载状态汇总：告诉用户当前有多少 MCP 会注入到下次对话 -->
+            <div class="cli-loaded-banner">
+              <Info :size="13" />
+              <span class="cli-loaded-text">
+                {{ t('mcpSettings.cliLoadedSummary', { count: mcpStore.activeMcpNames.length }) }}
+                <strong v-if="mcpStore.activeMcpNames.length > 0">
+                  {{ mcpStore.activeMcpNames.join(', ') }}
+                </strong>
+              </span>
+              <span class="cli-loaded-hint">{{ t('mcpSettings.cliLoadedHint') }}</span>
+            </div>
+
             <div class="builtin-grid">
               <div
                 v-for="entry in builtinEntries"
@@ -77,6 +89,14 @@
                     <div class="builtin-card-title-row">
                       <span class="builtin-card-name">{{ entry.preset.name }}</span>
                       <span class="builtin-badge">{{ t('mcpSettings.builtinBadge') }}</span>
+                      <span
+                        v-if="entry.activeInCli"
+                        class="builtin-active-badge"
+                        :title="t('mcpSettings.activeInCliHint')"
+                      >
+                        <CheckCircle2 :size="10" />
+                        {{ t('mcpSettings.activeInCli') }}
+                      </span>
                       <span
                         v-if="entry.probe"
                         class="builtin-status"
@@ -452,6 +472,8 @@ const builtinEntries = computed(() => {
       depStatus,
       isInstallingDep: isInstallingThis,
       installProgress: isInstallingThis ? mcpStore.installProgress : null,
+      // 这个服务器是否已经写到了下次 CLI spawn 的 --mcp-config（即 Claude Code 真正能调到）
+      activeInCli: mcpStore.activeMcpNames.includes(preset.key),
     }
   })
 })
@@ -865,6 +887,56 @@ onMounted(() => {
   color: var(--accent-primary);
   text-transform: uppercase;
   letter-spacing: 0.3px;
+}
+
+/* 「已加载到 Claude Code」徽标：表示当前服务器会被注入到下次 CLI spawn */
+.builtin-active-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* 顶部汇总条 */
+.cli-loaded-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+
+  svg { color: var(--accent-primary); flex-shrink: 0; }
+
+  strong {
+    color: var(--text-primary);
+    font-weight: 600;
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+    font-size: 10px;
+  }
+}
+
+.cli-loaded-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.cli-loaded-hint {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 10px;
 }
 
 .builtin-status {

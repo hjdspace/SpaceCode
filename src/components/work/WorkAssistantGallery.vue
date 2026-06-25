@@ -52,7 +52,10 @@
         >
           <div class="card-avatar">{{ a.avatar || '🤖' }}</div>
           <div class="card-body">
-            <div class="card-name">{{ displayName(a) }}</div>
+            <div class="card-head">
+              <div class="card-name">{{ displayName(a) }}</div>
+              <span v-if="formatTag(a)" class="card-tag" :class="`tag-${formatTag(a)}`">{{ formatTag(a) }}</span>
+            </div>
             <div class="card-desc">{{ displayDesc(a) }}</div>
           </div>
         </button>
@@ -131,6 +134,17 @@ function displayName(a: AgentDef): string {
 
 function displayDesc(a: AgentDef): string {
   return (isZh() && a.descriptionZh) ? a.descriptionZh : a.description
+}
+
+/** 根据绑定的 skill 推断输出格式标签；无明确格式的助手返回空串 */
+function formatTag(a: AgentDef): string {
+  const skills = a.skills || []
+  if (skills.includes('html-ppt') || skills.includes('guizang-ppt-skill')) return 'HTML'
+  if (skills.includes('pptx')) return 'PPTX'
+  if (skills.includes('docx')) return 'DOCX'
+  if (skills.includes('xlsx')) return 'XLSX'
+  if (skills.includes('pdf')) return 'PDF'
+  return ''
 }
 
 async function loadLibrary() {
@@ -299,7 +313,30 @@ onMounted(loadLibrary)
 }
 
 .card-body { min-width: 0; }
-.card-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
+.card-name { font-size: 14px; font-weight: 600; color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.card-tag {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  border-radius: var(--radius-sm, 4px);
+  font-family: var(--font-mono, monospace);
+  border: 1px solid transparent;
+}
+.tag-HTML { color: #e34c26; background: rgba(227, 76, 38, 0.12); border-color: rgba(227, 76, 38, 0.3); }
+.tag-PPTX { color: #d35400; background: rgba(211, 84, 0, 0.12); border-color: rgba(211, 84, 0, 0.3); }
+.tag-DOCX { color: #2b579a; background: rgba(43, 87, 154, 0.12); border-color: rgba(43, 87, 154, 0.3); }
+.tag-XLSX { color: #217346; background: rgba(33, 115, 70, 0.12); border-color: rgba(33, 115, 70, 0.3); }
+.tag-PDF  { color: #c0392b; background: rgba(192, 57, 43, 0.12); border-color: rgba(192, 57, 43, 0.3); }
+
 .card-desc {
   font-size: 12px;
   color: var(--text-muted);

@@ -174,26 +174,194 @@ export async function checkEnvironment(): Promise<EnvironmentCheck> {
   return { node, npm, git }
 }
 
-async function installWithWinget(packageId: string, onProgress: (p: InstallProgress) => void): Promise<void> {
-  onProgress({ stage: 'downloading', message: `Downloading ${packageId}...`, percent: 0 })
-  try {
-    await execFileAsync('winget', ['install', '--id', packageId, '--accept-source-agreements', '--accept-package-agreements'], 300000)
-    onProgress({ stage: 'installing', message: `${packageId} installed`, percent: 80 })
-  } catch (err) {
-    warn(SCOPE, `winget install failed for ${packageId}`, { error: String(err) })
-    throw err
+/**
+ * 通过 spawn 跑一个安装命令，把 stdout/stderr 实时桥接到 onProgress。
+ *
+ * 用 spawn（而不是 execFile）是为了拿到真实流式输出，避免「点了安装、
+ * 进度条静默几十秒、突然跳到 80%」的体验。三种来源的 hint：
+ *
+ * 1. **stdout/stderr 字节抵达** → 至少证明子进程还活着，bumpAlive 让进度往
+ *    `ceiling` 方向爬一格，并把最近一行输出作为 message 透传给 UI。
+ * 2. **每秒一次心跳** → 即使没有任何输出（winget 一段时间内只画进度条到
+ *    同一行），也让进度往前蹭，避免界面假死。
+ * 3. **可选的数字解析**：传 percentParser 可以把 winget「14.5 MB / 31.0 MB」
+ *    或 brew/curl 的「54.3%」抽出来，按 [floor, ceiling] 区间线性映射。
+ *
+ * @returns 子进程退出码（>0 时 caller 应当抛错）
+ */
+function runStreamingInstaller(
+  command: string,
+  args: string[],
+  options: {
+    onProgress: (p: InstallProgress) => void
+    /** 心跳爬升的下界 */
+    floor: number
+    /** 上限（无论怎么爬都不超过这个值，给后续 verifying/done 留出空间） */
+    ceiling: number
+    /** 起始 message */
+    initialMessage: string
+    /** 可选：从输出行抽出 0-100 的 percent，命中后线性映射到 [floor, ceiling] */
+    percentParser?: (line: string) => number | null
+    /** 整体超时（默认 5 分钟） */
+    timeoutMs?: number
+    /** 是否走 shell（brew/winget 都不需要；installWithScript 自己已用 sh -c）*/
+    useShell?: boolean
+  },
+): Promise<{ code: number; stderr: string }> {
+  const { onProgress, floor, ceiling, initialMessage, percentParser, timeoutMs = 300000, useShell = false } = options
+  return new Promise((resolve, reject) => {
+    onProgress({ stage: 'downloading', message: initialMessage, percent: floor })
+
+    const child = spawn(command, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: useShell,
+      windowsHide: true,
+    })
+
+    // 当前进度状态：交给心跳和数据回调一起更新
+    let percent = floor
+    let lastMessage = initialMessage
+    let stderrBuf = ''
+    let settled = false
+
+    /** 把进度往 ceiling 方向爬一小步，但永远不到 ceiling，留出收尾空间 */
+    const bumpAlive = () => {
+      const remaining = ceiling - percent
+      if (remaining <= 1) return
+      // 每次走剩余距离的 10%（下界 0.5%），自然减速
+      const step = Math.max(0.5, remaining * 0.1)
+      percent = Math.min(ceiling - 1, percent + step)
+      onProgress({ stage: 'downloading', message: lastMessage, percent: Math.round(percent) })
+    }
+
+    const handleChunk = (buf: Buffer | string, isStderr: boolean) => {
+      const text = typeof buf === 'string' ? buf : buf.toString('utf8')
+      if (isStderr) stderrBuf += text
+
+      // winget 用 CR 在同一行刷进度条；把 \r 当 \n 一起切，取最后一段非空
+      const lines = text.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean)
+      if (lines.length === 0) {
+        bumpAlive()
+        return
+      }
+      lastMessage = lines[lines.length - 1].slice(0, 120)
+
+      // 尝试从最后一行抽出真实百分比
+      if (percentParser) {
+        for (let i = lines.length - 1; i >= 0; i--) {
+          const parsed = percentParser(lines[i])
+          if (parsed != null) {
+            const mapped = floor + (parsed / 100) * (ceiling - floor)
+            if (mapped > percent) percent = Math.min(ceiling - 1, mapped)
+            break
+          }
+        }
+      }
+      onProgress({ stage: 'downloading', message: lastMessage, percent: Math.round(percent) })
+    }
+
+    child.stdout?.on('data', d => handleChunk(d, false))
+    child.stderr?.on('data', d => handleChunk(d, true))
+
+    // 心跳：每秒推一步，让 UI 知道还在干活
+    const heartbeat = setInterval(bumpAlive, 1000)
+
+    const timeoutTimer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      clearInterval(heartbeat)
+      try { child.kill('SIGTERM') } catch {}
+      reject(new Error(`Installer timed out after ${Math.round(timeoutMs / 1000)}s`))
+    }, timeoutMs)
+
+    const finish = (code: number | null) => {
+      if (settled) return
+      settled = true
+      clearInterval(heartbeat)
+      clearTimeout(timeoutTimer)
+      resolve({ code: code ?? 1, stderr: stderrBuf })
+    }
+
+    child.on('close', code => finish(code))
+    child.on('error', err => {
+      if (settled) return
+      settled = true
+      clearInterval(heartbeat)
+      clearTimeout(timeoutTimer)
+      reject(err)
+    })
+  })
+}
+
+/** winget 的「14.5 MB / 31.0 MB」/「54%」解析 */
+function parseWingetPercent(line: string): number | null {
+  // 优先匹配 "x MB / y MB"
+  const sizeMatch = line.match(/([\d.]+)\s*MB\s*\/\s*([\d.]+)\s*MB/i)
+  if (sizeMatch) {
+    const cur = parseFloat(sizeMatch[1])
+    const total = parseFloat(sizeMatch[2])
+    if (total > 0) return Math.min(100, (cur / total) * 100)
   }
+  // 兜底匹配裸百分比
+  const pctMatch = line.match(/(\d+(?:\.\d+)?)\s*%/)
+  if (pctMatch) {
+    const p = parseFloat(pctMatch[1])
+    if (p >= 0 && p <= 100) return p
+  }
+  return null
+}
+
+/** brew/curl 的 "###...### 100.0%" / "==> Pouring xxx" */
+function parseBrewPercent(line: string): number | null {
+  const pctMatch = line.match(/(\d+(?:\.\d+)?)\s*%/)
+  if (pctMatch) {
+    const p = parseFloat(pctMatch[1])
+    if (p >= 0 && p <= 100) return p
+  }
+  // brew 的阶段提示：Pouring（解压）阶段可视为接近完成
+  if (/==>\s*Pouring/i.test(line)) return 90
+  if (/==>\s*Installing/i.test(line)) return 85
+  return null
+}
+
+async function installWithWinget(packageId: string, onProgress: (p: InstallProgress) => void): Promise<void> {
+  const result = await runStreamingInstaller(
+    'winget',
+    ['install', '--id', packageId, '--accept-source-agreements', '--accept-package-agreements', '--silent'],
+    {
+      onProgress,
+      floor: 5,
+      ceiling: 80,
+      initialMessage: `Downloading ${packageId}...`,
+      percentParser: parseWingetPercent,
+    },
+  )
+  if (result.code !== 0) {
+    const msg = `winget install failed (exit ${result.code}): ${result.stderr.trim().slice(0, 200) || 'unknown error'}`
+    warn(SCOPE, msg)
+    throw new Error(msg)
+  }
+  onProgress({ stage: 'installing', message: `${packageId} installed`, percent: 80 })
 }
 
 async function installWithBrew(packageName: string, onProgress: (p: InstallProgress) => void): Promise<void> {
-  onProgress({ stage: 'downloading', message: `Downloading ${packageName}...`, percent: 0 })
-  try {
-    await execFileAsync('brew', ['install', packageName], 300000)
-    onProgress({ stage: 'installing', message: `${packageName} installed`, percent: 80 })
-  } catch (err) {
-    warn(SCOPE, `brew install failed for ${packageName}`, { error: String(err) })
-    throw err
+  const result = await runStreamingInstaller(
+    'brew',
+    ['install', packageName],
+    {
+      onProgress,
+      floor: 5,
+      ceiling: 80,
+      initialMessage: `Downloading ${packageName}...`,
+      percentParser: parseBrewPercent,
+    },
+  )
+  if (result.code !== 0) {
+    const msg = `brew install failed (exit ${result.code}): ${result.stderr.trim().slice(0, 200) || 'unknown error'}`
+    warn(SCOPE, msg)
+    throw new Error(msg)
   }
+  onProgress({ stage: 'installing', message: `${packageName} installed`, percent: 80 })
 }
 
 async function installMissingDeps(envCheck: EnvironmentCheck, onProgress: (p: InstallProgress) => void): Promise<void> {
@@ -295,27 +463,28 @@ export async function installCli(
  * 通过 `curl ... | sh` 形式的安装脚本装一个依赖（Linux 上 uv 的官方安装方式）。
  * 用 spawn 跑 shell，实时 drain stdout/stderr，resolve on close。
  */
-function installWithScript(
+async function installWithScript(
   script: string,
   onProgress: (p: InstallProgress) => void,
   label: string,
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('sh', ['-c', script], { stdio: ['ignore', 'pipe', 'pipe'] })
-    let stderr = ''
-    child.stderr?.on('data', (d: Buffer) => { stderr += d.toString() })
-    // drain stdout（脚本可能有进度输出）
-    child.stdout?.on('data', () => {})
-    child.on('close', (code: number | null) => {
-      if (code === 0) {
-        onProgress({ stage: 'installing', message: `${label} installed`, percent: 80 })
-        resolve()
-      } else {
-        reject(new Error(`${label} install script exited with code ${code}: ${stderr.trim()}`))
-      }
-    })
-    child.on('error', (err: Error) => reject(err))
-  })
+  // 沿用 runStreamingInstaller 的心跳 + 数据爬升 + 百分比解析，让 curl 管道
+  // 装 uv 的过程也有实时反馈（uv 的 install.sh 会输出多行进度信息）。
+  const result = await runStreamingInstaller(
+    'sh',
+    ['-c', script],
+    {
+      onProgress,
+      floor: 5,
+      ceiling: 80,
+      initialMessage: `Downloading ${label}...`,
+      percentParser: parseBrewPercent,
+    },
+  )
+  if (result.code !== 0) {
+    throw new Error(`${label} install script exited with code ${result.code}: ${result.stderr.trim().slice(0, 200)}`)
+  }
+  onProgress({ stage: 'installing', message: `${label} installed`, percent: 80 })
 }
 
 const UV_INSTALL_DOCS = 'https://docs.astral.sh/uv/getting-started/installation/'
@@ -338,7 +507,8 @@ export async function installCommand(
   info(SCOPE, `Starting dependency installation: ${cmd}`)
 
   try {
-    onProgress({ stage: 'downloading', message: `Downloading ${cmd}...`, percent: 10 })
+    // 注意：不在这里推 percent，否则 installWithWinget/Brew 的 floor=5 会让进度
+    // 看起来「先到 10 又回到 5」。把第一帧的责任交给具体安装器，确保单调递增。
 
     if (isWindows) {
       await installWithWinget('astral-sh.uv', onProgress)
