@@ -317,6 +317,11 @@ export const useAppStore = defineStore('app', () => {
 
   /** 在右侧面板打开终端 */
   function openTerminalInPanel() {
+    // 确保至少有一个终端标签存在
+    const terminalStore = useTerminalStore()
+    if (terminalStore.tabs.length === 0) {
+      terminalStore.createTab()
+    }
     openInfoTab({
       id: 'terminal-panel',
       type: 'terminal',

@@ -6,13 +6,13 @@
       @close-tab="handleCloseTab"
     />
     
-    <!-- Terminal Panel -->
-    <div v-if="isTerminalTab" class="terminal-wrapper">
+    <!-- Terminal Panel: v-show 保持挂载，避免切换标签时终端被销毁 -->
+    <div v-show="isTerminalTab" class="terminal-wrapper">
       <TerminalPanel />
     </div>
     
     <!-- Chat Content -->
-    <template v-else>
+    <div v-show="!isTerminalTab" class="chat-content-wrapper">
       <div class="chat-header">
         <div class="header-left">
           <h2>{{ currentSession?.title || t('common.newConversation') }}</h2>
@@ -178,7 +178,7 @@
           </div>
         </Transition>
       </div>
-    </template>
+    </div>
     
     <!-- History Session Modal -->
     <Transition name="modal-fade">
@@ -1345,10 +1345,18 @@ async function handleRestoreHistorySession(session: any) {
 }
 
 .terminal-wrapper {
-  flex: 1;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
+flex: 1;
+overflow: hidden;
+display: flex;
+flex-direction: column;
+}
+
+.chat-content-wrapper {
+flex: 1;
+display: flex;
+flex-direction: column;
+min-height: 0;
+overflow: hidden;
 }
 
 // New: flex-row body for chat + side panel

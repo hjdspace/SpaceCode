@@ -4,7 +4,12 @@
 
     <div class="panel-content">
       <PanelLauncher v-if="showLauncher" />
-      <template v-else>
+
+      <!-- Terminal: always mounted to preserve terminal state across panel switches -->
+      <TerminalPanel v-show="!showLauncher && mode === 'terminal'" class="info-terminal-panel" />
+
+      <!-- Non-terminal modes -->
+      <template v-if="!showLauncher && mode !== 'terminal'">
       <DiffViewer v-if="mode === 'diff'" />
       <CodeViewer v-else-if="mode === 'file'" />
       <MarkdownViewer
@@ -15,8 +20,6 @@
       <ToolDiffViewer v-else-if="mode === 'tool-diff'" />
 
       <ArtifactsPanel v-else-if="mode === 'artifacts'" />
-
-      <TerminalPanel v-else-if="mode === 'terminal'" />
 
       <template v-else-if="mode === 'webview'">
         <div class="webview-nav">
@@ -417,6 +420,13 @@ watch(() => appStore.webviewUrl, () => {
   flex-direction: column;
   min-height: 0;
   @include scrollbar;
+}
+
+.info-terminal-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .webview-nav {
