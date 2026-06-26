@@ -1,8 +1,28 @@
 const sharp = require('sharp');
 const path = require('path');
+const fs = require('fs');
 
 const scriptDir = __dirname;
-const svgPath = path.join(scriptDir, 'option3-hexagon-neural.svg');
+
+// Default SVG source (can be overridden via CLI argument)
+// Usage: node icons/generate-icons.cjs [svg-filename]
+// Example: node icons/generate-icons.cjs design-a-bold-bracket.svg
+const defaultSvg = 'option3-hexagon-neural.svg';
+const svgArg = process.argv[2];
+const svgName = svgArg || defaultSvg;
+const svgPath = path.join(scriptDir, svgName);
+
+// Validate SVG exists
+if (!fs.existsSync(svgPath)) {
+  console.error(`ERROR: SVG file not found: ${svgPath}`);
+  console.error(`Available SVGs in icons/:`);
+  fs.readdirSync(scriptDir)
+    .filter(f => f.endsWith('.svg'))
+    .forEach(f => console.error(`  - ${f}`));
+  process.exit(1);
+}
+
+console.log(`Source SVG: ${svgName}`);
 
 const sizes = [16, 24, 32, 48, 64, 128, 256, 512];
 

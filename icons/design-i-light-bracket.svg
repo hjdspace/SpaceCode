@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg-i" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#fafafa"/>
+      <stop offset="100%" style="stop-color:#e5e5e5"/>
+    </linearGradient>
+    <linearGradient id="grad-i" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1"/>
+      <stop offset="100%" style="stop-color:#a855f7"/>
+    </linearGradient>
+  </defs>
+
+  <!-- LIGHT theme - bold contrast -->
+  <rect width="512" height="512" rx="112" fill="url(#bg-i)"/>
+
+  <!-- Filled rounded square with cutout </> -->
+  <rect x="96" y="96" width="320" height="320" rx="48" fill="url(#grad-i)"/>
+
+  <!-- </> cutout in white -->
+  <g fill="none" stroke="#ffffff" stroke-width="28" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M215,175 L155,256 L215,337"/>
+    <path d="M297,175 L357,256 L297,337"/>
+    <path d="M275,175 L237,337"/>
+  </g>
+</svg>

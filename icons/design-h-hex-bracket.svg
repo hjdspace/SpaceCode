@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg-h" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e1b4b"/>
+      <stop offset="100%" style="stop-color:#312e81"/>
+    </linearGradient>
+    <linearGradient id="grad-h" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#c084fc"/>
+      <stop offset="100%" style="stop-color:#f472b6"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg-h)"/>
+
+  <!-- Hexagon (space/molecule) with </> inside -->
+  <!-- Outer hex -->
+  <polygon points="256,80 416,160 416,352 256,432 96,352 96,160"
+           fill="none" stroke="url(#grad-h)" stroke-width="8" opacity="0.3"/>
+
+  <!-- Inner hex filled -->
+  <polygon points="256,110 390,176 390,336 256,402 122,336 122,176"
+           fill="url(#bg-h)" stroke="url(#grad-h)" stroke-width="6"/>
+
+  <!-- </> inside hex -->
+  <g fill="none" stroke="url(#grad-h)" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M215,200 L165,256 L215,312"/>
+    <path d="M297,200 L347,256 L297,312"/>
+    <path d="M275,200 L237,312"/>
+  </g>
+</svg>

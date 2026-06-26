@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg-g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0d1117"/>
+      <stop offset="100%" style="stop-color:#161b22"/>
+    </linearGradient>
+    <linearGradient id="grad-g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#58a6ff"/>
+      <stop offset="100%" style="stop-color:#7ee787"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg-g)"/>
+
+  <!-- Filled </>  shape - solid, bold, GitHub-inspired -->
+  <!-- Left triangle < -->
+  <path d="M200,140 L100,256 L200,372 L200,330 L140,256 L200,182 Z"
+        fill="url(#grad-g)"/>
+
+  <!-- Right triangle > -->
+  <path d="M312,140 L412,256 L312,372 L312,330 L372,256 L312,182 Z"
+        fill="url(#grad-g)"/>
+
+  <!-- Center slash / -->
+  <path d="M285,140 L255,140 L227,372 L257,372 Z"
+        fill="url(#grad-g)"/>
+</svg>

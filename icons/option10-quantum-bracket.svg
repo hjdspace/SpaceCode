@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg10" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#050816"/>
+      <stop offset="100%" style="stop-color:#0f1a3c"/>
+    </linearGradient>
+    <linearGradient id="bkt10" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00d9ff"/>
+      <stop offset="50%" style="stop-color:#7c3aed"/>
+      <stop offset="100%" style="stop-color:#ec4899"/>
+    </linearGradient>
+    <radialGradient id="core10" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#00d9ff"/>
+      <stop offset="60%" style="stop-color:#7c3aed"/>
+      <stop offset="100%" style="stop-color:#ec4899" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow10">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="108" fill="url(#bg10)"/>
+
+  <!-- Deep space stars -->
+  <g fill="#fff" opacity="0.35">
+    <circle cx="85" cy="95" r="1.5"/>
+    <circle cx="180" cy="60" r="1"/>
+    <circle cx="330" cy="75" r="2"/>
+    <circle cx="430" cy="100" r="1"/>
+    <circle cx="55" cy="200" r="1"/>
+    <circle cx="460" cy="230" r="1.5"/>
+    <circle cx="75" cy="350" r="1.5"/>
+    <circle cx="50" cy="430" r="1"/>
+    <circle cx="440" cy="360" r="1"/>
+    <circle cx="420" cy="440" r="1.5"/>
+    <circle cx="200" cy="460" r="1"/>
+    <circle cx="340" cy="455" r="1"/>
+    <circle cx="256" cy="45" r="1"/>
+  </g>
+
+  <!-- Quantum orbits (electron paths) -->
+  <ellipse cx="256" cy="256" rx="180" ry="70" fill="none"
+           stroke="url(#bkt10)" stroke-width="2.5"
+           transform="rotate(0 256 256)" opacity="0.25"/>
+  <ellipse cx="256" cy="256" rx="180" ry="70" fill="none"
+           stroke="url(#bkt10)" stroke-width="2.5"
+           transform="rotate(60 256 256)" opacity="0.2"/>
+  <ellipse cx="256" cy="256" rx="180" ry="70" fill="none"
+           stroke="url(#bkt10)" stroke-width="2.5"
+           transform="rotate(120 256 256)" opacity="0.15"/>
+
+  <!-- Central glow -->
+  <circle cx="256" cy="256" r="120" fill="url(#core10)" opacity="0.3" filter="url(#glow10)"/>
+
+  <!-- Giant </> code bracket symbol -->
+  <g filter="url(#glow10)">
+    <!-- Left bracket < -->
+    <path d="M210,170 L140,256 L210,342"
+          fill="none" stroke="url(#bkt10)" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Right bracket > -->
+    <path d="M302,170 L372,256 L302,342"
+          fill="none" stroke="url(#bkt10)" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Center slash / -->
+    <line x1="288" y1="160" x2="224" y2="352"
+          stroke="url(#bkt10)" stroke-width="20" stroke-linecap="round"/>
+  </g>
+
+  <!-- Electron particles on orbits -->
+  <circle cx="76" cy="256" r="8" fill="#00d9ff" filter="url(#glow10)"/>
+  <circle cx="436" cy="256" r="8" fill="#ec4899" filter="url(#glow10)"/>
+
+  <!-- Electron on tilted orbit 1 -->
+  <circle cx="368" cy="126" r="6" fill="#7c3aed" filter="url(#glow10)" opacity="0.8"/>
+  <circle cx="144" cy="386" r="6" fill="#7c3aed" filter="url(#glow10)" opacity="0.8"/>
+
+  <!-- Electron on tilted orbit 2 -->
+  <circle cx="144" cy="126" r="6" fill="#00d9ff" filter="url(#glow10)" opacity="0.7"/>
+  <circle cx="368" cy="386" r="6" fill="#ec4899" filter="url(#glow10)" opacity="0.7"/>
+
+  <!-- Center spark -->
+  <g transform="translate(256, 256)" filter="url(#glow10)">
+    <path d="M0,-22 Q5,-5 22,0 Q5,5 0,22 Q-5,5 -22,0 Q-5,-5 0,-22Z"
+          fill="#fff" opacity="0.9"/>
+  </g>
+</svg>

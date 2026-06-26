@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SpaceCode 图标设计方案预览</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0a;
+      color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      min-height: 100vh;
+      padding: 40px 20px;
+    }
+    h1 {
+      text-align: center;
+      font-size: 2rem;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, #22d3ee, #818cf8, #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .subtitle {
+      text-align: center;
+      color: #888;
+      margin-bottom: 12px;
+      font-size: 0.95rem;
+    }
+    .note {
+      text-align: center;
+      color: #666;
+      margin-bottom: 40px;
+      font-size: 0.85rem;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+      line-height: 1.6;
+    }
+    .section-title {
+      font-size: 1.1rem;
+      color: #aaa;
+      margin: 40px 0 20px;
+      padding-left: 8px;
+      border-left: 3px solid #818cf8;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 24px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    .card {
+      background: #141414;
+      border: 1px solid #222;
+      border-radius: 16px;
+      padding: 28px;
+      transition: all 0.3s;
+      position: relative;
+      overflow: hidden;
+    }
+    .card:hover {
+      border-color: #818cf8;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(129, 140, 248, 0.1);
+    }
+    .card .badge {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: #818cf8;
+      color: #fff;
+      font-size: 0.7rem;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-weight: 600;
+    }
+    .card .badge.current {
+      background: #22c55e;
+    }
+    .icon-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .icon-large {
+      width: 128px;
+      height: 128px;
+      border-radius: 24px;
+      flex-shrink: 0;
+    }
+    .icon-sizes {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+    }
+    .icon-sizes img {
+      border-radius: 4px;
+    }
+    .icon-sizes .size-label {
+      font-size: 0.65rem;
+      color: #666;
+      text-align: center;
+      margin-top: 2px;
+    }
+    .size-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .card h3 {
+      font-size: 1rem;
+      margin-bottom: 6px;
+      color: #fff;
+    }
+    .card p {
+      font-size: 0.82rem;
+      color: #888;
+      line-height: 1.5;
+    }
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 12px;
+    }
+    .tag {
+      font-size: 0.7rem;
+      padding: 2px 8px;
+      border-radius: 12px;
+      background: #1e1e2e;
+      color: #818cf8;
+      border: 1px solid #2a2a3e;
+    }
+    .actions {
+      max-width: 1400px;
+      margin: 40px auto 0;
+      text-align: center;
+      padding: 24px;
+      background: #141414;
+      border: 1px solid #222;
+      border-radius: 16px;
+    }
+    .actions p {
+      color: #888;
+      font-size: 0.9rem;
+      line-height: 1.8;
+    }
+    .actions code {
+      background: #1e1e2e;
+      padding: 2px 8px;
+      border-radius: 4px;
+      color: #22d3ee;
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>SpaceCode 图标设计方案</h1>
+  <p class="subtitle">全新极简设计感方案 · 参考 Cursor / Zed / Windsurf / VS Code 风格</p>
+  <p class="note">
+    新方案去除了繁杂的星空、轨道、粒子等装饰元素，采用大胆的线条、简洁的色块和强辨识度的主体图形，<br>
+    确保在 16×16 小尺寸下依然清晰可辨。每张卡片右侧展示了不同尺寸下的渲染效果。
+  </p>
+
+  <!-- ===== 新设计方案 ===== -->
+  <div class="section-title">全新设计方案（design-a ~ design-l）</div>
+  <div class="grid" id="new-grid"></div>
+
+  <!-- ===== 旧方案对比 ===== -->
+  <div class="section-title">旧方案（option1 ~ option4，仅供参考对比）</div>
+  <div class="grid" id="old-grid"></div>
+
+  <div class="actions">
+    <p>
+      选择喜欢的方案后，告诉我编号（如 <code>design-a</code>），我会更新生成脚本并生成所有尺寸的 PNG/ICO 文件。<br>
+      也可以告诉我喜欢哪个方案的某个元素，我可以组合调整。
+    </p>
+  </div>
+
+  <script>
+    const newDesigns = [
+      { id: 'design-a-bold-bracket', name: 'A · Bold Bracket', desc: '极简粗线条 </> 符号，深紫渐变背景。最接近 Zed 风格——大胆、自信、辨识度极强。', tags: ['极简', '粗线条', 'Zed风格'] },
+      { id: 'design-b-planet-bracket', name: 'B · Planet Bracket', desc: '行星圆环 + 内嵌 </> 代码符号，青蓝渐变。将 Space 主题与 Code 主题极简融合。', tags: ['行星', '融合', '辨识度'] },
+      { id: 'design-c-s-monogram', name: 'C · S Monogram', desc: 'S 字母与代码括号结合的字母标志，暖色渐变。品牌感最强，类似 Linear/Raycast。', tags: ['字母标志', '品牌感', 'Linear风格'] },
+      { id: 'design-d-terminal-prompt', name: 'D · Terminal Prompt', desc: '极简终端提示符 >_ 加微弱轨道弧线，绿青渐变。开发者一眼认出，Cursor 式极简。', tags: ['终端', '极简', 'Cursor风格'] },
+      { id: 'design-e-diamond-bracket', name: 'E · Diamond Bracket', desc: '菱形/宝石造型由代码括号组成，紫粉渐变。几何感强，现代且独特。', tags: ['几何', '宝石', '独特'] },
+      { id: 'design-f-arrow-bracket', name: 'F · Arrow Bracket', desc: '向上箭头/火箭由 < > 括号构成，天蓝紫渐变。象征发射 + 编码，动感十足。', tags: ['箭头', '动感', '太空'] },
+      { id: 'design-g-github-bracket', name: 'G · GitHub Bracket', desc: '实心填充 </> 造型，GitHub 配色。实心设计在小尺寸下最清晰。', tags: ['实心', 'GitHub风格', '高辨识'] },
+      { id: 'design-h-hex-bracket', name: 'H · Hex Bracket', desc: '六边形内嵌 </> 符号，紫粉渐变。分子/蜂巢结构暗示 AI 神经网络。', tags: ['六边形', '神经网络', '结构感'] },
+      { id: 'design-i-light-bracket', name: 'I · Light Bracket', desc: '浅色背景 + 紫色圆角方块 + 白色 </> 镂空。与众不同的浅色方案，高对比度。', tags: ['浅色', '高对比', '独特'] },
+      { id: 'design-j-trajectory', name: 'J · Trajectory', desc: '虚线发射轨迹 + 火箭/目的地，橙黄渐变。代码虚线暗示编程，轨迹暗示太空。', tags: ['轨迹', '虚线', '故事感'] },
+      { id: 'design-k-ide-window', name: 'K · IDE Window', desc: '极简 IDE 窗口造型 + AI 光标块，青蓝渐变。直接展示产品形态。', tags: ['IDE窗口', '产品感', '直观'] },
+      { id: 'design-l-tricolor-bracket', name: 'L · Tricolor Bracket', desc: '三色 </> 符号——红、黄、绿三原色。最具视觉冲击力，终端配色致敬。', tags: ['三色', '冲击力', '终端配色'] },
+    ];
+
+    const oldDesigns = [
+      { id: 'option1-terminal-orbit', name: '旧1 · Terminal Orbit', desc: '终端窗口 + 轨道环 + 星粒子。元素过多，小尺寸模糊。', tags: ['旧方案', '过于复杂'] },
+      { id: 'option2-bracket-planet', name: '旧2 · Bracket Planet', desc: '花括号 + 行星环 + 网格点。设计感不足。', tags: ['旧方案', '过于复杂'] },
+      { id: 'option3-hexagon-neural', name: '旧3 · Hexagon Neural', desc: '六边形 + 神经网络节点。当前使用方案。', tags: ['旧方案', '当前使用'], current: true },
+      { id: 'option4-rocket-code', name: '旧4 · Rocket Code', desc: '火箭 + 代码窗口。过于具象。', tags: ['旧方案', '过于具象'] },
+    ];
+
+    function createCard(d) {
+      const sizes = [16, 32, 64, 128];
+      const sizeHTML = sizes.map(s => `
+        <div class="size-wrap">
+          <img src="../../icons/${d.id}.svg" width="${s}" height="${s}" style="object-fit: contain;">
+          <span class="size-label">${s}px</span>
+        </div>
+      `).join('');
+
+      return `
+        <div class="card">
+          ${d.current ? '<span class="badge current">当前使用</span>' : ''}
+          <div class="icon-row">
+            <img class="icon-large" src="../../icons/${d.id}.svg" style="object-fit: contain;">
+            <div class="icon-sizes">${sizeHTML}</div>
+          </div>
+          <h3>${d.name}</h3>
+          <p>${d.desc}</p>
+          <div class="tags">
+            ${d.tags.map(t => `<span class="tag">${t}</span>`).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    document.getElementById('new-grid').innerHTML = newDesigns.map(createCard).join('');
+    document.getElementById('old-grid').innerHTML = oldDesigns.map(createCard).join('');
+  </script>
+</body>
+</html>
