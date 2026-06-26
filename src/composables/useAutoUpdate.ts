@@ -31,6 +31,8 @@ export function useAutoUpdate() {
   let unsubError: (() => void) | null = null
   let transientTimer: ReturnType<typeof setTimeout> | null = null
   let downloadTimeoutTimer: ReturnType<typeof setTimeout> | null = null
+  // 标记用户在下载过程中是否已隐藏通知，隐藏后进度事件不再把状态切回 downloading
+  let downloadDismissed = false
 
   function clearTransientTimer() {
     if (transientTimer) {
@@ -78,13 +80,18 @@ export function useAutoUpdate() {
     })
 
     unsubProgress = api.update.onDownloadProgress((progress) => {
-      status.value = 'downloading'
       downloadProgress.value = progress
       // 收到第一个进度事件后清除超时计时器
       clearDownloadTimeout()
+      // 用户已隐藏通知时，静默更新进度数据，不改变状态
+      if (!downloadDismissed) {
+        status.value = 'downloading'
+      }
     })
 
     unsubDownloaded = api.update.onDownloaded((info) => {
+      // 下载完成，重置隐藏标志并重新显示通知
+      downloadDismissed = false
       status.value = 'downloaded'
       updateInfo.value = info
     })
@@ -127,6 +134,7 @@ export function useAutoUpdate() {
 
   async function downloadUpdate() {
     try {
+      downloadDismissed = false
       status.value = 'downloading'
       downloadProgress.value = null
       clearTransientTimer()
@@ -166,6 +174,9 @@ export function useAutoUpdate() {
     // downloading 状态隐藏后，下载仍在后台继续，完成后通知会再次出现
     // downloaded 状态隐藏后，下次退出应用时会自动安装（autoInstallOnAppQuit）
     if (status.value !== 'idle' && status.value !== 'checking') {
+      if (status.value === 'downloading') {
+        downloadDismissed = true
+      }
       status.value = 'idle'
     }
   }
