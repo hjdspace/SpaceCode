@@ -1,288 +1,180 @@
-# SpaceCode - AI Programming Assistant
+<div align="center">
 
-> AI 驱动的智能编程助手，提供 CLI 终端界面和桌面 GUI 两种使用方式。基于 Claude Code 协议构建。
+<img src="icons/icon.png" width="120" height="120" alt="SpaceCode Logo" />
 
-[![Bun](https://img.shields.io/badge/runtime-Bun-black?style=flat-square&logo=bun)](https://bun.sh/)
-[![Electron](https://img.shields.io/badge/framework-Electron-47848F?style=flat-square&logo=electron)](https://www.electronjs.org/)
-[![Vue 3](https://img.shields.io/badge/framework-Vue%203-4FC08D?style=flat-square&logo=vue.js)](https://vuejs.org/)
-[![TypeScript](https://img.shields.io/badge/language-TypeScript-3178C6?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
+# SpaceCode
 
-## 项目概述
+### AI 驱动的智能编程桌面助手
 
-### 核心目标
+基于 Claude Code 引擎构建的新一代 AI 辅助编程桌面应用，深度融合大语言模型能力，为开发者提供智能化的代码编写、调试、重构和项目管理体验。
 
-SpaceCode 致力于打造**新一代 AI 辅助编程工具**，通过深度整合大语言模型能力，为开发者提供智能化的代码编写、调试、重构和项目管理体验。本项目采用 Monorepo 架构，同时提供：
+[![Electron](https://img.shields.io/badge/Electron-29-47848F?style=flat-square&logo=electron)](https://www.electronjs.org/)
+[![Vue 3](https://img.shields.io/badge/Vue%203-3.4-4FC08D?style=flat-square&logo=vue.js)](https://vuejs.org/)
+[![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=flat-square&logo=vite)](https://vitejs.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
+[![Bun](https://img.shields.io/badge/Bun-2-black?style=flat-square&logo=bun)](https://bun.sh/)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)]()
 
-1. **CLI 命令行版本** (`claude-code`) — 面向终端用户的高效交互式编程助手
-2. **桌面 GUI 版本** (`claude-code-desktop`) — 面向可视化用户的现代化桌面应用
+[双模式核心](#双模式核心) · [更多特色](#更多特色) · [快速开始](#快速开始) · [项目结构](#项目结构) · [开发指南](#开发指南) · [技术栈](#技术栈)
 
-### 主要价值
-
-- **提升开发效率**：50+ 内置工具覆盖文件操作、代码搜索、Web 抓取、API 调用等场景
-- **降低学习成本**：70+ 斜杠命令提供直观的操作入口，无需记忆复杂参数
-- **多模型支持**：兼容 Anthropic、OpenAI、Gemini、Grok 等主流 LLM 服务商
-- **灵活部署方式**：支持本地终端、桌面应用、远程协作等多种使用模式
-- **企业级可靠性**：完善的测试体系（100+ 测试用例）、CI/CD 流程、错误处理机制
-
-## 项目架构
-
-本仓库采用 **Monorepo** 结构，包含两个互补的子项目：
-
-| 子项目 | 定位 | 技术栈 | 目标用户 |
-|--------|------|--------|----------|
-| **engine/** (CLI) | 终端交互式 AI 编程助手 | Bun + TypeScript + React/Ink | 终端爱好者、DevOps 工程师 |
-| **根目录** (Desktop) | 桌面 GUI 应用 | Electron + Vue 3 + Vite | 可视化用户、初学者 |
-
-```
-SpaceCode/
-├── engine/                          # CLI 核心引擎
-│   ├── src/                         # 源代码
-│   │   ├── main.tsx                 # 入口文件 (Commander + React/Ink REPL)
-│   │   ├── QueryEngine.ts           # 查询编排引擎
-│   │   ├── tools/                   # 45+ 工具实现
-│   │   ├── commands/                # 60+ 命令实现
-│   │   └── services/                # API/MCP/LSP 服务层
-│   ├── tests/                       # 测试套件
-│   └── packages/                    # 工作区包
-│
-├── electron/                        # Electron 主进程
-│   ├── main.ts                      # 主进程入口
-│   ├── preload.ts                   # Context Bridge (IPC API)
-│   └── terminalManager.ts           # PTY 终端管理器
-│
-├── src/                             # Vue 3 渲染进程
-│   ├── App.vue                      # 根组件（三栏布局）
-│   ├── components/                  # UI 组件库
-│   ├── stores/                      # Pinia 状态管理
-│   └── services/                    # LLM 客户端服务
-│
-├── CHANGELOG.md                     # 更新日志
-├── README.md                        # 本文档
-└── package.json                     # Desktop 项目配置
-```
-
-## 功能特性
-
-### CLI 功能（`engine/`）
-
-#### 核心工具集（45+）
-
-| 类别 | 工具示例 | 说明 |
-|------|----------|------|
-| **文件操作** | FileRead, FileEdit, Glob, Grep | 读写搜文件 |
-| **Shell 执行** | BashTool, PowerShellTool | 执行系统命令 |
-| **Web 能力** | WebFetch, WebSearch | 抓取网页、搜索引擎查询 |
-| **IDE 集成** | LSPTool | Language Server Protocol 支持 |
-| **扩展协议** | MCPTool | Model Context Protocol 代理 |
-| **子代理** | AgentTool | 多代理协作任务分发 |
-
-#### 斜杠命令（60+）
-
-常用命令速查：
-
-| 命令 | 说明 | 使用场景 |
-|------|------|----------|
-| `/help` | 显示帮助信息 | 初次使用、查看可用命令 |
-| `/login` | 配置 API 提供商 | 首次启动、切换服务商 |
-| `/model` | 切换模型 | 选择 Haiku/Sonnet/Opus |
-| `/config` | 编辑配置文件 | 调整参数、自定义行为 |
-| `/compact` | 压缩对话上下文 | 对话过长时优化 Token 用量 |
-| `/commit` | 创建 Git 提交 | AI 生成提交信息并创建 commit |
-| `/diff` | 查看代码差异 | 代码审查、变更对比 |
-| `/review` | 代码审查 | 提交前质量检查 |
-| `/cost` | 显示用量成本 | 监控 API 费用 |
-| `/doctor` | 运行诊断 | 排查问题、健康检查 |
-| `/mcp` | 管理 MCP 服务器 | 扩展工具能力 |
-| `/voice` | 切换语音输入 | 免手写操作 |
-| `/theme` | 切换主题 | 明暗模式切换 |
-
-#### 高级特性
-
-- **多实例协作**：基于 Pipe IPC 的多实例通信 + LAN 局域网发现
-- **计算机控制**：Computer Use / Chrome Use 屏幕和浏览器操控
-- **语音模式**：Push-to-Talk 按键通话
-- **扩展思考**：Extended Thinking 深度推理模式
-- **会话历史**：完整的对话记录和费用追踪
-- **MCP 协议**：支持 stdio/SSE/HTTP/WebSocket 四种传输方式
-
-#### 多会话管理（Multi-Session Management）
-
-支持同时运行多个独立的 AI 会话任务，实现真正的多任务并行处理：
-
-| 特性 | 说明 |
-|------|------|
-| **浏览器式 Tab 界面** | 类似 Chrome 的标签页管理，支持新建、切换、关闭 Tab |
-| **后台会话保持** | 关闭 Tab 不会终止后台进程，任务继续运行 |
-| **进程池管理** | 最多 3 个 CLI 进程并发，LRU 策略自动暂停最久未用的会话 |
-| **状态实时显示** | 旋转动画（处理中）、绿色圆点（空闲）、黄色圆点（已暂停） |
-| **会话恢复** | 应用重启后自动恢复会话列表，点击时懒加载恢复对话 |
-
-**使用场景：**
-- 同时进行代码审查和 Bug 修复两个任务
-- 长耗时任务（如大规模重构）在后台运行，前台处理其他工作
-- 不同项目间快速切换，每个项目保持独立的对话上下文
-
-### Desktop 功能（根目录）
-
-#### 界面设计
-
-- **三栏布局**：侧边栏 + 聊天面板 + 信息面板（灵感来自 VSCode）
-- **浏览器式 Tab 栏**：支持多会话并行，Tab 关闭后后台任务继续运行
-- **主题系统**：Dark/Light 双主题，CSS Variables 动态切换
-- **响应式设计**：可拖拽调整面板大小
-
-#### 核心组件
-
-| 组件 | 功能 | 技术实现 |
-|------|------|----------|
-| Markdown 渲染器 | 富文本展示 | marked + highlight.js |
-| 代码差异查看器 | 行级 Diff 对比 | diff 库 + 自定义 UI |
-| 集成终端 | Shell 交互环境 | xterm.js + node-pty |
-| 文件树浏览器 | 项目结构导航 | 自定义递归组件 |
-| 会话管理器 | 历史记录切换 | Pinia Store 持久化 |
-| 多会话管理 | 多 Tab 并行会话 | 进程池 + LRU 淘汰 + 事件路由 |
-| **回滚对话框** | **消息回滚操作** | Teleport 模态弹窗 + Pinia Rewind State |
-| **消息选择器** | **选择回滚目标消息** | 消息列表弹窗 + 时间格式化 |
-| **Hook 管理器** | **自定义会话生命周期钩子** | Pinia Store + 三种作用域配置 |
-| **技能库系统** | **UI 设计技能包管理** | 10+ 套前端设计风格 + 版本锁定 |
-
-##### 🔧 Hook 管理系统
-
-灵活的会话生命周期钩子系统：
-
-- **三种作用域**：用户级 / 项目级 / 本地级配置
-- **三种视图**：卡片 / 表格 / 时间线展示
-- **持久化存储**：通过 electronAPI 统一管理
-- **国际化支持**：完整的中英文界面
-
-##### 🔄 API 代理增强
-
-完善的 Anthropic ↔ OpenAI 消息格式转换：
-
-- **工具调用转换**：支持 function calling 格式互转
-- **多内容块处理**：正确处理复杂消息结构
-- **类型校验**：空值检查和类型验证确保稳定性
-
-#### 平台支持
-
-- ✅ Windows (NSIS 安装包 + Portable 便携版)
-- ✅ macOS (DMG + ZIP)
-- ✅ Linux (AppImage + DEB + RPM)
-
-#### 对话回滚（Rewind）
-
-支持将对话和代码变更回滚到历史消息节点，提供灵活的回滚策略：
-
-| 选项 | 说明 | 适用场景 |
-|------|------|----------|
-| **回滚对话和代码** | 删除目标消息之后的所有消息，并撤销对应的代码更改 | 彻底回退到某个决策点 |
-| **仅回滚对话** | 仅删除目标消息后的对话记录，保留代码变更 | 想换种说法重新提问，但不丢失已有改动 |
-| **仅回滚代码** | 仅撤销代码更改，保留所有消息记录 | 代码改错了，但对话上下文还想保留 |
-| **回滚并总结** | 回滚后生成变更总结 | 团队协作时记录回滚原因 |
-
-**工作流程：**
-1. 在消息列表中右键或点击回滚按钮
-2. 在消息选择器中选择要回滚到的目标用户消息
-3. 选择回滚策略（对话/代码/两者/总结）
-4. 预览变更统计（文件数、增删行数）
-5. 确认执行回滚
-
-**技术实现：**
-- `RewindDialog.vue` — Teleport 模态弹窗，支持 5 种回滚选项和变更统计预览
-- `MessageSelector.vue` — 消息选择器，展示时间线和内容预览
-- `chat.ts` (Pinia Store) — RewindState 状态管理 + 对话裁剪 + 代码回滚 IPC 调用
-- 完整的中/英文 i18n 文案支持
-- 配套单元测试和集成测试覆盖
+</div>
 
 ---
 
-### 轮次卡片追踪 UI（Round Card Tracking）
+## 项目简介
 
-> 🧪 **测试功能** — 用于验证轮次卡片展示、状态流转和交互反馈的 UI 套件。
+SpaceCode 是一款跨平台 AI 桌面助手，采用 **Electron + Vue 3 + TypeScript** 技术栈构建。它创造性地将 **AI 编程** 与 **AI 办公** 融合到同一应用中，通过顶部的 `💻 编码` / `💼 办公` 模式切换，在一款工具中同时满足开发者的代码编写需求和职场人的文档产出需求。
 
-#### 卡片列表视图
+项目采用 Monorepo 架构，包含桌面 GUI 应用（根目录）、CLI 核心引擎（`engine/`）和 Flutter 移动端配套应用（`mobile-app/`），支持扫码配对远程协作。
 
-| 卡片类型 | 状态指示 | 展示内容 |
-|----------|----------|----------|
-| **回合卡** | 进行中/已完成/失败 | 轮次序号、进度条、耗时、Token 消耗 |
-| **里程碑卡** | 锁定/可解锁/已达成 | 里程碑名称、条件描述、进度百分比 |
-| **步骤卡** | 待处理/运行中/成功/出错 | 步骤名、状态图标、输出预览、重试按钮 |
-| **统计卡** | 汇总 | 总轮次、平均耗时、成功率、Token 汇总 |
+---
 
-#### 状态流转示例
+## 双模式核心
 
-```
-待处理 → 运行中 → 成功 → 已归档
-    ↘ 失败 → 重试 → 运行中 → 成功
-```
+SpaceCode 的核心是 **编码模式** 和 **办公模式** 两大场景，通过顶部 Tab 一键切换，共享会话管理、多模型支持、技能系统等底层能力。
 
-#### 交互行为
+### 💻 编码模式（Code Mode）
 
-- **点击卡片**：展开/折叠详情面板
-- **悬停卡片**：显示 tooltip 包含执行时间、输入/输出 Token 数
-- **右键菜单**：重新执行、跳过、标记为已完成、复制结果
-- **拖拽排序**：支持自定义轮次执行顺序
-- **批量操作**：多选卡片后批量重试或跳过
+面向开发者的 AI 编程助手，深度集成 Claude Code 引擎，提供从代码编写、调试、重构到项目管理的全流程辅助。
 
-#### 视觉状态对照表
+<div align="center">
 
-| 状态 | 边框色 | 背景色 | 图标 |
-|------|--------|--------|------|
-| 待处理 | `--color-border-muted` | 透明 | ○ 空心圆 |
-| 运行中 | `--color-accent` | `--color-accent-soft` | ◌ 旋转圆环 |
-| 成功 | `--color-success` | `--color-success-soft` | ✓ 勾选 |
-| 失败 | `--color-danger` | `--color-danger-soft` | ✕ 叉号 |
-| 已跳过 | `--color-warning` | `--color-warning-soft` | — 横线 |
-| 已归档 | `--color-text-muted` | `--color-surface-tertiary` | 📁 归档图标 |
+<img src="screenshots/code.png" alt="SpaceCode 编码模式" width="900" />
 
-#### 数据模拟
+*编码模式：三栏 IDE 布局，AI 对话 + 工具调用卡片 + 文件树/Diff 面板*
 
-为方便 UI 开发和测试，提供模拟数据工厂：
+</div>
 
-```typescript
-interface RoundCard {
-  id: string
-  roundIndex: number
-  status: 'pending' | 'running' | 'success' | 'failed' | 'skipped' | 'archived'
-  label: string
-  description?: string
-  progress?: number          // 0-100
-  durationMs?: number
-  tokenCount?: { input: number; output: number }
-  milestones?: MilestoneCard[]
-  createdAt: string
-  updatedAt: string
-}
+**核心能力：**
 
-// 模拟数据生成
-function createMockRounds(count: number): RoundCard[] {
-  const statuses: RoundCard['status'][] = [
-    'success', 'success', 'failed', 'success', 'running', 'pending'
-  ]
-  return Array.from({ length: count }, (_, i) => ({
-    id: `round-${i + 1}`,
-    roundIndex: i + 1,
-    status: statuses[i % statuses.length],
-    label: `第 ${i + 1} 轮：${['代码审查', 'Bug 修复', '重构', '测试编写', '文档生成', '需求分析'][i % 6]}`,
-    progress: statuses[i % statuses.length] === 'running' ? Math.floor(Math.random() * 80) + 10 : 100,
-    durationMs: Math.floor(Math.random() * 30000) + 5000,
-    tokenCount: { input: Math.floor(Math.random() * 5000), output: Math.floor(Math.random() * 2000) },
-    createdAt: new Date(Date.now() - (count - i) * 60000).toISOString(),
-    updatedAt: new Date().toISOString(),
-  }))
-}
-```
+| 能力 | 说明 |
+|------|------|
+| **AI 对话编程** | 自然语言描述需求，AI 自动读写文件、执行命令、生成代码 |
+| **工具调用卡片** | Bash、Edit、Read、Write、Glob、Grep、WebFetch、WebSearch、Agent 等 13+ 工具的可视化卡片，每步操作清晰可见 |
+| **代码 Diff 预览** | 基于 `@git-diff-view` 的行级差异对比，AI 每次编辑都可审查 |
+| **集成终端** | 基于 xterm.js + node-pty，支持多终端标签页，与 AI 会话无缝协作 |
+| **Git SCM 面板** | 暂存、提交、推送、分支管理、Diff 查看，事件驱动自动刷新 |
+| **文件浏览器** | 项目树状导航，支持右键菜单与外部编辑器打开（VS Code、Cursor、Vim 等） |
+| **对话回滚（Rewind）** | 支持将对话和代码变更回滚到历史消息节点，提供 4 种回滚策略 |
+| **权限控制** | 自动批准 / 手动批准 / 始终拒绝 / 仅建议四种模式，精细控制 AI 操作范围 |
+| **斜杠命令** | 内联命令芯片 + 斜杠命令菜单，70+ 命令覆盖常用操作 |
 
-#### Storyboard 测试场景
+**对话回滚策略：**
 
-| 场景 | 描述 | 验证要点 |
+| 策略 | 说明 | 适用场景 |
 |------|------|----------|
-| **空状态** | 无任何轮次卡片 | 占位文本 + 引导按钮 |
-| **加载中** | 卡片列表骨架屏 | Skeleton 加载动画 |
-| **混合状态** | 多种状态卡片混合 | 颜色/图标正确性 |
-| **长列表** | 50+ 卡片 | 虚拟滚动性能 |
-| **错误恢复** | 失败后重试成功 | 状态流转动画 |
-| **全部完成** | 所有卡片成功 | 完成庆祝动画（彩带/烟花） |
+| 回滚对话和代码 | 删除目标消息后的所有消息并撤销代码更改 | 彻底回退到某个决策点 |
+| 仅回滚对话 | 仅删除对话记录，保留代码变更 | 换种方式重新提问 |
+| 仅回滚代码 | 仅撤销代码更改，保留对话上下文 | 代码改错了但想保留上下文 |
+| 回滚并总结 | 回滚后生成变更总结 | 团队协作记录回滚原因 |
+
+### 💼 办公模式（Work Mode）
+
+面向职场场景的 AI 办公助手，内置 20+ 专业助手，能够直接生成可编辑的 `.pptx`、`.docx`、`.xlsx` 文件，而非输出 Markdown 让用户自行排版。
+
+<div align="center">
+
+<img src="screenshots/work.png" alt="SpaceCode 办公模式" width="900" />
+
+*办公模式：办公助手快捷入口 + AI 对话 + 产物汇总卡片 + 文档实时预览*
+
+</div>
+
+**核心能力：**
+
+| 能力 | 说明 |
+|------|------|
+| **专业办公助手** | 内置 PPT 制作、Word 文档、Excel 表格、财务模型、数据看板、学术论文等 20+ 专业助手 |
+| **真实文件产出** | 通过 officecli 技能体系直接生成可编辑的 `.pptx`/`.docx`/`.xlsx` 文件，支持下载后二次编辑 |
+| **产物汇总卡片** | 每轮对话自动收集和展示生成的文件，支持预览、打开、定位文件夹 |
+| **文档实时预览** | 右侧面板支持 HTML 渲染、截图缩略图、实时观看三种预览模式 |
+| **自定义助手** | 支持创建自定义办公助手，配置系统提示词、技能绑定与推荐 Prompt |
+| **officecli 技能体系** | 全量接入 officecli 技能库，涵盖 PPT 多套样式、Word 表单、Excel 数据看板等场景 |
+| **工作空间管理** | 首次进入办公模式引导选择工作目录，所有产物统一存放在 `outputs/` 目录 |
+
+**内置助手一览：**
+
+| 分类 | 助手示例 |
+|------|----------|
+| 📊 演示文稿 | PPT 制作、Morph PPT、Morph PPT 3D、融资路演 Pitch Deck |
+| 📄 文档写作 | Word 文档、Word 表单、文档协作 |
+| 📈 数据表格 | Excel 表格、数据看板 |
+| 🎓 学术研究 | 学术论文、财务模型 |
+| 🎨 创意设计 | UI/UX 设计、品牌指南、社交图片 |
+| ⚡ 通用效率 | 文件规划、TDD 指导、代码审查 |
+
+<div align="center">
+
+<img src="screenshots/助手画廊.png" alt="SpaceCode 办公助手画廊" width="900" />
+
+*办公助手画廊：20+ 专业助手，按分类筛选，支持自定义创建*
+
+</div>
+
+---
+
+## 更多特色
+
+### 🖥️ 分屏多会话布局
+
+- **三栏式 IDE 布局**：侧边栏 + 聊天面板 + 信息面板，灵感来自 VSCode，支持拖拽调整面板宽度
+- **分屏多会话**：中央区分屏布局系统，支持多会话并行展示，每个标签页独立管理
+- **浏览器式 Tab 管理**：类似 Chrome 的标签页管理，新建、切换、关闭一气呵成
+- **后台会话保持**：关闭 Tab 不会终止后台进程，任务继续运行
+- **进程池管理**：多 CLI 进程并发，LRU 策略自动暂停最久未用的会话
+
+<div align="center">
+
+<img src="screenshots/多会话.png" alt="SpaceCode 分屏多会话" width="900" />
+
+*分屏多会话：多个会话标签并行运行，各自独立管理*
+
+</div>
+
+### 🤖 双引擎多模型架构
+
+- **双引擎支持**：Claude Code CLI 引擎 + Pi Engine，可随时切换
+- **多模型兼容**：支持 Anthropic（Claude）、OpenAI（GPT）、Gemini、Grok、DeepSeek 等主流 LLM 服务商
+- **API 代理桥**：内置 Anthropic ↔ OpenAI 消息格式转换代理，支持流式响应，无缝对接 OpenAI 兼容接口
+- **引擎源配置**：可视化引擎源管理，支持 CLI 自动检测与一键安装
+
+### 🔌 MCP 协议与扩展生态
+
+- **MCP 服务器管理**：支持 stdio / SSE / HTTP 三种传输方式，可视化配置与连通性检测
+- **Computer Use MCP**：内置预打包 Computer Use MCP 服务器，支持屏幕和浏览器操控
+- **内置 MCP 依赖安装**：一键安装与状态检测，提升环境配置体验
+
+### 📚 技能库与智能体系统
+
+- **50+ 内置技能**：涵盖前端设计、PPT 生成、代码审查、TDD、文档创作、办公文档等领域
+- **技能管理器**：技能浏览、安装、编辑、分类过滤，支持本地技能与市场技能
+- **Agents 智能体**：完整的代理管理系统，70+ 内置 Agent，支持工作流编辑与执行
+
+### ⚡ 高级功能
+
+- **定时任务（Cron）**：Cron 表达式解析与定时任务调度，支持任务运行日志
+- **Hook 管理系统**：会话生命周期钩子，支持用户级 / 项目级 / 本地级三种作用域
+- **上下文用量管理**：Token 使用量追踪、上下文缓存统计、用量可视化与预警
+- **链路追踪（Trace）**：完整的会话链路追踪与调用详情查看，便于调试
+- **会话上下文面板**：Git 图表、分支创建、环境变量管理、任务面板
+- **迷你浏览器工作台**：内置 WebView 浏览器，支持 HTML 产物自动预览
+
+### 📱 移动端配套
+
+- **Flutter 跨平台应用**：支持 Android、iOS、macOS、Linux、Windows、Web 六端
+- **扫码配对**：扫描桌面端二维码快速连接
+- **主题实时同步**：桌面端主题配置实时同步到移动端
+- **远程操作**：移动端查看会话、审批工具调用、管理代理
+
+### 🎨 精致的用户体验
+
+- **主题系统**：Dark / Light 双主题，Anthropic 官方配色规范，CSS 变量动态切换
+- **国际化（i18n）**：完整的中英文双语支持
+- **自动更新**：内置 electron-updater，支持 GitHub Release 自动检查与更新
+- **快捷键系统**：可自定义的快捷键配置
+- **响应式设计**：可拖拽调整面板，适配不同屏幕尺寸
+
+---
 
 ## 快速开始
 
@@ -290,111 +182,30 @@ function createMockRounds(count: number): RoundCard[] {
 
 | 环境 | 最低版本 | 推荐版本 | 用途 |
 |------|----------|----------|------|
-| **Bun** | >= 2.0.0 | >= 2.1.0 | CLI 运行时 |
-| **Node.js** | >= 18 | >= 20 | Desktop 构建 |
+| **Node.js** | >= 18 | >= 20 | Desktop 构建运行 |
+| **Bun** | >= 2.0.0 | >= 2.1.0 | CLI 引擎运行时 |
 | **npm** | >= 9 | 最新版 | 包管理器 |
 | **Git** | >= 2.x | 最新版 | 版本控制 |
 
-### 依赖安装
-
-#### 全局工具准备
+### 安装与启动
 
 ```bash
-# 安装 Bun（如未安装）
-powershell -c "irm bun.sh/install.ps1 | iex"
-
-# 验证安装
-bun --version  # 应显示 >= 1.2.0
-node --version  # 应显示 >= 18
-```
-
-#### 克隆项目
-
-```bash
+# 1. 克隆项目
 git clone https://github.com/hjdspace/SpaceCode.git
 cd SpaceCode
-```
 
-#### 安装依赖
-
-```bash
-# 安装 Desktop 项目依赖（根目录）
+# 2. 安装 Desktop 依赖（会自动安装 engine 依赖）
 npm install
 
-# 安装 CLI 引擎依赖（engine 目录）
-cd engine && bun install && cd ..
-```
-
-### 开发环境启动
-
-#### 方式一：启动 CLI 开发模式
-
-```bash
-cd engine
-
-# 启动开发服务器（热重载）
-bun run dev
-
-# 或启用调试模式（Inspector）
-bun run dev:inspect
-```
-
-启动后即可在终端中使用 `ccb` 命令与 AI 助手交互。
-
-#### 方式二：启动 Desktop 开发模式
-
-```bash
-# 回到项目根目录
-cd ..
-
-# 启动 Electron + Vite 开发服务器
+# 3. 启动 Electron + Vite 开发服务器
 npm run electron:dev
 ```
 
-此命令会同时启动：
-- Vite 前端开发服务器（热更新）
-- Electron 主进程（自动重载）
-- IPC 通信桥接层
+启动后将同时运行 Vite 前端开发服务器（热更新）、Electron 主进程和 IPC 通信桥接层。
 
-### 生产环境构建
+### 首次配置
 
-#### 构建 CLI
-
-```bash
-cd engine
-
-# 执行构建（生成 dist/ 目录）
-bun run build
-
-# 运行构建产物
-./dist/cli.js  # 或全局安装后使用 ccb 命令
-```
-
-#### 构建 Desktop 应用
-
-```bash
-# 类型检查 + Vite 构建
-npm run build
-
-# 打包 Electron 应用（生成 release/ 目录）
-npm run electron:build
-```
-
-打包输出：
-- **Windows**: `release/SpaceCode Setup x.x.x.exe`（安装包）+ `SpaceCode x.x.x.exe`（便携版）
-- **macOS**: `release/SpaceCode-x.x.x.dmg` + `SpaceCode-x.x.x-mac.zip`
-- **Linux**: `release/SpaceCode-x.x.x.AppImage` + `.deb` + `.rpm`
-
-### 配置说明
-
-首次启动时，需要配置 LLM 提供商：
-
-**CLI 方式**（在终端中执行）：
-```bash
-/login
-```
-
-**Desktop 方式**（在设置面板中填写）：
+首次启动后，在设置面板中配置 LLM 提供商：
 
 | 配置项 | 说明 | 示例值 |
 |--------|------|--------|
@@ -404,26 +215,116 @@ npm run electron:build
 | 均衡模型 | 平衡型模型 ID | `claude-sonnet-4-6` |
 | 高性能模型 | 旗舰模型 ID | `claude-opus-4-6` |
 
-兼容所有 Anthropic API 规范的服务商（OpenRouter、AWS Bedrock 代理、Azure OpenAI 等）。
+兼容所有 Anthropic API 规范的服务商（OpenRouter、AWS Bedrock 代理、Azure OpenAI 等），也可通过内置 API 代理桥接入 OpenAI 兼容接口。
 
-## 技术栈详解
+---
 
-### CLI 引擎（`engine/`）
+## 项目结构
 
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| **Bun** | >= 1.2.0 | JavaScript 运行时、包管理器、构建工具 |
-| **TypeScript** | 6.x | 类型安全、编译时检查 |
-| **React** | 19.x | 终端 UI 渲染（配合 Ink） |
-| **Ink** | workspace:* | React 终端渲染库 |
-| **Zustand** | - | 轻量状态管理 |
-| **Commander.js** | 14.x | CLI 参数解析 |
-| **Biome** | 2.x | 代码格式化 + Lint |
-| **@anthropic-ai/sdk** | 0.80.x | Anthropic API 客户端（流式） |
-| **OpenAI SDK** | 6.x | OpenAI 兼容接口适配 |
-| **MCP SDK** | 1.29.x | Model Context Protocol 实现 |
+```
+SpaceCode/
+├── src/                        # Vue 3 渲染进程
+│   ├── App.vue                 # 根组件（三栏布局）
+│   ├── components/             # UI 组件库
+│   │   ├── chat/               # 聊天组件（消息渲染、工具卡片、回滚、命令菜单）
+│   │   ├── layout/             # 布局组件（分屏容器、侧边栏、标题栏、终端）
+│   │   ├── explorer/           # 文件浏览器
+│   │   ├── scm/                # Git 源码管理
+│   │   ├── terminal/           # 终端组件
+│   │   ├── settings/           # 设置面板
+│   │   ├── skills/             # 技能管理
+│   │   ├── agents/             # Agent 智能体管理
+│   │   ├── mcp/                # MCP 配置
+│   │   ├── cron/               # 定时任务
+│   │   ├── work/               # 工作模式与办公助手
+│   │   ├── debug/              # 链路追踪
+│   │   ├── session-context/    # 会话上下文面板
+│   │   └── common/             # 通用 UI 组件
+│   ├── stores/                 # Pinia 状态管理（20 个模块）
+│   ├── composables/            # Vue 组合式函数
+│   ├── services/               # LLM 客户端、Electron API 服务
+│   ├── i18n/                   # 国际化（zh-CN / en-US）
+│   ├── styles/                 # 全局样式与主题变量
+│   └── types/                  # TypeScript 类型定义
+│
+├── electron/                   # Electron 主进程
+│   ├── main.ts                 # 主进程入口
+│   ├── preload.ts              # Context Bridge（安全 IPC API）
+│   ├── sessionProcess.ts       # 会话进程管理
+│   ├── claudeCodeProcessPool.ts # 进程池管理
+│   ├── gitService.ts           # Git 操作服务
+│   ├── terminalManager.ts      # PTY 终端管理器
+│   ├── skillsService.ts        # 技能管理服务
+│   ├── agentsService.ts        # Agent 管理服务
+│   ├── cronService.ts          # 定时任务服务
+│   ├── officeCliService.ts     # officecli 集成服务
+│   ├── autoUpdaterService.ts   # 自动更新服务
+│   ├── mobileServer.ts         # 移动端 WebSocket 服务
+│   ├── proxy/                  # API 代理模块（Anthropic ↔ OpenAI 转换）
+│   └── engines/                # 多引擎适配层（ClaudeCode / Pi）
+│
+├── engine/                     # CLI 核心引擎（Bun 独立子项目）
+├── mobile-app/                 # Flutter 移动端配套应用
+├── skills-lib/                 # 内置技能库（50+ 技能）
+├── agents-lib/                 # 内置智能体库（70+ Agent）
+├── docs/                       # 设计文档与原型
+├── tests/                      # 测试套件
+└── package.json                # Desktop 项目配置
+```
 
-### Desktop 应用（根目录）
+---
+
+## 开发指南
+
+### 常用命令
+
+```bash
+# ─── 开发 ───
+npm run electron:dev              # 启动 Electron 开发模式
+npm run dev                       # 仅启动 Vite 前端开发服务器
+
+# ─── 构建 ───
+npm run build                     # 类型检查 + Vite 构建
+npm run electron:build            # 完整 Electron 打包（图标 + 引擎 + electron-builder）
+npm run electron:build:win        # 仅打包 Windows
+npm run electron:build:mac        # 仅打包 macOS
+npm run electron:build:linux      # 仅打包 Linux
+
+# ─── 引擎 ───
+cd engine && bun install          # 安装 CLI 引擎依赖
+cd engine && bun run build-desktop.ts  # 构建桌面版引擎
+
+# ─── 测试 ───
+npm run test:electron             # Electron 主进程测试（Node test runner）
+npx vitest run                     # Vue 组件与 composable 测试
+npx vitest run --reporter=verbose # 详细测试输出
+
+# ─── 其他 ───
+npm run typecheck                 # 仅类型检查
+npm run changelog                 # 生成 CHANGELOG
+```
+
+### 打包产物
+
+| 平台 | 产物格式 |
+|------|----------|
+| **Windows** | NSIS 安装包（`.exe`）+ 便携版 |
+| **macOS** | DMG + ZIP |
+| **Linux** | AppImage + DEB |
+
+### 代码规范
+
+- TypeScript 严格模式，`@/` 路径别名映射到 `src/`
+- Vue SFC 使用 `<script setup lang="ts">` + scoped SCSS
+- 组件文件名 PascalCase，composables 使用 `use` 前缀，stores 使用驼峰命名
+- 遵循 Conventional Commits 规范（feat/fix/style/refactor 等前缀）
+- IPC 通信遵循 preload context bridge 安全模式
+
+---
+
+## 技术栈
+
+### 桌面应用（根目录）
 
 | 技术 | 版本 | 用途 |
 |------|------|------|
@@ -437,42 +338,61 @@ npm run electron:build
 | **node-pty** | 1.x | 伪终端（PTY）管理 |
 | **marked** | 12.x | Markdown 解析 |
 | **highlight.js** | 11.x | 语法高亮 |
-| **Lucide Icons** | 0.344.x | 图标库 |
+| **mermaid** | 11.x | 图表渲染 |
 | **electron-builder** | 24.x | 应用打包工具 |
+| **electron-updater** | 6.x | 自动更新 |
 
-## 项目约定
+### CLI 引擎（`engine/`）
 
-### 代码规范
-
-- **UI 复用原则**：CLI 的 React/Ink 组件仅用于终端渲染，不与 Desktop 共享；Desktop 复用 CLI 的业务逻辑（Markdown 配置、Diff 算法、消息类型），但实现独立的 Vue UI 层
-- **IPC 通信**：Electron 主进程与渲染进程遵循 preload context bridge 安全模式
-- **QueryEngine 集成**：Desktop 通过主进程适配层调用 CLI 的 QueryEngine，避免重复实现
-
-### 目录职责划分
-
-| 目录 | 职责 | 说明 |
+| 技术 | 版本 | 用途 |
 |------|------|------|
-| `electron/` | Electron 主进程 | 窗口管理、IPC 服务、系统集成 |
-| `src/components/layout/` | 布局组件 | Sidebar、ChatPanel、InfoPanel、TitleBar |
-| `src/components/chat/` | 聊天组件 | 消息渲染、输入框、Markdown 展示、回滚对话框、消息选择器 |
-| `src/components/explorer/` | 文件浏览器 | 项目树状导航 |
-| `src/components/terminal/` | 终端组件 | xterm.js 封装 |
-| `src/stores/` | 状态管理 | Pinia Store（app.ts、chat.ts） |
-| `src/services/` | 业务服务 | LLM 客户端、Electron API 封装 |
-| `src/styles/` | 样式资源 | SCSS 变量、主题定义 |
+| **Bun** | >= 2.0.0 | JavaScript 运行时、包管理器、构建工具 |
+| **TypeScript** | 6.x | 类型安全 |
+| **React** | 19.x | 终端 UI 渲染（配合 Ink） |
+| **Commander.js** | 14.x | CLI 参数解析 |
+| **@anthropic-ai/sdk** | - | Anthropic API 客户端 |
+| **OpenAI SDK** | - | OpenAI 兼容接口适配 |
+| **MCP SDK** | - | Model Context Protocol 实现 |
+
+### 移动端（`mobile-app/`）
+
+| 技术 | 用途 |
+|------|------|
+| **Flutter** | 跨平台移动端框架 |
+| **WebSocket** | 桌面端通信协议 |
+
+---
+
+## 平台支持
+
+| 平台 | 状态 | 说明 |
+|------|------|------|
+| ✅ Windows | 完整支持 | NSIS 安装包 + 便携版，支持 x64 |
+| ✅ macOS | 完整支持 | DMG + ZIP，Intel & Apple Silicon |
+| ✅ Linux | 完整支持 | AppImage + DEB |
+
+---
 
 ## 相关文档
 
 - [更新日志](./CHANGELOG.md) — 版本迭代记录
+- [发布说明](./release-notes/) — 各版本发布亮点
+- [设计文档](./docs/superpowers/) — 架构设计与功能规划
 - [贡献指南](./CONTRIBUTING.md) — 如何参与开发
 - [安全说明](./SECURITY.md) — 安全策略与漏洞报告
-- [英文文档](./README_EN.md) — English Version
-
-## 许可证
-
-详见各子项目的许可证文件。
 
 ---
 
-**项目主页**: https://github.com/hjdspace/SpaceCode
-**问题反馈**: https://github.com/hjdspace/SpaceCode/issues
+## 许可证
+
+详见 [LICENSE](./LICENSE) 文件。
+
+---
+
+<div align="center">
+
+**项目主页**: https://github.com/hjdspace/SpaceCode  
+**问题反馈**: https://github.com/hjdspace/SpaceCode/issues  
+**发布版本**: https://github.com/hjdspace/SpaceCode/releases
+
+</div>
