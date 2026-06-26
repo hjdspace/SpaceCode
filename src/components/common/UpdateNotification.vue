@@ -27,7 +27,7 @@
         <div class="update-notification-body">
           <div class="update-notification-title">{{ t('update.downloading', { version: updateInfo?.version }) }}</div>
           <div class="download-progress">
-            <div class="download-progress-bar" :class="{ 'is-indeterminate': !downloadProgress }">
+            <div class="download-progress-bar">
               <div class="download-progress-fill" :style="{ width: downloadProgress ? `${downloadProgress.percent}%` : '100%' }" :class="{ 'is-indeterminate': !downloadProgress }"></div>
             </div>
             <span class="download-progress-text">{{ downloadProgress ? `${Math.round(downloadProgress.percent)}%` : '...' }}</span>
