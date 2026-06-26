@@ -1,3 +1,60 @@
+## [0.5.4](https://github.com/hjdspace/SpaceCode/compare/v0.5.3...v0.5.4) (2026-06-27)
+
+### Features
+
+* **layout:** 实现中央区分屏多会话布局系统，支持拖拽调整与标签页独立管理
+* **work-mode:** 完成工作模式核心功能开发，优化办公模式与办公助手体验
+* **officecli:** 全量接入officecli技能体系，新增多套PPT样式与自定义助手功能
+* **chat:** 新增产物汇总卡片（ArtifactSummaryCard），支持按轮次收集和展示办公产物
+* **mcp:** 新增内置预打包Computer Use MCP服务器并完成迁移适配
+* **mcp:** 新增 Claude Code CLI 加载状态显示与安装进度优化
+* **mcp:** 为sc-computer-use MCP添加系统提示可用性说明
+* **image:** 新增图片转base64能力，优化会话和预览面板体验
+* **auto-update:** 新增下载准备状态与超时处理逻辑
+* **skills:** 新增技能分类过滤与分类统计支持
+* **skills:** 新增分类覆盖映射，优化技能/技能包分类逻辑
+* **i18n:** 新增产物汇总卡片多语言文案
+* **doc:** 为办公模式添加officecli集成文档
+
+### Bug Fixes
+
+* **app-store:** 修复单叶模式下关闭会话标签后内容不同步的问题
+* **useContentEditor:** 重置编辑器高度以修复输入框残留扩展状态
+* **electron:** 修正权限模式启动与恢复逻辑
+* **utils:** 修复hexToRgba不支持3位十六进制颜色的问题
+
+### Refactor
+
+* **terminal:** 重构终端创建逻辑，统一返回终端信息
+* **terminal:** 优化终端面板体验与状态管理
+* **layout:** 重构分栏布局的PaneHeader与样式逻辑
+* **electron:** 优化officecli二进制文件处理逻辑
+* **artifacts:** 抽取共享的iconFor/formatSize工具函数
+* **work-assistant:** 统一替换emoji头像为lucide图标并优化展示
+* **work-mode:** 调整产物面板显示逻辑
+* **session:** 优化权限模式逻辑与会话历史管理
+
+### Performance
+
+* **chat:** 优化流式聊天性能，减少不必要的计算和阻塞
+
+### Style
+
+* **UpdateNotification:** 简化下载进度条的 indeterminate 类绑定
+
+### Build
+
+* **package.json:** 添加copy-mcp-vendor脚本和资源复制配置
+
+### Chore
+
+* 增强 MarkdownRenderer XSS 防护
+* 配置 Python 环境支持 UTF-8 输出
+
+### Documentation
+
+* **sessionProcess:** 更新桌面控制MCP工具使用提示文档
+
 ## [0.5.3](https://github.com/hjdspace/SpaceCode/compare/v0.5.2...v0.5.3) (2026-06-23)
 
 ### Features
