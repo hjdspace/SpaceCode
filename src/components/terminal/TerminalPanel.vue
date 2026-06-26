@@ -36,6 +36,11 @@ import { Check, Terminal as TerminalIcon } from 'lucide-vue-next'
 import { useTerminalStore } from '@/stores/terminal'
 import TerminalContainer from './TerminalContainer.vue'
 
+const props = defineProps<{
+  /** 挂载时是否自动创建终端标签（默认 false，由调用方显式创建） */
+  autoCreate?: boolean
+}>()
+
 const { t } = useI18n()
 const terminalStore = useTerminalStore()
 const panelRef = ref<HTMLElement | null>(null)
@@ -73,7 +78,8 @@ function handleTerminalExit(tabId: string, code: number) {
 }
 
 onMounted(() => {
-  if (terminalStore.tabs.length === 0) {
+  // 仅在 autoCreate 为 true 且无终端标签时自动创建
+  if (props.autoCreate && terminalStore.tabs.length === 0) {
     terminalStore.createTab()
   }
 })

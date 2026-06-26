@@ -309,6 +309,7 @@ import { useChatStore } from '@/stores/chat'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore } from '@/stores/settings'
 import { useScmStore } from '@/stores/scm'
+import { useSplitLayoutStore } from '@/stores/splitLayout'
 import {
   Plus,
   FolderTree,
@@ -559,6 +560,15 @@ async function handleNewChat() {
     const session = chatStore.createSession(t('common.newChat'), workingDirectory)
     appStore.openSessionTab(session.id, session.title)
 
+    // 分屏模式下更新当前 active pane 的内容
+    const splitLayout = useSplitLayoutStore()
+    if (splitLayout.leafCount > 1 && splitLayout.activePaneId) {
+      splitLayout.setPaneContent(splitLayout.activePaneId, {
+        kind: 'session',
+        tabId: `session-${session.id}`,
+      })
+    }
+
     window.dispatchEvent(new CustomEvent('session-created'))
   } catch (error) {
     console.error('Failed to create session:', error)
@@ -583,6 +593,16 @@ async function handleSelectSession(sessionId: string) {
     appStore.showWorkGallery = false
     chatStore.selectSession(sessionId)
     appStore.switchToSessionTab(sessionId)
+
+    // 分屏模式：将当前 active pane 的内容指向所选会话，
+    // 确保每个 pane 独立控制，不跟随全局标签页。
+    const splitLayout = useSplitLayoutStore()
+    if (splitLayout.leafCount > 1 && splitLayout.activePaneId) {
+      splitLayout.setPaneContent(splitLayout.activePaneId, {
+        kind: 'session',
+        tabId: `session-${sessionId}`,
+      })
+    }
 
     // Work 会话：恢复时自动重开 Artifacts 面板
     const selected = chatStore.sessions.find(s => s.id === sessionId)

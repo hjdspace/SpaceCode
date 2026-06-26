@@ -29,9 +29,17 @@
         class="pane-terminal-mount"
       />
 
-      <!-- 'empty'：空槽位占位 -->
+      <!-- 'empty'：空槽位占位 + 自救按钮 -->
       <div v-else class="pane-empty">
-        <span class="pane-empty-hint">{{ t('splitLayout.emptyPaneHint', 'Drop a tab here') }}</span>
+        <div class="pane-empty-body">
+          <span class="pane-empty-hint">{{ t('splitLayout.emptyPaneHint', 'Drop a tab here') }}</span>
+          <div class="pane-empty-actions">
+            <button class="pane-empty-btn" @click.stop="handleNewSession">
+              <MessageSquarePlus :size="14" />
+              {{ t('common.newChat', 'New Chat') }}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -49,8 +57,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { MessageSquarePlus } from 'lucide-vue-next'
 import { useSplitLayoutStore, type PaneLeaf, type PaneContent } from '@/stores/splitLayout'
 import { useAppStore } from '@/stores/app'
+import { useChatStore } from '@/stores/chat'
 import ChatPanel from './ChatPanel.vue'
 import PaneHeader from './PaneHeader.vue'
 
@@ -61,6 +71,7 @@ const props = defineProps<{
 const { t } = useI18n()
 const splitLayout = useSplitLayoutStore()
 const appStore = useAppStore()
+const chatStore = useChatStore()
 
 const isActive = computed(() => splitLayout.activePaneId === props.node.id)
 const multiLeaf = computed(() => !splitLayout.isSingleLeaf)
@@ -75,6 +86,18 @@ const resolvedSessionId = computed(() => {
 
 function onActivate() {
   splitLayout.setActivePane(props.node.id)
+}
+
+/** 空 pane → 创建新会话并填入此 pane */
+function handleNewSession() {
+  const session = chatStore.createSession()
+  if (!session) return
+  const tabId = `session-${session.id}`
+  // 确认 centerTabs 里有此 tab
+  appStore.openSessionTab(session.id, session.title)
+  splitLayout.setPaneContent(props.node.id, { kind: 'session', tabId })
+  splitLayout.setActivePane(props.node.id)
+  appStore.activeCenterTab = tabId
 }
 
 // ─── Drag & Drop ───────────────────────────────────────────────────────────
@@ -193,10 +216,38 @@ function onDrop(e: DragEvent) {
   font-size: 13px;
 }
 
+.pane-empty-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
 .pane-empty-hint {
   padding: 8px 16px;
   border: 1px dashed var(--surface-border, #e5e7eb);
   border-radius: var(--radius-md, 6px);
+  opacity: 0.6;
+}
+
+.pane-empty-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 1px solid var(--surface-border, #e5e7eb);
+  border-radius: var(--radius-md, 6px);
+  background: var(--bg-secondary, rgba(0,0,0,0.04));
+  color: var(--text-primary, #111827);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background: var(--bg-hover, rgba(0,0,0,0.08));
+    border-color: var(--accent-primary, #3b82f6);
+    color: var(--accent-primary, #3b82f6);
+  }
 }
 
 /* ── Drop zone overlay ──────────────────────────────────────────────────── */

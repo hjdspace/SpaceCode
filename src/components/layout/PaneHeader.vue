@@ -2,21 +2,10 @@
   <!--
     PaneHeader — 单个 pane 顶部状态条（含分屏入口）
     --------------------------------------------------------
-    多 leaf 模式 → 完整 header（状态点/标题/任务进度/分屏按钮/关闭）
-    单 leaf 模式 → 右上角浮动分屏胶囊，不侵入 ChatPanel 已有 UI
+    单 leaf → 不渲染 header（分屏按钮已移至全局 TitleBar）
+    多 leaf → 完整 header（状态点/标题/任务进度/分屏按钮/关闭）
   -->
-  <div v-if="isOnlyLeaf" class="pane-header-single">
-    <!-- 浮动分屏胶囊：右侧两个小图标，与 sessionContext 胶囊同位置（right:12px top:12px）-->
-    <div class="pane-capsule" v-if="canSplit">
-      <button class="pane-capsule-btn" :title="t('splitLayout.splitRight', 'Open on the right')" @click.stop="onSplitRight">
-        <Columns2 :size="14" />
-      </button>
-      <button class="pane-capsule-btn" :title="t('splitLayout.splitBottom', 'Open below')" @click.stop="onSplitBottom">
-        <Rows2 :size="14" />
-      </button>
-    </div>
-  </div>
-  <header v-else class="pane-header" :class="{ active: isActive }">
+  <header v-if="!isOnlyLeaf" class="pane-header" :class="{ active: isActive }">
     <!-- 左：状态点 + 标题 -->
     <div class="pane-header-left">
       <span class="pane-status" :class="statusClass">
@@ -79,7 +68,7 @@ import { useI18n } from 'vue-i18n'
 import { X, ClipboardList, Loader2, Columns2, Rows2 } from 'lucide-vue-next'
 import { useChatStore } from '@/stores/chat'
 import { useAppStore } from '@/stores/app'
-import { useSplitLayoutStore, type PaneLeaf } from '@/stores/splitLayout'
+import { useSplitLayoutStore, type PaneLeaf, type PaneContent } from '@/stores/splitLayout'
 import { useSessionTaskProgress } from '@/composables/useSessionTaskProgress'
 
 const props = defineProps<{
@@ -110,6 +99,16 @@ const resolvedSessionId = computed(() => {
   return ''
 })
 
+const terminalTabId = computed(() => {
+  const c = props.node.content
+  if (c.kind === 'terminal') return c.tabId
+  if (c.kind === 'main') {
+    const t = appStore.activeCenterTab || ''
+    if (t.startsWith('terminal-')) return t
+  }
+  return null
+})
+
 /** 标题 */
 const title = computed(() => {
   const tid = terminalTabId.value
@@ -123,16 +122,6 @@ const title = computed(() => {
     return s?.title || t('common.newChat', 'New Chat')
   }
   return t('common.newChat', 'New Chat')
-})
-
-const terminalTabId = computed(() => {
-  const c = props.node.content
-  if (c.kind === 'terminal') return c.tabId
-  if (c.kind === 'main') {
-    const t = appStore.activeCenterTab || ''
-    if (t.startsWith('terminal-')) return t
-  }
-  return null
 })
 
 const statusClass = computed(() => {
@@ -152,11 +141,36 @@ const statusClass = computed(() => {
 const isLoading = computed(() => chatStore.getIsLoading?.(resolvedSessionId.value) ?? false)
 const { progress: taskProgress } = useSessionTaskProgress(() => resolvedSessionId.value)
 
+/**
+ * 分屏时把当前 leaf 内容解析为真正可独立的内容对象。
+ * - kind='main' → 跟随全局状态，分屏时必须转为具体 kind
+ *   （session / terminal）才能实现每个 pane 独立切换。
+ * - 否则直接复制原内容，确保新 leaf 拥有独立的数据引用。
+ */
+function resolveContentForSplit(): PaneContent {
+  const c = props.node.content
+  if (c.kind === 'main') {
+    const tabId = appStore.activeCenterTab
+    if (tabId.startsWith('terminal-')) {
+      return { kind: 'terminal', tabId }
+    }
+    // session-xxx 或 'chat'
+    return { kind: 'session', tabId }
+  }
+  return { ...c }
+}
+
 function onSplitRight() {
-  splitLayout.splitPane(props.node.id, 'right', { ...props.node.content })
+  // 先更新当前 leaf 内容（若为 kind='main' 则转为具体绑定），
+  // 再分屏，确保两个 leaf 都有独立的内容引用
+  const content = resolveContentForSplit()
+  splitLayout.setPaneContent(props.node.id, content)
+  splitLayout.splitPane(props.node.id, 'right', { ...content })
 }
 function onSplitBottom() {
-  splitLayout.splitPane(props.node.id, 'bottom', { ...props.node.content })
+  const content = resolveContentForSplit()
+  splitLayout.setPaneContent(props.node.id, content)
+  splitLayout.splitPane(props.node.id, 'bottom', { ...content })
 }
 function onClose() {
   splitLayout.closePane(props.node.id)
@@ -164,55 +178,6 @@ function onClose() {
 </script>
 
 <style lang="scss" scoped>
-/* ─── 单 leaf：浮动胶囊 ───────────────────────────────────────────────── */
-.pane-header-single {
-  position: absolute;
-  right: 12px;
-  top: 12px;
-  z-index: 15;
-  pointer-events: none;
-}
-
-.pane-capsule {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 4px 6px;
-  background: var(--glass-bg, rgba(0,0,0,0.04));
-  backdrop-filter: blur(16px) saturate(1.2);
-  -webkit-backdrop-filter: blur(16px) saturate(1.2);
-  border: 1px solid var(--glass-border, rgba(255,255,255,0.08));
-  border-radius: 20px;
-  pointer-events: auto;
-  box-shadow: var(--glass-shadow-2, 0 2px 8px rgba(0,0,0,0.12));
-  transition: all 0.2s ease;
-
-  &:hover {
-    background: var(--glass-hover, rgba(255,255,255,0.08));
-    border-color: var(--glass-border, rgba(255,255,255,0.12));
-  }
-}
-
-.pane-capsule-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--text-muted, #9ca3af);
-  cursor: pointer;
-  transition: all 0.15s ease;
-
-  &:hover {
-    background: var(--surface-glass-hover, rgba(0,0,0,0.06));
-    color: var(--accent-primary, #3b82f6);
-  }
-}
-
 /* ─── 多 leaf：完整 header ─────────────────────────────────────────────── */
 .pane-header {
   display: flex;

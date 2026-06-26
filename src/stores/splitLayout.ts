@@ -146,7 +146,11 @@ function loadRootFromStorage(): PaneNode {
     const parsed = JSON.parse(raw)
     if (parsed && isValidNode(parsed)) {
       // 限制 leaf ≤ 4，保护：超出则丢弃
-      if (countLeaves(parsed) <= MAX_LEAVES) return parsed
+      if (countLeaves(parsed) <= MAX_LEAVES) {
+        // 如果所有 leaf 都是 empty，说明是之前 bug 残留的脏数据 → 忽略并返回默认 main leaf
+        const allEmpty = collectLeaves(parsed).every(l => l.content.kind === 'empty')
+        if (!allEmpty) return parsed
+      }
     }
   } catch { /* ignore */ }
   return defaultRoot()

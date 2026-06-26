@@ -79,6 +79,24 @@
         <RefreshCwIcon :size="15" class="update-icon" />
       </button>
 
+      <!-- Split buttons (仅单 leaf 且可分屏时显示) -->
+      <template v-if="showSplitButtons">
+        <button
+          class="titlebar-btn titlebar-split-btn"
+          :title="t('splitLayout.splitRight', 'Open on the right')"
+          @click="onTitleBarSplit('right')"
+        >
+          <Columns2 :size="15" />
+        </button>
+        <button
+          class="titlebar-btn titlebar-split-btn"
+          :title="t('splitLayout.splitBottom', 'Open below')"
+          @click="onTitleBarSplit('bottom')"
+        >
+          <Rows2 :size="15" />
+        </button>
+      </template>
+
       <!-- Toggle right panel -->
       <button
         class="titlebar-btn"
@@ -112,8 +130,9 @@
 <script setup lang="ts">
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
+import { useSplitLayoutStore } from '@/stores/splitLayout'
 import { useI18n } from 'vue-i18n'
-import { Menu, Minus, Square, Copy, X, ChevronDown, Smartphone, RefreshCw as RefreshCwIcon, PanelRight } from 'lucide-vue-next'
+import { Menu, Minus, Square, Copy, X, ChevronDown, Smartphone, RefreshCw as RefreshCwIcon, PanelRight, Columns2, Rows2 } from 'lucide-vue-next'
 import { computed, h, onMounted, onBeforeUnmount, ref } from 'vue'
 import { api, type ExternalEditor } from '@/services/electronAPI'
 import { useAutoUpdate } from '@/composables/useAutoUpdate'
@@ -121,6 +140,7 @@ import { useDialog } from '@/composables/useDialog'
 
 const appStore = useAppStore()
 const chatStore = useChatStore()
+const splitLayout = useSplitLayoutStore()
 const { t } = useI18n()
 const { showAlert } = useDialog()
 
@@ -152,6 +172,33 @@ const updateButtonTitle = computed(() => {
     default: return t('update.checkForUpdates')
   }
 })
+
+/** 单 leaf 模式下显示分屏按钮 */
+const showSplitButtons = computed(() => splitLayout.isSingleLeaf && splitLayout.canSplit)
+
+function onTitleBarSplit(position: 'right' | 'bottom') {
+  const activePaneId = splitLayout.activePaneId
+  if (!activePaneId) return
+  const activeLeaf = splitLayout.activePane
+  if (!activeLeaf) return
+
+  // 如果当前 leaf 是 kind='main'，先转为具体绑定
+  const c = activeLeaf.content
+  let content: { kind: 'session' | 'terminal' | 'empty' | 'main'; tabId: string | null }
+  if (c.kind === 'main') {
+    const tabId = appStore.activeCenterTab
+    if (tabId.startsWith('terminal-')) {
+      content = { kind: 'terminal', tabId }
+    } else {
+      content = { kind: 'session', tabId }
+    }
+  } else {
+    content = { ...c }
+  }
+
+  splitLayout.setPaneContent(activePaneId, content)
+  splitLayout.splitPane(activePaneId, position, { ...content })
+}
 
 function handleVersionClick() {
   if (hasUpdate.value) {
@@ -592,6 +639,15 @@ onBeforeUnmount(() => {
     &:disabled {
       cursor: not-allowed;
       opacity: 0.7;
+    }
+  }
+
+  &.titlebar-split-btn {
+    color: var(--accent-primary);
+
+    &:hover {
+      background: var(--accent-primary-glow);
+      color: var(--accent-primary);
     }
   }
 }
