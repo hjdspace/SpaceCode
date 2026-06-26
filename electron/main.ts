@@ -1258,10 +1258,9 @@ const terminalManager = new TerminalManager()
 ipcMain.handle('terminal:create', async (_event, options?: { cwd?: string; command?: string; env?: Record<string, string> }) => {
   try {
     const cwd = options?.cwd || process.cwd()
-    const id = terminalManager.create(cwd, options?.command, options?.env)
-    const shellName = options?.command || (process.platform === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/sh'))
-    info('Terminal', `Created terminal: ${id} | cwd=${cwd} | shell=${shellName} | customEnvKeys=${options?.env ? Object.keys(options.env).join(',') : '(none)'}`)
-    return { id, shell: shellName }
+    const result = terminalManager.create(cwd, options?.command, options?.env)
+    info('Terminal', `Created terminal: ${result.id} | cwd=${cwd} | shell=${result.shell} | customEnvKeys=${options?.env ? Object.keys(options.env).join(',') : '(none)'}`)
+    return { id: result.id, shell: result.shell }
   } catch (err) {
     error('Terminal', 'Failed to create terminal', err)
     return { id: null, error: String(err) }
