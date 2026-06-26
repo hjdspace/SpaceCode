@@ -89,14 +89,20 @@ export function findLeaf(root: PaneNode, paneId: string): PaneLeaf | null {
   return findLeaf(root.children[0], paneId) ?? findLeaf(root.children[1], paneId)
 }
 
-/** 找到 paneId 的父 split + 自身索引 0/1（用于 closePane 提升兄弟节点） */
+/** 找到 paneId 的父 split + 自身索引 0/1（用于 closePane 提升兄弟节点）。
+ *  同时支持 leaf 和 split 节点 id。 */
 function findParent(
   root: PaneNode,
   paneId: string,
   parent: PaneSplit | null = null,
   index = -1,
 ): { parent: PaneSplit | null; index: number } | null {
-  if (isLeaf(root)) return root.id === paneId ? { parent, index } : null
+  // 匹配当前节点自身（可能是 split 节点）
+  if (root.id === paneId) {
+    return { parent, index }
+  }
+  if (isLeaf(root)) return null
+  // root 是 split → 递归孩子
   for (let i = 0; i < 2; i++) {
     const r = findParent(root.children[i], paneId, root, i)
     if (r) return r
@@ -248,7 +254,10 @@ export const useSplitLayoutStore = defineStore('splitLayout', () => {
     return newLeaf.id
   }
 
-  /** 关闭 pane：移除 leaf，把兄弟节点提升至父节点位置（split → leaf 或保留 split） */
+  /** 关闭 pane：移除 leaf，把兄弟节点提升至父节点位置（split → leaf 或保留 split）。
+   *
+   *  注意：`findParent` 现在同时匹配 leaf 和 split 节点，因此
+   *  `findParent(root.value, found.parent.id)` 可以正确找到祖父 split。 */
   function closePane(paneId: string) {
     const found = findParent(root.value, paneId)
     if (!found) return
@@ -289,7 +298,8 @@ export const useSplitLayoutStore = defineStore('splitLayout', () => {
 
   /**
    * 当 centerTab 被关闭时调用，把所有引用该 tabId 的 leaf 重置为 empty。
-   * （阶段 4 由 app store 的 closeCenterTab 触发；阶段 2 仅暴露 API）
+   * 如果重置后所有 leaf 都变成 empty → 恢复为默认 root（kind='main'），
+   * 避免用户陷入「空 pane 死锁」。
    */
   function clearLeavesForTab(tabId: string) {
     let changed = false
@@ -299,7 +309,21 @@ export const useSplitLayoutStore = defineStore('splitLayout', () => {
         changed = true
       }
     }
-    if (changed) saveSoon()
+    if (changed) {
+      // 检查是否所有 leaf 都是 empty
+      const allEmpty = collectLeaves(root.value).every(l => l.content.kind === 'empty')
+      if (allEmpty) {
+        resetToSingle()
+        return
+      }
+      // 修正 activePane：如果指向被清空的 leaf 则跳转
+      const pa = activePaneId.value
+      if (pa && findLeaf(root.value, pa)?.content.kind === 'empty') {
+        const next = collectLeaves(root.value).find(l => l.content.kind !== 'empty')
+        activePaneId.value = next?.id ?? null
+      }
+      saveSoon()
+    }
   }
 
   return {

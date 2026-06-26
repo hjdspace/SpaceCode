@@ -1,15 +1,14 @@
 <template>
   <div
     class="pane-leaf"
-    :class="{ active: isActive, 'single': singleLeaf }"
+    :class="{ active: isActive, 'multi-leaf': multiLeaf }"
     @mousedown="onActivate"
     @dragover.prevent="onDragOver"
     @dragleave="onDragLeave"
     @drop.prevent="onDrop"
   >
-    <!-- 多 leaf 模式下显示 PaneHeader（状态点 / 任务进度 / 拆分 / 关闭）；
-         单 leaf 模式保留现状（ChatPanel 内部已有自己的 SessionTabBar / 聊天 header） -->
-    <PaneHeader v-if="!singleLeaf" :node="node" />
+    <!-- PaneHeader：始终渲染；单 leaf 时以浮动小按钮组形式出现，不侵入标题栏 -->
+    <PaneHeader :node="node" />
 
     <div class="pane-leaf-body">
       <!-- 'main'：跟随 appStore.activeCenterTab 渲染当前内容（与改造前 ChatPanel 行为完全一致） -->
@@ -64,7 +63,7 @@ const splitLayout = useSplitLayoutStore()
 const appStore = useAppStore()
 
 const isActive = computed(() => splitLayout.activePaneId === props.node.id)
-const singleLeaf = computed(() => splitLayout.isSingleLeaf)
+const multiLeaf = computed(() => !splitLayout.isSingleLeaf)
 
 /** 把 'session-<id>' 形式的 tabId 还原为 sessionId（与 app store 的 openSessionTab 约定一致） */
 const resolvedSessionId = computed(() => {
@@ -152,14 +151,20 @@ function onDrop(e: DragEvent) {
   flex-direction: column;
   overflow: hidden;
 
-  &:not(.single) {
-    border: 1px solid var(--surface-border, transparent);
-    border-radius: var(--radius-md, 6px);
+  &:not(.multi-leaf) {
+    // 单 leaf 无边框（保持现状透明感）
+    border: none;
+    border-radius: 0;
   }
 
-  &.active:not(.single) {
-    border-color: var(--accent-primary, #3b82f6);
-    box-shadow: 0 0 0 1px var(--accent-primary, #3b82f6) inset;
+  &.multi-leaf {
+    border: 1px solid var(--surface-border, transparent);
+    border-radius: var(--radius-md, 6px);
+
+    &.active {
+      border-color: var(--accent-primary, #3b82f6);
+      box-shadow: 0 0 0 1px var(--accent-primary, #3b82f6) inset;
+    }
   }
 }
 
