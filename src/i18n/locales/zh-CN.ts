@@ -1233,6 +1233,8 @@ export default {
     later: '稍后',
     downloading: '正在下载 {version}...',
     hide: '隐藏',
+    preparingDownload: '正在准备下载，请稍候...',
+    downloadTimeout: '下载超时，可能是网络连接问题，请检查网络后重试',
     readyToInstall: '{version} 已就绪',
     restartToInstall: '重启应用以完成安装',
     laterRestart: '稍后重启',

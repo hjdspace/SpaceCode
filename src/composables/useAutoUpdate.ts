@@ -30,11 +30,19 @@ export function useAutoUpdate() {
   let unsubDownloaded: (() => void) | null = null
   let unsubError: (() => void) | null = null
   let transientTimer: ReturnType<typeof setTimeout> | null = null
+  let downloadTimeoutTimer: ReturnType<typeof setTimeout> | null = null
 
   function clearTransientTimer() {
     if (transientTimer) {
       clearTimeout(transientTimer)
       transientTimer = null
+    }
+  }
+
+  function clearDownloadTimeout() {
+    if (downloadTimeoutTimer) {
+      clearTimeout(downloadTimeoutTimer)
+      downloadTimeoutTimer = null
     }
   }
 
@@ -72,6 +80,8 @@ export function useAutoUpdate() {
     unsubProgress = api.update.onDownloadProgress((progress) => {
       status.value = 'downloading'
       downloadProgress.value = progress
+      // 收到第一个进度事件后清除超时计时器
+      clearDownloadTimeout()
     })
 
     unsubDownloaded = api.update.onDownloaded((info) => {
@@ -88,6 +98,7 @@ export function useAutoUpdate() {
 
   onUnmounted(() => {
     clearTransientTimer()
+    clearDownloadTimeout()
     unsubAvailable?.()
     unsubNotAvailable?.()
     unsubProgress?.()
@@ -118,14 +129,31 @@ export function useAutoUpdate() {
     try {
       status.value = 'downloading'
       downloadProgress.value = null
+      clearTransientTimer()
+      clearDownloadTimeout()
+
+      // 超时检测：如果 60 秒内没有收到任何下载进度，提示网络问题
+      downloadTimeoutTimer = setTimeout(() => {
+        if (status.value === 'downloading' && !downloadProgress.value) {
+          status.value = 'error'
+          errorMessage.value = 'downloadTimeout'
+          scheduleReset(8000)
+        }
+      }, 60_000)
+
       const result = await api.update.download()
+      clearDownloadTimeout()
       if (!result.success) {
         status.value = 'error'
         errorMessage.value = result.error || 'Download failed'
+        scheduleReset(5000)
       }
+      // 下载成功时由 onDownloaded 回调设置状态
     } catch (err: any) {
+      clearDownloadTimeout()
       status.value = 'error'
       errorMessage.value = err.message
+      scheduleReset(5000)
     }
   }
 
@@ -134,7 +162,10 @@ export function useAutoUpdate() {
   }
 
   function dismiss() {
-    if (status.value === 'available' || status.value === 'error' || status.value === 'up-to-date') {
+    // 所有可见状态（available / downloading / downloaded / error）都可以被隐藏
+    // downloading 状态隐藏后，下载仍在后台继续，完成后通知会再次出现
+    // downloaded 状态隐藏后，下次退出应用时会自动安装（autoInstallOnAppQuit）
+    if (status.value !== 'idle' && status.value !== 'checking') {
       status.value = 'idle'
     }
   }

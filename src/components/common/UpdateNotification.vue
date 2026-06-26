@@ -27,13 +27,16 @@
         <div class="update-notification-body">
           <div class="update-notification-title">{{ t('update.downloading', { version: updateInfo?.version }) }}</div>
           <div class="download-progress">
-            <div class="download-progress-bar">
-              <div class="download-progress-fill" :style="{ width: `${downloadProgress?.percent ?? 0}%` }"></div>
+            <div class="download-progress-bar" :class="{ 'is-indeterminate': !downloadProgress }">
+              <div class="download-progress-fill" :style="{ width: downloadProgress ? `${downloadProgress.percent}%` : '100%' }" :class="{ 'is-indeterminate': !downloadProgress }"></div>
             </div>
-            <span class="download-progress-text">{{ Math.round(downloadProgress?.percent ?? 0) }}%</span>
+            <span class="download-progress-text">{{ downloadProgress ? `${Math.round(downloadProgress.percent)}%` : '...' }}</span>
           </div>
           <div class="update-notification-desc" v-if="downloadProgress">
             {{ formatBytes(downloadProgress.transferred) }} / {{ formatBytes(downloadProgress.total) }} · {{ formatBytes(downloadProgress.bytesPerSecond) }}/s
+          </div>
+          <div class="update-notification-desc" v-else>
+            {{ t('update.preparingDownload') }}
           </div>
         </div>
         <div class="update-notification-actions">
@@ -63,7 +66,7 @@
         </div>
         <div class="update-notification-body">
           <div class="update-notification-title">{{ t('update.checkFailed') }}</div>
-          <div class="update-notification-desc">{{ errorMessage || t('update.networkError') }}</div>
+          <div class="update-notification-desc">{{ errorMessage === 'downloadTimeout' ? t('update.downloadTimeout') : (errorMessage || t('update.networkError')) }}</div>
         </div>
         <div class="update-notification-actions">
           <button class="btn btn-ghost" @click="dismiss">{{ t('update.close') }}</button>
@@ -235,6 +238,16 @@ function formatBytes(bytes: number): string {
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite;
   }
+
+  &.is-indeterminate {
+    width: 30% !important;
+    animation: indeterminate 1.5s ease-in-out infinite;
+  }
+}
+
+@keyframes indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
 }
 
 @keyframes shimmer {

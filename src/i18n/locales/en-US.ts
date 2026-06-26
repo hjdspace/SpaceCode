@@ -1233,6 +1233,8 @@ export default {
     later: 'Later',
     downloading: 'Downloading {version}...',
     hide: 'Hide',
+    preparingDownload: 'Preparing download, please wait...',
+    downloadTimeout: 'Download timed out. This may be a network issue. Please check your connection and try again.',
     readyToInstall: '{version} ready to install',
     restartToInstall: 'Restart the app to complete installation',
     laterRestart: 'Later',
