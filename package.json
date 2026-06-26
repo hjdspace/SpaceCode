@@ -13,6 +13,7 @@
     "engine:build:desktop": "cd engine && bun run build-desktop.ts",
     "postinstall": "npm run engine:install",
     "copy-bun": "node scripts/copy-bun.cjs",
+    "copy-mcp-vendor": "node scripts/copy-mcp-vendor.cjs",
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "build:proxy": "node -e \"const esbuild=require('esbuild');esbuild.buildSync({entryPoints:['electron/proxy/index.ts'],bundle:true,outdir:'dist-electron/proxy',platform:'node',format:'cjs',external:['electron']})\"",
@@ -145,6 +146,14 @@
       {
         "from": "mcp-vendor",
         "to": "mcp-vendor"
+      },
+      {
+        "from": "resources/officecli",
+        "to": "officecli",
+        "filter": [
+          "**/*",
+          "!README.md"
+        ]
       }
     ],
     "win": {
