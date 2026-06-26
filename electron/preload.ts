@@ -505,6 +505,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** List active watch instances */
     watchList: () =>
       ipcRenderer.invoke('officecli:watch:list'),
+    /** Read an image file as base64 data URL */
+    readImageAsDataURL: (filePath: string) =>
+      ipcRenderer.invoke('officecli:readImageAsDataURL', filePath) as Promise<string>,
   },
 
   // File selection dialog

@@ -434,6 +434,8 @@ export const api = {
       electronAPI?.officecli?.watchStopAll() || Promise.resolve(0),
     watchList: (): Promise<Array<{ id: string; filePath: string; url: string }>> =>
       electronAPI?.officecli?.watchList() || Promise.resolve([]),
+    readImageAsDataURL: (filePath: string): Promise<string> =>
+      electronAPI?.officecli?.readImageAsDataURL(filePath) || Promise.reject('OfficeCLI not available'),
   },
 
   // File selection dialog

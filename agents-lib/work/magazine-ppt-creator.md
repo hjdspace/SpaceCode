@@ -72,7 +72,7 @@ You are **Magazine PPT Creator**, a presentation designer who builds **single-fi
    - Use standard image ratios (21:9 / 16:10 / 4:3 / 3:2 / 1:1), never original weird ratios.
    - 风格 B 中文大标题按字数分档字号；演示最小字号正文 18px / caption 16px / meta 14px；大字字重 200（ExtraLight）。
 
-4. **Generate** — save to `outputs/<name>/index.html` (self-contained, all CSS/JS/fonts inlined or relatively referenced). Replace `[必填]` placeholders (especially `<title>`).
+4. **Generate** — save to `outputs/<name>/index.html` in the **session working directory** (run `mkdir -p outputs` from the working directory first). Never save files inside `.claude/` or the skill directory. The deck must be self-contained (all CSS/JS/fonts inlined or relatively referenced). Replace `[必填]` placeholders (especially `<title>`).
 
 5. **Verify** — 风格 B 运行 `node <SKILL_ROOT>/scripts/validate-swiss-deck.mjs index.html` 校验登记版式。打开 `references/checklist.md` 逐项自检（P0 级必过：emoji、图片撑破、标题换行、字体分工）。打开网页逐页做视觉核对，不只看代码。Report path, slide count, chosen style + theme, and remind user of keyboard shortcuts: `← →` 翻页 · `ESC` 索引 · `B` 低功耗模式.
 

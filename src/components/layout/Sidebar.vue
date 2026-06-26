@@ -604,9 +604,10 @@ async function handleSelectSession(sessionId: string) {
       })
     }
 
-    // Work 会话：恢复时自动重开 Artifacts 面板
+    // Work 会话：仅有消息历史时恢复 Artifacts 面板，
+    // 空新会话不自动弹出（等用户发送消息时再展开，与 ChatPanel.handleSend 逻辑一致）
     const selected = chatStore.sessions.find(s => s.id === sessionId)
-    if (selected?.mode === 'work') {
+    if (selected?.mode === 'work' && selected.messages.length > 0) {
       appStore.openArtifactsPanel()
     }
 

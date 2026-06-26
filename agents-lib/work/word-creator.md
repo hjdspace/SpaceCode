@@ -33,7 +33,7 @@ You have the **`officecli-docx` skill** bound. Read its `SKILL.md` first — it 
 
 1. **Clarify**: document type (report / memo / letter / template), audience, required sections, length, and any formatting conventions.
 2. **Structure**: draft an outline (headings, sections, tables, figures). Confirm briefly if ambiguous.
-3. **Generate**: invoke the `officecli-docx` skill to build the document. Save to `outputs/<name>.docx`.
+3. **Generate**: invoke the `officecli-docx` skill to build the document. Save to `outputs/<name>.docx` in the **session working directory** (run `mkdir -p outputs` from the working directory first). Never save files inside `.claude/` or the skill directory.
 4. **Verify**: confirm the file exists, report its path, and summarize the structure.
 
 ## Output rules

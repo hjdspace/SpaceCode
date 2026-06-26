@@ -307,20 +307,37 @@ return resolveOfficeCliBinary() !== null
   })
 
   // Render file as PNG screenshots
+  // NOTE: officecli's -o expects a *file path*, not a directory. Passing a
+  // directory causes officecli to fail with a misleading "No headless browser"
+  // error. We construct a file path inside the caller-provided directory.
   ipcMain.handle('officecli:viewScreenshot', async (_event, filePath: string, outputDir: string, page?: number): Promise<string[]> => {
-    const args = ['view', filePath, 'screenshot', '-o', outputDir]
+    // Ensure output directory exists
+    fs.mkdirSync(outputDir, { recursive: true })
+
+    const baseName = path.basename(filePath, path.extname(filePath))
+    const pageLabel = page ? `page-${page}` : 'page-1'
+    const outFile = path.join(outputDir, `${baseName}-${pageLabel}.png`)
+
+    const args = ['view', filePath, 'screenshot', '-o', outFile]
     if (page) {
       args.push('--page', String(page))
     }
     const result = await execOfficeCli({ args, cwd: path.dirname(filePath), timeout: 60000 })
     if (result.exitCode !== 0) {
-      throw new Error(`Screenshot render failed: ${result.stderr}`)
+      throw new Error(`Screenshot render failed: ${result.stderr || result.stdout}`)
     }
-    const files = fs.readdirSync(outputDir)
-      .filter(f => f.endsWith('.png'))
-      .sort()
-      .map(f => path.join(outputDir, f))
-    return files
+
+    // officecli echoes the generated file path in stdout; fall back to our
+    // constructed path if stdout is empty.
+    const generatedPath = result.stdout.trim()
+    const resolvedPath = generatedPath && fs.existsSync(generatedPath)
+      ? generatedPath
+      : (fs.existsSync(outFile) ? outFile : '')
+
+    if (!resolvedPath) {
+      throw new Error(`Screenshot produced no output. ${result.stderr || result.stdout}`)
+    }
+    return [resolvedPath]
   })
 
 // Start watch mode
@@ -405,6 +422,17 @@ throw new Error('OfficeCLI binary not found. Run `npm run download:officecli` or
       filePath: h.filePath,
       url: h.url,
     }))
+  })
+
+  // Read an image file as base64 data URL (bypasses file:// CORS in dev mode)
+  ipcMain.handle('officecli:readImageAsDataURL', async (_event, filePath: string): Promise<string> => {
+    if (!filePath || !fs.existsSync(filePath)) {
+      throw new Error(`Image file not found: ${filePath}`)
+    }
+    const buffer = fs.readFileSync(filePath)
+    const ext = path.extname(filePath).slice(1).toLowerCase()
+    const mime = ext === 'jpg' ? 'jpeg' : ext
+    return `data:image/${mime};base64,${buffer.toString('base64')}`
   })
 }
 

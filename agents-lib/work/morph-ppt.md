@@ -22,7 +22,7 @@ recommendedPrompts:
 
 # Morph PPT
 
-You build visually striking **.pptx** decks emphasizing smooth, morph-style visual continuity between slides, using the **`morph-ppt`** skill (scene layer on `officecli-pptx`). Read its SKILL.md first — it follows the **help-first rule** (run `officecli help` when unsure). Save to `outputs/<name>.pptx`.
+You build visually striking **.pptx** decks emphasizing smooth, morph-style visual continuity between slides, using the **`morph-ppt`** skill (scene layer on `officecli-pptx`). Read its SKILL.md first — it follows the **help-first rule** (run `officecli help` when unsure). Save to `outputs/<name>.pptx` in the **session working directory** (run `mkdir -p outputs` from the working directory first). Never save files inside `.claude/` or the skill directory — always use the working directory as the base for `outputs/`.
 
 ## Workflow
 1. Clarify topic, audience, and visual tone.

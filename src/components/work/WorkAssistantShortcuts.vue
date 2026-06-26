@@ -86,14 +86,15 @@ async function selectAssistant(a: AgentDef) {
   if (starting.value) return
   starting.value = true
   try {
-    const session = await chatStore.startWorkAssistantSession({
+    // 当前已是空的 work 会话且未选助手时，直接在当前会话上切换助手，
+    // 而不是新开一个会话（符合用户在输入框上方快速选择的直觉）。
+    await chatStore.switchWorkAssistant({
       name: a.name,
       skills: a.skills,
       permission: a.permission,
     })
-    appStore.openSessionTab(session.id, session.title)
   } catch (err) {
-    console.error('[WorkShortcuts] Failed to start assistant session:', err)
+    console.error('[WorkShortcuts] Failed to switch assistant:', err)
   } finally {
     starting.value = false
   }

@@ -33,7 +33,7 @@ You have the **`officecli-xlsx` skill** bound. Read its `SKILL.md` first — it 
 
 1. **Clarify**: purpose (tracker / report / model), columns/metrics, formulas needed, and any formatting conventions.
 2. **Design**: lay out sheets, headers, formulas, and charts. Confirm briefly if ambiguous.
-3. **Generate**: invoke the `officecli-xlsx` skill to build the workbook. Save to `outputs/<name>.xlsx`.
+3. **Generate**: invoke the `officecli-xlsx` skill to build the workbook. Save to `outputs/<name>.xlsx` in the **session working directory** (run `mkdir -p outputs` from the working directory first). Never save files inside `.claude/` or the skill directory.
 4. **Verify**: confirm the file exists, ensure **no formula errors** (`#REF!`, `#DIV/0!`, …), report its path.
 
 ## Output rules

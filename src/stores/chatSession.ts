@@ -641,6 +641,9 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       delete session._resumeSessionId
 
       session.engineType = desiredEngine
+      // CLI 进程启动成功后会话处于等待输入状态，标记为 idle 而非 starting，
+      // 避免新创建的助手会话在用户尚未发送消息时一直显示转圈。
+      session.processStatus = 'idle'
       saveToStorage()
 
       logger.info('ChatStore', `initClaudeCodeSession: session started successfully | id=${sessionId.slice(0, 8)}`)
@@ -1401,6 +1404,86 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     return session
   }
 
+  /**
+   * 在当前空会话上切换 Work 助手（不新建会话）。
+   * 用于输入框上方常用助手快捷选择场景：
+   * 当前会话是空的 work 会话且未选助手时，直接绑定助手到当前会话。
+   */
+  async function switchWorkAssistant(assistant: {
+    name: string
+    skills?: string[]
+    permission?: string
+    skillRuntime?: 'officecli' | 'node' | 'none'
+    skillsRequired?: boolean
+  }): Promise<void> {
+    const session = currentSession.value
+    if (!session) return
+
+    const cwd = appStore.workWorkspace || appStore.projectRoot || undefined
+
+    // 技能可用性校验 + 降级回退（与 startWorkAssistantSession 一致）
+    let effectiveSkills = assistant.skills ? [...assistant.skills] : undefined
+    if (assistant.skillRuntime === 'officecli' && effectiveSkills?.length) {
+      let officeCliAvailable = false
+      try {
+        officeCliAvailable = await api.officecli.checkInstalled()
+      } catch { /* ignore */ }
+
+      if (!officeCliAvailable) {
+        const fallbackMap: Record<string, string> = {
+          'officecli-pptx': 'pptx',
+          'officecli-docx': 'docx',
+          'officecli-xlsx': 'xlsx',
+          'officecli-academic-paper': 'docx',
+          'officecli-data-dashboard': 'xlsx',
+          'officecli-financial-model': 'xlsx',
+          'officecli-pitch-deck': 'pptx',
+          'officecli-word-form': 'docx',
+          'morph-ppt': 'pptx',
+          'morph-ppt-3d': 'pptx',
+        }
+        effectiveSkills = effectiveSkills.map(s => fallbackMap[s] || s)
+        console.warn(`[ChatStore] OfficeCLI not available, falling back to Node skills for "${assistant.name}"`)
+      }
+    }
+
+    try {
+      await api.agents.install(assistant.name, 'global', cwd)
+    } catch { /* already installed or unavailable */ }
+
+    if (api.skills && cwd) {
+      for (const skill of effectiveSkills || []) {
+        try {
+          await api.skills.installLocal(skill, 'project', cwd)
+        } catch { /* already installed or unavailable */ }
+      }
+    }
+
+    currentAgent.value = assistant.name
+    if (assistant.permission) {
+      const { useChatControlStore } = await import('./chatControl')
+      const controlStore = useChatControlStore()
+      controlStore.setPermissionMode(assistant.permission as any)
+    }
+
+    // 绑定助手到当前会话
+    session.assistantId = assistant.name
+    session.title = assistant.name
+    saveToStorage()
+
+    // 如果已有 CLI 进程在运行，需要停止后用新 agent 重新初始化
+    const claudeCode = api.claudeCode
+    if (claudeCode) {
+      try {
+        const status = await claudeCode.getSessionStatus(session.id)
+        if (status?.isRunning) {
+          await claudeCode.stop(session.id)
+        }
+      } catch { /* ignore */ }
+      await initClaudeCodeSession(session.id)
+    }
+  }
+
   sessions.value.forEach(s => {
     if (s.processStatus !== 'none' && s.processStatus !== 'exited') {
       s.processStatus = 'none'
@@ -1456,6 +1539,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     switchAgent,
     switchModel,
     startWorkAssistantSession,
+    switchWorkAssistant,
     // Turn Checkpoints
     turnCheckpoints: readonly(turnCheckpoints),
     turnChangeCards,

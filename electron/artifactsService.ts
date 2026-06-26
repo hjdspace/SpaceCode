@@ -35,8 +35,6 @@ const NOISE_FILES = new Set([
 
 function listArtifacts(workingDir: string): ArtifactEntry[] {
   if (!workingDir || typeof workingDir !== 'string') return []
-  const outputsDir = join(workingDir, OUTPUTS_DIRNAME)
-  if (!existsSync(outputsDir)) return []
 
   const results: ArtifactEntry[] = []
   const walk = (dir: string, depth: number) => {
@@ -70,7 +68,28 @@ function listArtifacts(workingDir: string): ArtifactEntry[] {
       }
     }
   }
-  walk(outputsDir, 3)
+
+  // 主扫描路径：<workingDir>/outputs/
+  const outputsDir = join(workingDir, OUTPUTS_DIRNAME)
+  if (existsSync(outputsDir)) {
+    walk(outputsDir, 3)
+  }
+
+  // 后备扫描：<workingDir>/.claude/commands/*/outputs/
+  // 某些技能（如 morph-ppt）可能误将产物生成在技能目录下的 outputs/ 中，
+  // 此后备扫描确保这些产物也能被产物面板发现。
+  const commandsDir = join(workingDir, '.claude', 'commands')
+  if (existsSync(commandsDir)) {
+    try {
+      for (const cmdDir of readdirSync(commandsDir, { withFileTypes: true })) {
+        if (!cmdDir.isDirectory()) continue
+        const fullCmdOutputs = join(commandsDir, cmdDir.name, OUTPUTS_DIRNAME)
+        if (existsSync(fullCmdOutputs)) {
+          walk(fullCmdOutputs, 3)
+        }
+      }
+    } catch { /* ignore */ }
+  }
 
   // 最近修改在前
   results.sort((a, b) => b.mtime - a.mtime)
@@ -103,44 +122,67 @@ function startArtifactsWatch(workingDir: string): void {
 
   if (!workingDir) return
   const artifactsDir = join(workingDir, OUTPUTS_DIRNAME)
-  if (!existsSync(artifactsDir)) {
-    console.warn('[Artifacts] Watch target does not exist:', artifactsDir)
-    return
-  }
+  let watchCount = 0
 
   // recursive: true — macOS/Windows 原生支持，Linux 被忽略（仅监听顶层）
-  try {
-    artifactsWatcher = watch(artifactsDir, { recursive: true }, (_eventType, filename) => {
-      if (!filename) return
-      if (filename.includes('node_modules') || filename.includes('.git')) return
-      notifyArtifactsChanged()
-    })
-    artifactsWatcher.on('error', (err) => {
-      console.error('[Artifacts] Watcher error:', err)
-    })
-  } catch (err) {
-    console.error('[Artifacts] Failed to start recursive watch:', err)
-  }
-
-  // Linux 兼容：补充监听一层子目录
-  if (process.platform === 'linux') {
+  if (existsSync(artifactsDir)) {
     try {
-      const subdirs = readdirSync(artifactsDir, { withFileTypes: true })
-        .filter(d => d.isDirectory())
-        .map(d => join(artifactsDir, d.name))
-      for (const subdir of subdirs) {
-        try {
-          const sw = watch(subdir, () => notifyArtifactsChanged())
-          sw.on('error', () => { /* ignore sub-dir watch errors */ })
-          subWatchers.push(sw)
-        } catch { /* ignore */ }
+      artifactsWatcher = watch(artifactsDir, { recursive: true }, (_eventType, filename) => {
+        if (!filename) return
+        if (filename.includes('node_modules') || filename.includes('.git')) return
+        notifyArtifactsChanged()
+      })
+      artifactsWatcher.on('error', (err) => {
+        console.error('[Artifacts] Watcher error:', err)
+      })
+      watchCount++
+    } catch (err) {
+      console.error('[Artifacts] Failed to start recursive watch:', err)
+    }
+
+    // Linux 兼容：补充监听一层子目录
+    if (process.platform === 'linux') {
+      try {
+        const subdirs = readdirSync(artifactsDir, { withFileTypes: true })
+          .filter(d => d.isDirectory())
+          .map(d => join(artifactsDir, d.name))
+        for (const subdir of subdirs) {
+          try {
+            const sw = watch(subdir, () => notifyArtifactsChanged())
+            sw.on('error', () => { /* ignore sub-dir watch errors */ })
+            subWatchers.push(sw)
+          } catch { /* ignore */ }
+        }
+      } catch {
+        // 子目录监听失败不阻断主流程
       }
-    } catch {
-      // 子目录监听失败不阻断主流程
     }
   }
 
-  console.log('[Artifacts] Watch started for:', artifactsDir)
+  // 后备监听：<workingDir>/.claude/commands/*/outputs/
+  const commandsDir = join(workingDir, '.claude', 'commands')
+  if (existsSync(commandsDir)) {
+    try {
+      for (const cmdDir of readdirSync(commandsDir, { withFileTypes: true })) {
+        if (!cmdDir.isDirectory()) continue
+        const cmdOutputs = join(commandsDir, cmdDir.name, OUTPUTS_DIRNAME)
+        if (!existsSync(cmdOutputs)) continue
+        try {
+          const sw = watch(cmdOutputs, { recursive: true }, (_eventType, filename) => {
+            if (!filename) return
+            notifyArtifactsChanged()
+          })
+          sw.on('error', () => { /* ignore */ })
+          subWatchers.push(sw)
+          watchCount++
+        } catch { /* ignore */ }
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (watchCount > 0) {
+    console.log('[Artifacts] Watch started for:', workingDir, `(${watchCount} director${watchCount > 1 ? 'ies' : 'y'})`)
+  }
 }
 
 export function stopArtifactsWatch(): void {

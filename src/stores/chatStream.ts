@@ -41,6 +41,12 @@ export const useChatStreamStore = defineStore('chatStream', () => {
   const loadingSessions = ref<Map<string, boolean>>(new Map())
   const turnStates = new Map<string, TurnState>()
 
+  // ── sendMessage 进行中标记 ──
+  // 防止 ensureTurn 在 sendMessage 的 addMessage → beginTurn 窗口期
+  // 因 session.messages.length > 0 而自动创建 autonomous turn，
+  // 导致事件被消费、turn 被提前结算，用户看到的响应延迟或丢失。
+  const pendingSendMessages = new Set<string>()
+
   const isLoading = computed(() =>
     sessionStore.currentSessionId ? (loadingSessions.value.get(sessionStore.currentSessionId) ?? false) : false
   )
@@ -228,7 +234,27 @@ export const useChatStreamStore = defineStore('chatStream', () => {
 
   // idle 时收到流式事件 → 视为新 turn 开始（后台 agent 自动续跑的关键路径）
   const ensureTurn = (sessionId: string): TurnState => {
-    return turnStates.get(sessionId) ?? beginTurn(sessionId, { isAutonomous: true })
+    const existing = turnStates.get(sessionId)
+    if (existing) return existing
+
+    // sendMessage 正在进行中（addMessage 已执行、beginTurn 尚未执行）：
+    // 此时 session.messages.length > 0，但不应该创建 autonomous turn，
+    // 因为用户发起的 turn 即将由 beginTurn 创建。
+    // 丢弃此窗口期内的流式事件，防止 autonomous turn 消费事件或被提前结算。
+    if (pendingSendMessages.has(sessionId)) {
+      return { settled: true } as TurnState
+    }
+
+    // 新建会话尚未有任何消息时，不因 CLI 初始化事件自动创建 turn，
+    // 避免会话在用户发送消息前就显示转圈。
+    // 后台 agent 自动续跑仅对已有消息的会话生效，不影响该路径。
+    const session = sessionStore.sessions.find(s => s.id === sessionId)
+    if (!session || session.messages.length === 0) {
+      // 返回一个已结算的空 turn，使调用方因 ts.settled 提前返回
+      return { settled: true } as TurnState
+    }
+
+    return beginTurn(sessionId, { isAutonomous: true })
   }
 
   // ────────────────────────────────────────────────────────────────────
@@ -951,6 +977,19 @@ export const useChatStreamStore = defineStore('chatStream', () => {
     const session = sessionStore.sessions.find(s => s.id === targetSessionId)
     if (!session) return
 
+    // ── 立即设置 loading 状态，让用户在发送消息的瞬间就看到转圈 ──
+    // 避免 initClaudeCodeSession 的异步等待期间用户看到绿点（idle）误以为已完成。
+    // beginTurn 会再次设置这些值，此处提前设置仅用于消除 UI 空窗期。
+    loadingSessions.value.set(targetSessionId, true)
+    if (session.processStatus !== 'active') {
+      session.processStatus = 'active'
+    }
+
+    // ── 标记 sendMessage 进行中，防止 ensureTurn 在 addMessage → beginTurn 窗口期 ──
+    // 创建 autonomous turn 消费事件或被提前结算。
+    // beginTurn 执行后 turnStates 中已有 turn，ensureTurn 会直接返回它，标记可清除。
+    pendingSendMessages.add(targetSessionId)
+
     sessionStore.logger.info('ChatStore', `sendMessage: user message | sessionId=${targetSessionId.slice(0, 8)} | contentLen=${content.length} | preview="${content.slice(0, 80)}"`)
     sessionStore.traceEvent({
       sessionId: targetSessionId,
@@ -984,7 +1023,6 @@ export const useChatStreamStore = defineStore('chatStream', () => {
         sessionId: targetSessionId,
         phase: 'init',
       })
-      loadingSessions.value.set(targetSessionId, true)
       setTimeout(() => {
         sessionStore.addMessage({
           role: 'assistant',
@@ -992,11 +1030,20 @@ export const useChatStreamStore = defineStore('chatStream', () => {
           metadata: { error: classified }
         }, targetSessionId)
         loadingSessions.value.set(targetSessionId, false)
+        pendingSendMessages.delete(targetSessionId)
       }, 500)
       return
     }
 
-    await sessionStore.initClaudeCodeSession(targetSessionId)
+    try {
+      await sessionStore.initClaudeCodeSession(targetSessionId)
+    } catch (error) {
+      pendingSendMessages.delete(targetSessionId)
+      loadingSessions.value.set(targetSessionId, false)
+      const s = sessionStore.sessions.find(s => s.id === targetSessionId)
+      if (s) s.processStatus = 'idle'
+      throw error
+    }
 
     sessionStore.logger.info('ChatStore', `sendMessage: calling IPC sendMessage | sessionId=${targetSessionId.slice(0, 8)}`)
 
@@ -1006,6 +1053,9 @@ export const useChatStreamStore = defineStore('chatStream', () => {
 
     await new Promise<void>((resolve, reject) => {
       const ts = beginTurn(targetSessionId, { isAutonomous: false, resolve, reject })
+      // beginTurn 已将 turn 写入 turnStates，ensureTurn 后续会直接返回它，
+      // 安全清除 sendMessage 进行中标记。
+      pendingSendMessages.delete(targetSessionId)
 
       const plainImages = attachments?.images?.map(img => ({
         id: img.id,
@@ -1024,6 +1074,7 @@ export const useChatStreamStore = defineStore('chatStream', () => {
       sessionStore.logger.error('ChatStore', `[${targetSessionId.slice(0, 8)}] sendMessage outer catch`, { error: String(error) })
       loadingSessions.value.set(targetSessionId, false)
       streamingContents.value.set(targetSessionId, '')
+      pendingSendMessages.delete(targetSessionId)
     })
   }
 
@@ -1039,6 +1090,7 @@ export const useChatStreamStore = defineStore('chatStream', () => {
       }
     }
     if (sid) {
+      pendingSendMessages.delete(sid)
       loadingSessions.value.set(sid, false)
       streamingContents.value.set(sid, '')
       const ts = turnStates.get(sid)

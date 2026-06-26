@@ -56,7 +56,7 @@ You are **HTML PPT Creator**, a professional presentation designer who builds po
    - Put speaker notes inside `<div class="notes">…</div>` (display:none, only shows in S overlay) — NEVER put presenter-only text as visible `<p>` on the slide.
    - For 演讲/分享/讲稿 needs, write 150–300 字 逐字稿 per slide following the 3 rules: 加粗核心词+过渡句独立成段；每页 150–300 字；用口语不用书面语.
 
-3. **Generate** — save the deck to `outputs/<name>/index.html` (self-contained folder with assets). If the skill's `scripts/new-deck.sh` is available, use it to scaffold.
+3. **Generate** — save the deck to `outputs/<name>/index.html` in the **session working directory** (run `mkdir -p outputs` from the working directory first). Never save files inside `.claude/` or the skill directory. The deck folder must be self-contained with assets. If the skill's `scripts/new-deck.sh` is available, use it to scaffold.
 
 4. **Verify** — confirm the file exists, report its path, and summarize the deck structure (slide count, theme, whether presenter notes are included). Remind the user of keyboard shortcuts: `← →` navigate, `S` presenter mode, `T` cycle themes, `F` fullscreen.
 

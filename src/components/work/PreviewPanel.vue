@@ -36,6 +36,7 @@
         <div v-else-if="errorMsg" class="preview-error">{{ errorMsg }}</div>
         <webview
           v-else-if="htmlPreviewUrl"
+          ref="previewWebviewRef"
           :src="htmlPreviewUrl"
           class="preview-webview"
           partition="persist:office-preview"
@@ -51,14 +52,14 @@
         </div>
         <div v-else-if="errorMsg" class="preview-error">{{ errorMsg }}</div>
         <div v-else-if="screenshotImages.length === 0" class="preview-empty">{{ t('officePreview.noScreenshots') }}</div>
-        <div v-else class="screenshot-grid">
+        <div v-else class="screenshot-list">
           <div
-            v-for="(img, index) in screenshotImages"
+            v-for="(dataUrl, index) in screenshotDataUrls"
             :key="index"
             class="screenshot-item"
-            @click="openFullSize(img)"
+            @click="openFullSize(screenshotImages[index])"
           >
-            <img :src="getLocalImageUrl(img)" :alt="`Page ${index + 1}`" />
+            <img :src="dataUrl" :alt="`Page ${index + 1}`" />
             <span class="page-num">{{ index + 1 }}</span>
           </div>
         </div>
@@ -73,6 +74,7 @@
         <div v-else-if="errorMsg" class="preview-error">{{ errorMsg }}</div>
         <webview
           v-else-if="watchUrl"
+          ref="previewWebviewRef"
           :src="watchUrl"
           class="preview-webview"
           partition="persist:office-preview"
@@ -101,8 +103,27 @@ const errorMsg = ref('')
 const currentMode = ref<'html' | 'screenshots' | 'watch'>('html')
 const htmlPreviewUrl = ref('')
 const screenshotImages = ref<string[]>([])
+/** 截图的 base64 data URL 列表（避免 file:// CORS 问题） */
+const screenshotDataUrls = ref<string[]>([])
 const watchUrl = ref('')
 const watchId = ref('')
+const previewWebviewRef = ref<any>(null)
+
+/** artifacts:changed 事件取消订阅函数 */
+let artifactsUnsubscribe: (() => void) | null = null
+/** 防抖：文件变更后延迟重渲染 */
+let rerenderDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 注入到 webview 中的 CSS，使内容铺满视口 */
+const EXPAND_CSS = `
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  body {
+    overflow: auto !important;
+  }
+`
 
 const fileName = computed(() => {
   const parts = props.filePath.replace(/\\/g, '/').split('/')
@@ -153,6 +174,11 @@ async function renderScreenshots() {
     const tmpDir = `${props.filePath}.screenshots`
     const images = await api.officecli.viewScreenshot(props.filePath, tmpDir)
     screenshotImages.value = images
+    // Convert file paths to base64 data URLs to bypass file:// CORS in dev mode
+    const dataUrls = await Promise.all(
+      images.map(img => api.officecli.readImageAsDataURL(img))
+    )
+    screenshotDataUrls.value = dataUrls
   } catch (err) {
     errorMsg.value = String(err)
     console.error('[OfficePreview] Screenshot render failed:', err)
@@ -215,6 +241,36 @@ function revealInFolder() {
 
 function onWebviewLoad() {
   loading.value = false
+  injectExpandCSS()
+}
+
+/** 向 webview 注入 CSS 使内容铺满面板 */
+async function injectExpandCSS() {
+  const wv = previewWebviewRef.value
+  if (!wv?.insertCSS) return
+  try {
+    await wv.insertCSS(EXPAND_CSS)
+  } catch (e) {
+    console.warn('[OfficePreview] CSS injection failed:', e)
+  }
+}
+
+/** artifacts:changed 回调：防抖后静默重渲染 HTML 预览 */
+function onArtifactsChanged() {
+  // 仅 HTML 模式需要手动刷新（watch 模式自带实时刷新）
+  if (currentMode.value !== 'html') return
+  if (!props.filePath) return
+  if (rerenderDebounceTimer) clearTimeout(rerenderDebounceTimer)
+  rerenderDebounceTimer = setTimeout(async () => {
+    rerenderDebounceTimer = null
+    if (currentMode.value !== 'html') return
+    try {
+      const htmlPath = await api.officecli.viewHtml(props.filePath)
+      htmlPreviewUrl.value = pathToFileURL(htmlPath)
+    } catch (err) {
+      console.error('[OfficePreview] Re-render failed:', err)
+    }
+  }, 800)
 }
 
 watch(() => props.filePath, async (newPath) => {
@@ -226,6 +282,10 @@ watch(() => props.filePath, async (newPath) => {
 onMounted(async () => {
   const initialMode = appStore.officePreviewMode || 'html'
   await switchMode(initialMode)
+  // 监听产物文件变更，实现实时刷新预览
+  artifactsUnsubscribe = api.artifacts.onChanged(() => {
+    onArtifactsChanged()
+  })
 })
 
 onBeforeUnmount(async () => {
@@ -233,6 +293,14 @@ onBeforeUnmount(async () => {
     try {
       await api.officecli.watchStop(watchId.value)
     } catch { /* ignore */ }
+  }
+  if (artifactsUnsubscribe) {
+    artifactsUnsubscribe()
+    artifactsUnsubscribe = null
+  }
+  if (rerenderDebounceTimer) {
+    clearTimeout(rerenderDebounceTimer)
+    rerenderDebounceTimer = null
   }
 })
 </script>
@@ -325,6 +393,17 @@ onBeforeUnmount(async () => {
   overflow: hidden;
   position: relative;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.html-viewer,
+.watch-viewer,
+.screenshot-viewer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .preview-loading {
@@ -367,17 +446,20 @@ onBeforeUnmount(async () => {
 .preview-webview {
   width: 100%;
   height: 100%;
+  flex: 1;
+  min-height: 0;
   border: none;
   background: white;
 }
 
-.screenshot-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 12px;
-  padding: 16px;
+.screenshot-list {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  height: 100%;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .screenshot-item {
@@ -394,6 +476,7 @@ onBeforeUnmount(async () => {
 
   img {
     width: 100%;
+    height: auto;
     display: block;
   }
 
