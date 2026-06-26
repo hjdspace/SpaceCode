@@ -16,6 +16,7 @@ import {
   type ElicitationRequest,
 } from './controlProtocol'
 import { buildEnabledMcpConfig } from './mcpConfigStore'
+import { getOfficeCliBinaryPath, getOfficeCliInstalledBinary, getOfficeCliInstallDir } from './officeCliService'
 
 /**
  * 当 sc-computer-use MCP 启用时追加到 system prompt 的可用性提示。
@@ -1173,13 +1174,41 @@ export class SessionProcess extends EventEmitter {
       }
     }
 
-    // Inject officecli user-level install dir into PATH (so agent's Bash tool can find `officecli`)
-    const officeCliDir = path.join(os.homedir(), '.officecli', 'bin')
-    if (fs.existsSync(officeCliDir)) {
+    // Ensure officecli binary is installed to ~/.officecli/bin/ and inject into PATH
+    // so the agent's Bash tool can find `officecli --version` / `officecli help` etc.
+    //
+    // In dev mode the bundled binary is named officecli-{platform}-{arch}[.exe] and lives
+    // in resources/officecli/. The standard name expected by SKILL.md is `officecli` (or
+    // `officecli.exe` on Windows). We synchronously copy the bundled binary to the
+    // user-level install dir with the correct name, guaranteeing it is available before
+    // the first Bash tool invocation — regardless of whether the async
+    // ensureOfficeCliInstalled() at startup has completed.
+    const officeCliInstallDir = getOfficeCliInstallDir()
+    const officeCliExePath = getOfficeCliInstalledBinary()
+
+    if (!fs.existsSync(officeCliExePath)) {
+      // Binary not yet installed — copy from bundled location synchronously
+      const bundledPath = getOfficeCliBinaryPath()
+      if (fs.existsSync(bundledPath)) {
+        try {
+          fs.mkdirSync(officeCliInstallDir, { recursive: true })
+          fs.copyFileSync(bundledPath, officeCliExePath)
+          if (process.platform !== 'win32') {
+            fs.chmodSync(officeCliExePath, 0o755)
+          }
+          info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Installed officecli binary | from=${bundledPath} | to=${officeCliExePath}`)
+        } catch (err) {
+          warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to copy officecli binary: ${err}`)
+        }
+      }
+    }
+
+    // Inject ~/.officecli/bin into PATH
+    if (fs.existsSync(officeCliInstallDir)) {
       const existingPath = env.PATH || process.env.PATH || ''
-      if (!existingPath.split(path.delimiter).includes(officeCliDir)) {
-        env.PATH = [officeCliDir, existingPath].join(path.delimiter)
-        debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Injected officecli to PATH | dir=${officeCliDir}`)
+      if (!existingPath.split(path.delimiter).includes(officeCliInstallDir)) {
+        env.PATH = [officeCliInstallDir, existingPath].join(path.delimiter)
+        debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Injected officecli to PATH | dir=${officeCliInstallDir}`)
       }
     }
 
