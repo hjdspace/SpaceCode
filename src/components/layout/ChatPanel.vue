@@ -1,6 +1,8 @@
 <template>
   <main class="chat-panel">
     <SessionTabBar
+      :pane-id="paneId"
+      :active-tab-id-override="paneTabId"
       @new-session="handleNewSession"
       @switch-session="handleSwitchSession"
       @close-tab="handleCloseTab"
@@ -256,6 +258,7 @@ import { useI18n } from 'vue-i18n'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import { useAppStore } from '@/stores/app'
+import { useSplitLayoutStore } from '@/stores/splitLayout'
 import MessageList from '../chat/MessageList.vue'
 import RecommendedPrompts from '../chat/RecommendedPrompts.vue'
 import WorkAssistantShortcuts from '../work/WorkAssistantShortcuts.vue'
@@ -301,6 +304,7 @@ import type { Message } from '@/types'
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 const appStore = useAppStore()
+const splitLayout = useSplitLayoutStore()
 const { t } = useI18n()
 
 // ── Pane props（分屏多 pane 时由 SplitContainer 传入；未传入 = 单屏，行为
@@ -310,6 +314,8 @@ const props = defineProps<{
   sessionId?: string
   /** 所在 pane 的 id（用于焦点/active 同步等高级用法；当前阶段未消费） */
   paneId?: string
+  /** 当前 pane 绑定的 centerTab id（分屏时由 PaneLeafView 传入；用于 pane 级标签高亮和终端判断） */
+  paneTabId?: string
 }>()
 
 /** 用 prop 或 current 解析出本 pane 实际绑定的会话 id（可能为空字符串） */
@@ -640,9 +646,13 @@ const provider = computed(() => llmState.provider.value)
 const isConfigured = computed(() => llmState.isConfigured.value)
 
 // Check if current tab is a terminal tab
-const isTerminalTab = computed(() =>
-  appStore.activeCenterTab.startsWith('terminal-')
-)
+// 分屏模式下用 paneTabId 判断，避免全局 activeCenterTab 被其他 pane 切换而串扰
+const isTerminalTab = computed(() => {
+  if (props.paneTabId) {
+    return props.paneTabId.startsWith('terminal-')
+  }
+  return appStore.activeCenterTab.startsWith('terminal-')
+})
 
 /** At least one conversation is bound to a real folder (sidebar / CLI cwd), not only default chat */
 const hasWorkspaceContext = computed(() =>
@@ -1237,6 +1247,16 @@ async function handleToolSkip(messageId: string, toolId: string) {
 }
 
 async function handleNewSession() {
+  if (props.paneId) {
+    // ── 分屏模式：在当前 pane 中创建新会话 ──
+    const session = chatStore.createSession(t('common.newChat'))
+    appStore.openSessionTab(session.id, session.title)
+    const tabId = `session-${session.id}`
+    splitLayout.setPaneContent(props.paneId, { kind: 'session', tabId })
+    splitLayout.setActivePane(props.paneId)
+    return
+  }
+  // ── 非分屏模式：原有行为 ──
   if (chatStore.currentSessionId && chatStore.currentSession) {
     appStore.openSessionTab(chatStore.currentSessionId, chatStore.currentSession.title)
   }
@@ -1246,6 +1266,12 @@ async function handleNewSession() {
 }
 
 function handleSwitchSession(sessionId: string) {
+  // 分屏模式下 SessionTabBar 已更新 pane content，
+  // SplitContainer watcher 会同步 active pane → 全局 currentSessionId。
+  // 非分屏模式需要显式 selectSession + 同步工作目录。
+  if (props.paneId) {
+    return
+  }
   chatStore.selectSession(sessionId)
   if (chatStore.workingDirectory && chatStore.workingDirectory !== appStore.projectRoot) {
     appStore.setProjectRoot(chatStore.workingDirectory)
@@ -1309,6 +1335,18 @@ async function handleRestoreHistorySession(session: any) {
     }
 
     showHistoryModal.value = false
+
+    // ── 关键修复：为新恢复的历史会话创建标签页 ──
+    // 此前缺少 openSessionTab 调用，导致恢复的会话没有标签页，
+    // 用户无法切换回之前打开的其他历史会话。
+    appStore.openSessionTab(restoredSession.id, restoredSession.title)
+
+    // 分屏模式下：把恢复的会话放入当前 pane
+    if (props.paneId) {
+      const tabId = `session-${restoredSession.id}`
+      splitLayout.setPaneContent(props.paneId, { kind: 'session', tabId })
+      splitLayout.setActivePane(props.paneId)
+    }
 
     // 历史会话加载后显式触发轮次变更卡片加载，避免依赖 MessageList watcher
     // 的时序（destructured props / 异步消息追加可能导致 watcher 未在合适时机触发）。

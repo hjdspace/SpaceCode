@@ -22,7 +22,7 @@
  *    保持全局 LLM/CLI 状态一致。
  */
 import { watch } from 'vue'
-import { useSplitLayoutStore, findLeaf } from '@/stores/splitLayout'
+import { useSplitLayoutStore } from '@/stores/splitLayout'
 import { useChatStore } from '@/stores/chat'
 import { useAppStore } from '@/stores/app'
 import PaneNodeView from './PaneNodeView.vue'
@@ -38,29 +38,41 @@ const appStore = useAppStore()
  *    回写到 chatStore.currentSessionId / appStore.activeCenterTab，保证 ChatInput、
  *    ContextUsageChip、TitleBar 等仍引用 current 的 UI 行为正确。
  *  - 单 leaf 模式不会触发（activePaneId 不变）。
+ *
+ * 同时监听 active pane 的 content.tabId：当用户在 active pane 内切换标签页时
+ * （SessionTabBar pane 模式只更新 pane content，不改全局），这里负责把新
+ * tabId/sessionId 同步到全局，保证 sendMessage 等全局操作命中正确的会话。
  */
+function syncActivePaneToGlobal() {
+  const leaf = splitLayout.activePane
+  if (!leaf) return
+  const c = leaf.content
+  if (c.kind === 'session' && c.tabId) {
+    const sid = c.tabId.startsWith('session-') ? c.tabId.slice('session-'.length) : c.tabId
+    if (sid && chatStore.currentSessionId !== sid) {
+      chatStore.selectSession(sid)
+    }
+    if (appStore.activeCenterTab !== c.tabId) {
+      appStore.activeCenterTab = c.tabId
+    }
+  } else if (c.kind === 'terminal' && c.tabId) {
+    if (appStore.activeCenterTab !== c.tabId) {
+      appStore.activeCenterTab = c.tabId
+    }
+  }
+  // kind='main' / 'empty' 不写回全局，避免循环
+}
+
+// activePaneId 变化（点击不同 pane）→ 同步
 watch(
   () => splitLayout.activePaneId,
-  (paneId) => {
-    if (!paneId) return
-    const leaf = findLeaf(splitLayout.root, paneId)
-    if (!leaf) return
-    const c = leaf.content
-    if (c.kind === 'session' && c.tabId) {
-      const sid = c.tabId.startsWith('session-') ? c.tabId.slice('session-'.length) : c.tabId
-      if (sid && chatStore.currentSessionId !== sid) {
-        chatStore.selectSession(sid)
-      }
-      if (appStore.activeCenterTab !== c.tabId) {
-        appStore.activeCenterTab = c.tabId
-      }
-    } else if (c.kind === 'terminal' && c.tabId) {
-      if (appStore.activeCenterTab !== c.tabId) {
-        appStore.activeCenterTab = c.tabId
-      }
-    }
-    // kind='main' / 'empty' 不写回全局，避免循环
-  },
+  () => syncActivePaneToGlobal(),
+)
+
+// active pane 的 content.tabId 变化（pane 内切换标签）→ 同步
+watch(
+  () => splitLayout.activePane?.content?.tabId,
+  () => syncActivePaneToGlobal(),
 )
 </script>
 

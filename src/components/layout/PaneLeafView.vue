@@ -19,6 +19,7 @@
         v-else-if="node.content.kind === 'session'"
         :session-id="resolvedSessionId"
         :pane-id="node.id"
+        :pane-tab-id="node.content.tabId || undefined"
       />
 
       <!-- 'terminal'：Teleport 目标。实际的 TerminalContainer 由 SplitContainer > TerminalHost 投射进来。

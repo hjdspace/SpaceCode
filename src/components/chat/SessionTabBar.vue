@@ -29,11 +29,20 @@
 import { computed } from 'vue'
 import { useAppStore, type CenterTab } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
+import { useSplitLayoutStore, type PaneContent } from '@/stores/splitLayout'
 import { useI18n } from 'vue-i18n'
 import { X, Plus } from 'lucide-vue-next'
 
+const props = defineProps<{
+  /** 当前 pane 的 id；提供时启用 pane 级独立切换，不修改全局状态 */
+  paneId?: string
+  /** 当前 pane 激活的 tabId（覆盖全局 activeCenterTab 用于高亮显示） */
+  activeTabIdOverride?: string
+}>()
+
 const appStore = useAppStore()
 const chatStore = useChatStore()
+const splitLayout = useSplitLayoutStore()
 const { t } = useI18n()
 
 const emit = defineEmits<{
@@ -46,7 +55,8 @@ const tabs = computed<CenterTab[]>(() =>
   appStore.centerTabs.filter(t => t.id !== 'chat')
 )
 
-const activeTabId = computed(() => appStore.activeCenterTab)
+/** 分屏模式下使用 pane 自己的 tabId，非分屏模式回退到全局 activeCenterTab */
+const activeTabId = computed(() => props.activeTabIdOverride || appStore.activeCenterTab)
 
 function getStatusClass(sessionId?: string): string {
   if (!sessionId) return 'none'
@@ -66,6 +76,21 @@ function isTerminalTab(tab: CenterTab): boolean {
 }
 
 function handleTabClick(tab: CenterTab) {
+  if (props.paneId) {
+    // ── 分屏模式：只更新当前 pane 的内容，不直接修改全局状态 ──
+    // SplitContainer 的 watcher 会自动把 active pane 的内容同步到全局
+    const content: PaneContent = tab.id.startsWith('terminal-')
+      ? { kind: 'terminal', tabId: tab.id }
+      : { kind: 'session', tabId: tab.id }
+    splitLayout.setPaneContent(props.paneId, content)
+    splitLayout.setActivePane(props.paneId)
+    // 通知 ChatPanel 更新 workingDirectory 等 pane 级状态
+    if (tab.sessionId) {
+      emit('switch-session', tab.sessionId)
+    }
+    return
+  }
+  // ── 非分屏模式：原有行为，直接修改全局状态 ──
   appStore.activeCenterTab = tab.id
   if (tab.sessionId) {
     chatStore.selectSession(tab.sessionId)
