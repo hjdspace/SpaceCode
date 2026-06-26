@@ -371,6 +371,8 @@ export function useContentEditor(options?: {
     const editor = editorRef.value
     if (!editor) return
     editor.innerHTML = ''
+    // 重置高度，避免多行内容发送后输入框保持扩展状态
+    editor.style.height = ''
     inputText.value = ''
   }
 
