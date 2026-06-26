@@ -765,6 +765,31 @@ export const useChatStreamStore = defineStore('chatStream', () => {
 
         sessionStore.saveToStorage()
 
+        // 产物汇总：仅办公模式，回合结束后对 outputs/ 做 mtime 快照对比，
+        // 把本回合新生成/修改的产物写入该助手消息元数据并持久化。
+        if (s.mode === 'work' && s.workingDirectory) {
+          const workingDir = s.workingDirectory
+          const turnStart = ts.sendStartTime
+          const targetMsgId = ts.assistantMessageId
+          void (async () => {
+            try {
+              const { artifacts } = await api.artifacts.list(workingDir)
+              // 1s 容差，与 ArtifactsPanel 现有约定一致；mtime>=回合开始即本回合新增/修改
+              const produced = (artifacts || []).filter(a => a.mtime >= turnStart - 1000)
+              if (produced.length === 0) return
+              const sess = sessionStore.sessions.find(x => x.id === sessionId)
+              const target = sess?.messages.find(m => m.id === targetMsgId)
+              if (!sess || !target) return
+              target.metadata = { ...(target.metadata || {}), artifacts: produced }
+              // 触发 MessageList 重建（其分组缓存按数组引用失效）
+              sess.messages = [...sess.messages]
+              sessionStore.saveToStorage()
+            } catch (err) {
+              console.error('[Artifacts] turn summary collect failed:', err)
+            }
+          })()
+        }
+
         void sessionStore.loadTurnCheckpoints(sessionId)
       }
     }

@@ -3,6 +3,7 @@ import { ref, computed, markRaw } from 'vue'
 import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch, Package } from 'lucide-vue-next'
 import { useChatStore } from './chat'
 import { useTerminalStore } from './terminal'
+import { useSplitLayoutStore } from './splitLayout'
 import { api } from '@/services/electronAPI'
 
 export interface FileInfo {
@@ -517,6 +518,11 @@ export const useAppStore = defineStore('app', () => {
         const nextSessionTab = centerTabs.value.find(t => t.sessionId)
         activeCenterTab.value = nextSessionTab?.id || centerTabs.value[0]?.id || 'chat'
       }
+
+      // 分屏联动：清理所有引用该 tab 的 pane（避免悬空显示已关闭的内容）
+      try {
+        useSplitLayoutStore().clearLeavesForTab(tabId)
+      } catch { /* defensive */ }
     }
   }
 

@@ -27,8 +27,8 @@ import { buildEnabledMcpConfig } from './mcpConfigStore'
  */
 const COMPUTER_USE_AVAILABILITY_HINT = [
   'You have access to the sc-computer-use MCP server for desktop control (screenshots, mouse, keyboard, clipboard, window/app management). Tools are prefixed with `mcp__sc-computer-use__`.',
-  'If these tools are not directly in your tool list, they may be deferred behind ToolSearch. In that case, load them first: call ToolSearch with query `select:mcp__sc-computer-use__request_access` to load the access tool, then repeat for other tools as needed (e.g. `select:mcp__sc-computer-use__screenshot`, `select:mcp__sc-computer-use__open_application`).',
-  'Workflow: first call `mcp__sc-computer-use__request_access` to obtain session permission, then call `mcp__sc-computer-use__screenshot` to see the current screen before performing any action. After each action, take a new screenshot to verify the result.',
+  'If these tools are not directly in your tool list, they may be deferred behind ToolSearch. In that case, load them first: call ToolSearch with query `select:mcp__sc-computer-use__screenshot` to load the screenshot tool, then repeat for other tools as needed (e.g. `select:mcp__sc-computer-use__open_application`, `select:mcp__sc-computer-use__click_element`, `select:mcp__sc-computer-use__type`).',
+  'Workflow: first call `mcp__sc-computer-use__screenshot` to see the current screen before performing any action. After each action, take a new screenshot to verify the result. Use `mcp__sc-computer-use__open_application` to launch apps, `mcp__sc-computer-use__click_element` / `mcp__sc-computer-use__find_element` for UI interaction, and `mcp__sc-computer-use__type` / `mcp__sc-computer-use__key` for input.',
   'When the user asks to operate a desktop application, interact with native UI, or perform any GUI task (e.g. opening an app, clicking buttons, filling forms), use these tools. Do NOT just describe what you would do — actually call the tools.',
 ].join(' ')
 

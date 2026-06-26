@@ -3,35 +3,57 @@
     class="pane-leaf"
     :class="{ active: isActive, 'single': singleLeaf }"
     @mousedown="onActivate"
+    @dragover.prevent="onDragOver"
+    @dragleave="onDragLeave"
+    @drop.prevent="onDrop"
   >
-    <!-- 内容路由：阶段 2 只有 'main' / 'session' / 'terminal' / 'empty' 四种 -->
-    <!-- 'main'：跟随 appStore.activeCenterTab 渲染当前内容（与改造前 ChatPanel 行为完全一致） -->
-    <ChatPanel v-if="node.content.kind === 'main'" />
+    <!-- 多 leaf 模式下显示 PaneHeader（状态点 / 任务进度 / 拆分 / 关闭）；
+         单 leaf 模式保留现状（ChatPanel 内部已有自己的 SessionTabBar / 聊天 header） -->
+    <PaneHeader v-if="!singleLeaf" :node="node" />
 
-    <!-- 'session'：明确绑定 sessionId（阶段 3 多 leaf 才会用到） -->
-    <ChatPanel
-      v-else-if="node.content.kind === 'session'"
-      :session-id="resolvedSessionId"
-      :pane-id="node.id"
-    />
+    <div class="pane-leaf-body">
+      <!-- 'main'：跟随 appStore.activeCenterTab 渲染当前内容（与改造前 ChatPanel 行为完全一致） -->
+      <ChatPanel v-if="node.content.kind === 'main'" />
 
-    <!-- 'terminal'：阶段 2 暂时复用 TerminalPanel（其内部用 v-for+v-show 多实例）。
-         阶段 4 会改造为 Teleport，以支持多 pane 同时显示不同 terminal tab。 -->
-    <TerminalPanel v-else-if="node.content.kind === 'terminal'" />
+      <!-- 'session'：明确绑定 sessionId -->
+      <ChatPanel
+        v-else-if="node.content.kind === 'session'"
+        :session-id="resolvedSessionId"
+        :pane-id="node.id"
+      />
 
-    <!-- 'empty'：空槽位占位（阶段 3 加交互） -->
-    <div v-else class="pane-empty">
-      <span class="pane-empty-hint">{{ t('splitLayout.emptyPaneHint', 'Drop a tab here') }}</span>
+      <!-- 'terminal'：Teleport 目标。实际的 TerminalContainer 由 SplitContainer > TerminalHost 投射进来。
+           这样切换 pane 归属时跨父级移动而不被 unmount，pty 不会被 kill。 -->
+      <div
+        v-else-if="node.content.kind === 'terminal'"
+        :id="`pane-terminal-mount-${node.id}`"
+        class="pane-terminal-mount"
+      />
+
+      <!-- 'empty'：空槽位占位 -->
+      <div v-else class="pane-empty">
+        <span class="pane-empty-hint">{{ t('splitLayout.emptyPaneHint', 'Drop a tab here') }}</span>
+      </div>
     </div>
+
+    <!-- Drop zone 高亮指示（拖动 tab 进入时显示） -->
+    <Transition name="pane-drop-fade">
+      <div
+        v-if="dropZone"
+        class="pane-drop-overlay"
+        :class="`drop-${dropZone}`"
+      />
+    </Transition>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useSplitLayoutStore, type PaneLeaf } from '@/stores/splitLayout'
+import { useSplitLayoutStore, type PaneLeaf, type PaneContent } from '@/stores/splitLayout'
+import { useAppStore } from '@/stores/app'
 import ChatPanel from './ChatPanel.vue'
-import TerminalPanel from '../terminal/TerminalPanel.vue'
+import PaneHeader from './PaneHeader.vue'
 
 const props = defineProps<{
   node: PaneLeaf
@@ -39,6 +61,7 @@ const props = defineProps<{
 
 const { t } = useI18n()
 const splitLayout = useSplitLayoutStore()
+const appStore = useAppStore()
 
 const isActive = computed(() => splitLayout.activePaneId === props.node.id)
 const singleLeaf = computed(() => splitLayout.isSingleLeaf)
@@ -54,6 +77,68 @@ const resolvedSessionId = computed(() => {
 function onActivate() {
   splitLayout.setActivePane(props.node.id)
 }
+
+// ─── Drag & Drop ───────────────────────────────────────────────────────────
+
+type DropZone = 'center' | 'left' | 'right' | 'top' | 'bottom'
+const dropZone = ref<DropZone | null>(null)
+
+/** 根据光标位置判断目标 drop zone：5 等分（中心区 60%，四周各占 20%） */
+function pickZone(e: DragEvent, el: HTMLElement): DropZone {
+  const rect = el.getBoundingClientRect()
+  const x = (e.clientX - rect.left) / rect.width
+  const y = (e.clientY - rect.top) / rect.height
+  const margin = 0.2
+  if (!splitLayout.canSplit) return 'center'
+  if (x < margin && y > margin && y < 1 - margin) return 'left'
+  if (x > 1 - margin && y > margin && y < 1 - margin) return 'right'
+  if (y < margin && x > margin && x < 1 - margin) return 'top'
+  if (y > 1 - margin && x > margin && x < 1 - margin) return 'bottom'
+  return 'center'
+}
+
+function onDragOver(e: DragEvent) {
+  const types = e.dataTransfer?.types
+  if (!types || !Array.from(types).includes('application/spacecode-tab')) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  dropZone.value = pickZone(e, e.currentTarget as HTMLElement)
+}
+
+function onDragLeave(e: DragEvent) {
+  const related = e.relatedTarget as Node | null
+  const root = e.currentTarget as HTMLElement
+  if (!related || !root.contains(related)) {
+    dropZone.value = null
+  }
+}
+
+function onDrop(e: DragEvent) {
+  const payload = e.dataTransfer?.getData('application/spacecode-tab')
+  const zone = dropZone.value
+  dropZone.value = null
+  if (!payload) return
+  let data: { tabId: string } | null = null
+  try { data = JSON.parse(payload) } catch { return }
+  if (!data?.tabId) return
+
+  const newContent: PaneContent = data.tabId.startsWith('terminal-')
+    ? { kind: 'terminal', tabId: data.tabId }
+    : { kind: 'session', tabId: data.tabId }
+
+  if (!zone || zone === 'center') {
+    splitLayout.setPaneContent(props.node.id, newContent)
+    splitLayout.setActivePane(props.node.id)
+    appStore.activeCenterTab = data.tabId
+    return
+  }
+
+  if (!splitLayout.canSplit) return
+  const newPaneId = splitLayout.splitPane(props.node.id, zone, newContent)
+  if (newPaneId) {
+    appStore.activeCenterTab = data.tabId
+  }
+}
 </script>
 
 <style lang="scss" scoped>
@@ -67,7 +152,6 @@ function onActivate() {
   flex-direction: column;
   overflow: hidden;
 
-  // 多 leaf 模式下给非 active pane 一个轻边框；单 leaf 不显示边框（与现状视觉一致）
   &:not(.single) {
     border: 1px solid var(--surface-border, transparent);
     border-radius: var(--radius-md, 6px);
@@ -77,6 +161,22 @@ function onActivate() {
     border-color: var(--accent-primary, #3b82f6);
     box-shadow: 0 0 0 1px var(--accent-primary, #3b82f6) inset;
   }
+}
+
+.pane-leaf-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.pane-terminal-mount {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .pane-empty {
@@ -92,5 +192,30 @@ function onActivate() {
   padding: 8px 16px;
   border: 1px dashed var(--surface-border, #e5e7eb);
   border-radius: var(--radius-md, 6px);
+}
+
+/* ── Drop zone overlay ──────────────────────────────────────────────────── */
+.pane-drop-overlay {
+  position: absolute;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--accent-primary, #3b82f6) 25%, transparent);
+  border: 2px solid var(--accent-primary, #3b82f6);
+  z-index: 20;
+  transition: all 0.15s ease;
+
+  &.drop-center { inset: 0; }
+  &.drop-left   { left: 0;  top: 0; bottom: 0; width: 50%; }
+  &.drop-right  { right: 0; top: 0; bottom: 0; width: 50%; }
+  &.drop-top    { left: 0;  top: 0; right: 0;  height: 50%; }
+  &.drop-bottom { left: 0;  bottom: 0; right: 0; height: 50%; }
+}
+
+.pane-drop-fade-enter-active,
+.pane-drop-fade-leave-active {
+  transition: opacity 0.12s ease;
+}
+.pane-drop-fade-enter-from,
+.pane-drop-fade-leave-to {
+  opacity: 0;
 }
 </style>

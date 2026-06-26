@@ -70,6 +70,8 @@ export default {
     empty: 'No deliverables yet',
     open: 'Open',
     reveal: 'Show in folder',
+    summaryTitle: 'Deliverables',
+    summaryCount: '{count} files',
   },
 
   workbench: {
