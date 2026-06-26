@@ -526,6 +526,22 @@ export const useAppStore = defineStore('app', () => {
       if (activeCenterTab.value === tabId) {
         const nextSessionTab = centerTabs.value.find(t => t.sessionId)
         activeCenterTab.value = nextSessionTab?.id || centerTabs.value[0]?.id || 'chat'
+
+        // 关闭当前激活的会话标签后，需同步 chatStore.currentSessionId 到新激活的会话，
+        // 否则主内容区仍显示已关闭会话的内容（仅单 leaf 模式需要：分屏模式由
+        // SplitContainer 的 activePane watcher 负责将 pane 内容同步到全局）。
+        const newActiveTab = nextSessionTab || centerTabs.value[0]
+        if (newActiveTab?.sessionId) {
+          try {
+            const splitLayout = useSplitLayoutStore()
+            if (splitLayout.isSingleLeaf) {
+              const chatStore = useChatStore()
+              if (chatStore.currentSessionId !== newActiveTab.sessionId) {
+                chatStore.selectSession(newActiveTab.sessionId)
+              }
+            }
+          } catch { /* defensive */ }
+        }
       }
 
       // 分屏联动：清理所有引用该 tab 的 pane（避免悬空显示已关闭的内容）
