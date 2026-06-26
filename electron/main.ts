@@ -7,8 +7,9 @@ import { TerminalManager } from './terminalManager'
 import { registerGitIPCHandlers } from './gitService'
 import { registerSkillsIPCHandlers, registerLocalLibraryIPCHandlers } from './skillsService'
 import { registerAgentsIPCHandlers } from './agentsService'
-import { registerArtifactsIPCHandlers } from './artifactsService'
+import { registerArtifactsIPCHandlers, stopArtifactsWatch } from './artifactsService'
 import { registerCronIPCHandlers } from './cronService'
+import { registerOfficeCliIPCHandlers, cleanupOfficeCli, ensureOfficeCliInstalled } from './officeCliService'
 import { registerClaudeCodeIPC, setMainWindow, getPool } from './claudeCodeIPC'
 import { initAutoUpdater, registerAutoUpdaterIPC, destroyAutoUpdater } from './autoUpdaterService'
 import { MobileServer } from './mobileServer'
@@ -623,9 +624,16 @@ app.whenReady().then(() => {
   registerArtifactsIPCHandlers()
   info('Startup', 'Artifacts IPC handlers registered')
 
-  // Register Cron IPC handlers
-  registerCronIPCHandlers(() => (global as any).__projectCwd ?? null)
-  info('Startup', 'Cron IPC handlers registered')
+// Register Cron IPC handlers
+registerCronIPCHandlers(() => (global as any).__projectCwd ?? null)
+info('Startup', 'Cron IPC handlers registered')
+
+// Register OfficeCLI IPC handlers
+registerOfficeCliIPCHandlers()
+info('Startup', 'OfficeCLI IPC handlers registered')
+
+// Ensure officecli is installed to user PATH (~/.officecli/bin) — non-blocking
+void ensureOfficeCliInstalled()
 
   // Register Claude Code IPC handlers
   registerClaudeCodeIPC()
@@ -732,9 +740,11 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', async () => {
-  info('App', 'App quitting')
-  destroyTray()
-  destroyAutoUpdater()
+info('App', 'App quitting')
+cleanupOfficeCli()
+stopArtifactsWatch()
+destroyTray()
+destroyAutoUpdater()
   try { globalShortcut.unregisterAll() } catch {}
   try {
     await proxyManager.stop()

@@ -1173,6 +1173,16 @@ export class SessionProcess extends EventEmitter {
       }
     }
 
+    // Inject officecli user-level install dir into PATH (so agent's Bash tool can find `officecli`)
+    const officeCliDir = path.join(os.homedir(), '.officecli', 'bin')
+    if (fs.existsSync(officeCliDir)) {
+      const existingPath = env.PATH || process.env.PATH || ''
+      if (!existingPath.split(path.delimiter).includes(officeCliDir)) {
+        env.PATH = [officeCliDir, existingPath].join(path.delimiter)
+        debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Injected officecli to PATH | dir=${officeCliDir}`)
+      }
+    }
+
     debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] buildEnv | provider=${provider} | baseUrl=${config.baseUrl || '(empty)'} | apiKey=${config.apiKey ? '***set' : '(empty)'} | envKeys=[${Object.keys(env).join(',')}]`)
 
     return env

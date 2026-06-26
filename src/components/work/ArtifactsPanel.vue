@@ -27,6 +27,9 @@
             <div class="file-sub">{{ formatSize(f.size) }} · {{ f.ext.toUpperCase() || 'FILE' }}</div>
           </div>
           <div class="file-actions">
+            <button v-if="isPreviewable(f.ext)" class="act-btn" :title="t('artifacts.preview')" @click.stop="open(f)">
+              <Eye :size="13" />
+            </button>
             <button class="act-btn" :title="t('artifacts.open')" @click.stop="open(f)">
               <ExternalLink :size="13" />
             </button>
@@ -41,9 +44,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RotateCw, PackageOpen, ExternalLink, FolderOpen } from 'lucide-vue-next'
+import { RotateCw, PackageOpen, ExternalLink, FolderOpen, Eye } from 'lucide-vue-next'
 import { useChatStore } from '@/stores/chat'
 import { useAppStore } from '@/stores/app'
 import { api, type ArtifactEntry } from '@/services/electronAPI'
@@ -55,12 +58,18 @@ const appStore = useAppStore()
 
 const files = ref<ArtifactEntry[]>([])
 const loading = ref(false)
-let timer: ReturnType<typeof setInterval> | null = null
+let unsubscribe: (() => void) | null = null
 
 // 已见过的产物路径；用于检测"新生成"的可预览文件并自动打开
 const seenPaths = new Set<string>()
 let primed = false
 const PREVIEWABLE = new Set(['html', 'htm'])
+const OFFICE_EXTENSIONS = new Set(['pptx', 'docx', 'xlsx', 'pdf'])
+
+function isPreviewable(ext: string): boolean {
+  const e = ext.toLowerCase()
+  return PREVIEWABLE.has(e) || OFFICE_EXTENSIONS.has(e)
+}
 
 const workingDir = computed(() => chatStore.workingDirectory || '')
 const outputsHint = computed(() => workingDir.value ? `${workingDir.value}/outputs` : 'outputs/')
@@ -83,13 +92,17 @@ async function refresh() {
     const list = (res.artifacts || []).filter(f => f.mtime >= cutoff)
     files.value = list
 
-    // 检测新出现的可预览文件（如 .html），自动在内置浏览器打开（每个文件仅一次）
+    // 检测新出现的可预览文件（如 .html / .pptx 等），自动在内置浏览器/预览面板打开（每个文件仅一次）
     const fresh = list.filter(f => !seenPaths.has(f.path))
     list.forEach(f => seenPaths.add(f.path))
     if (primed) {
-      const preview = fresh.find(f => PREVIEWABLE.has(f.ext))
+      const preview = fresh.find(f => PREVIEWABLE.has(f.ext) || OFFICE_EXTENSIONS.has(f.ext))
       if (preview) {
-        appStore.openFileInWebview(preview.path)
+        if (OFFICE_EXTENSIONS.has(preview.ext)) {
+          appStore.openOfficePreview(preview.path, 'html')
+        } else {
+          appStore.openFileInWebview(preview.path)
+        }
       }
     }
     primed = true
@@ -101,7 +114,14 @@ async function refresh() {
 }
 
 async function open(f: ArtifactEntry) {
-  await api.artifacts.open(f.path)
+  const ext = f.ext.toLowerCase()
+  if (OFFICE_EXTENSIONS.has(ext)) {
+    appStore.openOfficePreview(f.path, 'html')
+  } else if (PREVIEWABLE.has(ext)) {
+    appStore.openFileInWebview(f.path)
+  } else {
+    await api.artifacts.open(f.path)
+  }
 }
 
 async function reveal(f: ArtifactEntry) {
@@ -121,16 +141,29 @@ watch(workingDir, () => {
   seenPaths.clear()
   primed = false
   refresh()
+  // 重启 watcher 以监听新目录
+  if (workingDir.value) {
+    api.artifacts.startWatch(workingDir.value)
+  }
 })
 
 onMounted(() => {
   refresh()
-  // 轮询刷新（助手生成文件后自动出现）
-  timer = setInterval(refresh, 3000)
+  // Phase 6: 使用 fs.watch 实时推送替换 3s 轮询
+  if (workingDir.value) {
+    api.artifacts.startWatch(workingDir.value)
+  }
+  unsubscribe = api.artifacts.onChanged(() => {
+    refresh()
+  })
 })
 
-onUnmounted(() => {
-  if (timer) clearInterval(timer)
+onBeforeUnmount(() => {
+  if (unsubscribe) {
+    unsubscribe()
+    unsubscribe = null
+  }
+  api.artifacts.stopWatch()
 })
 </script>
 

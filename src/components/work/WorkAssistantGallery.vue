@@ -43,6 +43,20 @@
         <p>{{ t('work.noAssistants') }}</p>
       </div>
       <div v-else class="assistants-grid">
+        <!-- 创建自定义助手入口 -->
+        <button
+          class="assistant-card create-card"
+          @click="showEditor = true"
+        >
+          <div class="card-avatar create-avatar" :style="workAvatarStyle('general')">
+            <Plus :size="20" />
+          </div>
+          <div class="card-body">
+            <div class="card-name">{{ t('work.createCustom') }}</div>
+            <div class="card-desc">{{ t('work.createCustomDesc') }}</div>
+          </div>
+        </button>
+
         <button
           v-for="a in filtered"
           :key="a.name"
@@ -59,21 +73,41 @@
               <span v-if="formatTag(a)" class="card-tag" :class="`tag-${formatTag(a)}`">{{ formatTag(a) }}</span>
             </div>
             <div class="card-desc">{{ displayDesc(a) }}</div>
+            <!-- 技能标签 -->
+            <div v-if="a.skills?.length" class="card-skills">
+              <span
+                v-for="skill in a.skills"
+                :key="skill"
+                class="skill-badge"
+                :class="{ 'skill-available': isSkillAvailable(skill) }"
+              >
+                {{ skill }}
+              </span>
+            </div>
           </div>
         </button>
       </div>
     </div>
+
+    <!-- 自定义助手编辑器弹窗 -->
+    <CustomAssistantEditor
+      v-if="showEditor"
+      @close="showEditor = false"
+      @saved="onAssistantSaved"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Search, Bot, X, FolderOpen } from 'lucide-vue-next'
+import { Search, Bot, X, FolderOpen, Plus } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { useAgentsStore, type AgentDef } from '@/stores/agents'
 import { workAssistantIcon, workAvatarStyle, workDisplayName } from '@/utils/workAssistant'
+import { api } from '@/services/electronAPI'
+import CustomAssistantEditor from './CustomAssistantEditor.vue'
 
 const { t, locale } = useI18n()
 const appStore = useAppStore()
@@ -84,6 +118,8 @@ const query = ref('')
 const activeCategory = ref('all')
 const loading = ref(false)
 const starting = ref(false)
+const officeCliAvailable = ref(false)
+const showEditor = ref(false)
 
 const workAssistants = computed(() => agentsStore.libraryAgents.filter(a => a.mode === 'work'))
 
@@ -165,6 +201,8 @@ async function handleSelect(a: AgentDef) {
       name: a.name,
       skills: a.skills,
       permission: a.permission,
+      skillRuntime: a.skillRuntime,
+      skillsRequired: a.skillsRequired,
     })
     appStore.showWorkGallery = false
     appStore.openSessionTab(session.id, session.title)
@@ -183,7 +221,24 @@ function handleClose() {
   appStore.showWorkGallery = false
 }
 
-onMounted(loadLibrary)
+function isSkillAvailable(skillName: string): boolean {
+  if (skillName.startsWith('officecli') || skillName.startsWith('morph')) {
+    return officeCliAvailable.value
+  }
+  return true
+}
+
+async function onAssistantSaved(name: string) {
+  showEditor.value = false
+  await loadLibrary()
+}
+
+onMounted(async () => {
+  try {
+    officeCliAvailable.value = await api.officecli.checkInstalled()
+  } catch { /* ignore */ }
+  await loadLibrary()
+})
 </script>
 
 <style lang="scss" scoped>
@@ -340,8 +395,48 @@ onMounted(loadLibrary)
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.card-skills {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.skill-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--bg-tertiary, var(--surface-glass));
+  color: var(--text-muted);
+  border: 1px solid var(--surface-border);
+  font-family: var(--font-mono, monospace);
+  opacity: 0.6;
+
+  &.skill-available {
+    background: rgba(34, 197, 94, 0.1);
+    color: rgb(22, 163, 74);
+    border-color: rgba(34, 197, 94, 0.3);
+    opacity: 1;
+  }
+}
+
+.create-card {
+  border-style: dashed;
+  border-color: var(--surface-border);
+  opacity: 0.8;
+  &:hover:not(:disabled) {
+    border-color: var(--accent-primary);
+    opacity: 1;
+  }
+}
+
+.create-avatar {
+  opacity: 0.6;
 }
 
 .gallery-empty {

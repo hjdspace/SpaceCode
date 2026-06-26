@@ -52,7 +52,7 @@ export interface InputInjectPayload {
   }
 }
 
-export type InfoPanelTabType = 'file' | 'markdown' | 'diff' | 'tool-diff' | 'webview' | 'terminal' | 'artifacts'
+export type InfoPanelTabType = 'file' | 'markdown' | 'diff' | 'tool-diff' | 'webview' | 'terminal' | 'artifacts' | 'office-preview'
 
 export interface InfoPanelTab {
   id: string
@@ -149,6 +149,10 @@ export const useAppStore = defineStore('app', () => {
   // Work 模式：专业助手画廊 / 工作区引导
   const showWorkGallery = ref(false)
   const showWorkOnboarding = ref(false)
+
+  // ── Office 文件预览状态 ──
+  const officePreviewFile = ref<string>('')
+  const officePreviewMode = ref<'html' | 'screenshots' | 'watch'>('html')
 
   const activeInfoTab = computed<InfoPanelTab | null>(() => {
     if (!activeInfoTabId.value) return null
@@ -713,6 +717,27 @@ export const useAppStore = defineStore('app', () => {
     console.log('[AppStore] Webview closed')
   }
 
+  /** 在右侧面板打开 Office 文件预览（PPT/Word/Excel/PDF） */
+  function openOfficePreview(filePath: string, previewMode: 'html' | 'screenshots' | 'watch' = 'html') {
+    officePreviewFile.value = filePath
+    officePreviewMode.value = previewMode
+    const fileName = filePath.replace(/\\/g, '/').split('/').pop() || filePath
+    openInfoTab({
+      id: 'office-preview',
+      type: 'office-preview',
+      title: fileName,
+      icon: markRaw(FileText),
+      data: { filePath, mode: previewMode } as any,
+      closeable: true,
+    })
+  }
+
+  /** 关闭 Office 文件预览 */
+  function closeOfficePreview() {
+    officePreviewFile.value = ''
+    closeInfoTab('office-preview')
+  }
+
   function setWebviewLoading(loading: boolean) {
     isLoading.value = loading
   }
@@ -873,6 +898,10 @@ export const useAppStore = defineStore('app', () => {
     openInfoTab,
     closeInfoTab,
     closeAllInfoTabs,
-    openScmDiff
+    openScmDiff,
+    officePreviewFile,
+    officePreviewMode,
+    openOfficePreview,
+    closeOfficePreview
   }
 })

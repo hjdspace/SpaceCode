@@ -22,6 +22,14 @@ export interface AgentDef {
   recommendedPrompts?: string[]
   descriptionZh?: string
   recommendedPromptsZh?: string[]
+
+  // ===== Phase 4 新增 =====
+  /** 技能是否为必须（缺则无法启动会话）。 */
+  skillsRequired?: boolean
+  /** 技能依赖的运行时，用于可用性检测。 */
+  skillRuntime?: 'officecli' | 'node' | 'none'
+  /** 技能描述（用于 UI 展示，非技能名）。 */
+  skillDescriptions?: string[]
 }
 
 export interface AgentCategory {

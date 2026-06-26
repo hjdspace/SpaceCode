@@ -1338,15 +1338,46 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     name: string
     skills?: string[]
     permission?: string
+    skillRuntime?: 'officecli' | 'node' | 'none'
+    skillsRequired?: boolean
   }): Promise<Session> {
     const cwd = appStore.workWorkspace || appStore.projectRoot || undefined
+
+    // Phase 4: 技能可用性校验 + 降级回退
+    let effectiveSkills = assistant.skills ? [...assistant.skills] : undefined
+    if (assistant.skillRuntime === 'officecli' && effectiveSkills?.length) {
+      let officeCliAvailable = false
+      try {
+        officeCliAvailable = await api.officecli.checkInstalled()
+      } catch { /* ignore */ }
+
+      if (!officeCliAvailable) {
+        // 降级：officecli-* / morph-* → Node 等价技能
+        const fallbackMap: Record<string, string> = {
+          // 基础技能
+          'officecli-pptx': 'pptx',
+          'officecli-docx': 'docx',
+          'officecli-xlsx': 'xlsx',
+          // 场景层技能 → 对应的 Node 基础技能
+          'officecli-academic-paper': 'docx',
+          'officecli-data-dashboard': 'xlsx',
+          'officecli-financial-model': 'xlsx',
+          'officecli-pitch-deck': 'pptx',
+          'officecli-word-form': 'docx',
+          'morph-ppt': 'pptx',
+          'morph-ppt-3d': 'pptx',
+        }
+        effectiveSkills = effectiveSkills.map(s => fallbackMap[s] || s)
+        console.warn(`[ChatStore] OfficeCLI not available, falling back to Node skills for "${assistant.name}"`)
+      }
+    }
 
     try {
       await api.agents.install(assistant.name, 'global', cwd)
     } catch { /* already installed or unavailable */ }
 
     if (api.skills && cwd) {
-      for (const skill of assistant.skills || []) {
+      for (const skill of effectiveSkills || []) {
         try {
           await api.skills.installLocal(skill, 'project', cwd)
         } catch { /* already installed or unavailable */ }

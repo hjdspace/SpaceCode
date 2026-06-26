@@ -1192,6 +1192,17 @@ const CATEGORY_OVERRIDES: Record<string, string> = {
   'pdf': 'office',
   'guizang-ppt-skill': 'office',
   'html-ppt': 'office',
+  'officecli': 'office',
+  'officecli-docx': 'office',
+  'officecli-pptx': 'office',
+  'officecli-xlsx': 'office',
+  'officecli-academic-paper': 'office',
+  'officecli-data-dashboard': 'office',
+  'officecli-financial-model': 'office',
+  'officecli-pitch-deck': 'office',
+  'officecli-word-form': 'office',
+  'morph-ppt': 'office',
+  'morph-ppt-3d': 'office',
 
   // 创意/艺术
   'canvas-design': 'creative',

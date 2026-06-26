@@ -21,6 +21,11 @@
 
       <ArtifactsPanel v-else-if="mode === 'artifacts'" />
 
+      <PreviewPanel
+        v-else-if="mode === 'office-preview'"
+        :file-path="appStore.officePreviewFile"
+      />
+
       <template v-else-if="mode === 'webview'">
         <div class="webview-nav">
           <button
@@ -161,6 +166,7 @@ import { Loader2, ArrowLeft, ArrowRight, RotateCw, ExternalLink, Camera, MousePo
 import InfoPanelTabBar from './InfoPanelTabBar.vue'
 import PanelLauncher from './PanelLauncher.vue'
 import ArtifactsPanel from '../work/ArtifactsPanel.vue'
+import PreviewPanel from '../work/PreviewPanel.vue'
 import TerminalPanel from '../terminal/TerminalPanel.vue'
 import DiffViewer from '../common/DiffViewer.vue'
 import CodeViewer from '../common/CodeViewer.vue'

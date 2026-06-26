@@ -14,6 +14,7 @@
     "postinstall": "npm run engine:install",
     "copy-bun": "node scripts/copy-bun.cjs",
     "copy-mcp-vendor": "node scripts/copy-mcp-vendor.cjs",
+    "download:officecli": "node scripts/download-officecli.mjs",
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "build:proxy": "node -e \"const esbuild=require('esbuild');esbuild.buildSync({entryPoints:['electron/proxy/index.ts'],bundle:true,outdir:'dist-electron/proxy',platform:'node',format:'cjs',external:['electron']})\"",

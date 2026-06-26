@@ -469,6 +469,42 @@ contextBridge.exposeInMainWorld('electronAPI', {
     list: (workingDir: string) => ipcRenderer.invoke('artifacts:list', workingDir),
     open: (filePath: string) => ipcRenderer.invoke('artifacts:open', filePath),
     reveal: (filePath: string) => ipcRenderer.invoke('artifacts:reveal', filePath),
+    startWatch: (artifactsDir: string) => ipcRenderer.invoke('artifacts:startWatch', artifactsDir),
+    stopWatch: () => ipcRenderer.invoke('artifacts:stopWatch'),
+    onChanged: (callback: (data: { eventType: string; filename: string }) => void) => {
+      const handler = (_: any, data: any) => callback(data)
+      ipcRenderer.on('artifacts:changed', handler)
+      return () => ipcRenderer.removeListener('artifacts:changed', handler)
+    },
+  },
+
+  // OfficeCLI API — binary execution, file preview, watch mode
+  officecli: {
+    /** Check OfficeCLI version */
+    version: () => ipcRenderer.invoke('officecli:version'),
+    /** Check if the binary is installed */
+    checkInstalled: () => ipcRenderer.invoke('officecli:checkInstalled'),
+    /** Execute an arbitrary officecli command */
+    exec: (options: { args: string[]; cwd?: string; timeout?: number; env?: Record<string, string> }) =>
+      ipcRenderer.invoke('officecli:exec', options),
+    /** Render a file as HTML, returns the HTML file path */
+    viewHtml: (filePath: string, outputDir?: string) =>
+      ipcRenderer.invoke('officecli:viewHtml', filePath, outputDir),
+    /** Render a file as PNG screenshots, returns a list of image paths */
+    viewScreenshot: (filePath: string, outputDir: string, page?: number) =>
+      ipcRenderer.invoke('officecli:viewScreenshot', filePath, outputDir, page),
+    /** Start a live-preview watch server */
+    watchStart: (filePath: string, port?: number) =>
+      ipcRenderer.invoke('officecli:watch:start', filePath, port),
+    /** Stop a specific watch instance */
+    watchStop: (watchId: string) =>
+      ipcRenderer.invoke('officecli:watch:stop', watchId),
+    /** Stop all watch instances */
+    watchStopAll: () =>
+      ipcRenderer.invoke('officecli:watch:stopAll'),
+    /** List active watch instances */
+    watchList: () =>
+      ipcRenderer.invoke('officecli:watch:list'),
   },
 
   // File selection dialog
@@ -517,6 +553,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteWorkflow: (id: string) => ipcRenderer.invoke('agents:deleteWorkflow', id),
     exportWorkflow: (id: string, scope: 'global' | 'project', cwd?: string) =>
       ipcRenderer.invoke('agents:exportWorkflow', id, scope, cwd),
+    saveCustom: (agentName: string, content: string) =>
+      ipcRenderer.invoke('agents:saveCustom', agentName, content),
   },
 
   // Image persistence — 聊天图片落盘到 userData，避免 localStorage 配额溢出

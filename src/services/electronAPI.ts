@@ -402,6 +402,38 @@ export const api = {
       electronAPI?.artifacts?.open(filePath) || Promise.resolve({ success: false }),
     reveal: (filePath: string): Promise<{ success: boolean }> =>
       electronAPI?.artifacts?.reveal(filePath) || Promise.resolve({ success: false }),
+    startWatch: (artifactsDir: string): Promise<boolean> =>
+      electronAPI?.artifacts?.startWatch(artifactsDir) || Promise.resolve(false),
+    stopWatch: (): Promise<boolean> =>
+      electronAPI?.artifacts?.stopWatch() || Promise.resolve(false),
+    onChanged: (callback: (data: { eventType: string; filename: string }) => void): (() => void) => {
+      if (electronAPI?.artifacts?.onChanged) {
+        return electronAPI.artifacts.onChanged(callback)
+      }
+      return () => {}
+    },
+  },
+
+  // OfficeCLI API — binary execution, file preview, watch mode
+  officecli: {
+    version: (): Promise<string> =>
+      electronAPI?.officecli?.version() || Promise.reject('OfficeCLI not available'),
+    checkInstalled: (): Promise<boolean> =>
+      electronAPI?.officecli?.checkInstalled() || Promise.resolve(false),
+    exec: (options: { args: string[]; cwd?: string; timeout?: number; env?: Record<string, string> }) =>
+      electronAPI?.officecli?.exec(options) || Promise.reject('OfficeCLI not available'),
+    viewHtml: (filePath: string, outputDir?: string): Promise<string> =>
+      electronAPI?.officecli?.viewHtml(filePath, outputDir) || Promise.reject('OfficeCLI not available'),
+    viewScreenshot: (filePath: string, outputDir: string, page?: number): Promise<string[]> =>
+      electronAPI?.officecli?.viewScreenshot(filePath, outputDir, page) || Promise.reject('OfficeCLI not available'),
+    watchStart: (filePath: string, port?: number): Promise<{ id: string; filePath: string; port: number; url: string }> =>
+      electronAPI?.officecli?.watchStart(filePath, port) || Promise.reject('OfficeCLI not available'),
+    watchStop: (watchId: string): Promise<boolean> =>
+      electronAPI?.officecli?.watchStop(watchId) || Promise.resolve(false),
+    watchStopAll: (): Promise<number> =>
+      electronAPI?.officecli?.watchStopAll() || Promise.resolve(0),
+    watchList: (): Promise<Array<{ id: string; filePath: string; url: string }>> =>
+      electronAPI?.officecli?.watchList() || Promise.resolve([]),
   },
 
   // File selection dialog
@@ -507,6 +539,8 @@ export const api = {
       electronAPI?.agents?.deleteWorkflow(id) || Promise.resolve(),
     exportWorkflow: (id: string, scope: string, cwd?: string): Promise<any> =>
       electronAPI?.agents?.exportWorkflow(id, scope, cwd) || Promise.resolve(null),
+    saveCustom: (agentName: string, content: string): Promise<{ success: boolean; path: string }> =>
+      electronAPI?.agents?.saveCustom(agentName, content) || Promise.reject('Agents API not available'),
   },
 
   updateThinkingLevel: (sessionId: string, enabled: boolean): Promise<void> => {
