@@ -1087,6 +1087,11 @@ export class SessionProcess extends EventEmitter {
       env.CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS = '80000'
     }
 
+    // Windows 中文系统下 python stdout 默认 cp936(GBK)，引擎按 UTF-8 解码会产生乱码。
+    // 强制 python 子进程用 UTF-8 输出，修复 bash 工具展开后的中文 garbled 问题。
+    if (!process.env.PYTHONUTF8) env.PYTHONUTF8 = '1'
+    if (!process.env.PYTHONIOENCODING) env.PYTHONIOENCODING = 'utf-8'
+
     // Force-enable v2 task tools (TaskCreate / TaskGet / TaskUpdate / TaskList).
     // Without this, the engine sees `getIsNonInteractiveSession() === true`
     // (we always pass `--print`) and isTodoV2Enabled() returns false, so the
