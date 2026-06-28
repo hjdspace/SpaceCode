@@ -106,6 +106,8 @@
             class="webview-container"
             allowpopups
             partition="persist:webview-session"
+            @did-attach="onWebviewAttached"
+            @dom-ready="onDomReady"
             @did-navigate="onDidNavigate"
             @did-navigate-in-page="onDidNavigateInPage"
             @page-title-updated="onTitleUpdate"
@@ -276,6 +278,13 @@ function handleOpenInBrowser() {
 function onDidNavigate(event: any) {
   console.log('[InfoPanel] Webview navigated to:', event.url)
   appStore.setWebviewLoading(false)
+  if (event.url) {
+    urlInput.value = event.url
+    // 同步 store 的 URL 和历史记录（适用于 webview 内部导航，如注入脚本修改 location.href）
+    if (event.url !== appStore.webviewUrl) {
+      appStore.navigateWebview(event.url)
+    }
+  }
 }
 
 function onDidNavigateInPage(event: any) {
@@ -375,6 +384,47 @@ async function sendSelection() {
   selection.value = null
   selectMode.value = false
   webviewRef.value?.executeJavaScript('window.__SPACECODE_INSPECTOR__ && window.__SPACECODE_INSPECTOR__.disable()').catch(() => {})
+}
+
+/** webview 附加后，拦截 target="_blank" / window.open 的新窗口请求 */
+function onWebviewAttached() {
+  const wv = webviewRef.value
+  if (!wv) return
+  try {
+    const contents = wv.getWebContents?.()
+    if (contents?.setWindowOpenHandler) {
+      contents.setWindowOpenHandler(({ url }) => {
+        // 在同一 webview 中导航，而非弹出空白窗口
+        if (url) {
+          appStore.navigateWebview(url)
+          wv.loadURL(url)
+        }
+        return { action: 'deny' as const }
+      })
+    }
+  } catch (e) {
+    console.warn('[InfoPanel] setWindowOpenHandler setup failed:', e)
+  }
+}
+
+/** webview DOM 就绪后，注入脚本拦截 target="_blank" 链接点击（fallback） */
+function onDomReady() {
+  const wv = webviewRef.value
+  if (!wv) return
+  wv.executeJavaScript(`
+    (function() {
+      if (window.__spacecode_blank_intercepted) return;
+      window.__spacecode_blank_intercepted = true;
+      document.addEventListener('click', function(e) {
+        var a = e.target.closest('a[target="_blank"]');
+        if (a && a.href) {
+          e.preventDefault();
+          e.stopPropagation();
+          window.location.href = a.href;
+        }
+      }, true);
+    })();
+  `).catch(() => {})
 }
 
 // 切换页面 / 关闭 webview 时重置框选状态
