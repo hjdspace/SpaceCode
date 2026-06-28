@@ -291,6 +291,29 @@ export const useAppStore = defineStore('app', () => {
     closeAllInfoTabs()
   }
 
+  // ── 底部终端面板（VSCODE 风格） ─────────────────────────────
+  const terminalDockVisible = ref(false)
+  const terminalDockHeight = ref(200)
+  const TERMINAL_DOCK_MIN = 80
+  const TERMINAL_DOCK_MAX = 500
+
+  function toggleTerminalDock() {
+    if (terminalDockVisible.value) {
+      terminalDockVisible.value = false
+    } else {
+      // 确保至少有一个终端标签
+      const terminalStore = useTerminalStore()
+      if (terminalStore.tabs.length === 0) {
+        terminalStore.createTab()
+      }
+      terminalDockVisible.value = true
+    }
+  }
+
+  function setTerminalDockHeight(h: number) {
+    terminalDockHeight.value = Math.min(Math.max(h, TERMINAL_DOCK_MIN), TERMINAL_DOCK_MAX)
+  }
+
   /** 标题栏面板按钮：切换右侧面板显隐；打开时进入启动器 */
   function toggleInfoPanel() {
     if (infoPanelVisible.value) {
@@ -918,6 +941,10 @@ export const useAppStore = defineStore('app', () => {
     officePreviewFile,
     officePreviewMode,
     openOfficePreview,
-    closeOfficePreview
+    closeOfficePreview,
+    terminalDockVisible,
+    terminalDockHeight,
+    toggleTerminalDock,
+    setTerminalDockHeight
   }
 })

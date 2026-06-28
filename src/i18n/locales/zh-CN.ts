@@ -728,6 +728,7 @@ export default {
     openFile: '在外部打开',
     reviewDiff: '审查变更',
     togglePanel: '切换面板',
+    toggleTerminal: '切换终端',
     openWith: '使用 {editor} 打开',
     openWithVSCode: 'VS Code',
     openWithVisualStudio: 'Visual Studio',

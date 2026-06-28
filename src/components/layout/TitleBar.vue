@@ -97,6 +97,16 @@
         </button>
       </template>
 
+      <!-- Toggle bottom terminal dock -->
+      <button
+        class="titlebar-btn"
+        :class="{ 'is-active': appStore.terminalDockVisible }"
+        @click="appStore.toggleTerminalDock()"
+        :title="t('titleBar.toggleTerminal')"
+      >
+        <PanelBottom :size="16" />
+      </button>
+
       <!-- Toggle right panel -->
       <button
         class="titlebar-btn"
@@ -132,7 +142,7 @@ import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
 import { useI18n } from 'vue-i18n'
-import { Menu, Minus, Square, Copy, X, ChevronDown, Smartphone, RefreshCw as RefreshCwIcon, PanelRight, Columns2, Rows2 } from 'lucide-vue-next'
+import { Menu, Minus, Square, Copy, X, ChevronDown, Smartphone, RefreshCw as RefreshCwIcon, PanelRight, PanelBottom, Columns2, Rows2 } from 'lucide-vue-next'
 import { computed, h, onMounted, onBeforeUnmount, ref } from 'vue'
 import { api, type ExternalEditor } from '@/services/electronAPI'
 import { useAutoUpdate } from '@/composables/useAutoUpdate'

@@ -728,6 +728,7 @@ export default {
     openFile: 'Open in external app',
     reviewDiff: 'Review changes',
     togglePanel: 'Toggle panel',
+    toggleTerminal: 'Toggle terminal',
     openWith: 'Open with {editor}',
     openWithVSCode: 'VS Code',
     openWithVisualStudio: 'Visual Studio',
