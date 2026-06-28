@@ -191,6 +191,9 @@ const showLauncher = computed(() => appStore.panelHome || appStore.infoPanelTabs
 const webviewRef = ref<any>(null)
 const urlInput = ref('')
 
+/** 已注册 setWindowOpenHandler 的 WebContents ID，避免对同一 WebContents 重复注册 */
+let registeredWindowOpenHandlerId: number | null = null
+
 // 元素框选状态
 const selectMode = ref(false)
 const selection = ref<InspectorSelection | null>(null)
@@ -392,16 +395,19 @@ function onWebviewAttached() {
   if (!wv) return
   try {
     const contents = wv.getWebContents?.()
-    if (contents?.setWindowOpenHandler) {
-      contents.setWindowOpenHandler(({ url }) => {
-        // 在同一 webview 中导航，而非弹出空白窗口
-        if (url) {
-          appStore.navigateWebview(url)
-          wv.loadURL(url)
-        }
-        return { action: 'deny' as const }
-      })
-    }
+    if (!contents?.setWindowOpenHandler) return
+    // 避免对同一个 WebContents 重复注册（did-attach 重复触发时）
+    const contentsId = contents.id
+    if (registeredWindowOpenHandlerId === contentsId) return
+    registeredWindowOpenHandlerId = contentsId
+    contents.setWindowOpenHandler(({ url }: { url: string }) => {
+      // 在同一 webview 中导航，而非弹出空白窗口
+      if (url) {
+        appStore.navigateWebview(url)
+        wv.loadURL(url)
+      }
+      return { action: 'deny' as const }
+    })
   } catch (e) {
     console.warn('[InfoPanel] setWindowOpenHandler setup failed:', e)
   }
