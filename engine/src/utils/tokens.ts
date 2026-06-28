@@ -1,6 +1,10 @@
 import type { BetaUsage as Usage } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import { roughTokenCountEstimationForMessages } from '../services/tokenEstimation.js'
-import type { AssistantMessage, ContentItem, Message } from '../types/message.js'
+import type {
+  AssistantMessage,
+  ContentItem,
+  Message,
+} from '../types/message.js'
 import { SYNTHETIC_MESSAGES, SYNTHETIC_MODEL } from './messages.js'
 import { jsonStringify } from './slowOperations.js'
 
@@ -12,7 +16,10 @@ export function getTokenUsage(message: Message): Usage | undefined {
     !(
       Array.isArray(message.message.content) &&
       (message.message.content as ContentItem[])[0]?.type === 'text' &&
-      SYNTHETIC_MESSAGES.has((message.message.content as Array<ContentItem & { text: string }>)[0]!.text)
+      SYNTHETIC_MESSAGES.has(
+        (message.message.content as Array<ContentItem & { text: string }>)[0]!
+          .text,
+      )
     ) &&
     message.message.model !== SYNTHETIC_MODEL
   ) {
@@ -46,11 +53,14 @@ function getAssistantMessageId(message: Message): string | undefined {
  * Use tokenCountWithEstimation() when you need context size from messages.
  */
 export function getTokenCountFromUsage(usage: Usage): number {
+  if (!usage) {
+    return 0
+  }
   return (
-    usage.input_tokens +
+    (usage.input_tokens ?? 0) +
     (usage.cache_creation_input_tokens ?? 0) +
     (usage.cache_read_input_tokens ?? 0) +
-    usage.output_tokens
+    (usage.output_tokens ?? 0)
   )
 }
 
@@ -147,9 +157,17 @@ export function getCurrentUsage(messages: Message[]): {
     const message = messages[i]
     const usage = message ? getTokenUsage(message) : undefined
     if (usage) {
+      const inputTokens =
+        (usage.input_tokens ?? 0) +
+        (usage.cache_creation_input_tokens ?? 0) +
+        (usage.cache_read_input_tokens ?? 0)
+      // Skip placeholder usage (all zeros) — third-party APIs may emit
+      // message_start without real usage data, causing the context counter
+      // to flash to 0. Fall through to the previous message instead.
+      if (inputTokens === 0 && (usage.output_tokens ?? 0) === 0) continue
       return {
-        input_tokens: usage.input_tokens,
-        output_tokens: usage.output_tokens,
+        input_tokens: usage.input_tokens ?? 0,
+        output_tokens: usage.output_tokens ?? 0,
         cache_creation_input_tokens: usage.cache_creation_input_tokens ?? 0,
         cache_read_input_tokens: usage.cache_read_input_tokens ?? 0,
       }
@@ -192,11 +210,14 @@ export function getAssistantMessageContentLength(
     if (block.type === 'text') {
       contentLength += (block as ContentItem & { text: string }).text.length
     } else if (block.type === 'thinking') {
-      contentLength += (block as ContentItem & { thinking: string }).thinking.length
+      contentLength += (block as ContentItem & { thinking: string }).thinking
+        .length
     } else if (block.type === 'redacted_thinking') {
       contentLength += (block as ContentItem & { data: string }).data.length
     } else if (block.type === 'tool_use') {
-      contentLength += jsonStringify((block as ContentItem & { input: unknown }).input).length
+      contentLength += jsonStringify(
+        (block as ContentItem & { input: unknown }).input,
+      ).length
     }
   }
   return contentLength
@@ -256,10 +277,16 @@ export function tokenCountWithEstimation(messages: readonly Message[]): number {
       }
       return (
         getTokenCountFromUsage(usage) +
-        roughTokenCountEstimationForMessages(messages.slice(i + 1) as Parameters<typeof roughTokenCountEstimationForMessages>[0])
+        roughTokenCountEstimationForMessages(
+          messages.slice(i + 1) as Parameters<
+            typeof roughTokenCountEstimationForMessages
+          >[0],
+        )
       )
     }
     i--
   }
-  return roughTokenCountEstimationForMessages(messages as Parameters<typeof roughTokenCountEstimationForMessages>[0])
+  return roughTokenCountEstimationForMessages(
+    messages as Parameters<typeof roughTokenCountEstimationForMessages>[0],
+  )
 }

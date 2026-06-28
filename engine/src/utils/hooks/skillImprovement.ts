@@ -7,6 +7,13 @@ import {
   logEvent,
 } from '../../services/analytics/index.js'
 import { queryModelWithoutStreaming } from '../../services/api/claude.js'
+import {
+  createTrace,
+  endTrace,
+  isLangfuseEnabled,
+} from '../../services/langfuse/index.js'
+import { getSessionId } from '../../bootstrap/state.js'
+import { getAPIProvider } from '../model/providers.js'
 import { getEmptyToolPermissionContext } from '../../Tool.js'
 import type { Message } from '../../types/message.js'
 import { createAbortController } from '../abortController.js'
@@ -27,6 +34,16 @@ import {
   createApiQueryHook,
 } from './apiQueryHookHelper.js'
 import { registerPostSamplingHook } from './postSamplingHooks.js'
+
+export function isSkillImprovementEnabled(): boolean {
+  const explicit = process.env.SKILL_IMPROVEMENT_ENABLED
+  if (explicit === '0' || explicit === 'false') return false
+  if (explicit === '1' || explicit === 'true') return true
+  return (
+    process.env.SKILL_LEARNING_ENABLED === '1' ||
+    process.env.SKILL_LEARNING_ENABLED === 'true'
+  )
+}
 
 const TURN_BATCH_SIZE = 5
 
@@ -209,6 +226,16 @@ export async function applySkillImprovement(
 
   const updateList = updates.map(u => `- ${u.section}: ${u.change}`).join('\n')
 
+  const model = getSmallFastModel()
+  const langfuseTrace = isLangfuseEnabled()
+    ? createTrace({
+        sessionId: getSessionId(),
+        model,
+        provider: getAPIProvider(),
+        name: 'skill-improvement-apply',
+      })
+    : null
+
   const response = await queryModelWithoutStreaming({
     messages: [
       createUserMessage({
@@ -238,7 +265,7 @@ Rules:
     signal: createAbortController().signal,
     options: {
       getToolPermissionContext: async () => getEmptyToolPermissionContext(),
-      model: getSmallFastModel(),
+      model,
       toolChoice: undefined,
       isNonInteractiveSession: false,
       hasAppendSystemPrompt: false,
@@ -246,10 +273,15 @@ Rules:
       agents: [],
       querySource: 'skill_improvement_apply',
       mcpTools: [],
+      langfuseTrace,
     },
   })
 
-  const responseText = extractTextContent(Array.isArray(response.message.content) ? response.message.content : []).trim()
+  endTrace(langfuseTrace)
+
+  const responseText = extractTextContent(
+    Array.isArray(response.message.content) ? response.message.content : [],
+  ).trim()
 
   const updatedContent = extractTag(responseText, 'updated_file')
   if (!updatedContent) {

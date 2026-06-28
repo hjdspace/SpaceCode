@@ -1,6 +1,7 @@
 import { feature } from 'bun:bundle'
 import { randomBytes } from 'crypto'
 import { execa } from 'execa'
+import { tmpdir } from 'os'
 import { basename, extname, isAbsolute, join } from 'path'
 import {
   IMAGE_MAX_HEIGHT,
@@ -8,7 +9,7 @@ import {
   IMAGE_TARGET_RAW_SIZE,
 } from '../constants/apiLimits.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js'
-import { getImageProcessor } from '../tools/FileReadTool/imageProcessor.js'
+import { getImageProcessor } from '@claude-code-best/builtin-tools/tools/FileReadTool/imageProcessor.js'
 import { logForDebugging } from './debug.js'
 import { execFileNoThrowWithCwd } from './execFileNoThrow.js'
 import { getFsImplementation } from './fsOperations.js'
@@ -32,10 +33,11 @@ function getClipboardCommands() {
   const platform = process.platform as SupportedPlatform
 
   // Platform-specific temporary file paths
-  // Use CLAUDE_CODE_TMPDIR if set, otherwise fall back to platform defaults
+  // Use CLAUDE_CODE_TMPDIR if set, otherwise fall back to platform defaults.
+  // tmpdir() honors $TMPDIR so non-/tmp environments (Termux/Android, containers) work out of the box.
   const baseTmpDir =
     process.env.CLAUDE_CODE_TMPDIR ||
-    (platform === 'win32' ? process.env.TEMP || 'C:\\Temp' : '/tmp')
+    (platform === 'win32' ? process.env.TEMP || 'C:\\Temp' : tmpdir())
   const screenshotFilename = 'claude_cli_latest_screenshot.png'
   const tempPaths: Record<SupportedPlatform, string> = {
     darwin: join(baseTmpDir, screenshotFilename),
@@ -108,7 +110,8 @@ export async function hasImageInClipboard(): Promise<boolean> {
       const { getNativeModule } = await import('image-processor-napi')
       const nativeModule = getNativeModule()
       if (nativeModule && 'hasClipboardImage' in nativeModule) {
-        const hasImage = (nativeModule as unknown as Record<string, Function>).hasClipboardImage
+        const hasImage = (nativeModule as unknown as Record<string, Function>)
+          .hasClipboardImage
         if (hasImage) return hasImage()
       }
     } catch (e) {
@@ -137,9 +140,11 @@ export async function getImageFromClipboard(): Promise<ImageWithDimensions | nul
     try {
       const { getNativeModule } = await import('image-processor-napi')
       const nativeModule = getNativeModule()
-      const readClipboard = nativeModule && 'readClipboardImage' in nativeModule
-        ? (nativeModule as unknown as Record<string, Function>).readClipboardImage
-        : undefined
+      const readClipboard =
+        nativeModule && 'readClipboardImage' in nativeModule
+          ? (nativeModule as unknown as Record<string, Function>)
+              .readClipboardImage
+          : undefined
       if (!readClipboard) {
         throw new Error('native clipboard reader unavailable')
       }

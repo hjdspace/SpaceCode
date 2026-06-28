@@ -17,23 +17,23 @@ import {
 } from 'src/services/analytics/index.js'
 import { prefetchAllMcpResources } from 'src/services/mcp/client.js'
 import type { ScopedMcpServerConfig } from 'src/services/mcp/types.js'
-import { BashTool } from 'src/tools/BashTool/BashTool.js'
-import { FileEditTool } from 'src/tools/FileEditTool/FileEditTool.js'
+import { BashTool } from '@claude-code-best/builtin-tools/tools/BashTool/BashTool.js'
+import { FileEditTool } from '@claude-code-best/builtin-tools/tools/FileEditTool/FileEditTool.js'
 import {
   normalizeFileEditInput,
   stripTrailingWhitespace,
-} from 'src/tools/FileEditTool/utils.js'
-import { FileWriteTool } from 'src/tools/FileWriteTool/FileWriteTool.js'
+} from '@claude-code-best/builtin-tools/tools/FileEditTool/utils.js'
+import { FileWriteTool } from '@claude-code-best/builtin-tools/tools/FileWriteTool/FileWriteTool.js'
 import { getTools } from 'src/tools.js'
 import type { AgentId } from 'src/types/ids.js'
 import type { z } from 'zod/v4'
 import { CLI_SYSPROMPT_PREFIXES } from '../constants/system.js'
 import { roughTokenCountEstimation } from '../services/tokenEstimation.js'
 import type { Tool, ToolPermissionContext, Tools } from '../Tool.js'
-import { AGENT_TOOL_NAME } from '../tools/AgentTool/constants.js'
-import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js'
-import { EXIT_PLAN_MODE_V2_TOOL_NAME } from '../tools/ExitPlanModeTool/constants.js'
-import { TASK_OUTPUT_TOOL_NAME } from '../tools/TaskOutputTool/constants.js'
+import { AGENT_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/AgentTool/constants.js'
+import type { AgentDefinition } from '@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js'
+import { EXIT_PLAN_MODE_V2_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/ExitPlanModeTool/constants.js'
+import { TASK_OUTPUT_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/TaskOutputTool/constants.js'
 import type { Message } from '../types/message.js'
 import { isAgentSwarmsEnabled } from './agentSwarmsEnabled.js'
 import {
@@ -230,11 +230,7 @@ export async function toolToAPISchema(
   }
 
   // CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS is the kill switch for beta API
-  // shapes. Proxy gateways (ANTHROPIC_BASE_URL → LiteLLM → Bedrock) reject
-  // fields like defer_loading with "Extra inputs are not permitted". The gates
-  // above each field are scattered and not all provider-aware, so this strips
-  // everything not in the base-tool allowlist at the one choke point all tool
-  // schemas pass through — including fields added in the future.
+  // shapes. Strips defer_loading and other beta fields from tool schemas.
   // cache_control is allowlisted: the base {type: 'ephemeral'} shape is
   // standard prompt caching (Bedrock/Vertex supported); the beta sub-fields
   // (scope, ttl) are already gated upstream by shouldIncludeFirstPartyOnlyBetas
@@ -360,9 +356,7 @@ export function splitSysPromptPrefix(
   }
 
   if (useGlobalCacheFeature) {
-    const boundaryIndex = systemPrompt.findIndex(
-      s => s === SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
-    )
+    const boundaryIndex = systemPrompt.indexOf(SYSTEM_PROMPT_DYNAMIC_BOUNDARY)
     if (boundaryIndex !== -1) {
       let attributionHeader: string | undefined
       let systemPromptPrefix: string | undefined
@@ -458,19 +452,36 @@ export function prependUserContext(
     return messages
   }
 
-  return [
-    createUserMessage({
-      content: `<system-reminder>\nAs you answer the user's questions, you can use the following context:\n${Object.entries(
-        context,
-      )
-        .map(([key, value]) => `# ${key}\n${value}`)
-        .join('\n')}
+  // Extract claudeMd as a dedicated high-weight user message so it isn't
+  // buried inside the generic <system-reminder> with the "may or may not be
+  // relevant" disclaimer, which would degrade its instructional weight.
+  const { claudeMd, ...rest } = context
+  const result: Message[] = []
+
+  if (claudeMd) {
+    result.push(
+      createUserMessage({
+        content: `<project-instructions>\n${claudeMd}\n</project-instructions>\n`,
+        isMeta: true,
+      }),
+    )
+  }
+
+  const restEntries = Object.entries(rest)
+  if (restEntries.length > 0) {
+    result.push(
+      createUserMessage({
+        content: `<system-reminder>\nAs you answer the user's questions, you can use the following context:\n${restEntries
+          .map(([key, value]) => `# ${key}\n${value}`)
+          .join('\n')}
 
       IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.\n</system-reminder>\n`,
-      isMeta: true,
-    }),
-    ...messages,
-  ]
+        isMeta: true,
+      }),
+    )
+  }
+
+  return [...result, ...messages]
 }
 
 /**

@@ -11,7 +11,7 @@ import { getDesktopUpsellConfig } from '../../components/DesktopUpsell/DesktopUp
 import { color } from '@anthropic/ink'
 import { shouldShowOverageCreditUpsell } from '../../components/LogoV2/OverageCreditUpsell.js'
 import { getShortcutDisplay } from '../../keybindings/shortcutFormat.js'
-import { isKairosCronEnabled } from '../../tools/ScheduleCronTool/prompt.js'
+import { isKairosCronEnabled } from '@claude-code-best/builtin-tools/tools/ScheduleCronTool/prompt.js'
 import { is1PApiCustomer } from '../../utils/auth.js'
 import { countConcurrentSessions } from '../../utils/concurrentSessions.js'
 import { getGlobalConfig } from '../../utils/config.js'
@@ -109,7 +109,6 @@ const externalTips: Tip[] = [
       `Use Plan Mode to prepare for a complex request before making changes. Press ${getShortcutDisplay('chat:cycleMode', 'Chat', 'shift+tab')} twice to enable.`,
     cooldownSessions: 5,
     isRelevant: async () => {
-      if (process.env.USER_TYPE === 'ant') return false
       const config = getGlobalConfig()
       // Show to users who haven't used plan mode recently (7+ days)
       const daysSinceLastUse = config.lastPlanModeUse
@@ -401,9 +400,7 @@ const externalTips: Tip[] = [
   {
     id: 'shift-tab',
     content: async () =>
-      process.env.USER_TYPE === 'ant'
-        ? `Hit ${getShortcutDisplay('chat:cycleMode', 'Chat', 'shift+tab')} to cycle between default mode and auto mode`
-        : `Hit ${getShortcutDisplay('chat:cycleMode', 'Chat', 'shift+tab')} to cycle between default mode, auto-accept edit mode, and plan mode`,
+      `Hit ${getShortcutDisplay('chat:cycleMode', 'Chat', 'shift+tab')} to cycle between default, accept edits, plan, auto, and bypass modes`,
     cooldownSessions: 10,
     isRelevant: async () => true,
   },
@@ -443,8 +440,8 @@ const externalTips: Tip[] = [
   },
   {
     id: 'desktop-shortcut',
-    content: async (ctx: TipContext) => {
-      const blue = color('suggestion', ctx.theme)
+    content: async (ctx?) => {
+      const blue = color('suggestion', ctx?.theme ?? 'dark')
       return `Continue your session in Claude Code Desktop with ${blue('/desktop')}`
     },
     cooldownSessions: 15,
@@ -489,24 +486,24 @@ const externalTips: Tip[] = [
   },
   {
     id: 'frontend-design-plugin',
-    content: async (ctx: TipContext) => {
-      const blue = color('suggestion', ctx.theme)
+    content: async (ctx?) => {
+      const blue = color('suggestion', ctx?.theme ?? 'dark')
       return `Working with HTML/CSS? Install the frontend-design plugin:\n${blue(`/plugin install frontend-design@${OFFICIAL_MARKETPLACE_NAME}`)}`
     },
     cooldownSessions: 3,
-    isRelevant: async (context: TipContext) =>
+    isRelevant: async (context?) =>
       isMarketplacePluginRelevant('frontend-design', context, {
         filePath: /\.(html|css|htm)$/i,
       }),
   },
   {
     id: 'vercel-plugin',
-    content: async (ctx: TipContext) => {
-      const blue = color('suggestion', ctx.theme)
+    content: async (ctx?) => {
+      const blue = color('suggestion', ctx?.theme ?? 'dark')
       return `Working with Vercel? Install the vercel plugin:\n${blue(`/plugin install vercel@${OFFICIAL_MARKETPLACE_NAME}`)}`
     },
     cooldownSessions: 3,
-    isRelevant: async (context: TipContext) =>
+    isRelevant: async (context?) =>
       isMarketplacePluginRelevant('vercel', context, {
         filePath: /(?:^|[/\\])vercel\.json$/i,
         cli: ['vercel'],
@@ -514,8 +511,8 @@ const externalTips: Tip[] = [
   },
   {
     id: 'effort-high-nudge',
-    content: async (ctx: TipContext) => {
-      const blue = color('suggestion', ctx.theme)
+    content: async (ctx?) => {
+      const blue = color('suggestion', ctx?.theme ?? 'dark')
       const cmd = blue('/effort high')
       const variant = getFeatureValue_CACHED_MAY_BE_STALE<
         'off' | 'copy_a' | 'copy_b'
@@ -544,8 +541,8 @@ const externalTips: Tip[] = [
   },
   {
     id: 'subagent-fanout-nudge',
-    content: async (ctx: TipContext) => {
-      const blue = color('suggestion', ctx.theme)
+    content: async (ctx?) => {
+      const blue = color('suggestion', ctx?.theme ?? 'dark')
       const variant = getFeatureValue_CACHED_MAY_BE_STALE<
         'off' | 'copy_a' | 'copy_b'
       >('tengu_tern_alloy', 'off')
@@ -566,8 +563,8 @@ const externalTips: Tip[] = [
   },
   {
     id: 'loop-command-nudge',
-    content: async (ctx: TipContext) => {
-      const blue = color('suggestion', ctx.theme)
+    content: async (ctx?) => {
+      const blue = color('suggestion', ctx?.theme ?? 'dark')
       const variant = getFeatureValue_CACHED_MAY_BE_STALE<
         'off' | 'copy_a' | 'copy_b'
       >('tengu_timber_lark', 'off')
@@ -589,8 +586,8 @@ const externalTips: Tip[] = [
   },
   {
     id: 'guest-passes',
-    content: async (ctx: TipContext) => {
-      const claude = color('claude', ctx.theme)
+    content: async (ctx?) => {
+      const claude = color('claude', ctx?.theme ?? 'dark')
       const reward = getCachedReferrerReward()
       return reward
         ? `Share Claude Code and earn ${claude(formatCreditAmount(reward))} of extra usage · ${claude('/passes')}`
@@ -608,8 +605,8 @@ const externalTips: Tip[] = [
   },
   {
     id: 'overage-credit',
-    content: async (ctx: TipContext) => {
-      const claude = color('claude', ctx.theme)
+    content: async (ctx?) => {
+      const claude = color('claude', ctx?.theme ?? 'dark')
       const info = getCachedOverageCreditGrant()
       const amount = info ? formatGrantAmount(info) : null
       if (!amount) return ''
@@ -677,7 +674,9 @@ export async function getRelevantTips(context?: TipContext): Promise<Tip[]> {
 
   // Otherwise, filter built-in tips as before and combine with custom
   const tips = [...externalTips, ...internalOnlyTips]
-  const isRelevant = await Promise.all(tips.map(_ => _.isRelevant(context)))
+  const isRelevant = await Promise.all(
+    tips.map(_ => _.isRelevant?.(context) ?? Promise.resolve(true)),
+  )
   const filtered = tips
     .filter((_, index) => isRelevant[index])
     .filter(_ => getSessionsSinceLastShown(_.id) >= _.cooldownSessions)

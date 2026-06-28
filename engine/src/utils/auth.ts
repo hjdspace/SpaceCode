@@ -117,8 +117,8 @@ export function isAnthropicAuthEnabled(): boolean {
     isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY) ||
-    (settings as any).modelType === 'openai' ||
-    (settings as any).modelType === 'gemini' ||
+    settings.modelType === 'openai' ||
+    settings.modelType === 'gemini' ||
     !!process.env.OPENAI_BASE_URL ||
     !!process.env.GEMINI_BASE_URL
   const apiKeyHelper = settings.apiKeyHelper
@@ -514,7 +514,6 @@ async function _runAndCache(
   } catch (e) {
     if (epoch !== _apiKeyHelperEpoch) return ' '
     const detail = e instanceof Error ? e.message : String(e)
-    // biome-ignore lint/suspicious/noConsole: user-configured script failed; must be visible without --debug
     console.error(chalk.red(`apiKeyHelper failed: ${detail}`))
     logForDebugging(`Error getting API key from apiKeyHelper: ${detail}`, {
       level: 'error',
@@ -690,7 +689,6 @@ export function refreshAwsAuth(awsAuthRefresh: string): Promise<boolean> {
           : chalk.red(
               'Error running awsAuthRefresh (in settings or ~/.claude.json):',
             )
-        // biome-ignore lint/suspicious/noConsole:: intentional console output
         console.error(message)
         authStatusManager.endAuthentication(false)
         void resolve(false)
@@ -769,10 +767,8 @@ async function getAwsCredsFromCredentialExport(): Promise<{
         'Error getting AWS credentials from awsCredentialExport (in settings or ~/.claude.json):',
       )
       if (e instanceof Error) {
-        // biome-ignore lint/suspicious/noConsole:: intentional console output
         console.error(message, e.message)
       } else {
-        // biome-ignore lint/suspicious/noConsole:: intentional console output
         console.error(message, e)
       }
       return null
@@ -958,7 +954,6 @@ export function refreshGcpAuth(gcpAuthRefresh: string): Promise<boolean> {
           : chalk.red(
               'Error running gcpAuthRefresh (in settings or ~/.claude.json):',
             )
-        // biome-ignore lint/suspicious/noConsole:: intentional console output
         console.error(message)
         authStatusManager.endAuthentication(false)
         void resolve(false)
@@ -1729,12 +1724,29 @@ export function getSubscriptionName(): string {
   }
 }
 
-/** Check if using third-party services (Bedrock or Vertex or Foundry) */
+/**
+ * Check if using third-party services (non-Anthropic providers).
+ *
+ * This function gates several behaviours that should only apply when the user
+ * is NOT calling the first-party Anthropic API directly:
+ *  - auth status display (authStatus handler)
+ *  - command visibility (login/logout shown for non-3P)
+ *  - command availability checks (meetsAvailabilityRequirement)
+ *
+ * KEEP IN SYNC with providers.ts — when a new CLAUDE_CODE_USE_* env var is
+ * added to getAPIProvider(), the corresponding check MUST be added here.
+ * Providers whose selection is controlled purely via settings.modelType
+ * (rather than env vars) are NOT covered by this function and may need
+ * separate handling in the call sites above.
+ */
 export function isUsing3PServices(): boolean {
   return !!(
     isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY) ||
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_GROK)
   )
 }
 
@@ -1779,6 +1791,7 @@ export function getOtelHeadersFromHelper(): Record<string, string> {
   const debounceMs = parseInt(
     process.env.CLAUDE_CODE_OTEL_HEADERS_HELPER_DEBOUNCE_MS ||
       DEFAULT_OTEL_HEADERS_DEBOUNCE_MS.toString(),
+    10,
   )
   if (
     cachedOtelHeaders &&
@@ -1884,12 +1897,12 @@ export function getAccountInformation() {
     accountInfo.apiKeySource = apiKeySource
   }
 
-  // We don't know the organization if we're relying on an external API key or auth token
+  // 如果我们依赖外部 API 密钥或认证令牌，则不知道组织
   if (
     authTokenSource === 'claude.ai' ||
     apiKeySource === '/login managed key'
   ) {
-    // Get organization name from OAuth account info
+    // 从 OAuth 账户信息获取组织名称
     const orgName = getOauthAccountInfo()?.organizationName
     if (orgName) {
       accountInfo.organization = orgName

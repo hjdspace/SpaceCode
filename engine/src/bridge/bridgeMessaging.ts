@@ -18,7 +18,7 @@ import type {
 } from '../entrypoints/sdk/controlTypes.js'
 import type { SDKResultSuccess } from '../entrypoints/sdk/coreTypes.js'
 import { logEvent } from '../services/analytics/index.js'
-import { EMPTY_USAGE } from '../services/api/emptyUsage.js'
+import { EMPTY_USAGE } from '@ant/model-provider'
 import type { Message } from '../types/message.js'
 import { normalizeControlMessageKeys } from '../utils/controlMessageCompat.js'
 import { logForDebugging } from '../utils/debug.js'
@@ -28,6 +28,18 @@ import { errorMessage } from '../utils/errors.js'
 import type { PermissionMode } from '../utils/permissions/PermissionMode.js'
 import { jsonParse } from '../utils/slowOperations.js'
 import type { ReplBridgeTransport } from './replBridgeTransport.js'
+import {
+  BASH_INPUT_TAG,
+  CHANNEL_MESSAGE_TAG,
+  CROSS_SESSION_MESSAGE_TAG,
+  LOCAL_COMMAND_CAVEAT_TAG,
+  REMOTE_REVIEW_PROGRESS_TAG,
+  REMOTE_REVIEW_TAG,
+  TASK_NOTIFICATION_TAG,
+  TEAMMATE_MESSAGE_TAG,
+  TICK_TAG,
+  ULTRAPLAN_TAG,
+} from '../constants/xml.js'
 
 // ─── Type guards ─────────────────────────────────────────────────────────────
 
@@ -104,7 +116,8 @@ export function isEligibleBridgeMessage(m: Message): boolean {
 export function extractTitleText(m: Message): string | undefined {
   if (m.type !== 'user' || m.isMeta || m.toolUseResult || m.isCompactSummary)
     return undefined
-  if (m.origin && (m.origin as { kind?: string }).kind !== 'human') return undefined
+  if (m.origin && (m.origin as { kind?: string }).kind !== 'human')
+    return undefined
   const content = m.message!.content
   let raw: string | undefined
   if (typeof content === 'string') {
@@ -120,6 +133,84 @@ export function extractTitleText(m: Message): string | undefined {
   if (!raw) return undefined
   const clean = stripDisplayTagsAllowEmpty(raw)
   return clean || undefined
+}
+
+const SYSTEM_REMINDER_TAG = 'system-reminder'
+const XML_BLOCK_PATTERN = /\s*<([a-z][\w-]*)(?:\s[^>]*)?>[\s\S]*?<\/\1>\s*/gy
+const RUNNING_STATE_META_TAGS = new Set([
+  BASH_INPUT_TAG,
+  CHANNEL_MESSAGE_TAG,
+  CROSS_SESSION_MESSAGE_TAG,
+  REMOTE_REVIEW_PROGRESS_TAG,
+  REMOTE_REVIEW_TAG,
+  TASK_NOTIFICATION_TAG,
+  TEAMMATE_MESSAGE_TAG,
+  TICK_TAG,
+  ULTRAPLAN_TAG,
+])
+
+function extractUserMessageText(message: Message): string {
+  const content = message.message?.content
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .filter(
+      (
+        block,
+      ): block is {
+        type: 'text'
+        text: string
+      } =>
+        !!block &&
+        typeof block === 'object' &&
+        block.type === 'text' &&
+        typeof block.text === 'string',
+    )
+    .map(block => block.text)
+    .join('')
+}
+
+function getEnvelopeTagNames(text: string): string[] | null {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+  XML_BLOCK_PATTERN.lastIndex = 0
+  const tags: string[] = []
+  while (XML_BLOCK_PATTERN.lastIndex < trimmed.length) {
+    const match = XML_BLOCK_PATTERN.exec(trimmed)
+    if (!match) return null
+    tags.push(match[1]!)
+  }
+  return tags.length > 0 ? tags : null
+}
+
+/**
+ * Remote Control uses user messages to infer "a turn is actively running" in
+ * places where the server does not derive that state for us. Hidden local
+ * slash-command scaffolding (for example `<local-command-caveat>` and pure
+ * `<system-reminder>` wrappers from `/proactive`) should not flip the session
+ * back to running after the command has already completed.
+ */
+export function shouldReportRunningForMessage(message: Message): boolean {
+  if (message.type !== 'user') return false
+  if (message.isVisibleInTranscriptOnly) return false
+  if (message.toolUseResult !== undefined) return true
+  if (!message.isMeta) return true
+
+  const tags = getEnvelopeTagNames(extractUserMessageText(message))
+  if (!tags) return true
+
+  return tags.some(
+    tag =>
+      tag !== LOCAL_COMMAND_CAVEAT_TAG &&
+      tag !== SYSTEM_REMINDER_TAG &&
+      RUNNING_STATE_META_TAGS.has(tag),
+  )
+}
+
+export function shouldReportRunningForMessages(
+  messages: readonly Message[],
+): boolean {
+  return messages.some(shouldReportRunningForMessage)
 }
 
 // ─── Ingress routing ─────────────────────────────────────────────────────────
@@ -266,7 +357,13 @@ export function handleServerControlRequest(
   // Outbound-only: reply error for mutable requests so claude.ai doesn't show
   // false success. initialize must still succeed (server kills the connection
   // if it doesn't — see comment above).
-  const req = request.request as { subtype: string; model?: string; max_thinking_tokens?: number | null; mode?: string; [key: string]: unknown }
+  const req = request.request as {
+    subtype: string
+    model?: string
+    max_thinking_tokens?: number | null
+    mode?: string
+    [key: string]: unknown
+  }
   if (outboundOnly && req.subtype !== 'initialize') {
     response = {
       type: 'control_response',
@@ -389,8 +486,8 @@ export function handleServerControlRequest(
   void transport.write(event)
   rcLog(
     `control_response: subtype=${req.subtype}` +
-    ` request_id=${request.request_id}` +
-    ` result=${(response.response as { subtype?: string }).subtype}`,
+      ` request_id=${request.request_id}` +
+      ` result=${(response.response as { subtype?: string }).subtype}`,
   )
   logForDebugging(
     `[bridge:repl] Sent control_response for ${req.subtype} request_id=${request.request_id} result=${(response.response as { subtype?: string }).subtype}`,

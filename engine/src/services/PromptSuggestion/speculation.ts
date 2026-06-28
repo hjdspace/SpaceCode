@@ -10,8 +10,8 @@ import {
   type SpeculationResult,
   type SpeculationState,
 } from '../../state/AppStateStore.js'
-import { commandHasAnyCd } from '../../tools/BashTool/bashPermissions.js'
-import { checkReadOnlyConstraints } from '../../tools/BashTool/readOnlyValidation.js'
+import { commandHasAnyCd } from '@claude-code-best/builtin-tools/tools/BashTool/bashPermissions.js'
+import { checkReadOnlyConstraints } from '@claude-code-best/builtin-tools/tools/BashTool/readOnlyValidation.js'
 import type { SpeculationAcceptMessage } from '../../types/logs.js'
 import type { Message } from '../../types/message.js'
 import { createChildAbortController } from '../../utils/abortController.js'
@@ -63,7 +63,7 @@ const SAFE_READ_ONLY_TOOLS = new Set([
   'Read',
   'Glob',
   'Grep',
-  'ToolSearch',
+  'SearchExtraTools',
   'LSP',
   'TaskGet',
   'TaskList',
@@ -197,7 +197,9 @@ function getBoundaryDetail(
 function isUserMessageWithArrayContent(
   m: Message,
 ): m is Message & { message: { content: unknown[] } } {
-  return m.type === 'user' && 'message' in m && Array.isArray(m.message?.content)
+  return (
+    m.type === 'user' && 'message' in m && Array.isArray(m.message?.content)
+  )
 }
 
 export function prepareMessagesForInjection(messages: Message[]): Message[] {
@@ -254,7 +256,8 @@ export function prepareMessagesForInjection(messages: Message[]): Message[] {
 
   return messages
     .map(msg => {
-      if (!('message' in msg) || !Array.isArray(msg.message?.content)) return msg
+      if (!('message' in msg) || !Array.isArray(msg.message?.content))
+        return msg
       const content = msg.message!.content.filter(keep)
       if (content.length === msg.message!.content.length) return msg
       if (content.length === 0) return null

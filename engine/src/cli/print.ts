@@ -37,7 +37,7 @@ import {
   type AgentDefinition,
   isBuiltInAgent,
   parseAgentsFromJson,
-} from 'src/tools/AgentTool/loadAgentsDir.js'
+} from '@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js'
 import type { Message, NormalizedUserMessage } from 'src/types/message.js'
 import type { QueuedCommand } from 'src/types/textInputTypes.js'
 import {
@@ -65,7 +65,7 @@ import {
   registerProcessOutputErrorHandlers,
 } from 'src/utils/process.js'
 import type { Stream } from 'src/utils/stream.js'
-import { EMPTY_USAGE } from 'src/services/api/logging.js'
+import { EMPTY_USAGE } from '@ant/model-provider'
 import {
   loadConversationForResume,
   type TurnInterruptionState,
@@ -112,7 +112,6 @@ import type {
   ModelInfo,
   SDKMessage,
   SDKUserMessage,
-  SDKUserMessageReplay,
   PermissionResult,
   McpServerConfigForProcessTransport,
   McpServerStatus,
@@ -200,7 +199,7 @@ import {
   getInitJsonSchema,
   setSdkAgentProgressSummariesEnabled,
 } from 'src/bootstrap/state.js'
-import { createSyntheticOutputTool } from 'src/tools/SyntheticOutputTool/SyntheticOutputTool.js'
+import { createSyntheticOutputTool } from '@claude-code-best/builtin-tools/tools/SyntheticOutputTool/SyntheticOutputTool.js'
 import { parseSessionIdentifier } from 'src/utils/sessionUrl.js'
 import {
   hydrateRemoteSession,
@@ -320,6 +319,16 @@ import {
   logQueryProfileReport,
 } from 'src/utils/queryProfiler.js'
 import { asSessionId } from 'src/types/ids.js'
+import {
+  createAutonomyQueuedPromptIfNoActiveSource,
+  createProactiveAutonomyCommands,
+  markAutonomyRunFailed,
+} from 'src/utils/autonomyRuns.js'
+import {
+  cancelQueuedAutonomyCommands,
+  claimConsumableQueuedAutonomyCommands,
+  finalizeAutonomyCommandsForTurn,
+} from 'src/utils/autonomyQueueLifecycle.js'
 import { jsonStringify } from '../utils/slowOperations.js'
 import { skillChangeDetector } from '../utils/skills/skillChangeDetector.js'
 import { getCommands, clearCommandsCache } from '../commands.js'
@@ -362,12 +371,12 @@ const proactiveModule =
   feature('PROACTIVE') || feature('KAIROS')
     ? (require('../proactive/index.js') as typeof import('../proactive/index.js'))
     : null
-const cronSchedulerModule = require('../utils/cronScheduler.js') as typeof import('../utils/cronScheduler.js')
-const cronJitterConfigModule = require('../utils/cronJitterConfig.js') as typeof import('../utils/cronJitterConfig.js')
-const cronGate = require('../tools/ScheduleCronTool/prompt.js') as typeof import('../tools/ScheduleCronTool/prompt.js')
-const extractMemoriesModule = feature('EXTRACT_MEMORIES')
-  ? (require('../services/extractMemories/extractMemories.js') as typeof import('../services/extractMemories/extractMemories.js'))
-  : null
+const cronSchedulerModule =
+  require('../utils/cronScheduler.js') as typeof import('../utils/cronScheduler.js')
+const cronJitterConfigModule =
+  require('../utils/cronJitterConfig.js') as typeof import('../utils/cronJitterConfig.js')
+const cronGate =
+  require('@claude-code-best/builtin-tools/tools/ScheduleCronTool/prompt.js') as typeof import('@claude-code-best/builtin-tools/tools/ScheduleCronTool/prompt.js')
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const SHUTDOWN_TEAM_PROMPT = `<system-reminder>
@@ -538,9 +547,19 @@ export async function runHeadless(
     proactiveModule.activateProactive('command')
   }
 
-  // Periodically force a full GC to keep memory usage in check
+  // Periodically run GC to keep memory usage in check.
+  // Uses a memory threshold to trigger a forced (major) GC when RSS grows
+  // beyond 350MB — the incremental GC may not reclaim enough during peaks
+  // (compact, long sessions with many mounted DOM nodes).
   if (typeof Bun !== 'undefined') {
-    const gcTimer = setInterval(Bun.gc, 1000)
+    const gcTimer = setInterval(() => {
+      const rss = process.memoryUsage.rss()
+      if (rss > 350 * 1024 * 1024) {
+        Bun.gc(true)
+      } else {
+        Bun.gc(false)
+      }
+    }, 1000)
     gcTimer.unref()
   }
 
@@ -708,8 +727,8 @@ export async function runHeadless(
     )
     if (restoredAgent) {
       setAppState(prev => ({ ...prev, agent: restoredAgent.agentType }))
-      // Apply the agent's system prompt (mirrors main.tsx initial --agent path)
-      if (!options.systemPrompt) {
+      // Apply the agent's system prompt for non-built-in agents (mirrors main.tsx initial --agent path)
+      if (!options.systemPrompt && !isBuiltInAgent(restoredAgent)) {
         const agentSystemPrompt = restoredAgent.getSystemPrompt()
         if (agentSystemPrompt) {
           options.systemPrompt = agentSystemPrompt
@@ -938,14 +957,18 @@ export async function runHeadless(
           writeToStdout(`Execution error`)
           break
         case 'error_max_turns':
-          writeToStdout(`Error: Reached max turns (${options.maxTurns})`)
+          writeToStdout(
+            `Error: Reached max turns (${options.maxTurns}).\nTip: Increase the limit with --max-turns or continue in a new session.`,
+          )
           break
         case 'error_max_budget_usd':
-          writeToStdout(`Error: Exceeded USD budget (${options.maxBudgetUsd})`)
+          writeToStdout(
+            `Error: Exceeded USD budget ($${options.maxBudgetUsd}).\nTip: Increase the limit with --max-budget-usd or start a new session to continue.`,
+          )
           break
         case 'error_max_structured_output_retries':
           writeToStdout(
-            `Error: Failed to provide valid structured output after maximum retries`,
+            `Error: Failed to provide valid structured output after maximum retries.\nTip: Simplify your schema or check if the output format matches the expected structure.`,
           )
       }
   }
@@ -959,7 +982,14 @@ export async function runHeadless(
   // the forked agent mid-flight. Gated by isExtractModeActive so the
   // tengu_slate_thimble flag controls non-interactive extraction end-to-end.
   if (feature('EXTRACT_MEMORIES') && isExtractModeActive()) {
-    await extractMemoriesModule!.drainPendingExtraction()
+    try {
+      const { drainPendingExtraction } = await import(
+        '../services/extractMemories/extractMemories.js'
+      )
+      await drainPendingExtraction()
+    } catch {
+      // Module load failure — non-critical at shutdown
+    }
   }
 
   gracefulShutdownSync(
@@ -1180,7 +1210,9 @@ function runHeadlessStreaming(
     removeInterruptedMessage(mutableMessages, turnInterruptionState.message)
     enqueue({
       mode: 'prompt',
-      value: turnInterruptionState.message.message!.content as string | ContentBlockParam[],
+      value: turnInterruptionState.message.message!.content as
+        | string
+        | ContentBlockParam[],
       uuid: randomUUID(),
     })
   }
@@ -1492,14 +1524,6 @@ function runHeadlessStreaming(
         allTools = [...allTools, syntheticOutputResult.tool]
       }
     }
-    const mainThreadAgentType = getMainThreadAgentType()
-    if (mainThreadAgentType && currentAgents) {
-      const mainThreadAgent = currentAgents.find(a => a.agentType === mainThreadAgentType)
-      if (mainThreadAgent?.disallowedTools && mainThreadAgent.disallowedTools.length > 0) {
-        const disallowedSet = new Set(mainThreadAgent.disallowedTools)
-        allTools = allTools.filter(tool => !disallowedSet.has(tool.name))
-      }
-    }
     return allTools
   }
 
@@ -1650,7 +1674,10 @@ function runHeadlessStreaming(
         connection.config.type === 'stdio' ||
         connection.config.type === undefined
       ) {
-        const stdioConfig = connection.config as { command: string; args: string[] }
+        const stdioConfig = connection.config as {
+          command: string
+          args: string[]
+        }
         config = {
           type: 'stdio' as const,
           command: stdioConfig.command,
@@ -1812,7 +1839,8 @@ function runHeadlessStreaming(
     }
     for (const [name, config] of Object.entries(sdkMcpConfigs)) {
       if (config.type === 'sdk' && !(name in supportedConfigs)) {
-        supportedConfigs[name] = config as unknown as McpServerConfigForProcessTransport
+        supportedConfigs[name] =
+          config as unknown as McpServerConfigForProcessTransport
       }
     }
     const { response, sdkServersChanged } =
@@ -1847,15 +1875,32 @@ function runHeadlessStreaming(
             ) {
               return
             }
-            const tickContent = `<${TICK_TAG}>${new Date().toLocaleTimeString()}</${TICK_TAG}>`
-            enqueue({
-              mode: 'prompt' as const,
-              value: tickContent,
-              uuid: randomUUID(),
-              priority: 'later',
-              isMeta: true,
+            void (async () => {
+              const commands = await createProactiveAutonomyCommands({
+                basePrompt: `<${TICK_TAG}>${new Date().toLocaleTimeString()}</${TICK_TAG}>`,
+                currentDir: cwd(),
+                shouldCreate: () => !inputClosed,
+              })
+              if (inputClosed) {
+                await cancelQueuedAutonomyCommands({ commands })
+                return
+              }
+              for (const command of commands) {
+                enqueue({
+                  ...command,
+                  uuid: randomUUID(),
+                })
+              }
+              void run()
+            })().catch(error => {
+              logError(error)
+              logForDebugging(
+                `[Proactive] failed to create headless tick: ${error}`,
+                {
+                  level: 'error',
+                },
+              )
             })
-            void run()
           }, 0)
         }
       : undefined
@@ -1951,17 +1996,24 @@ function runHeadlessStreaming(
           // Non-prompt commands (task-notification, orphaned-permission) carry
           // side effects or orphanedPermission state, so they process singly.
           // Prompt commands greedily collect followers with matching workload.
-          const batch: QueuedCommand[] = [command]
+          let batch: QueuedCommand[] = [command]
           if (command.mode === 'prompt') {
             while (canBatchWith(command, peek(isMainThread))) {
               batch.push(dequeue(isMainThread)!)
             }
-            if (batch.length > 1) {
-              command = {
-                ...command,
-                value: joinPromptValues(batch.map(c => c.value)),
-                uuid: batch.findLast(c => c.uuid)?.uuid ?? command.uuid,
-              }
+          }
+          const queuedAutonomyClaim =
+            await claimConsumableQueuedAutonomyCommands(batch)
+          batch = queuedAutonomyClaim.attachmentCommands
+          if (batch.length === 0) {
+            continue
+          }
+          command = batch[0]!
+          if (command.mode === 'prompt' && batch.length > 1) {
+            command = {
+              ...command,
+              value: joinPromptValues(batch.map(c => c.value)),
+              uuid: batch.findLast(c => c.uuid)?.uuid ?? command.uuid,
             }
           }
           const batchUuids = batch.map(c => c.uuid).filter(u => u !== undefined)
@@ -2100,6 +2152,7 @@ function runHeadlessStreaming(
           }
 
           const input = command.value
+          const claimedAutonomyCommands = queuedAutonomyClaim.claimedCommands
 
           if (structuredIO instanceof RemoteIO && command.mode === 'prompt') {
             logEvent('tengu_bridge_message_received', {
@@ -2149,107 +2202,152 @@ function runHeadlessStreaming(
           // const-capture: TS loses `while ((command = dequeue()))` narrowing
           // inside the closure.
           const cmd = command
-          await runWithWorkload(cmd.workload ?? options.workload, async () => {
-            for await (const message of ask({
-              commands: uniqBy(
-                [...currentCommands, ...appState.mcp.commands],
-                'name',
-              ),
-              prompt: input,
-              promptUuid: cmd.uuid,
-              isMeta: cmd.isMeta,
-              cwd: cwd(),
-              tools: allTools,
-              verbose: options.verbose,
-              mcpClients: allMcpClients,
-              thinkingConfig: options.thinkingConfig,
-              maxTurns: options.maxTurns,
-              maxBudgetUsd: options.maxBudgetUsd,
-              taskBudget: options.taskBudget,
-              canUseTool,
-              userSpecifiedModel: activeUserSpecifiedModel,
-              fallbackModel: options.fallbackModel,
-              jsonSchema: getInitJsonSchema() ?? options.jsonSchema,
-              mutableMessages,
-              getReadFileCache: () =>
-                pendingSeeds.size === 0
-                  ? readFileState
-                  : mergeFileStateCaches(readFileState, pendingSeeds),
-              setReadFileCache: cache => {
-                readFileState = cache
-                for (const [path, seed] of pendingSeeds.entries()) {
-                  const existing = readFileState.get(path)
-                  if (!existing || seed.timestamp > existing.timestamp) {
-                    readFileState.set(path, seed)
+          let lastResultIsError = false
+          try {
+            await runWithWorkload(
+              cmd.workload ?? options.workload,
+              async () => {
+                for await (const message of ask({
+                  commands: uniqBy(
+                    [...currentCommands, ...appState.mcp.commands],
+                    'name',
+                  ),
+                  prompt: input,
+                  promptUuid: cmd.uuid,
+                  isMeta: cmd.isMeta,
+                  cwd: cwd(),
+                  tools: allTools,
+                  verbose: options.verbose,
+                  mcpClients: allMcpClients,
+                  thinkingConfig: options.thinkingConfig,
+                  maxTurns: options.maxTurns,
+                  maxBudgetUsd: options.maxBudgetUsd,
+                  taskBudget: options.taskBudget,
+                  canUseTool,
+                  userSpecifiedModel: activeUserSpecifiedModel,
+                  fallbackModel: options.fallbackModel,
+                  jsonSchema: getInitJsonSchema() ?? options.jsonSchema,
+                  mutableMessages,
+                  getReadFileCache: () =>
+                    pendingSeeds.size === 0
+                      ? readFileState
+                      : mergeFileStateCaches(readFileState, pendingSeeds),
+                  setReadFileCache: cache => {
+                    readFileState = cache
+                    for (const [path, seed] of pendingSeeds.entries()) {
+                      const existing = readFileState.get(path)
+                      if (!existing || seed.timestamp > existing.timestamp) {
+                        readFileState.set(path, seed)
+                      }
+                    }
+                    pendingSeeds.clear()
+                  },
+                  customSystemPrompt: options.systemPrompt,
+                  appendSystemPrompt: options.appendSystemPrompt,
+                  getAppState,
+                  setAppState,
+                  abortController,
+                  replayUserMessages: options.replayUserMessages,
+                  includePartialMessages: options.includePartialMessages,
+                  handleElicitation: (serverName, params, elicitSignal) =>
+                    structuredIO.handleElicitation(
+                      serverName,
+                      params.message,
+                      undefined,
+                      elicitSignal,
+                      params.mode,
+                      params.url,
+                      'elicitationId' in params
+                        ? params.elicitationId
+                        : undefined,
+                    ),
+                  agents: currentAgents,
+                  orphanedPermission: cmd.orphanedPermission,
+                  setSDKStatus: status => {
+                    output.enqueue({
+                      type: 'system',
+                      subtype: 'status',
+                      status: status as 'compacting' | null,
+                      session_id: getSessionId(),
+                      uuid: randomUUID(),
+                    })
+                  },
+                })) {
+                  // Forward messages to bridge incrementally (mid-turn) so
+                  // claude.ai sees progress and the connection stays alive
+                  // while blocked on permission requests.
+                  forwardMessagesToBridge()
+
+                  if (message.type === 'result') {
+                    lastResultIsError = !!(message as Record<string, unknown>)
+                      .is_error
+                    // Flush pending SDK events so they appear before result on the stream.
+                    for (const event of drainSdkEvents()) {
+                      output.enqueue(event)
+                    }
+
+                    // Hold-back: don't emit result while background agents are running
+                    const currentState = getAppState()
+                    if (
+                      getRunningTasks(currentState).some(
+                        t =>
+                          (t.type === 'local_agent' ||
+                            t.type === 'local_workflow') &&
+                          isBackgroundTask(t),
+                      )
+                    ) {
+                      heldBackResult = message as StdoutMessage
+                    } else {
+                      heldBackResult = null
+                      output.enqueue(message as StdoutMessage)
+                    }
+                  } else {
+                    // Flush SDK events (task_started, task_progress) so background
+                    // agent progress is streamed in real-time, not batched until result.
+                    for (const event of drainSdkEvents()) {
+                      output.enqueue(event)
+                    }
+                    output.enqueue(message as StdoutMessage)
                   }
                 }
-                pendingSeeds.clear()
               },
-              customSystemPrompt: options.systemPrompt,
-              appendSystemPrompt: options.appendSystemPrompt,
-              getAppState,
-              setAppState,
-              abortController,
-              replayUserMessages: options.replayUserMessages,
-              includePartialMessages: options.includePartialMessages,
-              handleElicitation: (serverName, params, elicitSignal) =>
-                structuredIO.handleElicitation(
-                  serverName,
-                  params.message,
-                  undefined,
-                  elicitSignal,
-                  params.mode,
-                  params.url,
-                  'elicitationId' in params ? params.elicitationId : undefined,
-                ),
-              agents: currentAgents,
-              orphanedPermission: cmd.orphanedPermission,
-              setSDKStatus: status => {
-                output.enqueue({
-                  type: 'system',
-                  subtype: 'status',
-                  status: status as 'compacting' | null,
-                  session_id: getSessionId(),
+            ) // end runWithWorkload
+            if (lastResultIsError) {
+              await finalizeAutonomyCommandsForTurn({
+                commands: claimedAutonomyCommands,
+                outcome: {
+                  type: 'failed',
+                  message: 'ask() returned an error result',
+                },
+                currentDir: cwd(),
+                priority: 'later',
+                workload: cmd.workload ?? options.workload,
+              })
+            } else {
+              const nextCommands = await finalizeAutonomyCommandsForTurn({
+                commands: claimedAutonomyCommands,
+                outcome: { type: 'completed' },
+                currentDir: cwd(),
+                priority: 'later',
+                workload: cmd.workload ?? options.workload,
+              })
+              for (const nextCommand of nextCommands) {
+                enqueue({
+                  ...nextCommand,
                   uuid: randomUUID(),
                 })
-              },
-            })) {
-              // Forward messages to bridge incrementally (mid-turn) so
-              // claude.ai sees progress and the connection stays alive
-              // while blocked on permission requests.
-              forwardMessagesToBridge()
-
-              if (message.type === 'result') {
-                // Flush pending SDK events so they appear before result on the stream.
-                for (const event of drainSdkEvents()) {
-                  output.enqueue(event)
-                }
-
-                // Hold-back: don't emit result while background agents are running
-                const currentState = getAppState()
-                if (
-                  getRunningTasks(currentState).some(
-                    t =>
-                      (t.type === 'local_agent' ||
-                        t.type === 'local_workflow') &&
-                      isBackgroundTask(t),
-                  )
-                ) {
-                  heldBackResult = message as StdoutMessage
-                } else {
-                  heldBackResult = null
-                  output.enqueue(message as StdoutMessage)
-                }
-              } else {
-                // Flush SDK events (task_started, task_progress) so background
-                // agent progress is streamed in real-time, not batched until result.
-                for (const event of drainSdkEvents()) {
-                  output.enqueue(event)
-                }
-                output.enqueue(message as StdoutMessage)
               }
             }
-          }) // end runWithWorkload
+          } catch (error) {
+            await finalizeAutonomyCommandsForTurn({
+              commands: claimedAutonomyCommands,
+              outcome: { type: 'failed', error },
+              currentDir: cwd(),
+              priority: 'later',
+              workload: cmd.workload ?? options.workload,
+            })
+            throw error
+          }
 
           for (const uuid of batchUuids) {
             notifyCommandLifecycle(uuid, 'completed')
@@ -2261,10 +2359,15 @@ function runHeadlessStreaming(
 
           if (feature('FILE_PERSISTENCE') && turnStartTime !== undefined) {
             void executeFilePersistence(
-              { turnStartTime } as import('src/utils/filePersistence/types.js').TurnStartTime,
+              {
+                turnStartTime,
+              } as import('src/utils/filePersistence/types.js').TurnStartTime,
               abortController.signal,
               result => {
-                const filesResult = result as unknown as { persistedFiles: { filename: string; file_id: string }[]; failedFiles: { filename: string; error: string }[] }
+                const filesResult = result as unknown as {
+                  persistedFiles: { filename: string; file_id: string }[]
+                  failedFiles: { filename: string; error: string }[]
+                }
                 output.enqueue({
                   type: 'system' as const,
                   subtype: 'files_persisted' as const,
@@ -2691,13 +2794,37 @@ function runHeadlessStreaming(
   // when a message arrives via the UDS socket in headless mode.
   if (feature('UDS_INBOX')) {
     /* eslint-disable @typescript-eslint/no-require-imports */
-    const { setOnEnqueue } = require('../utils/udsMessaging.js')
+    const { drainInbox, setOnEnqueue } =
+      require('../utils/udsMessaging.js') as typeof import('../utils/udsMessaging.js')
     /* eslint-enable @typescript-eslint/no-require-imports */
+
+    const enqueueUdsInboxMessages = (): boolean => {
+      const entries = drainInbox()
+      for (const entry of entries) {
+        const value =
+          typeof entry.message.data === 'string'
+            ? entry.message.data
+            : jsonStringify(entry.message.data)
+        enqueue({
+          mode: 'prompt',
+          value,
+          uuid: randomUUID(),
+        })
+      }
+      return entries.length > 0
+    }
+
     setOnEnqueue(() => {
       if (!inputClosed) {
-        void run()
+        if (enqueueUdsInboxMessages()) {
+          void run()
+        }
       }
     })
+
+    if (enqueueUdsInboxMessages()) {
+      void run()
+    }
   }
 
   // Cron scheduler: runs scheduled_tasks.json tasks in SDK/-p mode.
@@ -2708,28 +2835,91 @@ function runHeadlessStreaming(
   // the end of run() picks up the queued command.
   let cronScheduler: import('../utils/cronScheduler.js').CronScheduler | null =
     null
-  if (
-    cronGate.isKairosCronEnabled()
-  ) {
+  if (cronGate.isKairosCronEnabled()) {
+    // Shared dedup-claim → input-close-recheck → onSuccess pipeline for the
+    // three cron entry points (legacy onFire, onFireTask agent, onFireTask
+    // non-agent). Centralizing the cancel-on-late-shutdown contract here keeps
+    // the three branches from drifting on what happens between claim and
+    // dispatch. onSuccess receives the claimed QueuedCommand and decides
+    // whether to enqueue it (normal path) or mark the run failed (agent path).
+    const dispatchHeadlessCronCommand = (params: {
+      basePrompt: string
+      sourceId: string
+      sourceLabel: string
+      logSuffix: string
+      onSuccess: (command: QueuedCommand) => void | Promise<void>
+    }): void => {
+      if (inputClosed) return
+      void (async () => {
+        const command = await createAutonomyQueuedPromptIfNoActiveSource({
+          basePrompt: params.basePrompt,
+          trigger: 'scheduled-task',
+          currentDir: cwd(),
+          sourceId: params.sourceId,
+          sourceLabel: params.sourceLabel,
+          workload: WORKLOAD_CRON,
+          shouldCreate: () => !inputClosed,
+        })
+        if (!command) return
+        if (inputClosed) {
+          await cancelQueuedAutonomyCommands({ commands: [command] })
+          return
+        }
+        await params.onSuccess(command)
+      })().catch(error => {
+        logError(error)
+        logForDebugging(
+          `[ScheduledTasks] failed to enqueue headless task${params.logSuffix}: ${error}`,
+          { level: 'error' },
+        )
+      })
+    }
+
+    const enqueueAndRun = (command: QueuedCommand): void => {
+      enqueue({
+        ...command,
+        uuid: randomUUID(),
+      })
+      void run()
+    }
+
     cronScheduler = cronSchedulerModule.createCronScheduler({
       onFire: prompt => {
-        if (inputClosed) return
-        enqueue({
-          mode: 'prompt',
-          value: prompt,
-          uuid: randomUUID(),
-          priority: 'later',
-          // System-generated — matches useScheduledTasks.ts REPL equivalent.
-          // Without this, messages.ts metaProp eval is {} → prompt leaks
-          // into visible transcript when cron fires mid-turn in -p mode.
-          isMeta: true,
-          // Threaded to cc_workload= in the billing-header attribution block
-          // so the API can serve cron requests at lower QoS. drainCommandQueue
-          // reads this per-iteration and hoists it into bootstrap state for
-          // the ask() call.
-          workload: WORKLOAD_CRON,
+        // Legacy KAIROS-style entries: the prompt text is what uniquely
+        // identifies the cron entry, so it doubles as both source id and
+        // source label for dedup.
+        dispatchHeadlessCronCommand({
+          basePrompt: prompt,
+          sourceId: prompt,
+          sourceLabel: prompt,
+          logSuffix: '',
+          onSuccess: enqueueAndRun,
         })
-        void run()
+      },
+      onFireTask: task => {
+        if (task.agentId) {
+          dispatchHeadlessCronCommand({
+            basePrompt: task.prompt,
+            sourceId: task.id,
+            sourceLabel: task.prompt,
+            logSuffix: ` ${task.id}`,
+            onSuccess: async command => {
+              await markAutonomyRunFailed(
+                command.autonomy!.runId,
+                `No teammate runtime available for scheduled task owner ${task.agentId} in headless mode.`,
+                command.autonomy!.rootDir,
+              )
+            },
+          })
+          return
+        }
+        dispatchHeadlessCronCommand({
+          basePrompt: task.prompt,
+          sourceId: task.id,
+          sourceLabel: task.prompt,
+          logSuffix: ` ${task.id}`,
+          onSuccess: enqueueAndRun,
+        })
       },
       isLoading: () => running || inputClosed,
       getJitterConfig: cronJitterConfigModule?.getCronJitterConfig,
@@ -3004,7 +3194,9 @@ function runHeadlessStreaming(
             sdkClient.type === 'connected' &&
             sdkClient.client?.transport?.onmessage
           ) {
-            sdkClient.client.transport.onmessage(mcpRequest.message as import('@modelcontextprotocol/sdk/types.js').JSONRPCMessage)
+            sdkClient.client.transport.onmessage(
+              mcpRequest.message as import('@modelcontextprotocol/sdk/types.js').JSONRPCMessage,
+            )
           }
           sendControlResponseSuccess(msg)
         } else if (msg.request.subtype === 'rewind_files') {
@@ -3069,7 +3261,10 @@ function runHeadlessStreaming(
           sendControlResponseSuccess(msg)
         } else if (msg.request.subtype === 'mcp_set_servers') {
           const { response, sdkServersChanged } = await applyMcpServerChanges(
-            msg.request.servers as Record<string, McpServerConfigForProcessTransport>,
+            msg.request.servers as Record<
+              string,
+              McpServerConfigForProcessTransport
+            >,
           )
           sendControlResponseSuccess(msg, response)
 
@@ -3139,7 +3334,8 @@ function runHeadlessStreaming(
                 model: a.model === 'inherit' ? undefined : a.model,
               })),
               plugins,
-              mcpServers: buildMcpServerStatuses() as SDKControlReloadPluginsResponse['mcpServers'],
+              mcpServers:
+                buildMcpServerStatuses() as SDKControlReloadPluginsResponse['mcpServers'],
               error_count: r.error_count,
             } satisfies SDKControlReloadPluginsResponse)
           } catch (error) {
@@ -3414,7 +3610,7 @@ function runHeadlessStreaming(
                     mcp: {
                       ...prev.mcp,
                       clients: prev.mcp.clients.map(c =>
-                        c.name === serverName as string ? result.client : c,
+                        c.name === (serverName as string) ? result.client : c,
                       ),
                       tools: [
                         ...reject(prev.mcp.tools, t =>
@@ -3463,7 +3659,9 @@ function runHeadlessStreaming(
                 })
                 .finally(() => {
                   // Clean up only if this is still the active flow
-                  if (activeOAuthFlows.get(serverName as string) === controller) {
+                  if (
+                    activeOAuthFlows.get(serverName as string) === controller
+                  ) {
                     activeOAuthFlows.delete(serverName as string)
                     oauthCallbackSubmitters.delete(serverName as string)
                     oauthManualCallbackUsed.delete(serverName as string)
@@ -3578,7 +3776,9 @@ function runHeadlessStreaming(
               // next API call re-reads keychain/file and works. No respawn.
               await installOAuthTokens(tokens)
               logEvent('tengu_oauth_success', {
-                loginWithClaudeAi: (loginWithClaudeAi ?? true) as boolean | number,
+                loginWithClaudeAi: (loginWithClaudeAi ?? true) as
+                  | boolean
+                  | number,
               })
             })
             .finally(() => {
@@ -3626,10 +3826,7 @@ function runHeadlessStreaming(
           req.subtype === 'claude_oauth_wait_for_completion'
         ) {
           if (!claudeOAuth) {
-            sendControlResponseError(
-              msg,
-              'No active claude_authenticate flow',
-            )
+            sendControlResponseError(msg, 'No active claude_authenticate flow')
           } else {
             // Inject the manual code synchronously — must happen in stdin
             // message order so a subsequent claude_authenticate doesn't
@@ -3689,7 +3886,7 @@ function runHeadlessStreaming(
               mcp: {
                 ...prev.mcp,
                 clients: prev.mcp.clients.map(c =>
-                  c.name === serverName as string ? result.client : c,
+                  c.name === (serverName as string) ? result.client : c,
                 ),
                 tools: [
                   ...reject(prev.mcp.tools, t => t.name?.startsWith(prefix)),
@@ -4124,9 +4321,13 @@ function runHeadlessStreaming(
         mode: 'prompt' as const,
         // file_attachments rides the protobuf catchall from the web composer.
         // Same-ref no-op when absent (no 'file_attachments' key).
-        value: await resolveAndPrepend(userMsg, (userMsg.message as { content: ContentBlockParam[] }).content),
+        value: await resolveAndPrepend(
+          userMsg,
+          (userMsg.message as { content: ContentBlockParam[] }).content,
+        ),
         uuid: userMsg.uuid as `${string}-${string}-${string}-${string}-${string}`,
-        priority: (userMsg as { priority?: string }).priority as import('src/types/textInputTypes.js').QueuePriority,
+        priority: (userMsg as { priority?: string })
+          .priority as import('src/types/textInputTypes.js').QueuePriority,
       })
       // Increment prompt count for attribution tracking and save snapshot
       // The snapshot persists promptCount so it survives compaction
@@ -4416,7 +4617,8 @@ async function handleInitializeRequest(
       setMainThreadAgentType(mainThreadAgent.agentType)
 
       // Apply the agent's system prompt if user hasn't specified a custom one
-      if (!options.systemPrompt) {
+      // SDK agents are always custom agents (not built-in), so getSystemPrompt() takes no args
+      if (!options.systemPrompt && !isBuiltInAgent(mainThreadAgent)) {
         const agentSystemPrompt = mainThreadAgent.getSystemPrompt()
         if (agentSystemPrompt) {
           options.systemPrompt = agentSystemPrompt
@@ -4454,7 +4656,10 @@ async function handleInitializeRequest(
   const accountInfo = getAccountInformation()
   if (request.hooks) {
     const hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {}
-    for (const [event, matchers] of Object.entries(request.hooks) as [string, Array<{ hookCallbackIds: string[]; timeout?: number; matcher?: string }>][]) {
+    for (const [event, matchers] of Object.entries(request.hooks) as [
+      string,
+      Array<{ hookCallbackIds: string[]; timeout?: number; matcher?: string }>,
+    ][]) {
       hooks[event as HookEvent] = matchers.map(matcher => {
         const callbacks = matcher.hookCallbackIds.map(callbackId => {
           return structuredIO.createHookCallback(callbackId, matcher.timeout)
@@ -4496,7 +4701,11 @@ async function handleInitializeRequest(
       // getAccountInformation() returns undefined under 3P providers, so the
       // other fields are all absent. apiProvider disambiguates "not logged
       // in" (firstParty + tokenSource:none) from "3P, login not applicable".
-      apiProvider: getAPIProvider() as 'firstParty' | 'bedrock' | 'vertex' | 'foundry',
+      apiProvider: getAPIProvider() as
+        | 'firstParty'
+        | 'bedrock'
+        | 'vertex'
+        | 'foundry',
     },
     pid: process.pid,
   }
@@ -4544,7 +4753,11 @@ async function handleRewindFiles(
   dryRun: boolean,
 ): Promise<RewindFilesResult> {
   if (!fileHistoryEnabled()) {
-    return { canRewind: false, error: 'File rewinding is not enabled.', filesChanged: [] }
+    return {
+      canRewind: false,
+      error: 'File rewinding is not enabled.',
+      filesChanged: [],
+    }
   }
   if (!fileHistoryCanRestore(appState.fileHistory, userMessageId)) {
     return {
@@ -4753,7 +4966,7 @@ function handleChannelEnable(
   // channel messages queue at priority 'next' and are seen by the model on
   // the turn after they arrive.
   connection.client.setNotificationHandler(
-    ChannelMessageNotificationSchema(),
+    ChannelMessageNotificationSchema() as any,
     async notification => {
       const { content, meta } = notification.params
       logMCPDebug(
@@ -4808,7 +5021,7 @@ function handleChannelEnable(
 function reregisterChannelHandlerAfterReconnect(
   connection: MCPServerConnection,
 ): void {
-  if (!(feature('KAIROS') || feature('KAIROS_CHANNELS'))) return
+  // Channels always available — feature flag guard removed
   if (connection.type !== 'connected') return
 
   const gate = gateChannelServer(
@@ -4829,7 +5042,7 @@ function reregisterChannelHandlerAfterReconnect(
     'Channel notifications re-registered after reconnect',
   )
   connection.client.setNotificationHandler(
-    ChannelMessageNotificationSchema(),
+    ChannelMessageNotificationSchema() as any,
     async notification => {
       const { content, meta } = notification.params
       logMCPDebug(
@@ -4849,7 +5062,10 @@ function reregisterChannelHandlerAfterReconnect(
         value: wrapChannelMessage(connection.name, content, meta),
         priority: 'next',
         isMeta: true,
-        origin: { kind: 'channel', server: connection.name } as unknown as string,
+        origin: {
+          kind: 'channel',
+          server: connection.name,
+        } as unknown as string,
         skipSlashCommands: true,
       })
     },
@@ -4947,7 +5163,7 @@ async function loadInitialMessages(
               getActiveAgentsFromList,
             } =
               // eslint-disable-next-line @typescript-eslint/no-require-imports
-              require('../tools/AgentTool/loadAgentsDir.js') as typeof import('../tools/AgentTool/loadAgentsDir.js')
+              require('@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js') as typeof import('@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js')
             getAgentDefinitionsWithOverrides.cache.clear?.()
             const freshAgentDefs = await getAgentDefinitionsWithOverrides(
               getCwd(),
@@ -5149,7 +5365,7 @@ async function loadInitialMessages(
           // Refresh agent definitions to reflect the mode switch
           const { getAgentDefinitionsWithOverrides, getActiveAgentsFromList } =
             // eslint-disable-next-line @typescript-eslint/no-require-imports
-            require('../tools/AgentTool/loadAgentsDir.js') as typeof import('../tools/AgentTool/loadAgentsDir.js')
+            require('@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js') as typeof import('@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js')
           getAgentDefinitionsWithOverrides.cache.clear?.()
           const freshAgentDefs = await getAgentDefinitionsWithOverrides(
             getCwd(),
@@ -5264,7 +5480,7 @@ function getStructuredIO(
  */
 export async function handleOrphanedPermissionResponse({
   message,
-  setAppState,
+  setAppState: _setAppState,
   onEnqueued,
   handledToolUseIds,
 }: {
@@ -5273,13 +5489,21 @@ export async function handleOrphanedPermissionResponse({
   onEnqueued?: () => void
   handledToolUseIds: Set<string>
 }): Promise<boolean> {
-  const responseInner = message.response as { subtype?: string; response?: Record<string, unknown>; request_id?: string } | undefined
+  const responseInner = message.response as
+    | {
+        subtype?: string
+        response?: Record<string, unknown>
+        request_id?: string
+      }
+    | undefined
   if (
     responseInner?.subtype === 'success' &&
     responseInner.response?.toolUseID &&
     typeof responseInner.response.toolUseID === 'string'
   ) {
-    const permissionResult = responseInner.response as PermissionResult & { toolUseID?: string }
+    const permissionResult = responseInner.response as PermissionResult & {
+      toolUseID?: string
+    }
     const toolUseID = permissionResult.toolUseID
     if (!toolUseID) {
       return false

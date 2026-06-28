@@ -56,7 +56,7 @@ export function UltraplanChoiceDialog({
   setConversationId,
   resultDedupState: _resultDedupState,
 }: UltraplanChoiceDialogProps): React.ReactNode {
-  useRegisterOverlay('ultraplan-choice')
+  useRegisterOverlay('ultraplan-choice');
 
   const setAppState = useSetAppState();
   const { rows, columns } = useTerminalSize();
@@ -65,7 +65,7 @@ export function UltraplanChoiceDialog({
   const visibleHeight = React.useMemo(
     () => Math.min(MAX_VISIBLE_LINES, Math.max(1, Math.floor(rows / 2) - CHROME_LINES)),
     [rows],
-  )
+  );
 
   const wrappedLines = React.useMemo(
     () => wrapText(plan, Math.max(1, columns - 4), 'wrap').split('\n'),
@@ -87,11 +87,11 @@ export function UltraplanChoiceDialog({
     if (!isScrollable) return;
     const halfPage = Math.max(1, Math.floor(visibleHeight / 2));
 
-    if ((key.ctrl && input === 'd') || (key as any).wheelDown) {
-      const step = (key as any).wheelDown ? 3 : halfPage;
+    if ((key.ctrl && input === 'd') || key.wheelDown) {
+      const step = key.wheelDown ? 3 : halfPage;
       setScrollOffset(prev => Math.min(prev + step, maxOffset));
-    } else if ((key.ctrl && input === 'u') || (key as any).wheelUp) {
-      const step = (key as any).wheelUp ? 3 : halfPage;
+    } else if ((key.ctrl && input === 'u') || key.wheelUp) {
+      const step = key.wheelUp ? 3 : halfPage;
       setScrollOffset(prev => Math.max(prev - step, 0));
     }
   });
@@ -106,7 +106,7 @@ export function UltraplanChoiceDialog({
   const handleChoice = React.useCallback(
     async (choice: ChoiceValue) => {
       switch (choice) {
-        case 'here': 
+        case 'here':
           enqueuePendingNotification({
             value: [
               'Ultraplan approved in browser. Here is the plan:',
@@ -120,9 +120,12 @@ export function UltraplanChoiceDialog({
             mode: 'task-notification',
           });
           break;
-        case 'fresh': 
+        case 'fresh':
           const previousSessionId = getSessionId();
-          const transcriptSaved = await stat(getTranscriptPath()).then(() => true, () => false)
+          const transcriptSaved = await stat(getTranscriptPath()).then(
+            () => true,
+            () => false,
+          );
 
           await clearConversation({
             setMessages,
@@ -135,7 +138,10 @@ export function UltraplanChoiceDialog({
           if (transcriptSaved) {
             setMessages(prev => [
               ...prev,
-              createSystemMessage(`Previous session saved · resume with: claude --resume ${previousSessionId}`, 'suggestion'),
+              createSystemMessage(
+                `Previous session saved · resume with: claude --resume ${previousSessionId}`,
+                'suggestion',
+              ),
             ]);
           }
 
@@ -170,16 +176,7 @@ export function UltraplanChoiceDialog({
       // Archive the remote CCR session.
       archiveRemoteSession(sessionId);
     },
-    [
-      plan,
-      sessionId,
-      taskId,
-      setMessages,
-      getAppState,
-      setAppState,
-      readFileState,
-      setConversationId,
-    ],
+    [plan, sessionId, taskId, setMessages, getAppState, setAppState, readFileState, setConversationId],
   );
 
   // ── Menu options ───────────────────────────────────────────────────
@@ -206,8 +203,8 @@ export function UltraplanChoiceDialog({
 
   // ── Render ─────────────────────────────────────────────────────────
   return (
-    <Dialog 
-      title="Ultraplan approved" 
+    <Dialog
+      title="Ultraplan approved"
       subtitle="How should the plan be implemented?"
       onCancel={() => {}}
       hideInputGuide

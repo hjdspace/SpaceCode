@@ -1,26 +1,34 @@
-import type { BetaToolUnion } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
+import type {
+  BetaToolUnion,
+  BetaMessage,
+  BetaUsage,
+} from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type { SystemPrompt } from '../../../utils/systemPromptType.js'
 import type {
   Message,
   StreamEvent,
   SystemAPIErrorMessage,
   AssistantMessage,
+  UserMessage,
 } from '../../../types/message.js'
 import type { AgentId } from '../../../types/ids.js'
 import type { Tools } from '../../../Tool.js'
-import type { Stream } from 'openai/streaming.mjs'
-import type {
-  ChatCompletionChunk,
-  ChatCompletionCreateParamsStreaming,
-} from 'openai/resources/chat/completions/completions.mjs'
 import { getOpenAIClient } from './client.js'
-import { anthropicMessagesToOpenAI } from './convertMessages.js'
+import { updateOpenAIUsage } from './openaiShared.js'
 import {
+  anthropicMessagesToOpenAI,
+  resolveOpenAIModel,
+  adaptOpenAIStreamToAnthropic,
   anthropicToolsToOpenAI,
   anthropicToolChoiceToOpenAI,
-} from './convertTools.js'
-import { adaptOpenAIStreamToAnthropic } from './streamAdapter.js'
-import { resolveOpenAIModel } from './modelMapping.js'
+} from '@ant/model-provider'
+import { isChatGPTAuthEnabled } from './chatgptAuth.js'
+import {
+  adaptResponsesStreamToAnthropic,
+  buildResponsesRequest,
+  createChatGPTResponsesStream,
+  type ResponsesReasoningEffort,
+} from './responsesAdapter.js'
 import { normalizeMessagesForAPI } from '../../../utils/messages.js'
 import { toolToAPISchema } from '../../../utils/api.js'
 import {
@@ -30,99 +38,101 @@ import {
 import { logForDebugging } from '../../../utils/debug.js'
 import { addToTotalSessionCost } from '../../../cost-tracker.js'
 import { calculateUSDCost } from '../../../utils/modelCost.js'
-import { isEnvTruthy, isEnvDefinedFalsy } from '../../../utils/envUtils.js'
+import {
+  isOpenAIThinkingEnabled,
+  resolveOpenAIMaxTokens,
+  buildOpenAIRequestBody,
+} from './requestBody.js'
+import { recordLLMObservation } from '../../../services/langfuse/tracing.js'
+import {
+  convertMessagesToLangfuse,
+  convertOutputToLangfuse,
+  convertToolsToLangfuse,
+} from '../../../services/langfuse/convert.js'
+export {
+  isOpenAIThinkingEnabled,
+  resolveOpenAIMaxTokens,
+  buildOpenAIRequestBody,
+}
 import { getModelMaxOutputTokens } from '../../../utils/context.js'
 import type { Options } from '../claude.js'
-import type { ThinkingConfig } from '../../../utils/thinking.js'
 import { randomUUID } from 'crypto'
 import {
   createAssistantAPIErrorMessage,
+  createUserMessage,
   normalizeContentFromAPI,
 } from '../../../utils/messages.js'
 import type { SDKAssistantMessageError } from '../../../entrypoints/agentSdkTypes.js'
 import {
-  isToolSearchEnabled,
-  extractDiscoveredToolNames,
-} from '../../../utils/toolSearch.js'
+  isSearchExtraToolsEnabled,
+  isDeferredToolsDeltaEnabled,
+} from '../../../utils/searchExtraTools.js'
 import {
+  formatDeferredToolLine,
   isDeferredTool,
-  TOOL_SEARCH_TOOL_NAME,
-} from '../../../tools/ToolSearchTool/prompt.js'
+  SEARCH_EXTRA_TOOLS_TOOL_NAME,
+} from '@claude-code-best/builtin-tools/tools/SearchExtraToolsTool/prompt.js'
 
-/**
- * Detect whether DeepSeek-style thinking mode should be enabled.
- *
- * Enabled when:
- * 1. OPENAI_ENABLE_THINKING=1 is set (explicit enable), OR
- * 2. Model name contains "deepseek-reasoner" OR "DeepSeek-V3.2" (auto-detect, case-insensitive)
- *
- * Disabled when:
- * - OPENAI_ENABLE_THINKING=0/false/no/off is explicitly set (overrides model detection)
- *
- * @param model - The resolved OpenAI model name
- * @internal Exported for testing purposes only
- */
-export function isOpenAIThinkingEnabled(model: string): boolean {
-  // Explicit disable takes priority (overrides model auto-detect)
-  if (isEnvDefinedFalsy(process.env.OPENAI_ENABLE_THINKING)) return false
-  // Explicit enable
-  if (isEnvTruthy(process.env.OPENAI_ENABLE_THINKING)) return true
-  // Auto-detect from model name (deepseek-reasoner and DeepSeek-V3.2 support thinking mode)
-  const modelLower = model.toLowerCase()
-  return modelLower.includes('deepseek-reasoner') || modelLower.includes('deepseek-v3.2')
+function convertToResponsesReasoningEffort(
+  effortValue: unknown,
+): ResponsesReasoningEffort | undefined {
+  if (effortValue === 'low') return 'low'
+  if (effortValue === 'medium') return 'medium'
+  if (effortValue === 'high') return 'high'
+  if (effortValue === 'xhigh' || effortValue === 'max') return 'xhigh'
+  if (typeof effortValue === 'number') return 'high'
+  return undefined
+}
+
+function getChatGPTResponsesReasoningEffort(
+  effortValue: unknown,
+): ResponsesReasoningEffort | undefined {
+  const envOverride = process.env.CLAUDE_CODE_EFFORT_LEVEL?.toLowerCase()
+  if (envOverride === 'auto' || envOverride === 'unset') return undefined
+  return (
+    convertToResponsesReasoningEffort(envOverride) ??
+    convertToResponsesReasoningEffort(effortValue) ??
+    'medium'
+  )
 }
 
 /**
- * Build the request body for OpenAI chat.completions.create().
- * Extracted for testability — the thinking mode params are injected here.
+ * Mirrors the Anthropic request path's deferred-tool announcement for OpenAI.
  *
- * DeepSeek thinking mode: inject thinking params via request body.
- * Two formats are added simultaneously to support different deployments:
- * - Official DeepSeek API: `thinking: { type: 'enabled' }`
- * - Self-hosted DeepSeek-V3.2: `enable_thinking: true` + `chat_template_kwargs: { thinking: true }`
- * OpenAI SDK passes unknown keys through to the HTTP body.
- * Each endpoint will use the format it recognizes and ignore the others.
- * @internal Exported for testing purposes only
+ * OpenAI-compatible endpoints cannot consume Anthropic's `defer_loading` or
+ * `tool_reference` beta payloads directly, so the model needs the same textual
+ * list of deferred MCP tool names that Anthropic receives before it can ask
+ * SearchExtraToolsTool to load their full schemas.
  */
-export function buildOpenAIRequestBody(params: {
-  model: string
-  messages: any[]
-  tools: any[]
-  toolChoice: any
-  enableThinking: boolean
-  maxTokens: number
-  temperatureOverride?: number
-}): ChatCompletionCreateParamsStreaming & {
-  thinking?: { type: string }
-  enable_thinking?: boolean
-  chat_template_kwargs?: { thinking: boolean }
-} {
-  const { model, messages, tools, toolChoice, enableThinking, maxTokens, temperatureOverride } = params
-  return {
-    model,
-    messages,
-    max_tokens: maxTokens,
-    ...(tools.length > 0 && {
-      tools,
-      ...(toolChoice && { tool_choice: toolChoice }),
+function prependDeferredToolListIfNeeded(
+  messages: (AssistantMessage | UserMessage)[],
+  tools: Tools,
+  deferredToolNames: Set<string>,
+  useSearchExtraTools: boolean,
+): (AssistantMessage | UserMessage)[] {
+  if (!useSearchExtraTools || isDeferredToolsDeltaEnabled()) return messages
+
+  const deferredToolList = tools
+    .filter(tool => deferredToolNames.has(tool.name))
+    .map(formatDeferredToolLine)
+    .sort()
+    .join('\n')
+
+  if (!deferredToolList) return messages
+
+  return [
+    createUserMessage({
+      content: `<available-deferred-tools>\n${deferredToolList}\n</available-deferred-tools>`,
+      isMeta: true,
     }),
-    stream: true,
-    stream_options: { include_usage: true },
-    // DeepSeek thinking mode: enable chain-of-thought output.
-    // When active, temperature/top_p/presence_penalty/frequency_penalty are ignored by DeepSeek.
-    ...(enableThinking && {
-      // Official DeepSeek API format
-      thinking: { type: 'enabled' },
-      // Self-hosted DeepSeek-V3.2 format
-      enable_thinking: true,
-      chat_template_kwargs: { thinking: true },
-    }),
-    // Only send temperature when thinking mode is off (DeepSeek ignores it anyway,
-    // but other providers may respect it)
-    ...(!enableThinking && temperatureOverride !== undefined && {
-      temperature: temperatureOverride,
-    }),
-  }
+    ...messages,
+  ]
+}
+
+function isOpenAIConvertibleMessage(
+  msg: Message,
+): msg is AssistantMessage | UserMessage {
+  return msg.type === 'assistant' || msg.type === 'user'
 }
 
 /**
@@ -131,15 +141,28 @@ export function buildOpenAIRequestBody(params: {
  * `message_stop` handler and the post-loop safety fallback.
  */
 function assembleFinalAssistantOutputs(params: {
-  partialMessage: any
-  contentBlocks: Record<number, any>
+  partialMessage: BetaMessage | null
+  contentBlocks: Record<number, Record<string, unknown>>
   tools: Tools
   agentId: string | undefined
-  usage: { input_tokens: number; output_tokens: number; cache_creation_input_tokens: number; cache_read_input_tokens: number }
+  usage: {
+    input_tokens: number
+    output_tokens: number
+    cache_creation_input_tokens: number
+    cache_read_input_tokens: number
+  }
   stopReason: string | null
   maxTokens: number
 }): (AssistantMessage | SystemAPIErrorMessage)[] {
-  const { partialMessage, contentBlocks, tools, agentId, usage, stopReason, maxTokens } = params
+  const {
+    partialMessage,
+    contentBlocks,
+    tools,
+    agentId,
+    usage,
+    stopReason,
+    maxTokens,
+  } = params
   const outputs: (AssistantMessage | SystemAPIErrorMessage)[] = []
 
   const allBlocks = Object.keys(contentBlocks)
@@ -147,15 +170,19 @@ function assembleFinalAssistantOutputs(params: {
     .map(k => contentBlocks[Number(k)])
     .filter(Boolean)
 
-  if (allBlocks.length > 0) {
+  if (allBlocks.length > 0 && partialMessage) {
     outputs.push({
       message: {
         ...partialMessage,
-        content: normalizeContentFromAPI(allBlocks, tools, agentId as AgentId | undefined),
+        content: normalizeContentFromAPI(
+          allBlocks as unknown as BetaMessage['content'],
+          tools,
+          agentId as AgentId | undefined,
+        ),
         usage,
         stop_reason: stopReason,
         stop_sequence: null,
-      },
+      } as AssistantMessage['message'],
       requestId: undefined,
       type: 'assistant',
       uuid: randomUUID(),
@@ -164,12 +191,15 @@ function assembleFinalAssistantOutputs(params: {
   }
 
   if (stopReason === 'max_tokens') {
-    outputs.push(createAssistantAPIErrorMessage({
-      content: `Output truncated: response exceeded the ${maxTokens} token limit. ` +
-        `Set CLAUDE_CODE_MAX_OUTPUT_TOKENS to override.`,
-      apiError: 'max_output_tokens',
-      error: 'max_output_tokens',
-    }))
+    outputs.push(
+      createAssistantAPIErrorMessage({
+        content:
+          `Output truncated: response exceeded the ${maxTokens} token limit. ` +
+          `Set OPENAI_MAX_TOKENS or CLAUDE_CODE_MAX_OUTPUT_TOKENS to override.`,
+        apiError: 'max_output_tokens',
+        error: 'max_output_tokens',
+      }),
+    )
   }
 
   return outputs
@@ -187,7 +217,6 @@ export async function* queryModelOpenAI(
   tools: Tools,
   signal: AbortSignal,
   options: Options,
-  thinkingConfig?: ThinkingConfig,
 ): AsyncGenerator<
   StreamEvent | AssistantMessage | SystemAPIErrorMessage,
   void
@@ -200,7 +229,7 @@ export async function* queryModelOpenAI(
     const messagesForAPI = normalizeMessagesForAPI(messages, tools)
 
     // 3. Check if tool search is enabled (similar to Anthropic path)
-    const useToolSearch = await isToolSearchEnabled(
+    const useSearchExtraTools = await isSearchExtraToolsEnabled(
       options.model,
       tools,
       options.getToolPermissionContext ||
@@ -211,24 +240,25 @@ export async function* queryModelOpenAI(
 
     // 4. Build deferred tools set (similar to Anthropic path)
     const deferredToolNames = new Set<string>()
-    if (useToolSearch) {
+    if (useSearchExtraTools) {
       for (const t of tools) {
         if (isDeferredTool(t)) deferredToolNames.add(t.name)
       }
     }
 
     // 5. Filter tools (similar to Anthropic path)
+    // Never include deferred tools in the API tools array — they are invoked
+    // via ExecuteExtraTool which looks them up from the global tool registry
+    // at runtime. Keeping the tools array stable preserves the prompt cache.
     let filteredTools = tools
-    if (useToolSearch && deferredToolNames.size > 0) {
-      const discoveredToolNames = extractDiscoveredToolNames(messages)
-
+    if (useSearchExtraTools && deferredToolNames.size > 0) {
       filteredTools = tools.filter(tool => {
         // Always include non-deferred tools
         if (!deferredToolNames.has(tool.name)) return true
-        // Always include ToolSearchTool (so it can discover more tools)
-        if (toolMatchesName(tool, TOOL_SEARCH_TOOL_NAME)) return true
-        // Only include deferred tools that have been discovered
-        return discoveredToolNames.has(tool.name)
+        // Always include SearchExtraToolsTool (so it can discover more tools)
+        if (toolMatchesName(tool, SEARCH_EXTRA_TOOLS_TOOL_NAME)) return true
+        // All other deferred tools are excluded — use ExecuteExtraTool instead
+        return false
       })
     }
 
@@ -241,7 +271,7 @@ export async function* queryModelOpenAI(
           agents: options.agents,
           allowedAgentTypes: options.allowedAgentTypes,
           model: options.model,
-          deferLoading: useToolSearch && deferredToolNames.has(tool.name),
+          deferLoading: useSearchExtraTools && deferredToolNames.has(tool.name),
         }),
       ),
     )
@@ -257,16 +287,29 @@ export async function* queryModelOpenAI(
     )
 
     // 8. Convert messages and tools to OpenAI format
-    // thinkingConfig from frontend: if explicitly disabled, disable thinking; otherwise use auto-detection
-    const enableThinking = (thinkingConfig?.type !== 'disabled') && isOpenAIThinkingEnabled(openaiModel)
-    const openaiMessages = anthropicMessagesToOpenAI(messagesForAPI, systemPrompt, {
-      enableThinking,
-    })
+    const enableThinking = isOpenAIThinkingEnabled(openaiModel)
+    const openAIConvertibleMessages = messagesForAPI.filter(
+      isOpenAIConvertibleMessage,
+    )
+    const messagesWithDeferredToolList = prependDeferredToolListIfNeeded(
+      openAIConvertibleMessages,
+      tools,
+      deferredToolNames,
+      useSearchExtraTools,
+    )
+    const openaiMessages = anthropicMessagesToOpenAI(
+      messagesWithDeferredToolList,
+      systemPrompt,
+      { enableThinking },
+    )
     const openaiTools = anthropicToolsToOpenAI(standardTools)
     const openaiToolChoice = anthropicToolChoiceToOpenAI(options.toolChoice)
+    const reasoningEffort = getChatGPTResponsesReasoningEffort(
+      options.effortValue,
+    )
 
     // 9. Log tool filtering details
-    if (useToolSearch) {
+    if (useSearchExtraTools) {
       const includedDeferredTools = filteredTools.filter(t =>
         deferredToolNames.has(t.name),
       ).length
@@ -289,42 +332,68 @@ export async function* queryModelOpenAI(
     //     auto-retry at 64k in query.ts. The OpenAI path has no such retry, so
     //     using the capped 8k default would silently truncate responses in
     //     multi-turn conversations where thinking consumes most of the budget.
+    //
+    //     Override priority:
+    //     1. options.maxOutputTokensOverride (programmatic)
+    //     2. OPENAI_MAX_TOKENS env var (OpenAI-specific, useful for local models
+    //        with small context windows, e.g. RTX 3060 12GB running 65536-token models)
+    //     3. CLAUDE_CODE_MAX_OUTPUT_TOKENS env var (generic override)
+    //     4. upperLimit default (64000)
     const { upperLimit } = getModelMaxOutputTokens(openaiModel)
-    const maxTokens = options.maxOutputTokensOverride ?? upperLimit
-
-    // 11. Get client
-    const client = getOpenAIClient({
-      maxRetries: 0,
-      fetchOverride: options.fetchOverride as unknown as typeof fetch,
-      source: options.querySource,
-    })
+    const maxTokens = resolveOpenAIMaxTokens(
+      upperLimit,
+      options.maxOutputTokensOverride,
+    )
 
     logForDebugging(
       `[OpenAI] Calling model=${openaiModel}, messages=${openaiMessages.length}, tools=${openaiTools.length}, thinking=${enableThinking}`,
     )
 
-    // 12. Call OpenAI API with streaming
-    const requestBody = buildOpenAIRequestBody({
-      model: openaiModel,
-      messages: openaiMessages,
-      tools: openaiTools,
-      toolChoice: openaiToolChoice,
-      enableThinking,
-      maxTokens,
-      temperatureOverride: options.temperatureOverride,
-    })
-    const stream = await client.chat.completions.create(
-      requestBody,
-      { signal },
-    )
+    // 11. Call OpenAI API with streaming. ChatGPT subscription auth uses the
+    // Codex Responses backend; API-key/OpenAI-compatible auth keeps the
+    // existing Chat Completions adapter.
+    const adaptedStream = isChatGPTAuthEnabled()
+      ? adaptResponsesStreamToAnthropic(
+          await createChatGPTResponsesStream({
+            request: buildResponsesRequest({
+              model: openaiModel,
+              messages: openaiMessages,
+              tools: openaiTools,
+              toolChoice: openaiToolChoice,
+              reasoningEffort,
+            }),
+            signal,
+            fetchOverride: options.fetchOverride as unknown as typeof fetch,
+          }),
+          openaiModel,
+        )
+      : adaptOpenAIStreamToAnthropic(
+          await getOpenAIClient({
+            maxRetries: 0,
+            fetchOverride: options.fetchOverride as unknown as typeof fetch,
+            source: options.querySource,
+          }).chat.completions.create(
+            buildOpenAIRequestBody({
+              model: openaiModel,
+              messages: openaiMessages,
+              tools: openaiTools,
+              toolChoice: openaiToolChoice,
+              enableThinking,
+              maxTokens,
+              temperatureOverride: options.temperatureOverride,
+            }),
+            { signal },
+          ),
+          openaiModel,
+        )
 
     // 12. Convert OpenAI stream to Anthropic events, then process into
     //     AssistantMessage + StreamEvent (matching the Anthropic path behavior)
-    const adaptedStream = adaptOpenAIStreamToAnthropic(stream, openaiModel, enableThinking)
 
     // Accumulate content blocks and usage, same as the Anthropic path in claude.ts
-    const contentBlocks: Record<number, any> = {}
-    let partialMessage: any
+    const contentBlocks: Record<number, Record<string, unknown>> = {}
+    const collectedMessages: AssistantMessage[] = []
+    let partialMessage: BetaMessage | null = null
     let stopReason: string | null = null
     let usage = {
       input_tokens: 0,
@@ -338,19 +407,19 @@ export async function* queryModelOpenAI(
     for await (const event of adaptedStream) {
       switch (event.type) {
         case 'message_start': {
-          partialMessage = (event as any).message
+          partialMessage = event.message
           ttftMs = Date.now() - start
-          if ((event as any).message?.usage) {
+          if (event.message.usage) {
             usage = {
               ...usage,
-              ...(event as any).message.usage,
+              ...(event.message.usage as unknown as typeof usage),
             }
           }
           break
         }
         case 'content_block_start': {
-          const idx = (event as any).index
-          const cb = (event as any).content_block
+          const idx = event.index
+          const cb = event.content_block
           if (cb.type === 'tool_use') {
             contentBlocks[idx] = { ...cb, input: '' }
           } else if (cb.type === 'text') {
@@ -363,16 +432,18 @@ export async function* queryModelOpenAI(
           break
         }
         case 'content_block_delta': {
-          const idx = (event as any).index
-          const delta = (event as any).delta
+          const idx = event.index
+          const delta = event.delta
           const block = contentBlocks[idx]
           if (!block) break
           if (delta.type === 'text_delta') {
-            block.text = (block.text || '') + delta.text
+            block.text = ((block.text as string | undefined) || '') + delta.text
           } else if (delta.type === 'input_json_delta') {
-            block.input = (block.input || '') + delta.partial_json
+            block.input =
+              ((block.input as string | undefined) || '') + delta.partial_json
           } else if (delta.type === 'thinking_delta') {
-            block.thinking = (block.thinking || '') + delta.thinking
+            block.thinking =
+              ((block.thinking as string | undefined) || '') + delta.thinking
           } else if (delta.type === 'signature_delta') {
             block.signature = delta.signature
           }
@@ -383,12 +454,15 @@ export async function* queryModelOpenAI(
           break
         }
         case 'message_delta': {
-          const deltaUsage = (event as any).usage
+          const deltaUsage = event.usage
           if (deltaUsage) {
-            usage = { ...usage, ...deltaUsage }
+            usage = updateOpenAIUsage(
+              usage,
+              deltaUsage as unknown as Parameters<typeof updateOpenAIUsage>[1],
+            )
           }
-          if ((event as any).delta?.stop_reason != null) {
-            stopReason = (event as any).delta.stop_reason
+          if (event.delta.stop_reason != null) {
+            stopReason = event.delta.stop_reason
           }
           break
         }
@@ -398,9 +472,17 @@ export async function* queryModelOpenAI(
           // here and injected so tokenCountWithEstimation() can read it.
           if (partialMessage) {
             for (const output of assembleFinalAssistantOutputs({
-              partialMessage, contentBlocks, tools, agentId: options.agentId,
-              usage, stopReason, maxTokens,
+              partialMessage,
+              contentBlocks,
+              tools,
+              agentId: options.agentId,
+              usage,
+              stopReason,
+              maxTokens,
             })) {
+              if (output.type === 'assistant') {
+                collectedMessages.push(output)
+              }
               yield output
             }
             // Reset partialMessage so the post-loop safety fallback does not
@@ -409,8 +491,15 @@ export async function* queryModelOpenAI(
           }
           // Track cost and token usage
           if (usage.input_tokens + usage.output_tokens > 0) {
-            const costUSD = calculateUSDCost(openaiModel, usage as any)
-            addToTotalSessionCost(costUSD, usage as any, options.model)
+            const costUSD = calculateUSDCost(
+              openaiModel,
+              usage as unknown as BetaUsage,
+            )
+            addToTotalSessionCost(
+              costUSD,
+              usage as unknown as BetaUsage,
+              options.model,
+            )
           }
           break
         }
@@ -424,11 +513,35 @@ export async function* queryModelOpenAI(
       } as StreamEvent
     }
 
+    // Record LLM observation in Langfuse (no-op if not configured)
+    recordLLMObservation(options.langfuseTrace ?? null, {
+      model: openaiModel,
+      provider: 'openai',
+      input: convertMessagesToLangfuse(openaiMessages),
+      output: convertOutputToLangfuse(collectedMessages),
+      usage: {
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cache_creation_input_tokens: usage.cache_creation_input_tokens,
+        cache_read_input_tokens: usage.cache_read_input_tokens,
+      },
+      startTime: new Date(start),
+      endTime: new Date(),
+      completionStartTime: ttftMs > 0 ? new Date(start + ttftMs) : undefined,
+      tools: convertToolsToLangfuse(toolSchemas as unknown[]),
+      ...(enableThinking && { thinking: { type: 'enabled' } }),
+    })
+
     // Safety: if stream ended without message_stop, assemble and yield whatever we have
     if (partialMessage) {
       for (const output of assembleFinalAssistantOutputs({
-        partialMessage, contentBlocks, tools, agentId: options.agentId,
-        usage, stopReason, maxTokens,
+        partialMessage,
+        contentBlocks,
+        tools,
+        agentId: options.agentId,
+        usage,
+        stopReason,
+        maxTokens,
       })) {
         yield output
       }
@@ -439,7 +552,9 @@ export async function* queryModelOpenAI(
     yield createAssistantAPIErrorMessage({
       content: `API Error: ${errorMessage}`,
       apiError: 'api_error',
-      error: (error instanceof Error ? error : new Error(String(error))) as unknown as SDKAssistantMessageError,
+      error: (error instanceof Error
+        ? error
+        : new Error(String(error))) as unknown as SDKAssistantMessageError,
     })
   }
 }

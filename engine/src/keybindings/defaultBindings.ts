@@ -117,6 +117,9 @@ export const DEFAULT_BINDINGS: KeybindingBlock[] = [
       j: 'select:next',
       'ctrl+p': 'select:previous',
       'ctrl+n': 'select:next',
+      // Cycle enum values left/right (same as left/right arrow in handleKeyDown)
+      left: 'select:previousValue',
+      right: 'select:nextValue',
       // Toggle/activate the selected setting (space only — enter saves & closes)
       space: 'select:accept',
       // Save and close the config panel
@@ -130,8 +133,6 @@ export const DEFAULT_BINDINGS: KeybindingBlock[] = [
   {
     context: 'Confirmation',
     bindings: {
-      y: 'confirm:yes',
-      n: 'confirm:no',
       enter: 'confirm:yes',
       escape: 'confirm:no',
       // Navigation for dialogs with lists
@@ -323,6 +324,22 @@ export const DEFAULT_BINDINGS: KeybindingBlock[] = [
       left: 'modelPicker:decreaseEffort',
       right: 'modelPicker:increaseEffort',
       space: 'modelPicker:toggle1M',
+    },
+  },
+  // Effort panel (slash /effort without args)
+  {
+    context: 'EffortPanel',
+    bindings: {
+      left: 'effortPanel:decrease',
+      right: 'effortPanel:increase',
+      h: 'effortPanel:decrease',
+      l: 'effortPanel:increase',
+      home: 'effortPanel:home',
+      end: 'effortPanel:end',
+      enter: 'effortPanel:confirm',
+      escape: 'effortPanel:cancel',
+      q: 'effortPanel:cancel',
+      'ctrl+c': 'effortPanel:cancel',
     },
   },
   // Select component navigation (used by /model, /resume, permission prompts, etc.)

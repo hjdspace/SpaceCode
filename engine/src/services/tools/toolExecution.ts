@@ -35,19 +35,19 @@ import {
   type ToolProgressData,
   type ToolUseContext,
 } from '../../Tool.js'
-import type { BashToolInput } from '../../tools/BashTool/BashTool.js'
-import { startSpeculativeClassifierCheck } from '../../tools/BashTool/bashPermissions.js'
-import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
-import { FILE_EDIT_TOOL_NAME } from '../../tools/FileEditTool/constants.js'
-import { FILE_READ_TOOL_NAME } from '../../tools/FileReadTool/prompt.js'
-import { FILE_WRITE_TOOL_NAME } from '../../tools/FileWriteTool/prompt.js'
-import { NOTEBOOK_EDIT_TOOL_NAME } from '../../tools/NotebookEditTool/constants.js'
-import { POWERSHELL_TOOL_NAME } from '../../tools/PowerShellTool/toolName.js'
-import { parseGitCommitId } from '../../tools/shared/gitOperationTracking.js'
+import type { BashToolInput } from '@claude-code-best/builtin-tools/tools/BashTool/BashTool.js'
+import { startSpeculativeClassifierCheck } from '@claude-code-best/builtin-tools/tools/BashTool/bashPermissions.js'
+import { BASH_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/BashTool/toolName.js'
+import { FILE_EDIT_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/FileEditTool/constants.js'
+import { FILE_READ_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/FileReadTool/prompt.js'
+import { FILE_WRITE_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/FileWriteTool/prompt.js'
+import { NOTEBOOK_EDIT_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/NotebookEditTool/constants.js'
+import { POWERSHELL_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/PowerShellTool/toolName.js'
+import { parseGitCommitId } from '@claude-code-best/builtin-tools/tools/shared/gitOperationTracking.js'
 import {
   isDeferredTool,
-  TOOL_SEARCH_TOOL_NAME,
-} from '../../tools/ToolSearchTool/prompt.js'
+  SEARCH_EXTRA_TOOLS_TOOL_NAME,
+} from '@claude-code-best/builtin-tools/tools/SearchExtraToolsTool/prompt.js'
 import { getAllBaseTools } from '../../tools.js'
 import type { HookProgress } from '../../types/hooks.js'
 import { recordToolObservation } from '../langfuse/index.js'
@@ -109,9 +109,9 @@ import {
 } from '../../utils/toolResultStorage.js'
 import {
   extractDiscoveredToolNames,
-  isToolSearchEnabledOptimistic,
-  isToolSearchToolAvailable,
-} from '../../utils/toolSearch.js'
+  isSearchExtraToolsEnabledOptimistic,
+  isSearchExtraToolsToolAvailable,
+} from '../../utils/searchExtraTools.js'
 import {
   McpAuthError,
   McpToolCallError_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -130,6 +130,34 @@ import {
   runPostToolUseHooks,
   runPreToolUseHooks,
 } from './toolHooks.js'
+import { isSkillLearningEnabled } from '../skillLearning/featureCheck.js'
+
+// Cached import promise for the skill-learning wrapper — paid once, not per call.
+let _skillLearningWrapperCache:
+  | Promise<{
+      runToolCallWithSkillLearningHooks: <T>(
+        toolName: string,
+        input: unknown,
+        callContext: { sessionId?: string; turn?: number },
+        invoke: () => Promise<T>,
+      ) => Promise<T>
+    }>
+  | undefined
+
+function getSkillLearningWrapper() {
+  if (!_skillLearningWrapperCache) {
+    _skillLearningWrapperCache = import(
+      '../skillLearning/toolEventObserver.js'
+    ).catch(err => {
+      // Clear the cache on rejection so the next tool call can retry the
+      // import instead of reusing the same rejected promise forever (which
+      // would break every flag-on tool call in the session).
+      _skillLearningWrapperCache = undefined
+      throw err
+    })
+  }
+  return _skillLearningWrapperCache
+}
 
 /** Minimum total hook duration (ms) to show inline timing summary */
 export const HOOK_TIMING_DISPLAY_THRESHOLD_MS = 500
@@ -581,12 +609,12 @@ export function buildSchemaNotSentHint(
   messages: Message[],
   tools: readonly { name: string }[],
 ): string | null {
-  // Optimistic gating — reconstructing claude.ts's full useToolSearch
-  // computation is fragile. These two gates prevent pointing at a ToolSearch
+  // Optimistic gating — reconstructing claude.ts's full useSearchExtraTools
+  // computation is fragile. These two gates prevent pointing at a SearchExtraTools
   // that isn't callable; occasional misfires (Haiku, tst-auto below threshold)
   // cost one extra round-trip on an already-failing path.
-  if (!isToolSearchEnabledOptimistic()) return null
-  if (!isToolSearchToolAvailable(tools)) return null
+  if (!isSearchExtraToolsEnabledOptimistic()) return null
+  if (!isSearchExtraToolsToolAvailable(tools)) return null
   if (!isDeferredTool(tool)) return null
   const discovered = extractDiscoveredToolNames(messages)
   if (discovered.has(tool.name)) return null
@@ -598,14 +626,14 @@ export function buildSchemaNotSentHint(
   return (
     `\n\nTool "${toolDisplayName}" is deferred-loading and needs to be discovered before use.\n` +
     `When using OpenAI-compatible models (DeepSeek, Ollama, etc.), follow these steps:\n` +
-    `1. First discover the tool with ToolSearch: ${TOOL_SEARCH_TOOL_NAME}("select:${tool.name}")\n` +
+    `1. First discover the tool with SearchExtraTools: ${SEARCH_EXTRA_TOOLS_TOOL_NAME}("select:${tool.name}")\n` +
     `2. Then call ${toolDisplayName} tool\n` +
     `\nExample:\n` +
-    `${TOOL_SEARCH_TOOL_NAME}("select:${tool.name}") → ${toolDisplayName}({ ... })\n` +
+    `${SEARCH_EXTRA_TOOLS_TOOL_NAME}("select:${tool.name}") → ${toolDisplayName}({ ... })\n` +
     `\nImportant notes:\n` +
     `• Use camelCase parameter names (e.g., taskId), not snake_case (task_id)\n` +
     `• All task tools (TaskGet, TaskCreate, TaskUpdate, TaskList) need to be discovered first\n` +
-    `• You can discover them all at once: ${TOOL_SEARCH_TOOL_NAME}("select:TaskGet,TaskCreate,TaskUpdate,TaskList")\n` +
+    `• You can discover them all at once: ${SEARCH_EXTRA_TOOLS_TOOL_NAME}("select:TaskGet,TaskCreate,TaskUpdate,TaskList")\n` +
     `\nSee docs/openai-task-tools.md for detailed guide.`
   )
 }
@@ -1218,22 +1246,44 @@ async function checkPermissionsAndCallTool(
     callInput = processedInput
   }
   try {
-    const result = await tool.call(
-      callInput,
-      {
-        ...toolUseContext,
-        toolUseId: toolUseID,
-        userModified: permissionDecision.userModified ?? false,
-      },
-      canUseTool,
-      assistantMessage,
-      progress => {
-        onToolProgress({
-          toolUseID: progress.toolUseID,
-          data: progress.data,
-        })
-      },
-    )
+    // AC1 parity: wrap the single canonical tool.call site with deterministic
+    // tool-event observation hooks (codex review follow-up). Hooks are
+    // fire-and-forget inside the wrapper; tool execution is never blocked or
+    // altered by skill-learning plumbing.
+    //
+    // The invoke lambda is shared between the flag-on (wrapper) and flag-off
+    // (direct) paths so that post-call processing is never duplicated.
+    const invokeToolCall = () =>
+      tool.call(
+        callInput,
+        {
+          ...toolUseContext,
+          toolUseId: toolUseID,
+          userModified: permissionDecision.userModified ?? false,
+        },
+        canUseTool,
+        assistantMessage,
+        progress => {
+          onToolProgress({
+            toolUseID: progress.toolUseID,
+            data: progress.data,
+          })
+        },
+      )
+    // Fast-path: skip wrapper entirely when skill-learning is disabled to
+    // avoid even the cached-import resolution on the hot path.
+    const result = isSkillLearningEnabled()
+      ? await (async () => {
+          const { runToolCallWithSkillLearningHooks } =
+            await getSkillLearningWrapper()
+          return runToolCallWithSkillLearningHooks(
+            tool.name,
+            callInput,
+            { sessionId: (toolUseContext as { sessionId?: string }).sessionId },
+            invokeToolCall,
+          )
+        })()
+      : await invokeToolCall()
     const durationMs = Date.now() - startTime
     addToToolDuration(durationMs)
 
@@ -1309,6 +1359,7 @@ async function checkPermissionsAndCallTool(
       output: toolResultStr,
       startTime: new Date(startTime),
       isError: false,
+      parentBatchSpan: toolUseContext.langfuseBatchSpan,
     })
 
     // Map the tool result to API format once and cache it. This block is reused
@@ -1628,6 +1679,7 @@ async function checkPermissionsAndCallTool(
       output: errorMessage(error),
       startTime: new Date(startTime),
       isError: true,
+      parentBatchSpan: toolUseContext.langfuseBatchSpan,
     })
 
     // Handle MCP auth errors by updating the client status to 'needs-auth'

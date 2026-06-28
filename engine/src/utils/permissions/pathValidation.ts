@@ -3,6 +3,7 @@ import { homedir } from 'os'
 import { dirname, isAbsolute, resolve } from 'path'
 import type { ToolPermissionContext } from '../../Tool.js'
 import { getPlatform } from '../../utils/platform.js'
+import { posixPathToWindowsPath } from '../windowsPaths.js'
 import {
   getFsImplementation,
   getPathsForPermissionCheck,
@@ -35,6 +36,12 @@ export type ResolvedPathCheckResult = PathCheckResult & {
   resolvedPath: string
 }
 
+/**
+ * Format a list of working directories for inclusion in permission-prompt
+ * messages. When the list is short (≤ {@link MAX_DIRS_TO_LIST}) all
+ * directories are listed; when longer, a truncated form is shown with
+ * the remaining count.
+ */
 export function formatDirectoryList(directories: string[]): string {
   const dirCount = directories.length
 
@@ -112,8 +119,12 @@ export function isPathInSandboxWriteAllowlist(resolvedPath: string): boolean {
   // their resolution to avoid N × config.length redundant syscalls per
   // command with N write targets (matching getResolvedWorkingDirPaths).
   const pathsToCheck = getPathsForPermissionCheck(resolvedPath)
-  const resolvedAllow = allowOnly.flatMap(getResolvedSandboxConfigPath) as string[]
-  const resolvedDeny = denyWithinAllow.flatMap(getResolvedSandboxConfigPath) as string[]
+  const resolvedAllow = allowOnly.flatMap(
+    getResolvedSandboxConfigPath,
+  ) as string[]
+  const resolvedDeny = denyWithinAllow.flatMap(
+    getResolvedSandboxConfigPath,
+  ) as string[]
   return pathsToCheck.every(p => {
     for (const denyPath of resolvedDeny) {
       if (pathInWorkingPath(p, denyPath)) return false
@@ -184,7 +195,11 @@ export function isPathAllowed(
       precomputedPathsToCheck,
     )
     if (!safetyCheck.safe) {
-      const failedCheck = safetyCheck as { safe: false; message: string; classifierApprovable: boolean }
+      const failedCheck = safetyCheck as {
+        safe: false
+        message: string
+        classifierApprovable: boolean
+      }
       return {
         allowed: false,
         decisionReason: {
@@ -464,9 +479,27 @@ export function validatePath(
   }
 
   // Resolve path
-  const absolutePath = isAbsolute(cleanPath)
-    ? cleanPath
-    : resolve(cwd, cleanPath)
+  // SECURITY: On Windows, normalize MinGW-style absolute paths
+  // (`/c/Users/foo`, `/cygdrive/c/Users/foo`) to Windows paths
+  // (`C:\Users\foo`) BEFORE the isAbsolute/resolve step below.
+  //
+  // Without this, `path.isAbsolute('/c/Users/foo')` returns true on
+  // Windows (interpreted as a drive-relative absolute path) and
+  // `path.resolve(cwd, '/c/Users/foo')` produces `<currentDrive>:\c\Users\foo`
+  // — a completely different filesystem location from what Git Bash
+  // actually writes to (`C:\Users\foo`). The validator would compare
+  // the wrong path against the allowed-directories list, enabling a
+  // sandbox escape where `/c/Users/foo/sensitive.txt` passes validation
+  // when `C:\Users\foo\sensitive.txt` is not in any allowed dir.
+  //
+  // `posixPathToWindowsPath` is a no-op for already-Windows paths and
+  // for relative paths (it just flips slashes), so it's safe to apply
+  // unconditionally on Windows.
+  const pathForResolve =
+    getPlatform() === 'windows' ? posixPathToWindowsPath(cleanPath) : cleanPath
+  const absolutePath = isAbsolute(pathForResolve)
+    ? pathForResolve
+    : resolve(cwd, pathForResolve)
   const { resolvedPath, isCanonical } = safeResolvePath(
     getFsImplementation(),
     absolutePath,

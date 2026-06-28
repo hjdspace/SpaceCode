@@ -12,6 +12,8 @@ import type { AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from 
 import { logEvent } from './analytics/index.js'
 import { getAPIMetadata } from './api/claude.js'
 import { getAnthropicClient } from './api/client.js'
+import { anthropicAdapter } from './providerUsage/adapters/anthropic.js'
+import { updateProviderBuckets } from './providerUsage/store.js'
 import {
   processRateLimitHeaders,
   shouldProcessRateLimits,
@@ -74,18 +76,6 @@ const EARLY_WARNING_CLAIM_MAP: Record<string, RateLimitType> = {
   '5h': 'five_hour',
   '7d': 'seven_day',
   overage: 'overage',
-}
-
-const RATE_LIMIT_DISPLAY_NAMES: Record<RateLimitType, string> = {
-  five_hour: 'session limit',
-  seven_day: 'weekly limit',
-  seven_day_opus: 'Opus limit',
-  seven_day_sonnet: 'Sonnet limit',
-  overage: 'extra usage limit',
-}
-
-export function getRateLimitDisplayName(type: RateLimitType): string {
-  return RATE_LIMIT_DISPLAY_NAMES[type] || type
 }
 
 /**
@@ -205,7 +195,6 @@ async function makeTestQuery() {
   })
   const messages: MessageParam[] = [{ role: 'user', content: 'quota' }]
   const betas = getModelBetas(model)
-  // biome-ignore lint/plugin: quota check needs raw response access via asResponse()
   return anthropic.beta.messages
     .create({
       model,
@@ -460,6 +449,7 @@ export function extractQuotaStatusFromHeaders(
   if (!shouldProcessRateLimits(isSubscriber)) {
     // If we have any rate limit state, clear it
     rawUtilization = {}
+    updateProviderBuckets('anthropic', [])
     if (currentLimits.status !== 'allowed' || currentLimits.resetsAt) {
       const defaultLimits: ClaudeAILimits = {
         status: 'allowed',
@@ -474,6 +464,10 @@ export function extractQuotaStatusFromHeaders(
   // Process headers (applies mocks from /mock-limits command if active)
   const headersToUse = processRateLimitHeaders(headers)
   rawUtilization = extractRawUtilization(headersToUse)
+  updateProviderBuckets(
+    'anthropic',
+    anthropicAdapter.parseHeaders(headersToUse),
+  )
   const newLimits = computeNewLimitsFromHeaders(headersToUse)
 
   // Cache extra usage status (persists across sessions)
@@ -498,6 +492,10 @@ export function extractQuotaStatusFromError(error: APIError): void {
       // Process headers (applies mocks from /mock-limits command if active)
       const headersToUse = processRateLimitHeaders(error.headers)
       rawUtilization = extractRawUtilization(headersToUse)
+      updateProviderBuckets(
+        'anthropic',
+        anthropicAdapter.parseHeaders(headersToUse),
+      )
       newLimits = computeNewLimitsFromHeaders(headersToUse)
 
       // Cache extra usage status (persists across sessions)

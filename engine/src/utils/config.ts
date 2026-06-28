@@ -222,6 +222,12 @@ export type GlobalConfig = {
     rejected?: string[]
   }
   primaryApiKey?: string // Primary API key for the user when no environment variable is set, set via oauth (TODO: rename)
+  /**
+   * Workspace API key saved via /login UI (sk-ant-api03-*).
+   * Stored in plaintext — file should be gitignored and chmod 600.
+   * ANTHROPIC_API_KEY env var takes precedence when both are present.
+   */
+  workspaceApiKey?: string
   hasAcknowledgedCostThreshold?: boolean
   hasSeenUndercoverAutoNotice?: boolean // ant-only: whether the one-time auto-undercover explainer has been shown
   hasSeenUltraplanTerms?: boolean // ant-only: whether the one-time CCR terms notice has been shown in the ultraplan launch dialog
@@ -333,6 +339,9 @@ export type GlobalConfig = {
   >
   overageCreditUpsellSeenCount?: number // Number of times the overage credit upsell has been shown
   hasVisitedExtraUsage?: boolean // Whether the user has visited /extra-usage — hides credit upsells
+
+  // Display language preference
+  preferredLanguage?: 'auto' | 'en' | 'zh' // auto = follow system locale, en = English, zh = 中文
 
   // Voice mode notice tracking
   voiceNoticeSeenCount?: number // Number of times the voice-mode-available notice has been shown
@@ -522,8 +531,8 @@ export type GlobalConfig = {
   // Permission explainer configuration
   permissionExplainerEnabled?: boolean // Enable Haiku-generated explanations for permission requests (default: true)
 
-  // Teammate spawn mode: 'auto' | 'tmux' | 'in-process'
-  teammateMode?: 'auto' | 'tmux' | 'in-process' // How to spawn teammates (default: 'auto')
+  // Teammate spawn mode: 'auto' | 'tmux' | 'windows-terminal' | 'in-process'
+  teammateMode?: 'auto' | 'tmux' | 'windows-terminal' | 'in-process' // How to spawn teammates (default: 'auto')
   // Model for new teammates when the tool call doesn't pass one.
   // undefined = hardcoded Opus (backward-compat); null = leader's model; string = model alias/ID.
   teammateDefaultModel?: string | null
@@ -555,7 +564,6 @@ export type GlobalConfig = {
 
   // Speculation configuration (ant-only)
   speculationEnabled?: boolean // Whether speculation is enabled (default: true)
-
 
   // Client data for server-side experiments (fetched during bootstrap).
   clientDataCache?: Record<string, unknown> | null

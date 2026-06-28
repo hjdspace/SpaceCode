@@ -8,7 +8,7 @@ import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
 } from '../../services/analytics/index.js'
-import { getSSLErrorHint } from '../../services/api/errorUtils.js'
+import { getSSLErrorHint } from '@ant/model-provider'
 import { fetchAndStoreClaudeCodeFirstTokenDate } from '../../services/api/firstTokenDate.js'
 import {
   createAndStoreApiKey,
@@ -159,7 +159,9 @@ export async function authLogin({
 
       const orgResult = await validateForceLoginOrg()
       if (!orgResult.valid) {
-        process.stderr.write((orgResult as { valid: false; message: string }).message + '\n')
+        process.stderr.write(
+          (orgResult as { valid: false; message: string }).message + '\n',
+        )
         process.exit(1)
       }
 
@@ -209,7 +211,9 @@ export async function authLogin({
 
     const orgResult = await validateForceLoginOrg()
     if (!orgResult.valid) {
-      process.stderr.write((orgResult as { valid: false; message: string }).message + '\n')
+      process.stderr.write(
+        (orgResult as { valid: false; message: string }).message + '\n',
+      )
       process.exit(1)
     }
 

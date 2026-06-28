@@ -1,12 +1,12 @@
 node_modules
 .DS_Store
 dist
-dist-desktop
 coverage
 .env
 *.log
 .idea
-.vscode
+.vscode/*
+!.vscode/extensions.json
 *.suo
 *.lock
 src/utils/vendor/
@@ -14,12 +14,16 @@ src/utils/vendor/
 # AI tool runtime directories
 .agents/
 .claude/
-.codex/
 .omx/
-
+.docs/task/
 # Binary / screenshot files (root only)
 /*.png
 *.bmp
+
+# Internal system prompt documents
+Claude-Opus-*.txt
+Claude-Sonnet-*.txt
+Claude-Haiku-*.txt
 
 # Agent / tool state dirs
 .swarm/
@@ -31,3 +35,24 @@ __pycache__/
 logs
 
 data
+.omc
+.codex/*
+!.codex/agents/
+!.codex/agents/**
+!.codex/skills/
+!.codex/skills/**
+.codex/skills/.system/**
+!.codex/prompts/
+!.codex/prompts/**
+teach-me
+credentials.json
+
+# Session-scoped progress / state files written by agents and skills
+# (autofix-pr persistence, test-progress checkpoint, recovery notes).
+# Transient, never meant to enter the repo.
+.claude-impl-state.md
+.claude-progress.md
+.claude-recovery.md
+.test-progress.md
+.squash-tmp/
+.git.*-backup

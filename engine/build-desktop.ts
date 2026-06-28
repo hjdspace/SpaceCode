@@ -11,9 +11,10 @@
  *
  * Usage: bun run build-desktop.ts
  */
+/// <reference types="bun" />
 import { cp, mkdir } from 'fs/promises'
 import { join } from 'path'
-import { getMacroDefines } from './scripts/defines.ts'
+import { getMacroDefines, DEFAULT_BUILD_FEATURES } from './scripts/defines.ts'
 
 const outdir = 'dist-desktop'
 
@@ -21,35 +22,8 @@ const outdir = 'dist-desktop'
 const { rmSync, existsSync } = await import('fs')
 rmSync(outdir, { recursive: true, force: true })
 
-// Default features (same as build.ts)
-const DEFAULT_BUILD_FEATURES = [
-  'AGENT_TRIGGERS_REMOTE',
-  'CHICAGO_MCP',
-  'VOICE_MODE',
-  'SHOT_STATS',
-  'PROMPT_CACHE_BREAK_DETECTION',
-  'TOKEN_BUDGET',
-  'AGENT_TRIGGERS',
-  'ULTRATHINK',
-  'BUILTIN_EXPLORE_PLAN_AGENTS',
-  'LODESTONE',
-  'EXTRACT_MEMORIES',
-  'VERIFICATION_AGENT',
-  'KAIROS_BRIEF',
-  'AWAY_SUMMARY',
-  'ULTRAPLAN',
-  'DAEMON',
-  'WORKFLOW_SCRIPTS',
-  'HISTORY_SNIP',
-  'CONTEXT_COLLAPSE',
-  'MONITOR_TOOL',
-  'FORK_SUBAGENT',
-  'UDS_INBOX',
-  'KAIROS',
-  'COORDINATOR_MODE',
-  'LAN_PIPES',
-  'POOR',
-]
+// Feature flags are now centralized in scripts/defines.ts (same as build.ts).
+// This avoids drift between build.ts and build-desktop.ts.
 
 const envFeatures = Object.keys(process.env)
   .filter(k => k.startsWith('FEATURE_'))
@@ -63,7 +37,13 @@ const result = await Bun.build({
   outdir,
   target: 'bun',
   splitting: false,
-  define: getMacroDefines(),
+  define: {
+    ...getMacroDefines(),
+    // React production mode — eliminates _debugStack Error objects
+    // (6,889 objects × ~1.7KB = 12MB in development builds) and removes
+    // prop-type / key warnings not useful in a production CLI tool.
+    'process.env.NODE_ENV': JSON.stringify('production'),
+  },
   features,
 })
 
@@ -95,6 +75,27 @@ for (const file of files) {
   }
 }
 
+// Step 3b: Patch unguarded globalThis.Bun destructuring from third-party deps
+// (e.g. @anthropic-ai/sandbox-runtime) so Node.js doesn't crash at import time.
+// The desktop bundle runs under Node.js (Electron), where globalThis.Bun is undefined.
+let bunPatched = 0
+const BUN_DESTRUCTURE = /var \{([^}]+)\} = globalThis\.Bun;?/g
+const BUN_DESTRUCTURE_SAFE =
+  'var {$1} = typeof globalThis.Bun !== "undefined" ? globalThis.Bun : {};'
+for (const file of files) {
+  if (!file.endsWith('.js')) continue
+  const filePath = join(outdir, file)
+  const content = await readFile(filePath, 'utf-8')
+  if (BUN_DESTRUCTURE.test(content)) {
+    await writeFile(
+      filePath,
+      content.replace(BUN_DESTRUCTURE, BUN_DESTRUCTURE_SAFE),
+    )
+    bunPatched++
+  }
+}
+BUN_DESTRUCTURE.lastIndex = 0
+
 // Step 4: Copy native .node addon files (audio-capture)
 const vendorSrc = 'vendor/audio-capture'
 if (existsSync(vendorSrc)) {
@@ -104,9 +105,11 @@ if (existsSync(vendorSrc)) {
 }
 
 // Step 4b: Copy ripgrep vendor binary.
-// At runtime, engine/src/utils/ripgrep.ts resolves the rg binary relative to
-// its own __dirname. After bundling, __dirname == dist-desktop/, so it looks
-// for dist-desktop/vendor/ripgrep/${arch}-${platform}/rg(.exe).
+// At runtime, engine/src/utils/ripgrep.ts resolves the rg binary via
+// distRoot (from distRoot.ts). distRoot looks for a 'dist' path segment;
+// since our output dir is 'dist-desktop' (not 'dist'), it falls back to
+// __dirname == dist-desktop/, so it looks for
+// dist-desktop/vendor/ripgrep/${arch}-${platform}/rg(.exe).
 //
 // postinstall.cjs (run by `bun install`) downloads the current platform's
 // ripgrep to engine/src/utils/vendor/ripgrep/${arch}-${platform}/. We need
@@ -143,7 +146,7 @@ for (const f of jsFiles) {
 
 console.log(`[desktop-build] Done! Output:`)
 console.log(`  - ${jsFiles.length} JS file(s) in ${outdir}/ (${(totalSize / 1024 / 1024).toFixed(1)} MB)`)
-console.log(`  - Patched ${patched} file(s) for Node.js compat`)
+console.log(`  - Patched ${patched} file(s) for import.meta.require, ${bunPatched} for Bun destructure`)
 console.log(`  - Native vendor addons copied`)
 console.log(``)
 console.log(`[desktop-build] Compared to split build:`)
