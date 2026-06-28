@@ -10,6 +10,7 @@ import { registerAgentsIPCHandlers } from './agentsService'
 import { registerArtifactsIPCHandlers, stopArtifactsWatch } from './artifactsService'
 import { registerCronIPCHandlers } from './cronService'
 import { registerOfficeCliIPCHandlers, cleanupOfficeCli, ensureOfficeCliInstalled } from './officeCliService'
+import { registerCuaDriverIPCHandlers, cleanupCuaDriverMcp } from './cuaDriverService'
 import { registerClaudeCodeIPC, setMainWindow, getPool } from './claudeCodeIPC'
 import { initAutoUpdater, registerAutoUpdaterIPC, destroyAutoUpdater } from './autoUpdaterService'
 import { MobileServer } from './mobileServer'
@@ -635,6 +636,10 @@ info('Startup', 'OfficeCLI IPC handlers registered')
 // Ensure officecli is installed to user PATH (~/.officecli/bin) — non-blocking
 void ensureOfficeCliInstalled()
 
+// Register CuaDriver (Computer Use) IPC handlers
+registerCuaDriverIPCHandlers()
+info('Startup', 'CuaDriver IPC handlers registered')
+
   // Register Claude Code IPC handlers
   registerClaudeCodeIPC()
   info('Startup', 'Claude Code IPC handlers registered')
@@ -742,6 +747,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', async () => {
 info('App', 'App quitting')
 cleanupOfficeCli()
+await cleanupCuaDriverMcp()
 stopArtifactsWatch()
 destroyTray()
 destroyAutoUpdater()

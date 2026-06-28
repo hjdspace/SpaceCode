@@ -595,6 +595,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getActiveMcpNames: () => ipcRenderer.invoke('mcp:getActiveMcpNames'),
   },
 
+  // Computer Use API — cua-driver 二进制管理、健康检查、权限管理
+  computerUse: {
+    /** 获取 cua-driver 完整状态（安装、版本、权限、健康检查） */
+    getStatus: () => ipcRenderer.invoke('cua-driver:status'),
+    /** 安装/升级 cua-driver（从 GitHub 下载最新版） */
+    install: () => ipcRenderer.invoke('cua-driver:install'),
+    /** 运行健康检查（通过 MCP 调用 health_report） */
+    doctor: () => ipcRenderer.invoke('cua-driver:doctor'),
+    /** 查询 macOS TCC 权限状态（辅助功能 + 屏幕录制） */
+    getPermissions: () => ipcRenderer.invoke('cua-driver:permissions:status'),
+    /** 请求 macOS TCC 权限（弹出系统设置） */
+    grantPermissions: () => ipcRenderer.invoke('cua-driver:permissions:grant'),
+    /** 检查 cua-driver 更新 */
+    checkUpdate: () => ipcRenderer.invoke('cua-driver:check-update'),
+    /** 直接调用 cua-driver MCP 工具（高级用途） */
+    callTool: (name: string, args: Record<string, unknown>) =>
+      ipcRenderer.invoke('cua-driver:tool', name, args),
+  },
+
   mobile: {
     startServer: (): Promise<import('./mobileServerTypes').QRCodeData> =>
       ipcRenderer.invoke('mobile:startServer'),

@@ -13,6 +13,7 @@ import { app } from 'electron'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { warn, error as logError } from './logger'
+import { findCuaDriverBinary } from './cuaDriverService'
 
 /** 内置 MCP 服务器的来源标记，与渲染层 BUILTIN_MCP_SOURCE 保持一致 */
 const BUILTIN_SOURCE = 'builtin'
@@ -122,15 +123,12 @@ function toCliMcpServerConfig(server: PersistedMcpServer): McpJsonConfig['mcpSer
  *
  * key = 内置预设 key（与渲染层 BUILTIN_MCP_PRESETS 的 key 对齐），
  * pkgPath = server.js 相对 <resources> 的路径。
+ *
+ * 注意：sc-computer-use 不在此列表中 — cua-driver 是原生 Rust 二进制，
+ * 由 electron/cuaDriverService.ts 的 findCuaDriverBinary() 负责路径解析
+ * （支持 PATH、内置、环境变量三种来源）。
  */
-const BUNDLED_MCP_SERVERS: Record<string, { pkgPath: string }> = {
-  // key 必须与 src/lib/builtinMcp.ts 的 preset key 一致。
-  // 不能用 'computer-use'：那是 Claude Code 引擎保留名，外部 --mcp-config
-  // 命中会直接 exit(1)。详见 builtinMcp.ts 的注释。
-  'sc-computer-use': {
-    pkgPath: join('mcp-vendor', 'node_modules', '@zavora-ai', 'computer-use-mcp', 'dist', 'server.js'),
-  },
-}
+const BUNDLED_MCP_SERVERS: Record<string, { pkgPath: string }> = {}
 
 /**
  * 解析预打包 MCP 服务器的启动命令。
@@ -202,6 +200,17 @@ export function buildEnabledMcpConfig(): McpJsonConfig | null {
         }
       }
       mcpServers[resolvedName] = cliConfig
+
+      // cua-driver 特殊处理：解析实际二进制路径（内置或 PATH）
+      // 覆盖 config.command 为绝对路径，确保 CLI 能找到二进制。
+      // 如果找不到二进制（未安装），保留原始 'cua-driver' 命令名 —
+      // CLI 启动时该 MCP 服务器会失败，但不会影响其他服务器。
+      if (resolvedName === 'sc-computer-use' && cliConfig.type === 'stdio') {
+        const driverPath = findCuaDriverBinary()
+        if (driverPath) {
+          cliConfig.command = driverPath
+        }
+      }
     }
   }
 

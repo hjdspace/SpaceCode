@@ -1,5 +1,21 @@
 const electronAPI = typeof window !== 'undefined' ? (window as any).electronAPI : null
 
+import type {
+  CuaDriverStatus,
+  CuaDriverUpdateInfo,
+  CuaDriverPermissions,
+  HealthCheck,
+  McpToolResult,
+} from '@/types/computerUse'
+
+export type {
+  CuaDriverStatus,
+  CuaDriverUpdateInfo,
+  CuaDriverPermissions,
+  HealthCheck,
+  McpToolResult,
+} from '@/types/computerUse'
+
 export interface FileEntry {
   name: string
   path: string
@@ -918,6 +934,44 @@ export const api = {
       electronAPI?.mcp?.onInstallProgress?.(callback) || (() => {}),
     getActiveMcpNames: (): Promise<string[]> =>
       electronAPI?.mcp?.getActiveMcpNames?.() || Promise.resolve([]),
+  },
+
+  // Computer Use API — cua-driver 管理
+  computerUse: {
+    getStatus: (): Promise<CuaDriverStatus> =>
+      electronAPI?.computerUse?.getStatus() ||
+      Promise.resolve({
+        platform: '',
+        platformSupported: false,
+        installed: false,
+        binaryPath: null,
+        version: null,
+        source: null,
+        ready: null,
+        canGrant: false,
+        checks: [],
+        error: 'Computer Use API not available',
+        accessibility: null,
+        screenRecording: null,
+      }),
+    install: (): Promise<{ success: boolean; error?: string }> =>
+      electronAPI?.computerUse?.install() ||
+      Promise.resolve({ success: false, error: 'Computer Use API not available' }),
+    doctor: (): Promise<{ ok: boolean; checks: HealthCheck[] }> =>
+      electronAPI?.computerUse?.doctor() ||
+      Promise.resolve({ ok: false, checks: [] }),
+    getPermissions: (): Promise<CuaDriverPermissions> =>
+      electronAPI?.computerUse?.getPermissions() ||
+      Promise.resolve({ accessibility: null, screenRecording: null }),
+    grantPermissions: (): Promise<{ success: boolean; error?: string }> =>
+      electronAPI?.computerUse?.grantPermissions() ||
+      Promise.resolve({ success: false, error: 'Computer Use API not available' }),
+    checkUpdate: (): Promise<CuaDriverUpdateInfo> =>
+      electronAPI?.computerUse?.checkUpdate() ||
+      Promise.resolve({ updateAvailable: false, latestVersion: null, currentVersion: null }),
+    callTool: (name: string, args: Record<string, unknown>): Promise<McpToolResult> =>
+      electronAPI?.computerUse?.callTool(name, args) ||
+      Promise.resolve({ data: null, images: [], imageMimeTypes: [], structuredContent: null, isError: true }),
   },
 
   // Skills API

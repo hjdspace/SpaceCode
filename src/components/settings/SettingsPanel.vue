@@ -82,6 +82,9 @@
             <HookSettings
               v-else-if="activeTab === 'hooks'"
             />
+            <ComputerUseSettings
+              v-else-if="activeTab === 'computer-use'"
+            />
           </KeepAlive>
         </div>
       </main>
@@ -93,7 +96,7 @@
 import { ref, computed, watch, defineAsyncComponent } from 'vue'
 import {
   ArrowLeft,
-  Settings, Boxes, Palette, Wrench, Keyboard, Bot, BarChart3, Zap
+  Settings, Boxes, Palette, Wrench, Keyboard, Bot, BarChart3, Zap, Monitor
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -107,6 +110,7 @@ const ToolsSettings = defineAsyncComponent(() => import('./ToolsSettings.vue'))
 const ShortcutsSettings = defineAsyncComponent(() => import('./ShortcutsSettings.vue'))
 const TokenUsageSettings = defineAsyncComponent(() => import('./TokenUsageSettings.vue'))
 const HookSettings = defineAsyncComponent(() => import('./HookSettings.vue'))
+const ComputerUseSettings = defineAsyncComponent(() => import('./ComputerUseSettings.vue'))
 
 const appStore = useAppStore()
 const settingsStore = useSettingsStore()
@@ -117,6 +121,7 @@ const settingMenuItems = computed(() => [
   { id: 'model', label: t('settings.modelSettings'), icon: Bot },
   { id: 'mcp', label: t('settings.mcpServers'), icon: Boxes },
   { id: 'tools', label: t('settings.tools'), icon: Wrench },
+  { id: 'computer-use', label: t('settings.computerUse'), icon: Monitor },
 ])
 
 const personalMenuItems = computed(() => [

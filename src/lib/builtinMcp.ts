@@ -90,18 +90,26 @@ export const BUILTIN_MCP_PRESETS: BuiltinMcpPreset[] = [
     // （COMPUTER_USE_MCP_SERVER_NAME，由 CHICAGO_MCP feature 控制），外部
     // --mcp-config 一旦命中会直接 process.exit(1)。详见 engine/src/main.tsx
     // 的 reservedNameError 检查。这里用 'sc-computer-use' 前缀避免冲突。
+    //
+    // 后端：cua-driver（Rust 原生二进制，MCP over stdio）。
+    // 特性：后台操作 — 不抢占用户光标、不偷键盘焦点、不切换虚拟桌面。
+    // 支持 macOS（SkyLight SPI）、Windows（UIAutomation + SendInput）、
+    // Linux（AT-SPI + XTest）。
+    // 二进制管理见 electron/cuaDriverService.ts 和设置面板 Computer Use tab。
     key: 'sc-computer-use',
-    name: 'Computer Use MCP',
+    name: 'Computer Use (cua-driver)',
     description:
-      '让模型直接控制桌面：截图、鼠标、键盘、剪贴板、窗口与应用管理。基于 Rust 原生模块，支持 Windows/macOS/Linux，适合操作原生应用、安装器、模态对话框等 UI-only 场景。',
-    homepage: 'https://www.npmjs.com/package/@zavora-ai/computer-use-mcp',
-    requirements: '已随安装包内置，无需额外下载',
-    bundled: true,
+      '基于 cua-driver 的后台桌面控制：截图、鼠标、键盘、滚动、拖拽、窗口/应用管理 — 不抢占用户光标和键盘焦点。支持 macOS/Windows/Linux，可操作后台窗口和原生 UI。',
+    homepage: 'https://github.com/trycua/cua',
+    requirements: '需要安装 cua-driver 二进制（可在 Computer Use 设置面板中一键安装或使用内置版本）',
+    dependency: {
+      command: 'cua-driver',
+      installerDocs: 'https://cua.ai/docs/cua-driver',
+    },
     config: {
       type: 'stdio',
-      // 回退配置：当预打包路径不存在（开发模式未运行 copy-mcp-vendor）时使用
-      command: 'npx',
-      args: ['--yes', '--prefer-offline', '@zavora-ai/computer-use-mcp'],
+      command: 'cua-driver',
+      args: ['mcp'],
       env: {},
     },
   },
