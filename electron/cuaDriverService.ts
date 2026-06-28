@@ -65,9 +65,9 @@ export function findCuaDriverBinary(): string | null {
 /** 在系统 PATH 中查找可执行文件 */
 function findInPath(binName: string): string | null {
   try {
-    const { execSync } = require('child_process')
-    const cmd = process.platform === 'win32' ? `where ${binName}` : `which ${binName}`
-    const result = execSync(cmd, { encoding: 'utf-8', timeout: 5_000, stdio: ['pipe', 'pipe', 'pipe'] })
+    const { execFileSync } = require('child_process')
+    const cmd = process.platform === 'win32' ? 'where' : 'which'
+    const result = execFileSync(cmd, [binName], { encoding: 'utf-8', timeout: 5_000, stdio: ['pipe', 'pipe', 'pipe'] })
     const path = result.trim().split('\n')[0].trim()
     if (path && existsSync(path)) return path
   } catch {
