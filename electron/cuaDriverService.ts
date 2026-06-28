@@ -131,11 +131,15 @@ function findInWellKnownLocations(): string | null {
 function findBundledBinary(): string | null {
   const binName = process.platform === 'win32' ? 'cua-driver.exe' : 'cua-driver'
   const candidates = app.isPackaged
-    ? [join(process.resourcesPath, 'cua-driver', binName)]
+    ? [
+        join(process.resourcesPath, 'cua-driver', binName),
+        join(process.resourcesPath, 'cua-driver', 'bin', binName),
+      ]
     : [
         join(__dirname, '..', 'cua-driver', binName),
         join(__dirname, '..', '..', 'cua-driver', binName),
         join(__dirname, '..', '..', 'resources', 'cua-driver', binName),
+        join(__dirname, '..', '..', 'resources', 'cua-driver', 'bin', binName),
       ]
   for (const path of candidates) {
     if (existsSync(path)) return path
