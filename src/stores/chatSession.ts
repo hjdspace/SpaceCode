@@ -15,7 +15,6 @@ import {
   loadProjectsFromStorage,
   saveProjectsToStorage,
   setPersistenceLogger,
-  stripLargeAttachmentData,
 } from '@/services/sessionPersistence'
 import {
   getRawTeammateName,
@@ -33,6 +32,18 @@ import {
 } from '@/services/teamTranscriptService'
 
 const taskManager = useTaskManager()
+
+// 单会话在内存中保留的最大消息数。
+// 长时间运行的 agent 任务会不断追加消息（每轮 LLM 调用 + 工具调用 + 工具结果），
+// 没有上限时 session.messages 会无限增长，导致响应式系统遍历开销增大、
+// saveToStorage 的 JSON.stringify 分配超大字符串触发 V8 OOM。
+// 引擎自身持有完整对话历史，前端仅保留最近消息用于 UI 展示。
+const MAX_MESSAGES_PER_SESSION = 500
+
+// 从 JSONL 恢复历史时，工具输出的最大长度。
+// 与 chatStream.ts 的 MAX_INMEMORY_TOOL_OUTPUT 保持一致，
+// 防止超长会话恢复时将数十 MB 的工具输出加载到内存。
+const MAX_INMEMORY_TOOL_OUTPUT_HYDRATE = 30_000
 
 // ============================================================
 // Renderer Logger
@@ -140,6 +151,15 @@ async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
         ...msg,
         id: msg.id || crypto.randomUUID(),
         timestamp: Date.now(),
+        // 截断从 JSONL 加载的历史工具输出，与流式期间 MAX_INMEMORY_TOOL_OUTPUT 保持一致
+        ...(msg.toolCalls?.length ? {
+          toolCalls: msg.toolCalls.map(tc => ({
+            ...tc,
+            output: typeof tc.output === 'string' && tc.output.length > MAX_INMEMORY_TOOL_OUTPUT_HYDRATE
+              ? tc.output.slice(0, MAX_INMEMORY_TOOL_OUTPUT_HYDRATE) + '\n\n[Output truncated to prevent memory overflow]'
+              : tc.output,
+          }))
+        } : {}),
       })) as Message[]
 
       session.teamContext = undefined
@@ -799,6 +819,14 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       } else {
         session.messages.push(newMessage)
       }
+
+      // 限制单会话内存中的消息数量，防止长时间运行任务导致消息无限堆积 → OOM
+      // 从头部移除最旧的消息（保留最近的消息，确保 retryLastMessage 能找到最后一条用户消息）
+      if (session.messages.length > MAX_MESSAGES_PER_SESSION) {
+        const removeCount = session.messages.length - MAX_MESSAGES_PER_SESSION
+        session.messages.splice(0, removeCount)
+      }
+
       session.updatedAt = Date.now()
       session.lastActivityAt = Date.now()
 

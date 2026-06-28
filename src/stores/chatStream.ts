@@ -28,6 +28,14 @@ const INITIAL_RETRY_DELAY_MS = 2_000                  // 首次退避 2s
 const MAX_RETRY_DELAY_MS = 60_000                     // 最大退避 60s
 const RETRY_JITTER_MS = 1_000                         // 随机抖动上限
 
+// ── 内存防护配置 ──
+// 工具输出在内存中的最大长度（字符数）。
+// 长时间运行的 agent 任务会产生大量工具调用，单个工具输出（如 Read 大文件、Bash 长输出）
+// 可能高达数百 KB。这些输出完整保存在响应式 session.messages 中，导致内存持续增长，
+// 最终 saveToStorage 的 JSON.stringify 会尝试分配超大字符串，触发 V8 OOM。
+// 引擎自身持有完整的对话上下文，前端仅用于 UI 展示，截断到 30KB 足够用户查看。
+const MAX_INMEMORY_TOOL_OUTPUT = 30_000
+
 // 单个会话当前进行中的 turn 状态。turnStates 中无此 sessionId 条目 === 该会话 idle。
 interface TurnState {
   assistantMessageId: string
@@ -589,7 +597,11 @@ export const useChatStreamStore = defineStore('chatStream', () => {
       if (msg?.toolCalls) {
         const resultToolUseId = toolResult.tool_use_id || toolResult.tool_result?.tool_use_id
         const rawResultOutput = toolResult.output ?? toolResult.content ?? toolResult.tool_result?.output ?? toolResult.tool_result?.content
-        const resultOutput = typeof rawResultOutput === 'string' ? rawResultOutput : JSON.stringify(rawResultOutput)
+        let resultOutput = typeof rawResultOutput === 'string' ? rawResultOutput : JSON.stringify(rawResultOutput)
+        // 截断过长的工具输出，防止内存累积导致 OOM
+        if (resultOutput.length > MAX_INMEMORY_TOOL_OUTPUT) {
+          resultOutput = resultOutput.slice(0, MAX_INMEMORY_TOOL_OUTPUT) + '\n\n[Output truncated to prevent memory overflow]'
+        }
         const resultIsError = toolResult.is_error || toolResult.tool_result?.is_error
 
         sessionStore.updateTaskStateFromToolResult(msg.toolCalls, resultToolUseId, resultOutput)
@@ -661,11 +673,16 @@ export const useChatStreamStore = defineStore('chatStream', () => {
           if (msg?.toolCalls) {
             const toolCallIndex = msg.toolCalls.findIndex(tc => tc.id === toolResult.tool_use_id)
             if (toolCallIndex >= 0) {
+              const rawUserToolOutput = typeof toolResult.content === 'string' ? toolResult.content : JSON.stringify(toolResult.content)
+              // 截断过长的工具输出，防止内存累积导致 OOM
+              const truncatedUserToolOutput = rawUserToolOutput.length > MAX_INMEMORY_TOOL_OUTPUT
+                ? rawUserToolOutput.slice(0, MAX_INMEMORY_TOOL_OUTPUT) + '\n\n[Output truncated to prevent memory overflow]'
+                : rawUserToolOutput
               const updatedToolCalls = [...msg.toolCalls]
               updatedToolCalls[toolCallIndex] = {
                 ...updatedToolCalls[toolCallIndex],
                 status: toolResult.is_error ? 'error' : 'completed',
-                output: typeof toolResult.content === 'string' ? toolResult.content : JSON.stringify(toolResult.content),
+                output: truncatedUserToolOutput,
                 endTime: Date.now()
               }
               msg.toolCalls = updatedToolCalls

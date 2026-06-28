@@ -249,25 +249,90 @@ export function buildStoragePayload(sessions: Session[]): { payload: string; com
   return { payload, compressed: payload !== jsonData }
 }
 
+/**
+ * 单次遍历完成：剥离大附件 + 截断 payload。
+ *
+ * 原实现先调用 stripLargeAttachmentData 再调用 stripPersistedPayload，
+ * 两次 .map() 各自创建完整的 sessions 深拷贝。长时间运行的任务中
+ * sessions 可能包含数十 MB 的工具输出，两份深拷贝 + JSON.stringify
+ * + compressData 同时驻留内存，峰值达 4× 原始数据大小，直接触发
+ * V8 "Oilpan: Large allocation" OOM。
+ *
+ * 合并为单次遍历后，截断在拷贝时同步完成，拷贝产物从一开始就是小对象，
+ * 峰值内存从 ~4× 降至 ~2×（原始 + 拷贝）。
+ */
 export function prepareSessionsForStorage(
   sessions: Session[],
   aggressive = false,
 ): Session[] {
-  let prepared = stripLargeAttachmentData(sessions)
-  prepared = stripPersistedPayload(
-    prepared,
-    aggressive
-      ? {
-          maxContent: 3_000,
-          maxToolOutput: 1_500,
-          maxReasoning: 800,
-          maxTimelineContent: 400,
-        }
-      : undefined,
-  )
+  const maxContent = aggressive ? 3_000 : MESSAGE_CONTENT_PERSIST_LIMIT
+  const maxToolOutput = aggressive ? 1_500 : TOOL_OUTPUT_PERSIST_LIMIT
+  const maxReasoning = aggressive ? 800 : REASONING_PERSIST_LIMIT
+  const maxTimelineContent = aggressive ? 400 : TIMELINE_CONTENT_PERSIST_LIMIT
+
+  const truncateText = (text: string, limit: number, suffix: string) =>
+    text.length > limit ? text.slice(0, limit) + suffix : text
+
+  const prepared = sessions.map(session => ({
+    ...session,
+    messages: session.messages.map(msg => {
+      const next: any = { ...msg }
+
+      // ── 剥离大附件 base64（原 stripLargeAttachmentData 逻辑）──
+      const hasImages = !!next.imageAttachments?.length
+      const hasAttImages = Array.isArray(next.attachments) && next.attachments.some((a: any) => a?.type === 'image')
+      if (hasImages) {
+        next.imageAttachments = next.imageAttachments.map((img: any) => ({
+          id: img.id, name: img.name, type: img.type, mimeType: img.mimeType,
+        }))
+      }
+      if (hasAttImages) {
+        next.attachments = next.attachments.map((att: any) =>
+          att?.type === 'image'
+            ? { id: att.id, name: att.name, type: att.type, mimeType: att.mimeType }
+            : att
+        )
+      }
+
+      // ── 截断 payload（原 stripPersistedPayload 逻辑）──
+      if (next.content && next.content.length > maxContent) {
+        next.content = truncateText(next.content, maxContent, '\n\n[Truncated for storage]')
+      }
+      if (next.reasoning?.content && next.reasoning.content.length > maxReasoning) {
+        next.reasoning = { ...next.reasoning, content: truncateText(next.reasoning.content, maxReasoning, '…') }
+      }
+      if (next.toolCalls?.length) {
+        next.toolCalls = next.toolCalls.map((toolCall: any) => ({
+          ...toolCall,
+          output: toolCall.output && toolCall.output.length > maxToolOutput
+            ? truncateText(toolCall.output, maxToolOutput, '\n[Truncated for storage]')
+            : toolCall.output,
+        }))
+      }
+      if (next.toolResults?.length) {
+        next.toolResults = next.toolResults.map((toolResult: any) => ({
+          ...toolResult,
+          output: toolResult.output.length > maxToolOutput
+            ? truncateText(toolResult.output, maxToolOutput, '\n[Truncated for storage]')
+            : toolResult.output,
+        }))
+      }
+      if (next.timelineEvents?.length) {
+        next.timelineEvents = next.timelineEvents.map((event: any) => ({
+          ...event,
+          content: event.content && event.content.length > maxTimelineContent
+            ? truncateText(event.content, maxTimelineContent, '…')
+            : event.content,
+        }))
+      }
+
+      return next
+    }),
+  }))
+
   if (aggressive) {
-    prepared = cleanupOldSessions(prepared, 20, false)
-    prepared = truncateLongMessages(prepared, 3_000)
+    const cleaned = cleanupOldSessions(prepared, 20, false)
+    return truncateLongMessages(cleaned, 3_000)
   }
   return prepared
 }
