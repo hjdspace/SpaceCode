@@ -353,6 +353,7 @@ import { useDragDrop } from '@/composables/useDragDrop'
 import { useImageHandler } from '@/composables/useImageHandler'
 import { useAgentSelector } from '@/composables/useAgentSelector'
 import { useFileAttachments } from '@/composables/useFileAttachments'
+import { usePromptOptimizer } from '@/composables/usePromptOptimizer'
 import type { ImageAttachment, Attachment, AllAttachments, SendOptions } from '@/composables/types'
 import { vClickOutside } from '@/directives/vClickOutside'
 
@@ -492,8 +493,11 @@ function handleBrowseFiles() {
   handleBrowseFilesBase()
 }
 
+// ── Prompt optimizer ────────────────────────────────────────────
+const promptOptimizer = usePromptOptimizer()
+const { isOptimizing, optimizePrompt: runOptimizePrompt } = promptOptimizer
+
 // ── Local state (not extracted) ──────────────────────────────────
-const isOptimizing = ref(false)
 const showSteerHint = ref(false)
 const thinkingEnabled = ref(settingsStore.thinkingEnabled)
 const contextMenuRef = ref<InstanceType<typeof ContextMenu> | null>(null)
@@ -1030,23 +1034,13 @@ async function handleOptimizePrompt() {
   const prompt = getEditorPlainText().trim()
   if (!prompt || isOptimizing.value) return
 
-  isOptimizing.value = true
+  const result = await runOptimizePrompt(prompt, {
+    workingDirectory: props.workingDirectory,
+  })
 
-  try {
-    const result = await api.optimizePrompt(prompt, {
-      workingDirectory: props.workingDirectory,
-    })
-
-    if (result.success && result.result) {
-      setEditorContent(result.result)
-      autoResize()
-    } else {
-      console.error('Prompt optimization failed:', result.error)
-    }
-  } catch (error) {
-    console.error('Prompt optimization error:', error)
-  } finally {
-    isOptimizing.value = false
+  if (result.success && result.result) {
+    setEditorContent(result.result)
+    autoResize()
   }
 }
 
