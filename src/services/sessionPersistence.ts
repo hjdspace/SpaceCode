@@ -223,13 +223,14 @@ export function stripLargeAttachmentData(sessions: Session[]): Session[] {
           name: img.name,
           type: img.type,
           mimeType: img.mimeType,
+          contentUrl: img.contentUrl,
           // 丢弃 data / previewUrl（base64），重新加载时显示占位
         }))
       }
       if (hasAttImages) {
         next.attachments = (msg.attachments as any[]).map(att =>
           att?.type === 'image'
-            ? { id: att.id, name: att.name, type: att.type, mimeType: att.mimeType }
+            ? { id: att.id, name: att.name, type: att.type, mimeType: att.mimeType, contentUrl: att.contentUrl }
             : att
         )
       }
@@ -283,13 +284,13 @@ export function prepareSessionsForStorage(
       const hasAttImages = Array.isArray(next.attachments) && next.attachments.some((a: any) => a?.type === 'image')
       if (hasImages) {
         next.imageAttachments = next.imageAttachments.map((img: any) => ({
-          id: img.id, name: img.name, type: img.type, mimeType: img.mimeType,
+          id: img.id, name: img.name, type: img.type, mimeType: img.mimeType, contentUrl: img.contentUrl,
         }))
       }
       if (hasAttImages) {
         next.attachments = next.attachments.map((att: any) =>
           att?.type === 'image'
-            ? { id: att.id, name: att.name, type: att.type, mimeType: att.mimeType }
+            ? { id: att.id, name: att.name, type: att.type, mimeType: att.mimeType, contentUrl: att.contentUrl }
             : att
         )
       }
