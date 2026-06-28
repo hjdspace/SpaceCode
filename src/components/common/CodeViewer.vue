@@ -22,10 +22,10 @@
         v-if="isHtmlFile"
         class="preview-btn"
         @click="previewHtml"
-        :title="t('infoPanel.preview')"
+        :title="t('infoPanel.previewHtml')"
       >
         <Eye :size="14" />
-        <span>{{ t('infoPanel.preview') }}</span>
+        <span>{{ t('infoPanel.previewHtml') }}</span>
       </button>
     </div>
 

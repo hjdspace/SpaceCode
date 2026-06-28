@@ -687,6 +687,7 @@ export default {
     changes: 'Changes',
     fileViewer: 'File Viewer',
     preview: 'Preview',
+    previewHtml: 'Preview HTML',
     info: 'Info',
     toolDiff: 'Code Changes',
     accept: 'Accept',

@@ -687,6 +687,7 @@ export default {
     changes: '更改',
     fileViewer: '文件查看器',
     preview: '预览',
+    previewHtml: '预览 HTML',
     info: '信息',
     toolDiff: '代码变更',
     accept: '接受',
