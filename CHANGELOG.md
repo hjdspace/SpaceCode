@@ -1,3 +1,55 @@
+## [0.6.0](https://github.com/hjdspace/SpaceCode/compare/v0.5.4...v0.6.0) (2026-06-28)
+
+### Features
+
+* **terminal:** 添加底部终端面板功能，支持切换和拖拽调整高度
+* **cua-driver:** 新增cua-driver内置安装与进度展示功能
+* **retry:** 新增自动重试功能，支持可恢复错误自动重试并展示进度
+* **ppt-office-assistant:** 新增全流程PPT办公助手技能包
+* **computer-use:** 新增电脑控制功能，集成cua-driver后台桌面控制
+* **skills:** 新增html-slide-to-pptx与ppt-workflow两个技能库
+* **icons:** 新增图标生成脚本与多套图标设计方案
+* **i18n:** 为HTML预览按钮添加对应的国际化文案
+* **InfoPanel:** 优化webview新窗口处理逻辑
+* **CodeViewer:** 新增HTML文件预览按钮
+
+### Bug Fixes
+
+* **chat:** 恢复会话产物汇总数据并新增Git变更同步功能
+* **sessionPersistence:** 保存会话时保留图片的contentUrl
+* **sessionRestore:** 修复会话恢复时的重试残留问题
+* **layout:** 修复切换模式后主面板显示旧会话的问题
+* **InfoPanel:** 避免重复注册webview的窗口打开处理函数
+* **electron:** 修复查找系统PATH中可执行文件的逻辑
+* **useAutoUpdate:** 修复下载更新时隐藏通知的状态同步问题
+
+### Refactor
+
+* **prompt-optimizer:** 迁移提示词优化逻辑到前端+主进程
+* **chatStore:** 优化重试机制与消息处理逻辑
+* **InfoPanel:** 优化窗口打开处理器的注册逻辑
+* 清理代码冗余并简化逻辑
+
+### Performance
+
+* **chat,session:** 优化内存占用，防止OOM
+
+### Build
+
+* 更新cua-driver二进制下载与查找逻辑
+
+### Documentation
+
+* 更新README并新增Computer Use相关文档
+* 更新PPT办公助手文档的输出路径规范
+
+### Chore
+
+* **engine:** 更新gitignore，添加exe文件忽略规则
+* 清理大量废弃的类型桩文件与工具常量文件
+* **icons:** 清理旧图标文件并新增3个新图标
+* 重构README文档
+
 ## [0.5.4](https://github.com/hjdspace/SpaceCode/compare/v0.5.3...v0.5.4) (2026-06-27)
 
 ### Features
