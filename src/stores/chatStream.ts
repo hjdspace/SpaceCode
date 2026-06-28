@@ -882,6 +882,15 @@ export const useChatStreamStore = defineStore('chatStream', () => {
     return Math.round(exponential + jitter)
   }
 
+  /** LLM 开始响应时清除重试状态，复位重试计数 */
+  function clearRetryStateOnResponse(sessionId: string): void {
+    if (retryStates.value.has(sessionId)) {
+      sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] LLM responding after retry, resetting retry count`)
+      retryStates.value.delete(sessionId)
+      retryStates.value = new Map(retryStates.value)
+    }
+  }
+
   /** 发起自动重试：更新 UI → 等待退避 → 重新发送用户消息 */
   async function initiateAutoRetry(
     sessionId: string,
@@ -910,10 +919,12 @@ export const useChatStreamStore = defineStore('chatStream', () => {
 
     sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry scheduled | attempt=${attempt}/${MAX_AUTO_RETRIES} | delay=${delayMs}ms | category=${errorCategory}`)
 
-    // ① 更新助手消息：显示重试状态（不展示技术错误详情）
+    // ① 更新助手消息：显示重试状态（不覆盖已有内容，保留 LLM 中断前的输出）
+    const sessionForMsg = sessionStore.sessions.find(s => s.id === sessionId)
+    const existingMsg = sessionForMsg?.messages.find(m => m.id === ts.assistantMessageId)
     sessionStore.updateMessage(ts.assistantMessageId, {
-      content: '',
       metadata: {
+        ...(existingMsg?.metadata || {}),
         model: settingsStore.config.model,
         retryState: { ...state },
       }
@@ -947,10 +958,13 @@ export const useChatStreamStore = defineStore('chatStream', () => {
       return
     }
 
-    // ⑤ 移除当前失败的助手占位消息
+    // ⑤ 移除当前失败的助手占位消息（仅当消息无内容时；有内容则保留，让用户看到中断前的 LLM 输出）
     const failedIdx = session.messages.findIndex(m => m.id === ts.assistantMessageId)
     if (failedIdx >= 0) {
-      session.messages.splice(failedIdx, 1)
+      const failedMsg = session.messages[failedIdx]
+      if (!failedMsg.content && !failedMsg.toolCalls?.length && !failedMsg.reasoning) {
+        session.messages.splice(failedIdx, 1)
+      }
     }
 
     // ⑥ 结束当前 turn（不报错），为重试腾出位置
@@ -973,12 +987,47 @@ export const useChatStreamStore = defineStore('chatStream', () => {
       sessionStore.logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry: engine restart failed`, { error: String(e) })
     }
 
-    // ⑧ 重新发送用户消息（保留重试计数）
+    // ⑧ 重新发送用户消息（不创建用户消息气泡，保留重试计数）
     try {
-      await sendMessage(lastUserMsg.content)
+      await resendForRetry(sessionId, lastUserMsg.content)
     } catch (retryError) {
-      sessionStore.logger.error('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry sendMessage failed`, { error: String(retryError) })
+      sessionStore.logger.error('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry resendForRetry failed`, { error: String(retryError) })
     }
+  }
+
+  /** 自动重试内部：重新发送消息但不创建用户消息气泡 */
+  async function resendForRetry(sessionId: string, content: string): Promise<void> {
+    const session = sessionStore.sessions.find(s => s.id === sessionId)
+    if (!session) return
+
+    const claudeCode = api.claudeCode
+    if (!claudeCode) {
+      sessionStore.logger.error('ChatStore', `[${sessionId.slice(0, 8)}] resendForRetry: claudeCode API not available`)
+      return
+    }
+
+    loadingSessions.value.set(sessionId, true)
+    if (session.processStatus !== 'active') {
+      session.processStatus = 'active'
+    }
+
+    pendingSendMessages.add(sessionId)
+
+    await new Promise<void>((resolve, reject) => {
+      const ts = beginTurn(sessionId, { isAutonomous: false, resolve, reject })
+      pendingSendMessages.delete(sessionId)
+
+      claudeCode.sendMessage(sessionId, content).catch((error: any) => {
+        sessionStore.logger.error('ChatStore', `[${sessionId.slice(0, 8)}] retry IPC sendMessage rejected`, { error: String(error) })
+        const cur = turnStates.get(sessionId)
+        if (cur === ts) handleError(sessionId, ts, error)
+      })
+    }).catch((error) => {
+      sessionStore.logger.error('ChatStore', `[${sessionId.slice(0, 8)}] resendForRetry outer catch`, { error: String(error) })
+      loadingSessions.value.set(sessionId, false)
+      streamingContents.value.set(sessionId, '')
+      pendingSendMessages.delete(sessionId)
+    })
   }
 
   /** 用户手动取消自动重试 */
@@ -1123,6 +1172,7 @@ export const useChatStreamStore = defineStore('chatStream', () => {
   const claudeCodeApi = api.claudeCode
   if (claudeCodeApi) {
     claudeCodeApi.onStreamEvent((event: { sessionId: string; data: any }) => {
+      clearRetryStateOnResponse(event.sessionId)
       const ts = ensureTurn(event.sessionId)
       if (ts.settled) return
       resetTimeout(event.sessionId, ts)
@@ -1133,12 +1183,14 @@ export const useChatStreamStore = defineStore('chatStream', () => {
         sessionStore.recordTeammateMessage(event.data, event.sessionId)
         return
       }
+      clearRetryStateOnResponse(event.sessionId)
       const ts = ensureTurn(event.sessionId)
       if (ts.settled) return
       resetTimeout(event.sessionId, ts)
       handleAssistant(event.sessionId, ts, event.data)
     })
     claudeCodeApi.onToolUse((event: { sessionId: string; data: any }) => {
+      clearRetryStateOnResponse(event.sessionId)
       const ts = ensureTurn(event.sessionId)
       if (ts.settled) return
       resetTimeout(event.sessionId, ts)
