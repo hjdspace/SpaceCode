@@ -8,9 +8,10 @@
  * 1. CLI 通道 — cua-driver 作为 MCP 服务器通过 --mcp-config 注入 Claude Code CLI
  * 2. 主进程直连通道 — 主进程通过 stdio MCP 直接通信（健康检查、权限、预览）
  */
-import { app, ipcMain } from 'electron'
-import { existsSync } from 'fs'
+import { app, ipcMain, BrowserWindow } from 'electron'
+import { existsSync, copyFileSync, mkdirSync, chmodSync } from 'fs'
 import { join } from 'path'
+import { homedir } from 'os'
 import { spawn, execFile } from 'child_process'
 import { info, warn, error as logError } from './logger'
 import { CuaDriverMcpClient } from './cuaDriverMcpClient'
@@ -51,11 +52,22 @@ export function findCuaDriverBinary(): string | null {
   const envCmd = process.env[CUA_DRIVER_ENV_VAR]
   if (envCmd && existsSync(envCmd)) return envCmd
 
-  // 2. 检查系统 PATH（使用 which/where）
+  // 2. 检查系统 PATH（使用 which/where）— 用户自行安装的最新版
   const systemPath = findInPath(CUA_DRIVER_BIN)
   if (systemPath) return systemPath
 
-  // 3. 检查内置二进制（应用 resources/cua-driver/ 目录）
+  // 3. 检查 cua-driver 官方安装脚本的标准安装路径
+  //    安装脚本会将二进制放在 ~/.cua-driver/packages/current/ 下，
+  //    并在系统安装目录创建 junction/symlink。PATH 可能未及时刷新
+  //    （Electron 进程启动时缓存了旧 PATH），所以这里显式检查。
+  const wellKnownPath = findInWellKnownLocations()
+  if (wellKnownPath) return wellKnownPath
+
+  // 4. 检查用户数据目录（从内置二进制复制过来的）
+  const userBinPath = join(app.getPath('userData'), 'bin', CUA_DRIVER_BIN)
+  if (existsSync(userBinPath)) return userBinPath
+
+  // 5. 检查内置二进制（应用 resources/cua-driver/ 目录）
   const bundledPath = findBundledBinary()
   if (bundledPath) return bundledPath
 
@@ -72,6 +84,45 @@ function findInPath(binName: string): string | null {
     if (path && existsSync(path)) return path
   } catch {
     // not in PATH
+  }
+  return null
+}
+
+/**
+ * 检查 cua-driver 官方安装脚本的标准安装路径。
+ *
+ * 安装脚本（install.ps1 / install.sh）将二进制安装到：
+ * - package home: ~/.cua-driver/packages/current/<bin>  （所有平台）
+ * - install dir:
+ *   - Windows: %LOCALAPPDATA%\Programs\Cua\cua-driver\bin\<bin> （junction → packages/current）
+ *   - macOS:   ~/Library/Cua/cua-driver/bin/<bin>               （symlink → packages/current）
+ *   - Linux:   ~/.local/bin/<bin>                               （symlink → packages/current）
+ *
+ * Electron 进程可能在安装脚本更新 PATH 之前就已启动，导致 `where`/`which`
+ * 找不到二进制。这里显式检查这些已知路径作为兜底。
+ */
+function findInWellKnownLocations(): string | null {
+  const home = homedir()
+  const candidates: string[] = []
+
+  if (process.platform === 'win32') {
+    // package home（实际二进制所在）
+    candidates.push(join(home, '.cua-driver', 'packages', 'current', CUA_DRIVER_BIN))
+    // install dir（junction → packages/current）
+    const localAppData = process.env.LOCALAPPDATA
+    if (localAppData) {
+      candidates.push(join(localAppData, 'Programs', 'Cua', 'cua-driver', 'bin', CUA_DRIVER_BIN))
+    }
+  } else if (process.platform === 'darwin') {
+    candidates.push(join(home, '.cua-driver', 'packages', 'current', CUA_DRIVER_BIN))
+    candidates.push(join(home, 'Library', 'Cua', 'cua-driver', 'bin', CUA_DRIVER_BIN))
+  } else if (process.platform === 'linux') {
+    candidates.push(join(home, '.cua-driver', 'packages', 'current', CUA_DRIVER_BIN))
+    candidates.push(join(home, '.local', 'bin', CUA_DRIVER_BIN))
+  }
+
+  for (const path of candidates) {
+    if (existsSync(path)) return path
   }
   return null
 }
@@ -120,13 +171,29 @@ export async function getCuaDriverVersion(binaryPath: string): Promise<string | 
  */
 function getBinarySource(binaryPath: string | null): 'bundled' | 'system' | null {
   if (!binaryPath) return null
-  // 内置二进制路径包含 resources/cua-driver 或 cua-driver 子目录
-  if (
-    binaryPath.includes('resources') && binaryPath.includes('cua-driver')
-  ) return 'bundled'
+
+  // cua-driver 官方安装脚本的安装路径 → system（用户自行安装）
+  // 必须先检查，因为这些路径可能包含 "cua-driver" 子串（如 .cua-driver），
+  // 会被下方的 bundled 检查误判。
+  const home = homedir()
+  const systemPatterns = [join(home, '.cua-driver')]
+  if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
+    systemPatterns.push(join(process.env.LOCALAPPDATA, 'Programs', 'Cua'))
+  }
+  if (process.platform === 'darwin') {
+    systemPatterns.push(join(home, 'Library', 'Cua'))
+  }
+  for (const pattern of systemPatterns) {
+    if (binaryPath.includes(pattern)) return 'system'
+  }
+
+  // 从内置二进制复制到 userData/bin/ 的标记为 'bundled'
+  if (binaryPath.includes(join(app.getPath('userData'), 'bin'))) return 'bundled'
+  // 内置二进制路径包含 resources/cua-driver
+  if (binaryPath.includes(join('resources', 'cua-driver'))) return 'bundled'
   if (
     !app.isPackaged &&
-    (binaryPath.includes(join('cua-driver')) || binaryPath.includes(join('resources', 'cua-driver')))
+    binaryPath.includes(join('resources', 'cua-driver'))
   ) return 'bundled'
   return 'system'
 }
@@ -353,14 +420,100 @@ export async function checkUpdate(): Promise<CuaDriverUpdateInfo> {
   })
 }
 
+// ── 安装进度回调 ───────────────────────────────────────────────
+
+/** 安装进度事件类型 */
+export interface CuaInstallProgress {
+  stage: 'bundled' | 'downloading' | 'installing' | 'verifying' | 'done' | 'error'
+  message: string
+  percent: number
+}
+
+/** 向渲染进程推送安装进度 */
+function sendInstallProgress(progress: CuaInstallProgress): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('cua-driver:installProgress', progress)
+  }
+}
+
 // ── 安装/升级 ──────────────────────────────────────────────────
+
+/**
+ * 从应用内置的 cua-driver 二进制安装到用户数据目录。
+ *
+ * 内置二进制随应用打包（extraResources/cua-driver/），无需网络下载。
+ * 复制到 userData/bin/ 目录下，使其独立于应用更新持久存在。
+ *
+ * @returns 成功时返回目标路径，无内置二进制时返回 null
+ */
+function installFromBundledBinary(progress?: (p: CuaInstallProgress) => void): string | null {
+  const report = progress || sendInstallProgress
+
+  const bundledPath = findBundledBinary()
+  if (!bundledPath) {
+    return null
+  }
+
+  report({ stage: 'bundled', message: 'Found bundled cua-driver binary', percent: 10 })
+
+  const binName = process.platform === 'win32' ? 'cua-driver.exe' : 'cua-driver'
+  const targetDir = join(app.getPath('userData'), 'bin')
+  const targetPath = join(targetDir, binName)
+
+  try {
+    mkdirSync(targetDir, { recursive: true })
+    report({ stage: 'installing', message: 'Copying bundled binary to user directory...', percent: 50 })
+    copyFileSync(bundledPath, targetPath)
+
+    // Unix 需要设置可执行权限
+    if (process.platform !== 'win32') {
+      chmodSync(targetPath, 0o755)
+    }
+
+    report({ stage: 'verifying', message: 'Verifying installation...', percent: 90 })
+
+    // 验证二进制可用
+    try {
+      const version = execFileSync2(targetPath, ['--version'])
+      report({ stage: 'done', message: `cua-driver ${version} installed from bundled binary`, percent: 100 })
+      info('CuaDriverService', `Installed from bundled binary: ${targetPath} (v${version})`)
+      return targetPath
+    } catch {
+      report({ stage: 'done', message: 'Bundled binary copied (version check skipped)', percent: 100 })
+      info('CuaDriverService', `Copied bundled binary to: ${targetPath}`)
+      return targetPath
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    logError('CuaDriverService', `Failed to copy bundled binary: ${msg}`)
+    return null
+  }
+}
+
+/** execFileSync 的 Promise 封装，返回 stdout trim */
+function execFileSync2(cmd: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      cmd,
+      args,
+      { timeout: 8_000, env: { ...process.env, [CUA_TELEMETRY_ENV]: '0' } },
+      (err, stdout) => {
+        if (err) { reject(err); return }
+        resolve(stdout.trim())
+      },
+    )
+  })
+}
 
 /**
  * 安装或升级 cua-driver。
  *
- * 考虑到 GitHub 网络问题，安装可能较慢。此方法调用上游安装脚本：
- * - Windows: PowerShell irm ... | iex
- * - macOS/Linux: bash curl ... | bash
+ * 安装策略（按优先级）：
+ * 1. **内置二进制** — 如果应用打包了 cua-driver（extraResources），
+ *    直接复制到用户数据目录，秒级完成，无需网络下载。
+ * 2. **GitHub 在线安装** — 如果没有内置二进制（如开发模式），
+ *    调用上游安装脚本从 GitHub 下载。
+ *    支持 `CUA_DRIVER_GITHUB_MIRROR` 环境变量设置 GitHub 镜像加速。
  *
  * 安装完成后用户安装的版本优先于内置版本。
  */
@@ -374,28 +527,66 @@ export async function installCuaDriver(): Promise<{ success: boolean; error?: st
   }
 
   info('CuaDriverService', 'Starting cua-driver installation...')
+  sendInstallProgress({ stage: 'downloading', message: 'Starting installation...', percent: 0 })
+
+  // ── 策略 1: 尝试从内置二进制安装 ──
+  const bundledResult = installFromBundledBinary()
+  if (bundledResult) {
+    return { success: true }
+  }
+
+  // ── 策略 2: 从 GitHub 在线安装 ──
+  info('CuaDriverService', 'No bundled binary found, falling back to GitHub install script')
+  sendInstallProgress({ stage: 'downloading', message: 'Downloading from GitHub (may take a while)...', percent: 5 })
+
+  // 支持 GitHub 镜像加速：设置 CUA_DRIVER_GITHUB_MIRROR 环境变量
+  // 例如: CUA_DRIVER_GITHUB_MIRROR=https://ghfast.top
+  const mirror = process.env.CUA_DRIVER_GITHUB_MIRROR || ''
+  const rawGithubBase = 'https://raw.githubusercontent.com'
+  const githubBase = 'https://github.com'
+  const scriptPath = '/trycua/cua/main/libs/cua-driver/scripts/install'
 
   return new Promise((resolve) => {
     let proc: ReturnType<typeof spawn>
+    const env = { ...process.env, [CUA_TELEMETRY_ENV]: '0' }
 
     if (isWindows) {
-      const psScript = `irm https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.ps1 | iex`
+      // 如果有镜像，用镜像 URL 替换 raw.githubusercontent.com
+      const scriptUrl = mirror
+        ? `${mirror}/${rawGithubBase.slice(8)}${scriptPath}.ps1`
+        : `${rawGithubBase}${scriptPath}.ps1`
+      const psScript = `irm ${scriptUrl} | iex`
       proc = spawn('powershell', ['-ExecutionPolicy', 'Bypass', '-Command', psScript], {
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, [CUA_TELEMETRY_ENV]: '0' },
+        env,
         windowsHide: true,
       })
     } else {
-      const cmd = `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh)"`
+      const scriptUrl = mirror
+        ? `${mirror}/${rawGithubBase.slice(8)}${scriptPath}.sh`
+        : `${rawGithubBase}${scriptPath}.sh`
+      const cmd = `/bin/bash -c "$(curl -fsSL ${scriptUrl})"`
       proc = spawn('bash', ['-c', cmd], {
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, [CUA_TELEMETRY_ENV]: '0' },
+        env,
       })
     }
 
     let stderr = ''
+    let progressPercent = 10
     proc.stdout?.on('data', (data: Buffer) => {
-      info('CuaDriverService', `install stdout: ${data.toString().trim()}`)
+      const line = data.toString().trim()
+      info('CuaDriverService', `install stdout: ${line}`)
+      // 根据安装脚本输出推送进度
+      if (line.includes('Downloading') || line.includes('downloading')) {
+        progressPercent = Math.min(progressPercent + 5, 60)
+        sendInstallProgress({ stage: 'downloading', message: line, percent: progressPercent })
+      } else if (line.includes('Installing') || line.includes('installing')) {
+        progressPercent = Math.min(progressPercent + 10, 80)
+        sendInstallProgress({ stage: 'installing', message: line, percent: progressPercent })
+      } else if (line.includes('Verify') || line.includes('verify')) {
+        sendInstallProgress({ stage: 'verifying', message: line, percent: 90 })
+      }
     })
     proc.stderr?.on('data', (data: Buffer) => {
       stderr += data.toString()
@@ -403,28 +594,33 @@ export async function installCuaDriver(): Promise<{ success: boolean; error?: st
     })
     proc.on('error', (err) => {
       logError('CuaDriverService', `install failed: ${err.message}`)
+      sendInstallProgress({ stage: 'error', message: err.message, percent: 100 })
       resolve({ success: false, error: err.message })
     })
     proc.on('exit', (code) => {
       if (code === 0) {
         info('CuaDriverService', 'cua-driver installation completed successfully')
+        sendInstallProgress({ stage: 'done', message: 'Installation completed', percent: 100 })
         resolve({ success: true })
       } else {
         const errorMsg = `Installation exited with code ${code}${stderr ? ': ' + stderr.trim() : ''}`
         logError('CuaDriverService', errorMsg)
+        sendInstallProgress({ stage: 'error', message: errorMsg, percent: 100 })
         resolve({ success: false, error: errorMsg })
       }
     })
 
-    // 5 分钟超时（网络下载可能较慢）
+    // 10 分钟超时（网络下载可能较慢，特别是从 GitHub）
     setTimeout(() => {
       try {
         proc.kill('SIGKILL')
       } catch {
         // ignore
       }
-      resolve({ success: false, error: 'Installation timed out after 5 minutes' })
-    }, 5 * 60 * 1000)
+      const msg = 'Installation timed out after 10 minutes'
+      sendInstallProgress({ stage: 'error', message: msg, percent: 100 })
+      resolve({ success: false, error: msg })
+    }, 10 * 60 * 1000)
   })
 }
 

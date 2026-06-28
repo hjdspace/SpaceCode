@@ -1,0 +1,3 @@
+# This directory holds the pre-downloaded cua-driver binary.
+# Run `npm run prebuild:cua-driver` to download the binary for your platform.
+# The binary is bundled with the app via extraResources in package.json.

@@ -957,6 +957,12 @@ export const api = {
     install: (): Promise<{ success: boolean; error?: string }> =>
       electronAPI?.computerUse?.install() ||
       Promise.resolve({ success: false, error: 'Computer Use API not available' }),
+    onInstallProgress: (callback: (progress: { stage: string; message: string; percent: number }) => void): (() => void) => {
+      if (electronAPI?.computerUse?.onInstallProgress) {
+        return electronAPI.computerUse.onInstallProgress(callback)
+      }
+      return () => {}
+    },
     doctor: (): Promise<{ ok: boolean; checks: HealthCheck[] }> =>
       electronAPI?.computerUse?.doctor() ||
       Promise.resolve({ ok: false, checks: [] }),

@@ -1070,6 +1070,14 @@ export default {
     granted: '已授权',
     notGranted: '未授权',
     unknown: '未知',
+    installFromBundled: '从内置二进制安装',
+    installFromGithub: '从 GitHub 下载安装',
+    installProgressDownloading: '下载中...',
+    installProgressInstalling: '安装中...',
+    installProgressVerifying: '验证中...',
+    installProgressDone: '安装完成',
+    installProgressError: '安装失败',
+    bundledBinaryNotFound: '未找到内置二进制，将从 GitHub 下载',
   },
 
   errors: {

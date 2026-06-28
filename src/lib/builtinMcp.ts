@@ -42,6 +42,15 @@ export interface BuiltinMcpPreset {
    * 里的 npx 配置。bundled 预设通常不设 dependency（打包模式无需外部命令）。
    */
   bundled?: boolean
+  /**
+   * 预设配置版本号。当预设的 command/args/env 等核心配置发生变更时递增。
+   *
+   * syncBuiltinServers 会比较持久化记录中的 _configVersion 与此值：
+   * - 不匹配时，用预设的最新 config 覆盖存储的 command/args/env/type/url/headers，
+   *   确保 builtin 预设始终使用正确的启动命令（例如从 npx 迁移到 cua-driver）。
+   * - 匹配时，保留用户对 enabled/env 等字段的修改。
+   */
+  configVersion?: number
   /** 服务器配置（不含 id/name/_source，由 store 注入） */
   config: Omit<MCPServer, 'id' | 'name' | 'enabled'>
 }
@@ -106,6 +115,8 @@ export const BUILTIN_MCP_PRESETS: BuiltinMcpPreset[] = [
       command: 'cua-driver',
       installerDocs: 'https://cua.ai/docs/cua-driver',
     },
+    // configVersion 2: 从 npx @zavora-ai/computer-use-mcp 迁移到 cua-driver mcp
+    configVersion: 2,
     config: {
       type: 'stdio',
       command: 'cua-driver',

@@ -6,6 +6,7 @@
  */
 
 import { spawn, ChildProcess } from 'child_process'
+import { isAbsolute } from 'path'
 import { info, warn } from './logger'
 
 export interface McpProbeConfig {
@@ -58,6 +59,7 @@ function probeStdio(
     let buffer = ''
     let settled = false
     let initResponseReceived = false
+    let stderrBuffer = ''
 
     const timer = setTimeout(() => {
       if (!settled) {
@@ -83,17 +85,24 @@ function probeStdio(
 
     try {
       const env = { ...process.env, ...(config.env || {}) }
-      proc = spawn(config.command!, config.args || [], {
+      const cmd = config.command!
+      // 绝对路径直接执行，不走 shell — 避免 cmd.exe 对含空格/特殊字符
+      // 的路径做错误引号处理；裸命令名（如 npx/uvx）仍走 shell 解析 PATH。
+      const useShell = !isAbsolute(cmd)
+      proc = spawn(cmd, config.args || [], {
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: true,
+        shell: useShell,
+        windowsHide: true,
       })
 
       proc.on('error', (err) => {
         settle({ status: 'failed', error: `Failed to start: ${err.message}` })
       })
 
-      proc.stderr?.on('data', () => { /* drain */ })
+      proc.stderr?.on('data', (data: Buffer) => {
+        stderrBuffer += data.toString()
+      })
 
       proc.stdout?.on('data', (data: Buffer) => {
         buffer += data.toString()
@@ -111,9 +120,13 @@ function probeStdio(
 
       proc.on('exit', (code) => {
         if (!settled) {
+          const stderrTail = stderrBuffer.trim()
+          const detail = stderrTail
+            ? `: ${stderrTail.split(/\r?\n/).slice(-3).join(' | ')}`
+            : ''
           settle({
             status: 'failed',
-            error: `Process exited with code ${code} before responding`,
+            error: `Process exited with code ${code} before responding${detail}`,
           })
         }
       })

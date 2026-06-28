@@ -1070,6 +1070,14 @@ export default {
     granted: 'Granted',
     notGranted: 'Not Granted',
     unknown: 'Unknown',
+    installFromBundled: 'Installing from bundled binary',
+    installFromGithub: 'Downloading from GitHub',
+    installProgressDownloading: 'Downloading...',
+    installProgressInstalling: 'Installing...',
+    installProgressVerifying: 'Verifying...',
+    installProgressDone: 'Installation complete',
+    installProgressError: 'Installation failed',
+    bundledBinaryNotFound: 'Bundled binary not found, downloading from GitHub',
   },
 
   errors: {

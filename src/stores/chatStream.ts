@@ -683,6 +683,21 @@ export const useChatStreamStore = defineStore('chatStream', () => {
 
   const handleResult = (sessionId: string, ts: TurnState, result: any) => {
     if (ts.settled) return
+
+    // ★ 检查 CLI 返回的 is_error 标记
+    // Claude Code CLI 在遇到 API 错误（如 429 rate limit exceeded on dimension: tpm）
+    // 时，会返回 type=result, is_error=true, result="API Error: ..."。
+    // 这种情况需要走 handleError 流程（会触发自动重试 + 指数退避），
+    // 而非当作正常完成将错误文本显示为助手回复。
+    if (result?.is_error) {
+      const errorText = typeof result.result === 'string' && result.result
+        ? result.result
+        : 'API error'
+      sessionStore.logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] result event has is_error=true, routing to handleError | errorText=${errorText.slice(0, 120)}`)
+      handleError(sessionId, ts, new Error(errorText))
+      return
+    }
+
     ts.settled = true
     result = result || {}
     const elapsed = Date.now() - ts.sendStartTime

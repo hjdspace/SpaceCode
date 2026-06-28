@@ -9,6 +9,7 @@ import { detectInstalledCli, checkEnvironment, installCli, isCommandAvailable, i
 import { proxyManager } from './proxyManager'
 import { probeMcpServer, type McpProbeConfig, type McpProbeResult } from './mcpProbe'
 import { loadMcpConfig, saveMcpConfig, buildEnabledMcpConfig } from './mcpConfigStore'
+import { findCuaDriverBinary, getCuaDriverVersion } from './cuaDriverService'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -484,6 +485,28 @@ export function registerClaudeCodeIPC() {
 
   // ── MCP Probe ── 直接探测 MCP 服务器（不依赖 engine session）
   ipcMain.handle('mcp:probeServer', async (_, config: McpProbeConfig): Promise<McpProbeResult> => {
+    // cua-driver 特殊处理：二进制可能不在 Electron 进程的 PATH 上
+    // （安装脚本创建的 junction/symlink 尚未被 Electron 缓存的 PATH 感知），
+    // 使用 findCuaDriverBinary() 解析绝对路径，与 buildEnabledMcpConfig
+    // 注入 CLI 时的逻辑保持一致。找不到时直接返回失败，避免 spawn 后
+    // "Process exited with code 1" 这种无上下文的错误。
+    if (config.command === 'cua-driver') {
+      const driverPath = findCuaDriverBinary()
+      if (driverPath) {
+        config = {
+          ...config,
+          command: driverPath,
+          env: { ...config.env, CUA_DRIVER_RS_TELEMETRY_ENABLED: '0' },
+        }
+        debug('McpProbe', `Resolved cua-driver binary: ${driverPath}`)
+      } else {
+        debug('McpProbe', 'cua-driver binary not found in PATH or well-known locations')
+        return {
+          status: 'failed',
+          error: 'cua-driver binary not found. Please install it in Computer Use settings or add it to PATH.',
+        }
+      }
+    }
     debug('McpProbe', `Probing server | type=${config.type} | command=${config.command || config.url}`)
     const result = await probeMcpServer(config)
     debug('McpProbe', `Probe result | status=${result.status} | tools=${result.tools?.length ?? 0} | error=${result.error || '(none)'}`)
@@ -491,12 +514,25 @@ export function registerClaudeCodeIPC() {
   })
 
   // ── MCP Dependency Check ── 检测内置 MCP 服务器依赖的命令（uvx/npx 等）是否可用
-  ipcMain.handle('mcp:checkDependency', async (_, command: string) => {
-    debug('McpDependency', `Checking dependency | command=${command}`)
-    const status = await isCommandAvailable(command)
-    debug('McpDependency', `Result | available=${status.available} | version=${status.version || '(none)'}`)
-    return status
-  })
+ipcMain.handle('mcp:checkDependency', async (_, command: string) => {
+  debug('McpDependency', `Checking dependency | command=${command}`)
+  // cua-driver 特殊处理：它的安装路径不在系统 PATH 里（安装脚本创建的
+  // junction/symlink 可能尚未被 Electron 进程的 PATH 缓存感知），
+  // 使用 cuaDriverService 的 findCuaDriverBinary() 统一检测逻辑。
+  if (command === 'cua-driver') {
+    const binaryPath = findCuaDriverBinary()
+    if (!binaryPath) {
+      debug('McpDependency', 'cua-driver not found in PATH or well-known locations')
+      return { available: false, version: null, path: null }
+    }
+    const version = await getCuaDriverVersion(binaryPath)
+    debug('McpDependency', `cua-driver found | path=${binaryPath} | version=${version || '(none)'}`)
+    return { available: true, version, path: binaryPath }
+  }
+  const status = await isCommandAvailable(command)
+  debug('McpDependency', `Result | available=${status.available} | version=${status.version || '(none)'}`)
+  return status
+})
 
   // ── MCP Dependency Install ── 一键安装缺失的依赖（当前仅支持 uv → 提供 uvx）
   ipcMain.handle('mcp:installDependency', async (event, command: 'uv') => {

@@ -733,15 +733,20 @@ export class SessionProcess extends EventEmitter {
     if (msg.type === 'result') {
       this.status = 'idle'
       this.isProcessing = false
-      info('SessionProcess', `[${this.sessionId.slice(0, 8)}] LLM response complete (result) | costUsd=${msg.cost_usd} | durationMs=${msg.duration_ms} | numTurns=${msg.num_turns}`)
+      const resultIsError = !!(msg as any).is_error
+      if (resultIsError) {
+        warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] LLM response completed with error | result=${String(msg.result).slice(0, 200)} | costUsd=${msg.cost_usd} | durationMs=${msg.duration_ms} | numTurns=${msg.num_turns}`)
+      } else {
+        info('SessionProcess', `[${this.sessionId.slice(0, 8)}] LLM response complete (result) | costUsd=${msg.cost_usd} | durationMs=${msg.duration_ms} | numTurns=${msg.num_turns}`)
+      }
       traceEvent({
         sessionId: this.sessionId,
         engineSessionId: this.engineSessionId || undefined,
         actor: 'assistant',
         type: 'result',
-        status: 'completed',
-        title: 'Agent response completed',
-        output: { result: msg.result, stop_reason: msg.stop_reason },
+        status: resultIsError ? 'failed' : 'completed',
+        title: resultIsError ? 'Agent response completed with error' : 'Agent response completed',
+        output: { result: msg.result, stop_reason: msg.stop_reason, is_error: resultIsError },
         metadata: { costUsd: msg.cost_usd, durationMs: msg.duration_ms, numTurns: msg.num_turns },
       })
     } else if (msg.type === 'assistant' || msg.type === 'tool_use' || msg.type === 'stream_event') {

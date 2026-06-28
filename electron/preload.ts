@@ -599,8 +599,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   computerUse: {
     /** 获取 cua-driver 完整状态（安装、版本、权限、健康检查） */
     getStatus: () => ipcRenderer.invoke('cua-driver:status'),
-    /** 安装/升级 cua-driver（从 GitHub 下载最新版） */
+    /** 安装/升级 cua-driver（优先从内置二进制安装，回退到 GitHub 下载） */
     install: () => ipcRenderer.invoke('cua-driver:install'),
+    /** 安装进度事件订阅 */
+    onInstallProgress: (callback: (progress: { stage: string; message: string; percent: number }) => void) => {
+      const handler = (_: unknown, data: { stage: string; message: string; percent: number }) => callback(data)
+      ipcRenderer.on('cua-driver:installProgress', handler)
+      return () => ipcRenderer.removeListener('cua-driver:installProgress', handler)
+    },
     /** 运行健康检查（通过 MCP 调用 health_report） */
     doctor: () => ipcRenderer.invoke('cua-driver:doctor'),
     /** 查询 macOS TCC 权限状态（辅助功能 + 屏幕录制） */

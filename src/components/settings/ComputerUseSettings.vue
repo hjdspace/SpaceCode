@@ -81,6 +81,18 @@
             </button>
           </div>
 
+          <!-- 安装进度 -->
+          <div v-if="store.installing && store.installProgress" class="cu-install-progress">
+            <div class="cu-progress-bar">
+              <div
+                class="cu-progress-fill"
+                :class="{ error: store.installProgress.stage === 'error' }"
+                :style="{ width: `${store.installProgress.percent}%` }"
+              />
+            </div>
+            <span class="cu-progress-msg">{{ store.installProgress.message }}</span>
+          </div>
+
           <div v-if="store.hasUpdate" class="cu-update-notice">
             <ArrowUpCircle :size="16" />
             <span>{{ t('computerUse.updateAvailable') }}: v{{ store.updateInfo?.latestVersion }}</span>
@@ -353,6 +365,37 @@ async function handleInstall() {
   gap: 10px;
   margin-top: 16px;
   flex-wrap: wrap;
+}
+
+.cu-install-progress {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cu-progress-bar {
+  height: 4px;
+  background: var(--bg-secondary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.cu-progress-fill {
+  height: 100%;
+  background: var(--accent-primary);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+
+  &.error {
+    background: var(--error);
+  }
+}
+
+.cu-progress-msg {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
 }
 
 .cu-hint {

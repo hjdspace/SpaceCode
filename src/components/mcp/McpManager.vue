@@ -358,6 +358,7 @@ import { useMcpStore, type McpToolInfo, type MCPServer } from '@/stores/mcp'
 import { useAppStore } from '@/stores/app'
 import { BUILTIN_MCP_PRESETS, findBuiltinPreset } from '@/lib/builtinMcp'
 import { useDialog } from '@/composables/useDialog'
+import { api } from '@/services/electronAPI'
 import McpServerList from './McpServerList.vue'
 import McpServerEditor from './McpServerEditor.vue'
 import ConfigEditor from './ConfigEditor.vue'
@@ -569,7 +570,7 @@ async function handleInstallDependency(presetKey: string) {
   // 无 installer：打开外链让用户自己装
   if (!preset.dependency.installer) {
     if (preset.dependency.installerDocs) {
-      window.open(preset.dependency.installerDocs, '_blank', 'noopener,noreferrer')
+      api.openExternal(preset.dependency.installerDocs)
     }
     return
   }
@@ -583,7 +584,7 @@ async function handleInstallDependency(presetKey: string) {
     // 失败时回退到外链（store 里 cliDetector 已经 openExternal 过一次，这里
     // 仅在 store 调用都没成功的情况下再兜底，避免用户看不到任何反馈）
     if (preset.dependency.installerDocs) {
-      window.open(preset.dependency.installerDocs, '_blank', 'noopener,noreferrer')
+      api.openExternal(preset.dependency.installerDocs)
     }
   }
 }

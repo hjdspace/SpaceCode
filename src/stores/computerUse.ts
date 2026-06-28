@@ -23,6 +23,8 @@ export const useComputerUseStore = defineStore('computerUse', () => {
   const error = ref<string | null>(null)
   const updateInfo = ref<CuaDriverUpdateInfo | null>(null)
   const doctorResult = ref<{ ok: boolean; checks: HealthCheck[] } | null>(null)
+  const installProgress = ref<{ stage: string; message: string; percent: number } | null>(null)
+  let installProgressUnsub: (() => void) | null = null
 
   /** 刷新完整状态 */
   async function refreshStatus() {
@@ -41,6 +43,14 @@ export const useComputerUseStore = defineStore('computerUse', () => {
   async function install() {
     installing.value = true
     error.value = null
+    installProgress.value = { stage: 'downloading', message: 'Starting...', percent: 0 }
+
+    // 订阅安装进度
+    installProgressUnsub?.()
+    installProgressUnsub = api.computerUse.onInstallProgress((progress) => {
+      installProgress.value = progress
+    })
+
     try {
       const result = await api.computerUse.install()
       if (result.success) {
@@ -54,6 +64,8 @@ export const useComputerUseStore = defineStore('computerUse', () => {
       return { success: false, error: String(e) }
     } finally {
       installing.value = false
+      installProgressUnsub?.()
+      installProgressUnsub = null
     }
   }
 
@@ -129,6 +141,7 @@ export const useComputerUseStore = defineStore('computerUse', () => {
     error,
     updateInfo,
     doctorResult,
+    installProgress,
     isReady,
     isInstalled,
     isPlatformSupported,
