@@ -13,10 +13,19 @@
         v-if="isMarkdownFile"
         class="preview-btn"
         @click="switchToPreview"
-        title="Preview Markdown"
+        :title="t('infoPanel.preview')"
       >
         <Eye :size="14" />
-        <span>Preview</span>
+        <span>{{ t('infoPanel.preview') }}</span>
+      </button>
+      <button
+        v-if="isHtmlFile"
+        class="preview-btn"
+        @click="previewHtml"
+        :title="t('infoPanel.preview')"
+      >
+        <Eye :size="14" />
+        <span>{{ t('infoPanel.preview') }}</span>
       </button>
     </div>
 
@@ -44,10 +53,12 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, markRaw } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { useI18n } from 'vue-i18n'
 import { FileCode, Eye, FileText } from 'lucide-vue-next'
 import hljs from 'highlight.js'
 
 const appStore = useAppStore()
+const { t } = useI18n()
 const codeContainer = ref<HTMLElement | null>(null)
 const lineRefs = new Map<number, HTMLElement>()
 
@@ -66,6 +77,18 @@ function isLineHighlighted(lineNum: number): boolean {
 const isMarkdownFile = computed(() => {
   return appStore.currentFile?.language === 'markdown'
 })
+
+const isHtmlFile = computed(() => {
+  return appStore.currentFile?.language === 'html'
+})
+
+/** 在右侧 webview 面板中以渲染后的 HTML 预览文件（复用 openFileInWebview） */
+function previewHtml() {
+  const filePath = appStore.currentFile?.path
+  if (filePath) {
+    appStore.openFileInWebview(filePath)
+  }
+}
 
 const lineCount = computed(() => {
   if (!appStore.currentFile) return 0
