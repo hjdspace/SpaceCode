@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, readonly } from 'vue'
-import type { Session, Message, ToolCall, AgentInfo, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus } from '@/types'
+import type { Session, Message, ToolCall, AgentInfo, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus, ArtifactSummaryEntry } from '@/types'
 import type { RewindOption, RewindState } from '@/types/rewind'
 import { useSettingsStore } from './settings'
 import { useAppStore } from './app'
@@ -147,6 +147,21 @@ async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
       const restoredMessages = buildMessagesFromHistory(fullSession.messages)
       if (restoredMessages.length === 0) continue
 
+      // ── 保留办公模式产物汇总数据 ──
+      // JSONL 转录文件由引擎写入，不包含 SpaceCode 特有的 metadata.artifacts 字段。
+      // buildMessagesFromHistory 从 JSONL 重建消息时会丢失该字段，导致重开后产物汇总
+      // 卡片消失。此处从 localStorage 保存的旧消息中按助手消息位置提取 artifacts，
+      // 重建后按位置合并回去（旧/新消息的 SpaceCode UUID 与引擎 UUID 不同，无法按 id 匹配）。
+      const oldArtifactsByAssistantIdx = new Map<number, ArtifactSummaryEntry[]>()
+      let oldAssistantIdx = 0
+      for (const oldMsg of session.messages) {
+        if (oldMsg.role !== 'assistant') continue
+        if (oldMsg.metadata?.artifacts?.length) {
+          oldArtifactsByAssistantIdx.set(oldAssistantIdx, oldMsg.metadata.artifacts)
+        }
+        oldAssistantIdx++
+      }
+
       session.messages = restoredMessages.map(msg => ({
         ...msg,
         id: msg.id || crypto.randomUUID(),
@@ -161,6 +176,22 @@ async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
           }))
         } : {}),
       })) as Message[]
+
+      // 将旧消息中保存的产物汇总数据按助手消息位置合并回重建后的消息
+      if (oldArtifactsByAssistantIdx.size > 0) {
+        let newAssistantIdx = 0
+        for (const newMsg of session.messages) {
+          if (newMsg.role !== 'assistant') continue
+          const savedArtifacts = oldArtifactsByAssistantIdx.get(newAssistantIdx)
+          if (savedArtifacts) {
+            newMsg.metadata = {
+              ...(newMsg.metadata || {}),
+              artifacts: savedArtifacts,
+            }
+          }
+          newAssistantIdx++
+        }
+      }
 
       session.teamContext = undefined
       session.teammateTranscripts = {}

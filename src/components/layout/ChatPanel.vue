@@ -286,6 +286,7 @@ import ContextUsageModal from '../chat/ContextUsageModal.vue'
 import DiffExplorer from '../chat/DiffExplorer.vue'
 import { useContextUsageStore } from '@/stores/contextUsage'
 import { useSessionContext } from '@/stores/sessionContext'
+import { useScmStore } from '@/stores/scm'
 import SessionContextEnvPanel from '../session-context/SessionContextEnvPanel.vue'
 import SessionContextTaskPanel from '../session-context/SessionContextTaskPanel.vue'
 import SessionContextCommitDialog from '../session-context/SessionContextCommitDialog.vue'
@@ -358,6 +359,7 @@ const diffPanelData = ref<any>(null)
 const diffPanelLoading = ref(false)
 const contextUsageStore = useContextUsageStore()
 const sessionContext = useSessionContext()
+const scmStore = useScmStore()
 
 // ── Work 模式自动路由：助手选择弹窗 ──────────────────────────────
 const { route: routeWork } = useWorkRouter()
@@ -483,7 +485,47 @@ function handleContinue() {
   console.log('[SessionContext] Continue requested')
 }
 
-// Session Context: sync tasks from taskManager
+// Session Context: sync git stats from scmStore
+watch(
+  () => [
+    scmStore.staged.length,
+    scmStore.unstaged.length,
+    scmStore.untracked.length,
+  ],
+  () => {
+    const totalChanged =
+      scmStore.staged.length +
+      scmStore.unstaged.length +
+      scmStore.untracked.length
+
+    if (totalChanged > 0) {
+      // Use file counts as approximations for additions/deletions.
+      // Staged additions = added or modified files; staged deletions = deleted files.
+      // Unstaged/untracked additions = modified, added, or untracked files.
+      const additions =
+        scmStore.staged.filter(f => f.status === 'added' || f.status === 'modified' || f.status === 'renamed').length +
+        scmStore.unstaged.filter(f => f.status !== 'deleted').length +
+        scmStore.untracked.length
+      const deletions =
+        scmStore.staged.filter(f => f.status === 'deleted').length +
+        scmStore.unstaged.filter(f => f.status === 'deleted').length
+
+      sessionContext.updateGitStats({
+        additions,
+        deletions,
+        files: [
+          ...scmStore.staged.map(f => ({ path: f.path, insertions: f.status === 'deleted' ? 0 : 1, deletions: f.status === 'deleted' ? 1 : 0 })),
+          ...scmStore.unstaged.map(f => ({ path: f.path, insertions: f.status === 'deleted' ? 0 : 1, deletions: f.status === 'deleted' ? 1 : 0 })),
+          ...scmStore.untracked.map(f => ({ path: f.path, insertions: 1, deletions: 0 })),
+        ],
+      })
+    } else {
+      // No changes — reset stats, which will auto-collapse the panel
+      sessionContext.updateGitStats({ additions: 0, deletions: 0, files: [] })
+    }
+  },
+  { deep: true },
+)
 watch(
   () => chatStore.displayMessages,
   (msgs) => {
@@ -700,6 +742,10 @@ onMounted(async () => {
   if (paneSessionId.value) {
     void contextUsageStore.refresh(paneSessionId.value)
   }
+
+  // Initialize SCM store: starts file watcher, which will trigger
+  // git stats sync → auto-expand the env panel when changes appear.
+  void scmStore.refresh()
 
   // chat-main width is observed by the watchEffect above (reactive to chatMainRef)
 
