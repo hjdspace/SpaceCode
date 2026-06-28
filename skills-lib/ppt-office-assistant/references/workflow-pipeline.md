@@ -191,17 +191,19 @@ Read `references/html-preset-bridge.md` for:
 
 ### Output
 
-For each slide, generate:
-- `slides/slide-01-cover.html`
-- `slides/slide-02-outline.html`
-- `slides/slide-03-architecture.html`
+All output files must be written under the session working directory's
+`outputs/` folder so they appear in the product panel. For each slide,
+generate:
+- `outputs/slides/slide-01-cover.html`
+- `outputs/slides/slide-02-outline.html`
+- `outputs/slides/slide-03-architecture.html`
 - etc.
 
 ### Multi-slide export
 
 If the environment supports PNG export, also generate:
-- `slides/slide-01-cover.png`
-- `slides/slide-02-outline.png`
+- `outputs/slides/slide-01-cover.png`
+- `outputs/slides/slide-02-outline.png`
 - etc.
 
 ---
@@ -322,28 +324,32 @@ npm install
 
 ### Single slide conversion
 
+All output paths are relative to the session working directory and must be
+placed under `outputs/`:
+
 ```bash
 cd .claude/skills/html-slide-to-pptx
 node scripts/html_to_pptx.js \
-  <path-to>/slides/slide-01.html \
-  <path-to>/output/slide-01.pptx \
+  outputs/slides/slide-01.html \
+  outputs/slide-01.pptx \
   --preset=v9-architecture \
-  --dump-model <path-to>/output/slide-01-model.json
+  --dump-model outputs/slide-01-model.json
 ```
 
 ### Multi-slide deck conversion
 
-Convert each slide separately:
+Convert each slide separately. All paths are relative to the session working
+directory:
 
 ```bash
 cd .claude/skills/html-slide-to-pptx
-for slide in <path-to>/slides/slide-*.html; do
+for slide in outputs/slides/slide-*.html; do
   name=$(basename "$slide" .html)
   node scripts/html_to_pptx.js \
     "$slide" \
-    "<path-to>/output/${name}.pptx" \
+    "outputs/${name}.pptx" \
     --preset=<preset-name> \
-    --dump-model "<path-to>/output/${name}-model.json"
+    --dump-model "outputs/${name}-model.json"
 done
 ```
 
@@ -367,9 +373,9 @@ This is a known limitation. See the `html-slide-to-pptx` skill's
 ```bash
 cd .claude/skills/html-slide-to-pptx
 node scripts/preflight_qa.js \
-  <path-to>/output/slide-01-model.json \
+  outputs/slide-01-model.json \
   --preset=v9-architecture \
-  --report <path-to>/output/slide-01-qa.json
+  --report outputs/slide-01-qa.json
 ```
 
 ### QA result interpretation
@@ -395,27 +401,30 @@ node scripts/preflight_qa.js \
 ### Delivery
 
 Present to user:
-1. Final PPTX file path(s)
+1. Final PPTX file path(s) under `outputs/`
 2. QA summary (pass/warn/fail counts)
 3. Any known limitations or recommendations
-4. Source HTML files for future re-conversion
+4. Source HTML files under `outputs/slides/` for future re-conversion
 
 ---
 
 ## Quick reference: full pipeline command sequence
+
+All paths are relative to the session working directory. All outputs go under
+`outputs/` so they are visible in the product panel.
 
 ```bash
 # 0. Ensure html-slide-to-pptx dependencies (first run only)
 cd .claude/skills/html-slide-to-pptx && npm ci
 
 # 1. Convert HTML to PPTX (per slide)
-node scripts/html_to_pptx.js <path>/slides/slide-01.html <path>/output/slide-01.pptx \
-  --preset=v9-architecture --dump-model <path>/output/slide-01-model.json
+node scripts/html_to_pptx.js outputs/slides/slide-01.html outputs/slide-01.pptx \
+  --preset=v9-architecture --dump-model outputs/slide-01-model.json
 
 # 2. Run QA
-node scripts/preflight_qa.js <path>/output/slide-01-model.json \
-  --preset=v9-architecture --report <path>/output/slide-01-qa.json
+node scripts/preflight_qa.js outputs/slide-01-model.json \
+  --preset=v9-architecture --report outputs/slide-01-qa.json
 
 # 3. Review QA report, fix issues, re-convert if needed
-# 4. Deliver final PPTX
+# 4. Deliver final PPTX (path: outputs/slide-01.pptx)
 ```

@@ -57,6 +57,18 @@ Stage 10: QA & Delivery         ─── html-slide-to-pptx
 Never skip the planning stages to jump to PPTX. The quality of the final PPT
 depends on the outline and planning draft, not on the converter.
 
+### Rule 1b: All deliverables go under `outputs/`
+Every generated file — HTML slides, PPTX, model JSON, QA reports — must be
+written under the session working directory's `outputs/` folder. This is the
+only directory the product panel scans. Concretely:
+
+- HTML slides → `outputs/slides/slide-NN-*.html`
+- PPTX files → `outputs/slide-NN.pptx`
+- Model dumps → `outputs/slide-NN-model.json`
+- QA reports → `outputs/slide-NN-qa.json`
+
+Never write to `slides/`, `output/`, or any other top-level directory.
+
 ### Rule 2: Generate preset-aware HTML
 When generating HTML slides in Stage 5, structure the HTML so it can be
 converted later. Read `references/html-preset-bridge.md` before generating
@@ -150,8 +162,8 @@ HTML requirements:
 - previewable in a browser
 
 Export options:
-- HTML files for browser preview
-- PNG screenshots if rendering tools are available
+- HTML files for browser preview → write to `outputs/slides/`
+- PNG screenshots if rendering tools are available → write to `outputs/slides/`
 
 ### Stage 6 — Preview & review gate
 
@@ -196,10 +208,12 @@ npm run check-env
 # If dependencies are missing: npm ci
 ```
 
-Then run the conversion (from the `html-slide-to-pptx` skill directory):
+Then run the conversion (from the `html-slide-to-pptx` skill directory).
+All output paths must be relative to the session working directory and placed
+under `outputs/`:
 
 ```bash
-node scripts/html_to_pptx.js <input.html> <output.pptx> --preset=<preset-name> --dump-model <model.json>
+node scripts/html_to_pptx.js outputs/slides/slide-01.html outputs/slide-01.pptx --preset=<preset-name> --dump-model outputs/slide-01-model.json
 ```
 
 For multi-slide decks, convert each HTML file separately and note the output
@@ -210,7 +224,7 @@ paths. Merge instructions are in `references/workflow-pipeline.md`.
 Run preflight QA (from the `html-slide-to-pptx` skill directory):
 
 ```bash
-node scripts/preflight_qa.js <model.json> --preset=<preset-name> --report <qa-report.json>
+node scripts/preflight_qa.js outputs/slide-01-model.json --preset=<preset-name> --report outputs/slide-01-qa.json
 ```
 
 Check for:
