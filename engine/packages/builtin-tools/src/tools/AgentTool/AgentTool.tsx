@@ -54,8 +54,6 @@ import { permissionModeSchema } from 'src/utils/permissions/PermissionMode.js';
 import type { PermissionResult } from 'src/utils/permissions/PermissionResult.js';
 import { filterDeniedAgents, getDenyRuleForAgent } from 'src/utils/permissions/permissions.js';
 import { enqueueSdkEvent } from 'src/utils/sdkEventQueue.js';
-import { writeToStdout } from 'src/utils/process.js';
-import { jsonStringify } from 'src/utils/slowOperations.js';
 import { writeAgentMetadata } from 'src/utils/sessionStorage.js';
 import { sleep } from 'src/utils/sleep.js';
 import { buildEffectiveSystemPrompt } from 'src/utils/systemPrompt.js';
@@ -1282,25 +1280,6 @@ export const AgentTool = buildTool({
 
               if (message.type !== 'assistant' && message.type !== 'user') {
                 continue;
-              }
-
-              // Emit sub-agent messages to stdout for real-time teammate rendering.
-              // These are written as JSON lines with teammate metadata so the
-              // frontend's recordTeammateMessage can ingest them during streaming.
-              try {
-                const teammateMsg = {
-                  ...(message as any),
-                  type: message.type,
-                  isSidechain: true,
-                  agentName: selectedAgent.agentType,
-                  subagent_type: metadata.agentType,
-                  agentTaskId: syncAgentId,
-                  teamName: 'Agent Team',
-                };
-                writeToStdout(jsonStringify(teammateMsg) + '\n');
-              } catch {
-                // Non-fatal: if stdout write fails, the teammate transcript
-                // will still be populated via the post-completion file hydration.
               }
 
               // Increment token count in spinner for assistant messages

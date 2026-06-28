@@ -171,26 +171,11 @@ describe('buildOpenAIRequestBody — thinking params', () => {
     expect(body.chat_template_kwargs!.thinking).toBe(true)
   })
 
-  test('includes OpenRouter reasoning format when enabled', () => {
-    const body = buildOpenAIRequestBody({ ...baseParams, enableThinking: true })
-    expect(body.reasoning).toEqual({ enabled: true })
-    expect(body.include_reasoning).toBe(true)
-  })
-
   test('does NOT include thinking params when disabled', () => {
     const body = buildOpenAIRequestBody({ ...baseParams, enableThinking: false })
     expect(body.thinking).toBeUndefined()
     expect(body.enable_thinking).toBeUndefined()
     expect(body.chat_template_kwargs).toBeUndefined()
-    expect(body.include_reasoning).toBeUndefined()
-  })
-
-  test('asks OpenRouter to exclude reasoning when thinking is disabled', () => {
-    // Without this, thinking-only models (e.g. arcee-ai/trinity-large-thinking)
-    // route their entire response through the reasoning channel, which the
-    // streamAdapter then drops, leaving the user with a silent empty turn.
-    const body = buildOpenAIRequestBody({ ...baseParams, enableThinking: false })
-    expect(body.reasoning).toEqual({ exclude: true })
   })
 
   test('always includes stream and stream_options', () => {

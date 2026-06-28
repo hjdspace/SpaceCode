@@ -96,8 +96,6 @@ export function buildOpenAIRequestBody(params: {
   thinking?: { type: string }
   enable_thinking?: boolean
   chat_template_kwargs?: { thinking: boolean }
-  reasoning?: { enabled: boolean } | { exclude: boolean }
-  include_reasoning?: boolean
 } {
   const { model, messages, tools, toolChoice, enableThinking, maxTokens, temperatureOverride } = params
   return {
@@ -110,30 +108,15 @@ export function buildOpenAIRequestBody(params: {
     }),
     stream: true,
     stream_options: { include_usage: true },
-    // Thinking / reasoning mode: enable chain-of-thought output.
-    // Multiple formats are sent simultaneously to support different providers.
-    // Each upstream uses the format it recognizes and ignores the others.
-    // When active, temperature/top_p/presence_penalty/frequency_penalty are typically ignored.
-    ...(enableThinking
-      ? {
-          // Official DeepSeek API format
-          thinking: { type: 'enabled' },
-          // Self-hosted DeepSeek-V3.2 format
-          enable_thinking: true,
-          chat_template_kwargs: { thinking: true },
-          // OpenRouter format — surfaces reasoning via delta.reasoning on the stream
-          reasoning: { enabled: true },
-          // Legacy OpenRouter flag, still accepted for backward compatibility
-          include_reasoning: true,
-        }
-      : {
-          // Tell OpenRouter to exclude reasoning when thinking is off, so
-          // thinking-only models (e.g. arcee-ai/trinity-large-thinking) emit
-          // their final answer as visible content instead of routing the entire
-          // response into the reasoning channel that we'd later drop.
-          // Other endpoints ignore unknown keys.
-          reasoning: { exclude: true },
-        }),
+    // DeepSeek thinking mode: enable chain-of-thought output.
+    // When active, temperature/top_p/presence_penalty/frequency_penalty are ignored by DeepSeek.
+    ...(enableThinking && {
+      // Official DeepSeek API format
+      thinking: { type: 'enabled' },
+      // Self-hosted DeepSeek-V3.2 format
+      enable_thinking: true,
+      chat_template_kwargs: { thinking: true },
+    }),
     // Only send temperature when thinking mode is off (DeepSeek ignores it anyway,
     // but other providers may respect it)
     ...(!enableThinking && temperatureOverride !== undefined && {
