@@ -1095,6 +1095,9 @@ export default {
     retry: '重试',
     dismiss: '关闭',
     technicalDetail: '技术详情',
+    autoRetrying: '正在自动重试（{attempt}/{max}）',
+    retryingIn: '{seconds} 秒后重试',
+    cancelRetry: '取消重试',
   },
 
   trace: {

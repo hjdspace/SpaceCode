@@ -122,6 +122,26 @@ export interface ArtifactSummaryEntry {
   mtime: number
 }
 
+/** 自动重试状态：遇到可恢复错误时在聊天页展示错误信息 + "正在重试 (n/m)"。 */
+export interface RetryState {
+  /** 当前重试次数（1-based，0 表示尚未重试） */
+  attempt: number
+  /** 最大重试次数 */
+  maxRetries: number
+  /** 触发重试的错误分类（用于 UI 颜色 / 图标） */
+  errorCategory: ErrorCategory
+  /** 错误标题（如"请求过于频繁"），展示给用户 */
+  errorTitle: string
+  /** 错误描述（如"API 返回 429 速率限制错误"），展示给用户 */
+  errorMessage: string
+  /** 本次退避延迟（ms） */
+  delayMs: number
+  /** 重试发起时间戳 */
+  startedAt: number
+  /** 用户是否手动取消重试 */
+  aborted: boolean
+}
+
 export interface MessageMetadata {
   model?: string
   // Cumulative-per-turn usage from SDK `result.usage`. Suitable for
@@ -152,6 +172,8 @@ export interface MessageMetadata {
   status?: TeammateStatus
   /** 办公模式：本回合新生成/修改的产物文件（仅 work 模式会话写入）。 */
   artifacts?: ArtifactSummaryEntry[]
+  /** 自动重试状态：非空时 UI 渲染 RetryIndicator 组件 */
+  retryState?: RetryState
 }
 
 export type ProcessStatus = 'none' | 'starting' | 'active' | 'idle' | 'suspended' | 'exited'

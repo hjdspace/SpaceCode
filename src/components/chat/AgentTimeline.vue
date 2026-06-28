@@ -14,6 +14,18 @@
 
     <!-- Timeline event list -->
     <div class="timeline-events">
+      <!-- 自动重试提示：不展示错误详情，只提示"正在重试 (n/m)" -->
+      <RetryIndicator
+        v-if="currentRetryState && !currentRetryState.aborted"
+        :attempt="currentRetryState.attempt"
+        :max-retries="currentRetryState.maxRetries"
+        :delay-ms="currentRetryState.delayMs"
+        :error-category="currentRetryState.errorCategory"
+        :error-title="currentRetryState.errorTitle"
+        :error-message="currentRetryState.errorMessage"
+        @cancel="handleCancelRetry"
+      />
+
       <!-- 全局任务看板 -->
       <TaskListCard
         v-if="allTasks.length && shouldShowTaskBoard"
@@ -152,8 +164,10 @@ import { useTaskManager } from '@/composables/useTaskManager'
 import PermissionRequestCard from './tools/PermissionRequestCard.vue'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
 import ErrorCard from '../common/ErrorCard.vue'
+import RetryIndicator from './RetryIndicator.vue'
 import { errorHandler } from '@/services/errorHandler'
 import { useChatStore } from '@/stores/chat'
+import { useChatStreamStore } from '@/stores/chatStream'
 import {
   Loader2, X, ChevronDown, Bot, AlertCircle,
   Terminal, FileText, FileEdit, Search, Globe, Wand2, Folder, Code,
@@ -204,6 +218,7 @@ const props = defineProps<{
 const expandedEvents = reactive<Record<string, boolean>>({})
 
 const chatStore = useChatStore()
+const streamStore = useChatStreamStore()
 const taskManager = useTaskManager()
 const { t } = useI18n()
 
@@ -214,6 +229,17 @@ function getPendingPermission(toolUseId: string) {
 function handleRetry() {
   chatStore.retryLastMessage()
 }
+
+function handleCancelRetry() {
+  chatStore.cancelRetry()
+}
+
+/** 当前会话的重试状态（从响应式 store 中读取） */
+const currentRetryState = computed(() => {
+  const sid = chatStore.currentSessionId
+  if (!sid) return null
+  return streamStore.retryStates.get(sid) ?? null
+})
 
 function handleDismissError() {
   const sid = chatStore.currentSessionId

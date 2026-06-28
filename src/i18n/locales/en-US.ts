@@ -1095,6 +1095,9 @@ export default {
     retry: 'Retry',
     dismiss: 'Dismiss',
     technicalDetail: 'Technical Details',
+    autoRetrying: 'Auto-retrying ({attempt}/{max})',
+    retryingIn: 'Retrying in {seconds}s',
+    cancelRetry: 'Cancel Retry',
   },
 
   trace: {

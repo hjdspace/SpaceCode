@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed, nextTick } from 'vue'
 import type { Message } from '@/types'
+import { ErrorCategory } from '@/types'
+import type { RetryState } from '@/types'
 import { useSettingsStore } from './settings'
 import { useContextUsageStore } from './contextUsage'
 import { api } from '@/services/electronAPI'
@@ -17,6 +19,14 @@ const VERIFICATION_PATTERNS = [/^\s*(npm\s+test|bun\s+test|pnpm\s+test|yarn\s+te
 
 const REQUEST_TIMEOUT = 5 * 60 * 1000               // 用户发起 turn 的空闲超时（硬超时报错）
 const AUTONOMOUS_REQUEST_TIMEOUT = 45 * 60 * 1000   // 后台 agent 自动续跑可长跑（软收尾）
+
+// ── 自动重试配置 ──
+// 遇到可恢复错误（429 / 5xx / 网络错误 / 超时 / 进程退出）时，
+// 不展示技术错误详情，直接在聊天页显示"正在重试 (n/m)"并自动重发用户消息。
+const MAX_AUTO_RETRIES = 5                            // 最大重试次数
+const INITIAL_RETRY_DELAY_MS = 2_000                  // 首次退避 2s
+const MAX_RETRY_DELAY_MS = 60_000                     // 最大退避 60s
+const RETRY_JITTER_MS = 1_000                         // 随机抖动上限
 
 // 单个会话当前进行中的 turn 状态。turnStates 中无此 sessionId 条目 === 该会话 idle。
 interface TurnState {
@@ -46,6 +56,10 @@ export const useChatStreamStore = defineStore('chatStream', () => {
   // 因 session.messages.length > 0 而自动创建 autonomous turn，
   // 导致事件被消费、turn 被提前结算，用户看到的响应延迟或丢失。
   const pendingSendMessages = new Set<string>()
+
+  // ── 自动重试状态（响应式，供 UI 读取）──
+  // sessionId → RetryState。非空时 UI 渲染 RetryIndicator 组件。
+  const retryStates = ref<Map<string, RetryState>>(new Map())
 
   const isLoading = computed(() =>
     sessionStore.currentSessionId ? (loadingSessions.value.get(sessionStore.currentSessionId) ?? false) : false
@@ -676,6 +690,13 @@ export const useChatStreamStore = defineStore('chatStream', () => {
     streamingContents.value.set(sessionId, '')
     loadingSessions.value.set(sessionId, false)
 
+    // 重试成功：清理重试状态，UI 上的 RetryIndicator 消失
+    if (retryStates.value.has(sessionId)) {
+      sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry succeeded, clearing retry state`)
+      retryStates.value.delete(sessionId)
+      retryStates.value = new Map(retryStates.value)
+    }
+
     const s = sessionStore.sessions.find(s => s.id === sessionId)
     if (s) {
       s.processStatus = 'idle'
@@ -824,27 +845,200 @@ export const useChatStreamStore = defineStore('chatStream', () => {
     endTurn(sessionId, ts)
   }
 
+  // ────────────────────────────────────────────────────────────────────
+  // 自动重试：遇到可恢复错误时不展示技术详情，直接提示"正在重试 (n/m)"
+  // ────────────────────────────────────────────────────────────────────
+
+  /** 判断当前错误是否应该自动重试 */
+  function shouldAutoRetry(sessionId: string, retryable: boolean): boolean {
+    if (!retryable) return false
+    const state = retryStates.value.get(sessionId)
+    const attempt = state?.attempt ?? 0
+    return attempt < MAX_AUTO_RETRIES
+  }
+
+  /** 计算退避延迟：指数退避 + 随机抖动，尊重 Retry-After header */
+  function computeRetryDelay(retryDelayHint?: number, attempt: number = 0): number {
+    if (retryDelayHint && retryDelayHint > 0) {
+      return Math.min(retryDelayHint, MAX_RETRY_DELAY_MS)
+    }
+    const exponential = Math.min(INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt), MAX_RETRY_DELAY_MS)
+    const jitter = Math.random() * RETRY_JITTER_MS
+    return Math.round(exponential + jitter)
+  }
+
+  /** 发起自动重试：更新 UI → 等待退避 → 重新发送用户消息 */
+  async function initiateAutoRetry(
+    sessionId: string,
+    ts: TurnState,
+    errorCategory: ErrorCategory,
+    errorTitle: string,
+    errorMessage: string,
+    retryDelayHint?: number,
+  ): Promise<void> {
+    const prev = retryStates.value.get(sessionId)
+    const attempt = (prev?.attempt ?? 0) + 1
+    const delayMs = computeRetryDelay(retryDelayHint, attempt - 1)
+    const state: RetryState = {
+      attempt,
+      maxRetries: MAX_AUTO_RETRIES,
+      errorCategory,
+      errorTitle,
+      errorMessage,
+      delayMs,
+      startedAt: Date.now(),
+      aborted: false,
+    }
+    retryStates.value.set(sessionId, state)
+    // 触发响应式更新
+    retryStates.value = new Map(retryStates.value)
+
+    sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry scheduled | attempt=${attempt}/${MAX_AUTO_RETRIES} | delay=${delayMs}ms | category=${errorCategory}`)
+
+    // ① 更新助手消息：显示重试状态（不展示技术错误详情）
+    sessionStore.updateMessage(ts.assistantMessageId, {
+      content: '',
+      metadata: {
+        model: settingsStore.config.model,
+        retryState: { ...state },
+      }
+    }, sessionId)
+
+    // ② 保持 loading 状态，让用户看到转圈
+    loadingSessions.value.set(sessionId, true)
+
+    // ③ 等待退避延迟
+    await new Promise<void>(resolve => setTimeout(resolve, delayMs))
+
+    // 检查是否被取消
+    const cur = retryStates.value.get(sessionId)
+    if (!cur || cur.aborted) {
+      sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry aborted by user`)
+      return
+    }
+
+    // ④ 获取上一条用户消息
+    const session = sessionStore.sessions.find(s => s.id === sessionId)
+    if (!session) {
+      retryStates.value.delete(sessionId)
+      retryStates.value = new Map(retryStates.value)
+      return
+    }
+
+    const lastUserMsg = [...session.messages].reverse().find(m => m.role === 'user')
+    if (!lastUserMsg) {
+      retryStates.value.delete(sessionId)
+      retryStates.value = new Map(retryStates.value)
+      return
+    }
+
+    // ⑤ 移除当前失败的助手占位消息
+    const failedIdx = session.messages.findIndex(m => m.id === ts.assistantMessageId)
+    if (failedIdx >= 0) {
+      session.messages.splice(failedIdx, 1)
+    }
+
+    // ⑥ 结束当前 turn（不报错），为重试腾出位置
+    if (ts.timeoutId) { clearTimeout(ts.timeoutId); ts.timeoutId = null }
+    turnStates.delete(sessionId)
+
+    // ⑦ 确保引擎进程存活：429 等错误会导致子进程退出
+    try {
+      const claudeCode = api.claudeCode
+      if (claudeCode) {
+        const status = await claudeCode.getSessionStatus(sessionId)
+        if (!status?.isRunning || status?.status === 'exited') {
+          sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry: engine process exited, restarting`)
+          try { await claudeCode.stop(sessionId) } catch { /* ignore */ }
+          session.processStatus = 'none'
+          await sessionStore.initClaudeCodeSession(sessionId)
+        }
+      }
+    } catch (e) {
+      sessionStore.logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry: engine restart failed`, { error: String(e) })
+    }
+
+    // ⑧ 重新发送用户消息（保留重试计数）
+    try {
+      await sendMessage(lastUserMsg.content)
+    } catch (retryError) {
+      sessionStore.logger.error('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry sendMessage failed`, { error: String(retryError) })
+    }
+  }
+
+  /** 用户手动取消自动重试 */
+  async function cancelRetry(): Promise<void> {
+    const sid = sessionStore.currentSessionId
+    if (!sid) return
+    const state = retryStates.value.get(sid)
+    if (!state) return
+    state.aborted = true
+    retryStates.value = new Map(retryStates.value)
+
+    // 清理 loading 状态
+    loadingSessions.value.set(sid, false)
+    streamingContents.value.set(sid, '')
+
+    // 清理 turn
+    const ts = turnStates.get(sid)
+    if (ts && !ts.settled) {
+      if (ts.timeoutId) { clearTimeout(ts.timeoutId); ts.timeoutId = null }
+      ts.settled = true
+      ts.resolve?.()
+      turnStates.delete(sid)
+    }
+
+    retryStates.value.delete(sid)
+    retryStates.value = new Map(retryStates.value)
+
+    const s = sessionStore.sessions.find(sx => sx.id === sid)
+    if (s) {
+      s.processStatus = 'idle'
+      sessionStore.saveToStorage()
+    }
+  }
+
   const handleError = (sessionId: string, ts: TurnState, error: any) => {
     if (ts.settled) return
-    ts.settled = true
     const elapsed = Date.now() - ts.sendStartTime
     sessionStore.logger.error('ChatStore', `[${sessionId.slice(0, 8)}] error in message flow | elapsed=${elapsed}ms`, { error: String(error) })
+
+    // 先分类错误（不触发 toast，仅用于判断是否可重试）
+    const classified = errorHandler.classifyError(error, {
+      sessionId,
+      provider: settingsStore.config.provider,
+      model: settingsStore.config.model,
+      baseUrl: settingsStore.config.baseUrl,
+      phase: 'stream',
+    })
+
+    // ★ 拦截可恢复错误：自动重试，不展示技术错误详情
+    if (shouldAutoRetry(sessionId, classified.retryable)) {
+      // 超时错误需要先 abort 引擎进程
+      const claudeCode = api.claudeCode
+      const errorMsg = String(error).toLowerCase()
+      const isTimeoutError = errorMsg.includes('超时') || errorMsg.includes('timeout')
+      if (isTimeoutError && claudeCode) {
+        try { claudeCode.abort(sessionId) } catch { /* ignore */ }
+      }
+
+      // 不设置 ts.settled，保持 turn 存活；异步发起重试
+      void initiateAutoRetry(sessionId, ts, classified.category, classified.title, classified.message, classified.retryDelay)
+      return
+    }
+
+    // ── 以下为不可恢复错误或重试耗尽的最终处理 ──
+    ts.settled = true
     loadingSessions.value.set(sessionId, false)
     streamingContents.value.set(sessionId, '')
 
-    const claudeCode = api.claudeCode
-    const errorMsg = String(error).toLowerCase()
-    const isTimeoutError = errorMsg.includes('超时') || errorMsg.includes('timeout')
-    if (isTimeoutError && claudeCode) {
-      try {
-        sessionStore.logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] timeout detected, attempting to abort engine process`)
-        claudeCode.abort(sessionId)
-      } catch (e) {
-        sessionStore.logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] abort failed`, { error: String(e) })
-      }
-    }
+    // 清理重试状态
+    const hadRetry = retryStates.value.has(sessionId)
+    retryStates.value.delete(sessionId)
+    if (hadRetry) retryStates.value = new Map(retryStates.value)
 
-    const classified = errorHandler.handleError(error, {
+    // 触发 toast / 日志 / inlineError
+    errorHandler.handleError(error, {
       sessionId,
       provider: settingsStore.config.provider,
       model: settingsStore.config.model,
@@ -858,7 +1052,7 @@ export const useChatStreamStore = defineStore('chatStream', () => {
       actor: 'assistant',
       type: 'assistant_turn',
       status: 'failed',
-      title: 'Assistant turn failed',
+      title: hadRetry ? 'Assistant turn failed (retries exhausted)' : 'Assistant turn failed',
       error: { message: classified.technicalDetail },
     })
 
@@ -1093,6 +1287,15 @@ export const useChatStreamStore = defineStore('chatStream', () => {
       pendingSendMessages.delete(sid)
       loadingSessions.value.set(sid, false)
       streamingContents.value.set(sid, '')
+
+      // 清理自动重试状态
+      const retryState = retryStates.value.get(sid)
+      if (retryState) {
+        retryState.aborted = true
+        retryStates.value.delete(sid)
+        retryStates.value = new Map(retryStates.value)
+      }
+
       const ts = turnStates.get(sid)
       if (ts && !ts.settled) {
         ts.settled = true
@@ -1220,6 +1423,9 @@ export const useChatStreamStore = defineStore('chatStream', () => {
     retryLastMessage,
     submitToolAnswer,
     skipToolAnswer,
+    // Auto Retry
+    retryStates,
+    cancelRetry,
     // Pending Messages
     pendingMessages,
     addPendingMessage,
