@@ -395,7 +395,11 @@ async function handleModeSelect(mode: 'work' | 'code') {
   // 切换到新模式下的最近会话；没有则创建新会话
   const modeSessions = chatStore.sessions.filter(s => (s.mode || 'code') === mode)
   if (modeSessions.length > 0) {
-    await chatStore.selectSession(modeSessions[0].id)
+    const targetSessionId = modeSessions[0].id
+    await chatStore.selectSession(targetSessionId)
+    // 同步 activeCenterTab，确保 SplitContainer 的 watcher 能将 pane content
+    // 更新到目标会话（修复切换模式后主面板仍显示旧模式会话的问题）
+    appStore.switchToSessionTab(targetSessionId)
   } else {
     const workingDirectory = mode === 'work'
       ? (appStore.workWorkspace || chatStore.currentProjectRoot || undefined)

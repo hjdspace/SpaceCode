@@ -74,6 +74,34 @@ watch(
   () => splitLayout.activePane?.content?.tabId,
   () => syncActivePaneToGlobal(),
 )
+
+/**
+ * 单 leaf 模式下，全局 activeCenterTab 变化时反向同步到 pane content。
+ *
+ * 问题场景：leaf kind 为 'session'（例如从分屏关闭后残留）时，
+ * 点击侧边栏切换会话更新了 chatStore.currentSessionId 和 appStore.activeCenterTab，
+ * 但 pane content 的 tabId 未更新，导致 ChatPanel 仍通过 props.sessionId 显示旧会话。
+ *
+ * 'main' kind 的 leaf 跟随全局 currentSessionId，无需处理；
+ * 多 leaf 模式下各 pane 独立，也不处理。
+ */
+watch(
+  () => appStore.activeCenterTab,
+  (tabId) => {
+    if (!splitLayout.isSingleLeaf) return
+    const leaf = splitLayout.activePane
+    if (!leaf) return
+    // 仅修正 'session' kind 的 leaf：当全局切到某个 session tab 时，
+    // 确保 pane content 的 tabId 同步更新（'main' kind 跟随全局，无需处理）
+    if (
+      tabId.startsWith('session-') &&
+      leaf.content.kind === 'session' &&
+      leaf.content.tabId !== tabId
+    ) {
+      splitLayout.setPaneContent(leaf.id, { kind: 'session', tabId })
+    }
+  },
+)
 </script>
 
 <style lang="scss" scoped>
