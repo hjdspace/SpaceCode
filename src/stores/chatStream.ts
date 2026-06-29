@@ -65,6 +65,18 @@ export const useChatStreamStore = defineStore('chatStream', () => {
   // 导致事件被消费、turn 被提前结算，用户看到的响应延迟或丢失。
   const pendingSendMessages = new Set<string>()
 
+  // ── 用户主动 abort 标记 ──
+  // 用户点击停止按钮后，abort() 仅向引擎发送 interrupt 控制信号，
+  // 并不杀死引擎进程。当任务中启动了子代理（Task tool）时，子代理
+  // 可能仍在运行并继续发出 stream_event / assistant / tool_use 事件。
+  // 这些事件会触发 ensureTurn 创建新的 autonomous turn，使会话看起来
+  // 「自动恢复运行」。更严重的是，当子代理以 is_error 结束时，
+  // handleError 会将其分类为可重试错误并触发 initiateAutoRetry，
+  // 自动重发上一条用户消息，导致会话彻底重启。
+  // 通过此 Set 标记用户主动中止的会话，在 ensureTurn 和 handleError
+  // 中拦截残留事件，直到用户主动发新消息或重试时清除标记。
+  const userAbortedSessions = new Set<string>()
+
   // ── 自动重试状态（响应式，供 UI 读取）──
   // sessionId → RetryState。非空时 UI 渲染 RetryIndicator 组件。
   const retryStates = ref<Map<string, RetryState>>(new Map())
@@ -264,6 +276,13 @@ export const useChatStreamStore = defineStore('chatStream', () => {
     // 因为用户发起的 turn 即将由 beginTurn 创建。
     // 丢弃此窗口期内的流式事件，防止 autonomous turn 消费事件或被提前结算。
     if (pendingSendMessages.has(sessionId)) {
+      return { settled: true } as TurnState
+    }
+
+    // ★ 用户主动 abort 后，丢弃引擎残留事件（子代理输出等），
+    // 不创建 autonomous turn，防止会话「自动恢复运行」。
+    // 标记在 sendMessage / retryLastMessage / resendForRetry 中清除。
+    if (userAbortedSessions.has(sessionId)) {
       return { settled: true } as TurnState
     }
 
@@ -884,6 +903,8 @@ export const useChatStreamStore = defineStore('chatStream', () => {
   /** 判断当前错误是否应该自动重试 */
   function shouldAutoRetry(sessionId: string, retryable: boolean): boolean {
     if (!retryable) return false
+    // ★ 用户主动 abort 后的错误（如 "API Error: Request was abort"）不应触发自动重试
+    if (userAbortedSessions.has(sessionId)) return false
     const state = retryStates.value.get(sessionId)
     const attempt = state?.attempt ?? 0
     return attempt < MAX_AUTO_RETRIES
@@ -1017,6 +1038,9 @@ export const useChatStreamStore = defineStore('chatStream', () => {
     const session = sessionStore.sessions.find(s => s.id === sessionId)
     if (!session) return
 
+    // ★ 清除用户中止标记（防御性：正常流程不应走到这里，但避免竞态）
+    userAbortedSessions.delete(sessionId)
+
     const claudeCode = api.claudeCode
     if (!claudeCode) {
       sessionStore.logger.error('ChatStore', `[${sessionId.slice(0, 8)}] resendForRetry: claudeCode API not available`)
@@ -1083,6 +1107,25 @@ export const useChatStreamStore = defineStore('chatStream', () => {
     if (ts.settled) return
     const elapsed = Date.now() - ts.sendStartTime
     sessionStore.logger.error('ChatStore', `[${sessionId.slice(0, 8)}] error in message flow | elapsed=${elapsed}ms`, { error: String(error) })
+
+    // ★ 用户主动 abort 后的错误（如 "API Error: Request was abort"）：
+    // 不展示错误 toast、不触发自动重试，静默结束 turn。
+    // 用户已知道自己点了停止，不需要看到技术错误详情。
+    if (userAbortedSessions.has(sessionId)) {
+      sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] error suppressed after user abort`) 
+      ts.settled = true
+      loadingSessions.value.set(sessionId, false)
+      streamingContents.value.set(sessionId, '')
+      retryStates.value.delete(sessionId)
+      retryStates.value = new Map(retryStates.value)
+      const s = sessionStore.sessions.find(sx => sx.id === sessionId)
+      if (s) {
+        s.processStatus = 'idle'
+        sessionStore.saveToStorage()
+      }
+      endTurn(sessionId, ts)
+      return
+    }
 
     // 先分类错误（不触发 toast，仅用于判断是否可重试）
     const classified = errorHandler.classifyError(error, {
@@ -1252,6 +1295,8 @@ export const useChatStreamStore = defineStore('chatStream', () => {
     }
 
     const targetSessionId = sessionStore.currentSessionId!
+    // ★ 清除用户中止标记：用户主动发新消息时恢复正常运行
+    userAbortedSessions.delete(targetSessionId)
     const session = sessionStore.sessions.find(s => s.id === targetSessionId)
     if (!session) return
 
@@ -1359,6 +1404,13 @@ export const useChatStreamStore = defineStore('chatStream', () => {
   async function abort(): Promise<void> {
     const sid = sessionStore.currentSessionId
     sessionStore.logger.info('ChatStore', `abort | sessionId=${sid?.slice(0, 8) || '(none)'}`)
+
+    // ★ 在 await 之前先标记用户主动中止，防止 await 期间引擎错误事件
+    // 到达后通过 handleError → shouldAutoRetry 触发自动重试。
+    if (sid) {
+      userAbortedSessions.add(sid)
+    }
+
     const claudeCode = api.claudeCode
     if (claudeCode && sid) {
       try {
@@ -1397,6 +1449,8 @@ export const useChatStreamStore = defineStore('chatStream', () => {
   async function retryLastMessage(): Promise<void> {
     const sid = sessionStore.currentSessionId
     if (!sid) return
+    // ★ 清除用户中止标记：用户主动重试时恢复正常运行
+    userAbortedSessions.delete(sid)
     errorHandler.clearInlineError(sid)
     const session = sessionStore.sessions.find(s => s.id === sid)
     if (!session) return
