@@ -307,7 +307,10 @@ function scheduleRender() {
     // 使用 rAF 把渲染合并到下一帧, 避免 N 次 delta -> N 次 parse.
     requestAnimationFrame(() => {
       renderScheduled = false
-      performRender(true)
+      // 流式期间跳过 transformFileLinks (withFileLinks=false):
+      // 它需要构造完整临时 DOM 并遍历所有文本节点, 高频重复执行是
+      // 渲染进程 OOM 崩溃的主要诱因. file-link 由尾随帧统一处理.
+      performRender(false)
       // 之后再用一个尾随定时器, 在内容稳定后做一次"完整"渲染(含 file-link).
       armTrailingFinalize()
     })
