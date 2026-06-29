@@ -26,13 +26,6 @@
         @cancel="handleCancelRetry"
       />
 
-      <!-- 全局任务看板 -->
-      <TaskListCard
-        v-if="allTasks.length && shouldShowTaskBoard"
-        :tasks="allTasks"
-        class="timeline-task-board"
-      />
-
       <div
         v-for="(event, index) in visibleTimelineEvents"
         :key="event.id"
@@ -149,6 +142,13 @@
           </template>
         </div>
       </div>
+
+      <!-- 全局任务看板 -->
+      <TaskListCard
+        v-if="allTasks.length && shouldShowTaskBoard"
+        :tasks="allTasks"
+        class="timeline-task-board"
+      />
     </div>
   </div>
 </template>
@@ -853,7 +853,7 @@ function parseTaskUpdateOutput(output?: string, input: Record<string, any> = {})
 }
 
 .timeline-task-board {
-  margin-bottom: 8px;
+  margin-top: 8px;
 }
 
 .event-task-inline {

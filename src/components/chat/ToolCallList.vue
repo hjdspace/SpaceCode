@@ -15,13 +15,6 @@
 
     <!-- Timeline body -->
     <div v-show="!isCollapsed" class="timeline-body">
-      <!-- 全局任务看板 -->
-      <TaskListCard
-        v-if="allTasks.length && shouldShowTaskBoard"
-        :tasks="allTasks"
-        class="timeline-task-board"
-      />
-
       <!-- Timeline items -->
       <div
         v-for="(tool, index) in displayToolCalls"
@@ -89,6 +82,13 @@
           </div>
         </template>
       </div>
+
+      <!-- 全局任务看板 -->
+      <TaskListCard
+        v-if="allTasks.length && shouldShowTaskBoard"
+        :tasks="allTasks"
+        class="timeline-task-board"
+      />
     </div>
   </div>
 </template>
@@ -442,7 +442,7 @@ function handleToolSkip(toolId: string) {
 }
 
 .timeline-task-board {
-  margin-bottom: 8px;
+  margin-top: 8px;
 }
 
 .timeline-item {
