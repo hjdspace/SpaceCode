@@ -7,7 +7,7 @@ const scriptDir = __dirname;
 // Default SVG source (can be overridden via CLI argument)
 // Usage: node icons/generate-icons.cjs [svg-filename]
 // Example: node icons/generate-icons.cjs design-a-bold-bracket.svg
-const defaultSvg = 'option3-hexagon-neural.svg';
+const defaultSvg = 'design-b-planet-bracket.svg';
 const svgArg = process.argv[2];
 const svgName = svgArg || defaultSvg;
 const svgPath = path.join(scriptDir, svgName);

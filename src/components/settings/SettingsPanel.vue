@@ -4,7 +4,7 @@
       <aside class="settings-sidebar">
         <div class="sidebar-header">
           <div class="sidebar-logo">
-            <div class="logo-icon">S</div>
+            <img class="logo-icon" :src="appIcon" alt="SpaceCode" />
             <span class="logo-text">SpaceCode</span>
           </div>
         </div>
@@ -101,6 +101,7 @@ import {
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore, type AuthMethod, type OAuthAccountInfo, type EngineType } from '@/stores/settings'
+import appIcon from '@/assets/app-icon.svg'
 
 const GeneralSettings = defineAsyncComponent(() => import('./GeneralSettings.vue'))
 const ModelSettings = defineAsyncComponent(() => import('./ModelSettings.vue'))
@@ -267,14 +268,9 @@ function handleBack() {
 .logo-icon {
   width: 32px;
   height: 32px;
-  background: linear-gradient(135deg, var(--accent-primary), var(--accent-tertiary));
   border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-weight: 700;
-  font-size: 16px;
+  flex-shrink: 0;
+  object-fit: contain;
 }
 
 .logo-text {
