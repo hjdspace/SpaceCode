@@ -54,8 +54,33 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
   const loading = ref(false)
   const lastFetchedSessionId = ref<string | null>(null)
   const activeRequestSessionId = ref<string | null>(null)
+  const isCompacting = ref(false)
 
   const hasData = computed(() => snapshot.value != null)
+
+  /**
+   * Start a manual context compaction by sending /compact to the engine.
+   * Runs in the background — the modal can be closed while compaction
+   * is in progress. When done, refreshes the context snapshot.
+   */
+  function startCompact() {
+    if (isCompacting.value) return
+    const chatStore = useChatStore()
+    isCompacting.value = true
+
+    chatStore
+      .sendMessage('/compact')
+      .then(() => {
+        // Compaction completed — refresh context data
+        return refresh(undefined, true)
+      })
+      .catch(() => {
+        // Compaction failed — still clear the flag
+      })
+      .finally(() => {
+        isCompacting.value = false
+      })
+  }
 
   async function refresh(sessionId?: string, force = false) {
     const chatStore = useChatStore()
@@ -139,8 +164,10 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
     snapshot,
     loading,
     hasData,
+    isCompacting,
     refresh,
     applyFallback,
     clear,
+    startCompact,
   }
 })

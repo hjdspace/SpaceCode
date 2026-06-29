@@ -1125,6 +1125,35 @@ export class SessionProcess extends EventEmitter {
     if (!process.env.PYTHONUTF8) env.PYTHONUTF8 = '1'
     if (!process.env.PYTHONIOENCODING) env.PYTHONIOENCODING = 'utf-8'
 
+    // ── Windows PATH 刷新 + Python 检测 ──
+    //
+    // 问题：打包后的 Electron 应用从 explorer.exe 继承 PATH。如果用户在
+    // 应用启动后才安装 Python（或其他工具），新的 PATH 条目不会传播到已
+    // 运行的进程中。引擎进程继承这个过期的 PATH，导致 bash 工具执行
+    // `python` 时报 exit code 127 (command not found)。
+    //
+    // 修复：
+    // 1. 从 Windows 注册表读取当前系统级和用户级 PATH（包含最近安装的工具）
+    // 2. 检测常见 Python 安装位置（处理未勾选 "Add to PATH" 的情况）
+    // 3. 合并后注入 env.PATH，确保引擎进程获得最新的 PATH
+    const refreshedPath = this.refreshWindowsPath()
+    if (refreshedPath) {
+      env.PATH = refreshedPath
+    }
+
+    const pythonPaths = this.detectPythonPaths()
+    if (pythonPaths.length > 0) {
+      const currentPath = env.PATH || process.env.PATH || ''
+      const existingEntries = currentPath.split(path.delimiter)
+      const newEntries = pythonPaths.filter(
+        p => !existingEntries.some(e => e.toLowerCase() === p.toLowerCase()),
+      )
+      if (newEntries.length > 0) {
+        env.PATH = [...newEntries, ...existingEntries].join(path.delimiter)
+        debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Detected Python installations not in PATH | dirs=${newEntries.join(';')}`)
+      }
+    }
+
     // Force-enable v2 task tools (TaskCreate / TaskGet / TaskUpdate / TaskList).
     // Without this, the engine sees `getIsNonInteractiveSession() === true`
     // (we always pass `--print`) and isTodoV2Enabled() returns false, so the
@@ -1293,6 +1322,146 @@ export class SessionProcess extends EventEmitter {
       upstreamApiKey,
       modelMapping,
     }
+  }
+
+  /**
+   * On Windows, reads the current system and user PATH from the registry.
+   *
+   * Windows GUI apps inherit PATH from explorer.exe at launch time. If the user
+   * installs tools (Python, Node, etc.) after the app was launched, those new
+   * PATH entries don't propagate to already-running processes. Reading from the
+   * registry ensures we always get the current PATH, making newly-installed
+   * tools available to the engine's bash tool.
+   *
+   * Returns the merged PATH string, or null on non-Windows / failure.
+   */
+  private refreshWindowsPath(): string | null {
+    if (process.platform !== 'win32') return null
+
+    try {
+      const { execSync } = require('child_process') as typeof import('child_process')
+
+      const readRegPath = (hive: string): string => {
+        try {
+          const result = execSync(
+            `reg query "${hive}" /v Path`,
+            { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 },
+          )
+          // Parse output like:
+          //   "    Path    REG_EXPAND_SZ    C:\Windows\system32;C:\Windows;..."
+          const match = result.match(/Path\s+REG_(?:EXPAND_)?SZ\s+(.+)/)
+          if (!match) return ''
+          // Expand environment variables like %SystemRoot% (REG_EXPAND_SZ)
+          return match[1].trim().replace(/%([^%]+)%/g, (_, name: string) => process.env[name] || '')
+        } catch {
+          return ''
+        }
+      }
+
+      const systemPath = readRegPath('HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment')
+      const userPath = readRegPath('HKCU\\Environment')
+      const existingPath = process.env.PATH || ''
+
+      // Merge: system PATH first, then user PATH, then existing process.env.PATH
+      // (existing entries are kept to preserve any custom additions like officecli)
+      const allEntries = [
+        ...systemPath.split(';'),
+        ...userPath.split(';'),
+        ...existingPath.split(';'),
+      ].filter(Boolean)
+
+      // Deduplicate while preserving order (case-insensitive on Windows)
+      const seen = new Set<string>()
+      const deduped: string[] = []
+      for (const entry of allEntries) {
+        const key = entry.toLowerCase()
+        if (!seen.has(key)) {
+          seen.add(key)
+          deduped.push(entry)
+        }
+      }
+
+      const merged = deduped.join(';')
+      if (merged !== existingPath) {
+        debug(
+          'SessionProcess',
+          `[${this.sessionId.slice(0, 8)}] Refreshed PATH from Windows registry | originalEntries=${existingPath.split(';').length} | refreshedEntries=${deduped.length}`,
+        )
+      }
+      return merged
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Detects Python installation directories on Windows that might not be in PATH.
+   *
+   * This handles cases where:
+   * - Python was installed without checking "Add Python to PATH"
+   * - Python is a portable/standalone installation
+   * - Python is managed by pyenv-win, conda, etc.
+   *
+   * Only directories containing python.exe are returned.
+   */
+  private detectPythonPaths(): string[] {
+    if (process.platform !== 'win32') return []
+
+    const found: string[] = []
+    const checked = new Set<string>()
+
+    const checkDir = (dir: string): void => {
+      if (!dir) return
+      const key = dir.toLowerCase()
+      if (checked.has(key)) return
+      checked.add(key)
+      try {
+        if (fs.existsSync(path.join(dir, 'python.exe'))) {
+          found.push(dir)
+        }
+      } catch { /* ignore */ }
+    }
+
+    // 1. python.org installer: %LOCALAPPDATA%\Programs\Python\Python3XX\
+    if (process.env.LOCALAPPDATA) {
+      const pythonDir = path.join(process.env.LOCALAPPDATA, 'Programs', 'Python')
+      try {
+        for (const entry of fs.readdirSync(pythonDir)) {
+          if (/^Python\d+/i.test(entry)) {
+            checkDir(path.join(pythonDir, entry))
+          }
+        }
+      } catch { /* directory doesn't exist */ }
+    }
+
+    // 2. Windows Store App Execution Aliases: %LOCALAPPDATA%\Microsoft\WindowsApps\
+    if (process.env.LOCALAPPDATA) {
+      checkDir(path.join(process.env.LOCALAPPDATA, 'Microsoft', 'WindowsApps'))
+    }
+
+    // 3. Anaconda / Miniconda
+    const condaDirs = [
+      path.join(os.homedir(), 'Anaconda3'),
+      path.join(os.homedir(), 'anaconda3'),
+      path.join(os.homedir(), 'Miniconda3'),
+      path.join(os.homedir(), 'miniconda3'),
+      'C:\\ProgramData\\Anaconda3',
+      'C:\\ProgramData\\miniconda3',
+    ]
+    for (const dir of condaDirs) {
+      checkDir(dir)
+    }
+
+    // 4. pyenv-win: %USERPROFILE%\.pyenv\pyenv-win\versions\<version>\
+    const pyenvDir = process.env.PYENV || path.join(os.homedir(), '.pyenv', 'pyenv-win')
+    try {
+      const versionsDir = path.join(pyenvDir, 'versions')
+      for (const entry of fs.readdirSync(versionsDir)) {
+        checkDir(path.join(versionsDir, entry))
+      }
+    } catch { /* pyenv-win not installed */ }
+
+    return found
   }
 
   private findGitBashPath(): string | null {

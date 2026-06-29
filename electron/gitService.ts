@@ -554,6 +554,16 @@ async function getDiff(cwd: string, path: string, staged?: boolean): Promise<Git
 
   const result = await gitExec(args, cwd)
   if (result.code !== 0) {
+    // git diff may return a non-zero exit code for untracked files in some
+    // edge cases (e.g. certain git versions or configurations). Before
+    // giving up, try the untracked file diff as a fallback so newly created
+    // files are still visible in the SCM diff viewer.
+    if (!staged) {
+      const untrackedDiff = await getUntrackedFileDiff(cwd, path)
+      if (untrackedDiff) {
+        return untrackedDiff
+      }
+    }
     return null
   }
 

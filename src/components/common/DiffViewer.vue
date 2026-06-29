@@ -129,6 +129,43 @@ const diffLines = computed<DiffLine[]>(() => {
   return lines
 })
 
+/**
+ * Build a synthetic diff result for an untracked file, showing every line as
+ * an addition. This mirrors VSCode's SCM behavior for newly created files.
+ * Returns null if the file content cannot be read.
+ */
+async function buildUntrackedDiff(filePath: string): Promise<any | null> {
+  try {
+    const fullPath = appStore.projectRoot.replace(/[/\\]$/, '') + '/' + filePath
+    const content = await api.readFile(fullPath)
+    if (content === null) return null
+
+    const contentLines = content.split('\n')
+    // Remove trailing empty string from final newline
+    if (contentLines.length > 0 && contentLines[contentLines.length - 1] === '') {
+      contentLines.pop()
+    }
+    if (contentLines.length === 0) return null
+
+    const hunkContent = contentLines.map(line => `+${line}`).join('\n')
+    return {
+      path: filePath,
+      hunks: [{
+        oldStart: 0,
+        oldLines: 0,
+        newStart: 1,
+        newLines: contentLines.length,
+        content: hunkContent,
+      }],
+      additions: contentLines.length,
+      deletions: 0,
+      isBinary: false,
+    }
+  } catch {
+    return null
+  }
+}
+
 async function loadDiff() {
   const target = diffTarget.value
   if (!target || !appStore.projectRoot) {
@@ -143,6 +180,24 @@ async function loadDiff() {
       target.filePath,
       target.staged
     )
+
+    // If the backend returned no hunks and this is an unstaged file, check
+    // whether the file is untracked. If so, build a synthetic diff from the
+    // file content so the user can see the newly created file (matching
+    // VSCode's SCM behavior).
+    if (!target.staged && (!result || !result.hunks || result.hunks.length === 0)) {
+      const isUntracked =
+        scmStore.selectedFile?.status === 'untracked' ||
+        scmStore.untracked.some(f => f.path === target.filePath)
+      if (isUntracked) {
+        const untrackedDiff = await buildUntrackedDiff(target.filePath)
+        if (untrackedDiff) {
+          diffData.value = untrackedDiff
+          return
+        }
+      }
+    }
+
     diffData.value = result
   } catch (e) {
     console.error('Failed to load diff:', e)
