@@ -231,7 +231,7 @@
       </div>
     </div>
 
-    <div class="s-panel">
+    <div class="s-panel model-config-panel">
       <div class="s-panel-header">
         <div class="s-panel-header-left">
           <div class="s-panel-icon engine"><Bot :size="14" /></div>
@@ -562,6 +562,10 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
   flex-direction: column;
   max-width: 780px;
   gap: 20px;
+}
+
+.model-config-panel {
+  overflow: visible;
 }
 
 .form-actions-row {
