@@ -1,3 +1,28 @@
+## [0.6.1](https://github.com/hjdspace/SpaceCode/compare/v0.6.0...v0.6.1) (2026-06-30)
+
+### Features
+
+* **settings:** 添加单模型上下文窗口自定义配置
+* **chat store:** 在文件工具执行完成后主动刷新SCM和文件树
+* **chat:** 优化任务管理与Git diff展示，新增TodoWrite工具支持
+* **vendor:** 添加厂商预设地址选择功能，新增多厂商图标与多语言配置
+
+### Bug Fixes
+
+* **chat store:** 修复内嵌在用户消息中的工具结果未同步任务状态的问题
+* **chatStream:** 修复用户中止会话后仍自动恢复的问题
+* **scm:** 修复未跟踪文件显示问题，新增上下文压缩功能
+* **terminal:** 保持终端面板挂载并设置默认工作目录
+* 修正会话 Git 变更统计
+* 修复回退检查点识别与预览刷新
+* 修复模型配置面板内容溢出被裁剪
+
+### Refactor
+
+* **MarkdownRenderer:** 优化渲染流程避免OOM
+* **chat:** 调整全局任务看板的布局位置和间距
+* **sidebar:** 替换静态logo为svg图标
+
 ## [0.6.0](https://github.com/hjdspace/SpaceCode/compare/v0.5.4...v0.6.0) (2026-06-28)
 
 ### Features
