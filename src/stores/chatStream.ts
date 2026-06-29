@@ -706,6 +706,13 @@ export const useChatStreamStore = defineStore('chatStream', () => {
               const truncatedUserToolOutput = rawUserToolOutput.length > MAX_INMEMORY_TOOL_OUTPUT
                 ? rawUserToolOutput.slice(0, MAX_INMEMORY_TOOL_OUTPUT) + '\n\n[Output truncated to prevent memory overflow]'
                 : rawUserToolOutput
+              // Sync task state (TaskCreate/TaskUpdate/TaskList/TodoWrite) from tool
+              // results that arrive embedded in user messages. The engine may send
+              // tool results as user messages (containing tool_result content blocks)
+              // rather than as separate tool_result SDK messages; without this call
+              // the taskManager would never be updated, causing the global task board
+              // to stay empty and only the last inline task card to render.
+              sessionStore.updateTaskStateFromToolResult(msg.toolCalls, toolResult.tool_use_id, truncatedUserToolOutput)
               const updatedToolCalls = [...msg.toolCalls]
               updatedToolCalls[toolCallIndex] = {
                 ...updatedToolCalls[toolCallIndex],
