@@ -144,6 +144,27 @@ export interface GitDiffResult {
   [key: string]: unknown
 }
 
+export interface GitFullDiffFileStats {
+  path: string
+  linesAdded: number
+  linesRemoved: number
+  isBinary: boolean
+  isUntracked?: boolean
+  isStaged?: boolean
+  [key: string]: unknown
+}
+
+export interface GitFullDiffResult {
+  stats: {
+    filesCount: number
+    linesAdded: number
+    linesRemoved: number
+  }
+  files: GitFullDiffFileStats[]
+  hunks: Record<string, GitDiffHunk[]>
+  [key: string]: unknown
+}
+
 export interface GitStatusFile {
   path: string
   originalPath?: string
@@ -493,8 +514,8 @@ export const api = {
       electronAPI?.git?.commit(cwd, message, amend) || Promise.resolve({ success: false, error: 'Git API not available' }),
     getDiff: (cwd: string, path: string, staged?: boolean): Promise<GitDiffResult | null> =>
       electronAPI?.git?.getDiff(cwd, path, staged) || Promise.resolve(null),
-    getFullDiff: (cwd: string): Promise<string> =>
-      electronAPI?.git?.getFullDiff(cwd) || Promise.resolve(''),
+    getFullDiff: (cwd: string): Promise<GitFullDiffResult | null> =>
+      electronAPI?.git?.getFullDiff(cwd) || Promise.resolve(null),
     getStagedDiff: (cwd: string): Promise<string> =>
       electronAPI?.git?.getStagedDiff(cwd) || Promise.resolve(''),
     showFile: (cwd: string, path: string): Promise<string | null> =>

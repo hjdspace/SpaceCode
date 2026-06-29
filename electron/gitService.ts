@@ -6,7 +6,7 @@
  */
 
 import { execFile } from 'child_process'
-import { writeFileSync, unlinkSync, mkdtempSync, rmdirSync } from 'fs'
+import { writeFileSync, readFileSync, unlinkSync, mkdtempSync, rmdirSync } from 'fs'
 import { watch, type FSWatcher } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
@@ -112,6 +112,7 @@ export interface GitFullDiffFileStats {
   linesRemoved: number
   isBinary: boolean
   isUntracked?: boolean
+  isStaged?: boolean
 }
 
 export interface GitFullDiffResult {
@@ -614,68 +615,57 @@ async function getFullDiff(cwd: string): Promise<GitFullDiffResult | null> {
   const isRepo = await isGitRepo(cwd)
   if (!isRepo) return null
 
-  // Get numstat for file-level stats
-  const numstatResult = await gitExec(['--no-optional-locks', '-c', 'core.quotePath=false', 'diff', 'HEAD', '--numstat'], cwd)
-  if (numstatResult.code !== 0) return null
-
-  // Parse numstat for per-file stats
-  const files: GitFullDiffFileStats[] = []
-  let totalAdded = 0
-  let totalRemoved = 0
-  let fileCount = 0
-
-  const numstatLines = numstatResult.stdout.trim().split('\n').filter(Boolean)
-  for (const line of numstatLines) {
-    const parts = line.split('\t')
-    if (parts.length < 3) continue
-
-    fileCount++
-    const addStr = parts[0]!
-    const remStr = parts[1]!
-    const filePath = parts.slice(2).join('\t')
-    const isBinary = addStr === '-' || remStr === '-'
-    const fileAdded = isBinary ? 0 : parseInt(addStr, 10) || 0
-    const fileRemoved = isBinary ? 0 : parseInt(remStr, 10) || 0
-
-    totalAdded += fileAdded
-    totalRemoved += fileRemoved
-
-    files.push({
-      path: filePath,
-      linesAdded: fileAdded,
-      linesRemoved: fileRemoved,
-      isBinary,
-    })
-  }
-
-  // Get untracked files
-  const untrackedResult = await gitExec(
-    ['--no-optional-locks', '-c', 'core.quotePath=false', 'ls-files', '--others', '--exclude-standard'],
-    cwd,
-  )
-  if (untrackedResult.code === 0 && untrackedResult.stdout.trim()) {
-    const untrackedPaths = untrackedResult.stdout.trim().split('\n').filter(Boolean)
-    for (const filePath of untrackedPaths) {
-      files.push({
-        path: filePath,
-        linesAdded: 0,
-        linesRemoved: 0,
-        isBinary: false,
-        isUntracked: true,
-      })
-      fileCount++
-    }
-  }
-
-  // Get full diff hunks for all files
-  const diffResult = await gitExec(
-    ['--no-optional-locks', '-c', 'core.quotePath=false', 'diff', 'HEAD', '--no-color', '--unified=3'],
-    cwd,
-  )
-
+  const filesByKey = new Map<string, GitFullDiffFileStats>()
   const hunks: Record<string, GitDiffHunk[]> = {}
-  if (diffResult.code === 0 && diffResult.stdout.trim()) {
-    const fileDiffs = diffResult.stdout.split(/^diff --git /m).filter(Boolean)
+
+  const addFileStats = (filePath: string, linesAdded: number, linesRemoved: number, isBinary: boolean, isStaged: boolean) => {
+    const existing = filesByKey.get(filePath)
+    if (existing) {
+      existing.linesAdded += linesAdded
+      existing.linesRemoved += linesRemoved
+      existing.isBinary = existing.isBinary || isBinary
+      existing.isStaged = existing.isStaged || isStaged
+      return existing
+    }
+
+    const fileStats: GitFullDiffFileStats = {
+      path: filePath,
+      linesAdded,
+      linesRemoved,
+      isBinary,
+      isStaged,
+    }
+    filesByKey.set(filePath, fileStats)
+    return fileStats
+  }
+
+  const collectNumstat = async (args: string[], isStaged: boolean): Promise<boolean> => {
+    const result = await gitExec(args, cwd)
+    if (result.code !== 0) return false
+
+    const lines = result.stdout.trim().split('\n').filter(Boolean)
+    for (const line of lines) {
+      const parts = line.split('\t')
+      if (parts.length < 3) continue
+
+      const addStr = parts[0]!
+      const remStr = parts[1]!
+      const filePath = parseNumstatPath(parts.slice(2).join('\t'))
+      const isBinary = addStr === '-' || remStr === '-'
+      const fileAdded = isBinary ? 0 : parseInt(addStr, 10) || 0
+      const fileRemoved = isBinary ? 0 : parseInt(remStr, 10) || 0
+
+      addFileStats(filePath, fileAdded, fileRemoved, isBinary, isStaged)
+    }
+
+    return true
+  }
+
+  const collectDiffHunks = async (args: string[]) => {
+    const result = await gitExec(args, cwd)
+    if (result.code !== 0 || !result.stdout.trim()) return
+
+    const fileDiffs = result.stdout.split(/^diff --git /m).filter(Boolean)
     for (const fileDiff of fileDiffs) {
       const lines = fileDiff.split('\n')
       const headerMatch = lines[0]?.match(/^a\/(.+?) b\/(.+)$/)
@@ -734,22 +724,85 @@ async function getFullDiff(cwd: string): Promise<GitFullDiffResult | null> {
       }
 
       if (fileHunks.length > 0) {
-        hunks[filePath] = fileHunks
+        const existing = hunks[filePath] || []
+        hunks[filePath] = existing.concat(fileHunks)
       }
     }
   }
 
-  // Sort files alphabetically
-  files.sort((a, b) => a.path.localeCompare(b.path))
+  const stagedOk = await collectNumstat(
+    ['--no-optional-locks', '-c', 'core.quotePath=false', 'diff', '--cached', '--numstat'],
+    true,
+  )
+  const unstagedOk = await collectNumstat(
+    ['--no-optional-locks', '-c', 'core.quotePath=false', 'diff', '--numstat'],
+    false,
+  )
+  if (!stagedOk || !unstagedOk) return null
+
+  // Get untracked files. They are shown as changed files, but line counts stay at 0
+  // unless/until they become part of a git diff.
+  const untrackedResult = await gitExec(
+    ['--no-optional-locks', '-c', 'core.quotePath=false', 'ls-files', '--others', '--exclude-standard'],
+    cwd,
+  )
+  if (untrackedResult.code === 0 && untrackedResult.stdout.trim()) {
+    const untrackedPaths = untrackedResult.stdout.trim().split('\n').filter(Boolean)
+    for (const filePath of untrackedPaths) {
+      const fileStats = addFileStats(filePath, countFileLines(cwd, filePath), 0, false, false)
+      fileStats.isUntracked = true
+    }
+  }
+
+  await collectDiffHunks(
+    ['--no-optional-locks', '-c', 'core.quotePath=false', 'diff', '--cached', '--no-color', '--unified=3'],
+  )
+  await collectDiffHunks(
+    ['--no-optional-locks', '-c', 'core.quotePath=false', 'diff', '--no-color', '--unified=3'],
+  )
+
+  const files = Array.from(filesByKey.values()).sort((a, b) => a.path.localeCompare(b.path))
+  const totalAdded = files.reduce((sum, file) => sum + file.linesAdded, 0)
+  const totalRemoved = files.reduce((sum, file) => sum + file.linesRemoved, 0)
 
   return {
     stats: {
-      filesCount: fileCount,
+      filesCount: files.length,
       linesAdded: totalAdded,
       linesRemoved: totalRemoved,
     },
     files,
     hunks,
+  }
+}
+
+function parseNumstatPath(rawPath: string): string {
+  // Rename entries can be emitted as either "old => new" or "{old => new}/file".
+  // Keep the visible/current path aligned with diff headers and SCM status rows.
+  const arrowIndex = rawPath.indexOf(' => ')
+  if (arrowIndex === -1) return rawPath
+
+  if (rawPath.includes('{') && rawPath.includes('}')) {
+    return rawPath.replace(/\{([^{}]*?) => ([^{}]*?)\}/g, '$2')
+  }
+
+  return rawPath.slice(arrowIndex + 4)
+}
+
+function countFileLines(cwd: string, filePath: string): number {
+  try {
+    const content = readFileSync(join(cwd, filePath))
+    if (content.includes(0)) return 0
+    if (content.length === 0) return 0
+
+    let lines = 1
+    for (const byte of content) {
+      if (byte === 10) lines++
+    }
+
+    return content[content.length - 1] === 10 ? lines - 1 : lines
+  } catch {
+    return 0
   }
 }
 

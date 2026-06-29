@@ -75,7 +75,12 @@ export const useSessionContext = defineStore('sessionContext', () => {
 
   // === Computed ===
   /** 是否有任何面板展开（用于胶囊判断） */
-  const hasActivity = computed(() => tasks.value.length > 0 || gitAdditions.value > 0)
+  const hasActivity = computed(() =>
+    tasks.value.length > 0 ||
+    gitAdditions.value > 0 ||
+    gitDeletions.value > 0 ||
+    changedFiles.value.length > 0
+  )
 
   // === Actions: Env Panel ===
   function toggleEnvPanel() {

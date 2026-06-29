@@ -175,7 +175,7 @@
           >
             <ClipboardList :size="14" />
             <span class="sc-capsule-text" v-if="sessionContext.tasks.length > 0">{{ sessionContext.taskProgress.completed }}/{{ sessionContext.taskProgress.total }}</span>
-            <span class="sc-capsule-text" v-else-if="sessionContext.gitAdditions > 0 || sessionContext.gitDeletions > 0">+{{ sessionContext.gitAdditions }} -{{ sessionContext.gitDeletions }}</span>
+            <span class="sc-capsule-text" v-else-if="sessionContext.gitAdditions > 0 || sessionContext.gitDeletions > 0 || sessionContext.changedFiles.length > 0">+{{ sessionContext.gitAdditions }} -{{ sessionContext.gitDeletions }}</span>
             <span class="sc-capsule-text" v-else>{{ t('sessionContext.gitTools') }}</span>
           </div>
         </Transition>
@@ -485,42 +485,54 @@ function handleContinue() {
   console.log('[SessionContext] Continue requested')
 }
 
-// Session Context: sync git stats from scmStore
+// Session Context: sync git stats from the real diff line counts
+let gitStatsRequestId = 0
+
 watch(
   () => [
-    scmStore.staged.length,
-    scmStore.unstaged.length,
-    scmStore.untracked.length,
+    paneWorkingDirectory.value,
+    scmStore.staged,
+    scmStore.unstaged,
+    scmStore.untracked,
   ],
-  () => {
+  async () => {
+    const requestId = ++gitStatsRequestId
     const totalChanged =
       scmStore.staged.length +
       scmStore.unstaged.length +
       scmStore.untracked.length
 
-    if (totalChanged > 0) {
-      // Use file counts as approximations for additions/deletions.
-      // Staged additions = added or modified files; staged deletions = deleted files.
-      // Unstaged/untracked additions = modified, added, or untracked files.
-      const additions =
-        scmStore.staged.filter(f => f.status === 'added' || f.status === 'modified' || f.status === 'renamed').length +
-        scmStore.unstaged.filter(f => f.status !== 'deleted').length +
-        scmStore.untracked.length
-      const deletions =
-        scmStore.staged.filter(f => f.status === 'deleted').length +
-        scmStore.unstaged.filter(f => f.status === 'deleted').length
+    if (totalChanged === 0) {
+      sessionContext.updateGitStats({ additions: 0, deletions: 0, files: [] })
+      return
+    }
 
-      sessionContext.updateGitStats({
-        additions,
-        deletions,
-        files: [
-          ...scmStore.staged.map(f => ({ path: f.path, insertions: f.status === 'deleted' ? 0 : 1, deletions: f.status === 'deleted' ? 1 : 0 })),
-          ...scmStore.unstaged.map(f => ({ path: f.path, insertions: f.status === 'deleted' ? 0 : 1, deletions: f.status === 'deleted' ? 1 : 0 })),
-          ...scmStore.untracked.map(f => ({ path: f.path, insertions: 1, deletions: 0 })),
-        ],
-      })
-    } else {
-      // No changes — reset stats, which will auto-collapse the panel
+    const cwd = paneWorkingDirectory.value || appStore.projectRoot
+    if (!cwd) {
+      sessionContext.updateGitStats({ additions: 0, deletions: 0, files: [] })
+      return
+    }
+
+    try {
+      const result = await api.git.getFullDiff(cwd)
+      if (requestId !== gitStatsRequestId) return
+
+      if (result?.stats && Array.isArray(result.files)) {
+        sessionContext.updateGitStats({
+          additions: result.stats.linesAdded,
+          deletions: result.stats.linesRemoved,
+          files: result.files.map(file => ({
+            path: file.path,
+            insertions: file.linesAdded,
+            deletions: file.linesRemoved,
+          })),
+        })
+      } else {
+        sessionContext.updateGitStats({ additions: 0, deletions: 0, files: [] })
+      }
+    } catch (e) {
+      if (requestId !== gitStatsRequestId) return
+      console.error('[SessionContext] Failed to sync git stats:', e)
       sessionContext.updateGitStats({ additions: 0, deletions: 0, files: [] })
     }
   },
