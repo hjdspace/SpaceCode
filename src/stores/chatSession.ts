@@ -331,6 +331,24 @@ function updateTaskStateFromToolResult(
       })
     }
     taskManager.syncTasksFromList(tasks)
+  } else if (toolName === 'TodoWrite') {
+    // TodoWrite (V1): the full task list is in the tool call input,
+    // not the result output. Sync it to taskManager so that both the
+    // chat TaskListCard and the floating EnvPanel stay up-to-date.
+    const todos = toolCall.input?.todos
+    if (Array.isArray(todos)) {
+      taskManager.syncTasksFromList(
+        todos
+          .filter((t: any) => t && typeof t.content === 'string')
+          .map((t: any) => ({
+            id: String(t.id ?? t.content),
+            content: t.content,
+            status: (['pending', 'in_progress', 'completed'].includes(t.status)
+              ? t.status
+              : 'pending') as 'pending' | 'in_progress' | 'completed',
+          }))
+      )
+    }
   }
 }
 

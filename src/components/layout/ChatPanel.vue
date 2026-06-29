@@ -287,6 +287,7 @@ import DiffExplorer from '../chat/DiffExplorer.vue'
 import { useContextUsageStore } from '@/stores/contextUsage'
 import { useSessionContext } from '@/stores/sessionContext'
 import { useScmStore } from '@/stores/scm'
+import { useTaskManager } from '@/composables/useTaskManager'
 import SessionContextEnvPanel from '../session-context/SessionContextEnvPanel.vue'
 import SessionContextTaskPanel from '../session-context/SessionContextTaskPanel.vue'
 import SessionContextCommitDialog from '../session-context/SessionContextCommitDialog.vue'
@@ -360,6 +361,7 @@ const diffPanelLoading = ref(false)
 const contextUsageStore = useContextUsageStore()
 const sessionContext = useSessionContext()
 const scmStore = useScmStore()
+const taskManager = useTaskManager()
 
 // ── Work 模式自动路由：助手选择弹窗 ──────────────────────────────
 const { route: routeWork } = useWorkRouter()
@@ -541,28 +543,72 @@ watch(
 watch(
   () => chatStore.displayMessages,
   (msgs) => {
-    // Find the latest TodoWrite/TaskList tool call in current session
-    const tasks: typeof sessionContext.tasks = []
+    // Find the latest TodoWrite tool call in current session.
+    // For TodoWrite, the full task list is in the tool call INPUT (not the
+    // result output), so we can sync to taskManager immediately for instant
+    // UI feedback — before the tool result even arrives.
+    let latestTodos: any[] | null = null
     for (const msg of msgs) {
       if (!msg.toolCalls) continue
       for (const tc of msg.toolCalls) {
         if (tc.name === 'TodoWrite' && tc.input?.todos && Array.isArray(tc.input.todos)) {
-          tasks.length = 0
-          for (const t of tc.input.todos as any[]) {
-            tasks.push({
-              id: t.id,
-              content: t.content || '',
-              status: (t.status as any) || 'pending',
-            })
-          }
+          latestTodos = tc.input.todos as any[]
         }
       }
     }
-    if (tasks.length > 0) {
-      sessionContext.updateTasks(tasks)
+    if (latestTodos && latestTodos.length > 0) {
+      taskManager.syncTasksFromList(
+        latestTodos
+          .filter(t => t && typeof t.content === 'string')
+          .map(t => ({
+            id: String(t.id ?? t.content),
+            content: t.content,
+            status: (['pending', 'in_progress', 'completed'].includes(t.status)
+              ? t.status
+              : 'pending') as 'pending' | 'in_progress' | 'completed',
+          }))
+      )
     }
   },
   { deep: true }
+)
+
+// Sync taskManager → sessionContext.tasks
+// taskManager is the single source of truth for all task tools (TodoWrite +
+// TaskCreate/TaskUpdate/TaskList). This watcher propagates changes to the
+// sessionContext store, which drives the floating EnvPanel and right-side
+// TaskPanel. It also triggers evaluateAutoExpand() so the EnvPanel
+// auto-opens when tasks appear.
+const _allManagerTasks = computed(() => taskManager.getAllTasks())
+watch(
+  _allManagerTasks,
+  (tasks) => {
+    if (tasks.length > 0) {
+      sessionContext.updateTasks(
+        tasks.map(t => ({
+          id: t.id,
+          content: t.content,
+          status: t.status,
+          owner: t.owner,
+          blockedBy: t.blockedBy,
+        }))
+      )
+    } else {
+      // Clear sessionContext.tasks when taskManager is empty
+      // (e.g. after switching sessions) so stale tasks don't linger.
+      sessionContext.updateTasks([])
+    }
+  },
+  { deep: true }
+)
+
+// Clear taskManager when switching sessions to prevent stale tasks
+// from a previous session from persisting into the new one.
+watch(
+  () => paneSessionId.value,
+  () => {
+    taskManager.clearTasks()
+  }
 )
 
 // Rewind state

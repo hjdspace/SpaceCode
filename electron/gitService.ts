@@ -602,12 +602,93 @@ async function getDiff(cwd: string, path: string, staged?: boolean): Promise<Git
     }
   }
 
+  // If no hunks were found and this is an unstaged diff, the file may be
+  // untracked (git diff does not show untracked files). In that case, build
+  // a synthetic diff showing the entire file content as additions so the
+  // user can see what was created.
+  if (hunks.length === 0 && !staged) {
+    const untrackedDiff = await getUntrackedFileDiff(cwd, path)
+    if (untrackedDiff) {
+      return untrackedDiff
+    }
+  }
+
   return {
     path,
     hunks,
     additions,
     deletions,
     isBinary: result.stdout.includes('Binary files'),
+  }
+}
+
+/**
+ * For untracked files, `git diff` returns empty output because git does not
+ * track untracked files in regular diffs. This function detects untracked
+ * files and builds a synthetic diff where every line is an addition (prefixed
+ * with '+'), so the user can see the full content of newly created files.
+ */
+async function getUntrackedFileDiff(cwd: string, filePath: string): Promise<GitDiffResult | null> {
+  // Check if the file is tracked by git. `git ls-files --error-unmatch`
+  // returns exit code 1 when the file is not tracked (i.e. untracked).
+  const trackedCheck = await gitExec(['ls-files', '--error-unmatch', '--', filePath], cwd)
+  if (trackedCheck.code === 0) {
+    // File is tracked — the empty diff is legitimate (no unstaged changes)
+    return null
+  }
+
+  try {
+    const fullPath = join(cwd, filePath)
+    const content = readFileSync(fullPath)
+
+    // Binary file check: presence of null byte indicates binary content
+    if (content.includes(0)) {
+      return {
+        path: filePath,
+        hunks: [],
+        additions: 0,
+        deletions: 0,
+        isBinary: true,
+      }
+    }
+
+    const text = content.toString('utf8')
+    const contentLines = text.split('\n')
+
+    // Remove trailing empty string that results from a final newline
+    if (contentLines.length > 0 && contentLines[contentLines.length - 1] === '') {
+      contentLines.pop()
+    }
+
+    // Empty file — return a result with no hunks (nothing to show)
+    if (contentLines.length === 0) {
+      return {
+        path: filePath,
+        hunks: [],
+        additions: 0,
+        deletions: 0,
+        isBinary: false,
+      }
+    }
+
+    // Build a single hunk where every line is an addition
+    const hunkContent = contentLines.map(line => `+${line}`).join('\n')
+
+    return {
+      path: filePath,
+      hunks: [{
+        oldStart: 0,
+        oldLines: 0,
+        newStart: 1,
+        newLines: contentLines.length,
+        content: hunkContent,
+      }],
+      additions: contentLines.length,
+      deletions: 0,
+      isBinary: false,
+    }
+  } catch {
+    return null
   }
 }
 

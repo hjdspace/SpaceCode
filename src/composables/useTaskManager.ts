@@ -39,7 +39,10 @@ export function useTaskManager() {
     const task = state.tasks.get(id)
     if (!task) return
 
-    Object.assign(task, updates)
+    // Replace the object in the Map instead of mutating in place.
+    // This triggers the Map's ITERATE_KEY dependency, ensuring that
+    // computed properties calling getAllTasks() re-run on status changes.
+    state.tasks.set(id, { ...task, ...updates })
   }
 
   function syncTasksFromList(tasks: Array<{
