@@ -287,6 +287,10 @@ export const useScmStore = defineStore('scm', () => {
 
   // Git file watcher — listen for .git directory changes from main process
   let removeStatusChangeListener: (() => void) | null = null
+  // Listener for SCM refresh events dispatched by chat stream after file tool calls
+  let removeScmRefreshListener: (() => void) | null = null
+  // Debounce rapid refresh requests (e.g. multiple file edits in one turn)
+  let refreshDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
   function startWatching(): void {
     if (removeStatusChangeListener) return // Already listening
@@ -298,12 +302,35 @@ export const useScmStore = defineStore('scm', () => {
     removeStatusChangeListener = api.git.onStatusChanged(() => {
       refresh()
     })
+
+    // Listen for explicit SCM refresh requests from the chat stream (e.g. after
+    // Write/Edit tool calls). The fs watcher may not detect changes in
+    // subdirectories, so this provides a reliable fallback.
+    const handleScmRefresh = () => {
+      if (refreshDebounceTimer) clearTimeout(refreshDebounceTimer)
+      refreshDebounceTimer = setTimeout(() => {
+        refresh()
+        refreshDebounceTimer = null
+      }, 300)
+    }
+    window.addEventListener('scm:refresh', handleScmRefresh)
+    removeScmRefreshListener = () => {
+      window.removeEventListener('scm:refresh', handleScmRefresh)
+    }
   }
 
   function stopWatching(): void {
     if (removeStatusChangeListener) {
       removeStatusChangeListener()
       removeStatusChangeListener = null
+    }
+    if (removeScmRefreshListener) {
+      removeScmRefreshListener()
+      removeScmRefreshListener = null
+    }
+    if (refreshDebounceTimer) {
+      clearTimeout(refreshDebounceTimer)
+      refreshDebounceTimer = null
     }
     api.git.stopWatch().catch(() => {})
   }

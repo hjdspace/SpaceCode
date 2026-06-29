@@ -1132,10 +1132,11 @@ function startGitWatcher(projectRoot: string): void {
     console.warn(`[GitService] Failed to watch .git directory: ${gitDir}`, e)
   }
 
-  // Watch worktree for file modifications (only top-level to detect new/deleted files)
-  // This catches external editor changes that don't touch .git immediately
+  // Watch worktree for file modifications (recursive to detect new/deleted files in subdirectories)
+  // This catches external editor changes and LLM-generated files that don't touch .git immediately.
+  // { recursive: true } is supported on Windows and macOS. On Linux it falls back to non-recursive.
   try {
-    worktreeWatcher = watch(projectRoot, (_event, filename) => {
+    worktreeWatcher = watch(projectRoot, { recursive: true }, (_event, filename) => {
       if (!filename) return
       // Ignore .git changes (already watched above) and node_modules
       if (filename.startsWith('.git') || filename.startsWith('node_modules')) return
@@ -1146,9 +1147,24 @@ function startGitWatcher(projectRoot: string): void {
         debounceTimer = null
       }, DEBOUNCE_MS)
     })
-    debug('GitService', `Watching worktree: ${projectRoot}`)
+    debug('GitService', `Watching worktree (recursive): ${projectRoot}`)
   } catch (e) {
-    console.warn(`[GitService] Failed to watch worktree: ${projectRoot}`, e)
+    // Fallback: try non-recursive watch if recursive is not supported (e.g. Linux)
+    try {
+      worktreeWatcher = watch(projectRoot, (_event, filename) => {
+        if (!filename) return
+        if (filename.startsWith('.git') || filename.startsWith('node_modules')) return
+
+        if (debounceTimer) clearTimeout(debounceTimer)
+        debounceTimer = setTimeout(() => {
+          notifyRendererStatusChanged()
+          debounceTimer = null
+        }, DEBOUNCE_MS)
+      })
+      debug('GitService', `Watching worktree (non-recursive fallback): ${projectRoot}`)
+    } catch (e2) {
+      console.warn(`[GitService] Failed to watch worktree: ${projectRoot}`, e2)
+    }
   }
 }
 

@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SpaceCode — AI 驱动桌面助手</title>
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #f5f5f7;
+    --section-bg: #fff;
+    --text: #1d1d1f;
+    --text-secondary: #86868b;
+    --accent: #0071e3;
+    --accent-hover: #0077ed;
+    --border: #d2d2d7;
+    --gradient-start: #3b82f6;
+    --gradient-end: #22d3ee;
+    --code-bg: #fafafa;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* Navigation */
+  .nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 48px;
+    background: rgba(255,255,255,0.8);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(0,0,0,0.08);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 32px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .nav a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: color 0.2s;
+    letter-spacing: 0.02em;
+  }
+
+  .nav a:hover { color: var(--text); }
+
+  .nav .logo-text {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .nav .logo-text svg { width: 18px; height: 18px; }
+
+  /* Hero */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 120px 24px 80px;
+    background: linear-gradient(180deg, #f5f5f7 0%, #ffffff 100%);
+  }
+
+  .hero-icon {
+    width: 96px;
+    height: 96px;
+    margin-bottom: 32px;
+    opacity: 0;
+    animation: fadeUp 1s ease 0.2s forwards;
+  }
+
+  .hero h1 {
+    font-size: clamp(48px, 8vw, 80px);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+    margin-bottom: 20px;
+    opacity: 0;
+    animation: fadeUp 0.8s ease 0.4s forwards;
+  }
+
+  .hero h1 span {
+    background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .hero .tagline {
+    font-size: clamp(20px, 2.5vw, 28px);
+    color: var(--text-secondary);
+    font-weight: 400;
+    max-width: 700px;
+    margin-bottom: 40px;
+    opacity: 0;
+    animation: fadeUp 0.8s ease 0.6s forwards;
+  }
+
+  .hero .badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 48px;
+    opacity: 0;
+    animation: fadeUp 0.8s ease 0.8s forwards;
+  }
+
+  .hero .badge-row span {
+    font-size: 12px;
+    font-weight: 500;
+    padding: 6px 14px;
+    border-radius: 100px;
+    background: rgba(0,0,0,0.05);
+    color: var(--text-secondary);
+    letter-spacing: 0.02em;
+  }
+
+  .hero .cta-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+    opacity: 0;
+    animation: fadeUp 0.8s ease 1s forwards;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 28px;
+    border-radius: 980px;
+    font-size: 16px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: all 0.25s ease;
+    border: none;
+    cursor: pointer;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .btn-primary:hover { background: var(--accent-hover); transform: scale(1.02); }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--border);
+  }
+
+  .btn-secondary:hover { background: rgba(0,113,227,0.06); border-color: var(--accent); }
+
+  .hero .scroll-hint {
+    position: absolute;
+    bottom: 32px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    opacity: 0;
+    animation: fadeUp 0.8s ease 1.2s forwards;
+  }
+
+  .hero .scroll-hint .arrow {
+    width: 20px;
+    height: 20px;
+    border-right: 1.5px solid var(--text-secondary);
+    border-bottom: 1.5px solid var(--text-secondary);
+    transform: rotate(45deg);
+    animation: bounce 2s infinite;
+  }
+
+  @keyframes bounce {
+    0%, 100% { transform: rotate(45deg) translateY(0); }
+    50% { transform: rotate(45deg) translateY(4px); }
+  }
+
+  /* Sections */
+  section {
+    padding: 100px 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  section.alt { background: var(--section-bg); max-width: none; padding: 100px 24px; }
+  section.alt > .section-inner { max-width: 1100px; margin: 0 auto; }
+
+  .section-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 12px;
+  }
+
+  .section-title {
+    font-size: clamp(32px, 5vw, 52px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    margin-bottom: 20px;
+  }
+
+  .section-desc {
+    font-size: clamp(18px, 2vw, 22px);
+    color: var(--text-secondary);
+    max-width: 680px;
+    line-height: 1.5;
+  }
+
+  /* Dual Mode */
+  .dual-mode {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-top: 60px;
+  }
+
+  .mode-card {
+    border-radius: 18px;
+    padding: 48px 40px;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+
+  .mode-card:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.08); }
+
+  .mode-card .emoji { font-size: 36px; margin-bottom: 16px; display: block; }
+
+  .mode-card h3 { font-size: 24px; font-weight: 600; margin-bottom: 12px; }
+
+  .mode-card p { color: var(--text-secondary); font-size: 16px; margin-bottom: 20px; line-height: 1.6; }
+
+  .mode-card ul { list-style: none; padding: 0; }
+
+  .mode-card ul li {
+    font-size: 14px;
+    padding: 8px 0;
+    border-top: 1px solid rgba(0,0,0,0.06);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .mode-card ul li::before {
+    content: "";
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+
+  .mode-card.code-mode { background: linear-gradient(135deg, #f0f6ff, #f5f5f7); }
+
+  .mode-card.work-mode { background: linear-gradient(135deg, #f0fdf4, #f5f5f7); }
+
+  /* Feature Grid */
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+    margin-top: 60px;
+  }
+
+  .feature-card {
+    border-radius: 16px;
+    padding: 36px 32px;
+    background: var(--section-bg);
+    border: 1px solid var(--border);
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+  }
+
+  .feature-card:hover { transform: translateY(-3px); box-shadow: 0 8px 30px rgba(0,0,0,0.06); }
+
+  .feature-card .icon-wrap {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    margin-bottom: 16px;
+  }
+
+  .feature-card:nth-child(1) .icon-wrap { background: #e8f0fe; }
+  .feature-card:nth-child(2) .icon-wrap { background: #fce8e6; }
+  .feature-card:nth-child(3) .icon-wrap { background: #e6f4ea; }
+  .feature-card:nth-child(4) .icon-wrap { background: #fef7e0; }
+  .feature-card:nth-child(5) .icon-wrap { background: #f3e8fd; }
+  .feature-card:nth-child(6) .icon-wrap { background: #e0f2fe; }
+  .feature-card:nth-child(7) .icon-wrap { background: #fce4ec; }
+  .feature-card:nth-child(8) .icon-wrap { background: #e8f5e9; }
+  .feature-card:nth-child(9) .icon-wrap { background: #e3f2fd; }
+  .feature-card:nth-child(10) .icon-wrap { background: #fff3e0; }
+  .feature-card:nth-child(11) .icon-wrap { background: #f3e5f5; }
+  .feature-card:nth-child(12) .icon-wrap { background: #e0f7fa; }
+
+  .feature-card h4 { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+
+  .feature-card p { font-size: 14px; color: var(--text-secondary); line-height: 1.6; }
+
+  /* Tech Stack */
+  .tech-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 16px;
+    margin-top: 60px;
+  }
+
+  .tech-item {
+    text-align: center;
+    padding: 28px 16px;
+    border-radius: 14px;
+    background: var(--section-bg);
+    border: 1px solid var(--border);
+    transition: transform 0.25s ease;
+  }
+
+  .tech-item:hover { transform: translateY(-2px); }
+
+  .tech-item .tech-icon { font-size: 32px; margin-bottom: 10px; display: block; }
+
+  .tech-item .tech-name { font-size: 14px; font-weight: 600; }
+
+  .tech-item .tech-desc { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+
+  /* Architecture */
+  .arch-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 24px;
+    margin-top: 60px;
+  }
+
+  .arch-block {
+    border-radius: 16px;
+    padding: 36px 32px;
+    background: var(--section-bg);
+    border: 1px solid var(--border);
+  }
+
+  .arch-block h4 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .arch-block ul { list-style: none; }
+
+  .arch-block ul li {
+    font-size: 13px;
+    padding: 6px 0;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .arch-block ul li::before { content: "→"; color: var(--accent); font-weight: 600; }
+
+  /* CTA */
+  .cta-section {
+    text-align: center;
+    padding: 120px 24px;
+    background: linear-gradient(180deg, #ffffff, #f5f5f7);
+  }
+
+  .cta-section h2 { font-size: clamp(32px, 4vw, 48px); font-weight: 700; margin-bottom: 16px; }
+
+  .cta-section p { color: var(--text-secondary); font-size: 20px; margin-bottom: 40px; }
+
+  .cta-section .btn { font-size: 18px; padding: 14px 36px; }
+
+  /* Footer */
+  footer {
+    text-align: center;
+    padding: 40px 24px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    border-top: 1px solid var(--border);
+  }
+
+  footer a { color: var(--text-secondary); text-decoration: none; }
+
+  footer a:hover { color: var(--text); }
+
+  footer .footer-links { display: flex; justify-content: center; gap: 20px; margin-bottom: 12px; }
+
+  /* Animations */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .fade-in {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.7s ease, transform 0.7s ease;
+  }
+
+  .fade-in.visible { opacity: 1; transform: translateY(0); }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .nav { gap: 16px; font-size: 12px; }
+    .nav .nav-links { display: none; }
+    .dual-mode { grid-template-columns: 1fr; }
+    .arch-cols { grid-template-columns: 1fr; }
+    .feature-grid { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 40px; }
+    section { padding: 64px 20px; }
+  }
+
+  @media (max-width: 480px) {
+    .nav .nav-links { display: none; }
+    .mode-card { padding: 32px 24px; }
+    .feature-card { padding: 28px 20px; }
+  }
+
+  /* Selection */
+  ::selection { background: rgba(0,113,227,0.15); }
+</style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="nav">
+  <div class="logo-text">
+    <svg viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+      <circle cx="256" cy="256" r="140" stroke="url(#g)" stroke-width="14" fill="none"/>
+      <g stroke="url(#g)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" fill="none">
+        <path d="M225,206 L175,256 L225,306"/>
+        <path d="M287,206 L337,256 L287,306"/>
+      </g>
+      <ellipse cx="256" cy="256" rx="200" ry="48" stroke="url(#g)" stroke-width="6" transform="rotate(-18 256 256)" opacity="0.4" fill="none"/>
+      <defs>
+        <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0c1829"/><stop offset="1" stop-color="#1a2b4a"/></linearGradient>
+        <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#3b82f6"/></linearGradient>
+      </defs>
+    </svg>
+    SpaceCode
+  </div>
+  <div class="nav-links">
+    <a href="#modes">双模式</a>
+    <a href="#features">特色</a>
+    <a href="#tech">技术栈</a>
+    <a href="#arch">架构</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-icon">
+    <svg viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+      <rect width="512" height="512" rx="112" fill="url(#bgh)"/>
+      <circle cx="256" cy="256" r="140" stroke="url(#gh)" stroke-width="14" fill="none"/>
+      <g stroke="url(#gh)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" fill="none">
+        <path d="M225,206 L175,256 L225,306"/>
+        <path d="M287,206 L337,256 L287,306"/>
+      </g>
+      <ellipse cx="256" cy="256" rx="200" ry="48" stroke="url(#gh)" stroke-width="6" transform="rotate(-18 256 256)" opacity="0.4" fill="none"/>
+      <defs>
+        <linearGradient id="bgh" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0c1829"/><stop offset="1" stop-color="#1a2b4a"/></linearGradient>
+        <linearGradient id="gh" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#3b82f6"/></linearGradient>
+      </defs>
+    </svg>
+  </div>
+
+  <h1>AI 驱动<br><span>智能编程桌面助手</span></h1>
+  <p class="tagline">基于 Claude Code 引擎构建的新一代 AI 辅助编程桌面应用，深度融合大语言模型能力，为开发者提供智能化的代码编写、调试、重构和项目管理体验。</p>
+
+  <div class="badge-row">
+    <span>Electron 29</span>
+    <span>Vue 3.4</span>
+    <span>Vite 5</span>
+    <span>TypeScript</span>
+    <span>Bun 2</span>
+    <span>跨平台</span>
+  </div>
+
+  <div class="cta-row">
+    <a href="https://github.com/hjdspace/SpaceCode" class="btn btn-primary" target="_blank">
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+    <a href="https://github.com/hjdspace/SpaceCode/releases" class="btn btn-secondary" target="_blank">下载应用</a>
+  </div>
+
+  <div class="scroll-hint">
+    <span>了解更多</span>
+    <div class="arrow"></div>
+  </div>
+</section>
+
+<!-- Dual Mode -->
+<section id="modes" class="alt">
+  <div class="section-inner">
+    <div class="section-label">双模式核心</div>
+    <h2 class="section-title">编码 &amp; 办公<br>一应俱全</h2>
+    <p class="section-desc">SpaceCode 将 AI 编码与 AI 办公融合到同一应用中，顶部一键切换，共享底层能力。</p>
+
+    <div class="dual-mode">
+      <div class="mode-card code-mode">
+        <span class="emoji">💻</span>
+        <h3>编码模式</h3>
+        <p>面向开发者的 AI 编程助手，深度集成 Claude Code 引擎，提供代码编写、调试、重构到项目管理的全流程辅助。</p>
+        <ul>
+          <li>AI 对话编程 — 自然语言描述需求，自动读写文件、执行命令</li>
+          <li>工具调用卡片 — 13+ 工具的可视化卡片，每步操作清晰可见</li>
+          <li>代码 Diff 预览 — 基于 @git-diff-view 的行级差异对比</li>
+          <li>集成终端 — xterm.js + node-pty，多标签页无缝协作</li>
+          <li>Git SCM 面板 — 暂存、提交、推送、分支管理一应俱全</li>
+          <li>对话回滚 — 4 种回滚策略覆盖各类场景</li>
+          <li>权限控制 — 自动/手动/拒绝/建议四种模式</li>
+        </ul>
+      </div>
+
+      <div class="mode-card work-mode">
+        <span class="emoji">💼</span>
+        <h3>办公模式</h3>
+        <p>面向职场场景的 AI 办公助手，内置 20+ 专业助手，直接生成可编辑的 .pptx、.docx、.xlsx 文件。</p>
+        <ul>
+          <li>专业办公助手 — PPT 制作、Word 文档、Excel 表格等 20+ 助手</li>
+          <li>真实文件产出 — 直接生成可编辑的 Office 文件</li>
+          <li>产物汇总卡片 — 自动收集展示生成的文件</li>
+          <li>文档实时预览 — HTML 渲染、截图缩略图、实时观看</li>
+          <li>自定义助手 — 配置系统提示词、技能绑定与推荐 Prompt</li>
+          <li>officecli 技能体系 — PPT 多套样式、Word 表单等</li>
+          <li>工作空间管理 — 产物统一存放在 outputs/ 目录</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section id="features">
+  <div class="section-label">更多特色</div>
+  <h2 class="section-title">强大能力<br>浑然一体</h2>
+  <p class="section-desc">从分屏多会话到桌面操控，从多模型支持到技能生态，每一处都精心打磨。</p>
+
+  <div class="feature-grid">
+    <div class="feature-card fade-in">
+      <div class="icon-wrap">🖥️</div>
+      <h4>分屏多会话</h4>
+      <p>三栏式 IDE 布局，支持多会话并行展示，浏览器式 Tab 管理，后台会话保持，进程池 LRU 管理。</p>
+    </div>
+
+    <div class="feature-card fade-in">
+      <div class="icon-wrap">🖱️</div>
+      <h4>Computer Use</h4>
+      <p>深度集成 cua-driver，AI 在后台操控桌面应用，不抢占鼠标焦点。跨平台无障碍树精准定位。</p>
+    </div>
+
+    <div class="feature-card fade-in">
+      <div class="icon-wrap">🤖</div>
+      <h4>双引擎多模型</h4>
+      <p>Claude Code CLI + Pi 双引擎，支持 Anthropic、OpenAI、Gemini、DeepSeek 等主流 LLM。</p>
+    </div>
+
+    <div class="feature-card fade-in">
+      <div class="icon-wrap">🔌</div>
+      <h4>MCP 扩展生态</h4>
+      <p>支持 stdio/SSE/HTTP 三种传输方式，可视化配置与连通性检测，内置 Computer Use MCP。</p>
+    </div>
+
+    <div class="feature-card fade-in">
+      <div class="icon-wrap">📚</div>
+      <h4>技能库与智能体</h4>
+      <p>50+ 内置技能，涵盖前端设计、PPT 生成、代码审查、TDD 等领域。70+ 内置 Agent，支持工作流编辑。</p>
+    </div>
+
+    <div class="feature-card fade-in">
+      <div class="icon-wrap">⚡</div>
+      <h4>定时任务 &amp; Hooks</h4>
+      <p>Cron 表达式解析与任务调度，会话生命周期钩子，支持用户级/项目级/本地级三种作用域。</p>
+    </div>
+
+    <div class="feature-card fade-in">
+      <div class="icon-wrap">📊</div>
+      <h4>上下文用量管理</h4>
+      <p>Token 使用量追踪、上下文缓存统计、用量可视化与预警，链路追踪与调用详情查看。</p>
+    </div>
+
+    <div class="feature-card fade-in">
+      <div class="icon-wrap">📱</div>
+      <h4>移动端配套</h4>
+      <p>Flutter 跨平台应用，扫码配对、主题实时同步、远程操作会话与审批工具调用。</p>
+    </div>
+
+    <div class="feature-card fade-in">
+      <div class="icon-wrap">🎨</div>
+      <h4>精致体验</h4>
+      <p>Dark/Light 双主题，Anthropic 官方配色，国际化中英文双语，可自定义快捷键。</p>
+    </div>
+
+    <div class="feature-card fade-in">
+      <div class="icon-wrap">🔄</div>
+      <h4>自动更新</h4>
+      <p>内置 electron-updater，支持 GitHub Release 自动检查与更新，多平台构建发布。</p>
+    </div>
+
+    <div class="feature-card fade-in">
+      <div class="icon-wrap">🗂️</div>
+      <h4>文件浏览器</h4>
+      <p>项目树状导航，支持右键菜单与外部编辑器打开（VS Code、Cursor、Vim 等）。</p>
+    </div>
+
+    <div class="feature-card fade-in">
+      <div class="icon-wrap">🌐</div>
+      <h4>迷你浏览器</h4>
+      <p>内置 WebView 浏览器，支持 HTML 产物自动预览，适配各种开发场景。</p>
+    </div>
+  </div>
+</section>
+
+<!-- Tech Stack -->
+<section id="tech" class="alt">
+  <div class="section-inner">
+    <div class="section-label">技术栈</div>
+    <h2 class="section-title">前沿技术<br>扎实根基</h2>
+    <p class="section-desc">Electron + Vue 3 + TypeScript 构建跨平台桌面应用，Bun 驱动 CLI 核心引擎。</p>
+
+    <div class="tech-grid">
+      <div class="tech-item">
+        <span class="tech-icon">⚛️</span>
+        <div class="tech-name">Electron 29</div>
+        <div class="tech-desc">跨平台桌面框架</div>
+      </div>
+      <div class="tech-item">
+        <span class="tech-icon">💚</span>
+        <div class="tech-name">Vue 3.4</div>
+        <div class="tech-desc">渐进式前端框架</div>
+      </div>
+      <div class="tech-item">
+        <span class="tech-icon">⚡</span>
+        <div class="tech-name">Vite 5</div>
+        <div class="tech-desc">极速构建工具</div>
+      </div>
+      <div class="tech-item">
+        <span class="tech-icon">📘</span>
+        <div class="tech-name">TypeScript 5</div>
+        <div class="tech-desc">类型安全开发</div>
+      </div>
+      <div class="tech-item">
+        <span class="tech-icon">🥟</span>
+        <div class="tech-name">Bun 2</div>
+        <div class="tech-desc">CLI 引擎运行时</div>
+      </div>
+      <div class="tech-item">
+        <span class="tech-icon">🎯</span>
+        <div class="tech-name">Pinia</div>
+        <div class="tech-desc">状态管理</div>
+      </div>
+      <div class="tech-item">
+        <span class="tech-icon">🧩</span>
+        <div class="tech-name">Anthropic SDK</div>
+        <div class="tech-desc">AI 对话引擎</div>
+      </div>
+      <div class="tech-item">
+        <span class="tech-icon">📦</span>
+        <div class="tech-name">electron-builder</div>
+        <div class="tech-desc">打包发布</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Architecture -->
+<section id="arch">
+  <div class="section-label">架构设计</div>
+  <h2 class="section-title">三栏布局<br>分层清晰</h2>
+  <p class="section-desc">Monorepo 架构，桌面 GUI + CLI 核心引擎 + Flutter 移动端三端协同。</p>
+
+  <div class="arch-cols">
+    <div class="arch-block">
+      <h4>📟 渲染进程 (src/)</h4>
+      <ul>
+        <li>Vue 3 组件体系，三栏布局</li>
+        <li>Pinia 状态管理（20+ 模块）</li>
+        <li>chat / scm / terminal / settings</li>
+        <li>skills / agents / mcp / cron</li>
+        <li>i18n 国际化（zh-CN / en-US）</li>
+        <li>Dark / Light 双主题</li>
+      </ul>
+    </div>
+
+    <div class="arch-block">
+      <h4>⚙️ 主进程 (electron/)</h4>
+      <ul>
+        <li>Electron 主进程入口</li>
+        <li>Context Bridge 安全 IPC</li>
+        <li>CLI 进程池管理</li>
+        <li>cua-driver 核心服务</li>
+        <li>PTY 终端管理器</li>
+        <li>Git / Skills / MCP 服务</li>
+      </ul>
+    </div>
+
+    <div class="arch-block">
+      <h4>🧠 核心引擎 (engine/)</h4>
+      <ul>
+        <li>Bun CLI 独立子项目</li>
+        <li>Claude Code 引擎集成</li>
+        <li>Pi 引擎支持</li>
+        <li>MCP 服务器管理</li>
+        <li>技能系统解析与执行</li>
+        <li>跨平台构建发布</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+  <h2>开始使用 SpaceCode</h2>
+  <p>开源免费，跨平台支持 Windows、macOS、Linux</p>
+  <div class="cta-row" style="justify-content:center;">
+    <a href="https://github.com/hjdspace/SpaceCode" class="btn btn-primary" target="_blank">
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub 仓库
+    </a>
+    <a href="https://github.com/hjdspace/SpaceCode/releases" class="btn btn-secondary" target="_blank">下载最新版</a>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="footer-links">
+    <a href="https://github.com/hjdspace/SpaceCode" target="_blank">GitHub</a>
+    <a href="https://github.com/hjdspace/SpaceCode/releases" target="_blank">Releases</a>
+    <a href="https://github.com/hjdspace/SpaceCode/issues" target="_blank">Issues</a>
+  </div>
+  <p>SpaceCode — MIT License</p>
+</footer>
+
+<!-- Scroll Animation -->
+<script>
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+      }
+    });
+  }, { threshold: 0.15 });
+
+  document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+</script>
+
+</body>
+</html>
