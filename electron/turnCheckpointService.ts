@@ -253,23 +253,6 @@ function findSnapshotForTarget(
   return null
 }
 
-function findNextSnapshot(
-  snapshots: FileHistorySnapshotEntry[],
-  targetUserMessageId: string
-): FileHistorySnapshotEntry | null {
-  let foundTarget = false
-  for (const snapshot of snapshots) {
-    if (snapshot.snapshot?.messageId === targetUserMessageId) {
-      foundTarget = true
-      continue
-    }
-    if (foundTarget) {
-      return snapshot
-    }
-  }
-  return null
-}
-
 async function readFileContent(filePath: string): Promise<string | null> {
   try {
     if (!fs.existsSync(filePath)) {
@@ -530,12 +513,12 @@ export async function listSessionTurnCheckpoints(
       continue
     }
 
-    const targetSnapshot = findSnapshotForTarget(snapshots, userMsg.id)
+    const targetSnapshot = findSnapshotForTarget(snapshots, userMsg.id, userMsg.index)
     if (!targetSnapshot) {
       continue
     }
 
-    const nextSnapshot = findNextSnapshot(snapshots, userMsg.id)
+    const nextSnapshot = findNextSnapshotAfter(snapshots, targetSnapshot)
 
     try {
       const preview = await buildTurnCodePreview(
@@ -658,7 +641,7 @@ export async function getTurnCheckpointDiff(
   }
 
   const targetBackup = targetSnapshot.snapshot.trackedFileBackups[trackingPath]
-  const nextSnapshot = findNextSnapshot(snapshots, targetUserMessageId)
+  const nextSnapshot = findNextSnapshotAfter(snapshots, targetSnapshot)
 
   let beforeContent: string | null = null
   let afterContent: string | null = null

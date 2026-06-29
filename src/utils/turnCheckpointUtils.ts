@@ -20,7 +20,15 @@ export interface RewindTurnTarget {
 }
 
 export function isTurnResponseMessage(message: Message): boolean {
-  return message.role === 'assistant' && !!message.content?.trim()
+  if (message.role !== 'assistant') return false
+
+  return !!(
+    message.content?.trim() ||
+    message.reasoning?.content?.trim() ||
+    message.toolCalls?.length ||
+    message.timelineEvents?.length ||
+    message.metadata
+  )
 }
 
 export function getCompletedTurnTargets(messages: Message[]): RewindTurnTarget[] {

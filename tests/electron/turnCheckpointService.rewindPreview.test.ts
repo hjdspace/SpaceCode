@@ -38,6 +38,17 @@ function findSnapshotForTarget(
   return null
 }
 
+function findNextSnapshotAfter(
+  snapshots: FileHistorySnapshotEntry[],
+  targetSnapshot: FileHistorySnapshotEntry
+): FileHistorySnapshotEntry | null {
+  const index = snapshots.findIndex(snapshot => snapshot === targetSnapshot)
+  if (index >= 0 && index < snapshots.length - 1) {
+    return snapshots[index + 1]
+  }
+  return null
+}
+
 function getPreviewFiles(
   snapshots: FileHistorySnapshotEntry[],
   targetUserMessageId: string,
@@ -46,6 +57,22 @@ function getPreviewFiles(
   const targetSnapshot = findSnapshotForTarget(snapshots, targetUserMessageId, userMessageIndex)
   if (!targetSnapshot) return []
   return Object.keys(targetSnapshot.snapshot.trackedFileBackups)
+}
+
+function getListCheckpointSnapshotIds(
+  snapshots: FileHistorySnapshotEntry[],
+  userMessages: Array<{ id: string; index: number }>
+): Array<{ targetId: string; nextId: string | null }> {
+  return userMessages.flatMap(userMsg => {
+    const targetSnapshot = findSnapshotForTarget(snapshots, userMsg.id, userMsg.index)
+    if (!targetSnapshot) return []
+
+    const nextSnapshot = findNextSnapshotAfter(snapshots, targetSnapshot)
+    return [{
+      targetId: targetSnapshot.snapshot.messageId,
+      nextId: nextSnapshot?.snapshot.messageId ?? null,
+    }]
+  })
 }
 
 function createSnapshots(): FileHistorySnapshotEntry[] {
@@ -76,6 +103,22 @@ function createSnapshots(): FileHistorySnapshotEntry[] {
       },
       isSnapshotUpdate: true,
     },
+    {
+      type: 'file-history-snapshot',
+      messageId: 'assistant-3',
+      snapshot: {
+        messageId: 'engine-uuid-2',
+        trackedFileBackups: {
+          'CHANGELOG.md': {
+            backupFileName: 'backup-changelog.txt',
+            version: 1,
+            backupTime: '2024-01-01T12:00:00Z',
+          },
+        },
+        timestamp: '2024-01-01T12:00:00Z',
+      },
+      isSnapshotUpdate: true,
+    },
   ]
 }
 
@@ -88,5 +131,18 @@ describe('getTurnRewindPreviewFiles matching', () => {
   it('returns empty when no snapshot matches', () => {
     const files = getPreviewFiles(createSnapshots(), 'unknown-id', 99)
     assert.deepStrictEqual(files, [])
+  })
+})
+
+describe('turn checkpoint list matching', () => {
+  it('uses index fallback for list targets and finds the following snapshot from the matched target', () => {
+    const checkpoints = getListCheckpointSnapshotIds(createSnapshots(), [
+      { id: 'frontend-msg-id-1', index: 1 },
+    ])
+
+    assert.deepStrictEqual(checkpoints, [{
+      targetId: 'engine-uuid-1',
+      nextId: 'engine-uuid-2',
+    }])
   })
 })

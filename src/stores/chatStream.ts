@@ -869,7 +869,7 @@ export const useChatStreamStore = defineStore('chatStream', () => {
           })()
         }
 
-        void sessionStore.loadTurnCheckpoints(sessionId)
+        void sessionStore.loadTurnCheckpoints(sessionId, s.workingDirectory, true)
       }
     }
 

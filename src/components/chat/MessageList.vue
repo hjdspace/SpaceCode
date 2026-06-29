@@ -376,8 +376,32 @@ watch(() => chatStore.currentSessionId, (newSessionId, oldSessionId) => {
 let _cachedTurnTargets: RewindTurnTarget[] | null = null
 let _cachedTurnTargetsKey = ''
 
+function getTurnTargetsCacheKey(msgs: Message[]): string {
+  if (msgs.length === 0) return 'empty'
+
+  const lastMessage = msgs[msgs.length - 1]
+  const toolSignal = (lastMessage.toolCalls || [])
+    .map(tool => `${tool.id}:${tool.status}:${tool.output?.length || 0}`)
+    .join('|')
+  const timelineSignal = (lastMessage.timelineEvents || [])
+    .map(event => `${event.id}:${event.status}:${event.content?.length || 0}`)
+    .join('|')
+
+  return [
+    msgs.length,
+    lastMessage.id,
+    lastMessage.role,
+    lastMessage.content?.length || 0,
+    lastMessage.reasoning?.content?.length || 0,
+    lastMessage.reasoning?.endTime ? 1 : 0,
+    toolSignal,
+    timelineSignal,
+    lastMessage.metadata ? 1 : 0,
+  ].join(':')
+}
+
 function getCachedCompletedTurnTargets(msgs: Message[]): RewindTurnTarget[] {
-  const key = msgs.length > 0 ? `${msgs.length}-${msgs[msgs.length - 1]?.id}` : 'empty'
+  const key = getTurnTargetsCacheKey(msgs)
 
   if (_cachedTurnTargets && _cachedTurnTargetsKey === key) {
     return _cachedTurnTargets
