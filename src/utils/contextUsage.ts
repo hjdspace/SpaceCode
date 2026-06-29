@@ -303,7 +303,9 @@ export function getVisibleContextCategories(
 }
 
 /** Client-side context window resolution (mirrors engine getContextWindowForModel). */
-export function getContextWindowForModel(model: string): number {
+export function getContextWindowForModel(model: string, userOverride?: number): number {
+  // User-configured override takes highest priority
+  if (userOverride && userOverride > 0) return userOverride
   const m = model.toLowerCase()
   if (/\[1m\]/i.test(model)) return 1_000_000
   if (m.includes('opus-4-6') || m.includes('sonnet-4-6')) {
@@ -325,17 +327,17 @@ export function getMaxOutputTokensForModel(model: string): number {
   return 32_000
 }
 
-export function getEffectiveContextWindowSize(model: string): number {
+export function getEffectiveContextWindowSize(model: string, userOverride?: number): number {
   const reserved = Math.min(getMaxOutputTokensForModel(model), MAX_OUTPUT_RESERVE)
-  return getContextWindowForModel(model) - reserved
+  return getContextWindowForModel(model, userOverride) - reserved
 }
 
-export function getAutoCompactThreshold(model: string): number {
-  return getEffectiveContextWindowSize(model) - AUTOCOMPACT_BUFFER
+export function getAutoCompactThreshold(model: string, userOverride?: number): number {
+  return getEffectiveContextWindowSize(model, userOverride) - AUTOCOMPACT_BUFFER
 }
 
-export function getWarningThreshold(model: string): number {
-  return getAutoCompactThreshold(model) - WARNING_BUFFER
+export function getWarningThreshold(model: string, userOverride?: number): number {
+  return getAutoCompactThreshold(model, userOverride) - WARNING_BUFFER
 }
 
 export function formatTokens(count: number): string {
@@ -389,15 +391,16 @@ export function calculateTokenWarningState(
   tokenUsage: number,
   model: string,
   isAutoCompactEnabled = true,
+  userOverride?: number,
 ): {
   percentLeft: number
   warningLevel: ContextWarningLevel
   warningMessage: string | null
 } {
-  const autoCompactThreshold = getAutoCompactThreshold(model)
+  const autoCompactThreshold = getAutoCompactThreshold(model, userOverride)
   const threshold = isAutoCompactEnabled
     ? autoCompactThreshold
-    : getEffectiveContextWindowSize(model)
+    : getEffectiveContextWindowSize(model, userOverride)
 
   const percentLeft = Math.max(
     0,
@@ -406,7 +409,7 @@ export function calculateTokenWarningState(
 
   const warningThreshold = threshold - WARNING_BUFFER
   const errorThreshold = threshold - WARNING_BUFFER
-  const blockingLimit = getEffectiveContextWindowSize(model) - MANUAL_COMPACT_BUFFER
+  const blockingLimit = getEffectiveContextWindowSize(model, userOverride) - MANUAL_COMPACT_BUFFER
 
   let warningLevel: ContextWarningLevel = 'ok'
   if (tokenUsage >= blockingLimit) warningLevel = 'blocking'
@@ -457,6 +460,7 @@ export function sumSessionTokensFromMessages(messages: Message[]): {
 export function buildSnapshotFromEngineData(
   data: ContextUsageData,
   model: string,
+  userOverride?: number,
 ): ContextUsageSnapshot {
   const sessionTotals = {
     inputTokens: data.apiUsage?.input_tokens ?? 0,
@@ -464,12 +468,13 @@ export function buildSnapshotFromEngineData(
     cacheReadInputTokens: data.apiUsage?.cache_read_input_tokens ?? 0,
     cacheCreationInputTokens: data.apiUsage?.cache_creation_input_tokens ?? 0,
   }
-  const ctxSize = data.rawMaxTokens || getContextWindowForModel(model)
+  const ctxSize = data.rawMaxTokens || getContextWindowForModel(model, userOverride)
   const { used, remaining } = calculateContextPercentages(data.apiUsage, ctxSize)
   const { percentLeft, warningLevel, warningMessage } = calculateTokenWarningState(
     data.totalTokens,
     model,
     data.isAutoCompactEnabled,
+    userOverride,
   )
 
   return {
@@ -514,8 +519,9 @@ function getLastApiUsageFromMessages(messages: Message[]): ContextApiUsage | nul
 export function buildFallbackSnapshot(
   messages: Message[],
   model: string,
+  userOverride?: number,
 ): ContextUsageSnapshot {
-  const ctxSize = getContextWindowForModel(model)
+  const ctxSize = getContextWindowForModel(model, userOverride)
   const lastUsage = getLastApiUsageFromMessages(messages)
 
   const sessionTotals = sumSessionTokensFromMessages(messages)
@@ -535,12 +541,14 @@ export function buildFallbackSnapshot(
   const { percentLeft, warningLevel, warningMessage } = calculateTokenWarningState(
     totalTokens,
     model,
+    undefined,
+    userOverride,
   )
 
   const data: ContextUsageData = {
     categories: [],
     totalTokens,
-    maxTokens: getEffectiveContextWindowSize(model),
+    maxTokens: getEffectiveContextWindowSize(model, userOverride),
     rawMaxTokens: ctxSize,
     percentage,
     model,

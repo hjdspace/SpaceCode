@@ -99,6 +99,7 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
     }
 
     const model = settingsStore.config.model || 'claude-sonnet-4-6'
+    const userCtxOverride = settingsStore.modelContextWindows[model]
     const session = chatStore.sessions.find(s => s.id === sid)
     const messages = session?.messages ?? []
 
@@ -107,7 +108,7 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
     }
 
     // Show client-side estimate immediately so the modal/chip never spin for minutes.
-    snapshot.value = buildFallbackSnapshot(messages, model)
+    snapshot.value = buildFallbackSnapshot(messages, model, userCtxOverride)
 
     loading.value = true
     lastFetchedSessionId.value = sid
@@ -119,7 +120,7 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
         const data = raw ? parseEngineContextData(raw as Record<string, unknown>) : null
         if (data) {
           const enriched = enrichContextDataFromClient(data, messages)
-          snapshot.value = buildSnapshotFromEngineData(enriched, model)
+          snapshot.value = buildSnapshotFromEngineData(enriched, model, userCtxOverride)
         }
       }
     } catch {
@@ -156,7 +157,8 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
     const session = chatStore.sessions.find(s => s.id === sid)
     const messages = session?.messages ?? []
     const model = settingsStore.config.model || 'claude-sonnet-4-6'
-    snapshot.value = buildFallbackSnapshot(messages, model)
+    const userCtxOverride = settingsStore.modelContextWindows[model]
+    snapshot.value = buildFallbackSnapshot(messages, model, userCtxOverride)
     lastFetchedSessionId.value = sid
   }
 

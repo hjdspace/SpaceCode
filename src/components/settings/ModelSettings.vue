@@ -275,6 +275,27 @@
       </div>
       <div class="s-panel-body">
         <p class="context-info-desc">{{ $t('contextUsage.modelContextDesc') }}</p>
+
+        <div class="ctx-window-config">
+          <div v-for="m in contextWindowModels" :key="m.key" class="ctx-window-row">
+            <div class="ctx-window-label">
+              <span class="ctx-window-model-tag" :class="m.tagClass">{{ m.tag }}</span>
+              <span class="ctx-window-model-name" :title="m.modelId || m.placeholder">{{ m.modelId || m.placeholder }}</span>
+            </div>
+            <select
+              class="s-form-select ctx-window-select"
+              :value="getContextWindow(m.modelId)"
+              :disabled="!m.modelId"
+              @change="setContextWindow(m.modelId, ($event.target as HTMLSelectElement).value)"
+            >
+              <option value="">{{ $t('contextUsage.contextWindowDefault') }}</option>
+              <option v-for="preset in contextWindowPresets" :key="preset.value" :value="preset.value">
+                {{ preset.label }}
+              </option>
+            </select>
+          </div>
+        </div>
+
         <ContextUsagePreview :model-id="previewModelId" />
       </div>
     </div>
@@ -290,7 +311,7 @@ import {
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
-import { useSettingsStore } from '@/stores/settings'
+import { useSettingsStore, CONTEXT_WINDOW_PRESETS } from '@/stores/settings'
 import type { AuthMethod, OAuthAccountInfo } from '@/stores/settings'
 import SearchableSelect from './SearchableSelect.vue'
 import ContextUsagePreview from './ContextUsagePreview.vue'
@@ -350,6 +371,32 @@ const availableModels = ref<{ id: string; name?: string }[]>([])
 const previewModelId = computed(
   () => settingsStore.config.model || config.value.sonnetModel || 'claude-sonnet-4-6',
 )
+
+const contextWindowPresets = CONTEXT_WINDOW_PRESETS
+
+const contextWindowModels = computed(() => [
+  { key: 'haiku', modelId: config.value.haikuModel, placeholder: t('model.haikuModel'), tag: t('model.fast'), tagClass: 'fast' },
+  { key: 'sonnet', modelId: config.value.sonnetModel, placeholder: t('model.sonnetModel'), tag: t('model.balanced'), tagClass: 'recommended' },
+  { key: 'opus', modelId: config.value.opusModel, placeholder: t('model.opusModel'), tag: t('model.powerful'), tagClass: 'powerful' },
+])
+
+function getContextWindow(modelId: string): string {
+  if (!modelId) return ''
+  const val = settingsStore.modelContextWindows[modelId]
+  return val ? String(val) : ''
+}
+
+function setContextWindow(modelId: string, value: string) {
+  if (!modelId) return
+  const updated = { ...settingsStore.modelContextWindows }
+  if (value) {
+    updated[modelId] = parseInt(value, 10)
+  } else {
+    delete updated[modelId]
+  }
+  settingsStore.modelContextWindows = updated
+  settingsStore.saveSettings()
+}
 
 function normalizeApiUrl(baseUrl: string, provider: string): string {
   let url = baseUrl.replace(/\/+$/, '')
@@ -634,6 +681,74 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
   font-size: 12px;
   line-height: 1.55;
   color: var(--text-muted);
+}
+
+.ctx-window-config {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.ctx-window-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ctx-window-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ctx-window-model-tag {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+
+  &.fast { background: rgba(138, 136, 128, 0.15); color: var(--text-muted); }
+  &.recommended { background: rgba(217, 119, 87, 0.15); color: var(--accent-primary); }
+  &.powerful { background: rgba(106, 155, 204, 0.15); color: var(--accent-secondary); }
+}
+
+.ctx-window-model-name {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctx-window-select {
+  width: auto;
+  min-width: 120px;
+  padding: 5px 8px;
+  font-size: 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-family: inherit;
+
+  &:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 }
 
 .spin {

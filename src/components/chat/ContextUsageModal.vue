@@ -8,14 +8,32 @@
               <h2 id="context-modal-title">{{ t('contextUsage.title') }}</h2>
               <p class="modal-subtitle">{{ subtitle }}</p>
             </div>
-            <button type="button" class="close-btn" :aria-label="t('common.close')" @click="close">
-              <X :size="18" />
-            </button>
+            <div class="modal-header-actions">
+              <button
+                type="button"
+                class="compact-btn"
+                :class="{ compacting: isCompacting }"
+                :disabled="isCompacting"
+                @click="handleCompact"
+              >
+                <Loader2 v-if="isCompacting" :size="14" class="spin" />
+                <Minimize2 v-else :size="14" />
+                <span>{{ isCompacting ? t('contextUsage.compacting') : t('contextUsage.compact') }}</span>
+              </button>
+              <button type="button" class="close-btn" :aria-label="t('common.close')" @click="close">
+                <X :size="18" />
+              </button>
+            </div>
           </header>
 
           <div v-if="loading && !snapshot" class="modal-loading">
             <Loader2 :size="20" class="spin" />
             <span>{{ t('common.loading') }}</span>
+          </div>
+
+          <div v-if="isCompacting" class="compact-banner">
+            <Loader2 :size="14" class="spin" />
+            <span>{{ t('contextUsage.compactingHint') }}</span>
           </div>
 
           <div v-if="snapshot" class="modal-body">
@@ -143,7 +161,7 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Loader2, X } from 'lucide-vue-next'
+import { Loader2, X, Minimize2 } from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
 import { useContextUsageStore } from '@/stores/contextUsage'
 import { useSettingsStore } from '@/stores/settings'
@@ -170,12 +188,17 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const contextStore = useContextUsageStore()
 const settingsStore = useSettingsStore()
-const { snapshot, loading } = storeToRefs(contextStore)
+const { snapshot, loading, isCompacting } = storeToRefs(contextStore)
+
+function handleCompact() {
+  contextStore.startCompact()
+}
 
 const model = computed(() => settingsStore.config.model || 'claude-sonnet-4-6')
+const userCtxOverride = computed(() => settingsStore.modelContextWindows[model.value])
 const circumference = 2 * Math.PI * 52
 
-const rawMax = computed(() => snapshot.value?.data?.rawMaxTokens ?? getContextWindowForModel(model.value))
+const rawMax = computed(() => snapshot.value?.data?.rawMaxTokens ?? getContextWindowForModel(model.value, userCtxOverride.value))
 const usedTokens = computed(() => snapshot.value?.data?.totalTokens ?? 0)
 const usedPct = computed(() => snapshot.value?.usedPercentage ?? snapshot.value?.data?.percentage ?? 0)
 const remaining = computed(() => Math.max(0, rawMax.value - usedTokens.value))
@@ -193,8 +216,8 @@ const thresholdStyle = computed(() => ({
   background: ringColor.value,
 }))
 
-const warnMarkerPct = computed(() => (getWarningThreshold(model.value) / rawMax.value) * 100)
-const compactMarkerPct = computed(() => (getAutoCompactThreshold(model.value) / rawMax.value) * 100)
+const warnMarkerPct = computed(() => (getWarningThreshold(model.value, userCtxOverride.value) / rawMax.value) * 100)
+const compactMarkerPct = computed(() => (getAutoCompactThreshold(model.value, userCtxOverride.value) / rawMax.value) * 100)
 
 const sessionInput = computed(() => {
   const api = snapshot.value?.data?.apiUsage
@@ -327,6 +350,44 @@ watch(
   font-family: var(--font-mono, monospace);
 }
 
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.compact-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 150ms ease;
+
+  &:hover:not(:disabled) {
+    background: var(--surface-glass-hover);
+    color: var(--text-primary);
+    border-color: var(--surface-border-strong);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  &.compacting {
+    color: var(--accent-primary);
+    border-color: var(--accent-primary);
+  }
+}
+
 .close-btn {
   width: 32px;
   height: 32px;
@@ -340,6 +401,17 @@ watch(
     background: var(--surface-glass-hover);
     color: var(--text-primary);
   }
+}
+
+.compact-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  background: rgba(217, 119, 87, 0.08);
+  color: var(--accent-primary);
+  font-size: 12px;
+  border-bottom: 1px solid var(--surface-border);
 }
 
 .modal-loading,
