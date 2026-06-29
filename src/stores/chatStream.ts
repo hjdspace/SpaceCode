@@ -677,6 +677,15 @@ export const useChatStreamStore = defineStore('chatStream', () => {
             status: resultIsError ? 'error' : 'completed'
           })
           sessionStore.saveToStorage()
+
+          // After file-modifying tools complete, refresh SCM and file tree so
+          // that newly created/edited files appear immediately in the source
+          // control panel and environment card — without waiting for the
+          // (possibly non-recursive) fs watcher to notice the change.
+          if (FILE_TOOLS.has(toolName) || COMMAND_TOOLS.has(toolName)) {
+            window.dispatchEvent(new CustomEvent('scm:refresh'))
+            window.dispatchEvent(new CustomEvent('refresh-file-tree'))
+          }
         }
       }
     }
