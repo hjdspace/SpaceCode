@@ -81,9 +81,11 @@ import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { X, Plus, Copy, Edit3 } from 'lucide-vue-next'
 import { useTerminalStore, type TerminalTab } from '@/stores/terminal'
+import { useAppStore } from '@/stores/app'
 
 const { t } = useI18n()
 const terminalStore = useTerminalStore()
+const appStore = useAppStore()
 
 const editingTabId = ref<string | null>(null)
 const editingLabel = ref('')
@@ -105,7 +107,7 @@ function handleTabDoubleClick(tab: TerminalTab) {
 }
 
 function handleNewTab() {
-  terminalStore.createTab()
+  appStore.createTerminalTab()
 }
 
 function handleClose(tabId: string) {

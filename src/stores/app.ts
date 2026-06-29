@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed, markRaw } from 'vue'
 import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch, Package } from 'lucide-vue-next'
 import { useChatStore } from './chat'
-import { useTerminalStore } from './terminal'
+import { useTerminalStore, type CreateTerminalOptions } from './terminal'
 import { useSplitLayoutStore } from './splitLayout'
 import { api } from '@/services/electronAPI'
 
@@ -293,9 +293,24 @@ export const useAppStore = defineStore('app', () => {
 
   // ── 底部终端面板（VSCODE 风格） ─────────────────────────────
   const terminalDockVisible = ref(false)
+  const terminalDockMounted = ref(false)
   const terminalDockHeight = ref(200)
   const TERMINAL_DOCK_MIN = 80
   const TERMINAL_DOCK_MAX = 500
+
+  function getDefaultTerminalCwd(): string | undefined {
+    const chatStore = useChatStore()
+    return chatStore.workingDirectory || projectRoot.value || workWorkspace.value || undefined
+  }
+
+  function createTerminalTab(options?: CreateTerminalOptions): string | null {
+    const cwd = options?.cwd || getDefaultTerminalCwd()
+    const terminalStore = useTerminalStore()
+    return terminalStore.createTab({
+      ...options,
+      cwd
+    })
+  }
 
   function toggleTerminalDock() {
     if (terminalDockVisible.value) {
@@ -304,8 +319,9 @@ export const useAppStore = defineStore('app', () => {
       // 确保至少有一个终端标签
       const terminalStore = useTerminalStore()
       if (terminalStore.tabs.length === 0) {
-        terminalStore.createTab()
+        createTerminalTab()
       }
+      terminalDockMounted.value = true
       terminalDockVisible.value = true
     }
   }
@@ -347,7 +363,7 @@ export const useAppStore = defineStore('app', () => {
     // 确保至少有一个终端标签存在
     const terminalStore = useTerminalStore()
     if (terminalStore.tabs.length === 0) {
-      terminalStore.createTab()
+      createTerminalTab()
     }
     openInfoTab({
       id: 'terminal-panel',
@@ -521,7 +537,7 @@ export const useAppStore = defineStore('app', () => {
     showTraceViewer.value = false
 
     const terminalStore = useTerminalStore()
-    const tabId = terminalStore.createTab({ autoCommand, env, cwd })
+    const tabId = createTerminalTab({ autoCommand, env, cwd })
     if (tabId) {
       const tab = terminalStore.tabs.find(t => t.id === tabId)
       if (tab) {
@@ -918,6 +934,7 @@ export const useAppStore = defineStore('app', () => {
     openFile,
     resolveSessionPath,
     getLanguageFromPath,
+    createTerminalTab,
     openTerminalTab,
     closeCenterTab,
     openSessionTab,
@@ -943,6 +960,7 @@ export const useAppStore = defineStore('app', () => {
     openOfficePreview,
     closeOfficePreview,
     terminalDockVisible,
+    terminalDockMounted,
     terminalDockHeight,
     toggleTerminalDock,
     setTerminalDockHeight

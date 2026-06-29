@@ -43,7 +43,8 @@
         ></div>
         <!-- Bottom terminal dock (VSCODE style) -->
         <div
-          v-if="appStore.terminalDockVisible"
+          v-if="appStore.terminalDockMounted"
+          v-show="appStore.terminalDockVisible"
           class="terminal-dock"
           :style="{ height: appStore.terminalDockHeight + 'px' }"
         >
