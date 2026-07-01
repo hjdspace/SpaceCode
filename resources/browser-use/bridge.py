@@ -92,6 +92,8 @@ _browser_session = None  # 全局浏览器会话
 async def get_or_create_browser(headless: bool = True) -> BrowserSession:
     """获取或创建全局浏览器会话"""
     global _browser_session
+    if _browser_session is not None and _browser_session.headless != headless:
+        await close_browser()
     if _browser_session is None:
         profile = BrowserProfile(
             headless=headless,
