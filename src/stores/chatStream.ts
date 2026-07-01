@@ -2,16 +2,17 @@ import { defineStore } from 'pinia'
 import { ref, computed, nextTick } from 'vue'
 import type { Message } from '@/types'
 import { ErrorCategory } from '@/types'
-import type { RetryState } from '@/types'
 import { useSettingsStore } from './settings'
 import { useContextUsageStore } from './contextUsage'
 import { api } from '@/services/electronAPI'
 import { errorHandler } from '@/services/errorHandler'
 import {
   isTeammateRawMessage,
+  isSidechainMessage,
   recordAgentToolCall,
 } from '@/services/teamTranscriptService'
 import { useChatSessionStore } from './chatSession'
+import { useAutoRetry } from '@/composables/useAutoRetry'
 
 const FILE_TOOLS = new Set(['Write', 'FileWrite', 'Edit', 'FileEdit', 'MultiEdit'])
 const COMMAND_TOOLS = new Set(['Bash'])
@@ -19,14 +20,6 @@ const VERIFICATION_PATTERNS = [/^\s*(npm\s+test|bun\s+test|pnpm\s+test|yarn\s+te
 
 const REQUEST_TIMEOUT = 5 * 60 * 1000               // 用户发起 turn 的空闲超时（硬超时报错）
 const AUTONOMOUS_REQUEST_TIMEOUT = 45 * 60 * 1000   // 后台 agent 自动续跑可长跑（软收尾）
-
-// ── 自动重试配置 ──
-// 遇到可恢复错误（429 / 5xx / 网络错误 / 超时 / 进程退出）时，
-// 不展示技术错误详情，直接在聊天页显示"正在重试 (n/m)"并自动重发用户消息。
-const MAX_AUTO_RETRIES = 5                            // 最大重试次数
-const INITIAL_RETRY_DELAY_MS = 2_000                  // 首次退避 2s
-const MAX_RETRY_DELAY_MS = 60_000                     // 最大退避 60s
-const RETRY_JITTER_MS = 1_000                         // 随机抖动上限
 
 // ── 内存防护配置 ──
 // 工具输出在内存中的最大长度（字符数）。
@@ -59,6 +52,14 @@ export const useChatStreamStore = defineStore('chatStream', () => {
   const loadingSessions = ref<Map<string, boolean>>(new Map())
   const turnStates = new Map<string, TurnState>()
 
+  // ── 自动重试状态机 ──
+  const autoRetry = useAutoRetry({
+    maxRetries: 5,
+    initialDelayMs: 2_000,
+    maxDelayMs: 60_000,
+    jitterMs: 1_000,
+  })
+
   // ── sendMessage 进行中标记 ──
   // 防止 ensureTurn 在 sendMessage 的 addMessage → beginTurn 窗口期
   // 因 session.messages.length > 0 而自动创建 autonomous turn，
@@ -76,10 +77,6 @@ export const useChatStreamStore = defineStore('chatStream', () => {
   // 通过此 Set 标记用户主动中止的会话，在 ensureTurn 和 handleError
   // 中拦截残留事件，直到用户主动发新消息或重试时清除标记。
   const userAbortedSessions = new Set<string>()
-
-  // ── 自动重试状态（响应式，供 UI 读取）──
-  // sessionId → RetryState。非空时 UI 渲染 RetryIndicator 组件。
-  const retryStates = ref<Map<string, RetryState>>(new Map())
 
   const isLoading = computed(() =>
     sessionStore.currentSessionId ? (loadingSessions.value.get(sessionStore.currentSessionId) ?? false) : false
@@ -686,6 +683,28 @@ export const useChatStreamStore = defineStore('chatStream', () => {
             window.dispatchEvent(new CustomEvent('scm:refresh'))
             window.dispatchEvent(new CustomEvent('refresh-file-tree'))
           }
+
+          // ★ 子智能体（Agent 工具）遇到可恢复错误（429 / 5xx 等）时触发自动重试。
+          // 引擎在子智能体 LLM 调用遭遇 429 后，若内部重试耗尽，会将错误以
+          // tool_result(is_error=true) 形式返回给主会话。主会话 LLM 看到错误后
+          // 通常直接报告给用户而非重试，导致子智能体任务被直接结束。
+          // 此处检测 Agent 工具的可恢复错误，路由到 handleError 触发自动重试，
+          // 使主会话重新发送用户消息（从而重新调用子智能体）。
+          if (resultIsError && (toolName === 'Agent' || toolName === 'Task')) {
+            const lowerOutput = resultOutput.toLowerCase()
+            const isRetryableError = lowerOutput.includes('429')
+              || lowerOutput.includes('rate_limit')
+              || lowerOutput.includes('rate limit')
+              || lowerOutput.includes('overloaded')
+              || lowerOutput.includes('529')
+              || /5\d{2}/.test(lowerOutput)
+              || lowerOutput.includes('server error')
+              || lowerOutput.includes('internal server')
+            if (isRetryableError && !autoRetry.retryStates.value.has(sessionId) && !ts.settled) {
+              sessionStore.logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] Agent tool result has retryable error, routing to handleError | toolName=${toolName} | output=${resultOutput.slice(0, 120)}`)
+              handleError(sessionId, ts, new Error(resultOutput))
+            }
+          }
         }
       }
     }
@@ -726,6 +745,28 @@ export const useChatStreamStore = defineStore('chatStream', () => {
                 status: toolResult.is_error ? 'error' : 'completed'
               })
               sessionStore.saveToStorage()
+
+              // ★ 子智能体（Agent/Task 工具）遇到可恢复错误时触发自动重试
+              // （与 handleToolResult 中的逻辑一致，此处覆盖 tool_result 嵌入
+              // user 消息的另一条路径）
+              if (toolResult.is_error) {
+                const agentToolName = updatedToolCalls[toolCallIndex].name
+                if (agentToolName === 'Agent' || agentToolName === 'Task') {
+                  const lowerOutput = truncatedUserToolOutput.toLowerCase()
+                  const isRetryableError = lowerOutput.includes('429')
+                    || lowerOutput.includes('rate_limit')
+                    || lowerOutput.includes('rate limit')
+                    || lowerOutput.includes('overloaded')
+                    || lowerOutput.includes('529')
+                    || /5\d{2}/.test(lowerOutput)
+                    || lowerOutput.includes('server error')
+                    || lowerOutput.includes('internal server')
+                  if (isRetryableError && !autoRetry.retryStates.value.has(sessionId) && !ts.settled) {
+                    sessionStore.logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] Agent tool result (via user msg) has retryable error, routing to handleError | toolName=${agentToolName} | output=${truncatedUserToolOutput.slice(0, 120)}`)
+                    handleError(sessionId, ts, new Error(truncatedUserToolOutput))
+                  }
+                }
+              }
             }
           }
         }
@@ -758,10 +799,9 @@ export const useChatStreamStore = defineStore('chatStream', () => {
     loadingSessions.value.set(sessionId, false)
 
     // 重试成功：清理重试状态，UI 上的 RetryIndicator 消失
-    if (retryStates.value.has(sessionId)) {
+    if (autoRetry.retryStates.value.has(sessionId)) {
       sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry succeeded, clearing retry state`)
-      retryStates.value.delete(sessionId)
-      retryStates.value = new Map(retryStates.value)
+      autoRetry.clearOnSuccess(sessionId)
     }
 
     const s = sessionStore.sessions.find(s => s.id === sessionId)
@@ -916,45 +956,6 @@ export const useChatStreamStore = defineStore('chatStream', () => {
   // 自动重试：遇到可恢复错误时不展示技术详情，直接提示"正在重试 (n/m)"
   // ────────────────────────────────────────────────────────────────────
 
-  /** 判断当前错误是否应该自动重试 */
-  function shouldAutoRetry(sessionId: string, retryable: boolean): boolean {
-    if (!retryable) return false
-    // ★ 用户主动 abort 后的错误（如 "API Error: Request was abort"）不应触发自动重试
-    if (userAbortedSessions.has(sessionId)) return false
-    const state = retryStates.value.get(sessionId)
-    const attempt = state?.attempt ?? 0
-    return attempt < MAX_AUTO_RETRIES
-  }
-
-  /** 计算退避延迟：指数退避 + 随机抖动，尊重 Retry-After header */
-  function computeRetryDelay(retryDelayHint?: number, attempt: number = 0): number {
-    if (retryDelayHint && retryDelayHint > 0) {
-      return Math.min(retryDelayHint, MAX_RETRY_DELAY_MS)
-    }
-    const exponential = Math.min(INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt), MAX_RETRY_DELAY_MS)
-    const jitter = Math.random() * RETRY_JITTER_MS
-    return Math.round(exponential + jitter)
-  }
-
-/**
- * LLM 真正开始响应时清除重试状态，复位重试计数。
- *
- * 仅在 onAssistant 事件（LLM 完成了一轮回复）时调用——这是 LLM 确实连上的
- * 可靠信号。不在 onStreamEvent 中调用，因为 stream_event 可能是 CLI 初始化 /
- * 系统消息等非 LLM 事件，过早清除会导致重试计数永远不递增（无限重试 bug）。
- *
- * 清除后：RetryIndicator 组件隐藏，下次 429 错误从 attempt=1 重新计数。
- * 若连续 MAX_AUTO_RETRIES 次重试都没收到 onAssistant（LLM 从未连上），
- * shouldAutoRetry 返回 false，任务终止。
- */
-function clearRetryStateOnResponse(sessionId: string): void {
-  if (retryStates.value.has(sessionId)) {
-    sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] LLM responded after retry, resetting retry count to 0`)
-    retryStates.value.delete(sessionId)
-    retryStates.value = new Map(retryStates.value)
-  }
-}
-
   /** 发起自动重试：更新 UI → 等待退避 → 重新发送用户消息 */
   async function initiateAutoRetry(
     sessionId: string,
@@ -964,24 +965,11 @@ function clearRetryStateOnResponse(sessionId: string): void {
     errorMessage: string,
     retryDelayHint?: number,
   ): Promise<void> {
-    const prev = retryStates.value.get(sessionId)
-    const attempt = (prev?.attempt ?? 0) + 1
-    const delayMs = computeRetryDelay(retryDelayHint, attempt - 1)
-    const state: RetryState = {
-      attempt,
-      maxRetries: MAX_AUTO_RETRIES,
-      errorCategory,
-      errorTitle,
-      errorMessage,
-      delayMs,
-      startedAt: Date.now(),
-      aborted: false,
-    }
-    retryStates.value.set(sessionId, state)
-    // 触发响应式更新
-    retryStates.value = new Map(retryStates.value)
+    const state = autoRetry.recordRetryableError(sessionId, errorCategory, errorTitle, errorMessage, retryDelayHint, ts.assistantMessageId)
+    const attempt = state.attempt
+    const delayMs = state.delayMs
 
-    sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry scheduled | attempt=${attempt}/${MAX_AUTO_RETRIES} | delay=${delayMs}ms | category=${errorCategory}`)
+    sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry scheduled | attempt=${attempt}/${state.maxRetries} | delay=${delayMs}ms | category=${errorCategory}`)
 
     // ① 更新助手消息：显示重试状态（不覆盖已有内容，保留 LLM 中断前的输出）
     const sessionForMsg = sessionStore.sessions.find(s => s.id === sessionId)
@@ -1001,7 +989,7 @@ function clearRetryStateOnResponse(sessionId: string): void {
     await new Promise<void>(resolve => setTimeout(resolve, delayMs))
 
     // 检查是否被取消
-    const cur = retryStates.value.get(sessionId)
+    const cur = autoRetry.retryStates.value.get(sessionId)
     if (!cur || cur.aborted) {
       sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry aborted by user`)
       return
@@ -1010,15 +998,13 @@ function clearRetryStateOnResponse(sessionId: string): void {
     // ④ 获取上一条用户消息
     const session = sessionStore.sessions.find(s => s.id === sessionId)
     if (!session) {
-      retryStates.value.delete(sessionId)
-      retryStates.value = new Map(retryStates.value)
+      autoRetry.removeRetryState(sessionId)
       return
     }
 
     const lastUserMsg = [...session.messages].reverse().find(m => m.role === 'user')
     if (!lastUserMsg) {
-      retryStates.value.delete(sessionId)
-      retryStates.value = new Map(retryStates.value)
+      autoRetry.removeRetryState(sessionId)
       return
     }
 
@@ -1101,10 +1087,8 @@ function clearRetryStateOnResponse(sessionId: string): void {
   async function cancelRetry(): Promise<void> {
     const sid = sessionStore.currentSessionId
     if (!sid) return
-    const state = retryStates.value.get(sid)
-    if (!state) return
-    state.aborted = true
-    retryStates.value = new Map(retryStates.value)
+    const cancelled = autoRetry.cancelRetry(sid)
+    if (!cancelled) return
 
     // 清理 loading 状态
     loadingSessions.value.set(sid, false)
@@ -1119,8 +1103,7 @@ function clearRetryStateOnResponse(sessionId: string): void {
       turnStates.delete(sid)
     }
 
-    retryStates.value.delete(sid)
-    retryStates.value = new Map(retryStates.value)
+    autoRetry.removeRetryState(sid)
 
     const s = sessionStore.sessions.find(sx => sx.id === sid)
     if (s) {
@@ -1142,8 +1125,7 @@ function clearRetryStateOnResponse(sessionId: string): void {
       ts.settled = true
       loadingSessions.value.set(sessionId, false)
       streamingContents.value.set(sessionId, '')
-      retryStates.value.delete(sessionId)
-      retryStates.value = new Map(retryStates.value)
+      autoRetry.removeRetryState(sessionId)
       const s = sessionStore.sessions.find(sx => sx.id === sessionId)
       if (s) {
         s.processStatus = 'idle'
@@ -1163,16 +1145,23 @@ function clearRetryStateOnResponse(sessionId: string): void {
     })
 
     // ★ 拦截可恢复错误：自动重试，不展示技术错误详情
-    if (shouldAutoRetry(sessionId, classified.retryable)) {
-      // 超时错误需要先 abort 引擎进程
+    if (autoRetry.shouldAutoRetry(sessionId, classified.retryable, userAbortedSessions)) {
+      // ★ 中断引擎进程：对于子智能体（Agent tool）的 429 等可恢复错误，
+      // 错误通过 tool_result 返回主会话后，引擎的主查询循环仍在继续——
+      // LLM 会看到错误 tool_result 并生成回复，回复完成后的 result 事件
+      // 会触发 handleResult → clearOnSuccess，清除重试状态，导致
+      // initiateAutoRetry 的定时器到期时重试已被取消。
+      // 通过 abort 中断引擎并设置 ts.settled，阻止后续事件处理，
+      // 确保重试定时器不被竞态清除。
+      // 对于主 LLM 的 429（引擎已返回 result 并退出），abort 为无操作。
       const claudeCode = api.claudeCode
-      const errorMsg = String(error).toLowerCase()
-      const isTimeoutError = errorMsg.includes('超时') || errorMsg.includes('timeout')
-      if (isTimeoutError && claudeCode) {
+      if (claudeCode) {
         try { claudeCode.abort(sessionId) } catch { /* ignore */ }
       }
 
-      // 不设置 ts.settled，保持 turn 存活；异步发起重试
+      // 设置 ts.settled 阻止后续事件（引擎中断后的残留 result/assistant 等）
+      // 被此 turn 处理。initiateAutoRetry 不依赖 ts.settled，它会自行删除 turn。
+      ts.settled = true
       void initiateAutoRetry(sessionId, ts, classified.category, classified.title, classified.message, classified.retryDelay)
       return
     }
@@ -1183,9 +1172,8 @@ function clearRetryStateOnResponse(sessionId: string): void {
     streamingContents.value.set(sessionId, '')
 
     // 清理重试状态
-    const hadRetry = retryStates.value.has(sessionId)
-    retryStates.value.delete(sessionId)
-    if (hadRetry) retryStates.value = new Map(retryStates.value)
+    const hadRetry = autoRetry.retryStates.value.has(sessionId)
+    autoRetry.removeRetryState(sessionId)
 
     // 触发 toast / 日志 / inlineError
     errorHandler.handleError(error, {
@@ -1270,23 +1258,52 @@ function clearRetryStateOnResponse(sessionId: string): void {
         sessionStore.recordTeammateMessage(event.data, event.sessionId)
         return
       }
-      // ★ LLM 真正完成了一轮回复 → 重试成功，清除重试状态（隐藏 indicator，
-      // 复位计数）。下次 429 错误将从 attempt=1 重新计数。
-      clearRetryStateOnResponse(event.sessionId)
+      // ★ 拦截子智能体（Agent tool）的 sidechain 消息，路由到子智能体转录。
+      // 不创建 teamContext，不干扰主时间线，供 AgentToolCard 读取。
+      if (isSidechainMessage(event.data)) {
+        sessionStore.recordSubagentMessage(event.data, event.sessionId)
+        return
+      }
+      // ★ 对于纯文本 / reasoning 的 assistant 回复（无 tool_use），
+      // 可以认为本轮 LLM 调用已成功完成，立即清除重试状态，避免 handleResult
+      // 未到达时 indicator 一直不消失。含 tool_use 的回复需等待 handleResult。
+      const content = event.data?.message?.content
+      const hasToolUse = Array.isArray(content) && content.some((c: any) => c.type === 'tool_use')
+      if (!hasToolUse && autoRetry.retryStates.value.has(event.sessionId)) {
+        sessionStore.logger.info('ChatStore', `[${event.sessionId.slice(0, 8)}] onAssistant: text response received, clearing retry state`)
+        autoRetry.clearOnSuccess(event.sessionId)
+      }
+
       const ts = ensureTurn(event.sessionId)
       if (ts.settled) return
       resetTimeout(event.sessionId, ts)
       handleAssistant(event.sessionId, ts, event.data)
     })
     claudeCodeApi.onToolUse((event: { sessionId: string; data: any }) => {
-      // ★ 不在此处清除：onAssistant 总是在 onToolUse 之前触发（tool_use
-      // 是 assistant 消息的一部分），重试状态已被 onAssistant 清除。
+      if (isTeammateRawMessage(event.data)) {
+        sessionStore.recordTeammateMessage(event.data, event.sessionId)
+        return
+      }
+      if (isSidechainMessage(event.data)) {
+        sessionStore.recordSubagentMessage(event.data, event.sessionId)
+        return
+      }
+      // ★ 不在此处清除重试状态：tool_use 只是 assistant 消息的一部分，
+      // 并不代表整个请求成功完成。重试状态只在 handleResult 成功时清除。
       const ts = ensureTurn(event.sessionId)
       if (ts.settled) return
       resetTimeout(event.sessionId, ts)
       handleToolUse(event.sessionId, ts, event.data)
     })
     claudeCodeApi.onToolResult((event: { sessionId: string; data: any }) => {
+      if (isTeammateRawMessage(event.data)) {
+        sessionStore.recordTeammateMessage(event.data, event.sessionId)
+        return
+      }
+      if (isSidechainMessage(event.data)) {
+        sessionStore.recordSubagentMessage(event.data, event.sessionId)
+        return
+      }
       const ts = turnStates.get(event.sessionId)
       if (!ts || ts.settled) return
       resetTimeout(event.sessionId, ts)
@@ -1297,12 +1314,30 @@ function clearRetryStateOnResponse(sessionId: string): void {
         sessionStore.recordTeammateMessage(event.data, event.sessionId)
         return
       }
+      if (isSidechainMessage(event.data)) {
+        sessionStore.recordSubagentMessage(event.data, event.sessionId)
+        return
+      }
       const ts = turnStates.get(event.sessionId)
       if (!ts || ts.settled) return
       resetTimeout(event.sessionId, ts)
       handleUser(event.sessionId, ts, event.data)
     })
     claudeCodeApi.onResult((event: { sessionId: string; data: any }) => {
+      // ★ 拦截 sidechain / teammate 的 result 事件，防止子智能体 turn 结束
+      // 被当作主会话 result 处理（提前结算主会话 turn）。
+      // 注意：不在此处触发 handleError — 429 等可恢复错误应通过 Agent tool 的
+      // tool_result 路径触发重试（见 handleToolResult 中的检测），避免
+      // sidechain result 与 tool_result 双重触发重试导致竞态。
+      if (isTeammateRawMessage(event.data)) {
+        sessionStore.recordTeammateMessage(event.data, event.sessionId)
+        return
+      }
+      if (isSidechainMessage(event.data)) {
+        sessionStore.recordSubagentMessage(event.data, event.sessionId)
+        return
+      }
+
       const ts = turnStates.get(event.sessionId)
       if (!ts) return
       handleResult(event.sessionId, ts, event.data ?? {})
@@ -1327,6 +1362,8 @@ function clearRetryStateOnResponse(sessionId: string): void {
     const targetSessionId = sessionStore.currentSessionId!
     // ★ 清除用户中止标记：用户主动发新消息时恢复正常运行
     userAbortedSessions.delete(targetSessionId)
+    // ★ 新用户消息代表新一轮请求开始，清理可能残留的自动重试状态
+    autoRetry.removeRetryState(targetSessionId)
     const session = sessionStore.sessions.find(s => s.id === targetSessionId)
     if (!session) return
 
@@ -1455,12 +1492,8 @@ function clearRetryStateOnResponse(sessionId: string): void {
       streamingContents.value.set(sid, '')
 
       // 清理自动重试状态
-      const retryState = retryStates.value.get(sid)
-      if (retryState) {
-        retryState.aborted = true
-        retryStates.value.delete(sid)
-        retryStates.value = new Map(retryStates.value)
-      }
+      autoRetry.cancelRetry(sid)
+      autoRetry.removeRetryState(sid)
 
       const ts = turnStates.get(sid)
       if (ts && !ts.settled) {
@@ -1592,7 +1625,7 @@ function clearRetryStateOnResponse(sessionId: string): void {
     submitToolAnswer,
     skipToolAnswer,
     // Auto Retry
-    retryStates,
+    retryStates: autoRetry.retryStates,
     cancelRetry,
     // Pending Messages
     pendingMessages,

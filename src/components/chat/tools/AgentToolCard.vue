@@ -11,10 +11,6 @@
 
     <div v-if="isExpanded" class="agent-details">
       <div class="agent-section">
-        <div class="section-label">{{ t('toolCards.agentDescription') }}</div>
-        <pre class="prompt-block"><code>{{ promptText }}</code></pre>
-      </div>
-      <div class="agent-section">
         <div class="section-label">{{ t('toolCards.agentResult') }}</div>
         <div class="output-content">
           <MarkdownRenderer v-if="renderedOutput" :content="renderedOutput" />
@@ -67,12 +63,6 @@ function getFirstStringField(input: Record<string, unknown>, fields: string[]): 
 const taskSummary = computed(() =>
   getFirstStringField(props.toolCall.input || {}, ['description', 'prompt', 'task', 'content'])
 )
-
-const promptText = computed(() => {
-  const input = props.toolCall.input || {}
-  const value = getFirstStringField(input, ['prompt', 'description', 'task', 'content'])
-  return value || JSON.stringify(input, null, 2)
-})
 
 const renderedOutput = computed(() => {
   if (streamMessages.value.length) return ''
@@ -214,21 +204,6 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-}
-
-.prompt-block {
-  margin: 0;
-  padding: 12px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-secondary);
-  background: var(--bg-secondary);
-  white-space: pre-wrap;
-  word-break: break-word;
-  overflow-x: auto;
-  max-height: 320px;
-  overflow-y: auto;
 }
 
 .output-content {

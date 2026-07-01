@@ -23,10 +23,13 @@ import {
   inferTeammateStatus,
   stringifyRawContent,
   ensureTeamContext,
+  ensureSubagentTranscripts,
   recordAgentToolCall,
   isFileBackedTeammate,
   rekickAgentTranscriptPoll,
   resolveTeammateId,
+  teammateIdForParentToolUse,
+  registerTeammateForToolUse,
   clearSessionToolUseMappings,
   AGENT_COLORS,
 } from '@/services/teamTranscriptService'
@@ -831,6 +834,84 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     return message
   }
 
+  /**
+   * 记录子智能体（Agent tool）的 sidechain 消息到转录存储。
+   * 与 recordTeammateMessage 的关键区别：
+   *   - 不创建 teamContext（子智能体不属于 agent team）
+   *   - 不向 session.messages 推送系统通知（不干扰主时间线）
+   *   - 仍写入 teammateTranscripts 供 AgentToolCard 读取
+   */
+  function recordSubagentMessage(raw: any, targetSessionId: string): Message | null {
+    const session = sessions.value.find(s => s.id === targetSessionId)
+    if (!session) return null
+
+    // ★ 桥接 parent_tool_use_id 不匹配问题
+    // 引擎的 sync Agent tool 进度消息使用 `agent_<assistant_message_id>` 作为
+    // parent_tool_use_id，而非 Agent 工具的 tool_use ID。这导致 resolveTeammateId
+    // 无法通过映射找到正确的 teammateId，消息被存储在不同的键下，
+    // AgentToolCard 读取不到流式输出。
+    // 此处检测未注册的 parent_tool_use_id，尝试匹配当前运行的 Agent/Task 工具调用，
+    // 注册映射使后续消息（及 AgentToolCard）能归并到同一 teammateId。
+    const parentId = raw?.parent_tool_use_id || raw?.parentToolUseId
+    if (parentId && !teammateIdForParentToolUse(targetSessionId, parentId)) {
+      for (const msg of session.messages) {
+        if (!msg.toolCalls) continue
+        for (const tc of msg.toolCalls) {
+          if ((tc.name === 'Agent' || tc.name === 'Task') &&
+              (tc.status === 'running' || tc.status === 'pending')) {
+            const registeredId = teammateIdForParentToolUse(targetSessionId, tc.id)
+            if (registeredId) {
+              registerTeammateForToolUse(targetSessionId, parentId, registeredId)
+            }
+          }
+        }
+      }
+    }
+
+    const subagentId = resolveTeammateId(targetSessionId, raw)
+    const name = getRawTeammateName(raw)
+    const status = inferTeammateStatus(raw)
+    const text = stringifyRawContent(raw)
+    ensureSubagentTranscripts(session)
+
+    const transcript = session.teammateTranscripts![subagentId] || []
+    const messageId = raw?.uuid || raw?.message?.id || raw?.id || crypto.randomUUID()
+    const message: Message = {
+      id: String(messageId),
+      role: raw?.role === 'user' ? 'user' : 'assistant',
+      content: text,
+      timestamp: raw?.timestamp ? Date.parse(raw.timestamp) || Date.now() : Date.now(),
+      metadata: {
+        agentTaskId: subagentId,
+        agentName: name,
+        teamName: 'Agent Team',
+        status,
+      }
+    }
+
+    if (isFileBackedTeammate(targetSessionId, subagentId)) {
+      rekickAgentTranscriptPoll(session, targetSessionId, subagentId)
+      session.updatedAt = Date.now()
+      session.lastActivityAt = Date.now()
+      return null
+    }
+
+    if (text.trim()) {
+      const idx = transcript.findIndex(m => m.id === message.id)
+      if (idx >= 0) {
+        const next = [...transcript]
+        next[idx] = { ...next[idx], content: text, metadata: { ...next[idx].metadata, status } }
+        session.teammateTranscripts![subagentId] = next
+      } else {
+        session.teammateTranscripts![subagentId] = [...transcript, message]
+      }
+    }
+
+    session.updatedAt = Date.now()
+    session.lastActivityAt = Date.now()
+    return message
+  }
+
   function viewTeammateTranscript(taskId: string) {
     const session = currentSession.value
     if (!session?.teamContext?.teammates[taskId]) return
@@ -1602,6 +1683,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     viewTeammateTranscript,
     backToLeaderView,
     recordTeammateMessage,
+    recordSubagentMessage,
     selectSession,
     activateSession,
     deactivateSession,

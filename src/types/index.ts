@@ -140,6 +140,8 @@ export interface RetryState {
   startedAt: number
   /** 用户是否手动取消重试 */
   aborted: boolean
+  /** 触发本次重试的助手消息 ID，用于在 onAssistant 中识别重试是否已成功完成 */
+  assistantMessageId?: string
 }
 
 export interface MessageMetadata {
