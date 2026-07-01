@@ -74,6 +74,8 @@ export function useResizablePanel(options: UseResizablePanelOptions): UseResizab
   onUnmounted(() => {
     document.removeEventListener('mousemove', handleMousemove)
     document.removeEventListener('mouseup', handleMouseup)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
   })
 
   return { size, isResizing, onMousedown }
