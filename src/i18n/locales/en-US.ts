@@ -1633,6 +1633,9 @@ export default {
     working: 'Working...',
     responding: 'Responding...',
     done: 'Done',
+    totalDuration: 'Total',
+    model: 'Model',
+    tokens: 'Tokens',
     truncated: '\n... (truncated)',
     tools: {
       bash: 'Run command',
