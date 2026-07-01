@@ -10,6 +10,11 @@
         <Loader2 v-if="overallStatus === 'running'" :size="10" class="spin-icon" />
         {{ statusLabel }}
       </span>
+      <!-- 用时计时器 -->
+      <div class="timeline-timer" :class="overallStatus">
+        <Clock :size="12" class="timer-icon" />
+        <span class="timer-value">{{ timerText }}</span>
+      </div>
     </div>
 
     <!-- Timeline event list -->
@@ -150,13 +155,42 @@
         class="timeline-task-board"
       />
     </div>
+
+    <!-- 用时汇总条 -->
+    <div v-if="hasTurnSummary" class="turn-summary">
+      <div class="turn-summary-item total-duration">
+        <span class="ts-label">{{ t('timeline.totalDuration') }}</span>
+        <span class="ts-value">{{ (totalElapsedMs / 1000).toFixed(1) }}s</span>
+      </div>
+      <template v-if="reasoningDurationText">
+        <div class="turn-summary-divider"></div>
+        <div class="turn-summary-item">
+          <span class="ts-label">{{ t('timeline.thinking') }}</span>
+          <span class="ts-value">{{ reasoningDurationText }}</span>
+        </div>
+      </template>
+      <template v-if="finalMetadata?.model">
+        <div class="turn-summary-divider"></div>
+        <div class="turn-summary-item">
+          <span class="ts-label">{{ t('timeline.model') }}</span>
+          <span class="ts-value">{{ finalMetadata.model }}</span>
+        </div>
+      </template>
+      <template v-if="tokenText">
+        <div class="turn-summary-divider"></div>
+        <div class="turn-summary-item">
+          <span class="ts-label">{{ t('timeline.tokens') }}</span>
+          <span class="ts-value">{{ tokenText }}</span>
+        </div>
+      </template>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import type { Message, ToolCall, MessageMetadata, ClassifiedError } from '@/types'
 import type { Component } from 'vue'
-import { computed, markRaw, onMounted, reactive, watch, ref } from 'vue'
+import { computed, markRaw, onMounted, onUnmounted, reactive, watch, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { hasToolComponent, resolveToolComponent } from '@/components/chat/tools/index'
 import TaskListCard, { type TaskListItem } from './TaskListCard.vue'
@@ -169,7 +203,7 @@ import { errorHandler } from '@/services/errorHandler'
 import { useChatStore } from '@/stores/chat'
 import { useChatStreamStore } from '@/stores/chatStream'
 import {
-  Loader2, X, ChevronDown, Bot, AlertCircle,
+  Loader2, X, ChevronDown, Bot, AlertCircle, Clock,
   Terminal, FileText, FileEdit, Search, Globe, Wand2, Folder, Code,
   MessageCircle, Info, ListChecks
 } from 'lucide-vue-next'
@@ -601,6 +635,92 @@ const statusLabel = computed(() => {
   return t('timeline.done')
 })
 
+// ========== 用时计时器 ==========
+const now = ref(Date.now())
+let timerInterval: ReturnType<typeof setInterval> | null = null
+
+watch(overallStatus, (status) => {
+  if (status === 'running') {
+    if (!timerInterval) {
+      timerInterval = setInterval(() => {
+        now.value = Date.now()
+      }, 1000)
+    }
+  } else {
+    if (timerInterval) {
+      clearInterval(timerInterval)
+      timerInterval = null
+    }
+  }
+}, { immediate: true })
+
+onUnmounted(() => {
+  if (timerInterval) {
+    clearInterval(timerInterval)
+    timerInterval = null
+  }
+})
+
+const turnStartTime = computed(() => props.messages[0]?.timestamp || Date.now())
+
+const totalElapsedMs = computed(() => {
+  if (overallStatus.value === 'running') {
+    return Math.max(0, now.value - turnStartTime.value)
+  }
+  const finalMsg = props.messages.find(m => m.id === getFinalMetadataMessageId(props.messages))
+  return finalMsg?.metadata?.duration || 0
+})
+
+const timerText = computed(() => {
+  const ms = totalElapsedMs.value
+  if (ms <= 0) return '0.0s'
+  if (overallStatus.value === 'running') {
+    const totalSec = Math.floor(ms / 1000)
+    const mins = Math.floor(totalSec / 60)
+    const secs = totalSec % 60
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+  }
+  return `${(ms / 1000).toFixed(1)}s`
+})
+
+const finalMetadata = computed(() => {
+  const finalMsg = props.messages.find(m => m.id === getFinalMetadataMessageId(props.messages))
+  return finalMsg?.metadata
+})
+
+const reasoningDurationText = computed(() => {
+  for (const msg of props.messages) {
+    if (msg.reasoning?.endTime && msg.reasoning?.startTime) {
+      return `${((msg.reasoning.endTime - msg.reasoning.startTime) / 1000).toFixed(1)}s`
+    }
+  }
+  for (const event of timelineEvents.value) {
+    if (event.type === 'reasoning' && event.duration) {
+      return `${event.duration}s`
+    }
+  }
+  return null
+})
+
+const hasTurnSummary = computed(() => {
+  if (overallStatus.value === 'running') return false
+  return !!(finalMetadata.value?.duration || finalMetadata.value?.model)
+})
+
+const tokenText = computed(() => {
+  const meta = finalMetadata.value
+  if (!meta) return ''
+  const { inputTokens, outputTokens } = meta
+  if (inputTokens && outputTokens) {
+    return `${inputTokens.toLocaleString()} + ${outputTokens.toLocaleString()}`
+  } else if (inputTokens) {
+    return `${inputTokens.toLocaleString()}`
+  } else if (outputTokens) {
+    return `${outputTokens.toLocaleString()}`
+  }
+  return ''
+})
+
 function toggleEvent(eventId: string) {
   expandedEvents[eventId] = !expandedEvents[eventId]
 }
@@ -845,6 +965,47 @@ function parseTaskUpdateOutput(output?: string, input: Record<string, any> = {})
     background: rgba(239, 68, 68, 0.1);
     color: #ef4444;
   }
+}
+
+.timeline-timer {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 10px;
+  transition: all var(--transition-fast);
+
+  &.running {
+    color: var(--accent-primary);
+    background: var(--accent-primary-glow);
+  }
+
+  &.completed {
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+  }
+
+  &.error {
+    color: var(--error);
+    background: var(--error-glow);
+  }
+
+  .timer-icon {
+    flex-shrink: 0;
+  }
+
+  &.running .timer-icon {
+    animation: timer-pulse 1.5s ease-in-out infinite;
+  }
+}
+
+@keyframes timer-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 .timeline-events {
@@ -1092,5 +1253,49 @@ function parseTaskUpdateOutput(output?: string, input: Record<string, any> = {})
   to {
     transform: rotate(360deg);
   }
+}
+
+.turn-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  margin-left: 36px;
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  background: var(--surface-glass);
+  border: 1px solid var(--surface-border);
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+
+.turn-summary-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+
+  .ts-label {
+    color: var(--text-disabled);
+    font-family: var(--font-body);
+    font-weight: 500;
+  }
+
+  .ts-value {
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+
+  &.total-duration .ts-value {
+    color: var(--accent-primary);
+    font-weight: 600;
+  }
+}
+
+.turn-summary-divider {
+  width: 1px;
+  height: 12px;
+  background: var(--surface-border);
 }
 </style>
