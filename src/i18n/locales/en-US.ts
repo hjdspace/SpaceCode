@@ -1749,6 +1749,7 @@ export default {
     agent: 'Sub-agent',
     agentDescription: 'Prompt',
     agentResult: 'Sub-agent output',
+    agentNoOutput: 'No output',
     skill: 'Skill',
     skillPromptArg: 'Prompt Argument',
     skillResult: 'Result',

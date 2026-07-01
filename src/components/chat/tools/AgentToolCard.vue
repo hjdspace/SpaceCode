@@ -23,7 +23,9 @@
               <MarkdownRenderer :content="msg.content" />
             </div>
           </div>
-          <div v-else class="output-empty">{{ t('common.loading') }}</div>
+          <div v-else class="output-empty">
+            {{ isRunning ? t('common.loading') : t('toolCards.agentNoOutput') }}
+          </div>
         </div>
       </div>
     </div>
@@ -42,28 +44,36 @@ import { useSubagentTranscript } from '@/composables/useSubagentTranscript'
 const props = defineProps<{ toolCall: ToolCall }>()
 const isExpanded = ref(false)
 const { t } = useI18n()
-const { messages: streamMessages } = useSubagentTranscript(props.toolCall.id)
+const { messages: streamMessages } = useSubagentTranscript(() => props.toolCall.id)
+
+const MAX_OUTPUT = 4000
 
 const statusClass = computed(() => `status-${props.toolCall.status}`)
+const isRunning = computed(() => props.toolCall.status === 'running' || props.toolCall.status === 'pending')
 
 const agentTypeDisplay = computed(() => {
   const type = props.toolCall.input?.agentType || props.toolCall.input?.type || 'general-purpose'
   return type === 'general-purpose' ? 'Agent' : String(type)
 })
 
-const taskSummary = computed(() => {
-  const input = props.toolCall.input || {}
-  const value = input.description || input.prompt || input.task || input.content || ''
-  return typeof value === 'string' ? value : ''
-})
+function getFirstStringField(input: Record<string, any>, fields: string[]): string {
+  for (const field of fields) {
+    const value = input[field]
+    if (typeof value === 'string') return value
+  }
+  return ''
+}
+
+const taskSummary = computed(() =>
+  getFirstStringField(props.toolCall.input || {}, ['description', 'prompt', 'task', 'content'])
+)
 
 const promptText = computed(() => {
   const input = props.toolCall.input || {}
-  const value = input.prompt || input.description || input.task || input.content || ''
-  return typeof value === 'string' ? value : JSON.stringify(input, null, 2)
+  const value = getFirstStringField(input, ['prompt', 'description', 'task', 'content'])
+  return value || JSON.stringify(input, null, 2)
 })
 
-const MAX_OUTPUT = 4000
 const renderedOutput = computed(() => {
   if (streamMessages.value.length) return ''
   const o = props.toolCall.output || ''
@@ -172,10 +182,10 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
 .agent-details {
   margin-top: 4px;
   padding: 0 8px;
-  animation: fadeIn 150ms ease-out;
+  animation: agent-fade-in 150ms ease-out;
 }
 
-@keyframes fadeIn {
+@keyframes agent-fade-in {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
 }

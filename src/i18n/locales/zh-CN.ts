@@ -1748,6 +1748,7 @@ export default {
     agent: '子智能体',
     agentDescription: '提示词',
     agentResult: '子智能体输出',
+    agentNoOutput: '暂无输出',
     skill: '技能',
     skillPromptArg: '提示词参数',
     skillResult: '结果',
