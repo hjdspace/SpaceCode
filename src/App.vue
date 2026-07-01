@@ -31,8 +31,27 @@
           <McpManager v-else-if="appStore.showMCPManager" />
           <CronManager v-else-if="appStore.showCronManager" />
           <WorkAssistantGallery v-else-if="appStore.showWorkGallery" />
-          <ChatPanel v-else-if="!appStore.showTraceViewer" />
+          <SplitContainer v-else-if="!appStore.showTraceViewer" />
           <TraceViewer v-else />
+        </div>
+        <!-- Bottom terminal dock resize handle -->
+        <div
+          v-if="appStore.terminalDockVisible"
+          class="resize-handle horizontal"
+          @mousedown="startTerminalResize($event)"
+          :class="{ active: isTerminalResizing }"
+        ></div>
+        <!-- Bottom terminal dock (VSCODE style) -->
+        <div
+          v-if="appStore.terminalDockMounted"
+          v-show="appStore.terminalDockVisible"
+          class="terminal-dock"
+          :style="{ height: appStore.terminalDockHeight + 'px' }"
+        >
+          <TerminalTabBar />
+          <div class="terminal-dock-content">
+            <TerminalPanel />
+          </div>
         </div>
       </div>
       <div
@@ -61,8 +80,10 @@ import { useSettingsStore } from '@/stores/settings'
 import { useFontStore } from '@/stores/font'
 import TitleBar from './components/layout/TitleBar.vue'
 import Sidebar from './components/layout/Sidebar.vue'
-import ChatPanel from './components/layout/ChatPanel.vue'
+import SplitContainer from './components/layout/SplitContainer.vue'
 import InfoPanel from './components/layout/InfoPanel.vue'
+import TerminalTabBar from './components/terminal/TerminalTabBar.vue'
+import TerminalPanel from './components/terminal/TerminalPanel.vue'
 import TraceViewer from './components/debug/TraceViewer.vue'
 import SettingsPanel from './components/settings/SettingsPanel.vue'
 import SkillsManager from './components/skills/SkillsManager.vue'
@@ -197,6 +218,35 @@ function stopResize() {
   document.body.style.userSelect = ''
 }
 
+// ── Bottom terminal dock resize ──
+const isTerminalResizing = ref(false)
+let terminalResizeStartY = 0
+let terminalResizeStartHeight = 0
+
+function startTerminalResize(e: MouseEvent) {
+  isTerminalResizing.value = true
+  terminalResizeStartY = e.clientY
+  terminalResizeStartHeight = appStore.terminalDockHeight
+  document.addEventListener('mousemove', handleTerminalResize)
+  document.addEventListener('mouseup', stopTerminalResize)
+  document.body.style.cursor = 'row-resize'
+  document.body.style.userSelect = 'none'
+}
+
+function handleTerminalResize(e: MouseEvent) {
+  if (!isTerminalResizing.value) return
+  const diff = terminalResizeStartY - e.clientY
+  appStore.setTerminalDockHeight(terminalResizeStartHeight + diff)
+}
+
+function stopTerminalResize() {
+  isTerminalResizing.value = false
+  document.removeEventListener('mousemove', handleTerminalResize)
+  document.removeEventListener('mouseup', stopTerminalResize)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+}
+
 onMounted(() => {
   // 初始化字体配置
   const fontStore = useFontStore()
@@ -267,6 +317,8 @@ async function handleOpenChangelog() {
 onUnmounted(() => {
   document.removeEventListener('mousemove', handleResize)
   document.removeEventListener('mouseup', stopResize)
+  document.removeEventListener('mousemove', handleTerminalResize)
+  document.removeEventListener('mouseup', stopTerminalResize)
   window.removeEventListener('open-skills-manager', handleOpenSkillsManager)
   window.removeEventListener('open-mcp-manager', handleOpenMCPManager)
 })
@@ -376,5 +428,35 @@ onUnmounted(() => {
       background: var(--accent-primary);
     }
   }
+
+  &.horizontal {
+    height: 4px;
+    cursor: row-resize;
+    background: transparent;
+    transition: background 0.2s;
+    flex-shrink: 0;
+
+    &:hover,
+    &.active {
+      background: var(--accent-primary);
+    }
+  }
+}
+
+.terminal-dock {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border-top: 1px solid var(--surface-border);
+  overflow: hidden;
+  flex-shrink: 0;
+  min-height: 80px;
+}
+
+.terminal-dock-content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  min-height: 0;
 }
 </style>

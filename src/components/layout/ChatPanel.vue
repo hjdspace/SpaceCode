@@ -1,18 +1,20 @@
 <template>
   <main class="chat-panel">
     <SessionTabBar
+      :pane-id="paneId"
+      :active-tab-id-override="paneTabId"
       @new-session="handleNewSession"
       @switch-session="handleSwitchSession"
       @close-tab="handleCloseTab"
     />
     
-    <!-- Terminal Panel -->
-    <div v-if="isTerminalTab" class="terminal-wrapper">
+    <!-- Terminal Panel: v-show 保持挂载，避免切换标签时终端被销毁 -->
+    <div v-show="isTerminalTab" class="terminal-wrapper">
       <TerminalPanel />
     </div>
     
     <!-- Chat Content -->
-    <template v-else>
+    <div v-show="!isTerminalTab" class="chat-content-wrapper">
       <div class="chat-header">
         <div class="header-left">
           <h2>{{ currentSession?.title || t('common.newConversation') }}</h2>
@@ -29,8 +31,7 @@
           <span class="agent-badge" v-if="chatStore.currentAgent" :title="chatStore.currentAgent">
             <span class="badge-dot agent-dot" aria-hidden="true"></span>
             {{ chatStore.currentAgent }}
-          </span>
-          <span class="model-badge" v-if="currentModel" :title="currentModel">
+          </span>          <span class="model-badge" v-if="currentModel" :title="currentModel">
             <span class="badge-dot" aria-hidden="true"></span>
             {{ formatModelName(currentModel) }}
           </span>
@@ -62,27 +63,28 @@
 
             <template v-else>
               <TeammateTranscriptHeader
-                v-if="chatStore.isViewingTeammate"
-                :teammate="chatStore.viewedTeammate"
+                v-if="paneIsViewingTeammate"
+                :teammate="paneViewedTeammate"
                 @back="chatStore.backToLeaderView"
               />
 
               <MessageList
-                :messages="chatStore.displayMessages"
-                :loading="chatStore.isLoading"
+                :messages="paneMessages"
+                :loading="paneIsLoading"
                 @tool-submit="handleToolSubmit"
                 @tool-skip="handleToolSkip"
                 @rewind="handleMessageRewind"
               />
 
               <RecommendedPrompts />
+              <WorkAssistantShortcuts />
             </template>
           </div>
 
           <TeamStatusBar
             v-if="!showNoProjectWelcome"
-            :team-context="chatStore.currentTeamContext"
-            :viewing-agent-task-id="chatStore.currentViewedAgentTaskId"
+            :team-context="paneTeamContext"
+            :viewing-agent-task-id="paneViewedAgentTaskId"
             @view-teammate="chatStore.viewTeammateTranscript"
           />
 
@@ -99,14 +101,22 @@
             @update:agent="handleAgentChange"
             @open-skills="handleOpenSkills"
             @stop="handleStop"
-            :disabled="chatStore.isLoading"
-            :is-sending="chatStore.isLoading"
+            :disabled="paneIsLoading"
+            :is-sending="paneIsLoading"
             :model-value="currentModel"
-            :working-directory="chatStore.workingDirectory"
+            :working-directory="paneWorkingDirectory"
             :placeholder="t('chat.askAnything')"
             :show-open-project-action="showNoProjectWelcome"
           />
           <ToastNotification />
+
+          <!-- Work 模式自动路由：多助手匹配时的选择弹窗 -->
+          <WorkAssistantPicker
+            v-model:visible="pickerVisible"
+            :candidates="pickerCandidates"
+            @confirm="onPickerConfirm"
+            @cancel="onPickerCancel"
+          />
 
           <!-- Rewind Dialog -->
           <RewindDialog
@@ -165,12 +175,12 @@
           >
             <ClipboardList :size="14" />
             <span class="sc-capsule-text" v-if="sessionContext.tasks.length > 0">{{ sessionContext.taskProgress.completed }}/{{ sessionContext.taskProgress.total }}</span>
-            <span class="sc-capsule-text" v-else-if="sessionContext.gitAdditions > 0 || sessionContext.gitDeletions > 0">+{{ sessionContext.gitAdditions }} -{{ sessionContext.gitDeletions }}</span>
+            <span class="sc-capsule-text" v-else-if="sessionContext.gitAdditions > 0 || sessionContext.gitDeletions > 0 || sessionContext.changedFiles.length > 0">+{{ sessionContext.gitAdditions }} -{{ sessionContext.gitDeletions }}</span>
             <span class="sc-capsule-text" v-else>{{ t('sessionContext.gitTools') }}</span>
           </div>
         </Transition>
       </div>
-    </template>
+    </div>
     
     <!-- History Session Modal -->
     <Transition name="modal-fade">
@@ -248,8 +258,11 @@ import { useI18n } from 'vue-i18n'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import { useAppStore } from '@/stores/app'
+import { useSplitLayoutStore } from '@/stores/splitLayout'
 import MessageList from '../chat/MessageList.vue'
 import RecommendedPrompts from '../chat/RecommendedPrompts.vue'
+import WorkAssistantShortcuts from '../work/WorkAssistantShortcuts.vue'
+import WorkAssistantPicker from '../work/WorkAssistantPicker.vue'
 import TeamStatusBar from '../chat/TeamStatusBar.vue'
 import TeammateTranscriptHeader from '../chat/TeammateTranscriptHeader.vue'
 import ChatInput, { type Attachment, type ImageAttachment } from '../chat/ChatInput.vue'
@@ -273,6 +286,8 @@ import ContextUsageModal from '../chat/ContextUsageModal.vue'
 import DiffExplorer from '../chat/DiffExplorer.vue'
 import { useContextUsageStore } from '@/stores/contextUsage'
 import { useSessionContext } from '@/stores/sessionContext'
+import { useScmStore } from '@/stores/scm'
+import { useTaskManager } from '@/composables/useTaskManager'
 import SessionContextEnvPanel from '../session-context/SessionContextEnvPanel.vue'
 import SessionContextTaskPanel from '../session-context/SessionContextTaskPanel.vue'
 import SessionContextCommitDialog from '../session-context/SessionContextCommitDialog.vue'
@@ -283,13 +298,59 @@ import { buildMessagesFromHistory } from '@/utils/sessionRestore'
 import { initLLMService, llmState, updateConfig } from '@/services/llm'
 import { pathsEqual } from '@/utils/recentProjectRoots'
 import { useChatCommands } from '@/composables/useChatCommands'
+import { useWorkRouter } from '@/composables/useWorkRouter'
+import type { AgentDef } from '@/stores/agents'
 import { api } from '@/services/electronAPI'
 import type { Message } from '@/types'
 
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 const appStore = useAppStore()
+const splitLayout = useSplitLayoutStore()
 const { t } = useI18n()
+
+// ── Pane props（分屏多 pane 时由 SplitContainer 传入；未传入 = 单屏，行为
+//    与改造前完全一致：所有 pane-scoped 计算回退到全局 current*） ──
+const props = defineProps<{
+  /** 当前 pane 绑定的会话 id；未传时回退到 chatStore.currentSessionId */
+  sessionId?: string
+  /** 所在 pane 的 id（用于焦点/active 同步等高级用法；当前阶段未消费） */
+  paneId?: string
+  /** 当前 pane 绑定的 centerTab id（分屏时由 PaneLeafView 传入；用于 pane 级标签高亮和终端判断） */
+  paneTabId?: string
+}>()
+
+/** 用 prop 或 current 解析出本 pane 实际绑定的会话 id（可能为空字符串） */
+const paneSessionId = computed(() => props.sessionId || chatStore.currentSessionId || '')
+
+/** Pane-scoped 数据：始终响应式跟踪所在 session（无 prop 时即 current 行为） */
+const paneSession = computed(() =>
+  props.sessionId ? chatStore.getSession(paneSessionId.value) : chatStore.currentSession
+)
+const paneMessages = computed(() =>
+  props.sessionId ? chatStore.getDisplayMessages(paneSessionId.value) : chatStore.displayMessages
+)
+const paneRawMessages = computed(() =>
+  props.sessionId ? chatStore.getSessionMessages(paneSessionId.value) : chatStore.currentMessages
+)
+const paneIsLoading = computed(() =>
+  props.sessionId ? chatStore.getIsLoading(paneSessionId.value) : chatStore.isLoading
+)
+const paneWorkingDirectory = computed(() =>
+  props.sessionId ? chatStore.getWorkingDirectory(paneSessionId.value) : chatStore.workingDirectory
+)
+const paneTeamContext = computed(() =>
+  props.sessionId ? chatStore.getTeamContext(paneSessionId.value) : chatStore.currentTeamContext
+)
+const paneViewedAgentTaskId = computed(() =>
+  props.sessionId ? chatStore.getViewedAgentTaskId(paneSessionId.value) : chatStore.currentViewedAgentTaskId
+)
+const paneIsViewingTeammate = computed(() =>
+  props.sessionId ? chatStore.getIsViewingTeammate(paneSessionId.value) : chatStore.isViewingTeammate
+)
+const paneViewedTeammate = computed(() =>
+  props.sessionId ? chatStore.getViewedTeammate(paneSessionId.value) : chatStore.viewedTeammate
+)
 
 const showHistoryModal = ref(false)
 const historySearchQuery = ref('')
@@ -299,6 +360,51 @@ const diffPanelData = ref<any>(null)
 const diffPanelLoading = ref(false)
 const contextUsageStore = useContextUsageStore()
 const sessionContext = useSessionContext()
+const scmStore = useScmStore()
+const taskManager = useTaskManager()
+
+// ── Work 模式自动路由：助手选择弹窗 ──────────────────────────────
+const { route: routeWork } = useWorkRouter()
+const pickerVisible = ref(false)
+const pickerCandidates = ref<AgentDef[]>([])
+let pickerResolve: ((a: AgentDef | null) => void) | null = null
+
+function pickAssistant(candidates: AgentDef[]): Promise<AgentDef | null> {
+  pickerCandidates.value = candidates
+  pickerVisible.value = true
+  return new Promise(resolve => { pickerResolve = resolve })
+}
+
+function onPickerConfirm(a: AgentDef) {
+  pickerVisible.value = false
+  pickerResolve?.(a)
+  pickerResolve = null
+}
+
+function onPickerCancel() {
+  pickerVisible.value = false
+  pickerResolve?.(null)
+  pickerResolve = null
+}
+
+type RouteOutcome =
+  | { kind: 'routed'; assistant: AgentDef }
+  | { kind: 'cancel' }
+  | { kind: 'passthrough' }
+
+/** Work 模式发送前路由：匹配助手 / 咨询用户 / 透传 */
+async function routeWorkSend(content: string): Promise<RouteOutcome> {
+  const result = routeWork(content)
+  if (result.type === 'match' && result.assistant) {
+    return { kind: 'routed', assistant: result.assistant }
+  }
+  if (result.type === 'ask' && result.candidates.length > 0) {
+    const chosen = await pickAssistant(result.candidates)
+    if (!chosen) return { kind: 'cancel' }
+    return { kind: 'routed', assistant: chosen }
+  }
+  return { kind: 'passthrough' }
+}
 
 // When the floating env panel is open it needs ~324px (300 panel + 12 right
 // margin + 12 gutter). The centered message column has max-width 900px. So we
@@ -381,32 +487,128 @@ function handleContinue() {
   console.log('[SessionContext] Continue requested')
 }
 
-// Session Context: sync tasks from taskManager
+// Session Context: sync git stats from the real diff line counts
+let gitStatsRequestId = 0
+
+watch(
+  () => [
+    paneWorkingDirectory.value,
+    scmStore.staged,
+    scmStore.unstaged,
+    scmStore.untracked,
+  ],
+  async () => {
+    const requestId = ++gitStatsRequestId
+    const totalChanged =
+      scmStore.staged.length +
+      scmStore.unstaged.length +
+      scmStore.untracked.length
+
+    if (totalChanged === 0) {
+      sessionContext.updateGitStats({ additions: 0, deletions: 0, files: [] })
+      return
+    }
+
+    const cwd = paneWorkingDirectory.value || appStore.projectRoot
+    if (!cwd) {
+      sessionContext.updateGitStats({ additions: 0, deletions: 0, files: [] })
+      return
+    }
+
+    try {
+      const result = await api.git.getFullDiff(cwd)
+      if (requestId !== gitStatsRequestId) return
+
+      if (result?.stats && Array.isArray(result.files)) {
+        sessionContext.updateGitStats({
+          additions: result.stats.linesAdded,
+          deletions: result.stats.linesRemoved,
+          files: result.files.map(file => ({
+            path: file.path,
+            insertions: file.linesAdded,
+            deletions: file.linesRemoved,
+          })),
+        })
+      } else {
+        sessionContext.updateGitStats({ additions: 0, deletions: 0, files: [] })
+      }
+    } catch (e) {
+      if (requestId !== gitStatsRequestId) return
+      console.error('[SessionContext] Failed to sync git stats:', e)
+      sessionContext.updateGitStats({ additions: 0, deletions: 0, files: [] })
+    }
+  },
+  { deep: true },
+)
 watch(
   () => chatStore.displayMessages,
   (msgs) => {
-    // Find the latest TodoWrite/TaskList tool call in current session
-    const tasks: typeof sessionContext.tasks = []
+    // Find the latest TodoWrite tool call in current session.
+    // For TodoWrite, the full task list is in the tool call INPUT (not the
+    // result output), so we can sync to taskManager immediately for instant
+    // UI feedback — before the tool result even arrives.
+    let latestTodos: any[] | null = null
     for (const msg of msgs) {
       if (!msg.toolCalls) continue
       for (const tc of msg.toolCalls) {
         if (tc.name === 'TodoWrite' && tc.input?.todos && Array.isArray(tc.input.todos)) {
-          tasks.length = 0
-          for (const t of tc.input.todos as any[]) {
-            tasks.push({
-              id: t.id,
-              content: t.content || '',
-              status: (t.status as any) || 'pending',
-            })
-          }
+          latestTodos = tc.input.todos as any[]
         }
       }
     }
-    if (tasks.length > 0) {
-      sessionContext.updateTasks(tasks)
+    if (latestTodos && latestTodos.length > 0) {
+      taskManager.syncTasksFromList(
+        latestTodos
+          .filter(t => t && typeof t.content === 'string')
+          .map(t => ({
+            id: String(t.id ?? t.content),
+            content: t.content,
+            status: (['pending', 'in_progress', 'completed'].includes(t.status)
+              ? t.status
+              : 'pending') as 'pending' | 'in_progress' | 'completed',
+          }))
+      )
     }
   },
   { deep: true }
+)
+
+// Sync taskManager → sessionContext.tasks
+// taskManager is the single source of truth for all task tools (TodoWrite +
+// TaskCreate/TaskUpdate/TaskList). This watcher propagates changes to the
+// sessionContext store, which drives the floating EnvPanel and right-side
+// TaskPanel. It also triggers evaluateAutoExpand() so the EnvPanel
+// auto-opens when tasks appear.
+const _allManagerTasks = computed(() => taskManager.getAllTasks())
+watch(
+  _allManagerTasks,
+  (tasks) => {
+    if (tasks.length > 0) {
+      sessionContext.updateTasks(
+        tasks.map(t => ({
+          id: t.id,
+          content: t.content,
+          status: t.status,
+          owner: t.owner,
+          blockedBy: t.blockedBy,
+        }))
+      )
+    } else {
+      // Clear sessionContext.tasks when taskManager is empty
+      // (e.g. after switching sessions) so stale tasks don't linger.
+      sessionContext.updateTasks([])
+    }
+  },
+  { deep: true }
+)
+
+// Clear taskManager when switching sessions to prevent stale tasks
+// from a previous session from persisting into the new one.
+watch(
+  () => paneSessionId.value,
+  () => {
+    taskManager.clearTasks()
+  }
 )
 
 // Rewind state
@@ -415,12 +617,12 @@ const showMessageSelector = ref(false)
 const rewindSelectedMessageContent = computed(() => {
   const messageId = chatStore.rewindState.selectedMessageId
   if (!messageId) return ''
-  const message = chatStore.currentSession?.messages.find(m => m.id === messageId)
+  const message = paneSession.value?.messages.find(m => m.id === messageId)
   return message?.content || ''
 })
 
 const userMessages = computed(() =>
-  chatStore.currentSession?.messages
+  paneSession.value?.messages
     .filter(m => m.role === 'user')
     .map(m => ({
       id: m.id,
@@ -438,7 +640,7 @@ async function handleRewindConfirm() {
 
   if (option === 'summarize') {
     chatStore.summarizeTurn(
-      chatStore.currentSessionId || '',
+      paneSessionId.value || '',
       messageId,
       chatStore.rewindState.summarizeFeedback
     )
@@ -457,17 +659,17 @@ async function handleRewindConfirm() {
 }
 
 async function openCodeRewindConfirm() {
-  if (!chatStore.rewindState.selectedMessageId || !chatStore.currentSessionId) return
+  if (!chatStore.rewindState.selectedMessageId || !paneSessionId.value) return
 
   if (chatStore.turnChangeCards.length === 0) {
     await chatStore.loadTurnCheckpoints(
-      chatStore.currentSessionId,
-      chatStore.workingDirectory || undefined
+      paneSessionId.value,
+      paneWorkingDirectory.value || undefined
     )
   }
 
   const files = await chatStore.loadFilesToRewind(
-    chatStore.currentSessionId,
+    paneSessionId.value,
     chatStore.rewindState.selectedMessageId
   )
 
@@ -498,7 +700,7 @@ async function executeRewind() {
 
   try {
     await chatStore.rewindSession(
-      chatStore.currentSessionId || '',
+      paneSessionId.value || '',
       messageId,
       option as 'both' | 'conversation' | 'code'
     )
@@ -529,8 +731,8 @@ function handleMessageRewind(message: Message) {
 }
 
 const chatCommands = useChatCommands({
-  sessionId: chatStore.currentSessionId || '',
-  messages: chatStore.currentMessages,
+  sessionId: paneSessionId.value,
+  messages: paneRawMessages.value,
   onOpenSkills: () => {
     handleOpenSkills()
   },
@@ -539,14 +741,18 @@ const chatCommands = useChatCommands({
   },
 })
 
-const currentSession = computed(() => chatStore.currentSession)
+const currentSession = computed(() => paneSession.value)
 const provider = computed(() => llmState.provider.value)
 const isConfigured = computed(() => llmState.isConfigured.value)
 
 // Check if current tab is a terminal tab
-const isTerminalTab = computed(() =>
-  appStore.activeCenterTab.startsWith('terminal-')
-)
+// 分屏模式下用 paneTabId 判断，避免全局 activeCenterTab 被其他 pane 切换而串扰
+const isTerminalTab = computed(() => {
+  if (props.paneTabId) {
+    return props.paneTabId.startsWith('terminal-')
+  }
+  return appStore.activeCenterTab.startsWith('terminal-')
+})
 
 /** At least one conversation is bound to a real folder (sidebar / CLI cwd), not only default chat */
 const hasWorkspaceContext = computed(() =>
@@ -591,9 +797,13 @@ const currentModel = ref('')
 onMounted(async () => {
   await initLLMService()
   currentModel.value = settingsStore.config.model || ''
-  if (chatStore.currentSessionId) {
-    void contextUsageStore.refresh(chatStore.currentSessionId)
+  if (paneSessionId.value) {
+    void contextUsageStore.refresh(paneSessionId.value)
   }
+
+  // Initialize SCM store: starts file watcher, which will trigger
+  // git stats sync → auto-expand the env panel when changes appear.
+  void scmStore.refresh()
 
   // chat-main width is observed by the watchEffect above (reactive to chatMainRef)
 
@@ -616,7 +826,7 @@ onMounted(async () => {
 })
 
 watch(
-  () => [chatStore.currentSessionId, chatStore.isLoading] as const,
+  () => [paneSessionId.value, paneIsLoading.value] as const,
   ([sid, loading], prev) => {
     if (!sid) {
       contextUsageStore.clear()
@@ -630,9 +840,9 @@ watch(
 )
 
 // AI 回复完成后，自动发送 pending 队列中的消息
-watch(() => chatStore.isLoading, async (loading, prevLoading) => {
+watch(() => paneIsLoading.value, async (loading, prevLoading) => {
   if (prevLoading && !loading) {
-    const sid = chatStore.currentSessionId
+    const sid = paneSessionId.value
     if (!sid) return
 
     // 将暂存的 prompt（Ctrl+S）转为 pending message，由下方逻辑自动发送
@@ -759,6 +969,42 @@ async function handleSend(content: string, attachments: AllAttachments, options?
   const hasContent = content.trim().length > 0 || attachments.files.length > 0 || attachments.images.length > 0
   if (!hasContent) return
 
+  // Work 模式自动路由：空会话且未选助手时，根据输入匹配专业助手。
+  // 单命中 → 直接创建助手会话；多命中/模糊 → 弹出选择；无匹配 → 透传到当前会话。
+  if (
+    appStore.mode === 'work' &&
+    paneSession.value?.mode === 'work' &&
+    !paneSession.value?.assistantId &&
+    paneMessages.value.length === 0
+  ) {
+    const outcome = await routeWorkSend(content.trim())
+    if (outcome.kind === 'cancel') return
+    if (outcome.kind === 'routed' && outcome.assistant) {
+      try {
+        const session = await chatStore.startWorkAssistantSession({
+          name: outcome.assistant.name,
+          skills: outcome.assistant.skills,
+          permission: outcome.assistant.permission,
+        })
+        appStore.openSessionTab(session.id, session.title)
+      } catch (err) {
+        console.error('[ChatPanel] Failed to start routed assistant session:', err)
+      }
+    }
+    // passthrough：不创建助手会话，直接发送到当前空 work 会话
+  }
+
+  // Work 助手会话：用户首次发送消息时展开 Artifacts 面板
+  // （选择助手时不立即弹出，等用户真正开始使用助手再展开）
+  if (
+    appStore.mode === 'work' &&
+    paneSession.value?.mode === 'work' &&
+    paneSession.value?.assistantId &&
+    !appStore.infoPanelTabs.some(t => t.id === 'artifacts-panel')
+  ) {
+    appStore.openArtifactsPanel()
+  }
+
   const userTyped = content.trim()
   let messageContent = userTyped
 
@@ -846,7 +1092,7 @@ import { BUILT_IN_COMMANDS, COMMAND_PROMPTS, findCommand, type CommandKind } fro
 
 // 执行斜杠命令
 async function executeSlashCommand(command: string, args: string): Promise<string> {
-  const workingDir = chatStore.workingDirectory
+  const workingDir = paneWorkingDirectory.value
   const cmd = findCommand(command)
 
   // 使用新的命令系统处理
@@ -860,9 +1106,9 @@ async function executeSlashCommand(command: string, args: string): Promise<strin
       // 先中断任何正在进行的请求，重置 loading 状态
       await chatStore.abort()
       // 清除当前会话的消息
-      if (chatStore.currentSession) {
-        chatStore.currentSession.messages = []
-        chatStore.currentSession.title = t('common.newChat')
+      if (paneSession.value) {
+        paneSession.value.messages = []
+        paneSession.value.title = t('common.newChat')
       }
       return t('chatPanel.commandCleared')
 
@@ -961,7 +1207,7 @@ ${t('chatPanel.helpCustomSkillsDesc')}
 
 // 获取并展示 Git Diff
 async function fetchAndShowDiff() {
-  const workingDir = chatStore.workingDirectory
+  const workingDir = paneWorkingDirectory.value
   if (!workingDir) {
     await chatStore.addMessage({
       role: 'assistant',
@@ -992,7 +1238,7 @@ async function fetchAndShowDiff() {
 
 // 生成 Token 用量信息
 function generateCostMessage(): string {
-  const messages = chatStore.currentMessages
+  const messages = paneRawMessages.value
   let totalInput = 0
   let totalOutput = 0
   let turnCount = 0
@@ -1030,7 +1276,7 @@ function generateCostMessage(): string {
 
 // 生成上下文信息
 function generateContextMessage(): string {
-  const session = chatStore.currentSession
+  const session = paneSession.value
   if (!session) return t('chatPanel.commandNoSession')
 
   const messageCount = session.messages.length
@@ -1105,6 +1351,16 @@ async function handleToolSkip(messageId: string, toolId: string) {
 }
 
 async function handleNewSession() {
+  if (props.paneId) {
+    // ── 分屏模式：在当前 pane 中创建新会话 ──
+    const session = chatStore.createSession(t('common.newChat'))
+    appStore.openSessionTab(session.id, session.title)
+    const tabId = `session-${session.id}`
+    splitLayout.setPaneContent(props.paneId, { kind: 'session', tabId })
+    splitLayout.setActivePane(props.paneId)
+    return
+  }
+  // ── 非分屏模式：原有行为 ──
   if (chatStore.currentSessionId && chatStore.currentSession) {
     appStore.openSessionTab(chatStore.currentSessionId, chatStore.currentSession.title)
   }
@@ -1114,6 +1370,12 @@ async function handleNewSession() {
 }
 
 function handleSwitchSession(sessionId: string) {
+  // 分屏模式下 SessionTabBar 已更新 pane content，
+  // SplitContainer watcher 会同步 active pane → 全局 currentSessionId。
+  // 非分屏模式需要显式 selectSession + 同步工作目录。
+  if (props.paneId) {
+    return
+  }
   chatStore.selectSession(sessionId)
   if (chatStore.workingDirectory && chatStore.workingDirectory !== appStore.projectRoot) {
     appStore.setProjectRoot(chatStore.workingDirectory)
@@ -1178,6 +1440,18 @@ async function handleRestoreHistorySession(session: any) {
 
     showHistoryModal.value = false
 
+    // ── 关键修复：为新恢复的历史会话创建标签页 ──
+    // 此前缺少 openSessionTab 调用，导致恢复的会话没有标签页，
+    // 用户无法切换回之前打开的其他历史会话。
+    appStore.openSessionTab(restoredSession.id, restoredSession.title)
+
+    // 分屏模式下：把恢复的会话放入当前 pane
+    if (props.paneId) {
+      const tabId = `session-${restoredSession.id}`
+      splitLayout.setPaneContent(props.paneId, { kind: 'session', tabId })
+      splitLayout.setActivePane(props.paneId)
+    }
+
     // 历史会话加载后显式触发轮次变更卡片加载，避免依赖 MessageList watcher
     // 的时序（destructured props / 异步消息追加可能导致 watcher 未在合适时机触发）。
     await nextTick()
@@ -1213,10 +1487,18 @@ async function handleRestoreHistorySession(session: any) {
 }
 
 .terminal-wrapper {
-  flex: 1;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
+flex: 1;
+overflow: hidden;
+display: flex;
+flex-direction: column;
+}
+
+.chat-content-wrapper {
+flex: 1;
+display: flex;
+flex-direction: column;
+min-height: 0;
+overflow: hidden;
 }
 
 // New: flex-row body for chat + side panel

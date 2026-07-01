@@ -4,7 +4,7 @@ mode: work
 category: productivity
 description: Design clear, beautiful diagrams with Mermaid (flowcharts, sequences, ER, etc.).
 description_zh: 用 Mermaid 设计清晰美观的图表（流程图、时序图、ER 图等）。
-avatar: "🧜"
+avatar: "workflow"
 model: sonnet
 permission: acceptEdits
 skills: []

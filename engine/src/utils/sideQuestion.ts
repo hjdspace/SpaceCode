@@ -6,8 +6,8 @@
  * while keeping the side question response separate from main conversation.
  */
 
-import { formatAPIError } from '../services/api/errorUtils.js'
-import type { NonNullableUsage } from '../services/api/logging.js'
+import { formatAPIError } from '@ant/model-provider'
+import type { NonNullableUsage } from '@ant/model-provider'
 import type { Message, SystemAPIErrorMessage } from '../types/message.js'
 import { type CacheSafeParams, runForkedAgent } from './forkedAgent.js'
 import { createUserMessage, extractTextContent } from './messages.js'
@@ -125,7 +125,12 @@ ${question}`
 function extractSideQuestionResponse(messages: Message[]): string | null {
   // Flatten all assistant content blocks across the per-block messages.
   const assistantBlocks = messages.flatMap(m =>
-    m.type === 'assistant' ? (m.message!.content as unknown as Array<{ type: string; [key: string]: unknown }>) : [],
+    m.type === 'assistant'
+      ? (m.message!.content as unknown as Array<{
+          type: string
+          [key: string]: unknown
+        }>)
+      : [],
   )
 
   if (assistantBlocks.length > 0) {
@@ -136,7 +141,10 @@ function extractSideQuestionResponse(messages: Message[]): string | null {
     // No text — check if the model tried to call a tool despite instructions.
     const toolUse = assistantBlocks.find(b => b.type === 'tool_use')
     if (toolUse) {
-      const toolName = 'name' in toolUse ? (toolUse as any).name : 'a tool'
+      const toolName =
+        'name' in toolUse
+          ? (toolUse as unknown as { name: string }).name
+          : 'a tool'
       return `(The model tried to call ${toolName} instead of answering directly. Try rephrasing or ask in the main conversation.)`
     }
   }
@@ -148,7 +156,7 @@ function extractSideQuestionResponse(messages: Message[]): string | null {
       m.type === 'system' && 'subtype' in m && m.subtype === 'api_error',
   )
   if (apiErr) {
-    return `(API error: ${formatAPIError(apiErr.error as any)})`
+    return `(API error: ${formatAPIError(apiErr.error as Parameters<typeof formatAPIError>[0])})`
   }
 
   return null

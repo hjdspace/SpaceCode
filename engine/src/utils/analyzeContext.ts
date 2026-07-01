@@ -32,12 +32,12 @@ import {
 import type {
   AgentDefinition,
   AgentDefinitionsResult,
-} from '../tools/AgentTool/loadAgentsDir.js'
-import { SKILL_TOOL_NAME } from '../tools/SkillTool/constants.js'
+} from '@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js'
+import { SKILL_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/SkillTool/constants.js'
 import {
   getLimitedSkillToolCommands,
   getSkillToolInfo as getSlashCommandInfo,
-} from '../tools/SkillTool/prompt.js'
+} from '@claude-code-best/builtin-tools/tools/SkillTool/prompt.js'
 import type {
   AssistantMessage,
   AttachmentMessage,
@@ -74,31 +74,10 @@ const MANUAL_COMPACT_BUFFER_NAME = 'Compact buffer'
  */
 export const TOOL_TOKEN_COUNT_OVERHEAD = 500
 
-function roughEstimateTokensFromPayload(
-  messages: Anthropic.Beta.Messages.BetaMessageParam[],
-  tools: Anthropic.Beta.Messages.BetaToolUnion[],
-): number {
-  let total = 0
-  for (const msg of messages) {
-    total += roughTokenCountEstimation(jsonStringify(msg))
-  }
-  for (const tool of tools) {
-    total += roughTokenCountEstimation(jsonStringify(tool))
-  }
-  return total
-}
-
-
 async function countTokensWithFallback(
   messages: Anthropic.Beta.Messages.BetaMessageParam[],
   tools: Anthropic.Beta.Messages.BetaToolUnion[],
-  roughEstimatesOnly: boolean = false,
 ): Promise<number | null> {
-  if (roughEstimatesOnly) {
-    const roughEstimate = roughEstimateTokensFromPayload(messages, tools)
-    return roughEstimate > 0 ? roughEstimate : null
-  }
-
   try {
     const result = await countMessagesTokensWithAPI(messages, tools)
     if (result !== null) {
@@ -114,27 +93,19 @@ async function countTokensWithFallback(
 
   try {
     const fallbackResult = await countTokensViaHaikuFallback(messages, tools)
-    if (fallbackResult !== null) {
-      return fallbackResult
+    if (fallbackResult === null) {
+      logForDebugging(
+        `countTokensWithFallback: haiku fallback also returned null (${tools.length} tools)`,
+      )
     }
-    logForDebugging(
-      `countTokensWithFallback: haiku fallback also returned null (${tools.length} tools)`,
-    )
+    return fallbackResult
   } catch (err) {
     logForDebugging(
       `countTokensWithFallback: haiku fallback failed: ${errorMessage(err)}`,
     )
     logError(err)
+    return null
   }
-
-  const roughEstimate = roughEstimateTokensFromPayload(messages, tools)
-  if (roughEstimate > 0) {
-    logForDebugging(
-      `countTokensWithFallback: using rough estimate (${roughEstimate} tokens)`,
-    )
-    return roughEstimate
-  }
-  return null
 }
 
 interface ContextCategory {
@@ -258,6 +229,10 @@ export interface ContextData {
     cache_creation_input_tokens: number
     cache_read_input_tokens: number
   } | null
+  /** Cache hit rate percentage (0-100), undefined if no data */
+  readonly cacheHitRate?: number
+  /** Cache warning threshold percentage */
+  readonly cacheThreshold?: number
 }
 
 export async function countToolDefinitionTokens(
@@ -265,7 +240,6 @@ export async function countToolDefinitionTokens(
   getToolPermissionContext: () => Promise<ToolPermissionContext>,
   agentInfo: AgentDefinitionsResult | null,
   model?: string,
-  roughEstimatesOnly: boolean = false,
 ): Promise<number> {
   const toolSchemas = await Promise.all(
     tools.map(tool =>
@@ -277,7 +251,7 @@ export async function countToolDefinitionTokens(
       }),
     ),
   )
-  const result = await countTokensWithFallback([], toolSchemas, roughEstimatesOnly)
+  const result = await countTokensWithFallback([], toolSchemas)
   if (result === null || result === 0) {
     const toolNames = tools.map(t => t.name).join(', ')
     logForDebugging(
@@ -301,7 +275,6 @@ function extractSectionName(content: string): string {
 
 async function countSystemTokens(
   effectiveSystemPrompt: readonly string[],
-  roughEstimatesOnly: boolean = false,
 ): Promise<{
   systemPromptTokens: number
   systemPromptSections: SystemPromptSectionDetail[]
@@ -329,7 +302,7 @@ async function countSystemTokens(
 
   const systemTokenCounts = await Promise.all(
     namedEntries.map(({ content }) =>
-      countTokensWithFallback([{ role: 'user', content }], [], roughEstimatesOnly),
+      countTokensWithFallback([{ role: 'user', content }], []),
     ),
   )
 
@@ -348,7 +321,7 @@ async function countSystemTokens(
   return { systemPromptTokens, systemPromptSections }
 }
 
-async function countMemoryFileTokens(roughEstimatesOnly: boolean = false): Promise<{
+async function countMemoryFileTokens(): Promise<{
   memoryFileDetails: MemoryFile[]
   claudeMdTokens: number
 }> {
@@ -373,7 +346,6 @@ async function countMemoryFileTokens(roughEstimatesOnly: boolean = false): Promi
       const tokens = await countTokensWithFallback(
         [{ role: 'user', content: file.content }],
         [],
-        roughEstimatesOnly,
       )
 
       return { file, tokens: tokens || 0 }
@@ -398,7 +370,6 @@ async function countBuiltInToolTokens(
   agentInfo: AgentDefinitionsResult | null,
   model?: string,
   messages?: Message[],
-  roughEstimatesOnly: boolean = false,
 ): Promise<{
   builtInToolTokens: number
   deferredBuiltinDetails: DeferredBuiltinTool[]
@@ -416,9 +387,11 @@ async function countBuiltInToolTokens(
   }
 
   // Check if tool search is enabled
-  const { isToolSearchEnabled } = await import('./toolSearch.js')
-  const { isDeferredTool } = await import('../tools/ToolSearchTool/prompt.js')
-  const isDeferred = await isToolSearchEnabled(
+  const { isSearchExtraToolsEnabled } = await import('./searchExtraTools.js')
+  const { isDeferredTool } = await import(
+    '@claude-code-best/builtin-tools/tools/SearchExtraToolsTool/prompt.js'
+  )
+  const isDeferred = await isSearchExtraToolsEnabled(
     model ?? '',
     tools,
     getToolPermissionContext,
@@ -438,7 +411,6 @@ async function countBuiltInToolTokens(
           getToolPermissionContext,
           agentInfo,
           model,
-          roughEstimatesOnly,
         )
       : 0
 
@@ -504,7 +476,6 @@ async function countBuiltInToolTokens(
           getToolPermissionContext,
           agentInfo,
           model,
-          roughEstimatesOnly,
         ),
       ),
     )
@@ -532,7 +503,6 @@ async function countBuiltInToolTokens(
       getToolPermissionContext,
       agentInfo,
       model,
-      roughEstimatesOnly,
     )
     return {
       builtInToolTokens: alwaysLoadedTokens + deferredTokens,
@@ -559,7 +529,6 @@ async function countSlashCommandTokens(
   tools: Tools,
   getToolPermissionContext: () => Promise<ToolPermissionContext>,
   agentInfo: AgentDefinitionsResult | null,
-  roughEstimatesOnly: boolean = false,
 ): Promise<{
   slashCommandTokens: number
   commandInfo: { totalCommands: number; includedCommands: number }
@@ -578,8 +547,6 @@ async function countSlashCommandTokens(
     [slashCommandTool],
     getToolPermissionContext,
     agentInfo,
-    undefined,
-    roughEstimatesOnly,
   )
 
   return {
@@ -595,7 +562,6 @@ async function countSkillTokens(
   tools: Tools,
   getToolPermissionContext: () => Promise<ToolPermissionContext>,
   agentInfo: AgentDefinitionsResult | null,
-  roughEstimatesOnly: boolean = false,
 ): Promise<{
   skillTokens: number
   skillInfo: {
@@ -623,8 +589,6 @@ async function countSkillTokens(
       [slashCommandTool],
       getToolPermissionContext,
       agentInfo,
-      undefined,
-      roughEstimatesOnly,
     )
 
     // Calculate per-skill token estimates based on frontmatter only
@@ -662,7 +626,6 @@ export async function countMcpToolTokens(
   agentInfo: AgentDefinitionsResult | null,
   model: string,
   messages?: Message[],
-  roughEstimatesOnly: boolean = false,
 ): Promise<{
   mcpToolTokens: number
   mcpToolDetails: McpTool[]
@@ -677,7 +640,6 @@ export async function countMcpToolTokens(
     getToolPermissionContext,
     agentInfo,
     model,
-    roughEstimatesOnly,
   )
   // Subtract the single overhead since we made one bulk call
   const totalTokens = Math.max(
@@ -710,11 +672,13 @@ export async function countMcpToolTokens(
   )
 
   // Check if tool search is enabled - if so, MCP tools are deferred
-  // isToolSearchEnabled handles threshold calculation internally for TstAuto mode
-  const { isToolSearchEnabled } = await import('./toolSearch.js')
-  const { isDeferredTool } = await import('../tools/ToolSearchTool/prompt.js')
+  // isSearchExtraToolsEnabled handles threshold calculation internally for TstAuto mode
+  const { isSearchExtraToolsEnabled } = await import('./searchExtraTools.js')
+  const { isDeferredTool } = await import(
+    '@claude-code-best/builtin-tools/tools/SearchExtraToolsTool/prompt.js'
+  )
 
-  const isDeferred = await isToolSearchEnabled(
+  const isDeferred = await isSearchExtraToolsEnabled(
     model,
     tools,
     getToolPermissionContext,
@@ -722,7 +686,7 @@ export async function countMcpToolTokens(
     'analyzeMcp',
   )
 
-  // Find MCP tools that have been used in messages (loaded via ToolSearchTool)
+  // Find MCP tools that have been used in messages (loaded via SearchExtraToolsTool)
   const loadedMcpToolNames = new Set<string>()
   if (isDeferred && messages) {
     const mcpToolNameSet = new Set(mcpTools.map(t => t.name))
@@ -777,7 +741,7 @@ export async function countMcpToolTokens(
 
 async function countCustomAgentTokens(agentDefinitions: {
   activeAgents: AgentDefinition[]
-}, roughEstimatesOnly: boolean = false): Promise<{
+}): Promise<{
   agentTokens: number
   agentDetails: Agent[]
 }> {
@@ -797,7 +761,6 @@ async function countCustomAgentTokens(agentDefinitions: {
           },
         ],
         [],
-        roughEstimatesOnly,
       ),
     ),
   )
@@ -831,12 +794,18 @@ function processAssistantMessage(
   breakdown: MessageBreakdown,
 ): void {
   // Process each content block individually
-  const contentBlocks = Array.isArray(msg.message!.content) ? msg.message!.content : []
+  const contentBlocks = Array.isArray(msg.message!.content)
+    ? msg.message!.content
+    : []
   for (const block of contentBlocks) {
     const blockStr = jsonStringify(block)
     const blockTokens = roughTokenCountEstimation(blockStr)
 
-    if (typeof block !== 'string' && 'type' in block && block.type === 'tool_use') {
+    if (
+      typeof block !== 'string' &&
+      'type' in block &&
+      block.type === 'tool_use'
+    ) {
       breakdown.toolCallTokens += blockTokens
       const toolName = ('name' in block ? block.name : undefined) || 'unknown'
       breakdown.toolCallsByType.set(
@@ -864,7 +833,7 @@ function processUserMessage(
   }
 
   // Process each content block individually
-  for (const block of (msg.message!.content ?? [])) {
+  for (const block of msg.message!.content ?? []) {
     const blockStr = jsonStringify(block)
     const blockTokens = roughTokenCountEstimation(blockStr)
 
@@ -899,7 +868,6 @@ function processAttachment(
 
 async function approximateMessageTokens(
   messages: Message[],
-  roughEstimatesOnly: boolean = false,
 ): Promise<MessageBreakdown> {
   const microcompactResult = await microcompactMessages(messages)
 
@@ -921,10 +889,16 @@ async function approximateMessageTokens(
   for (const msg of microcompactResult.messages) {
     if (msg.type === 'assistant' && Array.isArray(msg.message!.content)) {
       for (const block of msg.message!.content) {
-        if (typeof block !== 'string' && 'type' in block && block.type === 'tool_use') {
+        if (
+          typeof block !== 'string' &&
+          'type' in block &&
+          block.type === 'tool_use'
+        ) {
           const toolUseId = 'id' in block ? (block.id as string) : undefined
           const toolName =
-            (('name' in block ? block.name : undefined) as string | undefined) || 'unknown'
+            (('name' in block ? block.name : undefined) as
+              | string
+              | undefined) || 'unknown'
           if (toolUseId) {
             toolUseIdToName.set(toolUseId, toolName)
           }
@@ -957,22 +931,10 @@ async function approximateMessageTokens(
       return _.message
     }) as Anthropic.Beta.Messages.BetaMessageParam[],
     [],
-    roughEstimatesOnly,
   )
 
-  const roughMessageTotal =
-    breakdown.toolCallTokens +
-    breakdown.toolResultTokens +
-    breakdown.attachmentTokens +
-    breakdown.assistantMessageTokens +
-    breakdown.userMessageTokens
-  breakdown.totalTokens = approximateMessageTokens ?? roughMessageTotal
+  breakdown.totalTokens = approximateMessageTokens ?? 0
   return breakdown
-}
-
-export type AnalyzeContextUsageOptions = {
-  /** Skip count_tokens API calls — for SDK get_context_usage UI polling. */
-  roughEstimatesOnly?: boolean
 }
 
 export async function analyzeContextUsage(
@@ -986,10 +948,7 @@ export async function analyzeContextUsage(
   mainThreadAgentDefinition?: AgentDefinition,
   /** Original messages before microcompact, used to extract API usage */
   originalMessages?: Message[],
-  analyzeOptions?: AnalyzeContextUsageOptions,
 ): Promise<ContextData> {
-  const roughEstimatesOnly = analyzeOptions?.roughEstimatesOnly ?? false
-
   const runtimeModel = getRuntimeMainLoopModel({
     permissionMode: (await getToolPermissionContext()).mode,
     mainLoopModel: model,
@@ -1024,15 +983,14 @@ export async function analyzeContextUsage(
     { slashCommandTokens, commandInfo },
     messageBreakdown,
   ] = await Promise.all([
-    countSystemTokens(effectiveSystemPrompt, roughEstimatesOnly),
-    countMemoryFileTokens(roughEstimatesOnly),
+    countSystemTokens(effectiveSystemPrompt),
+    countMemoryFileTokens(),
     countBuiltInToolTokens(
       tools,
       getToolPermissionContext,
       agentDefinitions,
       runtimeModel,
       messages,
-      roughEstimatesOnly,
     ),
     countMcpToolTokens(
       tools,
@@ -1040,11 +998,10 @@ export async function analyzeContextUsage(
       agentDefinitions,
       runtimeModel,
       messages,
-      roughEstimatesOnly,
     ),
-    countCustomAgentTokens(agentDefinitions, roughEstimatesOnly),
-    countSlashCommandTokens(tools, getToolPermissionContext, agentDefinitions, roughEstimatesOnly),
-    approximateMessageTokens(messages, roughEstimatesOnly),
+    countCustomAgentTokens(agentDefinitions),
+    countSlashCommandTokens(tools, getToolPermissionContext, agentDefinitions),
+    approximateMessageTokens(messages),
   ])
 
   // Count skills separately with error isolation
@@ -1052,7 +1009,6 @@ export async function analyzeContextUsage(
     tools,
     getToolPermissionContext,
     agentDefinitions,
-    roughEstimatesOnly,
   )
   const skillInfo = skillResult.skillInfo
   // Use sum of individual skill token estimates (matches what's shown in details)
@@ -1444,5 +1400,13 @@ export async function analyzeContextUsage(
     isAutoCompactEnabled: isAutoCompact,
     messageBreakdown: formattedMessageBreakdown,
     apiUsage,
+    ...(() => {
+      if (!apiUsage) return {}
+      const { calculateCacheHitRate, getCacheThreshold } =
+        require('./cacheWarning.js') as typeof import('./cacheWarning.js')
+      const hitRate = calculateCacheHitRate(apiUsage)
+      if (hitRate === null) return {}
+      return { cacheHitRate: hitRate, cacheThreshold: getCacheThreshold() }
+    })(),
   }
 }

@@ -45,12 +45,38 @@
       <div class="s-panel-body">
         <div class="s-form-group">
           <label class="s-form-label">{{ $t('auth.baseUrl') }}</label>
-          <input
-            type="text"
-            v-model="config.anthropic.baseUrl"
-            placeholder="https://api.anthropic.com"
-            class="s-form-input"
-          />
+          <div class="baseurl-wrapper">
+            <div class="baseurl-input-row">
+              <div class="baseurl-selected-icon" @click="togglePresetDropdown('anthropic')">
+                <div v-if="selectedProviders.anthropic" class="provider-logo" :class="selectedProviders.anthropic.logoClass">
+                  <div v-if="selectedProviders.anthropic.logoType === 'svgRaw'" class="logo-svg" v-html="selectedProviders.anthropic.svgRaw" />
+                  <img v-else-if="selectedProviders.anthropic.logoType === 'img'" :src="selectedProviders.anthropic.logoSrc" class="logo-img" alt="logo" />
+                </div>
+                <Globe v-else :size="16" class="baseurl-icon-default" />
+              </div>
+              <input
+                type="text"
+                v-model="config.anthropic.baseUrl"
+                placeholder="https://api.anthropic.com"
+                class="s-form-input baseurl-input"
+              />
+              <button
+                class="s-btn s-btn-secondary baseurl-preset-btn"
+                :class="{ active: activeDropdown === 'anthropic' }"
+                @click="togglePresetDropdown('anthropic')"
+              >
+                <ChevronDown :size="14" />
+                {{ $t('auth.preset') }}
+              </button>
+            </div>
+            <BaseUrlPresets
+              :visible="activeDropdown === 'anthropic'"
+              :presets="currentPresets"
+              :selected-id="selectedProviders.anthropic?.id ?? null"
+              @select="(p) => selectProvider('anthropic', p)"
+              @close="activeDropdown = null"
+            />
+          </div>
           <span class="s-form-hint">{{ $t('auth.leaveEmptyDefault') }}</span>
         </div>
         <div class="s-form-group">
@@ -99,12 +125,38 @@
       <div class="s-panel-body">
         <div class="s-form-group">
           <label class="s-form-label">{{ $t('auth.baseUrl') }}</label>
-          <input
-            type="text"
-            v-model="config.openai.baseUrl"
-            placeholder="https://api.openai.com/v1"
-            class="s-form-input"
-          />
+          <div class="baseurl-wrapper">
+            <div class="baseurl-input-row">
+              <div class="baseurl-selected-icon" @click="togglePresetDropdown('openai')">
+                <div v-if="selectedProviders.openai" class="provider-logo" :class="selectedProviders.openai.logoClass">
+                  <div v-if="selectedProviders.openai.logoType === 'svgRaw'" class="logo-svg" v-html="selectedProviders.openai.svgRaw" />
+                  <img v-else-if="selectedProviders.openai.logoType === 'img'" :src="selectedProviders.openai.logoSrc" class="logo-img" alt="logo" />
+                </div>
+                <Globe v-else :size="16" class="baseurl-icon-default" />
+              </div>
+              <input
+                type="text"
+                v-model="config.openai.baseUrl"
+                placeholder="https://api.openai.com/v1"
+                class="s-form-input baseurl-input"
+              />
+              <button
+                class="s-btn s-btn-secondary baseurl-preset-btn"
+                :class="{ active: activeDropdown === 'openai' }"
+                @click="togglePresetDropdown('openai')"
+              >
+                <ChevronDown :size="14" />
+                {{ $t('auth.preset') }}
+              </button>
+            </div>
+            <BaseUrlPresets
+              :visible="activeDropdown === 'openai'"
+              :presets="currentPresets"
+              :selected-id="selectedProviders.openai?.id ?? null"
+              @select="(p) => selectProvider('openai', p)"
+              @close="activeDropdown = null"
+            />
+          </div>
         </div>
         <div class="s-form-group">
           <label class="s-form-label">{{ $t('auth.apiKey') }}</label>
@@ -152,12 +204,38 @@
       <div class="s-panel-body">
         <div class="s-form-group">
           <label class="s-form-label">{{ $t('auth.baseUrl') }}</label>
-          <input
-            type="text"
-            v-model="config.gemini.baseUrl"
-            placeholder="https://generativelanguage.googleapis.com/v1beta"
-            class="s-form-input"
-          />
+          <div class="baseurl-wrapper">
+            <div class="baseurl-input-row">
+              <div class="baseurl-selected-icon" @click="togglePresetDropdown('gemini')">
+                <div v-if="selectedProviders.gemini" class="provider-logo" :class="selectedProviders.gemini.logoClass">
+                  <div v-if="selectedProviders.gemini.logoType === 'svgRaw'" class="logo-svg" v-html="selectedProviders.gemini.svgRaw" />
+                  <img v-else-if="selectedProviders.gemini.logoType === 'img'" :src="selectedProviders.gemini.logoSrc" class="logo-img" alt="logo" />
+                </div>
+                <Globe v-else :size="16" class="baseurl-icon-default" />
+              </div>
+              <input
+                type="text"
+                v-model="config.gemini.baseUrl"
+                placeholder="https://generativelanguage.googleapis.com/v1beta"
+                class="s-form-input baseurl-input"
+              />
+              <button
+                class="s-btn s-btn-secondary baseurl-preset-btn"
+                :class="{ active: activeDropdown === 'gemini' }"
+                @click="togglePresetDropdown('gemini')"
+              >
+                <ChevronDown :size="14" />
+                {{ $t('auth.preset') }}
+              </button>
+            </div>
+            <BaseUrlPresets
+              :visible="activeDropdown === 'gemini'"
+              :presets="currentPresets"
+              :selected-id="selectedProviders.gemini?.id ?? null"
+              @select="(p) => selectProvider('gemini', p)"
+              @close="activeDropdown = null"
+            />
+          </div>
           <span class="s-form-hint">{{ $t('auth.leaveEmptyGoogleDefault') }}</span>
         </div>
         <div class="s-form-group">
@@ -231,7 +309,7 @@
       </div>
     </div>
 
-    <div class="s-panel">
+    <div class="s-panel model-config-panel">
       <div class="s-panel-header">
         <div class="s-panel-header-left">
           <div class="s-panel-icon engine"><Bot :size="14" /></div>
@@ -275,6 +353,27 @@
       </div>
       <div class="s-panel-body">
         <p class="context-info-desc">{{ $t('contextUsage.modelContextDesc') }}</p>
+
+        <div class="ctx-window-config">
+          <div v-for="m in contextWindowModels" :key="m.key" class="ctx-window-row">
+            <div class="ctx-window-label">
+              <span class="ctx-window-model-tag" :class="m.tagClass">{{ m.tag }}</span>
+              <span class="ctx-window-model-name" :title="m.modelId || m.placeholder">{{ m.modelId || m.placeholder }}</span>
+            </div>
+            <select
+              class="s-form-select ctx-window-select"
+              :value="getContextWindow(m.modelId)"
+              :disabled="!m.modelId"
+              @change="setContextWindow(m.modelId, ($event.target as HTMLSelectElement).value)"
+            >
+              <option value="">{{ $t('contextUsage.contextWindowDefault') }}</option>
+              <option v-for="preset in contextWindowPresets" :key="preset.value" :value="preset.value">
+                {{ preset.label }}
+              </option>
+            </select>
+          </div>
+        </div>
+
         <ContextUsagePreview :model-id="previewModelId" />
       </div>
     </div>
@@ -286,14 +385,17 @@ import { ref, computed, onMounted } from 'vue'
 import {
   Server, Bot, Sparkles, Crown, Key, LogIn, CheckCircle,
   Eye, EyeOff, RefreshCw, Plug, Loader2, Download, Check,
-  XCircle, AlertCircle, BarChart3
+  XCircle, AlertCircle, BarChart3, ChevronDown, Globe
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
-import { useSettingsStore } from '@/stores/settings'
+import { useSettingsStore, CONTEXT_WINDOW_PRESETS } from '@/stores/settings'
 import type { AuthMethod, OAuthAccountInfo } from '@/stores/settings'
 import SearchableSelect from './SearchableSelect.vue'
 import ContextUsagePreview from './ContextUsagePreview.vue'
+import BaseUrlPresets from './BaseUrlPresets.vue'
+import { PROVIDER_PRESETS } from '@/lib/providerPresets'
+import type { ProviderPreset } from '@/lib/providerPresets'
 
 const props = defineProps<{
   modelValue: {
@@ -345,11 +447,71 @@ const fetchingModels = ref(false)
 const oauthLoading = ref(false)
 const connectionStatus = ref<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null)
 
+// Preset dropdown state
+const activeDropdown = ref<'anthropic' | 'openai' | 'gemini' | null>(null)
+const selectedProviders = ref<Record<string, ProviderPreset | null>>({
+  anthropic: null,
+  openai: null,
+  gemini: null,
+})
+
+const currentPresets = computed(() => {
+  const key = authMethod.value === 'anthropic_compatible'
+    ? 'anthropic_compatible'
+    : authMethod.value === 'openai_compatible'
+      ? 'openai_compatible'
+      : authMethod.value === 'gemini_api'
+        ? 'gemini_api'
+        : ''
+  return key ? PROVIDER_PRESETS[key] ?? [] : []
+})
+
+function togglePresetDropdown(target: 'anthropic' | 'openai' | 'gemini') {
+  activeDropdown.value = activeDropdown.value === target ? null : target
+}
+
+function selectProvider(target: 'anthropic' | 'openai' | 'gemini', provider: ProviderPreset) {
+  selectedProviders.value[target] = provider
+  if (target === 'anthropic') {
+    config.value.anthropic.baseUrl = provider.baseUrl
+  } else if (target === 'openai') {
+    config.value.openai.baseUrl = provider.baseUrl
+  } else if (target === 'gemini') {
+    config.value.gemini.baseUrl = provider.baseUrl
+  }
+}
+
 const availableModels = ref<{ id: string; name?: string }[]>([])
 
 const previewModelId = computed(
   () => settingsStore.config.model || config.value.sonnetModel || 'claude-sonnet-4-6',
 )
+
+const contextWindowPresets = CONTEXT_WINDOW_PRESETS
+
+const contextWindowModels = computed(() => [
+  { key: 'haiku', modelId: config.value.haikuModel, placeholder: t('model.haikuModel'), tag: t('model.fast'), tagClass: 'fast' },
+  { key: 'sonnet', modelId: config.value.sonnetModel, placeholder: t('model.sonnetModel'), tag: t('model.balanced'), tagClass: 'recommended' },
+  { key: 'opus', modelId: config.value.opusModel, placeholder: t('model.opusModel'), tag: t('model.powerful'), tagClass: 'powerful' },
+])
+
+function getContextWindow(modelId: string): string {
+  if (!modelId) return ''
+  const val = settingsStore.modelContextWindows[modelId]
+  return val ? String(val) : ''
+}
+
+function setContextWindow(modelId: string, value: string) {
+  if (!modelId) return
+  const updated = { ...settingsStore.modelContextWindows }
+  if (value) {
+    updated[modelId] = parseInt(value, 10)
+  } else {
+    delete updated[modelId]
+  }
+  settingsStore.modelContextWindows = updated
+  settingsStore.saveSettings()
+}
 
 function normalizeApiUrl(baseUrl: string, provider: string): string {
   let url = baseUrl.replace(/\/+$/, '')
@@ -562,7 +724,98 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
   flex-direction: column;
   max-width: 780px;
   gap: 20px;
+
+  /* Allow preset dropdown to overflow panel boundaries */
+  .s-panel {
+    overflow: visible;
+  }
 }
+
+/* ── Base URL Preset Dropdown ── */
+.baseurl-wrapper {
+  position: relative;
+}
+
+.baseurl-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.baseurl-selected-icon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  overflow: hidden;
+  transition: all var(--transition-fast);
+
+  &:hover {
+    border-color: var(--accent-primary);
+  }
+
+  .baseurl-icon-default {
+    color: var(--text-muted);
+  }
+}
+
+.baseurl-input {
+  flex: 1;
+}
+
+.baseurl-preset-btn {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  font-size: 12.5px;
+
+  &.active {
+    background: var(--accent-primary-glow);
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+  }
+}
+
+/* Provider logo (shared with BaseUrlPresets) */
+.provider-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  flex-shrink: 0;
+
+  .logo-svg {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+
+    svg {
+      width: 16px;
+      height: 16px;
+    }
+  }
+
+  .logo-img {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+  }
+}
+
+/* Brand colors for currentColor-based SVG icons */
+.brand-anthropic { color: #cc785c; }
 
 .form-actions-row {
   display: flex;
@@ -630,6 +883,74 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
   font-size: 12px;
   line-height: 1.55;
   color: var(--text-muted);
+}
+
+.ctx-window-config {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.ctx-window-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ctx-window-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ctx-window-model-tag {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+
+  &.fast { background: rgba(138, 136, 128, 0.15); color: var(--text-muted); }
+  &.recommended { background: rgba(217, 119, 87, 0.15); color: var(--accent-primary); }
+  &.powerful { background: rgba(106, 155, 204, 0.15); color: var(--accent-secondary); }
+}
+
+.ctx-window-model-name {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctx-window-select {
+  width: auto;
+  min-width: 120px;
+  padding: 5px 8px;
+  font-size: 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-family: inherit;
+
+  &:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 }
 
 .spin {

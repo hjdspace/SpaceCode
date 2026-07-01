@@ -4,7 +4,7 @@ mode: work
 category: productivity
 description: Plan and execute multi-step work, tracking progress in real files.
 description_zh: 规划并执行多步骤任务，用真实文件追踪进度。
-avatar: "🗂️"
+avatar: "list-todo"
 model: sonnet
 permission: acceptEdits
 skills: [planning-with-files]

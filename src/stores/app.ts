@@ -2,7 +2,8 @@ import { defineStore } from 'pinia'
 import { ref, computed, markRaw } from 'vue'
 import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch, Package } from 'lucide-vue-next'
 import { useChatStore } from './chat'
-import { useTerminalStore } from './terminal'
+import { useTerminalStore, type CreateTerminalOptions } from './terminal'
+import { useSplitLayoutStore } from './splitLayout'
 import { api } from '@/services/electronAPI'
 
 export interface FileInfo {
@@ -51,7 +52,7 @@ export interface InputInjectPayload {
   }
 }
 
-export type InfoPanelTabType = 'file' | 'markdown' | 'diff' | 'tool-diff' | 'webview' | 'terminal' | 'artifacts'
+export type InfoPanelTabType = 'file' | 'markdown' | 'diff' | 'tool-diff' | 'webview' | 'terminal' | 'artifacts' | 'office-preview'
 
 export interface InfoPanelTab {
   id: string
@@ -148,6 +149,10 @@ export const useAppStore = defineStore('app', () => {
   // Work 模式：专业助手画廊 / 工作区引导
   const showWorkGallery = ref(false)
   const showWorkOnboarding = ref(false)
+
+  // ── Office 文件预览状态 ──
+  const officePreviewFile = ref<string>('')
+  const officePreviewMode = ref<'html' | 'screenshots' | 'watch'>('html')
 
   const activeInfoTab = computed<InfoPanelTab | null>(() => {
     if (!activeInfoTabId.value) return null
@@ -286,6 +291,45 @@ export const useAppStore = defineStore('app', () => {
     closeAllInfoTabs()
   }
 
+  // ── 底部终端面板（VSCODE 风格） ─────────────────────────────
+  const terminalDockVisible = ref(false)
+  const terminalDockMounted = ref(false)
+  const terminalDockHeight = ref(200)
+  const TERMINAL_DOCK_MIN = 80
+  const TERMINAL_DOCK_MAX = 500
+
+  function getDefaultTerminalCwd(): string | undefined {
+    const chatStore = useChatStore()
+    return chatStore.workingDirectory || projectRoot.value || workWorkspace.value || undefined
+  }
+
+  function createTerminalTab(options?: CreateTerminalOptions): string | null {
+    const cwd = options?.cwd || getDefaultTerminalCwd()
+    const terminalStore = useTerminalStore()
+    return terminalStore.createTab({
+      ...options,
+      cwd
+    })
+  }
+
+  function toggleTerminalDock() {
+    if (terminalDockVisible.value) {
+      terminalDockVisible.value = false
+    } else {
+      // 确保至少有一个终端标签
+      const terminalStore = useTerminalStore()
+      if (terminalStore.tabs.length === 0) {
+        createTerminalTab()
+      }
+      terminalDockMounted.value = true
+      terminalDockVisible.value = true
+    }
+  }
+
+  function setTerminalDockHeight(h: number) {
+    terminalDockHeight.value = Math.min(Math.max(h, TERMINAL_DOCK_MIN), TERMINAL_DOCK_MAX)
+  }
+
   /** 标题栏面板按钮：切换右侧面板显隐；打开时进入启动器 */
   function toggleInfoPanel() {
     if (infoPanelVisible.value) {
@@ -316,6 +360,11 @@ export const useAppStore = defineStore('app', () => {
 
   /** 在右侧面板打开终端 */
   function openTerminalInPanel() {
+    // 确保至少有一个终端标签存在
+    const terminalStore = useTerminalStore()
+    if (terminalStore.tabs.length === 0) {
+      createTerminalTab()
+    }
     openInfoTab({
       id: 'terminal-panel',
       type: 'terminal',
@@ -488,7 +537,7 @@ export const useAppStore = defineStore('app', () => {
     showTraceViewer.value = false
 
     const terminalStore = useTerminalStore()
-    const tabId = terminalStore.createTab({ autoCommand, env, cwd })
+    const tabId = createTerminalTab({ autoCommand, env, cwd })
     if (tabId) {
       const tab = terminalStore.tabs.find(t => t.id === tabId)
       if (tab) {
@@ -516,7 +565,28 @@ export const useAppStore = defineStore('app', () => {
       if (activeCenterTab.value === tabId) {
         const nextSessionTab = centerTabs.value.find(t => t.sessionId)
         activeCenterTab.value = nextSessionTab?.id || centerTabs.value[0]?.id || 'chat'
+
+        // 关闭当前激活的会话标签后，需同步 chatStore.currentSessionId 到新激活的会话，
+        // 否则主内容区仍显示已关闭会话的内容（仅单 leaf 模式需要：分屏模式由
+        // SplitContainer 的 activePane watcher 负责将 pane 内容同步到全局）。
+        const newActiveTab = nextSessionTab || centerTabs.value[0]
+        if (newActiveTab?.sessionId) {
+          try {
+            const splitLayout = useSplitLayoutStore()
+            if (splitLayout.isSingleLeaf) {
+              const chatStore = useChatStore()
+              if (chatStore.currentSessionId !== newActiveTab.sessionId) {
+                chatStore.selectSession(newActiveTab.sessionId)
+              }
+            }
+          } catch { /* defensive */ }
+        }
       }
+
+      // 分屏联动：清理所有引用该 tab 的 pane（避免悬空显示已关闭的内容）
+      try {
+        useSplitLayoutStore().clearLeavesForTab(tabId)
+      } catch { /* defensive */ }
     }
   }
 
@@ -580,6 +650,15 @@ export const useAppStore = defineStore('app', () => {
     try {
       localStorage.setItem(WORK_WORKSPACE_STORAGE_KEY, path)
       localStorage.setItem(WORK_WORKSPACE_CONFIRMED_STORAGE_KEY, 'true')
+    } catch { /* ignore */ }
+  }
+
+  function clearWorkWorkspace() {
+    workWorkspace.value = ''
+    workWorkspaceConfirmed.value = false
+    try {
+      localStorage.removeItem(WORK_WORKSPACE_STORAGE_KEY)
+      localStorage.removeItem(WORK_WORKSPACE_CONFIRMED_STORAGE_KEY)
     } catch { /* ignore */ }
   }
 
@@ -693,6 +772,27 @@ export const useAppStore = defineStore('app', () => {
     console.log('[AppStore] Webview closed')
   }
 
+  /** 在右侧面板打开 Office 文件预览（PPT/Word/Excel/PDF） */
+  function openOfficePreview(filePath: string, previewMode: 'html' | 'screenshots' | 'watch' = 'html') {
+    officePreviewFile.value = filePath
+    officePreviewMode.value = previewMode
+    const fileName = filePath.replace(/\\/g, '/').split('/').pop() || filePath
+    openInfoTab({
+      id: 'office-preview',
+      type: 'office-preview',
+      title: fileName,
+      icon: markRaw(FileText),
+      data: { filePath, mode: previewMode } as any,
+      closeable: true,
+    })
+  }
+
+  /** 关闭 Office 文件预览 */
+  function closeOfficePreview() {
+    officePreviewFile.value = ''
+    closeInfoTab('office-preview')
+  }
+
   function setWebviewLoading(loading: boolean) {
     isLoading.value = loading
   }
@@ -797,6 +897,7 @@ export const useAppStore = defineStore('app', () => {
     workWorkspaceConfirmed,
     setMode,
     setWorkWorkspace,
+    clearWorkWorkspace,
     showSkillsManager,
     showTraceViewer,
     showSettings,
@@ -833,6 +934,7 @@ export const useAppStore = defineStore('app', () => {
     openFile,
     resolveSessionPath,
     getLanguageFromPath,
+    createTerminalTab,
     openTerminalTab,
     closeCenterTab,
     openSessionTab,
@@ -852,6 +954,15 @@ export const useAppStore = defineStore('app', () => {
     openInfoTab,
     closeInfoTab,
     closeAllInfoTabs,
-    openScmDiff
+    openScmDiff,
+    officePreviewFile,
+    officePreviewMode,
+    openOfficePreview,
+    closeOfficePreview,
+    terminalDockVisible,
+    terminalDockMounted,
+    terminalDockHeight,
+    toggleTerminalDock,
+    setTerminalDockHeight
   }
 })

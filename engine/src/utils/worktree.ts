@@ -1021,11 +1021,13 @@ export async function removeAgentWorktree(
 
 /**
  * Slug patterns for throwaway worktrees created by AgentTool (`agent-a<7hex>`,
- * from earlyAgentId.slice(0,8)), WorkflowTool (`wf_<runId>-<idx>` where runId
- * is randomUUID().slice(0,12) = 8 hex + `-` + 3 hex), and bridgeMain
- * (`bridge-<safeFilenameId>`). These leak when the parent process is killed
- * (Ctrl+C, ESC, crash) before their in-process cleanup runs. Exact-shape
- * patterns avoid sweeping user-named EnterWorktree slugs like `wf-myfeature`.
+ * from earlyAgentId.slice(0,8)), workflow engine isolation:'worktree'
+ * (`wf_<8hex>-<3hex>-<n>` derived from sha256(runId:agentId) in
+ * claudeCodeBackend — taskId is `w`+base36, not a UUID, so the slug cannot
+ * embed runId directly and is hashed to satisfy this hex pattern), and
+ * bridgeMain (`bridge-<safeFilenameId>`). These leak when the parent process
+ * is killed (Ctrl+C, ESC, crash) before their in-process cleanup runs.
+ * Exact-shape patterns avoid sweeping user-named EnterWorktree slugs like `wf-myfeature`.
  */
 const EPHEMERAL_WORKTREE_PATTERNS = [
   /^agent-a[0-9a-f]{7}$/,
@@ -1268,7 +1270,6 @@ export async function execIntoTmuxWorktree(args: string[]): Promise<{
       }
     }
     repoName = basename(findCanonicalGitRoot(getCwd()) ?? getCwd())
-    // biome-ignore lint/suspicious/noConsole: intentional console output
     console.log(`Using worktree via hook: ${worktreeDir}`)
   } else {
     // Get main git repo root (resolves through worktrees)
@@ -1291,7 +1292,6 @@ export async function execIntoTmuxWorktree(args: string[]): Promise<{
         prNumber !== null ? { prNumber } : undefined,
       )
       if (!result.existed) {
-        // biome-ignore lint/suspicious/noConsole: intentional console output
         console.log(
           `Created worktree: ${worktreeDir} (based on ${(result as any).baseBranch})`,
         )
@@ -1383,7 +1383,6 @@ export async function execIntoTmuxWorktree(args: string[]): Promise<{
   // Print hint about iTerm2 preferences when using control mode
   if (useControlMode && !sessionExists) {
     const y = chalk.yellow
-    // biome-ignore lint/suspicious/noConsole: intentional user guidance
     console.log(
       `\n${y('╭─ iTerm2 Tip ────────────────────────────────────────────────────────╮')}\n` +
         `${y('│')} To open as a tab instead of a new window:                           ${y('│')}\n` +

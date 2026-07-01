@@ -64,6 +64,7 @@ export function initAutoUpdater(win: BrowserWindow) {
 
   // 下载进度
   autoUpdater.on('download-progress', (progress) => {
+    info('AutoUpdater', `Download progress: ${progress.percent.toFixed(1)}% (${progress.transferred}/${progress.total} bytes, ${progress.bytesPerSecond} B/s)`)
     sendToRenderer('update:download-progress', {
       bytesPerSecond: progress.bytesPerSecond,
       percent: progress.percent,
@@ -128,7 +129,15 @@ export function registerAutoUpdaterIPC() {
       return { success: false, error: 'Updates not available in development mode' }
     }
     try {
-      await autoUpdater.downloadUpdate()
+      info('AutoUpdater', 'User requested download, starting...')
+      // 设置 5 分钟下载超时，防止网络问题导致永久挂起
+      const downloadPromise = autoUpdater.downloadUpdate()
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Download timeout after 5 minutes')),
+        5 * 60 * 1000)
+      })
+      await Promise.race([downloadPromise, timeoutPromise])
+      info('AutoUpdater', 'Download completed successfully')
       return { success: true }
     } catch (err: any) {
       error('AutoUpdater', 'Download failed', err)

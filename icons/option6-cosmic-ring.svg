@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg6" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0c1424"/>
+      <stop offset="100%" style="stop-color:#1a0b2e"/>
+    </linearGradient>
+    <linearGradient id="ring6" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#f97316"/>
+      <stop offset="30%" style="stop-color:#fbbf24"/>
+      <stop offset="70%" style="stop-color:#f472b6"/>
+      <stop offset="100%" style="stop-color:#c084fc"/>
+    </linearGradient>
+    <linearGradient id="code6" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#60a5fa"/>
+      <stop offset="100%" style="stop-color:#a78bfa"/>
+    </linearGradient>
+    <radialGradient id="planet6" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" style="stop-color:#1e293b"/>
+      <stop offset="100%" style="stop-color:#0c1424"/>
+    </radialGradient>
+    <filter id="glow6">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="108" fill="url(#bg6)"/>
+
+  <!-- Background stars -->
+  <g fill="#fff" opacity="0.25">
+    <circle cx="90" cy="120" r="1.5"/>
+    <circle cx="420" cy="90" r="1"/>
+    <circle cx="450" cy="300" r="2"/>
+    <circle cx="60" cy="350" r="1"/>
+    <circle cx="380" cy="420" r="1.5"/>
+    <circle cx="150" cy="440" r="1"/>
+  </g>
+
+  <!-- Outer ring (Saturn-like, tilted) -->
+  <ellipse cx="256" cy="256" rx="200" ry="72" fill="none"
+           stroke="url(#ring6)" stroke-width="8"
+           transform="rotate(-22 256 256)" opacity="0.9" filter="url(#glow6)"/>
+
+  <!-- Inner thin ring -->
+  <ellipse cx="256" cy="256" rx="210" ry="48" fill="none"
+           stroke="url(#ring6)" stroke-width="3"
+           transform="rotate(-22 256 256)" opacity="0.35"/>
+
+  <!-- Planet sphere (dark, code-containing) -->
+  <circle cx="256" cy="256" r="100" fill="url(#planet6)" stroke="url(#ring6)" stroke-width="3" opacity="0.95"/>
+
+  <!-- </> code symbol on planet -->
+  <g filter="url(#glow6)">
+    <!-- Left < -->
+    <path d="M215,220 L185,256 L215,292"
+          fill="none" stroke="url(#code6)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Right > -->
+    <path d="M297,220 L327,256 L297,292"
+          fill="none" stroke="url(#code6)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Center / -->
+    <line x1="270" y1="210" x2="242" y2="302"
+          stroke="url(#code6)" stroke-width="10" stroke-linecap="round"/>
+  </g>
+
+  <!-- Ring particles -->
+  <circle cx="120" cy="220" r="4" fill="#fbbf24" opacity="0.8"/>
+  <circle cx="395" cy="295" r="3" fill="#f472b6" opacity="0.7"/>
+  <circle cx="100" cy="280" r="2.5" fill="#c084fc" opacity="0.6"/>
+</svg>

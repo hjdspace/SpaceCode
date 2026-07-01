@@ -6,7 +6,7 @@
  * `getPipeRelay()` singleton set by usePipeIpc's attach handler.
  */
 import { useRef, useCallback } from 'react'
-import { getPipeRelay } from '../utils/pipePermissionRelay.js'
+import { getPipeRelay, isRelayMuted } from '../utils/pipePermissionRelay.js'
 import type { PipeMessage } from '../utils/pipeTransport.js'
 
 export type PipeRelayHandle = {
@@ -23,17 +23,17 @@ export type PipeRelayHandle = {
 export function usePipeRelay(): PipeRelayHandle {
   const pipeReturnHadErrorRef = useRef(false)
 
-  const relayPipeMessage = useCallback(
-    (message: PipeMessage): boolean => {
-      const relay = getPipeRelay()
-      if (typeof relay !== 'function') {
-        return false
-      }
-      relay(message)
-      return true
-    },
-    [],
-  )
+  const relayPipeMessage = useCallback((message: PipeMessage): boolean => {
+    const relay = getPipeRelay()
+    if (typeof relay !== 'function') {
+      return false
+    }
+    if (isRelayMuted()) {
+      return false
+    }
+    relay(message)
+    return true
+  }, [])
 
   return { relayPipeMessage, pipeReturnHadErrorRef }
 }

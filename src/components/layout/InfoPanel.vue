@@ -4,7 +4,12 @@
 
     <div class="panel-content">
       <PanelLauncher v-if="showLauncher" />
-      <template v-else>
+
+      <!-- Terminal: always mounted to preserve terminal state across panel switches -->
+      <TerminalPanel v-show="!showLauncher && mode === 'terminal'" class="info-terminal-panel" />
+
+      <!-- Non-terminal modes -->
+      <template v-if="!showLauncher && mode !== 'terminal'">
       <DiffViewer v-if="mode === 'diff'" />
       <CodeViewer v-else-if="mode === 'file'" />
       <MarkdownViewer
@@ -16,7 +21,10 @@
 
       <ArtifactsPanel v-else-if="mode === 'artifacts'" />
 
-      <TerminalPanel v-else-if="mode === 'terminal'" />
+      <PreviewPanel
+        v-else-if="mode === 'office-preview'"
+        :file-path="appStore.officePreviewFile"
+      />
 
       <template v-else-if="mode === 'webview'">
         <div class="webview-nav">
@@ -98,6 +106,8 @@
             class="webview-container"
             allowpopups
             partition="persist:webview-session"
+            @did-attach="onWebviewAttached"
+            @dom-ready="onDomReady"
             @did-navigate="onDidNavigate"
             @did-navigate-in-page="onDidNavigateInPage"
             @page-title-updated="onTitleUpdate"
@@ -158,6 +168,7 @@ import { Loader2, ArrowLeft, ArrowRight, RotateCw, ExternalLink, Camera, MousePo
 import InfoPanelTabBar from './InfoPanelTabBar.vue'
 import PanelLauncher from './PanelLauncher.vue'
 import ArtifactsPanel from '../work/ArtifactsPanel.vue'
+import PreviewPanel from '../work/PreviewPanel.vue'
 import TerminalPanel from '../terminal/TerminalPanel.vue'
 import DiffViewer from '../common/DiffViewer.vue'
 import CodeViewer from '../common/CodeViewer.vue'
@@ -179,6 +190,9 @@ const showLauncher = computed(() => appStore.panelHome || appStore.infoPanelTabs
 
 const webviewRef = ref<any>(null)
 const urlInput = ref('')
+
+/** 已注册 setWindowOpenHandler 的 WebContents ID，避免对同一 WebContents 重复注册 */
+const registeredWindowOpenHandlerId = ref<number | null>(null)
 
 // 元素框选状态
 const selectMode = ref(false)
@@ -267,6 +281,13 @@ function handleOpenInBrowser() {
 function onDidNavigate(event: any) {
   console.log('[InfoPanel] Webview navigated to:', event.url)
   appStore.setWebviewLoading(false)
+  if (event.url) {
+    urlInput.value = event.url
+    // 同步 store 的 URL 和历史记录（适用于 webview 内部导航，如注入脚本修改 location.href）
+    if (event.url !== appStore.webviewUrl) {
+      appStore.navigateWebview(event.url)
+    }
+  }
 }
 
 function onDidNavigateInPage(event: any) {
@@ -368,6 +389,50 @@ async function sendSelection() {
   webviewRef.value?.executeJavaScript('window.__SPACECODE_INSPECTOR__ && window.__SPACECODE_INSPECTOR__.disable()').catch(() => {})
 }
 
+/** webview 附加后，拦截 target="_blank" / window.open 的新窗口请求 */
+function onWebviewAttached() {
+  const wv = webviewRef.value
+  if (!wv) return
+  try {
+    const contents = wv.getWebContents?.()
+    if (!contents?.setWindowOpenHandler) return
+    // 避免对同一个 WebContents 重复注册（did-attach 重复触发时）
+    const contentsId = contents.id
+    if (registeredWindowOpenHandlerId.value === contentsId) return
+    registeredWindowOpenHandlerId.value = contentsId
+    contents.setWindowOpenHandler(({ url }: { url: string }) => {
+      // 在同一 webview 中导航，而非弹出空白窗口
+      if (url) {
+        appStore.navigateWebview(url)
+        wv.loadURL(url)
+      }
+      return { action: 'deny' as const }
+    })
+  } catch (e) {
+    console.warn('[InfoPanel] setWindowOpenHandler setup failed:', e)
+  }
+}
+
+/** webview DOM 就绪后，注入脚本拦截 target="_blank" 链接点击（fallback） */
+function onDomReady() {
+  const wv = webviewRef.value
+  if (!wv) return
+  wv.executeJavaScript(`
+    (function() {
+      if (window.__spacecode_blank_intercepted) return;
+      window.__spacecode_blank_intercepted = true;
+      document.addEventListener('click', function(e) {
+        var a = e.target.closest('a[target="_blank"]');
+        if (a && a.href) {
+          e.preventDefault();
+          e.stopPropagation();
+          window.location.href = a.href;
+        }
+      }, true);
+    })();
+  `).catch(() => {})
+}
+
 // 切换页面 / 关闭 webview 时重置框选状态
 watch(() => appStore.webviewUrl, () => {
   selectMode.value = false
@@ -417,6 +482,13 @@ watch(() => appStore.webviewUrl, () => {
   flex-direction: column;
   min-height: 0;
   @include scrollbar;
+}
+
+.info-terminal-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .webview-nav {

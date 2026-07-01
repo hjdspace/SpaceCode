@@ -30,6 +30,7 @@ let terminalId: string | null = null
 let removeDataListener: (() => void) | null = null
 let removeExitListener: (() => void) | null = null
 let resizeObserver: ResizeObserver | null = null
+let contextmenuHandler: ((e: Event) => void) | null = null
 
 function getTheme() {
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
@@ -80,6 +81,20 @@ function getTheme() {
   }
 }
 
+/**
+ * 从剪贴板读取文本并粘贴到终端
+ */
+async function pasteFromClipboard() {
+  try {
+    const text = await navigator.clipboard.readText()
+    if (text && terminalId) {
+      api.terminal.write(terminalId, text)
+    }
+  } catch (e) {
+    console.warn('[TerminalContainer] Paste failed:', e)
+  }
+}
+
 async function initTerminal() {
   if (!containerRef.value) {
     emit('error', 'Terminal container not available')
@@ -93,19 +108,31 @@ async function initTerminal() {
   }
 
   try {
-    const plainEnv = tab.env ? JSON.parse(JSON.stringify(tab.env)) : undefined
-    const result = await api.terminal.create({
-      cwd: tab.cwd,
-      env: plainEnv
-    })
+    // 检查是否已有存活的终端实例（切换页面后重新挂载的场景）
+    const existingInstance = terminalStore.instances.get(props.tabId)
+    const existingTerminalId = existingInstance?.terminalId ?? null
+    const isAlive = existingInstance?.isAlive ?? false
+    const isReconnect = existingTerminalId !== null && isAlive
 
-    if (!result.id) {
-      emit('error', result.error || 'Failed to create terminal')
-      return
+    if (isReconnect && existingTerminalId) {
+      // 重连到已有的 pty 进程，不创建新终端
+      terminalId = existingTerminalId
+    } else {
+      // 创建新的 pty 进程
+      const plainEnv = tab.env ? JSON.parse(JSON.stringify(tab.env)) : undefined
+      const result = await api.terminal.create({
+        cwd: tab.cwd,
+        env: plainEnv
+      })
+
+      if (!result.id) {
+        emit('error', result.error || 'Failed to create terminal')
+        return
+      }
+
+      terminalId = result.id
+      terminalStore.setInstanceTerminalId(props.tabId, terminalId)
     }
-
-    terminalId = result.id
-    terminalStore.setInstanceTerminalId(props.tabId, terminalId)
 
     terminal = new Terminal({
       theme: getTheme(),
@@ -134,16 +161,45 @@ async function initTerminal() {
       }
     }, 50)
 
+    // 右键菜单：有选区时复制，无选区时粘贴
     const containerEl = containerRef.value
     if (containerEl) {
-      containerEl.addEventListener('contextmenu', async (e: Event) => {
+      contextmenuHandler = async (e: Event) => {
+        e.preventDefault()
         const selection = terminal?.getSelection()
         if (selection) {
-          await navigator.clipboard.writeText(selection)
+          // 有选区 → 复制到剪贴板
+          try {
+            await navigator.clipboard.writeText(selection)
+            terminal?.clearSelection()
+          } catch (err) {
+            console.warn('[TerminalContainer] Copy failed:', err)
+          }
+        } else {
+          // 无选区 → 粘贴
+          await pasteFromClipboard()
         }
-        e.preventDefault()
-      })
+      }
+      containerEl.addEventListener('contextmenu', contextmenuHandler)
     }
+
+    // 粘贴快捷键支持：Ctrl+Shift+V 和 Ctrl+V
+    terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+      // Ctrl+Shift+V (通用粘贴快捷键) 或 Ctrl+V (在终端上下文中粘贴)
+      if ((event.ctrlKey && event.shiftKey && event.key === 'V') ||
+          (event.ctrlKey && !event.shiftKey && event.key === 'v')) {
+        if (event.type === 'keydown') {
+          pasteFromClipboard()
+        }
+        return false // 阻止默认行为
+      }
+      // Ctrl+Shift+C (复制快捷键)
+      if (event.ctrlKey && event.shiftKey && event.key === 'C') {
+        // 允许默认行为（浏览器/xterm 自带的选区复制）
+        return true
+      }
+      return true
+    })
 
     terminal.onData((data: string) => {
       if (terminalId) {
@@ -179,10 +235,26 @@ async function initTerminal() {
     })
     resizeObserver.observe(containerRef.value)
 
+    // 重连时触发 resize 以让 shell 重绘提示符
+    if (isReconnect && terminalId) {
+      setTimeout(() => {
+        try {
+          const cols = terminal?.cols
+          const rows = terminal?.rows
+          if (cols && rows && terminalId) {
+            api.terminal.resize(terminalId, cols, rows)
+          }
+        } catch (e) {
+          // Ignore
+        }
+      }, 100)
+    }
+
     terminalStore.setTabReady(props.tabId, true)
     emit('ready')
 
-    if (tab.autoCommand && terminalId) {
+    // 仅对新创建的终端执行自动命令（重连时不重复执行）
+    if (!isReconnect && tab.autoCommand && terminalId) {
       setTimeout(() => {
         api.terminal.runCommand(terminalId!, tab.autoCommand!)
       }, 800)
@@ -223,13 +295,19 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  if (terminalId) {
-    api.terminal.kill(terminalId)
-  }
+  // 不在此处杀死 pty 进程 —— 终端可能在切换页面后重新挂载
+  // pty 进程在 terminalStore.closeTab() 时统一杀死
   removeDataListener?.()
   removeExitListener?.()
   resizeObserver?.disconnect()
   themeObserver.disconnect()
+
+  // 移除右键菜单监听
+  if (contextmenuHandler && containerRef.value) {
+    containerRef.value.removeEventListener('contextmenu', contextmenuHandler)
+  }
+  contextmenuHandler = null
+
   terminal?.dispose()
   terminal = null
   fitAddon = null

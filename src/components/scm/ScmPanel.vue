@@ -1093,7 +1093,7 @@ onUnmounted(() => {
   &.added   { color: #16a34a; background: rgba(22,163,74,0.12); }
   &.deleted { color: #dc2626; background: rgba(220,38,38,0.12); }
   &.renamed { color: #2563eb; background: rgba(37,99,235,0.12); }
-  &.untracked { color: var(--text-muted); background: var(--surface-glass); }
+  &.untracked { color: #16a34a; background: rgba(22,163,74,0.12); }
   &.conflict { color: #dc2626; background: rgba(220,38,38,0.15); }
   &.staged { color: #16a34a; background: rgba(22,163,74,0.15); }
 }

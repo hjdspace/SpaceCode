@@ -7,8 +7,10 @@ import { TerminalManager } from './terminalManager'
 import { registerGitIPCHandlers } from './gitService'
 import { registerSkillsIPCHandlers, registerLocalLibraryIPCHandlers } from './skillsService'
 import { registerAgentsIPCHandlers } from './agentsService'
-import { registerArtifactsIPCHandlers } from './artifactsService'
+import { registerArtifactsIPCHandlers, stopArtifactsWatch } from './artifactsService'
 import { registerCronIPCHandlers } from './cronService'
+import { registerOfficeCliIPCHandlers, cleanupOfficeCli, ensureOfficeCliInstalled } from './officeCliService'
+import { registerCuaDriverIPCHandlers, cleanupCuaDriverMcp } from './cuaDriverService'
 import { registerClaudeCodeIPC, setMainWindow, getPool } from './claudeCodeIPC'
 import { initAutoUpdater, registerAutoUpdaterIPC, destroyAutoUpdater } from './autoUpdaterService'
 import { MobileServer } from './mobileServer'
@@ -623,9 +625,20 @@ app.whenReady().then(() => {
   registerArtifactsIPCHandlers()
   info('Startup', 'Artifacts IPC handlers registered')
 
-  // Register Cron IPC handlers
-  registerCronIPCHandlers(() => (global as any).__projectCwd ?? null)
-  info('Startup', 'Cron IPC handlers registered')
+// Register Cron IPC handlers
+registerCronIPCHandlers(() => (global as any).__projectCwd ?? null)
+info('Startup', 'Cron IPC handlers registered')
+
+// Register OfficeCLI IPC handlers
+registerOfficeCliIPCHandlers()
+info('Startup', 'OfficeCLI IPC handlers registered')
+
+// Ensure officecli is installed to user PATH (~/.officecli/bin) — non-blocking
+void ensureOfficeCliInstalled()
+
+// Register CuaDriver (Computer Use) IPC handlers
+registerCuaDriverIPCHandlers()
+info('Startup', 'CuaDriver IPC handlers registered')
 
   // Register Claude Code IPC handlers
   registerClaudeCodeIPC()
@@ -732,9 +745,12 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', async () => {
-  info('App', 'App quitting')
-  destroyTray()
-  destroyAutoUpdater()
+info('App', 'App quitting')
+cleanupOfficeCli()
+await cleanupCuaDriverMcp()
+stopArtifactsWatch()
+destroyTray()
+destroyAutoUpdater()
   try { globalShortcut.unregisterAll() } catch {}
   try {
     await proxyManager.stop()
@@ -1258,10 +1274,9 @@ const terminalManager = new TerminalManager()
 ipcMain.handle('terminal:create', async (_event, options?: { cwd?: string; command?: string; env?: Record<string, string> }) => {
   try {
     const cwd = options?.cwd || process.cwd()
-    const id = terminalManager.create(cwd, options?.command, options?.env)
-    const shellName = options?.command || (process.platform === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/sh'))
-    info('Terminal', `Created terminal: ${id} | cwd=${cwd} | shell=${shellName} | customEnvKeys=${options?.env ? Object.keys(options.env).join(',') : '(none)'}`)
-    return { id, shell: shellName }
+    const result = terminalManager.create(cwd, options?.command, options?.env)
+    info('Terminal', `Created terminal: ${result.id} | cwd=${cwd} | shell=${result.shell} | customEnvKeys=${options?.env ? Object.keys(options.env).join(',') : '(none)'}`)
+    return { id: result.id, shell: result.shell }
   } catch (err) {
     error('Terminal', 'Failed to create terminal', err)
     return { id: null, error: String(err) }

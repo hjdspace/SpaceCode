@@ -4,7 +4,7 @@
       <aside class="settings-sidebar">
         <div class="sidebar-header">
           <div class="sidebar-logo">
-            <div class="logo-icon">S</div>
+            <img class="logo-icon" :src="appIcon" alt="SpaceCode" />
             <span class="logo-text">SpaceCode</span>
           </div>
         </div>
@@ -82,6 +82,9 @@
             <HookSettings
               v-else-if="activeTab === 'hooks'"
             />
+            <ComputerUseSettings
+              v-else-if="activeTab === 'computer-use'"
+            />
           </KeepAlive>
         </div>
       </main>
@@ -93,11 +96,12 @@
 import { ref, computed, watch, defineAsyncComponent } from 'vue'
 import {
   ArrowLeft,
-  Settings, Boxes, Palette, Wrench, Keyboard, Bot, BarChart3, Zap
+  Settings, Boxes, Palette, Wrench, Keyboard, Bot, BarChart3, Zap, Monitor
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore, type AuthMethod, type OAuthAccountInfo, type EngineType } from '@/stores/settings'
+import appIcon from '@/assets/app-icon.svg'
 
 const GeneralSettings = defineAsyncComponent(() => import('./GeneralSettings.vue'))
 const ModelSettings = defineAsyncComponent(() => import('./ModelSettings.vue'))
@@ -107,6 +111,7 @@ const ToolsSettings = defineAsyncComponent(() => import('./ToolsSettings.vue'))
 const ShortcutsSettings = defineAsyncComponent(() => import('./ShortcutsSettings.vue'))
 const TokenUsageSettings = defineAsyncComponent(() => import('./TokenUsageSettings.vue'))
 const HookSettings = defineAsyncComponent(() => import('./HookSettings.vue'))
+const ComputerUseSettings = defineAsyncComponent(() => import('./ComputerUseSettings.vue'))
 
 const appStore = useAppStore()
 const settingsStore = useSettingsStore()
@@ -117,6 +122,7 @@ const settingMenuItems = computed(() => [
   { id: 'model', label: t('settings.modelSettings'), icon: Bot },
   { id: 'mcp', label: t('settings.mcpServers'), icon: Boxes },
   { id: 'tools', label: t('settings.tools'), icon: Wrench },
+  { id: 'computer-use', label: t('settings.computerUse'), icon: Monitor },
 ])
 
 const personalMenuItems = computed(() => [
@@ -262,14 +268,9 @@ function handleBack() {
 .logo-icon {
   width: 32px;
   height: 32px;
-  background: linear-gradient(135deg, var(--accent-primary), var(--accent-tertiary));
   border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-weight: 700;
-  font-size: 16px;
+  flex-shrink: 0;
+  object-fit: contain;
 }
 
 .logo-text {

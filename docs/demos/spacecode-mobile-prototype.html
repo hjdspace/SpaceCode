@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SpaceCode Mobile App — UI Prototype</title>
+<script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0a;
+    font-family: -apple-system, "SF Pro Text", "IBM Plex Sans", sans-serif;
+    color: #faf9f5;
+    min-height: 100vh;
+  }
+  .page-header {
+    text-align: center;
+    padding: 48px 24px 16px;
+  }
+  .page-header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    color: #faf9f5;
+  }
+  .page-header p {
+    font-size: 14px;
+    color: #6c6a64;
+    margin-top: 8px;
+  }
+  .screens-grid {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 48px;
+    padding: 32px 48px 64px;
+  }
+  .screen-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+  .screen-label {
+    font-size: 13px;
+    color: #6c6a64;
+    font-style: italic;
+    text-align: center;
+  }
+  .theme-switcher {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    padding: 16px 24px 0;
+  }
+  .theme-btn {
+    padding: 6px 16px;
+    border-radius: 20px;
+    border: 1px solid rgba(250,249,245,0.12);
+    background: transparent;
+    color: #a09d96;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .theme-btn:hover { border-color: rgba(250,249,245,0.3); color: #faf9f5; }
+  .theme-btn.active { background: #cc785c; border-color: #cc785c; color: #faf9f5; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+
+// ========== iOS Frame ==========
+const iosFrameStyles = {
+  wrapper: { display: 'inline-block', padding: 12, background: '#000', borderRadius: 60, boxShadow: '0 0 0 2px #1f2937, 0 20px 60px rgba(0,0,0,0.3)', position: 'relative' },
+  screen: { position: 'relative', borderRadius: 48, overflow: 'hidden', background: '#fff' },
+  statusBar: { position: 'absolute', top: 0, left: 0, right: 0, height: 54, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px 0 32px', fontSize: 16, fontWeight: 600, fontFamily: '-apple-system, "SF Pro Text", sans-serif', zIndex: 20, pointerEvents: 'none' },
+  dynamicIsland: { position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', width: 124, height: 36, background: '#000', borderRadius: 999, zIndex: 30 },
+  statusIcons: { display: 'flex', alignItems: 'center', gap: 6 },
+  signalIcon: { display: 'flex', alignItems: 'flex-end', gap: 2, height: 12 },
+  signalBar: { width: 3, background: 'currentColor', borderRadius: 1 },
+  batteryIcon: { width: 26, height: 12, border: '1.5px solid currentColor', borderRadius: 3, padding: 1, position: 'relative', opacity: 0.8 },
+  batteryCap: { position: 'absolute', top: 3, right: -3, width: 2, height: 6, background: 'currentColor', borderRadius: '0 1px 1px 0' },
+  content: { position: 'absolute', top: 54, left: 0, right: 0, bottom: 34, overflow: 'hidden' },
+  homeIndicator: { position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)', width: 140, height: 5, background: 'rgba(0,0,0,0.3)', borderRadius: 999, zIndex: 10 },
+};
+
+function IosFrame({ children, width = 393, height = 852, time = '9:41', battery = 85, darkMode = true }) {
+  const textColor = darkMode ? '#fff' : '#000';
+  return (
+    <div style={iosFrameStyles.wrapper}>
+      <div style={{ ...iosFrameStyles.screen, width, height, background: darkMode ? '#000' : '#fff' }}>
+        <div style={{ ...iosFrameStyles.statusBar, color: textColor }}>
+          <span>{time}</span>
+          <div style={iosFrameStyles.statusIcons}>
+            <div style={iosFrameStyles.signalIcon}>
+              <div style={{ ...iosFrameStyles.signalBar, height: 4 }} />
+              <div style={{ ...iosFrameStyles.signalBar, height: 6 }} />
+              <div style={{ ...iosFrameStyles.signalBar, height: 9 }} />
+              <div style={{ ...iosFrameStyles.signalBar, height: 11 }} />
+            </div>
+            <svg width="16" height="12" viewBox="0 0 16 12" fill="none" style={{ color: textColor }}>
+              <path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor" />
+              <path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" />
+              <path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" opacity="0.7" />
+            </svg>
+            <div style={iosFrameStyles.batteryIcon}>
+              <div style={{ width: `${battery}%`, height: '100%', background: 'currentColor', borderRadius: 1, opacity: 0.9 }} />
+              <div style={iosFrameStyles.batteryCap} />
+            </div>
+          </div>
+        </div>
+        <div style={iosFrameStyles.dynamicIsland} />
+        <div style={iosFrameStyles.content}>{children}</div>
+        <div style={{ ...iosFrameStyles.homeIndicator, background: darkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.3)' }} />
+      </div>
+    </div>
+  );
+}
+
+// ========== Theme Definitions ==========
+const themes = {
+  'anthropic-dark': {
+    bgPrimary: '#181715', bgSecondary: '#1c1b1a', bgTertiary: '#1f1e1b',
+    bgElevated: '#252320', bgHover: '#2d2c29', bgActive: '#353332',
+    textPrimary: '#faf9f5', textSecondary: '#a09d96', textMuted: '#6c6a64',
+    accentPrimary: '#cc785c', accentSecondary: '#5db8a6', accentTertiary: '#e8a55a',
+    success: '#5db872', warning: '#d4a017', error: '#c64545',
+    border: 'rgba(250,249,245,0.08)',
+  },
+  dark: {
+    bgPrimary: '#0d0d0d', bgSecondary: '#141414', bgTertiary: '#1a1a1a',
+    bgElevated: '#1f1f1f', bgHover: '#262626', bgActive: '#2e2e2e',
+    textPrimary: '#f5f5f5', textSecondary: '#a3a3a3', textMuted: '#737373',
+    accentPrimary: '#3b82f6', accentSecondary: '#64748b', accentTertiary: '#8b5cf6',
+    success: '#22c55e', warning: '#f59e0b', error: '#ef4444',
+    border: 'rgba(255,255,255,0.08)',
+  },
+  light: {
+    bgPrimary: '#f8f9fb', bgSecondary: '#f0f1f5', bgTertiary: '#e7e9ef',
+    bgElevated: '#ffffff', bgHover: '#e4e6ec', bgActive: '#dbdde5',
+    textPrimary: '#18191f', textSecondary: '#44475a', textMuted: '#6e7191',
+    accentPrimary: '#0d9488', accentSecondary: '#6366f1', accentTertiary: '#7c3aed',
+    success: '#059669', warning: '#d97706', error: '#dc2626',
+    border: 'rgba(24,25,31,0.09)',
+  },
+  anthropic: {
+    bgPrimary: '#faf9f5', bgSecondary: '#efe9de', bgTertiary: '#e8e0d2',
+    bgElevated: '#faf9f5', bgHover: '#e5e0d5', bgActive: '#dcd6c8',
+    textPrimary: '#141413', textSecondary: '#3d3d3a', textMuted: '#6c6a64',
+    accentPrimary: '#cc785c', accentSecondary: '#5db8a6', accentTertiary: '#e8a55a',
+    success: '#5db872', warning: '#d4a017', error: '#c64545',
+    border: 'rgba(20,20,19,0.08)',
+  },
+};
+
+// ========== Shared Components ==========
+function ConnectionDot({ connected, t }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+      <div style={{ width: 7, height: 7, borderRadius: '50%', background: connected ? t.success : t.warning }} />
+      <span style={{ fontSize: 11, color: t.textMuted }}>{connected ? '已连接' : '未连接'}</span>
+    </div>
+  );
+}
+
+function AppBar({ title, subtitle, t, rightAction, leftAction }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      padding: '8px 16px', background: t.bgSecondary, borderBottom: `1px solid ${t.border}`,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        {leftAction}
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: t.textPrimary }}>{title}</div>
+          {subtitle && <div style={{ fontSize: 11, color: t.textMuted, marginTop: 1 }}>{subtitle}</div>}
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <ConnectionDot connected={true} t={t} />
+        {rightAction}
+      </div>
+    </div>
+  );
+}
+
+// ========== Screen 1: Chat Main ==========
+function ChatScreen({ t }) {
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: t.bgPrimary }}>
+      <AppBar title="SpaceCode" subtitle="Claude Sonnet 4" t={t}
+        leftAction={<div style={{ width: 20, height: 20, display: 'flex', flexDirection: 'column', gap: 3, justifyContent: 'center' }}>
+          <div style={{ width: 16, height: 2, background: t.textMuted, borderRadius: 1 }} />
+          <div style={{ width: 12, height: 2, background: t.textMuted, borderRadius: 1 }} />
+          <div style={{ width: 16, height: 2, background: t.textMuted, borderRadius: 1 }} />
+        </div>}
+        rightAction={<div style={{ width: 28, height: 28, borderRadius: 14, background: t.accentPrimary, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: '#fff', fontWeight: 700 }}>+</div>}
+      />
+
+      <div style={{ flex: 1, overflow: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* User message */}
+        <div style={{ alignSelf: 'flex-end', maxWidth: '80%' }}>
+          <div style={{ background: t.accentPrimary, color: '#fff', padding: '10px 14px', borderRadius: '18px 18px 4px 18px', fontSize: 14, lineHeight: 1.5 }}>
+            帮我写一个 Python 的快速排序函数
+          </div>
+          <div style={{ fontSize: 10, color: t.textMuted, textAlign: 'right', marginTop: 4 }}>14:32</div>
+        </div>
+
+        {/* Assistant message with streaming */}
+        <div style={{ alignSelf: 'flex-start', maxWidth: '88%' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <div style={{ width: 22, height: 22, borderRadius: 11, background: t.accentSecondary, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#fff', fontWeight: 700 }}>S</div>
+            <span style={{ fontSize: 12, color: t.textMuted, fontWeight: 500 }}>SpaceCode</span>
+          </div>
+          <div style={{ background: t.bgElevated, padding: '12px 14px', borderRadius: '4px 18px 18px 18px', fontSize: 14, lineHeight: 1.6, color: t.textPrimary, border: `1px solid ${t.border}` }}>
+            <div>好的，这是一个快速排序的实现：</div>
+            <div style={{ background: t.bgTertiary, borderRadius: 8, padding: '10px 12px', marginTop: 8, fontFamily: '"JetBrains Mono", monospace', fontSize: 12, lineHeight: 1.6, color: t.textSecondary, overflow: 'auto' }}>
+              <div><span style={{ color: t.accentPrimary }}>def</span> <span style={{ color: t.accentSecondary }}>quick_sort</span>(arr):</div>
+              <div style={{ paddingLeft: 16 }}><span style={{ color: t.accentPrimary }}>if</span> len(arr) &lt;= <span style={{ color: t.accentTertiary }}>1</span>:</div>
+              <div style={{ paddingLeft: 32 }}><span style={{ color: t.accentPrimary }}>return</span> arr</div>
+              <div style={{ paddingLeft: 16 }}>pivot = arr[len(arr) // <span style={{ color: t.accentTertiary }}>2</span>]</div>
+              <div style={{ paddingLeft: 16 }}>left = [x <span style={{ color: t.accentPrimary }}>for</span> x <span style={{ color: t.accentPrimary }}>in</span> arr <span style={{ color: t.accentPrimary }}>if</span> x &lt; pivot]</div>
+              <div style={{ paddingLeft: 16 }}>middle = [x <span style={{ color: t.accentPrimary }}>for</span> x <span style={{ color: t.accentPrimary }}>in</span> arr <span style={{ color: t.accentPrimary }}>if</span> x == pivot]</div>
+              <div style={{ paddingLeft: 16 }}>right = [x <span style={{ color: t.accentPrimary }}>for</span> x <span style={{ color: t.accentPrimary }}>in</span> arr <span style={{ color: t.accentPrimary }}>if</span> x &gt; pivot]</div>
+              <div style={{ paddingLeft: 16 }}><span style={{ color: t.accentPrimary }}>return</span> quick_sort(left) + middle + quick_sort(right)<span style={{ animation: 'blink 1s infinite', color: t.accentPrimary }}>│</span></div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+              <div style={{ fontSize: 11, color: t.textMuted, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                复制
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Thinking block */}
+        <div style={{ alignSelf: 'flex-start', maxWidth: '88%' }}>
+          <div style={{ background: t.bgTertiary, borderRadius: 12, padding: '10px 14px', border: `1px solid ${t.border}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={t.accentTertiary} strokeWidth="2"><path d="M12 2a8 8 0 018 8c0 3.4-2.1 6.3-5 7.5V20a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2.5C6.1 16.3 4 13.4 4 10a8 8 0 018-8z"/></svg>
+              <span style={{ fontSize: 12, color: t.accentTertiary, fontWeight: 500 }}>思考过程</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={t.textMuted} strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
+            </div>
+            <div style={{ fontSize: 12, color: t.textMuted, marginTop: 6, lineHeight: 1.5, maxHeight: 48, overflow: 'hidden', maskImage: 'linear-gradient(to bottom, black 40%, transparent)' }}>
+              用户需要一个快速排序函数，我需要考虑几种实现方式。最简洁的是列表推导式版本，但也可以展示原地排序版本...
+            </div>
+          </div>
+        </div>
+
+        {/* Tool call card */}
+        <div style={{ alignSelf: 'flex-start', maxWidth: '88%' }}>
+          <div style={{ background: t.bgElevated, borderRadius: 12, padding: '10px 14px', border: `1px solid ${t.border}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 24, height: 24, borderRadius: 6, background: t.bgTertiary, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={t.accentSecondary} strokeWidth="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: t.textPrimary }}>Bash</div>
+                <div style={{ fontSize: 11, color: t.textMuted, fontFamily: 'monospace', marginTop: 2 }}>python3 -c "print(quick_sort([3,1,4]))"</div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <div style={{ width: 6, height: 6, borderRadius: 3, background: t.success }} />
+                <span style={{ fontSize: 11, color: t.success }}>完成</span>
+              </div>
+            </div>
+            <div style={{ background: t.bgTertiary, borderRadius: 6, padding: '6px 10px', marginTop: 8, fontSize: 11, fontFamily: 'monospace', color: t.textSecondary }}>
+              [1, 3, 4]
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Input bar */}
+      <div style={{ padding: '8px 12px 12px', background: t.bgSecondary, borderTop: `1px solid ${t.border}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 16, background: t.bgTertiary, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={t.textMuted} strokeWidth="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          </div>
+          <div style={{ flex: 1, background: t.bgTertiary, borderRadius: 20, padding: '8px 14px', fontSize: 14, color: t.textMuted }}>
+            输入消息...
+          </div>
+          <div style={{ width: 32, height: 32, borderRadius: 16, background: t.accentPrimary, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ========== Screen 2: Permission Request ==========
+function PermissionScreen({ t }) {
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: t.bgPrimary }}>
+      <AppBar title="SpaceCode" subtitle="Claude Sonnet 4" t={t} />
+
+      <div style={{ flex: 1, overflow: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* User message */}
+        <div style={{ alignSelf: 'flex-end', maxWidth: '80%' }}>
+          <div style={{ background: t.accentPrimary, color: '#fff', padding: '10px 14px', borderRadius: '18px 18px 4px 18px', fontSize: 14, lineHeight: 1.5 }}>
+            删除 /tmp/test 目录下的所有文件
+          </div>
+        </div>
+
+        {/* Assistant response */}
+        <div style={{ alignSelf: 'flex-start', maxWidth: '88%' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <div style={{ width: 22, height: 22, borderRadius: 11, background: t.accentSecondary, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#fff', fontWeight: 700 }}>S</div>
+            <span style={{ fontSize: 12, color: t.textMuted, fontWeight: 500 }}>SpaceCode</span>
+          </div>
+          <div style={{ background: t.bgElevated, padding: '12px 14px', borderRadius: '4px 18px 18px 18px', fontSize: 14, lineHeight: 1.6, color: t.textPrimary, border: `1px solid ${t.border}` }}>
+            我需要执行以下命令来删除文件：
+          </div>
+        </div>
+
+        {/* Tool call pending permission */}
+        <div style={{ alignSelf: 'flex-start', maxWidth: '92%' }}>
+          <div style={{ background: t.bgElevated, borderRadius: 12, padding: '12px 14px', border: `1px solid ${t.warning}40` }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 24, height: 24, borderRadius: 6, background: `${t.warning}20`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={t.warning} strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: t.textPrimary }}>Bash — 请求权限</div>
+                <div style={{ fontSize: 11, color: t.textMuted, fontFamily: 'monospace', marginTop: 2 }}>rm -rf /tmp/test/*</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Permission bottom sheet */}
+      <div style={{ background: t.bgElevated, borderTop: `1px solid ${t.border}`, borderRadius: '20px 20px 0 0', padding: '16px 20px 24px' }}>
+        <div style={{ width: 36, height: 4, background: t.textMuted, borderRadius: 2, margin: '0 auto 16px', opacity: 0.3 }} />
+        <div style={{ fontSize: 15, fontWeight: 600, color: t.textPrimary, marginBottom: 8 }}>工具权限请求</div>
+        <div style={{ fontSize: 13, color: t.textSecondary, lineHeight: 1.5, marginBottom: 16 }}>
+          SpaceCode 请求执行 Bash 命令：
+          <div style={{ background: t.bgTertiary, borderRadius: 8, padding: '8px 12px', marginTop: 8, fontFamily: 'monospace', fontSize: 12, color: t.warning }}>
+            rm -rf /tmp/test/*
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button style={{ flex: 1, padding: '12px 0', borderRadius: 12, border: `1px solid ${t.border}`, background: t.bgTertiary, color: t.textPrimary, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>拒绝</button>
+          <button style={{ flex: 1, padding: '12px 0', borderRadius: 12, border: 'none', background: t.accentPrimary, color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>允许</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ========== Screen 3: Sessions Drawer ==========
+function SessionsScreen({ t }) {
+  return (
+    <div style={{ height: '100%', display: 'flex', background: t.bgPrimary }}>
+      {/* Drawer overlay */}
+      <div style={{ width: '100%', background: t.bgPrimary, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '16px 16px 12px', borderBottom: `1px solid ${t.border}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: t.textPrimary }}>会话</div>
+            <div style={{ width: 28, height: 28, borderRadius: 14, background: t.accentPrimary, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, color: '#fff', fontWeight: 700, cursor: 'pointer' }}>+</div>
+          </div>
+          <div style={{ background: t.bgTertiary, borderRadius: 10, padding: '8px 12px', fontSize: 13, color: t.textMuted, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            搜索会话...
+          </div>
+        </div>
+
+        <div style={{ flex: 1, overflow: 'auto', padding: '8px 0' }}>
+          {/* Active session */}
+          <div style={{ padding: '12px 16px', background: `${t.accentPrimary}12`, borderLeft: `3px solid ${t.accentPrimary}` }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: t.textPrimary }}>快速排序函数</div>
+            <div style={{ fontSize: 12, color: t.textMuted, marginTop: 4 }}>Claude Sonnet 4 · 刚刚</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6 }}>
+              <div style={{ width: 6, height: 6, borderRadius: 3, background: t.accentPrimary }} />
+              <span style={{ fontSize: 11, color: t.accentPrimary }}>当前会话</span>
+            </div>
+          </div>
+
+          {/* Session items */}
+          {[
+            { title: 'React 组件优化', agent: 'Claude Opus 4', time: '2小时前', msgs: 12 },
+            { title: '数据库迁移脚本', agent: 'Claude Sonnet 4', time: '昨天', msgs: 8 },
+            { title: 'API 接口设计讨论', agent: 'Claude Sonnet 4', time: '昨天', msgs: 24 },
+            { title: 'Bug 修复：登录超时', agent: 'Claude Haiku 3.5', time: '3天前', msgs: 6 },
+            { title: '项目架构重构方案', agent: 'Claude Opus 4', time: '上周', msgs: 32 },
+          ].map((s, i) => (
+            <div key={i} style={{ padding: '12px 16px', borderBottom: `1px solid ${t.border}` }}>
+              <div style={{ fontSize: 14, fontWeight: 500, color: t.textPrimary }}>{s.title}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                <span style={{ fontSize: 12, color: t.textMuted }}>{s.agent} · {s.time}</span>
+                <span style={{ fontSize: 11, color: t.textMuted }}>{s.msgs} 条消息</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ========== Screen 4: QR Scanner ==========
+function QRScannerScreen({ t }) {
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#000' }}>
+      <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>扫描连接</div>
+        <div style={{ fontSize: 14, color: '#999', cursor: 'pointer' }}>取消</div>
+      </div>
+
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+        {/* Scanner frame */}
+        <div style={{ width: 240, height: 240, position: 'relative' }}>
+          {/* Corner brackets */}
+          <div style={{ position: 'absolute', top: 0, left: 0, width: 32, height: 32, borderTop: '3px solid #cc785c', borderLeft: '3px solid #cc785c', borderRadius: '4px 0 0 0' }} />
+          <div style={{ position: 'absolute', top: 0, right: 0, width: 32, height: 32, borderTop: '3px solid #cc785c', borderRight: '3px solid #cc785c', borderRadius: '0 4px 0 0' }} />
+          <div style={{ position: 'absolute', bottom: 0, left: 0, width: 32, height: 32, borderBottom: '3px solid #cc785c', borderLeft: '3px solid #cc785c', borderRadius: '0 0 0 4px' }} />
+          <div style={{ position: 'absolute', bottom: 0, right: 0, width: 32, height: 32, borderBottom: '3px solid #cc785c', borderRight: '3px solid #cc785c', borderRadius: '0 0 4px 0' }} />
+          {/* Scan line animation */}
+          <div style={{ position: 'absolute', left: 8, right: 8, height: 2, background: 'linear-gradient(90deg, transparent, #cc785c, transparent)', top: '50%', boxShadow: '0 0 12px #cc785c80' }} />
+          {/* Semi-transparent overlay */}
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(204,120,92,0.03)', borderRadius: 4 }} />
+        </div>
+      </div>
+
+      <div style={{ padding: '20px 24px 32px', textAlign: 'center' }}>
+        <div style={{ fontSize: 15, color: '#faf9f5', fontWeight: 500 }}>将二维码放入框内扫描</div>
+        <div style={{ fontSize: 13, color: '#6c6a64', marginTop: 6 }}>扫描桌面端 SpaceCode 显示的二维码进行连接</div>
+      </div>
+    </div>
+  );
+}
+
+// ========== Screen 5: Agent Selection ==========
+function AgentSelectionScreen({ t }) {
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: t.bgPrimary }}>
+      <AppBar title="SpaceCode" subtitle="Claude Sonnet 4" t={t} />
+
+      {/* Chat content (dimmed) */}
+      <div style={{ flex: 1, overflow: 'auto', padding: '12px 16px', opacity: 0.4 }}>
+        <div style={{ alignSelf: 'flex-end', maxWidth: '80%' }}>
+          <div style={{ background: t.accentPrimary, color: '#fff', padding: '10px 14px', borderRadius: '18px 18px 4px 18px', fontSize: 14 }}>
+            帮我写一个 Python 的快速排序函数
+          </div>
+        </div>
+      </div>
+
+      {/* Agent selection bottom sheet */}
+      <div style={{ background: t.bgElevated, borderTop: `1px solid ${t.border}`, borderRadius: '20px 20px 0 0', padding: '16px 20px 24px' }}>
+        <div style={{ width: 36, height: 4, background: t.textMuted, borderRadius: 2, margin: '0 auto 12px', opacity: 0.3 }} />
+        <div style={{ fontSize: 15, fontWeight: 600, color: t.textPrimary, marginBottom: 12 }}>选择 Agent</div>
+
+        {[
+          { name: '默认助手', desc: '通用编程助手', color: t.accentPrimary, selected: true },
+          { name: 'Code Reviewer', desc: '代码审查专家', color: t.accentSecondary },
+          { name: 'Architect', desc: '系统架构设计', color: t.accentTertiary },
+          { name: 'TDD Guide', desc: '测试驱动开发', color: t.success },
+        ].map((a, i) => (
+          <div key={i} style={{
+            display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
+            borderRadius: 12, marginBottom: 6,
+            background: a.selected ? `${a.color}15` : 'transparent',
+            border: a.selected ? `1px solid ${a.color}40` : `1px solid transparent`,
+          }}>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: `${a.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 700, color: a.color }}>
+              {a.name[0]}
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: t.textPrimary }}>{a.name}</div>
+              <div style={{ fontSize: 12, color: t.textMuted, marginTop: 1 }}>{a.desc}</div>
+            </div>
+            {a.selected && (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={a.color} strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ========== Screen 6: Settings ==========
+function SettingsScreen({ t }) {
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: t.bgPrimary }}>
+      <div style={{ padding: '16px 16px 12px', borderBottom: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={t.textPrimary} strokeWidth="2"><path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/></svg>
+        <span style={{ fontSize: 17, fontWeight: 600, color: t.textPrimary }}>设置</span>
+      </div>
+
+      <div style={{ flex: 1, overflow: 'auto', padding: '8px 0' }}>
+        {/* Connection section */}
+        <div style={{ padding: '12px 16px 4px', fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 1 }}>连接</div>
+        <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${t.border}` }}>
+          <div>
+            <div style={{ fontSize: 14, color: t.textPrimary }}>连接状态</div>
+            <div style={{ fontSize: 12, color: t.textMuted, marginTop: 2 }}>192.168.1.5:9527</div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 8, height: 8, borderRadius: 4, background: t.success }} />
+            <span style={{ fontSize: 13, color: t.success }}>已连接</span>
+          </div>
+        </div>
+        <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${t.border}` }}>
+          <span style={{ fontSize: 14, color: t.textPrimary }}>断开连接</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={t.textMuted} strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>
+
+        {/* Appearance section */}
+        <div style={{ padding: '20px 16px 4px', fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 1 }}>外观</div>
+        <div style={{ padding: '12px 16px', borderBottom: `1px solid ${t.border}` }}>
+          <div style={{ fontSize: 14, color: t.textPrimary, marginBottom: 10 }}>主题</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[
+              { name: '浅色', bg: '#f8f9fb', border: '#e7e9ef' },
+              { name: '深色', bg: '#0d0d0d', border: '#1f1f1f' },
+              { name: 'Anthropic', bg: '#faf9f5', border: '#e8e0d2' },
+              { name: 'Anthropic\n深色', bg: '#181715', border: '#252320' },
+            ].map((th, i) => (
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                <div style={{
+                  width: 48, height: 48, borderRadius: 10, background: th.bg,
+                  border: i === 3 ? `2px solid ${t.accentPrimary}` : `1px solid ${th.border}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {i === 3 && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={t.accentPrimary} strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>}
+                </div>
+                <span style={{ fontSize: 10, color: t.textMuted, whiteSpace: 'pre-line', textAlign: 'center', lineHeight: 1.3 }}>{th.name}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Chat section */}
+        <div style={{ padding: '20px 16px 4px', fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 1 }}>聊天</div>
+        {['默认 Agent', '权限模式', '流式输出'].map((item, i) => (
+          <div key={i} style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${t.border}` }}>
+            <span style={{ fontSize: 14, color: t.textPrimary }}>{item}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 13, color: t.textMuted }}>{i === 0 ? '默认助手' : i === 1 ? '默认' : '开启'}</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={t.textMuted} strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+          </div>
+        ))}
+
+        {/* About section */}
+        <div style={{ padding: '20px 16px 4px', fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 1 }}>关于</div>
+        <div style={{ padding: '12px 16px', borderBottom: `1px solid ${t.border}` }}>
+          <div style={{ fontSize: 14, color: t.textPrimary }}>SpaceCode Mobile</div>
+          <div style={{ fontSize: 12, color: t.textMuted, marginTop: 2 }}>v0.1.0</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ========== Screen 7: Disconnected State ==========
+function DisconnectedScreen({ t }) {
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: t.bgPrimary }}>
+      <AppBar title="SpaceCode" t={t}
+        rightAction={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={t.textMuted} strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>}
+      />
+
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32, gap: 16 }}>
+        <div style={{ width: 72, height: 72, borderRadius: 20, background: `${t.accentPrimary}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke={t.accentPrimary} strokeWidth="1.5"><path d="M5 12.55a11 11 0 0114.08 0"/><path d="M1.42 9a16 16 0 0121.16 0"/><path d="M8.53 16.11a6 6 0 016.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+        </div>
+        <div style={{ fontSize: 18, fontWeight: 600, color: t.textPrimary }}>未连接到桌面端</div>
+        <div style={{ fontSize: 14, color: t.textMuted, textAlign: 'center', lineHeight: 1.6, maxWidth: 260 }}>
+          请确保手机和电脑在同一 WiFi 下，然后扫描桌面端 SpaceCode 显示的二维码
+        </div>
+        <button style={{
+          padding: '12px 32px', borderRadius: 14, border: 'none',
+          background: t.accentPrimary, color: '#fff', fontSize: 15, fontWeight: 600,
+          cursor: 'pointer', marginTop: 8,
+        }}>
+          扫描二维码
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ========== Main App ==========
+function App() {
+  const [themeName, setThemeName] = React.useState('anthropic-dark');
+  const t = themes[themeName];
+  const isDark = themeName.includes('dark') || themeName === 'dark';
+
+  const screens = [
+    { label: '聊天主界面', component: <ChatScreen t={t} /> },
+    { label: '权限请求', component: <PermissionScreen t={t} /> },
+    { label: '会话列表（抽屉）', component: <SessionsScreen t={t} /> },
+    { label: '扫码连接', component: <QRScannerScreen t={t} /> },
+    { label: 'Agent 选择', component: <AgentSelectionScreen t={t} /> },
+    { label: '设置', component: <SettingsScreen t={t} /> },
+    { label: '未连接状态', component: <DisconnectedScreen t={t} /> },
+  ];
+
+  return (
+    <div>
+      <div className="page-header">
+        <h1>SpaceCode Mobile</h1>
+        <p>手机端 App UI 原型 — 所有页面概览</p>
+      </div>
+
+      <div className="theme-switcher">
+        {Object.keys(themes).map(name => (
+          <button key={name} className={`theme-btn ${themeName === name ? 'active' : ''}`} onClick={() => setThemeName(name)}>
+            {name === 'anthropic-dark' ? 'Anthropic 深色' : name === 'anthropic' ? 'Anthropic' : name === 'dark' ? '深色' : '浅色'}
+          </button>
+        ))}
+      </div>
+
+      <div className="screens-grid">
+        {screens.map((s, i) => (
+          <div key={i} className="screen-item">
+            <IosFrame darkMode={isDark} battery={85 - i * 5}>
+              {s.component}
+            </IosFrame>
+            <div className="screen-label">{s.label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

@@ -165,6 +165,16 @@
               <span>MCP</span>
             </button>
             <button
+              v-if="appStore.mode === 'work'"
+              class="feature-nav-item"
+              :class="{ active: appStore.showWorkGallery }"
+              @click="appStore.showWorkGallery = true"
+              :title="t('work.galleryEntry')"
+            >
+              <LayoutGrid :size="14" />
+              <span>{{ t('work.galleryEntry') }}</span>
+            </button>
+            <button
               class="feature-nav-item"
               :class="{ active: appStore.showCronManager }"
               @click="handleOpenCron"
@@ -299,6 +309,7 @@ import { useChatStore } from '@/stores/chat'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore } from '@/stores/settings'
 import { useScmStore } from '@/stores/scm'
+import { useSplitLayoutStore } from '@/stores/splitLayout'
 import {
   Plus,
   FolderTree,
@@ -316,7 +327,8 @@ import {
   Cpu,
   Clock,
   FolderOpen,
-  Package
+  Package,
+  LayoutGrid
 } from 'lucide-vue-next'
 
 // Enhanced Components
@@ -376,9 +388,26 @@ function handleOpenArtifacts() {
   appStore.openArtifactsPanel()
 }
 
-// 切换模式后回到历史面板（确保用户能立即看到该模式下的会话）
-function handleModeSelect(mode: 'work' | 'code') {
+// 切换模式后回到历史面板，并切换到该模式下的最近会话（没有则创建新会话）
+async function handleModeSelect(mode: 'work' | 'code') {
   activeTab.value = 'history'
+
+  // 切换到新模式下的最近会话；没有则创建新会话
+  const modeSessions = chatStore.sessions.filter(s => (s.mode || 'code') === mode)
+  if (modeSessions.length > 0) {
+    const targetSessionId = modeSessions[0].id
+    await chatStore.selectSession(targetSessionId)
+    // 同步 activeCenterTab，确保 SplitContainer 的 watcher 能将 pane content
+    // 更新到目标会话（修复切换模式后主面板仍显示旧模式会话的问题）
+    appStore.switchToSessionTab(targetSessionId)
+  } else {
+    const workingDirectory = mode === 'work'
+      ? (appStore.workWorkspace || chatStore.currentProjectRoot || undefined)
+      : (chatStore.currentProjectRoot || undefined)
+    const session = chatStore.createSession(t('common.newChat'), workingDirectory)
+    appStore.openSessionTab(session.id, session.title)
+  }
+
   if (mode === 'work') {
     // 首次进入 Work：引导设置工作区；否则关闭可能打开的画廊
     if (!appStore.workWorkspaceConfirmed) {
@@ -519,20 +548,14 @@ async function handleFileSelect(node: TreeNode) {
 
 // Enhanced Session Management (CodePilot-style)
 async function handleNewChat() {
-  // Work 模式：新建会话 = 选择专业助手（先确保工作区已设置）
-  if (appStore.mode === 'work') {
-    if (!appStore.workWorkspaceConfirmed) {
-      appStore.showWorkOnboarding = true
-    } else {
-      appStore.showWorkGallery = true
-    }
-    return
-  }
-
+  // Work 模式与 Code 模式统一：新建会话 = 创建空会话，不强制选目录、不弹画廊。
+  // Work 模式下目录为可选上下文（有则用 workWorkspace，无也可开始）。
   creatingChat.value = true
 
   try {
-    const workingDirectory = chatStore.currentProjectRoot || chatStore.currentSession?.workingDirectory
+    const workingDirectory = appStore.mode === 'work'
+      ? (appStore.workWorkspace || chatStore.currentProjectRoot || undefined)
+      : (chatStore.currentProjectRoot || chatStore.currentSession?.workingDirectory)
 
     if (chatStore.currentSessionId && chatStore.currentSession) {
       appStore.openSessionTab(chatStore.currentSessionId, chatStore.currentSession.title)
@@ -540,6 +563,15 @@ async function handleNewChat() {
 
     const session = chatStore.createSession(t('common.newChat'), workingDirectory)
     appStore.openSessionTab(session.id, session.title)
+
+    // 分屏模式下更新当前 active pane 的内容
+    const splitLayout = useSplitLayoutStore()
+    if (splitLayout.leafCount > 1 && splitLayout.activePaneId) {
+      splitLayout.setPaneContent(splitLayout.activePaneId, {
+        kind: 'session',
+        tabId: `session-${session.id}`,
+      })
+    }
 
     window.dispatchEvent(new CustomEvent('session-created'))
   } catch (error) {
@@ -566,9 +598,20 @@ async function handleSelectSession(sessionId: string) {
     chatStore.selectSession(sessionId)
     appStore.switchToSessionTab(sessionId)
 
-    // Work 会话：恢复时自动重开 Artifacts 面板
+    // 分屏模式：将当前 active pane 的内容指向所选会话，
+    // 确保每个 pane 独立控制，不跟随全局标签页。
+    const splitLayout = useSplitLayoutStore()
+    if (splitLayout.leafCount > 1 && splitLayout.activePaneId) {
+      splitLayout.setPaneContent(splitLayout.activePaneId, {
+        kind: 'session',
+        tabId: `session-${sessionId}`,
+      })
+    }
+
+    // Work 会话：仅有消息历史时恢复 Artifacts 面板，
+    // 空新会话不自动弹出（等用户发送消息时再展开，与 ChatPanel.handleSend 逻辑一致）
     const selected = chatStore.sessions.find(s => s.id === sessionId)
-    if (selected?.mode === 'work') {
+    if (selected?.mode === 'work' && selected.messages.length > 0) {
       appStore.openArtifactsPanel()
     }
 

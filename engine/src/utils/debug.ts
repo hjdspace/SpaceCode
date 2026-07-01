@@ -83,9 +83,7 @@ export const getDebugFilter = memoize((): DebugFilter | null => {
 })
 
 export const isDebugToStdErr = memoize((): boolean => {
-  return (
-    process.argv.includes('--debug-to-stderr')
-  )
+  return process.argv.includes('--debug-to-stderr')
 })
 
 export const getDebugFilePath = memoize((): string | null => {
@@ -227,18 +225,12 @@ export function logForDebugging(
   getDebugWriter().write(output)
 }
 
-// Cache the debug log path at module load time so it doesn't change
-// when session ID is regenerated (e.g., after /clear)
-const cachedDebugLogPath = (() => {
+export function getDebugLogPath(): string {
   return (
     getDebugFilePath() ??
     process.env.CLAUDE_CODE_DEBUG_LOGS_DIR ??
     join(getClaudeConfigHomeDir(), 'debug', `${getSessionId()}.txt`)
   )
-})()
-
-export function getDebugLogPath(): string {
-  return cachedDebugLogPath
 }
 
 /**

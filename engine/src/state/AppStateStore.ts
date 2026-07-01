@@ -15,9 +15,9 @@ import {
   type ToolPermissionContext,
 } from '../Tool.js'
 import type { TaskState } from '../tasks/types.js'
-import type { AgentColorName } from '../tools/AgentTool/agentColorManager.js'
-import type { AgentDefinitionsResult } from '../tools/AgentTool/loadAgentsDir.js'
-import type { AllowedPrompt } from '../tools/ExitPlanModeTool/ExitPlanModeV2Tool.js'
+import type { AgentColorName } from '@claude-code-best/builtin-tools/tools/AgentTool/agentColorManager.js'
+import type { AgentDefinitionsResult } from '@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js'
+import type { AllowedPrompt } from '@claude-code-best/builtin-tools/tools/ExitPlanModeTool/ExitPlanModeV2Tool.js'
 import type { AgentId } from '../types/ids.js'
 import type { Message, UserMessage } from '../types/message.js'
 import type { LoadedPlugin, PluginError } from '../types/plugin.js'
@@ -36,6 +36,7 @@ import type { PermissionMode } from '../utils/permissions/PermissionMode.js'
 import { getInitialSettings } from '../utils/settings/settings.js'
 import type { SettingsJson } from '../utils/settings/types.js'
 import { shouldEnableThinkingByDefault } from '../utils/thinking.js'
+import type { PipeIpcState } from '../utils/pipeTransport.js'
 import type { Store } from './store.js'
 
 export type CompletionBoundary =
@@ -85,6 +86,7 @@ export type FooterItem =
   | 'teams'
   | 'bridge'
   | 'companion'
+  | 'bg_agent'
 
 export type AppState = DeepImmutable<{
   settings: SettingsJson
@@ -97,6 +99,9 @@ export type AppState = DeepImmutable<{
   // Optional - only present when ENABLE_AGENT_SWARMS is true (for dead code elimination)
   showTeammateMessagePreview?: boolean
   selectedIPAgentIndex: number
+  // Selection index for the bottom BackgroundAgentSelector.
+  // -1 = main, 0..N-1 = index into useBackgroundAgentTasks().
+  selectedBgAgentIndex: number
   // CoordinatorTaskPanel selection: -1 = pill, 0 = main, 1..N = agent rows.
   // AppState (not local) so the panel can read it directly without prop-drilling
   // through PromptInput → PromptInputFooter.
@@ -155,6 +160,8 @@ export type AppState = DeepImmutable<{
   replBridgeInitialName: string | undefined
   // Always-on bridge: first-time remote dialog pending (set by /remote-control command)
   showRemoteCallout: boolean
+  // Pipe IPC state — added at runtime when feature('PIPE_IPC') is enabled.
+  pipeIpc?: PipeIpcState
 }> & {
   // Unified task state - excluded from DeepImmutable because TaskState contains function types
   tasks: { [taskId: string]: TaskState }
@@ -477,6 +484,7 @@ export function getDefaultAppState(): AppState {
     isBriefOnly: false,
     showTeammateMessagePreview: false,
     selectedIPAgentIndex: -1,
+    selectedBgAgentIndex: -1,
     coordinatorTaskIndex: -1,
     viewSelectionMode: 'none',
     footerSelection: null,

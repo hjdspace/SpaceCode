@@ -34,11 +34,6 @@ import {
   type LineEndingType,
   readFileSyncWithMetadata,
 } from 'src/utils/fileRead.js'
-import {
-  detectEncoding,
-  decodeBuffer,
-  type FileEncoding,
-} from 'src/utils/encoding.js'
 import { formatFileSize } from 'src/utils/format.js'
 import { getFsImplementation } from 'src/utils/fsOperations.js'
 import { fetchSingleFileGitDiff, type ToolUseDiff } from 'src/utils/gitDiff.js'
@@ -75,7 +70,6 @@ import {
   areFileEditsInputsEquivalent,
   findActualString,
   getPatchForEdit,
-  preserveQuoteStyle,
 } from './utils.js'
 
 // V8/Bun string length limit is ~2^30 characters (~1 billion). For typical
@@ -207,8 +201,13 @@ export const FileEditTool = buildTool({
     let fileContent: string | null
     try {
       const fileBuffer = await fs.readFileBytes(fullFilePath)
-      const encoding: FileEncoding = detectEncoding(fileBuffer)
-      fileContent = decodeBuffer(fileBuffer, encoding).replaceAll('\r\n', '\n')
+      const encoding: BufferEncoding =
+        fileBuffer.length >= 2 &&
+        fileBuffer[0] === 0xff &&
+        fileBuffer[1] === 0xfe
+          ? 'utf16le'
+          : 'utf8'
+      fileContent = fileBuffer.toString(encoding).replaceAll('\r\n', '\n')
     } catch (e) {
       if (isENOENT(e)) {
         fileContent = null
@@ -297,7 +296,7 @@ export const FileEditTool = buildTool({
 
     const file = fileContent
 
-    // Use findActualString to handle quote normalization
+    // Use findActualString to find exact match
     const actualOldString = findActualString(file, old_string)
     if (!actualOldString) {
       return {
@@ -452,23 +451,16 @@ export const FileEditTool = buildTool({
       }
     }
 
-    // 3. Use findActualString to handle quote normalization
+    // 3. Find the exact string in file content
     const actualOldString =
       findActualString(originalFileContents, old_string) || old_string
-
-    // Preserve curly quotes in new_string when the file uses them
-    const actualNewString = preserveQuoteStyle(
-      old_string,
-      actualOldString,
-      new_string,
-    )
 
     // 4. Generate patch
     const { patch, updatedFile } = getPatchForEdit({
       filePath: absoluteFilePath,
       fileContents: originalFileContents,
       oldString: actualOldString,
-      newString: actualNewString,
+      newString: new_string,
       replaceAll: replace_all,
     })
 
@@ -584,7 +576,7 @@ export const FileEditTool = buildTool({
 function readFileForEdit(absoluteFilePath: string): {
   content: string
   fileExists: boolean
-  encoding: FileEncoding
+  encoding: BufferEncoding
   lineEndings: LineEndingType
 } {
   try {

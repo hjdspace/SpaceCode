@@ -2,7 +2,7 @@ import { feature } from 'bun:bundle'
 import { microcompactMessages } from '../../services/compact/microCompact.js'
 import type { AppState } from '../../state/AppStateStore.js'
 import type { Tools, ToolUseContext } from '../../Tool.js'
-import type { AgentDefinitionsResult } from '../../tools/AgentTool/loadAgentsDir.js'
+import type { AgentDefinitionsResult } from '@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js'
 import type { Message } from '../../types/message.js'
 import {
   analyzeContextUsage,
@@ -22,8 +22,6 @@ import { plural } from '../../utils/stringUtils.js'
 type CollectContextDataInput = {
   messages: Message[]
   getAppState: () => AppState
-  /** SDK UI path: skip count_tokens API calls so control_response returns quickly. */
-  fast?: boolean
   options: {
     mainLoopModel: string
     tools: Tools
@@ -39,7 +37,6 @@ export async function collectContextData(
   const {
     messages,
     getAppState,
-    fast = false,
     options: {
       mainLoopModel,
       tools,
@@ -76,7 +73,6 @@ export async function collectContextData(
     >,
     undefined, // mainThreadAgentDefinition
     apiView, // original messages for API usage extraction
-    fast ? { roughEstimatesOnly: true } : undefined,
   )
 }
 

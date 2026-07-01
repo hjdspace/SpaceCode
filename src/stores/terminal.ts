@@ -48,6 +48,28 @@ export const useTerminalStore = defineStore('terminal', () => {
 
   const embeddedInstances = ref<Map<string, EmbeddedTerminalInstance>>(new Map())
 
+  // ── 全局退出监听 ──────────────────────────────────────────────────────
+  // 即使 TerminalContainer 未挂载（如切换页面后），也能感知 pty 退出并更新状态
+  let _globalExitListenerRegistered = false
+  function ensureGlobalExitListener() {
+    if (_globalExitListenerRegistered) return
+    _globalExitListenerRegistered = true
+    try {
+      api.terminal.onExit((id: string, _exitCode: number) => {
+        for (const [tabId, instance] of instances.value) {
+          if (instance.terminalId === id) {
+            instance.isAlive = false
+            const tab = tabs.value.find(t => t.id === tabId)
+            if (tab) tab.isReady = false
+            break
+          }
+        }
+      })
+    } catch (e) {
+      console.warn('[TerminalStore] Failed to register global exit listener:', e)
+    }
+  }
+
   const activeTab = computed(() =>
     tabs.value.find(t => t.id === activeTabId.value) || null
   )
@@ -110,7 +132,15 @@ export const useTerminalStore = defineStore('terminal', () => {
     const tabIndex = tabs.value.findIndex(t => t.id === tabId)
     if (tabIndex === -1) return
 
+    // 杀死 pty 进程（TerminalContainer 卸载时不再负责 kill）
     const instance = instances.value.get(tabId)
+    if (instance && instance.terminalId) {
+      try {
+        api.terminal.kill(instance.terminalId)
+      } catch (e) {
+        console.warn('[TerminalStore] Failed to kill terminal on closeTab:', e)
+      }
+    }
     if (instance) {
       instances.value.delete(tabId)
     }
@@ -199,6 +229,14 @@ export const useTerminalStore = defineStore('terminal', () => {
   }
 
   function closeAllTabs(): void {
+    // 杀死所有 pty 进程
+    for (const [, instance] of instances.value) {
+      if (instance.terminalId) {
+        try {
+          api.terminal.kill(instance.terminalId)
+        } catch (e) { /* ignore */ }
+      }
+    }
     tabs.value = []
     instances.value.clear()
     activeTabId.value = null
@@ -251,6 +289,9 @@ export const useTerminalStore = defineStore('terminal', () => {
   function getEmbeddedInstance(toolCallId: string): EmbeddedTerminalInstance | null {
     return embeddedInstances.value.get(toolCallId) || null
   }
+
+  // 确保全局退出监听已注册
+  ensureGlobalExitListener()
 
   return {
     tabs,

@@ -50,10 +50,6 @@ app.use('/web/*', cors(webCorsOptions))
 // Health check
 app.get('/health', c => c.json({ status: 'ok', version: config.version }))
 
-// Root path — redirect to web UI or health to avoid 404 spam from
-// clients (e.g. mobile apps) that probe the server root.
-app.get('/', c => c.redirect('/code'))
-
 // Static files — serve built web UI under /code path
 // Uses web/dist/ if it exists (production), otherwise falls back to web/ (dev/fallback)
 const __dirname = dirname(fileURLToPath(import.meta.url))

@@ -32,6 +32,41 @@ export function buildMessagesFromHistory(
   // assistant msgId → 已创建的 Message，用于合并同一 msgId 的多行 JSONL 记录
   const assistantMsgIndex = new Map<string, RestoredMessage>()
 
+  // ── 自动重试去重状态 ──
+  // 当 429 限流等可恢复错误触发自动重试时，前端会通过 resendForRetry →
+  // claudeCode.sendMessage 重新发送相同的用户消息，引擎会将其作为新的
+  // user 记录写入 JSONL。同时引擎也会写入 isApiErrorMessage 的 assistant
+  // 记录（内容为 "API Error: 429..."）。重载会话时这些记录会导致：
+  //   1. 用户消息出现多遍（每次重试一遍）
+  //   2. 助手消息中混入 "API Error: 429..." 错误文本
+  // 通过以下状态在历史重建时清理这些重试痕迹，使恢复后的对话与首次对话一致。
+  let lastUserText = ''                        // 上一条被保留的 user 消息文本
+  let hadRealAssistantSinceLastUser = false    // 自上一条 user 消息后是否出现过真实助手回复
+  let sawApiErrorSinceLastUser = false          // 自上一条 user 消息后是否出现过 API 错误助手消息
+
+  /**
+   * 判断一条 assistant JSONL 记录是否为引擎写入的 API 错误消息
+   * （如 "API Error: 429 rate limit exceeded on dimension: tpm"）。
+   * 引擎通过 createAssistantAPIErrorMessage 创建此类记录，带有 isApiErrorMessage 标记。
+   * 作为兜底，也检查文本内容是否以 "API Error" 开头。
+   */
+  const isApiErrorAssistant = (raw: any): boolean => {
+    if (raw.isApiErrorMessage === true) return true
+    const content = raw.message?.content
+    if (typeof content === 'string') {
+      return content.trimStart().startsWith('API Error')
+    }
+    if (Array.isArray(content)) {
+      const textBlocks = content.filter((b: any) => b?.type === 'text' && typeof b.text === 'string')
+      const hasOtherBlocks = content.some((b: any) => b?.type === 'tool_use' || b?.type === 'thinking' || b?.type === 'redacted_thinking')
+      // 仅当全部文本块都以 "API Error" 开头、且无 tool_use/thinking 块时，判定为纯错误消息
+      if (textBlocks.length > 0 && !hasOtherBlocks) {
+        return textBlocks.every((b: any) => b.text.trimStart().startsWith('API Error'))
+      }
+    }
+    return false
+  }
+
   const parseTimestamp = (raw: any): number => {
     if (!raw) return Date.now()
     if (typeof raw === 'number') return raw
@@ -163,6 +198,19 @@ export function buildMessagesFromHistory(
       if (!userText && toolResults.length > 0) continue
       if (!userText) continue
 
+      // ── 自动重试去重 ──
+      // 跳过由 resendForRetry 产生的重复用户消息。判定条件：
+      //   文本与上一条保留的 user 消息完全相同
+      //   且自上一条 user 消息后出现过 API 错误（429 等可恢复错误），
+      //   或自上一条 user 消息后没有任何真实助手回复（超时/进程退出后重试）。
+      // 这样既清理重试痕迹，又保留用户在收到真实回复后合法地重复发送相同消息的场景。
+      if (
+        userText === lastUserText &&
+        (sawApiErrorSinceLastUser || !hadRealAssistantSinceLastUser)
+      ) {
+        continue
+      }
+
       // 提取附件（文件引用 / 图片）
       const attachments: any[] = []
       const imageAttachments: any[] = []
@@ -195,11 +243,23 @@ export function buildMessagesFromHistory(
         ...(attachments.length ? { attachments } : {}),
         ...(imageAttachments.length ? { imageAttachments } : {}),
       })
+      lastUserText = userText
+      hadRealAssistantSinceLastUser = false
+      sawApiErrorSinceLastUser = false
       continue
     }
 
     // ── 助手消息 ────────────────────────────────────────────────────
     if (raw.type === 'assistant' && (subagentMode || !raw.isSidechain) && raw.message?.content) {
+      // 跳过引擎写入的 API 错误消息（如 "API Error: 429 rate limit exceeded..."）
+      // 这些记录出现在可恢复错误（429/5xx/超时）时，其后紧跟重试产生的重复用户消息。
+      // 跳过它们使恢复后的对话历史不包含错误噪音，与实时对话期间用户看到的体验一致
+      // （实时期间前端会显示「正在重试」指示器而非错误文本）。
+      if (isApiErrorAssistant(raw)) {
+        sawApiErrorSinceLastUser = true
+        continue
+      }
+
       const content = raw.message.content
       const msgId = typeof raw.message?.id === 'string' && raw.message.id
         ? raw.message.id
@@ -297,6 +357,8 @@ export function buildMessagesFromHistory(
         for (const tc of toolCalls) {
           toolCallIndex.set(tc.id, { toolCall: tc, messageRef: existingMsg })
         }
+        hadRealAssistantSinceLastUser = true
+        sawApiErrorSinceLastUser = false
       } else {
         const usage = raw.message?.usage || {}
         const metadata: any = {}
@@ -335,6 +397,8 @@ export function buildMessagesFromHistory(
         for (const tc of toolCalls) {
           toolCallIndex.set(tc.id, { toolCall: tc, messageRef: restored })
         }
+        hadRealAssistantSinceLastUser = true
+        sawApiErrorSinceLastUser = false
       }
       continue
     }

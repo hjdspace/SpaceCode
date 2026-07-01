@@ -10,8 +10,12 @@ import type {
   SystemFileSnapshotMessage,
   UserMessage,
 } from 'src/types/message.js'
-import { getPlanSlugCache, getSessionId } from '../bootstrap/state.js'
-import { EXIT_PLAN_MODE_V2_TOOL_NAME } from '../tools/ExitPlanModeTool/constants.js'
+import {
+  getPlanSlugCache,
+  getSessionId,
+  setPlanSlugCacheEntry,
+} from '../bootstrap/state.js'
+import { EXIT_PLAN_MODE_V2_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/ExitPlanModeTool/constants.js'
 import { getCwd } from './cwd.js'
 import { logForDebugging } from './debug.js'
 import { getClaudeConfigHomeDir } from './envUtils.js'
@@ -43,7 +47,7 @@ export function getPlanSlug(sessionId?: SessionId): string {
         break
       }
     }
-    cache.set(id, slug!)
+    setPlanSlugCacheEntry(id, slug!)
   }
   return slug!
 }
@@ -52,7 +56,7 @@ export function getPlanSlug(sessionId?: SessionId): string {
  * Set a specific plan slug for a session (used when resuming a session)
  */
 export function setPlanSlug(sessionId: SessionId, slug: string): void {
-  getPlanSlugCache().set(sessionId, slug)
+  setPlanSlugCacheEntry(sessionId, slug)
 }
 
 /**
@@ -362,19 +366,19 @@ export async function persistFileSnapshotIfRemote(): Promise<void> {
     return
   }
   try {
-    const snapshotFiles: SystemFileSnapshotMessage['snapshotFiles'] = []
+    const snapshotFiles: { key: string; path: string; content: string }[] = []
 
     // Snapshot plan file
     const plan = getPlan()
     if (plan) {
-      (snapshotFiles as any[]).push({
+      snapshotFiles.push({
         key: 'plan',
         path: getPlanFilePath(),
         content: plan,
       })
     }
 
-    if ((snapshotFiles as any[]).length === 0) {
+    if (snapshotFiles.length === 0) {
       return
     }
 

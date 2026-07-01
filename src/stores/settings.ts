@@ -15,6 +15,18 @@ export interface ProviderConfig {
   opusModel: string
 }
 
+/** Default context window (tokens) shared by most models. */
+export const DEFAULT_CONTEXT_WINDOW = 200_000
+
+/** Preset context window options offered in the UI. */
+export const CONTEXT_WINDOW_PRESETS = [
+  { label: '128K', value: 128_000 },
+  { label: '200K', value: 200_000 },
+  { label: '256K', value: 256_000 },
+  { label: '400K', value: 400_000 },
+  { label: '1M', value: 1_000_000 },
+] as const
+
 export interface OAuthAccountInfo {
   email: string
   subscription?: string
@@ -57,6 +69,8 @@ export interface AuthSettings {
   installedCliPath?: string
   lastViewedChangelogVersion?: string
   effortLevel?: 'low' | 'medium' | 'high' | 'max'
+  /** Per-model context window overrides (modelId → token count). */
+  modelContextWindows?: Record<string, number>
 }
 
 const SETTINGS_STORAGE_KEY = 'claude_desktop_settings'
@@ -266,6 +280,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const engineSource = ref<EngineSource>(saved.engineSource || 'bundled')
   const installedCliPath = ref<string | null>(saved.installedCliPath || null)
   const lastViewedChangelogVersion = ref<string | null>(saved.lastViewedChangelogVersion || null)
+  const modelContextWindows = ref<Record<string, number>>(saved.modelContextWindows || {})
 
   // Computed: current provider for LLM service compatibility
   const provider = computed(() => {
@@ -409,6 +424,14 @@ export const useSettingsStore = defineStore('settings', () => {
       }
     }
 
+    // Pass user-configured context window to the engine so auto-compact
+    // thresholds match the UI. The engine's transcript-context hook
+    // honours ECC_CONTEXT_WINDOW_TOKENS / CLAUDE_CODE_AUTO_COMPACT_WINDOW.
+    const primaryModel = getSonnetModel()
+    if (primaryModel && modelContextWindows.value[primaryModel]) {
+      env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = String(modelContextWindows.value[primaryModel])
+    }
+
     return env
   }
 
@@ -428,7 +451,8 @@ export const useSettingsStore = defineStore('settings', () => {
       appearance: { ...appearance.value },
       engineSource: engineSource.value,
       installedCliPath: installedCliPath.value ?? undefined,
-      lastViewedChangelogVersion: lastViewedChangelogVersion.value ?? undefined
+      lastViewedChangelogVersion: lastViewedChangelogVersion.value ?? undefined,
+      modelContextWindows: { ...modelContextWindows.value }
     }
 
     const serialized = JSON.stringify(data, null, 2)
@@ -475,6 +499,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (settings.engineSource) engineSource.value = settings.engineSource
     if (settings.installedCliPath !== undefined) installedCliPath.value = settings.installedCliPath
     if (settings.lastViewedChangelogVersion !== undefined) lastViewedChangelogVersion.value = settings.lastViewedChangelogVersion
+    if (settings.modelContextWindows !== undefined) modelContextWindows.value = { ...settings.modelContextWindows }
   }
 
   async function loadFromGuiSettingsFile() {
@@ -591,5 +616,6 @@ export const useSettingsStore = defineStore('settings', () => {
     setEngineSource,
     setInstalledCliPath,
     lastViewedChangelogVersion,
+    modelContextWindows,
   }
 })

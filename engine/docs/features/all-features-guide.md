@@ -8,7 +8,7 @@
 
 1. [Buddy 伴侣系统](#1-buddy-伴侣系统)
 2. [Remote Control 远程控制](#2-remote-control-远程控制)
-3. [定时任务 /schedule](#3-定时任务-schedule)
+3. [定时任务 /triggers](#3-定时任务-triggers)
 4. [Voice Mode 语音模式](#4-voice-mode-语音模式)
 5. [Chrome 浏览器控制](#5-chrome-浏览器控制)
 6. [Computer Use 屏幕操控](#6-computer-use-屏幕操控)
@@ -72,19 +72,21 @@ CLAUDE_BRIDGE_BASE_URL=https://your-server.com CLAUDE_BRIDGE_OAUTH_TOKEN=your-to
 
 ---
 
-## 3. 定时任务 /schedule
+## 3. 定时任务 /triggers
 
 **PR**: #88 `feat: enable /schedule by adding AGENT_TRIGGERS_REMOTE`
 **Feature Flag**: `AGENT_TRIGGERS_REMOTE`
+
+> 命令名已从 `/schedule` 改为 `/triggers`，避免与上游 bundled skill `schedule` 冲突。`/cron` 是别名。
 
 ### 说明
 创建定时执行的远程 agent 任务，支持 cron 表达式。
 
 ### 使用
 ```
-/schedule create "每天检查依赖更新" --cron "0 9 * * *" --prompt "检查 package.json 中的过期依赖并创建更新 PR"
-/schedule list          — 列出所有定时任务
-/schedule delete <id>   — 删除指定任务
+/triggers create "每天检查依赖更新" --cron "0 9 * * *" --prompt "检查 package.json 中的过期依赖并创建更新 PR"
+/triggers list          — 列出所有定时任务
+/triggers delete <id>   — 删除指定任务
 ```
 
 ---
@@ -516,25 +518,37 @@ AI 也可通过 `SnipTool` 自动截断过长的对话：
 
 | Flag | 默认 | 说明 |
 |------|------|------|
-| `BUDDY` | ✅ dev/build | 伴侣系统 |
-| `BRIDGE_MODE` | ✅ dev/build | 远程控制 |
-| `VOICE_MODE` | ✅ dev/build | 语音模式 |
-| `CHICAGO_MCP` | ✅ dev/build | Computer Use + Chrome |
-| `AGENT_TRIGGERS_REMOTE` | ✅ dev/build | 定时任务 |
-| `SHOT_STATS` | ✅ dev/build | API 统计 |
-| `TOKEN_BUDGET` | ✅ dev/build | Token 预算 |
-| `PROMPT_CACHE_BREAK_DETECTION` | ✅ dev/build | 缓存检测 |
-| `ULTRAPLAN` | ✅ dev/build | 高级规划 |
-| `DAEMON` | ✅ dev/build | 后台守护 |
-| `UDS_INBOX` | ✅ dev/build | Pipe IPC |
-| `LAN_PIPES` | ✅ dev/build | LAN 群控 |
-| `MONITOR_TOOL` | ✅ dev/build | 后台监控 |
-| `WORKFLOW_SCRIPTS` | ✅ dev/build | 工作流脚本 |
-| `FORK_SUBAGENT` | ✅ dev/build | 子 Agent |
-| `KAIROS` | ✅ dev/build | Kairos 调度 |
-| `COORDINATOR_MODE` | ✅ dev/build | 多 Worker |
-| `HISTORY_SNIP` | ✅ dev/build | 历史管理 |
-| `CONTEXT_COLLAPSE` | ✅ dev/build | 上下文折叠 |
+| `BUDDY` | ✅ dev only | 伴侣系统 |
+| `BRIDGE_MODE` | ✅ dev only | 远程控制 |
+| `VOICE_MODE` | ✅ dev+build | 语音模式 |
+| `CHICAGO_MCP` | ✅ dev+build | Computer Use + Chrome |
+| `AGENT_TRIGGERS_REMOTE` | ✅ dev+build | 定时任务 |
+| `SHOT_STATS` | ✅ dev+build | API 统计 |
+| `TOKEN_BUDGET` | ✅ dev+build | Token 预算 |
+| `PROMPT_CACHE_BREAK_DETECTION` | ✅ dev+build | 缓存检测 |
+| `ULTRAPLAN` | ✅ dev+build | 高级规划 |
+| `DAEMON` | ✅ dev+build | 后台守护 |
+| `UDS_INBOX` | ✅ dev only | Pipe IPC |
+| `LAN_PIPES` | ✅ dev only | LAN 群控 |
+| `MONITOR_TOOL` | ✅ dev+build | 后台监控 |
+| `WORKFLOW_SCRIPTS` | ✅ dev+build | 工作流脚本 |
+| `FORK_SUBAGENT` | ✅ dev+build | 子 Agent |
+| `KAIROS` | ✅ dev+build | Kairos 调度 |
+| `COORDINATOR_MODE` | ✅ dev+build | 多 Worker |
+| `HISTORY_SNIP` | ✅ dev+build | 历史管理 |
+| `CONTEXT_COLLAPSE` | ✅ dev+build | 上下文折叠 |
+| `ULTRATHINK` | ✅ dev+build | 扩展思考 |
+| `EXTRACT_MEMORIES` | ✅ dev+build | 自动记忆提取 |
+| `VERIFICATION_AGENT` | ✅ dev+build | 验证 Agent |
+| `KAIROS_BRIEF` | ✅ dev+build | Brief 模式 |
+| `AWAY_SUMMARY` | ✅ dev+build | 离开摘要 |
+| `ACP` | ✅ dev+build | ACP 协议 |
+| `LODESTONE` | ✅ dev+build | 深度链接 |
+| `BUILTIN_EXPLORE_PLAN_AGENTS` | ✅ dev+build | 内置 Explore/Plan agent |
+| `AGENT_TRIGGERS` | ✅ dev+build | 本地定时任务 |
+| `BG_SESSIONS` | ✅ dev only | 后台会话 |
+| `TEMPLATES` | ✅ dev only | 模板系统 |
+| `TRANSCRIPT_CLASSIFIER` | ✅ dev only | 对话分类 |
 
 手动启用任意 flag：
 ```bash

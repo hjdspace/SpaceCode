@@ -29,7 +29,7 @@ import type {
 import type {
   AgentDefinition,
   AgentDefinitionsResult,
-} from './tools/AgentTool/loadAgentsDir.js'
+} from '@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js'
 import type {
   AssistantMessage,
   AttachmentMessage,
@@ -61,17 +61,6 @@ import type { FileStateCache } from './utils/fileStateCache.js'
 import type { DenialTrackingState } from './utils/permissions/denialTracking.js'
 import type { SystemPrompt } from './utils/systemPromptType.js'
 import type { ContentReplacementState } from './utils/toolResultStorage.js'
-
-// Re-export progress types for backwards compatibility
-export type {
-  AgentToolProgress,
-  BashProgress,
-  MCPProgress,
-  REPLToolProgress,
-  SkillToolProgress,
-  TaskOutputProgress,
-  WebSearchProgress,
-}
 
 import type { SpinnerMode } from './components/Spinner.js'
 import type { QuerySource } from './constants/querySource.js'
@@ -146,7 +135,7 @@ export const getEmptyToolPermissionContext: () => ToolPermissionContext =
     alwaysAllowRules: {},
     alwaysDenyRules: {},
     alwaysAskRules: {},
-    isBypassPermissionsModeAvailable: false,
+    isBypassPermissionsModeAvailable: true,
   })
 
 export type CompactProgressEvent =
@@ -178,6 +167,19 @@ export type ToolUseContext = {
     querySource?: QuerySource
     /** Optional callback to get the latest tools (e.g., after MCP servers connect mid-query) */
     refreshTools?: () => Tools
+    /**
+     * @internal TEST-ONLY ESCAPE HATCH. MUST remain undefined in production.
+     *
+     * Allows non-bundled unit-test harnesses to exercise the background
+     * forked slash command path that production assistant mode gates behind
+     * `feature('KAIROS')`. Still requires `AppState.kairosEnabled`. This
+     * field is constructed in-process by trusted application code only;
+     * no external surface (MCP, plugin, slash command, network) writes to
+     * `ToolUseContext.options`. Setting this true outside a test bypasses
+     * the KAIROS feature flag; `processSlashCommand` rejects this flag
+     * outside `NODE_ENV=test`.
+     */
+    allowBackgroundForkedSlashCommands?: boolean
   }
   abortController: AbortController
   readFileState: FileStateCache
@@ -277,6 +279,10 @@ export type ToolUseContext = {
   criticalSystemReminder_EXPERIMENTAL?: string
   /** Langfuse root trace span for this query turn. Passed down to tool execution for observability. */
   langfuseTrace?: LangfuseSpan | null
+  /** Langfuse root trace span for the outer/main agent trace. Used when subagents need to nest observations under the parent agent trace. */
+  langfuseRootTrace?: LangfuseSpan | null
+  /** Langfuse batch span wrapping a concurrent tool group. When set, tool observations are nested under it. */
+  langfuseBatchSpan?: LangfuseSpan | null
   /** When true, preserve toolUseResult on messages even for subagents.
    * Used by in-process teammates whose transcripts are viewable by the user. */
   preserveToolUseResults?: boolean
@@ -374,7 +380,7 @@ export type Tool<
    */
   aliases?: string[]
   /**
-   * One-line capability phrase used by ToolSearch for keyword matching.
+   * One-line capability phrase used by SearchExtraTools for keyword matching.
    * Helps the model find this tool via keyword search when it's deferred.
    * 3–10 words, no trailing period.
    * Prefer terms not already in the tool name (e.g. 'jupyter' for NotebookEdit).
@@ -441,14 +447,14 @@ export type Tool<
   isLsp?: boolean
   /**
    * When true, this tool is deferred (sent with defer_loading: true) and requires
-   * ToolSearch to be used before it can be called.
+   * SearchExtraTools to be used before it can be called.
    */
   readonly shouldDefer?: boolean
   /**
    * When true, this tool is never deferred — its full schema appears in the
-   * initial prompt even when ToolSearch is enabled. For MCP tools, set via
+   * initial prompt even when SearchExtraTools is enabled. For MCP tools, set via
    * `_meta['anthropic/alwaysLoad']`. Use for tools the model must see on
-   * turn 1 without a ToolSearch round-trip.
+   * turn 1 without a SearchExtraTools round-trip.
    */
   readonly alwaysLoad?: boolean
   /**

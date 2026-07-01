@@ -1,22 +1,41 @@
-import type { BetaToolUnion } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
+import type {
+  BetaToolUnion,
+  BetaMessage,
+  BetaUsage,
+} from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type { SystemPrompt } from '../../../utils/systemPromptType.js'
-import type { Message, StreamEvent, SystemAPIErrorMessage, AssistantMessage } from '../../../types/message.js'
+import type {
+  Message,
+  StreamEvent,
+  SystemAPIErrorMessage,
+  AssistantMessage,
+} from '../../../types/message.js'
 import type { Tools } from '../../../Tool.js'
 import type {
   ChatCompletionChunk,
   ChatCompletionCreateParamsStreaming,
 } from 'openai/resources/chat/completions/completions.mjs'
 import { getGrokClient } from './client.js'
-import { anthropicMessagesToOpenAI } from '../openai/convertMessages.js'
-import { anthropicToolsToOpenAI, anthropicToolChoiceToOpenAI } from '../openai/convertTools.js'
-import { adaptOpenAIStreamToAnthropic } from '../openai/streamAdapter.js'
-import { resolveGrokModel } from './modelMapping.js'
+import { updateOpenAIUsage } from '../openai/openaiShared.js'
+import {
+  anthropicMessagesToOpenAI,
+  anthropicToolsToOpenAI,
+  anthropicToolChoiceToOpenAI,
+  adaptOpenAIStreamToAnthropic,
+  resolveGrokModel,
+} from '@ant/model-provider'
 import { normalizeMessagesForAPI } from '../../../utils/messages.js'
 import type { SDKAssistantMessageError } from '../../../entrypoints/agentSdkTypes.js'
 import { toolToAPISchema } from '../../../utils/api.js'
 import { logForDebugging } from '../../../utils/debug.js'
 import { addToTotalSessionCost } from '../../../cost-tracker.js'
 import { calculateUSDCost } from '../../../utils/modelCost.js'
+import { recordLLMObservation } from '../../../services/langfuse/tracing.js'
+import {
+  convertMessagesToLangfuse,
+  convertOutputToLangfuse,
+  convertToolsToLangfuse,
+} from '../../../services/langfuse/convert.js'
 import type { Options } from '../claude.js'
 import { randomUUID } from 'crypto'
 import {
@@ -57,11 +76,16 @@ export async function* queryModelGrok(
     const standardTools = toolSchemas.filter(
       (t): t is BetaToolUnion & { type: string } => {
         const anyT = t as unknown as Record<string, unknown>
-        return anyT.type !== 'advisor_20260301' && anyT.type !== 'computer_20250124'
+        return (
+          anyT.type !== 'advisor_20260301' && anyT.type !== 'computer_20250124'
+        )
       },
     )
 
-    const openaiMessages = anthropicMessagesToOpenAI(messagesForAPI, systemPrompt)
+    const openaiMessages = anthropicMessagesToOpenAI(
+      messagesForAPI,
+      systemPrompt,
+    )
     const openaiTools = anthropicToolsToOpenAI(standardTools)
     const openaiToolChoice = anthropicToolChoiceToOpenAI(options.toolChoice)
 
@@ -71,7 +95,9 @@ export async function* queryModelGrok(
       source: options.querySource,
     })
 
-    logForDebugging(`[Grok] Calling model=${grokModel}, messages=${openaiMessages.length}, tools=${openaiTools.length}`)
+    logForDebugging(
+      `[Grok] Calling model=${grokModel}, messages=${openaiMessages.length}, tools=${openaiTools.length}`,
+    )
 
     const stream = await client.chat.completions.create(
       {
@@ -92,11 +118,20 @@ export async function* queryModelGrok(
       },
     )
 
-    const adaptedStream = adaptOpenAIStreamToAnthropic(stream as AsyncIterable<ChatCompletionChunk>, grokModel)
+    const adaptedStream = adaptOpenAIStreamToAnthropic(
+      stream as AsyncIterable<ChatCompletionChunk>,
+      grokModel,
+    )
 
-    const contentBlocks: Record<number, any> = {}
-    let partialMessage: any = undefined
-    let usage = {
+    const contentBlocks: Record<number, Record<string, unknown>> = {}
+    const collectedMessages: AssistantMessage[] = []
+    let partialMessage: BetaMessage | null = null
+    let usage: {
+      input_tokens: number
+      output_tokens: number
+      cache_creation_input_tokens: number
+      cache_read_input_tokens: number
+    } = {
       input_tokens: 0,
       output_tokens: 0,
       cache_creation_input_tokens: 0,
@@ -108,16 +143,21 @@ export async function* queryModelGrok(
     for await (const event of adaptedStream) {
       switch (event.type) {
         case 'message_start': {
-          partialMessage = (event as any).message
+          partialMessage = event.message
           ttftMs = Date.now() - start
-          if ((event as any).message?.usage) {
-            usage = { ...usage, ...((event as any).message.usage) }
+          if (event.message.usage) {
+            usage = updateOpenAIUsage(
+              usage,
+              event.message.usage as unknown as Parameters<
+                typeof updateOpenAIUsage
+              >[1],
+            )
           }
           break
         }
         case 'content_block_start': {
-          const idx = (event as any).index
-          const cb = (event as any).content_block
+          const idx = event.index
+          const cb = event.content_block
           if (cb.type === 'tool_use') {
             contentBlocks[idx] = { ...cb, input: '' }
           } else if (cb.type === 'text') {
@@ -130,43 +170,53 @@ export async function* queryModelGrok(
           break
         }
         case 'content_block_delta': {
-          const idx = (event as any).index
-          const delta = (event as any).delta
+          const idx = event.index
+          const delta = event.delta
           const block = contentBlocks[idx]
           if (!block) break
           if (delta.type === 'text_delta') {
-            block.text = (block.text || '') + delta.text
+            block.text = ((block.text as string | undefined) || '') + delta.text
           } else if (delta.type === 'input_json_delta') {
-            block.input = (block.input || '') + delta.partial_json
+            block.input =
+              ((block.input as string | undefined) || '') + delta.partial_json
           } else if (delta.type === 'thinking_delta') {
-            block.thinking = (block.thinking || '') + delta.thinking
+            block.thinking =
+              ((block.thinking as string | undefined) || '') + delta.thinking
           } else if (delta.type === 'signature_delta') {
             block.signature = delta.signature
           }
           break
         }
         case 'content_block_stop': {
-          const idx = (event as any).index
+          const idx = event.index
           const block = contentBlocks[idx]
           if (!block || !partialMessage) break
 
           const m: AssistantMessage = {
             message: {
               ...partialMessage,
-              content: normalizeContentFromAPI([block], tools, options.agentId),
-            },
+              content: normalizeContentFromAPI(
+                [block] as unknown as BetaMessage['content'],
+                tools,
+                options.agentId,
+              ),
+            } as AssistantMessage['message'],
             requestId: undefined,
             type: 'assistant',
             uuid: randomUUID(),
             timestamp: new Date().toISOString(),
           }
+          collectedMessages.push(m)
           yield m
           break
         }
         case 'message_delta': {
-          const deltaUsage = (event as any).usage
+          const deltaUsage = event.usage
           if (deltaUsage) {
-            usage = { ...usage, ...deltaUsage }
+            usage = updateOpenAIUsage(
+              usage,
+              deltaUsage as unknown as Parameters<typeof updateOpenAIUsage>[1],
+            )
           }
           break
         }
@@ -174,9 +224,19 @@ export async function* queryModelGrok(
           break
       }
 
-      if (event.type === 'message_stop' && usage.input_tokens + usage.output_tokens > 0) {
-        const costUSD = calculateUSDCost(grokModel, usage as any)
-        addToTotalSessionCost(costUSD, usage as any, options.model)
+      if (
+        event.type === 'message_stop' &&
+        usage.input_tokens + usage.output_tokens > 0
+      ) {
+        const costUSD = calculateUSDCost(
+          grokModel,
+          usage as unknown as BetaUsage,
+        )
+        addToTotalSessionCost(
+          costUSD,
+          usage as unknown as BetaUsage,
+          options.model,
+        )
       }
 
       yield {
@@ -185,13 +245,33 @@ export async function* queryModelGrok(
         ...(event.type === 'message_start' ? { ttftMs } : undefined),
       } as StreamEvent
     }
+
+    // Record LLM observation in Langfuse (no-op if not configured)
+    recordLLMObservation(options.langfuseTrace ?? null, {
+      model: grokModel,
+      provider: 'grok',
+      input: convertMessagesToLangfuse(messagesForAPI, systemPrompt),
+      output: convertOutputToLangfuse(collectedMessages),
+      usage: {
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cache_creation_input_tokens: usage.cache_creation_input_tokens,
+        cache_read_input_tokens: usage.cache_read_input_tokens,
+      },
+      startTime: new Date(start),
+      endTime: new Date(),
+      completionStartTime: ttftMs > 0 ? new Date(start + ttftMs) : undefined,
+      tools: convertToolsToLangfuse(toolSchemas as unknown[]),
+    })
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     logForDebugging(`[Grok] Error: ${errorMessage}`, { level: 'error' })
     yield createAssistantAPIErrorMessage({
       content: `API Error: ${errorMessage}`,
       apiError: 'api_error',
-      error: (error instanceof Error ? error : new Error(String(error))) as unknown as SDKAssistantMessageError,
+      error: (error instanceof Error
+        ? error
+        : new Error(String(error))) as unknown as SDKAssistantMessageError,
     })
   }
 }

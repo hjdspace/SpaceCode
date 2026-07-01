@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SpaceCode 图标优化预览 · 黑底高级配色</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0a;
+      color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      min-height: 100vh;
+      padding: 40px 20px;
+    }
+    h1 {
+      text-align: center;
+      font-size: 2rem;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, #FFFFFF, #E8E8E8, #AAAAAA);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .subtitle {
+      text-align: center;
+      color: #888;
+      margin-bottom: 40px;
+      font-size: 0.95rem;
+    }
+    .section-title {
+      font-size: 1.1rem;
+      color: #aaa;
+      margin: 40px 0 20px;
+      padding-left: 8px;
+      border-left: 3px solid #FFFFFF;
+      max-width: 900px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .comparison {
+      display: flex;
+      justify-content: center;
+      gap: 60px;
+      flex-wrap: wrap;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    .compare-card {
+      text-align: center;
+    }
+    .compare-card .label {
+      font-size: 0.85rem;
+      color: #888;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .compare-card .label.new {
+      color: #FFFFFF;
+    }
+    .compare-card img {
+      width: 200px;
+      height: 200px;
+      border-radius: 40px;
+      border: 1px solid #222;
+    }
+    .compare-card .desc {
+      font-size: 0.8rem;
+      color: #666;
+      margin-top: 12px;
+      max-width: 200px;
+      line-height: 1.5;
+    }
+    .sizes-row {
+      display: flex;
+      justify-content: center;
+      align-items: flex-end;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .size-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .size-wrap img {
+      border-radius: 4px;
+      border: none;
+      width: auto;
+      height: auto;
+    }
+    .size-label {
+      font-size: 0.65rem;
+      color: #555;
+      margin-top: 4px;
+    }
+
+    .options-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 24px;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    .option-card {
+      background: #141414;
+      border: 1px solid #222;
+      border-radius: 16px;
+      padding: 24px;
+      transition: all 0.3s;
+      text-align: center;
+    }
+    .option-card:hover {
+      border-color: #FFFFFF;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(255, 255, 255, 0.08);
+    }
+    .option-card.active {
+      border-color: #FFFFFF;
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
+    }
+    .option-card .badge {
+      display: inline-block;
+      background: #FFFFFF;
+      color: #000;
+      font-size: 0.7rem;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+    .option-card svg {
+      width: 128px;
+      height: 128px;
+      border-radius: 24px;
+      margin-bottom: 12px;
+    }
+    .option-card h3 {
+      font-size: 0.95rem;
+      color: #fff;
+      margin-bottom: 6px;
+    }
+    .option-card p {
+      font-size: 0.78rem;
+      color: #888;
+      line-height: 1.5;
+    }
+    .color-chips {
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .chip {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 1px solid #333;
+    }
+  </style>
+</head>
+<body>
+  <h1>SpaceCode 图标优化</h1>
+  <p class="subtitle">纯黑底 + 白色线条 · Cursor 风格极简预览</p>
+
+  <!-- ===== 对比：原版 vs 新版 ===== -->
+  <div class="section-title">修改前后对比</div>
+  <div class="comparison">
+    <div class="compare-card">
+      <div class="label">原版 · 深蓝底 + 青蓝线</div>
+      <img src="../../icons/design-b-planet-bracket-original.svg" style="object-fit: contain;">
+      <div class="desc">深蓝渐变背景 (#0c1829 → #1a2b4a)，青蓝渐变线条 (#22d3ee → #3b82f6)</div>
+      <div class="sizes-row">
+        <div class="size-wrap"><img src="../../icons/design-b-planet-bracket-original.svg" width="64" height="64" style="object-fit: contain;"><span class="size-label">64px</span></div>
+        <div class="size-wrap"><img src="../../icons/design-b-planet-bracket-original.svg" width="32" height="32" style="object-fit: contain;"><span class="size-label">32px</span></div>
+        <div class="size-wrap"><img src="../../icons/design-b-planet-bracket-original.svg" width="16" height="16" style="object-fit: contain;"><span class="size-label">16px</span></div>
+      </div>
+    </div>
+    <div class="compare-card">
+      <div class="label new">新版 · 纯黑底 + 白色线</div>
+      <img src="../../icons/design-b-planet-bracket.svg" style="object-fit: contain;">
+      <div class="desc">纯黑背景 (#000000)，白色微渐变线条 (#FFFFFF → #E8E8E8)，Cursor 风格极简</div>
+      <div class="sizes-row">
+        <div class="size-wrap"><img src="../../icons/design-b-planet-bracket.svg" width="64" height="64" style="object-fit: contain;"><span class="size-label">64px</span></div>
+        <div class="size-wrap"><img src="../../icons/design-b-planet-bracket.svg" width="32" height="32" style="object-fit: contain;"><span class="size-label">32px</span></div>
+        <div class="size-wrap"><img src="../../icons/design-b-planet-bracket.svg" width="16" height="16" style="object-fit: contain;"><span class="size-label">16px</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 高级配色方案选项 ===== -->
+  <div class="section-title">高级配色方案选项（点击切换当前使用方案）</div>
+  <div class="options-grid" id="options-grid"></div>
+
+  <script>
+    // 各方案的 SVG 定义（内联，便于切换预览）
+    const schemes = [
+      {
+        id: 'white',
+        name: '纯白（当前使用）',
+        desc: '纯白 → 暖白微渐变，Cursor 风格极简。黑底白线，最高对比度，干净利落，小尺寸下辨识度最强。',
+        colors: ['#FFFFFF', '#E8E8E8'],
+        bg: 'radial',
+        active: true,
+      },
+      {
+        id: 'gold',
+        name: '金属金',
+        desc: '香槟金 → 经典金 → 深金，三段式金属质感渐变。金色象征高端品质，在纯黑背景上具有极强的视觉冲击力和奢华感。',
+        colors: ['#F5E6C8', '#D4AF37', '#B8860B'],
+        bg: 'radial',
+      },
+      {
+        id: 'platinum',
+        name: '铂金银',
+        desc: '亮银 → 铂金 → 深灰，冷调金属质感。现代、极简、内敛的高级感，类似 Apple 产品的冷峻气质。',
+        colors: ['#F2F2F2', '#C0C0C0', '#808080'],
+        bg: 'radial',
+      },
+      {
+        id: 'iceblue',
+        name: '冰川蓝',
+        desc: '冰蓝 → 钢蓝 → 深蓝，冷调科技感。比原版的青蓝更沉稳内敛，适合科技产品的冷峻高级定位。',
+        colors: ['#B0E0E6', '#5F9EA0', '#2F4F4F'],
+        bg: 'radial',
+      },
+      {
+        id: 'rosegold',
+        name: '玫瑰金',
+        desc: '浅粉金 → 玫瑰金 → 深玫瑰，温暖奢华。近年流行的高端配色，柔和而不失格调。',
+        colors: ['#F8D7DA', '#E8B4B8', '#B76E79'],
+        bg: 'radial',
+      },
+      {
+        id: 'aurora',
+        name: '极光紫金',
+        desc: '淡金 → 紫罗兰 → 深紫，梦幻渐变。金色与紫色的跨界融合，独特且富有神秘感。',
+        colors: ['#F5E6C8', '#9D7CD8', '#5B2C87'],
+        bg: 'radial',
+      },
+      {
+        id: 'emerald',
+        name: '翡翠绿',
+        desc: '浅翠 → 翡翠 → 深松石，东方雅致。绿色系中的高级感代表，沉稳大气。',
+        colors: ['#A8E6CF', '#52C41A', '#1A5E3A'],
+        bg: 'radial',
+      },
+    ];
+
+    function buildSvg(scheme) {
+      const stops = scheme.colors.map((c, i) =>
+        `<stop offset="${Math.round(i / (scheme.colors.length - 1) * 100)}%" style="stop-color:${c}"/>`
+      ).join('');
+      const bgFill = scheme.bg === 'radial'
+        ? `<radialGradient id="bg-${scheme.id}" cx="50%" cy="50%" r="70%"><stop offset="0%" style="stop-color:#0d0d0d"/><stop offset="100%" style="stop-color:#000000"/></radialGradient>`
+        : `<linearGradient id="bg-${scheme.id}" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#0d0d0d"/><stop offset="100%" style="stop-color:#000000"/></linearGradient>`;
+
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="128" height="128">
+        <defs>
+          ${bgFill}
+          <linearGradient id="grad-${scheme.id}" x1="0%" y1="0%" x2="100%" y2="100%">${stops}</linearGradient>
+        </defs>
+        <rect width="512" height="512" rx="112" fill="url(#bg-${scheme.id})"/>
+        <circle cx="256" cy="256" r="140" fill="none" stroke="url(#grad-${scheme.id})" stroke-width="14"/>
+        <g fill="none" stroke="url(#grad-${scheme.id})" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M225,206 L175,256 L225,306"/>
+          <path d="M287,206 L337,256 L287,306"/>
+        </g>
+        <ellipse cx="256" cy="256" rx="200" ry="48" fill="none" stroke="url(#grad-${scheme.id})" stroke-width="6" transform="rotate(-18 256 256)" opacity="0.45"/>
+      </svg>`;
+    }
+
+    const grid = document.getElementById('options-grid');
+    grid.innerHTML = schemes.map(s => `
+      <div class="option-card${s.active ? ' active' : ''}" data-id="${s.id}">
+        ${s.active ? '<span class="badge">当前使用</span>' : ''}
+        ${buildSvg(s)}
+        <h3>${s.name}</h3>
+        <p>${s.desc}</p>
+        <div class="color-chips">
+          ${s.colors.map(c => `<div class="chip" style="background:${c}"></div>`).join('')}
+        </div>
+      </div>
+    `).join('');
+  </script>
+</body>
+</html>

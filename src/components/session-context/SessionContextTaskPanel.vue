@@ -193,7 +193,7 @@ async function loadFileDiff(path: string) {
   loadingDiffs.value.add(path)
   try {
     const result = await api.git.getDiff(cwd, path, false)
-    if (result?.hunks) {
+    if (result?.hunks && result.hunks.length > 0) {
       diffData[path] = parseDiffHunks(result.hunks)
     } else {
       diffErrors[path] = t('sessionContext.diffUnavailable')

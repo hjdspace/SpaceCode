@@ -2,8 +2,8 @@ import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/gr
 import type { MCPServerConnection } from '../../services/mcp/types.js'
 import { isPolicyAllowed } from '../../services/policyLimits/index.js'
 import type { ToolUseContext } from '../../Tool.js'
-import { ASK_USER_QUESTION_TOOL_NAME } from '../../tools/AskUserQuestionTool/prompt.js'
-import { REMOTE_TRIGGER_TOOL_NAME } from '../../tools/RemoteTriggerTool/prompt.js'
+import { ASK_USER_QUESTION_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/AskUserQuestionTool/prompt.js'
+import { REMOTE_TRIGGER_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/RemoteTriggerTool/prompt.js'
 import { getClaudeAIOAuthTokens } from '../../utils/auth.js'
 import { checkRepoForRemoteAccess } from '../../utils/background/remote/preconditions.js'
 import { logForDebugging } from '../../utils/debug.js'
@@ -182,7 +182,7 @@ ${setupNotesSection}
 
 ## What You Can Do
 
-Use the \`${REMOTE_TRIGGER_TOOL_NAME}\` tool (load it first with \`ToolSearch select:${REMOTE_TRIGGER_TOOL_NAME}\`; auth is handled in-process — do not use curl):
+Use the \`${REMOTE_TRIGGER_TOOL_NAME}\` tool (load it first with \`SearchExtraTools select:${REMOTE_TRIGGER_TOOL_NAME}\`; auth is handled in-process — do not use curl):
 
 - \`{action: "list"}\` — list all triggers
 - \`{action: "get", trigger_id: "..."}\` — fetch one trigger

@@ -130,7 +130,7 @@ export function getPromptTooLongTokenGap(
  * wording drift causes graceful degradation (errorDetails stays undefined,
  * caller short-circuits), not a false negative.
  */
-export function isMediaSizeError(raw: string): boolean {
+function isMediaSizeError(raw: string): boolean {
   return (
     (raw.includes('image exceeds') && raw.includes('maximum')) ||
     (raw.includes('image dimensions exceed') && raw.includes('many-image')) ||
@@ -944,6 +944,9 @@ function get3PModelFallbackSuggestion(model: string): string | undefined {
   // @[MODEL LAUNCH]: Add a fallback suggestion chain for the new model → previous version for 3P
   const m = model.toLowerCase()
   // If the failing model looks like an Opus 4.6 variant, suggest the default Opus (4.1 for 3P)
+  if (m.includes('opus-4-7') || m.includes('opus_4_7')) {
+    return getModelStrings().opus46
+  }
   if (m.includes('opus-4-6') || m.includes('opus_4_6')) {
     return getModelStrings().opus41
   }

@@ -28,6 +28,10 @@
           :card-data="item.card!"
           class="turn-change-card-wrapper"
         />
+        <ArtifactSummaryCard
+          v-else-if="item.type === 'artifact-card'"
+          :artifacts="item.artifacts!"
+        />
       </template>
 
       <div v-if="props.loading" class="typing-indicator">
@@ -47,6 +51,7 @@ import { storeToRefs } from 'pinia'
 import MessageItem from './MessageItem.vue'
 import AgentTimeline from './AgentTimeline.vue'
 import CurrentTurnChangeCard from './CurrentTurnChangeCard.vue'
+import ArtifactSummaryCard from './ArtifactSummaryCard.vue'
 import { MessageSquare } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useChatStore } from '@/stores/chat'
@@ -74,10 +79,11 @@ interface MessageGroup {
 }
 
 interface DisplayItem {
-  type: 'user-group' | 'assistant-group' | 'turn-card'
+  type: 'user-group' | 'assistant-group' | 'turn-card' | 'artifact-card'
   key: string
   group?: MessageGroup
   card?: TurnChangeCardData
+  artifacts?: import('@/types').ArtifactSummaryEntry[]
 }
 
 // ========== 优化1: 消息分组计算缓存 (类似useMemo) ==========
@@ -154,16 +160,38 @@ const messageGroups = computed<MessageGroup[]>(() => {
   return buildMessageGroups(props.messages)
 })
 
+// 若某助手分组的回合产生了产物（仅办公模式），返回对应的产物卡片项，否则 null
+function artifactCardItem(group: MessageGroup): DisplayItem | null {
+  if (chatStore.currentSession?.mode !== 'work') return null
+  const withArtifacts = group.messages.find(
+    m => m.metadata?.artifacts && m.metadata.artifacts.length > 0
+  )
+  if (!withArtifacts) return null
+  return {
+    type: 'artifact-card',
+    key: `artifact-card-${group.id}`,
+    artifacts: withArtifacts.metadata!.artifacts,
+  }
+}
+
 function buildDisplayItems(
   groups: MessageGroup[],
   cards: TurnChangeCardData[]
 ): DisplayItem[] {
   if (cards.length === 0) {
-    return groups.map(g => ({
-      type: g.type === 'user' ? 'user-group' : 'assistant-group',
-      key: g.id,
-      group: g,
-    }))
+    const items: DisplayItem[] = []
+    for (const g of groups) {
+      items.push({
+        type: g.type === 'user' ? 'user-group' : 'assistant-group',
+        key: g.id,
+        group: g,
+      })
+      if (g.type === 'assistant') {
+        const ac = artifactCardItem(g)
+        if (ac) items.push(ac)
+      }
+    }
+    return items
   }
 
   const items: DisplayItem[] = []
@@ -182,6 +210,8 @@ function buildDisplayItems(
         i++
         const assistantGroup = groups[i]
         items.push({ type: 'assistant-group', key: assistantGroup.id, group: assistantGroup })
+        const acUser = artifactCardItem(assistantGroup)
+        if (acUser) items.push(acUser)
       }
 
       const card = cards.find(
@@ -198,6 +228,8 @@ function buildDisplayItems(
       }
     } else {
       items.push({ type: 'assistant-group', key: group.id, group })
+      const acElse = artifactCardItem(group)
+      if (acElse) items.push(acElse)
     }
   }
 
@@ -248,6 +280,7 @@ const listRef = ref<HTMLElement | null>(null)
 const shouldAutoScrollRef = ref(true)
 const isProgrammaticScrollingRef = ref(false)
 const lastSessionIdRef = ref<string | null>(null)
+let _scrollRafScheduled = false
 
 const SCROLL_BOTTOM_THRESHOLD = 80 // 像素阈值，判断是否在底部附近
 
@@ -256,22 +289,22 @@ function isNearScrollBottom(element: HTMLElement): boolean {
 }
 
 function scrollToBottom(behavior: 'auto' | 'smooth' = 'auto') {
-  const applyScroll = () => {
+  // 节流：流式期间 streamScrollSignal 每个 delta 都会触发 scrollToBottom，
+  // 使用 rAF 合并同一帧内的多次调用，避免每个 delta 触发 3 次滚动（nextTick + rAF + setTimeout）。
+  if (_scrollRafScheduled) return
+  _scrollRafScheduled = true
+  requestAnimationFrame(() => {
+    _scrollRafScheduled = false
     if (!listRef.value || !shouldAutoScrollRef.value) return
     isProgrammaticScrollingRef.value = true
     listRef.value.scrollTo({
       top: listRef.value.scrollHeight,
       behavior,
     })
-    setTimeout(() => {
+    // 在下一帧清除标志，避免 scroll 事件误判
+    requestAnimationFrame(() => {
       isProgrammaticScrollingRef.value = false
-    }, 0)
-  }
-
-  nextTick(() => {
-    applyScroll()
-    requestAnimationFrame(applyScroll)
-    setTimeout(applyScroll, 120)
+    })
   })
 }
 
@@ -343,8 +376,32 @@ watch(() => chatStore.currentSessionId, (newSessionId, oldSessionId) => {
 let _cachedTurnTargets: RewindTurnTarget[] | null = null
 let _cachedTurnTargetsKey = ''
 
+function getTurnTargetsCacheKey(msgs: Message[]): string {
+  if (msgs.length === 0) return 'empty'
+
+  const lastMessage = msgs[msgs.length - 1]
+  const toolSignal = (lastMessage.toolCalls || [])
+    .map(tool => `${tool.id}:${tool.status}:${tool.output?.length || 0}`)
+    .join('|')
+  const timelineSignal = (lastMessage.timelineEvents || [])
+    .map(event => `${event.id}:${event.status}:${event.content?.length || 0}`)
+    .join('|')
+
+  return [
+    msgs.length,
+    lastMessage.id,
+    lastMessage.role,
+    lastMessage.content?.length || 0,
+    lastMessage.reasoning?.content?.length || 0,
+    lastMessage.reasoning?.endTime ? 1 : 0,
+    toolSignal,
+    timelineSignal,
+    lastMessage.metadata ? 1 : 0,
+  ].join(':')
+}
+
 function getCachedCompletedTurnTargets(msgs: Message[]): RewindTurnTarget[] {
-  const key = msgs.length > 0 ? `${msgs.length}-${msgs[msgs.length - 1]?.id}` : 'empty'
+  const key = getTurnTargetsCacheKey(msgs)
 
   if (_cachedTurnTargets && _cachedTurnTargetsKey === key) {
     return _cachedTurnTargets

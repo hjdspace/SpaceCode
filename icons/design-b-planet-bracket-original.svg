@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg-b" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0c1829"/>
+      <stop offset="100%" style="stop-color:#1a2b4a"/>
+    </linearGradient>
+    <linearGradient id="grad-b" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#22d3ee"/>
+      <stop offset="100%" style="stop-color:#3b82f6"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg-b)"/>
+
+  <!-- Planet circle (space) -->
+  <circle cx="256" cy="256" r="140" fill="none" stroke="url(#grad-b)" stroke-width="14"/>
+
+  <!-- </> cut out inside the circle - using negative space -->
+  <g fill="none" stroke="url(#grad-b)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M225,206 L175,256 L225,306"/>
+    <path d="M287,206 L337,256 L287,306"/>
+  </g>
+
+  <!-- Saturn ring - single clean accent -->
+  <ellipse cx="256" cy="256" rx="200" ry="48" fill="none"
+           stroke="url(#grad-b)" stroke-width="6"
+           transform="rotate(-18 256 256)" opacity="0.4"/>
+</svg>

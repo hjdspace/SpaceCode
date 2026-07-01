@@ -539,15 +539,12 @@ export function getRetryDelay(
     }
   }
 
-  const baseDelay = Math.min(
-    BASE_DELAY_MS * Math.pow(2, attempt - 1),
-    maxDelayMs,
-  )
+  const baseDelay = Math.min(BASE_DELAY_MS * 2 ** (attempt - 1), maxDelayMs)
   const jitter = Math.random() * 0.25 * baseDelay
   return baseDelay + jitter
 }
 
-export function parseMaxTokensContextOverflowError(error: APIError):
+function parseMaxTokensContextOverflowError(error: APIError):
   | {
       inputTokens: number
       maxTokens: number

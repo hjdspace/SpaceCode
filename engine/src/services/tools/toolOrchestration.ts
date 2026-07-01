@@ -4,6 +4,7 @@ import { findToolByName, type ToolUseContext } from '../../Tool.js'
 import type { AssistantMessage, Message } from '../../types/message.js'
 import { all } from '../../utils/generators.js'
 import { type MessageUpdateLazy, runToolUse } from './toolExecution.js'
+import { createToolBatchSpan, endToolBatchSpan } from '../langfuse/index.js'
 
 function getMaxToolUseConcurrency(): number {
   return (
@@ -22,7 +23,19 @@ export async function* runTools(
   canUseTool: CanUseToolFn,
   toolUseContext: ToolUseContext,
 ): AsyncGenerator<MessageUpdate, void> {
-  let currentContext = toolUseContext
+  // Wrap all tool calls in this turn under a single Langfuse turn span
+  const turnSpan =
+    toolUseMessages.length > 0
+      ? createToolBatchSpan(toolUseContext.langfuseTrace ?? null, {
+          toolNames: toolUseMessages.map(b => b.name),
+          batchIndex: 0,
+        })
+      : null
+  const contextWithTurn = turnSpan
+    ? { ...toolUseContext, langfuseBatchSpan: turnSpan }
+    : toolUseContext
+
+  let currentContext = contextWithTurn
   for (const { isConcurrencySafe, blocks } of partitionToolCalls(
     toolUseMessages,
     currentContext,
@@ -79,6 +92,8 @@ export async function* runTools(
       }
     }
   }
+
+  endToolBatchSpan(turnSpan)
 }
 
 type Batch = { isConcurrencySafe: boolean; blocks: ToolUseBlock[] }
@@ -129,10 +144,12 @@ async function* runToolsSerially(
     )
     for await (const update of runToolUse(
       toolUse,
-      assistantMessages.find(_ =>
-        Array.isArray(_.message.content) && _.message.content.some(
-          _ => _.type === 'tool_use' && _.id === toolUse.id,
-        ),
+      assistantMessages.find(
+        _ =>
+          Array.isArray(_.message.content) &&
+          _.message.content.some(
+            _ => _.type === 'tool_use' && _.id === toolUse.id,
+          ),
       )!,
       canUseTool,
       currentContext,
@@ -162,10 +179,12 @@ async function* runToolsConcurrently(
       )
       yield* runToolUse(
         toolUse,
-        assistantMessages.find(_ =>
-          Array.isArray(_.message.content) && _.message.content.some(
-            _ => _.type === 'tool_use' && _.id === toolUse.id,
-          ),
+        assistantMessages.find(
+          _ =>
+            Array.isArray(_.message.content) &&
+            _.message.content.some(
+              _ => _.type === 'tool_use' && _.id === toolUse.id,
+            ),
         )!,
         canUseTool,
         toolUseContext,

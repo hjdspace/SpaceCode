@@ -1,4 +1,7 @@
-import type { BetaToolUnion } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
+import type {
+  BetaToolUnion,
+  BetaMessage,
+} from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import { randomUUID } from 'crypto'
 import type {
   AssistantMessage,
@@ -6,7 +9,7 @@ import type {
   StreamEvent,
   SystemAPIErrorMessage,
 } from '../../../types/message.js'
-import { getEmptyToolPermissionContext, type Tools } from '../../../Tool.js'
+import { type Tools } from '../../../Tool.js'
 import { toolToAPISchema } from '../../../utils/api.js'
 import { logForDebugging } from '../../../utils/debug.js'
 import {
@@ -18,15 +21,21 @@ import type { SDKAssistantMessageError } from '../../../entrypoints/agentSdkType
 import type { SystemPrompt } from '../../../utils/systemPromptType.js'
 import type { ThinkingConfig } from '../../../utils/thinking.js'
 import type { Options } from '../claude.js'
-import { streamGeminiGenerateContent } from './client.js'
-import { anthropicMessagesToGemini } from './convertMessages.js'
+import { recordLLMObservation } from '../../../services/langfuse/tracing.js'
 import {
-  anthropicToolChoiceToGemini,
+  convertMessagesToLangfuse,
+  convertOutputToLangfuse,
+  convertToolsToLangfuse,
+} from '../../../services/langfuse/convert.js'
+import { streamGeminiGenerateContent } from './client.js'
+import {
+  anthropicMessagesToGemini,
+  resolveGeminiModel,
+  adaptGeminiStreamToAnthropic,
   anthropicToolsToGemini,
-} from './convertTools.js'
-import { resolveGeminiModel } from './modelMapping.js'
-import { adaptGeminiStreamToAnthropic } from './streamAdapter.js'
-import { GEMINI_THOUGHT_SIGNATURE_FIELD } from './types.js'
+  anthropicToolChoiceToGemini,
+  GEMINI_THOUGHT_SIGNATURE_FIELD,
+} from '@ant/model-provider'
 
 export async function* queryModelGemini(
   messages: Message[],
@@ -106,20 +115,21 @@ export async function* queryModelGemini(
     )
 
     const adaptedStream = adaptGeminiStreamToAnthropic(stream, geminiModel)
-    const contentBlocks: Record<number, any> = {}
-    let partialMessage: any = undefined
+    const contentBlocks: Record<number, Record<string, unknown>> = {}
+    const collectedMessages: AssistantMessage[] = []
+    let partialMessage: BetaMessage | null = null
     let ttftMs = 0
     const start = Date.now()
 
     for await (const event of adaptedStream) {
       switch (event.type) {
         case 'message_start':
-          partialMessage = (event as any).message
+          partialMessage = event.message
           ttftMs = Date.now() - start
           break
         case 'content_block_start': {
-          const idx = (event as any).index
-          const cb = (event as any).content_block
+          const idx = event.index
+          const cb = event.content_block
           if (cb.type === 'tool_use') {
             contentBlocks[idx] = { ...cb, input: '' }
           } else if (cb.type === 'text') {
@@ -132,17 +142,19 @@ export async function* queryModelGemini(
           break
         }
         case 'content_block_delta': {
-          const idx = (event as any).index
-          const delta = (event as any).delta
+          const idx = event.index
+          const delta = event.delta
           const block = contentBlocks[idx]
           if (!block) break
 
           if (delta.type === 'text_delta') {
-            block.text = (block.text || '') + delta.text
+            block.text = ((block.text as string | undefined) || '') + delta.text
           } else if (delta.type === 'input_json_delta') {
-            block.input = (block.input || '') + delta.partial_json
+            block.input =
+              ((block.input as string | undefined) || '') + delta.partial_json
           } else if (delta.type === 'thinking_delta') {
-            block.thinking = (block.thinking || '') + delta.thinking
+            block.thinking =
+              ((block.thinking as string | undefined) || '') + delta.thinking
           } else if (delta.type === 'signature_delta') {
             if (block.type === 'thinking') {
               block.signature = delta.signature
@@ -153,20 +165,25 @@ export async function* queryModelGemini(
           break
         }
         case 'content_block_stop': {
-          const idx = (event as any).index
+          const idx = event.index
           const block = contentBlocks[idx]
           if (!block || !partialMessage) break
 
           const message: AssistantMessage = {
             message: {
               ...partialMessage,
-              content: normalizeContentFromAPI([block], tools, options.agentId),
-            },
+              content: normalizeContentFromAPI(
+                [block] as unknown as BetaMessage['content'],
+                tools,
+                options.agentId,
+              ),
+            } as AssistantMessage['message'],
             requestId: undefined,
             type: 'assistant',
             uuid: randomUUID(),
             timestamp: new Date().toISOString(),
           }
+          collectedMessages.push(message)
           yield message
           break
         }
@@ -181,13 +198,40 @@ export async function* queryModelGemini(
         ...(event.type === 'message_start' ? { ttftMs } : undefined),
       } as StreamEvent
     }
+
+    // Record LLM observation in Langfuse (no-op if not configured)
+    recordLLMObservation(options.langfuseTrace ?? null, {
+      model: geminiModel,
+      provider: 'gemini',
+      input: convertMessagesToLangfuse(messagesForAPI, systemPrompt),
+      output: convertOutputToLangfuse(collectedMessages),
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+      },
+      startTime: new Date(start),
+      endTime: new Date(),
+      completionStartTime: ttftMs > 0 ? new Date(start + ttftMs) : undefined,
+      tools: convertToolsToLangfuse(toolSchemas as unknown[]),
+      thinking:
+        thinkingConfig.type !== 'disabled'
+          ? {
+              type: thinkingConfig.type,
+              ...(thinkingConfig.type === 'enabled' && {
+                budgetTokens: thinkingConfig.budgetTokens,
+              }),
+            }
+          : undefined,
+    })
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     logForDebugging(`[Gemini] Error: ${errorMessage}`, { level: 'error' })
     yield createAssistantAPIErrorMessage({
       content: `API Error: ${errorMessage}`,
       apiError: 'api_error',
-      error: (error instanceof Error ? error : new Error(String(error))) as unknown as SDKAssistantMessageError,
+      error: (error instanceof Error
+        ? error
+        : new Error(String(error))) as unknown as SDKAssistantMessageError,
     })
   }
 }

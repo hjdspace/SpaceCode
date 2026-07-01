@@ -1,0 +1,1370 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="anthropic">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SpaceCode - 预设 BASE_URL 下拉选择器原型</title>
+<style>
+/* ═══════════════════════════════════════════════
+   Design System Variables (Anthropic Theme)
+   ═══════════════════════════════════════════════ */
+:root {
+  --font-display: 'Space Grotesk', 'SF Pro Display', system-ui, sans-serif;
+  --font-body: 'IBM Plex Sans', 'SF Pro Text', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+  --font-serif: 'Source Serif 4', Georgia, serif;
+  --font-size-base: 14px;
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  --bg-primary: #faf9f5;
+  --bg-secondary: #efe9de;
+  --bg-tertiary: #e8e0d2;
+  --bg-elevated: #faf9f5;
+  --bg-hover: #e5e0d5;
+  --bg-active: #dcd6c8;
+
+  --surface-soft: #f5f0e8;
+  --surface-card: #efe9de;
+
+  --surface-border: rgba(20, 20, 19, 0.06);
+  --surface-border-strong: rgba(20, 20, 19, 0.12);
+
+  --text-primary: #141413;
+  --text-secondary: #3d3d3a;
+  --text-muted: #6c6a64;
+  --text-disabled: #8e8b82;
+
+  --accent-primary: #cc785c;
+  --accent-primary-hover: #a9583e;
+  --accent-primary-glow: rgba(204, 120, 92, 0.15);
+
+  --accent-secondary: #5db8a6;
+  --accent-tertiary: #e8a55a;
+
+  --success: #5db872;
+  --success-glow: rgba(93, 184, 114, 0.15);
+  --warning: #d4a017;
+  --warning-glow: rgba(212, 160, 23, 0.15);
+  --error: #c64545;
+  --error-glow: rgba(198, 69, 69, 0.15);
+
+  --border-subtle: rgba(20, 20, 19, 0.04);
+  --border-default: rgba(20, 20, 19, 0.08);
+  --border-strong: rgba(20, 20, 19, 0.16);
+
+  --shadow-sm: 0 1px 2px rgba(20, 20, 19, 0.04);
+  --shadow-md: 0 2px 8px rgba(20, 20, 19, 0.06);
+  --shadow-lg: 0 4px 16px rgba(20, 20, 19, 0.08);
+  --shadow-xl: 0 8px 32px rgba(20, 20, 19, 0.1);
+
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-body);
+  font-size: var(--font-size-base);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.6;
+  padding: 40px 24px;
+  min-height: 100vh;
+}
+
+.prototype-container {
+  max-width: 780px;
+  margin: 0 auto;
+}
+
+/* ═══════════════════════════════════════════════
+   Masthead
+   ═══════════════════════════════════════════════ */
+.s-masthead {
+  margin-bottom: 36px;
+  padding-bottom: 20px;
+  border-bottom: 2px solid var(--text-primary);
+}
+
+.s-masthead-eyebrow {
+  font-family: var(--font-serif);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent-primary);
+  margin-bottom: 6px;
+}
+
+.s-masthead-title {
+  font-family: var(--font-serif);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+
+.s-masthead-desc {
+  font-family: var(--font-serif);
+  font-size: 14.5px;
+  font-style: italic;
+  color: var(--text-secondary);
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
+/* ═══════════════════════════════════════════════
+   Panel
+   ═══════════════════════════════════════════════ */
+.s-panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 20px;
+  overflow: visible;
+}
+
+.s-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.s-panel-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.s-panel-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.s-panel-icon.engine {
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+}
+
+.s-panel-icon.lang {
+  background: rgba(99, 102, 241, 0.12);
+  color: #6366f1;
+}
+
+.s-panel-title {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.s-panel-body {
+  padding: 16px 20px;
+}
+
+/* ═══════════════════════════════════════════════
+   Auth Method Cards
+   ═══════════════════════════════════════════════ */
+.s-selection-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.s-selection-card {
+  display: flex;
+  flex-direction: column;
+  padding: 18px;
+  background: var(--bg-elevated);
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  position: relative;
+}
+
+.s-selection-card:hover {
+  border-color: var(--border-default);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.s-selection-card.active {
+  border-color: var(--accent-primary);
+  background: var(--accent-primary-glow);
+}
+
+.s-selection-card-icon {
+  width: 40px;
+  height: 40px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+  color: var(--text-muted);
+  font-size: 20px;
+}
+
+.s-selection-card.active .s-selection-card-icon {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.s-selection-card-title {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.s-selection-card-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.s-check-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 22px;
+  height: 22px;
+  background: var(--accent-primary);
+  border-radius: 50%;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 11px;
+}
+
+.s-selection-card.active .s-check-badge {
+  display: flex;
+}
+
+/* ═══════════════════════════════════════════════
+   Form Elements
+   ═══════════════════════════════════════════════ */
+.s-form-group {
+  margin-bottom: 24px;
+}
+
+.s-form-group:last-child {
+  margin-bottom: 0;
+}
+
+.s-form-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.s-form-hint {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+/* ═══════════════════════════════════════════════
+   ★ BASE URL Input with Preset Dropdown ★
+   ═══════════════════════════════════════════════ */
+.baseurl-wrapper {
+  position: relative;
+}
+
+.baseurl-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--bg-elevated);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+  overflow: hidden;
+}
+
+.baseurl-input-row:focus-within {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-primary-glow);
+}
+
+/* Selected provider icon inside the input */
+.baseurl-selected-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-subtle);
+  background: var(--surface-soft);
+}
+
+.baseurl-selected-icon .provider-logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.baseurl-selected-icon .provider-logo.empty {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.provider-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.provider-logo svg {
+  width: 100%;
+  height: 100%;
+}
+
+.baseurl-input {
+  flex: 1;
+  padding: 11px 14px;
+  font-size: var(--font-size-base);
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  outline: none;
+  min-width: 0;
+}
+
+.baseurl-input::placeholder {
+  color: var(--text-muted);
+  font-family: var(--font-body);
+}
+
+/* Dropdown trigger button */
+.baseurl-dropdown-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 14px;
+  height: 44px;
+  flex-shrink: 0;
+  background: var(--surface-soft);
+  border: none;
+  border-left: 1px solid var(--border-subtle);
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.baseurl-dropdown-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.baseurl-dropdown-btn.active {
+  color: var(--accent-primary);
+  background: var(--accent-primary-glow);
+}
+
+.baseurl-dropdown-btn svg {
+  transition: transform var(--transition-fast);
+}
+
+.baseurl-dropdown-btn.active svg {
+  transform: rotate(180deg);
+}
+
+/* ═══════════════════════════════════════════════
+   ★ Preset Dropdown Panel ★
+   ═══════════════════════════════════════════════ */
+.preset-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  max-height: 420px;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+  animation: dropdownIn 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.preset-dropdown.show {
+  display: flex;
+}
+
+@keyframes dropdownIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Search box in dropdown */
+.preset-search {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-soft);
+}
+
+.preset-search-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.preset-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+}
+
+.preset-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* Provider list */
+.preset-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 6px;
+}
+
+.preset-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.preset-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.preset-list::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 3px;
+}
+
+.preset-list::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+/* Provider item */
+.preset-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  position: relative;
+}
+
+.preset-item:hover {
+  background: var(--surface-soft);
+}
+
+.preset-item.selected {
+  background: var(--accent-primary-glow);
+}
+
+.preset-item.selected::after {
+  content: '';
+  position: absolute;
+  right: 12px;
+  width: 16px;
+  height: 16px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23cc785c' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+/* Provider logo */
+.provider-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.provider-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 7px;
+}
+
+.provider-logo svg {
+width: 18px;
+height: 18px;
+}
+
+.provider-logo .logo-text {
+width: 100%;
+height: 100%;
+display: flex;
+align-items: center;
+justify-content: center;
+font-size: 16px;
+font-weight: 700;
+color: #ffffff;
+line-height: 1;
+user-select: none;
+}
+
+.baseurl-selected-icon .provider-logo .logo-text {
+font-size: 13px;
+}
+
+/* Provider info */
+.preset-item-info {
+  flex: 1;
+  min-width: 0;
+  padding-right: 24px;
+}
+
+.preset-item-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.preset-item-badge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.preset-item-badge.recommended {
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+}
+
+.preset-item-url {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+
+/* No results */
+.preset-no-results {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* ═══════════════════════════════════════════════
+   API Key Input
+   ═══════════════════════════════════════════════ */
+.s-input-with-action {
+  display: flex;
+  gap: 8px;
+}
+
+.s-input-with-action .s-form-input {
+  flex: 1;
+}
+
+.s-form-input {
+  width: 100%;
+  padding: 11px 14px;
+  font-size: var(--font-size-base);
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+  outline: none;
+}
+
+.s-form-input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-primary-glow);
+}
+
+.s-form-input::placeholder {
+  color: var(--text-muted);
+}
+
+.s-btn-icon {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.s-btn-icon:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
+}
+
+/* ═══════════════════════════════════════════════
+   Action Buttons
+   ═══════════════════════════════════════════════ */
+.form-actions-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.s-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  font-size: 13.5px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  border: none;
+}
+
+.s-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.s-btn-secondary {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1.5px solid var(--border-default);
+}
+
+.s-btn-secondary:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  border-color: var(--text-muted);
+}
+
+/* ═══════════════════════════════════════════════
+   Info Banner
+   ═══════════════════════════════════════════════ */
+.info-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--accent-primary-glow);
+  border-radius: var(--radius-sm);
+  margin-bottom: 16px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.info-banner svg {
+  flex-shrink: 0;
+  color: var(--accent-primary);
+  margin-top: 1px;
+}
+
+.info-banner strong {
+  color: var(--accent-primary);
+}
+
+/* ═══════════════════════════════════════════════
+   Brand Background Colors
+   ═══════════════════════════════════════════════ */
+.brand-openai { background: #000000; }
+.brand-anthropic { background: #cc785c; }
+.brand-deepseek { background: #5786fe; }
+.brand-zhipu { background: #3859d8; }
+.brand-minimax { background: #e73562; }
+.brand-kimi { background: #1a1a1a; }
+.brand-sensetime { background: #e8382d; }
+.brand-mimo { background: #ff6900; }
+.brand-gemini { background: linear-gradient(135deg, #4285f4, #9b72cb, #d96570); }
+.brand-grok { background: #000000; }
+.brand-volcengine { background: #1664ff; }
+
+/* ═══════════════════════════════════════════════
+   Demo Controls
+   ═══════════════════════════════════════════════ */
+.demo-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.demo-tab {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  border: 1.5px solid var(--border-default);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+
+.demo-tab:hover {
+  border-color: var(--text-muted);
+}
+
+.demo-tab.active {
+  background: var(--accent-primary);
+  color: white;
+  border-color: var(--accent-primary);
+}
+
+.section-label {
+  font-family: var(--font-serif);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  margin-top: 4px;
+}
+</style>
+</head>
+<body>
+
+<div class="prototype-container">
+
+  <!-- ═══ Masthead ═══ -->
+  <div class="s-masthead">
+    <div class="s-masthead-eyebrow">Settings · Prototype</div>
+    <h1 class="s-masthead-title">预设 BASE_URL 下拉选择器</h1>
+    <p class="s-masthead-desc">在 BASE_URL 输入框旁增加下拉按钮，展示常见 AI 厂商预设地址，点击即可快速填入。</p>
+  </div>
+
+  <!-- ═══ Demo Tabs ═══ -->
+  <div class="section-label">切换 API 类型查看不同预设列表</div>
+  <div class="demo-controls">
+    <button class="demo-tab active" data-auth="openai_compatible" onclick="switchAuth('openai_compatible')">OpenAI 兼容</button>
+    <button class="demo-tab" data-auth="anthropic_compatible" onclick="switchAuth('anthropic_compatible')">Anthropic 兼容</button>
+    <button class="demo-tab" data-auth="gemini_api" onclick="switchAuth('gemini_api')">Gemini API</button>
+  </div>
+
+  <!-- ═══ Login Method Panel ═══ -->
+  <div class="s-panel">
+    <div class="s-panel-header">
+      <div class="s-panel-header-left">
+        <div class="s-panel-icon lang">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2"/><path d="M2 12h20"/><path d="M2 18h12"/></svg>
+        </div>
+        <span class="s-panel-title">登录方式</span>
+      </div>
+    </div>
+    <div class="s-panel-body">
+      <div class="s-selection-grid" id="authGrid">
+        <div class="s-selection-card" data-method="anthropic_compatible" onclick="switchAuth('anthropic_compatible')">
+          <div class="s-selection-card-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="8" x="2" y="2" rx="2"/><path d="M2 12h20"/><path d="M2 18h12"/></svg>
+          </div>
+          <div class="s-selection-card-title">Anthropic</div>
+          <div class="s-selection-card-desc">兼容 API 接入</div>
+          <div class="s-check-badge">✓</div>
+        </div>
+        <div class="s-selection-card active" data-method="openai_compatible" onclick="switchAuth('openai_compatible')">
+          <div class="s-selection-card-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+          </div>
+          <div class="s-selection-card-title">OpenAI</div>
+          <div class="s-selection-card-desc">兼容 API 接入</div>
+          <div class="s-check-badge">✓</div>
+        </div>
+        <div class="s-selection-card" data-method="gemini_api" onclick="switchAuth('gemini_api')">
+          <div class="s-selection-card-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></svg>
+          </div>
+          <div class="s-selection-card-title">Gemini</div>
+          <div class="s-selection-card-desc">Google API</div>
+          <div class="s-check-badge">✓</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Config Panel ═══ -->
+  <div class="s-panel" id="configPanel">
+    <div class="s-panel-header">
+      <div class="s-panel-header-left">
+        <div class="s-panel-icon engine">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+        </div>
+        <span class="s-panel-title" id="configTitle">OpenAI 兼容配置</span>
+      </div>
+    </div>
+    <div class="s-panel-body">
+
+      <div class="info-banner">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+        <span>点击右侧 <strong>预设</strong> 按钮可从常见厂商列表中快速选择 BASE_URL，选择后自动填入输入框。</span>
+      </div>
+
+      <!-- ★ BASE_URL Input with Dropdown ★ -->
+      <div class="s-form-group">
+        <label class="s-form-label">BASE_URL</label>
+        <div class="baseurl-wrapper">
+          <div class="baseurl-input-row">
+            <div class="baseurl-selected-icon" id="selectedIcon">
+              <div class="provider-logo empty">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              </div>
+            </div>
+            <input
+              type="text"
+              class="baseurl-input"
+              id="baseUrlInput"
+              placeholder="https://api.openai.com/v1"
+              value=""
+            />
+            <button class="baseurl-dropdown-btn" id="dropdownBtn" onclick="toggleDropdown()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+              <span>预设</span>
+            </button>
+          </div>
+
+          <!-- ★ Preset Dropdown Panel ★ -->
+          <div class="preset-dropdown" id="presetDropdown">
+            <div class="preset-search">
+              <svg class="preset-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              <input
+                type="text"
+                class="preset-search-input"
+                id="presetSearch"
+                placeholder="搜索厂商名称或 URL..."
+                oninput="filterPresets()"
+              />
+            </div>
+            <div class="preset-list" id="presetList"></div>
+          </div>
+        </div>
+        <span class="s-form-hint" id="baseUrlHint">留空则使用默认地址。可点击「预设」按钮快速选择常见厂商。</span>
+      </div>
+
+      <!-- API Key -->
+      <div class="s-form-group">
+        <label class="s-form-label">API Key</label>
+        <div class="s-input-with-action">
+          <input type="password" class="s-form-input" placeholder="sk-..." value="" />
+          <button class="s-btn-icon" onclick="togglePassword(this)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="form-actions-row">
+        <button class="s-btn s-btn-secondary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></svg>
+          测试连接
+        </button>
+        <button class="s-btn s-btn-secondary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          获取模型列表
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+// Provider Data - 使用真实官方图标
+// ═══════════════════════════════════════════════
+
+// SVG 图标路径数据 (来自 simpleicons.org 官方品牌图标)
+const SVG_PATHS = {
+  // OpenAI 官方花朵图标
+  openai: '<path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.869l-2.02-1.1638a.0804.0804 0 0 1-.038-.052V6.0762a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0804L8.704 5.4612a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.6025-1.4998 2.6025 1.4998v2.9994l-2.5821 1.4998-2.6025-1.4998z"/>',
+
+  // Anthropic 官方 "A" 图标
+  anthropic: '<path d="M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z"/>',
+
+  // DeepSeek 官方鲸鱼图标
+  deepseek: '<path d="M23.748 4.651c-.254-.124-.364.113-.512.233-.051.04-.094.09-.137.137-.372.397-.806.657-1.373.626-.829-.046-1.537.214-2.163.848-.133-.782-.575-1.248-1.247-1.548-.352-.155-.708-.311-.955-.65-.172-.24-.219-.509-.305-.774-.055-.16-.11-.323-.293-.35-.2-.031-.278.136-.356.276-.313.572-.434 1.202-.422 1.84.027 1.436.633 2.58 1.838 3.393.137.094.172.187.129.323-.082.28-.18.553-.266.833-.055.179-.137.218-.328.14a5.5 5.5 0 0 1-1.737-1.179c-.857-.828-1.631-1.743-2.597-2.46a12 12 0 0 0-.689-.47c-.985-.957.13-1.743.387-1.836.27-.098.094-.433-.778-.428-.872.003-1.67.295-2.687.685a3 3 0 0 1-.465.136 9.6 9.6 0 0 0-2.883-.101c-1.885.21-3.39 1.1-4.497 2.622C.082 8.776-.231 10.854.152 13.02c.403 2.284 1.568 4.175 3.36 5.653 1.857 1.533 3.997 2.284 6.438 2.14 1.482-.085 3.132-.284 4.994-1.86.47.234.962.328 1.78.398.629.058 1.235-.031 1.705-.129.735-.155.684-.836.418-.961-2.155-1.004-1.682-.595-2.112-.926 1.095-1.295 2.768-3.598 3.284-6.733.05-.346.115-.834.108-1.114-.004-.171.035-.238.23-.257a4.2 4.2 0 0 0 1.545-.475c1.397-.763 1.96-2.016 2.093-3.517.02-.23-.004-.467-.247-.588M11.58 18.168c-2.088-1.642-3.101-2.183-3.52-2.16-.39.024-.32.472-.234.763.09.288.207.487.371.74.114.167.192.416-.113.603-.673.416-1.842-.14-1.897-.168-1.361-.801-2.5-1.86-3.301-3.306-.775-1.393-1.225-2.888-1.299-4.482-.02-.385.094-.522.477-.592a4.7 4.7 0 0 1 1.53-.038c2.131.311 3.946 1.264 5.467 2.774.868.86 1.525 1.887 2.202 2.89.72 1.066 1.494 2.082 2.48 2.915.348.291.626.513.892.677-.802.09-2.14.109-3.055-.615zm1.001-6.44a.306.306 0 0 1 .415-.287.3.3 0 0 1 .113.074.3.3 0 0 1 .086.214c0 .17-.136.307-.308.307a.303.303 0 0 1-.306-.307m3.11 1.596c-.2.081-.4.151-.591.16a1.25 1.25 0 0 1-.798-.254c-.274-.23-.47-.358-.551-.758a1.7 1.7 0 0 1 .015-.588c.07-.327-.007-.537-.238-.727-.188-.156-.426-.199-.689-.199a.6.6 0 0 1-.254-.078.253.253 0 0 1-.114-.358 1 1 0 0 1 .192-.21c.356-.202.767-.136 1.146.016.352.144.618.408 1.001.782.392.451.462.576.685.915.176.264.336.536.446.848.066.194-.02.353-.25.45"/>',
+
+  // Google Gemini 官方四角星图标
+  gemini: '<path d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81"/>',
+
+  // Grok / X 官方图标
+  grok: '<path d="M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z"/>',
+
+  // MiniMax 官方图标
+  minimax: '<path d="M11.43 3.92a.86.86 0 1 0-1.718 0v14.236a1.999 1.999 0 0 1-3.997 0V9.022a.86.86 0 1 0-1.718 0v3.87a1.999 1.999 0 0 1-3.997 0V11.49a.57.57 0 0 1 1.139 0v1.404a.86.86 0 0 0 1.719 0V9.022a1.999 1.999 0 0 1 3.997 0v9.134a.86.86 0 0 0 1.719 0V3.92a1.998 1.998 0 1 1 3.996 0v11.788a.57.57 0 1 1-1.139 0zm10.572 3.105a2 2 0 0 0-1.999 1.997v7.63a.86.86 0 0 1-1.718 0V3.923a1.999 1.999 0 0 0-3.997 0v16.16a.86.86 0 0 1-1.719 0V18.08a.57.57 0 1 0-1.138 0v2a1.998 1.998 0 0 0 3.996 0V3.92a.86.86 0 0 1 1.719 0v12.73a1.999 1.999 0 0 0 3.996 0V9.023a.86.86 0 1 1 1.72 0v6.686a.57.57 0 0 0 1.138 0V9.022a2 2 0 0 0-1.998-1.997"/>',
+
+  // Xiaomi (MiMo) 官方图标
+  xiaomi: '<path d="M12 0C8.016 0 4.756.255 2.493 2.516.23 4.776 0 8.033 0 12.012c0 3.98.23 7.235 2.494 9.497C4.757 23.77 8.017 24 12 24c3.983 0 7.243-.23 9.506-2.491C23.77 19.247 24 15.99 24 12.012c0-3.984-.233-7.243-2.502-9.504C19.234.252 15.978 0 12 0zM4.906 7.405h5.624c1.47 0 3.007.068 3.764.827.746.746.827 2.233.83 3.676v4.54a.15.15 0 0 1-.152.147h-1.947a.15.15 0 0 1-.152-.148V11.83c-.002-.806-.048-1.634-.464-2.051-.358-.36-1.026-.441-1.72-.458H7.158a.15.15 0 0 0-.151.147v6.98a.15.15 0 0 1-.152.148H4.906a.15.15 0 0 1-.15-.148V7.554a.15.15 0 0 1 .15-.149zm12.131 0h1.949a.15.15 0 0 1 .15.15v8.892a.15.15 0 0 1-.15.148h-1.949a.15.15 0 0 1-.151-.148V7.554a.15.15 0 0 1 .151-.149zM8.92 10.948h2.046c.083 0 .15.066.15.147v5.352a.15.15 0 0 1-.15.148H8.92a.15.15 0 0 1-.152-.148v-5.352a.15.15 0 0 1 .152-.147Z"/>'
+};
+
+const PROVIDERS = {
+  // ── OpenAI Compatible ──
+  openai_compatible: [
+    {
+      id: 'openai',
+      name: 'OpenAI',
+      nameEn: 'OpenAI',
+      baseUrl: 'https://api.openai.com/v1',
+      badge: '推荐',
+      badgeType: 'recommended',
+      logoType: 'svg',
+      svgPath: SVG_PATHS.openai,
+      logoClass: 'brand-openai',
+      website: 'openai.com'
+    },
+    {
+      id: 'deepseek',
+      name: 'DeepSeek',
+      nameEn: 'DeepSeek',
+      baseUrl: 'https://api.deepseek.com/v1',
+      badge: '推荐',
+      badgeType: 'recommended',
+      logoType: 'svg',
+      svgPath: SVG_PATHS.deepseek,
+      logoClass: 'brand-deepseek',
+      website: 'deepseek.com'
+    },
+    {
+      id: 'zhipu',
+      name: '智谱 GLM',
+      nameEn: 'Zhipu GLM',
+      baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+      badge: null,
+      badgeType: null,
+      logoType: 'text',
+      logoText: '智',
+      logoClass: 'brand-zhipu',
+      website: 'bigmodel.cn'
+    },
+    {
+      id: 'minimax',
+      name: 'MiniMax',
+      nameEn: 'MiniMax',
+      baseUrl: 'https://api.minimax.chat/v1',
+      badge: null,
+      badgeType: null,
+      logoType: 'svg',
+      svgPath: SVG_PATHS.minimax,
+      logoClass: 'brand-minimax',
+      website: 'minimax.chat'
+    },
+    {
+      id: 'kimi',
+      name: 'Kimi (月之暗面)',
+      nameEn: 'Moonshot Kimi',
+      baseUrl: 'https://api.moonshot.cn/v1',
+      badge: null,
+      badgeType: null,
+      logoType: 'text',
+      logoText: 'K',
+      logoClass: 'brand-kimi',
+      website: 'moonshot.cn'
+    },
+    {
+      id: 'sensetime',
+      name: '商汤日日新',
+      nameEn: 'SenseTime SenseNova',
+      baseUrl: 'https://token.sensenova.cn/v1',
+      badge: null,
+      badgeType: null,
+      logoType: 'text',
+      logoText: '商',
+      logoClass: 'brand-sensetime',
+      website: 'sensenova.cn'
+    },
+    {
+      id: 'mimo',
+      name: '小米 MiMo',
+      nameEn: 'Xiaomi MiMo',
+      baseUrl: 'https://api.xiaomimimo.com/v1',
+      badge: null,
+      badgeType: null,
+      logoType: 'svg',
+      svgPath: SVG_PATHS.xiaomi,
+      logoClass: 'brand-mimo',
+      website: 'xiaomimimo.com'
+    },
+    {
+      id: 'grok',
+      name: 'Grok (xAI)',
+      nameEn: 'xAI Grok',
+      baseUrl: 'https://api.x.ai/v1',
+      badge: null,
+      badgeType: null,
+      logoType: 'svg',
+      svgPath: SVG_PATHS.grok,
+      logoClass: 'brand-grok',
+      website: 'x.ai'
+    },
+    {
+      id: 'volcengine',
+      name: '火山引擎 (豆包)',
+      nameEn: 'Volcano Engine',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+      badge: null,
+      badgeType: null,
+      logoType: 'text',
+      logoText: '火',
+      logoClass: 'brand-volcengine',
+      website: 'volcengine.com'
+    }
+  ],
+
+  // ── Anthropic Compatible ──
+  anthropic_compatible: [
+    {
+      id: 'anthropic',
+      name: 'Anthropic',
+      nameEn: 'Anthropic',
+      baseUrl: 'https://api.anthropic.com',
+      badge: '官方',
+      badgeType: 'recommended',
+      logoType: 'svg',
+      svgPath: SVG_PATHS.anthropic,
+      logoClass: 'brand-anthropic',
+      website: 'anthropic.com'
+    },
+    {
+      id: 'zhipu-anthropic',
+      name: '智谱 GLM',
+      nameEn: 'Zhipu GLM (Anthropic Compatible)',
+      baseUrl: 'https://open.zhipuai.cn/anthropic',
+      badge: '推荐',
+      badgeType: 'recommended',
+      logoType: 'text',
+      logoText: '智',
+      logoClass: 'brand-zhipu',
+      website: 'zhipuai.cn'
+    },
+    {
+      id: 'kimi-anthropic',
+      name: 'Kimi K2 (Anthropic 兼容)',
+      nameEn: 'Moonshot Kimi (Anthropic Compatible)',
+      baseUrl: 'https://api.moonshot.cn/anthropic',
+      badge: null,
+      badgeType: null,
+      logoType: 'text',
+      logoText: 'K',
+      logoClass: 'brand-kimi',
+      website: 'moonshot.cn'
+    },
+    {
+      id: 'mimo-anthropic',
+      name: '小米 MiMo (Anthropic 兼容)',
+      nameEn: 'Xiaomi MiMo (Anthropic Compatible)',
+      baseUrl: 'https://api.xiaomimimo.com/anthropic',
+      badge: null,
+      badgeType: null,
+      logoType: 'svg',
+      svgPath: SVG_PATHS.xiaomi,
+      logoClass: 'brand-mimo',
+      website: 'xiaomimimo.com'
+    }
+  ],
+
+  // ── Gemini API ──
+  gemini_api: [
+    {
+      id: 'gemini',
+      name: 'Google Gemini',
+      nameEn: 'Google Gemini',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      badge: '官方',
+      badgeType: 'recommended',
+      logoType: 'svg',
+      svgPath: SVG_PATHS.gemini,
+      logoClass: 'brand-gemini',
+      website: 'ai.google.dev'
+    }
+  ]
+};
+
+// ═══════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════
+let currentAuth = 'openai_compatible';
+let selectedProviderId = null;
+
+// ═══════════════════════════════════════════════
+// Render provider logo
+// ═══════════════════════════════════════════════
+function renderLogo(provider) {
+  if (provider.logoType === 'svg') {
+    return `<div class="provider-logo ${provider.logoClass}"><svg viewBox="0 0 24 24" fill="white">${provider.svgPath}</svg></div>`;
+  } else if (provider.logoType === 'text') {
+    return `<div class="provider-logo ${provider.logoClass}"><span class="logo-text">${provider.logoText}</span></div>`;
+  }
+  return `<div class="provider-logo ${provider.logoClass}"></div>`;
+}
+
+// ═══════════════════════════════════════════════
+// Render preset list
+// ═══════════════════════════════════════════════
+function renderPresetList() {
+  const list = PROVIDERS[currentAuth] || [];
+  const container = document.getElementById('presetList');
+
+  if (list.length === 0) {
+    container.innerHTML = '<div class="preset-no-results">该 API 类型暂无预设厂商</div>';
+    return;
+  }
+
+  container.innerHTML = list.map(p => {
+    const isSelected = selectedProviderId === p.id;
+    const badgeHtml = p.badge
+      ? `<span class="preset-item-badge ${p.badgeType}">${p.badge}</span>`
+      : '';
+    return `
+      <div class="preset-item ${isSelected ? 'selected' : ''}" onclick="selectProvider('${p.id}')">
+        ${renderLogo(p)}
+        <div class="preset-item-info">
+          <div class="preset-item-name">
+            ${p.name}
+            ${badgeHtml}
+          </div>
+          <div class="preset-item-url">${p.baseUrl}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════
+// Toggle dropdown
+// ═══════════════════════════════════════════════
+function toggleDropdown() {
+  const dropdown = document.getElementById('presetDropdown');
+  const btn = document.getElementById('dropdownBtn');
+  const isShow = dropdown.classList.contains('show');
+
+  if (isShow) {
+    dropdown.classList.remove('show');
+    btn.classList.remove('active');
+  } else {
+    renderPresetList();
+    document.getElementById('presetSearch').value = '';
+    dropdown.classList.add('show');
+    btn.classList.add('active');
+    setTimeout(() => document.getElementById('presetSearch').focus(), 50);
+  }
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', (e) => {
+  const wrapper = document.querySelector('.baseurl-wrapper');
+  if (wrapper && !wrapper.contains(e.target)) {
+    document.getElementById('presetDropdown').classList.remove('show');
+    document.getElementById('dropdownBtn').classList.remove('active');
+  }
+});
+
+// ═══════════════════════════════════════════════
+// Select provider
+// ═══════════════════════════════════════════════
+function selectProvider(providerId) {
+  const list = PROVIDERS[currentAuth] || [];
+  const provider = list.find(p => p.id === providerId);
+  if (!provider) return;
+
+  selectedProviderId = providerId;
+  document.getElementById('baseUrlInput').value = provider.baseUrl;
+
+  // Update selected icon
+  const iconContainer = document.getElementById('selectedIcon');
+  iconContainer.innerHTML = renderLogo(provider);
+
+  // Update hint
+  const hint = document.getElementById('baseUrlHint');
+  hint.textContent = `已选择: ${provider.name} · ${provider.baseUrl}`;
+
+  // Close dropdown
+  document.getElementById('presetDropdown').classList.remove('show');
+  document.getElementById('dropdownBtn').classList.remove('active');
+
+  // Re-render to show selected state
+  renderPresetList();
+}
+
+// ═══════════════════════════════════════════════
+// Filter presets by search
+// ═══════════════════════════════════════════════
+function filterPresets() {
+  const query = document.getElementById('presetSearch').value.toLowerCase().trim();
+  const list = PROVIDERS[currentAuth] || [];
+  const container = document.getElementById('presetList');
+
+  const filtered = list.filter(p =>
+    p.name.toLowerCase().includes(query) ||
+    p.nameEn.toLowerCase().includes(query) ||
+    p.baseUrl.toLowerCase().includes(query)
+  );
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="preset-no-results">未找到匹配的厂商</div>';
+    return;
+  }
+
+  container.innerHTML = filtered.map(p => {
+    const isSelected = selectedProviderId === p.id;
+    const badgeHtml = p.badge
+      ? `<span class="preset-item-badge ${p.badgeType}">${p.badge}</span>`
+      : '';
+    return `
+      <div class="preset-item ${isSelected ? 'selected' : ''}" onclick="selectProvider('${p.id}')">
+        ${renderLogo(p)}
+        <div class="preset-item-info">
+          <div class="preset-item-name">
+            ${p.name}
+            ${badgeHtml}
+          </div>
+          <div class="preset-item-url">${p.baseUrl}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════
+// Switch auth method
+// ═══════════════════════════════════════════════
+function switchAuth(method) {
+  currentAuth = method;
+  selectedProviderId = null;
+
+  // Update tabs
+  document.querySelectorAll('.demo-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.auth === method);
+  });
+
+  // Update auth cards
+  document.querySelectorAll('.s-selection-card').forEach(card => {
+    card.classList.toggle('active', card.dataset.method === method);
+  });
+
+  // Update config title & placeholder
+  const configTitle = document.getElementById('configTitle');
+  const input = document.getElementById('baseUrlInput');
+  const hint = document.getElementById('baseUrlHint');
+  const iconContainer = document.getElementById('selectedIcon');
+
+  // Reset input
+  input.value = '';
+  iconContainer.innerHTML = `<div class="provider-logo empty"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>`;
+
+  switch (method) {
+    case 'anthropic_compatible':
+      configTitle.textContent = 'Anthropic 兼容配置';
+      input.placeholder = 'https://api.anthropic.com';
+      hint.textContent = '留空则使用默认地址。可点击「预设」按钮快速选择常见厂商。';
+      break;
+    case 'openai_compatible':
+      configTitle.textContent = 'OpenAI 兼容配置';
+      input.placeholder = 'https://api.openai.com/v1';
+      hint.textContent = '留空则使用默认地址。可点击「预设」按钮快速选择常见厂商。';
+      break;
+    case 'gemini_api':
+      configTitle.textContent = 'Gemini API 配置';
+      input.placeholder = 'https://generativelanguage.googleapis.com/v1beta';
+      hint.textContent = '留空则使用 Google 默认地址。';
+      break;
+  }
+
+  // Close dropdown if open
+  document.getElementById('presetDropdown').classList.remove('show');
+  document.getElementById('dropdownBtn').classList.remove('active');
+}
+
+// ═══════════════════════════════════════════════
+// Toggle password visibility
+// ═══════════════════════════════════════════════
+function togglePassword(btn) {
+  const input = btn.previousElementSibling;
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/></svg>`;
+  } else {
+    input.type = 'password';
+    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>`;
+  }
+}
+
+// ═══════════════════════════════════════════════
+// Init
+// ═══════════════════════════════════════════════
+switchAuth('openai_compatible');
+</script>
+
+</body>
+</html>

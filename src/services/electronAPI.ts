@@ -1,5 +1,21 @@
 const electronAPI = typeof window !== 'undefined' ? (window as any).electronAPI : null
 
+import type {
+  CuaDriverStatus,
+  CuaDriverUpdateInfo,
+  CuaDriverPermissions,
+  HealthCheck,
+  McpToolResult,
+} from '@/types/computerUse'
+
+export type {
+  CuaDriverStatus,
+  CuaDriverUpdateInfo,
+  CuaDriverPermissions,
+  HealthCheck,
+  McpToolResult,
+} from '@/types/computerUse'
+
 export interface FileEntry {
   name: string
   path: string
@@ -125,6 +141,27 @@ export interface GitDiffResult {
   hunks?: GitDiffHunk[]
   additions?: number
   deletions?: number
+  [key: string]: unknown
+}
+
+export interface GitFullDiffFileStats {
+  path: string
+  linesAdded: number
+  linesRemoved: number
+  isBinary: boolean
+  isUntracked?: boolean
+  isStaged?: boolean
+  [key: string]: unknown
+}
+
+export interface GitFullDiffResult {
+  stats: {
+    filesCount: number
+    linesAdded: number
+    linesRemoved: number
+  }
+  files: GitFullDiffFileStats[]
+  hunks: Record<string, GitDiffHunk[]>
   [key: string]: unknown
 }
 
@@ -402,6 +439,40 @@ export const api = {
       electronAPI?.artifacts?.open(filePath) || Promise.resolve({ success: false }),
     reveal: (filePath: string): Promise<{ success: boolean }> =>
       electronAPI?.artifacts?.reveal(filePath) || Promise.resolve({ success: false }),
+    startWatch: (artifactsDir: string): Promise<boolean> =>
+      electronAPI?.artifacts?.startWatch(artifactsDir) || Promise.resolve(false),
+    stopWatch: (): Promise<boolean> =>
+      electronAPI?.artifacts?.stopWatch() || Promise.resolve(false),
+    onChanged: (callback: (data: { eventType: string; filename: string }) => void): (() => void) => {
+      if (electronAPI?.artifacts?.onChanged) {
+        return electronAPI.artifacts.onChanged(callback)
+      }
+      return () => {}
+    },
+  },
+
+  // OfficeCLI API — binary execution, file preview, watch mode
+  officecli: {
+    version: (): Promise<string> =>
+      electronAPI?.officecli?.version() || Promise.reject('OfficeCLI not available'),
+    checkInstalled: (): Promise<boolean> =>
+      electronAPI?.officecli?.checkInstalled() || Promise.resolve(false),
+    exec: (options: { args: string[]; cwd?: string; timeout?: number; env?: Record<string, string> }) =>
+      electronAPI?.officecli?.exec(options) || Promise.reject('OfficeCLI not available'),
+    viewHtml: (filePath: string, outputDir?: string): Promise<string> =>
+      electronAPI?.officecli?.viewHtml(filePath, outputDir) || Promise.reject('OfficeCLI not available'),
+    viewScreenshot: (filePath: string, outputDir: string, page?: number): Promise<string[]> =>
+      electronAPI?.officecli?.viewScreenshot(filePath, outputDir, page) || Promise.reject('OfficeCLI not available'),
+    watchStart: (filePath: string, port?: number): Promise<{ id: string; filePath: string; port: number; url: string }> =>
+      electronAPI?.officecli?.watchStart(filePath, port) || Promise.reject('OfficeCLI not available'),
+    watchStop: (watchId: string): Promise<boolean> =>
+      electronAPI?.officecli?.watchStop(watchId) || Promise.resolve(false),
+    watchStopAll: (): Promise<number> =>
+      electronAPI?.officecli?.watchStopAll() || Promise.resolve(0),
+    watchList: (): Promise<Array<{ id: string; filePath: string; url: string }>> =>
+      electronAPI?.officecli?.watchList() || Promise.resolve([]),
+    readImageAsDataURL: (filePath: string): Promise<string> =>
+      electronAPI?.officecli?.readImageAsDataURL(filePath) || Promise.reject('OfficeCLI not available'),
   },
 
   // File selection dialog
@@ -443,8 +514,8 @@ export const api = {
       electronAPI?.git?.commit(cwd, message, amend) || Promise.resolve({ success: false, error: 'Git API not available' }),
     getDiff: (cwd: string, path: string, staged?: boolean): Promise<GitDiffResult | null> =>
       electronAPI?.git?.getDiff(cwd, path, staged) || Promise.resolve(null),
-    getFullDiff: (cwd: string): Promise<string> =>
-      electronAPI?.git?.getFullDiff(cwd) || Promise.resolve(''),
+    getFullDiff: (cwd: string): Promise<GitFullDiffResult | null> =>
+      electronAPI?.git?.getFullDiff(cwd) || Promise.resolve(null),
     getStagedDiff: (cwd: string): Promise<string> =>
       electronAPI?.git?.getStagedDiff(cwd) || Promise.resolve(''),
     showFile: (cwd: string, path: string): Promise<string | null> =>
@@ -507,6 +578,8 @@ export const api = {
       electronAPI?.agents?.deleteWorkflow(id) || Promise.resolve(),
     exportWorkflow: (id: string, scope: string, cwd?: string): Promise<any> =>
       electronAPI?.agents?.exportWorkflow(id, scope, cwd) || Promise.resolve(null),
+    saveCustom: (agentName: string, content: string): Promise<{ success: boolean; path: string }> =>
+      electronAPI?.agents?.saveCustom(agentName, content) || Promise.reject('Agents API not available'),
   },
 
   updateThinkingLevel: (sessionId: string, enabled: boolean): Promise<void> => {
@@ -882,6 +955,50 @@ export const api = {
       electronAPI?.mcp?.onInstallProgress?.(callback) || (() => {}),
     getActiveMcpNames: (): Promise<string[]> =>
       electronAPI?.mcp?.getActiveMcpNames?.() || Promise.resolve([]),
+  },
+
+  // Computer Use API — cua-driver 管理
+  computerUse: {
+    getStatus: (): Promise<CuaDriverStatus> =>
+      electronAPI?.computerUse?.getStatus() ||
+      Promise.resolve({
+        platform: '',
+        platformSupported: false,
+        installed: false,
+        binaryPath: null,
+        version: null,
+        source: null,
+        ready: null,
+        canGrant: false,
+        checks: [],
+        error: 'Computer Use API not available',
+        accessibility: null,
+        screenRecording: null,
+      }),
+    install: (): Promise<{ success: boolean; error?: string }> =>
+      electronAPI?.computerUse?.install() ||
+      Promise.resolve({ success: false, error: 'Computer Use API not available' }),
+    onInstallProgress: (callback: (progress: { stage: string; message: string; percent: number }) => void): (() => void) => {
+      if (electronAPI?.computerUse?.onInstallProgress) {
+        return electronAPI.computerUse.onInstallProgress(callback)
+      }
+      return () => {}
+    },
+    doctor: (): Promise<{ ok: boolean; checks: HealthCheck[] }> =>
+      electronAPI?.computerUse?.doctor() ||
+      Promise.resolve({ ok: false, checks: [] }),
+    getPermissions: (): Promise<CuaDriverPermissions> =>
+      electronAPI?.computerUse?.getPermissions() ||
+      Promise.resolve({ accessibility: null, screenRecording: null }),
+    grantPermissions: (): Promise<{ success: boolean; error?: string }> =>
+      electronAPI?.computerUse?.grantPermissions() ||
+      Promise.resolve({ success: false, error: 'Computer Use API not available' }),
+    checkUpdate: (): Promise<CuaDriverUpdateInfo> =>
+      electronAPI?.computerUse?.checkUpdate() ||
+      Promise.resolve({ updateAvailable: false, latestVersion: null, currentVersion: null }),
+    callTool: (name: string, args: Record<string, unknown>): Promise<McpToolResult> =>
+      electronAPI?.computerUse?.callTool(name, args) ||
+      Promise.resolve({ data: null, images: [], imageMimeTypes: [], structuredContent: null, isError: true }),
   },
 
   // Skills API

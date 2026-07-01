@@ -142,6 +142,13 @@ export function profileReport(): void {
     logForDebugging('Startup profiling report:')
     logForDebugging(getReport())
   }
+
+  // Clear startup marks to prevent PerformanceMark accumulation in long-lived
+  // processes (daemon, cron). After this point startup marks are no longer needed
+  // — the report has been written and the Statsig event has been logged.
+  const perf = getPerformance()
+  perf.clearMarks()
+  memorySnapshots.length = 0
 }
 
 export function isDetailedProfilingEnabled(): boolean {
@@ -156,7 +163,7 @@ export function getStartupPerfLogPath(): string {
  * Log startup performance phases to Statsig.
  * Only logs if this session was sampled at startup.
  */
-export function logStartupPerf(): void {
+function logStartupPerf(): void {
   // Only log if we were sampled (decision made at module load)
   if (!STATSIG_LOGGING_SAMPLED) return
 

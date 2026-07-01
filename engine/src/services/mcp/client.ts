@@ -50,10 +50,13 @@ import {
   type ToolCallProgress,
   toolMatchesName,
 } from '../../Tool.js'
-import { ListMcpResourcesTool } from '../../tools/ListMcpResourcesTool/ListMcpResourcesTool.js'
-import { type MCPProgress, MCPTool } from '../../tools/MCPTool/MCPTool.js'
-import { createMcpAuthTool } from '../../tools/McpAuthTool/McpAuthTool.js'
-import { ReadMcpResourceTool } from '../../tools/ReadMcpResourceTool/ReadMcpResourceTool.js'
+import { ListMcpResourcesTool } from '@claude-code-best/builtin-tools/tools/ListMcpResourcesTool/ListMcpResourcesTool.js'
+import {
+  type MCPProgress,
+  MCPTool,
+} from '@claude-code-best/builtin-tools/tools/MCPTool/MCPTool.js'
+import { createMcpAuthTool } from '@claude-code-best/builtin-tools/tools/McpAuthTool/McpAuthTool.js'
+import { ReadMcpResourceTool } from '@claude-code-best/builtin-tools/tools/ReadMcpResourceTool/ReadMcpResourceTool.js'
 import { createAbortController } from '../../utils/abortController.js'
 import { count } from '../../utils/array.js'
 import {
@@ -71,7 +74,10 @@ import {
 } from '../../utils/errors.js'
 import { getMCPUserAgent } from '../../utils/http.js'
 import { maybeNotifyIDEConnected } from '../../utils/ide.js'
-import { maybeResizeAndDownsampleImageBuffer } from '../../utils/imageResizer.js'
+import {
+  type ImageLimits,
+  maybeResizeAndDownsampleImageBuffer,
+} from '../../utils/imageResizer.js'
 import { logMCPDebug, logMCPError } from '../../utils/log.js'
 import {
   getBinaryBlobSavedMessage,
@@ -93,13 +99,13 @@ import {
   getWebSocketProxyAgent,
   getWebSocketProxyUrl,
 } from '../../utils/proxy.js'
-import { recursivelySanitizeUnicode } from '../../utils/sanitization.js'
 import { getSessionIngressAuthToken } from '../../utils/sessionIngressAuth.js'
 import { subprocessEnv } from '../../utils/subprocessEnv.js'
 import {
   isPersistError,
   persistToolResult,
 } from '../../utils/toolResultStorage.js'
+import { checkStatsigFeatureGate_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
@@ -113,6 +119,13 @@ import { buildMcpToolName } from './mcpStringUtils.js'
 import { normalizeNameForMCP } from './normalization.js'
 import { getLoggingSafeMcpBaseUrl } from './utils.js'
 
+// Package imports — delegate to mcp-client package utilities where applicable
+import {
+  isMcpSessionExpiredError as isMcpSessionExpiredErrorFromPackage,
+  MAX_MCP_DESCRIPTION_LENGTH as PKG_MAX_MCP_DESCRIPTION_LENGTH,
+} from '@claude-code-best/mcp-client'
+import { recursivelySanitizeUnicode } from '@claude-code-best/mcp-client'
+
 /* eslint-disable @typescript-eslint/no-require-imports */
 const fetchMcpSkillsForClient = feature('MCP_SKILLS')
   ? (
@@ -123,7 +136,7 @@ const fetchMcpSkillsForClient = feature('MCP_SKILLS')
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
 import type { AssistantMessage } from 'src/types/message.js'
 /* eslint-enable @typescript-eslint/no-require-imports */
-import { classifyMcpToolForCollapse } from '../../tools/MCPTool/classifyForCollapse.js'
+import { classifyMcpToolForCollapse } from '@claude-code-best/builtin-tools/tools/MCPTool/classifyForCollapse.js'
 import { clearKeychainCache } from '../../utils/secureStorage/macOsKeychainHelpers.js'
 import { sleep } from '../../utils/sleep.js'
 import {
@@ -191,20 +204,7 @@ export class McpToolCallError_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS extends T
  * Per the MCP spec, servers return 404 when a session ID is no longer valid.
  * We check both signals to avoid false positives from generic 404s (wrong URL, server gone, etc.).
  */
-export function isMcpSessionExpiredError(error: Error): boolean {
-  const httpStatus =
-    'code' in error ? (error as Error & { code?: number }).code : undefined
-  if (httpStatus !== 404) {
-    return false
-  }
-  // The SDK embeds the response body text in the error message.
-  // MCP servers return: {"error":{"code":-32001,"message":"Session not found"},...}
-  // Check for the JSON-RPC error code to distinguish from generic web server 404s.
-  return (
-    error.message.includes('"code":-32001') ||
-    error.message.includes('"code": -32001')
-  )
-}
+export const isMcpSessionExpiredError = isMcpSessionExpiredErrorFromPackage
 
 /**
  * Default timeout for MCP tool calls (effectively infinite - ~27.8 hours).
@@ -216,7 +216,7 @@ const DEFAULT_MCP_TOOL_TIMEOUT_MS = 100_000_000
  * OpenAPI-generated MCP servers have been observed dumping 15-60KB of endpoint
  * docs into tool.description; this caps the p95 tail without losing the intent.
  */
-const MAX_MCP_DESCRIPTION_LENGTH = 2048
+const MAX_MCP_DESCRIPTION_LENGTH = PKG_MAX_MCP_DESCRIPTION_LENGTH
 
 /**
  * Gets the timeout for MCP tool calls in milliseconds.
@@ -904,7 +904,8 @@ export const connectToServer = memoize(
         )
         logMCPDebug(name, `claude.ai proxy transport created successfully`)
       } else if (
-        ((serverRef as ScopedMcpServerConfig).type === 'stdio' || !(serverRef as ScopedMcpServerConfig).type) &&
+        ((serverRef as ScopedMcpServerConfig).type === 'stdio' ||
+          !(serverRef as ScopedMcpServerConfig).type) &&
         isClaudeInChromeMCPServer(name)
       ) {
         // Run the Chrome MCP server in-process to avoid spawning a ~325 MB subprocess
@@ -917,7 +918,9 @@ export const connectToServer = memoize(
         const { createLinkedTransportPair } = await import(
           './InProcessTransport.js'
         )
-        const context = createChromeContext((serverRef as McpStdioServerConfig).env)
+        const context = createChromeContext(
+          (serverRef as McpStdioServerConfig).env,
+        )
         inProcessServer = createClaudeForChromeMcpServer(context)
         const [clientTransport, serverTransport] = createLinkedTransportPair()
         await inProcessServer.connect(serverTransport)
@@ -925,7 +928,8 @@ export const connectToServer = memoize(
         logMCPDebug(name, `In-process Chrome MCP server started`)
       } else if (
         feature('CHICAGO_MCP') &&
-        ((serverRef as ScopedMcpServerConfig).type === 'stdio' || !(serverRef as ScopedMcpServerConfig).type) &&
+        ((serverRef as ScopedMcpServerConfig).type === 'stdio' ||
+          !(serverRef as ScopedMcpServerConfig).type) &&
         isComputerUseMCPServer!(name)
       ) {
         // Run the Computer Use MCP server in-process — same rationale as
@@ -942,7 +946,10 @@ export const connectToServer = memoize(
         await inProcessServer.connect(serverTransport)
         transport = clientTransport
         logMCPDebug(name, `In-process Computer Use MCP server started`)
-      } else if ((serverRef as ScopedMcpServerConfig).type === 'stdio' || !(serverRef as ScopedMcpServerConfig).type) {
+      } else if (
+        (serverRef as ScopedMcpServerConfig).type === 'stdio' ||
+        !(serverRef as ScopedMcpServerConfig).type
+      ) {
         const stdioRef = serverRef as McpStdioServerConfig
         const finalCommand =
           process.env.CLAUDE_CODE_SHELL_PREFIX || stdioRef.command
@@ -959,7 +966,9 @@ export const connectToServer = memoize(
           stderr: 'pipe', // prevents error output from the MCP server from printing to the UI
         })
       } else {
-        throw new Error(`Unsupported server type: ${(serverRef as ScopedMcpServerConfig).type}`)
+        throw new Error(
+          `Unsupported server type: ${(serverRef as ScopedMcpServerConfig).type}`,
+        )
       }
 
       // Set up stderr logging for stdio transport before connecting in case there are any stderr
@@ -1445,6 +1454,7 @@ export const connectToServer = memoize(
               }
 
               // Wait for graceful shutdown with rapid escalation (total 500ms to keep CLI responsive)
+              // biome-ignore lint/suspicious/noAsyncPromiseExecutor: async needed for sequential await inside executor
               await new Promise<void>(async resolve => {
                 let resolved = false
 
@@ -2480,15 +2490,23 @@ export function prefetchAllMcpResources(
 export async function transformResultContent(
   resultContent: PromptMessage['content'],
   serverName: string,
+  limits?: ImageLimits,
+  includeMeta = false,
 ): Promise<Array<ContentBlockParam>> {
   switch (resultContent.type) {
-    case 'text':
-      return [
-        {
-          type: 'text',
-          text: resultContent.text,
-        },
-      ]
+    case 'text': {
+      const block: ContentBlockParam = {
+        type: 'text',
+        text: resultContent.text,
+      }
+      if (includeMeta) {
+        const meta = resultContent._meta
+        if (meta) {
+          ;(block as { _meta?: unknown })._meta = meta
+        }
+      }
+      return [block]
+    }
     case 'audio': {
       const audioData = resultContent as {
         type: 'audio'
@@ -2510,6 +2528,7 @@ export async function transformResultContent(
         imageBuffer,
         imageBuffer.length,
         ext,
+        limits,
       )
       return [
         {
@@ -2545,6 +2564,7 @@ export async function transformResultContent(
             imageBuffer,
             imageBuffer.length,
             ext,
+            limits,
           )
           const content: MessageParam['content'] = []
           if (prefix) {
@@ -2665,6 +2685,7 @@ export async function transformMCPResult(
   result: unknown,
   tool: string, // Tool name for validation (e.g., "search")
   name: string, // Server name for transformation (e.g., "slack")
+  limits?: ImageLimits, // Image processing limits, plumbed to transformResultContent
 ): Promise<TransformedMCPResult> {
   if (result && typeof result === 'object') {
     if ('toolResult' in result) {
@@ -2688,7 +2709,9 @@ export async function transformMCPResult(
     if ('content' in result && Array.isArray(result.content)) {
       const transformedContent = (
         await Promise.all(
-          result.content.map(item => transformResultContent(item, name)),
+          result.content.map(item =>
+            transformResultContent(item, name, limits, true),
+          ),
         )
       ).flat()
       return {
@@ -2723,12 +2746,25 @@ export async function processMCPResult(
   result: unknown,
   tool: string, // Tool name for validation (e.g., "search")
   name: string, // Server name for IDE check and transformation (e.g., "slack")
+  limits?: ImageLimits, // Image processing limits, plumbed to transformMCPResult
+  skipLargeOutput = false, // If true, skip large-output handling for non-image content
 ): Promise<MCPToolResult> {
-  const { content, type, schema } = await transformMCPResult(result, tool, name)
+  const { content, type, schema } = await transformMCPResult(
+    result,
+    tool,
+    name,
+    limits,
+  )
 
   // IDE tools are not going to the model directly, so we don't need to
   // handle large output.
   if (name === 'ide') {
+    return content
+  }
+
+  // Caller opted out of large-output handling (e.g., result already truncated
+  // upstream); only continue if the content has images that may need handling.
+  if (skipLargeOutput && !contentContainsImages(content)) {
     return content
   }
 
@@ -2769,9 +2805,15 @@ export async function processMCPResult(
   // Generate a unique ID for the persisted file (server__tool-timestamp)
   const timestamp = Date.now()
   const persistId = `mcp-${normalizeNameForMCP(name)}-${normalizeNameForMCP(tool)}-${timestamp}`
-  // Convert to string for persistence (persistToolResult expects string or specific block types)
+  // When the large-string format gate is on, unwrap a single bare text block
+  // (no annotations, no _meta) into raw text so the model gets plain text in
+  // the persisted file instead of a JSON-wrapped block. The `_meta` check is
+  // why transformResultContent preserves _meta on text blocks.
+  const unwrappedText = unwrapSingleTextBlock(content)
   const contentStr =
-    typeof content === 'string' ? content : jsonStringify(content, null, 2)
+    typeof content === 'string'
+      ? content
+      : (unwrappedText ?? jsonStringify(content, null, 2))
   const persistResult = await persistToolResult(contentStr, persistId)
 
   if (isPersistError(persistResult)) {
@@ -2792,12 +2834,48 @@ export async function processMCPResult(
     persistedSizeChars: persistResult.originalSize,
   } as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS)
 
-  const formatDescription = getFormatDescription(type, schema)
+  const formatDescription =
+    unwrappedText !== undefined
+      ? getFormatDescription('toolResult')
+      : getFormatDescription(type, schema)
   return getLargeOutputInstructions(
     persistResult.filepath,
     persistResult.originalSize,
     formatDescription,
   )
+}
+
+/**
+ * Returns true when the large-string output format is enabled (matches
+ * binary's `sf8()`). When enabled, processMCPResult unwraps a single bare
+ * text block to raw text for persistence instead of JSON-wrapping it.
+ *
+ * Gating sources, in order:
+ *   1. MCP_TRUNCATION_PROMPT_OVERRIDE env var (anything except "legacy" enables)
+ *   2. Statsig gate `tengu_mcp_subagent_prompt`
+ */
+function isLargeStringFormatEnabled(): boolean {
+  const override = process.env.MCP_TRUNCATION_PROMPT_OVERRIDE
+  if (override) return override !== 'legacy'
+  return checkStatsigFeatureGate_CACHED_MAY_BE_STALE(
+    'tengu_mcp_subagent_prompt',
+  )
+}
+
+/**
+ * Unwraps a single bare text content block to its raw text when the
+ * large-string format gate is on. Returns undefined when the gate is off,
+ * the content is not an array, the array doesn't contain exactly one text
+ * block, or the block carries annotations or _meta. Matches binary mg5's
+ * `M=...` computation.
+ */
+function unwrapSingleTextBlock(content: MCPToolResult): string | undefined {
+  if (!isLargeStringFormatEnabled()) return undefined
+  if (!Array.isArray(content) || content.length !== 1) return undefined
+  const block = content[0]
+  if (!block || block.type !== 'text') return undefined
+  if ('annotations' in block || '_meta' in block) return undefined
+  return block.text
 }
 
 /**
@@ -2821,6 +2899,8 @@ export async function callMCPToolWithUrlElicitationRetry({
   signal,
   setAppState,
   onProgress,
+  imageLimits,
+  hasResultSizeAnnotation = false,
   callToolFn = callMCPTool,
   handleElicitation,
 }: {
@@ -2832,6 +2912,8 @@ export async function callMCPToolWithUrlElicitationRetry({
   signal: AbortSignal
   setAppState: (f: (prev: AppState) => AppState) => void
   onProgress?: (data: MCPProgress) => void
+  imageLimits?: ImageLimits
+  hasResultSizeAnnotation?: boolean
   /** Injectable for testing. Defaults to callMCPTool. */
   callToolFn?: (opts: {
     client: ConnectedMCPServer
@@ -2840,6 +2922,8 @@ export async function callMCPToolWithUrlElicitationRetry({
     meta?: Record<string, unknown>
     signal: AbortSignal
     onProgress?: (data: MCPProgress) => void
+    imageLimits?: ImageLimits
+    hasResultSizeAnnotation?: boolean
   }) => Promise<MCPToolCallResult>
   /** Handler for URL elicitations when no hook handles them.
    * In print/SDK mode, delegates to structuredIO. In REPL, falls back to queue. */
@@ -2859,6 +2943,8 @@ export async function callMCPToolWithUrlElicitationRetry({
         meta,
         signal,
         onProgress,
+        imageLimits,
+        hasResultSizeAnnotation,
       })
     } catch (error) {
       // The MCP SDK's Protocol creates plain McpError (not UrlElicitationRequiredError)
@@ -3035,6 +3121,8 @@ async function callMCPTool({
   meta,
   signal,
   onProgress,
+  imageLimits,
+  hasResultSizeAnnotation = false,
 }: {
   client: ConnectedMCPServer
   tool: string
@@ -3042,6 +3130,8 @@ async function callMCPTool({
   meta?: Record<string, unknown>
   signal: AbortSignal
   onProgress?: (data: MCPProgress) => void
+  imageLimits?: ImageLimits
+  hasResultSizeAnnotation?: boolean
 }): Promise<{
   content: MCPToolResult
   _meta?: Record<string, unknown>
@@ -3170,7 +3260,13 @@ async function callMCPTool({
       })
     }
 
-    const content = await processMCPResult(result, tool, name)
+    const content = await processMCPResult(
+      result,
+      tool,
+      name,
+      imageLimits,
+      hasResultSizeAnnotation,
+    )
     return {
       content,
       _meta: result._meta as Record<string, unknown> | undefined,
@@ -3247,8 +3343,14 @@ async function callMCPTool({
 }
 
 function extractToolUseId(message: AssistantMessage): string | undefined {
-  const firstBlock = (message.message.content as ContentBlockParam[] | undefined)?.[0]
-  if (!firstBlock || typeof firstBlock === 'string' || firstBlock.type !== 'tool_use') {
+  const firstBlock = (
+    message.message.content as ContentBlockParam[] | undefined
+  )?.[0]
+  if (
+    !firstBlock ||
+    typeof firstBlock === 'string' ||
+    firstBlock.type !== 'tool_use'
+  ) {
     return undefined
   }
   return firstBlock.id

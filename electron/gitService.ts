@@ -6,7 +6,7 @@
  */
 
 import { execFile } from 'child_process'
-import { writeFileSync, unlinkSync, mkdtempSync, rmdirSync } from 'fs'
+import { writeFileSync, readFileSync, unlinkSync, mkdtempSync, rmdirSync } from 'fs'
 import { watch, type FSWatcher } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
@@ -112,6 +112,7 @@ export interface GitFullDiffFileStats {
   linesRemoved: number
   isBinary: boolean
   isUntracked?: boolean
+  isStaged?: boolean
 }
 
 export interface GitFullDiffResult {
@@ -553,6 +554,16 @@ async function getDiff(cwd: string, path: string, staged?: boolean): Promise<Git
 
   const result = await gitExec(args, cwd)
   if (result.code !== 0) {
+    // git diff may return a non-zero exit code for untracked files in some
+    // edge cases (e.g. certain git versions or configurations). Before
+    // giving up, try the untracked file diff as a fallback so newly created
+    // files are still visible in the SCM diff viewer.
+    if (!staged) {
+      const untrackedDiff = await getUntrackedFileDiff(cwd, path)
+      if (untrackedDiff) {
+        return untrackedDiff
+      }
+    }
     return null
   }
 
@@ -601,6 +612,17 @@ async function getDiff(cwd: string, path: string, staged?: boolean): Promise<Git
     }
   }
 
+  // If no hunks were found and this is an unstaged diff, the file may be
+  // untracked (git diff does not show untracked files). In that case, build
+  // a synthetic diff showing the entire file content as additions so the
+  // user can see what was created.
+  if (hunks.length === 0 && !staged) {
+    const untrackedDiff = await getUntrackedFileDiff(cwd, path)
+    if (untrackedDiff) {
+      return untrackedDiff
+    }
+  }
+
   return {
     path,
     hunks,
@@ -610,72 +632,131 @@ async function getDiff(cwd: string, path: string, staged?: boolean): Promise<Git
   }
 }
 
+/**
+ * For untracked files, `git diff` returns empty output because git does not
+ * track untracked files in regular diffs. This function detects untracked
+ * files and builds a synthetic diff where every line is an addition (prefixed
+ * with '+'), so the user can see the full content of newly created files.
+ */
+async function getUntrackedFileDiff(cwd: string, filePath: string): Promise<GitDiffResult | null> {
+  // Check if the file is tracked by git. `git ls-files --error-unmatch`
+  // returns exit code 1 when the file is not tracked (i.e. untracked).
+  const trackedCheck = await gitExec(['ls-files', '--error-unmatch', '--', filePath], cwd)
+  if (trackedCheck.code === 0) {
+    // File is tracked — the empty diff is legitimate (no unstaged changes)
+    return null
+  }
+
+  try {
+    const fullPath = join(cwd, filePath)
+    const content = readFileSync(fullPath)
+
+    // Binary file check: presence of null byte indicates binary content
+    if (content.includes(0)) {
+      return {
+        path: filePath,
+        hunks: [],
+        additions: 0,
+        deletions: 0,
+        isBinary: true,
+      }
+    }
+
+    const text = content.toString('utf8')
+    const contentLines = text.split('\n')
+
+    // Remove trailing empty string that results from a final newline
+    if (contentLines.length > 0 && contentLines[contentLines.length - 1] === '') {
+      contentLines.pop()
+    }
+
+    // Empty file — return a result with no hunks (nothing to show)
+    if (contentLines.length === 0) {
+      return {
+        path: filePath,
+        hunks: [],
+        additions: 0,
+        deletions: 0,
+        isBinary: false,
+      }
+    }
+
+    // Build a single hunk where every line is an addition
+    const hunkContent = contentLines.map(line => `+${line}`).join('\n')
+
+    return {
+      path: filePath,
+      hunks: [{
+        oldStart: 0,
+        oldLines: 0,
+        newStart: 1,
+        newLines: contentLines.length,
+        content: hunkContent,
+      }],
+      additions: contentLines.length,
+      deletions: 0,
+      isBinary: false,
+    }
+  } catch {
+    return null
+  }
+}
+
 async function getFullDiff(cwd: string): Promise<GitFullDiffResult | null> {
   const isRepo = await isGitRepo(cwd)
   if (!isRepo) return null
 
-  // Get numstat for file-level stats
-  const numstatResult = await gitExec(['--no-optional-locks', '-c', 'core.quotePath=false', 'diff', 'HEAD', '--numstat'], cwd)
-  if (numstatResult.code !== 0) return null
-
-  // Parse numstat for per-file stats
-  const files: GitFullDiffFileStats[] = []
-  let totalAdded = 0
-  let totalRemoved = 0
-  let fileCount = 0
-
-  const numstatLines = numstatResult.stdout.trim().split('\n').filter(Boolean)
-  for (const line of numstatLines) {
-    const parts = line.split('\t')
-    if (parts.length < 3) continue
-
-    fileCount++
-    const addStr = parts[0]!
-    const remStr = parts[1]!
-    const filePath = parts.slice(2).join('\t')
-    const isBinary = addStr === '-' || remStr === '-'
-    const fileAdded = isBinary ? 0 : parseInt(addStr, 10) || 0
-    const fileRemoved = isBinary ? 0 : parseInt(remStr, 10) || 0
-
-    totalAdded += fileAdded
-    totalRemoved += fileRemoved
-
-    files.push({
-      path: filePath,
-      linesAdded: fileAdded,
-      linesRemoved: fileRemoved,
-      isBinary,
-    })
-  }
-
-  // Get untracked files
-  const untrackedResult = await gitExec(
-    ['--no-optional-locks', '-c', 'core.quotePath=false', 'ls-files', '--others', '--exclude-standard'],
-    cwd,
-  )
-  if (untrackedResult.code === 0 && untrackedResult.stdout.trim()) {
-    const untrackedPaths = untrackedResult.stdout.trim().split('\n').filter(Boolean)
-    for (const filePath of untrackedPaths) {
-      files.push({
-        path: filePath,
-        linesAdded: 0,
-        linesRemoved: 0,
-        isBinary: false,
-        isUntracked: true,
-      })
-      fileCount++
-    }
-  }
-
-  // Get full diff hunks for all files
-  const diffResult = await gitExec(
-    ['--no-optional-locks', '-c', 'core.quotePath=false', 'diff', 'HEAD', '--no-color', '--unified=3'],
-    cwd,
-  )
-
+  const filesByKey = new Map<string, GitFullDiffFileStats>()
   const hunks: Record<string, GitDiffHunk[]> = {}
-  if (diffResult.code === 0 && diffResult.stdout.trim()) {
-    const fileDiffs = diffResult.stdout.split(/^diff --git /m).filter(Boolean)
+
+  const addFileStats = (filePath: string, linesAdded: number, linesRemoved: number, isBinary: boolean, isStaged: boolean) => {
+    const existing = filesByKey.get(filePath)
+    if (existing) {
+      existing.linesAdded += linesAdded
+      existing.linesRemoved += linesRemoved
+      existing.isBinary = existing.isBinary || isBinary
+      existing.isStaged = existing.isStaged || isStaged
+      return existing
+    }
+
+    const fileStats: GitFullDiffFileStats = {
+      path: filePath,
+      linesAdded,
+      linesRemoved,
+      isBinary,
+      isStaged,
+    }
+    filesByKey.set(filePath, fileStats)
+    return fileStats
+  }
+
+  const collectNumstat = async (args: string[], isStaged: boolean): Promise<boolean> => {
+    const result = await gitExec(args, cwd)
+    if (result.code !== 0) return false
+
+    const lines = result.stdout.trim().split('\n').filter(Boolean)
+    for (const line of lines) {
+      const parts = line.split('\t')
+      if (parts.length < 3) continue
+
+      const addStr = parts[0]!
+      const remStr = parts[1]!
+      const filePath = parseNumstatPath(parts.slice(2).join('\t'))
+      const isBinary = addStr === '-' || remStr === '-'
+      const fileAdded = isBinary ? 0 : parseInt(addStr, 10) || 0
+      const fileRemoved = isBinary ? 0 : parseInt(remStr, 10) || 0
+
+      addFileStats(filePath, fileAdded, fileRemoved, isBinary, isStaged)
+    }
+
+    return true
+  }
+
+  const collectDiffHunks = async (args: string[]) => {
+    const result = await gitExec(args, cwd)
+    if (result.code !== 0 || !result.stdout.trim()) return
+
+    const fileDiffs = result.stdout.split(/^diff --git /m).filter(Boolean)
     for (const fileDiff of fileDiffs) {
       const lines = fileDiff.split('\n')
       const headerMatch = lines[0]?.match(/^a\/(.+?) b\/(.+)$/)
@@ -734,22 +815,85 @@ async function getFullDiff(cwd: string): Promise<GitFullDiffResult | null> {
       }
 
       if (fileHunks.length > 0) {
-        hunks[filePath] = fileHunks
+        const existing = hunks[filePath] || []
+        hunks[filePath] = existing.concat(fileHunks)
       }
     }
   }
 
-  // Sort files alphabetically
-  files.sort((a, b) => a.path.localeCompare(b.path))
+  const stagedOk = await collectNumstat(
+    ['--no-optional-locks', '-c', 'core.quotePath=false', 'diff', '--cached', '--numstat'],
+    true,
+  )
+  const unstagedOk = await collectNumstat(
+    ['--no-optional-locks', '-c', 'core.quotePath=false', 'diff', '--numstat'],
+    false,
+  )
+  if (!stagedOk || !unstagedOk) return null
+
+  // Get untracked files. They are shown as changed files, but line counts stay at 0
+  // unless/until they become part of a git diff.
+  const untrackedResult = await gitExec(
+    ['--no-optional-locks', '-c', 'core.quotePath=false', 'ls-files', '--others', '--exclude-standard'],
+    cwd,
+  )
+  if (untrackedResult.code === 0 && untrackedResult.stdout.trim()) {
+    const untrackedPaths = untrackedResult.stdout.trim().split('\n').filter(Boolean)
+    for (const filePath of untrackedPaths) {
+      const fileStats = addFileStats(filePath, countFileLines(cwd, filePath), 0, false, false)
+      fileStats.isUntracked = true
+    }
+  }
+
+  await collectDiffHunks(
+    ['--no-optional-locks', '-c', 'core.quotePath=false', 'diff', '--cached', '--no-color', '--unified=3'],
+  )
+  await collectDiffHunks(
+    ['--no-optional-locks', '-c', 'core.quotePath=false', 'diff', '--no-color', '--unified=3'],
+  )
+
+  const files = Array.from(filesByKey.values()).sort((a, b) => a.path.localeCompare(b.path))
+  const totalAdded = files.reduce((sum, file) => sum + file.linesAdded, 0)
+  const totalRemoved = files.reduce((sum, file) => sum + file.linesRemoved, 0)
 
   return {
     stats: {
-      filesCount: fileCount,
+      filesCount: files.length,
       linesAdded: totalAdded,
       linesRemoved: totalRemoved,
     },
     files,
     hunks,
+  }
+}
+
+function parseNumstatPath(rawPath: string): string {
+  // Rename entries can be emitted as either "old => new" or "{old => new}/file".
+  // Keep the visible/current path aligned with diff headers and SCM status rows.
+  const arrowIndex = rawPath.indexOf(' => ')
+  if (arrowIndex === -1) return rawPath
+
+  if (rawPath.includes('{') && rawPath.includes('}')) {
+    return rawPath.replace(/\{([^{}]*?) => ([^{}]*?)\}/g, '$2')
+  }
+
+  return rawPath.slice(arrowIndex + 4)
+}
+
+function countFileLines(cwd: string, filePath: string): number {
+  try {
+    const content = readFileSync(join(cwd, filePath))
+    if (content.includes(0)) return 0
+    if (content.length === 0) return 0
+
+    let lines = 1
+    for (const byte of content) {
+      if (byte === 10) lines++
+    }
+
+    return content[content.length - 1] === 10 ? lines - 1 : lines
+  } catch {
+    return 0
   }
 }
 
@@ -998,10 +1142,11 @@ function startGitWatcher(projectRoot: string): void {
     console.warn(`[GitService] Failed to watch .git directory: ${gitDir}`, e)
   }
 
-  // Watch worktree for file modifications (only top-level to detect new/deleted files)
-  // This catches external editor changes that don't touch .git immediately
+  // Watch worktree for file modifications (recursive to detect new/deleted files in subdirectories)
+  // This catches external editor changes and LLM-generated files that don't touch .git immediately.
+  // { recursive: true } is supported on Windows and macOS. On Linux it falls back to non-recursive.
   try {
-    worktreeWatcher = watch(projectRoot, (_event, filename) => {
+    worktreeWatcher = watch(projectRoot, { recursive: true }, (_event, filename) => {
       if (!filename) return
       // Ignore .git changes (already watched above) and node_modules
       if (filename.startsWith('.git') || filename.startsWith('node_modules')) return
@@ -1012,9 +1157,24 @@ function startGitWatcher(projectRoot: string): void {
         debounceTimer = null
       }, DEBOUNCE_MS)
     })
-    debug('GitService', `Watching worktree: ${projectRoot}`)
+    debug('GitService', `Watching worktree (recursive): ${projectRoot}`)
   } catch (e) {
-    console.warn(`[GitService] Failed to watch worktree: ${projectRoot}`, e)
+    // Fallback: try non-recursive watch if recursive is not supported (e.g. Linux)
+    try {
+      worktreeWatcher = watch(projectRoot, (_event, filename) => {
+        if (!filename) return
+        if (filename.startsWith('.git') || filename.startsWith('node_modules')) return
+
+        if (debounceTimer) clearTimeout(debounceTimer)
+        debounceTimer = setTimeout(() => {
+          notifyRendererStatusChanged()
+          debounceTimer = null
+        }, DEBOUNCE_MS)
+      })
+      debug('GitService', `Watching worktree (non-recursive fallback): ${projectRoot}`)
+    } catch (e2) {
+      console.warn(`[GitService] Failed to watch worktree: ${projectRoot}`, e2)
+    }
   }
 }
 

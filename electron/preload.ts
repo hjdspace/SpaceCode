@@ -469,6 +469,45 @@ contextBridge.exposeInMainWorld('electronAPI', {
     list: (workingDir: string) => ipcRenderer.invoke('artifacts:list', workingDir),
     open: (filePath: string) => ipcRenderer.invoke('artifacts:open', filePath),
     reveal: (filePath: string) => ipcRenderer.invoke('artifacts:reveal', filePath),
+    startWatch: (artifactsDir: string) => ipcRenderer.invoke('artifacts:startWatch', artifactsDir),
+    stopWatch: () => ipcRenderer.invoke('artifacts:stopWatch'),
+    onChanged: (callback: (data: { eventType: string; filename: string }) => void) => {
+      const handler = (_: any, data: any) => callback(data)
+      ipcRenderer.on('artifacts:changed', handler)
+      return () => ipcRenderer.removeListener('artifacts:changed', handler)
+    },
+  },
+
+  // OfficeCLI API — binary execution, file preview, watch mode
+  officecli: {
+    /** Check OfficeCLI version */
+    version: () => ipcRenderer.invoke('officecli:version'),
+    /** Check if the binary is installed */
+    checkInstalled: () => ipcRenderer.invoke('officecli:checkInstalled'),
+    /** Execute an arbitrary officecli command */
+    exec: (options: { args: string[]; cwd?: string; timeout?: number; env?: Record<string, string> }) =>
+      ipcRenderer.invoke('officecli:exec', options),
+    /** Render a file as HTML, returns the HTML file path */
+    viewHtml: (filePath: string, outputDir?: string) =>
+      ipcRenderer.invoke('officecli:viewHtml', filePath, outputDir),
+    /** Render a file as PNG screenshots, returns a list of image paths */
+    viewScreenshot: (filePath: string, outputDir: string, page?: number) =>
+      ipcRenderer.invoke('officecli:viewScreenshot', filePath, outputDir, page),
+    /** Start a live-preview watch server */
+    watchStart: (filePath: string, port?: number) =>
+      ipcRenderer.invoke('officecli:watch:start', filePath, port),
+    /** Stop a specific watch instance */
+    watchStop: (watchId: string) =>
+      ipcRenderer.invoke('officecli:watch:stop', watchId),
+    /** Stop all watch instances */
+    watchStopAll: () =>
+      ipcRenderer.invoke('officecli:watch:stopAll'),
+    /** List active watch instances */
+    watchList: () =>
+      ipcRenderer.invoke('officecli:watch:list'),
+    /** Read an image file as base64 data URL */
+    readImageAsDataURL: (filePath: string) =>
+      ipcRenderer.invoke('officecli:readImageAsDataURL', filePath) as Promise<string>,
   },
 
   // File selection dialog
@@ -517,6 +556,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteWorkflow: (id: string) => ipcRenderer.invoke('agents:deleteWorkflow', id),
     exportWorkflow: (id: string, scope: 'global' | 'project', cwd?: string) =>
       ipcRenderer.invoke('agents:exportWorkflow', id, scope, cwd),
+    saveCustom: (agentName: string, content: string) =>
+      ipcRenderer.invoke('agents:saveCustom', agentName, content),
   },
 
   // Image persistence — 聊天图片落盘到 userData，避免 localStorage 配额溢出
@@ -552,6 +593,31 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     // 查询当前会被注入到 CLI 的 MCP 服务器名列表（用于「已加载」标记）
     getActiveMcpNames: () => ipcRenderer.invoke('mcp:getActiveMcpNames'),
+  },
+
+  // Computer Use API — cua-driver 二进制管理、健康检查、权限管理
+  computerUse: {
+    /** 获取 cua-driver 完整状态（安装、版本、权限、健康检查） */
+    getStatus: () => ipcRenderer.invoke('cua-driver:status'),
+    /** 安装/升级 cua-driver（优先从内置二进制安装，回退到 GitHub 下载） */
+    install: () => ipcRenderer.invoke('cua-driver:install'),
+    /** 安装进度事件订阅 */
+    onInstallProgress: (callback: (progress: { stage: string; message: string; percent: number }) => void) => {
+      const handler = (_: unknown, data: { stage: string; message: string; percent: number }) => callback(data)
+      ipcRenderer.on('cua-driver:installProgress', handler)
+      return () => ipcRenderer.removeListener('cua-driver:installProgress', handler)
+    },
+    /** 运行健康检查（通过 MCP 调用 health_report） */
+    doctor: () => ipcRenderer.invoke('cua-driver:doctor'),
+    /** 查询 macOS TCC 权限状态（辅助功能 + 屏幕录制） */
+    getPermissions: () => ipcRenderer.invoke('cua-driver:permissions:status'),
+    /** 请求 macOS TCC 权限（弹出系统设置） */
+    grantPermissions: () => ipcRenderer.invoke('cua-driver:permissions:grant'),
+    /** 检查 cua-driver 更新 */
+    checkUpdate: () => ipcRenderer.invoke('cua-driver:check-update'),
+    /** 直接调用 cua-driver MCP 工具（高级用途） */
+    callTool: (name: string, args: Record<string, unknown>) =>
+      ipcRenderer.invoke('cua-driver:tool', name, args),
   },
 
   mobile: {

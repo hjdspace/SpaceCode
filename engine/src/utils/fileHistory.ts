@@ -51,7 +51,9 @@ export type FileHistoryState = {
   snapshotSequence: number
 }
 
-const MAX_SNAPSHOTS = 100
+// Disabled: file checkpointing causes unbounded memory growth (100 snapshots × full file backups).
+// See heap snapshot analysis — re-enable only after switching to incremental diffs.
+const MAX_SNAPSHOTS = 20
 export type DiffStats =
   | {
       filesChanged?: string[]
@@ -1109,7 +1111,6 @@ async function readFileAsyncOrNull(path: string): Promise<string | null> {
 const ENABLE_DUMP_STATE = false
 function maybeDumpStateForDebug(state: FileHistoryState): void {
   if (ENABLE_DUMP_STATE) {
-    // biome-ignore lint/suspicious/noConsole:: intentional console output
     console.error(inspect(state, false, 5))
   }
 }

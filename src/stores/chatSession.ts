@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import { ref, computed, watch, readonly } from 'vue'
-import type { Session, Message, ToolCall, AgentInfo, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus } from '@/types'
+import { ref, computed, readonly } from 'vue'
+import type { Session, Message, ToolCall, AgentInfo, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus, ArtifactSummaryEntry } from '@/types'
 import type { RewindOption, RewindState } from '@/types/rewind'
 import { useSettingsStore } from './settings'
 import { useAppStore } from './app'
@@ -15,7 +15,6 @@ import {
   loadProjectsFromStorage,
   saveProjectsToStorage,
   setPersistenceLogger,
-  stripLargeAttachmentData,
 } from '@/services/sessionPersistence'
 import {
   getRawTeammateName,
@@ -33,6 +32,18 @@ import {
 } from '@/services/teamTranscriptService'
 
 const taskManager = useTaskManager()
+
+// 单会话在内存中保留的最大消息数。
+// 长时间运行的 agent 任务会不断追加消息（每轮 LLM 调用 + 工具调用 + 工具结果），
+// 没有上限时 session.messages 会无限增长，导致响应式系统遍历开销增大、
+// saveToStorage 的 JSON.stringify 分配超大字符串触发 V8 OOM。
+// 引擎自身持有完整对话历史，前端仅保留最近消息用于 UI 展示。
+const MAX_MESSAGES_PER_SESSION = 500
+
+// 从 JSONL 恢复历史时，工具输出的最大长度。
+// 与 chatStream.ts 的 MAX_INMEMORY_TOOL_OUTPUT 保持一致，
+// 防止超长会话恢复时将数十 MB 的工具输出加载到内存。
+const MAX_INMEMORY_TOOL_OUTPUT_HYDRATE = 30_000
 
 // ============================================================
 // Renderer Logger
@@ -136,11 +147,51 @@ async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
       const restoredMessages = buildMessagesFromHistory(fullSession.messages)
       if (restoredMessages.length === 0) continue
 
+      // ── 保留办公模式产物汇总数据 ──
+      // JSONL 转录文件由引擎写入，不包含 SpaceCode 特有的 metadata.artifacts 字段。
+      // buildMessagesFromHistory 从 JSONL 重建消息时会丢失该字段，导致重开后产物汇总
+      // 卡片消失。此处从 localStorage 保存的旧消息中按助手消息位置提取 artifacts，
+      // 重建后按位置合并回去（旧/新消息的 SpaceCode UUID 与引擎 UUID 不同，无法按 id 匹配）。
+      const oldArtifactsByAssistantIdx = new Map<number, ArtifactSummaryEntry[]>()
+      let oldAssistantIdx = 0
+      for (const oldMsg of session.messages) {
+        if (oldMsg.role !== 'assistant') continue
+        if (oldMsg.metadata?.artifacts?.length) {
+          oldArtifactsByAssistantIdx.set(oldAssistantIdx, oldMsg.metadata.artifacts)
+        }
+        oldAssistantIdx++
+      }
+
       session.messages = restoredMessages.map(msg => ({
         ...msg,
         id: msg.id || crypto.randomUUID(),
         timestamp: Date.now(),
+        // 截断从 JSONL 加载的历史工具输出，与流式期间 MAX_INMEMORY_TOOL_OUTPUT 保持一致
+        ...(msg.toolCalls?.length ? {
+          toolCalls: msg.toolCalls.map(tc => ({
+            ...tc,
+            output: typeof tc.output === 'string' && tc.output.length > MAX_INMEMORY_TOOL_OUTPUT_HYDRATE
+              ? tc.output.slice(0, MAX_INMEMORY_TOOL_OUTPUT_HYDRATE) + '\n\n[Output truncated to prevent memory overflow]'
+              : tc.output,
+          }))
+        } : {}),
       })) as Message[]
+
+      // 将旧消息中保存的产物汇总数据按助手消息位置合并回重建后的消息
+      if (oldArtifactsByAssistantIdx.size > 0) {
+        let newAssistantIdx = 0
+        for (const newMsg of session.messages) {
+          if (newMsg.role !== 'assistant') continue
+          const savedArtifacts = oldArtifactsByAssistantIdx.get(newAssistantIdx)
+          if (savedArtifacts) {
+            newMsg.metadata = {
+              ...(newMsg.metadata || {}),
+              artifacts: savedArtifacts,
+            }
+          }
+          newAssistantIdx++
+        }
+      }
 
       session.teamContext = undefined
       session.teammateTranscripts = {}
@@ -280,6 +331,24 @@ function updateTaskStateFromToolResult(
       })
     }
     taskManager.syncTasksFromList(tasks)
+  } else if (toolName === 'TodoWrite') {
+    // TodoWrite (V1): the full task list is in the tool call input,
+    // not the result output. Sync it to taskManager so that both the
+    // chat TaskListCard and the floating EnvPanel stay up-to-date.
+    const todos = toolCall.input?.todos
+    if (Array.isArray(todos)) {
+      taskManager.syncTasksFromList(
+        todos
+          .filter((t: any) => t && typeof t.content === 'string')
+          .map((t: any) => ({
+            id: String(t.id ?? t.content),
+            content: t.content,
+            status: (['pending', 'in_progress', 'completed'].includes(t.status)
+              ? t.status
+              : 'pending') as 'pending' | 'in_progress' | 'completed',
+          }))
+      )
+    }
   }
 }
 
@@ -386,6 +455,48 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     currentSession.value?.workingDirectory || currentProjectRoot.value || ''
   )
 
+  // ── By-id selectors（供分屏多 pane 场景按 sessionId 直接读取，不依赖全局 current）──
+  // 这些函数都是「响应式安全」的：内部读取 sessions.value，包在 computed 里使用即可。
+  function getSession(sessionId: string | null | undefined): Session | null {
+    if (!sessionId) return null
+    return sessions.value.find(s => s.id === sessionId) || null
+  }
+
+  function getSessionMessages(sessionId: string | null | undefined): Message[] {
+    return getSession(sessionId)?.messages || []
+  }
+
+  /** 等价于 displayMessages，但作用于任意 sessionId（包括队友转录回退） */
+  function getDisplayMessages(sessionId: string | null | undefined): Message[] {
+    const s = getSession(sessionId)
+    if (!s) return []
+    const teammateId = s.viewingAgentTaskId
+    if (!teammateId) return s.messages || []
+    return s.teammateTranscripts?.[teammateId] || []
+  }
+
+  function getWorkingDirectory(sessionId: string | null | undefined): string {
+    return getSession(sessionId)?.workingDirectory || currentProjectRoot.value || ''
+  }
+
+  function getTeamContext(sessionId: string | null | undefined) {
+    return getSession(sessionId)?.teamContext || null
+  }
+
+  function getViewedAgentTaskId(sessionId: string | null | undefined): string | undefined {
+    return getSession(sessionId)?.viewingAgentTaskId
+  }
+
+  function getViewedTeammate(sessionId: string | null | undefined) {
+    const taskId = getViewedAgentTaskId(sessionId)
+    if (!taskId) return null
+    return getTeamContext(sessionId)?.teammates[taskId] || null
+  }
+
+  function getIsViewingTeammate(sessionId: string | null | undefined): boolean {
+    return !!getViewedAgentTaskId(sessionId)
+  }
+
   const allProjects = computed(() => {
     const projectSet = new Set<string>()
     for (const session of sessions.value) {
@@ -407,7 +518,11 @@ export const useChatSessionStore = defineStore('chatSession', () => {
   let _saveScheduled = false
   let _saveTrailing = false
   let _lastSaveAt = 0
-  const SAVE_INTERVAL_MS = 600
+  // 流式响应期间（text_delta/thinking_delta）会频繁调用 saveToStorage，
+  // 每次 saveSessionsToStorage 都会同步遍历所有会话+消息、JSON.stringify、
+  // 压缩并 localStorage.setItem（同步阻塞主线程）。
+  // 600ms 节流在长会话中仍会导致明显卡顿，提升到 2000ms 可将写入频率降低 3 倍。
+  const SAVE_INTERVAL_MS = 2000
 
   function flushSaveNow() {
     _saveScheduled = false
@@ -446,13 +561,11 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     saveProjectsToStorage(projects.value)
   }
 
-  watch(
-    () => sessions.value,
-    () => {
-      saveToStorage()
-    },
-    { deep: true }
-  )
+  // 注意：不使用 deep watch 监听 sessions 变化来触发持久化。
+  // deep watch 会在每次响应式变化时深度遍历整个 sessions 树（所有会话的所有消息的所有属性），
+  // 在流式响应期间（每秒数十次 delta），这会导致 O(n×m) 的遍历开销，严重卡死 UI。
+  // 所有修改 sessions 的方法（addMessage、updateMessage、handleResult 等）都已显式调用 saveToStorage，
+  // 因此这个 deep watch 是冗余的，移除它可消除流式期间最大的性能瓶颈。
 
   function addProject(projectPath: string) {
     if (!projects.value.includes(projectPath)) {
@@ -597,6 +710,9 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       delete session._resumeSessionId
 
       session.engineType = desiredEngine
+      // CLI 进程启动成功后会话处于等待输入状态，标记为 idle 而非 starting，
+      // 避免新创建的助手会话在用户尚未发送消息时一直显示转圈。
+      session.processStatus = 'idle'
       saveToStorage()
 
       logger.info('ChatStore', `initClaudeCodeSession: session started successfully | id=${sessionId.slice(0, 8)}`)
@@ -752,6 +868,14 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       } else {
         session.messages.push(newMessage)
       }
+
+      // 限制单会话内存中的消息数量，防止长时间运行任务导致消息无限堆积 → OOM
+      // 从头部移除最旧的消息（保留最近的消息，确保 retryLastMessage 能找到最后一条用户消息）
+      if (session.messages.length > MAX_MESSAGES_PER_SESSION) {
+        const removeCount = session.messages.length - MAX_MESSAGES_PER_SESSION
+        session.messages.splice(0, removeCount)
+      }
+
       session.updatedAt = Date.now()
       session.lastActivityAt = Date.now()
 
@@ -774,14 +898,13 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     const sid = targetSessionId || currentSessionId.value
     const session = sessions.value.find(s => s.id === sid)
     if (session) {
-      const index = session.messages.findIndex(m => m.id === messageId)
-      if (index >= 0) {
-        const updatedMessage = { ...session.messages[index], ...updates }
-        session.messages = [
-          ...session.messages.slice(0, index),
-          updatedMessage,
-          ...session.messages.slice(index + 1)
-        ]
+      const msg = session.messages.find(m => m.id === messageId)
+      if (msg) {
+        // 直接修改属性，不创建新数组。
+        // 流式期间每个 text_delta 都会调用 updateMessage，
+        // 使用 spread + slice 创建新数组会导致 O(n) 复制 + 触发下游所有 computed 重建。
+        // Vue 3 的 reactive 代理会正确追踪属性修改，下游组件通过属性访问建立响应式依赖。
+        Object.assign(msg, updates)
         saveToStorage()
       }
     }
@@ -1295,15 +1418,46 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     name: string
     skills?: string[]
     permission?: string
+    skillRuntime?: 'officecli' | 'node' | 'none'
+    skillsRequired?: boolean
   }): Promise<Session> {
     const cwd = appStore.workWorkspace || appStore.projectRoot || undefined
+
+    // Phase 4: 技能可用性校验 + 降级回退
+    let effectiveSkills = assistant.skills ? [...assistant.skills] : undefined
+    if (assistant.skillRuntime === 'officecli' && effectiveSkills?.length) {
+      let officeCliAvailable = false
+      try {
+        officeCliAvailable = await api.officecli.checkInstalled()
+      } catch { /* ignore */ }
+
+      if (!officeCliAvailable) {
+        // 降级：officecli-* / morph-* → Node 等价技能
+        const fallbackMap: Record<string, string> = {
+          // 基础技能
+          'officecli-pptx': 'pptx',
+          'officecli-docx': 'docx',
+          'officecli-xlsx': 'xlsx',
+          // 场景层技能 → 对应的 Node 基础技能
+          'officecli-academic-paper': 'docx',
+          'officecli-data-dashboard': 'xlsx',
+          'officecli-financial-model': 'xlsx',
+          'officecli-pitch-deck': 'pptx',
+          'officecli-word-form': 'docx',
+          'morph-ppt': 'pptx',
+          'morph-ppt-3d': 'pptx',
+        }
+        effectiveSkills = effectiveSkills.map(s => fallbackMap[s] || s)
+        console.warn(`[ChatStore] OfficeCLI not available, falling back to Node skills for "${assistant.name}"`)
+      }
+    }
 
     try {
       await api.agents.install(assistant.name, 'global', cwd)
     } catch { /* already installed or unavailable */ }
 
     if (api.skills && cwd) {
-      for (const skill of assistant.skills || []) {
+      for (const skill of effectiveSkills || []) {
         try {
           await api.skills.installLocal(skill, 'project', cwd)
         } catch { /* already installed or unavailable */ }
@@ -1321,10 +1475,90 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     session.assistantId = assistant.name
     saveToStorage()
 
-    appStore.openArtifactsPanel()
-
+    // 不在此处立即展开 Artifacts 面板：用户尚未发送消息、LLM 尚未生成产物。
+    // 改为在 ChatPanel.handleSend 中，用户首次发送消息时再展开。
     await initClaudeCodeSession(session.id)
     return session
+  }
+
+  /**
+   * 在当前空会话上切换 Work 助手（不新建会话）。
+   * 用于输入框上方常用助手快捷选择场景：
+   * 当前会话是空的 work 会话且未选助手时，直接绑定助手到当前会话。
+   */
+  async function switchWorkAssistant(assistant: {
+    name: string
+    skills?: string[]
+    permission?: string
+    skillRuntime?: 'officecli' | 'node' | 'none'
+    skillsRequired?: boolean
+  }): Promise<void> {
+    const session = currentSession.value
+    if (!session) return
+
+    const cwd = appStore.workWorkspace || appStore.projectRoot || undefined
+
+    // 技能可用性校验 + 降级回退（与 startWorkAssistantSession 一致）
+    let effectiveSkills = assistant.skills ? [...assistant.skills] : undefined
+    if (assistant.skillRuntime === 'officecli' && effectiveSkills?.length) {
+      let officeCliAvailable = false
+      try {
+        officeCliAvailable = await api.officecli.checkInstalled()
+      } catch { /* ignore */ }
+
+      if (!officeCliAvailable) {
+        const fallbackMap: Record<string, string> = {
+          'officecli-pptx': 'pptx',
+          'officecli-docx': 'docx',
+          'officecli-xlsx': 'xlsx',
+          'officecli-academic-paper': 'docx',
+          'officecli-data-dashboard': 'xlsx',
+          'officecli-financial-model': 'xlsx',
+          'officecli-pitch-deck': 'pptx',
+          'officecli-word-form': 'docx',
+          'morph-ppt': 'pptx',
+          'morph-ppt-3d': 'pptx',
+        }
+        effectiveSkills = effectiveSkills.map(s => fallbackMap[s] || s)
+        console.warn(`[ChatStore] OfficeCLI not available, falling back to Node skills for "${assistant.name}"`)
+      }
+    }
+
+    try {
+      await api.agents.install(assistant.name, 'global', cwd)
+    } catch { /* already installed or unavailable */ }
+
+    if (api.skills && cwd) {
+      for (const skill of effectiveSkills || []) {
+        try {
+          await api.skills.installLocal(skill, 'project', cwd)
+        } catch { /* already installed or unavailable */ }
+      }
+    }
+
+    currentAgent.value = assistant.name
+    if (assistant.permission) {
+      const { useChatControlStore } = await import('./chatControl')
+      const controlStore = useChatControlStore()
+      controlStore.setPermissionMode(assistant.permission as any)
+    }
+
+    // 绑定助手到当前会话
+    session.assistantId = assistant.name
+    session.title = assistant.name
+    saveToStorage()
+
+    // 如果已有 CLI 进程在运行，需要停止后用新 agent 重新初始化
+    const claudeCode = api.claudeCode
+    if (claudeCode) {
+      try {
+        const status = await claudeCode.getSessionStatus(session.id)
+        if (status?.isRunning) {
+          await claudeCode.stop(session.id)
+        }
+      } catch { /* ignore */ }
+      await initClaudeCodeSession(session.id)
+    }
   }
 
   sessions.value.forEach(s => {
@@ -1346,6 +1580,15 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     viewedTeammate,
     isViewingTeammate,
     workingDirectory,
+    // By-id selectors（分屏多 pane 用）
+    getSession,
+    getSessionMessages,
+    getDisplayMessages,
+    getWorkingDirectory,
+    getTeamContext,
+    getViewedAgentTaskId,
+    getViewedTeammate,
+    getIsViewingTeammate,
     projects,
     allProjects,
     currentProjectRoot,
@@ -1373,6 +1616,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     switchAgent,
     switchModel,
     startWorkAssistantSession,
+    switchWorkAssistant,
     // Turn Checkpoints
     turnCheckpoints: readonly(turnCheckpoints),
     turnChangeCards,

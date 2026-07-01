@@ -6,18 +6,16 @@ import { debug, error, info, warn } from './logger'
 // ============================================================
 // Prompt Optimizer — Self-contained main-process implementation
 // ----------------------------------------------------------------
-// The engine module at engine/src/commands/prompt-optimizer/optimizer.ts
-// cannot be require()'d from the Electron main process: it is TypeScript
-// source shipped only as bun-bundled `engine/dist/chunk-*.js` artefacts,
-// and it pulls in a large bootstrap/auth runtime that does not exist
-// inside the main process.
-//
-// Instead we read the already-saved GUI settings file and call the
+// This module is completely independent of the engine sub-project.
+// It reads the already-saved GUI settings file and calls the
 // configured LLM directly, mirroring the `http:fetch` handler.
 //
 // To make the optimization actually match the project, we also gather
 // a small, bounded "project context snapshot" (name, signal files,
 // shallow tree) and inject it into the system prompt.
+//
+// The frontend composable `src/composables/usePromptOptimizer.ts`
+// wraps the IPC call to this handler.
 // ============================================================
 
 const PROMPT_OPTIMIZER_SYSTEM_PROMPT = `You are a Prompt Optimization Expert embedded in a coding assistant. Your sole purpose is to rewrite the user's raw instruction into a higher-quality prompt that the downstream coding agent can execute effectively inside the current project.

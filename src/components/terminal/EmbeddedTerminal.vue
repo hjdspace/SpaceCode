@@ -35,6 +35,7 @@ let fitAddon: FitAddon | null = null
 let terminalId: string | null = null
 let removeDataListener: (() => void) | null = null
 let removeExitListener: (() => void) | null = null
+let contextmenuHandler: ((e: Event) => void) | null = null
 
 const containerStyle = computed(() => ({
   minHeight: `${(props.height || 12) * 20 + 16}px`
@@ -142,14 +143,36 @@ async function initTerminal() {
 
     const containerEl = containerRef.value
     if (containerEl) {
-      containerEl.addEventListener('contextmenu', async (e: Event) => {
+      contextmenuHandler = async (e: Event) => {
+        e.preventDefault()
         const selection = terminal?.getSelection()
         if (selection) {
-          await navigator.clipboard.writeText(selection)
+          // 有选区 → 复制到剪贴板
+          try {
+            await navigator.clipboard.writeText(selection)
+            terminal?.clearSelection()
+          } catch (err) {
+            console.warn('[EmbeddedTerminal] Copy failed:', err)
+          }
+        } else {
+          // 无选区 → 粘贴
+          await pasteFromClipboard()
         }
-        e.preventDefault()
-      })
+      }
+      containerEl.addEventListener('contextmenu', contextmenuHandler)
     }
+
+    // 粘贴快捷键支持：Ctrl+Shift+V 和 Ctrl+V
+    terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+      if ((event.ctrlKey && event.shiftKey && event.key === 'V') ||
+          (event.ctrlKey && !event.shiftKey && event.key === 'v')) {
+        if (event.type === 'keydown') {
+          pasteFromClipboard()
+        }
+        return false
+      }
+      return true
+    })
 
     terminal.onData((data: string) => {
       if (terminalId) {
@@ -207,6 +230,21 @@ function clear() {
   terminal?.clear()
 }
 
+/**
+ * 从剪贴板读取文本并粘贴到终端
+ */
+async function pasteFromClipboard() {
+  try {
+    const text = await navigator.clipboard.readText()
+    if (text && terminalId) {
+      const electronAPI = (window as any).electronAPI
+      electronAPI?.terminal?.write(terminalId, text)
+    }
+  } catch (e) {
+    console.warn('[EmbeddedTerminal] Paste failed:', e)
+  }
+}
+
 function write(data: string) {
   if (terminalId) {
     const electronAPI = (window as any).electronAPI
@@ -234,6 +272,10 @@ onUnmounted(() => {
   removeDataListener?.()
   removeExitListener?.()
   themeObserver.disconnect()
+  if (contextmenuHandler && containerRef.value) {
+    containerRef.value.removeEventListener('contextmenu', contextmenuHandler)
+  }
+  contextmenuHandler = null
   terminal?.dispose()
   terminal = null
   fitAddon = null

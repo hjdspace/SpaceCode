@@ -1,6 +1,6 @@
 {
   "name": "spacecode",
-  "version": "0.5.3",
+  "version": "0.6.1",
   "homepage": "https://github.com/hjdspace/SpaceCode",
   "author": {
     "name": "hjdspace",
@@ -13,6 +13,8 @@
     "engine:build:desktop": "cd engine && bun run build-desktop.ts",
     "postinstall": "npm run engine:install",
     "copy-bun": "node scripts/copy-bun.cjs",
+    "copy-mcp-vendor": "node scripts/copy-mcp-vendor.cjs",
+    "download:officecli": "node scripts/download-officecli.mjs",
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "build:proxy": "node -e \"const esbuild=require('esbuild');esbuild.buildSync({entryPoints:['electron/proxy/index.ts'],bundle:true,outdir:'dist-electron/proxy',platform:'node',format:'cjs',external:['electron']})\"",
@@ -21,10 +23,11 @@
     "electron:dev": "vite",
     "icons:generate": "node icons/generate-icons.cjs && node icons/generate-ico.cjs",
     "icons:generate:ico": "node icons/generate-ico.cjs",
-    "electron:build": "npm run icons:generate && npm run copy-bun && npm run engine:build:desktop && npm run build:all && electron-builder",
-    "electron:build:win": "npm run icons:generate && npm run copy-bun && npm run engine:build:desktop && npm run build:all && electron-builder --win",
-    "electron:build:mac": "npm run icons:generate && npm run copy-bun && npm run engine:build:desktop && npm run build:all && electron-builder --mac",
-    "electron:build:linux": "npm run icons:generate && npm run copy-bun && npm run engine:build:desktop && npm run build:all && electron-builder --linux",
+    "electron:build": "npm run icons:generate && npm run copy-bun && npm run copy-mcp-vendor && npm run prebuild:cua-driver && npm run engine:build:desktop && npm run build:all && electron-builder",
+    "electron:build:win": "npm run icons:generate && npm run copy-bun && npm run copy-mcp-vendor && npm run prebuild:cua-driver && npm run engine:build:desktop && npm run build:all && electron-builder --win",
+    "electron:build:mac": "npm run icons:generate && npm run copy-bun && npm run copy-mcp-vendor && npm run prebuild:cua-driver && npm run engine:build:desktop && npm run build:all && electron-builder --mac",
+    "electron:build:linux": "npm run icons:generate && npm run copy-bun && npm run copy-mcp-vendor && npm run prebuild:cua-driver && npm run engine:build:desktop && npm run build:all && electron-builder --linux",
+    "prebuild:cua-driver": "node scripts/download-cua-driver.mjs",
     "typecheck": "vue-tsc --noEmit",
     "test:electron": "node --experimental-strip-types --test tests/electron/*.test.ts",
     "test:electron:ci": "node --experimental-strip-types --test --test-reporter=spec tests/electron/*.test.ts",
@@ -141,6 +144,25 @@
       {
         "from": "resources/builtin-hooks",
         "to": "builtin-hooks"
+      },
+      {
+        "from": "mcp-vendor",
+        "to": "mcp-vendor"
+      },
+      {
+        "from": "resources/officecli",
+        "to": "officecli",
+        "filter": [
+          "**/*",
+          "!README.md"
+        ]
+      },
+      {
+        "from": "resources/cua-driver",
+        "to": "cua-driver",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {

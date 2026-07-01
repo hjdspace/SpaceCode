@@ -49,8 +49,8 @@ import {
   failDreamTask,
   isDreamTask,
 } from '../../tasks/DreamTask/DreamTask.js'
-import { FILE_EDIT_TOOL_NAME } from '../../tools/FileEditTool/constants.js'
-import { FILE_WRITE_TOOL_NAME } from '../../tools/FileWriteTool/prompt.js'
+import { FILE_EDIT_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/FileEditTool/constants.js'
+import { FILE_WRITE_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/FileWriteTool/prompt.js'
 
 // Scan throttle: when time-gate passes but session-gate doesn't, the lock
 // mtime doesn't advance, so the time-gate keeps passing every turn.
@@ -228,6 +228,7 @@ ${sessionIds.map(id => `- ${id}`).join('\n')}`
         canUseTool: createAutoMemCanUseTool(memoryRoot),
         querySource: 'auto_dream',
         forkLabel: 'auto_dream',
+        maxTurns: 20,
         skipTranscript: true,
         overrides: { abortController },
         onMessage: makeDreamProgressWatcher(taskId, setAppState),

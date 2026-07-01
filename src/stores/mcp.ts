@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import {
   BUILTIN_MCP_PRESETS,
   BUILTIN_MCP_SOURCE,
+  DEPRECATED_BUILTIN_KEY_ALIASES,
   isBuiltinServer,
 } from '@/lib/builtinMcp'
 
@@ -33,6 +34,8 @@ export interface MCPServer {
   url?: string
   headers?: Record<string, string>
   _source?: string
+  /** 内置预设配置版本号，用于检测预设 config 变更并自动更新 */
+  _configVersion?: number
 }
 
 export interface McpToolInfo {
@@ -129,6 +132,7 @@ export const useMcpStore = defineStore('mcp', () => {
         url: server.url,
         headers: server.headers,
         _source: server._source,
+        _configVersion: server._configVersion,
       }
     }
     return result
@@ -151,10 +155,44 @@ export const useMcpStore = defineStore('mcp', () => {
     let changed = false
     const merged: Record<string, MCPServer> = { ...existing }
 
+    // 迁移历史 key：把 DEPRECATED_BUILTIN_KEY_ALIASES 里记录的旧 key 记录
+    // 搬到新 key（保留用户 enabled/args/env 等状态），并删除旧 key。
+    // 这一步必须先做，否则旧记录（如 'computer-use'）会继续被
+    // buildEnabledMcpConfig 注入 CLI，触发引擎保留名检查导致 exit(1)。
+    for (const [oldKey, newKey] of Object.entries(DEPRECATED_BUILTIN_KEY_ALIASES)) {
+      const legacy = merged[oldKey]
+      if (!legacy) continue
+      // 新 key 已有记录：旧 key 直接丢弃（新记录优先，避免覆盖用户在新 key 下的最新状态）
+      if (!merged[newKey]) {
+        merged[newKey] = { ...legacy, _source: BUILTIN_MCP_SOURCE }
+      }
+      delete merged[oldKey]
+      changed = true
+    }
+
     for (const preset of BUILTIN_MCP_PRESETS) {
       const current = merged[preset.key]
       if (current) {
-        // 已存在：保留用户状态，仅确保 _source 标记存在
+        // 检测预设配置版本是否变更（如 command 从 npx 改为 cua-driver）。
+        // 版本不匹配时，用预设最新 config 覆盖 command/args/env/type/url/headers，
+        // 但保留用户的 enabled 状态和 id/name。
+        const presetVersion = preset.configVersion
+        if (presetVersion !== undefined && current._configVersion !== presetVersion) {
+          merged[preset.key] = {
+            ...current,
+            command: preset.config.command ?? '',
+            args: preset.config.args ?? [],
+            env: preset.config.env ?? {},
+            type: preset.config.type,
+            url: preset.config.url,
+            headers: preset.config.headers,
+            _source: BUILTIN_MCP_SOURCE,
+            _configVersion: presetVersion,
+          }
+          changed = true
+          continue
+        }
+        // 已存在且版本匹配：保留用户状态，仅确保 _source 标记存在
         if (current._source !== BUILTIN_MCP_SOURCE) {
           merged[preset.key] = { ...current, _source: BUILTIN_MCP_SOURCE }
           changed = true
@@ -174,6 +212,7 @@ export const useMcpStore = defineStore('mcp', () => {
         url: preset.config.url,
         headers: preset.config.headers,
         _source: BUILTIN_MCP_SOURCE,
+        _configVersion: preset.configVersion,
       }
       changed = true
     }

@@ -198,12 +198,13 @@ interface TerminalInstance {
   id: string
   ptyProcess: any
   isAlive: boolean
+  shell: string
 }
 
 export class TerminalManager {
   private terminals: Map<string, TerminalInstance> = new Map()
 
-  create(cwd?: string, command?: string, env?: Record<string, string>): string {
+  create(cwd?: string, command?: string, env?: Record<string, string>): { id: string; shell: string } {
     ensurePtyLoaded()
     if (!pty) {
       const baseMsg = 'node-pty is not available'
@@ -234,7 +235,8 @@ export class TerminalManager {
       const instance: TerminalInstance = {
         id,
         ptyProcess,
-        isAlive: true
+        isAlive: true,
+        shell
       }
 
       // Forward terminal output to renderer
@@ -264,7 +266,7 @@ export class TerminalManager {
       })
 
       this.terminals.set(id, instance)
-      return id
+      return { id, shell }
     } catch (error) {
       console.error('[Terminal] Failed to spawn process:', error)
       throw error
@@ -335,18 +337,19 @@ export class TerminalManager {
       )
       if (fs.existsSync(pwshPath)) return pwshPath
 
-      // 2. 通过 ComSpec 环境变量获取系统默认命令解释器（通常是 cmd.exe）
-      if (process.env.ComSpec) {
-        const comSpec = process.env.ComSpec
-        if (fs.existsSync(comSpec)) return comSpec
-      }
-
-      // 3. 兜底：Windows PowerShell (系统自带)
+      // 2. Windows PowerShell (系统自带) — 与 VSCode 等主流 IDE 行为一致，默认使用 PowerShell
       const psPath = path.join(
         process.env.SystemRoot || 'C:\\Windows',
         'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'
       )
       if (fs.existsSync(psPath)) return psPath
+
+      // 3. 兜底：通过 ComSpec 环境变量获取系统默认命令解释器（cmd.exe）
+      if (process.env.ComSpec) {
+        const comSpec = process.env.ComSpec
+        if (fs.existsSync(comSpec)) return comSpec
+      }
+
       return 'powershell.exe'
     }
     return process.env.SHELL || '/bin/bash'

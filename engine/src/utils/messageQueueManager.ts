@@ -368,7 +368,9 @@ export function isQueuedCommandEditable(cmd: QueuedCommand): boolean {
 export function isQueuedCommandVisible(cmd: QueuedCommand): boolean {
   if (
     (feature('KAIROS') || feature('KAIROS_CHANNELS')) &&
-    (cmd as any).origin?.kind === 'channel'
+    (cmd as Record<string, unknown>).origin !== undefined &&
+    ((cmd as Record<string, unknown>).origin as Record<string, unknown>)
+      ?.kind === 'channel'
   )
     return true
   return isQueuedCommandEditable(cmd)
@@ -483,38 +485,6 @@ export function popAllEditable(
   return { text: newInput, cursorOffset, images }
 }
 
-// ============================================================================
-// Backward-compatible aliases (deprecated — prefer new names)
-// ============================================================================
-
-/** @deprecated Use subscribeToCommandQueue */
-export const subscribeToPendingNotifications = subscribeToCommandQueue
-
-/** @deprecated Use getCommandQueueSnapshot */
-export function getPendingNotificationsSnapshot(): readonly QueuedCommand[] {
-  return snapshot
-}
-
-/** @deprecated Use hasCommandsInQueue */
-export const hasPendingNotifications = hasCommandsInQueue
-
-/** @deprecated Use getCommandQueueLength */
-export const getPendingNotificationsCount = getCommandQueueLength
-
-/** @deprecated Use recheckCommandQueue */
-export const recheckPendingNotifications = recheckCommandQueue
-
-/** @deprecated Use dequeue */
-export function dequeuePendingNotification(): QueuedCommand | undefined {
-  return dequeue()
-}
-
-/** @deprecated Use resetCommandQueue */
-export const resetPendingNotifications = resetCommandQueue
-
-/** @deprecated Use clearCommandQueue */
-export const clearPendingNotifications = clearCommandQueue
-
 /**
  * Get commands at or above a given priority level without removing them.
  * Useful for mid-chain draining where only urgent items should be processed.
@@ -535,13 +505,14 @@ export function getCommandsByMaxPriority(
  * Returns true if the command is a slash command that should be routed through
  * processSlashCommand rather than sent to the model as text.
  *
- * Commands with `skipSlashCommands` (e.g. bridge/CCR messages) are NOT treated
- * as slash commands — their text is meant for the model.
+ * Commands with `skipSlashCommands` are usually treated as plain text, except
+ * Remote Control bridge messages (`bridgeOrigin`) that are re-validated later
+ * through isBridgeSafeCommand().
  */
 export function isSlashCommand(cmd: QueuedCommand): boolean {
   return (
     typeof cmd.value === 'string' &&
     cmd.value.trim().startsWith('/') &&
-    !cmd.skipSlashCommands
+    (!cmd.skipSlashCommands || cmd.bridgeOrigin === true)
   )
 }

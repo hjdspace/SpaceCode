@@ -1,3 +1,137 @@
+## [0.6.1](https://github.com/hjdspace/SpaceCode/compare/v0.6.0...v0.6.1) (2026-06-30)
+
+### Features
+
+* **settings:** 添加单模型上下文窗口自定义配置
+* **chat store:** 在文件工具执行完成后主动刷新SCM和文件树
+* **chat:** 优化任务管理与Git diff展示，新增TodoWrite工具支持
+* **vendor:** 添加厂商预设地址选择功能，新增多厂商图标与多语言配置
+
+### Bug Fixes
+
+* **chat store:** 修复内嵌在用户消息中的工具结果未同步任务状态的问题
+* **chatStream:** 修复用户中止会话后仍自动恢复的问题
+* **scm:** 修复未跟踪文件显示问题，新增上下文压缩功能
+* **terminal:** 保持终端面板挂载并设置默认工作目录
+* 修正会话 Git 变更统计
+* 修复回退检查点识别与预览刷新
+* 修复模型配置面板内容溢出被裁剪
+
+### Refactor
+
+* **MarkdownRenderer:** 优化渲染流程避免OOM
+* **chat:** 调整全局任务看板的布局位置和间距
+* **sidebar:** 替换静态logo为svg图标
+
+## [0.6.0](https://github.com/hjdspace/SpaceCode/compare/v0.5.4...v0.6.0) (2026-06-28)
+
+### Features
+
+* **terminal:** 添加底部终端面板功能，支持切换和拖拽调整高度
+* **cua-driver:** 新增cua-driver内置安装与进度展示功能
+* **retry:** 新增自动重试功能，支持可恢复错误自动重试并展示进度
+* **ppt-office-assistant:** 新增全流程PPT办公助手技能包
+* **computer-use:** 新增电脑控制功能，集成cua-driver后台桌面控制
+* **skills:** 新增html-slide-to-pptx与ppt-workflow两个技能库
+* **icons:** 新增图标生成脚本与多套图标设计方案
+* **i18n:** 为HTML预览按钮添加对应的国际化文案
+* **InfoPanel:** 优化webview新窗口处理逻辑
+* **CodeViewer:** 新增HTML文件预览按钮
+
+### Bug Fixes
+
+* **chat:** 恢复会话产物汇总数据并新增Git变更同步功能
+* **sessionPersistence:** 保存会话时保留图片的contentUrl
+* **sessionRestore:** 修复会话恢复时的重试残留问题
+* **layout:** 修复切换模式后主面板显示旧会话的问题
+* **InfoPanel:** 避免重复注册webview的窗口打开处理函数
+* **electron:** 修复查找系统PATH中可执行文件的逻辑
+* **useAutoUpdate:** 修复下载更新时隐藏通知的状态同步问题
+
+### Refactor
+
+* **prompt-optimizer:** 迁移提示词优化逻辑到前端+主进程
+* **chatStore:** 优化重试机制与消息处理逻辑
+* **InfoPanel:** 优化窗口打开处理器的注册逻辑
+* 清理代码冗余并简化逻辑
+
+### Performance
+
+* **chat,session:** 优化内存占用，防止OOM
+
+### Build
+
+* 更新cua-driver二进制下载与查找逻辑
+
+### Documentation
+
+* 更新README并新增Computer Use相关文档
+* 更新PPT办公助手文档的输出路径规范
+
+### Chore
+
+* **engine:** 更新gitignore，添加exe文件忽略规则
+* 清理大量废弃的类型桩文件与工具常量文件
+* **icons:** 清理旧图标文件并新增3个新图标
+* 重构README文档
+
+## [0.5.4](https://github.com/hjdspace/SpaceCode/compare/v0.5.3...v0.5.4) (2026-06-27)
+
+### Features
+
+* **layout:** 实现中央区分屏多会话布局系统，支持拖拽调整与标签页独立管理
+* **work-mode:** 完成工作模式核心功能开发，优化办公模式与办公助手体验
+* **officecli:** 全量接入officecli技能体系，新增多套PPT样式与自定义助手功能
+* **chat:** 新增产物汇总卡片（ArtifactSummaryCard），支持按轮次收集和展示办公产物
+* **mcp:** 新增内置预打包Computer Use MCP服务器并完成迁移适配
+* **mcp:** 新增 Claude Code CLI 加载状态显示与安装进度优化
+* **mcp:** 为sc-computer-use MCP添加系统提示可用性说明
+* **image:** 新增图片转base64能力，优化会话和预览面板体验
+* **auto-update:** 新增下载准备状态与超时处理逻辑
+* **skills:** 新增技能分类过滤与分类统计支持
+* **skills:** 新增分类覆盖映射，优化技能/技能包分类逻辑
+* **i18n:** 新增产物汇总卡片多语言文案
+* **doc:** 为办公模式添加officecli集成文档
+
+### Bug Fixes
+
+* **app-store:** 修复单叶模式下关闭会话标签后内容不同步的问题
+* **useContentEditor:** 重置编辑器高度以修复输入框残留扩展状态
+* **electron:** 修正权限模式启动与恢复逻辑
+* **utils:** 修复hexToRgba不支持3位十六进制颜色的问题
+
+### Refactor
+
+* **terminal:** 重构终端创建逻辑，统一返回终端信息
+* **terminal:** 优化终端面板体验与状态管理
+* **layout:** 重构分栏布局的PaneHeader与样式逻辑
+* **electron:** 优化officecli二进制文件处理逻辑
+* **artifacts:** 抽取共享的iconFor/formatSize工具函数
+* **work-assistant:** 统一替换emoji头像为lucide图标并优化展示
+* **work-mode:** 调整产物面板显示逻辑
+* **session:** 优化权限模式逻辑与会话历史管理
+
+### Performance
+
+* **chat:** 优化流式聊天性能，减少不必要的计算和阻塞
+
+### Style
+
+* **UpdateNotification:** 简化下载进度条的 indeterminate 类绑定
+
+### Build
+
+* **package.json:** 添加copy-mcp-vendor脚本和资源复制配置
+
+### Chore
+
+* 增强 MarkdownRenderer XSS 防护
+* 配置 Python 环境支持 UTF-8 输出
+
+### Documentation
+
+* **sessionProcess:** 更新桌面控制MCP工具使用提示文档
+
 ## [0.5.3](https://github.com/hjdspace/SpaceCode/compare/v0.5.2...v0.5.3) (2026-06-23)
 
 ### Features

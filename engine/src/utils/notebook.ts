@@ -3,8 +3,8 @@ import type {
   TextBlockParam,
   ToolResultBlockParam,
 } from '@anthropic-ai/sdk/resources/index.mjs'
-import { BASH_TOOL_NAME } from '../tools/BashTool/toolName.js'
-import { formatOutput } from '../tools/BashTool/utils.js'
+import { BASH_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/BashTool/toolName.js'
+import { formatOutput } from '@claude-code-best/builtin-tools/tools/BashTool/utils.js'
 import type {
   NotebookCell,
   NotebookCellOutput,
@@ -25,7 +25,8 @@ function isLargeOutputs(
   let size = 0
   for (const o of outputs) {
     if (!o) continue
-    size += (o.text?.length ?? 0) + (o.image?.image_data.length ?? 0)
+    const imageLen = 'image' in o && o.image ? o.image.image_data.length : 0
+    size += (o.text?.length ?? 0) + imageLen
     if (size > LARGE_OUTPUT_THRESHOLD) return true
   }
   return false
@@ -139,7 +140,7 @@ function cellOutputToToolResult(output: NotebookCellSourceOutput) {
       type: 'text',
     })
   }
-  if (output.image) {
+  if ('image' in output && output.image) {
     outputs.push({
       type: 'image',
       source: {

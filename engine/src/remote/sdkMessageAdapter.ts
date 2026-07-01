@@ -172,7 +172,10 @@ export function convertSDKMessage(
 ): ConvertedMessage {
   switch (msg.type) {
     case 'assistant':
-      return { type: 'message', message: convertAssistantMessage(msg as SDKAssistantMessage) }
+      return {
+        type: 'message',
+        message: convertAssistantMessage(msg as SDKAssistantMessage),
+      }
 
     case 'user': {
       const userMsg = msg as SDKUserMessage
@@ -217,13 +220,19 @@ export function convertSDKMessage(
     }
 
     case 'stream_event':
-      return { type: 'stream_event', event: convertStreamEvent(msg as SDKPartialAssistantMessage) }
+      return {
+        type: 'stream_event',
+        event: convertStreamEvent(msg as SDKPartialAssistantMessage),
+      }
 
     case 'result':
       // Only show result messages for errors. Success results are noise
       // in multi-turn sessions (isLoading=false is sufficient signal).
       if ((msg as SDKResultMessage).subtype !== 'success') {
-        return { type: 'message', message: convertResultMessage(msg as SDKResultMessage) }
+        return {
+          type: 'message',
+          message: convertResultMessage(msg as SDKResultMessage),
+        }
       }
       return { type: 'ignored' }
 
@@ -241,7 +250,9 @@ export function convertSDKMessage(
       if (sysMsg.subtype === 'compact_boundary') {
         return {
           type: 'message',
-          message: convertCompactBoundaryMessage(msg as SDKCompactBoundaryMessage),
+          message: convertCompactBoundaryMessage(
+            msg as SDKCompactBoundaryMessage,
+          ),
         }
       }
       // hook_response and other subtypes
@@ -252,7 +263,10 @@ export function convertSDKMessage(
     }
 
     case 'tool_progress':
-      return { type: 'message', message: convertToolProgressMessage(msg as SDKToolProgressMessage) }
+      return {
+        type: 'message',
+        message: convertToolProgressMessage(msg as SDKToolProgressMessage),
+      }
 
     case 'auth_status':
       // Auth status is handled separately, not converted to a display message
@@ -267,6 +281,11 @@ export function convertSDKMessage(
     case 'rate_limit_event':
       // Rate limit events are SDK-only events, not displayed in REPL
       logForDebugging('[sdkMessageAdapter] Ignoring rate_limit_event message')
+      return { type: 'ignored' }
+
+    case 'task_state':
+      // Bridge-only task snapshots are consumed by the web panel, not REPL UIs.
+      logForDebugging('[sdkMessageAdapter] Ignoring task_state message')
       return { type: 'ignored' }
 
     default: {
@@ -293,14 +312,4 @@ export function isSessionEndMessage(msg: SDKMessage): boolean {
  */
 export function isSuccessResult(msg: SDKResultMessage): boolean {
   return msg.subtype === 'success'
-}
-
-/**
- * Extract the result text from a successful SDKResultMessage
- */
-export function getResultText(msg: SDKResultMessage): string | null {
-  if (msg.subtype === 'success') {
-    return msg.result ?? null
-  }
-  return null
 }

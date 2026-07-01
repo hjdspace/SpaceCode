@@ -7,7 +7,8 @@ import { logForDebugging } from '../debug.js'
 import { errorMessage } from '../errors.js'
 import { lazySchema } from '../lazySchema.js'
 import { logError } from '../log.js'
-import { getMainLoopModel } from '../model/model.js'
+import { getMainLoopModel, getSmallFastModel } from '../model/model.js'
+import { isPoorModeActive } from '../../commands/poor/poorMode.js'
 import { sideQuery } from '../sideQuery.js'
 import { jsonStringify } from '../slowOperations.js'
 
@@ -113,7 +114,9 @@ function extractConversationContext(
 
   for (const msg of assistantMessages.reverse()) {
     // Extract text content from assistant message
-    const textBlocks = (Array.isArray(msg.message.content) ? msg.message.content : [])
+    const textBlocks = (
+      Array.isArray(msg.message.content) ? msg.message.content : []
+    )
       .filter(c => c.type === 'text')
       .map(c => ('text' in c ? c.text : ''))
       .join(' ')
@@ -172,7 +175,7 @@ ${conversationContext ? `\nRecent conversation context:\n${conversationContext}`
 
 Explain this command in context.`
 
-    const model = getMainLoopModel()
+    const model = isPoorModeActive() ? getSmallFastModel() : getMainLoopModel()
 
     // Use sideQuery with forced tool choice for guaranteed structured output
     const response = await sideQuery({

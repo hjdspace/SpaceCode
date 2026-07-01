@@ -36,6 +36,14 @@ export interface AgentDef {
   descriptionZh?: string
   /** 中文推荐 prompt（i18n）。 */
   recommendedPromptsZh?: string[]
+
+  // ===== Phase 4 新增 =====
+  /** 技能是否为必须（缺则无法启动会话）。 */
+  skillsRequired?: boolean
+  /** 技能依赖的运行时，用于可用性检测。 */
+  skillRuntime?: 'officecli' | 'node' | 'none'
+  /** 技能描述（用于 UI 展示，非技能名）。 */
+  skillDescriptions?: string[]
 }
 
 // Constants
@@ -170,6 +178,10 @@ function readAgentFile(filePath: string, cwd?: string): AgentDef | null {
       recommendedPrompts: toStringArray(fm?.recommendedPrompts),
       descriptionZh: typeof fm?.description_zh === 'string' ? fm.description_zh : undefined,
       recommendedPromptsZh: toStringArray(fm?.recommendedPrompts_zh),
+      skillsRequired: fm?.skills_required === true || fm?.skillsRequired === true,
+      skillRuntime: (fm?.skill_runtime as 'officecli' | 'node' | 'none' | undefined) ||
+        (fm?.skillRuntime as 'officecli' | 'node' | 'none' | undefined),
+      skillDescriptions: toStringArray(fm?.skill_descriptions || fm?.skillDescriptions),
     }
   } catch (err) {
     console.error(`[Agents] Failed to read agent file: ${filePath}`, err)
@@ -502,6 +514,21 @@ export function registerAgentsIPCHandlers(): void {
   ipcMain.handle('agents:saveWorkflow', handleSaveWorkflow)
   ipcMain.handle('agents:deleteWorkflow', handleDeleteWorkflow)
   ipcMain.handle('agents:exportWorkflow', handleExportWorkflow)
+
+  // Phase 5: 保存自定义助手到 ~/.claude/agents/<name>.md
+  ipcMain.handle('agents:saveCustom', async (_event, agentName: string, content: string) => {
+    if (agentName.includes('/') || agentName.includes('\\') || agentName.includes('..')) {
+      throw new Error('Invalid agent name')
+    }
+    const targetDir = getGlobalAgentsDir()
+    if (!existsSync(targetDir)) {
+      mkdirSync(targetDir, { recursive: true })
+    }
+    const targetPath = join(targetDir, `${agentName}.md`)
+    writeFileSync(targetPath, content, 'utf-8')
+    console.log(`[Agents] Custom agent saved: ${agentName}`)
+    return { success: true, path: targetPath }
+  })
 
   console.log('[Agents] IPC handlers registered')
 }

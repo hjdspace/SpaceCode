@@ -54,8 +54,33 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
   const loading = ref(false)
   const lastFetchedSessionId = ref<string | null>(null)
   const activeRequestSessionId = ref<string | null>(null)
+  const isCompacting = ref(false)
 
   const hasData = computed(() => snapshot.value != null)
+
+  /**
+   * Start a manual context compaction by sending /compact to the engine.
+   * Runs in the background — the modal can be closed while compaction
+   * is in progress. When done, refreshes the context snapshot.
+   */
+  function startCompact() {
+    if (isCompacting.value) return
+    const chatStore = useChatStore()
+    isCompacting.value = true
+
+    chatStore
+      .sendMessage('/compact')
+      .then(() => {
+        // Compaction completed — refresh context data
+        return refresh(undefined, true)
+      })
+      .catch(() => {
+        // Compaction failed — still clear the flag
+      })
+      .finally(() => {
+        isCompacting.value = false
+      })
+  }
 
   async function refresh(sessionId?: string, force = false) {
     const chatStore = useChatStore()
@@ -74,6 +99,7 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
     }
 
     const model = settingsStore.config.model || 'claude-sonnet-4-6'
+    const userCtxOverride = settingsStore.modelContextWindows[model]
     const session = chatStore.sessions.find(s => s.id === sid)
     const messages = session?.messages ?? []
 
@@ -82,7 +108,7 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
     }
 
     // Show client-side estimate immediately so the modal/chip never spin for minutes.
-    snapshot.value = buildFallbackSnapshot(messages, model)
+    snapshot.value = buildFallbackSnapshot(messages, model, userCtxOverride)
 
     loading.value = true
     lastFetchedSessionId.value = sid
@@ -94,7 +120,7 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
         const data = raw ? parseEngineContextData(raw as Record<string, unknown>) : null
         if (data) {
           const enriched = enrichContextDataFromClient(data, messages)
-          snapshot.value = buildSnapshotFromEngineData(enriched, model)
+          snapshot.value = buildSnapshotFromEngineData(enriched, model, userCtxOverride)
         }
       }
     } catch {
@@ -131,7 +157,8 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
     const session = chatStore.sessions.find(s => s.id === sid)
     const messages = session?.messages ?? []
     const model = settingsStore.config.model || 'claude-sonnet-4-6'
-    snapshot.value = buildFallbackSnapshot(messages, model)
+    const userCtxOverride = settingsStore.modelContextWindows[model]
+    snapshot.value = buildFallbackSnapshot(messages, model, userCtxOverride)
     lastFetchedSessionId.value = sid
   }
 
@@ -139,8 +166,10 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
     snapshot,
     loading,
     hasData,
+    isCompacting,
     refresh,
     applyFallback,
     clear,
+    startCompact,
   }
 })

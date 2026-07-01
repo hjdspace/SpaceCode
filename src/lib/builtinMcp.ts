@@ -34,6 +34,23 @@ export interface BuiltinMcpPreset {
     installer?: 'uv'
     installerDocs?: string
   }
+  /**
+   * 是否为预打包服务器：构建时已将依赖打入安装包 <resources>/mcp-vendor/。
+   * 为 true 时，electron/mcpConfigStore.ts 的 buildEnabledMcpConfig() 会用
+   * 打包内的 bun + 预装 server.js 解析绝对路径覆盖 config.command/args；
+   * 若预打包路径不存在（如开发模式未运行 copy-mcp-vendor），回退到 config
+   * 里的 npx 配置。bundled 预设通常不设 dependency（打包模式无需外部命令）。
+   */
+  bundled?: boolean
+  /**
+   * 预设配置版本号。当预设的 command/args/env 等核心配置发生变更时递增。
+   *
+   * syncBuiltinServers 会比较持久化记录中的 _configVersion 与此值：
+   * - 不匹配时，用预设的最新 config 覆盖存储的 command/args/env/type/url/headers，
+   *   确保 builtin 预设始终使用正确的启动命令（例如从 npx 迁移到 cua-driver）。
+   * - 匹配时，保留用户对 enabled/env 等字段的修改。
+   */
+  configVersion?: number
   /** 服务器配置（不含 id/name/_source，由 store 注入） */
   config: Omit<MCPServer, 'id' | 'name' | 'enabled'>
 }
@@ -77,7 +94,49 @@ export const BUILTIN_MCP_PRESETS: BuiltinMcpPreset[] = [
       env: {},
     },
   },
+  {
+    // 注意：key 不能用 'computer-use' —— 该名字被 Claude Code 引擎列为保留名
+    // （COMPUTER_USE_MCP_SERVER_NAME，由 CHICAGO_MCP feature 控制），外部
+    // --mcp-config 一旦命中会直接 process.exit(1)。详见 engine/src/main.tsx
+    // 的 reservedNameError 检查。这里用 'sc-computer-use' 前缀避免冲突。
+    //
+    // 后端：cua-driver（Rust 原生二进制，MCP over stdio）。
+    // 特性：后台操作 — 不抢占用户光标、不偷键盘焦点、不切换虚拟桌面。
+    // 支持 macOS（SkyLight SPI）、Windows（UIAutomation + SendInput）、
+    // Linux（AT-SPI + XTest）。
+    // 二进制管理见 electron/cuaDriverService.ts 和设置面板 Computer Use tab。
+    key: 'sc-computer-use',
+    name: 'Computer Use (cua-driver)',
+    description:
+      '基于 cua-driver 的后台桌面控制：截图、鼠标、键盘、滚动、拖拽、窗口/应用管理 — 不抢占用户光标和键盘焦点。支持 macOS/Windows/Linux，可操作后台窗口和原生 UI。',
+    homepage: 'https://github.com/trycua/cua',
+    requirements: '需要安装 cua-driver 二进制（可在 Computer Use 设置面板中一键安装或使用内置版本）',
+    dependency: {
+      command: 'cua-driver',
+      installerDocs: 'https://cua.ai/docs/cua-driver',
+    },
+    // configVersion 2: 从 npx @zavora-ai/computer-use-mcp 迁移到 cua-driver mcp
+    configVersion: 2,
+    config: {
+      type: 'stdio',
+      command: 'cua-driver',
+      args: ['mcp'],
+      env: {},
+    },
+  },
 ]
+
+/**
+ * 历史 key → 当前 key 的迁移映射。
+ *
+ * 早期版本内置预设 key 曾为 'computer-use'，与 Claude Code 引擎保留名冲突
+ * （会导致 CLI 启动即 exit(1)）。改名后，老用户 mcp-servers.json 里仍可能
+ * 残留旧 key 记录，syncBuiltinServers 会据此把它迁移到新 key 并删除旧记录，
+ * 避免旧记录继续被 buildEnabledMcpConfig 注入 CLI 触发保留名错误。
+ */
+export const DEPRECATED_BUILTIN_KEY_ALIASES: Record<string, string> = {
+  'computer-use': 'sc-computer-use',
+}
 
 /** 标记内置服务器的来源 */
 export const BUILTIN_MCP_SOURCE = 'builtin'

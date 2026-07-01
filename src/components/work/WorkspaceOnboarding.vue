@@ -42,13 +42,10 @@ const appStore = useAppStore()
 
 const defaultPath = ref('')
 const busy = ref(false)
-// 打开时是否已确认过工作区（用于区分“首次设置”与“后续更改”）
-const wasConfirmed = ref(false)
 
 // 打开时解析默认目录用于展示
 watch(() => appStore.showWorkOnboarding, async (visible) => {
   if (visible) {
-    wasConfirmed.value = appStore.workWorkspaceConfirmed
     if (!defaultPath.value) {
       try {
         defaultPath.value = await api.ensureDefaultWorkspace()
@@ -58,11 +55,9 @@ watch(() => appStore.showWorkOnboarding, async (visible) => {
 })
 
 function finish() {
+  // 目录为可选上下文：设置完成后直接关闭，不再强制弹出助手画廊。
+  // 用户可在输入框上方快捷卡片、输入框工具行画廊入口、或 MCP 下方画廊入口按需打开画廊。
   appStore.showWorkOnboarding = false
-  // 仅在“首次设置”后引导进入助手画廊；后续更改工作区不打断当前会话
-  if (!wasConfirmed.value) {
-    appStore.showWorkGallery = true
-  }
 }
 
 async function useDefault() {

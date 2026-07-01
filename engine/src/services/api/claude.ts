@@ -20,6 +20,7 @@ import type {
 import type { TextBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import type { Stream } from '@anthropic-ai/sdk/streaming.mjs'
 import { randomUUID } from 'crypto'
+import { existsSync, unlinkSync } from 'node:fs'
 import {
   getAPIProvider,
   isFirstPartyAnthropicBaseUrl,
@@ -36,7 +37,7 @@ import {
   type Tools,
   toolMatchesName,
 } from '../../Tool.js'
-import type { AgentDefinition } from '../../tools/AgentTool/loadAgentsDir.js'
+import type { AgentDefinition } from '@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js'
 import {
   type ConnectorTextBlock,
   type ConnectorTextDelta,
@@ -93,6 +94,10 @@ import {
   asSystemPrompt,
   type SystemPrompt,
 } from '../../utils/systemPromptType.js'
+import {
+  getBreakCacheMarkerPath,
+  getBreakCacheAlwaysPath,
+} from '../../commands/break-cache/index.js'
 import { tokenCountFromLastAPIResponse } from '../../utils/tokens.js'
 import { getDynamicConfig_BLOCKS_ON_INIT } from '../analytics/growthbook.js'
 import {
@@ -101,6 +106,8 @@ import {
   extractQuotaStatusFromHeaders,
 } from '../claudeAiLimits.js'
 import { getAPIContextManagement } from '../compact/apiMicrocompact.js'
+import { bedrockAdapter } from '../providerUsage/adapters/bedrock.js'
+import { updateProviderBuckets } from '../providerUsage/store.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const autoModeStateModule = feature('TRANSCRIPT_CLASSIFIER')
@@ -118,7 +125,6 @@ import {
   getAfkModeHeaderLatched,
   getCacheEditingHeaderLatched,
   getFastModeHeaderLatched,
-  getLastApiCompletionTimestamp,
   getPromptCache1hAllowlist,
   getPromptCache1hEligible,
   getSessionId,
@@ -155,13 +161,12 @@ import {
 import { getAgentContext } from 'src/utils/agentContext.js'
 import { isClaudeAISubscriber } from 'src/utils/auth.js'
 import {
-  getToolSearchBetaHeader,
   modelSupportsStructuredOutputs,
   shouldIncludeFirstPartyOnlyBetas,
   shouldUseGlobalCacheScope,
 } from 'src/utils/betas.js'
 import { CLAUDE_IN_CHROME_MCP_SERVER_NAME } from 'src/utils/claudeInChrome/common.js'
-import { CHROME_TOOL_SEARCH_INSTRUCTIONS } from 'src/utils/claudeInChrome/prompt.js'
+import { CHROME_SEARCH_EXTRA_TOOLS_INSTRUCTIONS } from 'src/utils/claudeInChrome/prompt.js'
 import { getMaxThinkingTokensForModel } from 'src/utils/context.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { logForDiagnosticsNoPII } from 'src/utils/diagLogs.js'
@@ -183,17 +188,16 @@ import {
   type ThinkingConfig,
 } from 'src/utils/thinking.js'
 import {
-  extractDiscoveredToolNames,
   isDeferredToolsDeltaEnabled,
-  isToolSearchEnabled,
-} from 'src/utils/toolSearch.js'
+  isSearchExtraToolsEnabled,
+} from 'src/utils/searchExtraTools.js'
 import { API_MAX_MEDIA_PER_REQUEST } from '../../constants/apiLimits.js'
 import { ADVISOR_BETA_HEADER } from '../../constants/betas.js'
 import {
   formatDeferredToolLine,
   isDeferredTool,
-  TOOL_SEARCH_TOOL_NAME,
-} from '../../tools/ToolSearchTool/prompt.js'
+  SEARCH_EXTRA_TOOLS_TOOL_NAME,
+} from '@claude-code-best/builtin-tools/tools/SearchExtraToolsTool/prompt.js'
 import { count } from '../../utils/array.js'
 import { insertBlockAfterToolResults } from '../../utils/contentArray.js'
 import { validateBoundedIntEnvVar } from '../../utils/envValidation.js'
@@ -228,7 +232,11 @@ import { getInitializationStatus } from '../lsp/manager.js'
 import { isToolFromMcpServer } from '../mcp/utils.js'
 import { recordLLMObservation } from '../langfuse/index.js'
 import type { LangfuseSpan } from '../langfuse/index.js'
-import { convertMessagesToLangfuse, convertOutputToLangfuse } from '../langfuse/convert.js'
+import {
+  convertMessagesToLangfuse,
+  convertOutputToLangfuse,
+  convertToolsToLangfuse,
+} from '../langfuse/convert.js'
 import { withStreamingVCR, withVCR } from '../vcr.js'
 import { CLIENT_REQUEST_ID_HEADER, getAnthropicClient } from './client.js'
 import {
@@ -246,7 +254,6 @@ import {
   type NonNullableUsage,
 } from './logging.js'
 import {
-  CACHE_TTL_1HOUR_MS,
   checkResponseForCacheBreak,
   recordPromptState,
 } from './promptCacheBreakDetection.js'
@@ -440,7 +447,7 @@ function configureEffortParams(
     betas.push(EFFORT_BETA_HEADER)
   } else if (typeof effortValue === 'string') {
     // Send string effort level as is
-    outputConfig.effort = effortValue as "high" | "medium" | "low" | "max"
+    outputConfig.effort = effortValue as 'high' | 'medium' | 'low' | 'max'
     betas.push(EFFORT_BETA_HEADER)
   } else if (process.env.USER_TYPE === 'ant') {
     // Numeric effort override - ant-only (uses anthropic_internal)
@@ -539,13 +546,12 @@ export async function verifyApiKey(
           }),
         async anthropic => {
           const messages: MessageParam[] = [{ role: 'user', content: 'test' }]
-          // biome-ignore lint/plugin: API key verification is intentionally a minimal direct call
           await anthropic.beta.messages.create({
             model,
             max_tokens: 1,
             messages,
             temperature: 1,
-            ...(betas.length > 0 && { betas }),
+            ...(betas.length > 0 && { betas: betas.filter(Boolean) }),
             metadata: getAPIMetadata(),
             ...getExtraBodyParams(),
           })
@@ -614,7 +620,8 @@ export function userMessageToMessageParam(
     role: 'user',
     content: (Array.isArray(message.message!.content)
       ? [...message.message!.content]
-      : message.message!.content) as import('@anthropic-ai/sdk/resources/beta/messages/messages.js').BetaContentBlockParam[],
+      : message.message!
+          .content) as import('@anthropic-ai/sdk/resources/beta/messages/messages.js').BetaContentBlockParam[],
   }
 }
 
@@ -665,7 +672,9 @@ export function assistantMessageToMessageParam(
     content:
       typeof message.message!.content === 'string'
         ? message.message!.content
-        : message.message!.content!.map(stripGeminiProviderMetadata) as BetaContentBlockParam[],
+        : (message.message!.content!.map(
+            stripGeminiProviderMetadata,
+          ) as BetaContentBlockParam[]),
   }
 }
 
@@ -680,10 +689,8 @@ function stripGeminiProviderMetadata<T extends BetaContentBlockParam | string>(
   }
 
   const obj = contentBlock as unknown as Record<string, unknown>
-  const {
-    _geminiThoughtSignature: _unusedGeminiThoughtSignature,
-    ...rest
-  } = obj
+  const { _geminiThoughtSignature: _unusedGeminiThoughtSignature, ...rest } =
+    obj
   return rest as unknown as T
 }
 
@@ -876,7 +883,6 @@ export async function* executeNonStreamingRequest(
       )
 
       try {
-        // biome-ignore lint/plugin: non-streaming API call
         return await anthropic.beta.messages.create(
           {
             ...adjustedParams,
@@ -1030,6 +1036,16 @@ export function stripExcessMediaItems(
   }) as (UserMessage | AssistantMessage)[]
 }
 
+/**
+ * Module-level cache of deferred-tool lines that have already been announced
+ * via <available-deferred-tools>. Because the injection is ephemeral (appended
+ * to a local `messagesForAPI` that is never persisted back into the caller's
+ * message history), we cannot scan history to detect prior injections — the
+ * injected message is gone after each API call. Instead we keep this Set so we
+ * only re-inject when new deferred tools appear (e.g. MCP server connects).
+ */
+const lastAnnouncedDeferredTools = new Set<string>()
+
 async function* queryModel(
   messages: Message[],
   systemPrompt: SystemPrompt,
@@ -1133,7 +1149,7 @@ async function* queryModel(
 
   // Check if tool search is enabled (checks mode, model support, and threshold for auto mode)
   // This is async because it may need to calculate MCP tool description sizes for TstAuto mode
-  let useToolSearch = await isToolSearchEnabled(
+  let useSearchExtraTools = await isSearchExtraToolsEnabled(
     options.model,
     tools,
     options.getToolPermissionContext,
@@ -1143,7 +1159,7 @@ async function* queryModel(
 
   // Precompute once — isDeferredTool does 2 GrowthBook lookups per call
   const deferredToolNames = new Set<string>()
-  if (useToolSearch) {
+  if (useSearchExtraTools) {
     for (const t of tools) {
       if (isDeferredTool(t)) deferredToolNames.add(t.name)
     }
@@ -1151,51 +1167,46 @@ async function* queryModel(
 
   // Even if tool search mode is enabled, skip if there are no deferred tools
   // AND no MCP servers are still connecting. When servers are pending, keep
-  // ToolSearch available so the model can discover tools after they connect.
+  // SearchExtraTools available so the model can discover tools after they connect.
   if (
-    useToolSearch &&
+    useSearchExtraTools &&
     deferredToolNames.size === 0 &&
     !options.hasPendingMcpServers
   ) {
     logForDebugging(
       'Tool search disabled: no deferred tools available to search',
     )
-    useToolSearch = false
+    useSearchExtraTools = false
   }
 
-  // Filter out ToolSearchTool if tool search is not enabled for this model
-  // ToolSearchTool returns tool_reference blocks which unsupported models can't handle
+  // Dynamic tool loading: filter deferred tools that haven't been discovered yet
   let filteredTools: Tools
 
-  if (useToolSearch) {
-    // Dynamic tool loading: Only include deferred tools that have been discovered
-    // via tool_reference blocks in the message history. This eliminates the need
-    // to predeclare all deferred tools upfront and removes limits on tool quantity.
-    const discoveredToolNames = extractDiscoveredToolNames(messages)
+  // Deferred tools that haven't been discovered are filtered out from the API
+  // request — their schemas are only included after SearchExtraTools discovers them.
 
+  if (useSearchExtraTools) {
+    // Never include deferred tools in the API tools array — they are invoked
+    // via ExecuteExtraTool which looks them up from the global tool registry
+    // at runtime. Keeping the tools array stable preserves the prompt cache
+    // across turns (discovered tools no longer bloat the tools JSON).
     filteredTools = tools.filter(tool => {
-      // Always include non-deferred tools
+      // Always include non-deferred tools (core tools)
       if (!deferredToolNames.has(tool.name)) return true
-      // Always include ToolSearchTool (so it can discover more tools)
-      if (toolMatchesName(tool, TOOL_SEARCH_TOOL_NAME)) return true
-      // Only include deferred tools that have been discovered
-      return discoveredToolNames.has(tool.name)
+      // Always include SearchExtraToolsTool (so it can discover more tools)
+      if (toolMatchesName(tool, SEARCH_EXTRA_TOOLS_TOOL_NAME)) return true
+      // All other deferred tools are excluded — use ExecuteExtraTool instead
+      return false
     })
   } else {
     filteredTools = tools.filter(
-      t => !toolMatchesName(t, TOOL_SEARCH_TOOL_NAME),
+      t => !toolMatchesName(t, SEARCH_EXTRA_TOOLS_TOOL_NAME),
     )
   }
 
-  // Add tool search beta header if enabled - required for defer_loading to be accepted
-  // Header differs by provider: 1P/Foundry use advanced-tool-use, Vertex/Bedrock use tool-search-tool
-  // For Bedrock, this header must go in extraBodyParams, not the betas array
-  const toolSearchHeader = useToolSearch ? getToolSearchBetaHeader() : null
-  if (toolSearchHeader && getAPIProvider() !== 'bedrock') {
-    if (!betas.includes(toolSearchHeader)) {
-      betas.push(toolSearchHeader)
-    }
-  }
+  // Tool search beta header and defer_loading removed — unified self-built
+  // tool search via SearchExtraToolsTool + ExecuteExtraTool for all providers.
+  // No longer relies on API-side tool_reference or defer_loading features.
 
   // Determine if cached microcompact is enabled for this model.
   // Computed once here (in async context) and captured by paramsFromContext.
@@ -1213,21 +1224,22 @@ async function* queryModel(
     cacheEditingBetaHeader = betas.CACHE_EDITING_BETA_HEADER
     const featureEnabled = isCachedMicrocompactEnabled()
     const modelSupported = isModelSupportedForCacheEditing(options.model)
-    cachedMCEnabled = featureEnabled && modelSupported
+    // cachedMC requires a non-empty beta header; the CACHE_EDITING_BETA_HEADER
+    // constant is '' in this fork (upstream hasn't published the real value).
+    // Without it, cache_reference and cache_edits in the request body cause
+    // API 400: "tool_result.cache_reference: Extra inputs are not permitted".
+    const headerAvailable = !!cacheEditingBetaHeader
+    cachedMCEnabled = featureEnabled && modelSupported && headerAvailable
     const config = getCachedMCConfig()
     logForDebugging(
-      `Cached MC gate: enabled=${featureEnabled} modelSupported=${modelSupported} model=${options.model} supportedModels=${jsonStringify((config as any).supportedModels)}`,
+      `Cached MC gate: enabled=${featureEnabled} modelSupported=${modelSupported} headerAvailable=${headerAvailable} model=${options.model} supportedModels=${jsonStringify((config as Record<string, unknown>).supportedModels)}`,
     )
   }
 
   const useGlobalCacheFeature = shouldUseGlobalCacheScope()
-  const willDefer = (t: Tool) =>
-    useToolSearch && (deferredToolNames.has(t.name) || shouldDeferLspTool(t))
   // MCP tools are per-user → dynamic tool section → can't globally cache.
-  // Only gate when an MCP tool will actually render (not defer_loading).
   const needsToolBasedCacheMarker =
-    useGlobalCacheFeature &&
-    filteredTools.some(t => t.isMcp === true && !willDefer(t))
+    useGlobalCacheFeature && filteredTools.some(t => t.isMcp === true)
 
   // Ensure prompt_caching_scope beta header is present when global cache is enabled.
   if (
@@ -1244,9 +1256,9 @@ async function* queryModel(
       : 'system_prompt'
     : 'none'
 
-  // Build tool schemas, adding defer_loading for MCP tools when tool search is enabled
+  // Build tool schemas — no defer_loading since we use self-built tool search
   // Note: We pass the full `tools` list (not filteredTools) to toolToAPISchema so that
-  // ToolSearchTool's prompt can list ALL available MCP tools. The filtering only affects
+  // SearchExtraToolsTool's prompt can list ALL available MCP tools. The filtering only affects
   // which tools are actually sent to the API, not what the model sees in tool descriptions.
   const toolSchemas = await Promise.all(
     filteredTools.map(tool =>
@@ -1256,17 +1268,13 @@ async function* queryModel(
         agents: options.agents,
         allowedAgentTypes: options.allowedAgentTypes,
         model: options.model,
-        deferLoading: willDefer(tool),
       }),
     ),
   )
 
-  if (useToolSearch) {
-    const includedDeferredTools = count(filteredTools, t =>
-      deferredToolNames.has(t.name),
-    )
+  if (useSearchExtraTools) {
     logForDebugging(
-      `Dynamic tool loading: ${includedDeferredTools}/${deferredToolNames.size} deferred tools included`,
+      `Dynamic tool loading: 0/${deferredToolNames.size} deferred tools in API tools array (all via ExecuteExtraTool)`,
     )
   }
 
@@ -1286,17 +1294,17 @@ async function* queryModel(
   // selected model doesn't support tool search.
   //
   // Why is this needed in addition to normalizeMessagesForAPI?
-  // - normalizeMessagesForAPI uses isToolSearchEnabledNoModelCheck() because it's
+  // - normalizeMessagesForAPI uses isSearchExtraToolsEnabledNoModelCheck() because it's
   //   called from ~20 places (analytics, feedback, sharing, etc.), many of which
   //   don't have model context. Adding model to its signature would be a large refactor.
-  // - This post-processing uses the model-aware isToolSearchEnabled() check
+  // - This post-processing uses the model-aware isSearchExtraToolsEnabled() check
   // - This handles mid-conversation model switching (e.g., Sonnet → Haiku) where
   //   stale tool-search fields from the previous model would cause 400 errors
   //
   // Note: For assistant messages, normalizeMessagesForAPI already normalized the
   // tool inputs, so stripCallerFieldFromAssistantMessage only needs to remove the
   // 'caller' field (not re-normalize inputs).
-  if (!useToolSearch) {
+  if (!useSearchExtraTools) {
     messagesForAPI = messagesForAPI.map(msg => {
       switch (msg.type) {
         case 'user':
@@ -1335,7 +1343,16 @@ async function* queryModel(
   // media stripping) but before Anthropic-specific logic (betas, thinking, caching).
   if (getAPIProvider() === 'openai') {
     const { queryModelOpenAI } = await import('./openai/index.js')
-    yield* queryModelOpenAI(messagesForAPI, systemPrompt, filteredTools, signal, options, thinkingConfig)
+    // OpenAI emulates Anthropic's dynamic tool loading client-side. It needs
+    // the full tool pool so SearchExtraToolsTool can search deferred MCP tools that
+    // were intentionally filtered out of the initial API tool list above.
+    yield* queryModelOpenAI(
+      messagesForAPI,
+      systemPrompt,
+      tools,
+      signal,
+      options,
+    )
     return
   }
 
@@ -1354,7 +1371,13 @@ async function* queryModel(
 
   if (getAPIProvider() === 'grok') {
     const { queryModelGrok } = await import('./grok/index.js')
-    yield* queryModelGrok(messagesForAPI, systemPrompt, filteredTools, signal, options)
+    yield* queryModelGrok(
+      messagesForAPI,
+      systemPrompt,
+      filteredTools,
+      signal,
+      options,
+    )
     return
   }
 
@@ -1371,20 +1394,34 @@ async function* queryModel(
   // When the delta attachment is enabled, deferred tools are announced
   // via persisted deferred_tools_delta attachments instead of this
   // ephemeral prepend (which busts cache whenever the pool changes).
-  if (useToolSearch && !isDeferredToolsDeltaEnabled()) {
+  if (useSearchExtraTools && !isDeferredToolsDeltaEnabled()) {
+    // Diff current deferred tools against what's already been announced in
+    // prior <available-deferred-tools> injections. Only re-inject when new
+    // tools appear (e.g. MCP server connects mid-session).
     const deferredToolList = tools
       .filter(t => deferredToolNames.has(t.name))
       .map(formatDeferredToolLine)
       .sort()
       .join('\n')
+
     if (deferredToolList) {
-      messagesForAPI = [
-        createUserMessage({
-          content: `<available-deferred-tools>\n${deferredToolList}\n</available-deferred-tools>`,
-          isMeta: true,
-        }),
-        ...messagesForAPI,
-      ]
+      const currentTools = new Set(deferredToolList.split('\n'))
+      const hasNewTools = [...currentTools].some(
+        t => !lastAnnouncedDeferredTools.has(t),
+      )
+
+      if (hasNewTools) {
+        lastAnnouncedDeferredTools.clear()
+        for (const t of currentTools) lastAnnouncedDeferredTools.add(t)
+
+        messagesForAPI = [
+          ...messagesForAPI,
+          createUserMessage({
+            content: `<system-reminder>\n<available-deferred-tools>\n${deferredToolList}\n</available-deferred-tools>\nIMPORTANT: The tools listed above are deferred-loading — they are NOT in your tool list. To use them, you MUST first discover a tool via SearchExtraTools, then invoke it with ExecuteExtraTool.\n\nSearchExtraTools and ExecuteExtraTool are core tools already in your tool list right now — call them directly, do NOT use Bash/Glob to find them.\n\nSteps:\n1. SearchExtraTools({"query": "select:<tool_name>"}) — discover the tool and its schema\n2. ExecuteExtraTool({"tool_name": "<name>", "params": {...}}) — invoke it with correct parameters\n</system-reminder>`,
+            isMeta: true,
+          }),
+        ]
+      }
     }
   }
 
@@ -1396,7 +1433,7 @@ async function* queryModel(
     isToolFromMcpServer(t.name, CLAUDE_IN_CHROME_MCP_SERVER_NAME),
   )
   const injectChromeHere =
-    useToolSearch && hasChromeTools && !isMcpInstructionsDeltaEnabled()
+    useSearchExtraTools && hasChromeTools && !isMcpInstructionsDeltaEnabled()
 
   // filter(Boolean) works by converting each element to a boolean - empty strings become false and are filtered out.
   systemPrompt = asSystemPrompt(
@@ -1408,9 +1445,34 @@ async function* queryModel(
       }),
       ...systemPrompt,
       ...(advisorModel ? [ADVISOR_TOOL_INSTRUCTIONS] : []),
-      ...(injectChromeHere ? [CHROME_TOOL_SEARCH_INSTRUCTIONS] : []),
+      ...(injectChromeHere ? [CHROME_SEARCH_EXTRA_TOOLS_INSTRUCTIONS] : []),
     ].filter(Boolean),
   )
+
+  // ── Break-cache integration ──
+  // If a one-time break-cache marker exists, or always-mode is on, append a
+  // unique ephemeral nonce comment to the system prompt so the prefix-cache
+  // hash changes for this request, forcing a cache miss.
+  {
+    const onceMarker = getBreakCacheMarkerPath()
+    const alwaysFlag = getBreakCacheAlwaysPath()
+    const shouldBreak = existsSync(onceMarker) || existsSync(alwaysFlag)
+    if (shouldBreak) {
+      const nonce = randomUUID()
+      systemPrompt = asSystemPrompt([
+        ...systemPrompt,
+        `<!-- cache-break nonce: ${nonce} -->`,
+      ])
+      // Only delete the once marker; the always flag persists until /break-cache off
+      if (existsSync(onceMarker)) {
+        try {
+          unlinkSync(onceMarker)
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
+  }
 
   // Prepend system prompt block for easy API identification
   logAPIPrefix(systemPrompt)
@@ -1536,11 +1598,11 @@ async function* queryModel(
   let start = Date.now()
   let attemptNumber = 0
   const attemptStartTimes: number[] = []
-  let stream: Stream<BetaRawMessageStreamEvent> | undefined = undefined
-  let streamRequestId: string | null | undefined = undefined
-  let clientRequestId: string | undefined = undefined
+  let stream: Stream<BetaRawMessageStreamEvent> | undefined
+  let streamRequestId: string | null | undefined
+  let clientRequestId: string | undefined
   // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins -- Response is available in Node 18+ and is used by the SDK
-  let streamResponse: Response | undefined = undefined
+  let streamResponse: Response | undefined
 
   // Release all stream resources to prevent native memory leaks.
   // The Response object holds native TLS/socket buffers that live outside the
@@ -1576,13 +1638,10 @@ async function* queryModel(
       betasParams.push(CONTEXT_1M_BETA_HEADER)
     }
 
-    // For Bedrock, include both model-based betas and dynamically-added tool search header
+    // For Bedrock, include model-based betas (no tool search header — self-built search)
     const bedrockBetas =
       getAPIProvider() === 'bedrock'
-        ? [
-            ...getBedrockExtraBodyParamsBetas(retryContext.model),
-            ...(toolSearchHeader ? [toolSearchHeader] : []),
-          ]
+        ? [...getBedrockExtraBodyParamsBetas(retryContext.model)]
         : []
     const extraBodyParams = getExtraBodyParams(bedrockBetas)
 
@@ -1626,11 +1685,7 @@ async function* queryModel(
     const hasThinking =
       thinkingConfig.type !== 'disabled' &&
       !isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_THINKING)
-    let thinking: BetaMessageStreamParams['thinking'] | undefined = undefined
-
-    if (hasThinking && !modelSupportsThinking(options.model)) {
-      console.warn(`[API] Thinking is enabled but model "${options.model}" does not support thinking. Thinking will be disabled for this request.`)
-    }
+    let thinking: BetaMessageStreamParams['thinking'] | undefined
 
     // IMPORTANT: Do not change the adaptive-vs-budget thinking selection below
     // without notifying the model launch DRI and research. This is a sensitive
@@ -1712,6 +1767,7 @@ async function* queryModel(
       options.querySource === 'repl_main_thread'
     if (
       cacheEditingHeaderLatched &&
+      cacheEditingBetaHeader &&
       getAPIProvider() === 'firstParty' &&
       options.querySource === 'repl_main_thread' &&
       !betasParams.includes(cacheEditingBetaHeader)
@@ -1728,7 +1784,12 @@ async function* queryModel(
       ? (options.temperatureOverride ?? 1)
       : undefined
 
-    lastRequestBetas = betasParams
+    // Filter out any empty-string beta headers before sending.
+    // Constants like CACHE_EDITING_BETA_HEADER or AFK_MODE_BETA_HEADER
+    // can be '' when their feature gate is off; an empty string in the
+    // betas array produces an invalid anthropic-beta header (400 error).
+    const filteredBetas = betasParams.filter(Boolean)
+    lastRequestBetas = filteredBetas
 
     return {
       model: normalizeModelStringForAPI(options.model),
@@ -1744,7 +1805,7 @@ async function* queryModel(
       system,
       tools: allTools,
       tool_choice: options.toolChoice,
-      ...(useBetas && { betas: betasParams }),
+      ...(useBetas && { betas: filteredBetas }),
       metadata: getAPIMetadata(),
       max_tokens: maxOutputTokens,
       thinking,
@@ -1766,6 +1827,10 @@ async function* queryModel(
   // captures only primitives instead of paramsFromContext's full closure scope
   // (messagesForAPI, system, allTools, betas — the entire request-building
   // context), which would otherwise be pinned until the promise resolves.
+  // Also capture thinking params for Langfuse observability.
+  // Pass the entire thinking config object so all fields (type, budget_tokens,
+  // and any future additions) flow through without cherry-picking.
+  let langfuseThinking: BetaMessageStreamParams['thinking'] | undefined
   {
     const queryParams = paramsFromContext({
       model: options.model,
@@ -1773,8 +1838,10 @@ async function* queryModel(
     })
     const logMessagesLength = queryParams.messages.length
     const logBetas = useBetas ? (queryParams.betas ?? []) : []
-    const logThinkingType = queryParams.thinking?.type ?? 'disabled'
     const logEffortValue = queryParams.output_config?.effort
+    if (queryParams.thinking && queryParams.thinking.type !== 'disabled') {
+      langfuseThinking = queryParams.thinking
+    }
     void options.getToolPermissionContext().then(permissionContext => {
       logAPIQuery({
         model: options.model,
@@ -1784,7 +1851,7 @@ async function* queryModel(
         permissionMode: permissionContext.mode,
         querySource: options.querySource,
         queryTracking: options.queryTracking,
-        thinkingType: logThinkingType,
+        thinkingConfig,
         effortValue: logEffortValue,
         fastMode: isFastMode,
         previousRequestId,
@@ -1794,16 +1861,17 @@ async function* queryModel(
 
   const newMessages: AssistantMessage[] = []
   let ttftMs = 0
-  let partialMessage: BetaMessage | undefined = undefined
+  let partialMessage: BetaMessage | undefined
   const contentBlocks: (BetaContentBlock | ConnectorTextBlock)[] = []
+  const textDeltas = new Map<number, string[]>()
   let usage: NonNullableUsage = EMPTY_USAGE
   let costUSD = 0
   let stopReason: BetaStopReason | null = null
   let didFallBackToNonStreaming = false
   let fallbackMessage: AssistantMessage | undefined
   let maxOutputTokens = 0
-  let responseHeaders: globalThis.Headers | undefined = undefined
-  let research: unknown = undefined
+  let responseHeaders: globalThis.Headers | undefined
+  let research: unknown
   let isFastModeRequest = isFastMode // Keep separate state as it may change if falling back
   let isAdvisorInProgress = false
 
@@ -1852,7 +1920,6 @@ async function* queryModel(
         // Use raw stream instead of BetaMessageStream to avoid O(n²) partial JSON parsing
         // BetaMessageStream calls partialParse() on every input_json_delta, which we don't need
         // since we handle tool input accumulation ourselves
-        // biome-ignore lint/plugin: main conversation loop handles attribution separately
         const result = await anthropic.beta.messages
           .create(
             { ...params, stream: true },
@@ -1895,6 +1962,7 @@ async function* queryModel(
     ttftMs = 0
     partialMessage = undefined
     contentBlocks.length = 0
+    textDeltas.clear()
     usage = EMPTY_USAGE
     stopReason = null
     isAdvisorInProgress = false
@@ -2051,6 +2119,7 @@ async function* queryModel(
                 }
                 break
               case 'text':
+                textDeltas.set(part.index, [])
                 contentBlocks[part.index] = {
                   ...part.content_block,
                   // awkwardly, the sdk sometimes returns text as part of a
@@ -2112,7 +2181,8 @@ async function* queryModel(
                 })
                 throw new Error('Content block is not a connector_text block')
               }
-              ;(contentBlock as { connector_text: string }).connector_text += delta.connector_text
+              ;(contentBlock as { connector_text: string }).connector_text +=
+                delta.connector_text
             } else {
               switch (delta.type) {
                 case 'citations_delta':
@@ -2156,7 +2226,7 @@ async function* queryModel(
                     })
                     throw new Error('Content block is not a text block')
                   }
-                  ;(contentBlock as { text: string }).text += delta.text
+                  textDeltas.get(part.index)?.push(delta.text!)
                   break
                 case 'signature_delta':
                   if (
@@ -2191,7 +2261,8 @@ async function* queryModel(
                     })
                     throw new Error('Content block is not a thinking block')
                   }
-                  ;(contentBlock as { thinking: string }).thinking += delta.thinking
+                  ;(contentBlock as { thinking: string }).thinking +=
+                    delta.thinking
                   break
               }
             }
@@ -2223,9 +2294,16 @@ async function* queryModel(
               })
               throw new Error('Message not found')
             }
+            // Merge accumulated text deltas into the content block (O(n) join instead of O(n^2) +=)
+            const deltas = textDeltas.get(part.index)
+            if (deltas) {
+              ;(contentBlock as { text: string }).text = deltas.join('')
+              textDeltas.delete(part.index)
+            }
             const m: AssistantMessage = {
               message: {
                 ...partialMessage,
+                usage: partialMessage.usage ?? { ...EMPTY_USAGE },
                 content: normalizeContentFromAPI(
                   [contentBlock] as BetaContentBlock[],
                   tools,
@@ -2282,7 +2360,10 @@ async function* queryModel(
             }
 
             // Update cost
-            const costUSDForPart = calculateUSDCost(resolvedModel, usage as unknown as BetaUsage)
+            const costUSDForPart = calculateUSDCost(
+              resolvedModel,
+              usage as unknown as BetaUsage,
+            )
             costUSD += addToTotalSessionCost(
               costUSDForPart,
               usage as unknown as BetaUsage,
@@ -2432,6 +2513,16 @@ async function* queryModel(
       const resp = streamResponse as unknown as Response | undefined
       if (resp) {
         extractQuotaStatusFromHeaders(resp.headers)
+        // Non-Anthropic providers that flow through this same client path
+        // (Bedrock) expose their own throttle headers — let their adapter
+        // overwrite the store with its bucket(s). Anthropic's adapter runs
+        // inside extractQuotaStatusFromHeaders.
+        if (getAPIProvider() === 'bedrock') {
+          updateProviderBuckets(
+            'bedrock',
+            bedrockAdapter.parseHeaders(resp.headers),
+          )
+        }
         // Store headers for gateway detection
         responseHeaders = resp.headers
       }
@@ -2525,6 +2616,9 @@ async function* queryModel(
           maxOutputTokens,
           thinkingType:
             thinkingConfig.type as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+          ...(thinkingConfig.type === 'enabled' && {
+            thinkingBudgetTokens: thinkingConfig.budgetTokens,
+          }),
           fallback_disabled: true,
           request_id: (streamRequestId ??
             'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -2557,6 +2651,9 @@ async function* queryModel(
         maxOutputTokens,
         thinkingType:
           thinkingConfig.type as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        ...(thinkingConfig.type === 'enabled' && {
+          thinkingBudgetTokens: thinkingConfig.budgetTokens,
+        }),
         fallback_disabled: false,
         request_id: (streamRequestId ??
           'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -2673,6 +2770,9 @@ async function* queryModel(
         maxOutputTokens,
         thinkingType:
           thinkingConfig.type as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        ...(thinkingConfig.type === 'enabled' && {
+          thinkingBudgetTokens: thinkingConfig.budgetTokens,
+        }),
         request_id:
           failedRequestId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
         fallback_cause:
@@ -2852,10 +2952,14 @@ async function* queryModel(
     // message_delta handler before any yield. Fallback pushes to newMessages
     // then yields, so tracking must be here to survive .return() at the yield.
     if (fallbackMessage) {
-      const fallbackUsage = fallbackMessage.message.usage as BetaMessageDeltaUsage
+      const fallbackUsage = fallbackMessage.message
+        .usage as BetaMessageDeltaUsage
       usage = updateUsage(EMPTY_USAGE, fallbackUsage)
       stopReason = fallbackMessage.message.stop_reason as BetaStopReason
-      const fallbackCost = calculateUSDCost(resolvedModel, fallbackUsage as unknown as BetaUsage)
+      const fallbackCost = calculateUSDCost(
+        resolvedModel,
+        fallbackUsage as unknown as BetaUsage,
+      )
       costUSD += addToTotalSessionCost(
         fallbackCost,
         fallbackUsage as unknown as BetaUsage,
@@ -2895,16 +2999,25 @@ async function* queryModel(
     provider: getAPIProvider(),
     input: convertMessagesToLangfuse(messagesForAPI, systemPrompt),
     output: convertOutputToLangfuse(newMessages),
-    usage: { input_tokens: usage.input_tokens, output_tokens: usage.output_tokens },
+    usage: {
+      input_tokens: usage.input_tokens,
+      output_tokens: usage.output_tokens,
+      cache_creation_input_tokens: usage.cache_creation_input_tokens,
+      cache_read_input_tokens: usage.cache_read_input_tokens,
+    },
     startTime: new Date(startIncludingRetries),
     endTime: new Date(),
     completionStartTime: ttftMs > 0 ? new Date(start + ttftMs) : undefined,
+    tools: convertToolsToLangfuse(toolSchemas as unknown[]),
+    thinking: langfuseThinking,
   })
 
   void options.getToolPermissionContext().then(permissionContext => {
     logAPISuccessAndDuration({
       model:
-        (newMessages[0]?.message.model as string | undefined) ?? partialMessage?.model ?? options.model,
+        (newMessages[0]?.message.model as string | undefined) ??
+        partialMessage?.model ??
+        options.model,
       preNormalizedModel: options.model,
       usage,
       start,
@@ -3210,6 +3323,7 @@ export function addCacheBreakpoints(
 
   // Add cache_reference to tool_result blocks that are within the cached prefix.
   // Must be done AFTER cache_edits insertion since that modifies content arrays.
+  // Note: this code only runs when useCachedMC=true (early return at line ~3202).
   if (enablePromptCaching) {
     // Find the last message containing a cache_control marker
     let lastCCMsg = -1

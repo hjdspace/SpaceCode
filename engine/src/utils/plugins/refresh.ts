@@ -21,8 +21,8 @@ import { getOriginalCwd } from '../../bootstrap/state.js'
 import type { Command } from '../../commands.js'
 import { reinitializeLspServerManager } from '../../services/lsp/manager.js'
 import type { AppState } from '../../state/AppState.js'
-import type { AgentDefinitionsResult } from '../../tools/AgentTool/loadAgentsDir.js'
-import { getAgentDefinitionsWithOverrides } from '../../tools/AgentTool/loadAgentsDir.js'
+import type { AgentDefinitionsResult } from '@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js'
+import { getAgentDefinitionsWithOverrides } from '@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js'
 import type { PluginError } from '../../types/plugin.js'
 import { logForDebugging } from '../debug.js'
 import { errorMessage } from '../errors.js'
@@ -164,9 +164,17 @@ export async function refreshActivePlugins(
     if (!p.hooksConfig) return sum
     return (
       sum +
-      (Object.values(p.hooksConfig) as Array<Array<{ hooks: unknown[] }> | undefined>).reduce(
+      (
+        Object.values(p.hooksConfig) as Array<
+          Array<{ hooks: unknown[] }> | undefined
+        >
+      ).reduce(
         (s, matchers) =>
-          s + (matchers?.reduce((h: number, m: { hooks: { length: number } }) => h + m.hooks.length, 0) ?? 0),
+          s +
+          (matchers?.reduce(
+            (h: number, m: { hooks: { length: number } }) => h + m.hooks.length,
+            0,
+          ) ?? 0),
         0,
       )
     )

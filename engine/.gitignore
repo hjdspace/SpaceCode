@@ -11,7 +11,6 @@ coverage
 *.suo
 *.lock
 src/utils/vendor/
-bin/
 
 # AI tool runtime directories
 .agents/
@@ -58,3 +57,5 @@ credentials.json
 .test-progress.md
 .squash-tmp/
 .git.*-backup
+
+*.exe
