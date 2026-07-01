@@ -29,6 +29,7 @@
     "electron:build:linux": "npm run icons:generate && npm run copy-bun && npm run copy-mcp-vendor && npm run prebuild:cua-driver && npm run engine:build:desktop && npm run build:all && electron-builder --linux",
     "prebuild:cua-driver": "node scripts/download-cua-driver.mjs",
     "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run",
     "test:electron": "node --experimental-strip-types --test tests/electron/*.test.ts",
     "test:electron:ci": "node --experimental-strip-types --test --test-reporter=spec tests/electron/*.test.ts",
     "changelog": "conventional-changelog -p conventionalcommits -i CHANGELOG.md -s",
