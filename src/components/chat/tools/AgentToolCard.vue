@@ -56,7 +56,7 @@ const agentTypeDisplay = computed(() => {
   return type === 'general-purpose' ? 'Agent' : String(type)
 })
 
-function getFirstStringField(input: Record<string, any>, fields: string[]): string {
+function getFirstStringField(input: Record<string, unknown>, fields: string[]): string {
   for (const field of fields) {
     const value = input[field]
     if (typeof value === 'string') return value
@@ -117,7 +117,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
 
   &.status-running {
     color: var(--accent-tertiary);
-    animation: spin 1s linear infinite;
+    animation: agent-spin 1s linear infinite;
   }
 
   &.status-completed {
@@ -129,7 +129,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
   }
 }
 
-@keyframes spin {
+@keyframes agent-spin {
   to { transform: rotate(360deg); }
 }
 
