@@ -705,6 +705,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         engineSource: settingsStore.engineSource,
         installedCliPath: settingsStore.installedCliPath ?? undefined,
         resumeSessionId: session._resumeSessionId,
+        modelContextWindows: settingsStore.modelContextWindows,
       })
 
       delete session._resumeSessionId
