@@ -705,7 +705,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         engineSource: settingsStore.engineSource,
         installedCliPath: settingsStore.installedCliPath ?? undefined,
         resumeSessionId: session._resumeSessionId,
-        modelContextWindows: settingsStore.modelContextWindows,
+        // 展开为普通对象，避免 Vue 响应式 Proxy 无法通过 Electron IPC 结构化克隆
+        modelContextWindows: { ...settingsStore.modelContextWindows },
       })
 
       delete session._resumeSessionId
