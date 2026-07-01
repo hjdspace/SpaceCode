@@ -426,13 +426,33 @@ export const useSettingsStore = defineStore('settings', () => {
 
     // Pass user-configured context window to the engine so auto-compact
     // thresholds match the UI. The engine's transcript-context hook
-    // honours ECC_CONTEXT_WINDOW_TOKENS / CLAUDE_CODE_AUTO_COMPACT_WINDOW.
+    // honours CLAUDE_CODE_AUTO_COMPACT_WINDOW.
+    // For context windows > 200K, the [1m] suffix (added by getModelWith1mSuffix)
+    // expands the engine's context window to 1M first; this env var then
+    // shrinks it to the exact desired value via Math.min.
     const primaryModel = getSonnetModel()
     if (primaryModel && modelContextWindows.value[primaryModel]) {
       env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = String(modelContextWindows.value[primaryModel])
     }
 
     return env
+  }
+
+  /**
+   * Returns the model name with [1m] suffix if the user has configured a
+   * context window > 200K for that model. The [1m] suffix tells the engine
+   * to use 1M context window (getContextWindowForModel returns 1_000_000)
+   * and sends the context-1m-2025-08-07 beta header for Anthropic API.
+   * Combined with CLAUDE_CODE_AUTO_COMPACT_WINDOW env var, this enables
+   * exact context window sizes > 200K (e.g., 256K, 400K, 1M).
+   */
+  function getModelWith1mSuffix(model: string | undefined): string | undefined {
+    if (!model) return model
+    const ctxSize = modelContextWindows.value[model]
+    if (ctxSize && ctxSize > 200_000 && !/\[1m\]/i.test(model)) {
+      return model + '[1m]'
+    }
+    return model
   }
 
   function saveSettings() {
@@ -617,5 +637,6 @@ export const useSettingsStore = defineStore('settings', () => {
     setInstalledCliPath,
     lastViewedChangelogVersion,
     modelContextWindows,
+    getModelWith1mSuffix,
   }
 })

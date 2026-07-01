@@ -499,7 +499,7 @@ async function handleOpenClaudeCLI() {
   })
 
   let fullCommand = cliCommand || 'claude'
-  const primaryModel = settingsStore.getPrimaryModel()
+  const primaryModel = settingsStore.getModelWith1mSuffix(settingsStore.getPrimaryModel())
   if (primaryModel) {
     fullCommand += ` --model "${primaryModel}"`
   }

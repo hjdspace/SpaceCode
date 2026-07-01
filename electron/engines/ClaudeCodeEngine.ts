@@ -63,6 +63,7 @@ export class ClaudeCodeEngine implements IEngine {
       resumeSessionId: config.resumeSessionId,
       engineSource: config.engineSource as SessionConfig['engineSource'],
       installedCliPath: config.installedCliPath,
+      modelContextWindows: config.modelContextWindows,
     }
     await this.pool.startSession(sessionId, sessionConfig)
   }

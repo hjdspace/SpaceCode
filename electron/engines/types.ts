@@ -17,6 +17,8 @@ export interface EngineSessionConfig {
   resumeSessionId?: string
   engineSource?: 'bundled' | 'installed'
   installedCliPath?: string
+  /** Per-model context window overrides (modelId → token count). */
+  modelContextWindows?: Record<string, number>
 }
 
 export interface UnifiedEngineEvent {
