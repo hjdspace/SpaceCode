@@ -38,6 +38,7 @@ Desktop.ini
 .trae/
 .qoder/
 .assistant/
+.worktrees/
 .pytest_cache/
 
 release/
