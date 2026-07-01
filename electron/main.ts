@@ -11,6 +11,7 @@ import { registerArtifactsIPCHandlers, stopArtifactsWatch } from './artifactsSer
 import { registerCronIPCHandlers } from './cronService'
 import { registerOfficeCliIPCHandlers, cleanupOfficeCli, ensureOfficeCliInstalled } from './officeCliService'
 import { registerCuaDriverIPCHandlers, cleanupCuaDriverMcp } from './cuaDriverService'
+import { registerBrowserUseIPCHandlers, cleanupBrowserUseMcp } from './browserUseService'
 import { registerClaudeCodeIPC, setMainWindow, getPool } from './claudeCodeIPC'
 import { initAutoUpdater, registerAutoUpdaterIPC, destroyAutoUpdater } from './autoUpdaterService'
 import { MobileServer } from './mobileServer'
@@ -640,6 +641,10 @@ void ensureOfficeCliInstalled()
 registerCuaDriverIPCHandlers()
 info('Startup', 'CuaDriver IPC handlers registered')
 
+  // Register Browser-Use IPC handlers
+  registerBrowserUseIPCHandlers()
+  info('Startup', 'BrowserUse IPC handlers registered')
+
   // Register Claude Code IPC handlers
   registerClaudeCodeIPC()
   info('Startup', 'Claude Code IPC handlers registered')
@@ -748,6 +753,7 @@ app.on('before-quit', async () => {
 info('App', 'App quitting')
 cleanupOfficeCli()
 await cleanupCuaDriverMcp()
+await cleanupBrowserUseMcp()
 stopArtifactsWatch()
 destroyTray()
 destroyAutoUpdater()

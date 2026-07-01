@@ -620,6 +620,40 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('cua-driver:tool', name, args),
   },
 
+  // Browser-Use API — 浏览器自动化（AI 操控网页）
+  browserUse: {
+    /** 获取 browser-use 完整状态 */
+    getStatus: () => ipcRenderer.invoke('browser-use:status'),
+    /** 安装 browser-use + playwright chromium */
+    install: () => ipcRenderer.invoke('browser-use:install'),
+    /** 安装进度事件订阅 */
+    onInstallProgress: (callback: (progress: { stage: string; message: string; percent: number }) => void) => {
+      const handler = (_: unknown, data: { stage: string; message: string; percent: number }) => callback(data)
+      ipcRenderer.on('browser-use:installProgress', handler)
+      return () => ipcRenderer.removeListener('browser-use:installProgress', handler)
+    },
+    /** 运行健康检查 */
+    doctor: () => ipcRenderer.invoke('browser-use:doctor'),
+    /** 检查更新 */
+    checkUpdate: () => ipcRenderer.invoke('browser-use:check-update'),
+    /** 调用 browser-use MCP 工具 */
+    callTool: (name: string, args: Record<string, unknown>) =>
+      ipcRenderer.invoke('browser-use:tool', name, args),
+    /** 获取/更新 Agent 配置 */
+    config: (config?: Record<string, unknown>) =>
+      ipcRenderer.invoke('browser-use:config', config),
+    /** 导航到 URL */
+    navigate: (url: string) => ipcRenderer.invoke('browser-use:navigate', url),
+    /** 获取实时浏览器快照 */
+    getLiveSnapshot: () => ipcRenderer.invoke('browser-use:liveSnapshot'),
+    /** 实时快照推送事件订阅 */
+    onLiveSnapshot: (callback: (snapshot: { screenshot: string | null; url: string; title: string; currentStep: number; totalSteps: number; agentStatus: string; lastAction: string | null }) => void) => {
+      const handler = (_: unknown, data: any) => callback(data)
+      ipcRenderer.on('browser-use:liveSnapshot', handler)
+      return () => ipcRenderer.removeListener('browser-use:liveSnapshot', handler)
+    },
+  },
+
   mobile: {
     startServer: (): Promise<import('./mobileServerTypes').QRCodeData> =>
       ipcRenderer.invoke('mobile:startServer'),
