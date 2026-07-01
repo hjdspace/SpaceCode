@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { ErrorCategory, type ClassifiedError, type ErrorContext, type ToastItem, type ErrorLogEntry } from '@/types'
 
-const electronAPI = (window as any).electronAPI
+const electronAPI = window.electronAPI
 
 const MAX_TOASTS = 3
 const MAX_ERROR_LOG = 100

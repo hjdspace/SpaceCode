@@ -33,8 +33,8 @@ const isReady = ref(false)
 let terminal: Terminal | null = null
 let fitAddon: FitAddon | null = null
 let terminalId: string | null = null
-let removeDataListener: (() => void) | null = null
-let removeExitListener: (() => void) | null = null
+let removeDataListener: (() => void) | undefined
+let removeExitListener: (() => void) | undefined
 let contextmenuHandler: ((e: Event) => void) | null = null
 
 const containerStyle = computed(() => ({
@@ -99,7 +99,7 @@ async function initTerminal() {
   terminalStore.createEmbeddedInstance(props.toolCallId, props.cwd)
 
   try {
-    const electronAPI = (window as any).electronAPI
+    const electronAPI = window.electronAPI
     const result = await electronAPI?.terminal?.create({
       cwd: props.cwd,
       env: undefined
@@ -221,7 +221,7 @@ function focus() {
 
 function runCommand(command: string) {
   if (terminalId) {
-    const electronAPI = (window as any).electronAPI
+    const electronAPI = window.electronAPI
     electronAPI?.terminal?.runCommand(terminalId, command)
   }
 }
@@ -237,7 +237,7 @@ async function pasteFromClipboard() {
   try {
     const text = await navigator.clipboard.readText()
     if (text && terminalId) {
-      const electronAPI = (window as any).electronAPI
+      const electronAPI = window.electronAPI
       electronAPI?.terminal?.write(terminalId, text)
     }
   } catch (e) {
@@ -247,7 +247,7 @@ async function pasteFromClipboard() {
 
 function write(data: string) {
   if (terminalId) {
-    const electronAPI = (window as any).electronAPI
+    const electronAPI = window.electronAPI
     electronAPI?.terminal?.write(terminalId, data)
   }
 }

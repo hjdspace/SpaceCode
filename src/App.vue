@@ -19,8 +19,8 @@
       />
       <div
         class="resize-handle vertical"
-        @mousedown="startResize($event, 'left')"
-        :class="{ active: isResizing && resizeTarget === 'left' }"
+        @mousedown="startLeftResize"
+        :class="{ active: isLeftResizing }"
         :style="{ display: appStore.sidebarCollapsed ? 'none' : 'block' }"
       ></div>
       <div class="center-panel">
@@ -38,7 +38,7 @@
         <div
           v-if="appStore.terminalDockVisible"
           class="resize-handle horizontal"
-          @mousedown="startTerminalResize($event)"
+          @mousedown="startTerminalResize"
           :class="{ active: isTerminalResizing }"
         ></div>
         <!-- Bottom terminal dock (VSCODE style) -->
@@ -57,8 +57,8 @@
       <div
         v-if="appStore.infoPanelVisible"
         class="resize-handle vertical"
-        @mousedown="startResize($event, 'right')"
-        :class="{ active: isResizing && resizeTarget === 'right' }"
+        @mousedown="startRightResize"
+        :class="{ active: isRightResizing }"
       ></div>
       <InfoPanel
         v-if="appStore.infoPanelVisible"
@@ -100,6 +100,7 @@ import { api } from '@/services/electronAPI'
 import { useShortcuts } from '@/composables/useShortcuts'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useAutoUpdate } from '@/composables/useAutoUpdate'
+import { useResizablePanel } from '@/composables/useResizablePanel'
 import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
 
 const appStore = useAppStore()
@@ -169,83 +170,43 @@ const { register } = useShortcuts({
 })
 
 const mainContent = ref<HTMLElement | null>(null)
-const leftWidth = ref(350)
-const rightWidth = ref(400)
 
-const minWidth = 200
-const maxWidth = 650
+// ── 面板拖拽缩放（通过 useResizablePanel composable 管理） ──
+const {
+  size: leftWidth,
+  isResizing: isLeftResizing,
+  onMousedown: startLeftResize,
+} = useResizablePanel({
+  initial: 350,
+  min: 200,
+  max: 650,
+  direction: 'horizontal',
+})
 
-const isResizing = ref(false)
-const resizeTarget = ref<'left' | 'right' | null>(null)
-let startX = 0
-let startWidth = 0
+const {
+  size: rightWidth,
+  isResizing: isRightResizing,
+  onMousedown: startRightResize,
+} = useResizablePanel({
+  initial: 400,
+  min: 200,
+  // 右面板允许拓宽至接近全窗口，同时保留最小主内容区
+  max: () => Math.max(650, window.innerWidth - leftWidth.value - 200),
+  direction: 'horizontal',
+  reverse: true,
+})
 
-function startResize(e: MouseEvent, target: 'left' | 'right') {
-  isResizing.value = true
-  resizeTarget.value = target
-  startX = e.clientX
-  startWidth = target === 'left' ? leftWidth.value : rightWidth.value
-
-  document.addEventListener('mousemove', handleResize)
-  document.addEventListener('mouseup', stopResize)
-  document.body.style.cursor = 'col-resize'
-  document.body.style.userSelect = 'none'
-}
-
-function handleResize(e: MouseEvent) {
-  if (!isResizing.value) return
-
-  const diff = e.clientX - startX
-
-  if (resizeTarget.value === 'left') {
-    const newWidth = startWidth + diff
-    leftWidth.value = Math.min(Math.max(newWidth, minWidth), maxWidth)
-  } else if (resizeTarget.value === 'right') {
-    const newWidth = startWidth - diff
-    // Allow the right panel to widen up to nearly the full window so the user
-    // can read complete content, while keeping a minimum main-content area.
-    const rightMaxWidth = Math.max(maxWidth, window.innerWidth - leftWidth.value - 200)
-    rightWidth.value = Math.min(Math.max(newWidth, minWidth), rightMaxWidth)
-  }
-}
-
-function stopResize() {
-  isResizing.value = false
-  resizeTarget.value = null
-  document.removeEventListener('mousemove', handleResize)
-  document.removeEventListener('mouseup', stopResize)
-  document.body.style.cursor = ''
-  document.body.style.userSelect = ''
-}
-
-// ── Bottom terminal dock resize ──
-const isTerminalResizing = ref(false)
-let terminalResizeStartY = 0
-let terminalResizeStartHeight = 0
-
-function startTerminalResize(e: MouseEvent) {
-  isTerminalResizing.value = true
-  terminalResizeStartY = e.clientY
-  terminalResizeStartHeight = appStore.terminalDockHeight
-  document.addEventListener('mousemove', handleTerminalResize)
-  document.addEventListener('mouseup', stopTerminalResize)
-  document.body.style.cursor = 'row-resize'
-  document.body.style.userSelect = 'none'
-}
-
-function handleTerminalResize(e: MouseEvent) {
-  if (!isTerminalResizing.value) return
-  const diff = terminalResizeStartY - e.clientY
-  appStore.setTerminalDockHeight(terminalResizeStartHeight + diff)
-}
-
-function stopTerminalResize() {
-  isTerminalResizing.value = false
-  document.removeEventListener('mousemove', handleTerminalResize)
-  document.removeEventListener('mouseup', stopTerminalResize)
-  document.body.style.cursor = ''
-  document.body.style.userSelect = ''
-}
+const {
+  isResizing: isTerminalResizing,
+  onMousedown: startTerminalResize,
+} = useResizablePanel({
+  initial: appStore.terminalDockHeight,
+  min: 80,
+  max: 500,
+  direction: 'vertical',
+  reverse: true,
+  onUpdate: (h) => appStore.setTerminalDockHeight(h),
+})
 
 onMounted(() => {
   // 初始化字体配置
@@ -315,10 +276,6 @@ async function handleOpenChangelog() {
 }
 
 onUnmounted(() => {
-  document.removeEventListener('mousemove', handleResize)
-  document.removeEventListener('mouseup', stopResize)
-  document.removeEventListener('mousemove', handleTerminalResize)
-  document.removeEventListener('mouseup', stopTerminalResize)
   window.removeEventListener('open-skills-manager', handleOpenSkillsManager)
   window.removeEventListener('open-mcp-manager', handleOpenMCPManager)
 })

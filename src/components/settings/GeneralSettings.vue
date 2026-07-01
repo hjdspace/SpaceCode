@@ -194,7 +194,7 @@ import type { Locale } from '@/i18n'
 const props = defineProps<{
   modelValue: {
     projectRoot: string
-    engineType: EngineType
+    engineType?: EngineType
   }
 }>()
 
@@ -276,7 +276,7 @@ const projectParent = computed(() => {
 
 onMounted(async () => {
   try {
-    const electronAPI = (window as any).electronAPI
+    const electronAPI = window.electronAPI
     if (electronAPI?.claudeCode?.isEngineAvailable) {
       piAvailable.value = await electronAPI.claudeCode.isEngineAvailable('pi')
     } else {
@@ -301,7 +301,7 @@ onMounted(async () => {
 
 async function checkPiAvailability() {
   try {
-    const electronAPI = (window as any).electronAPI
+    const electronAPI = window.electronAPI
     if (electronAPI?.claudeCode?.isEngineAvailable) {
       piAvailable.value = await electronAPI.claudeCode.isEngineAvailable('pi')
     } else {
@@ -316,7 +316,7 @@ async function installPiSdk() {
   piInstalling.value = true
   piInstallError.value = null
   try {
-    const electronAPI = (window as any).electronAPI
+    const electronAPI = window.electronAPI
     const result = await electronAPI?.claudeCode?.installPiSdk()
     if (result?.success) {
       // Re-check availability after installation
@@ -345,7 +345,7 @@ function selectEngine(engineId: EngineType) {
   settingsStore.saveSettings()
 
   try {
-    const electronAPI = (window as any).electronAPI
+    const electronAPI = window.electronAPI
     const stop = electronAPI?.claudeCode?.stop
     const getActive = electronAPI?.claudeCode?.getActiveSessions
     if (stop && getActive) {

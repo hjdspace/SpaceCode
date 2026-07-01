@@ -936,14 +936,24 @@ export const useChatStreamStore = defineStore('chatStream', () => {
     return Math.round(exponential + jitter)
   }
 
-  /** LLM 开始响应时清除重试状态，复位重试计数 */
-  function clearRetryStateOnResponse(sessionId: string): void {
-    if (retryStates.value.has(sessionId)) {
-      sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] LLM responding after retry, resetting retry count`)
-      retryStates.value.delete(sessionId)
-      retryStates.value = new Map(retryStates.value)
-    }
+/**
+ * LLM 真正开始响应时清除重试状态，复位重试计数。
+ *
+ * 仅在 onAssistant 事件（LLM 完成了一轮回复）时调用——这是 LLM 确实连上的
+ * 可靠信号。不在 onStreamEvent 中调用，因为 stream_event 可能是 CLI 初始化 /
+ * 系统消息等非 LLM 事件，过早清除会导致重试计数永远不递增（无限重试 bug）。
+ *
+ * 清除后：RetryIndicator 组件隐藏，下次 429 错误从 attempt=1 重新计数。
+ * 若连续 MAX_AUTO_RETRIES 次重试都没收到 onAssistant（LLM 从未连上），
+ * shouldAutoRetry 返回 false，任务终止。
+ */
+function clearRetryStateOnResponse(sessionId: string): void {
+  if (retryStates.value.has(sessionId)) {
+    sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] LLM responded after retry, resetting retry count to 0`)
+    retryStates.value.delete(sessionId)
+    retryStates.value = new Map(retryStates.value)
   }
+}
 
   /** 发起自动重试：更新 UI → 等待退避 → 重新发送用户消息 */
   async function initiateAutoRetry(
@@ -1248,7 +1258,8 @@ export const useChatStreamStore = defineStore('chatStream', () => {
   const claudeCodeApi = api.claudeCode
   if (claudeCodeApi) {
     claudeCodeApi.onStreamEvent((event: { sessionId: string; data: any }) => {
-      clearRetryStateOnResponse(event.sessionId)
+      // ★ 不在此处清除重试状态：stream_event 可能是 CLI 初始化 / 系统消息等
+      // 非 LLM 事件，过早清除会导致重试计数永远不递增（无限重试 bug）。
       const ts = ensureTurn(event.sessionId)
       if (ts.settled) return
       resetTimeout(event.sessionId, ts)
@@ -1259,6 +1270,8 @@ export const useChatStreamStore = defineStore('chatStream', () => {
         sessionStore.recordTeammateMessage(event.data, event.sessionId)
         return
       }
+      // ★ LLM 真正完成了一轮回复 → 重试成功，清除重试状态（隐藏 indicator，
+      // 复位计数）。下次 429 错误将从 attempt=1 重新计数。
       clearRetryStateOnResponse(event.sessionId)
       const ts = ensureTurn(event.sessionId)
       if (ts.settled) return
@@ -1266,7 +1279,8 @@ export const useChatStreamStore = defineStore('chatStream', () => {
       handleAssistant(event.sessionId, ts, event.data)
     })
     claudeCodeApi.onToolUse((event: { sessionId: string; data: any }) => {
-      clearRetryStateOnResponse(event.sessionId)
+      // ★ 不在此处清除：onAssistant 总是在 onToolUse 之前触发（tool_use
+      // 是 assistant 消息的一部分），重试状态已被 onAssistant 清除。
       const ts = ensureTurn(event.sessionId)
       if (ts.settled) return
       resetTimeout(event.sessionId, ts)

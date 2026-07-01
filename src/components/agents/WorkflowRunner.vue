@@ -54,7 +54,7 @@ import { useAppStore } from '@/stores/app'
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const electronAPI = (window as any).electronAPI
+const electronAPI = window.electronAPI
 
 interface WorkflowDef {
   id: string

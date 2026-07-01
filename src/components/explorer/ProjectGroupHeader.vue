@@ -136,7 +136,7 @@ async function handleOpenFolder() {
   }
 
   try {
-    const electronAPI = (window as any).electronAPI
+    const electronAPI = window.electronAPI
     if (electronAPI?.shell?.openPath) {
       await electronAPI.shell.openPath(props.workingDirectory)
     } else {

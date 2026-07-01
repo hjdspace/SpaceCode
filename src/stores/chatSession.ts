@@ -142,9 +142,9 @@ async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
     )
     try {
       const fullSession = await claudeCode.getFullSession(projectPath, session.id)
-      if (!fullSession?.messages?.length) continue
+      if (!(fullSession?.messages as unknown[] | undefined)?.length) continue
 
-      const restoredMessages = buildMessagesFromHistory(fullSession.messages)
+      const restoredMessages = buildMessagesFromHistory(fullSession.messages as any[])
       if (restoredMessages.length === 0) continue
 
       // ── 保留办公模式产物汇总数据 ──
@@ -639,7 +639,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       const currentEngine = session.engineType
       if (currentEngine && currentEngine !== desiredEngine) {
         logger.info('ChatStore', `initClaudeCodeSession: engine changed (${currentEngine} → ${desiredEngine}), restarting | id=${sessionId.slice(0, 8)}`)
-        const resumeId = status.engineSessionId || session.engineSessionId
+        const resumeId = (status.engineSessionId as string) || session.engineSessionId
         try {
           await claudeCode.stop(sessionId)
         } catch (e) {
@@ -1381,7 +1381,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     if (!claudeCode?.listAgents) return
     try {
       const cwd = workingDirectory.value || currentProjectRoot.value || undefined
-      availableAgents.value = await claudeCode.listAgents(cwd)
+      availableAgents.value = await claudeCode.listAgents(cwd) as typeof availableAgents.value
     } catch (error) {
       console.error('[ChatStore] Failed to load agents:', error)
     }

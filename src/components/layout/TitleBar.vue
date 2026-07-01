@@ -240,7 +240,7 @@ const isLinux = platform === 'linux' || /Linux/i.test(platform)
 
 // Window controls state (Linux frameless window)
 const isMaximized = ref(false)
-const winApi = typeof window !== 'undefined' ? (window as any).electronAPI?.window : null
+const winApi = typeof window !== 'undefined' ? window.electronAPI?.window : null
 const showOpenMenu = ref(false)
 const openMenuRef = ref<HTMLElement | null>(null)
 

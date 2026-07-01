@@ -1424,7 +1424,7 @@ async function handleRestoreHistorySession(session: any) {
       session.sessionId
     )
 
-    const restoredMessages = buildMessagesFromHistory(fullSession.messages)
+    const restoredMessages = buildMessagesFromHistory(fullSession.messages as any[])
 
     for (const msg of restoredMessages) {
       // 子代理（sidechain）消息会被构建成 teammate-message，仅用于队友转录，
@@ -1434,7 +1434,7 @@ async function handleRestoreHistorySession(session: any) {
       chatStore.addMessage(msg, restoredSession.id)
     }
 
-    for (const raw of fullSession.messages) {
+    for (const raw of fullSession.messages as any[]) {
       chatStore.recordTeammateMessage(raw, restoredSession.id)
     }
 
