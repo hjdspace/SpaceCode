@@ -2,7 +2,7 @@ import type { Message } from '@/types'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { teammateIdForParentToolUse, normalizeTeammateId } from '@/services/teamTranscriptService'
 import { computed, toValue } from 'vue'
-import type { MaybeRefOrGetter } from 'vue'
+import type { MaybeRefOrGetter } from '@vue/reactivity'
 
 export function useSubagentTranscript(toolUseId: MaybeRefOrGetter<string>) {
   const sessionStore = useChatSessionStore()
