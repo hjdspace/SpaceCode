@@ -47,6 +47,8 @@ export interface BrowserUseStatus {
   llmProvider: string | null
   /** LLM 模型名称 */
   llmModel: string | null
+  /** LLM 凭证来源：desktop（复用桌面配置）| env（系统环境变量）| null（未配置） */
+  llmSource?: 'desktop' | 'env' | null
   /** 是否就绪（所有检查通过） */
   ready: boolean | null
   /** 健康检查结果列表 */

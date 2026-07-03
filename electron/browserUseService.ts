@@ -11,7 +11,7 @@
  * 4. 提供健康检查、截图轮播、导航控制等能力
  */
 import { app, ipcMain, BrowserWindow } from 'electron'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { spawn, execFile } from 'child_process'
 import { info, warn, error as logError } from './logger'
@@ -530,16 +530,87 @@ function getBridgeScriptPath(): string | null {
   return null
 }
 
+// ── Desktop LLM Config Reuse ─────────────────────────────────
+
+/** 读取桌面程序 GUI 设置（~/.claude/gui-settings.json） */
+function loadGuiSettings(): Record<string, any> | null {
+  try {
+    const settingsPath = join(app.getPath('home'), '.claude', 'gui-settings.json')
+    if (!existsSync(settingsPath)) return null
+    const raw = readFileSync(settingsPath, 'utf-8')
+    if (!raw.trim()) return null
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+interface DesktopLlmCredentials {
+  /** 桌面配置的 LLM 提供商（与 browser-use provider 选项对齐） */
+  provider: 'Anthropic' | 'OpenAI' | 'Google'
+  apiKey: string
+  baseUrl: string
+  model: string
+}
+
+/**
+ * 从桌面程序 GUI 设置中提取当前启用的 LLM 凭证。
+ *
+ * 桌面程序支持 Anthropic / OpenAI 兼容 / Gemini 三种 API Key 方式，
+ * 通过 authMethod 标识当前启用哪一个。此处仅返回当前启用项的凭证，
+ * 避免注入历史残留的其他 Provider Key 导致 browser-use 选错模型。
+ * （claudeai / console 为 OAuth 方式，无 apiKey，返回 null）
+ */
+function getDesktopLlmCredentials(): DesktopLlmCredentials | null {
+  const gui = loadGuiSettings()
+  if (!gui) return null
+  const authMethod = gui.authMethod as string | undefined
+
+  const pick = (cfg: any, provider: DesktopLlmCredentials['provider']): DesktopLlmCredentials | null => {
+    if (!cfg) return null
+    const apiKey = (cfg.apiKey || '').trim()
+    if (!apiKey) return null
+    const baseUrl = (cfg.baseUrl || '').trim()
+    const model = (cfg.sonnetModel || cfg.opusModel || cfg.haikuModel || '').trim()
+    return { provider, apiKey, baseUrl, model }
+  }
+
+  if (authMethod === 'openai_compatible') return pick(gui.openaiConfig, 'OpenAI')
+  if (authMethod === 'gemini_api') return pick(gui.geminiConfig, 'Google')
+  if (authMethod === 'anthropic_compatible' || authMethod === 'claudeai' || authMethod === 'console') {
+    return pick(gui.anthropicConfig, 'Anthropic')
+  }
+  return null
+}
+
 /** 构建浏览器 use 进程环境变量 */
 function buildBUEnv(): Record<string, string> {
   const env: Record<string, string> = {}
 
-  // LLM API Keys 透传
+  // 显式环境变量优先透传（保留对系统环境变量的兼容）
   const apiKey = process.env[BU_API_KEY_ENV]
   if (apiKey) env[BU_API_KEY_ENV] = apiKey
   if (process.env.ANTHROPIC_API_KEY) env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
   if (process.env.OPENAI_API_KEY) env.OPENAI_API_KEY = process.env.OPENAI_API_KEY
   if (process.env.GOOGLE_API_KEY) env.GOOGLE_API_KEY = process.env.GOOGLE_API_KEY
+
+  // 复用桌面程序 LLM 配置：当 browser-use 选定标准 Provider 且桌面启用了同一 Provider 时，
+  // 注入对应 API Key + BaseUrl（仅当未显式设置 BROWSER_USE_API_KEY，即未使用 ChatBrowserUse 云服务时）
+  if (!env[BU_API_KEY_ENV]) {
+    const desktop = getDesktopLlmCredentials()
+    if (desktop && desktop.provider === agentConfig.provider) {
+      if (desktop.provider === 'Anthropic') {
+        env.ANTHROPIC_API_KEY = desktop.apiKey
+        if (desktop.baseUrl) env.ANTHROPIC_BASE_URL = desktop.baseUrl
+      } else if (desktop.provider === 'OpenAI') {
+        env.OPENAI_API_KEY = desktop.apiKey
+        if (desktop.baseUrl) env.OPENAI_BASE_URL = desktop.baseUrl
+      } else if (desktop.provider === 'Google') {
+        env.GOOGLE_API_KEY = desktop.apiKey
+        if (desktop.baseUrl) env.GEMINI_BASE_URL = desktop.baseUrl
+      }
+    }
+  }
 
   // Agent 配置
   env.BU_LLM_MODEL = agentConfig.model
@@ -753,12 +824,14 @@ export async function runHealthCheck(): Promise<{ ok: boolean; checks: BrowserUs
 export async function getBrowserUseStatus(): Promise<BrowserUseStatus> {
   const platform = process.platform
   const platformSupported = platform === 'win32' || platform === 'darwin' || platform === 'linux'
-  const isLLMConfigured = Boolean(
+  const desktopCreds = getDesktopLlmCredentials()
+  const envKeyPresent = Boolean(
     process.env[BU_API_KEY_ENV] ||
     process.env.ANTHROPIC_API_KEY ||
     process.env.OPENAI_API_KEY ||
     process.env.GOOGLE_API_KEY
   )
+  const isLLMConfigured = Boolean(desktopCreds?.apiKey) || envKeyPresent
 
   const pythonResult = findPython()
   let installed = false
@@ -802,8 +875,9 @@ export async function getBrowserUseStatus(): Promise<BrowserUseStatus> {
     chromiumInstalled,
     source,
     llmConfigured: isLLMConfigured,
-    llmProvider: agentConfig.provider,
-    llmModel: agentConfig.model,
+    llmProvider: desktopCreds?.provider ?? agentConfig.provider,
+    llmModel: desktopCreds?.model || agentConfig.model,
+    llmSource: desktopCreds ? 'desktop' : (envKeyPresent ? 'env' : null),
     ready: platformSupported ? (ready || null) : null,
     checks: healthResult.checks,
     error: null,

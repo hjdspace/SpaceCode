@@ -157,7 +157,18 @@
         </div>
       </div>
       <div class="s-panel-body">
-        <p class="cu-hint">{{ t('browserUse.llmHint') }}</p>
+        <div v-if="store.llmConfigured" class="cu-reuse-notice cu-reuse-ok">
+          <CheckCircle :size="14" />
+          <span>{{ t('browserUse.llmReused') }}</span>
+          <span v-if="store.status?.llmProvider" class="cu-reuse-meta">
+            {{ store.status.llmProvider }}<template v-if="store.status?.llmModel"> · {{ store.status.llmModel }}</template>
+          </span>
+        </div>
+        <div v-else class="cu-reuse-notice cu-reuse-warn">
+          <AlertCircle :size="14" />
+          <span>{{ t('browserUse.llmNotReused') }}</span>
+        </div>
+        <p class="cu-hint">{{ t('browserUse.llmReuseHint') }}</p>
 
         <div class="bu-form-grid">
           <div class="s-form-group">
@@ -173,6 +184,7 @@
           <div class="s-form-group">
             <label class="s-form-label">{{ t('browserUse.model') }}</label>
             <select v-model="form.model" class="s-form-select" @change="saveConfig">
+              <option v-if="!PRESET_MODELS.includes(form.model)" :value="form.model">{{ form.model }}</option>
               <option value="bu-2-0">bu-2-0 (ChatBrowserUse)</option>
               <option value="claude-opus-4-8">claude-opus-4-8</option>
               <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
@@ -314,8 +326,32 @@ const form = reactive({
   downloadsPath: store.agentConfig.downloadsPath || '',
 })
 
-onMounted(() => {
-  store.refreshStatus()
+/** 预设模型列表（用于判断 model 下拉是否需要追加动态选项） */
+const PRESET_MODELS = ['bu-2-0', 'claude-opus-4-8', 'claude-sonnet-4-6', 'gpt-5.5', 'gemini-3-pro']
+
+/** 首次加载时，若检测到桌面 LLM 配置，自动对齐 provider/model 以复用桌面凭证 */
+function syncFromDesktop() {
+  const status = store.status
+  if (!status?.llmConfigured || status.llmSource !== 'desktop') return
+  const provider = status.llmProvider
+  const model = status.llmModel
+  if (provider && ['Anthropic', 'OpenAI', 'Google'].includes(provider)) {
+    let changed = false
+    if (form.provider !== provider) {
+      form.provider = provider
+      changed = true
+    }
+    if (model && form.model !== model) {
+      form.model = model
+      changed = true
+    }
+    if (changed) void saveConfig()
+  }
+}
+
+onMounted(async () => {
+  await store.refreshStatus()
+  syncFromDesktop()
 })
 
 async function handleInstall() {
@@ -548,6 +584,32 @@ function checkBadgeClass(status: string): Record<string, boolean> {
   color: var(--text-muted);
   margin-bottom: 12px;
   line-height: 1.5;
+}
+
+/** ── LLM 复用状态提示 ── */
+.cu-reuse-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  margin-bottom: 10px;
+}
+.cu-reuse-ok {
+  background: var(--success-glow);
+  border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
+  color: var(--success);
+}
+.cu-reuse-warn {
+  background: var(--warning-glow);
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
+  color: var(--warning);
+}
+.cu-reuse-meta {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  opacity: 0.85;
 }
 
 /** ── 诊断结果行 ── */
