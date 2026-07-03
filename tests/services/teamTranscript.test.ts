@@ -56,7 +56,7 @@ function stringifyRawContent(raw: any): string {
   }
 }
 
-function parseAgentToolOutput(output: string): { displayText: string; outputFile?: string } {
+function parseAgentToolOutput(output: string): { displayText: string; outputFile?: string; agentId?: string } {
   try {
     const parsed = JSON.parse(output)
     const text = Array.isArray(parsed)
@@ -69,10 +69,12 @@ function parseAgentToolOutput(output: string): { displayText: string; outputFile
         ? `Agent launched successfully.\n\nAgent ID: ${agentId}\n${outputFile ? `Output file: ${outputFile}` : ''}`.trim()
         : text,
       outputFile,
+      agentId,
     }
   } catch {
     const outputFile = output.match(/output_file:\s*([^\n]+)/)?.[1]?.trim()
-    return { displayText: output, outputFile }
+    const agentId = output.match(/agentId:\s*([^\s]+)/)?.[1]?.trim()
+    return { displayText: output, outputFile, agentId }
   }
 }
 
@@ -401,7 +403,7 @@ describe('parseAgentToolOutput', () => {
     const result = parseAgentToolOutput(
       JSON.stringify({ text: 'agentId: abc-123\nSome details' }),
     )
-    assert.equal(result.agentId, undefined) // agentId is not returned, only used for formatting
+    assert.equal(result.agentId, 'abc-123')
     assert.ok(result.displayText.includes('Agent launched successfully.'))
     assert.ok(result.displayText.includes('Agent ID: abc-123'))
   })

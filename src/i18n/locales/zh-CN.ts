@@ -1853,6 +1853,8 @@ export default {
     userDataDirHint: '留空使用临时配置',
     downloadsPath: '下载目录（可选）',
     downloadsPathHint: '默认下载位置',
+    browse: '浏览',
+    browseFolder: '选择目录',
     diagnosis: '诊断结果',
     allPassed: '全部通过',
     issuesFound: '发现问题',

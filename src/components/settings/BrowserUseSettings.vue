@@ -223,11 +223,33 @@
         <div class="bu-form-grid">
           <div class="s-form-group">
             <label class="s-form-label">{{ t('browserUse.userDataDir') }}</label>
-            <input v-model="form.userDataDir" class="s-form-input" type="text" :placeholder="t('browserUse.userDataDirHint')" @change="saveConfig">
+            <div class="bu-input-with-btn">
+              <input v-model="form.userDataDir" class="s-form-input" type="text" :placeholder="t('browserUse.userDataDirHint')" @change="saveConfig">
+              <button
+                class="bu-browse-btn"
+                type="button"
+                :title="t('browserUse.browseFolder')"
+                :aria-label="t('browserUse.browseFolder')"
+                @click="pickFolder('userDataDir')"
+              >
+                <FolderOpen :size="14" />
+              </button>
+            </div>
           </div>
           <div class="s-form-group">
             <label class="s-form-label">{{ t('browserUse.downloadsPath') }}</label>
-            <input v-model="form.downloadsPath" class="s-form-input" type="text" :placeholder="t('browserUse.downloadsPathHint')" @change="saveConfig">
+            <div class="bu-input-with-btn">
+              <input v-model="form.downloadsPath" class="s-form-input" type="text" :placeholder="t('browserUse.downloadsPathHint')" @change="saveConfig">
+              <button
+                class="bu-browse-btn"
+                type="button"
+                :title="t('browserUse.browseFolder')"
+                :aria-label="t('browserUse.browseFolder')"
+                @click="pickFolder('downloadsPath')"
+              >
+                <FolderOpen :size="14" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -271,9 +293,10 @@ import { ref, onMounted, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Globe, RefreshCw, CheckCircle, XCircle, AlertCircle,
-  Download, Activity, Key, Eye, X, MinusCircle,
+  Download, Activity, Key, Eye, X, MinusCircle, FolderOpen,
 } from 'lucide-vue-next'
 import { useBrowserUseStore } from '@/stores/browserUse'
+import { api } from '@/services/electronAPI'
 import type { BrowserUseAgentConfig } from '@/types/browserUse'
 
 const { t } = useI18n()
@@ -299,6 +322,15 @@ async function handleInstall() {
   await store.install()
   if (store.isInstalled) {
     store.refreshStatus()
+  }
+}
+
+/** 打开系统目录选择器，将所选路径填入指定字段 */
+async function pickFolder(field: 'userDataDir' | 'downloadsPath') {
+  const result = await api.selectFolder()
+  if (!result.canceled && result.filePaths.length > 0) {
+    form[field] = result.filePaths[0]
+    await saveConfig()
   }
 }
 
@@ -345,6 +377,43 @@ function checkBadgeClass(status: string): Record<string, boolean> {
   gap: 16px;
   margin-top: 12px;
   flex-wrap: wrap;
+}
+
+/** ── 输入框 + 浏览按钮组合 ── */
+.bu-input-with-btn {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.bu-input-with-btn .s-form-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.bu-browse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 34px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+
+.bu-browse-btn:hover {
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+  border-color: color-mix(in srgb, var(--accent-primary) 40%, transparent);
+}
+
+.bu-browse-btn:active {
+  transform: scale(0.96);
 }
 
 .bu-checkbox {

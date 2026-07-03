@@ -223,6 +223,106 @@ export function parseAgentToolOutput(output: string): { displayText: string; out
   }
 }
 
+/**
+ * 从子代理输出文本中剥离引擎元数据（agentId、usage、token 计数等）。
+ * 参考 cc-haha 的 stripAgentResultMetadata。
+ */
+export function stripAgentResultMetadata(text: string): string {
+  return text
+    .replace(/^\s*agentId:.*(?:\r?\n)?/gm, '')
+    .replace(/<usage>[\s\S]*?<\/usage>/g, '')
+    .replace(/^\s*(?:total_tokens|tool_uses|duration_ms):\s*\d+\s*$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/**
+ * 判断子代理输出是否为"启动成功"消息（异步 agent 启动后的占位输出）。
+ * 这类输出不包含实际结果，不应展示为子代理输出。
+ */
+export function isAgentLaunchResult(content: unknown): boolean {
+  const text = typeof content === 'string' ? content.trim() : ''
+  if (!text) return false
+  return (
+    text.startsWith('Agent launched successfully.') ||
+    text.startsWith('Async agent launched successfully.') ||
+    text.startsWith('Spawned successfully.') ||
+    text.includes('The agent is now running and will receive instructions via mailbox.')
+  )
+}
+
+/**
+ * 提取子代理的可显示文本，剥离元数据后返回。
+ * 参考 cc-haha 的 extractAgentDisplayText。
+ */
+export function extractAgentDisplayText(content: unknown): string {
+  if (!content) return ''
+  const raw = typeof content === 'string' ? content : stringifyRawContent(content as RawTeammateMessage)
+  return stripAgentResultMetadata(raw)
+}
+
+/**
+ * 生成子代理输出的摘要预览（折叠态使用）。
+ * 截取前 ~220 字符，保持可读性。
+ * 参考 cc-haha 的 getAgentOutputSummary。
+ */
+export function getAgentOutputSummary(content: string): string {
+  const text = content.replace(/\s+\n/g, '\n').trim()
+  if (!text) return ''
+  return text.length > 220 ? `${text.slice(0, 220)}...` : text
+}
+
+/**
+ * 格式化单个工具调用的摘要文本（折叠态最近活动使用）。
+ * 返回形如 "Bash · npm test • done" 的简短描述。
+ * 参考 cc-haha 的 formatRecentToolUseSummary。
+ */
+export function formatToolCallSummary(toolCall: { name: string; input: Record<string, unknown>; status: string; output?: string }): string {
+  const input = toolCall.input || {}
+  let detail = ''
+
+  switch (toolCall.name) {
+    case 'Bash':
+      detail = typeof input.command === 'string' ? input.command : ''
+      break
+    case 'Read':
+    case 'FileRead':
+      detail = typeof input.file_path === 'string' ? String(input.file_path).split('/').pop() || 'file' : 'file'
+      break
+    case 'Write':
+    case 'FileWrite':
+      detail = typeof input.file_path === 'string' ? String(input.file_path).split('/').pop() || 'file' : 'file'
+      break
+    case 'Edit':
+    case 'FileEdit':
+      detail = typeof input.file_path === 'string' ? String(input.file_path).split('/').pop() || 'file' : 'file'
+      break
+    case 'Glob':
+      detail = typeof input.pattern === 'string' ? input.pattern : ''
+      break
+    case 'Grep':
+      detail = typeof input.pattern === 'string' ? input.pattern : ''
+      break
+    case 'Agent':
+      detail = typeof input.description === 'string' ? input.description : ''
+      break
+    case 'WebSearch':
+      detail = typeof input.query === 'string' ? input.query : ''
+      break
+    case 'WebFetch':
+      detail = typeof input.url === 'string' ? input.url : ''
+      break
+    default:
+      detail = ''
+  }
+
+  const statusSuffix = toolCall.status === 'error' ? ' • failed' :
+    toolCall.status === 'completed' ? ' • done' :
+    toolCall.status === 'running' ? ' • running' : ''
+
+  return detail ? `${toolCall.name} · ${detail}${statusSuffix}` : `${toolCall.name}${statusSuffix}`
+}
+
 export function ensureTeamContext(session: Session, teamName: string): void {
   if (!session.teamContext) {
     session.teamContext = {

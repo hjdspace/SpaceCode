@@ -264,7 +264,7 @@ describe('Bug Reproduction - Rewind Error Flash', () => {
 
   describe('Scenario 3: What SHOULD happen (fixed version)', () => {
     it('should NOT modify messages if code rewind fails in both mode', async () => {
-      const mockAPI = async (): Promise<MockAPIResult> => {
+      const mockAPI = async (_sessionId: string, _options: { targetUserMessageId: string }, _projectPath: string): Promise<MockAPIResult> => {
         return { ok: false, error: 'Backup missing' }
       }
 

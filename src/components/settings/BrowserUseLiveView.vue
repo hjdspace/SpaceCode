@@ -166,6 +166,10 @@ async function stopAgent() {
   await store.callTool('close_browser', {})
   store.liveSnapshot = null
 }
+
+function goToSettings() {
+  window.dispatchEvent(new CustomEvent('open-settings', { detail: { tab: 'browser-use' } }))
+}
 </script>
 
 <style scoped>

@@ -750,10 +750,10 @@ function handleApprovalResolved(e: Event) {
   }
 }
 
-function handleOpenSettings(event: CustomEvent) {
-  appStore.showSettings = true
-  const detail = event.detail
-  if (detail?.tab) {
+function handleOpenSettings(event: Event) {
+appStore.showSettings = true
+const detail = (event as CustomEvent).detail
+if (detail?.tab) {
     setTimeout(() => {
       window.dispatchEvent(new CustomEvent('settings-navigate', { detail: { tab: detail.tab } }))
     }, 50)

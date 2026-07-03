@@ -1854,6 +1854,8 @@ export default {
     userDataDirHint: 'Leave empty for temporary profile',
     downloadsPath: 'Downloads Path (optional)',
     downloadsPathHint: 'Default download directory',
+    browse: 'Browse',
+    browseFolder: 'Select Folder',
     diagnosis: 'Diagnosis Results',
     allPassed: 'All Passed',
     issuesFound: 'Issues Found',
