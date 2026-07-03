@@ -139,7 +139,6 @@
         :delay-ms="currentRetryState.delayMs"
         :error-category="currentRetryState.errorCategory"
         :error-title="currentRetryState.errorTitle"
-        :error-message="currentRetryState.errorMessage"
         :error-code="currentRetryState.errorCode"
         @cancel="handleCancelRetry"
       />

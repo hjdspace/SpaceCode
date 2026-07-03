@@ -30,7 +30,6 @@ const props = defineProps<{
   delayMs: number
   errorCategory: ErrorCategory
   errorTitle: string
-  errorMessage: string
   errorCode?: string
 }>()
 
