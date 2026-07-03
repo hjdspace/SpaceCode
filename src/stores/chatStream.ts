@@ -71,9 +71,7 @@ export const useChatStreamStore = defineStore('chatStream', () => {
   // 并不杀死引擎进程。当任务中启动了子代理（Task tool）时，子代理
   // 可能仍在运行并继续发出 stream_event / assistant / tool_use 事件。
   // 这些事件会触发 ensureTurn 创建新的 autonomous turn，使会话看起来
-  // 「自动恢复运行」。更严重的是，当子代理以 is_error 结束时，
-  // handleError 会将其分类为可重试错误并触发 initiateAutoRetry，
-  // 自动重发上一条用户消息，导致会话彻底重启。
+  // 「自动恢复运行」。
   // 通过此 Set 标记用户主动中止的会话，在 ensureTurn 和 handleError
   // 中拦截残留事件，直到用户主动发新消息或重试时清除标记。
   const userAbortedSessions = new Set<string>()
@@ -684,27 +682,19 @@ export const useChatStreamStore = defineStore('chatStream', () => {
             window.dispatchEvent(new CustomEvent('refresh-file-tree'))
           }
 
-          // ★ 子智能体（Agent 工具）遇到可恢复错误（429 / 5xx 等）时触发自动重试。
-          // 引擎在子智能体 LLM 调用遭遇 429 后，若内部重试耗尽，会将错误以
-          // tool_result(is_error=true) 形式返回给主会话。主会话 LLM 看到错误后
-          // 通常直接报告给用户而非重试，导致子智能体任务被直接结束。
-          // 此处检测 Agent 工具的可恢复错误，路由到 handleError 触发自动重试，
-          // 使主会话重新发送用户消息（从而重新调用子智能体）。
-          if (resultIsError && (toolName === 'Agent' || toolName === 'Task')) {
-            const lowerOutput = resultOutput.toLowerCase()
-            const isRetryableError = lowerOutput.includes('429')
-              || lowerOutput.includes('rate_limit')
-              || lowerOutput.includes('rate limit')
-              || lowerOutput.includes('overloaded')
-              || lowerOutput.includes('529')
-              || /5\d{2}/.test(lowerOutput)
-              || lowerOutput.includes('server error')
-              || lowerOutput.includes('internal server')
-            if (isRetryableError && !autoRetry.retryStates.value.has(sessionId) && !ts.settled) {
-              sessionStore.logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] Agent tool result has retryable error, routing to handleError | toolName=${toolName} | output=${resultOutput.slice(0, 120)}`)
-              handleError(sessionId, ts, new Error(resultOutput))
-            }
-          }
+                    // ★ 子智能体（Agent/Task 工具）遇到可恢复错误（429 / 5xx 等）时，
+          // 不再路由到 handleError 触发破坏性全turn重试。
+          //
+          // 原实现：检测到子代理 429 后，abort 引擎进程 + 重发用户消息。
+          // 问题：这种做法会丢弃当前 turn 的所有进展（包括其他子代理的工作），
+          // 且重新发送用户消息会再次触发相同的 API 请求，很可能再次命中 429，
+          // 形成恶性循环。cc-haha 的做法是让错误自然流向主 LLM——主 LLM 看到
+          // tool_result(is_error=true) 后会自行决定是否重试子代理、换一种方案、
+          // 或向用户报告错误。
+          //
+          // 现在的做法：配合引擎侧 CLAUDE_CODE_MAX_RETRIES=20（从默认 10 提升），
+          // 大多数 429 会在引擎内部 withRetry 中被透明重试解决。极少数重试
+          // 耗尽的情况，错误自然流向主 LLM，由 LLM 智能决策后续行为。
         }
       }
     }
@@ -746,27 +736,11 @@ export const useChatStreamStore = defineStore('chatStream', () => {
               })
               sessionStore.saveToStorage()
 
-              // ★ 子智能体（Agent/Task 工具）遇到可恢复错误时触发自动重试
-              // （与 handleToolResult 中的逻辑一致，此处覆盖 tool_result 嵌入
-              // user 消息的另一条路径）
-              if (toolResult.is_error) {
-                const agentToolName = updatedToolCalls[toolCallIndex].name
-                if (agentToolName === 'Agent' || agentToolName === 'Task') {
-                  const lowerOutput = truncatedUserToolOutput.toLowerCase()
-                  const isRetryableError = lowerOutput.includes('429')
-                    || lowerOutput.includes('rate_limit')
-                    || lowerOutput.includes('rate limit')
-                    || lowerOutput.includes('overloaded')
-                    || lowerOutput.includes('529')
-                    || /5\d{2}/.test(lowerOutput)
-                    || lowerOutput.includes('server error')
-                    || lowerOutput.includes('internal server')
-                  if (isRetryableError && !autoRetry.retryStates.value.has(sessionId) && !ts.settled) {
-                    sessionStore.logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] Agent tool result (via user msg) has retryable error, routing to handleError | toolName=${agentToolName} | output=${truncatedUserToolOutput.slice(0, 120)}`)
-                    handleError(sessionId, ts, new Error(truncatedUserToolOutput))
-                  }
-                }
-              }
+              // ★ 子智能体（Agent/Task 工具）遇到可恢复错误时不再触发
+              // 破坏性全 turn 重试（与 handleToolResult 中的逻辑一致）。
+              // 原实现会 abort 引擎 + 重发用户消息，导致当前 turn 的所有
+              // 进展丢失。现在让错误自然流向主 LLM，由 LLM 决策后续行为。
+              // 引擎侧已通过 CLAUDE_CODE_MAX_RETRIES=20 增强了内部重试能力。
             }
           }
         }
@@ -1151,14 +1125,11 @@ export const useChatStreamStore = defineStore('chatStream', () => {
 
     // ★ 拦截可恢复错误：自动重试，不展示技术错误详情
     if (autoRetry.shouldAutoRetry(sessionId, classified.retryable, userAbortedSessions)) {
-      // ★ 中断引擎进程：对于子智能体（Agent tool）的 429 等可恢复错误，
-      // 错误通过 tool_result 返回主会话后，引擎的主查询循环仍在继续——
-      // LLM 会看到错误 tool_result 并生成回复，回复完成后的 result 事件
-      // 会触发 handleResult → clearOnSuccess，清除重试状态，导致
-      // initiateAutoRetry 的定时器到期时重试已被取消。
-      // 通过 abort 中断引擎并设置 ts.settled，阻止后续事件处理，
-      // 确保重试定时器不被竞态清除。
-      // 对于主 LLM 的 429（引擎已返回 result 并退出），abort 为无操作。
+      // 中断引擎进程：主 LLM 的 429 等可恢复错误发生时，引擎可能已返回
+      // result 并退出（abort 为无操作），也可能仍在运行（需要中断以阻止
+      // 后续事件干扰重试定时器）。
+      // 注意：子代理（Agent tool）的 429 错误不再路由到这里——它们会自然
+      // 流向主 LLM，由 LLM 决策后续行为，避免破坏性全 turn 重试。
       const claudeCode = api.claudeCode
       if (claudeCode) {
         try { claudeCode.abort(sessionId) } catch { /* ignore */ }
@@ -1330,9 +1301,9 @@ export const useChatStreamStore = defineStore('chatStream', () => {
     claudeCodeApi.onResult((event: { sessionId: string; data: any }) => {
       // ★ 拦截 sidechain / teammate 的 result 事件，防止子智能体 turn 结束
       // 被当作主会话 result 处理（提前结算主会话 turn）。
-      // 注意：不在此处触发 handleError — 429 等可恢复错误应通过 Agent tool 的
-      // tool_result 路径触发重试（见 handleToolResult 中的检测），避免
-      // sidechain result 与 tool_result 双重触发重试导致竞态。
+      // 子代理的 429 等可恢复错误现在自然流向主 LLM（通过 tool_result），
+      // 不再触发破坏性全 turn 重试。引擎侧 CLAUDE_CODE_MAX_RETRIES=20
+      // 已大幅降低了错误穿透到这一层的概率。
       if (isTeammateRawMessage(event.data)) {
         sessionStore.recordTeammateMessage(event.data, event.sessionId)
         return
