@@ -26,6 +26,7 @@ describe('NextStepActions', () => {
     })
     expect(w.findAll('button')).toHaveLength(2)
     expect(w.text()).toContain('调整配色')
+    expect(w.text()).toContain('下一步建议')
   })
 
   it('点击触发 select 事件并携带 prompt', async () => {
