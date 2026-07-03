@@ -782,11 +782,15 @@ export const useChatStreamStore = defineStore('chatStream', () => {
     // 时，会返回 type=result, is_error=true, result="API Error: ..."。
     // 这种情况需要走 handleError 流程（会触发自动重试 + 指数退避），
     // 而非当作正常完成将错误文本显示为助手回复。
-    if (result?.is_error) {
-      const errorText = typeof result.result === 'string' && result.result
-        ? result.result
-        : 'API error'
-      sessionStore.logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] result event has is_error=true, routing to handleError | errorText=${errorText.slice(0, 120)}`)
+    //
+    // 防御性检查：如果 result 文本以 "API Error:" 开头，即使没有 is_error 标记也当作错误处理
+    // 这可以防止错误文本被错误地显示在主界面中
+    const isError = !!result?.is_error
+    const resultText = typeof result?.result === 'string' ? result.result : ''
+    const looksLikeApiError = /^API Error:/i.test(resultText)
+    if (isError || looksLikeApiError) {
+      const errorText = resultText || 'API error'
+      sessionStore.logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] result event has error, routing to handleError | isError=${isError} | looksLikeApiError=${looksLikeApiError} | errorText=${errorText.slice(0, 120)}`)
       handleError(sessionId, ts, new Error(errorText))
       return
     }
@@ -1272,15 +1276,6 @@ export const useChatStreamStore = defineStore('chatStream', () => {
       if (isSidechainMessage(event.data)) {
         sessionStore.recordSubagentMessage(event.data, event.sessionId)
         return
-      }
-      // ★ 对于纯文本 / reasoning 的 assistant 回复（无 tool_use），
-      // 可以认为本轮 LLM 调用已成功完成，立即清除重试状态，避免 handleResult
-      // 未到达时 indicator 一直不消失。含 tool_use 的回复需等待 handleResult。
-      const content = event.data?.message?.content
-      const hasToolUse = Array.isArray(content) && content.some((c: any) => c.type === 'tool_use')
-      if (!hasToolUse && autoRetry.retryStates.value.has(event.sessionId)) {
-        sessionStore.logger.info('ChatStore', `[${event.sessionId.slice(0, 8)}] onAssistant: text response received, clearing retry state`)
-        autoRetry.clearOnSuccess(event.sessionId)
       }
 
       const ts = ensureTurn(event.sessionId)
