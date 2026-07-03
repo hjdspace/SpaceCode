@@ -55,7 +55,7 @@
             </div>
             <ReasoningCard
               v-else-if="block.kind === 'thinking'"
-              :reasoning="{ content: block.content, startTime: 0 }"
+              :reasoning="{ content: block.content, startTime: block.startTime, endTime: block.endTime }"
             />
             <div v-else-if="block.kind === 'tool-group'" class="block-tool-group">
               <div class="tool-group-header">{{ block.toolName }} ×{{ block.calls.length }}</div>

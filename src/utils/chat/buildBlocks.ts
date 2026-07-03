@@ -14,7 +14,7 @@ export interface NextStepAction {
 
 export type Block =
   | { kind: 'text'; content: string }
-  | { kind: 'thinking'; content: string }
+  | { kind: 'thinking'; content: string; startTime?: number; endTime?: number }
   | { kind: 'tool-group'; toolName: string; calls: ToolCall[] }
   | { kind: 'od-card'; payload: OdCardPayload }
   | { kind: 'question-form'; payload: QuestionFormBlock }
@@ -56,7 +56,12 @@ export function buildBlocks(message: Message): Block[] {
 
   // 1. thinking
   if (message.reasoning?.content) {
-    blocks.push({ kind: 'thinking', content: message.reasoning.content })
+    blocks.push({
+      kind: 'thinking',
+      content: message.reasoning.content,
+      startTime: message.reasoning.startTime,
+      endTime: message.reasoning.endTime,
+    })
   }
 
   // 2. text + od-card + question-form + next-steps（交错解析）

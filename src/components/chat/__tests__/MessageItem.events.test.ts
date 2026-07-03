@@ -55,6 +55,22 @@ describe('MessageItem events 模式', () => {
     expect(w.findComponent({ name: 'OdCard' }).exists()).toBe(true)
   })
 
+  it('design 模式下 thinking block 传递 endTime 避免永远显示思考中', () => {
+    const msg: Message = {
+      id: 'm1', role: 'assistant', content: '结果', timestamp: Date.now(),
+      reasoning: { content: '我在思考', startTime: 1000, endTime: 2000 },
+    }
+    const w = mount(MessageItem, {
+      props: { message: msg, mode: 'design' },
+      global: {
+        stubs: ['MarkdownRenderer', 'ReasoningCard', 'ToolCallCard', 'OdCard', 'NextStepActions', 'QuestionForm'],
+      },
+    })
+    const rc = w.findComponent({ name: 'ReasoningCard' })
+    expect(rc.exists()).toBe(true)
+    expect(rc.props('reasoning').endTime).toBe(2000)
+  })
+
   it('非 design 模式走原扁平渲染（回归保护）', () => {
     const msg: Message = {
       id: 'm1', role: 'assistant', content: '你好', timestamp: Date.now(),
