@@ -37,11 +37,11 @@
         </div>
         
         <!-- 思考过程 -->
-        <ReasoningCard v-if="message.reasoning" :reasoning="message.reasoning" />
+        <ReasoningCard v-if="message.reasoning && mode !== 'design'" :reasoning="message.reasoning" />
         
         <!-- 工具调用 -->
-        <ToolCallList 
-          v-if="message.toolCalls?.length" 
+        <ToolCallList
+          v-if="message.toolCalls?.length && mode !== 'design'"
           :tool-calls="message.toolCalls"
           @tool-submit="handleToolSubmit"
           @tool-skip="handleToolSkip"
@@ -112,7 +112,7 @@
         </div>
         
         <!-- 元数据 -->
-        <MessageMetadata v-if="message.role === 'assistant' && message.metadata" :metadata="message.metadata" />
+        <MessageMetadata v-if="message.role === 'assistant' && message.metadata && mode !== 'design'" :metadata="message.metadata" />
 
         <!-- 工作台快捷入口: 识别输出中的 localhost/URL/本地 HTML/Markdown -->
         <div v-if="workbenchTargets.length" class="workbench-hint-bar">
