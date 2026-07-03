@@ -32,6 +32,9 @@ export default {
     emptyChatTitle: '开始你的设计对话',
     emptyChatHint: '描述你想要的界面，AI 会帮你生成设计',
     odCard: {
+      brandPreview: '品牌预览',
+      directionSwatches: '方向色板',
+      artifactThumbnail: '产物',
       openInPreview: '在预览中打开',
     },
     nextSteps: {
@@ -40,10 +43,14 @@ export default {
     usage: {
       // design 模式 buildBlocks status block 展示的 token 用量与耗时
       tokens: '输入 {input} / 输出 {output} tokens',
+      cost: '${cost}',
       duration: '{s}s',
     },
     toolbox: {
       skills: '技能',
+      plugins: '插件',
+      attach: '添加附件',
+      skillLabel: '技能',
     },
     emptyPreviewTitle: '暂无设计产物',
     emptyPreviewHint: '开始对话后，生成的 HTML 将在此处实时预览',
@@ -51,6 +58,8 @@ export default {
       preview: '预览',
       source: '源码',
       refresh: '刷新',
+      openExternal: '外部打开',
+      closeTab: '关闭标签',
     },
     export: {
       html: '导出 HTML',

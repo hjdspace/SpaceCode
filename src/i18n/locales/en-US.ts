@@ -32,6 +32,9 @@ export default {
     emptyChatTitle: 'Start your design conversation',
     emptyChatHint: 'Describe the interface you want, and the AI will craft a design for you',
     odCard: {
+      brandPreview: 'Brand Preview',
+      directionSwatches: 'Direction Swatches',
+      artifactThumbnail: 'Artifact',
       openInPreview: 'Open in Preview',
     },
     nextSteps: {
@@ -40,10 +43,14 @@ export default {
     usage: {
       // design 模式 buildBlocks status block 展示的 token 用量与耗时
       tokens: 'Input {input} / Output {output} tokens',
+      cost: '${cost}',
       duration: '{s}s',
     },
     toolbox: {
       skills: 'Skills',
+      plugins: 'Plugins',
+      attach: 'Attach File',
+      skillLabel: 'Skill',
     },
     emptyPreviewTitle: 'No design artifacts yet',
     emptyPreviewHint: 'Generated HTML will appear here in real time once you start chatting',
@@ -51,6 +58,8 @@ export default {
       preview: 'Preview',
       source: 'Source',
       refresh: 'Refresh',
+      openExternal: 'Open Externally',
+      closeTab: 'Close Tab',
     },
     export: {
       html: 'Export HTML',
