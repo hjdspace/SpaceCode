@@ -19,7 +19,7 @@
         />
       </div>
     </div>
-    <RetryIndicator v-if="showRetry" />
+    <!-- TODO: RetryIndicator 待接入重试状态（design 模式当前走 designSession 流式监听，不依赖 chat 重试） -->
     <DesignComposer @send="onSend" @stop="onStop" />
   </div>
 </template>
@@ -33,7 +33,6 @@ import { useDesignStore } from '@/stores/design'
 import { useChatStore, useChatSessionStore } from '@/stores/chat'
 import { useDesignSession } from '@/composables/useDesignSession'
 import MessageItem from '@/components/chat/MessageItem.vue'
-import RetryIndicator from '@/components/chat/RetryIndicator.vue'
 import DesignComposer from './DesignComposer.vue'
 import type { Message } from '@/types'
 
@@ -45,7 +44,6 @@ const { activeSessionId } = storeToRefs(designStore)
 const { createDesignSession, submitQuestionForm, stopDesignGeneration } = useDesignSession()
 
 const bodyRef = ref<HTMLElement | null>(null)
-const showRetry = computed(() => false)
 
 const activeMessages = computed<Message[]>(() => {
   if (!activeSessionId.value) return []
