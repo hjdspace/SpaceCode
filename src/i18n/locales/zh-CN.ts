@@ -1639,6 +1639,9 @@ export default {
     working: '工作中...',
     responding: '回复中...',
     done: '完成',
+    totalDuration: '总用时',
+    model: '模型',
+    tokens: 'Tokens',
     truncated: '\n... (已截断)',
     tools: {
       bash: '运行命令',

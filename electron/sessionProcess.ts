@@ -85,6 +85,8 @@ export interface SessionConfig {
   resumeSessionId?: string
   engineSource?: 'bundled' | 'installed'
   installedCliPath?: string
+  /** Per-model context window overrides (modelId → token count). */
+  modelContextWindows?: Record<string, number>
 }
 
 export type ProcessStatus = 'starting' | 'active' | 'idle' | 'suspended' | 'exited'
@@ -930,7 +932,17 @@ export class SessionProcess extends EventEmitter {
     // 在非代理模式下传递用户配置的模型
     // 代理模式下不传递 --model，让官网 CLI 使用 ANTHROPIC_DEFAULT_*_MODEL 环境变量
     if (config.model && !useProxy) {
-      args.push('--model', config.model)
+      let modelArg = config.model
+      // 用户配置的上下文窗口 > 200K 时，追加 [1m] 后缀以扩展引擎上下文窗口至 1M。
+      // 引擎 getContextWindowForModel() 检测到 [1m] 后缀后返回 1M，
+      // 同时 getSdkBetas() 会添加 context-1m-2025-08-07 beta header。
+      // buildEnv() 中设置的 CLAUDE_CODE_AUTO_COMPACT_WINDOW 通过 Math.min
+      // 将 1M 缩小到用户期望的精确值（如 256K、400K）。
+      const ctxSize = config.modelContextWindows?.[config.model]
+      if (ctxSize && ctxSize > 200_000 && !/\[1m\]/i.test(modelArg)) {
+        modelArg = modelArg + '[1m]'
+      }
+      args.push('--model', modelArg)
     }
     const permissionMode = config.permissionMode || 'default'
     args.push('--permission-mode', permissionMode)
@@ -1179,6 +1191,14 @@ export class SessionProcess extends EventEmitter {
     // turn-change card UI never has any data to display.
     if (!process.env.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING) {
       env.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING = '1'
+    }
+
+    // 传递用户配置的上下文窗口大小，使引擎 auto-compact 阈值与 UI 一致。
+    // 引擎 getEffectiveContextWindowSize() 通过 Math.min(contextWindow, parsed)
+    // 应用此值：对于 ≤ 200K 的配置直接缩小默认窗口；对于 > 200K 的配置，
+    // 配合 --model 中的 [1m] 后缀（将 contextWindow 扩展至 1M 后再缩小）。
+    if (config.model && config.modelContextWindows?.[config.model]) {
+      env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = String(config.modelContextWindows[config.model])
     }
 
     // ★ 非Anthropic 提供商统一走代理（无论 bundled 还是 installed），

@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SpaceCode — LLM 用时计数原型</title>
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    /* Light Theme (默认 Mist Slate) */
+    --bg-primary: #f8f9fb;
+    --bg-secondary: #f0f1f5;
+    --bg-tertiary: #e7e9ef;
+    --bg-elevated: #ffffff;
+    --surface-glass: rgba(24, 25, 31, 0.02);
+    --surface-glass-hover: rgba(24, 25, 31, 0.04);
+    --surface-border: rgba(24, 25, 31, 0.06);
+    --surface-border-strong: rgba(24, 25, 31, 0.12);
+
+    --text-primary: #18191f;
+    --text-secondary: #44475a;
+    --text-muted: #5c5f7a;
+    --text-disabled: #9da1b8;
+
+    --accent-primary: #0d9488;
+    --accent-primary-glow: rgba(13, 148, 136, 0.12);
+
+    --accent-secondary: #6366f1;
+    --accent-secondary-glow: rgba(99, 102, 241, 0.12);
+
+    --success: #059669;
+    --success-glow: rgba(5, 150, 105, 0.15);
+    --warning: #d97706;
+    --error: #dc2626;
+    --error-glow: rgba(220, 38, 38, 0.15);
+
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-full: 9999px;
+
+    --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+
+    --font-display: 'Space Grotesk', 'SF Pro Display', system-ui, sans-serif;
+    --font-body: 'IBM Plex Sans', 'SF Pro Text', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    --font-size-base: 14px;
+
+    --shadow-sm: 0 1px 2px rgba(24, 25, 31, 0.06);
+    --shadow-md: 0 4px 12px rgba(24, 25, 31, 0.08);
+  }
+
+  [data-theme='dark'] {
+    --bg-primary: #0d0d0d;
+    --bg-secondary: #141414;
+    --bg-tertiary: #1a1a1a;
+    --bg-elevated: #1f1f1f;
+    --surface-glass: rgba(255, 255, 255, 0.03);
+    --surface-glass-hover: rgba(255, 255, 255, 0.05);
+    --surface-border: rgba(255, 255, 255, 0.06);
+    --surface-border-strong: rgba(255, 255, 255, 0.12);
+
+    --text-primary: #f5f5f5;
+    --text-secondary: #a3a3a3;
+    --text-muted: #737373;
+    --text-disabled: #525252;
+
+    --accent-primary: #3b82f6;
+    --accent-primary-glow: rgba(59, 130, 246, 0.25);
+
+    --accent-secondary: #64748b;
+    --accent-secondary-glow: rgba(100, 116, 139, 0.2);
+
+    --success: #22c55e;
+    --success-glow: rgba(34, 197, 94, 0.2);
+    --warning: #f59e0b;
+    --error: #ef4444;
+    --error-glow: rgba(239, 68, 68, 0.2);
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  }
+
+  body {
+    font-family: var(--font-body);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    transition: background 0.3s ease, color 0.3s ease;
+  }
+
+  /* ========== 顶部工具栏 ========== */
+  .toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 24px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--surface-border);
+  }
+
+  .toolbar-title {
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .toolbar-title .badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+    background: var(--accent-primary-glow);
+    color: var(--accent-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .toolbar-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .theme-toggle {
+    display: flex;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    border: 1px solid var(--surface-border);
+  }
+
+  .theme-btn {
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+    border: none;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-family: var(--font-body);
+  }
+
+  .theme-btn.active {
+    background: var(--accent-primary);
+    color: white;
+  }
+
+  /* ========== 说明区 ========== */
+  .info-panel {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px 24px 0;
+  }
+
+  .info-card {
+    padding: 16px 20px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius-lg);
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.7;
+  }
+
+  .info-card strong {
+    color: var(--text-primary);
+  }
+
+  .info-card .highlight {
+    color: var(--accent-primary);
+    font-weight: 600;
+  }
+
+  /* ========== 聊天区域 ========== */
+  .chat-container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .section-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin: 24px 0 8px;
+    padding-left: 4px;
+    border-bottom: 1px solid var(--surface-border);
+    padding-bottom: 8px;
+  }
+
+  /* ========== 用户消息 ========== */
+  .user-message {
+    display: flex;
+    flex-direction: row-reverse;
+    gap: 12px;
+    padding: 16px 0;
+    border-top: 1px solid var(--surface-border);
+  }
+
+  .user-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-md);
+    background: var(--accent-primary);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 14px;
+  }
+
+  .user-body {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .user-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    flex-direction: row-reverse;
+  }
+
+  .user-header .role-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .user-header .timestamp {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .user-content {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-radius: var(--radius-lg);
+    padding: 12px 16px;
+    border: 1px solid var(--surface-border);
+    font-size: var(--font-size-base);
+    line-height: 1.6;
+    max-width: 80%;
+  }
+
+  /* ========== AgentTimeline (助手消息) ========== */
+  .agent-timeline {
+    padding: 12px 0;
+  }
+
+  .timeline-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .timeline-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-glass);
+    color: var(--accent-primary);
+    border: 1px solid var(--surface-border);
+    flex-shrink: 0;
+    font-size: 14px;
+  }
+
+  .timeline-agent-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .timeline-status-badge {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .timeline-status-badge.running {
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+    color: var(--accent-primary);
+  }
+
+  .timeline-status-badge.completed {
+    background: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+  }
+
+  .timeline-status-badge.error {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+  }
+
+  /* ★★★ 核心：用时计时器 ★★★ */
+  .timeline-timer {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 10px;
+    transition: all var(--transition-fast);
+  }
+
+  .timeline-timer.running {
+    color: var(--accent-primary);
+    background: var(--accent-primary-glow);
+  }
+
+  .timeline-timer.completed {
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+  }
+
+  .timeline-timer.error {
+    color: var(--error);
+    background: var(--error-glow);
+  }
+
+  .timeline-timer .timer-icon {
+    width: 12px;
+    height: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .timeline-timer.running .timer-icon {
+    animation: timer-pulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes timer-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .spin-icon {
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  /* ========== Timeline Events ========== */
+  .timeline-events {
+    margin-left: 14px;
+    padding-left: 0;
+  }
+
+  .timeline-event {
+    display: flex;
+    align-items: flex-start;
+    min-height: 28px;
+  }
+
+  .event-node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 22px;
+    flex-shrink: 0;
+    padding-top: 5px;
+  }
+
+  .event-dot {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    border: 1.5px solid var(--surface-border);
+    font-size: 10px;
+    transition: all 0.15s ease;
+  }
+
+  .event-dot.status-running {
+    background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+    color: var(--accent-primary);
+    border-color: var(--accent-primary);
+  }
+
+  .event-dot.status-completed {
+    background: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+    border-color: rgba(34, 197, 94, 0.4);
+  }
+
+  .event-line {
+    width: 1.5px;
+    flex: 1;
+    min-height: 6px;
+    background: var(--surface-border);
+    margin: 2px 0;
+  }
+
+  .event-body {
+    flex: 1;
+    min-width: 0;
+    padding: 2px 0 6px 10px;
+  }
+
+  .event-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .event-row:hover {
+    background: var(--surface-glass-hover);
+  }
+
+  .event-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .event-target {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .event-duration {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    opacity: 0.7;
+    flex-shrink: 0;
+  }
+
+  .event-chevron {
+    color: var(--text-muted);
+    opacity: 0.5;
+    flex-shrink: 0;
+    font-size: 12px;
+    transition: transform 0.15s ease;
+  }
+
+  .inline-tool-status {
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+
+  .inline-tool-status.status-running {
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+    color: var(--accent-primary);
+  }
+
+  .inline-tool-status.status-completed {
+    background: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+  }
+
+  .event-text-content {
+    padding: 4px 0;
+    font-size: var(--font-size-base);
+    line-height: 1.6;
+    color: var(--text-primary);
+  }
+
+  .event-text-content p {
+    margin-bottom: 8px;
+  }
+
+  .event-text-content code {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    background: var(--bg-secondary);
+    padding: 1px 5px;
+    border-radius: 4px;
+    border: 1px solid var(--surface-border);
+  }
+
+  .event-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0;
+    flex-wrap: wrap;
+  }
+
+  .meta-tag {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+
+  /* ★★★ 底部用时汇总条 ★★★ */
+  .turn-summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 10px;
+    margin-left: 36px;
+    padding: 6px 12px;
+    border-radius: var(--radius-md);
+    background: var(--surface-glass);
+    border: 1px solid var(--surface-border);
+    font-size: 11px;
+    color: var(--text-muted);
+    flex-wrap: wrap;
+  }
+
+  .turn-summary-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-family: var(--font-mono);
+  }
+
+  .turn-summary-item .label {
+    color: var(--text-disabled);
+    font-family: var(--font-body);
+    font-weight: 500;
+  }
+
+  .turn-summary-item .value {
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+
+  .turn-summary-divider {
+    width: 1px;
+    height: 12px;
+    background: var(--surface-border);
+  }
+
+  .turn-summary-item.total-duration .value {
+    color: var(--accent-primary);
+    font-weight: 600;
+  }
+
+  /* ========== 打字指示器 ========== */
+  .typing-indicator {
+    display: flex;
+    gap: 4px;
+    padding: 12px 16px;
+  }
+
+  .typing-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-primary);
+    animation: bounce 1.4s infinite ease-in-out both;
+  }
+
+  .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+  .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+
+  @keyframes bounce {
+    0%, 80%, 100% { transform: scale(0); }
+    40% { transform: scale(1); }
+  }
+
+  /* ========== SVG 图标 (内联) ========== */
+  .icon-svg {
+    width: 1em;
+    height: 1em;
+    display: inline-block;
+    vertical-align: middle;
+  }
+</style>
+</head>
+<body>
+
+<!-- 顶部工具栏 -->
+<div class="toolbar">
+  <div class="toolbar-title">
+    LLM 用时计数原型
+    <span class="badge">Prototype</span>
+  </div>
+  <div class="toolbar-actions">
+    <div class="theme-toggle">
+      <button class="theme-btn active" onclick="setTheme('light')">Light</button>
+      <button class="theme-btn" onclick="setTheme('dark')">Dark</button>
+    </div>
+  </div>
+</div>
+
+<!-- 说明区 -->
+<div class="info-panel">
+  <div class="info-card">
+    <strong>用时计数功能说明</strong><br>
+    本原型展示了三种状态下的用时计时器表现：<br>
+    ① <span class="highlight">运行中</span>（Running）：时间轴头部显示实时递增计时器，带脉冲动画，与状态徽章并排展示；<br>
+    ② <span class="highlight">已完成</span>（Completed）：计时器停止，显示最终用时，样式变为低调灰色；<br>
+    ③ <span class="highlight">错误状态</span>（Error）：计时器停止，显示用时并标红；<br>
+    每轮对话结束后，底部还会展示 <span class="highlight">用时汇总条</span>（总时长 + 模型 + tokens）。
+  </div>
+</div>
+
+<!-- 聊天区域 -->
+<div class="chat-container">
+
+  <!-- ====== 场景1: 正在运行中（实时计时） ====== -->
+  <div class="section-label">场景 1 — 正在响应（实时计时中）</div>
+
+  <!-- 用户消息 -->
+  <div class="user-message">
+    <div class="user-avatar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    </div>
+    <div class="user-body">
+      <div class="user-header">
+        <span class="role-label">你</span>
+        <span class="timestamp">14:32</span>
+      </div>
+      <div class="user-content">帮我分析一下这个 Vue 组件的性能问题，并给出优化建议</div>
+    </div>
+  </div>
+
+  <!-- Agent Timeline (Running) -->
+  <div class="agent-timeline">
+    <div class="timeline-header">
+      <div class="timeline-avatar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect width="18" height="10" x="3" y="11" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
+      </div>
+      <span class="timeline-agent-name">SpaceCode</span>
+      <span class="timeline-status-badge running">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10" class="spin-icon"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+        正在思考
+      </span>
+      <!-- ★ 实时计时器 (运行中) -->
+      <div class="timeline-timer running" id="liveTimer1">
+        <span class="timer-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </span>
+        <span class="timer-value">00:08</span>
+      </div>
+    </div>
+
+    <div class="timeline-events">
+      <!-- Reasoning event (completed) -->
+      <div class="timeline-event">
+        <div class="event-node">
+          <div class="event-dot status-completed">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="11" height="11"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <div class="event-line"></div>
+        </div>
+        <div class="event-body">
+          <div class="event-row">
+            <span class="event-label">思考</span>
+            <span class="event-duration">2.3s</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tool call: Read (completed) -->
+      <div class="timeline-event">
+        <div class="event-node">
+          <div class="event-dot status-completed">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="11" height="11"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <div class="event-line"></div>
+        </div>
+        <div class="event-body">
+          <div class="event-row">
+            <span class="inline-tool-status status-completed">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            </span>
+            <span class="event-label">读取文件</span>
+            <span class="event-target">MessageItem.vue</span>
+            <span class="event-duration">0.4s</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tool call: Bash (running) -->
+      <div class="timeline-event">
+        <div class="event-node">
+          <div class="event-dot status-running">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11" class="spin-icon"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+          </div>
+        </div>
+        <div class="event-body">
+          <div class="event-row">
+            <span class="inline-tool-status status-running">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" class="spin-icon"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+            </span>
+            <span class="event-label">执行命令</span>
+            <span class="event-target">npm run build --profile</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 打字指示器 -->
+  <div class="typing-indicator">
+    <div class="typing-dot"></div>
+    <div class="typing-dot"></div>
+    <div class="typing-dot"></div>
+  </div>
+
+
+  <!-- ====== 场景2: 已完成（显示最终用时） ====== -->
+  <div class="section-label">场景 2 — 响应完成（显示最终用时）</div>
+
+  <!-- 用户消息 -->
+  <div class="user-message">
+    <div class="user-avatar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    </div>
+    <div class="user-body">
+      <div class="user-header">
+        <span class="role-label">你</span>
+        <span class="timestamp">14:28</span>
+      </div>
+      <div class="user-content">Vue 3 的 ref 和 reactive 有什么区别？什么时候用哪个？</div>
+    </div>
+  </div>
+
+  <!-- Agent Timeline (Completed) -->
+  <div class="agent-timeline">
+    <div class="timeline-header">
+      <div class="timeline-avatar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect width="18" height="10" x="3" y="11" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
+      </div>
+      <span class="timeline-agent-name">SpaceCode</span>
+      <span class="timeline-status-badge completed">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="10" height="10"><polyline points="20 6 9 17 4 12"/></svg>
+        完成
+      </span>
+      <!-- ★ 最终用时计时器 (已完成) -->
+      <div class="timeline-timer completed">
+        <span class="timer-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </span>
+        <span class="timer-value">12.4s</span>
+      </div>
+    </div>
+
+    <div class="timeline-events">
+      <!-- Reasoning event -->
+      <div class="timeline-event">
+        <div class="event-node">
+          <div class="event-dot status-completed">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="11" height="11"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <div class="event-line"></div>
+        </div>
+        <div class="event-body">
+          <div class="event-row">
+            <span class="event-label">思考</span>
+            <span class="event-duration">1.8s</span>
+            <span class="event-chevron">▾</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Text content -->
+      <div class="timeline-event">
+        <div class="event-node">
+          <div class="event-dot status-completed">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="11" height="11"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <div class="event-line"></div>
+        </div>
+        <div class="event-body">
+          <div class="event-text-content">
+            <p><code>ref</code> 和 <code>reactive</code> 是 Vue 3 响应式系统的两个核心 API，主要区别如下：</p>
+            <p><strong>1. 适用类型</strong><br>
+            • <code>ref</code>：适用于所有类型（基本类型 + 对象），通过 <code>.value</code> 访问<br>
+            • <code>reactive</code>：仅适用于对象/数组，直接访问属性</p>
+            <p><strong>2. 推荐用法</strong><br>
+            • 简单值（string, number, boolean）→ 用 <code>ref</code><br>
+            • 表单对象、配置对象 → 用 <code>reactive</code></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Metadata event -->
+      <div class="timeline-event">
+        <div class="event-node">
+          <div class="event-dot status-completed">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          </div>
+        </div>
+        <div class="event-body">
+          <div class="event-meta">
+            <span class="meta-tag">claude-sonnet-4-20250514</span>
+            <span class="meta-tag">↑ 1,284</span>
+            <span class="meta-tag">↓ 567</span>
+            <span class="meta-tag">12.4s</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ★ 底部用时汇总条 -->
+    <div class="turn-summary">
+      <div class="turn-summary-item total-duration">
+        <span class="label">总用时</span>
+        <span class="value">12.4s</span>
+      </div>
+      <div class="turn-summary-divider"></div>
+      <div class="turn-summary-item">
+        <span class="label">思考</span>
+        <span class="value">1.8s</span>
+      </div>
+      <div class="turn-summary-divider"></div>
+      <div class="turn-summary-item">
+        <span class="label">模型</span>
+        <span class="value">claude-sonnet-4</span>
+      </div>
+      <div class="turn-summary-divider"></div>
+      <div class="turn-summary-item">
+        <span class="label">Tokens</span>
+        <span class="value">1,284 + 567</span>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ====== 场景3: 错误状态 ====== -->
+  <div class="section-label">场景 3 — 错误状态（显示用时）</div>
+
+  <!-- 用户消息 -->
+  <div class="user-message">
+    <div class="user-avatar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    </div>
+    <div class="user-body">
+      <div class="user-header">
+        <span class="role-label">你</span>
+        <span class="timestamp">14:35</span>
+      </div>
+      <div class="user-content">运行测试看看结果</div>
+    </div>
+  </div>
+
+  <!-- Agent Timeline (Error) -->
+  <div class="agent-timeline">
+    <div class="timeline-header">
+      <div class="timeline-avatar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect width="18" height="10" x="3" y="11" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
+      </div>
+      <span class="timeline-agent-name">SpaceCode</span>
+      <span class="timeline-status-badge error">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+        错误
+      </span>
+      <!-- ★ 计时器 (错误状态) -->
+      <div class="timeline-timer error">
+        <span class="timer-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </span>
+        <span class="timer-value">3.2s</span>
+      </div>
+    </div>
+
+    <div class="timeline-events">
+      <!-- Tool call: Bash (error) -->
+      <div class="timeline-event">
+        <div class="event-node">
+          <div class="event-dot status-completed" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border-color: rgba(239, 68, 68, 0.4);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </div>
+        </div>
+        <div class="event-body">
+          <div class="event-row">
+            <span class="inline-tool-status" style="background: rgba(239, 68, 68, 0.12); color: #ef4444;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </span>
+            <span class="event-label">执行命令</span>
+            <span class="event-target">npm test</span>
+            <span class="event-duration">3.2s</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Error event -->
+      <div class="timeline-event">
+        <div class="event-spacer" style="width: 22px; flex-shrink: 0;"></div>
+        <div class="event-body">
+          <div style="padding: 10px 14px; border: 1px solid rgba(239,68,68,0.3); border-radius: var(--radius-md); background: var(--error-glow); color: var(--error); font-size: 12px; line-height: 1.6;">
+            <strong>测试失败</strong><br>
+            2 tests failed, 8 passed, 10 total
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部用时汇总条 -->
+    <div class="turn-summary">
+      <div class="turn-summary-item total-duration" style="--accent-primary: var(--error);">
+        <span class="label">总用时</span>
+        <span class="value" style="color: var(--error);">3.2s</span>
+      </div>
+      <div class="turn-summary-divider"></div>
+      <div class="turn-summary-item">
+        <span class="label">状态</span>
+        <span class="value" style="color: var(--error);">失败</span>
+      </div>
+      <div class="turn-summary-divider"></div>
+      <div class="turn-summary-item">
+        <span class="label">模型</span>
+        <span class="value">claude-sonnet-4</span>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ====== 场景4: 短回复（快速完成） ====== -->
+  <div class="section-label">场景 4 — 快速回复（< 1秒）</div>
+
+  <!-- 用户消息 -->
+  <div class="user-message">
+    <div class="user-avatar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    </div>
+    <div class="user-body">
+      <div class="user-header">
+        <span class="role-label">你</span>
+        <span class="timestamp">14:40</span>
+      </div>
+      <div class="user-content">什么是 debounce？</div>
+    </div>
+  </div>
+
+  <!-- Agent Timeline (Completed - Quick) -->
+  <div class="agent-timeline">
+    <div class="timeline-header">
+      <div class="timeline-avatar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect width="18" height="10" x="3" y="11" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
+      </div>
+      <span class="timeline-agent-name">SpaceCode</span>
+      <span class="timeline-status-badge completed">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="10" height="10"><polyline points="20 6 9 17 4 12"/></svg>
+        完成
+      </span>
+      <!-- ★ 快速回复计时器 -->
+      <div class="timeline-timer completed">
+        <span class="timer-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </span>
+        <span class="timer-value">0.8s</span>
+      </div>
+    </div>
+
+    <div class="timeline-events">
+      <!-- Text content only -->
+      <div class="timeline-event">
+        <div class="event-node">
+          <div class="event-dot status-completed">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="11" height="11"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+        </div>
+        <div class="event-body">
+          <div class="event-text-content">
+            <p><strong>Debounce（防抖）</strong>是一种编程技术，用于限制一个函数在特定时间内只能执行一次。如果在等待期间再次触发，则重新计时。</p>
+            <p>典型应用：搜索框输入、窗口 resize 事件、按钮防连点。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部用时汇总条 -->
+    <div class="turn-summary">
+      <div class="turn-summary-item total-duration">
+        <span class="label">总用时</span>
+        <span class="value">0.8s</span>
+      </div>
+      <div class="turn-summary-divider"></div>
+      <div class="turn-summary-item">
+        <span class="label">模型</span>
+        <span class="value">claude-sonnet-4</span>
+      </div>
+      <div class="turn-summary-divider"></div>
+      <div class="turn-summary-item">
+        <span class="label">Tokens</span>
+        <span class="value">156 + 89</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // 主题切换
+  function setTheme(theme) {
+    if (theme === 'dark') {
+      document.body.setAttribute('data-theme', 'dark');
+    } else {
+      document.body.removeAttribute('data-theme');
+    }
+    document.querySelectorAll('.theme-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.textContent.toLowerCase() === theme);
+    });
+  }
+
+  // 模拟实时计时器（场景1）
+  let seconds = 8;
+  const liveTimer = document.querySelector('#liveTimer1 .timer-value');
+  setInterval(() => {
+    seconds++;
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    if (liveTimer) {
+      liveTimer.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+  }, 1000);
+</script>
+
+</body>
+</html>
