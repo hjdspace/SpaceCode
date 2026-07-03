@@ -1225,6 +1225,7 @@ export default {
         Write: '写入文件',
         Read: '读取文件',
         Bash: '执行命令',
+        AskUserQuestion: '询问用户',
         default: '工具调用',
       },
       actions: {
