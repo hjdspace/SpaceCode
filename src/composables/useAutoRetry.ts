@@ -20,6 +20,7 @@ export interface UseAutoRetryReturn {
     errorMessage: string,
     retryDelayHint?: number,
     assistantMessageId?: string,
+    errorCode?: string,
   ) => RetryState
   clearOnSuccess: (sessionId: string) => void
   cancelRetry: (sessionId: string) => boolean
@@ -28,10 +29,25 @@ export interface UseAutoRetryReturn {
 }
 
 /**
+ * 从错误详情中提取用于 UI 展示的错误码/标签。
+ * 优先匹配 HTTP 状态码（4xx/5xx），否则按错误类别返回中文标签兜底。
+ */
+export function extractErrorCode(technicalDetail: string, category: ErrorCategory): string {
+  const codeMatch = technicalDetail.match(/\b([45]\d{2})\b/)
+  if (codeMatch) return codeMatch[1]
+  switch (category) {
+    case ErrorCategory.NETWORK_ERROR: return '网络错误'
+    case ErrorCategory.TIMEOUT: return '超时'
+    case ErrorCategory.PROCESS_ERROR: return '进程退出'
+    default: return '错误'
+  }
+}
+
+/**
  * 自动重试状态机。
  *
  * 遇到可恢复错误（429 / 5xx / 网络错误 / 超时 / 进程退出）时，
- * 不展示技术错误详情，直接在聊天页显示"正在重试 (n/m)"并自动重发用户消息。
+ * 不展示技术错误详情，直接在聊天页显示"API Error：xxx... 正在重连 (n/m)"并自动重发用户消息。
  *
  * 重要：重试状态只能在请求**真正成功完成**后清除（通过 clearOnSuccess）。
  * 在 LLM 开始响应的 onAssistant / stream_event 事件中清除状态会导致重试计数
@@ -69,6 +85,7 @@ export function useAutoRetry(options: UseAutoRetryOptions = {}): UseAutoRetryRet
     errorMessage: string,
     retryDelayHint?: number,
     assistantMessageId?: string,
+    errorCode?: string,
   ): RetryState {
     const prev = retryStates.value.get(sessionId)
     const attempt = (prev?.attempt ?? 0) + 1
@@ -79,6 +96,7 @@ export function useAutoRetry(options: UseAutoRetryOptions = {}): UseAutoRetryRet
       errorCategory,
       errorTitle,
       errorMessage,
+      errorCode,
       delayMs,
       startedAt: Date.now(),
       aborted: false,

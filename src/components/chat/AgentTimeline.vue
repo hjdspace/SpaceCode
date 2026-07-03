@@ -131,7 +131,7 @@
         </div>
       </div>
 
-      <!-- 自动重试提示：不展示错误详情，只提示"正在重试 (n/m)"；放在时间线事件下方 -->
+      <!-- 自动重试提示：简洁单行"API Error：xxx... 正在重连（n/m）"；放在时间线事件下方 -->
       <RetryIndicator
         v-if="currentRetryState && !currentRetryState.aborted"
         :attempt="currentRetryState.attempt"
@@ -140,6 +140,7 @@
         :error-category="currentRetryState.errorCategory"
         :error-title="currentRetryState.errorTitle"
         :error-message="currentRetryState.errorMessage"
+        :error-code="currentRetryState.errorCode"
         @cancel="handleCancelRetry"
       />
 

@@ -12,7 +12,7 @@ import {
   recordAgentToolCall,
 } from '@/services/teamTranscriptService'
 import { useChatSessionStore } from './chatSession'
-import { useAutoRetry } from '@/composables/useAutoRetry'
+import { useAutoRetry, extractErrorCode } from '@/composables/useAutoRetry'
 
 const FILE_TOOLS = new Set(['Write', 'FileWrite', 'Edit', 'FileEdit', 'MultiEdit'])
 const COMMAND_TOOLS = new Set(['Bash'])
@@ -953,7 +953,7 @@ export const useChatStreamStore = defineStore('chatStream', () => {
   }
 
   // ────────────────────────────────────────────────────────────────────
-  // 自动重试：遇到可恢复错误时不展示技术详情，直接提示"正在重试 (n/m)"
+  // 自动重试：遇到可恢复错误时不展示技术详情，直接提示"API Error：xxx... 正在重连 (n/m)"
   // ────────────────────────────────────────────────────────────────────
 
   /** 发起自动重试：更新 UI → 等待退避 → 重新发送用户消息 */
@@ -964,8 +964,9 @@ export const useChatStreamStore = defineStore('chatStream', () => {
     errorTitle: string,
     errorMessage: string,
     retryDelayHint?: number,
+    errorCode?: string,
   ): Promise<void> {
-    const state = autoRetry.recordRetryableError(sessionId, errorCategory, errorTitle, errorMessage, retryDelayHint, ts.assistantMessageId)
+    const state = autoRetry.recordRetryableError(sessionId, errorCategory, errorTitle, errorMessage, retryDelayHint, ts.assistantMessageId, errorCode)
     const attempt = state.attempt
     const delayMs = state.delayMs
 
@@ -1162,7 +1163,15 @@ export const useChatStreamStore = defineStore('chatStream', () => {
       // 设置 ts.settled 阻止后续事件（引擎中断后的残留 result/assistant 等）
       // 被此 turn 处理。initiateAutoRetry 不依赖 ts.settled，它会自行删除 turn。
       ts.settled = true
-      void initiateAutoRetry(sessionId, ts, classified.category, classified.title, classified.message, classified.retryDelay)
+      void initiateAutoRetry(
+        sessionId,
+        ts,
+        classified.category,
+        classified.title,
+        classified.message,
+        classified.retryDelay,
+        extractErrorCode(classified.technicalDetail, classified.category),
+      )
       return
     }
 

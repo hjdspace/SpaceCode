@@ -8,7 +8,7 @@
  * - user abort prevents retry
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { useAutoRetry } from '@/composables/useAutoRetry'
+import { useAutoRetry, extractErrorCode } from '@/composables/useAutoRetry'
 import { ErrorCategory } from '@/types'
 
 describe('useAutoRetry - attempt counting', () => {
@@ -121,5 +121,64 @@ describe('useAutoRetry - cancellation', () => {
     removeRetryState(sid)
     expect(retryStates.value.has(sid)).toBe(false)
     expect(cancelRetry(sid)).toBe(false)
+  })
+})
+
+describe('extractErrorCode - 从实际错误中提取错误码', () => {
+  it('应从 429 错误消息中提取状态码', () => {
+    expect(extractErrorCode('API Error: 429 rate limit exceeded', ErrorCategory.RATE_LIMIT)).toBe('429')
+  })
+
+  it('应从 5xx 服务器错误中提取状态码', () => {
+    expect(extractErrorCode('API Error: 502 Bad Gateway', ErrorCategory.SERVER_ERROR)).toBe('502')
+    expect(extractErrorCode('Request failed with 500', ErrorCategory.SERVER_ERROR)).toBe('500')
+    expect(extractErrorCode('503 Service Unavailable', ErrorCategory.SERVER_ERROR)).toBe('503')
+  })
+
+  it('网络错误应返回中文标签', () => {
+    expect(extractErrorCode('fetch failed: ECONNREFUSED', ErrorCategory.NETWORK_ERROR)).toBe('网络错误')
+  })
+
+  it('超时错误应返回中文标签', () => {
+    expect(extractErrorCode('Request timeout after 30000ms', ErrorCategory.TIMEOUT)).toBe('超时')
+  })
+
+  it('进程退出错误应返回中文标签', () => {
+    expect(extractErrorCode('Process exited with code 1', ErrorCategory.PROCESS_ERROR)).toBe('进程退出')
+  })
+
+  it('未知错误且无状态码时应返回通用标签', () => {
+    expect(extractErrorCode('something went wrong', ErrorCategory.UNKNOWN)).toBe('错误')
+  })
+
+  it('应优先提取 HTTP 状态码而非类别标签', () => {
+    // 即使类别是 NETWORK_ERROR，如果消息里有状态码也应优先返回状态码
+    expect(extractErrorCode('Network error 502', ErrorCategory.NETWORK_ERROR)).toBe('502')
+  })
+})
+
+describe('useAutoRetry - errorCode 存储', () => {
+  it('recordRetryableError 应将 errorCode 存入 RetryState', () => {
+    const { retryStates, recordRetryableError } = useAutoRetry()
+    const sid = 'sid-err'
+
+    recordRetryableError(
+      sid,
+      ErrorCategory.RATE_LIMIT,
+      '请求过于频繁',
+      'API 返回 429',
+      undefined,
+      undefined,
+      '429',
+    )
+    expect(retryStates.value.get(sid)?.errorCode).toBe('429')
+  })
+
+  it('未提供 errorCode 时字段应为 undefined', () => {
+    const { retryStates, recordRetryableError } = useAutoRetry()
+    const sid = 'sid-noerr'
+
+    recordRetryableError(sid, ErrorCategory.RATE_LIMIT, 'title', 'msg')
+    expect(retryStates.value.get(sid)?.errorCode).toBeUndefined()
   })
 })

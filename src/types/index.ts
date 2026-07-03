@@ -134,6 +134,8 @@ export interface RetryState {
   errorTitle: string
   /** 错误描述（如"API 返回 429 速率限制错误"），展示给用户 */
   errorMessage: string
+  /** 从实际错误中提取的展示用错误码（如 "429"、"500"、"网络错误"） */
+  errorCode?: string
   /** 本次退避延迟（ms） */
   delayMs: number
   /** 重试发起时间戳 */
