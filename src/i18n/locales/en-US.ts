@@ -45,6 +45,18 @@ export default {
     toolbox: {
       skills: 'Skills',
     },
+    emptyPreviewTitle: 'No design artifacts yet',
+    emptyPreviewHint: 'Generated HTML will appear here in real time once you start chatting',
+    workspace: {
+      preview: 'Preview',
+      source: 'Source',
+      refresh: 'Refresh',
+    },
+    export: {
+      html: 'Export HTML',
+      zip: 'Export ZIP',
+      pdf: 'Export PDF',
+    },
   },
 
   work: {

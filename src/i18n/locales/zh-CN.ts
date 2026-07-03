@@ -45,6 +45,18 @@ export default {
     toolbox: {
       skills: '技能',
     },
+    emptyPreviewTitle: '暂无设计产物',
+    emptyPreviewHint: '开始对话后，生成的 HTML 将在此处实时预览',
+    workspace: {
+      preview: '预览',
+      source: '源码',
+      refresh: '刷新',
+    },
+    export: {
+      html: '导出 HTML',
+      zip: '导出 ZIP',
+      pdf: '导出 PDF',
+    },
   },
 
   work: {
