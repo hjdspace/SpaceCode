@@ -115,6 +115,14 @@ export interface BrowserUseInstallProgress {
   percent: number
 }
 
+/** 安装选项（镜像源选择） */
+export interface BrowserUseInstallOptions {
+  /** 是否使用中国镜像源加速 */
+  useMirror: boolean
+  /** 镜像类型：tsinghua (清华) | aliyun (阿里) | npmmirror (npmmirror CDN) */
+  mirrorType: 'tsinghua' | 'aliyun' | 'npmmirror'
+}
+
 /** 实时浏览器预览快照 */
 export interface BrowserUseLiveSnapshot {
   /** base64 编码的页面截图 */

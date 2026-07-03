@@ -22,6 +22,7 @@ import type {
   BrowserUseToolResult,
   BrowserUseUpdateInfo,
   BrowserUseInstallProgress,
+  BrowserUseInstallOptions,
   BrowserUseLiveSnapshot,
   BrowserUseAgentConfig,
 } from '../src/types/browserUse'
@@ -49,6 +50,33 @@ let screenshotInterval: ReturnType<typeof setInterval> | null = null
 
 /** 最近一次实时快照 */
 let lastSnapshot: BrowserUseLiveSnapshot | null = null
+
+// ── 中国镜像源配置 ──────────────────────────────────────────────
+
+/** pip 镜像源映射 */
+const PIP_MIRRORS: Record<string, string> = {
+  tsinghua: 'https://pypi.tuna.tsinghua.edu.cn/simple',
+  aliyun: 'https://mirrors.aliyun.com/pypi/simple/',
+  npmmirror: 'https://registry.npmmirror.com/-/binary/python-wheels/',
+}
+
+/** pip 镜像源的 trusted-host（https + 非官方源需要） */
+const PIP_TRUSTED_HOSTS: Record<string, string[]> = {
+  tsinghua: ['pypi.tuna.tsinghua.edu.cn'],
+  aliyun: ['mirrors.aliyun.com'],
+  npmmirror: ['registry.npmmirror.com'],
+}
+
+/**
+ * Playwright Chromium 下载镜像。
+ * 通过 PLAYWRIGHT_DOWNLOAD_HOST 环境变量指定 CDN 前缀。
+ * npmmirror 的 Chromium 路径：https://npmmirror.com/mirrors/playwright/
+ */
+const PLAYWRIGHT_MIRROR_HOSTS: Record<string, string> = {
+  npmmirror: 'https://npmmirror.com/mirrors/playwright',
+  tsinghua: 'https://mirrors.tuna.tsinghua.edu.cn/github-release',
+  aliyun: 'https://playwright.azureedge.net',  // 阿里无专门镜像，回退官方
+}
 
 /** Agent 配置缓存 */
 let agentConfig: BrowserUseAgentConfig = {
@@ -256,14 +284,21 @@ const maxBuffer = 1024 * 1024 // 1MB
  *
  * 安装步骤：
  * 1. 检测 Python 3.11+
- * 2. pip install browser-use
- * 3. playwright install chromium
+ * 2. pip install browser-use（可选中国镜像加速）
+ * 3. playwright install chromium（可选中国镜像加速）
  *
- * 每一步都有进度上报和错误处理。
+ * 每一步都有实时进度上报和错误处理。
+ *
+ * @param options 安装选项（镜像源选择）
  */
-export async function installBrowserUse(): Promise<{ success: boolean; error?: string }> {
-  info('BrowserUseService', 'Starting browser-use installation...')
-  sendInstallProgress({ stage: 'detecting', message: 'Detecting Python 3.11+...', percent: 5 })
+export async function installBrowserUse(
+  options?: BrowserUseInstallOptions,
+): Promise<{ success: boolean; error?: string }> {
+  const useMirror = options?.useMirror ?? false
+  const mirrorType = options?.mirrorType ?? 'tsinghua'
+
+  info('BrowserUseService', `Starting browser-use installation (mirror: ${useMirror ? mirrorType : 'official'})...`)
+  sendInstallProgress({ stage: 'detecting', message: '正在检测 Python 3.11+...', percent: 5 })
 
   // 1. 检测 Python
   const pythonResult = findPython()
@@ -273,45 +308,109 @@ export async function installBrowserUse(): Promise<{ success: boolean; error?: s
     return { success: false, error: msg }
   }
   info('BrowserUseService', `Found Python: ${pythonResult.path} (v${pythonResult.version})`)
-  sendInstallProgress({ stage: 'installing_pip', message: `Found Python ${pythonResult.version}, installing browser-use...`, percent: 20 })
+
+  const mirrorLabel = useMirror ? `（${mirrorType === 'tsinghua' ? '清华' : mirrorType === 'aliyun' ? '阿里' : 'npmmirror'} 镜像）` : ''
+  sendInstallProgress({ stage: 'installing_pip', message: `找到 Python ${pythonResult.version}，正在安装 browser-use${mirrorLabel}...`, percent: 15 })
 
   // 2. pip install browser-use
   try {
-    await runPipInstall(pythonResult.path, BROWSER_USE_PACKAGE)
+    await runPipInstall(pythonResult.path, BROWSER_USE_PACKAGE, useMirror, mirrorType, (percent, msg) => {
+      sendInstallProgress({ stage: 'installing_pip', message: msg, percent })
+    })
     info('BrowserUseService', 'browser-use installed successfully')
-    sendInstallProgress({ stage: 'installing_pip', message: 'browser-use installed. Installing Playwright Chromium...', percent: 60 })
+    sendInstallProgress({ stage: 'installing_pip', message: 'browser-use 安装完成，正在安装 Playwright Chromium...', percent: 55 })
   } catch (e) {
-    const msg = `Failed to install browser-use: ${e}`
+    const msg = `安装 browser-use 失败: ${e}`
     sendInstallProgress({ stage: 'error', message: msg, percent: 100 })
     return { success: false, error: msg }
   }
 
   // 3. playwright install chromium
   try {
-    await runPlaywrightInstall(pythonResult.path)
+    await runPlaywrightInstall(pythonResult.path, useMirror, mirrorType, (percent, msg) => {
+      sendInstallProgress({ stage: 'installing_playwright', message: msg, percent })
+    })
     info('BrowserUseService', 'Playwright Chromium installed successfully')
-    sendInstallProgress({ stage: 'installing_playwright', message: 'Playwright Chromium installed.', percent: 90 })
+    sendInstallProgress({ stage: 'installing_playwright', message: 'Playwright Chromium 安装完成。', percent: 95 })
   } catch (e) {
-    const msg = `Failed to install Chromium: ${e}`
+    const msg = `安装 Chromium 失败: ${e}`
     sendInstallProgress({ stage: 'error', message: msg, percent: 100 })
     return { success: false, error: msg }
   }
 
-  sendInstallProgress({ stage: 'done', message: 'Browser-Use installation completed!', percent: 100 })
+  sendInstallProgress({ stage: 'done', message: 'Browser-Use 安装完成！', percent: 100 })
   return { success: true }
 }
 
-/** 运行 pip install（带子进程输出捕获和超时） */
-function runPipInstall(pythonPath: string, packageName: string): Promise<void> {
+/**
+ * 运行 pip install（带实时进度解析和镜像源支持）。
+ *
+ * pip 的输出格式：
+ *   "Collecting browser-use" → 下载中
+ *   "Downloading ... (1.2 MB)" → 显示下载大小
+ *   "Installing collected packages" → 安装中
+ */
+function runPipInstall(
+  pythonPath: string,
+  packageName: string,
+  useMirror: boolean,
+  mirrorType: string,
+  onProgress: (percent: number, message: string) => void,
+): Promise<void> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(pythonPath, ['-m', 'pip', 'install', packageName, '--upgrade'], {
+    const args = ['-m', 'pip', 'install', packageName, '--upgrade', '--disable-pip-version-check']
+
+    // 镜像源
+    if (useMirror && PIP_MIRRORS[mirrorType]) {
+      args.push('-i', PIP_MIRRORS[mirrorType])
+      const trustedHosts = PIP_TRUSTED_HOSTS[mirrorType]
+      if (trustedHosts?.length) {
+        args.push('--trusted-host', ...trustedHosts)
+      }
+    }
+
+    info('BrowserUseService', `pip install args: ${args.join(' ')}`)
+
+    const proc = spawn(pythonPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     })
 
     let stderr = ''
-    proc.stdout?.on('data', (_data: Buffer) => { /* 不收集 stdout */ })
-    proc.stderr?.on('data', (data: Buffer) => { stderr += data.toString() })
+    let lastPercent = 15
+
+    const parseLine = (line: string): void => {
+      const trimmed = line.trim()
+      if (!trimmed) return
+      info('BrowserUseService', `pip: ${trimmed}`)
+
+      // 解析 pip 输出推断进度
+      if (trimmed.startsWith('Collecting')) {
+        lastPercent = Math.min(lastPercent + 2, 40)
+        onProgress(lastPercent, `正在下载依赖: ${trimmed.replace('Collecting ', '')}`)
+      } else if (trimmed.startsWith('Downloading')) {
+        lastPercent = Math.min(lastPercent + 3, 45)
+        onProgress(lastPercent, `下载中: ${trimmed.replace('Downloading ', '')}`)
+      } else if (trimmed.includes('Installing collected packages')) {
+        onProgress(50, '正在安装依赖包...')
+      } else if (trimmed.startsWith('Successfully installed')) {
+        onProgress(55, 'browser-use 安装成功')
+      }
+    }
+
+    proc.stdout?.on('data', (data: Buffer) => {
+      for (const line of data.toString().split('\n')) {
+        parseLine(line)
+      }
+    })
+    proc.stderr?.on('data', (data: Buffer) => {
+      const text = data.toString()
+      stderr += text
+      // pip 的下载进度信息也可能输出到 stderr
+      for (const line of text.split('\n')) {
+        parseLine(line)
+      }
+    })
 
     proc.on('error', (err) => reject(new Error(err.message)))
     proc.on('exit', (code) => {
@@ -319,28 +418,83 @@ function runPipInstall(pythonPath: string, packageName: string): Promise<void> {
       else reject(new Error(stderr.trim() || `pip install exited with code ${code}`))
     })
 
-    // 5 分钟超时
-    setTimeout(() => {
+    // 10 分钟超时（pip 依赖较多，镜像源可能也较慢）
+    const timer = setTimeout(() => {
       proc.kill('SIGKILL')
-      reject(new Error('pip install timed out after 5 minutes'))
-    }, 5 * 60 * 1000)
+      reject(new Error('pip install 超时（10 分钟），请尝试使用中国镜像源'))
+    }, 10 * 60 * 1000)
+
+    // 进程退出时清理 timer
+    proc.on('exit', () => clearTimeout(timer))
   })
 }
 
-/** 运行 playwright install chromium */
-function runPlaywrightInstall(pythonPath: string): Promise<void> {
+/**
+ * 运行 playwright install chromium（带实时进度解析和镜像源支持）。
+ *
+ * Playwright 下载输出格式：
+ *   "Downloading Chromium 131.0.6778.87 from https://..." → 下载中
+ *   "Chromium 131.0.6778.87 downloaded" → 下载完成
+ *
+ * 通过 PLAYWRIGHT_DOWNLOAD_HOST 环境变量指定镜像。
+ */
+function runPlaywrightInstall(
+  pythonPath: string,
+  useMirror: boolean,
+  mirrorType: string,
+  onProgress: (percent: number, message: string) => void,
+): Promise<void> {
   return new Promise((resolve, reject) => {
+    const env: Record<string, string> = { ...process.env } as Record<string, string>
+
+    // 镜像源：通过环境变量指定 Playwright 下载主机
+    if (useMirror && PLAYWRIGHT_MIRROR_HOSTS[mirrorType]) {
+      env.PLAYWRIGHT_DOWNLOAD_HOST = PLAYWRIGHT_MIRROR_HOSTS[mirrorType]
+      info('BrowserUseService', `Using Playwright mirror: ${env.PLAYWRIGHT_DOWNLOAD_HOST}`)
+    }
+
     const proc = spawn(pythonPath, ['-m', 'playwright', 'install', 'chromium'], {
       stdio: ['ignore', 'pipe', 'pipe'],
+      env,
       windowsHide: true,
     })
 
     let stderr = ''
+    let lastPercent = 55
+
+    const parseLine = (line: string): void => {
+      const trimmed = line.trim()
+      if (!trimmed) return
+      info('BrowserUseService', `playwright: ${trimmed}`)
+
+      if (trimmed.startsWith('Downloading') && trimmed.includes('Chromium')) {
+        // "Downloading Chromium 131.0.6778.87 from ..."
+        lastPercent = 60
+        const match = trimmed.match(/Chromium\s+([\d.]+)/)
+        const ver = match ? match[1] : ''
+        onProgress(60, `正在下载 Chromium ${ver}...`)
+      } else if (trimmed.includes('downloaded')) {
+        lastPercent = 85
+        onProgress(85, 'Chromium 下载完成，正在解压...')
+      } else if (trimmed.includes('Validating')) {
+        onProgress(90, '正在验证安装...')
+      } else if (trimmed.startsWith('Chromium') && trimmed.includes('installed')) {
+        onProgress(95, 'Chromium 安装完成')
+      }
+    }
+
     proc.stdout?.on('data', (data: Buffer) => {
-      const line = data.toString().trim()
-      info('BrowserUseService', `playwright stdout: ${line}`)
+      for (const line of data.toString().split('\n')) {
+        parseLine(line)
+      }
     })
-    proc.stderr?.on('data', (data: Buffer) => { stderr += data.toString() })
+    proc.stderr?.on('data', (data: Buffer) => {
+      const text = data.toString()
+      stderr += text
+      for (const line of text.split('\n')) {
+        parseLine(line)
+      }
+    })
 
     proc.on('error', (err) => reject(new Error(err.message)))
     proc.on('exit', (code) => {
@@ -348,11 +502,13 @@ function runPlaywrightInstall(pythonPath: string): Promise<void> {
       else reject(new Error(stderr.trim() || `playwright install exited with code ${code}`))
     })
 
-    // 10 分钟超时（Chromium 下载较大）
-    setTimeout(() => {
+    // 15 分钟超时（Chromium ~150MB，镜像源下载可能需要时间）
+    const timer = setTimeout(() => {
       proc.kill('SIGKILL')
-      reject(new Error('Playwright install timed out after 10 minutes'))
-    }, 10 * 60 * 1000)
+      reject(new Error('Chromium 下载超时（15 分钟），请尝试使用中国镜像源'))
+    }, 15 * 60 * 1000)
+
+    proc.on('exit', () => clearTimeout(timer))
   })
 }
 
@@ -723,7 +879,9 @@ export async function getLiveSnapshot(): Promise<BrowserUseLiveSnapshot | null> 
 export function registerBrowserUseIPCHandlers(): void {
   ipcMain.handle('browser-use:status', () => getBrowserUseStatus())
 
-  ipcMain.handle('browser-use:install', () => installBrowserUse())
+  ipcMain.handle('browser-use:install', (_e, options?: BrowserUseInstallOptions) =>
+    installBrowserUse(options),
+  )
 
   ipcMain.handle('browser-use:doctor', () => runHealthCheck())
 

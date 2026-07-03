@@ -624,8 +624,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   browserUse: {
     /** 获取 browser-use 完整状态 */
     getStatus: () => ipcRenderer.invoke('browser-use:status'),
-    /** 安装 browser-use + playwright chromium */
-    install: () => ipcRenderer.invoke('browser-use:install'),
+    /** 安装 browser-use + playwright chromium（可选镜像源加速） */
+    install: (options?: { useMirror: boolean; mirrorType: 'tsinghua' | 'aliyun' | 'npmmirror' }) =>
+      ipcRenderer.invoke('browser-use:install', options),
     /** 安装进度事件订阅 */
     onInstallProgress: (callback: (progress: { stage: string; message: string; percent: number }) => void) => {
       const handler = (_: unknown, data: { stage: string; message: string; percent: number }) => callback(data)
