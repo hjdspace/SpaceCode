@@ -443,6 +443,7 @@ function handleToolSkip(toolId: string) {
 
 .timeline-task-board {
   margin-top: 8px;
+  margin-left: 32px;
 }
 
 .timeline-item {

@@ -854,6 +854,7 @@ function parseTaskUpdateOutput(output?: string, input: Record<string, any> = {})
 
 .timeline-task-board {
   margin-top: 8px;
+  margin-left: 32px;
 }
 
 .event-task-inline {
