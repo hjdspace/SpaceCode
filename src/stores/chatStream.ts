@@ -1319,6 +1319,11 @@ export const useChatStreamStore = defineStore('chatStream', () => {
       resetTimeout(event.sessionId, ts)
       handleUser(event.sessionId, ts, event.data)
     })
+    claudeCodeApi.onSystem?.((event: { sessionId: string; data: any }) => {
+      if (event.data?.subtype === 'task_notification') {
+        sessionStore.handleTaskNotification(event.data, event.sessionId)
+      }
+    })
     claudeCodeApi.onResult((event: { sessionId: string; data: any }) => {
       // ★ 拦截 sidechain / teammate 的 result 事件，防止子智能体 turn 结束
       // 被当作主会话 result 处理（提前结算主会话 turn）。

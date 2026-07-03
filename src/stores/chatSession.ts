@@ -6,6 +6,7 @@ import { useSettingsStore } from './settings'
 import { useAppStore } from './app'
 import { useTaskManager } from '@/composables/useTaskManager'
 import { getCompletedTurnTargets } from '@/utils/turnCheckpointUtils'
+import { syncTaskStateFromToolCall } from '@/utils/taskToolSync'
 import { api } from '@/services/electronAPI'
 import { errorHandler } from '@/services/errorHandler'
 import { buildMessagesFromHistory } from '@/utils/sessionRestore'
@@ -286,74 +287,13 @@ function updateTaskStateFromToolResult(
 ) {
   const toolCall = toolCalls.find(tc => tc.id === resultToolUseId)
   if (!toolCall) return
-  const toolName = toolCall.name
-  if (toolName === 'TaskCreate') {
-    const match = resultOutput.match(/^Task #(\d+) created successfully: (.+)$/m)
-    if (match) {
-      taskManager.createTask(match[1], match[2], toolCall.input?.description)
-    }
-  } else if (toolName === 'TaskUpdate') {
-    const idMatch = resultOutput.match(/^Updated task #(\d+)/)
-    if (idMatch) {
-      const taskId = idMatch[1]
-      const updates: { status?: 'pending' | 'in_progress' | 'completed', owner?: string } = {}
-      const statusMatch = resultOutput.match(/status\w*:\s*(\w+)\s*->\s*(\w+)/i)
-      if (statusMatch) {
-        const newStatus = statusMatch[2]
-        if (['pending', 'in_progress', 'completed'].includes(newStatus)) {
-          updates.status = newStatus as 'pending' | 'in_progress' | 'completed'
-        }
-      }
-      const ownerMatch = resultOutput.match(/owner\w*:\s*([^,\n]+)/i)
-      if (ownerMatch) {
-        updates.owner = ownerMatch[1].trim()
-      }
-      taskManager.updateTask(taskId, updates)
-    }
-  } else if (toolName === 'TaskList') {
-    if (resultOutput === 'No tasks found') {
-      taskManager.clearTasks()
-      return
-    }
-    const tasks: Array<{
-      id: string
-      content: string
-      status: 'pending' | 'in_progress' | 'completed'
-      owner?: string
-      blockedBy?: string[]
-    }> = []
-    const lines = resultOutput.split('\n')
-    for (const line of lines) {
-      const match = line.match(/^#([^\s]+) \[(pending|in_progress|completed)\] (.*?)(?: \(([^)]+)\))?(?: \[blocked by (.+)\])?$/)
-      if (!match) continue
-      tasks.push({
-        id: match[1],
-        status: match[2] as 'pending' | 'in_progress' | 'completed',
-        content: match[3],
-        owner: match[4],
-        blockedBy: match[5]?.split(', ').filter(Boolean) || []
-      })
-    }
-    taskManager.syncTasksFromList(tasks)
-  } else if (toolName === 'TodoWrite') {
-    // TodoWrite (V1): the full task list is in the tool call input,
-    // not the result output. Sync it to taskManager so that both the
-    // chat TaskListCard and the floating EnvPanel stay up-to-date.
-    const todos = toolCall.input?.todos
-    if (Array.isArray(todos)) {
-      taskManager.syncTasksFromList(
-        todos
-          .filter((t: any) => t && typeof t.content === 'string')
-          .map((t: any) => ({
-            id: String(t.id ?? t.content),
-            content: t.content,
-            status: (['pending', 'in_progress', 'completed'].includes(t.status)
-              ? t.status
-              : 'pending') as 'pending' | 'in_progress' | 'completed',
-          }))
-      )
-    }
-  }
+  syncTaskStateFromToolCall(taskManager, toolCall, resultOutput)
+}
+
+function taskNotificationStatus(value: unknown): { toolStatus: ToolCall['status'], teammateStatus: TeammateStatus } | null {
+  if (value === 'completed') return { toolStatus: 'completed', teammateStatus: 'completed' }
+  if (value === 'failed' || value === 'stopped' || value === 'killed') return { toolStatus: 'error', teammateStatus: 'failed' }
+  return null
 }
 
 export const useChatSessionStore = defineStore('chatSession', () => {
@@ -895,9 +835,14 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     }
 
     if (isFileBackedTeammate(targetSessionId, subagentId)) {
+      let changed = false
+      if (status === 'completed' || status === 'failed') {
+        changed = applySubagentTerminalStatus(session, subagentId, status, text)
+      }
       rekickAgentTranscriptPoll(session, targetSessionId, subagentId)
       session.updatedAt = Date.now()
       session.lastActivityAt = Date.now()
+      if (changed) saveToStorage()
       return null
     }
 
@@ -912,38 +857,125 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       }
     }
 
-    // ★ 异步子代理完成时，更新对应 Agent/Task 工具调用状态。
-    // 异步启动时 handleToolResult 保持了 'running' 状态（不标记为 completed），
-    // 这里在子代理的 sidechain 消息表明其已完成/失败时，回写工具调用状态。
     if (status === 'completed' || status === 'failed') {
-      for (const msg of session.messages) {
-        if (!msg.toolCalls) continue
-        for (let i = 0; i < msg.toolCalls.length; i++) {
-          const tc = msg.toolCalls[i]
-          if ((tc.name === 'Agent' || tc.name === 'Task') &&
-              tc.status === 'running') {
-            const mappedTeammateId = teammateIdForParentToolUse(targetSessionId, tc.id)
-            if (mappedTeammateId === subagentId ||
-                normalizeTeammateId(tc.id) === subagentId) {
-              const updatedToolCalls = [...msg.toolCalls]
-              updatedToolCalls[i] = {
-                ...tc,
-                status: status === 'failed' ? 'error' : 'completed',
-                endTime: Date.now(),
-                // 如果有最终文本输出，更新工具输出
-                ...(text.trim() ? { output: text.slice(0, 30000) } : {})
-              }
-              msg.toolCalls = updatedToolCalls
-              break
-            }
-          }
-        }
-      }
+      applySubagentTerminalStatus(session, subagentId, status, text)
     }
 
     session.updatedAt = Date.now()
     session.lastActivityAt = Date.now()
     return message
+  }
+
+  function applySubagentTerminalStatus(
+    session: Session,
+    subagentId: string,
+    status: TeammateStatus,
+    text?: string
+  ): boolean {
+    let updated = false
+    for (const msg of session.messages) {
+      const toolCalls = msg.toolCalls
+      if (!toolCalls) continue
+      for (let i = 0; i < toolCalls.length; i++) {
+        const tc = toolCalls[i]
+        if ((tc.name === 'Agent' || tc.name === 'Task') &&
+            tc.status === 'running') {
+          const mappedTeammateId = teammateIdForParentToolUse(session.id, tc.id)
+          const outputAgentId = (tc.output || '').match(/agentId:\s*([^\s]+)/)?.[1]
+          if (mappedTeammateId === subagentId ||
+              normalizeTeammateId(tc.id) === subagentId ||
+              (!!outputAgentId && normalizeTeammateId(outputAgentId) === subagentId)) {
+            const updatedToolCalls: ToolCall[] = [...toolCalls]
+            updatedToolCalls[i] = {
+              ...tc,
+              status: status === 'failed' ? 'error' : 'completed',
+              endTime: Date.now(),
+              ...(text?.trim() ? { output: text.slice(0, 30000) } : {})
+            }
+            msg.toolCalls = updatedToolCalls
+            recordAgentToolCall(session, updatedToolCalls[i], status)
+            updated = true
+            break
+          }
+        }
+      }
+    }
+
+    const transcript = session.teammateTranscripts?.[subagentId]
+    if (transcript?.length) {
+      session.teammateTranscripts![subagentId] = transcript.map(m => ({
+        ...m,
+        metadata: { ...m.metadata, status }
+      }))
+      updated = true
+    }
+
+    if (session.teamContext?.teammates[subagentId]) {
+      session.teamContext.teammates[subagentId].status = status
+      updated = true
+    }
+
+    return updated
+  }
+
+  function handleTaskNotification(raw: any, targetSessionId: string): void {
+    if (!raw || raw.subtype !== 'task_notification') return
+    const normalized = taskNotificationStatus(raw.status)
+    if (!normalized) return
+    const session = sessions.value.find(s => s.id === targetSessionId)
+    if (!session) return
+
+    const taskId = typeof raw.task_id === 'string' ? raw.task_id : ''
+    const toolUseId = typeof raw.tool_use_id === 'string' ? raw.tool_use_id : ''
+    const outputFile = typeof raw.output_file === 'string' ? raw.output_file : ''
+    const summary = typeof raw.summary === 'string' ? raw.summary : ''
+    const finalText = [summary, outputFile ? `output_file: ${outputFile}` : ''].filter(Boolean).join('\n')
+    let changed = false
+
+    for (const msg of session.messages) {
+      const toolCalls = msg.toolCalls
+      if (!toolCalls) continue
+      for (let i = 0; i < toolCalls.length; i++) {
+        const tc = toolCalls[i]
+        if (tc.name !== 'Agent' && tc.name !== 'Task') continue
+        const outputAgentId = typeof tc.output === 'string'
+          ? tc.output.match(/agentId:\s*([^\s]+)/)?.[1]
+          : undefined
+        const matches = (!!toolUseId && tc.id === toolUseId) ||
+          (!!taskId && !!outputAgentId && normalizeTeammateId(taskId) === normalizeTeammateId(outputAgentId)) ||
+          (!!taskId && normalizeTeammateId(taskId) === normalizeTeammateId(tc.id))
+        if (!matches) continue
+
+        const nextOutput = finalText
+          ? `${tc.output || ''}${tc.output ? '\n\n' : ''}${finalText}`.slice(0, 30000)
+          : tc.output
+        const updatedToolCalls: ToolCall[] = [...toolCalls]
+        updatedToolCalls[i] = {
+          ...tc,
+          status: normalized.toolStatus,
+          output: nextOutput,
+          endTime: Date.now(),
+        }
+        msg.toolCalls = updatedToolCalls
+        recordAgentToolCall(session, updatedToolCalls[i], normalized.teammateStatus)
+        changed = true
+
+        const mappedTeammateId = teammateIdForParentToolUse(targetSessionId, tc.id)
+        const subagentId = mappedTeammateId ||
+          (taskId ? normalizeTeammateId(taskId) : normalizeTeammateId(tc.id))
+        applySubagentTerminalStatus(session, subagentId, normalized.teammateStatus, finalText)
+      }
+    }
+
+    if (!changed && taskId) {
+      changed = applySubagentTerminalStatus(session, normalizeTeammateId(taskId), normalized.teammateStatus, finalText)
+    }
+
+    if (changed) {
+      session.updatedAt = Date.now()
+      session.lastActivityAt = Date.now()
+      saveToStorage()
+    }
   }
 
   function viewTeammateTranscript(taskId: string) {
@@ -1718,6 +1750,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     backToLeaderView,
     recordTeammateMessage,
     recordSubagentMessage,
+    handleTaskNotification,
     selectSession,
     activateSession,
     deactivateSession,

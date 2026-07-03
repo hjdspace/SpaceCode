@@ -61,4 +61,4 @@ _temp/
 .orbit/
 .zcode/
 
-*.exe
+*.exe*

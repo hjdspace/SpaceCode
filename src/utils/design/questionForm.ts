@@ -42,7 +42,7 @@ export type Segment = TextSegment | FormSegment;
  * 查找并提取文本中的第一个 `<question-form>`
  */
 export function findFirstQuestionForm(input: string): QuestionFormBlock | null {
-  const regex = /<(question-form|ask-question)([^>]*)>([\s\S]*?)</\1>/i;
+  const regex = /<(question-form|ask-question)\b([^>]*)>([\s\S]*?)<\/\1>/i;
   const match = input.match(regex);
   if (!match) return null;
 
@@ -69,7 +69,7 @@ export function findFirstQuestionForm(input: string): QuestionFormBlock | null {
  * 将混杂了 `<question-form>` 的文本切分为文本段和表单段
  */
 export function splitOnQuestionForms(input: string): Segment[] {
-  const regex = /<(question-form|ask-question)([^>]*)>([\s\S]*?)</\1>/gi;
+  const regex = /<(question-form|ask-question)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
   const segments: Segment[] = [];
   let lastIndex = 0;
   let match;

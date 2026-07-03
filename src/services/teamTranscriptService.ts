@@ -1,6 +1,8 @@
 import type { Session, Message, ToolCall, AgentColor, TeammateStatus } from '@/types'
 import { api } from '@/services/electronAPI'
 import { parseSubagentTranscript } from '@/utils/sessionRestore'
+import { useTaskManager } from '@/composables/useTaskManager'
+import { syncTaskStateFromToolCall } from '@/utils/taskToolSync'
 
 interface RawTeammateMessage {
   type?: string
@@ -127,6 +129,13 @@ export function inferTeammateStatus(raw: RawTeammateMessage): TeammateStatus {
   if (/fail|error|reject|cancel/.test(value)) return 'failed'
   if (/complete|done|finish|success|result/.test(value)) return 'completed'
   if (/idle|wait/.test(value)) return 'idle'
+  const text = stringifyRawContent(raw).trim()
+  if (text.startsWith('{')) {
+    const parsed = tryParseJson(text) as { type?: string, idleReason?: string } | null
+    if (parsed?.type === 'idle_notification') {
+      return parsed.idleReason === 'failed' ? 'failed' : 'idle'
+    }
+  }
   return 'running'
 }
 
@@ -356,6 +365,7 @@ export function ensureSubagentTranscripts(session: Session): void {
 // 这类子代理的转录完全由 transcript 文件解析得到，实时 sidechain 事件不再另写转录（避免重复）。
 // agentId 用于在 Windows（符号链接失败）时直接解析 transcript JSONL 路径，绕过 .output 空文件。
 const agentOutputFiles = new Map<string, { filePath: string; name: string; status: TeammateStatus; agentId?: string }>()
+const taskManager = useTaskManager()
 
 /** 该 teammate 的转录是否由输出文件托管（若是，则 recordTeammateMessage 不应再追加，以免重复）。 */
 export function isFileBackedTeammate(sessionId: string, teammateId: string): boolean {
@@ -477,6 +487,13 @@ async function hydrateAgentTranscriptFromFile(session: Session, teammateId: stri
     if (!session?.teammateTranscripts) return
     const parsed = parseSubagentTranscript(text)
     if (parsed.length === 0) return
+    for (const message of parsed) {
+      for (const toolCall of message.toolCalls || []) {
+        if (toolCall.status === 'completed' || toolCall.status === 'error' || toolCall.name === 'TodoWrite') {
+          syncTaskStateFromToolCall(taskManager, toolCall, toolCall.output || '')
+        }
+      }
+    }
     const baseTime = Date.now()
     session.teammateTranscripts[teammateId] = parsed.map((m, idx) => ({
       ...m,
