@@ -27,6 +27,9 @@ export default {
 
   design: {
     placeholder: '设计模式占位页面',
+    odCard: {
+      openInPreview: '在预览中打开',
+    },
   },
 
   work: {

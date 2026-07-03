@@ -2,14 +2,20 @@ import { describe, it, expect } from 'vitest'
 import { mount, config } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import OdCard from '../OdCard.vue'
+import zhCN from '@/i18n/locales/zh-CN'
+import enUS from '@/i18n/locales/en-US'
 
 // vue-i18n 9.x 的 useI18n() 需要 app.use(i18n) 安装，否则抛错。
-// 通过 @vue/test-utils 的全局 plugins 注入最小 i18n 实例，所有 mount 自动复用。
+// 通过 @vue/test-utils 的全局 plugins 注入 i18n 实例，加载真实 locale messages，
+// 便于断言翻译文案并避免 missing-key 警告。
 const i18n = createI18n({
   legacy: false,
   locale: 'zh-CN',
   fallbackLocale: 'en-US',
-  messages: {},
+  messages: {
+    'zh-CN': zhCN,
+    'en-US': enUS,
+  },
 })
 config.global.plugins = [i18n]
 
@@ -35,6 +41,7 @@ describe('OdCard', () => {
     })
     expect(w.text()).toContain('index.html')
     expect(w.find('button.open-in-preview').exists()).toBe(true)
+    expect(w.find('button.open-in-preview').text()).toContain('在预览中打开')
   })
 
   it('generic 渲染键值对', () => {
@@ -50,6 +57,8 @@ describe('OdCard', () => {
       props: { payload: { type: 'artifact-thumbnail', data: { path: '/x.html' } } },
     })
     await w.find('button.open-in-preview').trigger('click')
-    expect(w.emitted('open')).toBeTruthy()
+    const openEvents = w.emitted('open')
+    expect(openEvents).toBeTruthy()
+    expect(openEvents![0]).toEqual(['/x.html'])
   })
 })

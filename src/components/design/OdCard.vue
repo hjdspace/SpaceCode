@@ -20,7 +20,7 @@
 
     <div v-else-if="payload.type === 'artifact-thumbnail'" class="artifact-thumb">
       <FileText :size="16" />
-      <span class="thumb-name">{{ payload.title || payload.data.path }}</span>
+      <span class="thumb-name">{{ payload.data.path }}</span>
       <button class="open-in-preview" @click="$emit('open', payload.data.path)">
         <ExternalLink :size="12" /> {{ t('design.odCard.openInPreview') }}
       </button>
@@ -29,7 +29,7 @@
     <div v-else class="generic-card">
       <div v-for="(v, k) in payload.data" :key="k" class="kv">
         <span class="k">{{ k }}</span>
-        <span class="v">{{ v }}</span>
+        <span class="v">{{ formatValue(v) }}</span>
       </div>
     </div>
   </div>
@@ -44,7 +44,14 @@ import type { OdCardPayload } from '@/utils/chat/buildBlocks'
 const props = defineProps<{ payload: OdCardPayload }>()
 defineEmits<{ (e: 'open', path: string): void }>()
 const { t } = useI18n()
+// direction-swatches 卡片固定展示 5 大设计方向，无需从 payload.data 读取
 const directions = DESIGN_DIRECTIONS
+
+function formatValue(v: unknown): string {
+  if (v === null || v === undefined) return ''
+  if (typeof v === 'object') return JSON.stringify(v)
+  return String(v)
+}
 </script>
 
 <style scoped lang="scss">

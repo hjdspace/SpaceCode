@@ -27,6 +27,9 @@ export default {
 
   design: {
     placeholder: 'Design mode placeholder page',
+    odCard: {
+      openInPreview: 'Open in Preview',
+    },
   },
 
   work: {
