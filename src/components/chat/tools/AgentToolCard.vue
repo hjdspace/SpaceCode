@@ -248,14 +248,15 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
 
 <style lang="scss" scoped>
 .agent-tool-row {
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
+  width: 100%;
   max-width: 100%;
   font-size: 13px;
 }
 
 .agent-header {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 6px;
   padding: 4px 8px;

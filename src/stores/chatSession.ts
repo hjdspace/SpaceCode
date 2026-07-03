@@ -767,7 +767,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     const messageId = raw?.uuid || raw?.message?.id || raw?.id || crypto.randomUUID()
     const message: Message = {
       id: String(messageId),
-      role: raw?.role === 'user' ? 'user' : 'assistant',
+      role: (raw?.role === 'user' || raw?.type === 'user' || raw?.message?.role === 'user') ? 'user' : 'assistant',
       content: text,
       timestamp: raw?.timestamp ? Date.parse(raw.timestamp) || Date.now() : Date.now(),
       metadata: {
@@ -878,7 +878,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     const messageId = raw?.uuid || raw?.message?.id || raw?.id || crypto.randomUUID()
     const message: Message = {
       id: String(messageId),
-      role: raw?.role === 'user' ? 'user' : 'assistant',
+      role: (raw?.role === 'user' || raw?.type === 'user' || raw?.message?.role === 'user') ? 'user' : 'assistant',
       content: text,
       timestamp: raw?.timestamp ? Date.parse(raw.timestamp) || Date.now() : Date.now(),
       metadata: {
