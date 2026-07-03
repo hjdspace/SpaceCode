@@ -11,6 +11,7 @@ export default defineConfig({
     include: [
       'electron/__tests__/**/*.test.ts',
       'tests/composables/**/*.test.ts',
+      'src/**/*.test.ts',
     ],
     exclude: [
       '**/node_modules/**',
