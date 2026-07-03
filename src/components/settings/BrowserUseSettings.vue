@@ -160,9 +160,9 @@
         <p class="cu-hint">{{ t('browserUse.llmHint') }}</p>
 
         <div class="bu-form-grid">
-          <div class="bu-form-group">
-            <label class="bu-form-label">{{ t('browserUse.provider') }}</label>
-            <select v-model="form.provider" class="bu-form-select" @change="saveConfig">
+          <div class="s-form-group">
+            <label class="s-form-label">{{ t('browserUse.provider') }}</label>
+            <select v-model="form.provider" class="s-form-select" @change="saveConfig">
               <option value="ChatBrowserUse">ChatBrowserUse (推荐)</option>
               <option value="Anthropic">Anthropic</option>
               <option value="OpenAI">OpenAI</option>
@@ -170,9 +170,9 @@
               <option value="Ollama">Ollama (本地)</option>
             </select>
           </div>
-          <div class="bu-form-group">
-            <label class="bu-form-label">{{ t('browserUse.model') }}</label>
-            <select v-model="form.model" class="bu-form-select" @change="saveConfig">
+          <div class="s-form-group">
+            <label class="s-form-label">{{ t('browserUse.model') }}</label>
+            <select v-model="form.model" class="s-form-select" @change="saveConfig">
               <option value="bu-2-0">bu-2-0 (ChatBrowserUse)</option>
               <option value="claude-opus-4-8">claude-opus-4-8</option>
               <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
@@ -182,13 +182,13 @@
           </div>
         </div>
         <div class="bu-form-grid">
-          <div class="bu-form-group">
-            <label class="bu-form-label">{{ t('browserUse.maxSteps') }}</label>
-            <input v-model.number="form.maxSteps" class="bu-form-input" type="number" min="1" max="200" @change="saveConfig">
+          <div class="s-form-group">
+            <label class="s-form-label">{{ t('browserUse.maxSteps') }}</label>
+            <input v-model.number="form.maxSteps" class="s-form-input" type="number" min="1" max="200" @change="saveConfig">
           </div>
-          <div class="bu-form-group">
-            <label class="bu-form-label">Temperature</label>
-            <input v-model.number="form.temperature" class="bu-form-input" type="number" min="0" max="2" step="0.1" @change="saveConfig">
+          <div class="s-form-group">
+            <label class="s-form-label">Temperature</label>
+            <input v-model.number="form.temperature" class="s-form-input" type="number" min="0" max="2" step="0.1" @change="saveConfig">
           </div>
         </div>
 
@@ -216,18 +216,18 @@
         </div>
       </div>
       <div class="s-panel-body">
-        <div class="bu-form-group">
-          <label class="bu-form-label">{{ t('browserUse.allowedDomains') }}</label>
-          <input v-model="form.allowedDomainsStr" class="bu-form-input" type="text" :placeholder="t('browserUse.allowedDomainsHint')" @change="saveConfig">
+        <div class="s-form-group">
+          <label class="s-form-label">{{ t('browserUse.allowedDomains') }}</label>
+          <input v-model="form.allowedDomainsStr" class="s-form-input" type="text" :placeholder="t('browserUse.allowedDomainsHint')" @change="saveConfig">
         </div>
         <div class="bu-form-grid">
-          <div class="bu-form-group">
-            <label class="bu-form-label">{{ t('browserUse.userDataDir') }}</label>
-            <input v-model="form.userDataDir" class="bu-form-input" type="text" :placeholder="t('browserUse.userDataDirHint')" @change="saveConfig">
+          <div class="s-form-group">
+            <label class="s-form-label">{{ t('browserUse.userDataDir') }}</label>
+            <input v-model="form.userDataDir" class="s-form-input" type="text" :placeholder="t('browserUse.userDataDirHint')" @change="saveConfig">
           </div>
-          <div class="bu-form-group">
-            <label class="bu-form-label">{{ t('browserUse.downloadsPath') }}</label>
-            <input v-model="form.downloadsPath" class="bu-form-input" type="text" :placeholder="t('browserUse.downloadsPathHint')" @change="saveConfig">
+          <div class="s-form-group">
+            <label class="s-form-label">{{ t('browserUse.downloadsPath') }}</label>
+            <input v-model="form.downloadsPath" class="s-form-input" type="text" :placeholder="t('browserUse.downloadsPathHint')" @change="saveConfig">
           </div>
         </div>
       </div>
@@ -325,6 +325,7 @@ function checkBadgeClass(status: string): Record<string, boolean> {
   return {
     'cu-badge-success': status === 'pass',
     'cu-badge-danger': status === 'fail',
+    'cu-badge-warning': status === 'skip',
   }
 }
 </script>
@@ -337,47 +338,6 @@ function checkBadgeClass(status: string): Record<string, boolean> {
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   margin-top: 12px;
-}
-
-.bu-form-group { margin-bottom: 12px; }
-
-.bu-form-label {
-  display: block;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-muted, #999);
-  margin-bottom: 4px;
-}
-
-.bu-form-input {
-  width: 100%;
-  padding: 7px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--border-color, #333);
-  background: var(--bg-input, #141414);
-  color: var(--text-primary, #e0e0e0);
-  font-size: 13px;
-  outline: none;
-}
-
-.bu-form-input:focus {
-  border-color: var(--accent, #3b82f6);
-}
-
-.bu-form-select {
-  width: 100%;
-  padding: 7px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--border-color, #333);
-  background: var(--bg-input, #141414);
-  color: var(--text-primary, #e0e0e0);
-  font-size: 13px;
-  cursor: pointer;
-  outline: none;
-}
-
-.bu-form-select:focus {
-  border-color: var(--accent, #3b82f6);
 }
 
 .bu-checkbox-group {
@@ -393,31 +353,68 @@ function checkBadgeClass(status: string): Record<string, boolean> {
   gap: 6px;
   font-size: 13px;
   cursor: pointer;
-  color: var(--text-primary, #ddd);
+  color: var(--text-primary);
 }
 
-/** 复用 ComputerUseSettings 的样式 class */
+/** ── 面板图标状态修饰符（与 ComputerUseSettings 对齐）── */
+.s-panel-icon {
+  &.success { background: var(--success-glow); color: var(--success); }
+  &.warning { background: var(--warning-glow); color: var(--warning); }
+  &.danger { background: var(--error-glow); color: var(--error); }
+  &.info { background: var(--accent-primary-glow); color: var(--accent-primary); }
+}
+
+/** ── 安装状态行 ── */
 .cu-status-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 9px 0;
-  border-bottom: 1px solid var(--border-color, #222);
+  border-bottom: 1px solid var(--border-subtle);
 }
 .cu-status-row:last-child { border-bottom: none; }
-.cu-status-label { font-size: 13px; color: var(--text-muted, #aaa); }
-.cu-status-value { font-size: 13px; color: var(--text-primary, #e0e0e0); display: flex; align-items: center; gap: 6px; }
-.cu-status-value.cu-mono { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; }
-
-.cu-badge {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500;
+.cu-status-label { font-size: 13.5px; font-weight: 500; color: var(--text-muted); }
+.cu-status-value {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
-.cu-badge-success { background: var(--bg-success, #1a3a2a); color: var(--text-success, #4ade80); }
-.cu-badge-danger { background: var(--bg-danger, #3a1a1a); color: var(--text-danger, #f87171); }
-.cu-badge-warning { background: var(--bg-warning, #3a2a1a); color: var(--text-warning, #facc15); }
-.cu-badge-yellow { background: var(--bg-warning, #3a2a1a); color: var(--text-warning, #facc15); }
+.cu-status-value.cu-mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
 
+/** ── 状态徽章 ── */
+.cu-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+}
+.cu-badge-success { background: var(--success-glow); color: var(--success); }
+.cu-badge-danger { background: var(--error-glow); color: var(--error); }
+.cu-badge-warning { background: var(--warning-glow); color: var(--warning); }
+.cu-badge-yellow { background: var(--warning-glow); color: var(--warning); }
+.cu-badge-info { background: var(--accent-primary-glow); color: var(--accent-primary); }
+
+/** ── 面板徽章修饰符 ── */
+.s-panel-badge.success {
+  background: var(--success-glow);
+  color: var(--success);
+}
+.s-panel-badge.warning {
+  background: var(--warning-glow);
+  color: var(--warning);
+}
+
+/** ── 操作按钮区 ── */
 .cu-actions {
   display: flex;
   gap: 8px;
@@ -425,43 +422,44 @@ function checkBadgeClass(status: string): Record<string, boolean> {
   flex-wrap: wrap;
 }
 
-.cu-install-progress {
-  margin-top: 14px;
-}
+/** ── 安装进度条 ── */
+.cu-install-progress { margin-top: 14px; }
 
 .cu-progress-bar {
   height: 4px;
-  background: var(--border-color, #222);
+  background: var(--bg-tertiary);
   border-radius: 2px;
   overflow: hidden;
 }
 
 .cu-progress-fill {
   height: 100%;
-  background: var(--accent, #3b82f6);
+  background: var(--accent-primary);
   border-radius: 2px;
   transition: width .3s;
 }
 
-.cu-progress-fill.error { background: var(--text-danger, #f87171); }
+.cu-progress-fill.error { background: var(--error); }
 
 .cu-progress-msg {
   font-size: 12px;
-  color: var(--text-muted, #888);
+  color: var(--text-muted);
   margin-top: 6px;
   display: block;
 }
 
+/** ── 就绪 / 警告提示 ── */
 .cu-ready-notice {
   margin-top: 12px;
   padding: 8px 10px;
-  background: var(--bg-success, #1a3a2a);
-  border-radius: 6px;
+  background: var(--success-glow);
+  border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: var(--text-success, #bbf7d0);
+  color: var(--success);
 }
 
 .cu-warning {
@@ -469,33 +467,43 @@ function checkBadgeClass(status: string): Record<string, boolean> {
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  background: var(--bg-warning, #3a2a1a);
-  border-radius: 6px;
+  background: var(--warning-glow);
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
+  border-radius: var(--radius-sm);
   font-size: 13px;
-  color: var(--text-warning, #facc15);
+  color: var(--warning);
 }
 
 .cu-hint {
   font-size: 12px;
-  color: var(--text-muted, #888);
+  color: var(--text-muted);
   margin-bottom: 12px;
   line-height: 1.5;
 }
 
+/** ── 诊断结果行 ── */
 .cu-permission-row {
   padding: 8px 0;
-  border-bottom: 1px solid var(--border-color, #1a1a1a);
+  border-bottom: 1px solid var(--border-subtle);
 }
 .cu-permission-row:last-child { border-bottom: none; }
-.cu-permission-info { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
-.cu-permission-name { font-size: 13px; font-weight: 500; color: var(--text-primary, #e0e0e0); }
-
-.s-panel-badge.success {
-  background: var(--bg-success, #1a3a2a);
-  color: var(--text-success, #4ade80);
+.cu-permission-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
 }
-.s-panel-badge.warning {
-  background: var(--bg-warning, #3a2a1a);
-  color: var(--text-warning, #facc15);
+.cu-permission-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>

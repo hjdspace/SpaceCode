@@ -1139,12 +1139,17 @@ async function executeSlashCommand(command: string, args: string): Promise<strin
       window.dispatchEvent(new CustomEvent('open-skills-manager'))
       return t('chatPanel.commandSkillsOpened')
 
-    case 'mcp':
-      // 打开 MCP 管理器
-      window.dispatchEvent(new CustomEvent('open-mcp-manager'))
-      return t('chatPanel.commandMcpOpened')
+case 'mcp':
+	      // 打开 MCP 管理器
+	      window.dispatchEvent(new CustomEvent('open-mcp-manager'))
+	      return t('chatPanel.commandMcpOpened')
 
-    case 'rewind':
+	    case 'browser-use':
+	      // 打开 Browser Use 设置
+	      window.dispatchEvent(new CustomEvent('open-settings', { detail: { tab: 'browser-use' } }))
+	      return t('chatPanel.commandBrowserUseOpened')
+
+	    case 'rewind':
     case 'checkpoint':
       handleOpenRewind()
       return ''

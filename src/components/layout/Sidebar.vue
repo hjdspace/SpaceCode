@@ -750,8 +750,14 @@ function handleApprovalResolved(e: Event) {
   }
 }
 
-function handleOpenSettings() {
+function handleOpenSettings(event: CustomEvent) {
   appStore.showSettings = true
+  const detail = event.detail
+  if (detail?.tab) {
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('settings-navigate', { detail: { tab: detail.tab } }))
+    }, 50)
+  }
 }
 
 // Lifecycle

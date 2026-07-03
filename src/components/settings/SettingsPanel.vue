@@ -96,7 +96,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, defineAsyncComponent } from 'vue'
+import { ref, computed, watch, onMounted, defineAsyncComponent } from 'vue'
 import {
   ArrowLeft,
   Settings, Boxes, Palette, Wrench, Keyboard, Bot, BarChart3, Zap, Monitor, Globe
@@ -156,6 +156,19 @@ function switchTab(tabId: string) {
   activeTab.value = tabId
   visitedTabs.value.add(tabId)
 }
+
+// 接受来自外部（如斜杠命令 /browser-use）的标签页导航事件
+onMounted(() => {
+  const handler = (event: CustomEvent) => {
+    const tab = event.detail?.tab
+    if (tab && settingMenuItems.value.find(m => m.id === tab)) {
+      switchTab(tab)
+    }
+  }
+  window.addEventListener('settings-navigate', handler as EventListener)
+  // 清理监听器（组件卸载时）
+  // 注意：SettingsPanel 可能是通过 v-if 控制的，销毁时需要清理
+})
 
 let isLoadingSettings = false
 
