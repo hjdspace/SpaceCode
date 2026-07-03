@@ -3,6 +3,7 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import { i18n, getSavedLanguage } from './i18n'
 import './styles/global.scss'
+import './styles/design.scss'
 
 // Set locale from saved preference
 const savedLocale = getSavedLanguage()

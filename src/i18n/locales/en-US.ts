@@ -17,6 +17,7 @@ export default {
     moreOptions: 'More Options',
     expand: 'Expand',
     collapse: 'Collapse',
+    stop: 'Stop',
   },
 
   mode: {
@@ -26,6 +27,7 @@ export default {
   },
 
   design: {
+    title: 'Design',
     placeholder: 'Design mode placeholder page',
     odCard: {
       openInPreview: 'Open in Preview',

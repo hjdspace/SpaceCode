@@ -17,6 +17,7 @@ export default {
     moreOptions: '更多选项',
     expand: '展开',
     collapse: '收起',
+    stop: '停止',
   },
 
   mode: {
@@ -26,6 +27,7 @@ export default {
   },
 
   design: {
+    title: '设计',
     placeholder: '设计模式占位页面',
     odCard: {
       openInPreview: '在预览中打开',
