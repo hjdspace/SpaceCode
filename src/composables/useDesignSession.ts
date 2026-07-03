@@ -18,7 +18,6 @@ export function useDesignSession() {
 
     const session = chatSessionStore.createSession('Design Session', workspacePath)
     session.mode = 'design'
-    designStore.activeSessionId = session.id
 
     const systemPrompt = await api.design.composePromptStack({
       skillName: designStore.selectedToolboxSkillId,
@@ -32,6 +31,10 @@ export function useDesignSession() {
     })
 
     await api.design.startFileWatcher(session.id, workspacePath)
+
+    // 所有 init 完成后才暴露 sid，避免半初始化会话被后续操作触达
+    designStore.activeSessionId = session.id
+
     attachStreamListener(session.id)
     return session.id
   }

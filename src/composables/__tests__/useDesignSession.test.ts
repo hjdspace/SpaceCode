@@ -2,6 +2,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useDesignSession } from '../useDesignSession'
 
+// 用 vi.hoisted 声明 spy，避免 vi.mock 工厂 hoisting 限制，便于测试中显式断言
+const { sendMessageSpy } = vi.hoisted(() => ({
+  sendMessageSpy: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('@/services/electronAPI', () => ({
   api: {
     app: { getPath: vi.fn().mockResolvedValue('/userData') },
@@ -23,7 +28,7 @@ vi.mock('@/services/electronAPI', () => ({
 // 选项 A：mock @/stores/chat，避免真实 chatStore.sendMessage 触发流式 Promise 挂起
 vi.mock('@/stores/chat', () => ({
   useChatStore: () => ({
-    sendMessage: vi.fn().mockResolvedValue(undefined),
+    sendMessage: sendMessageSpy,
   }),
   useChatSessionStore: () => ({
     createSession: vi.fn().mockReturnValue({ id: 'test-session-id', mode: 'chat', messages: [] }),
@@ -62,6 +67,6 @@ describe('useDesignSession', () => {
     const { createDesignSession, submitQuestionForm } = useDesignSession()
     await createDesignSession()
     await submitQuestionForm({ q1: 'a' })
-    // 验证 chatStore.sendMessage 被调用（通过 mock）
+    expect(sendMessageSpy).toHaveBeenCalledWith(expect.stringContaining('form answers'))
   })
 })
