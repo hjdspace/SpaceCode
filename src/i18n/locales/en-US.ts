@@ -29,6 +29,8 @@ export default {
   design: {
     title: 'Design',
     placeholder: 'Design mode placeholder page',
+    emptyChatTitle: 'Start your design conversation',
+    emptyChatHint: 'Describe the interface you want, and the AI will craft a design for you',
     odCard: {
       openInPreview: 'Open in Preview',
     },
@@ -39,6 +41,9 @@ export default {
       // design 模式 buildBlocks status block 展示的 token 用量与耗时
       tokens: 'Input {input} / Output {output} tokens',
       duration: '{s}s',
+    },
+    toolbox: {
+      skills: 'Skills',
     },
   },
 

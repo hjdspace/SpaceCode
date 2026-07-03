@@ -29,6 +29,8 @@ export default {
   design: {
     title: '设计',
     placeholder: '设计模式占位页面',
+    emptyChatTitle: '开始你的设计对话',
+    emptyChatHint: '描述你想要的界面，AI 会帮你生成设计',
     odCard: {
       openInPreview: '在预览中打开',
     },
@@ -39,6 +41,9 @@ export default {
       // design 模式 buildBlocks status block 展示的 token 用量与耗时
       tokens: '输入 {input} / 输出 {output} tokens',
       duration: '{s}s',
+    },
+    toolbox: {
+      skills: '技能',
     },
   },
 
