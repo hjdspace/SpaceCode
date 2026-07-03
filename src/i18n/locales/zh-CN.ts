@@ -30,6 +30,9 @@ export default {
     odCard: {
       openInPreview: '在预览中打开',
     },
+    nextSteps: {
+      title: '下一步建议',
+    },
   },
 
   work: {

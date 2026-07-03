@@ -30,6 +30,9 @@ export default {
     odCard: {
       openInPreview: 'Open in Preview',
     },
+    nextSteps: {
+      title: 'Next Steps',
+    },
   },
 
   work: {
