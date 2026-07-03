@@ -1119,8 +1119,10 @@ export default {
     retry: '重试',
     dismiss: '关闭',
     technicalDetail: '技术详情',
+    apiErrorPrefix: 'API 错误',
     reconnecting: '正在重连（{attempt}/{max}）',
     cancelRetry: '取消重试',
+    timeoutError: '超时',
   },
 
   trace: {

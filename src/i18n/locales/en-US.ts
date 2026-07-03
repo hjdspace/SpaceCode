@@ -1119,8 +1119,10 @@ export default {
     retry: 'Retry',
     dismiss: 'Dismiss',
     technicalDetail: 'Technical Details',
+    apiErrorPrefix: 'API Error',
     reconnecting: 'Reconnecting ({attempt}/{max})',
     cancelRetry: 'Cancel Retry',
+    timeoutError: 'Timeout',
   },
 
   trace: {

@@ -30,16 +30,16 @@ export interface UseAutoRetryReturn {
 
 /**
  * 从错误详情中提取用于 UI 展示的错误码/标签。
- * 优先匹配 HTTP 状态码（4xx/5xx），否则按错误类别返回中文标签兜底。
+ * 优先匹配 HTTP 状态码（4xx/5xx），否则按错误类别返回 i18n key 后缀（errors.{suffix}）。
  */
 export function extractErrorCode(technicalDetail: string, category: ErrorCategory): string {
   const codeMatch = technicalDetail.match(/\b([45]\d{2})\b/)
   if (codeMatch) return codeMatch[1]
   switch (category) {
-    case ErrorCategory.NETWORK_ERROR: return '网络错误'
-    case ErrorCategory.TIMEOUT: return '超时'
-    case ErrorCategory.PROCESS_ERROR: return '进程退出'
-    default: return '错误'
+    case ErrorCategory.NETWORK_ERROR: return 'networkError'
+    case ErrorCategory.TIMEOUT: return 'timeoutError'
+    case ErrorCategory.PROCESS_ERROR: return 'processError'
+    default: return 'unknownError'
   }
 }
 

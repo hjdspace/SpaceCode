@@ -2,7 +2,7 @@
   <div class="retry-indicator" :class="severityClass">
     <Loader2 :size="12" class="spin-icon" />
     <span class="retry-text">
-      API Error：{{ errorCode || '错误' }}...
+      {{ t('errors.apiErrorPrefix') }}：{{ displayErrorCode }}...
       <span class="retry-badge">{{ t('errors.reconnecting', { attempt: attempt, max: maxRetries }) }}</span>
     </span>
     <button
@@ -40,6 +40,14 @@ defineEmits<{
 const severityClass = computed(() => {
   if (props.errorCategory === ErrorCategory.RATE_LIMIT) return 'severity-warning'
   return 'severity-error'
+})
+
+const displayErrorCode = computed(() => {
+  if (!props.errorCode) return t('errors.unknownError')
+  // HTTP status codes (e.g. "429", "500") are displayed as-is
+  if (/^\d{3}$/.test(props.errorCode)) return props.errorCode
+  // Otherwise treat as i18n key suffix under errors namespace
+  return t(`errors.${props.errorCode}`)
 })
 </script>
 
