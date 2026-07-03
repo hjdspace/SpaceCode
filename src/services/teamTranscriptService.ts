@@ -436,6 +436,107 @@ export function recordAgentToolCall(session: Session, toolCall: ToolCall, status
   }
 }
 
+function parseJsonlRecords(text: string): any[] {
+  const records: any[] = []
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    try {
+      records.push(JSON.parse(trimmed))
+    } catch {
+      // Ignore partial or malformed lines while the transcript is being written.
+    }
+  }
+  return records
+}
+
+function getLastAssistantText(messages: Message[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]
+    if (msg.role === 'assistant' && msg.content?.trim()) {
+      return msg.content.trim()
+    }
+  }
+  return ''
+}
+
+function isUnsettledToolStatus(status: ToolCall['status']): boolean {
+  return status === 'running' || status === 'pending'
+}
+
+function inferTranscriptTerminalStatus(
+  text: string,
+  messages: Message[],
+  allowStableCompletion: boolean,
+): TeammateStatus | null {
+  const records = parseJsonlRecords(text)
+  for (let i = records.length - 1; i >= 0; i--) {
+    const raw = records[i]
+    if (raw?.type === 'result') {
+      return raw.is_error ? 'failed' : 'completed'
+    }
+    if (raw?.type === 'assistant') {
+      const stopReason = raw.message?.stop_reason || raw.stop_reason
+      if (stopReason && stopReason !== 'tool_use') return 'completed'
+      if (stopReason === 'tool_use') return null
+    }
+  }
+
+  if (!allowStableCompletion) return null
+
+  const hasRunningTool = messages.some(msg =>
+    msg.toolCalls?.some(tc => isUnsettledToolStatus(tc.status))
+  )
+  return !hasRunningTool && getLastAssistantText(messages) ? 'completed' : null
+}
+
+function applyTranscriptTerminalStatus(
+  session: Session,
+  teammateId: string,
+  status: TeammateStatus,
+  finalText?: string,
+): void {
+  const transcript = session.teammateTranscripts?.[teammateId]
+  if (transcript?.length) {
+    session.teammateTranscripts![teammateId] = transcript.map(m => ({
+      ...m,
+      metadata: { ...m.metadata, status },
+    }))
+  }
+
+  if (session.teamContext?.teammates[teammateId]) {
+    session.teamContext.teammates[teammateId].status = status
+  }
+
+  for (const msg of session.messages) {
+    const toolCalls = msg.toolCalls
+    if (!toolCalls) continue
+    for (let i = 0; i < toolCalls.length; i++) {
+      const tc = toolCalls[i]
+      if ((tc.name !== 'Agent' && tc.name !== 'Task') || !isUnsettledToolStatus(tc.status)) continue
+      const mappedTeammateId = teammateIdForParentToolUse(session.id, tc.id)
+      const outputAgentId = typeof tc.output === 'string'
+        ? tc.output.match(/agentId:\s*([^\s]+)/)?.[1]
+        : undefined
+      const matches = mappedTeammateId === teammateId ||
+        normalizeTeammateId(tc.id) === teammateId ||
+        (!!outputAgentId && normalizeTeammateId(outputAgentId) === teammateId)
+      if (!matches) continue
+
+      const updatedToolCalls: ToolCall[] = [...toolCalls]
+      updatedToolCalls[i] = {
+        ...tc,
+        status: status === 'failed' ? 'error' : 'completed',
+        endTime: Date.now(),
+        ...(finalText ? { output: finalText.slice(0, 30000) } : {}),
+      }
+      msg.toolCalls = updatedToolCalls
+      recordAgentToolCall(session, updatedToolCalls[i], status)
+      break
+    }
+  }
+}
+
 // 防止同一 (session, teammate, file) 同时启动多条轮询链。
 const activeAgentFilePolls = new Set<string>()
 
@@ -482,11 +583,24 @@ async function hydrateAgentTranscriptFromFile(session: Session, teammateId: stri
   // 子代理在两次写入之间可能有较长间隔（等待 LLM 首字、长时间工具执行）。
   // 容忍 ~45s 无变化再停止，避免轮询在子代理仍活跃时过早结束导致"看不到实时输出"。
   const MAX_STABLE_TICKS = 30
+  let currentStatus = status
 
-  const applyParsed = (text: string) => {
+  const applyParsed = (text: string, allowStableCompletion = false) => {
     if (!session?.teammateTranscripts) return
     const parsed = parseSubagentTranscript(text)
-    if (parsed.length === 0) return
+    const terminalStatus = inferTranscriptTerminalStatus(text, parsed as Message[], allowStableCompletion)
+    const lastAssistantText = getLastAssistantText(parsed as Message[])
+    if (terminalStatus && terminalStatus !== currentStatus) {
+      currentStatus = terminalStatus
+    }
+    if (parsed.length === 0) {
+      if (terminalStatus) {
+        applyTranscriptTerminalStatus(session, teammateId, terminalStatus, lastAssistantText)
+        session.updatedAt = Date.now()
+        session.lastActivityAt = Date.now()
+      }
+      return
+    }
     for (const message of parsed) {
       for (const toolCall of message.toolCalls || []) {
         if (toolCall.status === 'completed' || toolCall.status === 'error' || toolCall.name === 'TodoWrite') {
@@ -504,11 +618,19 @@ async function hydrateAgentTranscriptFromFile(session: Session, teammateId: stri
         agentTaskId: teammateId,
         agentName: name,
         teamName: 'Agent Team',
-        status,
+        status: currentStatus,
       },
     })) as Message[]
     const teammate = session.teamContext?.teammates[teammateId]
-    if (teammate) teammate.messageCount = session.teammateTranscripts[teammateId].length
+    if (teammate) {
+      teammate.messageCount = session.teammateTranscripts[teammateId].length
+      teammate.status = currentStatus
+    }
+    if (terminalStatus) {
+      applyTranscriptTerminalStatus(session, teammateId, terminalStatus, lastAssistantText)
+    }
+    session.updatedAt = Date.now()
+    session.lastActivityAt = Date.now()
   }
 
   const tick = async () => {
@@ -532,6 +654,7 @@ async function hydrateAgentTranscriptFromFile(session: Session, teammateId: stri
     if (remainingTicks > 0 && stableTicks < MAX_STABLE_TICKS) {
       setTimeout(() => { void tick() }, 1500)
     } else {
+      if (text.trim()) applyParsed(text, true)
       activeAgentFilePolls.delete(pollKey)
     }
   }

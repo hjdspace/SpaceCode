@@ -296,6 +296,11 @@ function taskNotificationStatus(value: unknown): { toolStatus: ToolCall['status'
   return null
 }
 
+function isUnsettledAgentTool(toolCall: ToolCall): boolean {
+  return (toolCall.name === 'Agent' || toolCall.name === 'Task') &&
+    (toolCall.status === 'running' || toolCall.status === 'pending')
+}
+
 export const useChatSessionStore = defineStore('chatSession', () => {
   const appStore = useAppStore()
   const settingsStore = useSettingsStore()
@@ -804,8 +809,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       for (const msg of session.messages) {
         if (!msg.toolCalls) continue
         for (const tc of msg.toolCalls) {
-          if ((tc.name === 'Agent' || tc.name === 'Task') &&
-              (tc.status === 'running' || tc.status === 'pending')) {
+          if (isUnsettledAgentTool(tc)) {
             const registeredId = teammateIdForParentToolUse(targetSessionId, tc.id)
             if (registeredId) {
               registerTeammateForToolUse(targetSessionId, parentId, registeredId)
@@ -880,8 +884,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       if (!toolCalls) continue
       for (let i = 0; i < toolCalls.length; i++) {
         const tc = toolCalls[i]
-        if ((tc.name === 'Agent' || tc.name === 'Task') &&
-            tc.status === 'running') {
+        if (isUnsettledAgentTool(tc)) {
           const mappedTeammateId = teammateIdForParentToolUse(session.id, tc.id)
           const outputAgentId = (tc.output || '').match(/agentId:\s*([^\s]+)/)?.[1]
           if (mappedTeammateId === subagentId ||
