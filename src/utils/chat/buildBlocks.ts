@@ -14,7 +14,7 @@ export interface NextStepAction {
 
 export type Block =
   | { kind: 'text'; content: string }
-  | { kind: 'thinking'; content: string; startTime?: number; endTime?: number }
+  | { kind: 'thinking'; content: string; startTime: number; endTime?: number }
   | { kind: 'tool-group'; toolName: string; calls: ToolCall[] }
   | { kind: 'od-card'; payload: OdCardPayload }
   | { kind: 'question-form'; payload: QuestionFormBlock }
