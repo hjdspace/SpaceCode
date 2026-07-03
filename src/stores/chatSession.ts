@@ -31,6 +31,7 @@ import {
   teammateIdForParentToolUse,
   registerTeammateForToolUse,
   clearSessionToolUseMappings,
+  normalizeTeammateId,
   AGENT_COLORS,
 } from '@/services/teamTranscriptService'
 
@@ -904,6 +905,35 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         session.teammateTranscripts![subagentId] = next
       } else {
         session.teammateTranscripts![subagentId] = [...transcript, message]
+      }
+    }
+
+    // ★ 异步子代理完成时，更新对应 Agent/Task 工具调用状态。
+    // 异步启动时 handleToolResult 保持了 'running' 状态（不标记为 completed），
+    // 这里在子代理的 sidechain 消息表明其已完成/失败时，回写工具调用状态。
+    if (status === 'completed' || status === 'failed') {
+      for (const msg of session.messages) {
+        if (!msg.toolCalls) continue
+        for (let i = 0; i < msg.toolCalls.length; i++) {
+          const tc = msg.toolCalls[i]
+          if ((tc.name === 'Agent' || tc.name === 'Task') &&
+              tc.status === 'running') {
+            const mappedTeammateId = teammateIdForParentToolUse(targetSessionId, tc.id)
+            if (mappedTeammateId === subagentId ||
+                normalizeTeammateId(tc.id) === subagentId) {
+              const updatedToolCalls = [...msg.toolCalls]
+              updatedToolCalls[i] = {
+                ...tc,
+                status: status === 'failed' ? 'error' : 'completed',
+                endTime: Date.now(),
+                // 如果有最终文本输出，更新工具输出
+                ...(text.trim() ? { output: text.slice(0, 30000) } : {})
+              }
+              msg.toolCalls = updatedToolCalls
+              break
+            }
+          }
+        }
       }
     }
 

@@ -10,6 +10,7 @@ import {
   isTeammateRawMessage,
   isSidechainMessage,
   recordAgentToolCall,
+  isAgentLaunchResult,
 } from '@/services/teamTranscriptService'
 import { useChatSessionStore } from './chatSession'
 import { useAutoRetry, extractErrorCode } from '@/composables/useAutoRetry'
@@ -622,17 +623,30 @@ export const useChatStreamStore = defineStore('chatStream', () => {
 
         const toolCallIndex = msg.toolCalls.findIndex(tc => tc.id === resultToolUseId)
         if (toolCallIndex >= 0) {
+          const toolName = msg.toolCalls[toolCallIndex].name
+
+          // ★ 异步子代理检测：Agent/Task 工具返回 "async_launched" 等占位结果时，
+          // 子代理仍在后台运行，不应标记为 'completed'。
+          // 引擎的 AgentTool.mapToolResultToToolResultBlockParam 会将 async_launched /
+          // teammate_spawned / remote_launched 转为带特定前缀的文本 tool_result。
+          // 这里检测这些模式，保持工具状态为 'running'，存储输出供 UI 展示。
+          const isAsyncLaunch = !resultIsError &&
+            (toolName === 'Agent' || toolName === 'Task') &&
+            isAgentLaunchResult(resultOutput)
+
           const updatedToolCalls = [...msg.toolCalls]
           updatedToolCalls[toolCallIndex] = {
             ...updatedToolCalls[toolCallIndex],
-            status: resultIsError ? 'error' : 'completed',
+            status: isAsyncLaunch
+              ? 'running'
+              : (resultIsError ? 'error' : 'completed'),
             output: resultOutput,
-            endTime: Date.now()
+            // 异步启动时不设置 endTime——子代理仍在运行
+            ...(isAsyncLaunch ? {} : { endTime: Date.now() })
           }
           msg.toolCalls = updatedToolCalls
-          recordAgentToolCall(s, updatedToolCalls[toolCallIndex], resultIsError ? 'failed' : 'completed')
+          recordAgentToolCall(s, updatedToolCalls[toolCallIndex], isAsyncLaunch ? 'running' : (resultIsError ? 'failed' : 'completed'))
 
-          const toolName = updatedToolCalls[toolCallIndex].name
           let traceType: string = 'tool_result'
           let evidence: Array<{ kind: string; result?: string; detail: string }> | undefined
           if (FILE_TOOLS.has(toolName)) {
@@ -723,16 +737,23 @@ export const useChatStreamStore = defineStore('chatStream', () => {
               // to stay empty and only the last inline task card to render.
               sessionStore.updateTaskStateFromToolResult(msg.toolCalls, toolResult.tool_use_id, truncatedUserToolOutput)
               const updatedToolCalls = [...msg.toolCalls]
+              const toolName = updatedToolCalls[toolCallIndex].name
+              // ★ 异步子代理检测（与 handleToolResult 中的逻辑一致）
+              const isAsyncLaunch = !toolResult.is_error &&
+                (toolName === 'Agent' || toolName === 'Task') &&
+                isAgentLaunchResult(truncatedUserToolOutput)
               updatedToolCalls[toolCallIndex] = {
                 ...updatedToolCalls[toolCallIndex],
-                status: toolResult.is_error ? 'error' : 'completed',
+                status: isAsyncLaunch
+                  ? 'running'
+                  : (toolResult.is_error ? 'error' : 'completed'),
                 output: truncatedUserToolOutput,
-                endTime: Date.now()
+                ...(isAsyncLaunch ? {} : { endTime: Date.now() })
               }
               msg.toolCalls = updatedToolCalls
-              recordAgentToolCall(s, updatedToolCalls[toolCallIndex], toolResult.is_error ? 'failed' : 'completed')
+              recordAgentToolCall(s, updatedToolCalls[toolCallIndex], isAsyncLaunch ? 'running' : (toolResult.is_error ? 'failed' : 'completed'))
               updateTimelineEvent(sessionId, ts, `tool-${toolResult.tool_use_id}`, {
-                status: toolResult.is_error ? 'error' : 'completed'
+                status: isAsyncLaunch ? 'running' : (toolResult.is_error ? 'error' : 'completed')
               })
               sessionStore.saveToStorage()
 

@@ -654,26 +654,26 @@ info('Startup', 'CuaDriver IPC handlers registered')
 
   ipcMain.handle('claude-code:engineSourceChanged', async (_, source: string) => {
     info('EngineSource', `Engine source changed to: ${source}`)
-    const needsProxy = source === 'installed'
-    if (needsProxy) {
-      const guiSettings = await loadGuiSettings()
-      const authMethod = guiSettings?.authMethod
-      if (authMethod && !['anthropic_compatible', 'claudeai', 'console'].includes(authMethod)) {
-        const proxyConfig = buildProxyConfigFromSettings(guiSettings)
-        if (proxyConfig) {
-          try {
-            await proxyManager.start(proxyConfig)
-            info('EngineSource', 'Proxy started after engine source change')
-          } catch (err) {
-            warn('EngineSource', 'Failed to start proxy after engine source change:', err)
-          }
+    // ★ 非 Anthropic 提供商始终需要代理（无论 bundled 还是 installed），
+    // 因为内置引擎的 OpenAI/Gemini 直连路径没有 withRetry 重试机制。
+    const guiSettings = await loadGuiSettings()
+    const authMethod = guiSettings?.authMethod
+    if (authMethod && !['anthropic_compatible', 'claudeai', 'console'].includes(authMethod)) {
+      const proxyConfig = buildProxyConfigFromSettings(guiSettings)
+      if (proxyConfig) {
+        try {
+          await proxyManager.start(proxyConfig)
+          info('EngineSource', 'Proxy started after engine source change')
+        } catch (err) {
+          warn('EngineSource', 'Failed to start proxy after engine source change:', err)
         }
       }
     } else {
+      // Anthropic 提供商不需要代理
       if (proxyManager.isRunning()) {
         try {
           await proxyManager.stop()
-          info('EngineSource', 'Proxy stopped after engine source change to bundled')
+          info('EngineSource', 'Proxy stopped (Anthropic provider does not need proxy)')
         } catch (err) {
           warn('EngineSource', 'Failed to stop proxy after engine source change:', err)
         }
@@ -729,12 +729,14 @@ info('Startup', 'CuaDriver IPC handlers registered')
 
   ;(async () => {
     const guiSettings = await loadGuiSettings()
-    if (guiSettings?.engineSource === 'installed' && !['anthropic_compatible', 'claudeai', 'console'].includes(guiSettings?.authMethod)) {
+    // ★ 非 Anthropic 提供商需要代理（无论 bundled 还是 installed），
+    // 因为内置引擎的 OpenAI/Gemini 直连路径没有 withRetry 重试机制。
+    if (guiSettings && !['anthropic_compatible', 'claudeai', 'console'].includes(guiSettings.authMethod)) {
       const proxyConfig = buildProxyConfigFromSettings(guiSettings)
       if (proxyConfig) {
         try {
           await proxyManager.start(proxyConfig)
-          info('Startup', 'Auto-started proxy for installed CLI mode')
+          info('Startup', 'Auto-started proxy for non-Anthropic provider')
         } catch (err) {
           warn('Startup', 'Auto-start proxy failed:', err)
         }

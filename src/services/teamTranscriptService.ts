@@ -239,6 +239,8 @@ export function stripAgentResultMetadata(text: string): string {
 /**
  * 判断子代理输出是否为"启动成功"消息（异步 agent 启动后的占位输出）。
  * 这类输出不包含实际结果，不应展示为子代理输出。
+ * 也用于检测 handleToolResult / handleUser 中的异步启动 tool_result，
+ * 防止将仍在后台运行的子代理标记为 'completed'。
  */
 export function isAgentLaunchResult(content: unknown): boolean {
   const text = typeof content === 'string' ? content.trim() : ''
@@ -247,7 +249,10 @@ export function isAgentLaunchResult(content: unknown): boolean {
     text.startsWith('Agent launched successfully.') ||
     text.startsWith('Async agent launched successfully.') ||
     text.startsWith('Spawned successfully.') ||
-    text.includes('The agent is now running and will receive instructions via mailbox.')
+    text.startsWith('Remote agent launched in CCR.') ||
+    text.includes('The agent is now running and will receive instructions via mailbox.') ||
+    text.includes('The agent is working in the background. You will be notified automatically when it completes.') ||
+    text.includes('The agent is running remotely. You will be notified automatically when it completes.')
   )
 }
 

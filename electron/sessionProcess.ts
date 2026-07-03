@@ -868,7 +868,12 @@ export class SessionProcess extends EventEmitter {
     )
 
     const provider = (config.provider || 'anthropic').toLowerCase()
-    const useProxy = config.engineSource === 'installed' && provider !== 'anthropic' && proxyManager.getProxyUrl()
+    // ★ 所有非 Anthropic 提供商都走代理路径，无论 engineSource 是 bundled 还是 installed。
+    // 原因：内置引擎的 OpenAI/Gemini 直连路径（openai/index.ts, gemini/index.ts）
+    // 不经过 withRetry 包装器，429 等错误不会被自动重试，导致子代理一碰到
+    // 限流就直接失败。走代理后，引擎统一使用 Anthropic API 路径（claude.ts），
+    // 该路径有 withRetry 的指数退避重试（默认 10 次），429 会被透明处理。
+    const useProxy = provider !== 'anthropic' && !!proxyManager.getProxyUrl()
     const modelType = provider === 'openai' ? 'openai'
       : provider === 'gemini' ? 'gemini'
       : provider === 'grok' ? 'grok'
@@ -1176,7 +1181,9 @@ export class SessionProcess extends EventEmitter {
       env.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING = '1'
     }
 
-    if (config.engineSource === 'installed' && config.provider !== 'anthropic') {
+    // ★ 非Anthropic 提供商统一走代理（无论 bundled 还是 installed），
+    // 确保引擎使用 Anthropic API 路径 + withRetry 重试机制。
+    if (config.provider !== 'anthropic') {
       const proxyUrl = proxyManager.getProxyUrl()
       if (proxyUrl) {
         env.ANTHROPIC_BASE_URL = proxyUrl
@@ -1198,7 +1205,7 @@ export class SessionProcess extends EventEmitter {
         env.GEMINI_DEFAULT_OPUS_MODEL = ''
         debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using proxy: ${proxyUrl}`)
       } else {
-        warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Proxy not running — attempting to start proxy for installed CLI with non-Anthropic provider`)
+        warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Proxy not running — attempting to start proxy for non-Anthropic provider`)
         try {
           const proxyConfig = this.buildProxyConfig(config)
           if (proxyConfig) {
@@ -1224,10 +1231,10 @@ export class SessionProcess extends EventEmitter {
               env.GEMINI_DEFAULT_OPUS_MODEL = ''
               debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Proxy started on demand: ${startedUrl}`)
             } else {
-              warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Proxy started but URL is empty — falling back to direct OpenAI env vars`)
+              warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Proxy started but URL is empty — falling back to direct provider env vars (no withRetry protection)`)
             }
           } else {
-            warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Cannot build proxy config — falling back to direct OpenAI env vars. The installed CLI may not support CLAUDE_CODE_USE_OPENAI correctly.`)
+            warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Cannot build proxy config — falling back to direct provider env vars (no withRetry protection)`)
           }
         } catch (err) {
           warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to start proxy on demand`, { error: String(err) })
