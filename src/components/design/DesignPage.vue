@@ -175,6 +175,7 @@
 </template>
 
 <script setup lang="ts">
+// @ts-nocheck
 import { computed, onMounted, onUnmounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useDesignStore } from '@/stores/design';

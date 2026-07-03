@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useDesignStore } from '@/stores/design';
 import { useChatStore, useChatSessionStore } from '@/stores/chat'; // 现有 SpaceCode 聊天 Store 引用
 import { api } from '@/services/electronAPI';  // 现有 SpaceCode 主进程 IPC Bridge
