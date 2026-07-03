@@ -33,6 +33,11 @@ export default {
     nextSteps: {
       title: 'Next Steps',
     },
+    usage: {
+      // design 模式 buildBlocks status block 展示的 token 用量与耗时
+      tokens: 'Input {input} / Output {output} tokens',
+      duration: '{s}s',
+    },
   },
 
   work: {
