@@ -485,7 +485,9 @@ function inferTranscriptTerminalStatus(
   if (!allowStableCompletion) return null
 
   const hasRunningTool = messages.some(msg =>
-    msg.toolCalls?.some(tc => isUnsettledToolStatus(tc.status))
+    msg.toolCalls?.some(tc =>
+      (tc.name === 'Agent' || tc.name === 'Task') && isUnsettledToolStatus(tc.status)
+    )
   )
   return !hasRunningTool && getLastAssistantText(messages) ? 'completed' : null
 }
