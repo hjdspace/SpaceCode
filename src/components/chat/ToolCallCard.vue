@@ -1,5 +1,9 @@
 <template>
-  <div class="tool-call-card" :class="[statusClass, { 'is-expanded': isExpanded }]">
+  <BashToolCard v-if="toolCall.name === 'Bash'" :tool-call="toolCall" />
+  <FileWriteToolCard v-else-if="toolCall.name === 'Write'" :tool-call="toolCall" @open="$emit('open', $event)" />
+  <FileEditToolCard v-else-if="toolCall.name === 'Edit'" :tool-call="toolCall" />
+  <FileReadToolCard v-else-if="toolCall.name === 'Read'" :tool-call="toolCall" />
+  <div v-else class="tool-call-card" :class="[statusClass, { 'is-expanded': isExpanded }]">
     <div class="tool-call-header" @click="toggleExpand">
       <div class="tool-icon-wrapper">
         <Loader2 v-if="toolCall.status === 'running'" :size="14" class="spin-icon" />
@@ -60,6 +64,12 @@ import type { ToolCall } from '@/types'
 import { Loader2, Check, X, Terminal, ChevronDown } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import BashToolCard from './BashToolCard.vue'
+import FileWriteToolCard from './FileWriteToolCard.vue'
+import FileEditToolCard from './FileEditToolCard.vue'
+import FileReadToolCard from './FileReadToolCard.vue'
+
+defineEmits<{ (e: 'open', path: string): void }>()
 
 const { t } = useI18n()
 
