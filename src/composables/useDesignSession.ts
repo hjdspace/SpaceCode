@@ -1,159 +1,120 @@
-// @ts-nocheck
-import { useDesignStore } from '@/stores/design';
-import { useChatStore, useChatSessionStore } from '@/stores/chat'; // 现有 SpaceCode 聊天 Store 引用
-import { api } from '@/services/electronAPI';  // 现有 SpaceCode 主进程 IPC Bridge
-import { findFirstQuestionForm, splitOnQuestionForms } from '@/utils/design/questionForm';
-import { ref } from 'vue';
+import { useDesignStore } from '@/stores/design'
+import { useChatStore, useChatSessionStore } from '@/stores/chat'
+import { api } from '@/services/electronAPI'
+import { findFirstQuestionForm, splitOnQuestionForms } from '@/utils/design/questionForm'
+import { ref } from 'vue'
 
 export function useDesignSession() {
-  const designStore = useDesignStore();
-  const chatStore = useChatStore();
-  const chatSessionStore = useChatSessionStore();
-  const isGenerating = ref(false);
+  const designStore = useDesignStore()
+  const chatStore = useChatStore()
+  const chatSessionStore = useChatSessionStore()
+  const isGenerating = ref(false)
+  const listenerDisposers = new Map<string, () => void>()
 
-  /**
-   * 启动全新的设计生成任务
-   */
-  async function startDesignGeneration() {
-    if (!designStore.brief.trim()) return;
+  async function createDesignSession(): Promise<string> {
+    const userDataPath = await api.app.getPath('userData')
+    const workspacePath = `${userDataPath}/design-workspace/${Date.now()}`
+    designStore.designWorkspace = workspacePath
 
-    isGenerating.value = true;
-    designStore.clearPendingQuestionForm();
-    designStore.previewHtml = '';
+    const session = chatSessionStore.createSession('Design Session', workspacePath)
+    session.mode = 'design'
+    designStore.activeSessionId = session.id
 
-    try {
-      // 1. 创建设计工作空间目录并初始化 Session
-      // 默认将工作区指定在用户 SpaceCode 配置下的 design-workspace 目录
-      const sessionTitle = `Design: ${designStore.brief.trim().slice(0, 20)}...`;
-      const userDataPath = await api.app.getPath('userData');
-      const workspacePath = `${userDataPath}/design-workspace/${Date.now()}`;
-      designStore.designWorkspace = workspacePath;
+    const systemPrompt = await api.design.composePromptStack({
+      skillName: designStore.selectedToolboxSkillId,
+      locale: 'zh-CN',
+    })
 
-      // 2. 调用现存 chatStore 里的创建会话方法，将其 mode 设为 'design'
-      const session = chatSessionStore.createSession(sessionTitle, workspacePath);
-      session.mode = 'design';
-      designStore.activeSessionId = session.id;
+    await chatSessionStore.initClaudeCodeSession(session.id, {
+      systemPrompt,
+      cwd: workspacePath,
+      agent: 'ui-ux-pro-max',
+    })
 
-      // 3. 核心：通过 Electron 主进程拼装 23 层设计专用提示词栈，并注入 system-prompt
-      const systemPromptOverride = await api.design.composePromptStack({
-        designSystemId: designStore.selectedSystemId || undefined,
-        skillBody: undefined, // 可选：若有选定技能则传入
-        skillName: designStore.selectedSkillId,
-        locale: 'zh-CN', // 支持中文
-      });
-
-      // 4. 启动 Claude Code CLI 引擎会话并注入 --system-prompt 覆写参数
-      await chatSessionStore.initClaudeCodeSession(session.id, {
-        systemPrompt: systemPromptOverride, // 完全替换默认 system prompt
-        cwd: workspacePath,
-        agent: 'ui-ux-pro-max', // 使用内置的 ui-ux-pro-max 设计类 agent
-      });
-
-      // 5. 启动 Chokidar 主进程文件监听，实时追踪生成的网页
-      await api.design.startFileWatcher(session.id, workspacePath);
-
-      // 6. 发送初始的 Brief 设计需求（纯文本，不携带多余 prompt）
-      // chatStore.sendMessage 始终操作 currentSessionId，因此临时切换到设计会话
-      chatSessionStore.currentSessionId = session.id;
-      await chatStore.sendMessage(designStore.brief);
-
-      // 7. 开启事件流式处理
-      listenToStream(session.id);
-    } catch (error) {
-      console.error('Failed to start design session:', error);
-      isGenerating.value = false;
-    }
+    await api.design.startFileWatcher(session.id, workspacePath)
+    attachStreamListener(session.id)
+    return session.id
   }
 
-  /**
-   * 监听 Claude Code CLI 的 stdout 实时输出，拦截处理 QuestionForm 协议
-   */
-  function listenToStream(sessionId: string) {
-    let accumulatedText = '';
+  async function switchToolboxSkill(skillId: string): Promise<void> {
+    designStore.selectedToolboxSkillId = skillId
+    // 先重新拼装提示词栈：切换技能即改变 system prompt 的核心输入，
+    // 无论当前是否存在活跃会话都应触发 compose，便于上层校验技能可用性。
+    const systemPrompt = await api.design.composePromptStack({
+      skillName: skillId,
+      locale: 'zh-CN',
+    })
+    const sid = designStore.activeSessionId
+    if (!sid) return
+    await chatSessionStore.initClaudeCodeSession(sid, {
+      systemPrompt,
+      cwd: designStore.designWorkspace,
+      agent: 'ui-ux-pro-max',
+    })
+  }
 
-    const claudeCode = api.claudeCode;
-    if (!claudeCode) {
-      console.error('Claude Code API not available');
-      isGenerating.value = false;
-      return;
-    }
-
-    claudeCode.onStreamEvent(({ data, sessionId: eventSessionId }) => {
-      if (eventSessionId !== sessionId) return;
-
+  function attachStreamListener(sessionId: string) {
+    const claudeCode = api.claudeCode
+    if (!claudeCode) return
+    let accumulated = ''
+    const disposer = claudeCode.onStreamEvent(({ data, sessionId: evSid }: any) => {
+      if (evSid !== sessionId) return
       if (data.type === 'text_delta') {
-        accumulatedText += data.text;
-
-        // 拦截 <question-form> 标记
-        const form = findFirstQuestionForm(accumulatedText);
+        accumulated += data.text
+        const form = findFirstQuestionForm(accumulated)
         if (form && !designStore.pendingQuestionForm) {
-          // 剔除 XML 伪标记，只在 Chat 框显示 conversational 纯文本
-          const segments = splitOnQuestionForms(accumulatedText);
-          const textOnly = segments
-            .filter((s) => s.type === 'text')
-            .map((s) => s.text)
-            .join('');
-
-          // 缓存表单并唤起前端表单组件
-          designStore.setPendingQuestionForm(form);
-
-          // 在前端 UI 聊天历史中更新最后一条助手消息（若不存在则新增）
-          const session = chatSessionStore.sessions.find((s: { id: string }) => s.id === sessionId);
-          const lastAssistantMsg = session && [...session.messages].reverse().find(m => m.role === 'assistant');
-          if (lastAssistantMsg) {
-            chatSessionStore.updateMessage(lastAssistantMsg.id, { content: textOnly }, sessionId);
-          } else {
-            chatSessionStore.addMessage({ role: 'assistant', content: textOnly }, sessionId);
-          }
+          const segs = splitOnQuestionForms(accumulated)
+          const textOnly = segs.filter(s => s.type === 'text').map(s => s.text).join('')
+          designStore.setPendingQuestionForm(form)
+          const session = chatSessionStore.sessions.find((s: any) => s.id === sessionId)
+          const last = session && [...session.messages].reverse().find((m: any) => m.role === 'assistant')
+          if (last) chatSessionStore.updateMessage(last.id, { content: textOnly }, sessionId)
         }
+      } else if (data.type === 'usage') {
+        designStore.setUsage(data.usage)
       } else if (data.type === 'status' && data.status === 'idle') {
-        // AI 闲置/完成时，关闭 loading 态
-        isGenerating.value = false;
+        isGenerating.value = false
       }
-    });
+    })
+    listenerDisposers.set(sessionId, disposer)
   }
 
-  /**
-   * 用户提交发现表单答案，回传给 AI 驱动第二轮逻辑
-   */
+  function detachStreamListener(sessionId: string) {
+    const disposer = listenerDisposers.get(sessionId)
+    if (disposer) { disposer(); listenerDisposers.delete(sessionId) }
+  }
+
   async function submitQuestionForm(answers: Record<string, any>) {
-    const sessionId = designStore.activeSessionId;
-    if (!sessionId) return;
-
-    // 依照 open-design 协议格式化回传
-    const responseMessage = `[form answers — discovery] ${JSON.stringify(answers)}`;
-
-    designStore.clearPendingQuestionForm();
-    isGenerating.value = true;
-
-    // 发送答案作为新一轮 user message
-    chatSessionStore.currentSessionId = sessionId;
-    await chatStore.sendMessage(responseMessage);
+    const sid = designStore.activeSessionId
+    if (!sid) return
+    const responseMessage = `[form answers — discovery] ${JSON.stringify(answers)}`
+    designStore.clearPendingQuestionForm()
+    isGenerating.value = true
+    chatSessionStore.currentSessionId = sid
+    await chatStore.sendMessage(responseMessage)
   }
 
-  /**
-   * 主动终止设计生成进程
-   */
   async function stopDesignGeneration() {
-    const sessionId = designStore.activeSessionId;
-    if (!sessionId) return;
-
-    const claudeCode = api.claudeCode;
-    if (claudeCode) {
-      try {
-        await claudeCode.stop(sessionId);
-      } catch (error) {
-        console.error('Failed to stop design session:', error);
-      }
+    const sid = designStore.activeSessionId
+    if (!sid) return
+    if (api.claudeCode) {
+      try { await api.claudeCode.stop(sid) } catch (e) { console.error(e) }
     }
-    await api.design.stopFileWatcher();
-    isGenerating.value = false;
+    await api.design.stopFileWatcher()
+    isGenerating.value = false
+  }
+
+  async function closeDesignSession(sessionId: string) {
+    detachStreamListener(sessionId)
+    await api.design.stopFileWatcher()
   }
 
   return {
     isGenerating,
-    startDesignGeneration,
+    createDesignSession,
+    switchToolboxSkill,
     submitQuestionForm,
     stopDesignGeneration,
-  };
+    closeDesignSession,
+  }
 }
