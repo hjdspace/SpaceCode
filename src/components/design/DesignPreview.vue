@@ -61,9 +61,10 @@ onMounted(() => {
     // 如果是 HTML 变动，拉取最新源码并刷新 iframe
     if (filepath.endsWith('.html')) {
       const code = await api.readFile(filepath);
+      if (code === null) return;
       designStore.previewHtml = code;
       updateIframeContent(code);
-      
+
       // 更新交付件列表
       const filename = filepath.split('/').pop() || 'index.html';
       const existing = designStore.artifactFiles.find(f => f.path === filepath);

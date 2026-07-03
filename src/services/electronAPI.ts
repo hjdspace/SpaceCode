@@ -1088,4 +1088,48 @@ export const api = {
     getCustomDirs: (): Promise<any> =>
       electronAPI?.skills?.getCustomDirs() || Promise.resolve({ directories: [] }),
   },
+
+  // App paths API
+  app: {
+    getPath: (name: string): Promise<string> =>
+      electronAPI?.app?.getPath(name) || Promise.resolve(''),
+  },
+
+  // Shell API
+  shell: {
+    openExternal: (url: string): Promise<void> =>
+      electronAPI?.shell?.openExternal(url) || Promise.resolve(),
+  },
+
+  // Notification API
+  showNotification: (options: { title: string; message: string }): void => {
+    if (electronAPI?.showNotification) {
+      electronAPI.showNotification(options)
+    }
+  },
+
+  // Design API
+  design: {
+    listSystems: (): Promise<Array<{ id: string; name: string; category: string }>> =>
+      electronAPI?.design?.listSystems() || Promise.resolve([]),
+    composePromptStack: (input: {
+      designSystemId?: string;
+      skillBody?: string;
+      skillName?: string;
+      locale: string;
+    }): Promise<string> =>
+      electronAPI?.design?.composePromptStack(input) || Promise.resolve(''),
+    startFileWatcher: (sessionId: string, workspacePath: string): Promise<void> =>
+      electronAPI?.design?.startFileWatcher(sessionId, workspacePath) || Promise.resolve(),
+    stopFileWatcher: (): Promise<void> =>
+      electronAPI?.design?.stopFileWatcher() || Promise.resolve(),
+    exportArtifact: (options: { filePath: string; format: 'html' | 'zip' | 'pdf' }): Promise<void> =>
+      electronAPI?.design?.exportArtifact(options) || Promise.resolve(),
+    onFileChanged: (callback: (event: { sessionId: string; filepath: string }) => void): (() => void) => {
+      if (electronAPI?.design?.onFileChanged) {
+        return electronAPI.design.onFileChanged(callback)
+      }
+      return () => {}
+    },
+  },
 }

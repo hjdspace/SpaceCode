@@ -33,7 +33,7 @@ export function buildSrcdoc(html: string): string {
  * Bridge 1: 清理/截断 Title，防范潜在 XSS
  */
 function sanitizeTitleInDoc(html: string): string {
-  return html.replace(/<title>([\s\S]*?)</title>/gi, (match, titleText) => {
+  return html.replace(/<title>([\s\S]*?)<\/title>/gi, (match, titleText) => {
     const cleanText = titleText.replace(/</g, '&lt;').replace(/>/g, '&gt;').trim();
     return `<title>${cleanText}</title>`;
   });
@@ -108,8 +108,8 @@ function injectSrcdocTransportActivationBridge(html: string): string {
   `;
 
   // 注入到 <body> 结尾前
-  if (/</body>/i.test(html)) {
-    return html.replace(/</body>/i, `${transportScript}</body>`);
+  if (/<\/body>/i.test(html)) {
+    return html.replace(/<\/body>/i, `${transportScript}</body>`);
   }
   return html + transportScript;
 }

@@ -18,6 +18,7 @@ import { MobileServer } from './mobileServer'
 import type { QRCodeData, ServerStatus } from './mobileServerTypes'
 import { buildThemeSyncData } from './themeSyncBuilder'
 import { registerPromptOptimizerIPC } from './promptOptimizerIPC'
+import { registerDesignIPCHandlers } from './design/designService'
 import { aggregateLocalTokenStats } from './tokenStatsService'
 import { initLogger, info, warn, error, debug, isDebugMode, ipc as logIpc, traceEvent, listDebugFiles, readDebugFile, listTraceSessions, readTraceEvents, getTraceDir } from './logger'
 import { proxyManager } from './proxyManager'
@@ -649,6 +650,13 @@ info('Startup', 'CuaDriver IPC handlers registered')
   registerClaudeCodeIPC()
   info('Startup', 'Claude Code IPC handlers registered')
 
+  // Register Design IPC handlers
+  const designResourcesPath = app.isPackaged
+    ? resolve(process.resourcesPath, '..')
+    : resolve(__dirname, '..')
+  registerDesignIPCHandlers(mainWindow!, designResourcesPath)
+  info('Startup', 'Design IPC handlers registered')
+
   // Mobile server
   registerMobileIPCHandlers()
 
@@ -1105,6 +1113,11 @@ ipcMain.on('ui:hideInfoPanel', () => {
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   info('IPC', 'shell:openExternal', { url })
   await shell.openExternal(url)
+})
+
+ipcMain.handle('shell:openPath', async (_event, targetPath: string) => {
+  info('IPC', 'shell:openPath', { targetPath })
+  await shell.openPath(targetPath)
 })
 
 ipcMain.handle('app:openInEditor', async (_event, editor: ExternalEditor, targetPath: string) => {

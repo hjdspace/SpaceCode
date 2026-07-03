@@ -129,6 +129,7 @@ export interface ElectronClaudeCodeAPI {
   // 因 TypeScript 逆变限制，具体类型（如 PermissionRequest）无法赋值给 unknown/Record<string, unknown>。
   onAssistant: (callback: (data: { sessionId: string; data: any }) => void) => () => void
   onUser: (callback: (data: { sessionId: string; data: any }) => void) => () => void
+  onSystem: (callback: (data: { sessionId: string; data: any }) => void) => () => void
   onToolUse: (callback: (data: { sessionId: string; data: any }) => void) => () => void
   onToolResult: (callback: (data: { sessionId: string; data: any }) => void) => () => void
   onResult: (callback: (data: { sessionId: string; data: any }) => void) => () => void
@@ -443,8 +444,29 @@ export interface ElectronAPI {
 
   getAppVersion: () => Promise<string>
 
-  shell?: {
+  app: {
+    getPath: (name: string) => Promise<string>
+  }
+
+  shell: {
+    openExternal: (url: string) => Promise<void>
     openPath: (path: string) => Promise<void>
+  }
+
+  showNotification: (options: { title: string; message: string }) => void
+
+  design: {
+    listSystems: () => Promise<Array<{ id: string; name: string; category: string }>>
+    composePromptStack: (input: {
+      designSystemId?: string
+      skillBody?: string
+      skillName?: string
+      locale: string
+    }) => Promise<string>
+    startFileWatcher: (sessionId: string, workspacePath: string) => Promise<void>
+    stopFileWatcher: () => Promise<void>
+    exportArtifact: (options: { filePath: string; format: 'html' | 'zip' | 'pdf' }) => Promise<void>
+    onFileChanged: (callback: (event: { sessionId: string; filepath: string }) => void) => () => void
   }
 }
 

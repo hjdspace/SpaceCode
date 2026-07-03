@@ -339,6 +339,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('claude-code:user', wrapper)
       return () => ipcRenderer.removeListener('claude-code:user', wrapper)
     },
+    onSystem: (callback: (data: { sessionId: string; data: any }) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
+      ipcRenderer.on('claude-code:system', wrapper)
+      return () => ipcRenderer.removeListener('claude-code:system', wrapper)
+    },
     onToolUse: (callback: (data: { sessionId: string; data: any }) => void) => {
       const wrapper = (_: any, data: any) => callback(data)
       ipcRenderer.on('claude-code:tool_use', wrapper)
@@ -706,6 +711,48 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const wrapper = (_: any, error: string) => callback(error)
       ipcRenderer.on('update:error', wrapper)
       return () => ipcRenderer.removeListener('update:error', wrapper)
+    },
+  },
+
+  // App paths API
+  app: {
+    getPath: (name: string): Promise<string> =>
+      ipcRenderer.invoke('app:getPath', name),
+  },
+
+  // Shell API
+  shell: {
+    openExternal: (url: string): Promise<void> =>
+      ipcRenderer.invoke('shell:openExternal', url),
+    openPath: (path: string): Promise<void> =>
+      ipcRenderer.invoke('shell:openPath', path),
+  },
+
+  // Notification API
+  showNotification: (options: { title: string; message: string }) =>
+    ipcRenderer.send('app:showNotification', options),
+
+  // Design API
+  design: {
+    listSystems: (): Promise<Array<{ id: string; name: string; category: string }>> =>
+      ipcRenderer.invoke('design:list-systems'),
+    composePromptStack: (input: {
+      designSystemId?: string;
+      skillBody?: string;
+      skillName?: string;
+      locale: string;
+    }): Promise<string> =>
+      ipcRenderer.invoke('design:compose-prompt-stack', input),
+    startFileWatcher: (sessionId: string, workspacePath: string): Promise<void> =>
+      ipcRenderer.invoke('design:start-file-watcher', sessionId, workspacePath),
+    stopFileWatcher: (): Promise<void> =>
+      ipcRenderer.invoke('design:stop-file-watcher'),
+    exportArtifact: (options: { filePath: string; format: 'html' | 'zip' | 'pdf' }): Promise<void> =>
+      ipcRenderer.invoke('design:export-artifact', options),
+    onFileChanged: (callback: (event: { sessionId: string; filepath: string }) => void): (() => void) => {
+      const wrapper = (_: any, event: any) => callback(event)
+      ipcRenderer.on('design:file-changed', wrapper)
+      return () => ipcRenderer.removeListener('design:file-changed', wrapper)
     },
   },
 

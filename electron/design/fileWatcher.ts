@@ -1,7 +1,7 @@
-import chokidar from 'chokidar';
+import { watch, FSWatcher } from 'chokidar';
 import { BrowserWindow } from 'electron';
 
-let watcher: chokidar.FSWatcher | null = null;
+let watcher: FSWatcher | null = null;
 
 /**
  * 启动设计工作目录的 Chokidar 文件监听服务
@@ -19,14 +19,14 @@ export function startDesignFileWatcher(
     watcher.close();
   }
 
-  watcher = chokidar.watch(workspaceDir, {
-    ignored: /(^|[/\])\..|node_modules|\.git/, // 忽略隐藏文件、git 及 node_modules
+  watcher = watch(workspaceDir, {
+    ignored: /(^|[/\\])\..|node_modules|\.git/, // 忽略隐藏文件、git 及 node_modules
     persistent: true,
     ignoreInitial: true,
     depth: 3,
   });
 
-  watcher.on('change', (filepath) => {
+  watcher.on('change', (filepath: string) => {
     const ext = filepath.split('.').pop()?.toLowerCase();
     if (ext === 'html' || ext === 'css' || ext === 'js') {
       mainWindow.webContents.send('design:file-changed', {
@@ -36,7 +36,7 @@ export function startDesignFileWatcher(
     }
   });
 
-  watcher.on('add', (filepath) => {
+  watcher.on('add', (filepath: string) => {
     const ext = filepath.split('.').pop()?.toLowerCase();
     if (ext === 'html' || ext === 'css' || ext === 'js') {
       mainWindow.webContents.send('design:file-changed', {

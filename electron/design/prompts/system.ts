@@ -165,21 +165,16 @@ ${preflight}`);
 - NEVER fabricate user turns or pretend the user answered.
 - Stop immediately and await user input whenever a prompt, question, or step is finished.`);
 
-  return parts.join('
-
-');
+  return parts.join('\n\n');
 }
 
 /**
  * 辅助函数：扫描 SKILL.md 是否引用了 side files，并注入 Preflight 读取指令
  */
 function derivePreflight(skillBody: string): string | null {
-  const matches = skillBody.match(/assets/[a-zA-Z0-9_\-./]+/g) || [];
+  const matches = skillBody.match(/\/assets\/[a-zA-Z0-9_\-./]+/g) || [];
   const uniqueFiles = Array.from(new Set(matches));
   if (uniqueFiles.length === 0) return null;
 
-  return `Before creating or editing any code files, you MUST use your filesystem read tools to check the following templates and checklists if they exist in your workspace:
-${uniqueFiles.map(f => `- ${f}`).join('
-')}
-Incorporate their layout patterns and rules strictly into your designs.`;
+  return `Before creating or editing any code files, you MUST use your filesystem read tools to check the following templates and checklists if they exist in your workspace:\n${uniqueFiles.map(f => `- ${f}`).join('\n')}\nIncorporate their layout patterns and rules strictly into your designs.`;
 }

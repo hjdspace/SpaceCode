@@ -180,7 +180,7 @@ import { storeToRefs } from 'pinia';
 import { useDesignStore } from '@/stores/design';
 import { useDesignSession } from '@/composables/useDesignSession';
 import { api } from '@/services/electronAPI';
-import { DESIGN_DIRECTIONS } from '../../../../electron/design/prompts/directions';
+import { DESIGN_DIRECTIONS } from '@/lib/design/directions';
 
 // 引入 Lucide 图标
 import { 
@@ -226,7 +226,7 @@ onUnmounted(() => {
 async function selectArtifact(file: any) {
   selectedArtifactPath.value = file.path;
   const content = await api.readFile(file.path);
-  previewHtml.value = content;
+  previewHtml.value = content ?? '';
   previewTitle.value = file.name;
 }
 
