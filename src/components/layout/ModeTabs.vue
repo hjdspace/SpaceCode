@@ -20,12 +20,22 @@
       <Code2 :size="14" />
       <span>{{ t('mode.code') }}</span>
     </button>
+    <button
+      class="mode-tab"
+      :class="{ active: appStore.mode === 'design' }"
+      role="tab"
+      :aria-selected="appStore.mode === 'design'"
+      @click="handleSelect('design')"
+    >
+      <Palette :size="14" />
+      <span>{{ t('mode.design') }}</span>
+    </button>
   </div>
 </template>
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { Briefcase, Code2 } from 'lucide-vue-next'
+import { Briefcase, Code2, Palette } from 'lucide-vue-next'
 import { useAppStore, type AppMode } from '@/stores/app'
 
 const { t } = useI18n()

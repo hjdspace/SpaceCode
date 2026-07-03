@@ -31,6 +31,7 @@
           <McpManager v-else-if="appStore.showMCPManager" />
           <CronManager v-else-if="appStore.showCronManager" />
           <WorkAssistantGallery v-else-if="appStore.showWorkGallery" />
+          <DesignPage v-else-if="appStore.mode === 'design'" />
           <SplitContainer v-else-if="!appStore.showTraceViewer" />
           <TraceViewer v-else />
         </div>
@@ -81,6 +82,7 @@ import { useFontStore } from '@/stores/font'
 import TitleBar from './components/layout/TitleBar.vue'
 import Sidebar from './components/layout/Sidebar.vue'
 import SplitContainer from './components/layout/SplitContainer.vue'
+import DesignPage from './components/design/DesignPage.vue'
 import InfoPanel from './components/layout/InfoPanel.vue'
 import TerminalTabBar from './components/terminal/TerminalTabBar.vue'
 import TerminalPanel from './components/terminal/TerminalPanel.vue'

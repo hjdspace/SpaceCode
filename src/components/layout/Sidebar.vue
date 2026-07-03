@@ -306,7 +306,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useChatStore } from '@/stores/chat'
-import { useAppStore } from '@/stores/app'
+import { useAppStore, type AppMode } from '@/stores/app'
 import { useSettingsStore } from '@/stores/settings'
 import { useScmStore } from '@/stores/scm'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
@@ -389,7 +389,7 @@ function handleOpenArtifacts() {
 }
 
 // 切换模式后回到历史面板，并切换到该模式下的最近会话（没有则创建新会话）
-async function handleModeSelect(mode: 'work' | 'code') {
+async function handleModeSelect(mode: AppMode) {
   activeTab.value = 'history'
 
   // 切换到新模式下的最近会话；没有则创建新会话
@@ -413,7 +413,7 @@ async function handleModeSelect(mode: 'work' | 'code') {
     if (!appStore.workWorkspaceConfirmed) {
       appStore.showWorkOnboarding = true
     }
-  } else {
+  } else if (mode === 'code') {
     // 回到 Code：关闭 Work 专属视图
     appStore.showWorkGallery = false
   }

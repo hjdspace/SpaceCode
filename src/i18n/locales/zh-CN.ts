@@ -22,6 +22,11 @@ export default {
   mode: {
     work: '办公',
     code: '编码',
+    design: '设计',
+  },
+
+  design: {
+    placeholder: '设计模式占位页面',
   },
 
   work: {
@@ -1834,9 +1839,6 @@ export default {
     llmNotConfigured: 'LLM 未配置',
     llmConfig: 'LLM 配置',
     llmHint: 'Browser Use 需要 LLM 驱动。ChatBrowserUse 提供优化的浏览器自动模型。',
-    llmReuseHint: 'Browser Use 自动复用桌面程序的 LLM 配置（读取 ~/.claude/gui-settings.json），无需重复填写 API Key。',
-    llmReused: '已复用桌面程序 LLM 配置',
-    llmNotReused: '未检测到桌面 LLM 配置，请先在「设置」中配置 API Key',
     configured: '已配置',
     provider: 'Provider',
     model: '模型',
@@ -1856,8 +1858,6 @@ export default {
     userDataDirHint: '留空使用临时配置',
     downloadsPath: '下载目录（可选）',
     downloadsPathHint: '默认下载位置',
-    browse: '浏览',
-    browseFolder: '选择目录',
     diagnosis: '诊断结果',
     allPassed: '全部通过',
     issuesFound: '发现问题',

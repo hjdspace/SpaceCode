@@ -624,7 +624,10 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     return session
   }
 
-  async function initClaudeCodeSession(sessionId: string): Promise<void> {
+  async function initClaudeCodeSession(
+    sessionId: string,
+    overrides?: { systemPrompt?: string; agent?: string; cwd?: string }
+  ): Promise<void> {
     const claudeCode = api.claudeCode
     if (!claudeCode) {
       logger.warn('ChatStore', `initClaudeCodeSession: claudeCode API not available`)
@@ -669,7 +672,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
 
     try {
       const config = settingsStore.config
-      const cwd = session.workingDirectory || currentProjectRoot.value || await api.getCwd() || '/'
+      const cwd = overrides?.cwd || session.workingDirectory || currentProjectRoot.value || await api.getCwd() || '/'
 
       session.processStatus = 'starting'
       saveToStorage()
@@ -703,12 +706,13 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         model: config.model,
         effortLevel: config.effortLevel,
         permissionMode: controlStore.currentPermissionMode,
-        agent: currentAgent.value || undefined,
+        agent: overrides?.agent || currentAgent.value || undefined,
         thinkingEnabled: settingsStore.thinkingEnabled,
         engineType: desiredEngine,
         engineSource: settingsStore.engineSource,
         installedCliPath: settingsStore.installedCliPath ?? undefined,
         resumeSessionId: session._resumeSessionId,
+        systemPrompt: overrides?.systemPrompt,
       })
 
       delete session._resumeSessionId

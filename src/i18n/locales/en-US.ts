@@ -22,6 +22,11 @@ export default {
   mode: {
     work: 'Work',
     code: 'Code',
+    design: 'Design',
+  },
+
+  design: {
+    placeholder: 'Design mode placeholder page',
   },
 
   work: {

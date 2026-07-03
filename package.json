@@ -164,6 +164,10 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "design-systems-lib",
+        "to": "design-systems-lib"
       }
     ],
     "win": {
