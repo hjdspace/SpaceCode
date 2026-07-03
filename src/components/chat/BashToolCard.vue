@@ -20,8 +20,9 @@ const props = defineProps<{ toolCall: ToolCall }>()
 const expanded = ref(true)
 const toggle = () => { expanded.value = !expanded.value }
 const duration = computed(() => {
-  if (!props.toolCall.startTime || !props.toolCall.endTime) return 0
-  return ((props.toolCall.endTime - props.toolCall.startTime) / 1000).toFixed(1)
+  if (!props.toolCall.startTime) return 0
+  const end = props.toolCall.endTime || Date.now()
+  return ((end - props.toolCall.startTime) / 1000).toFixed(1)
 })
 const output = computed(() => props.toolCall.output || '')
 const stdout = computed(() => output.value.split('\n--- stderr ---\n')[0] || '')

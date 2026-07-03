@@ -60,6 +60,8 @@
 </template>
 
 <script setup lang="ts">
+// 本组件为 design 模式专用（Task 7 MessageItem.events 接入），
+// code/work 模式仍走 ToolCallList + tools/*ToolCard 路径。
 import type { ToolCall } from '@/types'
 import { Loader2, Check, X, Terminal, ChevronDown } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
