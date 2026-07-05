@@ -61,4 +61,15 @@ describe('WorkingDirectoryPicker', () => {
     expect(api.selectFolder).toHaveBeenCalledTimes(1)
     expect(w.emitted('update:modelValue')).toBeFalsy()
   })
+
+  it('点击菜单外部关闭面板', async () => {
+    const w = mount(WorkingDirectoryPicker, { props: { modelValue: '' } })
+    await w.find('[data-testid="working-dir-trigger"]').trigger('click')
+    expect(w.find('[data-testid="working-dir-panel"]').exists()).toBe(true)
+
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await w.vm.$nextTick()
+
+    expect(w.find('[data-testid="working-dir-panel"]').exists()).toBe(false)
+  })
 })

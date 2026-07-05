@@ -142,7 +142,7 @@ function clearDirectory() {
   open.value = false
 }
 
-function onPointer(event: MouseEvent) {
+function onClickOutside(event: MouseEvent) {
   if (wrapRef.value?.contains(event.target as Node)) return
   open.value = false
 }
@@ -152,12 +152,12 @@ function onKey(event: KeyboardEvent) {
 }
 
 onMounted(() => {
-  document.addEventListener('mousedown', onPointer)
+  document.addEventListener('click', onClickOutside)
   document.addEventListener('keydown', onKey)
 })
 
 onUnmounted(() => {
-  document.removeEventListener('mousedown', onPointer)
+  document.removeEventListener('click', onClickOutside)
   document.removeEventListener('keydown', onKey)
 })
 </script>
