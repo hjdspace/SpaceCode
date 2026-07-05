@@ -1520,12 +1520,32 @@ overflow: hidden;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  transition: padding-right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
   // 300 (panel width) + 12 (right margin) + 12 (gutter to chat) = 324.
   --env-shoulder: 0px;
   &.with-env-panel.chat-main-reserved {
     --env-shoulder: 324px;
+  }
+
+  > * {
+    transition: margin-right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .chat-panel-body > * {
+    transition:
+      margin-right 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+      padding-right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  &.with-env-panel.chat-main-reserved > :not(.chat-panel-body) {
+    margin-right: var(--env-shoulder);
+  }
+
+  &.with-env-panel.chat-main-reserved .chat-panel-body > :not(.message-list) {
+    margin-right: var(--env-shoulder);
+  }
+
+  &.with-env-panel.chat-main-reserved .chat-panel-body > .message-list {
     padding-right: var(--env-shoulder);
   }
 
