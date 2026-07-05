@@ -161,6 +161,13 @@ export default {
     assistantChosenToast: 'Selected {name}, entering session…',
     createCustom: 'Create Custom Assistant',
     createCustomDesc: 'Bind skills, set role, build your own office assistant',
+    createCustomSub: 'Bind skills and model',
+    capabilities: '{count} capabilities',
+    generalChat: 'General chat',
+    abilitiesLabel: 'Capabilities',
+    trySaying: 'Try saying',
+    exampleCount: '{count} examples',
+    noSkillNeeded: 'No extra skills needed — just start chatting',
   },
 
   artifacts: {

@@ -161,6 +161,13 @@ export default {
     assistantChosenToast: '已选择「{name}」，进入会话…',
     createCustom: '创建自定义助手',
     createCustomDesc: '绑定技能、设定角色，打造你的专属办公助手',
+    createCustomSub: '绑定技能与模型',
+    capabilities: '{count} 项能力',
+    generalChat: '通用对话',
+    abilitiesLabel: '能力',
+    trySaying: '试试说',
+    exampleCount: '{count} 个示例',
+    noSkillNeeded: '无需额外技能，直接对话即可',
   },
 
   artifacts: {
