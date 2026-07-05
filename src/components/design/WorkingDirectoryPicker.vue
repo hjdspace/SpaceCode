@@ -217,9 +217,10 @@ onUnmounted(() => {
 
 .working-dir-panel {
   left: 0;
-  top: calc(100% + 8px);
+  bottom: calc(100% + 8px);
   min-width: 260px;
   animation: panelIn 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  transform-origin: bottom left;
 }
 
 .working-dir-item {
@@ -324,7 +325,7 @@ onUnmounted(() => {
 @keyframes panelIn {
   from {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;

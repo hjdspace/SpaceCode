@@ -184,10 +184,7 @@ async function loadPreview(system: DesignSystemSummary) {
   previewLoading.value = true
   previewHtml.value = ''
   try {
-    const page = system.previewPages[0]
-    const html = page
-      ? await api.design.getSystemPreview(system.id, page.path)
-      : await api.design.getSystemShowcase(system.id)
+    const html = await api.design.getSystemShowcase(system.id)
     if (requestId === previewRequestId) previewHtml.value = html
   } finally {
     if (requestId === previewRequestId) previewLoading.value = false

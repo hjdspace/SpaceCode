@@ -56,11 +56,40 @@
                 <span>{{ t('design.toolbox.plugins') }}</span>
                 <ChevronDown :size="14" class="item-caret item-caret--right" />
               </button>
-              <button type="button" class="plus-menu-item has-caret" @click="seedMcpMention">
-                <Link2 :size="18" stroke-width="1.8" />
-                <span>MCP</span>
-                <ChevronDown :size="14" class="item-caret item-caret--right" />
-              </button>
+                            <div
+                class="plus-menu-submenu"
+                @mouseenter="mcpSubmenuOpen = true"
+                @mouseleave="mcpSubmenuOpen = false"
+              >
+                <button type="button" class="plus-menu-item has-caret">
+                  <Link2 :size="18" stroke-width="1.8" />
+                  <span>MCP</span>
+                  <ChevronDown :size="14" class="item-caret item-caret--right" />
+                </button>
+
+                <div v-if="mcpSubmenuOpen" class="mcp-flyout" data-testid="mcp-flyout">
+                  <div v-if="mcpStore.serverList.length === 0" class="mcp-empty">
+                    {{ t('design.toolbox.mcpEmpty') }}
+                  </div>
+                  <div v-else class="mcp-server-list">
+                    <button
+                      v-for="server in mcpStore.serverList"
+                      :key="server.name"
+                      type="button"
+                      class="skill-option"
+                      :class="{ active: selectedMcpServers.has(server.name) }"
+                      @click="toggleMcpServer(server.name)"
+                    >
+                      <span class="skill-name">{{ server.name }}</span>
+                      <span class="skill-desc">{{ server.enabled ? t('design.toolbox.mcpEnabled') : t('design.toolbox.mcpDisabled') }}</span>
+                    </button>
+                  </div>
+                  <button type="button" class="mcp-add-btn" @click="openMcpManager">
+                    <Plus :size="14" stroke-width="2" />
+                    <span>{{ t('design.toolbox.mcpAddNew') }}</span>
+                  </button>
+                </div>
+              </div>
 
               <div v-if="skillShelfOpen" class="plus-menu-shelf">
                 <button
@@ -158,6 +187,7 @@ import {
 } from 'lucide-vue-next'
 import { useDesignStore } from '@/stores/design'
 import { useChatSessionStore } from '@/stores/chat'
+import { useMcpStore } from '@/stores/mcp'
 import { useDesignSession } from '@/composables/useDesignSession'
 import { api } from '@/services/electronAPI'
 import { vClickOutside } from '@/directives/vClickOutside'
@@ -171,11 +201,14 @@ const emit = defineEmits<{ (e: 'send', content: string): void; (e: 'stop'): void
 const { t } = useI18n()
 const designStore = useDesignStore()
 const chatSessionStore = useChatSessionStore()
+const mcpStore = useMcpStore()
 const { isGenerating, switchToolboxSkill, switchDesignSystem, buildDesignMessage } = useDesignSession()
 const value = ref('')
 const plusMenuOpen = ref(false)
 const contextMenuOpen = ref(false)
 const skillShelfOpen = ref(false)
+const mcpSubmenuOpen = ref(false)
+const selectedMcpServers = ref<Set<string>>(new Set())
 const selectedFiles = ref<string[]>([])
 const designSystems = ref<DesignSystemSummary[]>([])
 
@@ -191,6 +224,7 @@ const canSend = computed(() => value.value.trim().length > 0 || selectedFiles.va
 
 onMounted(async () => {
   designSystems.value = await api.design.listSystems()
+  mcpStore.fetchServers()
   document.addEventListener('keydown', handleEscape)
 })
 
@@ -200,12 +234,18 @@ onBeforeUnmount(() => {
 
 function togglePlusMenu() {
   plusMenuOpen.value = !plusMenuOpen.value
-  if (plusMenuOpen.value) contextMenuOpen.value = false
+  if (plusMenuOpen.value) {
+    contextMenuOpen.value = false
+  } else {
+    skillShelfOpen.value = false
+    mcpSubmenuOpen.value = false
+  }
 }
 
 function closePlusMenu() {
   plusMenuOpen.value = false
   skillShelfOpen.value = false
+  mcpSubmenuOpen.value = false
 }
 
 function closeContextMenu() {
@@ -217,6 +257,7 @@ function handleEscape(e: KeyboardEvent) {
     plusMenuOpen.value = false
     contextMenuOpen.value = false
     skillShelfOpen.value = false
+    mcpSubmenuOpen.value = false
   }
 }
 
@@ -227,6 +268,7 @@ function selectSkill(id: string) {
 
 function toggleSkillShelf() {
   skillShelfOpen.value = !skillShelfOpen.value
+  if (skillShelfOpen.value) mcpSubmenuOpen.value = false
 }
 
 function onDesignSystemChange(systemId: string | null) {
@@ -259,8 +301,18 @@ function seedConnectorMention() {
   closePlusMenu()
 }
 
-function seedMcpMention() {
-  appendLine(t('design.toolbox.mcpSeed'))
+function toggleMcpServer(name: string) {
+  const next = new Set(selectedMcpServers.value)
+  if (next.has(name)) {
+    next.delete(name)
+  } else {
+    next.add(name)
+  }
+  selectedMcpServers.value = next
+}
+
+function openMcpManager() {
+  window.dispatchEvent(new CustomEvent('open-mcp-manager'))
   closePlusMenu()
 }
 
@@ -298,13 +350,21 @@ async function send() {
   const attachmentBlock = selectedFiles.value.length
     ? selectedFiles.value.map((file) => `- ${file}`).join('\n')
     : ''
+  const mcpBlock = selectedMcpServers.value.size > 0
+    ? Array.from(selectedMcpServers.value).map((name) => `- ${name}`).join('\n')
+    : ''
   const userText = value.value.trim()
-  const rawContent = attachmentBlock
-    ? `${userText ? `${userText}\n\n` : ''}${t('design.toolbox.attachedFilesPrefix')}\n${attachmentBlock}`
-    : userText
+  let rawContent = userText
+  if (attachmentBlock) {
+    rawContent = `${rawContent ? `${rawContent}\n\n` : ''}${t('design.toolbox.attachedFilesPrefix')}\n${attachmentBlock}`
+  }
+  if (mcpBlock) {
+    rawContent = `${rawContent ? `${rawContent}\n\n` : ''}${t('design.toolbox.mcpSeed')}\n${mcpBlock}`
+  }
   const content = buildDesignMessage(rawContent)
   value.value = ''
   selectedFiles.value = []
+  selectedMcpServers.value = new Set()
   emit('send', content)
 }
 </script>
@@ -648,6 +708,57 @@ async function send() {
   transform: rotate(-90deg);
 }
 
+.plus-menu-submenu {
+  position: relative;
+}
+
+.mcp-flyout {
+  position: absolute;
+  bottom: 0;
+  left: 100%;
+  width: 240px;
+  margin-left: 6px;
+  padding: 8px;
+  border: 1px solid #d8e0eb;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 18px 44px rgba(24, 25, 31, 0.16);
+  z-index: 125;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  animation: mcpFlyoutIn 130ms cubic-bezier(0.23, 1, 0.32, 1);
+  transform-origin: left bottom;
+}
+
+.mcp-server-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mcp-flyout::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 -6px;
+  width: 6px;
+}
+
+@keyframes mcpFlyoutIn {
+  from {
+    opacity: 0;
+    transform: translateX(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
 .plus-menu-shelf {
   margin-top: 6px;
   padding-top: 6px;
@@ -675,6 +786,36 @@ async function send() {
 
 .skill-name { display: block; font-size: 12px; font-weight: 500; }
 .skill-desc { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+.mcp-empty {
+  padding: 10px 9px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.mcp-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 9px;
+  margin-top: 4px;
+  border: 1px dashed var(--surface-border-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.mcp-add-btn:hover {
+  background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
+  border-color: var(--accent-primary);
+}
 
 @keyframes composerMenuIn {
   from {
