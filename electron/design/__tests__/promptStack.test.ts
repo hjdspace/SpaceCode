@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { listDesignSystems, getSystemPreviewHtml, parseSwatchesFromTokensCss } from '../promptStack'
+import { listDesignSystems, getSystemPreviewHtml, getSystemShowcaseHtml, parseSwatchesFromTokensCss } from '../promptStack'
 import * as path from 'path'
 
 const extraResourcesPath = path.resolve(__dirname, '../../../')
@@ -48,5 +48,13 @@ describe('getSystemPreviewHtml', () => {
     expect(html).not.toMatch(/<link[^>]*stylesheet/)
     expect(html).toContain('--bg:')
     expect(html).toContain('<style>')
+  })
+})
+
+describe('getSystemShowcaseHtml', () => {
+  it('按 open-design showcase 模板从 DESIGN.md 生成 agentic 展示页', async () => {
+    const html = await getSystemShowcaseHtml(extraResourcesPath, 'agentic')
+    expect(html).toContain('The system that makes <em>Agentic</em> feel like Agentic.')
+    expect(html).not.toContain('Agentic component kit')
   })
 })

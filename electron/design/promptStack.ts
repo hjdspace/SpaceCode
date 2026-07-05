@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron';
 import { composeSystemPrompt, ComposeInput } from './prompts/system';
+import { renderDesignSystemShowcase } from './showcase';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -225,6 +226,11 @@ export async function getSystemShowcaseHtml(
   extraResourcesPath: string,
   systemId: string
 ): Promise<string> {
+  const designMd = await getSystemFile(extraResourcesPath, systemId, 'DESIGN.md');
+  if (designMd) {
+    return renderDesignSystemShowcase(systemId, designMd);
+  }
+
   const candidates = ['system/kit.html', 'system/index.html', 'preview/app.html', 'components.html'];
   for (const candidate of candidates) {
     const html = await getSystemFile(extraResourcesPath, systemId, candidate);

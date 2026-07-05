@@ -167,10 +167,15 @@ watch(
       faviconSrc.value = ''
       return
     }
-    const host = officialHost.value
-    faviconSrc.value = host
-      ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`
-      : ''
+    try {
+      const fullHost = new URL(url).hostname
+      faviconSrc.value = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(fullHost)}&sz=64`
+    } catch {
+      const host = officialHost.value
+      faviconSrc.value = host
+        ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`
+        : ''
+    }
   },
   { immediate: true },
 )
