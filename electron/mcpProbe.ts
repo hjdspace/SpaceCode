@@ -38,7 +38,10 @@ export async function probeMcpServer(
   config: McpProbeConfig,
   timeoutMs = 15_000,
 ): Promise<McpProbeResult> {
-  if (config.type === 'sse' || config.type === 'http') {
+  if (config.type === 'sse') {
+    return probeSse(config, timeoutMs)
+  }
+  if (config.type === 'http') {
     return probeHttp(config, timeoutMs)
   }
   // 默认 stdio
@@ -196,9 +199,12 @@ function probeStdio(
   })
 }
 
-// ── SSE / HTTP 探测（有限） ──────────────────────────────────────────
+// ── SSE / HTTP 探测 ─────────────────────────────────────────────────
 
-async function probeHttp(
+/**
+ * 探测 SSE 类型服务器：发送 GET + Accept: text/event-stream。
+ */
+async function probeSse(
   config: McpProbeConfig,
   timeoutMs: number,
 ): Promise<McpProbeResult> {
@@ -234,5 +240,163 @@ async function probeHttp(
       status: 'failed',
       error: err instanceof Error ? err.message : String(err),
     }
+  }
+}
+
+/**
+ * 探测 HTTP 类型服务器（Streamable HTTP transport）。
+ *
+ * MCP Streamable HTTP transport 要求：
+ * - POST 请求，Content-Type: application/json
+ * - Body 为 JSON-RPC 2.0 消息
+ * - 服务器可能返回 application/json 或 text/event-stream
+ *
+ * 探测流程：发送 initialize → 解析响应 → 发送 tools/list → 解析工具列表
+ */
+async function probeHttp(
+  config: McpProbeConfig,
+  timeoutMs: number,
+): Promise<McpProbeResult> {
+  if (!config.url) {
+    return { status: 'failed', error: 'No URL configured' }
+  }
+
+  const baseUrl = config.url
+  const baseHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json, text/event-stream',
+    ...(config.headers || {}),
+  }
+
+  try {
+    // Step 1: 发送 initialize 请求
+    const initResult = await mcpHttpPost(baseUrl, baseHeaders, {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: { name: 'spacecode-mcp-probe', version: '0.1.0' },
+      },
+    }, timeoutMs)
+
+    if (!initResult.ok) {
+      return { status: 'failed', error: `HTTP ${initResult.status} ${initResult.statusText}` }
+    }
+
+    const initMsg = initResult.message
+    if (!initMsg || initMsg.error) {
+      return {
+        status: 'failed',
+        error: initMsg?.error?.message || 'Invalid initialize response',
+      }
+    }
+
+    const serverInfo = initMsg.result?.serverInfo
+      ? { name: initMsg.result.serverInfo.name || '', version: initMsg.result.serverInfo.version || '' }
+      : undefined
+
+    // Step 2: 发送 initialized 通知（无响应）
+    await mcpHttpPost(baseUrl, baseHeaders, {
+      jsonrpc: '2.0',
+      method: 'notifications/initialized',
+    }, 5_000).catch(() => { /* 通知无响应，忽略错误 */ })
+
+    // Step 3: 发送 tools/list 请求
+    const toolsResult = await mcpHttpPost(baseUrl, baseHeaders, {
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'tools/list',
+      params: {},
+    }, timeoutMs)
+
+    if (!toolsResult.ok || !toolsResult.message || toolsResult.message.error) {
+      // tools/list 失败但 initialize 成功，仍视为已连接
+      return {
+        status: 'connected',
+        serverInfo,
+        tools: [],
+      }
+    }
+
+    const tools: McpProbeTool[] = (toolsResult.message.result?.tools || []).map((t: any) => ({
+      name: t.name,
+      description: t.description || undefined,
+    }))
+
+    return {
+      status: 'connected',
+      serverInfo,
+      tools,
+    }
+  } catch (err) {
+    return {
+      status: 'failed',
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
+/**
+ * 发送 MCP JSON-RPC POST 请求并解析响应。
+ *
+ * Streamable HTTP transport 的响应可能是：
+ * - application/json：直接 JSON-RPC 响应
+ * - text/event-stream：SSE 格式，每行 data: <json>
+ */
+async function mcpHttpPost(
+  url: string,
+  headers: Record<string, string>,
+  body: object,
+  timeoutMs: number,
+): Promise<{ ok: boolean; status: number; statusText: string; message: any | null }> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+
+    clearTimeout(timer)
+
+    if (!response.ok) {
+      return { ok: false, status: response.status, statusText: response.statusText, message: null }
+    }
+
+    const contentType = response.headers.get('content-type') || ''
+    const text = await response.text()
+
+    let message: any = null
+
+    if (contentType.includes('text/event-stream')) {
+      // SSE 格式：解析 data: 行
+      for (const line of text.split('\n')) {
+        const trimmed = line.trim()
+        if (trimmed.startsWith('data:')) {
+          try {
+            message = JSON.parse(trimmed.slice(5).trim())
+            break
+          } catch {
+            // 忽略解析失败的行
+          }
+        }
+      }
+    } else {
+      // JSON 格式
+      try {
+        message = JSON.parse(text)
+      } catch {
+        // 非 JSON 响应
+      }
+    }
+
+    return { ok: true, status: response.status, statusText: response.statusText, message }
+  } finally {
+    clearTimeout(timer)
   }
 }

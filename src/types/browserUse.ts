@@ -39,6 +39,8 @@ export interface BrowserUseStatus {
   browserUseVersion: string | null
   /** Playwright Chromium 是否已安装 */
   chromiumInstalled: boolean
+  /** uv（Python 包管理器）是否已安装（AGENTS.md 推荐优先使用 uv） */
+  uvInstalled: boolean
   /** 安装来源：'system' | 'venv' | null */
   source: 'system' | 'venv' | null
   /** LLM 配置状态 */
@@ -105,6 +107,18 @@ export interface BrowserUseAgentConfig {
   userDataDir: string | null
   /** 下载目录 */
   downloadsPath: string | null
+  /** 是否使用 Cloud Browser（远程隐身浏览器，绕过 CAPTCHA 和 bot 检测） */
+  useCloud: boolean
+  /** 每步最大动作数（默认 3） */
+  maxActionsPerStep: number
+  /** 最大重试次数（默认 3） */
+  maxFailures: number
+  /** 是否使用推理模式（默认 true） */
+  useThinking: boolean
+  /** 快速模式（跳过评估和推理，仅使用内存） */
+  flashMode: boolean
+  /** 扩展系统提示（可选） */
+  extendSystemMessage: string | null
 }
 
 /** Browser-Use 安装进度 */
@@ -141,4 +155,27 @@ export interface BrowserUseLiveSnapshot {
   agentStatus: 'idle' | 'running' | 'waiting_input' | 'error'
   /** 最后动作描述 */
   lastAction: string | null
+}
+
+/** Browser-Use 会话状态 */
+export type BrowserUseSessionStatus = 'running' | 'done' | 'failed' | 'stopped' | 'idle'
+
+/** Browser-Use 会话信息 */
+export interface BrowserUseSession {
+  /** 会话 ID */
+  sessionId: string
+  /** 任务描述 */
+  task: string
+  /** 会话状态 */
+  status: BrowserUseSessionStatus
+  /** 执行步数 */
+  steps: number
+  /** 最终结果 */
+  finalResult: string | null
+  /** 是否有错误 */
+  hasErrors: boolean
+  /** 访问过的 URL 列表 */
+  urls: string[]
+  /** 是否保持会话 */
+  keepAlive: boolean
 }

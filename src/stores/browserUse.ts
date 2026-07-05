@@ -39,6 +39,12 @@ export const useBrowserUseStore = defineStore('browserUse', () => {
     allowedDomains: [],
     userDataDir: null,
     downloadsPath: null,
+    useCloud: false,
+    maxActionsPerStep: 3,
+    maxFailures: 3,
+    useThinking: true,
+    flashMode: false,
+    extendSystemMessage: null,
   })
 
   // 实时浏览器预览
@@ -62,6 +68,10 @@ export const useBrowserUseStore = defineStore('browserUse', () => {
 
   /** 安装/升级 browser-use */
   async function install(options?: { useMirror: boolean; mirrorType: 'tsinghua' | 'aliyun' | 'npmmirror' }) {
+    // 防止并发安装
+    if (installing.value) {
+      return { success: false, error: 'Installation already in progress' }
+    }
     installing.value = true
     error.value = null
     installProgress.value = { stage: 'detecting', message: 'Starting...', percent: 0 }
@@ -74,9 +84,7 @@ export const useBrowserUseStore = defineStore('browserUse', () => {
 
     try {
       const result = await api.browserUse.install(options)
-      if (result.success) {
-        await refreshStatus()
-      } else {
+      if (!result.success) {
         error.value = result.error ?? 'Installation failed'
       }
       return result
@@ -87,6 +95,9 @@ export const useBrowserUseStore = defineStore('browserUse', () => {
       installing.value = false
       installProgressUnsub?.()
       installProgressUnsub = null
+      // 无论成功失败都刷新状态，确保 UI 反映真实安装情况
+      // （browser-use 可能已装但 playwright/chromium 未装）
+      try { await refreshStatus() } catch { /* ignore */ }
     }
   }
 
@@ -180,6 +191,8 @@ export const useBrowserUseStore = defineStore('browserUse', () => {
   const chromiumInstalled = computed(() => status.value?.chromiumInstalled === true)
   /** LLM 已配置 */
   const llmConfigured = computed(() => status.value?.llmConfigured === true)
+  /** uv（Python 包管理器）是否已安装 */
+  const uvInstalled = computed(() => status.value?.uvInstalled === true)
   /** Agent 是否正在运行（从实时快照判断） */
   const isAgentRunning = computed(() => liveSnapshot.value?.agentStatus === 'running')
 
@@ -204,6 +217,7 @@ export const useBrowserUseStore = defineStore('browserUse', () => {
     pythonPath,
     browserUseVersion,
     chromiumInstalled,
+    uvInstalled,
     llmConfigured,
     isAgentRunning,
 

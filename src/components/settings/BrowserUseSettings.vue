@@ -69,6 +69,21 @@
             </div>
           </div>
 
+          <!-- uv（Python 包管理器） -->
+          <div class="cu-status-row">
+            <div class="cu-status-label">uv ({{ t('browserUse.packageManager') }})</div>
+            <div class="cu-status-value">
+              <span v-if="store.uvInstalled" class="cu-badge cu-badge-success">
+                <CheckCircle :size="14" />
+                {{ t('browserUse.installed') }}
+              </span>
+              <span v-else class="cu-badge cu-badge-info">
+                <MinusCircle :size="14" />
+                {{ t('browserUse.notInstalled') }}
+              </span>
+            </div>
+          </div>
+
           <!-- LLM -->
           <div class="cu-status-row">
             <div class="cu-status-label">LLM</div>
@@ -244,6 +259,54 @@
             <input v-model="form.headless" type="checkbox" @change="saveConfig">
             {{ t('browserUse.headless') }}
           </label>
+          <label class="bu-checkbox">
+            <input v-model="form.useCloud" type="checkbox" @change="saveConfig">
+            {{ t('browserUse.useCloud') }}
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Agent 高级配置 -->
+    <div class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon">
+            <Zap :size="14" />
+          </div>
+          <span class="s-panel-title">{{ t('browserUse.advancedConfig') }}</span>
+        </div>
+      </div>
+      <div class="s-panel-body">
+        <div class="bu-form-grid">
+          <div class="s-form-group">
+            <label class="s-form-label">{{ t('browserUse.maxActionsPerStep') }}</label>
+            <input v-model.number="form.maxActionsPerStep" class="s-form-input" type="number" min="1" max="20" @change="saveConfig">
+          </div>
+          <div class="s-form-group">
+            <label class="s-form-label">{{ t('browserUse.maxFailures') }}</label>
+            <input v-model.number="form.maxFailures" class="s-form-input" type="number" min="0" max="20" @change="saveConfig">
+          </div>
+        </div>
+        <div class="bu-checkbox-group">
+          <label class="bu-checkbox">
+            <input v-model="form.useThinking" type="checkbox" @change="saveConfig">
+            {{ t('browserUse.useThinking') }}
+          </label>
+          <label class="bu-checkbox">
+            <input v-model="form.flashMode" type="checkbox" @change="saveConfig">
+            {{ t('browserUse.flashMode') }}
+          </label>
+        </div>
+        <div class="s-form-group" style="margin-top: 12px;">
+          <label class="s-form-label">{{ t('browserUse.extendSystemMessage') }}</label>
+          <textarea
+            v-model="form.extendSystemMessage"
+            class="s-form-input"
+            rows="3"
+            :placeholder="t('browserUse.extendSystemMessageHint')"
+            @change="saveConfig"
+          />
         </div>
       </div>
     </div>
@@ -336,7 +399,7 @@ import { ref, onMounted, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Globe, RefreshCw, CheckCircle, XCircle, AlertCircle,
-  Download, Activity, Key, Eye, X, MinusCircle, FolderOpen,
+  Download, Activity, Key, Eye, X, MinusCircle, FolderOpen, Zap,
 } from 'lucide-vue-next'
 import { useBrowserUseStore } from '@/stores/browserUse'
 import { api } from '@/services/electronAPI'
@@ -359,6 +422,12 @@ const form = reactive({
   allowedDomainsStr: (store.agentConfig.allowedDomains || []).join(', '),
   userDataDir: store.agentConfig.userDataDir || '',
   downloadsPath: store.agentConfig.downloadsPath || '',
+  useCloud: store.agentConfig.useCloud,
+  maxActionsPerStep: store.agentConfig.maxActionsPerStep,
+  maxFailures: store.agentConfig.maxFailures,
+  useThinking: store.agentConfig.useThinking,
+  flashMode: store.agentConfig.flashMode,
+  extendSystemMessage: store.agentConfig.extendSystemMessage || '',
 })
 
 /** 预设模型列表（用于判断 model 下拉是否需要追加动态选项） */
@@ -390,13 +459,12 @@ onMounted(async () => {
 })
 
 async function handleInstall() {
+  // store.install 内部已保证无论成功失败都会 refreshStatus，
+  // 无需在此重复调用
   await store.install({
     useMirror: useMirror.value,
     mirrorType: mirrorType.value,
   })
-  if (store.isInstalled) {
-    store.refreshStatus()
-  }
 }
 
 /** 打开系统目录选择器，将所选路径填入指定字段 */
@@ -419,6 +487,12 @@ async function saveConfig() {
     allowedDomains: form.allowedDomainsStr.split(',').map((d: string) => d.trim()).filter(Boolean),
     userDataDir: form.userDataDir || null,
     downloadsPath: form.downloadsPath || null,
+    useCloud: form.useCloud,
+    maxActionsPerStep: form.maxActionsPerStep,
+    maxFailures: form.maxFailures,
+    useThinking: form.useThinking,
+    flashMode: form.flashMode,
+    extendSystemMessage: form.extendSystemMessage || null,
   }
   await store.updateConfig(config)
 }
@@ -438,6 +512,13 @@ function checkBadgeClass(status: string): Record<string, boolean> {
 
 <style scoped>
 .browser-use-settings { max-width: 720px; }
+
+.s-form-input[rows] {
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
 
 .bu-form-grid {
   display: grid;

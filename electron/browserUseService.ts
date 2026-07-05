@@ -53,28 +53,33 @@ let lastSnapshot: BrowserUseLiveSnapshot | null = null
 
 // ── 中国镜像源配置 ──────────────────────────────────────────────
 
-/** pip 镜像源映射 */
+/**
+ * pip 镜像源映射。
+ * npmmirror 没有标准 PyPI simple index，pip 安装回退到清华源；
+ * npmmirror 仅用于 Playwright Chromium 二进制下载加速。
+ */
 const PIP_MIRRORS: Record<string, string> = {
   tsinghua: 'https://pypi.tuna.tsinghua.edu.cn/simple',
   aliyun: 'https://mirrors.aliyun.com/pypi/simple/',
-  npmmirror: 'https://registry.npmmirror.com/-/binary/python-wheels/',
+  npmmirror: 'https://pypi.tuna.tsinghua.edu.cn/simple',
 }
 
 /** pip 镜像源的 trusted-host（https + 非官方源需要） */
 const PIP_TRUSTED_HOSTS: Record<string, string[]> = {
   tsinghua: ['pypi.tuna.tsinghua.edu.cn'],
   aliyun: ['mirrors.aliyun.com'],
-  npmmirror: ['registry.npmmirror.com'],
+  npmmirror: ['pypi.tuna.tsinghua.edu.cn'],
 }
 
 /**
  * Playwright Chromium 下载镜像。
  * 通过 PLAYWRIGHT_DOWNLOAD_HOST 环境变量指定 CDN 前缀。
- * npmmirror 的 Chromium 路径：https://npmmirror.com/mirrors/playwright/
+ * npmmirror 维护了 Playwright 二进制镜像：https://npmmirror.com/mirrors/playwright/
+ * 清华、阿里无 Playwright CDN 镜像，回退到 npmmirror 或官方。
  */
 const PLAYWRIGHT_MIRROR_HOSTS: Record<string, string> = {
   npmmirror: 'https://npmmirror.com/mirrors/playwright',
-  tsinghua: 'https://mirrors.tuna.tsinghua.edu.cn/github-release',
+  tsinghua: 'https://npmmirror.com/mirrors/playwright',
   aliyun: 'https://playwright.azureedge.net',  // 阿里无专门镜像，回退官方
 }
 
@@ -90,6 +95,12 @@ let agentConfig: BrowserUseAgentConfig = {
   allowedDomains: [],
   userDataDir: null,
   downloadsPath: null,
+  useCloud: false,
+  maxActionsPerStep: 3,
+  maxFailures: 3,
+  useThinking: true,
+  flashMode: false,
+  extendSystemMessage: null,
 }
 
 
@@ -215,15 +226,61 @@ function isPythonVersionValid(version: string): boolean {
 // ── pip Package Detection ─────────────────────────────────────
 
 /**
- * 检测 browser-use 是否已安装
+ * 检测系统是否安装了 uv（Astral 的 Python 包管理器）。
+ * AGENTS.md 要求优先使用 uv 而非 pip。
+ */
+function findUv(): string | null {
+  // 1. 环境变量覆盖
+  const envUv = process.env.UV_PATH
+  if (envUv && existsSync(envUv)) return envUv
+
+  // 2. 系统 PATH
+  const candidates = process.platform === 'win32' ? ['uv', 'uv.exe'] : ['uv']
+  for (const cmd of candidates) {
+    const path = findInPath(cmd)
+    if (path) return path
+  }
+
+  // 3. 已知安装位置
+  const home = require('os').homedir()
+  const knownPaths = process.platform === 'win32'
+    ? [join(home, '.local', 'bin', 'uv.exe'), join(home, '.cargo', 'bin', 'uv.exe')]
+    : [join(home, '.local', 'bin', 'uv'), join(home, '.cargo', 'bin', 'uv')]
+  for (const path of knownPaths) {
+    if (existsSync(path)) return path
+  }
+
+  return null
+}
+
+/**
+ * 检测 browser-use 是否已安装。
+ * 仅检查 import 是否成功，不依赖 __version__ 属性（部分版本可能未定义）。
  */
 function isBrowserUseInstalled(pythonPath: string): boolean {
   try {
     const { execFileSync } = require('child_process')
-    const result = execFileSync(pythonPath, [
-      '-c', 'import browser_use; print(browser_use.__version__)'
-    ], { encoding: 'utf-8', timeout: 10_000 })
-    return result.trim().length > 0
+    execFileSync(pythonPath, ['-c', 'import browser_use'], {
+      encoding: 'utf-8',
+      timeout: 10_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** 检测 playwright Python 包是否已安装（browser-use 依赖，但某些环境下可能缺失） */
+function isPlaywrightPackageInstalled(pythonPath: string): boolean {
+  try {
+    const { execFileSync } = require('child_process')
+    execFileSync(pythonPath, ['-c', 'import playwright'], {
+      encoding: 'utf-8',
+      timeout: 10_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    return true
   } catch {
     return false
   }
@@ -282,10 +339,12 @@ const maxBuffer = 1024 * 1024 // 1MB
 /**
  * 安装 browser-use + Playwright Chromium。
  *
- * 安装步骤：
+ * 安装步骤（遵循 AGENTS.md：优先使用 uv 而非 pip）：
  * 1. 检测 Python 3.11+
- * 2. pip install browser-use（可选中国镜像加速）
- * 3. playwright install chromium（可选中国镜像加速）
+ * 2. 检测 uv（有则用 uv pip install，无则回退 pip）
+ * 3. 安装 browser-use（可选中国镜像加速，已安装则跳过）
+ * 4. 确保 playwright Python 包已安装（缺失时自动补装）
+ * 5. 安装 Chromium（优先 `uvx browser-use install`，回退 `playwright install chromium`）
  *
  * 每一步都有实时进度上报和错误处理。
  *
@@ -309,25 +368,54 @@ export async function installBrowserUse(
   }
   info('BrowserUseService', `Found Python: ${pythonResult.path} (v${pythonResult.version})`)
 
-  const mirrorLabel = useMirror ? `（${mirrorType === 'tsinghua' ? '清华' : mirrorType === 'aliyun' ? '阿里' : 'npmmirror'} 镜像）` : ''
-  sendInstallProgress({ stage: 'installing_pip', message: `找到 Python ${pythonResult.version}，正在安装 browser-use${mirrorLabel}...`, percent: 15 })
+  // 1.5 检测 uv（AGENTS.md 要求优先使用 uv）
+  const uvPath = findUv()
+  const installer = uvPath ? 'uv' : 'pip'
+  info('BrowserUseService', `Package installer: ${installer}${uvPath ? ` (${uvPath})` : ''}`)
 
-  // 2. pip install browser-use
-  try {
-    await runPipInstall(pythonResult.path, BROWSER_USE_PACKAGE, useMirror, mirrorType, (percent, msg) => {
-      sendInstallProgress({ stage: 'installing_pip', message: msg, percent })
-    })
-    info('BrowserUseService', 'browser-use installed successfully')
-    sendInstallProgress({ stage: 'installing_pip', message: 'browser-use 安装完成，正在安装 Playwright Chromium...', percent: 55 })
-  } catch (e) {
-    const msg = `安装 browser-use 失败: ${e}`
-    sendInstallProgress({ stage: 'error', message: msg, percent: 100 })
-    return { success: false, error: msg }
+  const mirrorLabel = useMirror ? `（${mirrorType === 'tsinghua' ? '清华' : mirrorType === 'aliyun' ? '阿里' : 'npmmirror'} 镜像）` : ''
+  const installerLabel = uvPath ? 'uv' : 'pip'
+  sendInstallProgress({ stage: 'installing_pip', message: `找到 Python ${pythonResult.version}，正在使用 ${installerLabel} 安装 browser-use${mirrorLabel}...`, percent: 15 })
+
+  // 2. 安装 browser-use（已安装则跳过，加速重装）
+  if (isBrowserUseInstalled(pythonResult.path)) {
+    info('BrowserUseService', 'browser-use already installed, skipping')
+    sendInstallProgress({ stage: 'installing_pip', message: 'browser-use 已安装，正在检查 Playwright...', percent: 50 })
+  } else {
+    try {
+      await runPackageInstall(pythonResult.path, BROWSER_USE_PACKAGE, useMirror, mirrorType, uvPath, (percent, msg) => {
+        sendInstallProgress({ stage: 'installing_pip', message: msg, percent })
+      }, 15, 50)
+      info('BrowserUseService', 'browser-use installed successfully')
+      sendInstallProgress({ stage: 'installing_pip', message: 'browser-use 安装完成，正在检查 Playwright...', percent: 50 })
+    } catch (e) {
+      const msg = `安装 browser-use 失败: ${e}`
+      sendInstallProgress({ stage: 'error', message: msg, percent: 100 })
+      return { success: false, error: msg }
+    }
   }
 
-  // 3. playwright install chromium
+  // 2.5. 确保 playwright Python 包已安装（browser-use 依赖 playwright，但某些环境下可能未正确安装）
+  if (!isPlaywrightPackageInstalled(pythonResult.path)) {
+    info('BrowserUseService', 'Playwright package not found, installing playwright...')
+    sendInstallProgress({ stage: 'installing_pip', message: '正在安装 Playwright Python 包...', percent: 52 })
+    try {
+      await runPackageInstall(pythonResult.path, 'playwright', useMirror, mirrorType, uvPath, (percent, msg) => {
+        sendInstallProgress({ stage: 'installing_pip', message: msg, percent })
+      }, 52, 55)
+      info('BrowserUseService', 'Playwright package installed successfully')
+    } catch (e) {
+      const msg = `安装 Playwright 包失败: ${e}`
+      sendInstallProgress({ stage: 'error', message: msg, percent: 100 })
+      return { success: false, error: msg }
+    }
+  }
+
+  sendInstallProgress({ stage: 'installing_pip', message: '正在安装 Playwright Chromium...', percent: 55 })
+
+  // 3. 安装 Chromium（优先 `uvx browser-use install`，回退 `playwright install chromium`）
   try {
-    await runPlaywrightInstall(pythonResult.path, useMirror, mirrorType, (percent, msg) => {
+    await runChromiumInstall(pythonResult.path, uvPath, useMirror, mirrorType, (percent, msg) => {
       sendInstallProgress({ stage: 'installing_playwright', message: msg, percent })
     })
     info('BrowserUseService', 'Playwright Chromium installed successfully')
@@ -343,24 +431,41 @@ export async function installBrowserUse(
 }
 
 /**
- * 运行 pip install（带实时进度解析和镜像源支持）。
+ * 统一的包安装函数（支持 uv 和 pip）。
  *
- * pip 的输出格式：
- *   "Collecting browser-use" → 下载中
+ * AGENTS.md 要求优先使用 uv 而非 pip。uv 的依赖解析速度比 pip 快 10-100 倍。
+ * 当 uvPath 存在时使用 `uv pip install`，否则回退到 `python -m pip install`。
+ *
+ * uv / pip 的输出格式一致：
+ *   "Collecting browser-use" / "Resolved X packages" → 下载中
  *   "Downloading ... (1.2 MB)" → 显示下载大小
- *   "Installing collected packages" → 安装中
+ *   "Installing collected packages" / "Installed X packages" → 安装中
  */
-function runPipInstall(
+function runPackageInstall(
   pythonPath: string,
   packageName: string,
   useMirror: boolean,
   mirrorType: string,
+  uvPath: string | null,
   onProgress: (percent: number, message: string) => void,
+  startPercent = 15,
+  endPercent = 55,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const args = ['-m', 'pip', 'install', packageName, '--upgrade', '--disable-pip-version-check']
+    let command: string
+    let args: string[]
 
-    // 镜像源
+    if (uvPath) {
+      // uv pip install（需要指定 --python 以安装到正确的 Python 环境）
+      command = uvPath
+      args = ['pip', 'install', packageName, '--python', pythonPath, '--upgrade']
+    } else {
+      // 回退到 pip
+      command = pythonPath
+      args = ['-m', 'pip', 'install', packageName, '--upgrade', '--disable-pip-version-check']
+    }
+
+    // 镜像源（uv 和 pip 都支持 -i / --index-url）
     if (useMirror && PIP_MIRRORS[mirrorType]) {
       args.push('-i', PIP_MIRRORS[mirrorType])
       const trustedHosts = PIP_TRUSTED_HOSTS[mirrorType]
@@ -369,32 +474,36 @@ function runPipInstall(
       }
     }
 
-    info('BrowserUseService', `pip install args: ${args.join(' ')}`)
+    info('BrowserUseService', `${command} ${args.join(' ')}`)
 
-    const proc = spawn(pythonPath, args, {
+    const proc = spawn(command, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     })
 
     let stderr = ''
-    let lastPercent = 15
+    let lastPercent = startPercent
+    const range = endPercent - startPercent
+    const collectMax = startPercent + Math.floor(range * 0.5)
+    const downloadMax = startPercent + Math.floor(range * 0.7)
+    const installingPercent = startPercent + Math.floor(range * 0.85)
 
     const parseLine = (line: string): void => {
       const trimmed = line.trim()
       if (!trimmed) return
-      info('BrowserUseService', `pip: ${trimmed}`)
+      info('BrowserUseService', `install: ${trimmed}`)
 
-      // 解析 pip 输出推断进度
-      if (trimmed.startsWith('Collecting')) {
-        lastPercent = Math.min(lastPercent + 2, 40)
-        onProgress(lastPercent, `正在下载依赖: ${trimmed.replace('Collecting ', '')}`)
+      // 解析 pip/uv 输出推断进度
+      if (trimmed.startsWith('Collecting') || trimmed.startsWith('Resolved')) {
+        lastPercent = Math.min(lastPercent + 2, collectMax)
+        onProgress(lastPercent, `正在解析依赖: ${trimmed.replace('Collecting ', '').replace('Resolved ', '')}`)
       } else if (trimmed.startsWith('Downloading')) {
-        lastPercent = Math.min(lastPercent + 3, 45)
+        lastPercent = Math.min(lastPercent + 3, downloadMax)
         onProgress(lastPercent, `下载中: ${trimmed.replace('Downloading ', '')}`)
-      } else if (trimmed.includes('Installing collected packages')) {
-        onProgress(50, '正在安装依赖包...')
-      } else if (trimmed.startsWith('Successfully installed')) {
-        onProgress(55, 'browser-use 安装成功')
+      } else if (trimmed.includes('Installing collected packages') || trimmed.startsWith('Installed')) {
+        onProgress(installingPercent, '正在安装依赖包...')
+      } else if (trimmed.startsWith('Successfully installed') || trimmed.startsWith('Installed')) {
+        onProgress(endPercent, `${packageName} 安装成功`)
       }
     }
 
@@ -406,7 +515,7 @@ function runPipInstall(
     proc.stderr?.on('data', (data: Buffer) => {
       const text = data.toString()
       stderr += text
-      // pip 的下载进度信息也可能输出到 stderr
+      // pip/uv 的下载进度信息也可能输出到 stderr
       for (const line of text.split('\n')) {
         parseLine(line)
       }
@@ -415,13 +524,13 @@ function runPipInstall(
     proc.on('error', (err) => reject(new Error(err.message)))
     proc.on('exit', (code) => {
       if (code === 0) resolve()
-      else reject(new Error(stderr.trim() || `pip install exited with code ${code}`))
+      else reject(new Error(stderr.trim() || `install exited with code ${code}`))
     })
 
-    // 10 分钟超时（pip 依赖较多，镜像源可能也较慢）
+    // 10 分钟超时（依赖较多，镜像源可能也较慢）
     const timer = setTimeout(() => {
       proc.kill('SIGKILL')
-      reject(new Error('pip install 超时（10 分钟），请尝试使用中国镜像源'))
+      reject(new Error('安装超时（10 分钟），请尝试使用中国镜像源'))
     }, 10 * 60 * 1000)
 
     // 进程退出时清理 timer
@@ -430,7 +539,10 @@ function runPipInstall(
 }
 
 /**
- * 运行 playwright install chromium（带实时进度解析和镜像源支持）。
+ * 运行 Chromium 安装（优先 `uvx browser-use install`，回退 `playwright install chromium`）。
+ *
+ * AGENTS.md 推荐使用 `uvx browser-use install` 安装 Chromium。
+ * 当 uv 不可用时，回退到 `python -m playwright install chromium`。
  *
  * Playwright 下载输出格式：
  *   "Downloading Chromium 131.0.6778.87 from https://..." → 下载中
@@ -438,8 +550,9 @@ function runPipInstall(
  *
  * 通过 PLAYWRIGHT_DOWNLOAD_HOST 环境变量指定镜像。
  */
-function runPlaywrightInstall(
+function runChromiumInstall(
   pythonPath: string,
+  uvPath: string | null,
   useMirror: boolean,
   mirrorType: string,
   onProgress: (percent: number, message: string) => void,
@@ -453,7 +566,22 @@ function runPlaywrightInstall(
       info('BrowserUseService', `Using Playwright mirror: ${env.PLAYWRIGHT_DOWNLOAD_HOST}`)
     }
 
-    const proc = spawn(pythonPath, ['-m', 'playwright', 'install', 'chromium'], {
+    let command: string
+    let args: string[]
+
+    if (uvPath) {
+      // 优先使用 `uvx browser-use install`（AGENTS.md 推荐）
+      command = uvPath
+      args = ['x', 'browser-use', 'install']
+      info('BrowserUseService', 'Using uvx browser-use install for Chromium')
+    } else {
+      // 回退到 `python -m playwright install chromium`
+      command = pythonPath
+      args = ['-m', 'playwright', 'install', 'chromium']
+      info('BrowserUseService', 'Using playwright install chromium (uv not found)')
+    }
+
+    const proc = spawn(command, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       env,
       windowsHide: true,
@@ -465,7 +593,7 @@ function runPlaywrightInstall(
     const parseLine = (line: string): void => {
       const trimmed = line.trim()
       if (!trimmed) return
-      info('BrowserUseService', `playwright: ${trimmed}`)
+      info('BrowserUseService', `chromium: ${trimmed}`)
 
       if (trimmed.startsWith('Downloading') && trimmed.includes('Chromium')) {
         // "Downloading Chromium 131.0.6778.87 from ..."
@@ -480,6 +608,8 @@ function runPlaywrightInstall(
         onProgress(90, '正在验证安装...')
       } else if (trimmed.startsWith('Chromium') && trimmed.includes('installed')) {
         onProgress(95, 'Chromium 安装完成')
+      } else if (trimmed.includes('Installing')) {
+        onProgress(70, '正在安装 Chromium...')
       }
     }
 
@@ -498,8 +628,19 @@ function runPlaywrightInstall(
 
     proc.on('error', (err) => reject(new Error(err.message)))
     proc.on('exit', (code) => {
-      if (code === 0) resolve()
-      else reject(new Error(stderr.trim() || `playwright install exited with code ${code}`))
+      if (code === 0) {
+        resolve()
+        return
+      }
+      const errText = stderr.trim()
+      // 提供 "No module named playwright" 的友好提示
+      if (errText.includes('No module named playwright')) {
+        reject(new Error(
+          'Playwright Python 包未安装。请先运行: pip install playwright，然后重试安装。',
+        ))
+      } else {
+        reject(new Error(errText || `chromium install exited with code ${code}`))
+      }
     })
 
     // 15 分钟超时（Chromium ~150MB，镜像源下载可能需要时间）
@@ -612,11 +753,60 @@ function buildBUEnv(): Record<string, string> {
     }
   }
 
-  // Agent 配置
+  // ── Agent 配置（全部传递给 bridge.py）──
+  env.BU_LLM_PROVIDER = agentConfig.provider
   env.BU_LLM_MODEL = agentConfig.model
   env.BU_HEADLESS = String(agentConfig.headless)
+  env.BU_USE_VISION = agentConfig.useVision ? 'true' : 'false'
+  env.BU_TEMPERATURE = String(agentConfig.temperature)
+  env.BU_MAX_STEPS = String(agentConfig.maxSteps)
+  env.BU_MAX_ACTIONS_PER_STEP = String(agentConfig.maxActionsPerStep)
+  env.BU_MAX_FAILURES = String(agentConfig.maxFailures)
+  env.BU_USE_THINKING = agentConfig.useThinking ? 'true' : 'false'
+  env.BU_FLASH_MODE = agentConfig.flashMode ? 'true' : 'false'
+  env.BU_USE_CLOUD = agentConfig.useCloud ? 'true' : 'false'
+
+  if (agentConfig.allowedDomains.length > 0) {
+    env.BU_ALLOWED_DOMAINS = agentConfig.allowedDomains.join(',')
+  }
+  if (agentConfig.userDataDir) {
+    env.BU_USER_DATA_DIR = agentConfig.userDataDir
+  }
+  if (agentConfig.downloadsPath) {
+    env.BU_DOWNLOADS_PATH = agentConfig.downloadsPath
+  }
+  if (agentConfig.extendSystemMessage) {
+    env.BU_EXTEND_SYSTEM_MESSAGE = agentConfig.extendSystemMessage
+  }
 
   return env
+}
+
+/**
+ * 构建 browser-use MCP 服务器配置（供 CLI --mcp-config 注入使用）。
+ *
+ * 当 browser-use 作为内置 MCP 预设启用时，mcpConfigStore.buildEnabledMcpConfig()
+ * 调用此函数解析 Python 路径 + bridge.py 路径 + 环境变量，生成 CLI 可直接 spawn
+ * 的 stdio MCP 服务器配置。
+ *
+ * @returns { command, args, env } 或 null（Python 或 bridge.py 不可用）
+ */
+export function getBrowserUseMcpServerConfig(): {
+  command: string
+  args: string[]
+  env: Record<string, string>
+} | null {
+  const pythonResult = findPython()
+  if (!pythonResult) return null
+
+  const bridgePath = getBridgeScriptPath()
+  if (!bridgePath) return null
+
+  return {
+    command: pythonResult.path,
+    args: [bridgePath, '--mcp'],
+    env: buildBUEnv(),
+  }
 }
 
 /** 获取或创建长连接 MCP 客户端 */
@@ -834,6 +1024,7 @@ export async function getBrowserUseStatus(): Promise<BrowserUseStatus> {
   const isLLMConfigured = Boolean(desktopCreds?.apiKey) || envKeyPresent
 
   const pythonResult = findPython()
+  const uvPath = findUv()
   let installed = false
   let buVersion: string | null = null
   let chromiumInstalled = false
@@ -873,6 +1064,7 @@ export async function getBrowserUseStatus(): Promise<BrowserUseStatus> {
     pythonVersion: pythonResult?.version ?? null,
     browserUseVersion: buVersion,
     chromiumInstalled,
+    uvInstalled: !!uvPath,
     source,
     llmConfigured: isLLMConfigured,
     llmProvider: desktopCreds?.provider ?? agentConfig.provider,

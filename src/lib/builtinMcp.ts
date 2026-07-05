@@ -124,6 +124,55 @@ export const BUILTIN_MCP_PRESETS: BuiltinMcpPreset[] = [
       env: {},
     },
   },
+  {
+    // Browser Use：Python browser-use 库的 MCP 桥接。
+    // 后端：resources/browser-use/bridge.py（Python MCP over stdio）。
+    // 特性：AI 驱动的浏览器自动化 — 浏览网页、填写表单、提取数据、截图。
+    // 依赖：Python 3.11+、browser-use 包、Playwright Chromium。
+    // 安装管理见 electron/browserUseService.ts 和设置面板 Browser Use tab。
+    // mcpConfigStore.buildEnabledMcpConfig() 会在运行时用 getBrowserUseMcpServerConfig()
+    // 覆盖 command/args/env 为实际 Python 路径 + bridge.py 路径 + LLM 环境变量。
+    key: 'browser-use',
+    name: 'Browser Use',
+    description:
+      'AI 驱动的浏览器自动化：浏览网页、填写表单、提取数据、截图。基于 Python browser-use 库，支持 LLM 自主导航和操作网页。需安装 Python 3.11+ 和 browser-use 包。',
+    homepage: 'https://github.com/browser-use/browser-use',
+    requirements: '需要 Python 3.11+、browser-use 包和 Playwright Chromium（可在 Browser Use 设置面板中一键安装）',
+    dependency: {
+      command: 'python',
+      installerDocs: 'https://www.python.org/downloads/',
+    },
+    config: {
+      type: 'stdio',
+      command: 'python',
+      args: ['bridge.py', '--mcp'],
+      env: {},
+    },
+  },
+  {
+    // Browser Use Cloud：官方 Cloud MCP Server（HTTP 类型）。
+    // 后端：https://api.browser-use.com/v3/mcp（Browser Use Cloud 托管服务）。
+    // 特性：零安装、隐身浏览器、CAPTCHA 绕过、195+ 国家住宅代理、实时预览。
+    // 依赖：仅需 Browser Use API Key（以 bu_ 开头），无需 Python/Playwright。
+    // API Key 获取：https://cloud.browser-use.com/settings?tab=api-keys&new=1
+    // 用户需在 MCP 管理页面中将 headers 中的 YOUR_API_KEY 替换为实际 API Key。
+    key: 'browser-use-cloud',
+    name: 'Browser Use Cloud',
+    description:
+      '官方 Cloud MCP Server：零安装即用，内置隐身浏览器、CAPTCHA 绕过、195+ 国家住宅代理。仅需 Browser Use API Key（bu_ 开头），无需 Python/Playwright。',
+    homepage: 'https://docs.browser-use.com/cloud/guides/mcp-server',
+    requirements: '需要 Browser Use API Key（在 https://cloud.browser-use.com/settings?tab=api-keys 获取）。启用后请点击「编辑」按钮，将 headers 中的 YOUR_API_KEY 替换为你的实际 API Key（bu_ 开头）。',
+    config: {
+      type: 'http',
+      url: 'https://api.browser-use.com/v3/mcp',
+      command: '',
+      args: [],
+      env: {},
+      headers: {
+        'x-browser-use-api-key': 'YOUR_API_KEY',
+      },
+    },
+  },
 ]
 
 /**

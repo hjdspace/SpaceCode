@@ -818,6 +818,8 @@ export default {
       'cdp-bridgeDesc': 'Bridge to the real browser session you are already using (with login state, cookies, page state). Lets the model read tabs, scan pages, execute JS, screenshot, and navigate. Requires the companion Chromium extension.',
       'chrome-devtoolsDesc': 'Control and inspect a live Chrome browser via Chrome DevTools. Supports performance traces, network debugging, screenshots, and console logs. Great for automation and debugging.',
       'sc-computer-useDesc': 'Let the model directly control the desktop: screenshot, mouse, keyboard, clipboard, window and app management. Built on a Rust native module, supports Windows/macOS/Linux. Ideal for UI-only scenarios like native apps, installers, and modal dialogs. Bundled with the installer — no extra download required.',
+      'browser-useDesc': 'AI-driven web browser automation: browse web pages, fill forms, extract data, take screenshots. Built on the Python browser-use library, supports LLM-driven autonomous web navigation. Requires Python 3.11+ and the browser-use package (installable from the Browser Use settings panel).',
+      'browser-use-cloudDesc': 'Official Cloud MCP Server: zero-install, built-in stealth browser, CAPTCHA bypass, residential proxies in 195+ countries. Only requires a Browser Use API Key (starts with bu_), no Python/Playwright needed.',
     },
   },
 
@@ -2021,5 +2023,14 @@ export default {
     statusRunning: 'Running',
     statusWaiting: 'Waiting for input',
     statusError: 'Error',
+    packageManager: 'Package Manager',
+    useCloud: 'Cloud Browser (stealth, bypass CAPTCHA)',
+    advancedConfig: 'Advanced Agent Config',
+    maxActionsPerStep: 'Max Actions per Step',
+    maxFailures: 'Max Failures',
+    useThinking: 'Thinking Mode (explicit reasoning)',
+    flashMode: 'Flash Mode (skip evaluation, memory only)',
+    extendSystemMessage: 'Extend System Message',
+    extendSystemMessageHint: 'Additional instructions appended to the default system prompt (optional)...',
   },
 }

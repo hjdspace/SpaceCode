@@ -10,6 +10,7 @@ import { proxyManager } from './proxyManager'
 import { probeMcpServer, type McpProbeConfig, type McpProbeResult } from './mcpProbe'
 import { loadMcpConfig, saveMcpConfig, buildEnabledMcpConfig } from './mcpConfigStore'
 import { findCuaDriverBinary, getCuaDriverVersion } from './cuaDriverService'
+import { getBrowserUseMcpServerConfig } from './browserUseService'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -507,6 +508,36 @@ export function registerClaudeCodeIPC() {
         }
       }
     }
+
+    // browser-use 特殊处理：内置预设存储的 config 是相对路径（python bridge.py --mcp），
+    // probe 时需要解析为实际 Python 路径 + bridge.py 绝对路径 + LLM 环境变量。
+    // 与 mcpConfigStore.buildEnabledMcpConfig 注入 CLI 时的逻辑保持一致。
+    // 检测条件：command 为 'python' 且 args 包含 'bridge.py'
+    if (
+      config.type === 'stdio' &&
+      config.command &&
+      (config.command === 'python' || config.command === 'python3') &&
+      config.args &&
+      config.args.some(a => a === 'bridge.py' || a.endsWith('/bridge.py') || a.endsWith('\\bridge.py'))
+    ) {
+      const buConfig = getBrowserUseMcpServerConfig()
+      if (buConfig) {
+        config = {
+          ...config,
+          command: buConfig.command,
+          args: buConfig.args,
+          env: { ...config.env, ...buConfig.env },
+        }
+        debug('McpProbe', `Resolved browser-use: ${buConfig.command} ${buConfig.args.join(' ')}`)
+      } else {
+        debug('McpProbe', 'browser-use Python or bridge.py not found')
+        return {
+          status: 'failed',
+          error: 'Python 3.11+ or browser-use bridge script not found. Please install Browser Use from the settings panel.',
+        }
+      }
+    }
+
     debug('McpProbe', `Probing server | type=${config.type} | command=${config.command || config.url}`)
     const result = await probeMcpServer(config)
     debug('McpProbe', `Probe result | status=${result.status} | tools=${result.tools?.length ?? 0} | error=${result.error || '(none)'}`)

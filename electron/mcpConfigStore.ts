@@ -14,6 +14,7 @@ import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { warn, error as logError } from './logger'
 import { findCuaDriverBinary } from './cuaDriverService'
+import { getBrowserUseMcpServerConfig } from './browserUseService'
 
 /** 内置 MCP 服务器的来源标记，与渲染层 BUILTIN_MCP_SOURCE 保持一致 */
 const BUILTIN_SOURCE = 'builtin'
@@ -209,6 +210,19 @@ export function buildEnabledMcpConfig(): McpJsonConfig | null {
         const driverPath = findCuaDriverBinary()
         if (driverPath) {
           cliConfig.command = driverPath
+        }
+      }
+
+      // browser-use 特殊处理：解析 Python 路径 + bridge.py 路径 + 环境变量。
+      // browser-use 是 Python MCP 服务（bridge.py --mcp），需要 Python 3.11+
+      // 和 browser-use 包。如果 Python 或 bridge.py 不可用，保留原始命令 —
+      // CLI 启动时该 MCP 服务器会失败，但不会影响其他服务器。
+      if (resolvedName === 'browser-use' && cliConfig.type === 'stdio') {
+        const buConfig = getBrowserUseMcpServerConfig()
+        if (buConfig) {
+          cliConfig.command = buConfig.command
+          cliConfig.args = buConfig.args
+          cliConfig.env = buConfig.env
         }
       }
     }
