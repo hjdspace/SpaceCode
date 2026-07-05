@@ -45,9 +45,9 @@
                   <FileText :size="15" />
                   <span>{{ t('design.preview.exportPdf') }}</span>
                 </button>
-                <button type="button" class="ds-share-item" role="menuitem" :disabled="!activeHtml" @click="exportAsZip">
+                <button type="button" class="ds-share-item" role="menuitem" :disabled="!activeHtml" @click="exportAsStandaloneHtml">
                   <FolderArchive :size="15" />
-                  <span>{{ t('design.preview.exportZip') }}</span>
+                  <span>{{ t('design.preview.exportStandaloneHtml') }}</span>
                 </button>
                 <button type="button" class="ds-share-item" role="menuitem" :disabled="!activeHtml" @click="exportAsHtml">
                   <FileCode :size="15" />
@@ -202,7 +202,7 @@ function onClose() {
   props.onClose()
 }
 
-function onSharePointer(event: MouseEvent) {
+function onSharePointer(event: PointerEvent) {
   if (shareMenuRef.value?.contains(event.target as Node)) return
   shareMenuOpen.value = false
 }
@@ -233,7 +233,7 @@ function exportAsHtml() {
   shareMenuOpen.value = false
 }
 
-function exportAsZip() {
+function exportAsStandaloneHtml() {
   if (!activeHtml.value) return
   // Simple approach: download as standalone HTML (no JSZip dependency)
   // The HTML content from design system preview is already self-contained
@@ -313,13 +313,13 @@ function openInNewTab() {
 onMounted(() => {
   document.body.style.overflow = 'hidden'
   document.addEventListener('keydown', onKey)
-  document.addEventListener('mousedown', onSharePointer)
+  document.addEventListener('pointerdown', onSharePointer)
 })
 
 onUnmounted(() => {
   document.body.style.overflow = ''
   document.removeEventListener('keydown', onKey)
-  document.removeEventListener('mousedown', onSharePointer)
+  document.removeEventListener('pointerdown', onSharePointer)
 })
 </script>
 
