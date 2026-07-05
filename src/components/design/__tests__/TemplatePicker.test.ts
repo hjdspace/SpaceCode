@@ -57,4 +57,10 @@ describe('TemplatePicker', () => {
     await w.find('[data-testid="template-card-deck"]').trigger('click')
     expect(switchToolboxSkillSpy).toHaveBeenCalledWith('html-ppt-skill')
   })
+
+  it('inline 模式下触发器使用透明背景样式', () => {
+    const w = mount(TemplatePicker, { props: { modelValue: null, inline: true } })
+    expect(w.find('.template-picker-trigger.is-inline').exists()).toBe(true)
+    expect(w.find('.template-picker.is-inline').exists()).toBe(true)
+  })
 })

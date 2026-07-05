@@ -1,8 +1,9 @@
 <template>
-  <div ref="wrapRef" class="template-picker" :class="{ 'is-open': open, 'has-value': active }">
+  <div ref="wrapRef" class="template-picker" :class="{ 'is-open': open, 'has-value': active, 'is-inline': inline }">
     <button
       type="button"
       class="template-picker-trigger"
+      :class="{ 'is-inline': inline }"
       data-testid="template-picker-trigger"
       @click="open = !open"
     >
@@ -25,7 +26,7 @@
       <ChevronDown v-else :size="12" />
     </button>
 
-    <div v-if="open" class="template-picker-menu" data-testid="template-picker-menu" role="listbox">
+    <div v-if="open" class="template-picker-menu" :class="{ 'is-inline': inline }" data-testid="template-picker-menu" role="listbox">
       <div class="template-picker-head">
         <div class="template-picker-search">
           <Search :size="12" />
@@ -76,7 +77,10 @@ import { useDesignStore } from '@/stores/design'
 import { useDesignSession } from '@/composables/useDesignSession'
 import TemplateScenarioArt from './TemplateScenarioArt.vue'
 
-const props = defineProps<{ modelValue: string | null }>()
+const props = defineProps<{
+  modelValue: string | null
+  inline?: boolean
+}>()
 const emit = defineEmits<{ (e: 'update:modelValue', id: string | null): void }>()
 
 const { t } = useI18n()
@@ -171,6 +175,16 @@ onUnmounted(() => {
   background: var(--bg-hover);
   border-color: var(--surface-border-strong);
 }
+.template-picker-trigger.is-inline {
+  background: transparent;
+  border-color: transparent;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+.template-picker-trigger.is-inline:hover {
+  background: var(--surface-hover);
+  border-color: var(--surface-border);
+}
 .template-picker.has-value .template-picker-trigger {
   padding-right: 5px;
 }
@@ -224,6 +238,10 @@ onUnmounted(() => {
   z-index: 100;
   animation: scaleIn 120ms ease-out;
   transform-origin: bottom left;
+}
+.template-picker-menu.is-inline {
+  left: 0;
+  bottom: calc(100% + 8px);
 }
 .template-picker-head {
   display: flex;
