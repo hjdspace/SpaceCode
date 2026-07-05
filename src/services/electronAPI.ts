@@ -13,6 +13,7 @@ import type {
   BrowserUseUpdateInfo,
   BrowserUseHealthCheck,
   BrowserUseInstallProgress,
+  BrowserUseInstallOptions,
   BrowserUseToolResult,
   BrowserUseLiveSnapshot,
   BrowserUseAgentConfig,
@@ -1016,8 +1017,8 @@ export const api = {
     getStatus: (): Promise<BrowserUseStatus> =>
       electronAPI?.browserUse?.getStatus() ||
       Promise.reject(new Error('electronAPI not available')),
-    install: (): Promise<{ success: boolean; error?: string }> =>
-      electronAPI?.browserUse?.install() ||
+    install: (options?: BrowserUseInstallOptions): Promise<{ success: boolean; error?: string }> =>
+      electronAPI?.browserUse?.install(options) ||
       Promise.reject(new Error('electronAPI not available')),
     onInstallProgress: (callback: (progress: BrowserUseInstallProgress) => void): (() => void) => {
       if (electronAPI?.browserUse?.onInstallProgress) {

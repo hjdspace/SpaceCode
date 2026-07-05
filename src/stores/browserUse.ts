@@ -61,7 +61,7 @@ export const useBrowserUseStore = defineStore('browserUse', () => {
   }
 
   /** 安装/升级 browser-use */
-  async function install() {
+  async function install(options?: { useMirror: boolean; mirrorType: 'tsinghua' | 'aliyun' | 'npmmirror' }) {
     installing.value = true
     error.value = null
     installProgress.value = { stage: 'detecting', message: 'Starting...', percent: 0 }
@@ -73,7 +73,7 @@ export const useBrowserUseStore = defineStore('browserUse', () => {
     })
 
     try {
-      const result = await api.browserUse.install()
+      const result = await api.browserUse.install(options)
       if (result.success) {
         await refreshStatus()
       } else {

@@ -90,6 +90,37 @@
             <div class="cu-status-value cu-mono">{{ store.pythonPath }}</div>
           </div>
 
+          <!-- 镜像源选择（仅未安装或安装中显示） -->
+          <div v-if="!store.isInstalled || !store.chromiumInstalled" class="bu-mirror-section">
+            <label class="s-form-label">{{ t('browserUse.mirrorSource') }}</label>
+            <div class="bu-mirror-options">
+              <label class="bu-mirror-option" :class="{ active: !useMirror }">
+                <input v-model="useMirror" :value="false" type="radio" name="buMirror" :disabled="store.installing">
+                <span class="bu-mirror-name">{{ t('browserUse.mirrorOfficial') }}</span>
+                <span class="bu-mirror-desc">pypi.org</span>
+              </label>
+              <label class="bu-mirror-option" :class="{ active: useMirror && mirrorType === 'tsinghua' }">
+                <input v-model="useMirror" :value="true" type="radio" name="buMirror" :disabled="store.installing">
+                <input v-model="mirrorType" value="tsinghua" type="radio" name="buMirrorType" class="bu-mirror-type-radio" :disabled="store.installing || !useMirror">
+                <span class="bu-mirror-name">🇨🇳 {{ t('browserUse.mirrorTsinghua') }}</span>
+                <span class="bu-mirror-desc">tuna.tsinghua</span>
+              </label>
+              <label class="bu-mirror-option" :class="{ active: useMirror && mirrorType === 'aliyun' }">
+                <input v-model="useMirror" :value="true" type="radio" name="buMirror" :disabled="store.installing">
+                <input v-model="mirrorType" value="aliyun" type="radio" name="buMirrorType" class="bu-mirror-type-radio" :disabled="store.installing || !useMirror">
+                <span class="bu-mirror-name">🇨🇳 {{ t('browserUse.mirrorAliyun') }}</span>
+                <span class="bu-mirror-desc">mirrors.aliyun</span>
+              </label>
+              <label class="bu-mirror-option" :class="{ active: useMirror && mirrorType === 'npmmirror' }">
+                <input v-model="useMirror" :value="true" type="radio" name="buMirror" :disabled="store.installing">
+                <input v-model="mirrorType" value="npmmirror" type="radio" name="buMirrorType" class="bu-mirror-type-radio" :disabled="store.installing || !useMirror">
+                <span class="bu-mirror-name">🇨🇳 npmmirror</span>
+                <span class="bu-mirror-desc">Chromium CDN</span>
+              </label>
+            </div>
+            <p v-if="useMirror" class="bu-mirror-hint">{{ t('browserUse.mirrorHint') }}</p>
+          </div>
+
           <!-- 操作按钮 -->
           <div class="cu-actions">
             <button
@@ -314,6 +345,10 @@ import type { BrowserUseAgentConfig } from '@/types/browserUse'
 const { t } = useI18n()
 const store = useBrowserUseStore()
 
+// 镜像源选择（默认使用清华镜像，国内用户更友好）
+const useMirror = ref(true)
+const mirrorType = ref<'tsinghua' | 'aliyun' | 'npmmirror'>('tsinghua')
+
 const form = reactive({
   provider: store.agentConfig.provider,
   model: store.agentConfig.model,
@@ -355,7 +390,10 @@ onMounted(async () => {
 })
 
 async function handleInstall() {
-  await store.install()
+  await store.install({
+    useMirror: useMirror.value,
+    mirrorType: mirrorType.value,
+  })
   if (store.isInstalled) {
     store.refreshStatus()
   }
@@ -406,6 +444,75 @@ function checkBadgeClass(status: string): Record<string, boolean> {
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   margin-top: 12px;
+}
+
+/** ── 镜像源选择 ── */
+.bu-mirror-section {
+  margin-top: 14px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.bu-mirror-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.bu-mirror-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all .15s;
+  background: var(--bg-elevated);
+  position: relative;
+
+  &:hover {
+    border-color: var(--accent-primary);
+  }
+
+  &.active {
+    border-color: var(--accent-primary);
+    background: var(--accent-primary-glow);
+  }
+
+  input[type="radio"]:not(.bu-mirror-type-radio) {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    accent-color: var(--accent-primary);
+  }
+
+  .bu-mirror-type-radio {
+    display: none;
+  }
+}
+
+.bu-mirror-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.bu-mirror-desc {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.bu-mirror-hint {
+  font-size: 11px;
+  color: var(--accent-primary);
+  margin-top: 8px;
+  margin-bottom: 0;
+  line-height: 1.4;
 }
 
 .bu-checkbox-group {

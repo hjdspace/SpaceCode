@@ -51,6 +51,7 @@ import type {
   BrowserUseUpdateInfo,
   BrowserUseHealthCheck,
   BrowserUseInstallProgress,
+  BrowserUseInstallOptions,
   BrowserUseToolResult,
   BrowserUseLiveSnapshot,
   BrowserUseAgentConfig,
@@ -267,7 +268,7 @@ export interface ElectronComputerUseAPI {
 
 export interface ElectronBrowserUseAPI {
   getStatus: () => Promise<BrowserUseStatus>
-  install: () => Promise<{ success: boolean; error?: string }>
+  install: (options?: BrowserUseInstallOptions) => Promise<{ success: boolean; error?: string }>
   onInstallProgress: (callback: (progress: BrowserUseInstallProgress) => void) => () => void
   doctor: () => Promise<{ ok: boolean; checks: BrowserUseHealthCheck[] }>
   checkUpdate: () => Promise<BrowserUseUpdateInfo>
