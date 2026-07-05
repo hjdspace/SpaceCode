@@ -86,7 +86,7 @@ export default {
       switchedDesc: 'Will take effect in the next response',
     },
     workingDirectory: {
-      none: 'No working directory',
+      none: 'Select working directory',
     },
     template: {
       prototype: 'Prototype',

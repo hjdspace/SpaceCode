@@ -23,7 +23,7 @@ const { t } = useI18n()
 
 const displayName = computed(() => {
   if (!props.modelValue) {
-    return t('work.selectFolder')
+    return t('design.workingDirectory.none')
   }
   const normalized = props.modelValue.replace(/\\/g, '/')
   const parts = normalized.split('/').filter(Boolean)

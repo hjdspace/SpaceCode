@@ -48,7 +48,6 @@ describe('WorkingDirectoryPicker', () => {
   })
 
   it('取消选择时不触发 update:modelValue', async () => {
-    const { api } = await import('@/services/electronAPI')
     vi.mocked(api.selectFolder).mockResolvedValueOnce({ canceled: true, filePaths: [] })
     const w = mount(WorkingDirectoryPicker, { props: { modelValue: '' } })
     await w.find('[data-testid="working-dir-trigger"]').trigger('click')

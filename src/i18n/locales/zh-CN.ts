@@ -86,7 +86,7 @@ export default {
       switchedDesc: '将在后续回复中生效',
     },
     workingDirectory: {
-      none: '未选择工作目录',
+      none: '选择工作目录',
     },
     template: {
       prototype: '原型',
