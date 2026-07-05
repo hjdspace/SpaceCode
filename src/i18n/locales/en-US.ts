@@ -85,6 +85,9 @@ export default {
       switched: 'Design system switched',
       switchedDesc: 'Will take effect in the next response',
     },
+    workingDirectory: {
+      none: 'No working directory',
+    },
     template: {
       prototype: 'Prototype',
       prototypeDesc: 'Interactive app prototype',

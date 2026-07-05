@@ -85,6 +85,9 @@ export default {
       switched: '设计系统已切换',
       switchedDesc: '将在后续回复中生效',
     },
+    workingDirectory: {
+      none: '未选择工作目录',
+    },
     template: {
       prototype: '原型',
       prototypeDesc: '可交互的应用原型',
