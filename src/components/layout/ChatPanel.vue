@@ -1520,7 +1520,6 @@ overflow: hidden;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-
   // 300 (panel width) + 12 (right margin) + 12 (gutter to chat) = 324.
   --env-shoulder: 0px;
   &.with-env-panel.chat-main-reserved {
