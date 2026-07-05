@@ -61,6 +61,10 @@ describe('TemplatePicker', () => {
   it('inline 模式下触发器使用透明背景样式', () => {
     const w = mount(TemplatePicker, { props: { modelValue: null, inline: true } })
     expect(w.find('.template-picker-trigger.is-inline').exists()).toBe(true)
-    expect(w.find('.template-picker.is-inline').exists()).toBe(true)
+  })
+
+  it('默认模式下触发器没有 is-inline 类', () => {
+    const w = mount(TemplatePicker, { props: { modelValue: null } })
+    expect(w.find('.template-picker-trigger.is-inline').exists()).toBe(false)
   })
 })

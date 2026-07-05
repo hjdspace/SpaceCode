@@ -1,5 +1,5 @@
 <template>
-  <div ref="wrapRef" class="template-picker" :class="{ 'is-open': open, 'has-value': active, 'is-inline': inline }">
+  <div ref="wrapRef" class="template-picker" :class="{ 'is-open': open, 'has-value': active }">
     <button
       type="button"
       class="template-picker-trigger"
@@ -26,7 +26,7 @@
       <ChevronDown v-else :size="12" />
     </button>
 
-    <div v-if="open" class="template-picker-menu" :class="{ 'is-inline': inline }" data-testid="template-picker-menu" role="listbox">
+    <div v-if="open" class="template-picker-menu" data-testid="template-picker-menu" role="listbox">
       <div class="template-picker-head">
         <div class="template-picker-search">
           <Search :size="12" />
@@ -238,10 +238,6 @@ onUnmounted(() => {
   z-index: 100;
   animation: scaleIn 120ms ease-out;
   transform-origin: bottom left;
-}
-.template-picker-menu.is-inline {
-  left: 0;
-  bottom: calc(100% + 8px);
 }
 .template-picker-head {
   display: flex;
