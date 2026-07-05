@@ -1,14 +1,33 @@
 <template>
   <div class="design-composer">
-    <div class="composer-input-wrap">
-      <button
-        type="button"
-        class="plus-btn"
-        data-testid="composer-plus-btn"
-        @click="plusMenuOpen = !plusMenuOpen"
-      >
-        <Plus :size="14" />
-      </button>
+    <div ref="inputWrapRef" class="composer-input-wrap">
+      <div class="plus-menu-wrap" v-click-outside="closePlusMenu">
+        <button
+          type="button"
+          class="plus-btn"
+          data-testid="composer-plus-btn"
+          @click="togglePlusMenu"
+        >
+          <Plus :size="14" />
+        </button>
+
+        <div v-if="plusMenuOpen" class="plus-menu" data-testid="composer-plus-menu">
+          <div class="plus-menu-section">
+            <div class="section-label">{{ t('design.toolbox.skills') }}</div>
+            <button
+              v-for="s in designStore.toolboxSkills"
+              :key="s.id"
+              type="button"
+              class="skill-option"
+              :class="{ active: designStore.selectedToolboxSkillId === s.id }"
+              @click="selectSkill(s.id)"
+            >
+              <span class="skill-name">{{ s.name }}</span>
+              <span class="skill-desc">{{ s.description }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
       <TemplatePicker
         v-model="designStore.selectedTemplateId"
@@ -43,23 +62,6 @@
       >
         <Send :size="12" /> {{ t('common.send') }}
       </button>
-
-      <div v-if="plusMenuOpen" class="plus-menu" data-testid="composer-plus-menu">
-        <div class="plus-menu-section">
-          <div class="section-label">{{ t('design.toolbox.skills') }}</div>
-          <button
-            v-for="s in designStore.toolboxSkills"
-            :key="s.id"
-            type="button"
-            class="skill-option"
-            :class="{ active: designStore.selectedToolboxSkillId === s.id }"
-            @click="selectSkill(s.id)"
-          >
-            <span class="skill-name">{{ s.name }}</span>
-            <span class="skill-desc">{{ s.description }}</span>
-          </button>
-        </div>
-      </div>
     </div>
 
     <div class="composer-toolbar-bottom">
@@ -74,13 +76,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus, Square, Send } from 'lucide-vue-next'
 import { useDesignStore } from '@/stores/design'
 import { useChatSessionStore } from '@/stores/chat'
 import { useDesignSession } from '@/composables/useDesignSession'
 import { api } from '@/services/electronAPI'
+import { vClickOutside } from '@/directives/vClickOutside'
 import type { DesignSystemSummary } from '@/services/electronAPI'
 import TemplatePicker from './TemplatePicker.vue'
 import DesignSystemPicker from './DesignSystemPicker.vue'
@@ -106,7 +109,26 @@ const workingDirectory = computed({
 
 onMounted(async () => {
   designSystems.value = await api.design.listSystems()
+  document.addEventListener('keydown', handleEscape)
 })
+
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', handleEscape)
+})
+
+function togglePlusMenu() {
+  plusMenuOpen.value = !plusMenuOpen.value
+}
+
+function closePlusMenu() {
+  plusMenuOpen.value = false
+}
+
+function handleEscape(e: KeyboardEvent) {
+  if (e.key === 'Escape' && plusMenuOpen.value) {
+    plusMenuOpen.value = false
+  }
+}
 
 function selectSkill(id: string) {
   switchToolboxSkill(id)
@@ -143,6 +165,11 @@ async function send() {
   background: var(--bg-primary);
   padding: 6px 6px 6px 8px;
   position: relative;
+}
+
+.plus-menu-wrap {
+  display: inline-flex;
+  align-items: flex-start;
 }
 
 .plus-btn {

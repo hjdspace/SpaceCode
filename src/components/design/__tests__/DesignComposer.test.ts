@@ -48,6 +48,24 @@ describe('DesignComposer', () => {
     expect(w.find('[data-testid="composer-plus-menu"]').exists()).toBe(true)
   })
 
+  it('点击外部区域关闭更多功能菜单', async () => {
+    const w = mount(DesignComposer)
+    await w.find('[data-testid="composer-plus-btn"]').trigger('click')
+    expect(w.find('[data-testid="composer-plus-menu"]').exists()).toBe(true)
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await w.vm.$nextTick()
+    expect(w.find('[data-testid="composer-plus-menu"]').exists()).toBe(false)
+  })
+
+  it('按 Escape 关闭更多功能菜单', async () => {
+    const w = mount(DesignComposer)
+    await w.find('[data-testid="composer-plus-btn"]').trigger('click')
+    expect(w.find('[data-testid="composer-plus-menu"]').exists()).toBe(true)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await w.vm.$nextTick()
+    expect(w.find('[data-testid="composer-plus-menu"]').exists()).toBe(false)
+  })
+
   it('输入内容后点击发送触发 send 事件', async () => {
     const w = mount(DesignComposer)
     const textarea = w.find('textarea')
