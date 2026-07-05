@@ -127,6 +127,7 @@ export default {
       exportHtml: '导出为 HTML',
       exportImage: '导出为图片',
       openInNewTab: '在新标签页打开',
+      openOfficial: '在浏览器中打开官网',
     },
     template: {
       prototype: '原型',

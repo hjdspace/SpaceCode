@@ -21,6 +21,7 @@ export interface DesignSystemSummary {
   description?: string;
   previewPages: PreviewPage[];
   swatches?: DesignSystemSwatch[];
+  officialUrl?: string;
 }
 
 /**
@@ -65,6 +66,93 @@ export async function readDesignSystemAssets(
 
   return { designMd, tokensCss, componentsManifest };
 }
+
+/**
+ * 预设设计系统 ID → 官网 URL 映射。
+ * 参考 open-design 的 OFFICIAL_PRESET_DOMAINS。
+ * 仅包含有明确官网且设计系统 ID 匹配的系统。
+ */
+const OFFICIAL_URL_PRESETS: Record<string, string> = {
+  'airbnb': 'https://airbnb.com',
+  'airtable': 'https://airtable.com',
+  'ant': 'https://ant.design',
+  'apple': 'https://apple.com',
+  'arc': 'https://arc.net',
+  'binance': 'https://binance.com',
+  'bmw': 'https://bmw.com',
+  'bmw-m': 'https://bmw-m.com',
+  'bugatti': 'https://bugatti.com',
+  'cal': 'https://cal.com',
+  'canva': 'https://canva.com',
+  'cisco': 'https://cisco.com',
+  'claude': 'https://claude.ai',
+  'clay': 'https://clay.com',
+  'clickhouse': 'https://clickhouse.com',
+  'cohere': 'https://cohere.com',
+  'coinbase': 'https://coinbase.com',
+  'composio': 'https://composio.dev',
+  'cursor': 'https://cursor.com',
+  'discord': 'https://discord.com',
+  'duolingo': 'https://duolingo.com',
+  'elevenlabs': 'https://elevenlabs.io',
+  'expo': 'https://expo.dev',
+  'ferrari': 'https://ferrari.com',
+  'figma': 'https://figma.com',
+  'framer': 'https://framer.com',
+  'github': 'https://github.com',
+  'hashicorp': 'https://hashicorp.com',
+  'huggingface': 'https://huggingface.co',
+  'ibm': 'https://ibm.com',
+  'intercom': 'https://intercom.com',
+  'kraken': 'https://kraken.com',
+  'lamborghini': 'https://lamborghini.com',
+  'linear-app': 'https://linear.app',
+  'lingo': 'https://lingo.dev',
+  'loom': 'https://loom.com',
+  'lovable': 'https://lovable.dev',
+  'mastercard': 'https://mastercard.com',
+  'material': 'https://material.io',
+  'meta': 'https://meta.com',
+  'minimax': 'https://minimax.io',
+  'miro': 'https://miro.com',
+  'mistral': 'https://mistral.ai',
+  'mistral-ai': 'https://mistral.ai',
+  'mongodb': 'https://mongodb.com',
+  'nike': 'https://nike.com',
+  'notion': 'https://notion.so',
+  'nvidia': 'https://nvidia.com',
+  'ollama': 'https://ollama.com',
+  'openai': 'https://openai.com',
+  'perplexity': 'https://perplexity.ai',
+  'pinterest': 'https://pinterest.com',
+  'posthog': 'https://posthog.com',
+  'raycast': 'https://raycast.com',
+  'renault': 'https://renault.com',
+  'replicate': 'https://replicate.com',
+  'resend': 'https://resend.com',
+  'revolut': 'https://revolut.com',
+  'sanity': 'https://sanity.io',
+  'sentry': 'https://sentry.io',
+  'shadcn': 'https://ui.shadcn.com',
+  'shopify': 'https://shopify.com',
+  'slack': 'https://slack.com',
+  'spacex': 'https://spacex.com',
+  'spotify': 'https://spotify.com',
+  'starbucks': 'https://starbucks.com',
+  'stripe': 'https://stripe.com',
+  'supabase': 'https://supabase.com',
+  'superhuman': 'https://superhuman.com',
+  'tesla': 'https://tesla.com',
+  'uber': 'https://uber.com',
+  'vercel': 'https://vercel.com',
+  'vodafone': 'https://vodafone.com',
+  'warp': 'https://warp.dev',
+  'webex': 'https://webex.com',
+  'webflow': 'https://webflow.com',
+  'wechat': 'https://wechat.com',
+  'wise': 'https://wise.com',
+  'zapier': 'https://zapier.com',
+};
 
 function isColorValue(value: string): boolean {
   return /^#([0-9A-Fa-f]{3,8})$/i.test(value) ||
@@ -350,6 +438,8 @@ export async function listDesignSystems(extraResourcesPath: string): Promise<Des
           swatches = [];
         }
       }
+      const officialUrl: string | undefined =
+        manifest.officialUrl || manifest.website || OFFICIAL_URL_PRESETS[dir.name];
       systems.push({
         id: dir.name,
         name: manifest.name || dir.name,
@@ -357,6 +447,7 @@ export async function listDesignSystems(extraResourcesPath: string): Promise<Des
         description: manifest.description,
         previewPages: manifest.preview?.pages || [],
         swatches,
+        officialUrl,
       });
     }
   }

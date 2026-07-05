@@ -60,6 +60,7 @@ export interface DesignSystemSummary {
   description?: string
   previewPages: PreviewPage[]
   swatches?: DesignSystemSwatch[]
+  officialUrl?: string
 }
 
 export interface FileStat {

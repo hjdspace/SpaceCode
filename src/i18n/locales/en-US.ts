@@ -127,6 +127,7 @@ export default {
       exportHtml: 'Export as HTML',
       exportImage: 'Export as image',
       openInNewTab: 'Open in new tab',
+      openOfficial: 'Open official website in browser',
     },
     template: {
       prototype: 'Prototype',

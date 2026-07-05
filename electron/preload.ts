@@ -742,6 +742,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
         description?: string;
         previewPages: Array<{ path: string; role: string; title: string }>;
         swatches?: Array<{ name: string; value: string }>;
+        officialUrl?: string;
       }>
     > => ipcRenderer.invoke('design:list-systems'),
     getSystemPreview: (systemId: string, pagePath: string): Promise<string> =>

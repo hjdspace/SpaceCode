@@ -4,7 +4,30 @@
       <div class="ds-preview-modal">
         <header class="ds-preview-modal-header">
           <div class="ds-preview-modal-title-block">
-            <div class="ds-preview-modal-title">{{ system.name }}</div>
+            <div class="ds-preview-modal-title-row">
+              <img
+                v-if="faviconSrc"
+                class="ds-preview-modal-favicon"
+                :src="faviconSrc"
+                alt=""
+                referrerpolicy="no-referrer"
+                @error="faviconSrc = ''"
+              />
+              <span v-else-if="system.name" class="ds-preview-modal-favicon-fallback">
+                {{ system.name.charAt(0).toUpperCase() }}
+              </span>
+              <div class="ds-preview-modal-title">{{ system.name }}</div>
+              <a
+                v-if="system.officialUrl"
+                class="ds-preview-modal-official-link"
+                href="#"
+                :title="system.officialUrl"
+                @click.prevent="openOfficialInBrowser"
+              >
+                <span class="ds-preview-modal-official-host">{{ officialHost }}</span>
+                <ExternalLink :size="11" />
+              </a>
+            </div>
             <div class="ds-preview-modal-subtitle">
               {{ system.description || system.category }}
             </div>
@@ -125,6 +148,33 @@ const designMd = ref<string | null>(null)
 const loading = ref(false)
 const designMdLoading = ref(false)
 
+// 参考 open-design DesignKitView：官网 URL 用于 favicon + header 外部链接
+const officialHost = computed(() => {
+  if (!props.system.officialUrl) return ''
+  try {
+    return new URL(props.system.officialUrl).hostname.replace(/^www\./, '')
+  } catch {
+    return props.system.officialUrl.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]
+  }
+})
+
+const faviconSrc = ref('')
+
+watch(
+  () => props.system.officialUrl,
+  (url) => {
+    if (!url) {
+      faviconSrc.value = ''
+      return
+    }
+    const host = officialHost.value
+    faviconSrc.value = host
+      ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`
+      : ''
+  },
+  { immediate: true },
+)
+
 const tabs = computed(() => [
   { id: 'showcase' as const, label: t('design.preview.showcase') },
   { id: 'tokens' as const, label: t('design.preview.tokens') },
@@ -207,6 +257,12 @@ function onSharePointer(event: PointerEvent) {
   shareMenuOpen.value = false
 }
 
+function openOfficialInBrowser() {
+  if (props.system.officialUrl) {
+    api.shell.openExternal(props.system.officialUrl)
+  }
+}
+
 function safeFilename(name: string): string {
   const slug = (name || 'artifact')
     .replace(/[^\w.\-]+/g, '-')
@@ -235,8 +291,6 @@ function exportAsHtml() {
 
 function exportAsStandaloneHtml() {
   if (!activeHtml.value) return
-  // Simple approach: download as standalone HTML (no JSZip dependency)
-  // The HTML content from design system preview is already self-contained
   const blob = new Blob([activeHtml.value], { type: 'text/html;charset=utf-8' })
   triggerDownload(blob, `${safeFilename(props.system.name)}-standalone.html`)
   shareMenuOpen.value = false
@@ -244,7 +298,6 @@ function exportAsStandaloneHtml() {
 
 function exportAsPdf() {
   if (!activeHtml.value) return
-  // Open in a new window and trigger print dialog
   const printWindow = window.open('', '_blank')
   if (!printWindow) return
   printWindow.document.write(activeHtml.value)
@@ -261,18 +314,15 @@ async function exportAsImage() {
   if (!activeHtml.value || !iframeRef.value) return
   try {
     const iframe = iframeRef.value
-    // Try to capture the iframe content via canvas
     const canvas = document.createElement('canvas')
     const rect = iframe.getBoundingClientRect()
     canvas.width = rect.width
     canvas.height = rect.height
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    // Fill white background
     ctx.fillStyle = '#fff'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-    // Use svg foreignObject to render the HTML content as an image
     const svgData = `<svg xmlns="http://www.w3.org/2000/svg" width="${rect.width}" height="${rect.height}">
       <foreignObject width="100%" height="100%">
         <div xmlns="http://www.w3.org/1999/xhtml" style="width:${rect.width}px;height:${rect.height}px;">${activeHtml.value.replace(/<\/?html[^>]*>/gi, '').replace(/<\/?body[^>]*>/gi, '').replace(/<\/?head[^>]*>/gi, '').replace(/<!doctype[^>]*>/i, '')}</div>
@@ -286,15 +336,12 @@ async function exportAsImage() {
       }, 'image/png')
     }
     img.onerror = () => {
-      // Fallback: use html2canvas-like approach via iframe content
-      // If foreignObject fails (CORS/complex CSS), download the HTML directly
       const blob = new Blob([activeHtml.value], { type: 'text/html;charset=utf-8' })
       triggerDownload(blob, `${safeFilename(props.system.name)}.html`)
     }
     img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgData)
   } catch (err) {
     console.error('Failed to export image:', err)
-    // Fallback to HTML download
     const blob = new Blob([activeHtml.value], { type: 'text/html;charset=utf-8' })
     triggerDownload(blob, `${safeFilename(props.system.name)}.html`)
   }
@@ -366,10 +413,67 @@ onUnmounted(() => {
   gap: 5px;
 }
 
+.ds-preview-modal-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ds-preview-modal-favicon {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.ds-preview-modal-favicon-fallback {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent-primary, #2563eb);
+}
+
 .ds-preview-modal-title {
   font-size: 18px;
   font-weight: 800;
   color: var(--text-primary);
+}
+
+.ds-preview-modal-official-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-decoration: none;
+  padding: 2px 8px;
+  border-radius: var(--radius-full, 9999px);
+  border: 1px solid #dfe5ee;
+  background: #f5f7fa;
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.ds-preview-modal-official-link:hover {
+  background: var(--surface-soft);
+  border-color: var(--surface-border-strong);
+  color: var(--text-primary);
+}
+
+.ds-preview-modal-official-host {
+  white-space: nowrap;
 }
 
 .ds-preview-modal-subtitle {
