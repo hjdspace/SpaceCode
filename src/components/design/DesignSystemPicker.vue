@@ -6,14 +6,14 @@
       data-testid="ds-picker-trigger"
       @click="open = !open"
     >
-      <Palette :size="13" />
+      <Palette :size="14" />
       <span class="ds-picker-value">{{ selectedName }}</span>
       <ChevronDown :size="12" />
     </button>
 
     <div v-if="open" class="ds-picker-menu" data-testid="ds-picker-menu">
       <div class="ds-picker-search">
-        <Search :size="12" />
+        <Search :size="14" />
         <input
           ref="inputRef"
           v-model="query"
@@ -30,10 +30,11 @@
           disabled
           :title="t('design.designSystemPicker.createDisabled')"
         >
-          <Plus :size="12" stroke-width="2" />
+          <Plus :size="13" stroke-width="2" />
           <span>{{ t('common.create') }}</span>
         </button>
       </div>
+
       <div class="ds-picker-body">
         <div class="ds-picker-list" role="listbox">
           <button
@@ -48,58 +49,61 @@
             @mousedown.prevent="pick(null)"
           >
             <span class="ds-picker-option-title">{{ t('design.designSystemPicker.none') }}</span>
-            <Check v-if="modelValue == null" :size="13" stroke-width="2" />
+            <Check v-if="modelValue == null" :size="14" stroke-width="2" />
           </button>
 
           <template v-if="filtered.length">
-            <div
+            <div class="ds-picker-group-label">{{ t('design.designSystemPicker.officialPresets') }}</div>
+            <button
               v-for="system in filtered"
               :key="system.id"
-              class="ds-picker-option-wrap"
+              type="button"
+              class="ds-picker-option"
+              :class="{ active: modelValue === system.id }"
+              :data-testid="`ds-option-${system.id}`"
+              role="option"
+              :aria-selected="modelValue === system.id"
+              @mouseenter="hoverSystem(system)"
+              @focus="hoverSystem(system)"
+              @mousedown.prevent="pick(system.id)"
             >
-              <button
-                type="button"
-                class="ds-picker-option"
-                :class="{ active: modelValue === system.id }"
-                :data-testid="`ds-option-${system.id}`"
-                role="option"
-                :aria-selected="modelValue === system.id"
-                @mouseenter="hoverSystem(system)"
-                @focus="hoverSystem(system)"
-                @mousedown.prevent="pick(system.id)"
-              >
-                <span class="ds-picker-option-title">{{ system.name }}</span>
-                <Check v-if="modelValue === system.id" :size="13" stroke-width="2" />
-              </button>
-            </div>
+              <span class="ds-picker-option-title">{{ system.name }}</span>
+              <Check v-if="modelValue === system.id" :size="14" stroke-width="2" />
+            </button>
           </template>
           <div v-else class="ds-picker-empty">{{ t('design.designSystemPicker.noMatches') }}</div>
         </div>
+
         <div class="ds-picker-preview" data-testid="ds-picker-preview">
           <template v-if="previewSystem">
-            <div class="ds-preview-head">
-              <div class="ds-preview-title">{{ previewSystem.name }}</div>
-              <div class="ds-preview-meta">{{ previewSystem.category }}</div>
-            </div>
-            <p class="ds-preview-desc">{{ previewSystem.description || t('design.designSystemPicker.noDesc') }}</p>
-            <div v-if="previewSystem.swatches?.length" class="ds-preview-swatches">
-              <span
-                v-for="swatch in previewSystem.swatches.slice(0, 6)"
-                :key="swatch.name"
-                class="ds-preview-swatch"
-                :style="{ background: swatch.value }"
-                :title="`${swatch.name}: ${swatch.value}`"
-              />
-            </div>
-            <div class="ds-preview-frame-wrap">
-              <iframe
-                v-if="previewHtml"
-                class="ds-preview-frame"
-                :srcdoc="previewHtml"
-                sandbox="allow-scripts"
-                data-testid="ds-preview-frame"
-              />
-              <div v-else class="ds-preview-frame-empty">{{ t('common.loading') }}</div>
+            <div class="ds-preview-scroll">
+              <div class="ds-preview-head">
+                <div>
+                  <div class="ds-preview-title">{{ previewSystem.name }}</div>
+                  <div class="ds-preview-meta">{{ previewSystem.category }}</div>
+                </div>
+              </div>
+              <p class="ds-preview-desc">{{ previewSystem.description || t('design.designSystemPicker.noDesc') }}</p>
+              <div v-if="previewSystem.swatches?.length" class="ds-preview-swatches">
+                <span
+                  v-for="swatch in previewSystem.swatches.slice(0, 6)"
+                  :key="swatch.name"
+                  class="ds-preview-swatch"
+                  :style="{ background: swatch.value }"
+                  :title="`${swatch.name}: ${swatch.value}`"
+                />
+              </div>
+              <div class="ds-preview-frame-wrap">
+                <div v-if="previewLoading" class="ds-preview-frame-empty">{{ t('common.loading') }}</div>
+                <iframe
+                  v-else-if="previewHtml"
+                  class="ds-preview-frame"
+                  :srcdoc="previewHtml"
+                  sandbox="allow-scripts"
+                  data-testid="ds-preview-frame"
+                />
+                <div v-else class="ds-preview-frame-empty">{{ t('design.preview.noPreview') }}</div>
+              </div>
             </div>
             <button
               type="button"
@@ -107,15 +111,17 @@
               data-testid="ds-preview-open"
               @click="openPreviewModal"
             >
-              <Eye :size="13" stroke-width="1.9" />
+              <Eye :size="14" stroke-width="1.9" />
               <span>{{ t('design.designSystemPicker.openPreview') }}</span>
             </button>
           </template>
           <template v-else>
-            <div class="ds-preview-head">
-              <div class="ds-preview-title">{{ t('design.designSystemPicker.none') }}</div>
+            <div class="ds-preview-none" data-testid="ds-picker-preview-none">
+              <div class="ds-preview-head">
+                <div class="ds-preview-title">{{ t('design.designSystemPicker.none') }}</div>
+              </div>
+              <p class="ds-preview-desc">{{ t('design.designSystemPicker.noneDesc') }}</p>
             </div>
-            <p class="ds-preview-desc">{{ t('design.designSystemPicker.noneDesc') }}</p>
           </template>
         </div>
       </div>
@@ -151,7 +157,9 @@ const inputRef = ref<HTMLInputElement | null>(null)
 const hovered = ref<DesignSystemSummary | null>(null)
 const hoveredNone = ref(false)
 const previewHtml = ref('')
+const previewLoading = ref(false)
 const previewModalSystem = ref<DesignSystemSummary | null>(null)
+let previewRequestId = 0
 
 const selected = computed(() => props.systems.find((s) => s.id === props.modelValue) || null)
 const selectedName = computed(() => selected.value?.name || t('design.designSystemPicker.none'))
@@ -172,12 +180,18 @@ const filtered = computed(() => {
 })
 
 async function loadPreview(system: DesignSystemSummary) {
-  const page = system.previewPages[0]
-  if (!page) {
-    previewHtml.value = ''
-    return
+  const requestId = ++previewRequestId
+  previewLoading.value = true
+  previewHtml.value = ''
+  try {
+    const page = system.previewPages[0]
+    const html = page
+      ? await api.design.getSystemPreview(system.id, page.path)
+      : await api.design.getSystemShowcase(system.id)
+    if (requestId === previewRequestId) previewHtml.value = html
+  } finally {
+    if (requestId === previewRequestId) previewLoading.value = false
   }
-  previewHtml.value = await api.design.getSystemPreview(system.id, page.path)
 }
 
 function hoverSystem(system: DesignSystemSummary) {
@@ -190,6 +204,7 @@ function hoverNone() {
   hovered.value = null
   hoveredNone.value = true
   previewHtml.value = ''
+  previewLoading.value = false
 }
 
 function pick(id: string | null) {
@@ -199,12 +214,14 @@ function pick(id: string | null) {
 
 function clearQuery() {
   query.value = ''
+  emit('update:modelValue', null)
   inputRef.value?.focus()
 }
 
 function openPreviewModal() {
   const system = previewSystem.value
   if (!system) return
+  open.value = false
   previewModalSystem.value = system
 }
 
@@ -231,6 +248,7 @@ watch(open, async (val) => {
     hovered.value = null
     hoveredNone.value = false
     previewHtml.value = ''
+    previewLoading.value = false
   }
 })
 
@@ -246,43 +264,53 @@ onUnmounted(() => {
 </script>
 
 <style scoped lang="scss">
-.ds-picker { position: relative; display: inline-flex; align-items: center; }
+.ds-picker { position: relative; display: inline-flex; align-items: center; min-width: 0; }
 
 .ds-picker-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  background: var(--bg-primary);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-full);
-  padding: 5px 10px;
-  font-size: 12px;
+  gap: 7px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 6px 8px;
+  font-size: 14px;
   cursor: pointer;
+  color: var(--text-muted);
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+  max-width: 260px;
+}
+
+.ds-picker-trigger:hover,
+.ds-picker.is-open .ds-picker-trigger {
+  background: rgba(24, 25, 31, 0.04);
+  border-color: var(--surface-border);
   color: var(--text-primary);
-  transition: background var(--transition-fast), border-color var(--transition-fast);
 }
 
-.ds-picker-trigger:hover {
-  background: var(--bg-hover);
-  border-color: var(--surface-border-strong);
+.ds-picker-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
 }
-
-.ds-picker-value { font-weight: 500; }
 
 .ds-picker-menu {
   position: absolute;
-  bottom: calc(100% + 8px);
+  bottom: calc(100% + 14px);
   left: 0;
-  width: 620px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-xl);
-  padding: 12px;
-  z-index: 100;
+  width: min(720px, calc(100vw - 36px));
+  max-height: min(430px, calc(100vh - 160px));
+  background: #fff;
+  border: 1px solid #d8e0eb;
+  border-radius: 14px;
+  box-shadow: 0 22px 56px rgba(24, 25, 31, 0.18);
+  z-index: 130;
   display: flex;
   flex-direction: column;
-  animation: scaleIn 120ms ease-out;
+  overflow: hidden;
+  animation: scaleIn 140ms cubic-bezier(0.23, 1, 0.32, 1);
   transform-origin: bottom left;
 }
 
@@ -290,16 +318,20 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
+  height: 52px;
+  padding: 0 12px;
+  border-bottom: 1px solid #e4e9f1;
+  color: var(--text-muted);
+  flex: 0 0 auto;
 }
 
 .ds-picker-search input {
   flex: 1;
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-full);
-  background: var(--bg-primary);
-  padding: 6px 10px;
-  font-size: 12px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0 4px;
+  font-size: 15px;
   color: var(--text-primary);
   outline: none;
 }
@@ -307,97 +339,148 @@ onUnmounted(() => {
 .ds-picker-search input::placeholder { color: var(--text-disabled); }
 
 .ds-picker-action {
-  font-size: 11px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--text-muted);
-  background: none;
-  border: none;
+  background: #fff;
+  border: 1px solid #dbe2eb;
+  border-radius: 8px;
   cursor: pointer;
   white-space: nowrap;
-  transition: color var(--transition-fast);
+  padding: 0 10px;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
 }
 
-.ds-picker-action:hover { color: var(--text-primary); }
+.ds-picker-action:hover {
+  background: var(--surface-soft);
+  border-color: var(--surface-border-strong);
+  color: var(--text-primary);
+}
 
 .ds-picker-action--primary {
   color: var(--accent-primary);
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  border-color: color-mix(in srgb, var(--accent-primary) 36%, #dbe2eb);
+  background: color-mix(in srgb, var(--accent-primary) 7%, #fff);
 }
 
-.ds-picker-action:disabled { opacity: 0.5; cursor: not-allowed; }
+.ds-picker-action:disabled { opacity: 0.55; cursor: not-allowed; }
 
 .ds-picker-body {
-  display: flex;
-  gap: 12px;
-  min-height: 280px;
-  max-height: 380px;
+  display: grid;
+  grid-template-columns: minmax(230px, 0.92fr) minmax(330px, 1.08fr);
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 
 .ds-picker-list {
-  width: 42%;
-  max-height: 360px;
   overflow-y: auto;
-  border-right: 1px solid var(--surface-border);
-  padding-right: 10px;
+  padding: 10px;
+  border-right: 1px solid #e4e9f1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ds-picker-group-label {
+  padding: 12px 8px 6px;
+  color: var(--text-disabled);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
 }
 
 .ds-picker-option {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   width: 100%;
+  min-height: 40px;
   text-align: left;
-  background: none;
+  background: transparent;
   border: none;
-  padding: 7px 9px;
-  border-radius: var(--radius-md);
+  padding: 0 10px;
+  border-radius: 10px;
   cursor: pointer;
   color: var(--text-primary);
-  transition: background var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
-.ds-picker-option:hover,
+.ds-picker-option:hover {
+  background: var(--surface-soft);
+}
+
 .ds-picker-option.active {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--accent-primary) 10%, #fff);
 }
 
-.ds-picker-option-title { font-size: 13px; }
+.ds-picker-option-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 17px;
+  font-weight: 800;
+}
 
 .ds-picker-empty {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
-  padding: 16px;
+  padding: 18px;
   text-align: center;
 }
 
 .ds-picker-preview {
-  flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  padding: 4px;
+  background: #fff;
 }
 
-.ds-preview-head { display: flex; flex-direction: column; gap: 2px; }
+.ds-preview-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 22px 14px;
+}
+
+.ds-preview-none {
+  padding: 24px;
+}
+
+.ds-preview-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
 
 .ds-preview-title {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 800;
   color: var(--text-primary);
 }
 
 .ds-preview-meta {
-  font-size: 11px;
+  margin-top: 4px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 
 .ds-preview-desc {
-  font-size: 12px;
+  font-size: 15px;
   color: var(--text-secondary);
-  line-height: 1.45;
-  margin: 0;
+  line-height: 1.5;
+  margin: 12px 0 14px;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   line-clamp: 3;
@@ -408,32 +491,34 @@ onUnmounted(() => {
 .ds-preview-swatches {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 2px;
+  gap: 7px;
+  margin-bottom: 14px;
 }
 
 .ds-preview-swatch {
   width: 24px;
   height: 24px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--surface-border);
+  border-radius: 7px;
+  border: 1px solid #dce3ec;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.44);
 }
 
 .ds-preview-frame-wrap {
-  flex: 1;
-  min-height: 140px;
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  background: white;
   position: relative;
-  margin-top: 4px;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  min-height: 170px;
+  border: 1px solid #dce3ec;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
 }
 
 .ds-preview-frame {
   width: 100%;
   height: 100%;
   border: none;
+  background: white;
 }
 
 .ds-preview-frame-empty {
@@ -442,56 +527,59 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
+  text-align: center;
+  padding: 16px;
 }
 
 .ds-preview-open {
+  align-self: center;
+  transform: translateY(-18px);
+  min-height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  margin-top: auto;
-  padding: 7px 12px;
+  gap: 8px;
+  padding: 0 18px;
   border-radius: var(--radius-full);
-  border: 1px solid var(--surface-border);
-  background: var(--bg-primary);
+  border: 1px solid #dce3ec;
+  background: #fff;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 14px;
+  font-weight: 800;
   cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  box-shadow: 0 12px 28px rgba(24, 25, 31, 0.14);
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    transform var(--transition-fast);
 }
 
 .ds-preview-open:hover {
-  background: var(--surface-hover);
+  background: var(--surface-soft);
   border-color: var(--surface-border-strong);
+  transform: translateY(-19px);
 }
 
 @keyframes scaleIn {
-  from { opacity: 0; transform: scale(0.96); }
-  to { opacity: 1; transform: scale(1); }
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .ds-picker-menu {
-    width: calc(100vw - 32px);
+    width: calc(100vw - 24px);
     left: auto;
     right: 0;
   }
   .ds-picker-body {
-    flex-direction: column;
-    max-height: none;
+    grid-template-columns: 1fr;
   }
   .ds-picker-list {
-    width: 100%;
-    border-right: none;
-    border-bottom: 1px solid var(--surface-border);
-    padding-right: 0;
-    padding-bottom: 10px;
-    max-height: 180px;
-  }
-  .ds-preview-frame-wrap {
-    min-height: 120px;
+    max-height: 220px;
+    border-right: 0;
+    border-bottom: 1px solid #e4e9f1;
   }
 }
 </style>
