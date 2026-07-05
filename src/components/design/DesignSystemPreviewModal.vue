@@ -69,6 +69,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { X } from 'lucide-vue-next'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { api } from '@/services/electronAPI'
 import type { DesignSystemSummary } from '@/services/electronAPI'
 
@@ -104,7 +105,8 @@ const activeHtml = computed(() => {
 
 const designMdHtml = computed(() => {
   if (!designMd.value) return ''
-  return marked(designMd.value, { gfm: true }) as string
+  const rawHtml = marked(designMd.value, { gfm: true }) as string
+  return DOMPurify.sanitize(rawHtml)
 })
 
 async function loadShowcase() {
