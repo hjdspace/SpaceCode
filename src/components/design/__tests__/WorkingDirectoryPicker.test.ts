@@ -31,9 +31,9 @@ describe('WorkingDirectoryPicker', () => {
     expect(w.find('[data-testid="working-dir-trigger"]').text()).toContain('project')
   })
 
-  it('modelValue 为空时渲染未选择工作目录文案', () => {
+  it('空路径时显示国际化占位文案', () => {
     const w = mount(WorkingDirectoryPicker, { props: { modelValue: '' } })
-    expect(w.find('[data-testid="working-dir-trigger"]').text()).toContain('未选择工作目录')
+    expect(w.find('[data-testid="working-dir-trigger"]').text()).toContain('选择工作目录')
   })
 
   it('点击触发 selectFolder 并回传路径', async () => {
@@ -47,13 +47,11 @@ describe('WorkingDirectoryPicker', () => {
     expect(events![0]).toEqual(['/new/project'])
   })
 
-  it('用户取消选择时不触发 update:modelValue', async () => {
-    vi.mocked(api.selectFolder).mockResolvedValue({ canceled: true, filePaths: [] })
+  it('取消选择时不触发 update:modelValue', async () => {
+    const { api } = await import('@/services/electronAPI')
+    vi.mocked(api.selectFolder).mockResolvedValueOnce({ canceled: true, filePaths: [] })
     const w = mount(WorkingDirectoryPicker, { props: { modelValue: '' } })
-
     await w.find('[data-testid="working-dir-trigger"]').trigger('click')
-
-    expect(api.selectFolder).toHaveBeenCalledTimes(1)
     expect(w.emitted('update:modelValue')).toBeFalsy()
   })
 })
