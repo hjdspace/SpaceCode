@@ -45,22 +45,22 @@
       <div v-if="filtered.length === 0" class="template-picker-empty">{{ t('design.templatePicker.noMatches') }}</div>
       <div v-else class="template-picker-grid">
         <button
-          v-for="templ in filtered"
-          :key="templ.id"
+          v-for="template in filtered"
+          :key="template.id"
           type="button"
           class="template-card"
-          :class="{ 'is-active': modelValue === templ.id }"
-          :data-testid="`template-card-${templ.id}`"
+          :class="{ 'is-active': modelValue === template.id }"
+          :data-testid="`template-card-${template.id}`"
           role="option"
-          :aria-selected="modelValue === templ.id"
-          :title="t(templ.descriptionKey)"
-          @click="pick(templ.id)"
+          :aria-selected="modelValue === template.id"
+          :title="t(template.descriptionKey)"
+          @click="pick(template.id)"
         >
           <span class="template-card-art">
-            <TemplateScenarioArt :template-id="templ.id" />
+            <TemplateScenarioArt :template-id="template.id" />
           </span>
-          <span class="template-card-label">{{ t(templ.labelKey) }}</span>
-          <span class="template-card-desc">{{ t(templ.descriptionKey) }}</span>
+          <span class="template-card-label">{{ t(template.labelKey) }}</span>
+          <span class="template-card-desc">{{ t(template.descriptionKey) }}</span>
         </button>
       </div>
     </div>
