@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { QuestionFormBlock } from '@/utils/design/questionForm'
+import { getTemplateById } from '@/lib/design/templates'
 
 export interface DesignSystem { id: string; name: string; category: string }
 export interface DesignSkill { id: string; name: string; description: string; mode?: string }
@@ -45,6 +46,15 @@ export const useDesignStore = defineStore('design', () => {
     toolboxSkills.value.find(s => s.id === selectedToolboxSkillId.value) || null,
   )
 
+  // 模板与设计系统选择
+  const selectedTemplateId = ref<string | null>(null)
+  const selectedDesignSystemId = ref<string | null>(null)
+  const selectedDesignSystemName = ref<string | null>(null)
+
+  const currentTemplate = computed(() =>
+    selectedTemplateId.value ? getTemplateById(selectedTemplateId.value) : null,
+  )
+
   function setPendingQuestionForm(form: QuestionFormBlock | null) {
     pendingQuestionForm.value = form
   }
@@ -78,6 +88,7 @@ export const useDesignStore = defineStore('design', () => {
     artifactFiles, selectedArtifactPath, pendingQuestionForm,
     openTabs, activeTabPath, lastUsage, nextStepActions,
     toolboxSkills, selectedToolboxSkillId, currentToolboxSkill,
+    selectedTemplateId, selectedDesignSystemId, selectedDesignSystemName, currentTemplate,
     setPendingQuestionForm, clearPendingQuestionForm, updateArtifactFiles,
     addTab, removeTab, setActiveTab, setUsage, setNextStepActions,
   }

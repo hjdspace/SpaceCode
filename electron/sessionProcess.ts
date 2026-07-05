@@ -361,7 +361,7 @@ export class SessionProcess extends EventEmitter {
   }
 
   sendMessage(content: string, images?: any[]): void {
-    if (!this.process) throw new Error('No active process')
+    if (!this.process?.stdin?.writable) throw new Error('No active process')
     
     info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Sending user message | contentLen=${content.length} | images=${images?.length || 0} | preview="${content.slice(0, 100)}"`)
     traceEvent({
@@ -703,7 +703,7 @@ export class SessionProcess extends EventEmitter {
   }
 
   isRunning(): boolean {
-    return this.process !== null && !this.process.killed
+    return this.process !== null && !this.process.killed && !!this.process.stdin?.writable
   }
 
   /**

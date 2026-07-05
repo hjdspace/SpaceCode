@@ -18,6 +18,7 @@
       <template #left><DesignChatPane /></template>
       <template #right><DesignFileWorkspace /></template>
     </DesignSplitView>
+    <ToastNotification />
   </div>
 </template>
 
@@ -30,6 +31,7 @@ import { useDesignSession } from '@/composables/useDesignSession'
 import DesignSplitView from './DesignSplitView.vue'
 import DesignChatPane from './DesignChatPane.vue'
 import DesignFileWorkspace from './DesignFileWorkspace.vue'
+import ToastNotification from '@/components/common/ToastNotification.vue'
 
 const { t } = useI18n()
 const designStore = useDesignStore()

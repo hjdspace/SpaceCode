@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, readonly } from 'vue'
-import type { Session, Message, ToolCall, AgentInfo, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus, ArtifactSummaryEntry } from '@/types'
+import type { Session, Message, ToolCall, AgentInfo, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus, ArtifactSummaryEntry, MessageMetadata } from '@/types'
 import type { RewindOption, RewindState } from '@/types/rewind'
 import { useSettingsStore } from './settings'
 import { useAppStore } from './app'
@@ -152,17 +152,30 @@ async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
       const restoredMessages = buildMessagesFromHistory(fullSession.messages as any[])
       if (restoredMessages.length === 0) continue
 
-      // ── 保留办公模式产物汇总数据 ──
-      // JSONL 转录文件由引擎写入，不包含 SpaceCode 特有的 metadata.artifacts 字段。
-      // buildMessagesFromHistory 从 JSONL 重建消息时会丢失该字段，导致重开后产物汇总
-      // 卡片消失。此处从 localStorage 保存的旧消息中按助手消息位置提取 artifacts，
-      // 重建后按位置合并回去（旧/新消息的 SpaceCode UUID 与引擎 UUID 不同，无法按 id 匹配）。
-      const oldArtifactsByAssistantIdx = new Map<number, ArtifactSummaryEntry[]>()
+      // ── 保留 SpaceCode 前端特有的 metadata 字段 ──
+      // JSONL 转录文件由引擎写入，不包含 SpaceCode 前端在运行时计算的字段：
+      //   • metadata.duration     — 每轮助手回复的用时（result 事件时 Date.now() - msg.timestamp）
+      //   • metadata.apiCallUsage — 最后一次 API 调用的 token 明细
+      //   • metadata.artifacts    — 办公模式产物汇总
+      //   • metadata.warning     — 前端生成的警告信息
+      // buildMessagesFromHistory 从 JSONL 重建消息时会丢失这些字段，导致重开后
+      // 用时统计变为 0、产物汇总卡片消失。此处从 localStorage 保存的旧消息中
+      // 按助手消息位置提取这些字段，重建后按位置合并回去
+      // （旧/新消息的 SpaceCode UUID 与引擎 UUID 不同，无法按 id 匹配）。
+      const oldExtraMetaByAssistantIdx = new Map<number, Partial<MessageMetadata>>()
       let oldAssistantIdx = 0
       for (const oldMsg of session.messages) {
         if (oldMsg.role !== 'assistant') continue
-        if (oldMsg.metadata?.artifacts?.length) {
-          oldArtifactsByAssistantIdx.set(oldAssistantIdx, oldMsg.metadata.artifacts)
+        const md = oldMsg.metadata
+        if (md) {
+          const extra: Partial<MessageMetadata> = {}
+          if (typeof md.duration === 'number') extra.duration = md.duration
+          if (md.apiCallUsage) extra.apiCallUsage = md.apiCallUsage
+          if (md.artifacts?.length) extra.artifacts = md.artifacts
+          if (md.warning) extra.warning = md.warning
+          if (Object.keys(extra).length > 0) {
+            oldExtraMetaByAssistantIdx.set(oldAssistantIdx, extra)
+          }
         }
         oldAssistantIdx++
       }
@@ -182,16 +195,16 @@ async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
         } : {}),
       })) as Message[]
 
-      // 将旧消息中保存的产物汇总数据按助手消息位置合并回重建后的消息
-      if (oldArtifactsByAssistantIdx.size > 0) {
+      // 将旧消息中保存的前端特有 metadata 按助手消息位置合并回重建后的消息
+      if (oldExtraMetaByAssistantIdx.size > 0) {
         let newAssistantIdx = 0
         for (const newMsg of session.messages) {
           if (newMsg.role !== 'assistant') continue
-          const savedArtifacts = oldArtifactsByAssistantIdx.get(newAssistantIdx)
-          if (savedArtifacts) {
+          const savedMeta = oldExtraMetaByAssistantIdx.get(newAssistantIdx)
+          if (savedMeta) {
             newMsg.metadata = {
               ...(newMsg.metadata || {}),
-              artifacts: savedArtifacts,
+              ...savedMeta,
             }
           }
           newAssistantIdx++

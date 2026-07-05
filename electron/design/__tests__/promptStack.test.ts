@@ -24,9 +24,10 @@ describe('getSystemPreviewHtml', () => {
     expect(html).toContain('--accent')
   })
 
-  it('将相对路径替换为 file:// 绝对路径', async () => {
+  it('将本地样式表内联为 style 标签', async () => {
     const html = await getSystemPreviewHtml(extraResourcesPath, 'agentic', 'preview/colors.html')
-    expect(html).not.toMatch(/href="\.\.\//)
-    expect(html).toMatch(/href="file:\/\//)
+    expect(html).not.toMatch(/<link[^>]*stylesheet/)
+    expect(html).toContain('--bg:')
+    expect(html).toContain('<style>')
   })
 })

@@ -1,9 +1,16 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, config } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
+import { setActivePinia, createPinia } from 'pinia'
 import TemplatePicker from '../TemplatePicker.vue'
 import zhCN from '@/i18n/locales/zh-CN'
 import enUS from '@/i18n/locales/en-US'
+
+const switchToolboxSkillSpy = vi.fn().mockResolvedValue(undefined)
+
+vi.mock('@/composables/useDesignSession', () => ({
+  useDesignSession: () => ({ switchToolboxSkill: switchToolboxSkillSpy }),
+}))
 
 const i18n = createI18n({
   legacy: false,
@@ -11,11 +18,13 @@ const i18n = createI18n({
   fallbackLocale: 'en-US',
   messages: { 'zh-CN': zhCN, 'en-US': enUS },
 })
-config.global.plugins = [i18n]
+config.global.plugins = [i18n, createPinia()]
 
 describe('TemplatePicker', () => {
   beforeEach(() => {
-    config.global.plugins = [i18n]
+    config.global.plugins = [i18n, createPinia()]
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
   })
 
   it('点击触发按钮后打开浮层并渲染 10 个卡片', async () => {
@@ -40,5 +49,12 @@ describe('TemplatePicker', () => {
     const events = w.emitted('update:modelValue')
     expect(events).toBeTruthy()
     expect(events![0]).toEqual(['deck'])
+  })
+
+  it('选择模板时若 defaultSkillId 不同则自动切换 skill', async () => {
+    const w = mount(TemplatePicker, { props: { modelValue: null } })
+    await w.find('[data-testid="template-picker-trigger"]').trigger('click')
+    await w.find('[data-testid="template-card-deck"]').trigger('click')
+    expect(switchToolboxSkillSpy).toHaveBeenCalledWith('html-ppt-skill')
   })
 })

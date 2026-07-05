@@ -2,9 +2,14 @@ import { useDesignStore } from '@/stores/design'
 import { useChatStore, useChatSessionStore } from '@/stores/chat'
 import { api } from '@/services/electronAPI'
 import { findFirstQuestionForm, splitOnQuestionForms } from '@/utils/design/questionForm'
+import { buildPreamble } from '@/lib/design/templates'
+import { errorHandler } from '@/services/errorHandler'
+import { ErrorCategory } from '@/types'
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 export function useDesignSession() {
+  const { t } = useI18n()
   const designStore = useDesignStore()
   const chatStore = useChatStore()
   const chatSessionStore = useChatSessionStore()
@@ -21,6 +26,7 @@ export function useDesignSession() {
 
     const systemPrompt = await api.design.composePromptStack({
       skillName: designStore.selectedToolboxSkillId,
+      designSystemId: designStore.selectedDesignSystemId || undefined,
       locale: 'zh-CN',
     })
 
@@ -45,6 +51,7 @@ export function useDesignSession() {
     // 无论当前是否存在活跃会话都应触发 compose，便于上层校验技能可用性。
     const systemPrompt = await api.design.composePromptStack({
       skillName: skillId,
+      designSystemId: designStore.selectedDesignSystemId || undefined,
       locale: 'zh-CN',
     })
     const sid = designStore.activeSessionId
@@ -54,6 +61,43 @@ export function useDesignSession() {
       cwd: designStore.designWorkspace,
       agent: 'ui-ux-pro-max',
     })
+  }
+
+  async function switchDesignSystem(systemId: string | null, systemName: string | null): Promise<void> {
+    designStore.selectedDesignSystemId = systemId
+    designStore.selectedDesignSystemName = systemName
+    const systemPrompt = await api.design.composePromptStack({
+      skillName: designStore.selectedToolboxSkillId,
+      designSystemId: systemId || undefined,
+      locale: 'zh-CN',
+    })
+    const sid = designStore.activeSessionId
+    if (!sid) return
+    await chatSessionStore.initClaudeCodeSession(sid, {
+      systemPrompt,
+      cwd: designStore.designWorkspace,
+      agent: 'ui-ux-pro-max',
+    })
+    if (systemName) {
+      errorHandler.pushToast({
+        id: crypto.randomUUID(),
+        category: ErrorCategory.UNKNOWN,
+        title: t('design.designSystemPicker.switched'),
+        message: t('design.designSystemPicker.switchedDesc'),
+        autoDismiss: true,
+        dismissAfter: 3000,
+        createdAt: Date.now(),
+      })
+    }
+  }
+
+  function buildDesignMessage(userMessage: string): string {
+    const preamble = buildPreamble(
+      designStore.selectedTemplateId,
+      designStore.selectedDesignSystemName,
+    )
+    if (!preamble) return userMessage
+    return `${preamble}\n\n${userMessage}`
   }
 
   function attachStreamListener(sessionId: string) {
@@ -116,6 +160,8 @@ export function useDesignSession() {
     isGenerating,
     createDesignSession,
     switchToolboxSkill,
+    switchDesignSystem,
+    buildDesignMessage,
     submitQuestionForm,
     stopDesignGeneration,
     closeDesignSession,

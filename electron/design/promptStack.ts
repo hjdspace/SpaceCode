@@ -60,23 +60,72 @@ export async function readDesignSystemAssets(
   return { designMd, tokensCss, componentsManifest };
 }
 
+async function replaceAsync(
+  str: string,
+  regex: RegExp,
+  asyncFn: (...args: any[]) => Promise<string>,
+): Promise<string> {
+  const promises: Promise<string>[] = [];
+  str.replace(regex, (...args) => {
+    promises.push(asyncFn(...args));
+    return '';
+  });
+  const replacements = await Promise.all(promises);
+  let i = 0;
+  return str.replace(regex, () => replacements[i++]);
+}
+
+async function inlineLocalStylesheets(html: string, baseDir: string): Promise<string> {
+  const linkRegex = /<link[^>]*>/gi;
+  return replaceAsync(html, linkRegex, async (match: string) => {
+    const hrefMatch = match.match(/\s?href=["']([^"']+)["']/i);
+    const relMatch = match.match(/\s?rel=["']([^"']+)["']/i);
+    if (!hrefMatch || !relMatch || !/stylesheet/i.test(relMatch[1])) return match;
+    const href = hrefMatch[1];
+    if (/^[a-z][a-z0-9+.-]:/i.test(href)) return match;
+    const cssPath = path.resolve(baseDir, href);
+    const css = await fs.readFile(cssPath, 'utf-8').catch(() => '');
+    if (!css) return match;
+    return `<style>${css}</style>`;
+  });
+}
+
+async function inlineLocalScripts(html: string, baseDir: string): Promise<string> {
+  const scriptRegex = /<script[^>]*>\s*<\/script>/gi;
+  return replaceAsync(html, scriptRegex, async (match: string) => {
+    const srcMatch = match.match(/\s?src=["']([^"']+)["']/i);
+    if (!srcMatch) return match;
+    const src = srcMatch[1];
+    if (/^[a-z][a-z0-9+.-]:/i.test(src)) return match;
+    const jsPath = path.resolve(baseDir, src);
+    const js = await fs.readFile(jsPath, 'utf-8').catch(() => '');
+    if (!js) return match;
+    return `<script>${js}</script>`;
+  });
+}
+
 export async function getSystemPreviewHtml(
   extraResourcesPath: string,
   systemId: string,
   pagePath: string
 ): Promise<string> {
   const systemsLibDir = path.join(extraResourcesPath, 'design-systems-lib');
-  const fullPath = path.join(systemsLibDir, systemId, pagePath);
+  const systemDir = path.join(systemsLibDir, systemId);
+  const fullPath = path.join(systemDir, pagePath);
+  const pageDir = path.dirname(fullPath);
   let html = await fs.readFile(fullPath, 'utf-8').catch(() => '');
   if (!html) return '';
 
-  // 将 ../tokens.css 等相对路径替换为 file:// 绝对路径
-  const systemDir = path.join(systemsLibDir, systemId);
+  // 将本地样式表/脚本内联，避免 iframe srcdoc 无法加载 file:// 资源
+  html = await inlineLocalStylesheets(html, pageDir);
+  html = await inlineLocalScripts(html, pageDir);
+
+  // 其余相对路径替换为 file:// 绝对路径（图片等，仍可能被浏览器拦截）
   html = html.replace(
     /(href|src)="([^"]+)"/g,
     (_match, attr, rel) => {
       if (/^[a-z][a-z0-9+.-]:/i.test(rel)) return `${attr}="${rel}"`;
-      const resolved = path.resolve(systemDir, rel);
+      const resolved = path.resolve(pageDir, rel);
       return `${attr}="file://${resolved.replace(/\\/g, '/')}"`;
     }
   );

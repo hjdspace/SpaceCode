@@ -1,6 +1,6 @@
 <template>
   <div class="design-composer">
-    <div class="composer-toolbar">
+    <div class="composer-toolbar-top">
       <button class="plus-btn" @click="toolboxOpen = !toolboxOpen">+</button>
       <span v-if="currentSkill" class="skill-tag">
         {{ currentSkill.name }}
@@ -23,6 +23,15 @@
       @keydown.shift.enter="value += '\n'"
     />
 
+    <div class="composer-toolbar-bottom">
+      <TemplatePicker v-model="designStore.selectedTemplateId" />
+      <DesignSystemPicker
+        v-model="designStore.selectedDesignSystemId"
+        :systems="designSystems"
+        @update:model-value="onDesignSystemChange"
+      />
+    </div>
+
     <div v-if="toolboxOpen" class="toolbox-panel">
       <div class="toolbox-section">
         <div class="section-label">{{ t('design.toolbox.skills') }}</div>
@@ -38,28 +47,43 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Square, Send } from 'lucide-vue-next'
 import { useDesignStore } from '@/stores/design'
 import { useDesignSession } from '@/composables/useDesignSession'
+import { api } from '@/services/electronAPI'
+import type { DesignSystemSummary } from '@/services/electronAPI'
+import TemplatePicker from './TemplatePicker.vue'
+import DesignSystemPicker from './DesignSystemPicker.vue'
 
 const emit = defineEmits<{ (e: 'send', content: string): void; (e: 'stop'): void }>()
 
 const { t } = useI18n()
 const designStore = useDesignStore()
-const { isGenerating, switchToolboxSkill } = useDesignSession()
+const { isGenerating, switchToolboxSkill, switchDesignSystem, buildDesignMessage } = useDesignSession()
 const value = ref('')
 const toolboxOpen = ref(false)
+const designSystems = ref<DesignSystemSummary[]>([])
 const currentSkill = computed(() => designStore.currentToolboxSkill)
+
+onMounted(async () => {
+  designSystems.value = await api.design.listSystems()
+})
 
 function selectSkill(id: string) {
   switchToolboxSkill(id)
   toolboxOpen.value = false
 }
+
+function onDesignSystemChange(systemId: string | null) {
+  const system = designSystems.value.find(s => s.id === systemId) || null
+  switchDesignSystem(systemId, system?.name || null)
+}
+
 async function send() {
   if (!value.value.trim() || isGenerating.value) return
-  const content = value.value
+  const content = buildDesignMessage(value.value.trim())
   value.value = ''
   emit('send', content)
 }
@@ -67,7 +91,8 @@ async function send() {
 
 <style scoped lang="scss">
 .design-composer { border-top: 1px solid var(--surface-border); padding: 8px 12px; background: var(--bg-secondary); position: relative; }
-.composer-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.composer-toolbar-top { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.composer-toolbar-bottom { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
 .plus-btn { background: none; border: 1px solid var(--surface-border); border-radius: var(--radius-sm); width: 24px; height: 24px; cursor: pointer; }
 .skill-tag { background: var(--accent-primary-glow); color: var(--accent-primary); border-radius: var(--radius-full); padding: 2px 10px; font-size: 11px; display: flex; align-items: center; gap: 4px; }
 .skill-x { background: none; border: none; cursor: pointer; color: inherit; }

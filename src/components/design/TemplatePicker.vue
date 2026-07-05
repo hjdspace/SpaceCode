@@ -1,5 +1,5 @@
 <template>
-  <div ref="wrapRef" class="template-picker" :class="{ 'is-open': open }">
+  <div ref="wrapRef" class="template-picker" :class="{ 'is-open': open, 'has-value': active }">
     <button
       type="button"
       class="template-picker-trigger"
@@ -9,20 +9,20 @@
       <span v-if="active" class="template-picker-thumb">
         <TemplateScenarioArt :template-id="active.id" />
       </span>
-      <Grid3x3 v-else :size="13" />
+      <Grid3x3 v-else :size="14" />
       <span class="template-picker-kicker">{{ t('design.templatePicker.label') }}</span>
       <span class="template-picker-value">{{ active ? t(active.labelKey) : t('common.none') }}</span>
-      <ChevronDown :size="12" />
-    </button>
-
-    <button
-      v-if="active"
-      type="button"
-      class="template-picker-clear"
-      data-testid="template-picker-clear"
-      @click.stop="clear"
-    >
-      <X :size="11" stroke-width="2.2" />
+      <span v-if="active" class="template-picker-trigger-divider" />
+      <button
+        v-if="active"
+        type="button"
+        class="template-picker-clear"
+        data-testid="template-picker-clear"
+        @click.stop="clear"
+      >
+        <X :size="11" stroke-width="2.5" />
+      </button>
+      <ChevronDown v-else :size="12" />
     </button>
 
     <div v-if="open" class="template-picker-menu" data-testid="template-picker-menu" role="listbox">
@@ -59,10 +59,8 @@
           <span class="template-card-art">
             <TemplateScenarioArt :template-id="templ.id" />
           </span>
-          <span class="template-card-copy">
-            <span class="template-card-label">{{ t(templ.labelKey) }}</span>
-            <span class="template-card-desc">{{ t(templ.descriptionKey) }}</span>
-          </span>
+          <span class="template-card-label">{{ t(templ.labelKey) }}</span>
+          <span class="template-card-desc">{{ t(templ.descriptionKey) }}</span>
         </button>
       </div>
     </div>
@@ -74,12 +72,16 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Grid3x3, ChevronDown, X, Search } from 'lucide-vue-next'
 import { DESIGN_TEMPLATES, getTemplateById } from '@/lib/design/templates'
+import { useDesignStore } from '@/stores/design'
+import { useDesignSession } from '@/composables/useDesignSession'
 import TemplateScenarioArt from './TemplateScenarioArt.vue'
 
 const props = defineProps<{ modelValue: string | null }>()
 const emit = defineEmits<{ (e: 'update:modelValue', id: string | null): void }>()
 
 const { t } = useI18n()
+const designStore = useDesignStore()
+const { switchToolboxSkill } = useDesignSession()
 const open = ref(false)
 const query = ref('')
 const wrapRef = ref<HTMLElement | null>(null)
@@ -96,10 +98,20 @@ const filtered = computed(() => {
   })
 })
 
-function pick(id: string) {
+async function pick(id: string) {
   emit('update:modelValue', id)
   open.value = false
   query.value = ''
+
+  const template = getTemplateById(id)
+  if (!template) return
+  const skillIds = new Set(designStore.toolboxSkills.map(s => s.id))
+  const targetSkill = skillIds.has(template.defaultSkillId)
+    ? template.defaultSkillId
+    : 'huashu-design'
+  if (targetSkill !== designStore.selectedToolboxSkillId) {
+    await switchToolboxSkill(targetSkill)
+  }
 }
 
 function clear() {
@@ -139,23 +151,172 @@ onUnmounted(() => {
 </script>
 
 <style scoped lang="scss">
-.template-picker { position: relative; display: inline-flex; align-items: center; gap: 4px; }
-.template-picker-trigger { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-primary); border: 1px solid var(--surface-border); border-radius: var(--radius-sm); padding: 4px 8px; font-size: 12px; cursor: pointer; color: var(--text-primary); }
-.template-picker-thumb { display: flex; }
+.template-picker { position: relative; display: inline-flex; align-items: center; }
+
+.template-picker-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-primary);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-full);
+  padding: 5px 8px 5px 10px;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-primary);
+  transition: background var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.template-picker-trigger:hover {
+  background: var(--bg-hover);
+  border-color: var(--surface-border-strong);
+}
+.template-picker.has-value .template-picker-trigger {
+  padding-right: 5px;
+}
+.template-picker-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+}
+.template-picker-thumb :deep(svg) {
+  width: 18px;
+  height: 14px;
+}
 .template-picker-kicker { color: var(--text-muted); }
 .template-picker-value { font-weight: 500; }
-.template-picker-clear { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; background: none; border: none; cursor: pointer; color: var(--text-muted); }
-.template-picker-menu { position: absolute; bottom: calc(100% + 6px); left: 0; width: 360px; background: var(--bg-secondary); border: 1px solid var(--surface-border); border-radius: var(--radius-md); box-shadow: var(--shadow-xl); padding: 10px; z-index: 100; }
-.template-picker-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.template-picker-search { flex: 1; display: flex; align-items: center; gap: 6px; background: var(--bg-primary); border: 1px solid var(--surface-border); border-radius: var(--radius-sm); padding: 4px 8px; }
-.template-picker-search input { flex: 1; border: none; background: transparent; outline: none; font-size: 12px; color: var(--text-primary); }
-.template-picker-clear-text { font-size: 11px; color: var(--text-muted); background: none; border: none; cursor: pointer; }
-.template-picker-group-label { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; }
-.template-picker-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-.template-card { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; background: var(--bg-primary); border: 1px solid var(--surface-border); border-radius: var(--radius-md); padding: 10px; cursor: pointer; text-align: left; }
-.template-card.is-active { border-color: var(--accent-primary); background: var(--accent-primary-glow); }
-.template-card-art { margin-bottom: 4px; }
-.template-card-label { display: block; font-size: 12px; font-weight: 500; color: var(--text-primary); }
-.template-card-desc { display: block; font-size: 11px; color: var(--text-muted); line-height: 1.3; }
-.template-picker-empty { font-size: 12px; color: var(--text-muted); padding: 12px; text-align: center; }
+.template-picker-trigger-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--surface-border);
+  margin: 0 1px;
+}
+.template-picker-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.template-picker-clear:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.template-picker-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 420px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  padding: 14px;
+  z-index: 100;
+  animation: scaleIn 120ms ease-out;
+  transform-origin: bottom left;
+}
+.template-picker-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.template-picker-search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-full);
+  padding: 7px 12px;
+  color: var(--text-muted);
+}
+.template-picker-search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.template-picker-search input::placeholder { color: var(--text-disabled); }
+.template-picker-clear-text {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--transition-fast);
+}
+.template-picker-clear-text:hover { color: var(--text-primary); }
+.template-picker-group-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.template-picker-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.template-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  padding: 14px 8px;
+  cursor: pointer;
+  text-align: center;
+  transition: background var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.template-card:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-primary-glow);
+}
+.template-card.is-active {
+  border-color: var(--accent-primary);
+  background: var(--accent-primary-glow);
+  box-shadow: 0 0 0 3px var(--accent-primary-glow);
+}
+.template-card-art {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 32px;
+  margin-bottom: 2px;
+}
+.template-card-art :deep(svg) {
+  width: 40px;
+  height: 32px;
+}
+.template-card-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.template-card-desc {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+.template-picker-empty { font-size: 12px; color: var(--text-muted); padding: 16px; text-align: center; }
 </style>
