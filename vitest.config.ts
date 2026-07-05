@@ -21,6 +21,7 @@ export default defineConfig({
     environment: 'jsdom',
     include: [
       'electron/__tests__/**/*.test.ts',
+      'electron/design/__tests__/**/*.test.ts',
       'tests/composables/**/*.test.ts',
       'src/**/*.test.ts',
     ],
