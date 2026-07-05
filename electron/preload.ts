@@ -741,10 +741,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
         category: string;
         description?: string;
         previewPages: Array<{ path: string; role: string; title: string }>;
+        swatches?: Array<{ name: string; value: string }>;
       }>
     > => ipcRenderer.invoke('design:list-systems'),
     getSystemPreview: (systemId: string, pagePath: string): Promise<string> =>
       ipcRenderer.invoke('design:get-system-preview', systemId, pagePath),
+    getSystemFile: (systemId: string, filePath: string): Promise<string> =>
+      ipcRenderer.invoke('design:get-system-file', systemId, filePath),
+    getSystemShowcase: (systemId: string): Promise<string> =>
+      ipcRenderer.invoke('design:get-system-showcase', systemId),
+    getSystemTokensHtml: (systemId: string): Promise<string> =>
+      ipcRenderer.invoke('design:get-system-tokens-html', systemId),
     composePromptStack: (input: {
       designSystemId?: string;
       skillBody?: string;

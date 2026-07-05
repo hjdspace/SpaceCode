@@ -82,11 +82,20 @@ export default {
       searchPlaceholder: 'Search design systems',
       noMatches: 'No matching design systems',
       createDisabled: 'Creating design systems is not supported yet',
+      openPreview: 'Open Preview',
+      noDesc: 'No description',
       switched: 'Design system switched',
       switchedDesc: 'Will take effect in the next response',
     },
     workingDirectory: {
       none: 'Select working directory',
+      label: 'Working directory',
+    },
+    preview: {
+      showcase: 'Showcase',
+      tokens: 'Tokens',
+      noPreview: 'No preview',
+      noSpec: 'No design spec',
     },
     template: {
       prototype: 'Prototype',

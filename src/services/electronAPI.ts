@@ -48,12 +48,18 @@ export interface PreviewPage {
   title: string
 }
 
+export interface DesignSystemSwatch {
+  name: string
+  value: string
+}
+
 export interface DesignSystemSummary {
   id: string
   name: string
   category: string
   description?: string
   previewPages: PreviewPage[]
+  swatches?: DesignSystemSwatch[]
 }
 
 export interface FileStat {
@@ -1129,6 +1135,12 @@ export const api = {
       electronAPI?.design?.listSystems() || Promise.resolve([]),
     getSystemPreview: (systemId: string, pagePath: string): Promise<string> =>
       electronAPI?.design?.getSystemPreview(systemId, pagePath) || Promise.resolve(''),
+    getSystemFile: (systemId: string, filePath: string): Promise<string> =>
+      electronAPI?.design?.getSystemFile(systemId, filePath) || Promise.resolve(''),
+    getSystemShowcase: (systemId: string): Promise<string> =>
+      electronAPI?.design?.getSystemShowcase(systemId) || Promise.resolve(''),
+    getSystemTokensHtml: (systemId: string): Promise<string> =>
+      electronAPI?.design?.getSystemTokensHtml(systemId) || Promise.resolve(''),
     composePromptStack: (input: {
       designSystemId?: string;
       skillBody?: string;

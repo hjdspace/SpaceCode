@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { listDesignSystems, getSystemPreviewHtml } from '../promptStack'
+import { listDesignSystems, getSystemPreviewHtml, parseSwatchesFromTokensCss } from '../promptStack'
 import * as path from 'path'
 
 const extraResourcesPath = path.resolve(__dirname, '../../../')
@@ -14,6 +14,25 @@ describe('listDesignSystems', () => {
     expect(agentic!.description).toContain('Agentic')
     expect(agentic!.previewPages).toBeInstanceOf(Array)
     expect(agentic!.previewPages.length).toBeGreaterThan(0)
+  })
+})
+
+describe('parseSwatchesFromTokensCss', () => {
+  it('替换所有 var() 引用后再判断是否为颜色值', () => {
+    const css = `
+      --bg: var(--neutral-1);
+      --surface: var(--neutral-2) #ffffff;
+      --fg: var(--neutral-12) var(--neutral-13) #000000;
+      --accent: #3b82f6;
+    `
+    const swatches = parseSwatchesFromTokensCss(css)
+    const names = swatches.map((s) => s.name)
+    expect(names).toContain('--surface')
+    expect(names).toContain('--fg')
+    expect(names).toContain('--accent')
+    expect(names).not.toContain('--bg')
+    expect(swatches.find((s) => s.name === '--surface')!.value).toBe('#ffffff')
+    expect(swatches.find((s) => s.name === '--fg')!.value).toBe('#000000')
   })
 })
 

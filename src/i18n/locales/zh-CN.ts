@@ -82,11 +82,20 @@ export default {
       searchPlaceholder: '搜索设计系统',
       noMatches: '未找到匹配设计系统',
       createDisabled: '暂不支持创建设计系统',
+      openPreview: '打开预览',
+      noDesc: '暂无描述',
       switched: '设计系统已切换',
       switchedDesc: '将在后续回复中生效',
     },
     workingDirectory: {
       none: '选择工作目录',
+      label: '工作目录',
+    },
+    preview: {
+      showcase: '展示',
+      tokens: 'Tokens',
+      noPreview: '暂无预览',
+      noSpec: '暂无设计规范',
     },
     template: {
       prototype: '原型',

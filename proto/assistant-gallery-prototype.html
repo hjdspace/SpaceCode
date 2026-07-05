@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="anthropic">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>助手画廊 UI 优化原型</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ===== 主题变量（与应用 _variables.scss 完全对齐）===== */
+:root, [data-theme='light'] {
+  --font-display: 'Space Grotesk', 'SF Pro Display', system-ui, sans-serif;
+  --font-body: 'IBM Plex Sans', 'SF Pro Text', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px; --radius-full: 9999px;
+  --bg-primary: #f8f9fb; --bg-secondary: #f0f1f5; --bg-tertiary: #e7e9ef; --bg-elevated: #ffffff;
+  --surface-glass: rgba(24,25,31,0.02); --surface-glass-hover: rgba(24,25,31,0.04);
+  --surface-border: rgba(24,25,31,0.06); --surface-border-strong: rgba(24,25,31,0.12);
+  --text-primary: #18191f; --text-secondary: #44475a; --text-muted: #5c5f7a; --text-disabled: #9da1b8;
+  --accent-primary: #0d9488; --accent-primary-hover: #14b8a6; --accent-primary-glow: rgba(13,148,136,0.12);
+  --border-default: rgba(24,25,31,0.09);
+  --shadow-sm: 0 1px 2px rgba(24,25,31,0.06); --shadow-md: 0 4px 12px rgba(24,25,31,0.08);
+  --shadow-lg: 0 8px 24px rgba(24,25,31,0.11); --shadow-xl: 0 16px 48px rgba(24,25,31,0.14);
+}
+[data-theme='anthropic'] {
+  --bg-primary: #faf9f5; --bg-secondary: #efe9de; --bg-tertiary: #e8e0d2; --bg-elevated: #faf9f5;
+  --surface-glass: rgba(20,20,19,0.015); --surface-glass-hover: rgba(20,20,19,0.03);
+  --surface-border: rgba(20,20,19,0.06); --surface-border-strong: rgba(20,20,19,0.12);
+  --text-primary: #141413; --text-secondary: #3d3d3a; --text-muted: #6c6a64; --text-disabled: #8e8b82;
+  --accent-primary: #cc785c; --accent-primary-hover: #a9583e; --accent-primary-glow: rgba(204,120,92,0.15);
+  --border-default: rgba(20,20,19,0.08);
+  --shadow-sm: 0 1px 2px rgba(20,20,19,0.04); --shadow-md: 0 2px 8px rgba(20,20,19,0.06);
+  --shadow-lg: 0 4px 16px rgba(20,20,19,0.08); --shadow-xl: 0 8px 32px rgba(20,20,19,0.1);
+}
+[data-theme='dark'] {
+  --bg-primary: #0d0d0d; --bg-secondary: #141414; --bg-tertiary: #1a1a1a; --bg-elevated: #1f1f1f;
+  --surface-glass: rgba(255,255,255,0.03); --surface-glass-hover: rgba(255,255,255,0.05);
+  --surface-border: rgba(255,255,255,0.06); --surface-border-strong: rgba(255,255,255,0.12);
+  --text-primary: #f5f5f5; --text-secondary: #a3a3a3; --text-muted: #737373; --text-disabled: #525252;
+  --accent-primary: #3b82f6; --accent-primary-hover: #60a5fa; --accent-primary-glow: rgba(59,130,246,0.25);
+  --border-default: rgba(255,255,255,0.08);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3); --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.5); --shadow-xl: 0 16px 48px rgba(0,0,0,0.6);
+}
+[data-theme='anthropic-dark'] {
+  --bg-primary: #181715; --bg-secondary: #1c1b1a; --bg-tertiary: #1f1e1b; --bg-elevated: #252320;
+  --surface-glass: rgba(250,249,245,0.025); --surface-glass-hover: rgba(250,249,245,0.04);
+  --surface-border: rgba(250,249,245,0.06); --surface-border-strong: rgba(250,249,245,0.12);
+  --text-primary: #faf9f5; --text-secondary: #a09d96; --text-muted: #6c6a64; --text-disabled: #3d3d3a;
+  --accent-primary: #cc785c; --accent-primary-hover: #dd8a6e; --accent-primary-glow: rgba(204,120,92,0.2);
+  --border-default: rgba(250,249,245,0.08);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.25); --shadow-md: 0 2px 10px rgba(0,0,0,0.32);
+  --shadow-lg: 0 4px 20px rgba(0,0,0,0.38); --shadow-xl: 0 8px 40px rgba(0,0,0,0.45);
+}
+
+/* 类别色 */
+.cat-office { --cat: #3b82f6; }
+.cat-research { --cat: #6366f1; }
+.cat-finance { --cat: #10b981; }
+.cat-design { --cat: #8b5cf6; }
+.cat-creative { --cat: #ec4899; }
+.cat-productivity { --cat: #f59e0b; }
+.cat-general { --cat: #64748b; }
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--font-body);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 原型控制栏 */
+.proto-bar {
+  position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 24px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-default);
+  box-shadow: var(--shadow-sm);
+}
+.proto-bar-left { display: flex; align-items: center; gap: 14px; }
+.proto-logo { font-family: var(--font-display); font-weight: 700; font-size: 14px; color: var(--accent-primary); letter-spacing: -0.3px; }
+.proto-tag { font-size: 11px; padding: 2px 8px; border-radius: var(--radius-full); background: var(--accent-primary-glow); color: var(--accent-primary); font-weight: 600; }
+.proto-bar-right { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.proto-label { font-size: 11px; color: var(--text-muted); margin-right: 4px; }
+.theme-btn { padding: 4px 10px; font-size: 11px; font-family: var(--font-body); border: 1px solid var(--surface-border); border-radius: var(--radius-sm); background: var(--surface-glass); color: var(--text-secondary); cursor: pointer; transition: all var(--transition-fast); }
+.theme-btn:hover { color: var(--text-primary); border-color: var(--surface-border-strong); }
+.theme-btn.active { background: var(--accent-primary); color: #fff; border-color: var(--accent-primary); }
+.view-toggle { display: flex; gap: 0; border: 1px solid var(--surface-border); border-radius: var(--radius-sm); overflow: hidden; }
+.view-toggle button { padding: 4px 12px; font-size: 11px; font-family: var(--font-body); border: none; background: var(--surface-glass); color: var(--text-secondary); cursor: pointer; transition: all var(--transition-fast); }
+.view-toggle button.active { background: var(--accent-primary); color: #fff; }
+.view-toggle button + button { border-left: 1px solid var(--surface-border); }
+
+.gallery-frame { max-width: 1200px; margin: 0 auto; padding: 0 24px 48px; }
+
+/* 画廊头部 */
+.gallery-header { display: flex; align-items: flex-start; justify-content: space-between; padding: 24px 0 16px; border-bottom: 1px solid var(--border-default); gap: 16px; flex-wrap: wrap; }
+.gallery-header h1 { font-family: var(--font-display); font-size: 22px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.5px; }
+.gallery-header .subtitle { font-size: 13px; color: var(--text-muted); margin-top: 5px; }
+.header-actions { display: flex; align-items: center; gap: 8px; }
+.workspace-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 12px; font-family: inherit; color: var(--text-secondary); background: var(--surface-glass); border: 1px solid var(--surface-border); border-radius: var(--radius-md); cursor: pointer; transition: all var(--transition-fast); }
+.workspace-chip:hover { color: var(--accent-primary); border-color: var(--accent-primary); }
+.icon-btn { display: flex; align-items: center; justify-content: center; background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 6px; border-radius: var(--radius-sm); }
+.icon-btn:hover { color: var(--text-primary); background: var(--surface-glass-hover); }
+
+/* 工具栏 */
+.gallery-toolbar { display: flex; align-items: center; gap: 16px; padding: 16px 0; flex-wrap: wrap; }
+.search-box { position: relative; min-width: 260px; flex: 0 0 auto; }
+.search-box svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-muted); }
+.search-input { width: 100%; padding: 8px 12px 8px 32px; border: 1px solid var(--surface-border); border-radius: var(--radius-md); background: var(--bg-secondary); color: var(--text-primary); font-size: 13px; font-family: inherit; }
+.search-input:focus { outline: none; border-color: var(--accent-primary); }
+.category-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.cat-btn { padding: 5px 12px; font-size: 12px; font-family: inherit; color: var(--text-secondary); background: var(--surface-glass); border: 1px solid var(--surface-border); border-radius: var(--radius-full); cursor: pointer; transition: all var(--transition-fast); }
+.cat-btn:hover { color: var(--text-primary); }
+.cat-btn.active { background: var(--accent-primary); color: #fff; border-color: var(--accent-primary); }
+
+/* 网格 */
+.gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; padding-top: 4px; }
+
+/* ===== 优化前旧版卡片 ===== */
+.card-old { display: flex; align-items: flex-start; gap: 12px; padding: 14px; text-align: left; background: var(--surface-glass); border: 1px solid var(--surface-border); border-radius: var(--radius-lg); cursor: pointer; font-family: inherit; transition: all var(--transition-fast); }
+.card-old:hover { border-color: var(--accent-primary); background: var(--surface-glass-hover); transform: translateY(-1px); }
+.card-avatar { flex-shrink: 0; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-md); background: color-mix(in srgb, var(--cat) 12%, transparent); color: var(--cat); }
+.card-body { min-width: 0; flex: 1; }
+.card-head { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.card-name { font-size: 14px; font-weight: 600; color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-tag { flex-shrink: 0; padding: 2px 7px; font-size: 10px; font-weight: 700; letter-spacing: 0.4px; border-radius: 4px; font-family: var(--font-mono); border: 1px solid transparent; }
+.tag-HTML { color: #e34c26; background: rgba(227,76,38,0.12); border-color: rgba(227,76,38,0.3); }
+.tag-PPTX { color: #d35400; background: rgba(211,84,0,0.12); border-color: rgba(211,84,0,0.3); }
+.tag-DOCX { color: #2b579a; background: rgba(43,87,154,0.12); border-color: rgba(43,87,154,0.3); }
+.tag-XLSX { color: #217346; background: rgba(33,115,70,0.12); border-color: rgba(33,115,70,0.3); }
+.tag-PDF  { color: #c0392b; background: rgba(192,57,43,0.12); border-color: rgba(192,57,43,0.3); }
+.card-desc-old { font-size: 12px; color: var(--text-muted); margin-top: 4px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card-skills-old { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+.skill-badge-old { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: var(--bg-tertiary); color: var(--text-muted); border: 1px solid var(--surface-border); font-family: var(--font-mono); opacity: 0.6; }
+.skill-badge-old.available { background: rgba(34,197,94,0.1); color: rgb(22,163,74); border-color: rgba(34,197,94,0.3); opacity: 1; }
+.create-card-old { border-style: dashed; border-color: var(--surface-border-strong); opacity: 0.8; }
+
+/* ===== 优化后新版卡片 ===== */
+.card-new {
+  position: relative;
+  display: flex; flex-direction: column;
+  padding: 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  cursor: pointer; font-family: inherit;
+  transition: border-color var(--transition-normal), box-shadow var(--transition-normal), transform var(--transition-normal);
+  min-height: 132px;
+}
+.card-new::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: var(--cat);
+  opacity: 0.7;
+  transition: opacity var(--transition-fast);
+  border-top-left-radius: var(--radius-lg);
+  border-top-right-radius: var(--radius-lg);
+}
+.card-new:hover {
+  z-index: 20;
+  border-color: color-mix(in srgb, var(--cat) 40%, var(--surface-border));
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+.card-new:hover::before { opacity: 1; }
+.card-new-top { display: flex; align-items: center; gap: 12px; }
+.card-new-avatar {
+  flex-shrink: 0; width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--cat) 14%, transparent);
+  color: var(--cat);
+  transition: transform var(--transition-fast);
+}
+.card-new:hover .card-new-avatar { transform: scale(1.05); }
+.card-new-head { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.card-new-name { font-size: 14px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-new-desc {
+  font-size: 12.5px; color: var(--text-muted); line-height: 1.55;
+  margin-top: 10px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.card-new-foot { display: flex; align-items: center; justify-content: space-between; margin-top: auto; padding-top: 10px; gap: 8px; }
+.capability-hint { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-disabled); font-weight: 500; }
+.capability-dots { display: inline-flex; gap: 3px; }
+.cap-dot { width: 4px; height: 4px; border-radius: 50%; background: color-mix(in srgb, var(--cat) 50%, transparent); }
+.cap-dot.muted { background: var(--surface-border-strong); }
+
+/* 悬停浮层 —— 渐进式披露 */
+.hover-card {
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  z-index: 10;
+  background: var(--bg-elevated);
+  border: 1px solid color-mix(in srgb, var(--cat) 30%, var(--surface-border));
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  padding: 16px;
+  opacity: 0;
+  transform: translateY(4px) scale(0.98);
+  pointer-events: none;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+  max-height: 360px;
+  overflow-y: auto;
+}
+.card-new:hover .hover-card { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+.hover-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.hover-card-name { font-size: 14px; font-weight: 700; color: var(--text-primary); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hover-card-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.55; padding-bottom: 10px; border-bottom: 1px solid var(--surface-border); }
+.hover-section-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-disabled); margin: 10px 0 6px; }
+.skill-list { display: flex; flex-direction: column; gap: 5px; }
+.skill-item { display: flex; align-items: center; gap: 8px; font-size: 11.5px; line-height: 1.4; }
+.skill-item-name { font-weight: 600; color: var(--text-secondary); white-space: nowrap; }
+.skill-item-desc { color: var(--text-muted); }
+.skill-status { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: #22c55e; }
+.skill-status.off { background: var(--text-disabled); opacity: 0.4; }
+.prompt-list { display: flex; flex-direction: column; gap: 4px; }
+.prompt-item { font-size: 11.5px; color: var(--text-secondary); line-height: 1.4; padding: 5px 8px; border-radius: var(--radius-sm); background: var(--surface-glass); border-left: 2px solid var(--cat); cursor: pointer; transition: background var(--transition-fast); }
+.prompt-item:hover { background: var(--surface-glass-hover); color: var(--text-primary); }
+.prompt-item::before { content: '›'; color: var(--cat); font-weight: 700; margin-right: 5px; }
+
+/* 创建卡片 */
+.create-card-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 132px; background: transparent; border: 1.5px dashed var(--surface-border-strong); border-radius: var(--radius-lg); cursor: pointer; font-family: inherit; transition: all var(--transition-fast); color: var(--text-muted); }
+.create-card-new:hover { border-color: var(--accent-primary); color: var(--accent-primary); background: var(--accent-primary-glow); }
+.create-card-new .plus-circle { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--surface-glass); border: 1px solid var(--surface-border); }
+.create-card-new .create-label { font-size: 13px; font-weight: 600; }
+.create-card-new .create-sub { font-size: 11px; color: var(--text-disabled); }
+
+/* 对比说明区 */
+.compare-section { margin-top: 40px; padding: 24px; background: var(--bg-secondary); border-radius: var(--radius-xl); border: 1px solid var(--surface-border); }
+.compare-title { font-family: var(--font-display); font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
+.compare-sub { font-size: 13px; color: var(--text-muted); margin-bottom: 20px; }
+.compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.compare-col h3 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--surface-border); }
+.compare-col h3.bad { color: #dc2626; }
+.compare-col h3.good { color: #059669; }
+.compare-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.compare-list li { font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; padding-left: 22px; position: relative; }
+.compare-list li code { font-family: var(--font-mono); font-size: 11px; padding: 1px 5px; border-radius: 3px; background: var(--surface-glass); color: var(--text-primary); }
+.compare-col.bad ul li::before { content: '✕'; color: #dc2626; position: absolute; left: 0; top: 0; font-weight: 700; }
+.compare-col.good ul li::before { content: '✓'; color: #059669; position: absolute; left: 0; top: 0; font-weight: 700; }
+
+.design-notes { margin-top: 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.note-card { padding: 16px; background: var(--bg-elevated); border: 1px solid var(--surface-border); border-radius: var(--radius-lg); }
+.note-card .note-icon { width: 32px; height: 32px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; background: var(--accent-primary-glow); color: var(--accent-primary); margin-bottom: 10px; }
+.note-card h4 { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+.note-card p { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+
+@media (max-width: 720px) {
+  .compare-grid { grid-template-columns: 1fr; }
+  .design-notes { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="proto-bar">
+  <div class="proto-bar-left">
+    <span class="proto-logo">SpaceCode</span>
+    <span class="proto-tag">助手画廊 UI 优化原型</span>
+  </div>
+  <div class="proto-bar-right">
+    <span class="proto-label">视图:</span>
+    <div class="view-toggle">
+      <button class="active" data-view="new">优化后</button>
+      <button data-view="old">优化前</button>
+    </div>
+    <span class="proto-label" style="margin-left:12px;">主题:</span>
+    <button class="theme-btn active" data-theme-val="anthropic">Anthropic</button>
+    <button class="theme-btn" data-theme-val="light">Mist</button>
+    <button class="theme-btn" data-theme-val="dark">Dark</button>
+    <button class="theme-btn" data-theme-val="anthropic-dark">Anthropic Dark</button>
+  </div>
+</div>
+
+<div class="gallery-frame">
+  <div class="gallery-header">
+    <div>
+      <h1>专业助手</h1>
+      <p class="subtitle">选择一个助手开始任务——每个助手都会产出真实、可编辑的成果文件。</p>
+    </div>
+    <div class="header-actions">
+      <button class="workspace-chip">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/></svg>
+        <span>SpaceCode</span>
+      </button>
+      <button class="icon-btn" title="关闭">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="gallery-toolbar">
+    <div class="search-box">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input class="search-input" placeholder="搜索助手…" />
+    </div>
+    <div class="category-filters">
+      <button class="cat-btn active">全部</button>
+      <button class="cat-btn">办公</button>
+      <button class="cat-btn">研究</button>
+      <button class="cat-btn">财务</button>
+      <button class="cat-btn">设计</button>
+      <button class="cat-btn">创意</button>
+      <button class="cat-btn">效率</button>
+    </div>
+  </div>
+
+  <div class="gallery-grid" id="grid-new"></div>
+  <div class="gallery-grid" id="grid-old" style="display:none;"></div>
+
+  <div class="compare-section">
+    <div class="compare-title">优化前 vs 优化后</div>
+    <p class="compare-sub">核心思路：卡片聚焦"能做什么"，技术细节按需披露。</p>
+    <div class="compare-grid">
+      <div class="compare-col bad">
+        <h3>优化前的问题</h3>
+        <ul class="compare-list">
+          <li>直接显示 <code>officecli-pptx</code>、<code>html-slide-to-pptx</code> 等内部技能 ID，用户看不懂</li>
+          <li>技能数量 0–4 不等，卡片高度参差不齐，网格节奏破碎</li>
+          <li>名称、描述、格式标签、技能徽章四类信息平铺，无主次</li>
+          <li>后端已解析 <code>skillDescriptions</code> 人可读描述，但画廊从未使用</li>
+          <li><code>cowork</code>（4 徽章）和 <code>ppt-office-assistant</code>（3 徽章）明显比其他卡片臃肿</li>
+        </ul>
+      </div>
+      <div class="compare-col good">
+        <h3>优化后的改进</h3>
+        <ul class="compare-list">
+          <li>移除技能 ID 徽章，卡片只留头像、名称、描述、格式标签——信息即决策</li>
+          <li>所有卡片等高（min-height 132px），网格视觉节奏统一</li>
+          <li>顶部 3px 类别色条替代文字类别标签，色彩暗示而非文字堆砌</li>
+          <li>悬停展开浮层：人可读的能力描述 + 推荐提示词，渐进式披露</li>
+          <li>底部能力指示点：极简暗示"有 N 项能力"，不暴露技术实现</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="design-notes">
+      <div class="note-card">
+        <div class="note-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        </div>
+        <h4>减法优先</h4>
+        <p>用户选助手时关心的是"它能帮我做什么"，而非"它调用了哪个 skill"。移除技术标识符，降低认知负荷。</p>
+      </div>
+      <div class="note-card">
+        <div class="note-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m11-7h-6m-6 0H1"/></svg>
+        </div>
+        <h4>渐进式披露</h4>
+        <p>概览层只展示名称+描述+格式；悬停时浮层展开能力详情与推荐用法。信息按需呈现，不打扰浏览。</p>
+      </div>
+      <div class="note-card">
+        <div class="note-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        </div>
+        <h4>等高网格</h4>
+        <p>统一 min-height + flex 布局，无论 0 个还是 4 个技能，卡片视觉一致。底部能力点用对齐留白填充。</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const assistants = [
+  { name:'PPT Office Assistant', catClass:'cat-office', icon:'presentation', tag:'PPTX',
+    desc:'全流程 PPT 创作助手 — 从主题到可编辑 PPT，含 HTML 预览、版式匹配和自动质检。',
+    skills:[{n:'PPT 编排',d:'全流程调度',on:true},{n:'内容规划',d:'分阶段 HTML 生成',on:true},{n:'格式转换',d:'版式驱动的 HTML→PPTX',on:true}],
+    rawSkills:['ppt-office-assistant','ppt-workflow','html-slide-to-pptx'],
+    prompts:['做一份 12 页的 AI Agent 技术架构 PPT，先预览再转成可编辑 PPTX','根据大纲做商业路演演示文稿，交付 PowerPoint 文件'] },
+  { name:'Cowork', catClass:'cat-productivity', icon:'handshake', tag:'',
+    desc:'自主任务执行——研究、文件操作与办公产物一站式完成。',
+    skills:[{n:'文件规划',d:'多步骤任务追踪',on:true},{n:'PPT 生成',d:'可编辑 .pptx',on:true},{n:'Word 生成',d:'可编辑 .docx',on:true},{n:'Excel 生成',d:'可编辑 .xlsx',on:true}],
+    rawSkills:['planning-with-files','officecli-pptx','officecli-docx','officecli-xlsx'],
+    prompts:['帮我调研这个主题并产出一份报告','把这堆资料整理成 PPT 和总结文档'] },
+  { name:'PPT Creator', catClass:'cat-office', icon:'presentation', tag:'PPTX',
+    desc:'根据大纲、文档或想法生成可编辑的 PPT 演示文稿（.pptx）。',
+    skills:[{n:'PPT 生成',d:'officecli-pptx',on:true}], rawSkills:['officecli-pptx'],
+    prompts:['根据这份大纲生成一份 10 页的 PPT','把这个文档转成演示文稿'] },
+  { name:'HTML PPT Creator', catClass:'cat-office', icon:'film', tag:'HTML',
+    desc:'制作专业 HTML 演示文稿，内置 36 主题、31 布局、动效与演讲者模式。',
+    skills:[{n:'HTML 演示',d:'html-ppt skill',on:true}], rawSkills:['html-ppt'],
+    prompts:['做一个产品发布会的 HTML slides','生成一份带动效的网页演示文稿'] },
+  { name:'Word Creator', catClass:'cat-office', icon:'file-text', tag:'DOCX',
+    desc:'生成专业、可编辑的 Word 文档——报告、备忘录、信函、模板。',
+    skills:[{n:'Word 生成',d:'officecli-docx',on:true}], rawSkills:['officecli-docx'],
+    prompts:['帮我写一份项目结题报告','生成一封正式的商业信函'] },
+  { name:'Excel Creator', catClass:'cat-office', icon:'file-spreadsheet', tag:'XLSX',
+    desc:'生成可编辑的 Excel 表格——追踪表、报表、公式、图表。',
+    skills:[{n:'Excel 生成',d:'officecli-xlsx',on:true}], rawSkills:['officecli-xlsx'],
+    prompts:['做一个带公式的项目进度追踪表','生成一份含图表的销售报表'] },
+  { name:'Word Form Creator', catClass:'cat-office', icon:'receipt', tag:'DOCX',
+    desc:'生成结构化的 Word 表单与模板，含表格与字段。',
+    skills:[{n:'Word 表单',d:'officecli-word-form',on:true}], rawSkills:['officecli-word-form'],
+    prompts:['做一个员工信息登记表模板','生成一份带勾选框的申请表'] },
+  { name:'Academic Paper', catClass:'cat-research', icon:'graduation-cap', tag:'PDF',
+    desc:'撰写结构化学术论文（.docx），含章节、引用与图表。',
+    skills:[{n:'学术论文',d:'officecli-academic-paper',on:true},{n:'PDF 处理',d:'pdf skill',on:true}], rawSkills:['officecli-academic-paper','pdf'],
+    prompts:['帮我写一篇关于大语言模型的综述论文','撰写一份带引用的学术论文初稿'] },
+  { name:'Dashboard Creator', catClass:'cat-finance', icon:'layout-dashboard', tag:'XLSX',
+    desc:'把原始数据（CSV/数字）做成带图表的 Excel 数据看板（.xlsx）。',
+    skills:[{n:'数据看板',d:'officecli-data-dashboard',on:true}], rawSkills:['officecli-data-dashboard'],
+    prompts:['把这份数据做成带图表的看板','生成一个销售数据仪表盘'] },
+  { name:'Financial Model', catClass:'cat-finance', icon:'coins', tag:'XLSX',
+    desc:'构建财务模型（.xlsx），遵循行业标准格式，公式零错误。',
+    skills:[{n:'财务建模',d:'officecli-financial-model',on:true}], rawSkills:['officecli-financial-model'],
+    prompts:['构建一个 DCF 估值模型','做一个三年财务预测表'] },
+  { name:'Pitch Deck Creator', catClass:'cat-office', icon:'rocket', tag:'PPTX',
+    desc:'制作投资人级别的融资路演 PPT（.pptx），具备完整叙事结构。',
+    skills:[{n:'路演 PPT',d:'officecli-pitch-deck',on:true}], rawSkills:['officecli-pitch-deck'],
+    prompts:['帮我做一份 A 轮融资路演 PPT','生成一份 15 页的投资人演示文稿'] },
+  { name:'Magazine PPT', catClass:'cat-office', icon:'newspaper', tag:'HTML',
+    desc:'制作杂志风或瑞士国际主义风的单文件 HTML 演示文稿，含 WebGL 背景与编辑级版式。',
+    skills:[{n:'杂志风 PPT',d:'guizang-ppt-skill',on:true},{n:'PPT 生成',d:'officecli-pptx',on:true}], rawSkills:['guizang-ppt-skill','officecli-pptx'],
+    prompts:['做一份杂志风格的品牌演示文稿','生成瑞士国际主义风格的 slides'] },
+  { name:'Morph PPT', catClass:'cat-office', icon:'sparkles', tag:'',
+    desc:'制作带平滑过渡动效的视觉化演示文稿。',
+    skills:[{n:'平滑动效',d:'morph-ppt',on:true}], rawSkills:['morph-ppt'],
+    prompts:['做一份带平滑切换动效的演示文稿','生成一份视觉化的 morph slides'] },
+  { name:'Morph PPT 3D', catClass:'cat-creative', icon:'box', tag:'',
+    desc:'制作富有立体感与动态视觉的 3D 风格演示文稿。',
+    skills:[{n:'3D 变焦',d:'morph-ppt-3d',on:true}], rawSkills:['morph-ppt-3d'],
+    prompts:['做一份 3D 立体感的演示文稿','生成带空间感的 morph slides'] },
+  { name:'UI/UX Pro Max', catClass:'cat-design', icon:'palette', tag:'',
+    desc:'设计高端 UI/UX 并产出精致的前端实现。',
+    skills:[{n:'UI/UX 设计',d:'ui-ux-pro-max',on:true}], rawSkills:['ui-ux-pro-max'],
+    prompts:['设计一个 SaaS 产品的仪表盘界面','帮我做一个落地页的高保真设计稿'] },
+  { name:'Game 3D', catClass:'cat-creative', icon:'gamepad-2', tag:'',
+    desc:'快速原型化浏览器小游戏与交互式 3D 场景。',
+    skills:[{n:'Web 构件',d:'web-artifacts-builder',on:true}], rawSkills:['web-artifacts-builder'],
+    prompts:['做一个简单的打砖块小游戏','生成一个可交互的 3D 场景展示'] },
+  { name:'Moltbook', catClass:'cat-creative', icon:'book-open', tag:'DOCX',
+    desc:'把笔记和想法整理成结构化长文或电子书（.docx）。',
+    skills:[{n:'Word 生成',d:'officecli-docx',on:true}], rawSkills:['officecli-docx'],
+    prompts:['把这些笔记整理成一本电子书','把我的想法组织成一篇结构化长文'] },
+  { name:'Beautiful Mermaid', catClass:'cat-productivity', icon:'workflow', tag:'',
+    desc:'用 Mermaid 设计清晰美观的图表——流程图、时序图、ER 图等。',
+    skills:[], rawSkills:[],
+    prompts:['画一个用户注册流程的时序图','设计一个数据库 ER 图'] },
+  { name:'Human 3 Coach', catClass:'cat-productivity', icon:'brain', tag:'',
+    desc:'陪伴式教练，帮你梳理目标、习惯、决策与复盘。',
+    skills:[], rawSkills:[],
+    prompts:['帮我梳理这个季度的个人目标','陪我做一个项目复盘'] },
+  { name:'Planning With Files', catClass:'cat-productivity', icon:'list-todo', tag:'',
+    desc:'规划并执行多步骤任务，用真实文件追踪进度。',
+    skills:[{n:'文件规划',d:'planning-with-files',on:true}], rawSkills:['planning-with-files'],
+    prompts:['帮我规划并执行这个复杂任务','用文件追踪方式管理这个项目'] },
+  { name:'Social Job Publisher', catClass:'cat-productivity', icon:'megaphone', tag:'',
+    desc:'撰写并适配多平台的社媒文案与招聘信息。',
+    skills:[], rawSkills:[],
+    prompts:['帮我把这篇内容适配到微博和小红书','写一份前端工程师招聘 JD'] },
+  { name:'Story Roleplay', catClass:'cat-creative', icon:'drama', tag:'',
+    desc:'协作式故事创作与角色扮演。',
+    skills:[], rawSkills:[],
+    prompts:['和我一起创作一个科幻短篇故事','来一场角色扮演互动'] },
+  { name:'OpenClaw Setup', catClass:'cat-productivity', icon:'wrench', tag:'',
+    desc:'引导式安装与配置助手。',
+    skills:[], rawSkills:[],
+    prompts:['帮我配置开发环境','引导我完成项目初始化'] },
+];
+
+const icons = {
+  'presentation': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h20v14H2z"/><path d="M12 17v4"/><path d="M8 21h8"/></svg>',
+  'handshake': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m11 17 2 2a1 1 0 1 0 3-3"/><path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a2.83 2.83 0 0 1 4 0l4.24 4.24a2.83 2.83 0 0 1 0 4l-.88.88"/><path d="m3 11 4-4"/></svg>',
+  'film': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M7 3v18M17 3v18M2 9h5M17 9h5M2 15h5M17 15h5"/></svg>',
+  'file-text': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8M8 9h2"/></svg>',
+  'file-spreadsheet': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h2M14 13h2M8 17h2M14 17h2"/></svg>',
+  'receipt': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1z"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>',
+  'graduation-cap': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>',
+  'layout-dashboard': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>',
+  'coins': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18M7 6h1v4M16.71 13.88l.7.71-2.82 2.82"/></svg>',
+  'rocket': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91 0z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg>',
+  'newspaper': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8M15 18h-5M10 6h8v4h-8z"/></svg>',
+  'sparkles': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></svg>',
+  'box': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.27 6.96 12 12.01l8.73-5.05M12 22.08V12"/></svg>',
+  'palette': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.555C21.965 6.012 17.461 2 12 2z"/></svg>',
+  'gamepad-2': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="11" x2="10" y2="11"/><line x1="8" y1="9" x2="8" y2="13"/><line x1="15" y1="12" x2="15.01" y2="12"/><line x1="18" y1="10" x2="18.01" y2="10"/><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.152A4 4 0 0 0 17.32 5z"/></svg>',
+  'book-open': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>',
+  'workflow': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>',
+  'brain': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/></svg>',
+  'list-todo': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M2 12h7M2 18h7M2 6h7"/></svg>',
+  'megaphone': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 11 18-5v12L3 14v-3zM11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>',
+  'drama': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 10s3-3 3-8M22 10s-3-3-3-8M5 10h14M2 10v4a8 8 0 0 0 8 8h4a8 8 0 0 0 8-8v-4M8 14v2M12 14v3M16 14v2"/></svg>',
+  'wrench': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>',
+};
+function iconSvg(name){ return icons[name] || icons['wrench']; }
+
+function renderNew(){
+  const grid = document.getElementById('grid-new');
+  let html = `
+    <button class="create-card-new">
+      <div class="plus-circle"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></div>
+      <span class="create-label">创建自定义助手</span>
+      <span class="create-sub">绑定技能与模型</span>
+    </button>`;
+  assistants.forEach(a => {
+    const maxDots = 4;
+    const dotCount = Math.min(a.skills.length, maxDots);
+    const capText = a.skills.length > 0 ? `${a.skills.length} 项能力` : '通用对话';
+    let dots = '';
+    for (let i = 0; i < maxDots; i++) dots += `<span class="cap-dot ${i < dotCount ? '' : 'muted'}"></span>`;
+    let skillsHtml = a.skills.length > 0
+      ? a.skills.map(s => `<div class="skill-item"><span class="skill-status ${s.on?'':'off'}"></span><span class="skill-item-name">${s.n}</span><span class="skill-item-desc">— ${s.d}</span></div>`).join('')
+      : `<div class="skill-item"><span class="skill-status"></span><span class="skill-item-desc">无需额外技能，直接对话即可</span></div>`;
+    const promptsHtml = a.prompts.map(p => `<div class="prompt-item">${p}</div>`).join('');
+    const promptHint = a.prompts.length ? `<span class="capability-hint" style="gap:4px;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>${a.prompts.length} 个示例</span>` : '';
+    html += `
+      <button class="card-new ${a.catClass}">
+        <div class="card-new-top">
+          <div class="card-new-avatar">${iconSvg(a.icon)}</div>
+          <div class="card-new-head">
+            <span class="card-new-name">${a.name}</span>
+            ${a.tag ? `<span class="card-tag tag-${a.tag}">${a.tag}</span>` : ''}
+          </div>
+        </div>
+        <div class="card-new-desc">${a.desc}</div>
+        <div class="card-new-foot">
+          <span class="capability-hint"><span class="capability-dots">${dots}</span>${capText}</span>
+          ${promptHint}
+        </div>
+        <div class="hover-card">
+          <div class="hover-card-head">
+            <span class="hover-card-name">${a.name}</span>
+            ${a.tag ? `<span class="card-tag tag-${a.tag}">${a.tag}</span>` : ''}
+          </div>
+          <div class="hover-card-desc">${a.desc}</div>
+          <div class="hover-section-label">能力</div>
+          <div class="skill-list">${skillsHtml}</div>
+          ${a.prompts.length ? `<div class="hover-section-label">试试说</div><div class="prompt-list">${promptsHtml}</div>` : ''}
+        </div>
+      </button>`;
+  });
+  grid.innerHTML = html;
+}
+
+function renderOld(){
+  const grid = document.getElementById('grid-old');
+  let html = `
+    <button class="card-old create-card-old">
+      <div class="card-avatar" style="background:rgba(100,116,139,0.12);color:#64748b;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></div>
+      <div class="card-body">
+        <div class="card-head"><div class="card-name">创建自定义助手</div></div>
+        <div class="card-desc-old">绑定技能与模型，打造你的专属助手。</div>
+      </div>
+    </button>`;
+  assistants.forEach(a => {
+    const skillsHtml = a.rawSkills.length ? `<div class="card-skills-old">${a.rawSkills.map(s => `<span class="skill-badge-old available">${s}</span>`).join('')}</div>` : '';
+    html += `
+      <button class="card-old ${a.catClass}">
+        <div class="card-avatar">${iconSvg(a.icon)}</div>
+        <div class="card-body">
+          <div class="card-head">
+            <div class="card-name">${a.name}</div>
+            ${a.tag ? `<span class="card-tag tag-${a.tag}">${a.tag}</span>` : ''}
+          </div>
+          <div class="card-desc-old">${a.desc}</div>
+          ${skillsHtml}
+        </div>
+      </button>`;
+  });
+  grid.innerHTML = html;
+}
+
+// 视图切换
+document.querySelectorAll('.view-toggle button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.view-toggle button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const view = btn.dataset.view;
+    document.getElementById('grid-new').style.display = view === 'new' ? '' : 'none';
+    document.getElementById('grid-old').style.display = view === 'old' ? '' : 'none';
+  });
+});
+
+// 主题切换
+document.querySelectorAll('.theme-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.documentElement.setAttribute('data-theme', btn.dataset.themeVal);
+  });
+});
+
+// 分类筛选（演示用）
+document.querySelectorAll('.cat-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+
+renderNew();
+renderOld();
+</script>
+</body>
+</html>

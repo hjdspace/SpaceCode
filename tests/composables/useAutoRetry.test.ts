@@ -135,20 +135,20 @@ describe('extractErrorCode - 从实际错误中提取错误码', () => {
     expect(extractErrorCode('503 Service Unavailable', ErrorCategory.SERVER_ERROR)).toBe('503')
   })
 
-  it('网络错误应返回中文标签', () => {
-    expect(extractErrorCode('fetch failed: ECONNREFUSED', ErrorCategory.NETWORK_ERROR)).toBe('网络错误')
+  it('网络错误应返回 i18n key 后缀', () => {
+    expect(extractErrorCode('fetch failed: ECONNREFUSED', ErrorCategory.NETWORK_ERROR)).toBe('networkError')
   })
 
-  it('超时错误应返回中文标签', () => {
-    expect(extractErrorCode('Request timeout after 30000ms', ErrorCategory.TIMEOUT)).toBe('超时')
+  it('超时错误应返回 i18n key 后缀', () => {
+    expect(extractErrorCode('Request timeout after 30000ms', ErrorCategory.TIMEOUT)).toBe('timeoutError')
   })
 
-  it('进程退出错误应返回中文标签', () => {
-    expect(extractErrorCode('Process exited with code 1', ErrorCategory.PROCESS_ERROR)).toBe('进程退出')
+  it('进程退出错误应返回 i18n key 后缀', () => {
+    expect(extractErrorCode('Process exited with code 1', ErrorCategory.PROCESS_ERROR)).toBe('processError')
   })
 
-  it('未知错误且无状态码时应返回通用标签', () => {
-    expect(extractErrorCode('something went wrong', ErrorCategory.UNKNOWN)).toBe('错误')
+  it('未知错误且无状态码时应返回通用 i18n key 后缀', () => {
+    expect(extractErrorCode('something went wrong', ErrorCategory.UNKNOWN)).toBe('unknownError')
   })
 
   it('应优先提取 HTTP 状态码而非类别标签', () => {

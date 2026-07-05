@@ -460,6 +460,9 @@ export interface ElectronAPI {
   design: {
     listSystems: () => Promise<DesignSystemSummary[]>
     getSystemPreview: (systemId: string, pagePath: string) => Promise<string>
+    getSystemFile: (systemId: string, filePath: string) => Promise<string>
+    getSystemShowcase: (systemId: string) => Promise<string>
+    getSystemTokensHtml: (systemId: string) => Promise<string>
     composePromptStack: (input: {
       designSystemId?: string
       skillBody?: string

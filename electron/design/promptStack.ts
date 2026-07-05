@@ -76,7 +76,7 @@ function isColorValue(value: string): boolean {
     /^lab\(/i.test(value);
 }
 
-function parseSwatchesFromTokensCss(tokensCss: string): DesignSystemSwatch[] {
+export function parseSwatchesFromTokensCss(tokensCss: string): DesignSystemSwatch[] {
   const swatches: DesignSystemSwatch[] = [];
   const seen = new Set<string>();
   const regex = /(--[\w-]+)\s*:\s*([^;]+);/g;
@@ -86,7 +86,7 @@ function parseSwatchesFromTokensCss(tokensCss: string): DesignSystemSwatch[] {
     const name = match[1];
     const rawValue = match[2].trim();
     if (seen.has(name)) continue;
-    const value = rawValue.replace(/var\(([^)]+)\)/, '').trim() || rawValue;
+    const value = rawValue.replace(/var\(([^)]+)\)/g, '').trim() || rawValue;
     if (!isColorValue(value)) continue;
     seen.add(name);
     swatches.push({ name, value });
@@ -337,12 +337,26 @@ export async function listDesignSystems(extraResourcesPath: string): Promise<Des
       } catch {
         // No manifest, fallback to folder name
       }
+      const systemPath = path.join(systemsLibDir, dir.name);
+      let swatches: DesignSystemSwatch[] = [];
+      const designTokensSwatches = await parseSwatchesFromDesignTokens(systemPath);
+      if (designTokensSwatches.length > 0) {
+        swatches = designTokensSwatches;
+      } else {
+        try {
+          const tokensCss = await fs.readFile(path.join(systemPath, 'tokens.css'), 'utf-8');
+          swatches = parseSwatchesFromTokensCss(tokensCss);
+        } catch {
+          swatches = [];
+        }
+      }
       systems.push({
         id: dir.name,
         name: manifest.name || dir.name,
         category: manifest.category || 'General',
         description: manifest.description,
         previewPages: manifest.preview?.pages || [],
+        swatches,
       });
     }
   }
@@ -401,5 +415,17 @@ export function registerPromptStackHandlers(extraResourcesPath: string) {
 
   ipcMain.handle('design:get-system-preview', async (_event, systemId: string, pagePath: string) => {
     return getSystemPreviewHtml(extraResourcesPath, systemId, pagePath);
+  });
+
+  ipcMain.handle('design:get-system-file', async (_event, systemId: string, filePath: string) => {
+    return getSystemFile(extraResourcesPath, systemId, filePath);
+  });
+
+  ipcMain.handle('design:get-system-showcase', async (_event, systemId: string) => {
+    return getSystemShowcaseHtml(extraResourcesPath, systemId);
+  });
+
+  ipcMain.handle('design:get-system-tokens-html', async (_event, systemId: string) => {
+    return getSystemTokensHtml(extraResourcesPath, systemId);
   });
 }
