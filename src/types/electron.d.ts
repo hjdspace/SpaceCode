@@ -25,6 +25,7 @@ import type {
   ProxyStatus,
   InstallProgress,
   ArtifactEntry,
+  DesignSystemSummary,
 } from '@/services/electronAPI'
 
 import type {
@@ -457,7 +458,8 @@ export interface ElectronAPI {
   showNotification: (options: { title: string; message: string }) => void
 
   design: {
-    listSystems: () => Promise<Array<{ id: string; name: string; category: string }>>
+    listSystems: () => Promise<DesignSystemSummary[]>
+    getSystemPreview: (systemId: string, pagePath: string) => Promise<string>
     composePromptStack: (input: {
       designSystemId?: string
       skillBody?: string

@@ -734,8 +734,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Design API
   design: {
-    listSystems: (): Promise<Array<{ id: string; name: string; category: string }>> =>
-      ipcRenderer.invoke('design:list-systems'),
+    listSystems: (): Promise<
+      Array<{
+        id: string;
+        name: string;
+        category: string;
+        description?: string;
+        previewPages: Array<{ path: string; role: string; title: string }>;
+      }>
+    > => ipcRenderer.invoke('design:list-systems'),
+    getSystemPreview: (systemId: string, pagePath: string): Promise<string> =>
+      ipcRenderer.invoke('design:get-system-preview', systemId, pagePath),
     composePromptStack: (input: {
       designSystemId?: string;
       skillBody?: string;

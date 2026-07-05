@@ -42,6 +42,20 @@ export interface ArtifactEntry {
   mtime: number
 }
 
+export interface PreviewPage {
+  path: string
+  role: string
+  title: string
+}
+
+export interface DesignSystemSummary {
+  id: string
+  name: string
+  category: string
+  description?: string
+  previewPages: PreviewPage[]
+}
+
 export interface FileStat {
   size: number
   isDirectory: boolean
@@ -1111,8 +1125,10 @@ export const api = {
 
   // Design API
   design: {
-    listSystems: (): Promise<Array<{ id: string; name: string; category: string }>> =>
+    listSystems: (): Promise<DesignSystemSummary[]> =>
       electronAPI?.design?.listSystems() || Promise.resolve([]),
+    getSystemPreview: (systemId: string, pagePath: string): Promise<string> =>
+      electronAPI?.design?.getSystemPreview(systemId, pagePath) || Promise.resolve(''),
     composePromptStack: (input: {
       designSystemId?: string;
       skillBody?: string;
