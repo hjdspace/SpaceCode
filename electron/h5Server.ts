@@ -5,8 +5,8 @@ import { createServer, IncomingMessage, ServerResponse } from 'http'
 import { existsSync, statSync, readFileSync, readdirSync } from 'fs'
 import { join, extname, normalize } from 'path'
 import { app, BrowserWindow, net } from 'electron'
-import { isIP, isIPv4, isIPv6 } from 'net'
 import { WebSocketServer, WebSocket } from 'ws'
+import { isAllowedFetchUrl } from './h5FetchUrlValidator'
 import { H5AuthService } from './h5AuthService'
 import { h5EngineService } from './h5EngineService'
 import { info, warn, error, debug } from './logger'
@@ -30,68 +30,6 @@ const MIME: Record<string, string> = {
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
   '.ico': 'image/x-icon',
-}
-
-function isPrivateIp(ip: string): boolean {
-  if (isIPv4(ip)) {
-    const [a, b, c] = ip.split('.').map(Number)
-    if (a === 127) return true
-    if (a === 10) return true
-    if (a === 172 && b >= 16 && b <= 31) return true
-    if (a === 192 && b === 168) return true
-    if (a === 169 && b === 254) return true
-    if (a === 0) return true
-    if (a === 100 && b >= 64 && b <= 127) return true
-    if (a === 192 && b === 0 && c === 0) return true
-    if (a === 192 && b === 0 && c === 2) return true
-    if (a === 198 && b >= 18 && b <= 19) return true
-    if (a === 198 && b === 51 && c === 100) return true
-    if (a === 203 && b === 0 && c === 113) return true
-    if (a >= 224 && a <= 239) return true
-    if (a >= 240) return true
-    return false
-  }
-
-  if (isIPv6(ip)) {
-    const normalized = ip.toLowerCase()
-    if (normalized === '::1' || normalized === '::') return true
-    if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true
-    if (normalized.startsWith('fe8') || normalized.startsWith('fe9') || normalized.startsWith('fea') || normalized.startsWith('feb')) return true
-    if (normalized.startsWith('::ffff:')) {
-      return isPrivateIp(normalized.slice(7))
-    }
-    return false
-  }
-
-  return false
-}
-
-function isInternalHostname(hostname: string): boolean {
-  const lower = hostname.toLowerCase()
-  if (lower === 'localhost' || lower.endsWith('.localhost')) return true
-  if (lower.endsWith('.local')) return true
-  if (/^\d+$/.test(lower)) return true
-  const ipLike = lower.replace(/\.[^.]+$/, '')
-  if (isIP(ipLike) !== 0) return true
-  const internalSuffixes = ['.internal', '.corp', '.home', '.lan', '.private', '.intranet']
-  if (internalSuffixes.some(suffix => lower.endsWith(suffix))) return true
-  return false
-}
-
-function isAllowedFetchUrl(targetUrl: string): boolean {
-  let parsed: URL
-  try {
-    parsed = new URL(targetUrl)
-  } catch {
-    return false
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
-  if (parsed.username || parsed.password) return false
-  const hostname = parsed.hostname
-  if (isIP(hostname) !== 0) {
-    return !isPrivateIp(hostname)
-  }
-  return !isInternalHostname(hostname)
 }
 
 export class H5Server {
