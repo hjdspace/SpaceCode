@@ -214,7 +214,13 @@ class RtkManager extends EventEmitter {
     await this.ensureBinary()
     info('RtkManager', 'Installing RTK hook (rtk init -g --auto-patch)')
     const output = await this.execRtk(['init', '-g', '--auto-patch'], { timeout: 30_000 })
-    info('RtkManager', 'RTK hook installed', { output: output.slice(0, 200) })
+    info('RtkManager', 'RTK hook installed', { output: output.slice(0, 500) })
+
+    // 验证安装结果
+    const installed = await this.isHookInstalled()
+    if (!installed) {
+      warn('RtkManager', 'RTK hook not detected after install — verifying via settings.json')
+    }
   }
 
   /**
@@ -228,25 +234,76 @@ class RtkManager extends EventEmitter {
     info('RtkManager', 'Uninstalling RTK hook (rtk init -g --uninstall)')
     try {
       const output = await this.execRtk(['init', '-g', '--uninstall'], { timeout: 30_000 })
-      info('RtkManager', 'RTK hook uninstalled', { output: output.slice(0, 200) })
+      info('RtkManager', 'RTK hook uninstalled', { output: output.slice(0, 500) })
     } catch (err) {
       warn('RtkManager', 'Failed to uninstall RTK hook', { error: String(err) })
     }
   }
 
   /**
-   * 检查 Hook 是否已安装
-   * 使用 `rtk init --show`
+   * 检查 Hook 是否已安装。
+   *
+   * 优先尝试 `rtk init --show`；若该命令不可用或结果不确定，
+   * 回退到直接检查 `~/.claude/settings.json` 中是否包含 RTK 相关的 hook 条目。
    */
   async isHookInstalled(): Promise<boolean> {
     if (!this.isBinaryInstalled()) {
       return false
     }
+
+    // 方法 1：尝试 rtk init --show
     try {
       const output = await this.execRtk(['init', '--show'], { timeout: 10_000 })
-      // 如果输出包含 "installed" 或未报错，认为 Hook 已安装
-      return !/not installed|not found|missing/i.test(output)
-    } catch {
+      // 输出中不包含 "not installed|not found|missing" 则认为已安装
+      if (!/not installed|not found|missing/i.test(output)) {
+        return true
+      }
+      debug('RtkManager', 'rtk init --show indicates hook not installed', { output: output.slice(0, 200) })
+    } catch (err) {
+      debug('RtkManager', 'rtk init --show failed, falling back to settings.json check', { error: String(err) })
+    }
+
+    // 方法 2：直接检查 ~/.claude/settings.json 中的 hooks
+    return this.checkHookInSettings()
+  }
+
+  /**
+   * 检查 ~/.claude/settings.json 中是否包含 RTK 相关的 Hook 配置。
+   *
+   * RTK 通过 `rtk init -g --auto-patch` 将 PreToolUse Hook 写入全局 settings.json，
+   * 因此直接检查该文件是最可靠的判断方式。
+   */
+  private checkHookInSettings(): boolean {
+    try {
+      const settingsPath = path.join(os.homedir(), '.claude', 'settings.json')
+      if (!fs.existsSync(settingsPath)) {
+        return false
+      }
+      const raw = fs.readFileSync(settingsPath, 'utf8')
+      const settings = JSON.parse(raw)
+      if (!settings.hooks || typeof settings.hooks !== 'object') {
+        return false
+      }
+
+      // 递归搜索 hooks 对象，查找包含 "rtk" 的命令字符串
+      const hasRtkHook = (obj: unknown): boolean => {
+        if (typeof obj === 'string') {
+          return obj.toLowerCase().includes('rtk')
+        }
+        if (Array.isArray(obj)) {
+          return obj.some(hasRtkHook)
+        }
+        if (obj && typeof obj === 'object') {
+          return Object.values(obj).some(hasRtkHook)
+        }
+        return false
+      }
+
+      const found = hasRtkHook(settings.hooks)
+      debug('RtkManager', `settings.json hook check: ${found ? 'RTK hook found' : 'RTK hook not found'}`)
+      return found
+    } catch (err) {
+      debug('RtkManager', 'Failed to check settings.json for RTK hook', { error: String(err) })
       return false
     }
   }

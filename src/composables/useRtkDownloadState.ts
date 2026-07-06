@@ -21,6 +21,7 @@ function ensureProgressListener(): void {
   if (listenerInitialized) return
   listenerInitialized = true
   api.rtk.onDownloadProgress((progress) => {
+    downloading.value = progress.percent < 100
     downloadPercent.value = progress.percent
   })
 }
