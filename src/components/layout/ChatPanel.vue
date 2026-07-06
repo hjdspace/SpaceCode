@@ -302,6 +302,7 @@ import { useChatCommands } from '@/composables/useChatCommands'
 import { useWorkRouter } from '@/composables/useWorkRouter'
 import type { AgentDef } from '@/stores/agents'
 import { api } from '@/services/electronAPI'
+import { isH5Mode } from '@/services/h5ApiClient'
 import type { Message } from '@/types'
 
 const chatStore = useChatStore()
@@ -772,6 +773,9 @@ const hasWorkspaceContext = computed(() =>
 /** No folder context in chat/projects list, or app has not bound a project root yet */
 const showNoProjectWelcome = computed(() => {
   if (isTerminalTab.value) return false
+  // H5 模式下不显示“无项目”欢迎页 — 手机端通过镜像会话访问，
+  // 即使桌面端没有打开项目，也应该显示聊天界面让用户能看到消息
+  if (isH5Mode()) return false
   if (!hasWorkspaceContext.value) return true
   return !(appStore.projectRoot || '').trim()
 })
@@ -784,6 +788,8 @@ watch(
   }),
   ({ has, root, terminal }) => {
     if (terminal) return
+    // H5 模式下跳过会话清理 — 手机端会话由桌面端管理，不应自动删除
+    if (isH5Mode()) return
     if (!has) {
       // 只移除当前项目相关的会话
       const sessionsToRemove = chatStore.sessions.filter(s =>
@@ -1045,11 +1051,17 @@ async function handleSend(content: string, attachments: AllAttachments, options?
   const userContent = displayLabel !== messageContent ? displayLabel : undefined
 
   console.log('[ChatPanel] Calling chatStore.sendMessage...')
-  await chatStore.sendMessage(messageContent, userContent, {
-    files: attachments.files,
-    images: attachments.images
-  })
-  console.log('[ChatPanel] chatStore.sendMessage done')
+  try {
+    await chatStore.sendMessage(messageContent, userContent, {
+      files: attachments.files,
+      images: attachments.images
+    })
+    console.log('[ChatPanel] chatStore.sendMessage done')
+  } catch (error) {
+    console.error('[ChatPanel] sendMessage failed:', error)
+    // 错误已在 sendMessage 内部处理（loading 状态清除、processStatus 重置），
+    // 此处仅防止 unhandled rejection 导致 UI 异常
+  }
 }
 
 // 处理停止/中断

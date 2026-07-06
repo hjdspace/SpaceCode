@@ -339,6 +339,7 @@ import ScmPanel from '../scm/ScmPanel.vue'
 import SkillsManager from '../skills/SkillsManager.vue'
 // import McpManager from '../mcp/McpManagerModal.vue' // 已迁移到 App.vue 全屏模式
 import { api } from '@/services/electronAPI'
+import { isH5Mode, h5ApiClient } from '@/services/h5ApiClient'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useFileToChat } from '@/composables/useFileToChat'
 import { pathsEqual } from '@/utils/recentProjectRoots'
@@ -613,6 +614,27 @@ async function handleSelectSession(sessionId: string) {
     const selected = chatStore.sessions.find(s => s.id === sessionId)
     if (selected?.mode === 'work' && selected.messages.length > 0) {
       appStore.openArtifactsPanel()
+    }
+
+    // ★ H5 模式：如果选中的会话没有消息（从桌面端列表加载的），从桌面端拉取历史
+    if (isH5Mode() && selected && selected.messages.length === 0 && selected.workingDirectory) {
+      try {
+        const history = await h5ApiClient.restoreSession(sessionId, selected.workingDirectory)
+        if (history?.messages?.length) {
+          const { buildMessagesFromHistory } = await import('@/utils/sessionRestore')
+          const restoredMessages = buildMessagesFromHistory(history.messages)
+          if (restoredMessages.length > 0) {
+            selected.messages = restoredMessages.map((m, i) => ({
+              ...m,
+              timestamp: (m as any).timestamp ?? Date.now() - (restoredMessages.length - i) * 1000,
+            })) as any
+            chatStore.saveToStorage()
+            console.log('[H5] Loaded', restoredMessages.length, 'messages for session', sessionId.slice(0, 8))
+          }
+        }
+      } catch (err) {
+        console.error('[H5] Failed to load session history:', err)
+      }
     }
 
     // 2. 异步加载会话数据（后台操作，不阻塞UI）

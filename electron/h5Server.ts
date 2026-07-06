@@ -73,8 +73,10 @@ export class H5Server {
 
     // 订阅引擎事件 → 转发给所有 WS 客户端
     this.unsubEngineEvents = h5EngineService.onRouteEvent((sessionId, eventType, data) => {
-      // 仅转发镜像会话的事件
-      if (sessionId !== this.mirrorSessionId) return
+      // 转发所有引擎事件 — 客户端 chatStream store 已按 sessionId 过滤，
+      // 仅处理有 turn state 的会话事件。
+      // 之前的 mirror session 过滤会导致非镜像会话的事件被丢弃，
+      // 造成 H5 端发消息后收不到 LLM 响应。
       this.broadcast({ type: eventType, sessionId, data })
     })
 

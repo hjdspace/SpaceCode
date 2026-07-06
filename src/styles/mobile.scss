@@ -1,42 +1,82 @@
 // src/styles/mobile.scss
 // H5 手机端响应式样式 — 隐藏桌面 UI，仅显示聊天面板
-
+//
 // H5 模式通过 body.h5-mode 类触发
 // 该类在 App.vue 的 onMounted 中根据 isH5Mode() 设置
+//
+// 注意：TitleBar 的按钮隐藏已在 TitleBar.vue 组件层面通过 v-if="!h5Mode" 实现，
+//       此处仅做样式微调（padding、高度等）。
 
 body.h5-mode {
-  // 隐藏标题栏
-  .title-bar {
-    display: none !important;
+  // ── 标题栏 ──
+  .titlebar {
+    height: 44px !important;
+    padding: 0 8px !important;
+    -webkit-app-region: no-drag !important;
+
+    // macOS 不需要为交通灯按钮留空间（H5 模式下不在 Electron 中）
+    &.is-mac {
+      padding-left: 8px !important;
+    }
+
+    // 侧边栏切换按钮 — 手机端唯一保留的按钮，确保足够大易于点击
+    .sidebar-toggle {
+      width: 36px !important;
+      height: 36px !important;
+    }
   }
 
-  // 隐藏侧边栏
+  // ── 侧边栏 — 滑入式覆盖层 ──
   .sidebar {
-    display: none !important;
+    position: fixed !important;
+    top: 44px !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    width: 280px !important;
+    max-width: 80vw !important;
+    z-index: 200 !important;
+    transform: translateX(-100%);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.3);
+
+    // 展开时滑入
+    &:not(.collapsed) {
+      transform: translateX(0);
+    }
   }
 
-  // 隐藏信息面板
+  // 侧边栏遮罩层 — 点击可关闭侧边栏（降低透明度避免页面过暗）
+  .h5-sidebar-overlay {
+    position: fixed;
+    top: 44px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.2);
+    z-index: 150;
+    cursor: pointer;
+  }
+
+  // 主内容区域 — 减去标题栏高度（44px）
+  .main-content {
+    height: calc(100vh - 44px) !important;
+    height: calc(100dvh - 44px) !important;
+  }
+
+  // ── 隐藏桌面端独有面板 ──
   .info-panel {
     display: none !important;
   }
 
-  // 隐藏所有 resize-handle
   .resize-handle {
     display: none !important;
   }
 
-  // 隐藏终端 dock
   .terminal-dock {
     display: none !important;
   }
 
-  // 主内容区域全屏
-  .main-content {
-    height: 100vh !important;
-    height: 100dvh !important;
-  }
-
-  // 中间面板全宽
+  // ── 中间面板全宽 ──
   .center-panel {
     width: 100% !important;
     flex: 1 !important;
@@ -46,24 +86,21 @@ body.h5-mode {
     height: 100% !important;
   }
 
-  // SplitContainer 只显示聊天区域
   .split-container {
     flex-direction: column !important;
   }
 
-  // 聊天面板全屏
   .chat-panel {
     width: 100% !important;
     height: 100% !important;
     flex: 1 !important;
   }
 
-  // 隐藏 SplitContainer 中的拖拽分隔线
   .split-handle {
     display: none !important;
   }
 
-  // 聊天输入框适配移动端
+  // ── 聊天输入框适配 ──
   .chat-input-area,
   .chat-input-container {
     padding: 8px 12px !important;
@@ -74,50 +111,92 @@ body.h5-mode {
     }
   }
 
-  // 输入框工具栏 — 确保发送按钮始终可见
+  // 输入框工具栏 — 横向排列，确保发送按钮始终可见
   .input-toolbar {
     flex-wrap: nowrap !important;
     gap: 4px !important;
   }
 
+  // ★ toolbar-left 保持 overflow: visible 以便模型下拉菜单不被裁剪
   .toolbar-left {
     gap: 2px !important;
-    // 允许收缩，但保留最小宽度
     min-width: 0 !important;
-    overflow: hidden !important;
+    // 不设置 overflow: hidden，否则模型下拉菜单被裁剪
   }
 
   .toolbar-right {
     flex-shrink: 0 !important;
-    // 确保发送按钮区域始终可见
     gap: 4px !important;
+    z-index: 10 !important; // 确保发送按钮在最上层，不被 toolbar-left 内容遮挡
+    position: relative !important; // 配合 z-index 生效
+  }
+
+  // ★ 隐藏移动端非必要的工具栏按钮，确保发送按钮有足够空间
+  .thinking-toggle-wrapper,
+  .optimize-btn,
+  .optimize-hint {
+    display: none !important;
+  }
+
+  // 权限模式选择器 — 移动端仅显示图标
+  .permission-mode-selector {
+    .mode-trigger {
+      .mode-text {
+        display: none !important;
+      }
+      padding: 6px !important;
+    }
+
+    .mode-dropdown {
+      min-width: 200px !important;
+      max-width: calc(100vw - 24px) !important;
+    }
   }
 
   // 模型选择器在移动端缩小
   .model-selector {
     .model-btn {
-      padding: 6px 8px !important;
+      padding: 6px 4px !important;
       font-size: 12px !important;
 
       .model-name {
-        max-width: 80px !important;
+        max-width: 60px !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
         white-space: nowrap !important;
       }
+
+      // 隐藏模式 pill 节省空间
+      .model-mode-pill {
+        display: none !important;
+      }
+    }
+
+    // 模型下拉菜单 — 移动端右对齐，避免遮挡发送按钮
+    .model-dropdown {
+      min-width: 200px !important;
+      max-width: calc(100vw - 24px) !important;
+      right: 0 !important;
+      left: auto !important;
+    }
+
+    .model-submenu {
+      min-width: 200px !important;
+      max-width: calc(100vw - 24px) !important;
     }
   }
 
   // 工具栏按钮缩小
   .toolbar-btn {
-    padding: 6px 8px !important;
+    padding: 6px 4px !important;
   }
 
-  // 发送按钮确保可见
+  // 发送按钮确保可见且可点击
   .send-btn {
     width: 36px !important;
     height: 36px !important;
     flex-shrink: 0 !important;
+    z-index: 10 !important;
   }
 
   // 消息列表适配
@@ -133,7 +212,6 @@ body.h5-mode {
   }
 
   // 隐藏桌面端独有 UI 元素
-  .sidebar-toggle,
   .panel-toggle,
   .desktop-only {
     display: none !important;
@@ -153,26 +231,28 @@ body.h5-mode {
 
   // 聊天头部 — 隐藏不必要的 badge，保留标题
   .chat-header {
+    height: 40px !important;
+    padding: 0 12px !important;
+
+    .header-left h2 {
+      font-size: 14px !important;
+    }
+
     .header-actions {
       .provider-badge,
       .status-indicator,
-      .context-usage-chip {
+      .context-usage-chip,
+      .model-badge,
+      .agent-badge,
+      .history-btn {
         display: none !important;
       }
     }
   }
 
-  // 会话标签栏适配
+  // 隐藏会话标签栏 — 手机端通过侧边栏切换会话，不需要顶部标签栏
   .session-tab-bar {
-    .tab-list {
-      gap: 4px !important;
-      padding: 0 8px !important;
-    }
-
-    .tab-item {
-      max-width: 120px !important;
-      flex-shrink: 0 !important;
-    }
+    display: none !important;
   }
 
   // 上下文工具栏（目录/分支）适配

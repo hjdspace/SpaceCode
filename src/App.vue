@@ -6,6 +6,12 @@
         :collapsed="appStore.sidebarCollapsed"
         :style="{ width: appStore.sidebarCollapsed ? '48px' : leftWidth + 'px' }"
       />
+      <!-- H5 模式侧边栏遮罩层 — 点击关闭侧边栏 -->
+      <div
+        v-if="h5Mode && !appStore.sidebarCollapsed"
+        class="h5-sidebar-overlay"
+        @click="appStore.sidebarCollapsed = true"
+      ></div>
       <div
         class="resize-handle vertical"
         @mousedown="startLeftResize"
@@ -90,6 +96,7 @@ import { api } from '@/services/electronAPI'
 import { isH5Mode } from '@/services/h5ApiClient'
 import { getCachedDesktopConfig } from '@/services/h5Bootstrap'
 import { h5ApiClient } from '@/services/h5ApiClient'
+import { h5WebSocketClient } from '@/services/h5WebSocketClient'
 import { useShortcuts } from '@/composables/useShortcuts'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useResizablePanel } from '@/composables/useResizablePanel'
@@ -98,6 +105,9 @@ import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
 const appStore = useAppStore()
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
+
+// H5 模式标记
+const h5Mode = isH5Mode()
 
 const { openProjectByPath } = useOpenProjectWorkflow()
 
@@ -188,7 +198,7 @@ const {
   onUpdate: (h) => appStore.setTerminalDockHeight(h),
 })
 
-// H5 模式：初始化镜像会话
+// H5 模式：初始化镜像会话 + 加载桌面端完整会话列表
 async function initH5MirrorSession() {
   const config = getCachedDesktopConfig()
   if (!config) {
@@ -206,13 +216,48 @@ async function initH5MirrorSession() {
     chatStore.switchProject(mirrorProjectPath)
   }
 
+  // ★ 加载桌面端完整会话列表，让手机端侧边栏显示与桌面端一致的会话
+  if (mirrorProjectPath) {
+    try {
+      const remoteSessions = await h5ApiClient.listProjectSessions(mirrorProjectPath)
+      if (remoteSessions?.length) {
+        console.log('[H5] Loaded', remoteSessions.length, 'sessions from desktop')
+        for (const rs of remoteSessions) {
+          // 跳过已存在的会话（包括即将创建的镜像会话）
+          const existing = chatStore.sessions.find(s => s.id === rs.sessionId)
+          if (existing) continue
+
+          // 将桌面端会话添加到本地 sessions 列表（不切换 currentSessionId）
+          const session = {
+            id: rs.sessionId,
+            title: rs.title || rs.firstUserMessage || 'Chat',
+            messages: [],
+            createdAt: rs.lastMessageTimestamp || Date.now(),
+            updatedAt: rs.lastMessageTimestamp || Date.now(),
+            workingDirectory: mirrorProjectPath,
+            processStatus: 'none' as const,
+            isTabOpen: false,
+            lastActivityAt: rs.lastMessageTimestamp || Date.now(),
+            mode: 'code' as const,
+          }
+          chatStore.sessions.push(session)
+        }
+        chatStore.saveToStorage()
+      }
+    } catch (err) {
+      console.error('[H5] Failed to load project sessions:', err)
+    }
+  }
+
   // 如果有镜像会话，创建本地 Session 并加载历史
   if (mirrorSessionId) {
-    // 检查是否已存在该 session
+    // 检查是否已存在该 session（可能刚从桌面端列表加载）
     let session = chatStore.sessions.find(s => s.id === mirrorSessionId)
     if (!session) {
       session = chatStore.createSession('Mirror Session', mirrorProjectPath || undefined, mirrorSessionId)
     } else {
+      // 已存在（从桌面端列表加载），更新标题并选中
+      session.title = 'Mirror Session'
       void chatStore.selectSession(mirrorSessionId)
     }
 
@@ -250,8 +295,50 @@ onMounted(() => {
   // H5 模式：设置 body 类以触发移动端样式
   if (isH5Mode()) {
     document.body.classList.add('h5-mode')
+    // 手机端默认收起侧边栏（改为滑入式覆盖层，不默认展开）
+    appStore.sidebarCollapsed = true
     // 初始化镜像会话
     initH5MirrorSession()
+
+    // ★ 监听桌面端会话切换 — 当桌面端切换会话时，H5 Server 推送 session_changed 事件
+    // H5 客户端需要同步切换到新的镜像会话
+    h5WebSocketClient.on('session_changed', (evt: { sessionId: string; data: any }) => {
+      const newSessionId = evt.data?.sessionId
+      const newProjectPath = evt.data?.projectPath
+      if (!newSessionId) return
+
+      console.log('[H5] Session changed from desktop:', { newSessionId, newProjectPath })
+
+      // 检查是否已存在该会话
+      let session = chatStore.sessions.find(s => s.id === newSessionId)
+      if (!session && newProjectPath) {
+        // 创建新的本地会话
+        session = chatStore.createSession('Mirror Session', newProjectPath, newSessionId)
+      } else if (session) {
+        // 已存在，直接选中
+        void chatStore.selectSession(newSessionId)
+      }
+
+      // 加载新镜像会话的历史
+      if (newProjectPath && session) {
+        h5ApiClient.restoreSession(newSessionId, newProjectPath).then(async (history) => {
+          if (history?.messages?.length) {
+            const { buildMessagesFromHistory } = await import('@/utils/sessionRestore')
+            const restoredMessages = buildMessagesFromHistory(history.messages)
+            if (restoredMessages.length > 0 && session) {
+              session.messages = restoredMessages.map((m, i) => ({
+                ...m,
+                timestamp: (m as any).timestamp ?? Date.now() - (restoredMessages.length - i) * 1000,
+              })) as any
+              chatStore.saveToStorage()
+              console.log('[H5] Restored', restoredMessages.length, 'messages for new mirror session')
+            }
+          }
+        }).catch((err) => {
+          console.error('[H5] Failed to restore new mirror session history:', err)
+        })
+      }
+    })
   }
 
   // 初始化字体配置
