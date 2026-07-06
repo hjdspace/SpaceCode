@@ -368,7 +368,11 @@ onMounted(() => {
       }
 
       // 加载新镜像会话的历史
-      if (newProjectPath && session) {
+      // ★ 保护：只在 session 没有消息时才加载历史。
+      // H5 端发送消息时会触发 startSession → setMirrorSession → session_changed，
+      // 如果此时无条件覆盖 session.messages，会丢失用户刚发送的消息。
+      // 与 Sidebar.vue handleSelectSession 的保护逻辑保持一致。
+      if (newProjectPath && session && session.messages.length === 0) {
         h5ApiClient.restoreSession(newSessionId, newProjectPath).then(async (history) => {
           if (history?.messages?.length) {
             const { buildMessagesFromHistory } = await import('@/utils/sessionRestore')
