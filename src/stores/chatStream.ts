@@ -1423,16 +1423,18 @@ export const useChatStreamStore = defineStore('chatStream', () => {
       if (!ts) return
       handleExit(event.sessionId, ts, event.data)
     })
-    ;(claudeCodeApi as any).onError?.((event: { sessionId: string; data: any }) => {
-      const ts = turnStates.get(event.sessionId)
-      if (!ts) return
-      const msg = typeof event.data?.message === 'string'
-        ? event.data.message
-        : typeof event.data === 'string'
-          ? event.data
-          : 'Engine error'
-      handleError(event.sessionId, ts, new Error(msg))
-    })
+    if (typeof (claudeCodeApi as any).onError === 'function') {
+      ;(claudeCodeApi as any).onError((event: { sessionId: string; data: any }) => {
+        const ts = turnStates.get(event.sessionId)
+        if (!ts) return
+        const msg = typeof event.data?.message === 'string'
+          ? event.data.message
+          : typeof event.data === 'string'
+            ? event.data
+            : 'Engine error'
+        handleError(event.sessionId, ts, new Error(msg))
+      })
+    }
   }
 
   interface MessageAttachments {
