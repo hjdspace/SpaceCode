@@ -540,6 +540,27 @@ export default {
     runtime: 'runtime',
   },
 
+  aboutSettings: {
+    title: 'About',
+    desc: 'Application information, version details, and updates',
+    updates: 'Updates',
+    upToDate: 'You are up to date',
+    upToDateDesc: 'v{version} is the latest version',
+    checking: 'Checking for updates...',
+    checkForUpdates: 'Check for updates',
+    newVersionAvailable: 'New version {version} available',
+    download: 'Download',
+    changelog: 'Changelog',
+    viewFullChangelog: 'View full changelog on GitHub',
+    information: 'Information',
+    license: 'License',
+    repository: 'Repository',
+    developer: 'Developer',
+    techStack: 'Technology',
+    mitLicense: 'MIT License',
+    techStackValue: 'Vue 3 \u00B7 Electron \u00B7 TypeScript',
+  },
+
   contextUsage: {
     title: 'Context usage',
     used: 'used',
