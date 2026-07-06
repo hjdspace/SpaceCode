@@ -911,6 +911,37 @@ export const api = {
       electronAPI?.h5Access?.checkBuild() || Promise.resolve({ built: false, path: '' }),
   },
 
+  // RTK (Rust Token Killer) API
+  rtk: {
+    getStatus: (): Promise<import('../../electron/rtkManager').RtkStatus> =>
+      electronAPI?.rtk?.getStatus() || Promise.resolve({
+        binaryInstalled: false,
+        version: null,
+        hookInstalled: false,
+        platform: typeof process !== 'undefined' ? process.platform : 'win32',
+        binaryPath: '',
+        isWindows: true,
+      }),
+    enable: (): Promise<{ success: boolean; error?: string; status: import('../../electron/rtkManager').RtkStatus }> =>
+      electronAPI?.rtk?.enable() || Promise.reject('RTK API not available'),
+    disable: (): Promise<{ success: boolean; error?: string; status: import('../../electron/rtkManager').RtkStatus }> =>
+      electronAPI?.rtk?.disable() || Promise.resolve({ success: true, status: { binaryInstalled: false, version: null, hookInstalled: false, platform: 'win32', binaryPath: '', isWindows: true } }),
+    downloadBinary: (): Promise<{ success: boolean; error?: string; status?: import('../../electron/rtkManager').RtkStatus }> =>
+      electronAPI?.rtk?.downloadBinary() || Promise.reject('RTK API not available'),
+    getStats: (): Promise<import('../../electron/rtkManager').RtkGainStats | null> =>
+      electronAPI?.rtk?.getStats() || Promise.resolve(null),
+    checkUpdate: (): Promise<import('../../electron/rtkManager').RtkUpdateInfo | null> =>
+      electronAPI?.rtk?.checkUpdate() || Promise.resolve(null),
+    getBinaryPath: (): Promise<string> =>
+      electronAPI?.rtk?.getBinaryPath() || Promise.resolve(''),
+    onDownloadProgress: (callback: (progress: { downloaded: number; total: number; percent: number }) => void) => {
+      if (electronAPI?.rtk?.onDownloadProgress) {
+        return electronAPI.rtk.onDownloadProgress(callback)
+      }
+      return () => {}
+    },
+  },
+
   // Auto Update API
   update: {
     check: (): Promise<{ success: boolean; error?: string }> => {

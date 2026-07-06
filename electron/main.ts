@@ -25,6 +25,7 @@ import { aggregateLocalTokenStats } from './tokenStatsService'
 import { initLogger, info, warn, error, debug, isDebugMode, ipc as logIpc, traceEvent, listDebugFiles, readDebugFile, listTraceSessions, readTraceEvents, getTraceDir } from './logger'
 import { proxyManager } from './proxyManager'
 import type { ProxyConfig } from './proxy/types'
+import { rtkManager } from './rtkManager'
 
 // ============================================================
 // App Startup
@@ -656,6 +657,10 @@ info('Startup', 'CuaDriver IPC handlers registered')
   registerH5AccessIPCHandlers()
   info('Startup', 'H5 Access IPC handlers registered')
 
+  // Register RTK IPC handlers
+  registerRtkIPCHandlers()
+  info('Startup', 'RTK IPC handlers registered')
+
   // Auto-start H5 server if it was previously enabled
   ;(async () => {
     try {
@@ -774,6 +779,20 @@ info('Startup', 'CuaDriver IPC handlers registered')
       }
     }
   })()
+
+  // Auto-restore RTK hook if it was previously enabled
+  ;(async () => {
+    const guiSettings = await loadGuiSettings()
+    if (guiSettings?.rtkEnabled) {
+      try {
+        await rtkManager.ensureBinary()
+        await rtkManager.install()
+        info('Startup', 'RTK hook auto-restored')
+      } catch (err) {
+        error('Startup', 'Failed to restore RTK on startup', { error: String(err) })
+      }
+    }
+  })()
 })
 
 app.on('window-all-closed', () => {
@@ -883,6 +902,80 @@ function registerH5AccessIPCHandlers(): void {
       : join(__dirname, '..', 'dist')
     const indexPath = join(distRoot, 'index.html')
     return { built: existsSync(indexPath), path: distRoot }
+  })
+}
+
+// ============================================================
+// RTK (Rust Token Killer) Integration
+// ============================================================
+
+function registerRtkIPCHandlers(): void {
+  // 获取 RTK 状态
+  ipcMain.handle('rtk:getStatus', async () => {
+    return rtkManager.getStatus()
+  })
+
+  // 启用 RTK：确保二进制已安装 + 安装 Hook
+  ipcMain.handle('rtk:enable', async () => {
+    try {
+      await rtkManager.ensureBinary()
+      await rtkManager.install()
+      info('RTK', 'RTK enabled and hook installed')
+      return { success: true, status: await rtkManager.getStatus() }
+    } catch (err: any) {
+      error('RTK', 'Failed to enable RTK', { error: String(err) })
+      return { success: false, error: String(err), status: await rtkManager.getStatus() }
+    }
+  })
+
+  // 停用 RTK：卸载 Hook
+  ipcMain.handle('rtk:disable', async () => {
+    try {
+      await rtkManager.uninstall()
+      info('RTK', 'RTK disabled and hook uninstalled')
+      return { success: true, status: await rtkManager.getStatus() }
+    } catch (err: any) {
+      error('RTK', 'Failed to disable RTK', { error: String(err) })
+      return { success: false, error: String(err), status: await rtkManager.getStatus() }
+    }
+  })
+
+  // 下载/更新 RTK 二进制
+  ipcMain.handle('rtk:downloadBinary', async () => {
+    try {
+      // 监听下载进度并转发到渲染进程
+      const progressListener = (progress: { downloaded: number; total: number; percent: number }) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('rtk:downloadProgress', progress)
+        }
+      }
+      rtkManager.on('downloadProgress', progressListener)
+      try {
+        await rtkManager.downloadBinary()
+        info('RTK', 'RTK binary downloaded')
+        return { success: true, status: await rtkManager.getStatus() }
+      } finally {
+        rtkManager.off('downloadProgress', progressListener)
+      }
+    } catch (err: any) {
+      error('RTK', 'Failed to download RTK binary', { error: String(err) })
+      return { success: false, error: String(err) }
+    }
+  })
+
+  // 获取 token 节省统计
+  ipcMain.handle('rtk:getStats', async () => {
+    return rtkManager.getGainStats()
+  })
+
+  // 检查更新
+  ipcMain.handle('rtk:checkUpdate', async () => {
+    return rtkManager.checkUpdate()
+  })
+
+  // 获取二进制路径
+  ipcMain.handle('rtk:getBinaryPath', () => {
+    return rtkManager.getBinaryPath()
   })
 }
 

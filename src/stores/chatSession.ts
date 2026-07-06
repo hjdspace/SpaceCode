@@ -673,6 +673,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         systemPrompt: overrides?.systemPrompt,
         // 展开为普通对象，避免 Vue 响应式 Proxy 无法通过 Electron IPC 结构化克隆
         modelContextWindows: { ...settingsStore.modelContextWindows },
+        rtkEnabled: settingsStore.rtkEnabled,
       })
 
       delete session._resumeSessionId

@@ -17,6 +17,7 @@ import {
 } from './controlProtocol'
 import { buildEnabledMcpConfig } from './mcpConfigStore'
 import { getOfficeCliBinaryPath, getOfficeCliInstalledBinary, getOfficeCliInstallDir } from './officeCliService'
+import { rtkManager } from './rtkManager'
 
 /**
 * 当 sc-computer-use MCP 启用时追加到 system prompt 的可用性提示。
@@ -127,6 +128,8 @@ export interface SessionConfig {
   installedCliPath?: string
   /** Per-model context window overrides (modelId → token count). */
   modelContextWindows?: Record<string, number>
+  /** 是否启用 RTK (Rust Token Killer) token 优化 */
+  rtkEnabled?: boolean
 }
 
 export type ProcessStatus = 'starting' | 'active' | 'idle' | 'suspended' | 'exited'
@@ -968,6 +971,12 @@ export class SessionProcess extends EventEmitter {
           GEMINI_DEFAULT_OPUS_MODEL: '',
         },
       }
+      // 当 RTK 启用时，从全局 ~/.claude/settings.json 合并 hooks 键到临时设置文件，
+      // 确保 --settings 覆盖模式下 RTK PreToolUse Hook 仍生效。
+      if (config.rtkEnabled) {
+        const globalHooks = this.readGlobalHooks()
+        if (globalHooks) settingsContent.hooks = globalHooks
+      }
       fs.writeFileSync(settingsPath, JSON.stringify(settingsContent, null, 2), 'utf8')
       args.push('--settings', settingsPath)
       debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Created temp settings file (proxy mode) | path=${settingsPath} | modelType=anthropic | ANTHROPIC_BASE_URL=${proxyUrl}`)
@@ -977,9 +986,25 @@ export class SessionProcess extends EventEmitter {
       const settingsPath = path.join(settingsDir, `settings-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`)
       const settingsContent: Record<string, unknown> = { modelType }
       if (config.model) settingsContent.model = config.model
+      if (config.rtkEnabled) {
+        const globalHooks = this.readGlobalHooks()
+        if (globalHooks) settingsContent.hooks = globalHooks
+      }
       fs.writeFileSync(settingsPath, JSON.stringify(settingsContent, null, 2), 'utf8')
       args.push('--settings', settingsPath)
       debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Created temp settings file | path=${settingsPath} | modelType=${modelType}`)
+    } else if (config.rtkEnabled) {
+      // RTK 启用但既非代理也非 modelType 模式：创建仅包含 hooks 的临时设置文件
+      const globalHooks = this.readGlobalHooks()
+      if (globalHooks) {
+        const settingsDir = path.join(os.tmpdir(), 'SpaceCode')
+        try { fs.mkdirSync(settingsDir, { recursive: true }) } catch {}
+        const settingsPath = path.join(settingsDir, `settings-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`)
+        const settingsContent: Record<string, unknown> = { hooks: globalHooks }
+        fs.writeFileSync(settingsPath, JSON.stringify(settingsContent, null, 2), 'utf8')
+        args.push('--settings', settingsPath)
+        debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Created temp settings file (RTK hooks) | path=${settingsPath}`)
+      }
     }
 
     // 在非代理模式下传递用户配置的模型
@@ -1360,9 +1385,43 @@ export class SessionProcess extends EventEmitter {
       }
     }
 
+    // ── RTK (Rust Token Killer) PATH 注入 ──
+    //
+    // 当用户启用 RTK token 优化时，将 RTK 二进制目录注入 PATH，
+    // 使 Claude Code 子进程的 Bash 工具能找到 `rtk` 命令。
+    // RTK Hook（通过 rtk init -g 安装到 ~/.claude/settings.json）
+    // 会自动将 Bash 命令重写为 rtk 前缀，这里仅确保 rtk 可执行文件可达。
+    if (config.rtkEnabled && rtkManager.isBinaryInstalled()) {
+      const rtkDir = rtkManager.getBinaryDir()
+      const existingPath = env.PATH || process.env.PATH || ''
+      if (!existingPath.split(path.delimiter).some(e => e.toLowerCase() === rtkDir.toLowerCase())) {
+        env.PATH = [rtkDir, existingPath].join(path.delimiter)
+        debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Injected RTK to PATH | dir=${rtkDir}`)
+      }
+    }
+
     debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] buildEnv | provider=${provider} | baseUrl=${config.baseUrl || '(empty)'} | apiKey=${config.apiKey ? '***set' : '(empty)'} | envKeys=[${Object.keys(env).join(',')}]`)
 
     return env
+  }
+
+  /**
+   * 读取全局 ~/.claude/settings.json 中的 hooks 键。
+   * 用于在 --settings 临时文件覆盖模式下保留 RTK PreToolUse Hook。
+   */
+  private readGlobalHooks(): Record<string, unknown> | null {
+    try {
+      const settingsPath = path.join(os.homedir(), '.claude', 'settings.json')
+      if (!fs.existsSync(settingsPath)) return null
+      const raw = fs.readFileSync(settingsPath, 'utf8')
+      const settings = JSON.parse(raw)
+      if (settings.hooks && typeof settings.hooks === 'object') {
+        return settings.hooks as Record<string, unknown>
+      }
+      return null
+    } catch {
+      return null
+    }
   }
 
   private buildProxyConfig(config: SessionConfig): import('./proxy/types').ProxyConfig | null {

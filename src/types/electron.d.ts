@@ -331,6 +331,41 @@ export interface ElectronH5AccessAPI {
   checkBuild: () => Promise<{ built: boolean; path: string }>
 }
 
+export interface RtkStatus {
+  binaryInstalled: boolean
+  version: string | null
+  hookInstalled: boolean
+  platform: NodeJS.Platform
+  binaryPath: string
+  isWindows: boolean
+}
+
+export interface RtkGainStats {
+  totalCommands?: number
+  totalSavedTokens?: number
+  totalSavedUsd?: number
+  saveRate?: number
+  daily?: Array<{ date: string; commands: number; savedTokens: number }>
+  byCommand?: Record<string, { commands: number; savedTokens: number }>
+}
+
+export interface RtkUpdateInfo {
+  current: string | null
+  latest: string
+  hasUpdate: boolean
+}
+
+export interface ElectronRtkAPI {
+  getStatus: () => Promise<RtkStatus>
+  enable: () => Promise<{ success: boolean; error?: string; status: RtkStatus }>
+  disable: () => Promise<{ success: boolean; error?: string; status: RtkStatus }>
+  downloadBinary: () => Promise<{ success: boolean; error?: string; status?: RtkStatus }>
+  getStats: () => Promise<RtkGainStats | null>
+  checkUpdate: () => Promise<RtkUpdateInfo | null>
+  getBinaryPath: () => Promise<string>
+  onDownloadProgress: (callback: (progress: { downloaded: number; total: number; percent: number }) => void) => () => void
+}
+
 export interface ElectronUpdateAPI {
   check: () => Promise<{ success: boolean; error?: string }>
   download: () => Promise<{ success: boolean; error?: string }>
@@ -449,6 +484,7 @@ export interface ElectronAPI {
   agents: ElectronAgentsAPI
   mobile: ElectronMobileAPI
   h5Access: ElectronH5AccessAPI
+  rtk: ElectronRtkAPI
   update: ElectronUpdateAPI
   cron: ElectronCronAPI
 

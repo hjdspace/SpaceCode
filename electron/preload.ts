@@ -699,6 +699,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('h5:checkBuild'),
   },
 
+  // RTK (Rust Token Killer) API
+  rtk: {
+    getStatus: (): Promise<import('./rtkManager').RtkStatus> =>
+      ipcRenderer.invoke('rtk:getStatus'),
+    enable: (): Promise<{ success: boolean; error?: string; status: import('./rtkManager').RtkStatus }> =>
+      ipcRenderer.invoke('rtk:enable'),
+    disable: (): Promise<{ success: boolean; error?: string; status: import('./rtkManager').RtkStatus }> =>
+      ipcRenderer.invoke('rtk:disable'),
+    downloadBinary: (): Promise<{ success: boolean; error?: string; status?: import('./rtkManager').RtkStatus }> =>
+      ipcRenderer.invoke('rtk:downloadBinary'),
+    getStats: (): Promise<import('./rtkManager').RtkGainStats | null> =>
+      ipcRenderer.invoke('rtk:getStats'),
+    checkUpdate: (): Promise<import('./rtkManager').RtkUpdateInfo | null> =>
+      ipcRenderer.invoke('rtk:checkUpdate'),
+    getBinaryPath: (): Promise<string> =>
+      ipcRenderer.invoke('rtk:getBinaryPath'),
+    onDownloadProgress: (callback: (progress: { downloaded: number; total: number; percent: number }) => void) => {
+      const wrapper = (_: any, progress: any) => callback(progress)
+      ipcRenderer.on('rtk:downloadProgress', wrapper)
+      return () => ipcRenderer.removeListener('rtk:downloadProgress', wrapper)
+    },
+  },
+
   // Auto Update API
   update: {
     check: (): Promise<{ success: boolean; error?: string }> =>

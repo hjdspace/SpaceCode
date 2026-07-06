@@ -69,6 +69,7 @@ export class ClaudeCodeEngine implements IEngine {
       engineSource: config.engineSource as SessionConfig['engineSource'],
       installedCliPath: config.installedCliPath,
       modelContextWindows: config.modelContextWindows,
+      rtkEnabled: config.rtkEnabled,
     }
     await this.pool.startSession(sessionId, sessionConfig)
   }
