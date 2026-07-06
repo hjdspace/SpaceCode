@@ -5,7 +5,6 @@ import { findFirstQuestionForm, splitOnQuestionForms } from '@/utils/design/ques
 import { buildPreamble } from '@/lib/design/templates'
 import { errorHandler } from '@/services/errorHandler'
 import { ErrorCategory } from '@/types'
-import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 export function useDesignSession() {
@@ -13,12 +12,13 @@ export function useDesignSession() {
   const designStore = useDesignStore()
   const chatStore = useChatStore()
   const chatSessionStore = useChatSessionStore()
-  const isGenerating = ref(false)
   const listenerDisposers = new Map<string, () => void>()
 
   async function createDesignSession(): Promise<string> {
     const userDataPath = await api.app.getPath('userData')
-    const workspacePath = `${userDataPath}/design-workspace/${Date.now()}`
+    // 尊重用户通过 WorkingDirectoryPicker 已选择的项目目录；
+    // 仅在用户未选择时才生成临时工作区。
+    const workspacePath = designStore.designWorkspace || `${userDataPath}/design-workspace/${Date.now()}`
     designStore.designWorkspace = workspacePath
 
     const session = chatSessionStore.createSession('Design Session', workspacePath)
@@ -91,6 +91,45 @@ export function useDesignSession() {
     }
   }
 
+  async function switchWorkingDirectory(path: string): Promise<void> {
+    designStore.designWorkspace = path
+    chatSessionStore.currentProjectRoot = path
+    const sid = designStore.activeSessionId
+    if (!sid) return
+    // 会话已在运行时，initClaudeCodeSession 不会自动重启；
+    // 需先停止当前会话，再以新的 cwd 重新初始化。
+    if (api.claudeCode) {
+      try {
+        const status = await api.claudeCode.getSessionStatus(sid)
+        if (status?.isRunning) {
+          const resumeId = (status.engineSessionId as string) || undefined
+          await api.claudeCode.stop(sid)
+          const session = chatSessionStore.sessions.find(s => s.id === sid)
+          if (session && resumeId) session._resumeSessionId = resumeId
+        }
+      } catch (e) {
+        console.error('Failed to stop session before switching working directory:', e)
+      }
+    }
+    const systemPrompt = await api.design.composePromptStack({
+      skillName: designStore.selectedToolboxSkillId,
+      designSystemId: designStore.selectedDesignSystemId || undefined,
+      locale: 'zh-CN',
+    })
+    await chatSessionStore.initClaudeCodeSession(sid, {
+      systemPrompt,
+      cwd: path,
+      agent: 'ui-ux-pro-max',
+    })
+    // 重启文件监听以匹配新的工作目录
+    try {
+      await api.design.stopFileWatcher()
+      await api.design.startFileWatcher(sid, path)
+    } catch (e) {
+      console.error('Failed to restart file watcher for new working directory:', e)
+    }
+  }
+
   function buildDesignMessage(userMessage: string): string {
     const preamble = buildPreamble(
       designStore.selectedTemplateId,
@@ -120,7 +159,7 @@ export function useDesignSession() {
       } else if (data.type === 'usage') {
         designStore.setUsage(data.usage)
       } else if (data.type === 'status' && data.status === 'idle') {
-        isGenerating.value = false
+        // loading 状态由 chatStream.loadingSessions 管理，无需手动维护
       }
     })
     listenerDisposers.set(sessionId, disposer)
@@ -136,7 +175,6 @@ export function useDesignSession() {
     if (!sid) return
     const responseMessage = `[form answers — discovery] ${JSON.stringify(answers)}`
     designStore.clearPendingQuestionForm()
-    isGenerating.value = true
     chatSessionStore.currentSessionId = sid
     await chatStore.sendMessage(responseMessage)
   }
@@ -144,11 +182,10 @@ export function useDesignSession() {
   async function stopDesignGeneration() {
     const sid = designStore.activeSessionId
     if (!sid) return
-    if (api.claudeCode) {
-      try { await api.claudeCode.stop(sid) } catch (e) { console.error(e) }
-    }
+    // 复用 chatStream.abort 统一停止逻辑，它会处理 loadingSessions 状态清理
+    chatSessionStore.currentSessionId = sid
+    await chatStore.abort()
     await api.design.stopFileWatcher()
-    isGenerating.value = false
   }
 
   async function closeDesignSession(sessionId: string) {
@@ -157,10 +194,10 @@ export function useDesignSession() {
   }
 
   return {
-    isGenerating,
     createDesignSession,
     switchToolboxSkill,
     switchDesignSystem,
+    switchWorkingDirectory,
     buildDesignMessage,
     submitQuestionForm,
     stopDesignGeneration,

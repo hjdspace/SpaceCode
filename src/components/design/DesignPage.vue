@@ -9,7 +9,7 @@
         </span>
       </div>
       <div class="header-right">
-        <button v-if="isGenerating" class="btn-stop" @click="stopDesignGeneration">
+        <button v-if="isLoading" class="btn-stop" @click="stopDesignGeneration">
           <Square :size="12" /> {{ t('common.stop') }}
         </button>
       </div>
@@ -24,9 +24,11 @@
 
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Palette, Square } from 'lucide-vue-next'
 import { useDesignStore } from '@/stores/design'
+import { useChatStore } from '@/stores/chat'
 import { useDesignSession } from '@/composables/useDesignSession'
 import DesignSplitView from './DesignSplitView.vue'
 import DesignChatPane from './DesignChatPane.vue'
@@ -35,8 +37,14 @@ import ToastNotification from '@/components/common/ToastNotification.vue'
 
 const { t } = useI18n()
 const designStore = useDesignStore()
-const { lastUsage } = storeToRefs(designStore)
-const { isGenerating, stopDesignGeneration } = useDesignSession()
+const chatStore = useChatStore()
+const { lastUsage, activeSessionId } = storeToRefs(designStore)
+const { stopDesignGeneration } = useDesignSession()
+
+// 复用 chatStream 的 loading 状态
+const isLoading = computed(() =>
+  activeSessionId.value ? chatStore.getIsLoading(activeSessionId.value) : false
+)
 </script>
 
 <style scoped lang="scss">

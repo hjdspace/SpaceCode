@@ -58,7 +58,7 @@
       </Transition>
     </div>
 
-    <!-- Git Branch Selector (Code 模式专属) -->
+    <!-- Git Branch Selector (Code / Design 模式显示) -->
     <div v-if="!isWorkMode" class="ctx-selector" ref="branchSelectorRef">
       <button class="ctx-trigger" :class="{ active: showBranchDropdown }" @click="toggleBranchDropdown">
         <GitBranch :size="13" class="ctx-icon" />
@@ -130,6 +130,8 @@ import { useChatStore } from '@/stores/chat'
 import { useScmStore, type ScmBranch } from '@/stores/scm'
 import { useSessionContext } from '@/stores/sessionContext'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
+import { useDesignStore } from '@/stores/design'
+import { useDesignSession } from '@/composables/useDesignSession'
 import { getRecentProjectRoots, normalizeProjectPathKey, pathsEqual } from '@/utils/recentProjectRoots'
 
 const { t } = useI18n()
@@ -138,14 +140,19 @@ const chatStore = useChatStore()
 const scmStore = useScmStore()
 const sessionContext = useSessionContext()
 const { openProjectFromPicker, openProjectByPath } = useOpenProjectWorkflow()
+const designStore = useDesignStore()
+const { switchWorkingDirectory } = useDesignSession()
 
-// ── Work / Code 模式适配 ──────────────────────────────────────────
+// ── Work / Code / Design 模式适配 ──────────────────────────────
 const isWorkMode = computed(() => appStore.mode === 'work')
+const isDesignMode = computed(() => appStore.mode === 'design')
 
-/** 当前模式下的工作目录路径（work 用 workWorkspace，code 用 projectRoot） */
-const currentWorkspacePath = computed(() =>
-  isWorkMode.value ? appStore.workWorkspace : appStore.projectRoot
-)
+/** 当前模式下的工作目录路径 */
+const currentWorkspacePath = computed(() => {
+  if (isWorkMode.value) return appStore.workWorkspace
+  if (isDesignMode.value) return designStore.designWorkspace
+  return appStore.projectRoot
+})
 
 // --- Project Selector ---
 const showProjectDropdown = ref(false)
@@ -218,6 +225,8 @@ function switchToProject(path: string) {
   if (isCurrent(path)) return
   if (isWorkMode.value) {
     appStore.setWorkWorkspace(path)
+  } else if (isDesignMode.value) {
+    switchWorkingDirectory(path)
   } else {
     openProjectByPath(path)
   }

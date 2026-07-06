@@ -262,6 +262,9 @@
               </span>
             </span>
           </Transition>
+
+          <!-- design 模式扩展 slot：TemplatePicker 等设计专用工具栏按钮 -->
+          <slot name="toolbar-extra"></slot>
         </div>
 
         <!-- 右侧按钮组：优化提示词 + 发送/停止 -->
@@ -292,8 +295,12 @@
       </div>
     </div>
 
-    <!-- Context Toolbar (Project / Git Branch) — Work 模式下也显示，用于工作目录选择 -->
-    <ChatContextToolbar v-if="appStore.projectRoot || appStore.mode === 'work'" />
+    <!-- Context Toolbar (Project / Git Branch) — code/work/design 模式均显示 -->
+    <div class="context-toolbar-row">
+      <ChatContextToolbar v-if="appStore.projectRoot || appStore.mode === 'work' || appStore.mode === 'design'" />
+      <!-- 扩展 slot：design 模式注入 DesignSystemPicker 等，与项目/分支选择器同行 -->
+      <slot name="context-extra"></slot>
+    </div>
 
     <!-- 附件菜单弹窗 -->
     <AttachmentMenu
@@ -1368,6 +1375,13 @@ watch(pendingFile, (file) => {
   flex-grow: 0;
   position: relative;
   border-top: 1px solid var(--surface-border);
+}
+
+.context-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
 }
 
 // Pending Messages Bar

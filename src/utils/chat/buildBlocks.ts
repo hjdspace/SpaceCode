@@ -51,6 +51,27 @@ function parseNextSteps(content: string): { text: string; actions: NextStepActio
   return { text, actions }
 }
 
+/**
+ * 剥离设计模式专用的 XML 标签（od-card / next-steps / question-form），
+ * 使剩余的纯文本可以安全地交给 AgentTimeline 的 MarkdownRenderer 渲染。
+ *
+ * 设计模式下助手消息内容可能内嵌这些标签，如果不剥离，
+ * AgentTimeline 的 text 事件会把原始 XML 标签当作正文展示给用户。
+ */
+export function stripDesignTags(content: string): string {
+  let result = content
+  // 1. 剥离 question-form / ask-question 标签
+  if (findFirstQuestionForm(result)) {
+    const segments = splitOnQuestionForms(result)
+    result = segments.filter(s => s.type === 'text').map(s => s.text).join('')
+  }
+  // 2. 剥离 od-card 标签
+  result = result.replace(OD_CARD_RE, '')
+  // 3. 剥离 next-steps 标签
+  result = result.replace(NEXT_STEPS_RE, '')
+  return result
+}
+
 export function buildBlocks(message: Message): Block[] {
   const blocks: Block[] = []
 

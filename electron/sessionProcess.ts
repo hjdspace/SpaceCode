@@ -256,6 +256,19 @@ export class SessionProcess extends EventEmitter {
       launch.command !== process.execPath &&
       launch.launcherEnv?.ELECTRON_RUN_AS_NODE !== '1'
 
+    // Ensure cwd exists before spawning — on Windows a non-existent cwd
+    // causes spawn() to throw ENOENT referencing the executable path,
+    // which is misleading. Design mode (and other auto-generated workspace
+    // paths) may pass a directory that hasn't been created yet.
+    if (this.config.cwd && !fs.existsSync(this.config.cwd)) {
+      try {
+        fs.mkdirSync(this.config.cwd, { recursive: true })
+        debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Created cwd directory | path=${this.config.cwd}`)
+      } catch (e) {
+        error('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to create cwd directory | path=${this.config.cwd}`, { error: String(e) })
+      }
+    }
+
     for (let attempt = 0; attempt < 2; attempt++) {
       const env = { ...process.env, ...baseEnv, ...(launch.launcherEnv ?? {}) }
       const args = [...launch.args, ...builtArgs]
