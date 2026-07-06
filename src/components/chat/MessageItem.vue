@@ -37,60 +37,18 @@
         </div>
         
         <!-- 思考过程 -->
-        <ReasoningCard v-if="message.reasoning && mode !== 'design'" :reasoning="message.reasoning" />
+        <ReasoningCard v-if="message.reasoning" :reasoning="message.reasoning" />
         
         <!-- 工具调用 -->
         <ToolCallList
-          v-if="message.toolCalls?.length && mode !== 'design'"
+          v-if="message.toolCalls?.length"
           :tool-calls="message.toolCalls"
           @tool-submit="handleToolSubmit"
           @tool-skip="handleToolSkip"
         />
         
-        <!-- design 模式：buildBlocks 渲染 -->
-        <div v-if="mode === 'design'" class="design-blocks">
-          <template v-for="(block, i) in blocks" :key="i">
-            <div v-if="block.kind === 'text'" class="block-text">
-              <MarkdownRenderer :content="block.content" />
-            </div>
-            <ReasoningCard
-              v-else-if="block.kind === 'thinking'"
-              :reasoning="{ content: block.content, startTime: block.startTime, endTime: block.endTime }"
-            />
-            <div v-else-if="block.kind === 'tool-group'" class="block-tool-group">
-              <div class="tool-group-header">{{ block.toolName }} ×{{ block.calls.length }}</div>
-              <ToolCallCard
-                v-for="c in block.calls"
-                :key="c.id"
-                :tool-call="c"
-                @open="$emit('open-artifact', $event)"
-              />
-            </div>
-            <OdCard
-              v-else-if="block.kind === 'od-card'"
-              :payload="block.payload"
-              @open="$emit('open-artifact', $event)"
-            />
-            <QuestionForm
-              v-else-if="block.kind === 'question-form'"
-              :form="block.payload"
-              @submit="$emit('submit-form', $event)"
-            />
-            <NextStepActions
-              v-else-if="block.kind === 'next-steps'"
-              :actions="block.actions"
-              @select="$emit('select-next', $event)"
-            />
-            <div v-else-if="block.kind === 'status'" class="block-status">
-              <span v-if="block.usage">{{ t('design.usage.tokens', { input: block.usage.inputTokens, output: block.usage.outputTokens }) }}</span>
-              <span v-if="block.usage?.duration"> · {{ t('design.usage.duration', { s: block.usage.duration }) }}</span>
-            </div>
-          </template>
-        </div>
-
-        <!-- 原 code/work 模式渲染（mode 不传或非 design 时走此分支，保持不变） -->
-        <!-- 消息内容容器（包含回滚按钮和内容） -->
-        <div v-else class="message-content-wrapper">
+        <!-- 用户消息 + 助手消息：bubble 渲染（含回滚按钮和内容） -->
+        <div class="message-content-wrapper">
           <button
             v-if="showRewindButton"
             class="rewind-button"
@@ -112,7 +70,7 @@
         </div>
         
         <!-- 元数据 -->
-        <MessageMetadata v-if="message.role === 'assistant' && message.metadata && mode !== 'design'" :metadata="message.metadata" />
+        <MessageMetadata v-if="message.role === 'assistant' && message.metadata" :metadata="message.metadata" />
 
         <!-- 工作台快捷入口: 识别输出中的 localhost/URL/本地 HTML/Markdown -->
         <div v-if="workbenchTargets.length" class="workbench-hint-bar">
@@ -159,15 +117,10 @@ import { useI18n } from 'vue-i18n'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
 import ReasoningCard from './ReasoningCard.vue'
 import ToolCallList from './ToolCallList.vue'
-import ToolCallCard from './ToolCallCard.vue'
 import MessageMetadata from './MessageMetadata.vue'
-import OdCard from '@/components/design/OdCard.vue'
-import NextStepActions from '@/components/design/NextStepActions.vue'
-import QuestionForm from '@/components/design/QuestionForm.vue'
 import { renderContentWithAttachments } from '@/utils/mention-chips'
 import { detectWorkbenchTargets, type WorkbenchTarget } from '@/utils/workbench-targets'
 import { useAppStore } from '@/stores/app'
-import { buildBlocks } from '@/utils/chat/buildBlocks'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -175,28 +128,13 @@ const appStore = useAppStore()
 const props = defineProps<{
   message: Message
   canRewind?: boolean
-  /**
-   * 渲染模式：
-   * - `design`：使用 buildBlocks 把 message 拆成 text/thinking/tool-group/od-card/question-form/next-steps/status 七类 block 依次渲染。
-   * - `code` / `work` / 不传：走原扁平渲染（MarkdownRenderer + ReasoningCard + ToolCallList + MessageMetadata）。
-   */
-  mode?: 'design' | 'code' | 'work'
 }>()
 
 const emit = defineEmits<{
   toolSubmit: [messageId: string, toolId: string, updatedInput: Record<string, unknown>]
   toolSkip: [messageId: string, toolId: string]
   rewind: [message: Message]
-  // design 模式 buildBlocks 渲染分支透传的事件
-  'open-artifact': [path: string]
-  'submit-form': [answers: Record<string, unknown>]
-  'select-next': [prompt: string]
 }>()
-
-// design 模式下把 message 拆成 block 序列；其它模式返回空数组（不走此分支）。
-const blocks = computed(() =>
-  props.mode === 'design' ? buildBlocks(props.message) : []
-)
 
 const isHovered = ref(false)
 const previewImage = ref<ImageAttachment | null>(null)
