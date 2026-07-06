@@ -540,6 +540,27 @@ export default {
     runtime: '运行时',
   },
 
+  aboutSettings: {
+    title: '关于',
+    desc: '应用信息、版本详情和更新',
+    updates: '更新',
+    upToDate: '已是最新版本',
+    upToDateDesc: 'v{version} 是当前最新版本',
+    checking: '正在检查更新...',
+    checkForUpdates: '检查更新',
+    newVersionAvailable: '新版本 {version} 可用',
+    download: '下载',
+    changelog: '更新日志',
+    viewFullChangelog: '在 GitHub 上查看完整更新日志 →',
+    information: '其他信息',
+    license: '许可证',
+    repository: '仓库',
+    developer: '开发者',
+    techStack: '技术栈',
+    mitLicense: 'MIT 许可证',
+    techStackValue: 'Vue 3 · Electron · TypeScript',
+  },
+
   contextUsage: {
     title: '上下文用量',
     used: '已用',

@@ -88,6 +88,9 @@
             <BrowserUseSettings
               v-else-if="activeTab === 'browser-use'"
             />
+            <AboutSettings
+              v-else-if="activeTab === 'about'"
+            />
           </KeepAlive>
         </div>
       </main>
@@ -99,7 +102,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
 import {
   ArrowLeft,
-  Settings, Boxes, Palette, Wrench, Keyboard, Bot, BarChart3, Zap, Monitor, Globe
+  Settings, Boxes, Palette, Wrench, Keyboard, Bot, BarChart3, Zap, Monitor, Globe, Info
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -116,6 +119,7 @@ const TokenUsageSettings = defineAsyncComponent(() => import('./TokenUsageSettin
 const HookSettings = defineAsyncComponent(() => import('./HookSettings.vue'))
 const ComputerUseSettings = defineAsyncComponent(() => import('./ComputerUseSettings.vue'))
 const BrowserUseSettings = defineAsyncComponent(() => import('./BrowserUseSettings.vue'))
+const AboutSettings = defineAsyncComponent(() => import('./AboutSettings.vue'))
 
 const appStore = useAppStore()
 const settingsStore = useSettingsStore()
@@ -135,6 +139,7 @@ const personalMenuItems = computed(() => [
   { id: 'shortcuts', label: t('settings.shortcuts'), icon: Keyboard },
   { id: 'hooks', label: t('settings.hooks'), icon: Zap },
   { id: 'token-usage', label: 'Token 用量', icon: BarChart3 },
+  { id: 'about', label: t('aboutSettings.title'), icon: Info },
 ])
 
 const activeTab = ref('general')
