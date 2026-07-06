@@ -1099,6 +1099,27 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     }
   }
 
+  // ── SessionSink 写回 seam（Turn store 消费，任务 1 骨架；任务 3 补契约测试）──
+  // 与上方 updateToolCall 同体，但 sessionId 显式传入，供多 pane 并发场景按 sessionId 定位。
+  function updateToolCallForSession(sessionId: string, messageId: string, toolCallId: string, status: ToolCall['status']) {
+    const session = sessions.value.find(s => s.id === sessionId)
+    if (!session) return
+    const primary = session.messages.find(m => m.id === messageId)
+    const tc = primary?.toolCalls?.find(t => t.id === toolCallId)
+    if (tc) { tc.status = status; saveToStorage(); return }
+    for (const message of session.messages) {
+      const fallback = message.toolCalls?.find(t => t.id === toolCallId)
+      if (fallback) { fallback.status = status; saveToStorage(); return }
+    }
+  }
+  // sink.persist 的实现：当前持久化无 per-session 粒度（saveToStorage 落全量），保留 sessionId 参数为任务 3 的细粒度持久化预留 seam。
+  function saveToStorageForSession(_sessionId: string) { saveToStorage() }
+  function ensureSession(sessionId: string, hint?: { title?: string; projectPath?: string }): Session {
+    const existing = sessions.value.find(s => s.id === sessionId)
+    if (existing) return existing
+    return createSession(hint?.title || 'New Chat', hint?.projectPath, sessionId)
+  }
+
   // ========== 优化: 即时UI反馈 + 异步数据加载 ==========
   const sessionLoadingStates = ref<Map<string, boolean>>(new Map())
 
@@ -1765,6 +1786,10 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     addMessage,
     updateMessage,
     updateToolCall,
+    // SessionSink seam（Turn store 消费）
+    updateToolCallForSession,
+    saveToStorageForSession,
+    ensureSession,
     viewTeammateTranscript,
     backToLeaderView,
     recordTeammateMessage,
