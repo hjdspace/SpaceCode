@@ -164,7 +164,7 @@
         :systems="designSystems"
         @update:model-value="onDesignSystemChange"
       />
-      <WorkingDirectoryPicker v-model="workingDirectory" />
+      <WorkingDirectoryPicker :model-value="workingDirectory" @update:model-value="onWorkingDirectoryChange" />
     </div>
   </div>
 </template>
@@ -186,7 +186,7 @@ import {
   Upload,
 } from 'lucide-vue-next'
 import { useDesignStore } from '@/stores/design'
-import { useChatSessionStore } from '@/stores/chat'
+import { useChatStore, useChatSessionStore } from '@/stores/chat'
 import { useMcpStore } from '@/stores/mcp'
 import { useDesignSession } from '@/composables/useDesignSession'
 import { api } from '@/services/electronAPI'
@@ -200,9 +200,15 @@ const emit = defineEmits<{ (e: 'send', content: string): void; (e: 'stop'): void
 
 const { t } = useI18n()
 const designStore = useDesignStore()
+const chatStore = useChatStore()
 const chatSessionStore = useChatSessionStore()
 const mcpStore = useMcpStore()
-const { isGenerating, switchToolboxSkill, switchDesignSystem, buildDesignMessage } = useDesignSession()
+const { switchToolboxSkill, switchDesignSystem, switchWorkingDirectory, buildDesignMessage } = useDesignSession()
+
+// 复用 chatStream 的 loading 状态，替代原 isGenerating
+const isGenerating = computed(() =>
+  designStore.activeSessionId ? chatStore.getIsLoading(designStore.activeSessionId) : false
+)
 const value = ref('')
 const plusMenuOpen = ref(false)
 const contextMenuOpen = ref(false)
@@ -212,13 +218,9 @@ const selectedMcpServers = ref<Set<string>>(new Set())
 const selectedFiles = ref<string[]>([])
 const designSystems = ref<DesignSystemSummary[]>([])
 
-const workingDirectory = computed({
-  get: () => designStore.designWorkspace || chatSessionStore.workingDirectory || '',
-  set: (path: string) => {
-    designStore.designWorkspace = path
-    chatSessionStore.currentProjectRoot = path
-  },
-})
+const workingDirectory = computed(() =>
+  designStore.designWorkspace || chatSessionStore.workingDirectory || '',
+)
 
 const canSend = computed(() => value.value.trim().length > 0 || selectedFiles.value.length > 0)
 
@@ -274,6 +276,10 @@ function toggleSkillShelf() {
 function onDesignSystemChange(systemId: string | null) {
   const system = designSystems.value.find(s => s.id === systemId) || null
   switchDesignSystem(systemId, system?.name || null)
+}
+
+function onWorkingDirectoryChange(path: string) {
+  switchWorkingDirectory(path)
 }
 
 async function handleAttachFiles() {
