@@ -1524,6 +1524,8 @@ export default {
     checking: '正在检查更新...',
     checkForUpdates: '检查更新',
     upToDate: '已是最新版本',
+    installUpdate: '更新',
+    clickToInstall: '点击安装更新并重启',
   },
 
   cron: {
