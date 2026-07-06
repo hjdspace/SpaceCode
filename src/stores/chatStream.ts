@@ -294,6 +294,77 @@ export const useChatStreamStore = defineStore('chatStream', () => {
     return beginTurn(sessionId, { isAutonomous: true })
   }
 
+  function remoteUserContent(data: any): string {
+    if (typeof data?.content === 'string') return data.content
+    const blocks = data?.message?.content
+    if (Array.isArray(blocks)) {
+      return blocks
+        .filter((block: any) => block?.type === 'text' && typeof block.text === 'string')
+        .map((block: any) => block.text)
+        .join('')
+    }
+    return ''
+  }
+
+  function handleRemoteUserMessage(sessionId: string, data: any): void {
+    if (!sessionId) return
+    const content = remoteUserContent(data)
+    if (!content.trim()) return
+
+    let session = sessionStore.sessions.find(s => s.id === sessionId)
+    if (!session) {
+      session = sessionStore.createSession(
+        data?.title || content.slice(0, 50) || 'Remote Chat',
+        data?.projectPath || undefined,
+        sessionId,
+      )
+    } else {
+      if (data?.projectPath && !session.workingDirectory) {
+        session.workingDirectory = data.projectPath
+      }
+      if (sessionStore.currentSessionId !== sessionId) {
+        void sessionStore.selectSession(sessionId)
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('h5-remote-user-message', {
+        detail: {
+          sessionId,
+          title: session.title || data?.title || content.slice(0, 50) || 'Remote Chat',
+          projectPath: session.workingDirectory || data?.projectPath || null,
+        },
+      }))
+    }
+
+    const messageId = typeof data?.messageId === 'string' ? data.messageId : ''
+    const hasExactMessage = messageId && session.messages.some(m => m.id === messageId)
+    const lastMessage = session.messages[session.messages.length - 1]
+    const isRecentDuplicate = !messageId &&
+      lastMessage?.role === 'user' &&
+      lastMessage.content === content &&
+      Date.now() - (lastMessage.timestamp || 0) < 10_000
+
+    if (!hasExactMessage && !isRecentDuplicate) {
+      sessionStore.addMessage({
+        ...(messageId ? { id: messageId } : {}),
+        role: 'user',
+        content,
+        metadata: { source: 'h5' } as any,
+      }, sessionId)
+    }
+
+    const existing = turnStates.get(sessionId)
+    if (existing) {
+      resetTimeout(sessionId, existing)
+      return
+    }
+    if (pendingSendMessages.has(sessionId) || userAbortedSessions.has(sessionId)) return
+
+    const ts = beginTurn(sessionId, { isAutonomous: true })
+    resetTimeout(sessionId, ts)
+  }
+
   // ────────────────────────────────────────────────────────────────────
   // Handlers（store 作用域；wrapper 已完成 sessionId 路由与 settled/turn 守卫）
   // ────────────────────────────────────────────────────────────────────
@@ -1306,6 +1377,10 @@ export const useChatStreamStore = defineStore('chatStream', () => {
       handleToolResult(event.sessionId, ts, event.data)
     })
     claudeCodeApi.onUser((event: { sessionId: string; data: any }) => {
+      if (event.data?.__h5RemoteUserMessage) {
+        handleRemoteUserMessage(event.sessionId, event.data)
+        return
+      }
       if (isTeammateRawMessage(event.data)) {
         sessionStore.recordTeammateMessage(event.data, event.sessionId)
         return
@@ -1347,6 +1422,16 @@ export const useChatStreamStore = defineStore('chatStream', () => {
       const ts = turnStates.get(event.sessionId)
       if (!ts) return
       handleExit(event.sessionId, ts, event.data)
+    })
+    ;(claudeCodeApi as any).onError?.((event: { sessionId: string; data: any }) => {
+      const ts = turnStates.get(event.sessionId)
+      if (!ts) return
+      const msg = typeof event.data?.message === 'string'
+        ? event.data.message
+        : typeof event.data === 'string'
+          ? event.data
+          : 'Engine error'
+      handleError(event.sessionId, ts, new Error(msg))
     })
   }
 
@@ -1392,7 +1477,7 @@ export const useChatStreamStore = defineStore('chatStream', () => {
       metadata: { contentLength: content.length },
     })
 
-    sessionStore.addMessage({
+    const userMessage = sessionStore.addMessage({
       role: 'user',
       content: userMessageContent ?? content,
       attachments: attachments?.files,
@@ -1456,7 +1541,10 @@ export const useChatStreamStore = defineStore('chatStream', () => {
         previewUrl: img.previewUrl,
         data: img.data,
       }))
-      claudeCode.sendMessage(targetSessionId, content, plainImages).catch((error: any) => {
+      ;(claudeCode.sendMessage as any)(targetSessionId, content, plainImages, {
+        clientMessageId: userMessage.id,
+        displayContent: userMessageContent ?? content,
+      }).catch((error: any) => {
         sessionStore.logger.error('ChatStore', `[${targetSessionId.slice(0, 8)}] IPC sendMessage rejected`, { error: String(error) })
         const cur = turnStates.get(targetSessionId)
         if (cur === ts) handleError(targetSessionId, ts, error)

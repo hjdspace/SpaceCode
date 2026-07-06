@@ -39,6 +39,16 @@ export interface H5SessionChangedPayload {
   projectPath: string | null
 }
 
+/** 手机端发起并需要同步到桌面端/其他 H5 客户端的用户消息 */
+export interface H5RemoteUserMessagePayload {
+  __h5RemoteUserMessage: true
+  messageId: string | null
+  content: string
+  projectPath: string | null
+  title: string | null
+  timestamp: number
+}
+
 /** WS 推送的消息格式 */
 export interface H5PushMessage {
   type: string

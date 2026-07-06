@@ -2,9 +2,9 @@
 // H5 WebUI 服务器 — HTTP REST + WebSocket，直接调用引擎
 
 import { createServer, IncomingMessage, ServerResponse } from 'http'
-import { existsSync, statSync, readFileSync } from 'fs'
+import { existsSync, statSync, readFileSync, readdirSync } from 'fs'
 import { join, extname, normalize } from 'path'
-import { app } from 'electron'
+import { app, BrowserWindow, net } from 'electron'
 import { WebSocketServer, WebSocket } from 'ws'
 import { H5AuthService } from './h5AuthService'
 import { h5EngineService } from './h5EngineService'
@@ -14,6 +14,7 @@ import type {
   H5PushMessage,
   H5ConnectedPayload,
   H5SessionChangedPayload,
+  H5RemoteUserMessagePayload,
 } from './h5Types'
 
 const MIME: Record<string, string> = {
@@ -41,6 +42,7 @@ export class H5Server {
   /** 镜像会话 — 桌面端当前活跃会话 */
   private mirrorSessionId: string | null = null
   private mirrorProjectPath: string | null = null
+  private sessionMetadata: Map<string, { projectPath: string | null; title: string | null }> = new Map()
 
   constructor(authService: H5AuthService) {
     this.authService = authService
@@ -269,18 +271,49 @@ export class H5Server {
     const config = body.config as any | undefined
     const content = body.content as string | undefined
     const images = body.images as any[] | undefined
+    const clientMessageId = body.clientMessageId as string | undefined
+    const displayContent = body.displayContent as string | undefined
     const requestId = body.requestId as string | undefined
     const toolCallId = body.toolCallId as string | undefined
 
     switch (pathname) {
       case '/api/session/start':
+        this.rememberSessionMetadata(sessionId!, config)
         await h5EngineService.startSession(sessionId!, config)
+        if (config?.cwd) {
+          this.setMirrorSession(sessionId!, config.cwd)
+        }
         this.sendJson(res, 200, { ok: true })
         return
 
       case '/api/session/send':
-        await h5EngineService.sendMessage(sessionId!, content!, images)
-        this.sendJson(res, 200, { ok: true })
+        if (!sessionId || typeof content !== 'string') {
+          this.sendJson(res, 400, { error: 'sessionId and content required' })
+          return
+        }
+        if (!content && (!Array.isArray(images) || images.length === 0)) {
+          this.sendJson(res, 400, { error: 'content or images required' })
+          return
+        }
+        {
+          const status = h5EngineService.getSessionStatus(sessionId)
+          if (!status?.isRunning) {
+            this.sendJson(res, 409, { error: `Session ${sessionId} has no active process` })
+            return
+          }
+        }
+        this.pushRemoteUserMessage(
+          sessionId,
+          displayContent || content || '[Image]',
+          clientMessageId || null,
+        )
+        try {
+          await h5EngineService.sendMessage(sessionId, content, images)
+          this.sendJson(res, 200, { ok: true })
+        } catch (err) {
+          this.pushEngineError(sessionId, err)
+          throw err
+        }
         return
 
       case '/api/session/abort':
@@ -374,6 +407,37 @@ export class H5Server {
         this.sendJson(res, 200, this.getDesktopConfig())
         return
 
+      case '/api/http/fetch':
+        this.sendJson(res, 200, await this.proxyHttpFetch(
+          body.url as string,
+          body.options as { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number } | undefined,
+        ))
+        return
+
+      case '/api/fs/read-dir':
+        this.sendJson(res, 200, this.readDir(body.path as string))
+        return
+
+      case '/api/fs/read-file':
+        this.sendJson(res, 200, this.readTextFile(body.path as string))
+        return
+
+      case '/api/fs/read-file-base64':
+        this.sendJson(res, 200, this.readFileAsBase64(body.path as string))
+        return
+
+      case '/api/fs/stat':
+        this.sendJson(res, 200, this.statFile(body.path as string))
+        return
+
+      case '/api/fs/search-files':
+        this.sendJson(res, 200, this.searchFiles(
+          body.path as string,
+          body.query as string,
+          body.options as { maxResults?: number } | undefined,
+        ))
+        return
+
       default:
         this.sendJson(res, 404, { error: `Unknown API: ${pathname}` })
         return
@@ -428,6 +492,228 @@ export class H5Server {
       })
       req.on('error', reject)
     })
+  }
+
+  private readDir(dirPath: string): Array<{ name: string; path: string; isDirectory: boolean; isFile: boolean }> {
+    if (!dirPath || typeof dirPath !== 'string') return []
+    try {
+      const entries = readdirSync(dirPath, { withFileTypes: true })
+      return entries.map(entry => ({
+        name: entry.name,
+        path: join(dirPath, entry.name),
+        isDirectory: entry.isDirectory(),
+        isFile: entry.isFile(),
+      }))
+    } catch (err) {
+      warn('H5Server', `readDir failed | path=${dirPath} | error=${err}`)
+      return []
+    }
+  }
+
+  private readTextFile(filePath: string): string | null {
+    if (!filePath || typeof filePath !== 'string') return null
+    try {
+      return readFileSync(filePath, 'utf-8')
+    } catch {
+      return null
+    }
+  }
+
+  private readFileAsBase64(filePath: string): string | null {
+    if (!filePath || typeof filePath !== 'string') return null
+    try {
+      return readFileSync(filePath).toString('base64')
+    } catch {
+      return null
+    }
+  }
+
+  private statFile(filePath: string): { size: number; isDirectory: boolean; isFile: boolean; mtime: number } | null {
+    if (!filePath || typeof filePath !== 'string') return null
+    try {
+      const stat = statSync(filePath)
+      return {
+        size: stat.size,
+        isDirectory: stat.isDirectory(),
+        isFile: stat.isFile(),
+        mtime: stat.mtime.getTime(),
+      }
+    } catch {
+      return null
+    }
+  }
+
+  private searchFiles(
+    dirPath: string,
+    query: string,
+    options?: { maxResults?: number },
+  ): Array<{ name: string; path: string; relativePath: string; isDirectory: boolean; isFile: boolean }> {
+    if (!dirPath || typeof dirPath !== 'string') return []
+    try {
+      const maxResults = options?.maxResults || 100
+      const results: Array<{ name: string; path: string; relativePath: string; isDirectory: boolean; isFile: boolean }> = []
+      const ignoreDirs = new Set(['node_modules', '.git', 'dist', 'dist-electron', '.next', '.nuxt', '.cache', '__pycache__', '.venv', 'vendor', 'build', 'out', '.tox', 'target'])
+
+      if (!query) {
+        const entries = readdirSync(dirPath, { withFileTypes: true })
+        for (const entry of entries) {
+          if (entry.name.startsWith('.') && entry.name !== '.claude') continue
+          if (ignoreDirs.has(entry.name)) continue
+          results.push({
+            name: entry.name,
+            path: join(dirPath, entry.name),
+            relativePath: entry.name,
+            isDirectory: entry.isDirectory(),
+            isFile: entry.isFile(),
+          })
+        }
+        results.sort((a, b) => {
+          if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
+          return a.name.localeCompare(b.name)
+        })
+        return results.slice(0, maxResults)
+      }
+
+      const q = query.toLowerCase()
+      const visited = new Set<string>()
+
+      const walkDir = (currentPath: string, depth: number): void => {
+        if (results.length >= maxResults) return
+        if (depth > 8) return
+
+        let entries
+        try {
+          entries = readdirSync(currentPath, { withFileTypes: true })
+        } catch {
+          return
+        }
+
+        const sorted = entries
+          .filter(e => !e.name.startsWith('.') && !ignoreDirs.has(e.name))
+          .sort((a, b) => {
+            if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1
+            return a.name.localeCompare(b.name)
+          })
+
+        for (const entry of sorted) {
+          if (results.length >= maxResults) return
+
+          const fullPath = join(currentPath, entry.name)
+          const relativePath = fullPath.slice(dirPath.length + 1).replace(/\\/g, '/')
+          const nameLower = entry.name.toLowerCase()
+          const relativeLower = relativePath.toLowerCase()
+
+          if (nameLower.includes(q) || relativeLower.includes(q)) {
+            if (!visited.has(fullPath)) {
+              visited.add(fullPath)
+              results.push({
+                name: entry.name,
+                path: fullPath,
+                relativePath,
+                isDirectory: entry.isDirectory(),
+                isFile: entry.isFile(),
+              })
+            }
+          }
+
+          if (entry.isDirectory()) {
+            walkDir(fullPath, depth + 1)
+          }
+        }
+      }
+
+      walkDir(dirPath, 0)
+
+      results.sort((a, b) => {
+        const aNameMatch = a.name.toLowerCase() === q ? 0 : a.name.toLowerCase().startsWith(q) ? 1 : 2
+        const bNameMatch = b.name.toLowerCase() === q ? 0 : b.name.toLowerCase().startsWith(q) ? 1 : 2
+        if (aNameMatch !== bNameMatch) return aNameMatch - bNameMatch
+        if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
+        return a.relativePath.localeCompare(b.relativePath)
+      })
+
+      return results
+    } catch (err) {
+      warn('H5Server', `searchFiles failed | path=${dirPath} | query=${query} | error=${err}`)
+      return []
+    }
+  }
+
+  private rememberSessionMetadata(sessionId: string, config?: Record<string, unknown>): void {
+    if (!sessionId) return
+    const existing = this.sessionMetadata.get(sessionId)
+    this.sessionMetadata.set(sessionId, {
+      projectPath: (config?.cwd as string | undefined) || existing?.projectPath || this.mirrorProjectPath,
+      title: (config?.title as string | undefined) || existing?.title || null,
+    })
+  }
+
+  private pushRemoteUserMessage(sessionId: string, content: string, messageId: string | null): void {
+    const meta = this.sessionMetadata.get(sessionId)
+    const payload: H5RemoteUserMessagePayload = {
+      __h5RemoteUserMessage: true,
+      messageId,
+      content,
+      projectPath: meta?.projectPath || this.mirrorProjectPath,
+      title: meta?.title || (content ? content.slice(0, 50) : null),
+      timestamp: Date.now(),
+    }
+
+    // 同步给其他 H5 客户端，也让发送端用 messageId 去重。
+    this.broadcast({ type: 'user', sessionId, data: payload })
+
+    // 同步给桌面渲染进程；桌面 chatStream 会将其作为远端用户消息处理。
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send('claude-code:user', { sessionId, data: payload })
+      }
+    }
+  }
+
+  private pushEngineError(sessionId: string, err: unknown): void {
+    const message = err instanceof Error ? err.message : String(err)
+    const payload = { message }
+
+    this.broadcast({ type: 'error', sessionId, data: payload })
+
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send('claude-code:error', { sessionId, data: payload })
+      }
+    }
+  }
+
+  private async proxyHttpFetch(
+    targetUrl: string,
+    options?: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number },
+  ): Promise<{ ok: boolean; status: number; data?: string; error?: string }> {
+    const timeoutMs = options?.timeoutMs ?? 30000
+    const start = Date.now()
+    if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
+      return { ok: false, status: 0, error: 'Invalid URL' }
+    }
+
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), timeoutMs)
+      const response = await net.fetch(targetUrl, {
+        method: options?.method || 'GET',
+        headers: options?.headers || {},
+        body: options?.body || undefined,
+        signal: controller.signal,
+      })
+      clearTimeout(timeout)
+
+      const text = await response.text()
+      debug('H5Server', `http fetch response | status=${response.status} elapsed=${Date.now() - start}ms bodyLen=${text.length}`)
+      return { ok: response.ok, status: response.status, data: text }
+    } catch (err: any) {
+      const errorMsg = err?.name === 'AbortError'
+        ? `Request timed out (${Math.round(timeoutMs / 1000)}s)`
+        : (err instanceof Error ? err.message : String(err))
+      warn('H5Server', `http fetch failed | elapsed=${Date.now() - start}ms | url=${targetUrl} | error=${errorMsg}`)
+      return { ok: false, status: 0, error: errorMsg }
+    }
   }
 
   // ──────────────────────────────────────────────────

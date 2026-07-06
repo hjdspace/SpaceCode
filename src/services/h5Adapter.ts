@@ -17,8 +17,13 @@ export function createH5Adapter() {
     startSession: (sessionId: string, config: any) =>
       h5ApiClient.startSession(sessionId, config),
 
-    sendMessage: (sessionId: string, content: string, images?: any[]) =>
-      h5ApiClient.sendMessage(sessionId, content, images),
+    sendMessage: (
+      sessionId: string,
+      content: string,
+      images?: any[],
+      meta?: { clientMessageId?: string; displayContent?: string },
+    ) =>
+      h5ApiClient.sendMessage(sessionId, content, images, meta),
 
     abort: (sessionId: string) =>
       h5ApiClient.abort(sessionId),

@@ -374,6 +374,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('claude-code:exit', wrapper)
       return () => ipcRenderer.removeListener('claude-code:exit', wrapper)
     },
+    onError: (callback: (data: { sessionId: string; data: any }) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
+      ipcRenderer.on('claude-code:error', wrapper)
+      return () => ipcRenderer.removeListener('claude-code:error', wrapper)
+    },
     onSuspended: (callback: (data: { sessionId: string; data: { reason: string } }) => void) => {
       const wrapper = (_: any, data: any) => callback(data)
       ipcRenderer.on('claude-code:suspended', wrapper)

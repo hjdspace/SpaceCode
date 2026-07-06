@@ -138,6 +138,7 @@ export interface ElectronClaudeCodeAPI {
   onStreamEvent: (callback: (data: { sessionId: string; data: any }) => void) => () => void
   onLog: (callback: (data: { sessionId: string; data: string }) => void) => () => void
   onExit: (callback: (data: { sessionId: string; data: number | null | { code?: number | null; signal?: string | null; stderr?: string } }) => void) => () => void
+  onError?: (callback: (data: { sessionId: string; data: any }) => void) => () => void
   onSuspended: (callback: (data: { sessionId: string; data: { reason: string } }) => void) => () => void
   onEvictionBlocked: (callback: (data: { sessionId: string; data: { reason: string; pendingTools: number } }) => void) => () => void
   submitToolAnswer: (sessionId: string, toolCallId: string, answers: Record<string, string>) => Promise<unknown>

@@ -74,8 +74,16 @@ export const h5ApiClient = {
   startSession: (sessionId: string, config: any) =>
     h5Fetch('/api/session/start', { method: 'POST', body: { sessionId, config } }),
 
-  sendMessage: (sessionId: string, content: string, images?: any[]) =>
-    h5Fetch('/api/session/send', { method: 'POST', body: { sessionId, content, images } }),
+  sendMessage: (
+    sessionId: string,
+    content: string,
+    images?: any[],
+    meta?: { clientMessageId?: string; displayContent?: string },
+  ) =>
+    h5Fetch('/api/session/send', {
+      method: 'POST',
+      body: { sessionId, content, images, ...(meta || {}) },
+    }),
 
   abort: (sessionId: string) =>
     h5Fetch('/api/session/abort', { method: 'POST', body: { sessionId } }),
@@ -127,4 +135,25 @@ export const h5ApiClient = {
   // ── 镜像会话通知 ──
   setMirrorSession: (sessionId: string | null, projectPath: string | null) =>
     h5Fetch('/api/mirror-session', { method: 'POST', body: { sessionId, projectPath } }),
+
+  httpFetch: (
+    url: string,
+    options?: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number },
+  ): Promise<{ ok: boolean; status: number; data: string; error?: string } | null> =>
+    h5Fetch('/api/http/fetch', { method: 'POST', body: { url, options } }),
+
+  readDir: (path: string) =>
+    h5Fetch('/api/fs/read-dir', { method: 'POST', body: { path } }),
+
+  readFile: (path: string): Promise<string | null> =>
+    h5Fetch('/api/fs/read-file', { method: 'POST', body: { path } }),
+
+  readFileAsBase64: (path: string): Promise<string | null> =>
+    h5Fetch('/api/fs/read-file-base64', { method: 'POST', body: { path } }),
+
+  stat: (path: string) =>
+    h5Fetch('/api/fs/stat', { method: 'POST', body: { path } }),
+
+  searchFiles: (path: string, query: string, options?: { maxResults?: number }) =>
+    h5Fetch('/api/fs/search-files', { method: 'POST', body: { path, query, options } }),
 }

@@ -75,6 +75,7 @@ import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import { useFontStore } from '@/stores/font'
+import { useSplitLayoutStore } from '@/stores/splitLayout'
 import TitleBar from './components/layout/TitleBar.vue'
 import Sidebar from './components/layout/Sidebar.vue'
 import SplitContainer from './components/layout/SplitContainer.vue'
@@ -106,6 +107,7 @@ import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
 const appStore = useAppStore()
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
+const splitLayout = useSplitLayoutStore()
 
 // H5 模式标记
 const h5Mode = isH5Mode()
@@ -123,6 +125,51 @@ const handleOpenSkillsManager = () => {
 
 const handleOpenMCPManager = () => {
   appStore.showMCPManager = true
+}
+
+type H5RemoteUserMessageDetail = {
+  sessionId?: string
+  title?: string
+  projectPath?: string | null
+}
+
+function revealRemoteChatSession(event: Event) {
+  const detail = (event as CustomEvent<H5RemoteUserMessageDetail>).detail
+  const sessionId = detail?.sessionId
+  if (!sessionId) return
+
+  const session = chatStore.sessions.find(s => s.id === sessionId)
+  const title = session?.title || detail.title || 'Remote Chat'
+  const tabId = `session-${sessionId}`
+
+  appStore.showSettings = false
+  appStore.showSkillsManager = false
+  appStore.showAgentManager = false
+  appStore.showMCPManager = false
+  appStore.showCronManager = false
+  appStore.showWorkGallery = false
+  appStore.showTraceViewer = false
+  if (appStore.mode === 'design') {
+    appStore.setMode(session?.mode === 'work' ? 'work' : 'code')
+  }
+
+  appStore.openSessionTab(sessionId, title)
+  void chatStore.selectSession(sessionId)
+
+  if (splitLayout.isSingleLeaf) {
+    const leaf = splitLayout.activePane
+    if (leaf && leaf.content.kind !== 'main') {
+      splitLayout.setPaneContent(leaf.id, { kind: 'session', tabId })
+      splitLayout.setActivePane(leaf.id)
+    }
+    return
+  }
+
+  const targetLeaf = splitLayout.activePane || splitLayout.leaves[0]
+  if (targetLeaf) {
+    splitLayout.setPaneContent(targetLeaf.id, { kind: 'session', tabId })
+    splitLayout.setActivePane(targetLeaf.id)
+  }
 }
 
 // Initialize shortcuts
@@ -392,6 +439,9 @@ onMounted(() => {
   // 监听打开 MCP 管理器事件
   window.addEventListener('open-mcp-manager', handleOpenMCPManager)
 
+  // 桌面端：手机 H5 发送消息后，打开/激活对应会话，保证主页面同步可见。
+  window.addEventListener('h5-remote-user-message', revealRemoteChatSession)
+
   // 桌面端：监听会话切换，通知 H5 Server 镜像会话
   if (!isH5Mode() && api.h5Access) {
     watch(() => [chatStore.currentSessionId, appStore.projectRoot], ([sid, projectPath]) => {
@@ -418,6 +468,7 @@ async function handleOpenChangelog() {
 onUnmounted(() => {
   window.removeEventListener('open-skills-manager', handleOpenSkillsManager)
   window.removeEventListener('open-mcp-manager', handleOpenMCPManager)
+  window.removeEventListener('h5-remote-user-message', revealRemoteChatSession)
 })
 </script>
 

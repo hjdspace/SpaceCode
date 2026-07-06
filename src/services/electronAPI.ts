@@ -3,7 +3,7 @@ const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null
 // ── H5 模式检测与适配器注入 ──
 // 在模块加载时同步检测：如果 URL 含有 token 参数且不在 Electron 环境中，
 // 则创建 H5 适配器替换 claudeCode IPC 桥接。
-import { isH5Mode, initH5Connection } from './h5ApiClient'
+import { isH5Mode, initH5Connection, h5ApiClient } from './h5ApiClient'
 import { createH5Adapter } from './h5Adapter'
 
 let h5Adapter: ReturnType<typeof createH5Adapter> | null = null
@@ -327,15 +327,34 @@ export const api = {
   sendMessage: (text: string) => electronAPI?.sendMessage(text) || Promise.resolve({ success: false }),
   onMessage: (callback: (msg: unknown) => void) => electronAPI?.onMessage(callback),
   getAppState: () => electronAPI?.getAppState() || Promise.resolve({ sessions: [], currentSessionId: null, theme: 'dark' }),
-  readDir: (dirPath: string): Promise<FileEntry[]> => electronAPI?.readDir(dirPath) || Promise.resolve([]),
-  readFile: (filePath: string): Promise<string | null> => electronAPI?.readFile(filePath) || Promise.resolve(null),
-  readFileAsBase64: (filePath: string): Promise<string | null> => electronAPI?.readFileAsBase64(filePath) || Promise.resolve(null),
+  readDir: (dirPath: string): Promise<FileEntry[]> => {
+    if (electronAPI?.readDir) return electronAPI.readDir(dirPath)
+    if (_isH5Mode) return h5ApiClient.readDir(dirPath)
+    return Promise.resolve([])
+  },
+  readFile: (filePath: string): Promise<string | null> => {
+    if (electronAPI?.readFile) return electronAPI.readFile(filePath)
+    if (_isH5Mode) return h5ApiClient.readFile(filePath)
+    return Promise.resolve(null)
+  },
+  readFileAsBase64: (filePath: string): Promise<string | null> => {
+    if (electronAPI?.readFileAsBase64) return electronAPI.readFileAsBase64(filePath)
+    if (_isH5Mode) return h5ApiClient.readFileAsBase64(filePath)
+    return Promise.resolve(null)
+  },
   writeFile: (filePath: string, content: string): Promise<{ success: boolean; error?: string }> =>
     electronAPI?.writeFile(filePath, content) || Promise.resolve({ success: false, error: 'writeFile not available' }),
-  stat: (filePath: string): Promise<FileStat | null> => electronAPI?.stat(filePath) || Promise.resolve(null),
+  stat: (filePath: string): Promise<FileStat | null> => {
+    if (electronAPI?.stat) return electronAPI.stat(filePath)
+    if (_isH5Mode) return h5ApiClient.stat(filePath)
+    return Promise.resolve(null)
+  },
   searchFiles: (dirPath: string, query: string, options?: { maxResults?: number }): Promise<FileSearchEntry[]> => {
     if (electronAPI?.searchFiles) {
       return electronAPI.searchFiles(dirPath, query, options)
+    }
+    if (_isH5Mode) {
+      return h5ApiClient.searchFiles(dirPath, query, options)
     }
     return Promise.resolve([])
   },
@@ -388,6 +407,9 @@ export const api = {
   httpFetch: (url: string, options?: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number }): Promise<{ ok: boolean; status: number; data: string; error?: string } | null> => {
     if (electronAPI?.httpFetch) {
       return electronAPI.httpFetch(url, options)
+    }
+    if (_isH5Mode) {
+      return h5ApiClient.httpFetch(url, options)
     }
     return Promise.resolve(null)
   },

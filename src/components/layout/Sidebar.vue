@@ -401,12 +401,21 @@ async function handleModeSelect(mode: AppMode) {
     // 同步 activeCenterTab，确保 SplitContainer 的 watcher 能将 pane content
     // 更新到目标会话（修复切换模式后主面板仍显示旧模式会话的问题）
     appStore.switchToSessionTab(targetSessionId)
+    if (isH5Mode()) {
+      const selected = chatStore.sessions.find(s => s.id === targetSessionId)
+      appStore.sidebarCollapsed = true
+      h5ApiClient.setMirrorSession(targetSessionId, selected?.workingDirectory || null).catch(() => {})
+    }
   } else {
     const workingDirectory = mode === 'work'
       ? (appStore.workWorkspace || chatStore.currentProjectRoot || undefined)
       : (chatStore.currentProjectRoot || undefined)
     const session = chatStore.createSession(t('common.newChat'), workingDirectory)
     appStore.openSessionTab(session.id, session.title)
+    if (isH5Mode()) {
+      appStore.sidebarCollapsed = true
+      h5ApiClient.setMirrorSession(session.id, session.workingDirectory || null).catch(() => {})
+    }
   }
 
   if (mode === 'work') {
@@ -564,6 +573,10 @@ async function handleNewChat() {
 
     const session = chatStore.createSession(t('common.newChat'), workingDirectory)
     appStore.openSessionTab(session.id, session.title)
+    if (isH5Mode()) {
+      appStore.sidebarCollapsed = true
+      h5ApiClient.setMirrorSession(session.id, session.workingDirectory || null).catch(() => {})
+    }
 
     // 分屏模式下更新当前 active pane 的内容
     const splitLayout = useSplitLayoutStore()
@@ -574,7 +587,11 @@ async function handleNewChat() {
       })
     }
 
-    window.dispatchEvent(new CustomEvent('session-created'))
+    try {
+      window.dispatchEvent(new CustomEvent('session-created'))
+    } catch (eventError) {
+      console.warn('[Sidebar] session-created event failed:', eventError)
+    }
   } catch (error) {
     console.error('Failed to create session:', error)
     await showAlert(t('sidebar.failedCreateConversation'))
@@ -614,6 +631,10 @@ async function handleSelectSession(sessionId: string) {
     const selected = chatStore.sessions.find(s => s.id === sessionId)
     if (selected?.mode === 'work' && selected.messages.length > 0) {
       appStore.openArtifactsPanel()
+    }
+    if (isH5Mode()) {
+      appStore.sidebarCollapsed = true
+      h5ApiClient.setMirrorSession(sessionId, selected?.workingDirectory || null).catch(() => {})
     }
 
     // ★ H5 模式：如果选中的会话没有消息（从桌面端列表加载的），从桌面端拉取历史
@@ -693,7 +714,15 @@ function handleCreateSessionInProject(e: MouseEvent, workingDirectory: string) {
     chatStore.switchProject(workingDirectory)
     const session = chatStore.createSession(t('common.newChat'), workingDirectory)
     appStore.openSessionTab(session.id, session.title)
-    window.dispatchEvent(new CustomEvent('session-created'))
+    if (isH5Mode()) {
+      appStore.sidebarCollapsed = true
+      h5ApiClient.setMirrorSession(session.id, workingDirectory).catch(() => {})
+    }
+    try {
+      window.dispatchEvent(new CustomEvent('session-created'))
+    } catch (eventError) {
+      console.warn('[Sidebar] session-created event failed:', eventError)
+    }
   } catch (error) {
     console.error('Failed to create session in project:', error)
   }
