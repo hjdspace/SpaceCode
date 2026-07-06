@@ -910,6 +910,14 @@ function registerH5AccessIPCHandlers(): void {
 // ============================================================
 
 function registerRtkIPCHandlers(): void {
+  // 全局下载进度监听器：始终转发到渲染进程
+  // 这样无论是 rtk:enable 还是 rtk:downloadBinary 触发的下载，进度都会被转发
+  rtkManager.on('downloadProgress', (progress: { downloaded: number; total: number; percent: number }) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('rtk:downloadProgress', progress)
+    }
+  })
+
   // 获取 RTK 状态
   ipcMain.handle('rtk:getStatus', async () => {
     return rtkManager.getStatus()
@@ -943,20 +951,9 @@ function registerRtkIPCHandlers(): void {
   // 下载/更新 RTK 二进制
   ipcMain.handle('rtk:downloadBinary', async () => {
     try {
-      // 监听下载进度并转发到渲染进程
-      const progressListener = (progress: { downloaded: number; total: number; percent: number }) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('rtk:downloadProgress', progress)
-        }
-      }
-      rtkManager.on('downloadProgress', progressListener)
-      try {
-        await rtkManager.downloadBinary()
-        info('RTK', 'RTK binary downloaded')
-        return { success: true, status: await rtkManager.getStatus() }
-      } finally {
-        rtkManager.off('downloadProgress', progressListener)
-      }
+      await rtkManager.downloadBinary()
+      info('RTK', 'RTK binary downloaded')
+      return { success: true, status: await rtkManager.getStatus() }
     } catch (err: any) {
       error('RTK', 'Failed to download RTK binary', { error: String(err) })
       return { success: false, error: String(err) }

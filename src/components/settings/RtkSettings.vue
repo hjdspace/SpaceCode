@@ -21,7 +21,7 @@
           </button>
           <button class="s-btn s-btn-secondary" @click="reinstall" :disabled="busy">
             <Download :size="14" />
-            <span>{{ $t('rtk.reinstall') }}</span>
+            <span>{{ status.binaryInstalled ? $t('rtk.reinstall') : $t('rtk.install') }}</span>
           </button>
         </div>
       </div>
@@ -138,33 +138,25 @@
         </template>
       </div>
     </div>
-
-    <!-- Windows 平台说明 -->
-    <div v-if="status.isWindows" class="notice-card">
-      <AlertTriangle :size="18" class="notice-icon warn" />
-      <div>
-        <p class="notice-title">{{ $t('rtk.windowsNotice') }}</p>
-        <p class="notice-desc">{{ $t('rtk.windowsNoticeDesc') }}</p>
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Zap, RefreshCw, Download, BarChart3, CheckCircle, ArrowUpCircle, AlertTriangle } from 'lucide-vue-next'
+import { Zap, RefreshCw, Download, BarChart3, CheckCircle, ArrowUpCircle } from 'lucide-vue-next'
 import { api } from '@/services/electronAPI'
 import { useSettingsStore } from '@/stores/settings'
+import { useRtkDownloadState } from '@/composables/useRtkDownloadState'
 import type { RtkStatus, RtkGainStats, RtkUpdateInfo } from '@/types/electron.d'
 
 const { t } = useI18n()
 const settingsStore = useSettingsStore()
 
+// 使用模块级共享状态（跨组件挂载/卸载周期持久存在）
+const { downloading, downloadPercent, busy } = useRtkDownloadState()
+
 const enabled = ref(false)
-const busy = ref(false)
-const downloading = ref(false)
-const downloadPercent = ref(0)
 const statsLoading = ref(false)
 
 const status = ref<RtkStatus>({
@@ -178,8 +170,6 @@ const status = ref<RtkStatus>({
 
 const stats = ref<RtkGainStats | null>(null)
 const updateInfo = ref<RtkUpdateInfo | null>(null)
-
-let unsubProgress: (() => void) | null = null
 
 const dailyChartData = computed(() => {
   if (!stats.value?.daily || stats.value.daily.length === 0) return []
@@ -204,15 +194,6 @@ onMounted(async () => {
   if (enabled.value) {
     loadStats()
   }
-
-  // 监听下载进度
-  unsubProgress = api.rtk.onDownloadProgress((progress) => {
-    downloadPercent.value = progress.percent
-  })
-})
-
-onUnmounted(() => {
-  if (unsubProgress) unsubProgress()
 })
 
 async function refreshStatus() {
@@ -631,34 +612,6 @@ function formatPercent(value?: number): string {
 .bar-label {
   font-size: 10px;
   color: var(--text-muted);
-}
-
-.notice-card {
-  display: flex;
-  gap: 12px;
-  padding: 16px;
-  background: var(--bg-warning, rgba(255, 193, 7, 0.08));
-  border: 1px solid var(--border-warning, rgba(255, 193, 7, 0.25));
-  border-radius: var(--radius-md);
-
-  .notice-icon {
-    color: #f59e0b;
-    flex-shrink: 0;
-    margin-top: 1px;
-  }
-
-  .notice-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 4px;
-  }
-
-  .notice-desc {
-    font-size: 13px;
-    color: var(--text-secondary);
-    line-height: 1.5;
-  }
 }
 
 .spinning {

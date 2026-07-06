@@ -13,6 +13,28 @@ const RTK_GITHUB_REPO = 'rtk-ai/rtk'
 const RTK_API_URL = `https://api.github.com/repos/${RTK_GITHUB_REPO}/releases/latest`
 const DOWNLOAD_TIMEOUT_MS = 120_000
 
+/**
+ * GitHub 加速镜像前缀列表（国内访问 GitHub Releases 速度慢时自动回退）。
+ * 镜像通过在原始 GitHub URL 前添加前缀来代理请求。
+ */
+const GITHUB_MIRROR_PREFIXES = [
+  'https://gh-proxy.com/',
+  'https://ghproxy.net/',
+]
+
+/** 直接下载的连接超时时间（ms），超时后自动切换镜像 */
+const DIRECT_CONNECT_TIMEOUT_MS = 15_000
+
+/**
+ * 是否在 SSL 证书验证失败时降级为忽略证书。
+ *
+ * 企业代理 / 杀毒软件通常会做 SSL 中间人检查（替换证书链），
+ * 而 Node.js 的 https 模块使用内置 CA 而非系统证书库，
+ * 导致 `unable to verify the first certificate` 错误。
+ * 首次请求失败后自动降级，确保 RTK 二进制可正常下载。
+ */
+let sslFallbackEnabled = false
+
 export interface RtkGainStats {
   totalCommands?: number
   totalSavedTokens?: number
@@ -50,10 +72,11 @@ export interface DownloadProgress {
  *
  * 工作方式：
  * - 二进制存储在 app.getPath('userData')/rtk/rtk[.exe]
- * - 通过 GitHub Releases 下载对应平台的预编译二进制
+ * - 通过 GitHub Releases 下载对应平台的预编译二进制（支持国内镜像加速）
  * - 使用 `rtk init -g --auto-patch` 安装 PreToolUse Hook 到全局 ~/.claude/settings.json
  * - 使用 `rtk init -g --uninstall` 卸载 Hook
- * - Windows 原生不支持 Hook，RTK 会自动降级为 CLAUDE.md 指令注入模式
+ * - 支持 Windows / macOS / Linux，RTK 会根据平台自动生成对应的 Hook 配置
+ *   （Windows 使用 PowerShell，macOS/Linux 使用 Bash）
  */
 class RtkManager extends EventEmitter {
   private binaryDir: string
@@ -117,7 +140,7 @@ class RtkManager extends EventEmitter {
     const archivePath = path.join(this.binaryDir, `rtk-download-${Date.now()}${archiveExt}`)
 
     try {
-      await this.downloadFile(downloadUrl, archivePath, (progress) => {
+      await this.downloadWithFallback(downloadUrl, archivePath, (progress) => {
         this.emit('downloadProgress', progress)
       })
 
@@ -327,104 +350,237 @@ class RtkManager extends EventEmitter {
 
   /**
    * 从 GitHub API 获取最新 Release 信息
+   * 先直连 GitHub API，失败后自动尝试国内镜像。
    */
-  private fetchLatestRelease(): Promise<any> {
+  private async fetchLatestRelease(): Promise<any> {
+    // 直连 GitHub API
+    try {
+      return await this.httpsGetJson(RTK_API_URL)
+    } catch (directErr) {
+      warn('RtkManager', 'Direct GitHub API failed, trying mirrors', { error: String(directErr) })
+    }
+    // 依次尝试镜像
+    for (const mirror of GITHUB_MIRROR_PREFIXES) {
+      try {
+        const mirroredUrl = mirror + RTK_API_URL
+        info('RtkManager', `Trying GitHub API mirror: ${mirror}`)
+        return await this.httpsGetJson(mirroredUrl)
+      } catch (mirrorErr) {
+        warn('RtkManager', `Mirror ${mirror} failed`, { error: String(mirrorErr) })
+      }
+    }
+    throw new Error('All GitHub API sources failed (direct + mirrors)')
+  }
+
+  /**
+   * 发起 HTTPS GET 请求并解析 JSON 响应。
+   *
+   * 先尝试正常 TLS 验证；若失败且尚未降级，则启用 `rejectUnauthorized: false` 重试。
+   * 支持自动跟随 301/302 重定向。
+   */
+  private httpsGetJson(url: string, redirects = 0): Promise<any> {
     return new Promise((resolve, reject) => {
-      const req = https.get(RTK_API_URL, {
-        headers: {
-          'User-Agent': 'SpaceCode-Desktop',
-          'Accept': 'application/vnd.github+json',
-        },
-      }, (res) => {
-        if (res.statusCode === 301 || res.statusCode === 302) {
-          // 跟随重定向
-          const location = res.headers.location
-          if (location) {
-            https.get(location, { headers: { 'User-Agent': 'SpaceCode-Desktop', 'Accept': 'application/vnd.github+json' } }, (redirectRes) => {
-              let data = ''
-              redirectRes.on('data', (chunk) => { data += chunk })
-              redirectRes.on('end', () => {
-                try { resolve(JSON.parse(data)) } catch { reject(new Error('Failed to parse release JSON')) }
-              })
-            }).on('error', reject)
+      const doRequest = (requestUrl: string, allowInsecure: boolean) => {
+        const options: https.RequestOptions = {
+          headers: {
+            'User-Agent': 'SpaceCode-Desktop',
+            'Accept': 'application/vnd.github+json',
+          },
+          rejectUnauthorized: !allowInsecure,
+        }
+        const req = https.get(requestUrl, options, (res) => {
+          if ((res.statusCode === 301 || res.statusCode === 302) && redirects < 5) {
+            const location = res.headers.location
+            res.resume() // 释放响应
+            if (location) {
+              resolve(this.httpsGetJson(location, redirects + 1))
+              return
+            }
+          }
+          if (res.statusCode !== 200) {
+            res.resume()
+            reject(new Error(`GitHub API returned status ${res.statusCode}`))
             return
           }
-        }
-        if (res.statusCode !== 200) {
-          reject(new Error(`GitHub API returned status ${res.statusCode}`))
-          return
-        }
-        let data = ''
-        res.on('data', (chunk) => { data += chunk })
-        res.on('end', () => {
-          try { resolve(JSON.parse(data)) } catch { reject(new Error('Failed to parse release JSON')) }
+          let data = ''
+          res.on('data', (chunk) => { data += chunk })
+          res.on('end', () => {
+            try { resolve(JSON.parse(data)) } catch { reject(new Error('Failed to parse release JSON')) }
+          })
         })
-      })
-      req.on('error', reject)
-      req.setTimeout(15_000, () => {
-        req.destroy()
-        reject(new Error('GitHub API request timed out'))
-      })
+        req.on('error', (err) => {
+          // SSL 证书验证失败 → 降级重试
+          if (!allowInsecure && this.isSslError(err) && !sslFallbackEnabled) {
+            sslFallbackEnabled = true
+            warn('RtkManager', 'SSL certificate verification failed, retrying with insecure mode', { error: err.message })
+            doRequest(requestUrl, true)
+            return
+          }
+          reject(err)
+        })
+        req.setTimeout(15_000, () => {
+          req.destroy()
+          reject(new Error('GitHub API request timed out'))
+        })
+      }
+      doRequest(url, sslFallbackEnabled)
     })
   }
 
   /**
-   * 下载文件到指定路径，支持进度回调
+   * 下载文件到指定路径，支持进度回调。
+   *
+   * 先尝试正常 TLS 验证；若失败且尚未降级，则启用 `rejectUnauthorized: false` 重试。
+   * 支持连接超时：若在 `connectTimeoutMs` 内未收到响应头，自动中止请求。
    */
-  private downloadFile(url: string, destPath: string, onProgress?: (progress: DownloadProgress) => void): Promise<void> {
+  private downloadFile(url: string, destPath: string, onProgress?: (progress: DownloadProgress) => void, redirects = 0, connectTimeoutMs?: number): Promise<void> {
     return new Promise((resolve, reject) => {
-      const file = createWriteStream(destPath)
-
-      const handleResponse = (res: any) => {
-        if (res.statusCode === 301 || res.statusCode === 302) {
-          // 跟随重定向
-          file.close()
-          try { rmSync(destPath, { force: true }) } catch {}
-          const location = res.headers.location
-          if (location) {
-            https.get(location, handleResponse).on('error', reject)
-            return
-          }
-        }
-        if (res.statusCode !== 200) {
-          file.close()
-          try { rmSync(destPath, { force: true }) } catch {}
-          reject(new Error(`Download failed with status ${res.statusCode}`))
-          return
+      const doDownload = (downloadUrl: string, allowInsecure: boolean) => {
+        const file = createWriteStream(destPath)
+        const options: https.RequestOptions = {
+          headers: { 'User-Agent': 'SpaceCode-Desktop' },
+          rejectUnauthorized: !allowInsecure,
         }
 
-        const total = parseInt(res.headers['content-length'] || '0', 10)
-        let downloaded = 0
+        let responseStarted = false
+        let settled = false
+        let connectTimer: NodeJS.Timeout | null = null
 
-        res.on('data', (chunk: Buffer) => {
-          downloaded += chunk.length
-          if (onProgress && total > 0) {
-            onProgress({
-              downloaded,
-              total,
-              percent: Math.round((downloaded / total) * 100),
-            })
-          }
-        })
+        const cleanup = () => {
+          if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
+        }
 
-        res.pipe(file)
-        file.on('finish', () => {
-          file.close()
-          resolve()
-        })
-        file.on('error', (err) => {
+        const safeClose = () => {
+          try { file.close() } catch {}
+        }
+
+        const safeReject = (err: Error) => {
+          if (settled) return
+          settled = true
+          cleanup()
+          safeClose()
           try { rmSync(destPath, { force: true }) } catch {}
           reject(err)
+        }
+
+        const handleResponse = (res: any) => {
+          responseStarted = true
+          cleanup()
+          if ((res.statusCode === 301 || res.statusCode === 302) && redirects < 5) {
+            settled = true
+            safeClose()
+            try { rmSync(destPath, { force: true }) } catch {}
+            const location = res.headers.location
+            if (location) {
+              resolve(this.downloadFile(location, destPath, onProgress, redirects + 1))
+              return
+            }
+          }
+          if (res.statusCode !== 200) {
+            safeReject(new Error(`Download failed with status ${res.statusCode}`))
+            return
+          }
+
+          const total = parseInt(res.headers['content-length'] || '0', 10)
+          let downloaded = 0
+
+          res.on('data', (chunk: Buffer) => {
+            downloaded += chunk.length
+            if (onProgress && total > 0) {
+              onProgress({
+                downloaded,
+                total,
+                percent: Math.round((downloaded / total) * 100),
+              })
+            }
+          })
+
+          res.pipe(file)
+          file.on('finish', () => {
+            if (settled) return
+            settled = true
+            safeClose()
+            resolve()
+          })
+          file.on('error', (err) => {
+            safeReject(err)
+          })
+        }
+
+        const req = https.get(downloadUrl, options, handleResponse)
+
+        // 连接超时：若指定了 connectTimeoutMs 且在响应开始前超时，则中止请求
+        if (connectTimeoutMs && connectTimeoutMs > 0) {
+          connectTimer = setTimeout(() => {
+            if (!responseStarted) {
+              req.destroy()
+              safeReject(new Error('Connection timed out'))
+            }
+          }, connectTimeoutMs)
+        }
+
+        req.on('error', (err) => {
+          // SSL 证书验证失败 → 降级重试
+          if (!allowInsecure && this.isSslError(err) && !sslFallbackEnabled && !settled) {
+            sslFallbackEnabled = true
+            warn('RtkManager', 'SSL certificate verification failed during download, retrying with insecure mode', { error: err.message })
+            cleanup()
+            safeClose()
+            try { rmSync(destPath, { force: true }) } catch {}
+            doDownload(downloadUrl, true)
+            return
+          }
+          safeReject(err)
+        })
+        req.setTimeout(DOWNLOAD_TIMEOUT_MS, () => {
+          req.destroy()
+          safeReject(new Error('Download timed out'))
         })
       }
-
-      const req = https.get(url, { headers: { 'User-Agent': 'SpaceCode-Desktop' } }, handleResponse)
-      req.on('error', reject)
-      req.setTimeout(DOWNLOAD_TIMEOUT_MS, () => {
-        req.destroy()
-        reject(new Error('Download timed out'))
-      })
+      doDownload(url, sslFallbackEnabled)
     })
+  }
+
+  /**
+   * 带镜像回退的文件下载：先直连 GitHub，失败/超时后依次尝试国内镜像。
+   */
+  private async downloadWithFallback(url: string, destPath: string, onProgress?: (progress: DownloadProgress) => void): Promise<void> {
+    // 直连 GitHub（短连接超时，快速失败后切换镜像）
+    try {
+      await this.downloadFile(url, destPath, onProgress, 0, DIRECT_CONNECT_TIMEOUT_MS)
+      return
+    } catch (directErr) {
+      warn('RtkManager', 'Direct download failed, trying mirrors', { error: String(directErr) })
+      try { rmSync(destPath, { force: true }) } catch {}
+    }
+
+    // 依次尝试镜像
+    for (const mirror of GITHUB_MIRROR_PREFIXES) {
+      try {
+        const mirroredUrl = mirror + url
+        info('RtkManager', `Trying download mirror: ${mirror}`)
+        // 镜像使用更长的连接超时
+        await this.downloadFile(mirroredUrl, destPath, onProgress, 0, 30_000)
+        return
+      } catch (mirrorErr) {
+        warn('RtkManager', `Mirror ${mirror} failed`, { error: String(mirrorErr) })
+        try { rmSync(destPath, { force: true }) } catch {}
+      }
+    }
+
+    throw new Error('All download sources failed (direct + mirrors)')
+  }
+
+  /**
+   * 判断错误是否为 SSL 证书验证相关
+   */
+  private isSslError(err: Error): boolean {
+    const msg = err.message.toLowerCase()
+    return msg.includes('unable to verify') ||
+      msg.includes('certificate') ||
+      msg.includes('self-signed') ||
+      msg.includes('cert') ||
+      err.message.includes('CERT_')
   }
 
   /**
