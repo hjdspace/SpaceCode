@@ -26,7 +26,9 @@
     "src/**/*.d.ts",
     "src/**/*.tsx",
     "src/**/*.vue",
-    "electron/**/*.ts"
+    "electron/**/*.ts",
+    "electron/__tests__/**/*.ts",
+    "tests/composables/**/*.ts"
   ],
   "exclude": [
     "engine/**/*"

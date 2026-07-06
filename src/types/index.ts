@@ -134,12 +134,16 @@ export interface RetryState {
   errorTitle: string
   /** 错误描述（如"API 返回 429 速率限制错误"），展示给用户 */
   errorMessage: string
+  /** 从实际错误中提取的展示用错误码（如 "429"、"500"、"网络错误"） */
+  errorCode?: string
   /** 本次退避延迟（ms） */
   delayMs: number
   /** 重试发起时间戳 */
   startedAt: number
   /** 用户是否手动取消重试 */
   aborted: boolean
+  /** 触发本次重试的助手消息 ID，用于在 onAssistant 中识别重试是否已成功完成 */
+  assistantMessageId?: string
 }
 
 export interface MessageMetadata {
@@ -215,8 +219,8 @@ export interface Session {
   lastActivityAt: number
   /** Temporary: set when switching engines to resume the previous session on the new engine. */
   _resumeSessionId?: string
-  /** Work / Code 模式归属（旧会话无此字段时视为 'code'）。 */
-  mode?: 'work' | 'code'
+  /** Work / Code / Design 模式归属（旧会话无此字段时视为 'code'）。 */
+  mode?: 'work' | 'code' | 'design'
   /** Work 模式下绑定的专业助手 id。 */
   assistantId?: string
 }

@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>子代理工具卡片 UI 设计原型</title>
+  <style>
+    :root {
+      --bg-primary: #f8f9fb;
+      --bg-secondary: #f0f1f5;
+      --bg-tertiary: #e7e9ef;
+      --surface-glass: rgba(24, 25, 31, 0.02);
+      --surface-glass-hover: rgba(24, 25, 31, 0.04);
+      --surface-border: rgba(24, 25, 31, 0.06);
+      --surface-border-strong: rgba(24, 25, 31, 0.12);
+      --text-primary: #18191f;
+      --text-secondary: #44475a;
+      --text-muted: #5c5f7a;
+      --text-disabled: #9da1b8;
+      --accent-tertiary: #7c3aed;
+      --accent-tertiary-hover: #8b5cf6;
+      --success: #059669;
+      --error: #dc2626;
+      --font-body: 'IBM Plex Sans', 'SF Pro Text', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 48px 24px;
+      font-family: var(--font-body);
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 20px;
+      font-weight: 600;
+      margin: 0 0 8px;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 13px;
+      margin-bottom: 32px;
+    }
+
+    .scenario {
+      margin-bottom: 40px;
+    }
+
+    .scenario-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+    }
+
+    /* Timeline context wrapper */
+    .timeline-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0;
+      min-height: 28px;
+    }
+
+    .timeline-node {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 24px;
+      flex-shrink: 0;
+      padding-top: 6px;
+    }
+
+    .timeline-dot {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-tertiary);
+      color: var(--text-muted);
+      border: 1.5px solid var(--surface-border);
+    }
+
+    .timeline-line {
+      width: 1.5px;
+      flex: 1;
+      min-height: 8px;
+      background: var(--surface-border);
+      margin: 3px 0;
+    }
+
+    .timeline-content {
+      flex: 1;
+      min-width: 0;
+      padding: 4px 0 8px 8px;
+    }
+
+    /* === New Sub-agent Inline Row === */
+    .subagent-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      user-select: none;
+      transition: background var(--transition-fast);
+      max-width: 100%;
+    }
+
+    .subagent-row:hover {
+      background: var(--surface-glass-hover);
+    }
+
+    .subagent-row.is-expanded {
+      background: var(--surface-glass-hover);
+    }
+
+    .subagent-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      color: var(--text-muted);
+    }
+
+    .subagent-icon svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .subagent-icon.status-running {
+      color: var(--accent-tertiary);
+      animation: spin 1s linear infinite;
+    }
+
+    .subagent-icon.status-completed {
+      color: var(--success);
+    }
+
+    .subagent-icon.status-error {
+      color: var(--error);
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .subagent-label {
+      font-size: 13px;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+    }
+
+    .subagent-type {
+      font-size: 13px;
+      color: var(--accent-tertiary);
+      font-weight: 500;
+      flex-shrink: 0;
+    }
+
+    .subagent-separator {
+      color: var(--text-disabled);
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+
+    .subagent-task {
+      font-size: 13px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .subagent-chevron {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      color: var(--text-muted);
+      opacity: 0.5;
+      transition: transform var(--transition-fast), opacity var(--transition-fast);
+    }
+
+    .subagent-row:hover .subagent-chevron {
+      opacity: 0.8;
+    }
+
+    .subagent-chevron.is-expanded {
+      transform: rotate(180deg);
+    }
+
+    /* === Expanded Content === */
+    .subagent-details {
+      margin-top: 4px;
+      padding: 0 8px;
+      animation: fadeIn 150ms ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .subagent-section {
+      margin-top: 12px;
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      background: var(--bg-secondary);
+      overflow: hidden;
+    }
+
+    .subagent-section-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: var(--surface-glass);
+      border-bottom: 1px solid var(--surface-border);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .subagent-section-body {
+      padding: 12px;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+      max-height: 360px;
+      overflow-y: auto;
+    }
+
+    .subagent-section-body pre {
+      margin: 0;
+      padding: 10px 12px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--surface-border);
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow-x: auto;
+    }
+
+    .subagent-section-body p {
+      margin: 0 0 10px;
+    }
+
+    .subagent-section-body p:last-child {
+      margin-bottom: 0;
+    }
+
+    .subagent-section-body code {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      background: var(--bg-tertiary);
+      padding: 2px 4px;
+      border-radius: 3px;
+    }
+
+    .markdown-mock h3 {
+      font-size: 14px;
+      margin: 16px 0 8px;
+    }
+
+    .markdown-mock h3:first-child {
+      margin-top: 0;
+    }
+
+    .markdown-mock ul {
+      margin: 8px 0;
+      padding-left: 20px;
+    }
+
+    .markdown-mock li {
+      margin: 4px 0;
+    }
+
+    .markdown-mock code-inline {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      background: var(--bg-tertiary);
+      padding: 2px 4px;
+      border-radius: 3px;
+    }
+
+    .hint {
+      margin-top: 40px;
+      padding: 12px 16px;
+      background: var(--surface-glass);
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .hint strong {
+      color: var(--text-secondary);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>子代理工具卡片 UI 设计原型</h1>
+    <div class="subtitle">目标：从紫色圆角卡片改为类似文本行的可展开行，与截图中「子智能体 Explore · Find sub-agent tool card code」风格一致</div>
+
+    <div class="scenario">
+      <div class="scenario-title">场景 1：折叠状态（默认）</div>
+      <div class="timeline-item">
+        <div class="timeline-node">
+          <div class="timeline-dot">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+          </div>
+          <div class="timeline-line"></div>
+        </div>
+        <div class="timeline-content">
+          <div class="subagent-row" onclick="toggleScenario('scenario1')">
+            <div class="subagent-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
+            </div>
+            <span class="subagent-label">子智能体</span>
+            <span class="subagent-type">Explore</span>
+            <span class="subagent-separator">·</span>
+            <span class="subagent-task">Find sub-agent tool card code</span>
+            <svg class="subagent-chevron" id="scenario1-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="subagent-details" id="scenario1-details" style="display: none;">
+            <div class="subagent-section">
+              <div class="subagent-section-header">提示词</div>
+              <div class="subagent-section-body">
+                <pre>I need to find all code related to "sub-agent tool cards" or "子代理工具卡片" in this project. This is a React/Next.js project.
+
+Search for:
+1. Any files containing "subAgent" or "sub_agent" or "subagent" or "子代理" or "tool.cards" related to rendering agent/sub-agent outputs
+2. Look for components that render AI tool calls, agent results, or nested agent outputs in a chat-like interface
+3. Search in common patterns like: "toolResult", "toolCall", "agentResult", "AgentCard"</pre>
+              </div>
+            </div>
+            <div class="subagent-section">
+              <div class="subagent-section-header">子智能体输出</div>
+              <div class="subagent-section-body markdown-mock">
+                <p>I have gathered comprehensive information about the sub-agent tool cards system. Note that this project is actually a Vue 3 / Vite / Electron app (not React/Next.js) — the entry point is <code>src/App.vue</code>, files use <code>.vue</code> SFC syntax, and dependencies include <code>vue-i18n</code>, <code>lucide-vue-next</code>, and Pinia stores.</p>
+                <h3>Core sub-agent tool card component</h3>
+                <p><code>D:/AI/SpaceCode/src/components/chat/tools/AgentToolCard.vue</code> — This is the sub-agent tool card. It renders the "Agent" tool call inline in the chat timeline...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="scenario">
+      <div class="scenario-title">场景 2：运行中状态</div>
+      <div class="timeline-item">
+        <div class="timeline-node">
+          <div class="timeline-dot">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+          </div>
+          <div class="timeline-line"></div>
+        </div>
+        <div class="timeline-content">
+          <div class="subagent-row">
+            <div class="subagent-icon status-running">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>
+            </div>
+            <span class="subagent-label">子智能体</span>
+            <span class="subagent-type">Explore</span>
+            <span class="subagent-separator">·</span>
+            <span class="subagent-task">Search for agent/think/expand</span>
+            <svg class="subagent-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="scenario">
+      <div class="scenario-title">场景 3：错误状态</div>
+      <div class="timeline-item">
+        <div class="timeline-node">
+          <div class="timeline-dot">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+          </div>
+          <div class="timeline-line"></div>
+        </div>
+        <div class="timeline-content">
+          <div class="subagent-row">
+            <div class="subagent-icon status-error">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </div>
+            <span class="subagent-label">子智能体</span>
+            <span class="subagent-type">Explore</span>
+            <span class="subagent-separator">·</span>
+            <span class="subagent-task">Find chat message rendering</span>
+            <svg class="subagent-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hint">
+      <strong>设计要点：</strong><br>
+      1. 行内样式：去掉卡片背景/边框，使用普通文本行，与周围时间线文本融为一体。<br>
+      2. 折叠态只显示：图标 +「子智能体」+ Agent 类型 + 中点分隔 + 任务描述（截断）。<br>
+      3. 展开后显示「提示词」和「子智能体输出」两个区块，分别用带标题的卡片容器承载。<br>
+      4. 保留运行/完成/错误三种状态色，但用图标颜色低调表达，不破坏文本行观感。<br>
+      5. 展开内容使用现有主题变量，保持与 <code>ToolCallCard.vue</code> 详情区域一致。
+    </div>
+  </div>
+
+  <script>
+    function toggleScenario(id) {
+      const details = document.getElementById(id + '-details');
+      const chevron = document.getElementById(id + '-chevron');
+      const row = details.previousElementSibling;
+      const isHidden = details.style.display === 'none';
+      details.style.display = isHidden ? 'block' : 'none';
+      chevron.classList.toggle('is-expanded', isHidden);
+      row.classList.toggle('is-expanded', isHidden);
+    }
+  </script>
+</body>
+</html>

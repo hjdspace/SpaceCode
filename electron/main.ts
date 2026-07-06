@@ -11,12 +11,14 @@ import { registerArtifactsIPCHandlers, stopArtifactsWatch } from './artifactsSer
 import { registerCronIPCHandlers } from './cronService'
 import { registerOfficeCliIPCHandlers, cleanupOfficeCli, ensureOfficeCliInstalled } from './officeCliService'
 import { registerCuaDriverIPCHandlers, cleanupCuaDriverMcp } from './cuaDriverService'
+import { registerBrowserUseIPCHandlers, cleanupBrowserUseMcp } from './browserUseService'
 import { registerClaudeCodeIPC, setMainWindow, getPool } from './claudeCodeIPC'
 import { initAutoUpdater, registerAutoUpdaterIPC, destroyAutoUpdater } from './autoUpdaterService'
 import { MobileServer } from './mobileServer'
 import type { QRCodeData, ServerStatus } from './mobileServerTypes'
 import { buildThemeSyncData } from './themeSyncBuilder'
 import { registerPromptOptimizerIPC } from './promptOptimizerIPC'
+import { registerDesignIPCHandlers } from './design/designService'
 import { aggregateLocalTokenStats } from './tokenStatsService'
 import { initLogger, info, warn, error, debug, isDebugMode, ipc as logIpc, traceEvent, listDebugFiles, readDebugFile, listTraceSessions, readTraceEvents, getTraceDir } from './logger'
 import { proxyManager } from './proxyManager'
@@ -640,35 +642,46 @@ void ensureOfficeCliInstalled()
 registerCuaDriverIPCHandlers()
 info('Startup', 'CuaDriver IPC handlers registered')
 
+  // Register Browser-Use IPC handlers
+  registerBrowserUseIPCHandlers()
+  info('Startup', 'BrowserUse IPC handlers registered')
+
   // Register Claude Code IPC handlers
   registerClaudeCodeIPC()
   info('Startup', 'Claude Code IPC handlers registered')
+
+  // Register Design IPC handlers
+  const designResourcesPath = app.isPackaged
+    ? resolve(process.resourcesPath, '..')
+    : resolve(__dirname, '..')
+  registerDesignIPCHandlers(mainWindow!, designResourcesPath)
+  info('Startup', 'Design IPC handlers registered')
 
   // Mobile server
   registerMobileIPCHandlers()
 
   ipcMain.handle('claude-code:engineSourceChanged', async (_, source: string) => {
     info('EngineSource', `Engine source changed to: ${source}`)
-    const needsProxy = source === 'installed'
-    if (needsProxy) {
-      const guiSettings = await loadGuiSettings()
-      const authMethod = guiSettings?.authMethod
-      if (authMethod && !['anthropic_compatible', 'claudeai', 'console'].includes(authMethod)) {
-        const proxyConfig = buildProxyConfigFromSettings(guiSettings)
-        if (proxyConfig) {
-          try {
-            await proxyManager.start(proxyConfig)
-            info('EngineSource', 'Proxy started after engine source change')
-          } catch (err) {
-            warn('EngineSource', 'Failed to start proxy after engine source change:', err)
-          }
+    // ★ 非 Anthropic 提供商始终需要代理（无论 bundled 还是 installed），
+    // 因为内置引擎的 OpenAI/Gemini 直连路径没有 withRetry 重试机制。
+    const guiSettings = await loadGuiSettings()
+    const authMethod = guiSettings?.authMethod
+    if (authMethod && !['anthropic_compatible', 'claudeai', 'console'].includes(authMethod)) {
+      const proxyConfig = buildProxyConfigFromSettings(guiSettings)
+      if (proxyConfig) {
+        try {
+          await proxyManager.start(proxyConfig)
+          info('EngineSource', 'Proxy started after engine source change')
+        } catch (err) {
+          warn('EngineSource', 'Failed to start proxy after engine source change:', err)
         }
       }
     } else {
+      // Anthropic 提供商不需要代理
       if (proxyManager.isRunning()) {
         try {
           await proxyManager.stop()
-          info('EngineSource', 'Proxy stopped after engine source change to bundled')
+          info('EngineSource', 'Proxy stopped (Anthropic provider does not need proxy)')
         } catch (err) {
           warn('EngineSource', 'Failed to stop proxy after engine source change:', err)
         }
@@ -724,12 +737,14 @@ info('Startup', 'CuaDriver IPC handlers registered')
 
   ;(async () => {
     const guiSettings = await loadGuiSettings()
-    if (guiSettings?.engineSource === 'installed' && !['anthropic_compatible', 'claudeai', 'console'].includes(guiSettings?.authMethod)) {
+    // ★ 非 Anthropic 提供商需要代理（无论 bundled 还是 installed），
+    // 因为内置引擎的 OpenAI/Gemini 直连路径没有 withRetry 重试机制。
+    if (guiSettings && !['anthropic_compatible', 'claudeai', 'console'].includes(guiSettings.authMethod)) {
       const proxyConfig = buildProxyConfigFromSettings(guiSettings)
       if (proxyConfig) {
         try {
           await proxyManager.start(proxyConfig)
-          info('Startup', 'Auto-started proxy for installed CLI mode')
+          info('Startup', 'Auto-started proxy for non-Anthropic provider')
         } catch (err) {
           warn('Startup', 'Auto-start proxy failed:', err)
         }
@@ -748,6 +763,7 @@ app.on('before-quit', async () => {
 info('App', 'App quitting')
 cleanupOfficeCli()
 await cleanupCuaDriverMcp()
+await cleanupBrowserUseMcp()
 stopArtifactsWatch()
 destroyTray()
 destroyAutoUpdater()
@@ -1097,6 +1113,11 @@ ipcMain.on('ui:hideInfoPanel', () => {
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   info('IPC', 'shell:openExternal', { url })
   await shell.openExternal(url)
+})
+
+ipcMain.handle('shell:openPath', async (_event, targetPath: string) => {
+  info('IPC', 'shell:openPath', { targetPath })
+  await shell.openPath(targetPath)
 })
 
 ipcMain.handle('app:openInEditor', async (_event, editor: ExternalEditor, targetPath: string) => {

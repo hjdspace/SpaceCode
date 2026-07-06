@@ -1,3 +1,79 @@
+## [0.6.2](https://github.com/hjdspace/SpaceCode/compare/v0.6.1...v0.6.2) (2026-07-06)
+
+### Features
+
+* **design:** 完成设计系统与聊天输入框优化
+* **design:** 重构 DesignComposer 布局，模板与 + 按钮内置输入框
+* **design:** 新增 WorkingDirectoryPicker 工作目录选择器
+* **design:** TemplatePicker 支持 inline 紧凑模式
+* **design:** 新增模板与设计系统选择功能，优化预览与会话逻辑
+* **design:** 新增 TemplatePicker 模板选择器
+* **design:** 新增 TemplateScenarioArt SVG 场景艺术图
+* **design:** 新增模板数据与 open-design 映射
+* **design:** 扩展 listSystems 并新增 getSystemPreview IPC
+* **design:** 为设计系统添加官网链接支持
+* **design-system:** 新增色板解析与 Tokens 预览页
+* **design-file-workspace:** 新增文件工作区，含多 tab/预览源码切换/导出
+* **design-chat-pane:** 新增聊天面板 + DesignComposer 输入区 + FileWorkspace 空壳
+* **browser-use:** 新增 Browser Use 浏览器自动化功能支持
+* **browser-use:** 新增 Cloud Browser 支持与 Agent 高级配置
+* **browser-use:** 新增 browser-use MCP 浏览器自动化支持
+* **browser-use:** 新增桌面 LLM 配置复用功能
+* **browser-use:** 新增镜像源加速安装功能
+* **subagent:** 子代理工具卡片改为行内可展开行并支持流式输出
+* **subagent:** 完成子代理工具卡片 UI 重设计全流程实现
+* **subagent:** 添加 useSubagentTranscript composable 用于获取子代理实时转录
+* **tool-card:** 改造为 family ladder 分发器，新增 Bash/Write/Edit/Read 专用卡
+* **message:** 新增 design 模式 buildBlocks 渲染分支
+* **od-card:** 新增结构化设计卡片，支持 brand/direction/artifact/generic 四种类型
+* **build-blocks:** 新增消息分块工具，支持 od-card/question-form/next-steps 解析
+* **next-step-actions:** 新增轮次后建议动作条
+* **mcp:** 新增 MCP 服务管理、设计系统导出及体验优化
+* **work-gallery:** 重构助手画廊 UI，新增悬停详情与能力展示
+* **i18n:** 补全 design 命名空间中英文翻译
+* **agent:** 新增智能体状态持续时间显示
+* **model:** 实现 getModelWith1mSuffix 函数与主模型获取后缀处理
+* **settings:** 新增单模型上下文窗口自定义配置
+
+### Bug Fixes
+
+* **design:** 优化网站图标获取逻辑并新增设计系统展示页生成
+* **design:** 为 Markdown 预览内容添加 XSS 过滤
+* **WorkingDirectoryPicker:** 修复外部点击关闭面板的事件逻辑
+* **build-blocks:** thinking block startTime 改为必填，修复 MessageItem typecheck 报错
+* **build-blocks:** thinking block 透传 startTime/endTime，避免 design 模式下永远显示思考中动画
+* **DesignChatPane:** 移除 RetryIndicator 引用以修复 typecheck 报错
+* **MessageItem:** design 模式下守卫 ReasoningCard/ToolCallList/MessageMetadata 避免重复渲染
+* **ToolCard:** BashToolCard duration 支持 running 状态
+* **OdCard:** 补 i18n key、修复 title 重复显示、generic 对象渲染
+* **useDesignSession:** 修复 activeSessionId 设置时机
+* **team-transcript:** 优化会话结束状态推断逻辑
+* **chat:** 修复消息角色识别逻辑，兼容更多数据源字段
+* **chat-stream:** 完善 API 错误处理逻辑，增加错误文本匹配检查
+* **resizable-panel:** 卸载组件时重置光标和用户选择样式
+* **bridge.py:** 处理全局浏览器会话 headless 参数变更的情况
+* **chat:** 修复异步子代理状态管理与代理配置逻辑
+* **subagent:** 修复子代理卡片空输出状态与响应式依赖
+* **type:** 从 @vue/reactivity 导入 MaybeRefOrGetter 修复类型报错
+
+### Refactor
+
+* **design-preview:** 统一导出相关文案与函数命名
+* **design:** 清理 TemplatePicker inline 模式冗余样式
+* **design:** 对齐 WorkingDirectoryPicker 文案与规格
+* **design:** WorkingDirectoryPicker 增加异常处理与测试覆盖
+* **TemplatePicker:** 统一循环变量命名为 template
+* **useDesignSession:** 改为会话生命周期触发，新增 createDesignSession/switchToolboxSkill
+* **design-store:** 删除 brief 表单 state，新增 tab/usage/nextStepActions/toolbox
+* **chat/transcript:** 抽象复用工具状态判断逻辑，完善会话状态推断
+* **chat:** 重构任务状态同步逻辑，新增任务通知处理
+* **i18n:** 优化错误提示的国际化处理
+* **settings-panel:** 提取并优化外部导航事件监听逻辑
+* **settings/store/service:** 优化 browser-use 安装流程与镜像配置
+* **retry:** 重构自动重试逻辑，拆分重试状态机到独立 composable
+* **panel:** 优化类型安全并重构面板拖拽逻辑
+* **model-context-windows:** 为 Electron IPC 兼容性重构 modelContextWindows
+
 ## [0.6.1](https://github.com/hjdspace/SpaceCode/compare/v0.6.0...v0.6.1) (2026-06-30)
 
 ### Features

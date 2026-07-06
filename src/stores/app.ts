@@ -77,8 +77,8 @@ const MODE_STORAGE_KEY = 'app_mode'
 const WORK_WORKSPACE_STORAGE_KEY = 'app_work_workspace'
 const WORK_WORKSPACE_CONFIRMED_STORAGE_KEY = 'app_work_workspace_confirmed'
 
-/** 工作模式：code = 编码模式（默认）；work = 办公助手模式 */
-export type AppMode = 'work' | 'code'
+/** 工作模式：code = 编码模式（默认）；work = 办公助手模式；design = 设计模式 */
+export type AppMode = 'work' | 'code' | 'design'
 
 export type ThemeId = 'light' | 'dark' | 'anthropic' | 'anthropic-dark'
 
@@ -123,7 +123,8 @@ export const useAppStore = defineStore('app', () => {
   // ── Work / Code 模式状态 ──────────────────────────────
   let _initialMode: AppMode = 'code'
   try {
-    _initialMode = localStorage.getItem(MODE_STORAGE_KEY) === 'work' ? 'work' : 'code'
+    const stored = localStorage.getItem(MODE_STORAGE_KEY)
+    _initialMode = stored === 'work' ? 'work' : stored === 'design' ? 'design' : 'code'
   } catch { /* ignore */ }
   const mode = ref<AppMode>(_initialMode)
 

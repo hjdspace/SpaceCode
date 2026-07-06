@@ -48,42 +48,81 @@
           class="assistant-card create-card"
           @click="showEditor = true"
         >
-          <div class="card-avatar create-avatar" :style="workAvatarStyle('general')">
-            <Plus :size="20" />
+          <div class="create-plus-circle">
+            <Plus :size="18" />
           </div>
-          <div class="card-body">
-            <div class="card-name">{{ t('work.createCustom') }}</div>
-            <div class="card-desc">{{ t('work.createCustomDesc') }}</div>
-          </div>
+          <span class="create-label">{{ t('work.createCustom') }}</span>
+          <span class="create-sub">{{ t('work.createCustomSub') }}</span>
         </button>
 
         <button
           v-for="a in filtered"
           :key="a.name"
           class="assistant-card"
+          :style="cardStyle(a)"
           :disabled="starting"
           @click="handleSelect(a)"
         >
-          <div class="card-avatar" :style="workAvatarStyle(a.category)">
-            <component :is="workAssistantIcon(a.avatar)" :size="20" />
-          </div>
-          <div class="card-body">
+          <div class="card-top">
+            <div class="card-avatar" :style="workAvatarStyle(a.category)">
+              <component :is="workAssistantIcon(a.avatar)" :size="20" />
+            </div>
             <div class="card-head">
-              <div class="card-name">{{ workDisplayName(a.name) }}</div>
+              <span class="card-name">{{ workDisplayName(a.name) }}</span>
               <span v-if="formatTag(a)" class="card-tag" :class="`tag-${formatTag(a)}`">{{ formatTag(a) }}</span>
             </div>
-            <div class="card-desc">{{ displayDesc(a) }}</div>
-            <!-- 技能标签 -->
-            <div v-if="a.skills?.length" class="card-skills">
-              <span
-                v-for="skill in a.skills"
-                :key="skill"
-                class="skill-badge"
-                :class="{ 'skill-available': isSkillAvailable(skill) }"
-              >
-                {{ skill }}
+          </div>
+          <div class="card-desc">{{ displayDesc(a) }}</div>
+          <div class="card-foot">
+            <span class="capability-hint">
+              <span class="capability-dots">
+                <span
+                  v-for="i in 4"
+                  :key="i"
+                  class="cap-dot"
+                  :class="{ muted: i > capabilityDotCount(a) }"
+                />
               </span>
+              {{ capabilityText(a) }}
+            </span>
+            <span v-if="displayPrompts(a).length" class="capability-hint prompt-hint">
+              <ChevronRight :size="11" />
+              {{ t('work.exampleCount', { count: displayPrompts(a).length }) }}
+            </span>
+          </div>
+
+          <!-- 悬停浮层：渐进式披露 -->
+          <div class="hover-card">
+            <div class="hover-card-head">
+              <span class="hover-card-name">{{ workDisplayName(a.name) }}</span>
+              <span v-if="formatTag(a)" class="card-tag" :class="`tag-${formatTag(a)}`">{{ formatTag(a) }}</span>
             </div>
+            <div class="hover-card-desc">{{ displayDesc(a) }}</div>
+            <div class="hover-section-label">{{ t('work.abilitiesLabel') }}</div>
+            <div class="skill-list">
+              <div
+                v-for="(s, idx) in displaySkillDescs(a)"
+                :key="idx"
+                class="skill-item"
+              >
+                <span class="skill-status"></span>
+                <span class="skill-item-name">{{ s }}</span>
+              </div>
+              <div v-if="!displaySkillDescs(a).length" class="skill-item">
+                <span class="skill-status"></span>
+                <span class="skill-item-desc">{{ t('work.noSkillNeeded') }}</span>
+              </div>
+            </div>
+            <template v-if="displayPrompts(a).length">
+              <div class="hover-section-label">{{ t('work.trySaying') }}</div>
+              <div class="prompt-list">
+                <div
+                  v-for="(p, idx) in displayPrompts(a)"
+                  :key="idx"
+                  class="prompt-item"
+                >{{ p }}</div>
+              </div>
+            </template>
           </div>
         </button>
       </div>
@@ -101,12 +140,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Search, Bot, X, FolderOpen, Plus } from 'lucide-vue-next'
+import { Search, Bot, X, FolderOpen, Plus, ChevronRight } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { useAgentsStore, type AgentDef } from '@/stores/agents'
-import { workAssistantIcon, workAvatarStyle, workDisplayName } from '@/utils/workAssistant'
-import { api } from '@/services/electronAPI'
+import { workAssistantIcon, workAvatarStyle, workDisplayName, workCategoryColor } from '@/utils/workAssistant'
 import CustomAssistantEditor from './CustomAssistantEditor.vue'
 
 const { t, locale } = useI18n()
@@ -118,7 +156,6 @@ const query = ref('')
 const activeCategory = ref('all')
 const loading = ref(false)
 const starting = ref(false)
-const officeCliAvailable = ref(false)
 const showEditor = ref(false)
 
 const workAssistants = computed(() => agentsStore.libraryAgents.filter(a => a.mode === 'work'))
@@ -221,22 +258,39 @@ function handleClose() {
   appStore.showWorkGallery = false
 }
 
-function isSkillAvailable(skillName: string): boolean {
-  if (skillName.startsWith('officecli') || skillName.startsWith('morph')) {
-    return officeCliAvailable.value
-  }
-  return true
-}
-
-async function onAssistantSaved(name: string) {
+async function onAssistantSaved(_name: string) {
   showEditor.value = false
   await loadLibrary()
 }
 
+/** 卡片内联样式：设置分类色 CSS 变量 --cat */
+function cardStyle(a: AgentDef): Record<string, string> {
+  return { '--cat': workCategoryColor(a.category) }
+}
+
+/** 能力指示点数量（最多 4 个） */
+function capabilityDotCount(a: AgentDef): number {
+  return Math.min((a.skills?.length || 0), 4)
+}
+
+/** 底部能力文字 */
+function capabilityText(a: AgentDef): string {
+  const count = a.skills?.length || 0
+  return count > 0 ? t('work.capabilities', { count }) : t('work.generalChat')
+}
+
+/** 本地化的推荐提示词 */
+function displayPrompts(a: AgentDef): string[] {
+  if (isZh() && a.recommendedPromptsZh?.length) return a.recommendedPromptsZh
+  return a.recommendedPrompts || []
+}
+
+/** 人可读的技能描述列表 */
+function displaySkillDescs(a: AgentDef): string[] {
+  return a.skillDescriptions || []
+}
+
 onMounted(async () => {
-  try {
-    officeCliAvailable.value = await api.officecli.checkInstalled()
-  } catch { /* ignore */ }
   await loadLibrary()
 })
 </script>
@@ -333,44 +387,79 @@ onMounted(async () => {
   gap: 12px;
 }
 
+/* ===== 助手卡片：垂直布局 + 顶部色条 ===== */
 .assistant-card {
+  position: relative;
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px;
+  flex-direction: column;
+  padding: 16px;
   text-align: left;
-  background: var(--surface-glass);
+  background: var(--bg-elevated);
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-lg);
   cursor: pointer;
   font-family: inherit;
-  transition: all var(--transition-fast);
+  min-height: 132px;
+  transition: border-color var(--transition-normal), box-shadow var(--transition-normal), transform var(--transition-normal);
+
+  /* 顶部 3px 分类色条 */
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: var(--cat, var(--accent-primary));
+    opacity: 0.7;
+    transition: opacity var(--transition-fast);
+    border-top-left-radius: var(--radius-lg);
+    border-top-right-radius: var(--radius-lg);
+  }
+
   &:hover:not(:disabled) {
-    border-color: var(--accent-primary);
-    background: var(--surface-glass-hover);
-    transform: translateY(-1px);
+    z-index: 20;
+    border-color: color-mix(in srgb, var(--cat, var(--accent-primary)) 40%, var(--surface-border));
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+    &::before { opacity: 1; }
+    .card-avatar { transform: scale(1.05); }
+    .hover-card { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
   }
   &:disabled { opacity: 0.6; cursor: not-allowed; }
 }
 
+.card-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .card-avatar {
   flex-shrink: 0;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-md);
+  transition: transform var(--transition-fast);
 }
 
-.card-body { min-width: 0; }
 .card-head {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
-  justify-content: space-between;
 }
-.card-name { font-size: 14px; font-weight: 600; color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .card-tag {
   flex-shrink: 0;
@@ -389,10 +478,10 @@ onMounted(async () => {
 .tag-PDF  { color: #c0392b; background: rgba(192, 57, 43, 0.12); border-color: rgba(192, 57, 43, 0.3); }
 
 .card-desc {
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--text-muted);
-  margin-top: 4px;
-  line-height: 1.5;
+  margin-top: 10px;
+  line-height: 1.55;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   line-clamp: 2;
@@ -400,43 +489,171 @@ onMounted(async () => {
   overflow: hidden;
 }
 
-.card-skills {
+/* 底部能力指示 */
+.card-foot {
   display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-  margin-top: 6px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 10px;
+  gap: 8px;
 }
+.capability-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-disabled);
+  font-weight: 500;
+}
+.capability-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.cap-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--cat, var(--accent-primary)) 50%, transparent);
+  &.muted { background: var(--surface-border-strong); }
+}
+.prompt-hint { gap: 4px; }
 
-.skill-badge {
+/* ===== 悬停浮层：渐进式披露 ===== */
+.hover-card {
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  z-index: 10;
+  background: var(--bg-elevated);
+  border: 1px solid color-mix(in srgb, var(--cat, var(--accent-primary)) 30%, var(--surface-border));
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  padding: 16px;
+  opacity: 0;
+  transform: translateY(4px) scale(0.98);
+  pointer-events: none;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+  max-height: 360px;
+  overflow-y: auto;
+}
+.hover-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.hover-card-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hover-card-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--surface-border);
+}
+.hover-section-label {
   font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: var(--bg-tertiary, var(--surface-glass));
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-disabled);
+  margin: 10px 0 6px;
+}
+.skill-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.skill-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.skill-item-name {
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.skill-item-desc {
   color: var(--text-muted);
-  border: 1px solid var(--surface-border);
-  font-family: var(--font-mono, monospace);
-  opacity: 0.6;
-
-  &.skill-available {
-    background: rgba(34, 197, 94, 0.1);
-    color: rgb(22, 163, 74);
-    border-color: rgba(34, 197, 94, 0.3);
-    opacity: 1;
+}
+.skill-status {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #22c55e;
+}
+.prompt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.prompt-item {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-glass);
+  border-left: 2px solid var(--cat, var(--accent-primary));
+  transition: background var(--transition-fast);
+  &::before {
+    content: '›';
+    color: var(--cat, var(--accent-primary));
+    font-weight: 700;
+    margin-right: 5px;
   }
 }
 
+/* ===== 创建卡片 ===== */
 .create-card {
-  border-style: dashed;
-  border-color: var(--surface-border);
-  opacity: 0.8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 132px;
+  background: transparent;
+  border: 1.5px dashed var(--surface-border-strong);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
   &:hover:not(:disabled) {
     border-color: var(--accent-primary);
-    opacity: 1;
+    color: var(--accent-primary);
+    background: var(--accent-primary-glow);
   }
 }
-
-.create-avatar {
-  opacity: 0.6;
+.create-plus-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-glass);
+  border: 1px solid var(--surface-border);
+}
+.create-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.create-sub {
+  font-size: 11px;
+  color: var(--text-disabled);
 }
 
 .gallery-empty {

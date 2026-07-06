@@ -116,7 +116,7 @@ const newDirPath = ref('')
 const errorMessage = ref('')
 
 function handleBrowse() {
-  const electronAPI = (window as any).electronAPI
+  const electronAPI = window.electronAPI
 
   if (electronAPI?.selectFolder) {
     electronAPI.selectFolder().then((result: { canceled: boolean; filePaths?: string[] }) => {

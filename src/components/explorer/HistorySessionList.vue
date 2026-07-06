@@ -112,13 +112,13 @@ const canLoadMore = computed(() => {
 async function loadSessions() {
   loading.value = true
   try {
-    const claudeCode = (window as any).electronAPI?.claudeCode
+    const claudeCode = window.electronAPI?.claudeCode
     if (claudeCode) {
       let loadedSessions: SessionLite[] = []
       if (chatStore.currentProjectRoot) {
-        loadedSessions = await claudeCode.listProjectSessions(chatStore.currentProjectRoot)
+        loadedSessions = await claudeCode.listProjectSessions(chatStore.currentProjectRoot) as SessionLite[]
       } else {
-        loadedSessions = await claudeCode.listAllSessions()
+        loadedSessions = await claudeCode.listAllSessions() as SessionLite[]
       }
       // 限制总加载数量
       sessions.value = loadedSessions.slice(0, 200)

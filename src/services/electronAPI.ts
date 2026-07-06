@@ -1,4 +1,4 @@
-const electronAPI = typeof window !== 'undefined' ? (window as any).electronAPI : null
+const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null
 
 import type {
   CuaDriverStatus,
@@ -7,6 +7,17 @@ import type {
   HealthCheck,
   McpToolResult,
 } from '@/types/computerUse'
+
+import type {
+  BrowserUseStatus,
+  BrowserUseUpdateInfo,
+  BrowserUseHealthCheck,
+  BrowserUseInstallProgress,
+  BrowserUseInstallOptions,
+  BrowserUseToolResult,
+  BrowserUseLiveSnapshot,
+  BrowserUseAgentConfig,
+} from '@/types/browserUse'
 
 export type {
   CuaDriverStatus,
@@ -29,6 +40,27 @@ export interface ArtifactEntry {
   ext: string
   size: number
   mtime: number
+}
+
+export interface PreviewPage {
+  path: string
+  role: string
+  title: string
+}
+
+export interface DesignSystemSwatch {
+  name: string
+  value: string
+}
+
+export interface DesignSystemSummary {
+  id: string
+  name: string
+  category: string
+  description?: string
+  previewPages: PreviewPage[]
+  swatches?: DesignSystemSwatch[]
+  officialUrl?: string
 }
 
 export interface FileStat {
@@ -1001,6 +1033,46 @@ export const api = {
       Promise.resolve({ data: null, images: [], imageMimeTypes: [], structuredContent: null, isError: true }),
   },
 
+  // Browser-Use API — 浏览器自动化（AI 操控网页）
+  browserUse: {
+    getStatus: (): Promise<BrowserUseStatus> =>
+      electronAPI?.browserUse?.getStatus() ||
+      Promise.reject(new Error('electronAPI not available')),
+    install: (options?: BrowserUseInstallOptions): Promise<{ success: boolean; error?: string }> =>
+      electronAPI?.browserUse?.install(options) ||
+      Promise.reject(new Error('electronAPI not available')),
+    onInstallProgress: (callback: (progress: BrowserUseInstallProgress) => void): (() => void) => {
+      if (electronAPI?.browserUse?.onInstallProgress) {
+        return electronAPI.browserUse.onInstallProgress(callback)
+      }
+      return () => {}
+    },
+    doctor: (): Promise<{ ok: boolean; checks: BrowserUseHealthCheck[] }> =>
+      electronAPI?.browserUse?.doctor() ||
+      Promise.resolve({ ok: false, checks: [] }),
+    checkUpdate: (): Promise<BrowserUseUpdateInfo> =>
+      electronAPI?.browserUse?.checkUpdate() ||
+      Promise.resolve({ updateAvailable: false, latestVersion: null, currentVersion: null }),
+    callTool: (name: string, args: Record<string, unknown>): Promise<BrowserUseToolResult> =>
+      electronAPI?.browserUse?.callTool(name, args) ||
+      Promise.resolve({ data: null, screenshots: [], currentUrl: null, pageTitle: null, isError: true, stepsUsed: 0 }),
+    config: (config?: Record<string, unknown>): Promise<BrowserUseAgentConfig | null> =>
+      electronAPI?.browserUse?.config(config) ||
+      Promise.resolve(null),
+    navigate: (url: string): Promise<BrowserUseToolResult> =>
+      electronAPI?.browserUse?.navigate(url) ||
+      Promise.resolve({ data: null, screenshots: [], currentUrl: null, pageTitle: null, isError: true, stepsUsed: 0 }),
+    getLiveSnapshot: (): Promise<BrowserUseLiveSnapshot | null> =>
+      electronAPI?.browserUse?.getLiveSnapshot() ||
+      Promise.resolve(null),
+    onLiveSnapshot: (callback: (snapshot: BrowserUseLiveSnapshot) => void): (() => void) => {
+      if (electronAPI?.browserUse?.onLiveSnapshot) {
+        return electronAPI.browserUse.onLiveSnapshot(callback)
+      }
+      return () => {}
+    },
+  },
+
   // Skills API
   skills: {
     getSkills: (cwd?: string): Promise<any> =>
@@ -1037,5 +1109,57 @@ export const api = {
       electronAPI?.skills?.removeCustomDir(dirPath) || Promise.resolve(),
     getCustomDirs: (): Promise<any> =>
       electronAPI?.skills?.getCustomDirs() || Promise.resolve({ directories: [] }),
+  },
+
+  // App paths API
+  app: {
+    getPath: (name: string): Promise<string> =>
+      electronAPI?.app?.getPath(name) || Promise.resolve(''),
+  },
+
+  // Shell API
+  shell: {
+    openExternal: (url: string): Promise<void> =>
+      electronAPI?.shell?.openExternal(url) || Promise.resolve(),
+  },
+
+  // Notification API
+  showNotification: (options: { title: string; message: string }): void => {
+    if (electronAPI?.showNotification) {
+      electronAPI.showNotification(options)
+    }
+  },
+
+  // Design API
+  design: {
+    listSystems: (): Promise<DesignSystemSummary[]> =>
+      electronAPI?.design?.listSystems() || Promise.resolve([]),
+    getSystemPreview: (systemId: string, pagePath: string): Promise<string> =>
+      electronAPI?.design?.getSystemPreview(systemId, pagePath) || Promise.resolve(''),
+    getSystemFile: (systemId: string, filePath: string): Promise<string> =>
+      electronAPI?.design?.getSystemFile(systemId, filePath) || Promise.resolve(''),
+    getSystemShowcase: (systemId: string): Promise<string> =>
+      electronAPI?.design?.getSystemShowcase(systemId) || Promise.resolve(''),
+    getSystemTokensHtml: (systemId: string): Promise<string> =>
+      electronAPI?.design?.getSystemTokensHtml(systemId) || Promise.resolve(''),
+    composePromptStack: (input: {
+      designSystemId?: string;
+      skillBody?: string;
+      skillName?: string;
+      locale: string;
+    }): Promise<string> =>
+      electronAPI?.design?.composePromptStack(input) || Promise.resolve(''),
+    startFileWatcher: (sessionId: string, workspacePath: string): Promise<void> =>
+      electronAPI?.design?.startFileWatcher(sessionId, workspacePath) || Promise.resolve(),
+    stopFileWatcher: (): Promise<void> =>
+      electronAPI?.design?.stopFileWatcher() || Promise.resolve(),
+    exportArtifact: (options: { filePath: string; format: 'html' | 'zip' | 'pdf' }): Promise<void> =>
+      electronAPI?.design?.exportArtifact(options) || Promise.resolve(),
+    onFileChanged: (callback: (event: { sessionId: string; filepath: string }) => void): (() => void) => {
+      if (electronAPI?.design?.onFileChanged) {
+        return electronAPI.design.onFileChanged(callback)
+      }
+      return () => {}
+    },
   },
 }

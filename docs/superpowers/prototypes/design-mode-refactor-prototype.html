@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<title>SpaceCode Design Mode — 重构原型</title>
+<style>
+  /* ===== 主题变量（模拟 SpaceCode token） ===== */
+  :root {
+    --bg-primary: #1a1a1f;
+    --bg-secondary: #22222a;
+    --surface-border: #2e2e38;
+    --surface-hover: #2a2a34;
+    --text-primary: #e4e4e8;
+    --text-secondary: #a0a0aa;
+    --text-muted: #6a6a74;
+    --accent-primary: #6c8cff;
+    --accent-primary-glow: rgba(108, 140, 255, 0.12);
+    --radius-xs: 4px;
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-full: 999px;
+    --shadow-xl: 0 8px 24px rgba(0,0,0,0.4);
+    --design-tab-height: 36px;
+    --design-composer-min-height: 80px;
+    --design-composer-max-height: 240px;
+  }
+  [data-theme="light"] {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f7f7f8;
+    --surface-border: #e4e4e8;
+    --surface-hover: #ededf0;
+    --text-primary: #1a1a1f;
+    --text-secondary: #5a5a64;
+    --text-muted: #9a9aa4;
+    --accent-primary: #4a6cff;
+    --accent-primary-glow: rgba(74, 108, 255, 0.08);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 13px; }
+  body { background: var(--bg-primary); color: var(--text-primary); overflow: hidden; }
+
+  /* ===== DesignPage 布局 ===== */
+  .design-page { display: flex; flex-direction: column; height: 100vh; }
+  .design-header {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 48px; padding: 0 16px;
+    border-bottom: 1px solid var(--surface-border); background: var(--bg-secondary);
+  }
+  .header-left { display: flex; align-items: center; gap: 10px; }
+  .header-left h1 { font-size: 14px; font-weight: 600; }
+  .header-icon { color: var(--accent-primary); }
+  .usage-bar { font-size: 11px; color: var(--text-muted); margin-left: 8px; }
+  .btn-stop { background: #ef4444; color: #fff; border: none; border-radius: var(--radius-sm); padding: 5px 12px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+  .btn-stop:hover { background: #dc2626; }
+
+  /* ===== SplitView ===== */
+  .split-view { display: flex; flex: 1; overflow: hidden; }
+  .split-pane { overflow: hidden; display: flex; flex-direction: column; }
+  .split-pane.left { flex-basis: 55%; }
+  .split-pane.right { flex-basis: 45%; }
+  .split-handle { width: 4px; cursor: col-resize; background: var(--surface-border); flex-shrink: 0; transition: background .15s; }
+  .split-handle:hover { background: var(--accent-primary); }
+
+  /* ===== DesignChatPane ===== */
+  .design-chat-pane { display: flex; flex-direction: column; height: 100%; background: var(--bg-primary); }
+  .session-bar { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--surface-border); background: var(--bg-secondary); overflow-x: auto; }
+  .session-tab { padding: 4px 12px; border-radius: var(--radius-sm); font-size: 12px; cursor: pointer; white-space: nowrap; color: var(--text-secondary); }
+  .session-tab.active { background: var(--accent-primary-glow); color: var(--accent-primary); }
+
+  .chat-body { flex: 1; overflow-y: auto; padding: 16px; }
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-muted); text-align: center; gap: 8px; }
+  .empty-state .icon { font-size: 32px; opacity: 0.5; }
+  .empty-state h2 { font-size: 16px; color: var(--text-primary); font-weight: 600; }
+  .empty-state p { font-size: 13px; max-width: 280px; line-height: 1.6; }
+  .empty-state .example { margin-top: 12px; padding: 8px 14px; background: var(--bg-secondary); border: 1px dashed var(--surface-border); border-radius: var(--radius-md); font-size: 12px; color: var(--text-secondary); }
+
+  /* ===== 消息项 ===== */
+  .message { margin-bottom: 16px; display: flex; gap: 10px; }
+  .msg-avatar { width: 24px; height: 24px; border-radius: var(--radius-full); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 11px; }
+  .msg-avatar.user { background: var(--accent-primary); color: #fff; }
+  .msg-avatar.assistant { background: var(--bg-secondary); border: 1px solid var(--surface-border); }
+  .msg-body { flex: 1; min-width: 0; }
+  .msg-role { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+  .msg-user-content { background: var(--bg-secondary); border-radius: var(--radius-md); padding: 10px 12px; font-size: 13px; line-height: 1.6; }
+
+  /* ===== buildBlocks 各类型 ===== */
+  .block-text { font-size: 13px; line-height: 1.7; color: var(--text-primary); margin-bottom: 8px; }
+  .block-text code { background: var(--bg-secondary); padding: 1px 5px; border-radius: var(--radius-xs); font-size: 12px; }
+  .block-thinking { background: var(--bg-secondary); border-left: 3px solid var(--text-muted); border-radius: var(--radius-sm); padding: 8px 12px; margin-bottom: 8px; font-size: 12px; color: var(--text-secondary); }
+  .block-thinking .think-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  .block-thinking .think-content { font-style: italic; line-height: 1.6; }
+
+  .block-tool-group { margin-bottom: 8px; }
+  .tool-group-header { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-secondary); border: 1px solid var(--surface-border); border-radius: var(--radius-full); padding: 3px 10px; font-size: 11px; color: var(--text-secondary); cursor: pointer; margin-bottom: 4px; }
+  .tool-group-header .count { background: var(--accent-primary-glow); color: var(--accent-primary); border-radius: var(--radius-full); padding: 1px 6px; font-size: 10px; }
+  .tool-group-header .check { color: #10b981; }
+  .tool-card { border: 1px solid var(--surface-border); border-radius: var(--radius-sm); margin: 4px 0; overflow: hidden; }
+  .tool-card-header { display: flex; align-items: center; gap: 6px; padding: 6px 10px; cursor: pointer; font-size: 12px; background: var(--bg-secondary); }
+  .tool-card-header .path { font-family: "SF Mono", Consolas, monospace; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tool-card-header .open-btn { background: none; border: 1px solid var(--surface-border); border-radius: var(--radius-xs); padding: 2px 6px; cursor: pointer; font-size: 10px; color: var(--text-secondary); }
+  .tool-card-body { padding: 8px 10px; font-family: "SF Mono", Consolas, monospace; font-size: 11px; white-space: pre-wrap; max-height: 120px; overflow-y: auto; background: var(--bg-primary); color: var(--text-secondary); }
+
+  .block-od-card { border: 1px solid var(--surface-border); border-radius: var(--radius-md); padding: 12px; background: var(--bg-secondary); margin-bottom: 8px; }
+  .od-title { font-weight: 600; font-size: 13px; margin-bottom: 8px; }
+  .swatch-strip { display: flex; gap: 4px; }
+  .swatch { width: 24px; height: 24px; border-radius: var(--radius-xs); border: 1px solid var(--surface-border); }
+  .brand-font { font-size: 12px; color: var(--text-secondary); margin-top: 8px; }
+
+  .block-question-form { border: 1px solid var(--accent-primary); border-radius: var(--radius-md); padding: 12px; background: var(--accent-primary-glow); margin-bottom: 8px; }
+  .qf-title { font-weight: 600; font-size: 13px; margin-bottom: 8px; color: var(--accent-primary); }
+  .qf-field { margin-bottom: 8px; }
+  .qf-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+  .qf-input { width: 100%; padding: 6px 8px; background: var(--bg-primary); border: 1px solid var(--surface-border); border-radius: var(--radius-sm); color: var(--text-primary); font-size: 12px; }
+  .qf-options { display: flex; gap: 6px; flex-wrap: wrap; }
+  .qf-option { padding: 4px 12px; background: var(--bg-primary); border: 1px solid var(--surface-border); border-radius: var(--radius-full); font-size: 12px; cursor: pointer; }
+  .qf-option.selected { background: var(--accent-primary); color: #fff; border-color: var(--accent-primary); }
+  .qf-submit { margin-top: 8px; background: var(--accent-primary); color: #fff; border: none; border-radius: var(--radius-sm); padding: 6px 16px; font-size: 12px; cursor: pointer; }
+
+  .block-next-steps { padding: 8px 0; border-top: 1px solid var(--surface-border); margin-top: 8px; }
+  .ns-title { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .ns-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .ns-btn { background: var(--bg-secondary); border: 1px solid var(--surface-border); border-radius: var(--radius-full); padding: 4px 12px; font-size: 12px; cursor: pointer; color: var(--text-secondary); }
+  .ns-btn:hover { background: var(--surface-hover); color: var(--text-primary); }
+
+  .block-status { font-size: 11px; color: var(--text-muted); padding: 6px 0; border-top: 1px solid var(--surface-border); margin-top: 4px; display: flex; gap: 8px; }
+
+  /* ===== RetryIndicator ===== */
+  .retry-indicator { margin: 0 16px 8px; padding: 8px 12px; background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; border-radius: var(--radius-md); font-size: 12px; color: #fca5a5; display: flex; align-items: center; gap: 8px; }
+  .retry-indicator .spinner { width: 12px; height: 12px; border: 2px solid #ef4444; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ===== DesignComposer ===== */
+  .design-composer { border-top: 1px solid var(--surface-border); padding: 8px 12px; background: var(--bg-secondary); position: relative; }
+  .composer-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .plus-btn { background: none; border: 1px solid var(--surface-border); border-radius: var(--radius-sm); width: 26px; height: 26px; cursor: pointer; color: var(--text-secondary); font-size: 16px; display: flex; align-items: center; justify-content: center; }
+  .plus-btn:hover { background: var(--surface-hover); }
+  .skill-tag { background: var(--accent-primary-glow); color: var(--accent-primary); border-radius: var(--radius-full); padding: 3px 10px; font-size: 11px; display: flex; align-items: center; gap: 6px; }
+  .skill-tag .x { cursor: pointer; opacity: 0.6; }
+  .skill-tag .x:hover { opacity: 1; }
+  .send-btn { margin-left: auto; background: var(--accent-primary); color: #fff; border: none; border-radius: var(--radius-sm); padding: 5px 14px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+  .send-btn.stop { background: #ef4444; }
+  .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .composer-input { width: 100%; min-height: var(--design-composer-min-height); max-height: var(--design-composer-max-height); border: 1px solid var(--surface-border); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text-primary); padding: 10px; font-size: 13px; resize: none; font-family: inherit; line-height: 1.5; }
+  .composer-input:focus { outline: none; border-color: var(--accent-primary); }
+
+  .toolbox-panel { position: absolute; bottom: 100%; left: 12px; right: 12px; background: var(--bg-secondary); border: 1px solid var(--surface-border); border-radius: var(--radius-md); box-shadow: var(--shadow-xl); padding: 10px; max-height: 320px; overflow-y: auto; }
+  .toolbox-section-label { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; }
+  .skill-option { display: block; width: 100%; text-align: left; background: none; border: none; padding: 8px 10px; border-radius: var(--radius-sm); cursor: pointer; color: var(--text-primary); }
+  .skill-option:hover { background: var(--surface-hover); }
+  .skill-option.active { background: var(--accent-primary-glow); }
+  .skill-option .name { font-size: 12px; font-weight: 500; display: block; }
+  .skill-option .desc { font-size: 11px; color: var(--text-muted); display: block; margin-top: 2px; }
+
+  /* ===== DesignFileWorkspace ===== */
+  .file-workspace { display: flex; flex-direction: column; height: 100%; background: var(--bg-primary); }
+  .ws-toolbar { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--surface-border); align-items: center; }
+  .ws-toolbar button { background: none; border: 1px solid var(--surface-border); border-radius: var(--radius-sm); padding: 4px 10px; font-size: 11px; cursor: pointer; color: var(--text-secondary); }
+  .ws-toolbar button.active { background: var(--accent-primary-glow); color: var(--accent-primary); border-color: var(--accent-primary); }
+
+  .tabs-bar { display: flex; height: var(--design-tab-height); border-bottom: 1px solid var(--surface-border); background: var(--bg-secondary); overflow-x: auto; }
+  .tab { display: flex; align-items: center; gap: 6px; padding: 0 12px; border-right: 1px solid var(--surface-border); cursor: pointer; font-size: 12px; color: var(--text-secondary); }
+  .tab:hover { background: var(--surface-hover); }
+  .tab.active { background: var(--bg-primary); color: var(--text-primary); border-bottom: 2px solid var(--accent-primary); }
+  .tab .close { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 14px; padding: 0 2px; }
+  .tab .close:hover { color: var(--text-primary); }
+
+  .ws-body { flex: 1; overflow: hidden; position: relative; }
+  .preview-frame { width: 100%; height: 100%; border: none; background: #fff; }
+  .source-view { height: 100%; overflow: auto; padding: 12px; background: var(--bg-primary); }
+  .source-view pre { font-family: "SF Mono", Consolas, monospace; font-size: 12px; color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap; }
+
+  .artifact-list { border-top: 1px solid var(--surface-border); padding: 8px 10px; max-height: 180px; overflow-y: auto; background: var(--bg-secondary); }
+  .al-title { font-size: 11px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.05em; }
+  .al-item { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; color: var(--text-secondary); }
+  .al-item:hover { background: var(--surface-hover); color: var(--text-primary); }
+  .al-item.active { background: var(--accent-primary-glow); color: var(--accent-primary); }
+
+  .export-bar { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--surface-border); background: var(--bg-secondary); }
+  .export-bar button { flex: 1; background: var(--bg-primary); border: 1px solid var(--surface-border); border-radius: var(--radius-sm); padding: 6px; font-size: 11px; cursor: pointer; color: var(--text-secondary); }
+  .export-bar button:hover { background: var(--surface-hover); color: var(--text-primary); }
+
+  /* ===== 控制面板（原型用） ===== */
+  .proto-controls { position: fixed; top: 8px; right: 8px; z-index: 1000; background: var(--bg-secondary); border: 1px solid var(--surface-border); border-radius: var(--radius-md); padding: 8px; display: flex; gap: 6px; flex-direction: column; font-size: 11px; }
+  .proto-controls button { background: var(--bg-primary); border: 1px solid var(--surface-border); border-radius: var(--radius-sm); padding: 4px 10px; cursor: pointer; color: var(--text-primary); }
+  .proto-controls button.active { background: var(--accent-primary); color: #fff; }
+  .proto-controls .label { color: var(--text-muted); font-size: 10px; text-transform: uppercase; }
+</style>
+</head>
+<body>
+
+<div class="proto-controls">
+  <span class="label">原型切换</span>
+  <button id="btn-state-empty">空态</button>
+  <button id="btn-state-active" class="active">设计中</button>
+  <button id="btn-state-retry">重试中</button>
+  <span class="label" style="margin-top:4px">主题</span>
+  <button id="btn-theme">切换亮/暗</button>
+</div>
+
+<div class="design-page" id="designPage">
+  <!-- Header -->
+  <header class="design-header">
+    <div class="header-left">
+      <span class="header-icon">🎨</span>
+      <h1>Design</h1>
+      <span class="usage-bar" id="usageBar">1.2k in · 3.4k out · 12s · $0.02</span>
+    </div>
+    <div class="header-right">
+      <button class="btn-stop" id="headerStop">■ 停止生成</button>
+    </div>
+  </header>
+
+  <!-- SplitView -->
+  <div class="split-view" id="splitView">
+    <!-- 左：ChatPane -->
+    <div class="split-pane left">
+      <div class="design-chat-pane">
+        <!-- 会话 Tab -->
+        <div class="session-bar">
+          <div class="session-tab active">Stripe 落地页</div>
+          <div class="session-tab">Dashboard 原型</div>
+          <div class="session-tab">+ 新会话</div>
+        </div>
+
+        <!-- 消息流 -->
+        <div class="chat-body" id="chatBody">
+          <!-- 内容由 JS 注入 -->
+        </div>
+
+        <!-- RetryIndicator（重试态显示） -->
+        <div class="retry-indicator" id="retryIndicator" style="display:none">
+          <span class="spinner"></span>
+          <span>API Error: 429 正在重连（2/5）</span>
+        </div>
+
+        <!-- Composer -->
+        <div class="design-composer">
+          <div class="composer-toolbar">
+            <button class="plus-btn" id="plusBtn">+</button>
+            <span class="skill-tag">🎨 华术设计 <span class="x">×</span></span>
+            <button class="send-btn" id="sendBtn">发送</button>
+          </div>
+          <textarea class="composer-input" placeholder="输入设计需求，Enter 发送，Shift+Enter 换行..."></textarea>
+
+          <!-- ToolboxPanel（点 + 展开） -->
+          <div class="toolbox-panel" id="toolboxPanel" style="display:none">
+            <div class="toolbox-section-label">Skills</div>
+            <button class="skill-option active">
+              <span class="name">🎨 华术设计 (Huashu Design)</span>
+              <span class="desc">遵循大师级中文设计师章程，5维度精细打磨，杜绝 AI 垃圾套路</span>
+            </button>
+            <button class="skill-option">
+              <span class="name">Canvas 互动设计</span>
+              <span class="desc">基于 Canvas/WebGL 的高动效游戏化 UI</span>
+            </button>
+            <button class="skill-option">
+              <span class="name">UI/UX Pro Max</span>
+              <span class="desc">高品质多文件响应式 Web 原型，支持 Tailwind</span>
+            </button>
+            <button class="skill-option">
+              <span class="name">演示文稿专家 (Morph PPT)</span>
+              <span class="desc">HTML 动态转场幻灯片设计</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="split-handle" id="splitHandle"></div>
+
+    <!-- 右：FileWorkspace -->
+    <div class="split-pane right">
+      <div class="file-workspace">
+        <!-- 工具条 -->
+        <div class="ws-toolbar">
+          <button class="active" data-mode="preview">预览</button>
+          <button data-mode="source">源码</button>
+          <button>⟳ 刷新</button>
+          <button>↗ 外部打开</button>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs-bar">
+          <div class="tab active">index.html <button class="close">×</button></div>
+          <div class="tab">styles.css <button class="close">×</button></div>
+        </div>
+
+        <!-- 预览区 -->
+        <div class="ws-body" id="wsBody">
+          <iframe class="preview-frame" id="previewFrame"></iframe>
+        </div>
+
+        <!-- 工件列表 -->
+        <div class="artifact-list">
+          <div class="al-title">Artifacts</div>
+          <div class="al-item active">📄 index.html</div>
+          <div class="al-item">🎨 styles.css</div>
+          <div class="al-item">⚡ script.js</div>
+        </div>
+
+        <!-- 导出 -->
+        <div class="export-bar">
+          <button>导出 HTML</button>
+          <button>导出 ZIP</button>
+          <button>导出 PDF</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== 状态切换 =====
+const states = {
+  empty: {
+    chatBody: `
+      <div class="empty-state">
+        <div class="icon">🎨</div>
+        <h2>开始你的设计对话</h2>
+        <p>在下方输入你的设计需求，或从 + 菜单选择设计技能。</p>
+        <div class="example">例：生成一个 Stripe 风格的支付落地页</div>
+      </div>`,
+    wsBody: `
+      <div class="empty-state">
+        <div class="icon">📭</div>
+        <h2>暂无设计产物</h2>
+        <p>开始对话后，生成的 HTML 将在此处实时预览。</p>
+      </div>`,
+    retry: false,
+    headerStop: false,
+    usage: ''
+  },
+  active: {
+    chatBody: `
+      <!-- User 消息 -->
+      <div class="message">
+        <div class="msg-avatar user">U</div>
+        <div class="msg-body">
+          <div class="msg-role">你</div>
+          <div class="msg-user-content">生成一个 Stripe 风格的支付落地页，要有优雅的渐变和动效</div>
+        </div>
+      </div>
+
+      <!-- Assistant 消息（buildBlocks 渲染） -->
+      <div class="message">
+        <div class="msg-avatar assistant">🤖</div>
+        <div class="msg-body">
+          <div class="msg-role">Claude</div>
+
+          <!-- ThinkingBlock -->
+          <div class="block-thinking">
+            <div class="think-label">▼ 思考过程</div>
+            <div class="think-content">用户要 Stripe 风格支付落地页。Stripe 视觉特征：紫蓝渐变、大量留白、几何图形、微动效。我先用 HTML 骨架 + CSS 变量实现，再用 IntersectionObserver 做滚动入场动画...</div>
+          </div>
+
+          <!-- TextBlock -->
+          <div class="block-text">
+            我来为你创建一个 Stripe 风格的支付落地页。先建立 HTML 骨架与配色系统，再添加滚动动效。
+          </div>
+
+          <!-- ToolGroupBlock (Write ×3) -->
+          <div class="block-tool-group">
+            <div class="tool-group-header">
+              <span class="check">✓</span>
+              <span>Write</span>
+              <span class="count">×3</span>
+            </div>
+            <div class="tool-card">
+              <div class="tool-card-header">
+                <span>📝</span>
+                <span class="path">index.html</span>
+                <button class="open-btn">预览 ↗</button>
+              </div>
+              <div class="tool-card-body">&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;&lt;link rel="stylesheet" href="styles.css"&gt;&lt;/head&gt;
+&lt;body&gt;
+  &lt;section class="hero"&gt;
+    &lt;h1&gt;Payments infrastructure for the internet&lt;/hh1&gt;
+  &lt;/section&gt;
+&lt;/body&gt;
+&lt;/html&gt;</div>
+            </div>
+            <div class="tool-card">
+              <div class="tool-card-header">
+                <span>📝</span>
+                <span class="path">styles.css</span>
+              </div>
+            </div>
+            <div class="tool-card">
+              <div class="tool-card-header">
+                <span>📝</span>
+                <span class="path">script.js</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- TextBlock -->
+          <div class="block-text">
+            已完成基础结构。下面是品牌配色预览：
+          </div>
+
+          <!-- OdCardBlock (brand-preview) -->
+          <div class="block-od-card">
+            <div class="od-title">🎨 品牌预览</div>
+            <div class="swatch-strip">
+              <span class="swatch" style="background:#635BFF"></span>
+              <span class="swatch" style="background:#0A2540"></span>
+              <span class="swatch" style="background:#00D4FF"></span>
+              <span class="swatch" style="background:#FFFFFF;border:1px solid #ccc"></span>
+            </div>
+            <div class="brand-font">字体：Söhne / Inter · 主色 #635BFF · 背景 #0A2540</div>
+          </div>
+
+          <!-- TextBlock -->
+          <div class="block-text">
+            预览已生成在右侧。需要我调整哪个方向？
+          </div>
+
+          <!-- QuestionFormBlock -->
+          <div class="block-question-form">
+            <div class="qf-title">📋 设计偏好确认</div>
+            <div class="qf-field">
+              <div class="qf-label">视觉风格倾向</div>
+              <div class="qf-options">
+                <span class="qf-option">极简留白</span>
+                <span class="qf-option selected">渐变科技感</span>
+                <span class="qf-option">几何动感</span>
+              </div>
+            </div>
+            <div class="qf-field">
+              <div class="qf-label">动效强度</div>
+              <div class="qf-options">
+                <span class="qf-option">轻量</span>
+                <span class="qf-option selected">中等</span>
+                <span class="qf-option">强烈</span>
+              </div>
+            </div>
+            <button class="qf-submit">提交</button>
+          </div>
+
+          <!-- StatusBlock -->
+          <div class="block-status">
+            <span>1.2k in · 3.4k out</span>
+            <span>· 12s</span>
+            <span>· $0.02</span>
+          </div>
+
+          <!-- NextStepActions -->
+          <div class="block-next-steps">
+            <div class="ns-title">下一步</div>
+            <div class="ns-actions">
+              <button class="ns-btn">调整配色</button>
+              <button class="ns-btn">换个布局</button>
+              <button class="ns-btn">增加价格表</button>
+              <button class="ns-btn">导出 ZIP</button>
+            </div>
+          </div>
+        </div>
+      </div>`,
+    wsBody: null, // 用 iframe 预览
+    retry: false,
+    headerStop: true,
+    usage: '1.2k in · 3.4k out · 12s · $0.02'
+  },
+  retry: {
+    chatBody: `
+      <div class="message">
+        <div class="msg-avatar user">U</div>
+        <div class="msg-body">
+          <div class="msg-role">你</div>
+          <div class="msg-user-content">生成一个 Stripe 风格的支付落地页</div>
+        </div>
+      </div>
+      <div class="message">
+        <div class="msg-avatar assistant">🤖</div>
+        <div class="msg-body">
+          <div class="msg-role">Claude</div>
+          <div class="block-text" style="color:var(--text-muted)">正在生成...（流式中断）</div>
+        </div>
+      </div>`,
+    wsBody: `
+      <div class="empty-state">
+        <div class="icon">⚠️</div>
+        <h2>等待重连</h2>
+        <p>API 连接中断，正在自动重试...</p>
+      </div>`,
+    retry: true,
+    headerStop: false,
+    usage: ''
+  }
+};
+
+const chatBody = document.getElementById('chatBody');
+const wsBody = document.getElementById('wsBody');
+const previewFrame = document.getElementById('previewFrame');
+const retryIndicator = document.getElementById('retryIndicator');
+const headerStop = document.getElementById('headerStop').parentElement;
+const usageBar = document.getElementById('usageBar');
+
+function setState(name) {
+  const s = states[name];
+  chatBody.innerHTML = s.chatBody;
+  if (s.wsBody) {
+    previewFrame.style.display = 'none';
+    wsBody.innerHTML = s.wsBody;
+  } else {
+    wsBody.innerHTML = '<iframe class="preview-frame" id="previewFrame"></iframe>';
+    const newFrame = document.getElementById('previewFrame');
+    newFrame.srcdoc = `<!DOCTYPE html><html><head><style>
+      body{margin:0;font-family:-apple-system,sans-serif;background:#0A2540;color:#fff;overflow:hidden}
+      .hero{padding:80px 40px;background:linear-gradient(135deg,#635BFF 0%,#0A2540 100%);min-height:100vh;display:flex;flex-direction:column;justify-content:center}
+      h1{font-size:48px;font-weight:700;margin:0 0 16px;letter-spacing:-0.02em}
+      p{font-size:18px;opacity:0.8;margin:0 0 32px}
+      .btn{display:inline-block;background:#635BFF;color:#fff;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600}
+      .cards{display:flex;gap:16px;margin-top:40px}
+      .card{flex:1;background:rgba(255,255,255,0.08);padding:20px;border-radius:8px;backdrop-filter:blur(10px)}
+      .card h3{font-size:14px;margin:0 0 8px}
+      .card p{font-size:12px;margin:0}
+    </style></head><body>
+      <div class="hero">
+        <h1>Payments infrastructure<br/>for the internet</h1>
+        <p>Millions of companies use Stripe to accept payments, send payouts, and manage their businesses online.</p>
+        <span class="btn">Start now →</span>
+        <div class="cards">
+          <div class="card"><h3>⚡ 即时入账</h3><p>资金秒级到账</p></div>
+          <div class="card"><h3>🔒 银行级安全</h3><p>PCI DSS 合规</p></div>
+          <div class="card"><h3>🌍 全球覆盖</h3><p>支持 135+ 货币</p></div>
+        </div>
+      </div>
+    </html>`;
+  }
+  retryIndicator.style.display = s.retry ? 'flex' : 'none';
+  document.getElementById('headerStop').style.display = s.headerStop ? 'flex' : 'none';
+  usageBar.textContent = s.usage;
+}
+
+// 初始状态
+setState('active');
+
+// 按钮事件
+document.getElementById('btn-state-empty').onclick = (e) => { setActiveBtn(e.target); setState('empty'); };
+document.getElementById('btn-state-active').onclick = (e) => { setActiveBtn(e.target); setState('active'); };
+document.getElementById('btn-state-retry').onclick = (e) => { setActiveBtn(e.target); setState('retry'); };
+function setActiveBtn(btn) {
+  document.querySelectorAll('.proto-controls button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+// 主题切换
+document.getElementById('btn-theme').onclick = () => {
+  const html = document.documentElement;
+  html.dataset.theme = html.dataset.theme === 'dark' ? 'light' : 'dark';
+};
+
+// ToolboxPanel 切换
+document.getElementById('plusBtn').onclick = () => {
+  const p = document.getElementById('toolboxPanel');
+  p.style.display = p.style.display === 'none' ? 'block' : 'none';
+};
+
+// 视图模式切换（预览/源码）
+document.querySelectorAll('.ws-toolbar button[data-mode]').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.ws-toolbar button[data-mode]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const mode = btn.dataset.mode;
+    if (mode === 'source') {
+      const frame = document.querySelector('.preview-frame');
+      if (frame) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'source-view';
+        wrapper.innerHTML = '<pre>&lt;!DOCTYPE html&gt;\n&lt;html&gt;\n&lt;head&gt;\n  &lt;link rel="stylesheet" href="styles.css"&gt;\n&lt;/head&gt;\n&lt;body&gt;\n  &lt;section class="hero"&gt;\n    &lt;h1&gt;Payments infrastructure&lt;/h1&gt;\n    &lt;p&gt;Millions of companies use Stripe...&lt;/p&gt;\n    &lt;span class="btn"&gt;Start now →&lt;/span&gt;\n  &lt;/section&gt;\n&lt;/body&gt;\n&lt;/html&gt;</pre>';
+        frame.replaceWith(wrapper);
+      }
+    } else {
+      const src = document.querySelector('.source-view');
+      if (src) {
+        const frame = document.createElement('iframe');
+        frame.className = 'preview-frame';
+        frame.srcdoc = '<div style="padding:40px;color:#888">预览模式（见设计中状态）</div>';
+        src.replaceWith(frame);
+      }
+    }
+  };
+});
+
+// 分隔条拖拽
+const splitView = document.getElementById('splitView');
+const handle = document.getElementById('splitHandle');
+const leftPane = document.querySelector('.split-pane.left');
+const rightPane = document.querySelector('.split-pane.right');
+let dragging = false;
+handle.onmousedown = (e) => { dragging = true; e.preventDefault(); document.body.style.cursor = 'col-resize'; };
+document.onmousemove = (e) => {
+  if (!dragging) return;
+  const rect = splitView.getBoundingClientRect();
+  const pct = ((e.clientX - rect.left) / rect.width) * 100;
+  const clamped = Math.max(30, Math.min(70, pct));
+  leftPane.style.flexBasis = clamped + '%';
+  rightPane.style.flexBasis = (100 - clamped) + '%';
+};
+document.onmouseup = () => { dragging = false; document.body.style.cursor = ''; };
+</script>
+</body>
+</html>

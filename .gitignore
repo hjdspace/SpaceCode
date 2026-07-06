@@ -38,6 +38,7 @@ Desktop.ini
 .trae/
 .qoder/
 .assistant/
+.worktrees/
 .pytest_cache/
 
 release/
@@ -60,4 +61,4 @@ _temp/
 .orbit/
 .zcode/
 
-*.exe
+*.exe*

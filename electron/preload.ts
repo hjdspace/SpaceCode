@@ -339,6 +339,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('claude-code:user', wrapper)
       return () => ipcRenderer.removeListener('claude-code:user', wrapper)
     },
+    onSystem: (callback: (data: { sessionId: string; data: any }) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
+      ipcRenderer.on('claude-code:system', wrapper)
+      return () => ipcRenderer.removeListener('claude-code:system', wrapper)
+    },
     onToolUse: (callback: (data: { sessionId: string; data: any }) => void) => {
       const wrapper = (_: any, data: any) => callback(data)
       ipcRenderer.on('claude-code:tool_use', wrapper)
@@ -620,6 +625,41 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('cua-driver:tool', name, args),
   },
 
+  // Browser-Use API — 浏览器自动化（AI 操控网页）
+  browserUse: {
+    /** 获取 browser-use 完整状态 */
+    getStatus: () => ipcRenderer.invoke('browser-use:status'),
+    /** 安装 browser-use + playwright chromium（可选镜像源加速） */
+    install: (options?: { useMirror: boolean; mirrorType: 'tsinghua' | 'aliyun' | 'npmmirror' }) =>
+      ipcRenderer.invoke('browser-use:install', options),
+    /** 安装进度事件订阅 */
+    onInstallProgress: (callback: (progress: { stage: string; message: string; percent: number }) => void) => {
+      const handler = (_: unknown, data: { stage: string; message: string; percent: number }) => callback(data)
+      ipcRenderer.on('browser-use:installProgress', handler)
+      return () => ipcRenderer.removeListener('browser-use:installProgress', handler)
+    },
+    /** 运行健康检查 */
+    doctor: () => ipcRenderer.invoke('browser-use:doctor'),
+    /** 检查更新 */
+    checkUpdate: () => ipcRenderer.invoke('browser-use:check-update'),
+    /** 调用 browser-use MCP 工具 */
+    callTool: (name: string, args: Record<string, unknown>) =>
+      ipcRenderer.invoke('browser-use:tool', name, args),
+    /** 获取/更新 Agent 配置 */
+    config: (config?: Record<string, unknown>) =>
+      ipcRenderer.invoke('browser-use:config', config),
+    /** 导航到 URL */
+    navigate: (url: string) => ipcRenderer.invoke('browser-use:navigate', url),
+    /** 获取实时浏览器快照 */
+    getLiveSnapshot: () => ipcRenderer.invoke('browser-use:liveSnapshot'),
+    /** 实时快照推送事件订阅 */
+    onLiveSnapshot: (callback: (snapshot: { screenshot: string | null; url: string; title: string; currentStep: number; totalSteps: number; agentStatus: string; lastAction: string | null }) => void) => {
+      const handler = (_: unknown, data: any) => callback(data)
+      ipcRenderer.on('browser-use:liveSnapshot', handler)
+      return () => ipcRenderer.removeListener('browser-use:liveSnapshot', handler)
+    },
+  },
+
   mobile: {
     startServer: (): Promise<import('./mobileServerTypes').QRCodeData> =>
       ipcRenderer.invoke('mobile:startServer'),
@@ -671,6 +711,65 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const wrapper = (_: any, error: string) => callback(error)
       ipcRenderer.on('update:error', wrapper)
       return () => ipcRenderer.removeListener('update:error', wrapper)
+    },
+  },
+
+  // App paths API
+  app: {
+    getPath: (name: string): Promise<string> =>
+      ipcRenderer.invoke('app:getPath', name),
+  },
+
+  // Shell API
+  shell: {
+    openExternal: (url: string): Promise<void> =>
+      ipcRenderer.invoke('shell:openExternal', url),
+    openPath: (path: string): Promise<void> =>
+      ipcRenderer.invoke('shell:openPath', path),
+  },
+
+  // Notification API
+  showNotification: (options: { title: string; message: string }) =>
+    ipcRenderer.send('app:showNotification', options),
+
+  // Design API
+  design: {
+    listSystems: (): Promise<
+      Array<{
+        id: string;
+        name: string;
+        category: string;
+        description?: string;
+        previewPages: Array<{ path: string; role: string; title: string }>;
+        swatches?: Array<{ name: string; value: string }>;
+        officialUrl?: string;
+      }>
+    > => ipcRenderer.invoke('design:list-systems'),
+    getSystemPreview: (systemId: string, pagePath: string): Promise<string> =>
+      ipcRenderer.invoke('design:get-system-preview', systemId, pagePath),
+    getSystemFile: (systemId: string, filePath: string): Promise<string> =>
+      ipcRenderer.invoke('design:get-system-file', systemId, filePath),
+    getSystemShowcase: (systemId: string): Promise<string> =>
+      ipcRenderer.invoke('design:get-system-showcase', systemId),
+    getSystemTokensHtml: (systemId: string): Promise<string> =>
+      ipcRenderer.invoke('design:get-system-tokens-html', systemId),
+    composePromptStack: (input: {
+      designSystemId?: string;
+      skillBody?: string;
+      skillName?: string;
+      locale: string;
+    }): Promise<string> =>
+      ipcRenderer.invoke('design:compose-prompt-stack', input),
+    startFileWatcher: (sessionId: string, workspacePath: string): Promise<void> =>
+      ipcRenderer.invoke('design:start-file-watcher', sessionId, workspacePath),
+    stopFileWatcher: (): Promise<void> =>
+      ipcRenderer.invoke('design:stop-file-watcher'),
+    exportArtifact: (options: { filePath: string; format: 'html' | 'zip' | 'pdf' }): Promise<void> =>
+      ipcRenderer.invoke('design:export-artifact', options),
+    onFileChanged: (callback: (event: { sessionId: string; filepath: string }) => void): (() => void) => {
+      const wrapper = (_: any, event: any) => callback(event)
+      ipcRenderer.on('design:file-changed', wrapper)
+      return () => ipcRenderer.removeListener('design:file-changed', wrapper)
     },
   },
 

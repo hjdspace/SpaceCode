@@ -15,6 +15,14 @@ export const TOOL_COMPONENT_MAP: Record<string, () => Promise<any>> = {
   'WebFetch': () => import('./WebFetchToolCard.vue'),
   'WebSearch': () => import('./WebSearchToolCard.vue'),
   'AskUserQuestion': () => import('./AskUserQuestionToolCard.vue'),
+  // Browser-Use tools
+  'browser_use': () => import('./BrowserUseToolCard.vue'),
+  'browse': () => import('./BrowserUseToolCard.vue'),
+  'scrape': () => import('./BrowserUseToolCard.vue'),
+  'screenshot': () => import('./BrowserUseToolCard.vue'),
+  'navigate': () => import('./BrowserUseToolCard.vue'),
+  'BrowserUse': () => import('./BrowserUseToolCard.vue'),
+  'browser-use': () => import('./BrowserUseToolCard.vue'),
 }
 
 const componentCache = new Map<string, Component>()

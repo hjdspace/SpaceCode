@@ -56,7 +56,7 @@
               </div>
               <input
                 type="text"
-                v-model="config.anthropic.baseUrl"
+                v-model="config.anthropicConfig.baseUrl"
                 placeholder="https://api.anthropic.com"
                 class="s-form-input baseurl-input"
               />
@@ -84,7 +84,7 @@
           <div class="s-input-with-action">
             <input
               :type="showApiKey ? 'text' : 'password'"
-              v-model="config.anthropic.apiKey"
+              v-model="config.anthropicConfig.apiKey"
               placeholder="sk-ant-..."
               class="s-form-input"
             />
@@ -136,7 +136,7 @@
               </div>
               <input
                 type="text"
-                v-model="config.openai.baseUrl"
+                v-model="config.openaiConfig.baseUrl"
                 placeholder="https://api.openai.com/v1"
                 class="s-form-input baseurl-input"
               />
@@ -163,7 +163,7 @@
           <div class="s-input-with-action">
             <input
               :type="showApiKey ? 'text' : 'password'"
-              v-model="config.openai.apiKey"
+              v-model="config.openaiConfig.apiKey"
               placeholder="sk-..."
               class="s-form-input"
             />
@@ -215,7 +215,7 @@
               </div>
               <input
                 type="text"
-                v-model="config.gemini.baseUrl"
+                v-model="config.geminiConfig.baseUrl"
                 placeholder="https://generativelanguage.googleapis.com/v1beta"
                 class="s-form-input baseurl-input"
               />
@@ -243,7 +243,7 @@
           <div class="s-input-with-action">
             <input
               :type="showApiKey ? 'text' : 'password'"
-              v-model="config.gemini.apiKey"
+              v-model="config.geminiConfig.apiKey"
               placeholder="AIza..."
               class="s-form-input"
             />
@@ -320,7 +320,7 @@
         <div class="s-form-group">
           <label class="s-form-label">{{ $t('model.haikuModel') }} <span class="s-model-tag fast">{{ $t('model.fast') }}</span></label>
           <SearchableSelect
-            v-model="config.haikuModel"
+            v-model="haikuModel"
             :options="availableModels"
             :placeholder="$t('model.selectModel')"
           />
@@ -328,7 +328,7 @@
         <div class="s-form-group">
           <label class="s-form-label">{{ $t('model.sonnetModel') }} <span class="s-model-tag recommended">{{ $t('model.balanced') }}</span></label>
           <SearchableSelect
-            v-model="config.sonnetModel"
+            v-model="sonnetModel"
             :options="availableModels"
             :placeholder="$t('model.selectModel')"
           />
@@ -336,7 +336,7 @@
         <div class="s-form-group">
           <label class="s-form-label">{{ $t('model.opusModel') }} <span class="s-model-tag powerful">{{ $t('model.powerful') }}</span></label>
           <SearchableSelect
-            v-model="config.opusModel"
+            v-model="opusModel"
             :options="availableModels"
             :placeholder="$t('model.selectModel')"
           />
@@ -390,7 +390,7 @@ import {
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
 import { useSettingsStore, CONTEXT_WINDOW_PRESETS } from '@/stores/settings'
-import type { AuthMethod, OAuthAccountInfo } from '@/stores/settings'
+import type { AuthMethod, OAuthAccountInfo, ProviderConfig } from '@/stores/settings'
 import SearchableSelect from './SearchableSelect.vue'
 import ContextUsagePreview from './ContextUsagePreview.vue'
 import BaseUrlPresets from './BaseUrlPresets.vue'
@@ -400,12 +400,9 @@ import type { ProviderPreset } from '@/lib/providerPresets'
 const props = defineProps<{
   modelValue: {
     authMethod: AuthMethod
-    anthropic: { baseUrl: string; apiKey: string }
-    openai: { baseUrl: string; apiKey: string }
-    gemini: { baseUrl: string; apiKey: string }
-    haikuModel: string
-    sonnetModel: string
-    opusModel: string
+    anthropicConfig: ProviderConfig
+    openaiConfig: ProviderConfig
+    geminiConfig: ProviderConfig
     oauthAccount: OAuthAccountInfo | null
   }
 }>()
@@ -441,6 +438,32 @@ const authMethod = computed({
 
 const oauthAccount = computed(() => config.value.oauthAccount)
 
+// 共享模型字段 — 从 anthropicConfig 读取（所有 provider 保持同步），写入所有 provider config
+const haikuModel = computed({
+  get: () => config.value.anthropicConfig.haikuModel,
+  set: (val: string) => {
+    config.value.anthropicConfig.haikuModel = val
+    config.value.openaiConfig.haikuModel = val
+    config.value.geminiConfig.haikuModel = val
+  },
+})
+const sonnetModel = computed({
+  get: () => config.value.anthropicConfig.sonnetModel,
+  set: (val: string) => {
+    config.value.anthropicConfig.sonnetModel = val
+    config.value.openaiConfig.sonnetModel = val
+    config.value.geminiConfig.sonnetModel = val
+  },
+})
+const opusModel = computed({
+  get: () => config.value.anthropicConfig.opusModel,
+  set: (val: string) => {
+    config.value.anthropicConfig.opusModel = val
+    config.value.openaiConfig.opusModel = val
+    config.value.geminiConfig.opusModel = val
+  },
+})
+
 const showApiKey = ref(false)
 const testing = ref(false)
 const fetchingModels = ref(false)
@@ -473,26 +496,26 @@ function togglePresetDropdown(target: 'anthropic' | 'openai' | 'gemini') {
 function selectProvider(target: 'anthropic' | 'openai' | 'gemini', provider: ProviderPreset) {
   selectedProviders.value[target] = provider
   if (target === 'anthropic') {
-    config.value.anthropic.baseUrl = provider.baseUrl
+    config.value.anthropicConfig.baseUrl = provider.baseUrl
   } else if (target === 'openai') {
-    config.value.openai.baseUrl = provider.baseUrl
+    config.value.openaiConfig.baseUrl = provider.baseUrl
   } else if (target === 'gemini') {
-    config.value.gemini.baseUrl = provider.baseUrl
+    config.value.geminiConfig.baseUrl = provider.baseUrl
   }
 }
 
 const availableModels = ref<{ id: string; name?: string }[]>([])
 
 const previewModelId = computed(
-  () => settingsStore.config.model || config.value.sonnetModel || 'claude-sonnet-4-6',
+  () => settingsStore.config.model || sonnetModel.value || 'claude-sonnet-4-6',
 )
 
 const contextWindowPresets = CONTEXT_WINDOW_PRESETS
 
 const contextWindowModels = computed(() => [
-  { key: 'haiku', modelId: config.value.haikuModel, placeholder: t('model.haikuModel'), tag: t('model.fast'), tagClass: 'fast' },
-  { key: 'sonnet', modelId: config.value.sonnetModel, placeholder: t('model.sonnetModel'), tag: t('model.balanced'), tagClass: 'recommended' },
-  { key: 'opus', modelId: config.value.opusModel, placeholder: t('model.opusModel'), tag: t('model.powerful'), tagClass: 'powerful' },
+  { key: 'haiku', modelId: haikuModel.value, placeholder: t('model.haikuModel'), tag: t('model.fast'), tagClass: 'fast' },
+  { key: 'sonnet', modelId: sonnetModel.value, placeholder: t('model.sonnetModel'), tag: t('model.balanced'), tagClass: 'recommended' },
+  { key: 'opus', modelId: opusModel.value, placeholder: t('model.opusModel'), tag: t('model.powerful'), tagClass: 'powerful' },
 ])
 
 function getContextWindow(modelId: string): string {
@@ -582,18 +605,18 @@ async function testConnection() {
 
     switch (authMethod.value) {
       case 'anthropic_compatible':
-        baseUrl = config.value.anthropic.baseUrl || 'https://api.anthropic.com'
-        apiKey = config.value.anthropic.apiKey
+        baseUrl = config.value.anthropicConfig.baseUrl || 'https://api.anthropic.com'
+        apiKey = config.value.anthropicConfig.apiKey
         provider = 'anthropic'
         break
       case 'openai_compatible':
-        baseUrl = config.value.openai.baseUrl || 'https://api.openai.com/v1'
-        apiKey = config.value.openai.apiKey
+        baseUrl = config.value.openaiConfig.baseUrl || 'https://api.openai.com/v1'
+        apiKey = config.value.openaiConfig.apiKey
         provider = 'openai'
         break
       case 'gemini_api':
-        baseUrl = config.value.gemini.baseUrl || 'https://generativelanguage.googleapis.com/v1beta'
-        apiKey = config.value.gemini.apiKey
+        baseUrl = config.value.geminiConfig.baseUrl || 'https://generativelanguage.googleapis.com/v1beta'
+        apiKey = config.value.geminiConfig.apiKey
         provider = 'gemini'
         break
     }
@@ -642,18 +665,18 @@ async function fetchModels() {
 
     switch (authMethod.value) {
       case 'anthropic_compatible':
-        baseUrl = config.value.anthropic.baseUrl || 'https://api.anthropic.com'
-        apiKey = config.value.anthropic.apiKey
+        baseUrl = config.value.anthropicConfig.baseUrl || 'https://api.anthropic.com'
+        apiKey = config.value.anthropicConfig.apiKey
         provider = 'anthropic'
         break
       case 'openai_compatible':
-        baseUrl = config.value.openai.baseUrl || 'https://api.openai.com/v1'
-        apiKey = config.value.openai.apiKey
+        baseUrl = config.value.openaiConfig.baseUrl || 'https://api.openai.com/v1'
+        apiKey = config.value.openaiConfig.apiKey
         provider = 'openai'
         break
       case 'gemini_api':
-        baseUrl = config.value.gemini.baseUrl || 'https://generativelanguage.googleapis.com/v1beta'
-        apiKey = config.value.gemini.apiKey
+        baseUrl = config.value.geminiConfig.baseUrl || 'https://generativelanguage.googleapis.com/v1beta'
+        apiKey = config.value.geminiConfig.apiKey
         provider = 'gemini'
         break
     }

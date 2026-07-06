@@ -85,6 +85,9 @@
             <ComputerUseSettings
               v-else-if="activeTab === 'computer-use'"
             />
+            <BrowserUseSettings
+              v-else-if="activeTab === 'browser-use'"
+            />
           </KeepAlive>
         </div>
       </main>
@@ -93,14 +96,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, defineAsyncComponent } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
 import {
   ArrowLeft,
-  Settings, Boxes, Palette, Wrench, Keyboard, Bot, BarChart3, Zap, Monitor
+  Settings, Boxes, Palette, Wrench, Keyboard, Bot, BarChart3, Zap, Monitor, Globe
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
-import { useSettingsStore, type AuthMethod, type OAuthAccountInfo, type EngineType } from '@/stores/settings'
+import { useSettingsStore, type AuthSettings, type AuthMethod, type OAuthAccountInfo, type EngineType } from '@/stores/settings'
 import appIcon from '@/assets/app-icon.svg'
 
 const GeneralSettings = defineAsyncComponent(() => import('./GeneralSettings.vue'))
@@ -112,6 +115,7 @@ const ShortcutsSettings = defineAsyncComponent(() => import('./ShortcutsSettings
 const TokenUsageSettings = defineAsyncComponent(() => import('./TokenUsageSettings.vue'))
 const HookSettings = defineAsyncComponent(() => import('./HookSettings.vue'))
 const ComputerUseSettings = defineAsyncComponent(() => import('./ComputerUseSettings.vue'))
+const BrowserUseSettings = defineAsyncComponent(() => import('./BrowserUseSettings.vue'))
 
 const appStore = useAppStore()
 const settingsStore = useSettingsStore()
@@ -123,6 +127,7 @@ const settingMenuItems = computed(() => [
   { id: 'mcp', label: t('settings.mcpServers'), icon: Boxes },
   { id: 'tools', label: t('settings.tools'), icon: Wrench },
   { id: 'computer-use', label: t('settings.computerUse'), icon: Monitor },
+  { id: 'browser-use', label: t('settings.browserUse'), icon: Globe },
 ])
 
 const personalMenuItems = computed(() => [
@@ -134,14 +139,11 @@ const personalMenuItems = computed(() => [
 
 const activeTab = ref('general')
 
-const settingsData = ref({
+const settingsData = ref<AuthSettings>({
   authMethod: 'openai_compatible' as AuthMethod,
-  anthropic: { baseUrl: '', apiKey: '' },
-  openai: { baseUrl: '', apiKey: '' },
-  gemini: { baseUrl: '', apiKey: '' },
-  haikuModel: '',
-  sonnetModel: '',
-  opusModel: '',
+  anthropicConfig: { baseUrl: '', apiKey: '', haikuModel: '', sonnetModel: '', opusModel: '' },
+  openaiConfig: { baseUrl: '', apiKey: '', haikuModel: '', sonnetModel: '', opusModel: '' },
+  geminiConfig: { baseUrl: '', apiKey: '', haikuModel: '', sonnetModel: '', opusModel: '' },
   projectRoot: '',
   oauthAccount: null as OAuthAccountInfo | null,
   engineType: 'claude-code' as EngineType
@@ -154,6 +156,22 @@ function switchTab(tabId: string) {
   activeTab.value = tabId
   visitedTabs.value.add(tabId)
 }
+
+// 接受来自外部（如斜杠命令 /browser-use）的标签页导航事件
+const navigateHandler = (event: CustomEvent) => {
+  const tab = event.detail?.tab
+  if (tab && settingMenuItems.value.find(m => m.id === tab)) {
+    switchTab(tab)
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('settings-navigate', navigateHandler as EventListener)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('settings-navigate', navigateHandler as EventListener)
+})
 
 let isLoadingSettings = false
 
@@ -172,14 +190,16 @@ loadSettings()
 function loadSettings() {
   isLoadingSettings = true
 
+  // 将当前激活 provider 的模型同步到所有 provider config，保持 UI「共享模型」行为
+  const haikuModel = settingsStore.getHaikuModel() || ''
+  const sonnetModel = settingsStore.getSonnetModel() || ''
+  const opusModel = settingsStore.getOpusModel() || ''
+
   settingsData.value = {
     authMethod: settingsStore.authMethod,
-    anthropic: { ...settingsStore.anthropicConfig },
-    openai: { ...settingsStore.openaiConfig },
-    gemini: { ...settingsStore.geminiConfig },
-    haikuModel: settingsStore.getHaikuModel() || '',
-    sonnetModel: settingsStore.getSonnetModel() || '',
-    opusModel: settingsStore.getOpusModel() || '',
+    anthropicConfig: { ...settingsStore.anthropicConfig, haikuModel, sonnetModel, opusModel },
+    openaiConfig: { ...settingsStore.openaiConfig, haikuModel, sonnetModel, opusModel },
+    geminiConfig: { ...settingsStore.geminiConfig, haikuModel, sonnetModel, opusModel },
     projectRoot: settingsStore.projectRoot || '',
     oauthAccount: settingsStore.oauthAccount,
     engineType: settingsStore.engineType
@@ -191,35 +211,7 @@ function loadSettings() {
 }
 
 function saveSettings() {
-  const payload = {
-    authMethod: settingsData.value.authMethod,
-    anthropicConfig: {
-      baseUrl: settingsData.value.anthropic.baseUrl,
-      apiKey: settingsData.value.anthropic.apiKey,
-      haikuModel: settingsData.value.haikuModel,
-      sonnetModel: settingsData.value.sonnetModel,
-      opusModel: settingsData.value.opusModel
-    },
-    openaiConfig: {
-      baseUrl: settingsData.value.openai.baseUrl,
-      apiKey: settingsData.value.openai.apiKey,
-      haikuModel: settingsData.value.haikuModel,
-      sonnetModel: settingsData.value.sonnetModel,
-      opusModel: settingsData.value.opusModel
-    },
-    geminiConfig: {
-      baseUrl: settingsData.value.gemini.baseUrl,
-      apiKey: settingsData.value.gemini.apiKey,
-      haikuModel: settingsData.value.haikuModel,
-      sonnetModel: settingsData.value.sonnetModel,
-      opusModel: settingsData.value.opusModel
-    },
-    oauthAccount: settingsData.value.oauthAccount,
-    projectRoot: settingsData.value.projectRoot,
-    engineType: settingsData.value.engineType
-  }
-
-  settingsStore.updateFromSettingsPanel(payload)
+  settingsStore.updateFromSettingsPanel(settingsData.value)
 }
 
 function handleBack() {

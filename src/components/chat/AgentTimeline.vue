@@ -19,18 +19,6 @@
 
     <!-- Timeline event list -->
     <div class="timeline-events">
-      <!-- 自动重试提示：不展示错误详情，只提示"正在重试 (n/m)" -->
-      <RetryIndicator
-        v-if="currentRetryState && !currentRetryState.aborted"
-        :attempt="currentRetryState.attempt"
-        :max-retries="currentRetryState.maxRetries"
-        :delay-ms="currentRetryState.delayMs"
-        :error-category="currentRetryState.errorCategory"
-        :error-title="currentRetryState.errorTitle"
-        :error-message="currentRetryState.errorMessage"
-        @cancel="handleCancelRetry"
-      />
-
       <div
         v-for="(event, index) in visibleTimelineEvents"
         :key="event.id"
@@ -147,6 +135,18 @@
           </template>
         </div>
       </div>
+
+      <!-- 自动重试提示：简洁单行"API Error：xxx... 正在重连（n/m）"；放在时间线事件下方 -->
+      <RetryIndicator
+        v-if="currentRetryState && !currentRetryState.aborted"
+        :attempt="currentRetryState.attempt"
+        :max-retries="currentRetryState.maxRetries"
+        :delay-ms="currentRetryState.delayMs"
+        :error-category="currentRetryState.errorCategory"
+        :error-title="currentRetryState.errorTitle"
+        :error-code="currentRetryState.errorCode"
+        @cancel="handleCancelRetry"
+      />
 
       <!-- 全局任务看板 -->
       <TaskListCard
@@ -1015,6 +1015,7 @@ function parseTaskUpdateOutput(output?: string, input: Record<string, any> = {})
 
 .timeline-task-board {
   margin-top: 8px;
+  margin-left: 32px;
 }
 
 .event-task-inline {

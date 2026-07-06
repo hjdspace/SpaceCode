@@ -1,6 +1,8 @@
 import type { Session, Message, ToolCall, AgentColor, TeammateStatus } from '@/types'
 import { api } from '@/services/electronAPI'
 import { parseSubagentTranscript } from '@/utils/sessionRestore'
+import { useTaskManager } from '@/composables/useTaskManager'
+import { syncTaskStateFromToolCall } from '@/utils/taskToolSync'
 
 interface RawTeammateMessage {
   type?: string
@@ -45,17 +47,34 @@ export function getRawTeamName(raw: RawTeammateMessage): string {
   return String(raw?.teamName || raw?.team_name || raw?.team || 'Agent Team')
 }
 
+/**
+ * 判断是否为真正的 teammate 消息（Agent Team 机制）。
+ * 只有带 type='teammate' 或显式 team/teamName 字段的消息才是 teammate。
+ * 参考：engine/docs/agent/sub-agents.mdx — name+team_name 是独立分支，
+ * 调用 spawnTeammate() 返回 teammate_spawned，与普通 Agent tool 子智能体完全不同。
+ */
 export function isTeammateRawMessage(raw: RawTeammateMessage): boolean {
   return !!raw && typeof raw === 'object' && (
     raw.type === 'teammate' ||
+    !!raw.teamName ||
+    !!raw.team_name ||
+    !!raw.team
+  )
+}
+
+/**
+ * 判断是否为子智能体（Agent tool）的 sidechain 消息。
+ * 这些消息带 parent_tool_use_id / isSidechain / subagent_type / agentName，
+ * 属于普通 Agent 工具调用的子智能体进度，不是 teammate。
+ * 需要拦截以避免污染主时间线，但不应纳入 agent team 机制。
+ */
+export function isSidechainMessage(raw: any): boolean {
+  return !!raw && typeof raw === 'object' && (
     !!raw.isSidechain ||
-    !!raw.agentName ||
-    !!raw.subagent_type ||
-    // 实时子代理消息（来自引擎 SDK 流）唯一可靠的标识：parent_tool_use_id 指向
-    // 父 Agent 工具调用。它们不带 isSidechain/agentName，必须靠此字段识别，
-    // 否则会被当成主 agent 消息处理（污染主时间线 + 子代理页无实时输出）。
     !!raw.parent_tool_use_id ||
-    !!raw.parentToolUseId
+    !!raw.parentToolUseId ||
+    !!raw.subagent_type ||
+    !!raw.agentName
   )
 }
 
@@ -110,6 +129,13 @@ export function inferTeammateStatus(raw: RawTeammateMessage): TeammateStatus {
   if (/fail|error|reject|cancel/.test(value)) return 'failed'
   if (/complete|done|finish|success|result/.test(value)) return 'completed'
   if (/idle|wait/.test(value)) return 'idle'
+  const text = stringifyRawContent(raw).trim()
+  if (text.startsWith('{')) {
+    const parsed = tryParseJson(text) as { type?: string, idleReason?: string } | null
+    if (parsed?.type === 'idle_notification') {
+      return parsed.idleReason === 'failed' ? 'failed' : 'idle'
+    }
+  }
   return 'running'
 }
 
@@ -206,6 +232,111 @@ export function parseAgentToolOutput(output: string): { displayText: string; out
   }
 }
 
+/**
+ * 从子代理输出文本中剥离引擎元数据（agentId、usage、token 计数等）。
+ * 参考 cc-haha 的 stripAgentResultMetadata。
+ */
+export function stripAgentResultMetadata(text: string): string {
+  return text
+    .replace(/^\s*agentId:.*(?:\r?\n)?/gm, '')
+    .replace(/<usage>[\s\S]*?<\/usage>/g, '')
+    .replace(/^\s*(?:total_tokens|tool_uses|duration_ms):\s*\d+\s*$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/**
+ * 判断子代理输出是否为"启动成功"消息（异步 agent 启动后的占位输出）。
+ * 这类输出不包含实际结果，不应展示为子代理输出。
+ * 也用于检测 handleToolResult / handleUser 中的异步启动 tool_result，
+ * 防止将仍在后台运行的子代理标记为 'completed'。
+ */
+export function isAgentLaunchResult(content: unknown): boolean {
+  const text = typeof content === 'string' ? content.trim() : ''
+  if (!text) return false
+  return (
+    text.startsWith('Agent launched successfully.') ||
+    text.startsWith('Async agent launched successfully.') ||
+    text.startsWith('Spawned successfully.') ||
+    text.startsWith('Remote agent launched in CCR.') ||
+    text.includes('The agent is now running and will receive instructions via mailbox.') ||
+    text.includes('The agent is working in the background. You will be notified automatically when it completes.') ||
+    text.includes('The agent is running remotely. You will be notified automatically when it completes.')
+  )
+}
+
+/**
+ * 提取子代理的可显示文本，剥离元数据后返回。
+ * 参考 cc-haha 的 extractAgentDisplayText。
+ */
+export function extractAgentDisplayText(content: unknown): string {
+  if (!content) return ''
+  const raw = typeof content === 'string' ? content : stringifyRawContent(content as RawTeammateMessage)
+  return stripAgentResultMetadata(raw)
+}
+
+/**
+ * 生成子代理输出的摘要预览（折叠态使用）。
+ * 截取前 ~220 字符，保持可读性。
+ * 参考 cc-haha 的 getAgentOutputSummary。
+ */
+export function getAgentOutputSummary(content: string): string {
+  const text = content.replace(/\s+\n/g, '\n').trim()
+  if (!text) return ''
+  return text.length > 220 ? `${text.slice(0, 220)}...` : text
+}
+
+/**
+ * 格式化单个工具调用的摘要文本（折叠态最近活动使用）。
+ * 返回形如 "Bash · npm test • done" 的简短描述。
+ * 参考 cc-haha 的 formatRecentToolUseSummary。
+ */
+export function formatToolCallSummary(toolCall: { name: string; input: Record<string, unknown>; status: string; output?: string }): string {
+  const input = toolCall.input || {}
+  let detail = ''
+
+  switch (toolCall.name) {
+    case 'Bash':
+      detail = typeof input.command === 'string' ? input.command : ''
+      break
+    case 'Read':
+    case 'FileRead':
+      detail = typeof input.file_path === 'string' ? String(input.file_path).split('/').pop() || 'file' : 'file'
+      break
+    case 'Write':
+    case 'FileWrite':
+      detail = typeof input.file_path === 'string' ? String(input.file_path).split('/').pop() || 'file' : 'file'
+      break
+    case 'Edit':
+    case 'FileEdit':
+      detail = typeof input.file_path === 'string' ? String(input.file_path).split('/').pop() || 'file' : 'file'
+      break
+    case 'Glob':
+      detail = typeof input.pattern === 'string' ? input.pattern : ''
+      break
+    case 'Grep':
+      detail = typeof input.pattern === 'string' ? input.pattern : ''
+      break
+    case 'Agent':
+      detail = typeof input.description === 'string' ? input.description : ''
+      break
+    case 'WebSearch':
+      detail = typeof input.query === 'string' ? input.query : ''
+      break
+    case 'WebFetch':
+      detail = typeof input.url === 'string' ? input.url : ''
+      break
+    default:
+      detail = ''
+  }
+
+  const statusSuffix = toolCall.status === 'error' ? ' • failed' :
+    toolCall.status === 'completed' ? ' • done' :
+    toolCall.status === 'running' ? ' • running' : ''
+
+  return detail ? `${toolCall.name} · ${detail}${statusSuffix}` : `${toolCall.name}${statusSuffix}`
+}
+
 export function ensureTeamContext(session: Session, teamName: string): void {
   if (!session.teamContext) {
     session.teamContext = {
@@ -220,10 +351,21 @@ export function ensureTeamContext(session: Session, teamName: string): void {
   session.teammateTranscripts = session.teammateTranscripts || {}
 }
 
+/**
+ * 确保子智能体转录存储已初始化，但不创建 teamContext。
+ * 普通 Agent tool 子智能体不应纳入 agent team 机制。
+ */
+export function ensureSubagentTranscripts(session: Session): void {
+  if (!session.teammateTranscripts) {
+    session.teammateTranscripts = {}
+  }
+}
+
 // 记录"以输出文件为权威来源"的子代理（异步 agent）：key = `${sessionId}:${teammateId}`。
 // 这类子代理的转录完全由 transcript 文件解析得到，实时 sidechain 事件不再另写转录（避免重复）。
 // agentId 用于在 Windows（符号链接失败）时直接解析 transcript JSONL 路径，绕过 .output 空文件。
 const agentOutputFiles = new Map<string, { filePath: string; name: string; status: TeammateStatus; agentId?: string }>()
+const taskManager = useTaskManager()
 
 /** 该 teammate 的转录是否由输出文件托管（若是，则 recordTeammateMessage 不应再追加，以免重复）。 */
 export function isFileBackedTeammate(sessionId: string, teammateId: string): boolean {
@@ -243,23 +385,18 @@ export function rekickAgentTranscriptPoll(session: Session, sessionId: string, t
 
 export function recordAgentToolCall(session: Session, toolCall: ToolCall, status: TeammateStatus = 'running'): void {
   if (toolCall.name !== 'Agent') return
-  ensureTeamContext(session, 'Agent Team')
+  // ★ 不再创建 teamContext：普通 Agent tool 子智能体不属于 agent team 机制。
+  // 仅初始化转录存储，供 AgentToolCard 读取。
+  ensureSubagentTranscripts(session)
 
   const input = toolCall.input || {}
-  // 异步启动的子代理，其真实输出通过 sidechain 消息记录，并以引擎生成的 agentId 作为 key。
-  // 这里解析工具输出中的 agentId，优先用它作为 teammateId，使工具卡片与 sidechain 转录合并到同一 teammate，
-  // 否则历史会话重建时会出现“只显示 Output file 占位、看不到子代理输出”的现象。
   const parsedOutput = toolCall.output ? parseAgentToolOutput(toolCall.output) : null
-  // 归一化与 resolveTeammateId 保持一致：同步子代理用 normalizeTeammateId(toolCall.id)，
-  // 这样实时消息（parent_tool_use_id = toolCall.id）回退归并时能落到同一 teammate。
   const fallbackId = normalizeTeammateId(toolCall.id || input.agentTaskId || input.taskId || crypto.randomUUID())
   const teammateId = parsedOutput?.agentId ? normalizeTeammateId(parsedOutput.agentId) : fallbackId
   const agentType = String(input.agentType || input.type || 'general-purpose')
-  // 与引擎 UI 层 userFacingName() 保持一致：general-purpose 显示为 "Agent"
   const name = String(input.name || input.agentName || (agentType === 'general-purpose' ? 'Agent' : agentType))
 
-  // 若之前以 toolCall.id 建过占位 teammate（如实时流在 tool_use 阶段先建后补 output），
-  // 重新以 agentId 归并时迁移并清理旧的占位条目，避免出现空的“幽灵”子代理。
+  // 若之前以 toolCall.id 建过占位条目，重新以 agentId 归并时迁移并清理。
   if (parsedOutput?.agentId && fallbackId !== teammateId) {
     const ghost = session.teammateTranscripts![fallbackId]
     if (ghost?.length) {
@@ -269,20 +406,15 @@ export function recordAgentToolCall(session: Session, toolCall: ToolCall, status
       ]
     }
     delete session.teammateTranscripts![fallbackId]
-    delete session.teamContext!.teammates[fallbackId]
     parentToolUseToTeammate.delete(`${session.id}:${fallbackId}`)
   }
 
-  // 注册映射：实时子代理消息（parent_tool_use_id = toolCall.id）据此归并到本 teammate。
+  // 注册映射：实时子代理消息（parent_tool_use_id = toolCall.id）据此归并到本条目。
   registerTeammateForToolUse(session.id, String(toolCall.id), teammateId)
 
-  const existing = session.teamContext!.teammates[teammateId]
-  const color = existing?.color || AGENT_COLORS[Object.keys(session.teamContext!.teammates).length % AGENT_COLORS.length]
   const transcript = session.teammateTranscripts![teammateId] || []
 
   if (toolCall.output && parsedOutput) {
-    // 同步子代理（无 agentId、无 output_file）的真实输出只在工具结果文本里。仅当转录为空时才写入
-    // 占位消息——若实时流已把子代理逐条消息写入本 teammate，则跳过，避免“逐条消息 + 整段汇总”重复。
     if (!parsedOutput.agentId && transcript.length === 0) {
       session.teammateTranscripts![teammateId] = [...transcript, {
         id: `${toolCall.id}-result`,
@@ -298,19 +430,112 @@ export function recordAgentToolCall(session: Session, toolCall: ToolCall, status
       }]
     }
     if (parsedOutput.outputFile) {
-      // 标记为“文件托管”：转录以 transcript 文件为唯一来源，实时 sidechain 事件不再另写（去重）。
-      // 同时存储 agentId，用于在 Windows（符号链接失败）时直接解析 transcript JSONL 路径。
       agentOutputFiles.set(`${session.id}:${teammateId}`, { filePath: parsedOutput.outputFile, name, status, agentId: parsedOutput.agentId })
       void hydrateAgentTranscriptFromFile(session, teammateId, parsedOutput.outputFile, name, status, parsedOutput.agentId)
     }
   }
+}
 
-  session.teamContext!.teammates[teammateId] = {
-    name,
-    agentType,
-    status,
-    color,
-    messageCount: session.teammateTranscripts![teammateId]?.length || 0
+function parseJsonlRecords(text: string): any[] {
+  const records: any[] = []
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    try {
+      records.push(JSON.parse(trimmed))
+    } catch {
+      // Ignore partial or malformed lines while the transcript is being written.
+    }
+  }
+  return records
+}
+
+function getLastAssistantText(messages: Message[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]
+    if (msg.role === 'assistant' && msg.content?.trim()) {
+      return msg.content.trim()
+    }
+  }
+  return ''
+}
+
+function isUnsettledToolStatus(status: ToolCall['status']): boolean {
+  return status === 'running' || status === 'pending'
+}
+
+function inferTranscriptTerminalStatus(
+  text: string,
+  messages: Message[],
+  allowStableCompletion: boolean,
+): TeammateStatus | null {
+  const records = parseJsonlRecords(text)
+  for (let i = records.length - 1; i >= 0; i--) {
+    const raw = records[i]
+    if (raw?.type === 'result') {
+      return raw.is_error ? 'failed' : 'completed'
+    }
+    if (raw?.type === 'assistant') {
+      const stopReason = raw.message?.stop_reason || raw.stop_reason
+      if (stopReason && stopReason !== 'tool_use') return 'completed'
+      if (stopReason === 'tool_use') return null
+    }
+  }
+
+  if (!allowStableCompletion) return null
+
+  const hasRunningTool = messages.some(msg =>
+    msg.toolCalls?.some(tc =>
+      (tc.name === 'Agent' || tc.name === 'Task') && isUnsettledToolStatus(tc.status)
+    )
+  )
+  return !hasRunningTool && getLastAssistantText(messages) ? 'completed' : null
+}
+
+function applyTranscriptTerminalStatus(
+  session: Session,
+  teammateId: string,
+  status: TeammateStatus,
+  finalText?: string,
+): void {
+  const transcript = session.teammateTranscripts?.[teammateId]
+  if (transcript?.length) {
+    session.teammateTranscripts![teammateId] = transcript.map(m => ({
+      ...m,
+      metadata: { ...m.metadata, status },
+    }))
+  }
+
+  if (session.teamContext?.teammates[teammateId]) {
+    session.teamContext.teammates[teammateId].status = status
+  }
+
+  for (const msg of session.messages) {
+    const toolCalls = msg.toolCalls
+    if (!toolCalls) continue
+    for (let i = 0; i < toolCalls.length; i++) {
+      const tc = toolCalls[i]
+      if ((tc.name !== 'Agent' && tc.name !== 'Task') || !isUnsettledToolStatus(tc.status)) continue
+      const mappedTeammateId = teammateIdForParentToolUse(session.id, tc.id)
+      const outputAgentId = typeof tc.output === 'string'
+        ? tc.output.match(/agentId:\s*([^\s]+)/)?.[1]
+        : undefined
+      const matches = mappedTeammateId === teammateId ||
+        normalizeTeammateId(tc.id) === teammateId ||
+        (!!outputAgentId && normalizeTeammateId(outputAgentId) === teammateId)
+      if (!matches) continue
+
+      const updatedToolCalls: ToolCall[] = [...toolCalls]
+      updatedToolCalls[i] = {
+        ...tc,
+        status: status === 'failed' ? 'error' : 'completed',
+        endTime: Date.now(),
+        ...(finalText ? { output: finalText.slice(0, 30000) } : {}),
+      }
+      msg.toolCalls = updatedToolCalls
+      recordAgentToolCall(session, updatedToolCalls[i], status)
+      break
+    }
   }
 }
 
@@ -348,7 +573,7 @@ async function hydrateAgentTranscriptFromFile(session: Session, teammateId: stri
         session.id,
         agentId,
       )
-      if (resolved) transcriptPath = resolved
+      if (typeof resolved === 'string') transcriptPath = resolved
     } catch {
       // 解析失败时回退到 .output 文件路径
     }
@@ -360,11 +585,31 @@ async function hydrateAgentTranscriptFromFile(session: Session, teammateId: stri
   // 子代理在两次写入之间可能有较长间隔（等待 LLM 首字、长时间工具执行）。
   // 容忍 ~45s 无变化再停止，避免轮询在子代理仍活跃时过早结束导致"看不到实时输出"。
   const MAX_STABLE_TICKS = 30
+  let currentStatus = status
 
-  const applyParsed = (text: string) => {
+  const applyParsed = (text: string, allowStableCompletion = false) => {
     if (!session?.teammateTranscripts) return
     const parsed = parseSubagentTranscript(text)
-    if (parsed.length === 0) return
+    const terminalStatus = inferTranscriptTerminalStatus(text, parsed as Message[], allowStableCompletion)
+    const lastAssistantText = getLastAssistantText(parsed as Message[])
+    if (terminalStatus && terminalStatus !== currentStatus) {
+      currentStatus = terminalStatus
+    }
+    if (parsed.length === 0) {
+      if (terminalStatus) {
+        applyTranscriptTerminalStatus(session, teammateId, terminalStatus, lastAssistantText)
+        session.updatedAt = Date.now()
+        session.lastActivityAt = Date.now()
+      }
+      return
+    }
+    for (const message of parsed) {
+      for (const toolCall of message.toolCalls || []) {
+        if (toolCall.status === 'completed' || toolCall.status === 'error' || toolCall.name === 'TodoWrite') {
+          syncTaskStateFromToolCall(taskManager, toolCall, toolCall.output || '')
+        }
+      }
+    }
     const baseTime = Date.now()
     session.teammateTranscripts[teammateId] = parsed.map((m, idx) => ({
       ...m,
@@ -375,11 +620,19 @@ async function hydrateAgentTranscriptFromFile(session: Session, teammateId: stri
         agentTaskId: teammateId,
         agentName: name,
         teamName: 'Agent Team',
-        status,
+        status: currentStatus,
       },
     })) as Message[]
     const teammate = session.teamContext?.teammates[teammateId]
-    if (teammate) teammate.messageCount = session.teammateTranscripts[teammateId].length
+    if (teammate) {
+      teammate.messageCount = session.teammateTranscripts[teammateId].length
+      teammate.status = currentStatus
+    }
+    if (terminalStatus) {
+      applyTranscriptTerminalStatus(session, teammateId, terminalStatus, lastAssistantText)
+    }
+    session.updatedAt = Date.now()
+    session.lastActivityAt = Date.now()
   }
 
   const tick = async () => {
@@ -403,6 +656,7 @@ async function hydrateAgentTranscriptFromFile(session: Session, teammateId: stri
     if (remainingTicks > 0 && stableTicks < MAX_STABLE_TICKS) {
       setTimeout(() => { void tick() }, 1500)
     } else {
+      if (text.trim()) applyParsed(text, true)
       activeAgentFilePolls.delete(pollKey)
     }
   }

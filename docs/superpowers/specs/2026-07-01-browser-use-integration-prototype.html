@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Browser-Use Integration — UI 原型</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: #0e0e0e; color: #d4d4d4;
+    padding: 32px;
+  }
+  .container { max-width: 960px; margin: 0 auto; }
+
+  h1 { font-size: 24px; font-weight: 600; color: #e8e8e8; margin-bottom: 4px; }
+  h2 { font-size: 16px; font-weight: 600; color: #e0e0e0; margin-bottom: 12px; }
+  .subtitle { color: #888; font-size: 13px; margin-bottom: 32px; }
+  .label { font-size: 12px; font-weight: 500; color: #999; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+
+  .section { margin-bottom: 48px; }
+  .section-header { margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .section-header h2 { margin-bottom: 0; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;
+  }
+  .badge-green { background: #1a3a2a; color: #4ade80; }
+  .badge-yellow { background: #3a2a1a; color: #facc15; }
+  .badge-red { background: #3a1a1a; color: #f87171; }
+  .badge-blue { background: #1a2a3a; color: #60a5fa; }
+
+  .card {
+    background: #181818; border: 1px solid #2a2a2a; border-radius: 10px;
+    overflow: hidden; margin-bottom: 16px;
+  }
+  .card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px; border-bottom: 1px solid #2a2a2a;
+  }
+  .card-header-left { display: flex; align-items: center; gap: 8px; }
+  .card-title { font-size: 14px; font-weight: 500; color: #e0e0e0; }
+  .card-body { padding: 18px; }
+  .card-footer {
+    padding: 12px 18px; border-top: 1px solid #2a2a2a;
+    background: #141414; display: flex; justify-content: flex-end; gap: 8px;
+  }
+
+  .status-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 0; border-bottom: 1px solid #222;
+  }
+  .status-row:last-child { border-bottom: none; }
+  .status-label { font-size: 13px; color: #aaa; }
+  .status-value { font-size: 13px; color: #e0e0e0; display: flex; align-items: center; gap: 6px; }
+  .status-value.mono { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; }
+
+  .actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 14px; border-radius: 6px; font-size: 13px; font-weight: 500;
+    border: none; cursor: pointer; transition: all .15s;
+    text-decoration: none;
+  }
+  .btn-primary { background: #3b82f6; color: #fff; }
+  .btn-primary:hover { background: #2563eb; }
+  .btn-primary:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-secondary { background: #252525; color: #d4d4d4; border: 1px solid #333; }
+  .btn-secondary:hover { background: #2a2a2a; }
+  .btn-secondary:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-danger { background: #991b1b; color: #fff; }
+  .btn-danger:hover { background: #7f1d1d; }
+  .btn-ghost { background: transparent; color: #888; padding: 7px 10px; }
+  .btn-ghost:hover { color: #d4d4d4; background: #1a1a1a; }
+
+  .progress-bar {
+    height: 4px; background: #222; border-radius: 2px; overflow: hidden; margin: 12px 0 6px;
+  }
+  .progress-fill { height: 100%; background: #3b82f6; border-radius: 2px; transition: width .3s; }
+  .progress-fill.success { background: #4ade80; }
+  .progress-msg { font-size: 12px; color: #888; }
+
+  .steps { margin: 16px 0; }
+  .step {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 10px 0; border-bottom: 1px solid #1a1a1a;
+  }
+  .step:last-child { border-bottom: none; }
+  .step-num {
+    width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600;
+  }
+  .step-num.done { background: #1a3a2a; color: #4ade80; }
+  .step-num.active { background: #1a2a3a; color: #60a5fa; }
+  .step-num.pending { background: #222; color: #666; }
+  .step-body { flex: 1; }
+  .step-title { font-size: 14px; font-weight: 500; color: #e0e0e0; }
+  .step-desc { font-size: 12px; color: #888; margin-top: 2px; }
+  .step-desc code { color: #aaa; background: #1a1a1a; padding: 1px 4px; border-radius: 3px; }
+
+  .form-group { margin-bottom: 16px; }
+  .form-label { display: block; font-size: 12px; font-weight: 500; color: #aaa; margin-bottom: 4px; }
+  .form-input {
+    width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid #333;
+    background: #141414; color: #e0e0e0; font-size: 13px;
+    outline: none; transition: border .15s;
+  }
+  .form-input:focus { border-color: #3b82f6; }
+  .form-input::placeholder { color: #555; }
+  .form-select {
+    width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid #333;
+    background: #141414; color: #e0e0e0; font-size: 13px; cursor: pointer; outline: none;
+  }
+  .form-select:focus { border-color: #3b82f6; }
+  .form-hint { font-size: 11px; color: #666; margin-top: 4px; }
+  .form-hint code { color: #888; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+
+  /* Chat message preview */
+  .chat-msg {
+    display: flex; gap: 12px; padding: 12px 14px;
+    background: #181818; border: 1px solid #2a2a2a; border-radius: 8px; margin-bottom: 8px;
+  }
+  .avatar {
+    width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 600;
+  }
+  .chat-body { flex: 1; }
+  .chat-name { font-size: 12px; font-weight: 600; color: #e0e0e0; margin-bottom: 4px; }
+  .chat-text { font-size: 13px; color: #c0c0c0; line-height: 1.5; }
+  .chat-tool-card {
+    background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px;
+    padding: 10px 12px; margin-top: 8px; font-size: 12px;
+  }
+  .chat-tool-card .tc-header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .chat-tool-card .tc-url { color: #60a5fa; font-family: monospace; font-size: 12px; }
+  .chat-tool-card .tc-preview {
+    background: #111; border-radius: 4px; padding: 6px 8px; margin-top: 6px;
+    font-family: monospace; font-size: 11px; color: #888; max-height: 60px; overflow: hidden;
+  }
+  .chat-tool-card .tc-status-dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px;
+  }
+  .tc-status-dot.running { background: #facc15; }
+  .tc-status-dot.done { background: #4ade80; }
+  .tc-status-dot.error { background: #f87171; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid #2a2a2a; margin-bottom: 18px; }
+  .tab {
+    padding: 8px 16px; font-size: 13px; color: #888; cursor: pointer;
+    border-bottom: 2px solid transparent; transition: .15s; user-select: none;
+  }
+  .tab:hover { color: #d4d4d4; }
+  .tab.active { color: #e0e0e0; border-bottom-color: #3b82f6; }
+
+  /* Doctor check */
+  .check-list { margin-top: 12px; }
+  .check-item {
+    display: flex; align-items: center; gap: 8px; padding: 6px 0;
+    font-size: 13px; border-bottom: 1px solid #1a1a1a;
+  }
+  .check-item:last-child { border-bottom: none; }
+  .check-pass { color: #4ade80; }
+  .check-fail { color: #f87171; }
+  .check-hint { font-size: 11px; color: #888; margin-left: 8px; }
+
+  /* Live view */
+  .browser-viewport {
+    background: #111; border: 1px solid #333; border-radius: 6px;
+    aspect-ratio: 16/10; display: flex; align-items: center; justify-content: center;
+    color: #555; font-size: 14px; position: relative; overflow: hidden;
+  }
+  .browser-viewport .url-bar {
+    position: absolute; top: 0; left: 0; right: 0;
+    padding: 6px 10px; background: rgba(0,0,0,.7);
+    font-size: 11px; font-family: monospace; color: #aaa;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .browser-toolbar {
+    display: flex; align-items: center; gap: 6px; padding: 8px 0;
+  }
+  .browser-toolbar .btn-icon {
+    width: 28px; height: 28px; border-radius: 4px; border: 1px solid #333;
+    background: #1a1a1a; color: #aaa; cursor: pointer; display: flex;
+    align-items: center; justify-content: center; font-size: 13px;
+  }
+  .browser-toolbar .btn-icon:hover { background: #252525; color: #e0e0e0; }
+  .browser-toolbar .nav-input {
+    flex: 1; padding: 5px 8px; border-radius: 4px; border: 1px solid #333;
+    background: #141414; color: #e0e0e0; font-size: 12px; font-family: monospace;
+    outline: none;
+  }
+  .browser-toolbar .nav-input:focus { border-color: #3b82f6; }
+
+  /* Misc */
+  .flex { display: flex; align-items: center; gap: 8px; }
+  .flex-between { display: flex; align-items: center; justify-content: space-between; }
+  .gap-sm { gap: 4px; }
+  .mt-8 { margin-top: 8px; }
+  .mt-12 { margin-top: 12px; }
+  .mb-8 { margin-bottom: 8px; }
+  .text-sm { font-size: 12px; }
+  .text-dim { color: #888; }
+  .text-green { color: #4ade80; }
+  .text-red { color: #f87171; }
+  .text-blue { color: #60a5fa; }
+  .sep { border-bottom: 1px solid #2a2a2a; margin: 18px 0; }
+
+  .tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 500;
+  }
+  .tag-python { background: #1a1a3a; color: #60a5fa; }
+  .tag-bundle { background: #1a3a2a; color: #4ade80; }
+  .tag-playwright { background: #2a1a1a; color: #f87171; }
+  .tag-mcp { background: #1a2a3a; color: #60a5fa; }
+
+  .inline-svg { display: inline-block; width: 14px; height: 14px; vertical-align: middle; }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- ============================================================ -->
+  <!-- HEADER -->
+  <!-- ============================================================ -->
+  <div class="flex-between" style="margin-bottom:8px;">
+    <div>
+      <div style="font-size:12px;color:#666;margin-bottom:2px;">SpaceCode / Settings</div>
+      <h1>Browser Use</h1>
+      <p class="subtitle">让 AI 操控浏览器 — 像人一样浏览网页、填写表单、提取数据</p>
+    </div>
+    <span class="badge badge-blue" style="font-size:12px;padding:4px 12px;flex-shrink:0;">⚡ 实验性功能 v0.1.0</span>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- Mock Settings Tabs -->
+  <!-- ============================================================ -->
+  <div class="tabs">
+    <div class="tab">General</div>
+    <div class="tab">AI Providers</div>
+    <div class="tab">MCP Servers</div>
+    <div class="tab active">Browser Use</div>
+    <div class="tab">Computer Use</div>
+    <div class="tab">About</div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- CARD 1: 安装状态 (已安装) -->
+  <!-- ============================================================ -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-header-left">
+        <span class="badge badge-green">●</span>
+        <span class="card-title">安装状态</span>
+        <span class="badge badge-green" style="padding:2px 10px;">v0.13.1</span>
+      </div>
+      <button class="btn btn-secondary" disabled>
+        <span class="text-dim">⟳</span> 刷新
+      </button>
+    </div>
+    <div class="card-body">
+      <!-- 已安装 -->
+      <div class="status-row">
+        <span class="status-label">Browser-Use</span>
+        <span class="status-value"><span class="badge badge-green">✓ 已安装</span></span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">安装方式</span>
+        <span class="status-value"><span class="badge badge-blue">系统 Python + pip</span></span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">Python 版本</span>
+        <span class="status-value">Python 3.11.9 <span class="text-dim">(C:\Users\username\AppData\Local\Programs\Python\Python311\python.exe)</span></span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">Playwright Chromium</span>
+        <span class="status-value"><span class="badge badge-green">✓ 已安装 (v115+)</span></span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">LLM 后端</span>
+        <span class="status-value"><span class="badge badge-green">Anthropic — claude-opus-4-8</span></span>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-danger">重新安装</button>
+        <button class="btn btn-secondary">运行诊断</button>
+      </div>
+
+      <div class="mt-8" style="padding:8px 10px;background:#1a3a2a;border-radius:6px;display:flex;align-items:center;gap:8px;">
+        <span style="color:#4ade80;">✓</span>
+        <span style="font-size:12px;color:#bbf7d0;">Browser Use 已就绪，AI 可在对话中自动调用浏览器能力</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- CARD 2: 安装状态 (未安装) -->
+  <!-- ============================================================ -->
+  <div class="card" style="opacity:.55; border:1px dashed #333;">
+    <div class="card-header">
+      <div class="card-header-left">
+        <span class="badge badge-red">●</span>
+        <span class="card-title">安装状态 <span class="text-dim" style="font-weight:400;font-size:12px;">(参考：未安装状态)</span></span>
+        <span class="badge badge-red">未安装</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="status-row">
+        <span class="status-label">Browser-Use</span>
+        <span class="status-value"><span class="badge badge-red">✕ 未安装</span></span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">Python 3.11+</span>
+        <span class="status-value"><span class="badge badge-yellow">⚠ 待检测</span></span>
+      </div>
+
+      <!-- 一键安装 -->
+      <div style="margin-top:14px;padding:12px;background:#1a1a1a;border-radius:6px;">
+        <div style="font-size:13px;font-weight:500;color:#e0e0e0;margin-bottom:8px;">📦 一键安装</div>
+        <p style="font-size:12px;color:#888;margin-bottom:10px;">
+          自动检测系统 Python → pip install browser-use → playwright install chromium
+        </p>
+        <div class="progress-bar">
+          <div class="progress-fill" style="width:0%"></div>
+        </div>
+        <div class="flex-between mt-8" style="gap:12px;">
+          <span class="progress-msg">点击下方按钮开始自动安装</span>
+          <button class="btn btn-primary">⬇ 一键安装</button>
+        </div>
+      </div>
+
+      <!-- 手动安装步骤 -->
+      <div class="steps">
+        <div style="font-size:12px;color:#666;margin-bottom:8px;">💡 或手动安装：</div>
+        <div class="step">
+          <div class="step-num pending">1</div>
+          <div class="step-body">
+            <div class="step-title">安装 Python 3.11+</div>
+            <div class="step-desc"><code>winget install Python.Python.3.11</code> 或从 <code>python.org</code> 下载</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num pending">2</div>
+          <div class="step-body">
+            <div class="step-title">安装 browser-use</div>
+            <div class="step-desc"><code>pip install browser-use</code></div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num pending">3</div>
+          <div class="step-body">
+            <div class="step-title">安装 Playwright Chromium</div>
+            <div class="step-desc"><code>playwright install chromium</code></div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num pending">4</div>
+          <div class="step-body">
+            <div class="step-title">重启 SpaceCode</div>
+            <div class="step-desc">返回此页面点击「刷新」确认状态</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- CARD 3: LLM 配置 -->
+  <!-- ============================================================ -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-header-left">
+        <span class="card-title">🔑 LLM 配置</span>
+      </div>
+      <span class="badge badge-green">已配置</span>
+    </div>
+    <div class="card-body">
+      <p class="text-sm text-dim mb-8">
+        Browser Use 由 LLM 驱动。推荐 <strong>ChatBrowserUse</strong>（Browser Use Cloud 优化模型），
+        也支持 OpenAI / Anthropic / Google Gemini 等。
+      </p>
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Provider</label>
+          <select class="form-select">
+            <option>ChatBrowserUse (推荐) — bu-2-0</option>
+            <option>OpenAI — gpt-5.5</option>
+            <option selected>Anthropic — claude-sonnet-4-6</option>
+            <option>Google — gemini-3-pro</option>
+            <option>Ollama (本地)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">API Key</label>
+          <input class="form-input" type="password" value="sk-ant-••••••••••" placeholder="输入或从环境变量读取">
+          <div class="form-hint">也可在 <code>.env</code> 或系统环境变量中设置</div>
+        </div>
+      </div>
+      <div class="grid-3">
+        <div class="form-group">
+          <label class="form-label">Model</label>
+          <select class="form-select">
+            <option selected>claude-opus-4-8</option>
+            <option>claude-sonnet-4-6</option>
+            <option>claude-haiku-3-5</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Max Steps</label>
+          <input class="form-input" type="number" value="50" min="1" max="200">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Temperature</label>
+          <input class="form-input" type="number" value="0.1" min="0" max="2" step="0.1">
+        </div>
+      </div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" checked> 使用 Vision (截图)
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+          <input type="checkbox"> 无头模式 (Headless)
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+          <input type="checkbox"> 限制域名白名单
+        </label>
+      </div>
+      <div class="sep"></div>
+      <div style="background:#1a2a1a;border-radius:6px;padding:10px 12px;display:flex;align-items:flex-start;gap:8px;">
+        <span style="color:#4ade80;">✓</span>
+        <div>
+          <div style="font-size:13px;color:#bbf7d0;font-weight:500;">已检测到 BROWSER_USE_API_KEY</div>
+          <div class="text-sm text-dim mt-8">自动切换 ChatBrowserUse 模式 (模型: bu-2-0)</div>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary">测试连接</button>
+        <button class="btn btn-secondary">保存配置</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- CARD 4: 浏览器配置 -->
+  <!-- ============================================================ -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-header-left">
+        <span class="card-title">🌐 浏览器配置</span>
+      </div>
+      <span class="badge badge-green">Chromium 就绪</span>
+    </div>
+    <div class="card-body">
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">浏览器引擎</label>
+          <select class="form-select">
+            <option selected>Chromium (Playwright 内置)</option>
+            <option>系统 Chrome (复用用户配置)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">用户数据目录 (可选)</label>
+          <input class="form-input" type="text" value="" placeholder="留空使用临时配置">
+          <div class="form-hint">指定路径可复用 Cookie / 登录状态</div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">允许的域名 (Allowed Domains)</label>
+        <input class="form-input" type="text" placeholder="*.github.com, docs.example.com">
+        <div class="form-hint">留空不限制，填入则只允许指定域名</div>
+      </div>
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">下载目录</label>
+          <input class="form-input" type="text" value="" placeholder="默认下载目录">
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:8px;padding-bottom:16px;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+            <input type="checkbox"> 禁用扩展
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+            <input type="checkbox"> 窗口置顶
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- CARD 5: 健康检查 -->
+  <!-- ============================================================ -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-header-left">
+        <span class="card-title">🔍 健康检查</span>
+      </div>
+      <button class="btn btn-secondary">⟳ 运行诊断</button>
+    </div>
+    <div class="card-body">
+      <div class="check-list">
+        <div class="check-item"><span class="check-pass">✓</span> Browser-Use 包 — 已安装 (v0.13.1)</div>
+        <div class="check-item"><span class="check-pass">✓</span> Python 运行时 — Python 3.11.9</div>
+        <div class="check-item"><span class="check-pass">✓</span> Playwright Chromium — 已安装</div>
+        <div class="check-item"><span class="check-pass">✓</span> LLM API Key — 已配置</div>
+        <div class="check-item"><span class="check-pass">✓</span> 网络连接 — 可达</div>
+        <div class="check-item"><span class="check-pass">✓</span> MCP 服务 — 运行中</div>
+      </div>
+      <div class="mt-8" style="padding:8px 10px;background:#1a3a2a;border-radius:6px;">
+        <span style="font-size:12px;color:#4ade80;font-weight:500;">✅ 全部通过</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- CARD 6: 实时浏览器预览 -->
+  <!-- ============================================================ -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-header-left">
+        <span class="card-title">🖥 实时浏览器预览</span>
+        <span class="badge badge-green" style="padding:2px 8px;">● 运行中</span>
+      </div>
+      <div class="flex gap-sm">
+        <button class="btn btn-secondary" style="padding:4px 10px;">■ 停止</button>
+        <button class="btn btn-secondary" style="padding:4px 10px;">⟳ 刷新</button>
+        <select class="form-select" style="width:auto;font-size:11px;padding:4px 8px;">
+          <option>缩放: 100%</option>
+          <option>缩放: 75%</option>
+          <option>缩放: 50%</option>
+        </select>
+      </div>
+    </div>
+    <div class="card-body" style="padding:0;">
+      <div class="browser-viewport" style="border-radius:0;border:none;min-height:300px;">
+        <div class="url-bar">
+          <span style="color:#4ade80;">🔒</span>
+          <span>github.com/browser-use/browser-use</span>
+          <span class="text-dim" style="margin-left:auto;">AI 正在浏览中...</span>
+        </div>
+        <div style="text-align:center;color:#555;">
+          <div style="font-size:32px;margin-bottom:8px;">🌐</div>
+          <div>浏览器页面预览将在此显示</div>
+          <div class="text-sm text-dim">截图轮播 (每 2 秒刷新)</div>
+        </div>
+      </div>
+      <div class="browser-toolbar" style="padding:8px 12px;border-top:1px solid #2a2a2a;">
+        <button class="btn-icon">◀</button>
+        <button class="btn-icon" style="opacity:.4;">▶</button>
+        <button class="btn-icon">⟳</button>
+        <input class="nav-input" type="text" value="https://github.com/browser-use/browser-use" placeholder="输入 URL 并回车">
+        <button class="btn-icon">▶</button>
+        <select class="form-select" style="width:auto;font-size:11px;padding:4px 8px;">
+          <option>空闲</option>
+          <option selected>AI 浏览中 - step 3/50</option>
+          <option>等待用户输入</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- CARD 7: 对话集成预览 -->
+  <!-- ============================================================ -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-header-left">
+        <span class="card-title">💬 对话集成预览</span>
+      </div>
+      <span class="badge badge-blue">Slash Commands</span>
+    </div>
+    <div class="card-body">
+      <p class="text-sm text-dim mb-8">
+        Browser Use 以 MCP 工具方式集成到聊天中。AI Agent 可自动调用，也支持斜杠命令快捷触发。
+      </p>
+
+      <!-- 用户消息 -->
+      <div class="chat-msg">
+        <div class="avatar" style="background:#2a1a1a;color:#f87171;">U</div>
+        <div class="chat-body">
+          <div class="chat-name">You</div>
+          <div class="chat-text">帮我查一下 browser-use 的 GitHub star 数量和最新版本号</div>
+        </div>
+      </div>
+
+      <!-- AI 回复 + browser-use 工具调用 -->
+      <div class="chat-msg" style="background:#1a1a1a;">
+        <div class="avatar" style="background:#1a2a3a;color:#60a5fa;">AI</div>
+        <div class="chat-body">
+          <div class="chat-name">SpaceCode</div>
+          <div class="chat-text">好的，我使用 Browser Use 来查一下。</div>
+
+          <div class="chat-tool-card">
+            <div class="tc-header">
+              <span class="tc-status-dot running"></span>
+              <span class="card-title">browser_use</span>
+              <span class="text-sm text-dim">步骤 1/10</span>
+            </div>
+            <div><span class="tc-url">🔗 https://github.com/browser-use/browser-use</span></div>
+            <div class="tc-preview">
+              <!-- 模拟页面内容 -->
+              &lt;title&gt;browser-use/browser-use: A browser agent...&lt;/title&gt;
+              ⭐ 45,832 stars
+              Latest release: v0.13.1
+            </div>
+          </div>
+
+          <div class="chat-tool-card">
+            <div class="tc-header">
+              <span class="tc-status-dot done"></span>
+              <span class="card-title">browser_screenshot</span>
+              <span class="text-green text-sm">✅ 完成</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <div style="width:80px;height:52px;background:linear-gradient(135deg,#1a1a3a,#2a1a1a);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#555;flex-shrink:0;">📸</div>
+              <div>
+                <div style="font-size:12px;color:#e0e0e0;">GitHub 页面截图</div>
+                <div class="text-sm text-dim">1280×720 · 已保存到工作区</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI 最终回复 -->
+      <div class="chat-msg" style="background:#1a1a1a;">
+        <div class="avatar" style="background:#1a2a3a;color:#60a5fa;">AI</div>
+        <div class="chat-body">
+          <div class="chat-name">SpaceCode</div>
+          <div class="chat-text">
+            ✅ 查询完成！<br><br>
+            📊 <strong>browser-use 仓库信息</strong><br>
+            • ⭐ Stars: <strong>45,832</strong><br>
+            • 🏷 最新版本: <strong>v0.13.1</strong><br>
+            • 📝 最后更新: 2 小时前<br>
+            • 🔗 <span class="text-blue">https://github.com/browser-use/browser-use</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 斜杠命令 -->
+      <div class="sep"></div>
+      <div>
+        <div style="font-size:12px;color:#666;margin-bottom:8px;">可用斜杠命令：</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <span class="badge badge-blue" style="font-size:12px;padding:4px 10px;cursor:default;">/browse &lt;url&gt;</span>
+          <span class="badge badge-blue" style="font-size:12px;padding:4px 10px;cursor:default;">/scrape &lt;url&gt;</span>
+          <span class="badge badge-blue" style="font-size:12px;padding:4px 10px;cursor:default;">/screenshot &lt;url&gt;</span>
+          <span class="badge badge-blue" style="font-size:12px;padding:4px 10px;cursor:default;">/fill-form &lt;描述&gt;</span>
+          <span class="badge badge-blue" style="font-size:12px;padding:4px 10px;cursor:default;">/browser-status</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- CARD 8: 系统架构 -->
+  <!-- ============================================================ -->
+  <div class="card" style="margin-bottom:64px;">
+    <div class="card-header">
+      <div class="card-header-left">
+        <span class="card-title">🏗 系统架构</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <div style="background:#111;border-radius:8px;padding:20px;font-family:'SF Mono','Fira Code',monospace;font-size:12px;line-height:1.8;color:#888;">
+        <div style="color:#60a5fa;">┌─ SpaceCode (Electron GUI) ──────────────────────────┐</div>
+        <div style="color:#888;">│                                                       │</div>
+        <div style="color:#e0e0e0;">│  Vue Renderer (BrowserUseSettings + LiveView)         │</div>
+        <div style="color:#888;">│         ↕ IPC (invoke/handle)                            │</div>
+        <div style="color:#e0e0e0;">│  Electron Main (browserUseService.ts)                  │</div>
+        <div style="color:#888;">│         ↕ spawn (stdio JSON-RPC 2.0 / MCP)               │</div>
+        <div style="color:#4ade80;">│  ┌─ Python Process ────────────────────────────┐      │</div>
+        <div style="color:#4ade80;">│  │  browser-use v0.13.1                       │      │</div>
+        <div style="color:#4ade80;">│  │  LLM (OpenAI / Anthropic / BU Cloud)       │      │</div>
+        <div style="color:#4ade80;">│  │  Playwright → Chromium                     │      │</div>
+        <div style="color:#4ade80;">│  └────────────────────────────────────────────┘      │</div>
+        <div style="color:#60a5fa;">└───────────────────────────────────────────────────────┘</div>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:6px;flex-wrap:wrap;">
+        <span class="tag tag-python">🐍 Python 3.11+</span>
+        <span class="tag tag-bundle">📦 browser-use 0.13.1</span>
+        <span class="tag tag-playwright">🎭 Playwright + Chromium</span>
+        <span class="tag tag-mcp">🔌 MCP over stdio</span>
+        <span class="tag tag-mcp">⚡ pip 自动安装</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

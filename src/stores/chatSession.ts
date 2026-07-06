@@ -1,11 +1,12 @@
 import { defineStore } from 'pinia'
 import { ref, computed, readonly } from 'vue'
-import type { Session, Message, ToolCall, AgentInfo, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus, ArtifactSummaryEntry } from '@/types'
+import type { Session, Message, ToolCall, AgentInfo, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus, ArtifactSummaryEntry, MessageMetadata } from '@/types'
 import type { RewindOption, RewindState } from '@/types/rewind'
 import { useSettingsStore } from './settings'
 import { useAppStore } from './app'
 import { useTaskManager } from '@/composables/useTaskManager'
 import { getCompletedTurnTargets } from '@/utils/turnCheckpointUtils'
+import { syncTaskStateFromToolCall } from '@/utils/taskToolSync'
 import { api } from '@/services/electronAPI'
 import { errorHandler } from '@/services/errorHandler'
 import { buildMessagesFromHistory } from '@/utils/sessionRestore'
@@ -23,11 +24,15 @@ import {
   inferTeammateStatus,
   stringifyRawContent,
   ensureTeamContext,
+  ensureSubagentTranscripts,
   recordAgentToolCall,
   isFileBackedTeammate,
   rekickAgentTranscriptPoll,
   resolveTeammateId,
+  teammateIdForParentToolUse,
+  registerTeammateForToolUse,
   clearSessionToolUseMappings,
+  normalizeTeammateId,
   AGENT_COLORS,
 } from '@/services/teamTranscriptService'
 
@@ -142,22 +147,35 @@ async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
     )
     try {
       const fullSession = await claudeCode.getFullSession(projectPath, session.id)
-      if (!fullSession?.messages?.length) continue
+      if (!(fullSession?.messages as unknown[] | undefined)?.length) continue
 
-      const restoredMessages = buildMessagesFromHistory(fullSession.messages)
+      const restoredMessages = buildMessagesFromHistory(fullSession.messages as any[])
       if (restoredMessages.length === 0) continue
 
-      // ── 保留办公模式产物汇总数据 ──
-      // JSONL 转录文件由引擎写入，不包含 SpaceCode 特有的 metadata.artifacts 字段。
-      // buildMessagesFromHistory 从 JSONL 重建消息时会丢失该字段，导致重开后产物汇总
-      // 卡片消失。此处从 localStorage 保存的旧消息中按助手消息位置提取 artifacts，
-      // 重建后按位置合并回去（旧/新消息的 SpaceCode UUID 与引擎 UUID 不同，无法按 id 匹配）。
-      const oldArtifactsByAssistantIdx = new Map<number, ArtifactSummaryEntry[]>()
+      // ── 保留 SpaceCode 前端特有的 metadata 字段 ──
+      // JSONL 转录文件由引擎写入，不包含 SpaceCode 前端在运行时计算的字段：
+      //   • metadata.duration     — 每轮助手回复的用时（result 事件时 Date.now() - msg.timestamp）
+      //   • metadata.apiCallUsage — 最后一次 API 调用的 token 明细
+      //   • metadata.artifacts    — 办公模式产物汇总
+      //   • metadata.warning     — 前端生成的警告信息
+      // buildMessagesFromHistory 从 JSONL 重建消息时会丢失这些字段，导致重开后
+      // 用时统计变为 0、产物汇总卡片消失。此处从 localStorage 保存的旧消息中
+      // 按助手消息位置提取这些字段，重建后按位置合并回去
+      // （旧/新消息的 SpaceCode UUID 与引擎 UUID 不同，无法按 id 匹配）。
+      const oldExtraMetaByAssistantIdx = new Map<number, Partial<MessageMetadata>>()
       let oldAssistantIdx = 0
       for (const oldMsg of session.messages) {
         if (oldMsg.role !== 'assistant') continue
-        if (oldMsg.metadata?.artifacts?.length) {
-          oldArtifactsByAssistantIdx.set(oldAssistantIdx, oldMsg.metadata.artifacts)
+        const md = oldMsg.metadata
+        if (md) {
+          const extra: Partial<MessageMetadata> = {}
+          if (typeof md.duration === 'number') extra.duration = md.duration
+          if (md.apiCallUsage) extra.apiCallUsage = md.apiCallUsage
+          if (md.artifacts?.length) extra.artifacts = md.artifacts
+          if (md.warning) extra.warning = md.warning
+          if (Object.keys(extra).length > 0) {
+            oldExtraMetaByAssistantIdx.set(oldAssistantIdx, extra)
+          }
         }
         oldAssistantIdx++
       }
@@ -177,16 +195,16 @@ async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
         } : {}),
       })) as Message[]
 
-      // 将旧消息中保存的产物汇总数据按助手消息位置合并回重建后的消息
-      if (oldArtifactsByAssistantIdx.size > 0) {
+      // 将旧消息中保存的前端特有 metadata 按助手消息位置合并回重建后的消息
+      if (oldExtraMetaByAssistantIdx.size > 0) {
         let newAssistantIdx = 0
         for (const newMsg of session.messages) {
           if (newMsg.role !== 'assistant') continue
-          const savedArtifacts = oldArtifactsByAssistantIdx.get(newAssistantIdx)
-          if (savedArtifacts) {
+          const savedMeta = oldExtraMetaByAssistantIdx.get(newAssistantIdx)
+          if (savedMeta) {
             newMsg.metadata = {
               ...(newMsg.metadata || {}),
-              artifacts: savedArtifacts,
+              ...savedMeta,
             }
           }
           newAssistantIdx++
@@ -282,74 +300,18 @@ function updateTaskStateFromToolResult(
 ) {
   const toolCall = toolCalls.find(tc => tc.id === resultToolUseId)
   if (!toolCall) return
-  const toolName = toolCall.name
-  if (toolName === 'TaskCreate') {
-    const match = resultOutput.match(/^Task #(\d+) created successfully: (.+)$/m)
-    if (match) {
-      taskManager.createTask(match[1], match[2], toolCall.input?.description)
-    }
-  } else if (toolName === 'TaskUpdate') {
-    const idMatch = resultOutput.match(/^Updated task #(\d+)/)
-    if (idMatch) {
-      const taskId = idMatch[1]
-      const updates: { status?: 'pending' | 'in_progress' | 'completed', owner?: string } = {}
-      const statusMatch = resultOutput.match(/status\w*:\s*(\w+)\s*->\s*(\w+)/i)
-      if (statusMatch) {
-        const newStatus = statusMatch[2]
-        if (['pending', 'in_progress', 'completed'].includes(newStatus)) {
-          updates.status = newStatus as 'pending' | 'in_progress' | 'completed'
-        }
-      }
-      const ownerMatch = resultOutput.match(/owner\w*:\s*([^,\n]+)/i)
-      if (ownerMatch) {
-        updates.owner = ownerMatch[1].trim()
-      }
-      taskManager.updateTask(taskId, updates)
-    }
-  } else if (toolName === 'TaskList') {
-    if (resultOutput === 'No tasks found') {
-      taskManager.clearTasks()
-      return
-    }
-    const tasks: Array<{
-      id: string
-      content: string
-      status: 'pending' | 'in_progress' | 'completed'
-      owner?: string
-      blockedBy?: string[]
-    }> = []
-    const lines = resultOutput.split('\n')
-    for (const line of lines) {
-      const match = line.match(/^#([^\s]+) \[(pending|in_progress|completed)\] (.*?)(?: \(([^)]+)\))?(?: \[blocked by (.+)\])?$/)
-      if (!match) continue
-      tasks.push({
-        id: match[1],
-        status: match[2] as 'pending' | 'in_progress' | 'completed',
-        content: match[3],
-        owner: match[4],
-        blockedBy: match[5]?.split(', ').filter(Boolean) || []
-      })
-    }
-    taskManager.syncTasksFromList(tasks)
-  } else if (toolName === 'TodoWrite') {
-    // TodoWrite (V1): the full task list is in the tool call input,
-    // not the result output. Sync it to taskManager so that both the
-    // chat TaskListCard and the floating EnvPanel stay up-to-date.
-    const todos = toolCall.input?.todos
-    if (Array.isArray(todos)) {
-      taskManager.syncTasksFromList(
-        todos
-          .filter((t: any) => t && typeof t.content === 'string')
-          .map((t: any) => ({
-            id: String(t.id ?? t.content),
-            content: t.content,
-            status: (['pending', 'in_progress', 'completed'].includes(t.status)
-              ? t.status
-              : 'pending') as 'pending' | 'in_progress' | 'completed',
-          }))
-      )
-    }
-  }
+  syncTaskStateFromToolCall(taskManager, toolCall, resultOutput)
+}
+
+function taskNotificationStatus(value: unknown): { toolStatus: ToolCall['status'], teammateStatus: TeammateStatus } | null {
+  if (value === 'completed') return { toolStatus: 'completed', teammateStatus: 'completed' }
+  if (value === 'failed' || value === 'stopped' || value === 'killed') return { toolStatus: 'error', teammateStatus: 'failed' }
+  return null
+}
+
+function isUnsettledAgentTool(toolCall: ToolCall): boolean {
+  return (toolCall.name === 'Agent' || toolCall.name === 'Task') &&
+    (toolCall.status === 'running' || toolCall.status === 'pending')
 }
 
 export const useChatSessionStore = defineStore('chatSession', () => {
@@ -620,7 +582,10 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     return session
   }
 
-  async function initClaudeCodeSession(sessionId: string): Promise<void> {
+  async function initClaudeCodeSession(
+    sessionId: string,
+    overrides?: { systemPrompt?: string; agent?: string; cwd?: string }
+  ): Promise<void> {
     const claudeCode = api.claudeCode
     if (!claudeCode) {
       logger.warn('ChatStore', `initClaudeCodeSession: claudeCode API not available`)
@@ -639,7 +604,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       const currentEngine = session.engineType
       if (currentEngine && currentEngine !== desiredEngine) {
         logger.info('ChatStore', `initClaudeCodeSession: engine changed (${currentEngine} → ${desiredEngine}), restarting | id=${sessionId.slice(0, 8)}`)
-        const resumeId = status.engineSessionId || session.engineSessionId
+        const resumeId = (status.engineSessionId as string) || session.engineSessionId
         try {
           await claudeCode.stop(sessionId)
         } catch (e) {
@@ -665,7 +630,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
 
     try {
       const config = settingsStore.config
-      const cwd = session.workingDirectory || currentProjectRoot.value || await api.getCwd() || '/'
+      const cwd = overrides?.cwd || session.workingDirectory || currentProjectRoot.value || await api.getCwd() || '/'
 
       session.processStatus = 'starting'
       saveToStorage()
@@ -699,12 +664,13 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         model: config.model,
         effortLevel: config.effortLevel,
         permissionMode: controlStore.currentPermissionMode,
-        agent: currentAgent.value || undefined,
+        agent: overrides?.agent || currentAgent.value || undefined,
         thinkingEnabled: settingsStore.thinkingEnabled,
         engineType: desiredEngine,
         engineSource: settingsStore.engineSource,
         installedCliPath: settingsStore.installedCliPath ?? undefined,
         resumeSessionId: session._resumeSessionId,
+        systemPrompt: overrides?.systemPrompt,
         // 展开为普通对象，避免 Vue 响应式 Proxy 无法通过 Electron IPC 结构化克隆
         modelContextWindows: { ...settingsStore.modelContextWindows },
       })
@@ -766,7 +732,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     const messageId = raw?.uuid || raw?.message?.id || raw?.id || crypto.randomUUID()
     const message: Message = {
       id: String(messageId),
-      role: raw?.role === 'user' ? 'user' : 'assistant',
+      role: (raw?.role === 'user' || raw?.type === 'user' || raw?.message?.role === 'user') ? 'user' : 'assistant',
       content: text,
       timestamp: raw?.timestamp ? Date.parse(raw.timestamp) || Date.now() : Date.now(),
       metadata: {
@@ -831,6 +797,203 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     session.lastActivityAt = Date.now()
     saveToStorage()
     return message
+  }
+
+  /**
+   * 记录子智能体（Agent tool）的 sidechain 消息到转录存储。
+   * 与 recordTeammateMessage 的关键区别：
+   *   - 不创建 teamContext（子智能体不属于 agent team）
+   *   - 不向 session.messages 推送系统通知（不干扰主时间线）
+   *   - 仍写入 teammateTranscripts 供 AgentToolCard 读取
+   */
+  function recordSubagentMessage(raw: any, targetSessionId: string): Message | null {
+    const session = sessions.value.find(s => s.id === targetSessionId)
+    if (!session) return null
+
+    // ★ 桥接 parent_tool_use_id 不匹配问题
+    // 引擎的 sync Agent tool 进度消息使用 `agent_<assistant_message_id>` 作为
+    // parent_tool_use_id，而非 Agent 工具的 tool_use ID。这导致 resolveTeammateId
+    // 无法通过映射找到正确的 teammateId，消息被存储在不同的键下，
+    // AgentToolCard 读取不到流式输出。
+    // 此处检测未注册的 parent_tool_use_id，尝试匹配当前运行的 Agent/Task 工具调用，
+    // 注册映射使后续消息（及 AgentToolCard）能归并到同一 teammateId。
+    const parentId = raw?.parent_tool_use_id || raw?.parentToolUseId
+    if (parentId && !teammateIdForParentToolUse(targetSessionId, parentId)) {
+      for (const msg of session.messages) {
+        if (!msg.toolCalls) continue
+        for (const tc of msg.toolCalls) {
+          if (isUnsettledAgentTool(tc)) {
+            const registeredId = teammateIdForParentToolUse(targetSessionId, tc.id)
+            if (registeredId) {
+              registerTeammateForToolUse(targetSessionId, parentId, registeredId)
+            }
+          }
+        }
+      }
+    }
+
+    const subagentId = resolveTeammateId(targetSessionId, raw)
+    const name = getRawTeammateName(raw)
+    const status = inferTeammateStatus(raw)
+    const text = stringifyRawContent(raw)
+    ensureSubagentTranscripts(session)
+
+    const transcript = session.teammateTranscripts![subagentId] || []
+    const messageId = raw?.uuid || raw?.message?.id || raw?.id || crypto.randomUUID()
+    const message: Message = {
+      id: String(messageId),
+      role: (raw?.role === 'user' || raw?.type === 'user' || raw?.message?.role === 'user') ? 'user' : 'assistant',
+      content: text,
+      timestamp: raw?.timestamp ? Date.parse(raw.timestamp) || Date.now() : Date.now(),
+      metadata: {
+        agentTaskId: subagentId,
+        agentName: name,
+        teamName: 'Agent Team',
+        status,
+      }
+    }
+
+    if (isFileBackedTeammate(targetSessionId, subagentId)) {
+      let changed = false
+      if (status === 'completed' || status === 'failed') {
+        changed = applySubagentTerminalStatus(session, subagentId, status, text)
+      }
+      rekickAgentTranscriptPoll(session, targetSessionId, subagentId)
+      session.updatedAt = Date.now()
+      session.lastActivityAt = Date.now()
+      if (changed) saveToStorage()
+      return null
+    }
+
+    if (text.trim()) {
+      const idx = transcript.findIndex(m => m.id === message.id)
+      if (idx >= 0) {
+        const next = [...transcript]
+        next[idx] = { ...next[idx], content: text, metadata: { ...next[idx].metadata, status } }
+        session.teammateTranscripts![subagentId] = next
+      } else {
+        session.teammateTranscripts![subagentId] = [...transcript, message]
+      }
+    }
+
+    if (status === 'completed' || status === 'failed') {
+      applySubagentTerminalStatus(session, subagentId, status, text)
+    }
+
+    session.updatedAt = Date.now()
+    session.lastActivityAt = Date.now()
+    return message
+  }
+
+  function applySubagentTerminalStatus(
+    session: Session,
+    subagentId: string,
+    status: TeammateStatus,
+    text?: string
+  ): boolean {
+    let updated = false
+    for (const msg of session.messages) {
+      const toolCalls = msg.toolCalls
+      if (!toolCalls) continue
+      for (let i = 0; i < toolCalls.length; i++) {
+        const tc = toolCalls[i]
+        if (isUnsettledAgentTool(tc)) {
+          const mappedTeammateId = teammateIdForParentToolUse(session.id, tc.id)
+          const outputAgentId = (tc.output || '').match(/agentId:\s*([^\s]+)/)?.[1]
+          if (mappedTeammateId === subagentId ||
+              normalizeTeammateId(tc.id) === subagentId ||
+              (!!outputAgentId && normalizeTeammateId(outputAgentId) === subagentId)) {
+            const updatedToolCalls: ToolCall[] = [...toolCalls]
+            updatedToolCalls[i] = {
+              ...tc,
+              status: status === 'failed' ? 'error' : 'completed',
+              endTime: Date.now(),
+              ...(text?.trim() ? { output: text.slice(0, 30000) } : {})
+            }
+            msg.toolCalls = updatedToolCalls
+            recordAgentToolCall(session, updatedToolCalls[i], status)
+            updated = true
+            break
+          }
+        }
+      }
+    }
+
+    const transcript = session.teammateTranscripts?.[subagentId]
+    if (transcript?.length) {
+      session.teammateTranscripts![subagentId] = transcript.map(m => ({
+        ...m,
+        metadata: { ...m.metadata, status }
+      }))
+      updated = true
+    }
+
+    if (session.teamContext?.teammates[subagentId]) {
+      session.teamContext.teammates[subagentId].status = status
+      updated = true
+    }
+
+    return updated
+  }
+
+  function handleTaskNotification(raw: any, targetSessionId: string): void {
+    if (!raw || raw.subtype !== 'task_notification') return
+    const normalized = taskNotificationStatus(raw.status)
+    if (!normalized) return
+    const session = sessions.value.find(s => s.id === targetSessionId)
+    if (!session) return
+
+    const taskId = typeof raw.task_id === 'string' ? raw.task_id : ''
+    const toolUseId = typeof raw.tool_use_id === 'string' ? raw.tool_use_id : ''
+    const outputFile = typeof raw.output_file === 'string' ? raw.output_file : ''
+    const summary = typeof raw.summary === 'string' ? raw.summary : ''
+    const finalText = [summary, outputFile ? `output_file: ${outputFile}` : ''].filter(Boolean).join('\n')
+    let changed = false
+
+    for (const msg of session.messages) {
+      const toolCalls = msg.toolCalls
+      if (!toolCalls) continue
+      for (let i = 0; i < toolCalls.length; i++) {
+        const tc = toolCalls[i]
+        if (tc.name !== 'Agent' && tc.name !== 'Task') continue
+        const outputAgentId = typeof tc.output === 'string'
+          ? tc.output.match(/agentId:\s*([^\s]+)/)?.[1]
+          : undefined
+        const matches = (!!toolUseId && tc.id === toolUseId) ||
+          (!!taskId && !!outputAgentId && normalizeTeammateId(taskId) === normalizeTeammateId(outputAgentId)) ||
+          (!!taskId && normalizeTeammateId(taskId) === normalizeTeammateId(tc.id))
+        if (!matches) continue
+
+        const nextOutput = finalText
+          ? `${tc.output || ''}${tc.output ? '\n\n' : ''}${finalText}`.slice(0, 30000)
+          : tc.output
+        const updatedToolCalls: ToolCall[] = [...toolCalls]
+        updatedToolCalls[i] = {
+          ...tc,
+          status: normalized.toolStatus,
+          output: nextOutput,
+          endTime: Date.now(),
+        }
+        msg.toolCalls = updatedToolCalls
+        recordAgentToolCall(session, updatedToolCalls[i], normalized.teammateStatus)
+        changed = true
+
+        const mappedTeammateId = teammateIdForParentToolUse(targetSessionId, tc.id)
+        const subagentId = mappedTeammateId ||
+          (taskId ? normalizeTeammateId(taskId) : normalizeTeammateId(tc.id))
+        applySubagentTerminalStatus(session, subagentId, normalized.teammateStatus, finalText)
+      }
+    }
+
+    if (!changed && taskId) {
+      changed = applySubagentTerminalStatus(session, normalizeTeammateId(taskId), normalized.teammateStatus, finalText)
+    }
+
+    if (changed) {
+      session.updatedAt = Date.now()
+      session.lastActivityAt = Date.now()
+      saveToStorage()
+    }
   }
 
   function viewTeammateTranscript(taskId: string) {
@@ -1383,7 +1546,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     if (!claudeCode?.listAgents) return
     try {
       const cwd = workingDirectory.value || currentProjectRoot.value || undefined
-      availableAgents.value = await claudeCode.listAgents(cwd)
+      availableAgents.value = await claudeCode.listAgents(cwd) as typeof availableAgents.value
     } catch (error) {
       console.error('[ChatStore] Failed to load agents:', error)
     }
@@ -1604,6 +1767,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     viewTeammateTranscript,
     backToLeaderView,
     recordTeammateMessage,
+    recordSubagentMessage,
+    handleTaskNotification,
     selectSession,
     activateSession,
     deactivateSession,

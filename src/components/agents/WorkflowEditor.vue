@@ -258,7 +258,7 @@ const { t } = useI18n()
 const agentsStore = useAgentsStore()
 const appStore = useAppStore()
 const { showAlert, showConfirm } = useDialog()
-const electronAPI = (window as any).electronAPI
+const electronAPI = window.electronAPI
 
 interface WorkflowNode {
   id: string
@@ -508,7 +508,7 @@ async function exportWorkflow(wf: WorkflowDef) {
   const scope = await showConfirm(t('workflow.exportGlobalConfirm')) ? 'global' : 'project'
   const cwd = appStore.projectRoot || undefined
   try {
-    const result = await electronAPI?.agents?.exportWorkflow(wf.id, scope, cwd)
+    const result = await electronAPI?.agents?.exportWorkflow(wf.id, scope, cwd) as { path: string } | undefined
     if (result) await showAlert(t('workflow.exportSuccess', { path: result.path }))
   } catch (err) {
     console.error('Failed to export workflow:', err)
@@ -517,7 +517,7 @@ async function exportWorkflow(wf: WorkflowDef) {
 
 async function loadWorkflows() {
   try {
-    const data = await electronAPI?.agents?.listWorkflows()
+    const data = await electronAPI?.agents?.listWorkflows() as { workflows: WorkflowDef[] } | undefined
     workflows.value = data?.workflows || []
   } catch (err) {
     console.error('Failed to load workflows:', err)

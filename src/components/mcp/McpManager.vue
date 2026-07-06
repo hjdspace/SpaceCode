@@ -211,6 +211,15 @@
                     <Zap v-else :size="12" />
                     {{ t('mcpSettings.testConnection') }}
                   </button>
+                  <!-- 编辑按钮：允许用户修改内置服务器的配置（如 browser-use-cloud 的 API Key） -->
+                  <button
+                    class="builtin-edit-btn"
+                    :title="t('mcpSettings.edit')"
+                    @click="handleBuiltinEdit(entry.preset.key)"
+                  >
+                    <Pencil :size="12" />
+                    {{ t('mcpSettings.edit') }}
+                  </button>
                   <label class="builtin-toggle">
                     <input
                       type="checkbox"
@@ -352,7 +361,7 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Plus, List, Code, Loader2, Wifi, RefreshCw, ArrowLeft, ChevronRight, Info,
-  ExternalLink, Boxes, Zap, CheckCircle2, XCircle, Download
+  ExternalLink, Boxes, Zap, CheckCircle2, XCircle, Download, Pencil
 } from 'lucide-vue-next'
 import { useMcpStore, type McpToolInfo, type MCPServer } from '@/stores/mcp'
 import { useAppStore } from '@/stores/app'
@@ -555,6 +564,14 @@ async function handleBuiltinToggle(key: string, enabled: boolean) {
 /** 对内置 MCP 执行一次连接测试 */
 function handleBuiltinProbe(key: string) {
   mcpStore.probeServer(key)
+}
+
+/** 编辑内置 MCP 配置（如修改 browser-use-cloud 的 API Key） */
+function handleBuiltinEdit(key: string) {
+  const server = mcpStore.servers[key]
+  if (server) {
+    handleEdit(key, server)
+  }
 }
 
 /**
@@ -1115,25 +1132,40 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 10px;
-  border-radius: var(--radius-xs);
-  font-size: 11px;
+  padding: 3px 10px;
+  font-size: 11.5px;
   font-weight: 500;
   border: 1px solid var(--border-default);
-  background: transparent;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all .15s;
+}
 
-  &:hover:not(:disabled) {
-    border-color: var(--accent-primary);
-    color: var(--accent-primary);
-  }
+.builtin-test-btn:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
 
-  &:disabled {
-    opacity: 0.5;
-    cursor: wait;
-  }
+.builtin-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all .15s;
+}
+
+.builtin-edit-btn:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
 }
 
 .builtin-toggle {

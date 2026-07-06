@@ -39,6 +39,9 @@ If CLAUDE.md already exists: read it, propose specific changes as diffs. Do not 
   '/doctor': 'Run diagnostic checks on this project. Check system health, dependencies, configuration files, and report any issues. Look for common problems like missing dependencies, outdated packages, configuration errors, and security vulnerabilities.',
   '/terminal-setup': 'Help me configure my terminal for optimal use with Claude Code. Check current setup (shell, dotfiles, PATH, aliases) and suggest improvements for productivity.',
   '/memory': 'Show the current CLAUDE.md project memory file and help me review or edit it. If it doesn\'t exist, help create one with project context.',
+  '/browse': 'Open a browser and browse the web using Browser Use. I will navigate to the given URL, read the page content, and report back. Supports filling forms, extracting data, and taking screenshots.',
+  '/scrape': 'Scrape and extract text content from a web page using Browser Use. Returns the page text content in a structured format.',
+  '/screenshot': 'Take a screenshot of a web page using Browser Use. Captures the visual state of the page for analysis.',
 }
 
 /** Built-in slash commands shown in the popover */
@@ -294,6 +297,38 @@ export const BUILT_IN_COMMANDS: SlashCommand[] = [
     name: 'keybindings',
     description: 'Keyboard shortcuts help',
     icon: 'Keyboard',
+    kind: 'immediate',
+    immediate: true,
+    source: 'builtin' as const,
+  },
+  // ═══════════════════════════════════════
+  // browser — 浏览器自动化 (Browser Use)
+  // ═══════════════════════════════════════
+  {
+    name: 'browse',
+    description: 'Browse a web page using Browser Use',
+    icon: 'Globe',
+    kind: 'codepilot_command',
+    source: 'builtin' as const,
+  },
+  {
+    name: 'scrape',
+    description: 'Scrape text content from a web page',
+    icon: 'FileText',
+    kind: 'codepilot_command',
+    source: 'builtin' as const,
+  },
+  {
+    name: 'screenshot',
+    description: 'Take a screenshot of a web page',
+    icon: 'Eye',
+    kind: 'codepilot_command',
+    source: 'builtin' as const,
+  },
+  {
+    name: 'browser-use',
+    description: 'Open Browser Use settings panel',
+    icon: 'Globe',
     kind: 'immediate',
     immediate: true,
     source: 'builtin' as const,
