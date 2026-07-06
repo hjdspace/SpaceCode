@@ -6,9 +6,9 @@
       data-testid="ds-picker-trigger"
       @click="open = !open"
     >
-      <Palette :size="14" />
+      <Palette :size="13" />
       <span class="ds-picker-value">{{ selectedName }}</span>
-      <ChevronDown :size="12" />
+      <ChevronDown :size="11" />
     </button>
 
     <div v-if="open" class="ds-picker-menu" data-testid="ds-picker-menu">
@@ -263,26 +263,34 @@ onUnmounted(() => {
 <style scoped lang="scss">
 .ds-picker { position: relative; display: inline-flex; align-items: center; min-width: 0; }
 
+/* Trigger：与 ChatContextToolbar 的 .ctx-trigger 保持一致 */
 .ds-picker-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 5px;
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  padding: 6px 8px;
-  font-size: 14px;
+  border: none;
+  border-radius: 5px;
+  padding: 3px 8px 3px 7px;
+  font-size: 13px;
+  font-family: inherit;
   cursor: pointer;
-  color: var(--text-muted);
-  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
-  max-width: 260px;
+  color: var(--text-muted, #888);
+  transition: all 0.12s ease;
+  white-space: nowrap;
+  max-width: 220px;
+  line-height: 1.4;
 }
 
 .ds-picker-trigger:hover,
 .ds-picker.is-open .ds-picker-trigger {
-  background: rgba(24, 25, 31, 0.04);
-  border-color: var(--surface-border);
-  color: var(--text-primary);
+  background: var(--bg-hover, rgba(0, 0, 0, 0.04));
+  color: var(--text-primary, #333);
+}
+
+.ds-picker.is-open .ds-picker-trigger {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.04));
+  color: var(--text-primary, #333);
 }
 
 .ds-picker-value {
@@ -290,7 +298,8 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 600;
+  font-weight: 500;
+  color: var(--text-secondary, #555);
 }
 
 .ds-picker-menu {
