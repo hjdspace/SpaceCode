@@ -6,7 +6,8 @@
         :collapsed="appStore.sidebarCollapsed"
         :style="{ width: appStore.sidebarCollapsed ? '48px' : leftWidth + 'px' }"
       />
-      <!-- H5 模式侧边栏遮罩层 — 点击关闭侧边栏 -->
+      <!-- H5 模式侧边栏遮罩层 — 点击关闭侧边栏
+           z-index 层级：遮罩层 150 位于主内容之上，侧边栏 200 之下 -->
       <div
         v-if="h5Mode && !appStore.sidebarCollapsed"
         class="h5-sidebar-overlay"
