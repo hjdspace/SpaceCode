@@ -27,43 +27,30 @@ describe('MessageItem events 模式', () => {
     setActivePinia(createPinia())
   })
 
-  it('design 模式下用 buildBlocks 渲染 text block', () => {
+  it('助手消息走扁平渲染（design 模式已统一到 AgentTimeline，MessageItem 不再有 design 分支）', () => {
     const msg: Message = {
       id: 'm1', role: 'assistant', content: '你好', timestamp: Date.now(),
     }
     const w = mount(MessageItem, {
-      props: { message: msg, mode: 'design' },
+      props: { message: msg },
       global: {
-        stubs: ['MarkdownRenderer', 'ReasoningCard', 'ToolCallCard', 'OdCard', 'NextStepActions', 'QuestionForm'],
+        stubs: ['MarkdownRenderer', 'ReasoningCard', 'ToolCallList', 'MessageMetadata'],
       },
     })
-    expect(w.find('.block-text').exists()).toBe(true)
+    // design 模式的 buildBlocks 渲染已移除，不再产生 .block-text
+    expect(w.find('.block-text').exists()).toBe(false)
+    expect(w.find('.message-content').exists()).toBe(true)
   })
 
-  it('design 模式下 od-card block 渲染 OdCard', () => {
-    const msg: Message = {
-      id: 'm1', role: 'assistant',
-      content: '<od-card type="generic" title="t">{"k":"v"}</od-card>',
-      timestamp: Date.now(),
-    }
-    const w = mount(MessageItem, {
-      props: { message: msg, mode: 'design' },
-      global: {
-        stubs: ['MarkdownRenderer', 'ReasoningCard', 'ToolCallCard', 'OdCard', 'NextStepActions', 'QuestionForm'],
-      },
-    })
-    expect(w.findComponent({ name: 'OdCard' }).exists()).toBe(true)
-  })
-
-  it('design 模式下 thinking block 传递 endTime 避免永远显示思考中', () => {
+  it('助手消息含 reasoning 时渲染 ReasoningCard', () => {
     const msg: Message = {
       id: 'm1', role: 'assistant', content: '结果', timestamp: Date.now(),
       reasoning: { content: '我在思考', startTime: 1000, endTime: 2000 },
     }
     const w = mount(MessageItem, {
-      props: { message: msg, mode: 'design' },
+      props: { message: msg },
       global: {
-        stubs: ['MarkdownRenderer', 'ReasoningCard', 'ToolCallCard', 'OdCard', 'NextStepActions', 'QuestionForm'],
+        stubs: ['MarkdownRenderer', 'ReasoningCard', 'ToolCallList', 'MessageMetadata'],
       },
     })
     const rc = w.findComponent({ name: 'ReasoningCard' })
