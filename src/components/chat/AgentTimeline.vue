@@ -156,34 +156,14 @@
       />
     </div>
 
-    <!-- 用时汇总条 -->
-    <div v-if="hasTurnSummary" class="turn-summary">
-      <div class="turn-summary-item total-duration">
-        <span class="ts-label">{{ t('timeline.totalDuration') }}</span>
-        <span class="ts-value">{{ (totalElapsedMs / 1000).toFixed(1) }}s</span>
-      </div>
-      <template v-if="reasoningDurationText">
-        <div class="turn-summary-divider"></div>
-        <div class="turn-summary-item">
-          <span class="ts-label">{{ t('timeline.thinking') }}</span>
-          <span class="ts-value">{{ reasoningDurationText }}</span>
-        </div>
-      </template>
-      <template v-if="finalMetadata?.model">
-        <div class="turn-summary-divider"></div>
-        <div class="turn-summary-item">
-          <span class="ts-label">{{ t('timeline.model') }}</span>
-          <span class="ts-value">{{ finalMetadata.model }}</span>
-        </div>
-      </template>
-      <template v-if="tokenText">
-        <div class="turn-summary-divider"></div>
-        <div class="turn-summary-item">
-          <span class="ts-label">{{ t('timeline.tokens') }}</span>
-          <span class="ts-value">{{ tokenText }}</span>
-        </div>
-      </template>
-    </div>
+    <!-- 用时汇总条：复用 TurnSummaryBar 组件 -->
+    <TurnSummaryBar
+      :metadata="finalMetadata"
+      :reasoning-duration-ms="reasoningDurationMs"
+      :loading="overallStatus === 'running'"
+      :total-duration-ms="totalElapsedMs"
+      class="timeline-turn-summary"
+    />
   </div>
 </template>
 
@@ -199,6 +179,8 @@ import PermissionRequestCard from './tools/PermissionRequestCard.vue'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
 import ErrorCard from '../common/ErrorCard.vue'
 import RetryIndicator from './RetryIndicator.vue'
+import TurnSummaryBar from './TurnSummaryBar.vue'
+import { stripDesignTags } from '@/utils/chat/buildBlocks'
 import { errorHandler } from '@/services/errorHandler'
 import { useChatStore } from '@/stores/chat'
 import { useChatStreamStore } from '@/stores/chatStream'
@@ -247,6 +229,13 @@ interface TimelineEvent {
 const props = defineProps<{
   messages: Message[]
   loading?: boolean
+  /**
+   * 渲染模式：
+   * - `design`：文本内容中的设计专用 XML 标签（od-card / next-steps / question-form）
+   *   会被剥离，不在此组件渲染；由外层 DesignBlocks 组件负责展示。
+   * - 不传：原样渲染所有文本内容。
+   */
+  mode?: 'design'
 }>()
 
 const expandedEvents = reactive<Record<string, boolean>>({})
@@ -407,9 +396,10 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
     ].join(':')
   }).join(';')
   const finalMetadataMessageId = props.loading ? '' : getFinalMetadataMessageId(msgs)
+  const modeKey = props.mode || 'default'
   const key = msgs.length > 0
-    ? `${msgs.length}-${msgs[0]?.id}-${msgs[msgs.length - 1]?.id}-${toolStateKey}-${metadataStateKey}-${contentStateKey}-${finalMetadataMessageId}`
-    : 'empty'
+    ? `${modeKey}-${msgs.length}-${msgs[0]?.id}-${msgs[msgs.length - 1]?.id}-${toolStateKey}-${metadataStateKey}-${contentStateKey}-${finalMetadataMessageId}`
+    : `empty-${modeKey}`
 
   if (_cachedTimelineEvents && _cachedTimelineKey === key) {
     return _cachedTimelineEvents
@@ -463,7 +453,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
             status: event.status,
             icon: markRaw(MessageCircle),
             label: t('timeline.response'),
-            content: event.content || '',
+            content: props.mode === 'design' ? stripDesignTags(event.content || '') : (event.content || ''),
           })
           continue
         }
@@ -509,14 +499,17 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
       }
 
       if (msg.content) {
-        events.push({
-          id: `${msg.id}-text`,
-          type: 'text',
-          status: 'completed',
-          icon: markRaw(MessageCircle),
-          label: t('timeline.response'),
-          content: msg.content,
-        })
+        const textContent = props.mode === 'design' ? stripDesignTags(msg.content) : msg.content
+        if (textContent) {
+          events.push({
+            id: `${msg.id}-text`,
+            type: 'text',
+            status: 'completed',
+            icon: markRaw(MessageCircle),
+            label: t('timeline.response'),
+            content: textContent,
+          })
+        }
       }
     }
 
@@ -688,37 +681,18 @@ const finalMetadata = computed(() => {
   return finalMsg?.metadata
 })
 
-const reasoningDurationText = computed(() => {
+const reasoningDurationMs = computed<number | null>(() => {
   for (const msg of props.messages) {
     if (msg.reasoning?.endTime && msg.reasoning?.startTime) {
-      return `${((msg.reasoning.endTime - msg.reasoning.startTime) / 1000).toFixed(1)}s`
+      return msg.reasoning.endTime - msg.reasoning.startTime
     }
   }
   for (const event of timelineEvents.value) {
     if (event.type === 'reasoning' && event.duration) {
-      return `${event.duration}s`
+      return parseFloat(event.duration) * 1000
     }
   }
   return null
-})
-
-const hasTurnSummary = computed(() => {
-  if (overallStatus.value === 'running') return false
-  return !!(finalMetadata.value?.duration || finalMetadata.value?.model)
-})
-
-const tokenText = computed(() => {
-  const meta = finalMetadata.value
-  if (!meta) return ''
-  const { inputTokens, outputTokens } = meta
-  if (inputTokens && outputTokens) {
-    return `${inputTokens.toLocaleString()} + ${outputTokens.toLocaleString()}`
-  } else if (inputTokens) {
-    return `${inputTokens.toLocaleString()}`
-  } else if (outputTokens) {
-    return `${outputTokens.toLocaleString()}`
-  }
-  return ''
 })
 
 function toggleEvent(eventId: string) {
@@ -1256,47 +1230,8 @@ function parseTaskUpdateOutput(output?: string, input: Record<string, any> = {})
   }
 }
 
-.turn-summary {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 10px;
+/* TurnSummaryBar 在 timeline 中的定位：与事件列表左对齐 */
+.timeline-turn-summary {
   margin-left: 36px;
-  padding: 6px 12px;
-  border-radius: var(--radius-md);
-  background: var(--surface-glass);
-  border: 1px solid var(--surface-border);
-  font-size: 11px;
-  color: var(--text-muted);
-  flex-wrap: wrap;
-}
-
-.turn-summary-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-family: var(--font-mono);
-
-  .ts-label {
-    color: var(--text-disabled);
-    font-family: var(--font-body);
-    font-weight: 500;
-  }
-
-  .ts-value {
-    color: var(--text-secondary);
-    font-weight: 500;
-  }
-
-  &.total-duration .ts-value {
-    color: var(--accent-primary);
-    font-weight: 600;
-  }
-}
-
-.turn-summary-divider {
-  width: 1px;
-  height: 12px;
-  background: var(--surface-border);
 }
 </style>
