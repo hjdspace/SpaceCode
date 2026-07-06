@@ -288,6 +288,7 @@ import { useContextUsageStore } from '@/stores/contextUsage'
 import { useSessionContext } from '@/stores/sessionContext'
 import { useScmStore } from '@/stores/scm'
 import { useTaskManager } from '@/composables/useTaskManager'
+import { syncTaskStateFromToolCall } from '@/utils/taskToolSync'
 import SessionContextEnvPanel from '../session-context/SessionContextEnvPanel.vue'
 import SessionContextTaskPanel from '../session-context/SessionContextTaskPanel.vue'
 import SessionContextCommitDialog from '../session-context/SessionContextCommitDialog.vue'
@@ -537,22 +538,43 @@ watch(
   },
   { deep: true },
 )
+// Rebuild task state from the current session's message history.
+// Fires on session switch (to restore tasks that were previously created)
+// and on message changes (to pick up new TodoWrite/TaskCreate/TaskUpdate/
+// TaskList tool calls as they arrive during streaming).
+//
+// ★ This replaces the previous two-watcher design (one watching displayMessages,
+//   one clearing tasks on session switch) which had a race condition: the
+//   clear watcher ran AFTER the sync watcher (creation order), wiping tasks
+//   that had just been restored from the new session's message history.
+//   The unified watcher clears first, then rebuilds — no race.
 watch(
-  () => chatStore.displayMessages,
-  (msgs) => {
-    // Find the latest TodoWrite tool call in current session.
-    // For TodoWrite, the full task list is in the tool call INPUT (not the
-    // result output), so we can sync to taskManager immediately for instant
-    // UI feedback — before the tool result even arrives.
+  () => [paneSessionId.value, paneMessages.value] as const,
+  ([_sid, msgs]) => {
+    // Clear stale tasks from the previous session, then rebuild from history.
+    taskManager.clearTasks()
+
+    // Replay all task-related tool calls in chronological order to reconstruct
+    // the task state. Handles both V1 (TodoWrite) and V2 (TaskCreate/TaskUpdate/
+    // TaskList) tool families.
     let latestTodos: any[] | null = null
+
     for (const msg of msgs) {
       if (!msg.toolCalls) continue
       for (const tc of msg.toolCalls) {
         if (tc.name === 'TodoWrite' && tc.input?.todos && Array.isArray(tc.input.todos)) {
           latestTodos = tc.input.todos as any[]
+        } else if (tc.name === 'TaskCreate' || tc.name === 'TaskUpdate' || tc.name === 'TaskList') {
+          // Replay V2 task tool calls using their input + output (result).
+          // TaskList does a full syncFromList; TaskCreate/TaskUpdate are incremental.
+          syncTaskStateFromToolCall(taskManager, tc, tc.output || '')
         }
       }
     }
+
+    // TodoWrite is a full-replace operation — apply the latest one last so
+    // it overwrites any incremental V2 state (the two families are mutually
+    // exclusive, but this guarantees correctness if both ever coexist).
     if (latestTodos && latestTodos.length > 0) {
       taskManager.syncTasksFromList(
         latestTodos
@@ -597,15 +619,6 @@ watch(
     }
   },
   { deep: true }
-)
-
-// Clear taskManager when switching sessions to prevent stale tasks
-// from a previous session from persisting into the new one.
-watch(
-  () => paneSessionId.value,
-  () => {
-    taskManager.clearTasks()
-  }
 )
 
 // Rewind state
