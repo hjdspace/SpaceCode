@@ -49,6 +49,11 @@ export class ClaudeCodeEngine implements IEngine {
     this.pool.setMainWindow(window)
   }
 
+  /** 注册事件路由监听器，供 H5 Server 订阅引擎事件 */
+  onRouteEvent(listener: (sessionId: string, eventType: string, data: any) => void): () => void {
+    return this.pool.onRouteEvent(listener)
+  }
+
   async startSession(sessionId: string, config: EngineSessionConfig): Promise<void> {
     const sessionConfig: SessionConfig = {
       cwd: config.cwd,

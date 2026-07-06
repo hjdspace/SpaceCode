@@ -320,6 +320,17 @@ export interface ElectronMobileAPI {
   onDisconnected: (cb: () => void) => () => void
 }
 
+export interface ElectronH5AccessAPI {
+  enable: () => Promise<{ status: { running: boolean; port: number; ip: string; publicUrl: string | null; connectedClients: number }; token: string }>
+  disable: () => Promise<void>
+  regenerateToken: () => Promise<{ status: { running: boolean; port: number; ip: string; publicUrl: string | null; connectedClients: number }; token: string }>
+  getStatus: () => Promise<{ running: boolean; port: number; ip: string; publicUrl: string | null; connectedClients: number }>
+  getSettings: () => Promise<{ enabled: boolean; token: string | null; tokenPreview: string | null; publicBaseUrl: string | null; fixedPort: number | null }>
+  updateSettings: (input: Partial<Pick<{ publicBaseUrl: string | null; fixedPort: number | null }, 'publicBaseUrl' | 'fixedPort'>>) => Promise<{ enabled: boolean; token: string | null; tokenPreview: string | null; publicBaseUrl: string | null; fixedPort: number | null }>
+  setMirrorSession: (sessionId: string | null, projectPath: string | null) => Promise<void>
+  checkBuild: () => Promise<{ built: boolean; path: string }>
+}
+
 export interface ElectronUpdateAPI {
   check: () => Promise<{ success: boolean; error?: string }>
   download: () => Promise<{ success: boolean; error?: string }>
@@ -437,6 +448,7 @@ export interface ElectronAPI {
   skills: ElectronSkillsAPI
   agents: ElectronAgentsAPI
   mobile: ElectronMobileAPI
+  h5Access: ElectronH5AccessAPI
   update: ElectronUpdateAPI
   cron: ElectronCronAPI
 

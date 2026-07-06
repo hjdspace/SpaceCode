@@ -679,6 +679,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
+  // H5 WebUI Access API
+  h5Access: {
+    enable: (): Promise<{ status: import('./h5Types').H5ServerStatus; token: string }> =>
+      ipcRenderer.invoke('h5:enable'),
+    disable: (): Promise<void> =>
+      ipcRenderer.invoke('h5:disable'),
+    regenerateToken: (): Promise<{ status: import('./h5Types').H5ServerStatus; token: string }> =>
+      ipcRenderer.invoke('h5:regenerateToken'),
+    getStatus: (): Promise<import('./h5Types').H5ServerStatus> =>
+      ipcRenderer.invoke('h5:getStatus'),
+    getSettings: (): Promise<import('./h5Types').H5AccessSettings> =>
+      ipcRenderer.invoke('h5:getSettings'),
+    updateSettings: (input: Partial<Pick<import('./h5Types').H5AccessSettings, 'publicBaseUrl' | 'fixedPort'>>) =>
+      ipcRenderer.invoke('h5:updateSettings', input),
+    setMirrorSession: (sessionId: string | null, projectPath: string | null) =>
+      ipcRenderer.invoke('h5:setMirrorSession', sessionId, projectPath),
+    checkBuild: (): Promise<{ built: boolean; path: string }> =>
+      ipcRenderer.invoke('h5:checkBuild'),
+  },
+
   // Auto Update API
   update: {
     check: (): Promise<{ success: boolean; error?: string }> =>

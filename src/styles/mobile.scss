@@ -1,0 +1,227 @@
+// src/styles/mobile.scss
+// H5 手机端响应式样式 — 隐藏桌面 UI，仅显示聊天面板
+
+// H5 模式通过 body.h5-mode 类触发
+// 该类在 App.vue 的 onMounted 中根据 isH5Mode() 设置
+
+body.h5-mode {
+  // 隐藏标题栏
+  .title-bar {
+    display: none !important;
+  }
+
+  // 隐藏侧边栏
+  .sidebar {
+    display: none !important;
+  }
+
+  // 隐藏信息面板
+  .info-panel {
+    display: none !important;
+  }
+
+  // 隐藏所有 resize-handle
+  .resize-handle {
+    display: none !important;
+  }
+
+  // 隐藏终端 dock
+  .terminal-dock {
+    display: none !important;
+  }
+
+  // 主内容区域全屏
+  .main-content {
+    height: 100vh !important;
+    height: 100dvh !important;
+  }
+
+  // 中间面板全宽
+  .center-panel {
+    width: 100% !important;
+    flex: 1 !important;
+  }
+
+  .center-content {
+    height: 100% !important;
+  }
+
+  // SplitContainer 只显示聊天区域
+  .split-container {
+    flex-direction: column !important;
+  }
+
+  // 聊天面板全屏
+  .chat-panel {
+    width: 100% !important;
+    height: 100% !important;
+    flex: 1 !important;
+  }
+
+  // 隐藏 SplitContainer 中的拖拽分隔线
+  .split-handle {
+    display: none !important;
+  }
+
+  // 聊天输入框适配移动端
+  .chat-input-area,
+  .chat-input-container {
+    padding: 8px 12px !important;
+
+    textarea,
+    .inline-editor {
+      font-size: 16px !important; // iOS 防止缩放
+    }
+  }
+
+  // 输入框工具栏 — 确保发送按钮始终可见
+  .input-toolbar {
+    flex-wrap: nowrap !important;
+    gap: 4px !important;
+  }
+
+  .toolbar-left {
+    gap: 2px !important;
+    // 允许收缩，但保留最小宽度
+    min-width: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .toolbar-right {
+    flex-shrink: 0 !important;
+    // 确保发送按钮区域始终可见
+    gap: 4px !important;
+  }
+
+  // 模型选择器在移动端缩小
+  .model-selector {
+    .model-btn {
+      padding: 6px 8px !important;
+      font-size: 12px !important;
+
+      .model-name {
+        max-width: 80px !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+      }
+    }
+  }
+
+  // 工具栏按钮缩小
+  .toolbar-btn {
+    padding: 6px 8px !important;
+  }
+
+  // 发送按钮确保可见
+  .send-btn {
+    width: 36px !important;
+    height: 36px !important;
+    flex-shrink: 0 !important;
+  }
+
+  // 消息列表适配
+  .message-list {
+    padding: 8px 12px !important;
+  }
+
+  // 工具权限弹窗适配
+  .permission-dialog,
+  .tool-approval-dialog {
+    max-width: calc(100vw - 24px) !important;
+    margin: 12px auto !important;
+  }
+
+  // 隐藏桌面端独有 UI 元素
+  .sidebar-toggle,
+  .panel-toggle,
+  .desktop-only {
+    display: none !important;
+  }
+
+  // 设置面板在 H5 模式下隐藏
+  .settings-page {
+    display: none !important;
+  }
+
+  // 确保 app-container 占满全屏
+  .app-container {
+    height: 100vh !important;
+    height: 100dvh !important;
+    overflow: hidden;
+  }
+
+  // 聊天头部 — 隐藏不必要的 badge，保留标题
+  .chat-header {
+    .header-actions {
+      .provider-badge,
+      .status-indicator,
+      .context-usage-chip {
+        display: none !important;
+      }
+    }
+  }
+
+  // 会话标签栏适配
+  .session-tab-bar {
+    .tab-list {
+      gap: 4px !important;
+      padding: 0 8px !important;
+    }
+
+    .tab-item {
+      max-width: 120px !important;
+      flex-shrink: 0 !important;
+    }
+  }
+
+  // 上下文工具栏（目录/分支）适配
+  .chat-context-toolbar {
+    padding: 4px 12px !important;
+    gap: 8px !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+
+    .ctx-trigger {
+      font-size: 12px !important;
+      padding: 4px 8px !important;
+    }
+  }
+
+  // 隐藏 TeamStatusBar 在移动端（节省空间）
+  .team-status-bar {
+    display: none !important;
+  }
+
+  // NoProjectHome 适配
+  .no-project-home {
+    padding: 16px !important;
+  }
+}
+
+// 通用移动端适配（屏幕宽度 < 768px 时也应用）
+@media (max-width: 767px) {
+  body.h5-mode {
+    // 消息字体大小
+    .message-content {
+      font-size: 15px !important;
+      line-height: 1.5 !important;
+    }
+
+    // 代码块水平滚动
+    .code-block {
+      max-width: 100% !important;
+      overflow-x: auto !important;
+    }
+
+    // 用户消息气泡
+    .user-message {
+      max-width: 85% !important;
+    }
+
+    // 助手消息
+    .assistant-message {
+      max-width: 100% !important;
+    }
+  }
+}

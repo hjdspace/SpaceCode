@@ -16,6 +16,7 @@ export class ClaudeCodeProcessPool {
   private processes: Map<string, SessionProcess> = new Map()
   private pendingPermissionModes: Map<string, string> = new Map()
   private mainWindow: BrowserWindow | null = null
+  private routeEventListeners: Array<(sessionId: string, eventType: string, data: any) => void> = []
   private poolHandlers: Map<
     string,
     {
@@ -31,6 +32,15 @@ export class ClaudeCodeProcessPool {
 
   setMainWindow(window: BrowserWindow) {
     this.mainWindow = window
+  }
+
+  /** 注册事件路由监听器，返回取消订阅函数 */
+  onRouteEvent(listener: (sessionId: string, eventType: string, data: any) => void): () => void {
+    this.routeEventListeners.push(listener)
+    return () => {
+      const idx = this.routeEventListeners.indexOf(listener)
+      if (idx >= 0) this.routeEventListeners.splice(idx, 1)
+    }
   }
 
   async startSession(sessionId: string, config: SessionConfig): Promise<void> {
@@ -417,6 +427,15 @@ export class ClaudeCodeProcessPool {
       this.mainWindow!.webContents.send(`claude-code:${eventType}`, { sessionId, data })
     } else {
       warn('ProcessPool', `[${shortSid}] Cannot route event to renderer | windowAvailable=${windowAvailable} | type=${eventType}`)
+    }
+
+    // 通知 H5 事件监听器
+    for (const listener of this.routeEventListeners) {
+      try {
+        listener(sessionId, eventType, data)
+      } catch (e) {
+        // ignore listener errors
+      }
     }
   }
 }

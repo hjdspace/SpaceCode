@@ -16,6 +16,8 @@ import { registerClaudeCodeIPC, setMainWindow, getPool } from './claudeCodeIPC'
 import { initAutoUpdater, registerAutoUpdaterIPC, destroyAutoUpdater, installUpdateOnQuit } from './autoUpdaterService'
 import { MobileServer } from './mobileServer'
 import type { QRCodeData, ServerStatus } from './mobileServerTypes'
+import { H5Server } from './h5Server'
+import { H5AuthService } from './h5AuthService'
 import { buildThemeSyncData } from './themeSyncBuilder'
 import { registerPromptOptimizerIPC } from './promptOptimizerIPC'
 import { registerDesignIPCHandlers } from './design/designService'
@@ -650,6 +652,27 @@ info('Startup', 'CuaDriver IPC handlers registered')
   registerClaudeCodeIPC()
   info('Startup', 'Claude Code IPC handlers registered')
 
+  // Register H5 Access IPC handlers
+  registerH5AccessIPCHandlers()
+  info('Startup', 'H5 Access IPC handlers registered')
+
+  // Auto-start H5 server if it was previously enabled
+  ;(async () => {
+    try {
+      const h5Settings = h5AuthService.getSettings()
+      if (h5Settings.enabled && h5Settings.token) {
+        if (!h5Server) {
+          h5Server = new H5Server(h5AuthService)
+        }
+        await h5Server.start(h5Settings.fixedPort ?? undefined)
+        const st = h5Server.getStatus()
+        info('H5Access', `H5 server auto-started on app launch | port=${st.port} | ip=${st.ip} | url=${st.publicUrl}`)
+      }
+    } catch (err) {
+      error('H5Access', 'Failed to auto-start H5 server on app launch:', err)
+    }
+  })()
+
   // Register Design IPC handlers
   const designResourcesPath = app.isPackaged
     ? resolve(process.resourcesPath, '..')
@@ -790,7 +813,78 @@ destroyAutoUpdater()
     warn('App', 'Error killing Claude Code sessions', err)
   }
   if (mobileServer) { await mobileServer.stop(); mobileServer = null }
+  if (h5Server) { h5Server.stop(); h5Server = null }
 })
+
+// ============================================================
+// H5 WebUI Server Integration
+// ============================================================
+let h5Server: H5Server | null = null
+const h5AuthService = new H5AuthService()
+
+function registerH5AccessIPCHandlers(): void {
+  ipcMain.handle('h5:enable', async (): Promise<{ status: import('./h5Types').H5ServerStatus; token: string }> => {
+    const { settings, token } = h5AuthService.enable()
+    if (!h5Server) {
+      h5Server = new H5Server(h5AuthService)
+    }
+    const status = await h5Server.start(settings.fixedPort ?? undefined)
+    info('H5Access', `H5 server enabled | port=${status.port} | ip=${status.ip} | url=${status.publicUrl}`)
+    return { status, token }
+  })
+
+  ipcMain.handle('h5:disable', async (): Promise<void> => {
+    if (h5Server) {
+      h5Server.stop()
+    }
+    h5AuthService.disable()
+    info('H5Access', 'H5 server disabled')
+  })
+
+  ipcMain.handle('h5:regenerateToken', async (): Promise<{ status: import('./h5Types').H5ServerStatus; token: string }> => {
+    const { settings, token } = h5AuthService.regenerateToken()
+    // 重启服务器以应用新 token
+    if (h5Server) {
+      h5Server.stop()
+      h5Server = new H5Server(h5AuthService)
+      const status = await h5Server.start(settings.fixedPort ?? undefined)
+      return { status, token }
+    }
+    return {
+      status: { running: false, port: 0, ip: '', publicUrl: null, connectedClients: 0 },
+      token,
+    }
+  })
+
+  ipcMain.handle('h5:getStatus', (): import('./h5Types').H5ServerStatus => {
+    if (h5Server) return h5Server.getStatus()
+    return { running: false, port: 0, ip: '', publicUrl: null, connectedClients: 0 }
+  })
+
+  ipcMain.handle('h5:getSettings', (): import('./h5Types').H5AccessSettings => {
+    return h5AuthService.getSettings()
+  })
+
+  ipcMain.handle('h5:updateSettings', async (_, input: Partial<Pick<import('./h5Types').H5AccessSettings, 'publicBaseUrl' | 'fixedPort'>>) => {
+    return h5AuthService.updateSettings(input)
+  })
+
+  // 桌面渲染进程通知 H5 Server 当前活跃会话（镜像会话）
+  ipcMain.handle('h5:setMirrorSession', (_, sessionId: string | null, projectPath: string | null) => {
+    if (h5Server) {
+      h5Server.setMirrorSession(sessionId, projectPath)
+    }
+  })
+
+  // 开发模式检查 dist/h5 是否存在
+  ipcMain.handle('h5:checkBuild', (): { built: boolean; path: string } => {
+    const distRoot = app.isPackaged
+      ? join(process.resourcesPath, 'dist')
+      : join(__dirname, '..', 'dist')
+    const indexPath = join(distRoot, 'index.html')
+    return { built: existsSync(indexPath), path: distRoot }
+  })
+}
 
 // ============================================================
 // Mobile Server Integration
