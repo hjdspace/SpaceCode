@@ -791,7 +791,21 @@ const allTasks = computed(() => {
   } as TaskListItem))
 })
 
-const shouldShowTaskBoard = computed(() => allTasks.value.length > 1)
+/**
+ * 当前助手分组是否包含任务相关工具调用（TodoWrite / TaskList / TaskCreate / TaskUpdate）。
+ * 全局 taskManager 是跨轮次共享的单例，如果不加此守卫，
+ * 后续轮次的 AgentTimeline 也会渲染相同的任务看板，
+ * 导致任务看板"漂浮"到最新轮次底部而非绑定到创建它的那一轮。
+ */
+const hasTaskToolCalls = computed(() => {
+  return props.messages.some(msg =>
+    msg.toolCalls?.some(tool => TASK_LIST_TOOL_NAMES.has(tool.name))
+  )
+})
+
+const shouldShowTaskBoard = computed(() =>
+  allTasks.value.length > 1 && hasTaskToolCalls.value
+)
 
 function toTaskListItem(task: {
   id?: string
