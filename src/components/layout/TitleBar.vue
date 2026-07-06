@@ -12,11 +12,8 @@
         <span class="title">SpaceCode</span>
         <span
           class="version-badge"
-          :class="{ 'has-update': hasUpdate }"
-          @click="handleVersionClick"
-          :title="hasUpdate ? t('update.newVersionAvailable', { version: updateInfo?.version }) : `v${appVersion}`"
+          :title="`v${appVersion}`"
         >
-          <span v-if="hasUpdate" class="update-dot"></span>
           v{{ appVersion }}
         </span>
       </div>
@@ -63,20 +60,15 @@
         <Smartphone :size="15" />
       </button>
 
-      <!-- Update button -->
+      <!-- Update ready button (仅下载完成后显示) -->
       <button
-        class="titlebar-btn update-btn"
-        :class="{
-          'has-update': hasUpdate,
-          'is-checking': updateStatus === 'checking',
-          'is-up-to-date': updateStatus === 'up-to-date',
-          'is-error': updateStatus === 'error',
-        }"
-        @click="handleUpdateClick"
-        :title="updateButtonTitle"
-        :disabled="updateStatus === 'checking' || updateStatus === 'downloading'"
+        v-if="showUpdateButton"
+        class="titlebar-btn update-ready-btn"
+        @click="handleUpdateInstall"
+        :title="t('update.clickToInstall')"
       >
-        <RefreshCwIcon :size="15" class="update-icon" />
+        <Download :size="13" />
+        <span class="update-ready-text">{{ t('update.installUpdate') }}</span>
       </button>
 
       <!-- Split buttons (仅单 leaf 且可分屏时显示) -->
@@ -142,7 +134,7 @@ import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
 import { useI18n } from 'vue-i18n'
-import { Menu, Minus, Square, Copy, X, ChevronDown, Smartphone, RefreshCw as RefreshCwIcon, PanelRight, PanelBottom, Columns2, Rows2 } from 'lucide-vue-next'
+import { Menu, Minus, Square, Copy, X, ChevronDown, Smartphone, PanelRight, PanelBottom, Columns2, Rows2, Download } from 'lucide-vue-next'
 import { computed, h, onMounted, onBeforeUnmount, ref } from 'vue'
 import { api, type ExternalEditor } from '@/services/electronAPI'
 import { useAutoUpdate } from '@/composables/useAutoUpdate'
@@ -161,27 +153,12 @@ const emit = defineEmits<{
 // Auto update composable
 const {
   status: updateStatus,
-  updateInfo,
   appVersion,
-  checkForUpdates,
-  downloadUpdate,
   installAndRestart,
-  dismiss: dismissUpdate,
 } = useAutoUpdate()
 
-const hasUpdate = computed(() => updateStatus.value === 'available' || updateStatus.value === 'downloaded')
-
-const updateButtonTitle = computed(() => {
-  switch (updateStatus.value) {
-    case 'available': return t('update.newVersionAvailable', { version: updateInfo.value?.version })
-    case 'downloading': return t('update.downloading', { version: updateInfo.value?.version })
-    case 'downloaded': return t('update.readyToInstall', { version: updateInfo.value?.version })
-    case 'checking': return t('update.checking')
-    case 'up-to-date': return t('update.upToDate')
-    case 'error': return t('update.checkFailed')
-    default: return t('update.checkForUpdates')
-  }
-})
+/** 更新已下载完成，显示绿色"更新"按钮 */
+const showUpdateButton = computed(() => updateStatus.value === 'downloaded')
 
 /** 单 leaf 模式下显示分屏按钮 */
 const showSplitButtons = computed(() => splitLayout.isSingleLeaf && splitLayout.canSplit)
@@ -210,24 +187,8 @@ function onTitleBarSplit(position: 'right' | 'bottom') {
   splitLayout.splitPane(activePaneId, position, { ...content })
 }
 
-function handleVersionClick() {
-  if (hasUpdate.value) {
-    downloadUpdate()
-  }
-}
-
-function handleUpdateClick() {
-  if (updateStatus.value === 'checking' || updateStatus.value === 'downloading') {
-    // 检查中或下载中，忽略重复点击
-    return
-  }
-  if (updateStatus.value === 'downloaded') {
-    installAndRestart()
-  } else if (updateStatus.value === 'available') {
-    downloadUpdate()
-  } else {
-    checkForUpdates()
-  }
+function handleUpdateInstall() {
+  installAndRestart()
 }
 
 const platform = typeof window !== 'undefined' && window.electronAPI?.platform
@@ -506,7 +467,6 @@ onBeforeUnmount(() => {
     background: var(--surface-border);
     color: var(--text-muted);
     transition: all var(--transition-fast);
-    cursor: pointer;
     white-space: nowrap;
     line-height: 20px;
 
@@ -514,31 +474,6 @@ onBeforeUnmount(() => {
       background: var(--surface-hover);
       color: var(--text-primary);
     }
-
-    &.has-update {
-      background: var(--accent-primary-glow);
-      color: var(--accent-primary);
-      cursor: pointer;
-
-      &:hover {
-        background: var(--accent-primary);
-        color: #fff;
-      }
-    }
-  }
-
-  .update-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--accent-primary);
-    flex-shrink: 0;
-    animation: pulse-dot 2s ease-in-out infinite;
-  }
-
-  @keyframes pulse-dot {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.6; transform: scale(0.8); }
   }
 
   .title-separator {
@@ -601,54 +536,36 @@ onBeforeUnmount(() => {
     outline-offset: 2px;
   }
 
-  &.update-btn {
-    position: relative;
-    color: var(--text-muted);
+  &.update-ready-btn {
+    width: auto;
+    height: 26px;
+    padding: 0 10px;
+    gap: 5px;
+    background: #22c55e;
+    color: #fff;
+    border-radius: var(--radius-full);
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    animation: update-ready-pulse 2s ease-in-out infinite;
+    margin-right: 4px;
 
-    .update-icon {
-      transition: transform 0.2s ease;
+    .update-ready-text {
+      line-height: 1;
     }
 
-    &.is-checking {
-      .update-icon {
-        animation: spin 1s linear infinite;
-      }
-      color: var(--accent-secondary);
+    &:hover {
+      background: #16a34a;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(34, 197, 94, 0.4);
     }
 
-    &.is-up-to-date {
-      color: var(--color-success, #22c55e);
-    }
-
-    &.is-error {
-      color: var(--color-error, #ef4444);
-    }
-
-    &.has-update {
-      color: var(--accent-primary);
-
-      &::after {
-        content: '';
-        position: absolute;
-        top: 6px;
-        right: 6px;
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: var(--accent-primary);
-        border: 2px solid var(--bg-primary);
-        animation: pulse-dot 2s ease-in-out infinite;
-      }
-
-      &:hover {
-        background: var(--accent-primary-glow);
-        color: var(--accent-primary);
-      }
-    }
-
-    &:disabled {
-      cursor: not-allowed;
-      opacity: 0.7;
+    &:active {
+      background: #15803d;
+      transform: translateY(0);
     }
   }
 
@@ -665,6 +582,11 @@ onBeforeUnmount(() => {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+@keyframes update-ready-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(34, 197, 94, 0); }
 }
 
 .open-file-dropdown {

@@ -1524,6 +1524,8 @@ export default {
     checking: 'Checking for updates...',
     checkForUpdates: 'Check for updates',
     upToDate: 'You are up to date',
+    installUpdate: 'Update',
+    clickToInstall: 'Click to install update and restart',
   },
 
   cron: {

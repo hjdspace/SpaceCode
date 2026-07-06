@@ -12,6 +12,16 @@ let mainWindow: BrowserWindow | null = null
 // 定期检查定时器
 let checkInterval: ReturnType<typeof setInterval> | null = null
 
+// ── 自动静默下载状态 ──
+let isAutoDownloading = false
+let downloadAttempts = 0
+const MAX_DOWNLOAD_ATTEMPTS = 3
+const RETRY_DELAY_MS = 30_000 // 重试间隔 30 秒
+
+// ── 安装状态 ──
+let updateDownloaded = false
+let isInstalling = false
+
 // 安全发送消息到渲染进程
 function sendToRenderer(channel: string, ...args: any[]) {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -23,8 +33,8 @@ export function initAutoUpdater(win: BrowserWindow) {
   mainWindow = win
 
   // 配置 electron-updater
-  autoUpdater.autoDownload = false        // 不自动下载，由用户确认
-  autoUpdater.autoInstallOnAppQuit = true  // 退出时自动安装已下载的更新
+  autoUpdater.autoDownload = false        // 不由 electron-updater 自动下载，我们自行管理重试逻辑
+  autoUpdater.autoInstallOnAppQuit = false // 关闭时由我们自行调用 quitAndInstall 控制行为
 
   // 私有仓库需要通过 token 认证访问 GitHub Releases
   if (GH_TOKEN) {
@@ -45,7 +55,7 @@ export function initAutoUpdater(win: BrowserWindow) {
     sendToRenderer('update:error', err?.message || String(err))
   })
 
-  // 发现新版本
+  // 发现新版本 → 自动静默下载
   autoUpdater.on('update-available', (updateInfo) => {
     info('AutoUpdater', `Update available: ${updateInfo.version}`)
     sendToRenderer('update:available', {
@@ -54,6 +64,8 @@ export function initAutoUpdater(win: BrowserWindow) {
       releaseNotes: updateInfo.releaseNotes,
       releaseName: updateInfo.releaseName,
     })
+    // 自动开始静默下载（带重试）
+    autoDownloadUpdate()
   })
 
   // 当前已是最新
@@ -76,6 +88,8 @@ export function initAutoUpdater(win: BrowserWindow) {
   // 下载完成
   autoUpdater.on('update-downloaded', (updateInfo) => {
     info('AutoUpdater', `Update downloaded: ${updateInfo.version}`)
+    updateDownloaded = true
+    isAutoDownloading = false
     sendToRenderer('update:downloaded', {
       version: updateInfo.version,
     })
@@ -86,16 +100,30 @@ export function initAutoUpdater(win: BrowserWindow) {
     checkForUpdates()
   }, 30_000)
 
-  // 每 4 小时定期检查
+  // 每 6 小时定期检查
   checkInterval = setInterval(() => {
     checkForUpdates()
-  }, 4 * 60 * 60 * 1000)
+  }, 6 * 60 * 60 * 1000)
 }
 
 export function destroyAutoUpdater() {
   if (checkInterval) {
     clearInterval(checkInterval)
     checkInterval = null
+  }
+}
+
+/**
+ * 在应用退出时静默安装已下载的更新（不重启）。
+ * 由 main.ts 的 before-quit 事件调用。
+ */
+export function installUpdateOnQuit() {
+  if (updateDownloaded && !isInstalling) {
+    isInstalling = true
+    info('AutoUpdater', 'Installing update on quit (silent, no restart)')
+    // isSilent=true: 静默安装（无安装界面）
+    // isForceRunAfter=false: 安装完成后不启动应用
+    autoUpdater.quitAndInstall(true, false)
   }
 }
 
@@ -107,9 +135,43 @@ async function checkForUpdates() {
   }
 }
 
+/**
+ * 自动静默下载更新，失败后自动重试（最多 MAX_DOWNLOAD_ATTEMPTS 次）。
+ */
+async function autoDownloadUpdate() {
+  if (isAutoDownloading) return
+  isAutoDownloading = true
+  downloadAttempts = 0
+  await attemptDownload()
+}
+
+async function attemptDownload() {
+  downloadAttempts++
+  try {
+    info('AutoUpdater', `Auto-download attempt ${downloadAttempts}/${MAX_DOWNLOAD_ATTEMPTS}`)
+    await autoUpdater.downloadUpdate()
+    // 下载成功 → update-downloaded 事件会触发
+  } catch (err) {
+    error('AutoUpdater', `Download attempt ${downloadAttempts}/${MAX_DOWNLOAD_ATTEMPTS} failed`, err)
+    if (downloadAttempts < MAX_DOWNLOAD_ATTEMPTS) {
+      // 等待后重试
+      setTimeout(() => {
+        if (isAutoDownloading) {
+          attemptDownload()
+        }
+      }, RETRY_DELAY_MS)
+    } else {
+      // 所有重试均失败
+      isAutoDownloading = false
+      error('AutoUpdater', `All ${MAX_DOWNLOAD_ATTEMPTS} download attempts failed`)
+      sendToRenderer('update:error', `Download failed after ${MAX_DOWNLOAD_ATTEMPTS} attempts`)
+    }
+  }
+}
+
 // IPC Handlers
 export function registerAutoUpdaterIPC() {
-  // 手动检查更新
+  // 手动检查更新（关于页面使用）
   ipcMain.handle('update:check', async () => {
     if (!app.isPackaged) {
       return { success: false, error: 'Updates not available in development mode' }
@@ -123,10 +185,14 @@ export function registerAutoUpdaterIPC() {
     }
   })
 
-  // 下载更新
+  // 手动下载更新（关于页面使用，如果自动下载已在进行中则直接返回成功）
   ipcMain.handle('update:download', async () => {
     if (!app.isPackaged) {
       return { success: false, error: 'Updates not available in development mode' }
+    }
+    // 自动下载已在进行中，无需重复
+    if (isAutoDownloading) {
+      return { success: true }
     }
     try {
       info('AutoUpdater', 'User requested download, starting...')
@@ -145,11 +211,15 @@ export function registerAutoUpdaterIPC() {
     }
   })
 
-  // 安装更新并重启
+  // 安装更新并重启（标题栏绿色"更新"按钮 / 关于页面使用）
   ipcMain.handle('update:installAndRestart', () => {
     if (!app.isPackaged) return
+    if (isInstalling) return
+    isInstalling = true
     info('AutoUpdater', 'Installing update and restarting')
-    autoUpdater.quitAndInstall()
+    // isSilent=false: 显示安装界面
+    // isForceRunAfter=true: 安装完成后强制重启应用
+    autoUpdater.quitAndInstall(false, true)
   })
 
   // 获取当前版本

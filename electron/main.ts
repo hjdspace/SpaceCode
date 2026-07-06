@@ -13,7 +13,7 @@ import { registerOfficeCliIPCHandlers, cleanupOfficeCli, ensureOfficeCliInstalle
 import { registerCuaDriverIPCHandlers, cleanupCuaDriverMcp } from './cuaDriverService'
 import { registerBrowserUseIPCHandlers, cleanupBrowserUseMcp } from './browserUseService'
 import { registerClaudeCodeIPC, setMainWindow, getPool } from './claudeCodeIPC'
-import { initAutoUpdater, registerAutoUpdaterIPC, destroyAutoUpdater } from './autoUpdaterService'
+import { initAutoUpdater, registerAutoUpdaterIPC, destroyAutoUpdater, installUpdateOnQuit } from './autoUpdaterService'
 import { MobileServer } from './mobileServer'
 import type { QRCodeData, ServerStatus } from './mobileServerTypes'
 import { buildThemeSyncData } from './themeSyncBuilder'
@@ -761,6 +761,8 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', async () => {
 info('App', 'App quitting')
+// 如果更新已下载，在退出时静默安装（不重启）
+installUpdateOnQuit()
 cleanupOfficeCli()
 await cleanupCuaDriverMcp()
 await cleanupBrowserUseMcp()

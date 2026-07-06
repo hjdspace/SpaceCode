@@ -1,17 +1,6 @@
 <template>
   <div class="app-container" :data-theme="appStore.theme">
     <TitleBar @open-changelog="handleOpenChangelog" />
-    <UpdateNotification
-      :status="updateStatus"
-      :update-info="updateInfo"
-      :download-progress="downloadProgress"
-      :error-message="errorMessage"
-      :app-version="appVersion"
-      @check="checkForUpdates"
-      @download="downloadUpdate"
-      @install="installAndRestart"
-      @dismiss="dismissUpdate"
-    />
     <div class="main-content" ref="mainContent">
       <Sidebar
         :collapsed="appStore.sidebarCollapsed"
@@ -96,12 +85,10 @@ import WorkAssistantGallery from './components/work/WorkAssistantGallery.vue'
 import WorkspaceOnboarding from './components/work/WorkspaceOnboarding.vue'
 import ConnectMobileDialog from './components/mobile/ConnectMobileDialog.vue'
 import FileQuickOpen from './components/layout/FileQuickOpen.vue'
-import UpdateNotification from './components/common/UpdateNotification.vue'
 import DialogProvider from './components/common/DialogProvider.vue'
 import { api } from '@/services/electronAPI'
 import { useShortcuts } from '@/composables/useShortcuts'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
-import { useAutoUpdate } from '@/composables/useAutoUpdate'
 import { useResizablePanel } from '@/composables/useResizablePanel'
 import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
 
@@ -109,18 +96,6 @@ const appStore = useAppStore()
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 
-// Auto update
-const {
-  status: updateStatus,
-  updateInfo,
-  downloadProgress,
-  errorMessage,
-  appVersion,
-  checkForUpdates,
-  downloadUpdate,
-  installAndRestart,
-  dismiss: dismissUpdate,
-} = useAutoUpdate()
 const { openProjectByPath } = useOpenProjectWorkflow()
 
 // Changelog
