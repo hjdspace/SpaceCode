@@ -67,7 +67,7 @@
               @skip="handleToolSkip(event.toolCall!.id)"
             />
             <PermissionRequestCard
-              v-if="getPendingPermission(event.toolCall!.id)"
+              v-if="!SELF_PERMISSION_TOOL_NAMES.has(event.toolCall!.name) && getPendingPermission(event.toolCall!.id)"
               :message-id="event.messageId!"
               :tool-use-id="event.toolCall!.id"
               :tool-name="getPendingPermission(event.toolCall!.id)!.toolName"
@@ -195,6 +195,12 @@ const EmptyIcon = () => null
 const TASK_STATUSES = new Set(['pending', 'in_progress', 'completed'])
 const TASK_LIST_TOOL_NAMES = new Set(['TodoWrite', 'TaskList', 'TaskCreate', 'TaskUpdate'])
 const TASK_LIST_ONLY_TOOL_NAMES = new Set(['TaskList', 'TaskCreate', 'TaskUpdate'])
+// 这些工具的特殊组件本身就是权限交互 UI（emit submit/skip，并把合并后的
+// updatedInput 交给 store.allowPermission）。若再叠加 PermissionRequestCard，
+// 既会重复显示操作按钮，又会把原始 input（如 AskUserQuestion 的 questions
+// 数组）以 JSON 形式泄露到卡片下方，且 Allow 按钮会以不带 answers 的原始
+// input 提交，破坏问答流程。
+const SELF_PERMISSION_TOOL_NAMES = new Set(['AskUserQuestion'])
 
 const emit = defineEmits<{
   toolSubmit: [toolId: string, updatedInput: Record<string, unknown>]
