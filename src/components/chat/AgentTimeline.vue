@@ -733,7 +733,14 @@ function getTaskStateContentKey(tool: ToolCall): string {
 }
 
 function getSpecialComponentKey(event: TimelineEvent): string {
-  return event.toolCall ? `${event.toolCall.id}:${getToolContentKey(event.toolCall)}` : event.id
+  if (event.toolCall) {
+    // AskUserQuestion 卡片在 pending→completed 切换后需保持挂载，以保留本地
+    // selections/customInputs 供汇总展示。若 key 随 output 变化，tool_result
+    // 到达会触发 remount 并丢失本地状态，导致汇总卡片无法显示用户已选答案。
+    if (event.toolCall.name === 'AskUserQuestion') return event.toolCall.id
+    return `${event.toolCall.id}:${getToolContentKey(event.toolCall)}`
+  }
+  return event.id
 }
 
 function getToolTarget(tool: ToolCall): string {

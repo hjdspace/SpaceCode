@@ -1,108 +1,141 @@
 <template>
-  <div v-if="shouldRender" class="ask-user-question-card" :class="{ 'is-resolved': !isPending }">
-    <div class="card-header">
-      <div class="header-icon">
-        <MessageCircleQuestion :size="20" />
+  <div
+    v-if="shouldRender"
+    class="ask-user-question-card"
+    :class="{ 'is-resolved': !isPending && !isSummary, 'is-summary': isSummary }"
+  >
+    <!-- 汇总模式：提问完成后折叠展示 -->
+    <template v-if="isSummary">
+      <div class="summary-header" @click="toggleSummary">
+        <div class="header-icon">
+          <MessageCircleQuestion :size="20" />
+        </div>
+        <div class="header-text">
+          <h3>{{ t('askUser.summaryTitle') }}</h3>
+          <span>{{ summaryStatusText }}</span>
+        </div>
+        <ChevronDown :size="18" class="summary-chevron" :class="{ 'is-expanded': isSummaryExpanded }" />
       </div>
-      <div class="header-text">
-        <h3>{{ title }}</h3>
-        <span>{{ statusText }}</span>
-      </div>
-      <div v-if="isPaged" class="header-progress">
-        <span class="progress-text">{{ currentPage + 1 }} / {{ questions.length }}</span>
-        <div class="progress-dots">
-          <span
-            v-for="(_, idx) in questions"
-            :key="idx"
-            class="dot"
-            :class="{
-              active: idx === currentPage,
-              done: isQuestionAnswered(idx) && idx !== currentPage,
-            }"
-          />
+      <div v-if="isSummaryExpanded" class="card-body">
+        <div v-for="(question, qIndex) in questions" :key="qIndex" class="summary-item">
+          <div class="summary-question">
+            <span v-if="question.header" class="chip">{{ question.header }}</span>
+            <span class="question-text">{{ question.question }}</span>
+          </div>
+          <div class="summary-answer">
+            <CheckCircle2 :size="14" class="answer-icon" />
+            <span>{{ getAnswerForQuestion(question.question) }}</span>
+          </div>
         </div>
       </div>
-    </div>
+    </template>
 
-    <div class="card-body">
-      <template v-if="currentQuestion">
-        <div class="question-item" :key="currentPage">
-          <div class="question-title">
-            <span v-if="currentQuestion.header" class="chip">{{ currentQuestion.header }}</span>
-            <span>{{ currentQuestion.question }}</span>
-            <span v-if="currentQuestion.multiSelect" class="multi-hint">{{ t('askUser.multiSelect') }}</span>
-          </div>
-
-          <div class="options-grid">
-            <button
-              v-for="(option, oIndex) in currentQuestion.options"
-              :key="oIndex"
-              class="option-btn"
-              :class="{ 'selected': isOptionSelected(currentPage, oIndex) }"
-              :disabled="!isPending"
-              @click="handleOptionClick(currentPage, oIndex, option, currentQuestion.multiSelect)"
-            >
-              <div class="option-label">{{ option.label }}</div>
-              <div v-if="option.description" class="option-desc">{{ option.description }}</div>
-            </button>
-          </div>
-
-          <div class="custom-input-wrap">
-            <label class="custom-input-label">{{ t('askUser.customInputHint') }}</label>
-            <textarea
-              v-model="customInputs[currentPage]"
-              class="custom-input"
-              rows="2"
-              :placeholder="t('askUser.customInputPlaceholder')"
-              :disabled="!isPending"
-              @input="onCustomInput(currentPage)"
+    <!-- 交互模式：pending 时展示选项 -->
+    <template v-else>
+      <div class="card-header">
+        <div class="header-icon">
+          <MessageCircleQuestion :size="20" />
+        </div>
+        <div class="header-text">
+          <h3>{{ title }}</h3>
+          <span>{{ statusText }}</span>
+        </div>
+        <div v-if="isPaged" class="header-progress">
+          <span class="progress-text">{{ currentPage + 1 }} / {{ questions.length }}</span>
+          <div class="progress-dots">
+            <span
+              v-for="(_, idx) in questions"
+              :key="idx"
+              class="dot"
+              :class="{
+                active: idx === currentPage,
+                done: isQuestionAnswered(idx) && idx !== currentPage,
+              }"
             />
           </div>
         </div>
-      </template>
-    </div>
+      </div>
 
-    <div class="card-footer">
-      <button
-        class="footer-btn secondary"
-        :disabled="!isPending"
-        @click="handleSkip"
-      >
-        {{ skipText }}
-      </button>
-      <div class="footer-spacer" />
-      <button
-        v-if="isPaged"
-        class="footer-btn ghost"
-        :disabled="!isPending || currentPage === 0"
-        @click="goPrev"
-      >
-        {{ t('askUser.prevPage') }}
-      </button>
-      <button
-        v-if="isPaged && !isLastPage"
-        class="footer-btn primary"
-        :disabled="!isPending || !isQuestionAnswered(currentPage)"
-        @click="goNext"
-      >
-        {{ t('askUser.nextPage') }}
-      </button>
-      <button
-        v-if="!isPaged || isLastPage"
-        class="footer-btn primary"
-        :disabled="!isPending || answeredQuestionCount === 0"
-        @click="handleSubmit"
-      >
-        {{ submitText }}
-      </button>
-    </div>
+      <div class="card-body">
+        <template v-if="currentQuestion">
+          <div class="question-item" :key="currentPage">
+            <div class="question-title">
+              <span v-if="currentQuestion.header" class="chip">{{ currentQuestion.header }}</span>
+              <span>{{ currentQuestion.question }}</span>
+              <span v-if="currentQuestion.multiSelect" class="multi-hint">{{ t('askUser.multiSelect') }}</span>
+            </div>
+
+            <div class="options-grid">
+              <button
+                v-for="(option, oIndex) in currentQuestion.options"
+                :key="oIndex"
+                class="option-btn"
+                :class="{ 'selected': isOptionSelected(currentPage, oIndex) }"
+                :disabled="!isPending"
+                @click="handleOptionClick(currentPage, oIndex, option, currentQuestion.multiSelect)"
+              >
+                <div class="option-label">{{ option.label }}</div>
+                <div v-if="option.description" class="option-desc">{{ option.description }}</div>
+              </button>
+            </div>
+
+            <div class="custom-input-wrap">
+              <label class="custom-input-label">{{ t('askUser.customInputHint') }}</label>
+              <textarea
+                v-model="customInputs[currentPage]"
+                class="custom-input"
+                rows="2"
+                :placeholder="t('askUser.customInputPlaceholder')"
+                :disabled="!isPending"
+                @input="onCustomInput(currentPage)"
+              />
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <div class="card-footer">
+        <button
+          class="footer-btn secondary"
+          :disabled="!isPending"
+          @click="handleSkip"
+        >
+          {{ skipText }}
+        </button>
+        <div class="footer-spacer" />
+        <button
+          v-if="isPaged"
+          class="footer-btn ghost"
+          :disabled="!isPending || currentPage === 0"
+          @click="goPrev"
+        >
+          {{ t('askUser.prevPage') }}
+        </button>
+        <button
+          v-if="isPaged && !isLastPage"
+          class="footer-btn primary"
+          :disabled="!isPending || !isQuestionAnswered(currentPage)"
+          @click="goNext"
+        >
+          {{ t('askUser.nextPage') }}
+        </button>
+        <button
+          v-if="!isPaged || isLastPage"
+          class="footer-btn primary"
+          :disabled="!isPending || answeredQuestionCount === 0"
+          @click="handleSubmit"
+        >
+          {{ submitText }}
+        </button>
+      </div>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { MessageCircleQuestion } from 'lucide-vue-next'
+import { MessageCircleQuestion, ChevronDown, CheckCircle2 } from 'lucide-vue-next'
 import type { ToolCall } from '@/types'
 import { useChatStore } from '@/stores/chat'
 
@@ -166,16 +199,79 @@ const isPending = computed(() =>
  * 规则：
  * - 已经被本地标成 error 的 toolCall：不渲染
  * - 工具输入里没有 questions（或为空数组）：不渲染
- * - 既不是 pending（还没有 permission 请求）也没有正在 running：不渲染
- *   （兜底：模型自调用 tool_result 已回，但卡片不再有任何意义）
+ * - 其他情况都渲染：pending 时显示交互 UI，completed 时显示汇总卡片
  */
 const shouldRender = computed(() => {
   if (props.toolCall.status === 'error') return false
   if (questions.value.length === 0) return false
-  if (!isPending.value && props.toolCall.status !== 'running' && props.toolCall.status !== 'pending') {
-    return false
-  }
   return true
+})
+
+/**
+ * 汇总模式：提问已完成（无 pending permission 且 status=completed）。
+ * 此时不再显示交互选项，改为折叠汇总卡片，展开后展示每个问题及用户回答。
+ */
+const isSummary = computed(() =>
+  !isPending.value && props.toolCall.status === 'completed',
+)
+
+/** 汇总卡片默认折叠 */
+const isSummaryExpanded = ref(false)
+
+function toggleSummary() {
+  isSummaryExpanded.value = !isSummaryExpanded.value
+}
+
+/**
+ * 从 toolCall.output 解析 "question"="answer" 对。
+ * 历史会话恢复时组件本地状态（selections/customInputs）为空，需从 output 回溯。
+ * engine 的 mapToolResultToToolResultBlockParam 产出格式：
+ * User has answered your questions: "q1"="a1", "q2"="a2". ...
+ */
+function parseAnswersFromOutput(output?: string): Record<string, string> {
+  if (!output) return {}
+  const answers: Record<string, string> = {}
+  const regex = /"([^"]+)"="([^"]*)"/g
+  let match: RegExpExecArray | null
+  while ((match = regex.exec(output)) !== null) {
+    answers[match[1]] = match[2]
+  }
+  return answers
+}
+
+/**
+ * 汇总展示用的答案映射：优先用本地 selections/customInputs（live 会话，
+ * 组件未 remount），为空时回退解析 toolCall.output（历史会话恢复）。
+ */
+const resolvedAnswers = computed<Record<string, string>>(() => {
+  const answers: Record<string, string> = {}
+  questions.value.forEach((question, qIndex) => {
+    const parts: string[] = []
+    question.options.forEach((option, oIndex) => {
+      if (selections.value.has(getSelectionKey(qIndex, oIndex))) {
+        parts.push(option.label)
+      }
+    })
+    const custom = (customInputs.value[qIndex] || '').trim()
+    if (custom) parts.push(custom)
+    if (parts.length > 0) {
+      answers[question.question] = parts.join(', ')
+    }
+  })
+  if (Object.keys(answers).length > 0) return answers
+  return parseAnswersFromOutput(props.toolCall.output)
+})
+
+function getAnswerForQuestion(questionText: string): string {
+  return resolvedAnswers.value[questionText] || t('askUser.noAnswer')
+}
+
+const summaryStatusText = computed(() => {
+  const total = questions.value.length
+  const answeredCount = questions.value.filter(q => resolvedAnswers.value[q.question]).length
+  if (answeredCount === 0) return t('askUser.summarySkipped')
+  if (answeredCount < total) return t('askUser.summaryPartial', { answered: answeredCount, total })
+  return t('askUser.summaryAnswered', { count: total })
 })
 
 const isPaged = computed(() => questions.value.length > 1)
@@ -336,6 +432,77 @@ function handleSubmit() {
   &.is-resolved {
     opacity: 0.7;
     filter: grayscale(0.2);
+  }
+
+  &.is-summary {
+    opacity: 1;
+    filter: none;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  }
+}
+
+.summary-header {
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  background: var(--surface-glass);
+  border-bottom: 1px solid var(--surface-border);
+  transition: background 0.2s ease;
+  user-select: none;
+
+  &:hover {
+    background: var(--surface-glass-hover);
+  }
+}
+
+.summary-chevron {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+
+  &.is-expanded {
+    transform: rotate(180deg);
+  }
+}
+
+.summary-item {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--surface-border);
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.summary-question {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+
+  .question-text {
+    font-size: var(--font-size-base);
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+}
+
+.summary-answer {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  padding-left: 4px;
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.5;
+
+  .answer-icon {
+    color: var(--accent-primary);
+    flex-shrink: 0;
+    margin-top: 2px;
   }
 }
 
