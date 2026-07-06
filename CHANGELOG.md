@@ -1,3 +1,47 @@
+## [0.6.3](https://github.com/hjdspace/SpaceCode/compare/v0.6.2...v0.6.3) (2026-07-07)
+
+### Features
+
+* **h5:** 实现 H5 与桌面端跨端消息同步功能
+* **h5:** 完整实现 H5 移动端镜像会话功能
+* **h5:** 新增 H5 远程访问功能，支持手机浏览器连接桌面端
+* **rtk:** 新增 RTK Token 优化功能
+* **composables&rtkManager:** 完善下载状态管理与 RTK 钩子安装校验
+* **skills:** 新增多个 Agent 技能文档
+* **design:** 在工作区会话中新增切换工作目录功能
+* **design:** 新增 TurnSummaryBar 组件用于显示轮次摘要
+* **design:** 新增 DesignBlocks 组件用于渲染 UI 块
+* **design:** 为工具栏和上下文工具栏添加额外插槽
+* **update:** 实现退出时静默安装更新
+* **update:** 实现静默自动下载与重试逻辑
+* **about:** 新增 AboutSettings 关于设置组件
+* **i18n:** 添加更新安装消息中文/英文本地化
+* **settings:** 在设置面板中集成 AboutSettings
+* **timeline:** 增强 AgentTimeline 任务板可见性逻辑
+
+### Bug Fixes
+
+* **process:** 确保在启动进程前工作目录存在
+* **ui:** 简化 TitleBar 更新按钮逻辑与样式
+* **update:** 移除 UpdateNotification 组件及相关代码
+
+### Refactor
+
+* **rtk:** 优化 RTK 下载与多平台支持逻辑
+* **design:** 重构 WorkingDirectoryPicker 及相关逻辑
+* **design:** 重构 DesignChatPane 并集成 MessageList
+* **design:** 重构 MessageList 设计模式处理
+* **design:** 重构 MessageItem 渲染逻辑
+* **design:** 将轮次摘要重构为使用 TurnSummaryBar 组件
+* **agent:** 重构任务状态同步逻辑
+* **tests:** 移除 MessageItem 设计模式测试
+
+### Documentation
+
+* **app:** 补充 H5 侧边栏遮罩层 z-index 层级注释
+* **docs:** 批量更新并新增工程技能相关文档
+* **docs:** 修改原型 UI 生成目录路径
+
 ## [0.6.2](https://github.com/hjdspace/SpaceCode/compare/v0.6.1...v0.6.2) (2026-07-06)
 
 ### Features
