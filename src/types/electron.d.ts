@@ -138,6 +138,7 @@ export interface ElectronClaudeCodeAPI {
   onStreamEvent: (callback: (data: { sessionId: string; data: any }) => void) => () => void
   onLog: (callback: (data: { sessionId: string; data: string }) => void) => () => void
   onExit: (callback: (data: { sessionId: string; data: number | null | { code?: number | null; signal?: string | null; stderr?: string } }) => void) => () => void
+  onError?: (callback: (data: { sessionId: string; data: any }) => void) => () => void
   onSuspended: (callback: (data: { sessionId: string; data: { reason: string } }) => void) => () => void
   onEvictionBlocked: (callback: (data: { sessionId: string; data: { reason: string; pendingTools: number } }) => void) => () => void
   submitToolAnswer: (sessionId: string, toolCallId: string, answers: Record<string, string>) => Promise<unknown>
@@ -320,6 +321,52 @@ export interface ElectronMobileAPI {
   onDisconnected: (cb: () => void) => () => void
 }
 
+export interface ElectronH5AccessAPI {
+  enable: () => Promise<{ status: { running: boolean; port: number; ip: string; publicUrl: string | null; connectedClients: number }; token: string }>
+  disable: () => Promise<void>
+  regenerateToken: () => Promise<{ status: { running: boolean; port: number; ip: string; publicUrl: string | null; connectedClients: number }; token: string }>
+  getStatus: () => Promise<{ running: boolean; port: number; ip: string; publicUrl: string | null; connectedClients: number }>
+  getSettings: () => Promise<{ enabled: boolean; token: string | null; tokenPreview: string | null; publicBaseUrl: string | null; fixedPort: number | null }>
+  updateSettings: (input: Partial<Pick<{ publicBaseUrl: string | null; fixedPort: number | null }, 'publicBaseUrl' | 'fixedPort'>>) => Promise<{ enabled: boolean; token: string | null; tokenPreview: string | null; publicBaseUrl: string | null; fixedPort: number | null }>
+  setMirrorSession: (sessionId: string | null, projectPath: string | null) => Promise<void>
+  checkBuild: () => Promise<{ built: boolean; path: string }>
+}
+
+export interface RtkStatus {
+  binaryInstalled: boolean
+  version: string | null
+  hookInstalled: boolean
+  platform: NodeJS.Platform
+  binaryPath: string
+  isWindows: boolean
+}
+
+export interface RtkGainStats {
+  totalCommands?: number
+  totalSavedTokens?: number
+  totalSavedUsd?: number
+  saveRate?: number
+  daily?: Array<{ date: string; commands: number; savedTokens: number }>
+  byCommand?: Record<string, { commands: number; savedTokens: number }>
+}
+
+export interface RtkUpdateInfo {
+  current: string | null
+  latest: string
+  hasUpdate: boolean
+}
+
+export interface ElectronRtkAPI {
+  getStatus: () => Promise<RtkStatus>
+  enable: () => Promise<{ success: boolean; error?: string; status: RtkStatus }>
+  disable: () => Promise<{ success: boolean; error?: string; status: RtkStatus }>
+  downloadBinary: () => Promise<{ success: boolean; error?: string; status?: RtkStatus }>
+  getStats: () => Promise<RtkGainStats | null>
+  checkUpdate: () => Promise<RtkUpdateInfo | null>
+  getBinaryPath: () => Promise<string>
+  onDownloadProgress: (callback: (progress: { downloaded: number; total: number; percent: number }) => void) => () => void
+}
+
 export interface ElectronUpdateAPI {
   check: () => Promise<{ success: boolean; error?: string }>
   download: () => Promise<{ success: boolean; error?: string }>
@@ -437,6 +484,8 @@ export interface ElectronAPI {
   skills: ElectronSkillsAPI
   agents: ElectronAgentsAPI
   mobile: ElectronMobileAPI
+  h5Access: ElectronH5AccessAPI
+  rtk: ElectronRtkAPI
   update: ElectronUpdateAPI
   cron: ElectronCronAPI
 

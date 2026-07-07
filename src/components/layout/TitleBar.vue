@@ -8,7 +8,8 @@
       <button class="sidebar-toggle" @click="appStore.toggleSidebar" :title="t('titleBar.toggleSidebar')">
         <Menu :size="16" />
       </button>
-      <div class="title-wrapper">
+      <!-- H5 模式下隐藏标题文字、版本号、会话标题 -->
+      <div v-if="!h5Mode" class="title-wrapper">
         <span class="title">SpaceCode</span>
         <span
           class="version-badge"
@@ -19,17 +20,17 @@
       </div>
 
       <!-- Session title (when in a session) -->
-      <template v-if="chatStore.currentSession?.title && chatStore.currentSession.title !== t('common.newChat')">
+      <template v-if="!h5Mode && chatStore.currentSession?.title && chatStore.currentSession.title !== t('common.newChat')">
         <span class="title-separator">/</span>
         <span class="session-title">{{ chatStore.currentSession.title }}</span>
       </template>
     </div>
 
     <!-- Center: drag region spacer -->
-    <div class="titlebar-center"></div>
+    <div v-if="!h5Mode" class="titlebar-center"></div>
 
-    <!-- Right section -->
-    <div class="titlebar-right" style="-webkit-app-region: no-drag">
+    <!-- Right section — H5 模式下整体隐藏 -->
+    <div v-if="!h5Mode" class="titlebar-right" style="-webkit-app-region: no-drag">
       <!-- 打开项目下拉（默认 VSCode） -->
       <div class="open-file-dropdown" ref="openMenuRef">
         <button
@@ -139,6 +140,10 @@ import { computed, h, onMounted, onBeforeUnmount, ref } from 'vue'
 import { api, type ExternalEditor } from '@/services/electronAPI'
 import { useAutoUpdate } from '@/composables/useAutoUpdate'
 import { useDialog } from '@/composables/useDialog'
+import { isH5Mode } from '@/services/h5ApiClient'
+
+// H5 手机端模式 — 仅保留侧边栏切换按钮，隐藏其他所有 TitleBar 元素
+const h5Mode = isH5Mode()
 
 const appStore = useAppStore()
 const chatStore = useChatStore()

@@ -374,6 +374,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('claude-code:exit', wrapper)
       return () => ipcRenderer.removeListener('claude-code:exit', wrapper)
     },
+    onError: (callback: (data: { sessionId: string; data: any }) => void) => {
+      const wrapper = (_: any, data: any) => callback(data)
+      ipcRenderer.on('claude-code:error', wrapper)
+      return () => ipcRenderer.removeListener('claude-code:error', wrapper)
+    },
     onSuspended: (callback: (data: { sessionId: string; data: { reason: string } }) => void) => {
       const wrapper = (_: any, data: any) => callback(data)
       ipcRenderer.on('claude-code:suspended', wrapper)
@@ -676,6 +681,49 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const handler = () => callback()
       ipcRenderer.on('mobile:onDisconnected', handler)
       return () => ipcRenderer.removeListener('mobile:onDisconnected', handler)
+    },
+  },
+
+  // H5 WebUI Access API
+  h5Access: {
+    enable: (): Promise<{ status: import('./h5Types').H5ServerStatus; token: string }> =>
+      ipcRenderer.invoke('h5:enable'),
+    disable: (): Promise<void> =>
+      ipcRenderer.invoke('h5:disable'),
+    regenerateToken: (): Promise<{ status: import('./h5Types').H5ServerStatus; token: string }> =>
+      ipcRenderer.invoke('h5:regenerateToken'),
+    getStatus: (): Promise<import('./h5Types').H5ServerStatus> =>
+      ipcRenderer.invoke('h5:getStatus'),
+    getSettings: (): Promise<import('./h5Types').H5AccessSettings> =>
+      ipcRenderer.invoke('h5:getSettings'),
+    updateSettings: (input: Partial<Pick<import('./h5Types').H5AccessSettings, 'publicBaseUrl' | 'fixedPort'>>) =>
+      ipcRenderer.invoke('h5:updateSettings', input),
+    setMirrorSession: (sessionId: string | null, projectPath: string | null) =>
+      ipcRenderer.invoke('h5:setMirrorSession', sessionId, projectPath),
+    checkBuild: (): Promise<{ built: boolean; path: string }> =>
+      ipcRenderer.invoke('h5:checkBuild'),
+  },
+
+  // RTK (Rust Token Killer) API
+  rtk: {
+    getStatus: (): Promise<import('./rtkManager').RtkStatus> =>
+      ipcRenderer.invoke('rtk:getStatus'),
+    enable: (): Promise<{ success: boolean; error?: string; status: import('./rtkManager').RtkStatus }> =>
+      ipcRenderer.invoke('rtk:enable'),
+    disable: (): Promise<{ success: boolean; error?: string; status: import('./rtkManager').RtkStatus }> =>
+      ipcRenderer.invoke('rtk:disable'),
+    downloadBinary: (): Promise<{ success: boolean; error?: string; status?: import('./rtkManager').RtkStatus }> =>
+      ipcRenderer.invoke('rtk:downloadBinary'),
+    getStats: (): Promise<import('./rtkManager').RtkGainStats | null> =>
+      ipcRenderer.invoke('rtk:getStats'),
+    checkUpdate: (): Promise<import('./rtkManager').RtkUpdateInfo | null> =>
+      ipcRenderer.invoke('rtk:checkUpdate'),
+    getBinaryPath: (): Promise<string> =>
+      ipcRenderer.invoke('rtk:getBinaryPath'),
+    onDownloadProgress: (callback: (progress: { downloaded: number; total: number; percent: number }) => void) => {
+      const wrapper = (_: any, progress: any) => callback(progress)
+      ipcRenderer.on('rtk:downloadProgress', wrapper)
+      return () => ipcRenderer.removeListener('rtk:downloadProgress', wrapper)
     },
   },
 

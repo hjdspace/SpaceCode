@@ -71,6 +71,8 @@ export interface AuthSettings {
   effortLevel?: 'low' | 'medium' | 'high' | 'max'
   /** Per-model context window overrides (modelId → token count). */
   modelContextWindows?: Record<string, number>
+  /** 是否启用 RTK (Rust Token Killer) token 优化 */
+  rtkEnabled?: boolean
 }
 
 const SETTINGS_STORAGE_KEY = 'claude_desktop_settings'
@@ -281,6 +283,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const installedCliPath = ref<string | null>(saved.installedCliPath || null)
   const lastViewedChangelogVersion = ref<string | null>(saved.lastViewedChangelogVersion || null)
   const modelContextWindows = ref<Record<string, number>>(saved.modelContextWindows || {})
+  const rtkEnabled = ref<boolean>(saved.rtkEnabled ?? false)
 
   // Computed: current provider for LLM service compatibility
   const provider = computed(() => {
@@ -472,7 +475,8 @@ export const useSettingsStore = defineStore('settings', () => {
       engineSource: engineSource.value,
       installedCliPath: installedCliPath.value ?? undefined,
       lastViewedChangelogVersion: lastViewedChangelogVersion.value ?? undefined,
-      modelContextWindows: { ...modelContextWindows.value }
+      modelContextWindows: { ...modelContextWindows.value },
+      rtkEnabled: rtkEnabled.value
     }
 
     const serialized = JSON.stringify(data, null, 2)
@@ -500,6 +504,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (settings.engineType) engineType.value = settings.engineType
     if (settings.engineSource) engineSource.value = settings.engineSource
     if (settings.installedCliPath !== undefined) installedCliPath.value = settings.installedCliPath
+    if (settings.rtkEnabled !== undefined) rtkEnabled.value = settings.rtkEnabled
     saveSettings()
   }
 
@@ -520,6 +525,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (settings.installedCliPath !== undefined) installedCliPath.value = settings.installedCliPath
     if (settings.lastViewedChangelogVersion !== undefined) lastViewedChangelogVersion.value = settings.lastViewedChangelogVersion
     if (settings.modelContextWindows !== undefined) modelContextWindows.value = { ...settings.modelContextWindows }
+    if (settings.rtkEnabled !== undefined) rtkEnabled.value = settings.rtkEnabled
   }
 
   async function loadFromGuiSettingsFile() {
@@ -638,5 +644,6 @@ export const useSettingsStore = defineStore('settings', () => {
     lastViewedChangelogVersion,
     modelContextWindows,
     getModelWith1mSuffix,
+    rtkEnabled,
   }
 })

@@ -339,6 +339,7 @@ import ScmPanel from '../scm/ScmPanel.vue'
 import SkillsManager from '../skills/SkillsManager.vue'
 // import McpManager from '../mcp/McpManagerModal.vue' // 已迁移到 App.vue 全屏模式
 import { api } from '@/services/electronAPI'
+import { isH5Mode, h5ApiClient } from '@/services/h5ApiClient'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useFileToChat } from '@/composables/useFileToChat'
 import { pathsEqual } from '@/utils/recentProjectRoots'
@@ -400,12 +401,21 @@ async function handleModeSelect(mode: AppMode) {
     // 同步 activeCenterTab，确保 SplitContainer 的 watcher 能将 pane content
     // 更新到目标会话（修复切换模式后主面板仍显示旧模式会话的问题）
     appStore.switchToSessionTab(targetSessionId)
+    if (isH5Mode()) {
+      const selected = chatStore.sessions.find(s => s.id === targetSessionId)
+      appStore.sidebarCollapsed = true
+      h5ApiClient.setMirrorSession(targetSessionId, selected?.workingDirectory || null).catch(() => {})
+    }
   } else {
     const workingDirectory = mode === 'work'
       ? (appStore.workWorkspace || chatStore.currentProjectRoot || undefined)
       : (chatStore.currentProjectRoot || undefined)
     const session = chatStore.createSession(t('common.newChat'), workingDirectory)
     appStore.openSessionTab(session.id, session.title)
+    if (isH5Mode()) {
+      appStore.sidebarCollapsed = true
+      h5ApiClient.setMirrorSession(session.id, session.workingDirectory || null).catch(() => {})
+    }
   }
 
   if (mode === 'work') {
@@ -563,6 +573,10 @@ async function handleNewChat() {
 
     const session = chatStore.createSession(t('common.newChat'), workingDirectory)
     appStore.openSessionTab(session.id, session.title)
+    if (isH5Mode()) {
+      appStore.sidebarCollapsed = true
+      h5ApiClient.setMirrorSession(session.id, session.workingDirectory || null).catch(() => {})
+    }
 
     // 分屏模式下更新当前 active pane 的内容
     const splitLayout = useSplitLayoutStore()
@@ -573,7 +587,11 @@ async function handleNewChat() {
       })
     }
 
-    window.dispatchEvent(new CustomEvent('session-created'))
+    try {
+      window.dispatchEvent(new CustomEvent('session-created'))
+    } catch (eventError) {
+      console.warn('[Sidebar] session-created event failed:', eventError)
+    }
   } catch (error) {
     console.error('Failed to create session:', error)
     await showAlert(t('sidebar.failedCreateConversation'))
@@ -613,6 +631,31 @@ async function handleSelectSession(sessionId: string) {
     const selected = chatStore.sessions.find(s => s.id === sessionId)
     if (selected?.mode === 'work' && selected.messages.length > 0) {
       appStore.openArtifactsPanel()
+    }
+    if (isH5Mode()) {
+      appStore.sidebarCollapsed = true
+      h5ApiClient.setMirrorSession(sessionId, selected?.workingDirectory || null).catch(() => {})
+    }
+
+    // ★ H5 模式：如果选中的会话没有消息（从桌面端列表加载的），从桌面端拉取历史
+    if (isH5Mode() && selected && selected.messages.length === 0 && selected.workingDirectory) {
+      try {
+        const history = await h5ApiClient.restoreSession(sessionId, selected.workingDirectory)
+        if (history?.messages?.length) {
+          const { buildMessagesFromHistory } = await import('@/utils/sessionRestore')
+          const restoredMessages = buildMessagesFromHistory(history.messages)
+          if (restoredMessages.length > 0) {
+            selected.messages = restoredMessages.map((m, i) => ({
+              ...m,
+              timestamp: (m as any).timestamp ?? Date.now() - (restoredMessages.length - i) * 1000,
+            })) as any
+            chatStore.saveToStorage()
+            console.log('[H5] Loaded', restoredMessages.length, 'messages for session', sessionId.slice(0, 8))
+          }
+        }
+      } catch (err) {
+        console.error('[H5] Failed to load session history:', err)
+      }
     }
 
     // 2. 异步加载会话数据（后台操作，不阻塞UI）
@@ -671,7 +714,15 @@ function handleCreateSessionInProject(e: MouseEvent, workingDirectory: string) {
     chatStore.switchProject(workingDirectory)
     const session = chatStore.createSession(t('common.newChat'), workingDirectory)
     appStore.openSessionTab(session.id, session.title)
-    window.dispatchEvent(new CustomEvent('session-created'))
+    if (isH5Mode()) {
+      appStore.sidebarCollapsed = true
+      h5ApiClient.setMirrorSession(session.id, workingDirectory).catch(() => {})
+    }
+    try {
+      window.dispatchEvent(new CustomEvent('session-created'))
+    } catch (eventError) {
+      console.warn('[Sidebar] session-created event failed:', eventError)
+    }
   } catch (error) {
     console.error('Failed to create session in project:', error)
   }

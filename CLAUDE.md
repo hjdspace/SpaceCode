@@ -94,7 +94,7 @@ SpaceCode/
 - 构建验证：修改后运行 `npm run build` 确保通过
 
 ## Rules
-- 原型HTML UI在docs/demo目录生成
+- 原型HTML UI在docs/prototypes目录生成
 - 所有实现需要考虑i18n国际化
 
 ## 禁止事项

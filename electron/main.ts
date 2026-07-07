@@ -16,6 +16,8 @@ import { registerClaudeCodeIPC, setMainWindow, getPool } from './claudeCodeIPC'
 import { initAutoUpdater, registerAutoUpdaterIPC, destroyAutoUpdater, installUpdateOnQuit } from './autoUpdaterService'
 import { MobileServer } from './mobileServer'
 import type { QRCodeData, ServerStatus } from './mobileServerTypes'
+import { H5Server } from './h5Server'
+import { H5AuthService } from './h5AuthService'
 import { buildThemeSyncData } from './themeSyncBuilder'
 import { registerPromptOptimizerIPC } from './promptOptimizerIPC'
 import { registerDesignIPCHandlers } from './design/designService'
@@ -23,6 +25,7 @@ import { aggregateLocalTokenStats } from './tokenStatsService'
 import { initLogger, info, warn, error, debug, isDebugMode, ipc as logIpc, traceEvent, listDebugFiles, readDebugFile, listTraceSessions, readTraceEvents, getTraceDir } from './logger'
 import { proxyManager } from './proxyManager'
 import type { ProxyConfig } from './proxy/types'
+import { rtkManager } from './rtkManager'
 
 // ============================================================
 // App Startup
@@ -650,6 +653,31 @@ info('Startup', 'CuaDriver IPC handlers registered')
   registerClaudeCodeIPC()
   info('Startup', 'Claude Code IPC handlers registered')
 
+  // Register H5 Access IPC handlers
+  registerH5AccessIPCHandlers()
+  info('Startup', 'H5 Access IPC handlers registered')
+
+  // Register RTK IPC handlers
+  registerRtkIPCHandlers()
+  info('Startup', 'RTK IPC handlers registered')
+
+  // Auto-start H5 server if it was previously enabled
+  ;(async () => {
+    try {
+      const h5Settings = h5AuthService.getSettings()
+      if (h5Settings.enabled && h5Settings.token) {
+        if (!h5Server) {
+          h5Server = new H5Server(h5AuthService)
+        }
+        await h5Server.start(h5Settings.fixedPort ?? undefined)
+        const st = h5Server.getStatus()
+        info('H5Access', `H5 server auto-started on app launch | port=${st.port} | ip=${st.ip} | url=${st.publicUrl}`)
+      }
+    } catch (err) {
+      error('H5Access', 'Failed to auto-start H5 server on app launch:', err)
+    }
+  })()
+
   // Register Design IPC handlers
   const designResourcesPath = app.isPackaged
     ? resolve(process.resourcesPath, '..')
@@ -751,6 +779,20 @@ info('Startup', 'CuaDriver IPC handlers registered')
       }
     }
   })()
+
+  // Auto-restore RTK hook if it was previously enabled
+  ;(async () => {
+    const guiSettings = await loadGuiSettings()
+    if (guiSettings?.rtkEnabled) {
+      try {
+        await rtkManager.ensureBinary()
+        await rtkManager.install()
+        info('Startup', 'RTK hook auto-restored')
+      } catch (err) {
+        error('Startup', 'Failed to restore RTK on startup', { error: String(err) })
+      }
+    }
+  })()
 })
 
 app.on('window-all-closed', () => {
@@ -790,7 +832,149 @@ destroyAutoUpdater()
     warn('App', 'Error killing Claude Code sessions', err)
   }
   if (mobileServer) { await mobileServer.stop(); mobileServer = null }
+  if (h5Server) { h5Server.stop(); h5Server = null }
 })
+
+// ============================================================
+// H5 WebUI Server Integration
+// ============================================================
+let h5Server: H5Server | null = null
+const h5AuthService = new H5AuthService()
+
+function registerH5AccessIPCHandlers(): void {
+  ipcMain.handle('h5:enable', async (): Promise<{ status: import('./h5Types').H5ServerStatus; token: string }> => {
+    const { settings, token } = h5AuthService.enable()
+    if (!h5Server) {
+      h5Server = new H5Server(h5AuthService)
+    }
+    const status = await h5Server.start(settings.fixedPort ?? undefined)
+    info('H5Access', `H5 server enabled | port=${status.port} | ip=${status.ip} | url=${status.publicUrl}`)
+    return { status, token }
+  })
+
+  ipcMain.handle('h5:disable', async (): Promise<void> => {
+    if (h5Server) {
+      h5Server.stop()
+    }
+    h5AuthService.disable()
+    info('H5Access', 'H5 server disabled')
+  })
+
+  ipcMain.handle('h5:regenerateToken', async (): Promise<{ status: import('./h5Types').H5ServerStatus; token: string }> => {
+    const { settings, token } = h5AuthService.regenerateToken()
+    // 重启服务器以应用新 token
+    if (h5Server) {
+      h5Server.stop()
+      h5Server = new H5Server(h5AuthService)
+      const status = await h5Server.start(settings.fixedPort ?? undefined)
+      return { status, token }
+    }
+    return {
+      status: { running: false, port: 0, ip: '', publicUrl: null, connectedClients: 0 },
+      token,
+    }
+  })
+
+  ipcMain.handle('h5:getStatus', (): import('./h5Types').H5ServerStatus => {
+    if (h5Server) return h5Server.getStatus()
+    return { running: false, port: 0, ip: '', publicUrl: null, connectedClients: 0 }
+  })
+
+  ipcMain.handle('h5:getSettings', (): import('./h5Types').H5AccessSettings => {
+    return h5AuthService.getSettings()
+  })
+
+  ipcMain.handle('h5:updateSettings', async (_, input: Partial<Pick<import('./h5Types').H5AccessSettings, 'publicBaseUrl' | 'fixedPort'>>) => {
+    return h5AuthService.updateSettings(input)
+  })
+
+  // 桌面渲染进程通知 H5 Server 当前活跃会话（镜像会话）
+  ipcMain.handle('h5:setMirrorSession', (_, sessionId: string | null, projectPath: string | null) => {
+    if (h5Server) {
+      h5Server.setMirrorSession(sessionId, projectPath)
+    }
+  })
+
+  // 开发模式检查 dist/h5 是否存在
+  ipcMain.handle('h5:checkBuild', (): { built: boolean; path: string } => {
+    const distRoot = app.isPackaged
+      ? join(process.resourcesPath, 'dist')
+      : join(__dirname, '..', 'dist')
+    const indexPath = join(distRoot, 'index.html')
+    return { built: existsSync(indexPath), path: distRoot }
+  })
+}
+
+// ============================================================
+// RTK (Rust Token Killer) Integration
+// ============================================================
+
+function registerRtkIPCHandlers(): void {
+  // 全局下载进度监听器：始终转发到渲染进程
+  // 这样无论是 rtk:enable 还是 rtk:downloadBinary 触发的下载，进度都会被转发
+  rtkManager.on('downloadProgress', (progress: { downloaded: number; total: number; percent: number }) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('rtk:downloadProgress', progress)
+    }
+  })
+
+  // 获取 RTK 状态
+  ipcMain.handle('rtk:getStatus', async () => {
+    return rtkManager.getStatus()
+  })
+
+  // 启用 RTK：确保二进制已安装 + 安装 Hook
+  ipcMain.handle('rtk:enable', async () => {
+    try {
+      await rtkManager.ensureBinary()
+      await rtkManager.install()
+      info('RTK', 'RTK enabled and hook installed')
+      return { success: true, status: await rtkManager.getStatus() }
+    } catch (err: any) {
+      error('RTK', 'Failed to enable RTK', { error: String(err) })
+      return { success: false, error: String(err), status: await rtkManager.getStatus() }
+    }
+  })
+
+  // 停用 RTK：卸载 Hook
+  ipcMain.handle('rtk:disable', async () => {
+    try {
+      await rtkManager.uninstall()
+      info('RTK', 'RTK disabled and hook uninstalled')
+      return { success: true, status: await rtkManager.getStatus() }
+    } catch (err: any) {
+      error('RTK', 'Failed to disable RTK', { error: String(err) })
+      return { success: false, error: String(err), status: await rtkManager.getStatus() }
+    }
+  })
+
+  // 下载/更新 RTK 二进制
+  ipcMain.handle('rtk:downloadBinary', async () => {
+    try {
+      await rtkManager.downloadBinary()
+      info('RTK', 'RTK binary downloaded')
+      return { success: true, status: await rtkManager.getStatus() }
+    } catch (err: any) {
+      error('RTK', 'Failed to download RTK binary', { error: String(err) })
+      return { success: false, error: String(err) }
+    }
+  })
+
+  // 获取 token 节省统计
+  ipcMain.handle('rtk:getStats', async () => {
+    return rtkManager.getGainStats()
+  })
+
+  // 检查更新
+  ipcMain.handle('rtk:checkUpdate', async () => {
+    return rtkManager.checkUpdate()
+  })
+
+  // 获取二进制路径
+  ipcMain.handle('rtk:getBinaryPath', () => {
+    return rtkManager.getBinaryPath()
+  })
+}
 
 // ============================================================
 // Mobile Server Integration

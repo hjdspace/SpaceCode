@@ -19,6 +19,8 @@ export interface EngineSessionConfig {
   installedCliPath?: string
   /** Per-model context window overrides (modelId → token count). */
   modelContextWindows?: Record<string, number>
+  /** 是否启用 RTK (Rust Token Killer) token 优化 */
+  rtkEnabled?: boolean
 }
 
 export interface UnifiedEngineEvent {

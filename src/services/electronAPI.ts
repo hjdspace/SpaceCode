@@ -1,5 +1,19 @@
 const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null
 
+// ── H5 模式检测与适配器注入 ──
+// 在模块加载时同步检测：如果 URL 含有 token 参数且不在 Electron 环境中，
+// 则创建 H5 适配器替换 claudeCode IPC 桥接。
+import { isH5Mode, initH5Connection, h5ApiClient } from './h5ApiClient'
+import { createH5Adapter } from './h5Adapter'
+
+let h5Adapter: ReturnType<typeof createH5Adapter> | null = null
+const _isH5Mode = typeof window !== 'undefined' && isH5Mode()
+
+if (_isH5Mode) {
+  initH5Connection()
+  h5Adapter = createH5Adapter()
+}
+
 import type {
   CuaDriverStatus,
   CuaDriverUpdateInfo,
@@ -313,15 +327,34 @@ export const api = {
   sendMessage: (text: string) => electronAPI?.sendMessage(text) || Promise.resolve({ success: false }),
   onMessage: (callback: (msg: unknown) => void) => electronAPI?.onMessage(callback),
   getAppState: () => electronAPI?.getAppState() || Promise.resolve({ sessions: [], currentSessionId: null, theme: 'dark' }),
-  readDir: (dirPath: string): Promise<FileEntry[]> => electronAPI?.readDir(dirPath) || Promise.resolve([]),
-  readFile: (filePath: string): Promise<string | null> => electronAPI?.readFile(filePath) || Promise.resolve(null),
-  readFileAsBase64: (filePath: string): Promise<string | null> => electronAPI?.readFileAsBase64(filePath) || Promise.resolve(null),
+  readDir: (dirPath: string): Promise<FileEntry[]> => {
+    if (electronAPI?.readDir) return electronAPI.readDir(dirPath)
+    if (_isH5Mode) return h5ApiClient.readDir(dirPath)
+    return Promise.resolve([])
+  },
+  readFile: (filePath: string): Promise<string | null> => {
+    if (electronAPI?.readFile) return electronAPI.readFile(filePath)
+    if (_isH5Mode) return h5ApiClient.readFile(filePath)
+    return Promise.resolve(null)
+  },
+  readFileAsBase64: (filePath: string): Promise<string | null> => {
+    if (electronAPI?.readFileAsBase64) return electronAPI.readFileAsBase64(filePath)
+    if (_isH5Mode) return h5ApiClient.readFileAsBase64(filePath)
+    return Promise.resolve(null)
+  },
   writeFile: (filePath: string, content: string): Promise<{ success: boolean; error?: string }> =>
     electronAPI?.writeFile(filePath, content) || Promise.resolve({ success: false, error: 'writeFile not available' }),
-  stat: (filePath: string): Promise<FileStat | null> => electronAPI?.stat(filePath) || Promise.resolve(null),
+  stat: (filePath: string): Promise<FileStat | null> => {
+    if (electronAPI?.stat) return electronAPI.stat(filePath)
+    if (_isH5Mode) return h5ApiClient.stat(filePath)
+    return Promise.resolve(null)
+  },
   searchFiles: (dirPath: string, query: string, options?: { maxResults?: number }): Promise<FileSearchEntry[]> => {
     if (electronAPI?.searchFiles) {
       return electronAPI.searchFiles(dirPath, query, options)
+    }
+    if (_isH5Mode) {
+      return h5ApiClient.searchFiles(dirPath, query, options)
     }
     return Promise.resolve([])
   },
@@ -375,6 +408,9 @@ export const api = {
     if (electronAPI?.httpFetch) {
       return electronAPI.httpFetch(url, options)
     }
+    if (_isH5Mode) {
+      return h5ApiClient.httpFetch(url, options)
+    }
     return Promise.resolve(null)
   },
   getClaudeCliPath: (): Promise<string | null> => {
@@ -399,11 +435,21 @@ export const api = {
     if (electronAPI?.saveGuiSettings) {
       return electronAPI.saveGuiSettings(data)
     }
+    // H5 模式：保存到 localStorage
+    if (_isH5Mode) {
+      localStorage.setItem('claude_desktop_settings', data)
+      return Promise.resolve({ success: true })
+    }
     return Promise.resolve({ success: false, error: 'saveGuiSettings not available' })
   },
   loadGuiSettings: (): Promise<{ success: boolean; data: string | null; error?: string }> => {
     if (electronAPI?.loadGuiSettings) {
       return electronAPI.loadGuiSettings()
+    }
+    // H5 模式：从 localStorage 读取（由 h5Bootstrap 注入）
+    if (_isH5Mode) {
+      const data = localStorage.getItem('claude_desktop_settings')
+      return Promise.resolve({ success: true, data })
     }
     return Promise.resolve({ success: false, data: null, error: 'loadGuiSettings not available' })
   },
@@ -843,7 +889,9 @@ export const api = {
   // ClaudeCode API — direct access to the claudeCode IPC bridge
   // Used by chat.ts for session lifecycle, streaming, and permission management.
   // Returns null when running outside Electron (SSR / unit tests).
+  // In H5 mode, returns the H5 adapter instead of the IPC bridge.
   get claudeCode() {
+    if (h5Adapter) return h5Adapter
     return electronAPI?.claudeCode ?? null
   },
 
@@ -863,6 +911,57 @@ export const api = {
       return electronAPI.getCwd()
     }
     return Promise.resolve('/')
+  },
+
+  // H5 Access API — desktop renderer controls H5 server
+  h5Access: {
+    enable: (): Promise<{ status: import('../../electron/h5Types').H5ServerStatus; token: string }> =>
+      electronAPI?.h5Access?.enable() || Promise.reject('H5 Access API not available'),
+    disable: (): Promise<void> =>
+      electronAPI?.h5Access?.disable() || Promise.resolve(),
+    regenerateToken: (): Promise<{ status: import('../../electron/h5Types').H5ServerStatus; token: string }> =>
+      electronAPI?.h5Access?.regenerateToken() || Promise.reject('H5 Access API not available'),
+    getStatus: (): Promise<import('../../electron/h5Types').H5ServerStatus> =>
+      electronAPI?.h5Access?.getStatus() || Promise.resolve({ running: false, port: 0, ip: '', publicUrl: null, connectedClients: 0 }),
+    getSettings: (): Promise<import('../../electron/h5Types').H5AccessSettings> =>
+      electronAPI?.h5Access?.getSettings() || Promise.resolve({ enabled: false, token: null, tokenPreview: null, publicBaseUrl: null, fixedPort: null }),
+    updateSettings: (input: Partial<Pick<import('../../electron/h5Types').H5AccessSettings, 'publicBaseUrl' | 'fixedPort'>>) =>
+      electronAPI?.h5Access?.updateSettings(input) || Promise.resolve({ enabled: false, token: null, tokenPreview: null, publicBaseUrl: null, fixedPort: null }),
+    setMirrorSession: (sessionId: string | null, projectPath: string | null) =>
+      electronAPI?.h5Access?.setMirrorSession(sessionId, projectPath) || Promise.resolve(),
+    checkBuild: (): Promise<{ built: boolean; path: string }> =>
+      electronAPI?.h5Access?.checkBuild() || Promise.resolve({ built: false, path: '' }),
+  },
+
+  // RTK (Rust Token Killer) API
+  rtk: {
+    getStatus: (): Promise<import('../../electron/rtkManager').RtkStatus> =>
+      electronAPI?.rtk?.getStatus() || Promise.resolve({
+        binaryInstalled: false,
+        version: null,
+        hookInstalled: false,
+        platform: typeof process !== 'undefined' ? process.platform : 'win32',
+        binaryPath: '',
+        isWindows: true,
+      }),
+    enable: (): Promise<{ success: boolean; error?: string; status: import('../../electron/rtkManager').RtkStatus }> =>
+      electronAPI?.rtk?.enable() || Promise.reject('RTK API not available'),
+    disable: (): Promise<{ success: boolean; error?: string; status: import('../../electron/rtkManager').RtkStatus }> =>
+      electronAPI?.rtk?.disable() || Promise.resolve({ success: true, status: { binaryInstalled: false, version: null, hookInstalled: false, platform: 'win32', binaryPath: '', isWindows: true } }),
+    downloadBinary: (): Promise<{ success: boolean; error?: string; status?: import('../../electron/rtkManager').RtkStatus }> =>
+      electronAPI?.rtk?.downloadBinary() || Promise.reject('RTK API not available'),
+    getStats: (): Promise<import('../../electron/rtkManager').RtkGainStats | null> =>
+      electronAPI?.rtk?.getStats() || Promise.resolve(null),
+    checkUpdate: (): Promise<import('../../electron/rtkManager').RtkUpdateInfo | null> =>
+      electronAPI?.rtk?.checkUpdate() || Promise.resolve(null),
+    getBinaryPath: (): Promise<string> =>
+      electronAPI?.rtk?.getBinaryPath() || Promise.resolve(''),
+    onDownloadProgress: (callback: (progress: { downloaded: number; total: number; percent: number }) => void) => {
+      if (electronAPI?.rtk?.onDownloadProgress) {
+        return electronAPI.rtk.onDownloadProgress(callback)
+      }
+      return () => {}
+    },
   },
 
   // Auto Update API

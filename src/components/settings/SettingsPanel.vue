@@ -88,6 +88,12 @@
             <BrowserUseSettings
               v-else-if="activeTab === 'browser-use'"
             />
+            <H5AccessSettings
+              v-else-if="activeTab === 'h5-access'"
+            />
+            <RtkSettings
+              v-else-if="activeTab === 'rtk'"
+            />
             <AboutSettings
               v-else-if="activeTab === 'about'"
             />
@@ -102,7 +108,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
 import {
   ArrowLeft,
-  Settings, Boxes, Palette, Wrench, Keyboard, Bot, BarChart3, Zap, Monitor, Globe, Info
+  Settings, Boxes, Palette, Wrench, Keyboard, Bot, BarChart3, Zap, Monitor, Globe, Info, Smartphone
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -119,6 +125,8 @@ const TokenUsageSettings = defineAsyncComponent(() => import('./TokenUsageSettin
 const HookSettings = defineAsyncComponent(() => import('./HookSettings.vue'))
 const ComputerUseSettings = defineAsyncComponent(() => import('./ComputerUseSettings.vue'))
 const BrowserUseSettings = defineAsyncComponent(() => import('./BrowserUseSettings.vue'))
+const H5AccessSettings = defineAsyncComponent(() => import('./H5AccessSettings.vue'))
+const RtkSettings = defineAsyncComponent(() => import('./RtkSettings.vue'))
 const AboutSettings = defineAsyncComponent(() => import('./AboutSettings.vue'))
 
 const appStore = useAppStore()
@@ -132,6 +140,8 @@ const settingMenuItems = computed(() => [
   { id: 'tools', label: t('settings.tools'), icon: Wrench },
   { id: 'computer-use', label: t('settings.computerUse'), icon: Monitor },
   { id: 'browser-use', label: t('settings.browserUse'), icon: Globe },
+  { id: 'h5-access', label: t('settings.h5Access'), icon: Smartphone },
+  { id: 'rtk', label: t('settings.rtk'), icon: Zap },
 ])
 
 const personalMenuItems = computed(() => [
