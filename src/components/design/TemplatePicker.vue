@@ -155,7 +155,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped lang="scss">
-.template-picker { position: relative; display: inline-flex; align-items: center; }
+.template-picker { position: relative; display: inline-flex; align-items: center; min-width: 0; }
 
 .template-picker-trigger {
   display: inline-flex;
@@ -170,6 +170,7 @@ onUnmounted(() => {
   cursor: pointer;
   color: var(--text-primary);
   transition: background var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+  min-width: 0;
 }
 .template-picker-trigger:hover {
   background: var(--bg-hover);
@@ -199,8 +200,15 @@ onUnmounted(() => {
   width: 18px;
   height: 14px;
 }
-.template-picker-kicker { color: var(--text-muted); }
-.template-picker-value { font-weight: 500; }
+.template-picker-kicker { color: var(--text-muted); flex-shrink: 0; }
+.template-picker-value {
+  font-weight: 500;
+  min-width: 0;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .template-picker-trigger-divider {
   width: 1px;
   height: 14px;
@@ -333,4 +341,17 @@ onUnmounted(() => {
   line-height: 1.3;
 }
 .template-picker-empty { font-size: 12px; color: var(--text-muted); padding: 16px; text-align: center; }
+
+/* 窄面板下只显示图标，隐藏标签文字 */
+@container (max-width: 520px) {
+  .template-picker-kicker,
+  .template-picker-value,
+  .template-picker-trigger-divider {
+    display: none;
+  }
+  .template-picker-trigger {
+    padding: 5px 7px;
+    gap: 0;
+  }
+}
 </style>
