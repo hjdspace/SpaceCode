@@ -306,8 +306,8 @@ onUnmounted(() => {
   position: absolute;
   bottom: calc(100% + 14px);
   left: 0;
-  width: min(720px, calc(100vw - 36px));
-  max-height: min(430px, calc(100vh - 160px));
+  width: min(560px, calc(100vw - 36px));
+  max-height: min(400px, calc(100vh - 160px));
   background: #fff;
   border: 1px solid #d8e0eb;
   border-radius: 14px;
@@ -324,7 +324,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 52px;
+  height: 44px;
   padding: 0 12px;
   border-bottom: 1px solid #e4e9f1;
   color: var(--text-muted);
@@ -337,7 +337,7 @@ onUnmounted(() => {
   border: 0;
   background: transparent;
   padding: 0 4px;
-  font-size: 15px;
+  font-size: 13px;
   color: var(--text-primary);
   outline: none;
 }
@@ -345,11 +345,11 @@ onUnmounted(() => {
 .ds-picker-search input::placeholder { color: var(--text-disabled); }
 
 .ds-picker-action {
-  height: 30px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
   background: #fff;
@@ -380,7 +380,7 @@ onUnmounted(() => {
 
 .ds-picker-body {
   display: grid;
-  grid-template-columns: minmax(230px, 0.92fr) minmax(330px, 1.08fr);
+  grid-template-columns: minmax(190px, 0.9fr) minmax(260px, 1.1fr);
   min-height: 0;
   flex: 1 1 auto;
   overflow: hidden;
@@ -409,12 +409,12 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 8px;
   width: 100%;
-  min-height: 40px;
+  min-height: 34px;
   text-align: left;
   background: transparent;
   border: none;
   padding: 0 10px;
-  border-radius: 10px;
+  border-radius: 8px;
   cursor: pointer;
   color: var(--text-primary);
   transition: background var(--transition-fast), color var(--transition-fast);
@@ -433,8 +433,8 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 17px;
-  font-weight: 800;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .ds-picker-empty {
@@ -456,7 +456,7 @@ onUnmounted(() => {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 22px 22px 14px;
+  padding: 16px 16px 12px;
 }
 
 .ds-preview-none {
@@ -471,8 +471,8 @@ onUnmounted(() => {
 }
 
 .ds-preview-title {
-  font-size: 17px;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 700;
   color: var(--text-primary);
 }
 
@@ -483,10 +483,10 @@ onUnmounted(() => {
 }
 
 .ds-preview-desc {
-  font-size: 15px;
+  font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.5;
-  margin: 12px 0 14px;
+  margin: 10px 0 12px;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   line-clamp: 3;
@@ -513,9 +513,9 @@ onUnmounted(() => {
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
-  min-height: 170px;
+  min-height: 140px;
   border: 1px solid #dce3ec;
-  border-radius: 12px;
+  border-radius: 10px;
   overflow: hidden;
   background: #fff;
 }
@@ -541,19 +541,19 @@ onUnmounted(() => {
 
 .ds-preview-open {
   align-self: center;
-  transform: translateY(-18px);
-  min-height: 40px;
+  transform: translateY(-14px);
+  min-height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 0 18px;
+  padding: 0 16px;
   border-radius: var(--radius-full);
   border: 1px solid #dce3ec;
   background: #fff;
   color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 800;
+  font-size: 13px;
+  font-weight: 700;
   cursor: pointer;
   box-shadow: 0 12px 28px rgba(24, 25, 31, 0.14);
   transition:
@@ -565,7 +565,7 @@ onUnmounted(() => {
 .ds-preview-open:hover {
   background: var(--surface-soft);
   border-color: var(--surface-border-strong);
-  transform: translateY(-19px);
+  transform: translateY(-15px);
 }
 
 @keyframes scaleIn {
@@ -583,7 +583,7 @@ onUnmounted(() => {
     grid-template-columns: 1fr;
   }
   .ds-picker-list {
-    max-height: 220px;
+    max-height: 200px;
     border-right: 0;
     border-bottom: 1px solid #e4e9f1;
   }

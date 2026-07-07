@@ -1375,6 +1375,7 @@ watch(pendingFile, (file) => {
   flex-grow: 0;
   position: relative;
   border-top: 1px solid var(--surface-border);
+  container-type: inline-size;
 }
 
 .context-toolbar-row {
@@ -1839,6 +1840,7 @@ watch(pendingFile, (file) => {
   align-items: center;
   gap: 4px;
   flex: 1;
+  min-width: 0;
   background: transparent;
 }
 
@@ -1904,14 +1906,16 @@ watch(pendingFile, (file) => {
 
 .model-selector {
   position: relative;
+  min-width: 0;
 }
 
 .model-btn {
   background: transparent;
+  min-width: 0;
 
   .model-name {
     font-weight: 500;
-    max-width: 160px;
+    max-width: 120px;
     @include truncate;
   }
 
@@ -2333,5 +2337,15 @@ watch(pendingFile, (file) => {
 .dropdown-leave-to {
   opacity: 0;
   transform: translateY(4px);
+}
+
+/* 窄面板下模型选择器自适应：缩小模型名、隐藏推理模式 pill */
+@container (max-width: 520px) {
+  .model-btn .model-name {
+    max-width: 70px;
+  }
+  .model-btn .model-mode-pill {
+    display: none;
+  }
 }
 </style>

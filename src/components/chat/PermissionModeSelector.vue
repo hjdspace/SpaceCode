@@ -145,6 +145,7 @@ onUnmounted(() => {
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
+  min-width: 0;
 }
 
 .mode-trigger:hover {
@@ -159,7 +160,7 @@ onUnmounted(() => {
 }
 
 .mode-text {
-  max-width: 80px;
+  max-width: 60px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -271,5 +272,15 @@ onUnmounted(() => {
 .dropdown-leave-to {
   opacity: 0;
   transform: translateY(8px);
+}
+
+/* 窄面板下只显示图标，隐藏文字 */
+@container (max-width: 520px) {
+  .mode-text {
+    display: none;
+  }
+  .mode-trigger {
+    padding: 6px 8px;
+  }
 }
 </style>
