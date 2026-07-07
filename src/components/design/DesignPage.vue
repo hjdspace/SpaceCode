@@ -14,30 +14,27 @@
         </button>
       </div>
     </header>
-    <DesignSplitView>
-      <template #left><DesignChatPane /></template>
-      <template #right><DesignFileWorkspace /></template>
-    </DesignSplitView>
+    <DesignChatPane />
     <ToastNotification />
   </div>
 </template>
 
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Palette, Square } from 'lucide-vue-next'
 import { useDesignStore } from '@/stores/design'
 import { useChatStore } from '@/stores/chat'
+import { useAppStore } from '@/stores/app'
 import { useDesignSession } from '@/composables/useDesignSession'
-import DesignSplitView from './DesignSplitView.vue'
 import DesignChatPane from './DesignChatPane.vue'
-import DesignFileWorkspace from './DesignFileWorkspace.vue'
 import ToastNotification from '@/components/common/ToastNotification.vue'
 
 const { t } = useI18n()
 const designStore = useDesignStore()
 const chatStore = useChatStore()
+const appStore = useAppStore()
 const { lastUsage, activeSessionId } = storeToRefs(designStore)
 const { stopDesignGeneration } = useDesignSession()
 
@@ -45,6 +42,16 @@ const { stopDesignGeneration } = useDesignSession()
 const isLoading = computed(() =>
   activeSessionId.value ? chatStore.getIsLoading(activeSessionId.value) : false
 )
+
+// 进入设计模式时自动在右侧 InfoPanel 打开设计预览工作区
+onMounted(() => {
+  appStore.openDesignPreview()
+})
+
+// 离开设计模式时关闭设计预览 tab
+onUnmounted(() => {
+  appStore.closeDesignPreview()
+})
 </script>
 
 <style scoped lang="scss">

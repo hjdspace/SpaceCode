@@ -21,6 +21,8 @@
 
       <ArtifactsPanel v-else-if="mode === 'artifacts'" />
 
+      <DesignFileWorkspace v-else-if="mode === 'design-preview'" />
+
       <PreviewPanel
         v-else-if="mode === 'office-preview'"
         :file-path="appStore.officePreviewFile"
@@ -169,6 +171,7 @@ import InfoPanelTabBar from './InfoPanelTabBar.vue'
 import PanelLauncher from './PanelLauncher.vue'
 import ArtifactsPanel from '../work/ArtifactsPanel.vue'
 import PreviewPanel from '../work/PreviewPanel.vue'
+import DesignFileWorkspace from '../design/DesignFileWorkspace.vue'
 import TerminalPanel from '../terminal/TerminalPanel.vue'
 import DiffViewer from '../common/DiffViewer.vue'
 import CodeViewer from '../common/CodeViewer.vue'
