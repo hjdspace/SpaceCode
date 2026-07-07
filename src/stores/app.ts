@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, markRaw } from 'vue'
-import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch, Package } from 'lucide-vue-next'
+import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch, Package, Palette } from 'lucide-vue-next'
 import { useChatStore } from './chat'
 import { useTerminalStore, type CreateTerminalOptions } from './terminal'
 import { useSplitLayoutStore } from './splitLayout'
@@ -52,7 +52,7 @@ export interface InputInjectPayload {
   }
 }
 
-export type InfoPanelTabType = 'file' | 'markdown' | 'diff' | 'tool-diff' | 'webview' | 'terminal' | 'artifacts' | 'office-preview'
+export type InfoPanelTabType = 'file' | 'markdown' | 'diff' | 'tool-diff' | 'webview' | 'terminal' | 'artifacts' | 'office-preview' | 'design-preview'
 
 export interface InfoPanelTab {
   id: string
@@ -357,6 +357,23 @@ export const useAppStore = defineStore('app', () => {
       data: null,
       closeable: true
     })
+  }
+
+  /** 在右侧面板打开 Design 预览工作区 */
+  function openDesignPreview() {
+    openInfoTab({
+      id: 'design-preview',
+      type: 'design-preview',
+      title: 'Design',
+      icon: markRaw(Palette),
+      data: null,
+      closeable: false
+    })
+  }
+
+  /** 关闭 Design 预览工作区 */
+  function closeDesignPreview() {
+    closeInfoTab('design-preview')
   }
 
   /** 在右侧面板打开终端 */
@@ -928,6 +945,8 @@ export const useAppStore = defineStore('app', () => {
     goPanelHome,
     openTerminalInPanel,
     openArtifactsPanel,
+    openDesignPreview,
+    closeDesignPreview,
     openBlankWebview,
     showToolDiff,
     markToolActionCompleted,
