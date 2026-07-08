@@ -82,6 +82,10 @@ export function useTurnStore(injectedApi?: any) {
     const pendingSendMessages = new Set<string>()
     const userAbortedSessions = new Set<string>()
 
+    // ── 权限请求状态 ──
+    // outer key = sessionId, inner key = toolUseId
+    const pendingPermissions = ref<Map<string, Map<string, PermissionRequest>>>(new Map())
+
     // ── forward stubs：任务 9 迁移 auto-retry 状态机时替换 ──
     // 真实实现见 chatStream.ts 的 useAutoRetry(...) + initiateAutoRetry/resendForRetry。
     // 此处提供同签名 stub 使 handleResult/handleError 闭环可独立测试；
@@ -1311,16 +1315,91 @@ export function useTurnStore(injectedApi?: any) {
       }
     }
 
-    async function allowPermission(_messageId: string, _toolUseId: string, _updatedInput: Record<string, unknown>, _decisionClassification?: 'user_temporary' | 'user_permanent'): Promise<void> {}
-    async function denyPermission(_messageId: string, _toolUseId: string, _message = 'User denied', _options: { interrupt?: boolean } = {}): Promise<void> {}
+    // ────────────────────────────────────────────────────────────────────
+    // 权限裁决（从 chatControl.ts 迁移）
+    // 写回走 sink.patchToolCall(sid, ...) 而非 sessionStore.updateToolCall(messageId, ...)：
+    // 多 pane 并发场景下，原实现依赖 currentSessionId 会写错会话；迁移后用闭包的 sid。
+    // ────────────────────────────────────────────────────────────────────
+    function getPendingPermissionForToolUse(toolUseId: string, sessionId?: string): PermissionRequest | undefined {
+      const sid = sessionId ?? sessionStore.currentSessionId
+      if (!sid) return undefined
+      return pendingPermissions.value.get(sid)?.get(toolUseId)
+    }
+
+    function hasPendingPermissionForToolUse(toolUseId: string, sessionId?: string): boolean {
+      return !!getPendingPermissionForToolUse(toolUseId, sessionId)
+    }
+
+    function consumePermissionFor(toolUseId: string, sessionId: string): PermissionRequest | undefined {
+      const req = permissionService.consumePermissionFor(toolUseId, sessionId)
+      pendingPermissions.value = new Map(permissionService.getPendingPermissions())
+      return req
+    }
+
+    async function allowPermission(
+      messageId: string,
+      toolUseId: string,
+      updatedInput: Record<string, unknown>,
+      decisionClassification?: 'user_temporary' | 'user_permanent',
+    ): Promise<void> {
+      const sid = sessionStore.currentSessionId
+      if (!sid) return
+      const claudeCode = resolvedApi.claudeCode
+      if (!claudeCode?.allowPermission) {
+        sessionStore.logger.error('ChatStore', 'allowPermission: claudeCode.allowPermission not available')
+        return
+      }
+      const req = consumePermissionFor(toolUseId, sid)
+      if (!req) {
+        sessionStore.logger.warn('ChatStore', `allowPermission: no pending request | sessionId=${sid.slice(0, 8)} | toolUseId=${toolUseId.slice(0, 8)}`)
+        return
+      }
+      sessionStore.logger.info('ChatStore', `allowPermission | sessionId=${sid.slice(0, 8)} | tool=${req.toolName} | requestId=${req.requestId.slice(0, 8)}`)
+      try {
+        const safeInput = JSON.parse(JSON.stringify(updatedInput)) as Record<string, unknown>
+        await claudeCode.allowPermission(sid, req.requestId, safeInput, decisionClassification)
+        sink.patchToolCall(sid, messageId, toolUseId, 'completed')
+      } catch (error) {
+        sessionStore.logger.error('ChatStore', 'allowPermission failed', { error: String(error) })
+        throw error
+      }
+    }
+
+    async function denyPermission(
+      messageId: string,
+      toolUseId: string,
+      message: string = 'User denied',
+      options: { interrupt?: boolean } = {},
+    ): Promise<void> {
+      const sid = sessionStore.currentSessionId
+      if (!sid) return
+      const claudeCode = resolvedApi.claudeCode
+      if (!claudeCode?.denyPermission) {
+        sessionStore.logger.error('ChatStore', 'denyPermission: claudeCode.denyPermission not available')
+        return
+      }
+      const req = consumePermissionFor(toolUseId, sid)
+      if (!req) {
+        sessionStore.logger.warn('ChatStore', `denyPermission: no pending request | sessionId=${sid.slice(0, 8)} | toolUseId=${toolUseId.slice(0, 8)}`)
+        return
+      }
+      sessionStore.logger.info('ChatStore', `denyPermission | sessionId=${sid.slice(0, 8)} | tool=${req.toolName} | requestId=${req.requestId.slice(0, 8)} | interrupt=${!!options.interrupt}`)
+      try {
+        await claudeCode.denyPermission(sid, req.requestId, message, options)
+        sink.patchToolCall(sid, messageId, toolUseId, 'completed')
+      } catch (error) {
+        sessionStore.logger.error('ChatStore', 'denyPermission failed', { error: String(error) })
+        throw error
+      }
+    }
 
     // ────────────────────────────────────────────────────────────────────
     // 工具答复（从 chatStream.ts 迁移）
     // 写回走 sink.patchToolCall(sid, ...) 而非 sessionStore.updateToolCall(messageId, ...)：
     // 多 pane 并发场景下，原实现依赖 currentSessionId 会写错会话；迁移后用 handler 闭包内的 sid。
     // ────────────────────────────────────────────────────────────────────
-    async function submitToolAnswer(messageId: string, toolCallId: string, answers: Record<string, string>): Promise<void> {
-      const sid = sessionStore.currentSessionId
+    async function submitToolAnswer(sessionId: string, messageId: string, toolCallId: string, answers: Record<string, string>): Promise<void> {
+      const sid = sessionId
       if (!sid) return
 
       sessionStore.logger.info('ChatStore', `submitToolAnswer: submitting answers | sessionId=${sid.slice(0, 8)} | messageId=${messageId.slice(0, 8)} | toolId=${toolCallId.slice(0, 8)}`)
@@ -1341,8 +1420,8 @@ export function useTurnStore(injectedApi?: any) {
       }
     }
 
-    async function skipToolAnswer(messageId: string, toolCallId: string): Promise<void> {
-      const sid = sessionStore.currentSessionId
+    async function skipToolAnswer(sessionId: string, messageId: string, toolCallId: string): Promise<void> {
+      const sid = sessionId
       if (!sid) return
 
       sessionStore.logger.info('ChatStore', `skipToolAnswer: skipping tool | sessionId=${sid.slice(0, 8)} | messageId=${messageId.slice(0, 8)} | toolId=${toolCallId.slice(0, 8)}`)
@@ -1488,11 +1567,37 @@ export function useTurnStore(injectedApi?: any) {
           handleError(event.sessionId, ts, new Error(msg))
         })
       }
+
+      // ── 权限请求订阅（control_request: can_use_tool） ──
+      if (typeof (claudeCodeApi as any).onPermissionRequest === 'function') {
+        ;(claudeCodeApi as any).onPermissionRequest((evt: { sessionId: string; data: PermissionRequest }) => {
+          const sid = evt.sessionId
+          const req = evt.data
+          if (!req?.toolUseId) {
+            sessionStore.logger.warn('ChatStore', `permission_request without toolUseId | sessionId=${sid.slice(0, 8)} | requestId=${req?.requestId}`)
+            return
+          }
+          sessionStore.logger.info('ChatStore', `permission_request | sessionId=${sid.slice(0, 8)} | tool=${req.toolName} | toolUseId=${req.toolUseId.slice(0, 8)} | requestId=${req.requestId.slice(0, 8)}`)
+          permissionService.addPermissionRequest(sid, { ...req, sessionId: sid })
+          pendingPermissions.value = new Map(permissionService.getPendingPermissions())
+        })
+      }
+      if (typeof (claudeCodeApi as any).onPermissionRequestCancelled === 'function') {
+        ;(claudeCodeApi as any).onPermissionRequestCancelled((evt: { sessionId: string; data: { requestId: string; reason?: string } }) => {
+          const sid = evt.sessionId
+          const cancelledRequestId = evt.data?.requestId
+          if (!cancelledRequestId) return
+          sessionStore.logger.info('ChatStore', `permission_request_cancelled | sessionId=${sid.slice(0, 8)} | requestId=${cancelledRequestId.slice(0, 8)} | reason=${evt.data?.reason || '(none)'}`)
+          permissionService.removePermissionByRequestId(sid, cancelledRequestId)
+          pendingPermissions.value = new Map(permissionService.getPendingPermissions())
+        })
+      }
     }
 
     return {
       streamingContents,
       loadingSessions,
+      pendingPermissions,
       sendMessage,
       abort,
       retryLastMessage,
@@ -1500,6 +1605,9 @@ export function useTurnStore(injectedApi?: any) {
       skipToolAnswer,
       allowPermission,
       denyPermission,
+      getPendingPermissionForToolUse,
+      hasPendingPermissionForToolUse,
+      consumePermissionFor,
       getIsLoading,
       getStreamingContent,
       // ── 测试用导出：beginTurn/ensureTurn/endTurn 是内部函数，

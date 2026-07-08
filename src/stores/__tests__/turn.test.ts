@@ -26,8 +26,8 @@ function makeFakeApi() {
         return Promise.resolve(undefined)
       }),
       abort: vi.fn().mockResolvedValue(undefined),
-      allowPermission: vi.fn(),
-      denyPermission: vi.fn(),
+      allowPermission: vi.fn().mockResolvedValue(undefined),
+      denyPermission: vi.fn().mockResolvedValue(undefined),
       submitToolAnswer: vi.fn().mockResolvedValue(undefined),
       skipToolAnswer: vi.fn().mockResolvedValue(undefined),
     },
@@ -258,10 +258,60 @@ describe('Turn 工具答复', () => {
     sessionStore.selectSession('sess-tool')
     const msg = sessionStore.addMessage({ role: 'assistant', content: '', toolCalls: [{ id: 'tc1', name: 'Read', input: {}, status: 'running', startTime: 0, endTime: 0 }] }, 'sess-tool')
 
-    await turn.submitToolAnswer(msg.id, 'tc1', { path: '/a' })
+    await turn.submitToolAnswer('sess-tool', msg.id, 'tc1', { path: '/a' })
 
     expect(fake.claudeCode.submitToolAnswer).toHaveBeenCalledWith('sess-tool', 'tc1', { path: '/a' })
     const updated = sessionStore.sessions.find(s => s.id === 'sess-tool')!.messages.find(m => m.id === msg.id)!
     expect(updated.toolCalls!.find(t => t.id === 'tc1')!.status).toBe('completed')
+  })
+})
+
+describe('Turn 权限裁决', () => {
+  beforeEach(() => { setActivePinia(createPinia()) })
+
+  it('onPermissionRequest 事件填充 pendingPermissions', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+
+    fake._handlers.onPermissionRequest({
+      sessionId: 'sess-perm',
+      data: { toolUseId: 'tu1', toolName: 'Bash', requestId: 'req1', toolName2: 'Bash' },
+    })
+
+    expect(turn.hasPendingPermissionForToolUse('tu1', 'sess-perm')).toBe(true)
+  })
+
+  it('allowPermission 调用 api.allowPermission 并 patchToolCall', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('Test', undefined, 'sess-perm')
+    sessionStore.selectSession('sess-perm')
+    const msg = sessionStore.addMessage({ role: 'assistant', content: '', toolCalls: [{ id: 'tu1', name: 'Bash', input: {}, status: 'running', startTime: 0, endTime: 0 }] }, 'sess-perm')
+
+    fake._handlers.onPermissionRequest({ sessionId: 'sess-perm', data: { toolUseId: 'tu1', toolName: 'Bash', requestId: 'req1' } })
+    await turn.allowPermission(msg.id, 'tu1', { command: 'ls' })
+
+    expect(fake.claudeCode.allowPermission).toHaveBeenCalledWith('sess-perm', 'req1', { command: 'ls' }, undefined)
+    const updated = sessionStore.sessions.find(s => s.id === 'sess-perm')!.messages.find(m => m.id === msg.id)!
+    expect(updated.toolCalls!.find(t => t.id === 'tu1')!.status).toBe('completed')
+    expect(turn.hasPendingPermissionForToolUse('tu1', 'sess-perm')).toBe(false)
+  })
+
+  it('denyPermission 调用 api.denyPermission', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('Test', undefined, 'sess-perm')
+    sessionStore.selectSession('sess-perm')
+    const msg = sessionStore.addMessage({ role: 'assistant', content: '', toolCalls: [{ id: 'tu1', name: 'Bash', input: {}, status: 'running', startTime: 0, endTime: 0 }] }, 'sess-perm')
+
+    fake._handlers.onPermissionRequest({ sessionId: 'sess-perm', data: { toolUseId: 'tu1', toolName: 'Bash', requestId: 'req1' } })
+    await turn.denyPermission(msg.id, 'tu1', 'nope')
+
+    expect(fake.claudeCode.denyPermission).toHaveBeenCalledWith('sess-perm', 'req1', 'nope', {})
   })
 })
