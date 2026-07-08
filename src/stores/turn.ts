@@ -1103,6 +1103,7 @@ export function useTurnStore(injectedApi?: any) {
       }
 
       const targetSessionId = sessionStore.currentSessionId!
+      // ★ 清除用户中止标记：用户主动发新消息时恢复正常运行
       userAbortedSessions.delete(targetSessionId)
       autoRetry.removeRetryState(targetSessionId)
       const session = sink.get(targetSessionId)
@@ -1113,6 +1114,9 @@ export function useTurnStore(injectedApi?: any) {
         session.processStatus = 'active'
       }
 
+      // ── 标记 sendMessage 进行中，防止 ensureTurn 在 addMessage → beginTurn 窗口期 ──
+      // 创建 autonomous turn 消费事件或被提前结算。
+      // beginTurn 执行后 turnStates 中已有 turn，ensureTurn 会直接返回它，标记可清除。
       pendingSendMessages.add(targetSessionId)
 
       sessionStore.logger.info('ChatStore', `sendMessage: user message | sessionId=${targetSessionId.slice(0, 8)} | contentLen=${content.length} | preview="${content.slice(0, 80)}"`)
@@ -1174,10 +1178,14 @@ export function useTurnStore(injectedApi?: any) {
 
       if (turnStates.has(targetSessionId)) {
         sessionStore.logger.warn('ChatStore', `sendMessage: a turn is already in flight for this session, skipping new turn setup | sessionId=${targetSessionId.slice(0, 8)}`)
+        pendingSendMessages.delete(targetSessionId)
+        return
       }
 
       await new Promise<void>((resolve, reject) => {
         const ts = beginTurn(targetSessionId, { isAutonomous: false, resolve, reject })
+        // beginTurn 已将 turn 写入 turnStates，ensureTurn 后续会直接返回它，
+        // 安全清除 sendMessage 进行中标记。
         pendingSendMessages.delete(targetSessionId)
 
         const plainImages = attachments?.images?.map(img => ({
@@ -1209,6 +1217,8 @@ export function useTurnStore(injectedApi?: any) {
       sessionStore.logger.info('ChatStore', `abort | sessionId=${sid?.slice(0, 8) || '(none)'}`)
 
       if (sid) {
+        // ★ 在 await 之前先标记用户主动中止，防止 await 期间引擎错误事件
+        // 到达后通过 handleError → shouldAutoRetry 触发自动重试。
         userAbortedSessions.add(sid)
       }
 
@@ -1245,6 +1255,7 @@ export function useTurnStore(injectedApi?: any) {
     async function retryLastMessage(): Promise<void> {
       const sid = sessionStore.currentSessionId
       if (!sid) return
+      // ★ 清除用户中止标记：用户主动重试时恢复正常运行
       userAbortedSessions.delete(sid)
       errorHandler.clearInlineError(sid)
       const session = sink.get(sid)

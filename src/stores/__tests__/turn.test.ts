@@ -18,8 +18,14 @@ function makeFakeApi() {
       onError: (cb: any) => { handlers.onError = cb; return () => {} },
       onPermissionRequest: (cb: any) => { handlers.onPermissionRequest = cb; return () => {} },
       onPermissionRequestCancelled: (cb: any) => { handlers.onPermissionRequestCancelled = cb; return () => {} },
-      sendMessage: vi.fn(),
-      abort: vi.fn(),
+      // 返回 resolved Promise 避免 turn.ts 中 `.catch` 在 undefined 上抛 TypeError；
+      // 同时在微任务中触发 onResult 事件 settle turn，使 sendMessage 的
+      // `await new Promise` 能正常 resolve（模拟引擎收到完整响应）。
+      sendMessage: vi.fn().mockImplementation((sid: string, ...args: any[]) => {
+        queueMicrotask(() => handlers.onResult?.({ sessionId: sid, data: {} }))
+        return Promise.resolve(undefined)
+      }),
+      abort: vi.fn().mockResolvedValue(undefined),
       allowPermission: vi.fn(),
       denyPermission: vi.fn(),
     },
@@ -209,5 +215,31 @@ describe('Turn sendMessage', () => {
 
     expect(fake.claudeCode.abort).toHaveBeenCalledWith('sess-abort')
     expect(turn.getIsLoading('sess-abort')).toBe(false)
+  })
+
+  it('sendMessage 检测到同会话已有 turn 在飞行时直接返回，不创建新 turn 也不调用 IPC', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('Test', undefined, 'sess-concurrent')
+    sessionStore.selectSession('sess-concurrent')
+
+    // 模拟已有一个 turn 在飞行
+    const existingTs = (turn as any).beginTurn('sess-concurrent', { isAutonomous: false })
+    try {
+      const beforeMessages = sessionStore.sessions.find(s => s.id === 'sess-concurrent')!.messages.length
+
+      await turn.sendMessage('second message', undefined, undefined)
+
+      // user message 仍被追加，但不应调用 IPC sendMessage
+      const session = sessionStore.sessions.find(s => s.id === 'sess-concurrent')!
+      expect(session.messages.length).toBe(beforeMessages + 1)
+      expect(session.messages[session.messages.length - 1].role).toBe('user')
+      expect(session.messages[session.messages.length - 1].content).toBe('second message')
+      expect(fake.claudeCode.sendMessage).not.toHaveBeenCalled()
+    } finally {
+      ;(turn as any).endTurn('sess-concurrent', existingTs)
+    }
   })
 })
