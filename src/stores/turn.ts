@@ -60,9 +60,18 @@ function createSettledTurn(): TurnState {
   }
 }
 
+// ADR-0003: Turn store 必须在 WebSocket 连接前完成订阅注册。
+// 模块级 initialized 标记：store 工厂首次实例化时记录一次初始化日志，
+// 用于在启动日志中验证 bootstrap 顺序（事件订阅先于 WS 连接）。
+let initialized = false
+
 // 测试可注入 fake api；生产用真实 api
 export function useTurnStore(injectedApi?: any) {
   return defineStore('turn', () => {
+    if (!initialized) {
+      initialized = true
+      console.log('[Turn] Turn store initialized — event subscriptions registered')
+    }
     const resolvedApi = injectedApi ?? api
     const sessionStore = useChatSessionStore()
     const settingsStore = useSettingsStore()
