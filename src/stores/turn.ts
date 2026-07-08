@@ -15,7 +15,7 @@ import {
   recordAgentToolCall,
   isAgentLaunchResult,
 } from '@/services/teamTranscriptService'
-import { extractErrorCode } from '@/composables/useAutoRetry'
+import { useAutoRetry, extractErrorCode } from '@/composables/useAutoRetry'
 
 const FILE_TOOLS = new Set(['Write', 'FileWrite', 'Edit', 'FileEdit', 'MultiEdit'])
 const COMMAND_TOOLS = new Set(['Bash'])
@@ -83,32 +83,218 @@ export function useTurnStore(injectedApi?: any) {
     const userAbortedSessions = new Set<string>()
 
     // ── 权限请求状态 ──
-    // outer key = sessionId, inner key = toolUseId
-    const pendingPermissions = ref<Map<string, Map<string, PermissionRequest>>>(new Map())
+    // 单一数据源：permissionService。turn store 不再维护本地副本，避免同步不一致。
+    const pendingPermissions = computed(() => permissionService.getPendingPermissions())
 
-    // ── forward stubs：任务 9 迁移 auto-retry 状态机时替换 ──
-    // 真实实现见 chatStream.ts 的 useAutoRetry(...) + initiateAutoRetry/resendForRetry。
-    // 此处提供同签名 stub 使 handleResult/handleError 闭环可独立测试；
-    // shouldAutoRetry 返回 false → 错误直接走最终处理路径，不触发自动重试。
-    const autoRetry = {
-      retryStates: ref<Map<string, unknown>>(new Map()),
-      shouldAutoRetry: (_sid: string, _retryable: boolean, _aborted: Set<string>): boolean => false,
-      recordRetryableError: (..._args: any[]): any => ({} as any),
-      clearOnSuccess: (_sid: string): void => {},
-      cancelRetry: (_sid: string): boolean => false,
-      removeRetryState: (_sid: string): void => {},
-      computeRetryDelay: (..._args: any[]): number => 0,
+    // ────────────────────────────────────────────────────────────────────
+    // Pending Messages（任务 9 从 chatStream.ts 迁移）
+    // ────────────────────────────────────────────────────────────────────
+    interface PendingMessage {
+      id: string
+      content: string
+      attachments: { name: string; path: string; isFolder: boolean }[]
+      images: { id: string; name: string; type: 'image'; mimeType: string; previewUrl: string; data: string }[]
+      displayLabel?: string
+      priority: 'now' | 'later'
+      createdAt: number
+    }
+    const pendingMessages = ref<Map<string, PendingMessage[]>>(new Map())
+
+    function addPendingMessage(sessionId: string, msg: PendingMessage) {
+      const queue = pendingMessages.value.get(sessionId) || []
+      queue.push(msg)
+      pendingMessages.value.set(sessionId, [...queue])
     }
 
+    function removePendingMessage(sessionId: string, msgId: string) {
+      const queue = pendingMessages.value.get(sessionId) || []
+      const idx = queue.findIndex(m => m.id === msgId)
+      if (idx >= 0) queue.splice(idx, 1)
+      pendingMessages.value.set(sessionId, [...queue])
+    }
+
+    function recallPendingMessage(sessionId: string, msgId: string): PendingMessage | undefined {
+      const queue = pendingMessages.value.get(sessionId) || []
+      const idx = queue.findIndex(m => m.id === msgId)
+      if (idx < 0) return undefined
+      const [msg] = queue.splice(idx, 1)
+      pendingMessages.value.set(sessionId, [...queue])
+      return msg
+    }
+
+    function getPendingMessages(sessionId: string): PendingMessage[] {
+      return pendingMessages.value.get(sessionId) || []
+    }
+
+    function clearPendingMessages(sessionId: string) {
+      pendingMessages.value.delete(sessionId)
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // auto-retry 状态机（任务 9 从 chatStream.ts 迁移）
+    // ────────────────────────────────────────────────────────────────────
+    const autoRetry = useAutoRetry({
+      maxRetries: 5,
+      initialDelayMs: 2_000,
+      maxDelayMs: 60_000,
+      jitterMs: 1_000,
+    })
+
     async function initiateAutoRetry(
-      _sessionId: string,
-      _ts: TurnState,
-      _errorCategory: ErrorCategory,
-      _errorTitle: string,
-      _errorMessage: string,
-      _retryDelayHint?: number,
-      _errorCode?: string,
-    ): Promise<void> {}
+      sessionId: string,
+      ts: TurnState,
+      errorCategory: ErrorCategory,
+      errorTitle: string,
+      errorMessage: string,
+      retryDelayHint?: number,
+      errorCode?: string,
+    ): Promise<void> {
+      const state = autoRetry.recordRetryableError(sessionId, errorCategory, errorTitle, errorMessage, retryDelayHint, ts.assistantMessageId, errorCode)
+      const attempt = state.attempt
+      const delayMs = state.delayMs
+
+      sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry scheduled | attempt=${attempt}/${state.maxRetries} | delay=${delayMs}ms | category=${errorCategory}`)
+
+      // ① 更新助手消息：显示重试状态（不覆盖已有内容，保留 LLM 中断前的输出）
+      const existingMsg = sink.get(sessionId)?.messages.find(m => m.id === ts.assistantMessageId)
+      sink.patchMessage(sessionId, ts.assistantMessageId, {
+        metadata: {
+          ...(existingMsg?.metadata || {}),
+          model: settingsStore.config.model,
+          retryState: { ...state },
+        },
+      })
+
+      // ② 保持 loading 状态，让用户看到转圈
+      loadingSessions.value.set(sessionId, true)
+
+      // ③ 等待退避延迟
+      await new Promise<void>(resolve => setTimeout(resolve, delayMs))
+
+      // 检查是否被取消
+      const cur = autoRetry.retryStates.value.get(sessionId)
+      if (!cur || cur.aborted) {
+        sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry aborted by user`)
+        return
+      }
+
+      // ④ 获取上一条用户消息
+      const session = sink.get(sessionId)
+      if (!session) {
+        autoRetry.removeRetryState(sessionId)
+        return
+      }
+
+      const lastUserMsg = [...session.messages].reverse().find(m => m.role === 'user')
+      if (!lastUserMsg) {
+        autoRetry.removeRetryState(sessionId)
+        return
+      }
+
+      // ⑤ 移除当前失败的助手占位消息（仅当消息无内容时；有内容则保留，让用户看到中断前的 LLM 输出）
+      const failedIdx = session.messages.findIndex(m => m.id === ts.assistantMessageId)
+      if (failedIdx >= 0) {
+        const failedMsg = session.messages[failedIdx]
+        if (!failedMsg.content && !failedMsg.toolCalls?.length && !failedMsg.reasoning) {
+          session.messages.splice(failedIdx, 1)
+        }
+      }
+
+      // ⑥ 结束当前 turn（不报错），为重试腾出位置
+      if (ts.timeoutId) { clearTimeout(ts.timeoutId); ts.timeoutId = null }
+      turnStates.delete(sessionId)
+
+      // ⑦ 确保引擎进程存活：429 等错误会导致子进程退出
+      try {
+        const claudeCode = resolvedApi.claudeCode
+        if (claudeCode) {
+          const status = await claudeCode.getSessionStatus(sessionId)
+          if (!status?.isRunning || status?.status === 'exited') {
+            sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry: engine process exited, restarting`)
+            try { await claudeCode.stop(sessionId) } catch { /* ignore */ }
+            session.processStatus = 'none'
+            await sessionStore.initClaudeCodeSession(sessionId)
+          }
+        }
+      } catch (e) {
+        sessionStore.logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry: engine restart failed`, { error: String(e) })
+      }
+
+      // ⑧ 重新发送用户消息（不创建用户消息气泡，保留重试计数）
+      try {
+        await resendForRetry(sessionId, lastUserMsg.content)
+      } catch (retryError) {
+        sessionStore.logger.error('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry resendForRetry failed`, { error: String(retryError) })
+      }
+    }
+
+    // resendForRetry：被 initiateAutoRetry 调用，重新发送用户消息以触发重试。
+    // 不创建用户消息气泡（已有用户消息），仅重启引擎 IPC。
+    async function resendForRetry(sessionId: string, content: string): Promise<void> {
+      const session = sink.get(sessionId)
+      if (!session) return
+
+      // ★ 清除用户中止标记（防御性：正常流程不应走到这里，但避免竞态）
+      userAbortedSessions.delete(sessionId)
+
+      const claudeCode = resolvedApi.claudeCode
+      if (!claudeCode) {
+        sessionStore.logger.error('ChatStore', `[${sessionId.slice(0, 8)}] resendForRetry: claudeCode API not available`)
+        return
+      }
+
+      loadingSessions.value.set(sessionId, true)
+      if (session.processStatus !== 'active') {
+        session.processStatus = 'active'
+      }
+
+      pendingSendMessages.add(sessionId)
+
+      await new Promise<void>((resolve, reject) => {
+        const ts = beginTurn(sessionId, { isAutonomous: false, resolve, reject })
+        pendingSendMessages.delete(sessionId)
+
+        claudeCode.sendMessage(sessionId, content).catch((error: any) => {
+          sessionStore.logger.error('ChatStore', `[${sessionId.slice(0, 8)}] retry IPC sendMessage rejected`, { error: String(error) })
+          const cur = turnStates.get(sessionId)
+          if (cur === ts) handleError(sessionId, ts, error)
+        })
+      }).catch((error) => {
+        sessionStore.logger.error('ChatStore', `[${sessionId.slice(0, 8)}] resendForRetry outer catch`, { error: String(error) })
+        loadingSessions.value.set(sessionId, false)
+        streamingContents.value.set(sessionId, '')
+        pendingSendMessages.delete(sessionId)
+      })
+    }
+
+    // cancelRetry：用户主动取消正在进行的自动重试。
+    async function cancelRetry(): Promise<void> {
+      const sid = sessionStore.currentSessionId
+      if (!sid) return
+      const cancelled = autoRetry.cancelRetry(sid)
+      if (!cancelled) return
+
+      // 清理 loading 状态
+      loadingSessions.value.set(sid, false)
+      streamingContents.value.set(sid, '')
+
+      // 清理 turn
+      const ts = turnStates.get(sid)
+      if (ts && !ts.settled) {
+        if (ts.timeoutId) { clearTimeout(ts.timeoutId); ts.timeoutId = null }
+        ts.settled = true
+        ts.resolve?.()
+        turnStates.delete(sid)
+      }
+
+      autoRetry.removeRetryState(sid)
+
+      const s = sink.get(sid)
+      if (s) {
+        s.processStatus = 'idle'
+        sink.persist(sid)
+      }
+    }
 
     // ────────────────────────────────────────────────────────────────────
     // Timeline / message helpers（按 sessionId + TurnState 操作，不再依赖闭包）
@@ -1318,7 +1504,8 @@ export function useTurnStore(injectedApi?: any) {
     // ────────────────────────────────────────────────────────────────────
     // 权限裁决（从 chatControl.ts 迁移）
     // 写回走 sink.patchToolCall(sid, ...) 而非 sessionStore.updateToolCall(messageId, ...)：
-    // 多 pane 并发场景下，原实现依赖 currentSessionId 会写错会话；迁移后用闭包的 sid。
+    // 多 pane 并发场景下，原实现依赖 currentSessionId 会写错会话；迁移后优先使用传入的
+    // sessionId，未传入时回退到 currentSessionId。
     // ────────────────────────────────────────────────────────────────────
     function getPendingPermissionForToolUse(toolUseId: string, sessionId?: string): PermissionRequest | undefined {
       const sid = sessionId ?? sessionStore.currentSessionId
@@ -1331,9 +1518,7 @@ export function useTurnStore(injectedApi?: any) {
     }
 
     function consumePermissionFor(toolUseId: string, sessionId: string): PermissionRequest | undefined {
-      const req = permissionService.consumePermissionFor(toolUseId, sessionId)
-      pendingPermissions.value = new Map(permissionService.getPendingPermissions())
-      return req
+      return permissionService.consumePermissionFor(toolUseId, sessionId)
     }
 
     async function allowPermission(
@@ -1341,8 +1526,9 @@ export function useTurnStore(injectedApi?: any) {
       toolUseId: string,
       updatedInput: Record<string, unknown>,
       decisionClassification?: 'user_temporary' | 'user_permanent',
+      sessionId?: string,
     ): Promise<void> {
-      const sid = sessionStore.currentSessionId
+      const sid = sessionId ?? sessionStore.currentSessionId
       if (!sid) return
       const claudeCode = resolvedApi.claudeCode
       if (!claudeCode?.allowPermission) {
@@ -1370,8 +1556,9 @@ export function useTurnStore(injectedApi?: any) {
       toolUseId: string,
       message: string = 'User denied',
       options: { interrupt?: boolean } = {},
+      sessionId?: string,
     ): Promise<void> {
-      const sid = sessionStore.currentSessionId
+      const sid = sessionId ?? sessionStore.currentSessionId
       if (!sid) return
       const claudeCode = resolvedApi.claudeCode
       if (!claudeCode?.denyPermission) {
@@ -1579,7 +1766,6 @@ export function useTurnStore(injectedApi?: any) {
           }
           sessionStore.logger.info('ChatStore', `permission_request | sessionId=${sid.slice(0, 8)} | tool=${req.toolName} | toolUseId=${req.toolUseId.slice(0, 8)} | requestId=${req.requestId.slice(0, 8)}`)
           permissionService.addPermissionRequest(sid, { ...req, sessionId: sid })
-          pendingPermissions.value = new Map(permissionService.getPendingPermissions())
         })
       }
       if (typeof (claudeCodeApi as any).onPermissionRequestCancelled === 'function') {
@@ -1589,7 +1775,6 @@ export function useTurnStore(injectedApi?: any) {
           if (!cancelledRequestId) return
           sessionStore.logger.info('ChatStore', `permission_request_cancelled | sessionId=${sid.slice(0, 8)} | requestId=${cancelledRequestId.slice(0, 8)} | reason=${evt.data?.reason || '(none)'}`)
           permissionService.removePermissionByRequestId(sid, cancelledRequestId)
-          pendingPermissions.value = new Map(permissionService.getPendingPermissions())
         })
       }
     }
@@ -1610,6 +1795,15 @@ export function useTurnStore(injectedApi?: any) {
       consumePermissionFor,
       getIsLoading,
       getStreamingContent,
+      pendingMessages,
+      addPendingMessage,
+      removePendingMessage,
+      recallPendingMessage,
+      getPendingMessages,
+      clearPendingMessages,
+      // auto-retry 状态机（任务 9 迁移）
+      retryStates: autoRetry.retryStates,
+      cancelRetry,
       // ── 测试用导出：beginTurn/ensureTurn/endTurn 是内部函数，
       // 仅因任务 2 需独立验证状态机而临时暴露；任务 10 删除整个 chatStream.ts
       // 并完成消费方迁移后可移除此导出。 ──

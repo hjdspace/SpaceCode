@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useChatSessionStore } from '../chatSession'
+import { permissionService } from '@/services/permissionService'
 
 // fake api + fake sink，验证 Turn 能在 seam 处被替换
 function makeFakeApi() {
@@ -267,7 +268,10 @@ describe('Turn 工具答复', () => {
 })
 
 describe('Turn 权限裁决', () => {
-  beforeEach(() => { setActivePinia(createPinia()) })
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    permissionService.clear()
+  })
 
   it('onPermissionRequest 事件填充 pendingPermissions', async () => {
     const fake = makeFakeApi()
@@ -313,5 +317,87 @@ describe('Turn 权限裁决', () => {
     await turn.denyPermission(msg.id, 'tu1', 'nope')
 
     expect(fake.claudeCode.denyPermission).toHaveBeenCalledWith('sess-perm', 'req1', 'nope', {})
+  })
+
+  it('allowPermission 可传入 sessionId，不依赖 currentSessionId', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('Test', undefined, 'sess-active')
+    sessionStore.createSession('Test', undefined, 'sess-pane')
+    sessionStore.selectSession('sess-active')
+    const msg = sessionStore.addMessage({ role: 'assistant', content: '', toolCalls: [{ id: 'tu1', name: 'Bash', input: {}, status: 'running', startTime: 0, endTime: 0 }] }, 'sess-pane')
+
+    fake._handlers.onPermissionRequest({ sessionId: 'sess-pane', data: { toolUseId: 'tu1', toolName: 'Bash', requestId: 'req1' } })
+    await turn.allowPermission(msg.id, 'tu1', { command: 'ls' }, undefined, 'sess-pane')
+
+    expect(fake.claudeCode.allowPermission).toHaveBeenCalledWith('sess-pane', 'req1', { command: 'ls' }, undefined)
+    const updated = sessionStore.sessions.find(s => s.id === 'sess-pane')!.messages.find(m => m.id === msg.id)!
+    expect(updated.toolCalls!.find(t => t.id === 'tu1')!.status).toBe('completed')
+  })
+
+  it('denyPermission 可传入 sessionId，不依赖 currentSessionId', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('Test', undefined, 'sess-active')
+    sessionStore.createSession('Test', undefined, 'sess-pane')
+    sessionStore.selectSession('sess-active')
+    const msg = sessionStore.addMessage({ role: 'assistant', content: '', toolCalls: [{ id: 'tu1', name: 'Bash', input: {}, status: 'running', startTime: 0, endTime: 0 }] }, 'sess-pane')
+
+    fake._handlers.onPermissionRequest({ sessionId: 'sess-pane', data: { toolUseId: 'tu1', toolName: 'Bash', requestId: 'req1' } })
+    await turn.denyPermission(msg.id, 'tu1', 'nope', {}, 'sess-pane')
+
+    expect(fake.claudeCode.denyPermission).toHaveBeenCalledWith('sess-pane', 'req1', 'nope', {})
+  })
+})
+
+describe('Turn pending messages', () => {
+  beforeEach(() => { setActivePinia(createPinia()) })
+
+  it('addPendingMessage 入队后 getPendingMessages 返回该消息，recallPendingMessage 取出并从队列移除', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+
+    const msg = {
+      id: 'pm1',
+      content: 'test pending',
+      attachments: [],
+      images: [],
+      priority: 'later' as const,
+      createdAt: Date.now(),
+    }
+    turn.addPendingMessage('sess-pm', msg)
+    expect(turn.getPendingMessages('sess-pm')).toHaveLength(1)
+    expect(turn.getPendingMessages('sess-pm')[0].id).toBe('pm1')
+
+    const recalled = turn.recallPendingMessage('sess-pm', 'pm1')
+    expect(recalled?.id).toBe('pm1')
+    expect(turn.getPendingMessages('sess-pm')).toHaveLength(0)
+  })
+
+  it('removePendingMessage 按消息 id 删除条目，clearPendingMessages 清空整个会话队列', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+
+    turn.addPendingMessage('sess-pm2', { id: 'm1', content: 'a', attachments: [], images: [], priority: 'later' as const, createdAt: 1 })
+    turn.addPendingMessage('sess-pm2', { id: 'm2', content: 'b', attachments: [], images: [], priority: 'later' as const, createdAt: 2 })
+
+    turn.removePendingMessage('sess-pm2', 'm1')
+    expect(turn.getPendingMessages('sess-pm2')).toHaveLength(1)
+    expect(turn.getPendingMessages('sess-pm2')[0].id).toBe('m2')
+
+    // recall 不存在的消息返回 undefined，队列不变
+    expect(turn.recallPendingMessage('sess-pm2', 'nope')).toBeUndefined()
+    expect(turn.getPendingMessages('sess-pm2')).toHaveLength(1)
+
+    turn.clearPendingMessages('sess-pm2')
+    expect(turn.getPendingMessages('sess-pm2')).toHaveLength(0)
+    // 不存在的会话也安全
+    expect(turn.getPendingMessages('never')).toHaveLength(0)
   })
 })
