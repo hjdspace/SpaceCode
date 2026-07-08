@@ -7,6 +7,9 @@ import './styles/design.scss'
 import './styles/mobile.scss'
 import { isH5Mode } from './services/h5ApiClient'
 import { fetchDesktopConfig } from './services/h5Bootstrap'
+import { installRandomUUIDFallback } from './utils/uuid'
+
+installRandomUUIDFallback()
 
 // Set locale from saved preference
 const savedLocale = getSavedLanguage()

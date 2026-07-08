@@ -7,6 +7,7 @@ import { info, warn } from '../logger'
 export class EngineFactory {
   private static engines: Map<EngineType, IEngine> = new Map()
   private static mainWindow: BrowserWindow | null = null
+  private static engineCreatedListeners: Set<(engine: IEngine) => void> = new Set()
 
   static setMainWindow(window: BrowserWindow): void {
     this.mainWindow = window
@@ -31,12 +32,30 @@ export class EngineFactory {
       if (this.mainWindow) {
         this.engines.get(type)!.setMainWindow(this.mainWindow)
       }
+      this.notifyEngineCreated(this.engines.get(type)!)
     }
     return this.engines.get(type)!
   }
 
   static getAllEngines(): IEngine[] {
     return Array.from(this.engines.values())
+  }
+
+  static onEngineCreated(listener: (engine: IEngine) => void): () => void {
+    this.engineCreatedListeners.add(listener)
+    return () => {
+      this.engineCreatedListeners.delete(listener)
+    }
+  }
+
+  private static notifyEngineCreated(engine: IEngine): void {
+    for (const listener of this.engineCreatedListeners) {
+      try {
+        listener(engine)
+      } catch {
+        // Engine creation should not fail because an observer threw.
+      }
+    }
   }
 
   static isEngineAvailable(type: EngineType): boolean {

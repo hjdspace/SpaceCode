@@ -122,13 +122,25 @@ export const h5EngineService = {
   /** 注册引擎事件路由监听器（仅 ClaudeCodeEngine 支持） */
   onRouteEvent(listener: (sessionId: string, eventType: string, data: any) => void): () => void {
     const unsubs: Array<() => void> = []
-    for (const engine of EngineFactory.getAllEngines()) {
+    const subscribed = new WeakSet<IEngine>()
+
+    const subscribeEngine = (engine: IEngine) => {
+      if (subscribed.has(engine)) return
+      subscribed.add(engine)
       if ('onRouteEvent' in engine && typeof (engine as any).onRouteEvent === 'function') {
         unsubs.push((engine as any).onRouteEvent(listener))
       }
     }
-    // 也监听未来创建的引擎
-    // (EngineFactory 按需创建，主进程启动后通常都已创建)
-    return () => unsubs.forEach(fn => fn())
+
+    for (const engine of EngineFactory.getAllEngines()) {
+      subscribeEngine(engine)
+    }
+
+    const unsubscribeEngineCreated = EngineFactory.onEngineCreated(subscribeEngine)
+
+    return () => {
+      unsubscribeEngineCreated()
+      unsubs.splice(0).forEach(fn => fn())
+    }
   },
 }

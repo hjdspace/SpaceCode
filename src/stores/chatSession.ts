@@ -1138,6 +1138,15 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     return sessionLoadingStates.value.get(sessionId) ?? false
   }
 
+  const isLoading = computed(() =>
+    currentSessionId.value ? (sessionLoadingStates.value.get(currentSessionId.value) ?? false) : false
+  )
+
+  function getIsLoading(sessionId: string | null | undefined): boolean {
+    if (!sessionId) return false
+    return sessionLoadingStates.value.get(sessionId) ?? false
+  }
+
   async function selectSession(sessionId: string) {
     currentSessionId.value = sessionId
 
@@ -1839,6 +1848,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     // 会话加载状态
     sessionLoadingStates: readonly(sessionLoadingStates),
     isSessionLoading,
+    isLoading,
+    getIsLoading,
     setSessionLoading,
     // Diff 面板触发
     diffPanelTrigger: readonly(diffPanelTrigger),
