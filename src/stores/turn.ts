@@ -1313,6 +1313,56 @@ export function useTurnStore(injectedApi?: any) {
 
     async function allowPermission(_messageId: string, _toolUseId: string, _updatedInput: Record<string, unknown>, _decisionClassification?: 'user_temporary' | 'user_permanent'): Promise<void> {}
     async function denyPermission(_messageId: string, _toolUseId: string, _message = 'User denied', _options: { interrupt?: boolean } = {}): Promise<void> {}
+
+    // ────────────────────────────────────────────────────────────────────
+    // 工具答复（从 chatStream.ts 迁移）
+    // 写回走 sink.patchToolCall(sid, ...) 而非 sessionStore.updateToolCall(messageId, ...)：
+    // 多 pane 并发场景下，原实现依赖 currentSessionId 会写错会话；迁移后用 handler 闭包内的 sid。
+    // ────────────────────────────────────────────────────────────────────
+    async function submitToolAnswer(messageId: string, toolCallId: string, answers: Record<string, string>): Promise<void> {
+      const sid = sessionStore.currentSessionId
+      if (!sid) return
+
+      sessionStore.logger.info('ChatStore', `submitToolAnswer: submitting answers | sessionId=${sid.slice(0, 8)} | messageId=${messageId.slice(0, 8)} | toolId=${toolCallId.slice(0, 8)}`)
+
+      const claudeCode = resolvedApi.claudeCode
+      if (!claudeCode) {
+        sessionStore.logger.error('ChatStore', 'submitToolAnswer: claudeCode API not available')
+        return
+      }
+
+      try {
+        await claudeCode.submitToolAnswer(sid, toolCallId, answers)
+        sink.patchToolCall(sid, messageId, toolCallId, 'completed')
+        sessionStore.logger.info('ChatStore', `submitToolAnswer: answers submitted successfully`)
+      } catch (error) {
+        sessionStore.logger.error('ChatStore', 'submitToolAnswer: failed', { error: String(error) })
+        throw error
+      }
+    }
+
+    async function skipToolAnswer(messageId: string, toolCallId: string): Promise<void> {
+      const sid = sessionStore.currentSessionId
+      if (!sid) return
+
+      sessionStore.logger.info('ChatStore', `skipToolAnswer: skipping tool | sessionId=${sid.slice(0, 8)} | messageId=${messageId.slice(0, 8)} | toolId=${toolCallId.slice(0, 8)}`)
+
+      const claudeCode = resolvedApi.claudeCode
+      if (!claudeCode) {
+        sessionStore.logger.error('ChatStore', 'skipToolAnswer: claudeCode API not available')
+        return
+      }
+
+      try {
+        await claudeCode.skipToolAnswer(sid, toolCallId)
+        sink.patchToolCall(sid, messageId, toolCallId, 'completed')
+        sessionStore.logger.info('ChatStore', `skipToolAnswer: tool skipped successfully`)
+      } catch (error) {
+        sessionStore.logger.error('ChatStore', 'skipToolAnswer: failed', { error: String(error) })
+        throw error
+      }
+    }
+
     function getIsLoading(sessionId: string | null | undefined): boolean {
       if (!sessionId) return false
       return loadingSessions.value.get(sessionId) ?? false
@@ -1446,6 +1496,8 @@ export function useTurnStore(injectedApi?: any) {
       sendMessage,
       abort,
       retryLastMessage,
+      submitToolAnswer,
+      skipToolAnswer,
       allowPermission,
       denyPermission,
       getIsLoading,

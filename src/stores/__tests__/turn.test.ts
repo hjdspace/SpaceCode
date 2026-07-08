@@ -28,6 +28,8 @@ function makeFakeApi() {
       abort: vi.fn().mockResolvedValue(undefined),
       allowPermission: vi.fn(),
       denyPermission: vi.fn(),
+      submitToolAnswer: vi.fn().mockResolvedValue(undefined),
+      skipToolAnswer: vi.fn().mockResolvedValue(undefined),
     },
     image: { save: vi.fn() },
     trace: { event: vi.fn() },
@@ -241,5 +243,25 @@ describe('Turn sendMessage', () => {
     } finally {
       ;(turn as any).endTurn('sess-concurrent', existingTs)
     }
+  })
+})
+
+describe('Turn 工具答复', () => {
+  beforeEach(() => { setActivePinia(createPinia()) })
+
+  it('submitToolAnswer 调用 api 并 patchToolCall 为 completed', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('Test', undefined, 'sess-tool')
+    sessionStore.selectSession('sess-tool')
+    const msg = sessionStore.addMessage({ role: 'assistant', content: '', toolCalls: [{ id: 'tc1', name: 'Read', input: {}, status: 'running', startTime: 0, endTime: 0 }] }, 'sess-tool')
+
+    await turn.submitToolAnswer(msg.id, 'tc1', { path: '/a' })
+
+    expect(fake.claudeCode.submitToolAnswer).toHaveBeenCalledWith('sess-tool', 'tc1', { path: '/a' })
+    const updated = sessionStore.sessions.find(s => s.id === 'sess-tool')!.messages.find(m => m.id === msg.id)!
+    expect(updated.toolCalls!.find(t => t.id === 'tc1')!.status).toBe('completed')
   })
 })
