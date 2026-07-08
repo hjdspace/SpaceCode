@@ -28,17 +28,17 @@
 import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chat'
 import { useAgentsStore } from '@/stores/agents'
 import { workAssistantIcon, workAvatarStyle, workDisplayName } from '@/utils/workAssistant'
 
 const { t, locale } = useI18n()
 const appStore = useAppStore()
-const chatStore = useChatStore()
+const sessionStore = useChatSessionStore()
 const agentsStore = useAgentsStore()
 
 const assistant = computed(() => {
-  const id = chatStore.currentSession?.assistantId || chatStore.currentAgent
+  const id = sessionStore.currentSession?.assistantId || sessionStore.currentAgent
   if (!id) return undefined
   return agentsStore.libraryAgents.find(a => a.name === id && a.mode === 'work')
 })
@@ -60,8 +60,8 @@ const prompts = computed<string[]>(() => {
 
 const visible = computed(() =>
   appStore.mode === 'work' &&
-  chatStore.currentSession?.mode === 'work' &&
-  chatStore.displayMessages.length === 0 &&
+  sessionStore.currentSession?.mode === 'work' &&
+  sessionStore.displayMessages.length === 0 &&
   prompts.value.length > 0
 )
 

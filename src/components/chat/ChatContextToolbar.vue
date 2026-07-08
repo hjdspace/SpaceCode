@@ -126,7 +126,7 @@ import {
 } from 'lucide-vue-next'
 import { vClickOutside } from '@/directives/vClickOutside'
 import { useAppStore } from '@/stores/app'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chat'
 import { useScmStore, type ScmBranch } from '@/stores/scm'
 import { useSessionContext } from '@/stores/sessionContext'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
@@ -136,7 +136,7 @@ import { getRecentProjectRoots, normalizeProjectPathKey, pathsEqual } from '@/ut
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const chatStore = useChatStore()
+const sessionStore = useChatSessionStore()
 const scmStore = useScmStore()
 const sessionContext = useSessionContext()
 const { openProjectFromPicker, openProjectByPath } = useOpenProjectWorkflow()
@@ -168,7 +168,7 @@ const projectName = computed(() => {
 
 const allProjectsList = computed(() => {
   const stored = getRecentProjectRoots()
-  const fromStore = [...new Set(chatStore.allProjects.filter(Boolean))]
+  const fromStore = [...new Set(sessionStore.allProjects.filter(Boolean))]
   const seen = new Set<string>()
   const merged: string[] = []
 
@@ -248,7 +248,7 @@ function clearProject() {
     appStore.clearWorkWorkspace()
   } else {
     appStore.closeProject()
-    chatStore.switchProject('')
+    sessionStore.switchProject('')
   }
 }
 

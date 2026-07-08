@@ -3,6 +3,7 @@ import { ref, computed, nextTick } from 'vue'
 import { api } from '@/services/electronAPI'
 import { errorHandler } from '@/services/errorHandler'
 import { useChatSessionStore } from './chatSession'
+import { createUuid } from '@/utils/uuid'
 import { useSettingsStore } from './settings'
 import { useContextUsageStore } from './contextUsage'
 import type { SessionSink } from './turnSink'
@@ -78,6 +79,13 @@ export function useTurnStore(injectedApi?: any) {
 
     const streamingContents = ref<Map<string, string>>(new Map())
     const loadingSessions = ref<Map<string, boolean>>(new Map())
+    // 基于 currentSessionId 的便利 computed（从 chatStream.ts 迁移）
+    const isLoading = computed(() =>
+      sessionStore.currentSessionId ? (loadingSessions.value.get(sessionStore.currentSessionId) ?? false) : false
+    )
+    const streamingContent = computed(() =>
+      sessionStore.currentSessionId ? (streamingContents.value.get(sessionStore.currentSessionId) ?? '') : ''
+    )
     const turnStates = new Map<string, TurnState>()
     const pendingSendMessages = new Set<string>()
     const userAbortedSessions = new Set<string>()
@@ -103,14 +111,14 @@ export function useTurnStore(injectedApi?: any) {
     function addPendingMessage(sessionId: string, msg: PendingMessage) {
       const queue = pendingMessages.value.get(sessionId) || []
       queue.push(msg)
-      pendingMessages.value.set(sessionId, [...queue])
+      pendingMessages.value.set(sessionId, queue)
     }
 
     function removePendingMessage(sessionId: string, msgId: string) {
       const queue = pendingMessages.value.get(sessionId) || []
       const idx = queue.findIndex(m => m.id === msgId)
       if (idx >= 0) queue.splice(idx, 1)
-      pendingMessages.value.set(sessionId, [...queue])
+      pendingMessages.value.set(sessionId, queue)
     }
 
     function recallPendingMessage(sessionId: string, msgId: string): PendingMessage | undefined {
@@ -118,7 +126,7 @@ export function useTurnStore(injectedApi?: any) {
       const idx = queue.findIndex(m => m.id === msgId)
       if (idx < 0) return undefined
       const [msg] = queue.splice(idx, 1)
-      pendingMessages.value.set(sessionId, [...queue])
+      pendingMessages.value.set(sessionId, queue)
       return msg
     }
 
@@ -326,7 +334,7 @@ export function useTurnStore(injectedApi?: any) {
 
     const ensureTextTimelineEvent = (sessionId: string, ts: TurnState): string => {
       if (ts.currentTextEventId) return ts.currentTextEventId
-      ts.currentTextEventId = crypto.randomUUID()
+      ts.currentTextEventId = createUuid()
       addTimelineEvent(sessionId, ts, {
         id: ts.currentTextEventId,
         type: 'text',
@@ -455,7 +463,7 @@ export function useTurnStore(injectedApi?: any) {
             if (!msg.reasoning) {
               msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
             }
-            ts.currentReasoningEventId = crypto.randomUUID()
+            ts.currentReasoningEventId = createUuid()
             addTimelineEvent(sessionId, ts, {
               id: ts.currentReasoningEventId,
               type: 'reasoning',
@@ -494,7 +502,7 @@ export function useTurnStore(injectedApi?: any) {
             }
             msg.reasoning.content += ev.delta.thinking
             if (!ts.currentReasoningEventId) {
-              ts.currentReasoningEventId = crypto.randomUUID()
+              ts.currentReasoningEventId = createUuid()
               addTimelineEvent(sessionId, ts, {
                 id: ts.currentReasoningEventId,
                 type: 'reasoning',
@@ -587,7 +595,7 @@ export function useTurnStore(injectedApi?: any) {
                       }
                       msg.reasoning.content += thinkingText
                       if (!ts.currentReasoningEventId) {
-                        ts.currentReasoningEventId = crypto.randomUUID()
+                        ts.currentReasoningEventId = createUuid()
                         addTimelineEvent(sessionId, ts, {
                           id: ts.currentReasoningEventId,
                           type: 'reasoning',
@@ -648,7 +656,7 @@ export function useTurnStore(injectedApi?: any) {
                   }
                   msg.reasoning.content += reasoningContent
                   if (!ts.currentReasoningEventId) {
-                    ts.currentReasoningEventId = crypto.randomUUID()
+                    ts.currentReasoningEventId = createUuid()
                     addTimelineEvent(sessionId, ts, {
                       id: ts.currentReasoningEventId,
                       type: 'reasoning',
@@ -699,7 +707,7 @@ export function useTurnStore(injectedApi?: any) {
       if (s) {
         const msg = s.messages.find(m => m.id === ts.assistantMessageId)
         if (msg) {
-          const toolId = toolUse.id || toolUse.tool_use?.id || crypto.randomUUID()
+          const toolId = toolUse.id || toolUse.tool_use?.id || createUuid()
           const toolName = toolUse.name || toolUse.tool_use?.name || 'Unknown Tool'
           const toolInput = toolUse.input || toolUse.tool_use?.input || {}
           const existingTool = msg.toolCalls?.find(tc => tc.id === toolId)
@@ -1203,7 +1211,7 @@ export function useTurnStore(injectedApi?: any) {
     }
 
     const beginTurn = (sessionId: string, opts: { isAutonomous: boolean; resolve?: () => void; reject?: (e: any) => void }): TurnState => {
-      const assistantMessageId = crypto.randomUUID()
+      const assistantMessageId = createUuid()
       const ts: TurnState = {
         assistantMessageId,
         accumulatedContent: '',
@@ -1782,6 +1790,8 @@ export function useTurnStore(injectedApi?: any) {
     return {
       streamingContents,
       loadingSessions,
+      isLoading,
+      streamingContent,
       pendingPermissions,
       sendMessage,
       abort,

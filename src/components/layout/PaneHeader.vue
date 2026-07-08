@@ -66,7 +66,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { X, ClipboardList, Loader2, Columns2, Rows2 } from 'lucide-vue-next'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore, useTurnStore } from '@/stores/chat'
 import { useAppStore } from '@/stores/app'
 import { useSplitLayoutStore, type PaneLeaf, type PaneContent } from '@/stores/splitLayout'
 import { useSessionTaskProgress } from '@/composables/useSessionTaskProgress'
@@ -76,7 +76,8 @@ const props = defineProps<{
 }>()
 
 const { t } = useI18n()
-const chatStore = useChatStore()
+const sessionStore = useChatSessionStore()
+const turnStore = useTurnStore()
 const appStore = useAppStore()
 const splitLayout = useSplitLayoutStore()
 
@@ -84,17 +85,17 @@ const isActive = computed(() => splitLayout.activePaneId === props.node.id)
 const canSplit = computed(() => splitLayout.canSplit)
 const isOnlyLeaf = computed(() => splitLayout.leafCount === 1)
 
-/** 把 leaf 内容解析为「真正 chatStore 用的 sessionId」 */
+/** 把 leaf 内容解析为「真正 sessionStore 用的 sessionId」 */
 const resolvedSessionId = computed(() => {
   const c = props.node.content
   if (c.kind === 'session') {
     const tid = c.tabId || ''
-    return tid.startsWith('session-') ? tid.slice('session-'.length) : (tid === 'chat' ? (chatStore.currentSessionId || '') : tid)
+    return tid.startsWith('session-') ? tid.slice('session-'.length) : (tid === 'chat' ? (sessionStore.currentSessionId || '') : tid)
   }
   if (c.kind === 'main') {
     const t = appStore.activeCenterTab || ''
     if (t.startsWith('session-')) return t.slice('session-'.length)
-    return chatStore.currentSessionId || ''
+    return sessionStore.currentSessionId || ''
   }
   return ''
 })
@@ -118,7 +119,7 @@ const title = computed(() => {
   }
   const sid = resolvedSessionId.value
   if (sid) {
-    const s = chatStore.sessions.find(ss => ss.id === sid)
+    const s = sessionStore.sessions.find(ss => ss.id === sid)
     return s?.title || t('common.newChat', 'New Chat')
   }
   return t('common.newChat', 'New Chat')
@@ -127,7 +128,7 @@ const title = computed(() => {
 const statusClass = computed(() => {
   const sid = resolvedSessionId.value
   if (!sid) return 'none'
-  const s = chatStore.sessions.find(ss => ss.id === sid)
+  const s = sessionStore.sessions.find(ss => ss.id === sid)
   if (!s) return 'none'
   switch (s.processStatus) {
     case 'active':
@@ -138,7 +139,7 @@ const statusClass = computed(() => {
   }
 })
 
-const isLoading = computed(() => chatStore.getIsLoading?.(resolvedSessionId.value) ?? false)
+const isLoading = computed(() => turnStore.getIsLoading?.(resolvedSessionId.value) ?? false)
 const { progress: taskProgress } = useSessionTaskProgress(() => resolvedSessionId.value)
 
 /**

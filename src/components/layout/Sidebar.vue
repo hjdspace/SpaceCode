@@ -204,11 +204,11 @@
           <div class="session-list-container">
             <SessionList
               :sessions="filteredSessions"
-              :active-id="chatStore.currentSessionId || undefined"
+              :active-id="sessionStore.currentSessionId || undefined"
               :active-streaming-sessions="streamingSessions"
               :pending-approval-sessions="pendingApprovalSessions"
-              :projects="chatStore.allProjects"
-              :current-project="chatStore.currentProjectRoot"
+              :projects="sessionStore.allProjects"
+              :current-project="sessionStore.currentProjectRoot"
               :show-remove-button="true"
               :loading-session-id="switchingSession"
               @select="handleSelectSession"
@@ -216,7 +216,7 @@
               @rename="handleRenameSession"
               @create-session-in-project="handleCreateSessionInProject"
               @remove-project="handleRemoveProject"
-              @switch-project="chatStore.switchProject"
+              @switch-project="sessionStore.switchProject"
               @open-folder-picker="handleOpenFolderPicker"
               @split-screen="handleSplitScreen"
             />
@@ -234,7 +234,7 @@
           <FileTree
             @select="handleFileSelect"
             @add-to-chat="handleAddToChat"
-            :working-directory="chatStore.workingDirectory"
+            :working-directory="sessionStore.workingDirectory"
             :highlight-path="highlightedFilePath"
           />
         </div>
@@ -305,7 +305,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chat'
 import { useAppStore, type AppMode } from '@/stores/app'
 import { useSettingsStore } from '@/stores/settings'
 import { useScmStore } from '@/stores/scm'
@@ -355,7 +355,7 @@ const props = defineProps<{
   collapsed: boolean
 }>()
 
-const chatStore = useChatStore()
+const sessionStore = useChatSessionStore()
 const appStore = useAppStore()
 const settingsStore = useSettingsStore()
 const scmStore = useScmStore()
@@ -369,7 +369,7 @@ const activeTab = ref<'explorer' | 'scm' | 'history' | 'terminal'>('history')
 
 // 按当前 Work/Code 模式过滤会话列表（旧会话无 mode 字段时视为 'code'）
 const filteredSessions = computed(() =>
-  chatStore.sessions.filter(s => (s.mode || 'code') === appStore.mode)
+  sessionStore.sessions.filter(s => (s.mode || 'code') === appStore.mode)
 )
 
 // Work 工作区目录显示名
@@ -394,23 +394,23 @@ async function handleModeSelect(mode: AppMode) {
   activeTab.value = 'history'
 
   // 切换到新模式下的最近会话；没有则创建新会话
-  const modeSessions = chatStore.sessions.filter(s => (s.mode || 'code') === mode)
+  const modeSessions = sessionStore.sessions.filter(s => (s.mode || 'code') === mode)
   if (modeSessions.length > 0) {
     const targetSessionId = modeSessions[0].id
-    await chatStore.selectSession(targetSessionId)
+    await sessionStore.selectSession(targetSessionId)
     // 同步 activeCenterTab，确保 SplitContainer 的 watcher 能将 pane content
     // 更新到目标会话（修复切换模式后主面板仍显示旧模式会话的问题）
     appStore.switchToSessionTab(targetSessionId)
     if (isH5Mode()) {
-      const selected = chatStore.sessions.find(s => s.id === targetSessionId)
+      const selected = sessionStore.sessions.find(s => s.id === targetSessionId)
       appStore.sidebarCollapsed = true
       h5ApiClient.setMirrorSession(targetSessionId, selected?.workingDirectory || null).catch(() => {})
     }
   } else {
     const workingDirectory = mode === 'work'
-      ? (appStore.workWorkspace || chatStore.currentProjectRoot || undefined)
-      : (chatStore.currentProjectRoot || undefined)
-    const session = chatStore.createSession(t('common.newChat'), workingDirectory)
+      ? (appStore.workWorkspace || sessionStore.currentProjectRoot || undefined)
+      : (sessionStore.currentProjectRoot || undefined)
+    const session = sessionStore.createSession(t('common.newChat'), workingDirectory)
     appStore.openSessionTab(session.id, session.title)
     if (isH5Mode()) {
       appStore.sidebarCollapsed = true
@@ -564,14 +564,14 @@ async function handleNewChat() {
 
   try {
     const workingDirectory = appStore.mode === 'work'
-      ? (appStore.workWorkspace || chatStore.currentProjectRoot || undefined)
-      : (chatStore.currentProjectRoot || chatStore.currentSession?.workingDirectory)
+      ? (appStore.workWorkspace || sessionStore.currentProjectRoot || undefined)
+      : (sessionStore.currentProjectRoot || sessionStore.currentSession?.workingDirectory)
 
-    if (chatStore.currentSessionId && chatStore.currentSession) {
-      appStore.openSessionTab(chatStore.currentSessionId, chatStore.currentSession.title)
+    if (sessionStore.currentSessionId && sessionStore.currentSession) {
+      appStore.openSessionTab(sessionStore.currentSessionId, sessionStore.currentSession.title)
     }
 
-    const session = chatStore.createSession(t('common.newChat'), workingDirectory)
+    const session = sessionStore.createSession(t('common.newChat'), workingDirectory)
     appStore.openSessionTab(session.id, session.title)
     if (isH5Mode()) {
       appStore.sidebarCollapsed = true
@@ -613,7 +613,7 @@ async function handleSelectSession(sessionId: string) {
   try {
     // 1. 立即切换UI状态（同步操作，<1ms）
     appStore.showWorkGallery = false
-    chatStore.selectSession(sessionId)
+    sessionStore.selectSession(sessionId)
     appStore.switchToSessionTab(sessionId)
 
     // 分屏模式：将当前 active pane 的内容指向所选会话，
@@ -628,7 +628,7 @@ async function handleSelectSession(sessionId: string) {
 
     // Work 会话：仅有消息历史时恢复 Artifacts 面板，
     // 空新会话不自动弹出（等用户发送消息时再展开，与 ChatPanel.handleSend 逻辑一致）
-    const selected = chatStore.sessions.find(s => s.id === sessionId)
+    const selected = sessionStore.sessions.find(s => s.id === sessionId)
     if (selected?.mode === 'work' && selected.messages.length > 0) {
       appStore.openArtifactsPanel()
     }
@@ -649,7 +649,7 @@ async function handleSelectSession(sessionId: string) {
               ...m,
               timestamp: (m as any).timestamp ?? Date.now() - (restoredMessages.length - i) * 1000,
             })) as any
-            chatStore.saveToStorage()
+            sessionStore.saveToStorage()
             console.log('[H5] Loaded', restoredMessages.length, 'messages for session', sessionId.slice(0, 8))
           }
         }
@@ -661,9 +661,9 @@ async function handleSelectSession(sessionId: string) {
     // 2. 异步加载会话数据（后台操作，不阻塞UI）
     await nextTick()
 
-    if (chatStore.workingDirectory && chatStore.workingDirectory !== appStore.projectRoot) {
-      appStore.setProjectRoot(chatStore.workingDirectory)
-      settingsStore.projectRoot = chatStore.workingDirectory
+    if (sessionStore.workingDirectory && sessionStore.workingDirectory !== appStore.projectRoot) {
+      appStore.setProjectRoot(sessionStore.workingDirectory)
+      settingsStore.projectRoot = sessionStore.workingDirectory
       settingsStore.saveSettings()
     }
   } finally {
@@ -682,7 +682,7 @@ async function handleDeleteSession(e: MouseEvent, sessionId: string) {
     const tab = appStore.centerTabs.find(t => t.sessionId === sessionId)
     if (tab) appStore.closeSessionTab(tab.id)
 
-    await chatStore.deleteSession(sessionId)
+    await sessionStore.deleteSession(sessionId)
   } catch (error) {
     console.error('Failed to delete session:', error)
   }
@@ -691,13 +691,13 @@ async function handleDeleteSession(e: MouseEvent, sessionId: string) {
 async function handleRenameSession(sessionId: string, newTitle: string) {
   try {
     // Update session title in store
-    const session = chatStore.sessions.find(s => s.id === sessionId)
+    const session = sessionStore.sessions.find(s => s.id === sessionId)
     if (session) {
       session.title = newTitle
       // Sync tab label with session title
       appStore.updateSessionTabTitle(sessionId, newTitle)
-      // Save to storage (method exists on chatStore)
-      chatStore.saveToStorage()
+      // Save to storage (method exists on sessionStore)
+      sessionStore.saveToStorage()
 
       // Dispatch event for UI refresh
       window.dispatchEvent(new CustomEvent('session-updated'))
@@ -711,8 +711,8 @@ function handleCreateSessionInProject(e: MouseEvent, workingDirectory: string) {
   e.stopPropagation()
 
   try {
-    chatStore.switchProject(workingDirectory)
-    const session = chatStore.createSession(t('common.newChat'), workingDirectory)
+    sessionStore.switchProject(workingDirectory)
+    const session = sessionStore.createSession(t('common.newChat'), workingDirectory)
     appStore.openSessionTab(session.id, session.title)
     if (isH5Mode()) {
       appStore.sidebarCollapsed = true
@@ -732,20 +732,20 @@ async function handleRemoveProject(workingDirectory: string) {
   if (!await showConfirm(t('sidebar.removeProject'), { variant: 'danger' })) return
 
   try {
-    const sessionsToRemove = chatStore.sessions.filter(s => s.workingDirectory === workingDirectory)
+    const sessionsToRemove = sessionStore.sessions.filter(s => s.workingDirectory === workingDirectory)
 
     for (const session of sessionsToRemove) {
-      await chatStore.deleteSession(session.id)
+      await sessionStore.deleteSession(session.id)
     }
 
-    chatStore.removeProject(workingDirectory)
+    sessionStore.removeProject(workingDirectory)
 
-    const stillHasFolderSessions = chatStore.sessions.some(
+    const stillHasFolderSessions = sessionStore.sessions.some(
       (s) => !!(s.workingDirectory && String(s.workingDirectory).trim())
     )
     if (!stillHasFolderSessions) {
       appStore.closeProject()
-      chatStore.switchProject('')
+      sessionStore.switchProject('')
     } else if (pathsEqual(appStore.projectRoot, workingDirectory)) {
       appStore.closeProject()
     }

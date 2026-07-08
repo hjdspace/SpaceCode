@@ -6,7 +6,7 @@
   >
     <!-- 汇总模式：提问完成后折叠展示 -->
     <template v-if="isSummary">
-      <div class="summary-header" @click="toggleSummary">
+      <div class="summary-header" :class="{ 'is-expanded': isSummaryExpanded }" @click="toggleSummary">
         <div class="header-icon">
           <MessageCircleQuestion :size="20" />
         </div>
@@ -137,7 +137,7 @@ import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessageCircleQuestion, ChevronDown, CheckCircle2 } from 'lucide-vue-next'
 import type { ToolCall } from '@/types'
-import { useChatStore } from '@/stores/chat'
+import { useTurnStore } from '@/stores/chat'
 
 interface QuestionOption {
   label: string
@@ -160,17 +160,17 @@ const emit = defineEmits<{
   /**
    * 用户提交答案。payload 是「合并了 answers 之后的完整 updatedInput」，
    * 直接对应 engine 在 can_use_tool 决策里的 PermissionAllowResult.updatedInput。
-   * 父级链路应当把它传给 chatStore.allowPermission(messageId, toolUseId, updatedInput)。
+   * 父级链路应当把它传给 turnStore.allowPermission(messageId, toolUseId, updatedInput)。
    */
   submit: [updatedInput: Record<string, unknown>]
   /**
-   * 用户跳过 / 拒绝。父级链路应当把它传给 chatStore.denyPermission(...)。
+   * 用户跳过 / 拒绝。父级链路应当把它传给 turnStore.denyPermission(...)。
    */
   skip: []
 }>()
 
 const { t } = useI18n()
-const chatStore = useChatStore()
+const turnStore = useTurnStore()
 
 const questions = computed<Question[]>(() => {
   const input = props.toolCall.input || {}
@@ -184,7 +184,7 @@ const questions = computed<Question[]>(() => {
  *   2) 用户连续点提交导致重复 control_response
  */
 const isPending = computed(() =>
-  chatStore.hasPendingPermissionForToolUse(props.toolCall.id),
+  turnStore.hasPendingPermissionForToolUse(props.toolCall.id),
 )
 
 /**
@@ -448,9 +448,12 @@ function handleSubmit() {
   gap: 12px;
   cursor: pointer;
   background: var(--surface-glass);
-  border-bottom: 1px solid var(--surface-border);
   transition: background 0.2s ease;
   user-select: none;
+
+  &.is-expanded {
+    border-bottom: 1px solid var(--surface-border);
+  }
 
   &:hover {
     background: var(--surface-glass-hover);

@@ -18,24 +18,24 @@
  * 阶段 4 增加：
  *  - TerminalHost：在顶层用 <Teleport> 共享 TerminalContainer，避免 pane 之间
  *    挪动时 onUnmounted 触发 pty kill。
- *  - watch(activePaneId) → 回写 chatStore.currentSessionId / appStore.activeCenterTab，
+ *  - watch(activePaneId) → 回写 sessionStore.currentSessionId / appStore.activeCenterTab，
  *    保持全局 LLM/CLI 状态一致。
  */
 import { watch } from 'vue'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chat'
 import { useAppStore } from '@/stores/app'
 import PaneNodeView from './PaneNodeView.vue'
 import TerminalHost from './TerminalHost.vue'
 
 const splitLayout = useSplitLayoutStore()
-const chatStore = useChatStore()
+const sessionStore = useChatSessionStore()
 const appStore = useAppStore()
 
 /**
  * Active pane → 全局 current 同步：
  *  - 多 pane 时点击某 pane 会改 activePaneId；这里把该 pane 的 sessionId/terminalTabId
- *    回写到 chatStore.currentSessionId / appStore.activeCenterTab，保证 ChatInput、
+ *    回写到 sessionStore.currentSessionId / appStore.activeCenterTab，保证 ChatInput、
  *    ContextUsageChip、TitleBar 等仍引用 current 的 UI 行为正确。
  *  - 单 leaf 模式不会触发（activePaneId 不变）。
  *
@@ -49,8 +49,8 @@ function syncActivePaneToGlobal() {
   const c = leaf.content
   if (c.kind === 'session' && c.tabId) {
     const sid = c.tabId.startsWith('session-') ? c.tabId.slice('session-'.length) : c.tabId
-    if (sid && chatStore.currentSessionId !== sid) {
-      chatStore.selectSession(sid)
+    if (sid && sessionStore.currentSessionId !== sid) {
+      sessionStore.selectSession(sid)
     }
     if (appStore.activeCenterTab !== c.tabId) {
       appStore.activeCenterTab = c.tabId
@@ -79,7 +79,7 @@ watch(
  * 单 leaf 模式下，全局 activeCenterTab 变化时反向同步到 pane content。
  *
  * 问题场景：leaf kind 为 'session'（例如从分屏关闭后残留）时，
- * 点击侧边栏切换会话更新了 chatStore.currentSessionId 和 appStore.activeCenterTab，
+ * 点击侧边栏切换会话更新了 sessionStore.currentSessionId 和 appStore.activeCenterTab，
  * 但 pane content 的 tabId 未更新，导致 ChatPanel 仍通过 props.sessionId 显示旧会话。
  *
  * 'main' kind 的 leaf 跟随全局 currentSessionId，无需处理；

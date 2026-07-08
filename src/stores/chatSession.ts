@@ -9,6 +9,7 @@ import { getCompletedTurnTargets } from '@/utils/turnCheckpointUtils'
 import { syncTaskStateFromToolCall } from '@/utils/taskToolSync'
 import { api } from '@/services/electronAPI'
 import { errorHandler } from '@/services/errorHandler'
+import { createUuid } from '@/utils/uuid'
 import { buildMessagesFromHistory } from '@/utils/sessionRestore'
 import {
   loadSessionsFromStorage,
@@ -182,7 +183,7 @@ async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
 
       session.messages = restoredMessages.map(msg => ({
         ...msg,
-        id: msg.id || crypto.randomUUID(),
+        id: msg.id || createUuid(),
         timestamp: Date.now(),
         // 截断从 JSONL 加载的历史工具输出，与流式期间 MAX_INMEMORY_TOOL_OUTPUT 保持一致
         ...(msg.toolCalls?.length ? {
@@ -238,7 +239,7 @@ async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
           const transcript = session.teammateTranscripts![teammateId] || []
           const cleanContent = msg.content.replace(/^\[.*?\]\s*/, '')
           const transcriptMsg: Message = {
-            id: msg.id || crypto.randomUUID(),
+            id: msg.id || createUuid(),
             role: 'assistant',
             content: cleanContent,
             timestamp: msg.timestamp || Date.now(),
@@ -553,7 +554,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
   }
 
   function createSession(title = 'New Chat', workingDirectory?: string, sessionId?: string): Session {
-    const id = sessionId || crypto.randomUUID()
+    const id = sessionId || createUuid()
 
     const session: Session = {
       id,
@@ -614,12 +615,12 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       } else {
         logger.info('ChatStore', `initClaudeCodeSession: session already running | id=${sessionId.slice(0, 8)}`)
         // 已在运行的会话：若后端模式与用户偏好不一致，则下发用户偏好
-        // 需要获取 controlStore 的 currentPermissionMode，通过延迟导入避免循环依赖
-        const { useChatControlStore } = await import('./chatControl')
-        const controlStore = useChatControlStore()
-        if (status?.permissionMode && status.permissionMode !== controlStore.currentPermissionMode) {
+        // 需要获取 policyStore 的 currentPermissionMode，通过延迟导入避免循环依赖
+        const { usePermissionPolicyStore } = await import('./permissionPolicy')
+        const policyStore = usePermissionPolicyStore()
+        if (status?.permissionMode && status.permissionMode !== policyStore.currentPermissionMode) {
           try {
-            await claudeCode.setPermissionMode?.(sessionId, controlStore.currentPermissionMode)
+            await claudeCode.setPermissionMode?.(sessionId, policyStore.currentPermissionMode)
           } catch (e) {
             logger.warn('ChatStore', `initClaudeCodeSession: failed to apply preferred mode | id=${sessionId.slice(0, 8)}`, { error: String(e) })
           }
@@ -636,8 +637,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       saveToStorage()
 
       // 延迟导入获取 currentPermissionMode
-      const { useChatControlStore } = await import('./chatControl')
-      const controlStore = useChatControlStore()
+      const { usePermissionPolicyStore } = await import('./permissionPolicy')
+      const policyStore = usePermissionPolicyStore()
 
       logger.info('ChatStore', `initClaudeCodeSession: starting session | id=${sessionId.slice(0, 8)} | engine=${desiredEngine} | cwd=${cwd} | provider=${config.provider} | model=${config.model} | baseUrl=${config.baseUrl || '(empty)'} | apiKey=${config.apiKey ? '***set' : '(empty)'} | agent=${currentAgent.value || '(none)'}`)
       traceEvent({
@@ -663,7 +664,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         provider: config.provider,
         model: config.model,
         effortLevel: config.effortLevel,
-        permissionMode: controlStore.currentPermissionMode,
+        permissionMode: policyStore.currentPermissionMode,
         agent: overrides?.agent || currentAgent.value || undefined,
         thinkingEnabled: settingsStore.thinkingEnabled,
         engineType: desiredEngine,
@@ -730,7 +731,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     const name = existing?.name || getRawTeammateName(raw)
     const color = existing?.color || AGENT_COLORS[Object.keys(session.teamContext!.teammates).length % AGENT_COLORS.length]
     const transcript = session.teammateTranscripts![teammateId] || []
-    const messageId = raw?.uuid || raw?.message?.id || raw?.id || crypto.randomUUID()
+    const messageId = raw?.uuid || raw?.message?.id || raw?.id || createUuid()
     const message: Message = {
       id: String(messageId),
       role: (raw?.role === 'user' || raw?.type === 'user' || raw?.message?.role === 'user') ? 'user' : 'assistant',
@@ -780,7 +781,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
 
     if ((status === 'completed' || status === 'failed') && !session.messages.some(m => m.metadata?.kind === 'task-notification' && m.metadata.agentTaskId === teammateId && m.metadata.status === status)) {
       session.messages.push({
-        id: crypto.randomUUID(),
+        id: createUuid(),
         role: 'system',
         content: `${name} ${status === 'completed' ? 'completed' : 'failed'}.`,
         timestamp: Date.now(),
@@ -840,7 +841,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     ensureSubagentTranscripts(session)
 
     const transcript = session.teammateTranscripts![subagentId] || []
-    const messageId = raw?.uuid || raw?.message?.id || raw?.id || crypto.randomUUID()
+    const messageId = raw?.uuid || raw?.message?.id || raw?.id || createUuid()
     const message: Message = {
       id: String(messageId),
       role: (raw?.role === 'user' || raw?.type === 'user' || raw?.message?.role === 'user') ? 'user' : 'assistant',
@@ -1022,7 +1023,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     const sessionId = sid || currentSessionId.value!
     const newMessage: Message = {
       ...message,
-      id: message.id || crypto.randomUUID(),
+      id: message.id || createUuid(),
       timestamp: Date.now()
     }
 
@@ -1157,11 +1158,11 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         const status = await Promise.race([statusPromise, timeoutPromise]).catch(() => null)
 
         if (status?.isRunning && status.permissionMode) {
-          const { useChatControlStore } = await import('./chatControl')
-          const controlStore = useChatControlStore()
-          if (status.permissionMode !== controlStore.currentPermissionMode) {
+          const { usePermissionPolicyStore } = await import('./permissionPolicy')
+          const policyStore = usePermissionPolicyStore()
+          if (status.permissionMode !== policyStore.currentPermissionMode) {
             try {
-              await claudeCode.setPermissionMode?.(sessionId, controlStore.currentPermissionMode)
+              await claudeCode.setPermissionMode?.(sessionId, policyStore.currentPermissionMode)
             } catch (e) {
               logger.warn('ChatStore', `selectSession: failed to apply preferred mode | id=${sessionId.slice(0, 8)}`, { error: String(e) })
             }
@@ -1211,11 +1212,11 @@ export const useChatSessionStore = defineStore('chatSession', () => {
           saveToStorage()
           const status = await claudeCode.getSessionStatus(sessionId)
           if (status?.permissionMode) {
-            const { useChatControlStore } = await import('./chatControl')
-            const controlStore = useChatControlStore()
-            if (status.permissionMode !== controlStore.currentPermissionMode) {
+            const { usePermissionPolicyStore } = await import('./permissionPolicy')
+            const policyStore = usePermissionPolicyStore()
+            if (status.permissionMode !== policyStore.currentPermissionMode) {
               try {
-                await claudeCode.setPermissionMode?.(sessionId, controlStore.currentPermissionMode)
+                await claudeCode.setPermissionMode?.(sessionId, policyStore.currentPermissionMode)
               } catch (e) {
                 logger.warn('ChatStore', `activateSession: failed to apply preferred mode | id=${sessionId.slice(0, 8)}`, { error: String(e) })
               }
@@ -1653,9 +1654,9 @@ export const useChatSessionStore = defineStore('chatSession', () => {
 
     currentAgent.value = assistant.name
     if (assistant.permission) {
-      const { useChatControlStore } = await import('./chatControl')
-      const controlStore = useChatControlStore()
-      controlStore.setPermissionMode(assistant.permission as any)
+      const { usePermissionPolicyStore } = await import('./permissionPolicy')
+      const policyStore = usePermissionPolicyStore()
+      policyStore.setPermissionMode(assistant.permission as any)
     }
 
     const session = createSession(assistant.name, cwd)
@@ -1725,9 +1726,9 @@ export const useChatSessionStore = defineStore('chatSession', () => {
 
     currentAgent.value = assistant.name
     if (assistant.permission) {
-      const { useChatControlStore } = await import('./chatControl')
-      const controlStore = useChatControlStore()
-      controlStore.setPermissionMode(assistant.permission as any)
+      const { usePermissionPolicyStore } = await import('./permissionPolicy')
+      const policyStore = usePermissionPolicyStore()
+      policyStore.setPermissionMode(assistant.permission as any)
     }
 
     // 绑定助手到当前会话

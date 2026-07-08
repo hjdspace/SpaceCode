@@ -182,8 +182,7 @@ import RetryIndicator from './RetryIndicator.vue'
 import TurnSummaryBar from './TurnSummaryBar.vue'
 import { stripDesignTags } from '@/utils/chat/buildBlocks'
 import { errorHandler } from '@/services/errorHandler'
-import { useChatStore } from '@/stores/chat'
-import { useChatStreamStore } from '@/stores/chatStream'
+import { useChatSessionStore, useTurnStore } from '@/stores/chat'
 import {
   Loader2, X, ChevronDown, Bot, AlertCircle, Clock,
   Terminal, FileText, FileEdit, Search, Globe, Wand2, Folder, Code,
@@ -246,32 +245,32 @@ const props = defineProps<{
 
 const expandedEvents = reactive<Record<string, boolean>>({})
 
-const chatStore = useChatStore()
-const streamStore = useChatStreamStore()
+const sessionStore = useChatSessionStore()
+const turnStore = useTurnStore()
 const taskManager = useTaskManager()
 const { t } = useI18n()
 
 function getPendingPermission(toolUseId: string) {
-  return chatStore.getPendingPermissionForToolUse(toolUseId)
+  return turnStore.getPendingPermissionForToolUse(toolUseId)
 }
 
 function handleRetry() {
-  chatStore.retryLastMessage()
+  turnStore.retryLastMessage()
 }
 
 function handleCancelRetry() {
-  chatStore.cancelRetry()
+  turnStore.cancelRetry()
 }
 
 /** 当前会话的重试状态（从响应式 store 中读取） */
 const currentRetryState = computed(() => {
-  const sid = chatStore.currentSessionId
+  const sid = sessionStore.currentSessionId
   if (!sid) return null
-  return streamStore.retryStates.get(sid) ?? null
+  return turnStore.retryStates.get(sid) ?? null
 })
 
 function handleDismissError() {
-  const sid = chatStore.currentSessionId
+  const sid = sessionStore.currentSessionId
   if (sid) errorHandler.clearInlineError(sid)
 }
 

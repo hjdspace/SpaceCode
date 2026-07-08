@@ -28,7 +28,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useAppStore, type CenterTab } from '@/stores/app'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chat'
 import { useSplitLayoutStore, type PaneContent } from '@/stores/splitLayout'
 import { useI18n } from 'vue-i18n'
 import { X, Plus } from 'lucide-vue-next'
@@ -41,7 +41,7 @@ const props = defineProps<{
 }>()
 
 const appStore = useAppStore()
-const chatStore = useChatStore()
+const sessionStore = useChatSessionStore()
 const splitLayout = useSplitLayoutStore()
 const { t } = useI18n()
 
@@ -60,7 +60,7 @@ const activeTabId = computed(() => props.activeTabIdOverride || appStore.activeC
 
 function getStatusClass(sessionId?: string): string {
   if (!sessionId) return 'none'
-  const session = chatStore.sessions.find(s => s.id === sessionId)
+  const session = sessionStore.sessions.find(s => s.id === sessionId)
   if (!session) return 'none'
   switch (session.processStatus) {
     case 'active': return 'active'
@@ -93,7 +93,7 @@ function handleTabClick(tab: CenterTab) {
   // ── 非分屏模式：原有行为，直接修改全局状态 ──
   appStore.activeCenterTab = tab.id
   if (tab.sessionId) {
-    chatStore.selectSession(tab.sessionId)
+    sessionStore.selectSession(tab.sessionId)
     emit('switch-session', tab.sessionId)
   }
 }

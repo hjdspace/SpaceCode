@@ -186,7 +186,7 @@ import {
   Upload,
 } from 'lucide-vue-next'
 import { useDesignStore } from '@/stores/design'
-import { useChatStore, useChatSessionStore } from '@/stores/chat'
+import { useTurnStore, useChatSessionStore } from '@/stores/chat'
 import { useMcpStore } from '@/stores/mcp'
 import { useDesignSession } from '@/composables/useDesignSession'
 import { api } from '@/services/electronAPI'
@@ -200,14 +200,14 @@ const emit = defineEmits<{ (e: 'send', content: string): void; (e: 'stop'): void
 
 const { t } = useI18n()
 const designStore = useDesignStore()
-const chatStore = useChatStore()
+const turnStore = useTurnStore()
 const chatSessionStore = useChatSessionStore()
 const mcpStore = useMcpStore()
 const { switchToolboxSkill, switchDesignSystem, switchWorkingDirectory, buildDesignMessage } = useDesignSession()
 
 // 复用 chatStream 的 loading 状态，替代原 isGenerating
 const isGenerating = computed(() =>
-  designStore.activeSessionId ? chatStore.getIsLoading(designStore.activeSessionId) : false
+  designStore.activeSessionId ? turnStore.getIsLoading(designStore.activeSessionId) : false
 )
 const value = ref('')
 const plusMenuOpen = ref(false)

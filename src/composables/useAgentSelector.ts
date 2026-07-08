@@ -7,7 +7,7 @@
  * - Agent name/description i18n helpers
  */
 import { ref, computed, watch, onUnmounted } from 'vue'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chat'
 import { useI18n } from 'vue-i18n'
 
 // ── Pure logic (exported for testing) ──────────────────────────
@@ -39,21 +39,21 @@ export function categorizeAgents<T extends { source: string }>(agents: T[]): { b
 export function useAgentSelector(options?: {
   onUpdateAgent?: (agent: string) => void
 }) {
-  const chatStore = useChatStore()
+  const sessionStore = useChatSessionStore()
   const { t } = useI18n()
 
-  const selectedAgent = ref<string>(chatStore.currentAgent || '')
+  const selectedAgent = ref<string>(sessionStore.currentAgent || '')
   const showAgentSubmenu = ref(false)
   let agentSubmenuTimer: ReturnType<typeof setTimeout> | null = null
 
   // Sync with chat store
-  watch(() => chatStore.currentAgent, (newAgent) => {
+  watch(() => sessionStore.currentAgent, (newAgent) => {
     selectedAgent.value = newAgent || ''
   })
 
   // Computed agent lists
-  const builtInAgents = computed(() => chatStore.availableAgents.filter(a => a.source === 'built-in'))
-  const customAgents = computed(() => chatStore.availableAgents.filter(a => a.source !== 'built-in'))
+  const builtInAgents = computed(() => sessionStore.availableAgents.filter(a => a.source === 'built-in'))
+  const customAgents = computed(() => sessionStore.availableAgents.filter(a => a.source !== 'built-in'))
 
   // Hover timer management
   function handleTriggerEnter() {

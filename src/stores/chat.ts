@@ -1,94 +1,70 @@
+// 三个独立 store 是真实边界；本文件保留旧入口的兼容 facade。
+// 部分组件仍从 '@/stores/chat' 读取合并后的 chat/turn 状态，直接删除
+// useChatStore 会导致 ESM named export 运行时错误。
 import { useChatSessionStore } from './chatSession'
-import { useChatStreamStore } from './chatStream'
-import { useChatControlStore } from './chatControl'
+import { useTurnStore as useTurnStateStore } from './turn'
+import { usePermissionPolicyStore } from './permissionPolicy'
 
-/**
- * Compose the three chat sub-stores into a single unified API.
- *
- * This is NOT a Pinia store — it delegates to three independent Pinia stores
- * (chatSession, chatStream, chatControl) via an ES6 Proxy.
- *
- * Using a Proxy (instead of spreading) preserves Vue's reactivity tracking:
- * when a component accesses `chatStore.sessions`, the Proxy delegates to
- * `sessionStore.sessions`, and Vue tracks the dependency on the original
- * Pinia store's reactive state.
- *
- * Spreading would unwrap refs to plain values, breaking reactivity and
- * causing bugs like session switching not working or streaming not updating.
- *
- * All consumers use `useChatStore()` exactly as before.
- */
+export { useChatSessionStore, usePermissionPolicyStore }
 
-// Pinia internal keys to skip
-const SKIP_KEYS = new Set([
-  '$id', '$state', '$patch', '$reset', '$subscribe', '$onAction',
-  '$dispose', '_customProperties', '_p', '$hydrate', '$trigger',
-])
+type MergeStores<Base, Override> = Omit<Base, keyof Override> & Override
 
-function isPublicKey(key: string): boolean {
-  return !SKIP_KEYS.has(key) && !key.startsWith('__')
-}
+type ChatStoreFacade =
+  MergeStores<
+    MergeStores<ReturnType<typeof usePermissionPolicyStore>, ReturnType<typeof useChatSessionStore>>,
+    ReturnType<typeof useTurnStateStore>
+  >
 
-export function useChatStore() {
+function createChatStoreFacade(): ChatStoreFacade {
   const sessionStore = useChatSessionStore()
-  const streamStore = useChatStreamStore()
-  const controlStore = useChatControlStore()
+  const turnStore = useTurnStateStore()
+  const permissionPolicyStore = usePermissionPolicyStore()
+  const stores = [turnStore, sessionStore, permissionPolicyStore] as const
 
-  const stores = [sessionStore, streamStore, controlStore]
-
-  const handler: ProxyHandler<object> = {
-    get(_target, key: string | symbol) {
-      if (typeof key === 'symbol') return undefined
-      if (!isPublicKey(key)) return undefined
+  return new Proxy({} as ChatStoreFacade, {
+    get(_target, property) {
       for (const store of stores) {
-        if (key in store) return (store as unknown as Record<string, unknown>)[key]
+        if (property in store) {
+          return Reflect.get(store, property)
+        }
       }
       return undefined
     },
-    has(_target, key: string | symbol) {
-      if (typeof key === 'symbol') return false
-      if (!isPublicKey(key as string)) return false
-      return stores.some(s => key in s)
+    set(_target, property, value) {
+      for (const store of stores) {
+        if (property in store) {
+          return Reflect.set(store, property, value)
+        }
+      }
+      return false
+    },
+    has(_target, property) {
+      return stores.some(store => property in store)
     },
     ownKeys() {
-      const keys = new Set<string>()
-      for (const store of stores) {
-        for (const key of Object.keys(store)) {
-          if (isPublicKey(key)) keys.add(key)
-        }
-      }
-      return [...keys]
+      return Array.from(new Set(stores.flatMap(store => Reflect.ownKeys(store))))
     },
-    getOwnPropertyDescriptor(_target, key: string | symbol) {
-      if (typeof key === 'symbol') return undefined
-      if (!isPublicKey(key as string)) return undefined
+    getOwnPropertyDescriptor(_target, property) {
       for (const store of stores) {
-        if (key in store) {
-          return { configurable: true, enumerable: true, value: (store as unknown as Record<string, unknown>)[key as string] }
-        }
+        const descriptor = Reflect.getOwnPropertyDescriptor(store, property)
+        if (descriptor) return { ...descriptor, configurable: true }
       }
       return undefined
     },
-  }
-
-  return new Proxy(Object.create(null), handler) as ChatStoreApi
+  })
 }
 
-// Pinia internal keys to omit from the public type
-type PiniaInternal = '$id' | '$state' | '$patch' | '$reset' | '$subscribe' |
-  '$onAction' | '$dispose' | '_customProperties' | '_p' | '$hydrate' | '$trigger'
+export function useChatStore(): ChatStoreFacade {
+  return createChatStoreFacade()
+}
 
-// Strip Pinia internals from each sub-store type
-type StripPinia<T> = Omit<T, PiniaInternal>
+// Compatibility: several call sites imported useTurnStore from this barrel while
+// still reading session fields from it. Keep the barrel behavior broad; import
+// from './turn' directly when only the turn store is desired.
+export function useTurnStore(): ChatStoreFacade {
+  return createChatStoreFacade()
+}
 
-// The combined public API of all three sub-stores
-type ChatStoreApi = StripPinia<ReturnType<typeof useChatSessionStore>> &
-  StripPinia<ReturnType<typeof useChatStreamStore>> &
-  StripPinia<ReturnType<typeof useChatControlStore>>
-
-// Re-export sub-stores for direct access when needed
-export { useChatSessionStore, useChatStreamStore, useChatControlStore }
-
-// Re-export types that consumers may import from this module
+// 兼容：部分消费方仍 import 类型
 export type { Session, Message, ToolCall, AgentInfo, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus } from '@/types'
 export type { RewindOption, RewindState } from '@/types/rewind'

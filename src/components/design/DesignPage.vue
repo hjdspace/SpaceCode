@@ -28,7 +28,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Palette, Square } from 'lucide-vue-next'
 import { useDesignStore } from '@/stores/design'
-import { useChatStore } from '@/stores/chat'
+import { useTurnStore } from '@/stores/chat'
 import { useDesignSession } from '@/composables/useDesignSession'
 import DesignSplitView from './DesignSplitView.vue'
 import DesignChatPane from './DesignChatPane.vue'
@@ -37,13 +37,13 @@ import ToastNotification from '@/components/common/ToastNotification.vue'
 
 const { t } = useI18n()
 const designStore = useDesignStore()
-const chatStore = useChatStore()
+const turnStore = useTurnStore()
 const { lastUsage, activeSessionId } = storeToRefs(designStore)
 const { stopDesignGeneration } = useDesignSession()
 
 // 复用 chatStream 的 loading 状态
 const isLoading = computed(() =>
-  activeSessionId.value ? chatStore.getIsLoading(activeSessionId.value) : false
+  activeSessionId.value ? turnStore.getIsLoading(activeSessionId.value) : false
 )
 </script>
 

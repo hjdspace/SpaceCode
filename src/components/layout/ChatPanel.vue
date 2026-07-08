@@ -28,9 +28,9 @@
           >
             <History :size="16" />
           </button>
-          <span class="agent-badge" v-if="chatStore.currentAgent" :title="chatStore.currentAgent">
+          <span class="agent-badge" v-if="turnStore.currentAgent" :title="turnStore.currentAgent">
             <span class="badge-dot agent-dot" aria-hidden="true"></span>
-            {{ chatStore.currentAgent }}
+            {{ turnStore.currentAgent }}
           </span>          <span class="model-badge" v-if="currentModel" :title="currentModel">
             <span class="badge-dot" aria-hidden="true"></span>
             {{ formatModelName(currentModel) }}
@@ -65,7 +65,7 @@
               <TeammateTranscriptHeader
                 v-if="paneIsViewingTeammate"
                 :teammate="paneViewedTeammate"
-                @back="chatStore.backToLeaderView"
+                @back="turnStore.backToLeaderView"
               />
 
               <MessageList
@@ -85,7 +85,7 @@
             v-if="!showNoProjectWelcome"
             :team-context="paneTeamContext"
             :viewing-agent-task-id="paneViewedAgentTaskId"
-            @view-teammate="chatStore.viewTeammateTranscript"
+            @view-teammate="turnStore.viewTeammateTranscript"
           />
 
           <ContextUsageWarningBar
@@ -120,26 +120,26 @@
 
           <!-- Rewind Dialog -->
           <RewindDialog
-            :show="chatStore.rewindState.showDialog"
-            :selected-message-id="chatStore.rewindState.selectedMessageId"
+            :show="turnStore.rewindState.showDialog"
+            :selected-message-id="turnStore.rewindState.selectedMessageId"
             :message-content="rewindSelectedMessageContent"
-            :selected-option="chatStore.rewindState.selectedOption"
-            :summarize-feedback="chatStore.rewindState.summarizeFeedback"
-            :is-rewinding="chatStore.rewindState.isRewinding"
-            :error="chatStore.rewindState.error"
+            :selected-option="turnStore.rewindState.selectedOption"
+            :summarize-feedback="turnStore.rewindState.summarizeFeedback"
+            :is-rewinding="turnStore.rewindState.isRewinding"
+            :error="turnStore.rewindState.error"
             :diff-stats="null"
-            @update:show="chatStore.setShowRewindDialog"
-            @update:selected-option="chatStore.setRewindSelectedOption"
-            @update:summarize-feedback="chatStore.setRewindSummarizeFeedback"
+            @update:show="turnStore.setShowRewindDialog"
+            @update:selected-option="turnStore.setRewindSelectedOption"
+            @update:summarize-feedback="turnStore.setRewindSummarizeFeedback"
             @confirm="handleRewindConfirm"
             @cancel="handleRewindCancel"
           />
 
           <!-- Code Rewind Confirmation Dialog -->
           <CodeRewindConfirmDialog
-            :show="chatStore.rewindState.showCodeConfirm"
-            :files="[...chatStore.rewindState.filesToRewind]"
-            :is-loading="chatStore.rewindState.isRewinding"
+            :show="turnStore.rewindState.showCodeConfirm"
+            :files="[...turnStore.rewindState.filesToRewind]"
+            :is-loading="turnStore.rewindState.isRewinding"
             @confirm="handleCodeRewindConfirm"
             @cancel="handleCodeRewindCancel"
           />
@@ -148,7 +148,7 @@
           <MessageSelector
             :show="showMessageSelector"
             :messages="userMessages"
-            :selected-message-id="chatStore.rewindState.selectedMessageId"
+            :selected-message-id="turnStore.rewindState.selectedMessageId"
             @update:show="showMessageSelector = $event"
             @select="handleMessageSelect"
             @cancel="showMessageSelector = false"
@@ -255,7 +255,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useChatStore } from '@/stores/chat'
+import { useTurnStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import { useAppStore } from '@/stores/app'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
@@ -305,7 +305,7 @@ import { api } from '@/services/electronAPI'
 import { isH5Mode } from '@/services/h5ApiClient'
 import type { Message } from '@/types'
 
-const chatStore = useChatStore()
+const turnStore = useTurnStore()
 const settingsStore = useSettingsStore()
 const appStore = useAppStore()
 const splitLayout = useSplitLayoutStore()
@@ -314,7 +314,7 @@ const { t } = useI18n()
 // ── Pane props（分屏多 pane 时由 SplitContainer 传入；未传入 = 单屏，行为
 //    与改造前完全一致：所有 pane-scoped 计算回退到全局 current*） ──
 const props = defineProps<{
-  /** 当前 pane 绑定的会话 id；未传时回退到 chatStore.currentSessionId */
+  /** 当前 pane 绑定的会话 id；未传时回退到 turnStore.currentSessionId */
   sessionId?: string
   /** 所在 pane 的 id（用于焦点/active 同步等高级用法；当前阶段未消费） */
   paneId?: string
@@ -323,35 +323,35 @@ const props = defineProps<{
 }>()
 
 /** 用 prop 或 current 解析出本 pane 实际绑定的会话 id（可能为空字符串） */
-const paneSessionId = computed(() => props.sessionId || chatStore.currentSessionId || '')
+const paneSessionId = computed(() => props.sessionId || turnStore.currentSessionId || '')
 
 /** Pane-scoped 数据：始终响应式跟踪所在 session（无 prop 时即 current 行为） */
 const paneSession = computed(() =>
-  props.sessionId ? chatStore.getSession(paneSessionId.value) : chatStore.currentSession
+  props.sessionId ? turnStore.getSession(paneSessionId.value) : turnStore.currentSession
 )
 const paneMessages = computed(() =>
-  props.sessionId ? chatStore.getDisplayMessages(paneSessionId.value) : chatStore.displayMessages
+  props.sessionId ? turnStore.getDisplayMessages(paneSessionId.value) : turnStore.displayMessages
 )
 const paneRawMessages = computed(() =>
-  props.sessionId ? chatStore.getSessionMessages(paneSessionId.value) : chatStore.currentMessages
+  props.sessionId ? turnStore.getSessionMessages(paneSessionId.value) : turnStore.currentMessages
 )
 const paneIsLoading = computed(() =>
-  props.sessionId ? chatStore.getIsLoading(paneSessionId.value) : chatStore.isLoading
+  props.sessionId ? turnStore.getIsLoading(paneSessionId.value) : turnStore.isLoading
 )
 const paneWorkingDirectory = computed(() =>
-  props.sessionId ? chatStore.getWorkingDirectory(paneSessionId.value) : chatStore.workingDirectory
+  props.sessionId ? turnStore.getWorkingDirectory(paneSessionId.value) : turnStore.workingDirectory
 )
 const paneTeamContext = computed(() =>
-  props.sessionId ? chatStore.getTeamContext(paneSessionId.value) : chatStore.currentTeamContext
+  props.sessionId ? turnStore.getTeamContext(paneSessionId.value) : turnStore.currentTeamContext
 )
 const paneViewedAgentTaskId = computed(() =>
-  props.sessionId ? chatStore.getViewedAgentTaskId(paneSessionId.value) : chatStore.currentViewedAgentTaskId
+  props.sessionId ? turnStore.getViewedAgentTaskId(paneSessionId.value) : turnStore.currentViewedAgentTaskId
 )
 const paneIsViewingTeammate = computed(() =>
-  props.sessionId ? chatStore.getIsViewingTeammate(paneSessionId.value) : chatStore.isViewingTeammate
+  props.sessionId ? turnStore.getIsViewingTeammate(paneSessionId.value) : turnStore.isViewingTeammate
 )
 const paneViewedTeammate = computed(() =>
-  props.sessionId ? chatStore.getViewedTeammate(paneSessionId.value) : chatStore.viewedTeammate
+  props.sessionId ? turnStore.getViewedTeammate(paneSessionId.value) : turnStore.viewedTeammate
 )
 
 const showHistoryModal = ref(false)
@@ -444,7 +444,7 @@ watchEffect((onCleanup) => {
 })
 
 // 监听 TitleBar 的 diff 触发
-const stopDiffWatch = watch(() => chatStore.diffPanelTrigger, () => {
+const stopDiffWatch = watch(() => turnStore.diffPanelTrigger, () => {
   fetchAndShowDiff()
 })
 
@@ -626,7 +626,7 @@ watch(
 const showMessageSelector = ref(false)
 
 const rewindSelectedMessageContent = computed(() => {
-  const messageId = chatStore.rewindState.selectedMessageId
+  const messageId = turnStore.rewindState.selectedMessageId
   if (!messageId) return ''
   const message = paneSession.value?.messages.find(m => m.id === messageId)
   return message?.content || ''
@@ -644,22 +644,22 @@ const userMessages = computed(() =>
 )
 
 async function handleRewindConfirm() {
-  const option = chatStore.rewindState.selectedOption
-  const messageId = chatStore.rewindState.selectedMessageId
+  const option = turnStore.rewindState.selectedOption
+  const messageId = turnStore.rewindState.selectedMessageId
 
   if (!messageId) return
 
   if (option === 'summarize') {
-    chatStore.summarizeTurn(
+    turnStore.summarizeTurn(
       paneSessionId.value || '',
       messageId,
-      chatStore.rewindState.summarizeFeedback
+      turnStore.rewindState.summarizeFeedback
     )
-    chatStore.setShowRewindDialog(false)
-    chatStore.resetRewindState()
+    turnStore.setShowRewindDialog(false)
+    turnStore.resetRewindState()
   } else if (option === 'cancel') {
-    chatStore.setShowRewindDialog(false)
-    chatStore.resetRewindState()
+    turnStore.setShowRewindDialog(false)
+    turnStore.resetRewindState()
   } else if (option === 'both' || option === 'code') {
     // Show code rewind confirmation dialog for code-related modes
     await openCodeRewindConfirm()
@@ -670,23 +670,23 @@ async function handleRewindConfirm() {
 }
 
 async function openCodeRewindConfirm() {
-  if (!chatStore.rewindState.selectedMessageId || !paneSessionId.value) return
+  if (!turnStore.rewindState.selectedMessageId || !paneSessionId.value) return
 
-  if (chatStore.turnChangeCards.length === 0) {
-    await chatStore.loadTurnCheckpoints(
+  if (turnStore.turnChangeCards.length === 0) {
+    await turnStore.loadTurnCheckpoints(
       paneSessionId.value,
       paneWorkingDirectory.value || undefined
     )
   }
 
-  const files = await chatStore.loadFilesToRewind(
+  const files = await turnStore.loadFilesToRewind(
     paneSessionId.value,
-    chatStore.rewindState.selectedMessageId
+    turnStore.rewindState.selectedMessageId
   )
 
   if (files.length > 0) {
-    chatStore.setFilesToRewind(files)
-    chatStore.setShowCodeConfirm(true)
+    turnStore.setFilesToRewind(files)
+    turnStore.setShowCodeConfirm(true)
   } else {
     // No files to rollback, proceed directly
     executeRewind()
@@ -694,42 +694,42 @@ async function openCodeRewindConfirm() {
 }
 
 function handleCodeRewindConfirm() {
-  chatStore.setShowCodeConfirm(false)
+  turnStore.setShowCodeConfirm(false)
   executeRewind()
 }
 
 function handleCodeRewindCancel() {
-  chatStore.setShowCodeConfirm(false)
+  turnStore.setShowCodeConfirm(false)
   // Return to main rewind dialog, don't close it
 }
 
 async function executeRewind() {
-  const option = chatStore.rewindState.selectedOption
-  const messageId = chatStore.rewindState.selectedMessageId
+  const option = turnStore.rewindState.selectedOption
+  const messageId = turnStore.rewindState.selectedMessageId
 
   if (!messageId) return
 
   try {
-    await chatStore.rewindSession(
+    await turnStore.rewindSession(
       paneSessionId.value || '',
       messageId,
       option as 'both' | 'conversation' | 'code'
     )
-    chatStore.setShowRewindDialog(false)
-    chatStore.resetRewindState()
+    turnStore.setShowRewindDialog(false)
+    turnStore.resetRewindState()
   } catch (err: any) {
     console.error('[ChatPanel] Rewind failed:', err)
   }
 }
 
 function handleRewindCancel() {
-  chatStore.resetRewindState()
+  turnStore.resetRewindState()
 }
 
 function handleMessageSelect(messageId: string) {
   showMessageSelector.value = false
-  chatStore.setRewindSelectedMessage(messageId)
-  chatStore.setShowRewindDialog(true)
+  turnStore.setRewindSelectedMessage(messageId)
+  turnStore.setShowRewindDialog(true)
 }
 
 function handleOpenRewind() {
@@ -737,8 +737,8 @@ function handleOpenRewind() {
 }
 
 function handleMessageRewind(message: Message) {
-  chatStore.setRewindSelectedMessage(message.id)
-  chatStore.setShowRewindDialog(true)
+  turnStore.setRewindSelectedMessage(message.id)
+  turnStore.setShowRewindDialog(true)
 }
 
 const chatCommands = useChatCommands({
@@ -767,7 +767,7 @@ const isTerminalTab = computed(() => {
 
 /** At least one conversation is bound to a real folder (sidebar / CLI cwd), not only default chat */
 const hasWorkspaceContext = computed(() =>
-  chatStore.sessions.some((s) => !!(s.workingDirectory && String(s.workingDirectory).trim()))
+  turnStore.sessions.some((s) => !!(s.workingDirectory && String(s.workingDirectory).trim()))
 )
 
 /** No folder context in chat/projects list, or app has not bound a project root yet */
@@ -792,14 +792,14 @@ watch(
     if (isH5Mode()) return
     if (!has) {
       // 只移除当前项目相关的会话
-      const sessionsToRemove = chatStore.sessions.filter(s =>
+      const sessionsToRemove = turnStore.sessions.filter(s =>
         pathsEqual(s.workingDirectory || '', root)
       )
-      sessionsToRemove.forEach(s => chatStore.deleteSession(s.id))
+      sessionsToRemove.forEach(s => turnStore.deleteSession(s.id))
 
       if (pathsEqual(appStore.projectRoot, root)) {
         appStore.closeProject()
-        chatStore.switchProject('')
+        turnStore.switchProject('')
       }
     }
   },
@@ -862,10 +862,10 @@ watch(() => paneIsLoading.value, async (loading, prevLoading) => {
     if (!sid) return
 
     // 将暂存的 prompt（Ctrl+S）转为 pending message，由下方逻辑自动发送
-    if (chatStore.hasStash(sid)) {
-      const stash = chatStore.getStash(sid)
+    if (turnStore.hasStash(sid)) {
+      const stash = turnStore.getStash(sid)
       if (stash && (stash.text.trim() || stash.attachments.length > 0 || stash.images.length > 0)) {
-        chatStore.addPendingMessage(sid, {
+        turnStore.addPendingMessage(sid, {
           id: crypto.randomUUID(),
           content: stash.text,
           attachments: stash.attachments.map(f => ({ ...f })),
@@ -874,15 +874,15 @@ watch(() => paneIsLoading.value, async (loading, prevLoading) => {
           priority: 'later',
           createdAt: Date.now(),
         })
-        chatStore.clearStash(sid)
+        turnStore.clearStash(sid)
       }
     }
 
     // 逐条取出并发送，避免一次性清除队列导致异常时消息丢失
     while (true) {
-      const pending = chatStore.getPendingMessages(sid)
+      const pending = turnStore.getPendingMessages(sid)
       if (pending.length === 0) break
-      const msg = chatStore.recallPendingMessage(sid, pending[0].id)
+      const msg = turnStore.recallPendingMessage(sid, pending[0].id)
       if (!msg) break
 
       await handleSend(msg.content, {
@@ -928,7 +928,7 @@ async function handleModelChange(model: string) {
   })
   
   // 重启 CLI 会话以使新模型生效
-  await chatStore.switchModel(model)
+  await turnStore.switchModel(model)
   
   console.log('[ChatPanel] Model changed to:', model)
 }
@@ -957,7 +957,7 @@ async function handleEffortChange(effort: string) {
 
 // 处理 Agent 变更 - 切换 Agent 需要重启 CLI 会话
 async function handleAgentChange(agent: string) {
-  await chatStore.switchAgent(agent)
+  await turnStore.switchAgent(agent)
   console.log('[ChatPanel] Agent changed to:', agent || '(default)')
 }
 
@@ -997,7 +997,7 @@ async function handleSend(content: string, attachments: AllAttachments, options?
     if (outcome.kind === 'cancel') return
     if (outcome.kind === 'routed' && outcome.assistant) {
       try {
-        const session = await chatStore.startWorkAssistantSession({
+        const session = await turnStore.startWorkAssistantSession({
           name: outcome.assistant.name,
           skills: outcome.assistant.skills,
           permission: outcome.assistant.permission,
@@ -1050,13 +1050,13 @@ async function handleSend(content: string, attachments: AllAttachments, options?
     : userTyped
   const userContent = displayLabel !== messageContent ? displayLabel : undefined
 
-  console.log('[ChatPanel] Calling chatStore.sendMessage...')
+  console.log('[ChatPanel] Calling turnStore.sendMessage...')
   try {
-    await chatStore.sendMessage(messageContent, userContent, {
+    await turnStore.sendMessage(messageContent, userContent, {
       files: attachments.files,
       images: attachments.images
     })
-    console.log('[ChatPanel] chatStore.sendMessage done')
+    console.log('[ChatPanel] turnStore.sendMessage done')
   } catch (error) {
     console.error('[ChatPanel] sendMessage failed:', error)
     // 错误已在 sendMessage 内部处理（loading 状态清除、processStatus 重置），
@@ -1068,7 +1068,7 @@ async function handleSend(content: string, attachments: AllAttachments, options?
 async function handleStop() {
   console.log('[ChatPanel] Stopping...')
   try {
-    await chatStore.abort()
+    await turnStore.abort()
     console.log('[ChatPanel] Stop requested successfully')
   } catch (error) {
     console.error('[ChatPanel] Error stopping:', error)
@@ -1081,7 +1081,7 @@ async function handleSlashCommand(command: string, args: string, attachments: Al
 
   // 添加用户输入的命令到消息列表
   const commandText = `/${command}${args ? ' ' + args : ''}`
-  await chatStore.addMessage({
+  await turnStore.addMessage({
     role: 'user',
     content: commandText
   })
@@ -1103,7 +1103,7 @@ async function handleSlashCommand(command: string, args: string, attachments: Al
   }
 
   // 添加命令执行结果
-  await chatStore.addMessage({
+  await turnStore.addMessage({
     role: 'assistant',
     content: result
   })
@@ -1126,7 +1126,7 @@ async function executeSlashCommand(command: string, args: string): Promise<strin
     case 'reset':
     case 'new':
       // 先中断任何正在进行的请求，重置 loading 状态
-      await chatStore.abort()
+      await turnStore.abort()
       // 清除当前会话的消息
       if (paneSession.value) {
         paneSession.value.messages = []
@@ -1194,7 +1194,7 @@ case 'mcp':
       if (cmdDef && (cmdDef.kind === 'sdk_command' || cmdDef.kind === 'codepilot_command')) {
         const fullCommand = args ? `/${command} ${args}` : `/${command}`
         const userContent = fullCommand
-        await chatStore.sendMessage(userContent, fullCommand, {
+        await turnStore.sendMessage(userContent, fullCommand, {
           files: [],
           images: []
         })
@@ -1236,7 +1236,7 @@ ${t('chatPanel.helpCustomSkillsDesc')}
 async function fetchAndShowDiff() {
   const workingDir = paneWorkingDirectory.value
   if (!workingDir) {
-    await chatStore.addMessage({
+    await turnStore.addMessage({
       role: 'assistant',
       content: t('chatPanel.commandDiffNoProject')
     })
@@ -1350,37 +1350,37 @@ function handleOpenSkills() {
 //
 // 卡片现在传的是「更新后的 updatedInput」（含 answers / plan / 等等），
 // 直接对应 engine PermissionAllowResult.updatedInput 的语义。
-// 我们走新的 control_response 通道：chatStore.allowPermission。
+// 我们走新的 control_response 通道：turnStore.allowPermission。
 async function handleToolSubmit(messageId: string, toolId: string, updatedInput: Record<string, unknown>) {
   console.log('[ChatPanel] Tool submit:', { messageId, toolId, updatedInput })
 
-  if (chatStore.hasPendingPermissionForToolUse(toolId)) {
-    await chatStore.allowPermission(messageId, toolId, updatedInput)
+  if (turnStore.hasPendingPermissionForToolUse(toolId)) {
+    await turnStore.allowPermission(messageId, toolId, updatedInput)
     return
   }
 
   // Fallback：极少数遗留路径下没有 pending permission（例如 engine 端走
   // 工具自调用流程，permission 已被自动批准），把 answers 当作 tool_result 推回。
   const answers = (updatedInput?.answers as Record<string, string> | undefined) ?? {}
-  await chatStore.submitToolAnswer(messageId, toolId, answers)
+  await turnStore.submitToolAnswer(paneSessionId.value, messageId, toolId, answers)
 }
 
 // 处理工具跳过（AskUserQuestion / 任何 behavior:'ask' 工具）
 async function handleToolSkip(messageId: string, toolId: string) {
   console.log('[ChatPanel] Tool skip:', { messageId, toolId })
 
-  if (chatStore.hasPendingPermissionForToolUse(toolId)) {
-    await chatStore.denyPermission(messageId, toolId, t('chatPanel.userSkippedQuestions'))
+  if (turnStore.hasPendingPermissionForToolUse(toolId)) {
+    await turnStore.denyPermission(messageId, toolId, t('chatPanel.userSkippedQuestions'))
     return
   }
   // Fallback for legacy path
-  await chatStore.skipToolAnswer(messageId, toolId)
+  await turnStore.skipToolAnswer(paneSessionId.value, messageId, toolId)
 }
 
 async function handleNewSession() {
   if (props.paneId) {
     // ── 分屏模式：在当前 pane 中创建新会话 ──
-    const session = chatStore.createSession(t('common.newChat'))
+    const session = turnStore.createSession(t('common.newChat'))
     appStore.openSessionTab(session.id, session.title)
     const tabId = `session-${session.id}`
     splitLayout.setPaneContent(props.paneId, { kind: 'session', tabId })
@@ -1388,11 +1388,11 @@ async function handleNewSession() {
     return
   }
   // ── 非分屏模式：原有行为 ──
-  if (chatStore.currentSessionId && chatStore.currentSession) {
-    appStore.openSessionTab(chatStore.currentSessionId, chatStore.currentSession.title)
+  if (turnStore.currentSessionId && turnStore.currentSession) {
+    appStore.openSessionTab(turnStore.currentSessionId, turnStore.currentSession.title)
   }
 
-  const session = chatStore.createSession(t('common.newChat'))
+  const session = turnStore.createSession(t('common.newChat'))
   appStore.openSessionTab(session.id, session.title)
 }
 
@@ -1403,10 +1403,10 @@ function handleSwitchSession(sessionId: string) {
   if (props.paneId) {
     return
   }
-  chatStore.selectSession(sessionId)
-  if (chatStore.workingDirectory && chatStore.workingDirectory !== appStore.projectRoot) {
-    appStore.setProjectRoot(chatStore.workingDirectory)
-    settingsStore.projectRoot = chatStore.workingDirectory
+  turnStore.selectSession(sessionId)
+  if (turnStore.workingDirectory && turnStore.workingDirectory !== appStore.projectRoot) {
+    appStore.setProjectRoot(turnStore.workingDirectory)
+    settingsStore.projectRoot = turnStore.workingDirectory
     settingsStore.saveSettings()
   }
 }
@@ -1414,7 +1414,7 @@ function handleSwitchSession(sessionId: string) {
 function handleCloseTab(tabId: string) {
   const tab = appStore.centerTabs.find(t => t.id === tabId)
   if (tab?.sessionId) {
-    chatStore.deactivateSession(tab.sessionId)
+    turnStore.deactivateSession(tab.sessionId)
   }
   appStore.closeSessionTab(tabId)
 }
@@ -1424,17 +1424,17 @@ async function handleRestoreHistorySession(session: any) {
     const claudeCode = api.claudeCode
     if (!claudeCode || !session?.sessionId) return
 
-    const existingSession = chatStore.sessions.find(s => s.id === session.sessionId)
+    const existingSession = turnStore.sessions.find(s => s.id === session.sessionId)
 
     if (existingSession) {
       console.log('[ChatPanel] Reusing existing session:', session.sessionId)
-      chatStore.selectSession(session.sessionId)
+      turnStore.selectSession(session.sessionId)
       appStore.openSessionTab(session.sessionId, existingSession.title)
       showHistoryModal.value = false
       await nextTick()
       const reusedProjectPath = existingSession.workingDirectory || session.projectPath
       try {
-        await chatStore.loadTurnCheckpoints(session.sessionId, reusedProjectPath)
+        await turnStore.loadTurnCheckpoints(session.sessionId, reusedProjectPath)
       } catch (err) {
         console.warn('[ChatPanel] loadTurnCheckpoints failed:', err)
       }
@@ -1444,7 +1444,7 @@ async function handleRestoreHistorySession(session: any) {
     const fullSession = await claudeCode.getFullSession(session.projectPath, session.sessionId)
     if (!fullSession?.messages) return
 
-    const restoredSession = chatStore.createSession(
+    const restoredSession = turnStore.createSession(
       session.metadata?.customTitle ||
       (session.firstUserMessage ? session.firstUserMessage.slice(0, 60) : t('chatPanel.historyRestoreTitle')),
       session.projectPath,
@@ -1458,11 +1458,11 @@ async function handleRestoreHistorySession(session: any) {
       // 不应进入主时间线（否则会被渲染成普通用户/助手消息）。其转录由下方
       // recordTeammateMessage 单独处理。
       if (msg.metadata?.kind === 'teammate-message') continue
-      chatStore.addMessage(msg, restoredSession.id)
+      turnStore.addMessage(msg, restoredSession.id)
     }
 
     for (const raw of fullSession.messages as any[]) {
-      chatStore.recordTeammateMessage(raw, restoredSession.id)
+      turnStore.recordTeammateMessage(raw, restoredSession.id)
     }
 
     showHistoryModal.value = false
@@ -1483,7 +1483,7 @@ async function handleRestoreHistorySession(session: any) {
     // 的时序（destructured props / 异步消息追加可能导致 watcher 未在合适时机触发）。
     await nextTick()
     try {
-      await chatStore.loadTurnCheckpoints(restoredSession.id, session.projectPath)
+      await turnStore.loadTurnCheckpoints(restoredSession.id, session.projectPath)
     } catch (err) {
       console.warn('[ChatPanel] loadTurnCheckpoints failed:', err)
     }

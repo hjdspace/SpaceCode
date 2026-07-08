@@ -20,9 +20,9 @@
       </div>
 
       <!-- Session title (when in a session) -->
-      <template v-if="!h5Mode && chatStore.currentSession?.title && chatStore.currentSession.title !== t('common.newChat')">
+      <template v-if="!h5Mode && sessionStore.currentSession?.title && sessionStore.currentSession.title !== t('common.newChat')">
         <span class="title-separator">/</span>
-        <span class="session-title">{{ chatStore.currentSession.title }}</span>
+        <span class="session-title">{{ sessionStore.currentSession.title }}</span>
       </template>
     </div>
 
@@ -132,7 +132,7 @@
 
 <script setup lang="ts">
 import { useAppStore } from '@/stores/app'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chat'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
 import { useI18n } from 'vue-i18n'
 import { Menu, Minus, Square, Copy, X, ChevronDown, Smartphone, PanelRight, PanelBottom, Columns2, Rows2, Download } from 'lucide-vue-next'
@@ -146,7 +146,7 @@ import { isH5Mode } from '@/services/h5ApiClient'
 const h5Mode = isH5Mode()
 
 const appStore = useAppStore()
-const chatStore = useChatStore()
+const sessionStore = useChatSessionStore()
 const splitLayout = useSplitLayoutStore()
 const { t } = useI18n()
 const { showAlert } = useDialog()

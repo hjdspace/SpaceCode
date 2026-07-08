@@ -22,11 +22,11 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { GitCompare, Terminal, Globe, FileSearch } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chat'
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const chatStore = useChatStore()
+const sessionStore = useChatSessionStore()
 
 const items = computed(() => [
   {
@@ -34,7 +34,7 @@ const items = computed(() => [
     icon: GitCompare,
     label: t('panel.review'),
     shortcut: 'Ctrl+Shift+G',
-    action: () => chatStore.triggerDiffPanel(),
+    action: () => sessionStore.triggerDiffPanel(),
   },
   {
     id: 'terminal',

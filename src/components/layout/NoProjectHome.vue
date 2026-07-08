@@ -38,12 +38,12 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Folder, FolderOpen } from 'lucide-vue-next'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chat'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { getRecentProjectRoots, normalizeProjectPathKey } from '@/utils/recentProjectRoots'
 
 const { t } = useI18n()
-const chatStore = useChatStore()
+const sessionStore = useChatSessionStore()
 const { openProjectFromPicker, openProjectByPath } = useOpenProjectWorkflow()
 
 function displayName(path: string): string {
@@ -52,14 +52,14 @@ function displayName(path: string): string {
 }
 
 function maxSessionActivityForPath(path: string): number {
-  const relevant = chatStore.sessions.filter((s) => (s.workingDirectory || '') === path)
+  const relevant = sessionStore.sessions.filter((s) => (s.workingDirectory || '') === path)
   if (relevant.length === 0) return 0
   return Math.max(...relevant.map((s) => s.updatedAt || s.createdAt || 0))
 }
 
 const sortedRecentPaths = computed(() => {
   const stored = getRecentProjectRoots()
-  const fromStore = [...new Set(chatStore.allProjects.filter(Boolean))]
+  const fromStore = [...new Set(sessionStore.allProjects.filter(Boolean))]
   const seen = new Set<string>()
   const merged: string[] = []
 

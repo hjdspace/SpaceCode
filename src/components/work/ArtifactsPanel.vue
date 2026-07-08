@@ -47,13 +47,13 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RotateCw, PackageOpen, ExternalLink, FolderOpen, Eye } from 'lucide-vue-next'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chat'
 import { useAppStore } from '@/stores/app'
 import { api, type ArtifactEntry } from '@/services/electronAPI'
 import { iconFor, formatSize } from '@/utils/artifactFormat'
 
 const { t } = useI18n()
-const chatStore = useChatStore()
+const sessionStore = useChatSessionStore()
 const appStore = useAppStore()
 
 const files = ref<ArtifactEntry[]>([])
@@ -71,12 +71,12 @@ function isPreviewable(ext: string): boolean {
   return PREVIEWABLE.has(e) || OFFICE_EXTENSIONS.has(e)
 }
 
-const workingDir = computed(() => chatStore.workingDirectory || '')
+const workingDir = computed(() => sessionStore.workingDirectory || '')
 const outputsHint = computed(() => workingDir.value ? `${workingDir.value}/outputs` : 'outputs/')
 
 // 当前会话创建时间：用于过滤掉历史会话残留的产物（所有 Work 会话共享同一 outputs 目录）
-const sessionCreatedAt = computed(() => chatStore.currentSession?.createdAt ?? 0)
-const currentSessionId = computed(() => chatStore.currentSessionId)
+const sessionCreatedAt = computed(() => sessionStore.currentSession?.createdAt ?? 0)
+const currentSessionId = computed(() => sessionStore.currentSessionId)
 
 async function refresh() {
   const dir = workingDir.value

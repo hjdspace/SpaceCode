@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, markRaw } from 'vue'
 import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch, Package } from 'lucide-vue-next'
-import { useChatStore } from './chat'
+import { useChatSessionStore } from './chat'
 import { useTerminalStore, type CreateTerminalOptions } from './terminal'
 import { useSplitLayoutStore } from './splitLayout'
 import { api } from '@/services/electronAPI'
@@ -300,8 +300,8 @@ export const useAppStore = defineStore('app', () => {
   const TERMINAL_DOCK_MAX = 500
 
   function getDefaultTerminalCwd(): string | undefined {
-    const chatStore = useChatStore()
-    return chatStore.workingDirectory || projectRoot.value || workWorkspace.value || undefined
+    const sessionStore = useChatSessionStore()
+    return sessionStore.workingDirectory || projectRoot.value || workWorkspace.value || undefined
   }
 
   function createTerminalTab(options?: CreateTerminalOptions): string | null {
@@ -520,8 +520,8 @@ export const useAppStore = defineStore('app', () => {
     if (!trimmed) return trimmed
     const isAbsolute = /^([a-zA-Z]:[\\/]|[\\/]{2}|\/)/.test(trimmed)
     if (isAbsolute) return trimmed
-    const chatStore = useChatStore()
-    const base = (chatStore.workingDirectory || projectRoot.value || '').replace(/[\\/]+$/, '')
+    const sessionStore = useChatSessionStore()
+    const base = (sessionStore.workingDirectory || projectRoot.value || '').replace(/[\\/]+$/, '')
     if (!base) return trimmed
     const rel = trimmed.replace(/^[.\\/]+/, '')
     const sep = base.includes('\\') && !base.includes('/') ? '\\' : '/'
@@ -567,7 +567,7 @@ export const useAppStore = defineStore('app', () => {
         const nextSessionTab = centerTabs.value.find(t => t.sessionId)
         activeCenterTab.value = nextSessionTab?.id || centerTabs.value[0]?.id || 'chat'
 
-        // 关闭当前激活的会话标签后，需同步 chatStore.currentSessionId 到新激活的会话，
+        // 关闭当前激活的会话标签后，需同步 sessionStore.currentSessionId 到新激活的会话，
         // 否则主内容区仍显示已关闭会话的内容（仅单 leaf 模式需要：分屏模式由
         // SplitContainer 的 activePane watcher 负责将 pane 内容同步到全局）。
         const newActiveTab = nextSessionTab || centerTabs.value[0]
@@ -575,9 +575,9 @@ export const useAppStore = defineStore('app', () => {
           try {
             const splitLayout = useSplitLayoutStore()
             if (splitLayout.isSingleLeaf) {
-              const chatStore = useChatStore()
-              if (chatStore.currentSessionId !== newActiveTab.sessionId) {
-                chatStore.selectSession(newActiveTab.sessionId)
+              const sessionStore = useChatSessionStore()
+              if (sessionStore.currentSessionId !== newActiveTab.sessionId) {
+                sessionStore.selectSession(newActiveTab.sessionId)
               }
             }
           } catch { /* defensive */ }
@@ -617,8 +617,8 @@ export const useAppStore = defineStore('app', () => {
     if (tab) {
       activeCenterTab.value = tab.id
     } else {
-      const chatStore = useChatStore()
-      const session = chatStore.sessions.find(s => s.id === sessionId)
+      const sessionStore = useChatSessionStore()
+      const session = sessionStore.sessions.find(s => s.id === sessionId)
       const sessionTitle = session?.title || 'New Chat'
       openSessionTab(sessionId, sessionTitle)
     }

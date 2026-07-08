@@ -45,10 +45,10 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Shield, ChevronDown, Check, Eye, Edit3, Zap } from 'lucide-vue-next'
-import { useChatStore } from '@/stores/chat'
+import { usePermissionPolicyStore } from '@/stores/chat'
 
 const { t } = useI18n()
-const chatStore = useChatStore()
+const policyStore = usePermissionPolicyStore()
 
 const isOpen = ref(false)
 const selectorRef = ref<HTMLElement>()
@@ -82,7 +82,7 @@ const modes = [
   },
 ]
 
-const currentMode = computed(() => chatStore.currentPermissionMode)
+const currentMode = computed(() => policyStore.currentPermissionMode)
 const currentModeLabel = computed(() => 
   modes.find(m => m.value === currentMode.value)?.label || t('permission.modeSelector.default')
 )
@@ -93,7 +93,7 @@ async function selectMode(mode: PermissionMode) {
     return
   }
   
-  await chatStore.setPermissionMode(mode)
+  await policyStore.setPermissionMode(mode)
   isOpen.value = false
 }
 

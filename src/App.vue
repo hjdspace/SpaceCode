@@ -72,7 +72,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import { useFontStore } from '@/stores/font'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
@@ -105,7 +105,7 @@ import { useResizablePanel } from '@/composables/useResizablePanel'
 import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
 
 const appStore = useAppStore()
-const chatStore = useChatStore()
+const sessionStore = useChatSessionStore()
 const settingsStore = useSettingsStore()
 const splitLayout = useSplitLayoutStore()
 
@@ -133,12 +133,11 @@ type H5RemoteUserMessageDetail = {
   projectPath?: string | null
 }
 
-function revealRemoteChatSession(event: Event) {
-  const detail = (event as CustomEvent<H5RemoteUserMessageDetail>).detail
-  const sessionId = detail?.sessionId
+function revealChatSession(detail: H5RemoteUserMessageDetail) {
+  const sessionId = detail.sessionId
   if (!sessionId) return
 
-  const session = chatStore.sessions.find(s => s.id === sessionId)
+  const session = sessionStore.sessions.find(s => s.id === sessionId)
   const title = session?.title || detail.title || 'Remote Chat'
   const tabId = `session-${sessionId}`
 
@@ -154,7 +153,7 @@ function revealRemoteChatSession(event: Event) {
   }
 
   appStore.openSessionTab(sessionId, title)
-  void chatStore.selectSession(sessionId)
+  void sessionStore.selectSession(sessionId)
 
   if (splitLayout.isSingleLeaf) {
     const leaf = splitLayout.activePane
@@ -172,12 +171,16 @@ function revealRemoteChatSession(event: Event) {
   }
 }
 
+function revealRemoteChatSession(event: Event) {
+  revealChatSession((event as CustomEvent<H5RemoteUserMessageDetail>).detail || {})
+}
+
 // Initialize shortcuts
 const { register } = useShortcuts({
-  'new_chat': () => { chatStore.createSession() },
+  'new_chat': () => { sessionStore.createSession() },
   'close_chat': () => {
-    if (chatStore.currentSessionId) {
-      chatStore.deleteSession(chatStore.currentSessionId)
+    if (sessionStore.currentSessionId) {
+      sessionStore.deleteSession(sessionStore.currentSessionId)
     }
   },
   'toggle_sidebar': () => appStore.toggleSidebar(),
@@ -200,9 +203,9 @@ const { register } = useShortcuts({
     if (input) input.focus()
   },
   'clear_chat': () => {
-    if (chatStore.currentSessionId) {
-      chatStore.deleteSession(chatStore.currentSessionId)
-      chatStore.createSession('New Chat')
+    if (sessionStore.currentSessionId) {
+      sessionStore.deleteSession(sessionStore.currentSessionId)
+      sessionStore.createSession('New Chat')
     }
   }
 })
@@ -260,8 +263,8 @@ async function initH5MirrorSession() {
   // 设置项目根目录
   if (mirrorProjectPath) {
     appStore.projectRoot = mirrorProjectPath
-    chatStore.addProject(mirrorProjectPath)
-    chatStore.switchProject(mirrorProjectPath)
+    sessionStore.addProject(mirrorProjectPath)
+    sessionStore.switchProject(mirrorProjectPath)
   }
 
   // ★ 加载桌面端完整会话列表，让手机端侧边栏显示与桌面端一致的会话
@@ -272,7 +275,7 @@ async function initH5MirrorSession() {
         console.log('[H5] Loaded', remoteSessions.length, 'sessions from desktop')
         for (const rs of remoteSessions) {
           // 跳过已存在的会话（包括即将创建的镜像会话）
-          const existing = chatStore.sessions.find(s => s.id === rs.sessionId)
+          const existing = sessionStore.sessions.find(s => s.id === rs.sessionId)
           if (existing) continue
 
           // 将桌面端会话添加到本地 sessions 列表（不切换 currentSessionId）
@@ -288,9 +291,9 @@ async function initH5MirrorSession() {
             lastActivityAt: rs.lastMessageTimestamp || Date.now(),
             mode: 'code' as const,
           }
-          chatStore.sessions.push(session)
+          sessionStore.sessions.push(session)
         }
-        chatStore.saveToStorage()
+        sessionStore.saveToStorage()
       }
     } catch (err) {
       console.error('[H5] Failed to load project sessions:', err)
@@ -300,13 +303,13 @@ async function initH5MirrorSession() {
   // 如果有镜像会话，创建本地 Session 并加载历史
   if (mirrorSessionId) {
     // 检查是否已存在该 session（可能刚从桌面端列表加载）
-    let session = chatStore.sessions.find(s => s.id === mirrorSessionId)
+    let session = sessionStore.sessions.find(s => s.id === mirrorSessionId)
     if (!session) {
-      session = chatStore.createSession('Mirror Session', mirrorProjectPath || undefined, mirrorSessionId)
+      session = sessionStore.createSession('Mirror Session', mirrorProjectPath || undefined, mirrorSessionId)
     } else {
       // 已存在（从桌面端列表加载），更新标题并选中
       session.title = 'Mirror Session'
-      void chatStore.selectSession(mirrorSessionId)
+      void sessionStore.selectSession(mirrorSessionId)
     }
 
     // 从 H5 API 加载会话历史
@@ -322,7 +325,7 @@ async function initH5MirrorSession() {
               ...m,
               timestamp: (m as any).timestamp ?? Date.now() - (restoredMessages.length - i) * 1000,
             })) as any
-            chatStore.saveToStorage()
+            sessionStore.saveToStorage()
             console.log('[H5] Restored', restoredMessages.length, 'messages from mirror session')
           }
         }
@@ -336,6 +339,12 @@ async function initH5MirrorSession() {
     if (activeSession?.isRunning && session) {
       session.processStatus = 'active'
     }
+
+    revealChatSession({
+      sessionId: mirrorSessionId,
+      title: session?.title || 'Mirror Session',
+      projectPath: mirrorProjectPath,
+    })
   }
 }
 
@@ -357,15 +366,27 @@ onMounted(() => {
 
       console.log('[H5] Session changed from desktop:', { newSessionId, newProjectPath })
 
+      if (newProjectPath) {
+        appStore.projectRoot = newProjectPath
+        sessionStore.addProject(newProjectPath)
+        sessionStore.switchProject(newProjectPath)
+      }
+
       // 检查是否已存在该会话
-      let session = chatStore.sessions.find(s => s.id === newSessionId)
+      let session = sessionStore.sessions.find(s => s.id === newSessionId)
       if (!session && newProjectPath) {
         // 创建新的本地会话
-        session = chatStore.createSession('Mirror Session', newProjectPath, newSessionId)
+        session = sessionStore.createSession('Mirror Session', newProjectPath, newSessionId)
       } else if (session) {
         // 已存在，直接选中
-        void chatStore.selectSession(newSessionId)
+        void sessionStore.selectSession(newSessionId)
       }
+
+      revealChatSession({
+        sessionId: newSessionId,
+        title: session?.title || 'Mirror Session',
+        projectPath: newProjectPath || null,
+      })
 
       // 加载新镜像会话的历史
       // ★ 保护：只在 session 没有消息时才加载历史。
@@ -382,7 +403,7 @@ onMounted(() => {
                 ...m,
                 timestamp: (m as any).timestamp ?? Date.now() - (restoredMessages.length - i) * 1000,
               })) as any
-              chatStore.saveToStorage()
+              sessionStore.saveToStorage()
               console.log('[H5] Restored', restoredMessages.length, 'messages for new mirror session')
             }
           }
@@ -415,13 +436,13 @@ onMounted(() => {
   api.onMenuCloseFolder(() => {
     appStore.closeProject()
     // 清空当前项目
-    chatStore.switchProject('')
+    sessionStore.switchProject('')
   })
 
   // 初始化时如果有项目，添加到列表
   const initialProjectRoot = appStore.projectRoot
   if (initialProjectRoot) {
-    chatStore.addProject(initialProjectRoot)
+    sessionStore.addProject(initialProjectRoot)
     recordRecentProjectRoot(initialProjectRoot)
   }
 
@@ -434,7 +455,7 @@ onMounted(() => {
         density: settingsStore.appearance.density,
       },
     }),
-    getSessions: () => chatStore.sessions || [],
+    getSessions: () => sessionStore.sessions || [],
   }
 
   // 监听打开技能管理器事件
@@ -448,7 +469,7 @@ onMounted(() => {
 
   // 桌面端：监听会话切换，通知 H5 Server 镜像会话
   if (!isH5Mode() && api.h5Access) {
-    watch(() => [chatStore.currentSessionId, appStore.projectRoot], ([sid, projectPath]) => {
+    watch(() => [sessionStore.currentSessionId, appStore.projectRoot], ([sid, projectPath]) => {
       api.h5Access.setMirrorSession(sid, projectPath).catch(() => {})
     }, { immediate: true })
   }
