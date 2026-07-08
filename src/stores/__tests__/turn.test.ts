@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useChatSessionStore } from '../chatSession'
 
@@ -11,6 +11,8 @@ function makeFakeApi() {
       onAssistant: (cb: any) => { handlers.onAssistant = cb; return () => {} },
       onToolUse: (cb: any) => { handlers.onToolUse = cb; return () => {} },
       onToolResult: (cb: any) => { handlers.onToolResult = cb; return () => {} },
+      onUser: (cb: any) => { handlers.onUser = cb; return () => {} },
+      onSystem: (cb: any) => { handlers.onSystem = cb; return () => {} },
       onResult: (cb: any) => { handlers.onResult = cb; return () => {} },
       onExit: (cb: any) => { handlers.onExit = cb; return () => {} },
       onError: (cb: any) => { handlers.onError = cb; return () => {} },
@@ -128,5 +130,48 @@ describe('TurnState machine', () => {
     } finally {
       ;(turn as any).endTurn('sess-3', ts)
     }
+  })
+})
+
+describe('Turn 事件订阅', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    // 用 fake timers 避免 autonomous turn 的 45 分钟超时定时器跨用例泄漏
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // 用例 1：onStreamEvent 到达空会话被丢弃（不创建 autonomous turn）
+  it('onStreamEvent 到达空会话被丢弃（不创建 autonomous turn）', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    // 会话不存在 → ensureTurn 返回 settled → 事件丢弃
+    fake._handlers.onStreamEvent({ sessionId: 'unknown', data: { type: 'content_block_start' } })
+    expect(turn.getIsLoading('unknown')).toBe(false)
+  })
+
+  // 用例 2：onAssistant 到达有 user 消息的会话 → 创建 autonomous turn + appendMessage
+  it('onAssistant 到达有 user 消息的会话 → 创建 autonomous turn + appendMessage', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('Test', undefined, 'sess-evt')
+    sessionStore.addMessage({ role: 'user', content: 'hi' }, 'sess-evt')
+
+    // 模拟引擎发 assistant 事件（message.content 为 Claude API 格式数组）
+    fake._handlers.onAssistant({
+      sessionId: 'sess-evt',
+      data: { message: { id: 'msg-a', content: [{ type: 'text', text: 'hello' }] } },
+    })
+
+    expect(turn.getIsLoading('sess-evt')).toBe(true)
+    const session = sessionStore.sessions.find(s => s.id === 'sess-evt')!
+    // 应有 user + assistant 两条消息
+    expect(session.messages.length).toBeGreaterThanOrEqual(2)
+    expect(session.messages.some(m => m.role === 'assistant')).toBe(true)
   })
 })
