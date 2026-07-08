@@ -679,8 +679,10 @@ info('Startup', 'CuaDriver IPC handlers registered')
   })()
 
   // Register Design IPC handlers
+  // 生产模式：electron-builder 通过 extraResources 将 design-systems-lib 复制到 resources/ 下，
+  // 因此路径应为 process.resourcesPath（与其他 extraResources 如 skills-lib、icons 一致）
   const designResourcesPath = app.isPackaged
-    ? resolve(process.resourcesPath, '..')
+    ? process.resourcesPath
     : resolve(__dirname, '..')
   registerDesignIPCHandlers(mainWindow!, designResourcesPath)
   info('Startup', 'Design IPC handlers registered')
