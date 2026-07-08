@@ -185,6 +185,32 @@ describe('Turn 事件订阅', () => {
     expect(session.messages.length).toBeGreaterThanOrEqual(2)
     expect(session.messages.some(m => m.role === 'assistant')).toBe(true)
   })
+
+  it('keeps the session active when the process exits before the turn result', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('Test', undefined, 'sess-exit-before-result')
+    sessionStore.addMessage({ role: 'user', content: 'hello world' }, 'sess-exit-before-result')
+
+    const ts = (turn as any).beginTurn('sess-exit-before-result', { isAutonomous: false })
+
+    const session = sessionStore.sessions.find(s => s.id === 'sess-exit-before-result')!
+    expect(session.processStatus).toBe('active')
+    expect(turn.getIsLoading('sess-exit-before-result')).toBe(true)
+
+    fake._handlers.onExit({ sessionId: 'sess-exit-before-result', data: 0 })
+
+    expect(session.processStatus).toBe('active')
+    expect(turn.getIsLoading('sess-exit-before-result')).toBe(true)
+
+    fake._handlers.onResult({ sessionId: 'sess-exit-before-result', data: { result: 'done' } })
+
+    expect(session.processStatus).toBe('idle')
+    expect(turn.getIsLoading('sess-exit-before-result')).toBe(false)
+    ;(turn as any).endTurn('sess-exit-before-result', ts)
+  })
 })
 
 describe('Turn sendMessage', () => {

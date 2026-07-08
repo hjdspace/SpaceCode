@@ -337,7 +337,7 @@ const paneRawMessages = computed(() =>
   props.sessionId ? sessionStore.getSessionMessages(paneSessionId.value) : sessionStore.currentMessages
 )
 const paneIsLoading = computed(() =>
-  props.sessionId ? sessionStore.getIsLoading(paneSessionId.value) : sessionStore.isLoading
+  paneSessionId.value ? turnStore.getIsLoading(paneSessionId.value) : false
 )
 const paneWorkingDirectory = computed(() =>
   props.sessionId ? sessionStore.getWorkingDirectory(paneSessionId.value) : sessionStore.workingDirectory

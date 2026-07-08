@@ -1196,9 +1196,13 @@ export function useTurnStore(injectedApi?: any) {
           ? `Process exited with code ${exitCode}: ${detail}`
           : `Process exited with code ${exitCode}`
         handleError(sessionId, ts, new Error(msg))
-      } else {
-        handleResult(sessionId, ts, {})
+        return
       }
+
+      // A clean process exit is only a process-lifecycle signal. The successful
+      // turn must settle on the engine's result event; otherwise an early/stale
+      // exit can make the UI show "completed" while the assistant is still
+      // streaming through the active turn.
     }
 
     // ────────────────────────────────────────────────────────────────────

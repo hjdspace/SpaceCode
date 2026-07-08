@@ -127,8 +127,8 @@ export const h5EngineService = {
     const subscribeEngine = (engine: IEngine) => {
       if (subscribed.has(engine)) return
       subscribed.add(engine)
-      if ('onRouteEvent' in engine && typeof (engine as any).onRouteEvent === 'function') {
-        unsubs.push((engine as any).onRouteEvent(listener))
+      if (typeof engine.onRouteEvent === 'function') {
+        unsubs.push(engine.onRouteEvent(listener))
       }
     }
 
