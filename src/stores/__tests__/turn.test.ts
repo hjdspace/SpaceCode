@@ -85,6 +85,27 @@ describe('TurnState machine', () => {
     expect(session.messages.length).toBe(0)
   })
 
+  // 用例 2a：ensureTurn 对不存在的会话返回 settled 占位 turn
+  // 验证占位对象真正满足 TurnState 接口——所有必填字段非 undefined，
+  // 防止未来调用方忘记 ts.settled 早返回时访问到 undefined 字段。
+  it('ensureTurn 对不存在的会话返回完整 settled turn（所有必填字段已填充）', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+
+    const ts = (turn as any).ensureTurn('non-existent-sess')
+    expect(ts.settled).toBe(true)
+    // 所有必填字段必须存在（非 undefined），使对象真正满足 TurnState 接口
+    expect(ts.assistantMessageId).not.toBeUndefined()
+    expect(ts.accumulatedContent).not.toBeUndefined()
+    expect(ts.currentTextEventId).toBeNull()
+    expect(ts.currentReasoningEventId).toBeNull()
+    expect(ts.streamingHandledThinking).toBe(false)
+    expect(ts.sendStartTime).not.toBeUndefined()
+    expect(ts.timeoutId).toBeNull()
+    expect(ts.isAutonomous).toBe(false)
+  })
+
   // 用例 3：ensureTurn 对有 user 消息的会话创建 autonomous turn
   it('ensureTurn 对有 user 消息的会话创建 autonomous turn', async () => {
     const fake = makeFakeApi()

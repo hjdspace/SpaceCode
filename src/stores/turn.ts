@@ -26,6 +26,25 @@ export const REQUEST_TIMEOUT = 5 * 60 * 1000
 export const AUTONOMOUS_REQUEST_TIMEOUT = 45 * 60 * 1000
 export const MAX_INMEMORY_TOOL_OUTPUT = 30_000
 
+// 构造"已结算"的空 TurnState 占位对象。用于 ensureTurn 在应丢弃事件的窗口期
+// （sendMessage 进行中 / 用户 abort / 空会话）返回——所有必填字段填入安全默认值，
+// 使对象真正满足 TurnState 接口，不再依赖 as 断言绕过类型检查。调用方仍应通过
+// ts.settled 早返回；此 helper 仅作类型诚实性与防御性兜底，避免未来调用方
+// 忘记 settled 守卫时访问到 undefined 字段。
+function createSettledTurn(): TurnState {
+  return {
+    assistantMessageId: '',
+    accumulatedContent: '',
+    currentTextEventId: null,
+    currentReasoningEventId: null,
+    streamingHandledThinking: false,
+    sendStartTime: 0,
+    timeoutId: null,
+    isAutonomous: false,
+    settled: true,
+  }
+}
+
 // 测试可注入 fake api；生产用真实 api
 export function useTurnStore(injectedApi?: any) {
   return defineStore('turn', () => {
@@ -130,14 +149,14 @@ export function useTurnStore(injectedApi?: any) {
       // 因为用户发起的 turn 即将由 beginTurn 创建。
       // 丢弃此窗口期内的流式事件，防止 autonomous turn 消费事件或被提前结算。
       if (pendingSendMessages.has(sessionId)) {
-        return { settled: true } as TurnState
+        return createSettledTurn()
       }
 
       // ★ 用户主动 abort 后，丢弃引擎残留事件（子代理输出等），
       // 不创建 autonomous turn，防止会话「自动恢复运行」。
       // 标记在 sendMessage / retryLastMessage / resendForRetry 中清除。
       if (userAbortedSessions.has(sessionId)) {
-        return { settled: true } as TurnState
+        return createSettledTurn()
       }
 
       // 新建会话尚未有任何消息时，不因 CLI 初始化事件自动创建 turn，
@@ -146,7 +165,7 @@ export function useTurnStore(injectedApi?: any) {
       const session = sink.get(sessionId)
       if (!session || session.messages.length === 0) {
         // 返回一个已结算的空 turn，使调用方因 ts.settled 提前返回
-        return { settled: true } as TurnState
+        return createSettledTurn()
       }
 
       return beginTurn(sessionId, { isAutonomous: true })
