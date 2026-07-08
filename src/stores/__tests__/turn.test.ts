@@ -175,3 +175,39 @@ describe('Turn 事件订阅', () => {
     expect(session.messages.some(m => m.role === 'assistant')).toBe(true)
   })
 })
+
+describe('Turn sendMessage', () => {
+  beforeEach(() => { setActivePinia(createPinia()) })
+
+  it('sendMessage 创建 user message 并调用 api.claudeCode.sendMessage', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('Test', undefined, 'sess-send')
+    sessionStore.selectSession('sess-send')
+
+    await turn.sendMessage('hello world', undefined, undefined)
+
+    const session = sessionStore.sessions.find(s => s.id === 'sess-send')!
+    expect(session.messages[0].role).toBe('user')
+    expect(session.messages[0].content).toBe('hello world')
+    expect(fake.claudeCode.sendMessage).toHaveBeenCalledWith(
+      'sess-send', 'hello world', undefined, expect.objectContaining({ clientMessageId: session.messages[0].id })
+    )
+  })
+
+  it('abort 标记 userAbortedSessions 并调用 api.claudeCode.abort', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('Test', undefined, 'sess-abort')
+    sessionStore.selectSession('sess-abort')
+
+    await turn.abort()
+
+    expect(fake.claudeCode.abort).toHaveBeenCalledWith('sess-abort')
+    expect(turn.getIsLoading('sess-abort')).toBe(false)
+  })
+})

@@ -1092,8 +1092,214 @@ export function useTurnStore(injectedApi?: any) {
     }
 
     // ── 骨架 stub：本任务只建结构，行为在任务 5/7 实现 ──
-    async function sendMessage(_content: string, _userMessageContent?: string, _attachments?: any): Promise<void> {}
-    async function abort(): Promise<void> {}
+    interface MessageAttachments {
+      files?: { name: string; path: string; isFolder: boolean }[]
+      images?: { id: string; name: string; type: 'image'; mimeType: string; previewUrl: string; data: string }[]
+    }
+
+    async function sendMessage(content: string, userMessageContent?: string, attachments?: MessageAttachments): Promise<void> {
+      if (!sessionStore.currentSessionId) {
+        sessionStore.createSession()
+      }
+
+      const targetSessionId = sessionStore.currentSessionId!
+      userAbortedSessions.delete(targetSessionId)
+      autoRetry.removeRetryState(targetSessionId)
+      const session = sink.get(targetSessionId)
+      if (!session) return
+
+      loadingSessions.value.set(targetSessionId, true)
+      if (session.processStatus !== 'active') {
+        session.processStatus = 'active'
+      }
+
+      pendingSendMessages.add(targetSessionId)
+
+      sessionStore.logger.info('ChatStore', `sendMessage: user message | sessionId=${targetSessionId.slice(0, 8)} | contentLen=${content.length} | preview="${content.slice(0, 80)}"`)
+      sessionStore.traceEvent({
+        sessionId: targetSessionId,
+        actor: 'user',
+        type: 'user_message',
+        status: 'completed',
+        title: 'User submitted message',
+        input: { content: userMessageContent ?? content },
+        metadata: { contentLength: content.length },
+      })
+
+      const userMessage = sink.appendMessage(targetSessionId, {
+        role: 'user',
+        content: userMessageContent ?? content,
+        attachments: attachments?.files,
+        imageAttachments: attachments?.images
+      })
+
+      if (attachments?.images?.length) {
+        for (const img of attachments.images) {
+          if (img.id && img.data) {
+            resolvedApi.image?.save?.(img.id, img.data).catch(() => {})
+          }
+        }
+      }
+
+      const claudeCode = resolvedApi.claudeCode
+      if (!claudeCode) {
+        sessionStore.logger.error('ChatStore', `sendMessage: claudeCode API not available | sessionId=${targetSessionId.slice(0, 8)}`)
+        const classified = errorHandler.handleError(new Error('Claude Code CLI is not available. Please check your configuration.'), {
+          sessionId: targetSessionId,
+          phase: 'init',
+        })
+        setTimeout(() => {
+          sink.appendMessage(targetSessionId, {
+            role: 'assistant',
+            content: classified.message,
+            metadata: { error: classified }
+          })
+          loadingSessions.value.set(targetSessionId, false)
+          pendingSendMessages.delete(targetSessionId)
+        }, 500)
+        return
+      }
+
+      try {
+        await sessionStore.initClaudeCodeSession(targetSessionId)
+      } catch (error) {
+        pendingSendMessages.delete(targetSessionId)
+        loadingSessions.value.set(targetSessionId, false)
+        const s = sink.get(targetSessionId)
+        if (s) s.processStatus = 'idle'
+        throw error
+      }
+
+      sessionStore.logger.info('ChatStore', `sendMessage: calling IPC sendMessage | sessionId=${targetSessionId.slice(0, 8)}`)
+
+      if (turnStates.has(targetSessionId)) {
+        sessionStore.logger.warn('ChatStore', `sendMessage: a turn is already in flight for this session, skipping new turn setup | sessionId=${targetSessionId.slice(0, 8)}`)
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        const ts = beginTurn(targetSessionId, { isAutonomous: false, resolve, reject })
+        pendingSendMessages.delete(targetSessionId)
+
+        const plainImages = attachments?.images?.map(img => ({
+          id: img.id,
+          name: img.name,
+          type: img.type,
+          mimeType: img.mimeType,
+          previewUrl: img.previewUrl,
+          data: img.data,
+        }))
+        ;(claudeCode.sendMessage as any)(targetSessionId, content, plainImages, {
+          clientMessageId: userMessage.id,
+          displayContent: userMessageContent ?? content,
+        }).catch((error: any) => {
+          sessionStore.logger.error('ChatStore', `[${targetSessionId.slice(0, 8)}] IPC sendMessage rejected`, { error: String(error) })
+          const cur = turnStates.get(targetSessionId)
+          if (cur === ts) handleError(targetSessionId, ts, error)
+        })
+      }).catch((error) => {
+        sessionStore.logger.error('ChatStore', `[${targetSessionId.slice(0, 8)}] sendMessage outer catch`, { error: String(error) })
+        loadingSessions.value.set(targetSessionId, false)
+        streamingContents.value.set(targetSessionId, '')
+        pendingSendMessages.delete(targetSessionId)
+      })
+    }
+
+    async function abort(): Promise<void> {
+      const sid = sessionStore.currentSessionId
+      sessionStore.logger.info('ChatStore', `abort | sessionId=${sid?.slice(0, 8) || '(none)'}`)
+
+      if (sid) {
+        userAbortedSessions.add(sid)
+      }
+
+      const claudeCode = resolvedApi.claudeCode
+      if (claudeCode && sid) {
+        try {
+          await claudeCode.abort(sid)
+        } catch (error) {
+          sessionStore.logger.error('ChatStore', `abort failed | sessionId=${sid.slice(0, 8)}`, { error: String(error) })
+        }
+      }
+      if (sid) {
+        pendingSendMessages.delete(sid)
+        loadingSessions.value.set(sid, false)
+        streamingContents.value.set(sid, '')
+
+        autoRetry.cancelRetry(sid)
+        autoRetry.removeRetryState(sid)
+
+        const ts = turnStates.get(sid)
+        if (ts && !ts.settled) {
+          ts.settled = true
+          ts.resolve?.()
+          endTurn(sid, ts)
+          const s = sink.get(sid)
+          if (s) {
+            s.processStatus = 'idle'
+            sink.persist(sid)
+          }
+        }
+      }
+    }
+
+    async function retryLastMessage(): Promise<void> {
+      const sid = sessionStore.currentSessionId
+      if (!sid) return
+      userAbortedSessions.delete(sid)
+      errorHandler.clearInlineError(sid)
+      const session = sink.get(sid)
+      if (!session) return
+
+      const claudeCode = resolvedApi.claudeCode
+      const lastUserMsg = [...session.messages].reverse().find(m => m.role === 'user')
+      if (lastUserMsg) {
+        const lastAssistantMsg = [...session.messages].reverse().find(m => m.role === 'assistant' && m.metadata?.error)
+        if (lastAssistantMsg) {
+          const idx = session.messages.findIndex(m => m.id === lastAssistantMsg.id)
+          if (idx >= 0) session.messages.splice(idx, 1)
+        }
+
+        try {
+          if (claudeCode) {
+            sessionStore.logger.info('ChatStore', `retryLastMessage: attempting to suspend and resume session | sessionId=${sid.slice(0, 8)}`)
+            try {
+              if (session.processStatus === 'active' || session.processStatus === 'idle') {
+                claudeCode.suspendSession?.(sid)
+                session.processStatus = 'suspended'
+                sink.persist(sid)
+                await new Promise(resolve => setTimeout(resolve, 100))
+              }
+              const status = await claudeCode.getSessionStatus(sid)
+              if (!status?.isRunning || status?.status === 'exited') {
+                await claudeCode.stop(sid)
+                session.processStatus = 'none'
+                sink.persist(sid)
+              }
+            } catch (e) {
+              sessionStore.logger.warn('ChatStore', `retryLastMessage: suspend failed, falling back to stop | sessionId=${sid.slice(0, 8)}`, { error: String(e) })
+              try {
+                await claudeCode.stop(sid)
+              } catch (e2) {
+                // 停止失败也不要紧，继续尝试
+              }
+              session.processStatus = 'none'
+              sink.persist(sid)
+            }
+          }
+
+          const existingUserMsgIndex = session.messages.findIndex(m => m.role === 'user' && m.content === lastUserMsg.content)
+          if (existingUserMsgIndex >= 0) {
+            session.messages.splice(existingUserMsgIndex, 1)
+            sink.persist(sid)
+          }
+
+          await sendMessage(lastUserMsg.content)
+        } catch (error) {
+          sessionStore.logger.error('ChatStore', `retryLastMessage: failed | sessionId=${sid.slice(0, 8)}`, { error: String(error) })
+        }
+      }
+    }
+
     async function allowPermission(_messageId: string, _toolUseId: string, _updatedInput: Record<string, unknown>, _decisionClassification?: 'user_temporary' | 'user_permanent'): Promise<void> {}
     async function denyPermission(_messageId: string, _toolUseId: string, _message = 'User denied', _options: { interrupt?: boolean } = {}): Promise<void> {}
     function getIsLoading(sessionId: string | null | undefined): boolean {
@@ -1228,6 +1434,7 @@ export function useTurnStore(injectedApi?: any) {
       loadingSessions,
       sendMessage,
       abort,
+      retryLastMessage,
       allowPermission,
       denyPermission,
       getIsLoading,
