@@ -167,7 +167,7 @@ export default {
     catOffice: '办公',
     catResearch: '研究',
     catFinance: '财务',
-    catInvestment: '金融',
+    catInvestment: '投资',
     catDesign: '设计',
     catCreative: '创意',
     catProductivity: '效率',
