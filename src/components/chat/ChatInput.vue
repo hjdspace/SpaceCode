@@ -172,7 +172,8 @@
                 </div>
               </div>
             </Transition>
-            <!-- 模型二级子菜单（浮层，定位到主 dropdown 左上方） -->
+            <!-- 模型二级子菜单（Teleport 到 body，避免 container-type/overflow/z-index 问题） -->
+            <Teleport to="body">
             <Transition name="dropdown">
               <div
                 v-if="showModelSubmenu"
@@ -236,6 +237,7 @@
                 </div>
               </div>
             </Transition>
+            </Teleport>
           </div>
 
           <!-- Thinking 模式开关 -->
@@ -520,8 +522,18 @@ const currentPendingMessages = computed(() => {
   return turnStore.getPendingMessages(sid)
 })
 
-// Model submenu style (depends on DOM refs from useModelSelector)
+// Model submenu style — with <Teleport to="body">, position: fixed is
+// relative to the viewport, so getBoundingClientRect() values can be used
+// directly without subtracting the container offset.
+// Reading showModelSubmenu ensures the computed re-evaluates with fresh
+// getBoundingClientRect() values every time the submenu opens.
+const MODEL_SUBMENU_WIDTH = 220 // min-width of .model-submenu
+const MODEL_SUBMENU_GAP = 4
+
 const modelSubmenuStyle = computed<Record<string, string>>(() => {
+  // Reactive trigger: re-evaluate when the submenu toggles
+  if (!showModelSubmenu.value) return {}
+
   const mainDropdown = mainDropdownRef.value
   const triggerRow = modelTriggerRowRef.value
   const style: Record<string, string> = {}
@@ -529,10 +541,21 @@ const modelSubmenuStyle = computed<Record<string, string>>(() => {
 
   const mainDropdownRect = mainDropdown.getBoundingClientRect()
   const triggerRowRect = triggerRow.getBoundingClientRect()
+  const viewportWidth = window.innerWidth
+  const viewportHeight = window.innerHeight
 
-  style.bottom = `${window.innerHeight - triggerRowRect.bottom}px`
-  style.left = `${mainDropdownRect.right + 4}px`
   style.position = 'fixed'
+  style.bottom = `${viewportHeight - triggerRowRect.bottom}px`
+
+  // Flip to left when there isn't enough space on the right (e.g. when the
+  // right-side env panel is open), otherwise position to the right of the
+  // main dropdown with a small gap.
+  const spaceRight = viewportWidth - mainDropdownRect.right - MODEL_SUBMENU_GAP
+  if (spaceRight >= MODEL_SUBMENU_WIDTH) {
+    style.left = `${mainDropdownRect.right + MODEL_SUBMENU_GAP}px`
+  } else {
+    style.left = `${Math.max(MODEL_SUBMENU_GAP, mainDropdownRect.left - MODEL_SUBMENU_GAP - MODEL_SUBMENU_WIDTH)}px`
+  }
 
   return style
 })
@@ -1987,7 +2010,7 @@ watch(pendingFile, (file) => {
   overflow: hidden;
 }
 
-// 模型二级子菜单（fixed 定位，从主 dropdown 右侧弹出）
+// 模型二级子菜单（Teleport 到 body，fixed 定位，自适应左右弹出）
 .model-submenu {
   min-width: 220px;
   max-height: 360px;
@@ -1995,7 +2018,7 @@ watch(pendingFile, (file) => {
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-lg);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
-  z-index: 110;
+  z-index: 500;
   overflow: hidden;
   display: flex;
   flex-direction: column;
