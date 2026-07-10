@@ -61,7 +61,7 @@ watch(() => appStore.showFileQuickOpen, (visible) => {
     activeIndex.value = 0
     nextTick(() => inputRef.value?.focus())
   }
-})
+}, { immediate: true })
 
 watch(query, (q) => {
   if (searchTimer) clearTimeout(searchTimer)

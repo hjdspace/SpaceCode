@@ -146,7 +146,7 @@ watch(() => sessionContext.showPushDialog, (show) => {
     // Refresh status to get latest ahead/behind info
     scmStore.refresh()
   }
-})
+}, { immediate: true })
 </script>
 
 <style lang="scss" scoped>

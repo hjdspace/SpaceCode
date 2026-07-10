@@ -299,6 +299,7 @@ watch(
   open => {
     if (open) void contextStore.refresh(undefined, true)
   },
+  { immediate: true },
 )
 </script>
 

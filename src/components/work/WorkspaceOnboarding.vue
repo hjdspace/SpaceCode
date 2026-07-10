@@ -52,7 +52,7 @@ watch(() => appStore.showWorkOnboarding, async (visible) => {
       } catch { /* ignore */ }
     }
   }
-})
+}, { immediate: true })
 
 function finish() {
   // 目录为可选上下文：设置完成后直接关闭，不再强制弹出助手画廊。

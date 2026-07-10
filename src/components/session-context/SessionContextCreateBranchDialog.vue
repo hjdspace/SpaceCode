@@ -121,7 +121,7 @@ watch(() => sessionContext.showCreateBranchDialog, (show) => {
       branchNameInput.value?.focus()
     })
   }
-})
+}, { immediate: true })
 </script>
 
 <style lang="scss" scoped>

@@ -45,7 +45,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Shield, ChevronDown, Check, Eye, Edit3, Zap } from 'lucide-vue-next'
-import { usePermissionPolicyStore } from '@/stores/chat'
+import { usePermissionPolicyStore } from '@/stores/permissionPolicy'
 
 const { t } = useI18n()
 const policyStore = usePermissionPolicyStore()

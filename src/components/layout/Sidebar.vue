@@ -303,7 +303,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { defineAsyncComponent, ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useChatSessionStore } from '@/stores/chat'
 import { useAppStore, type AppMode } from '@/stores/app'
@@ -334,9 +334,6 @@ import {
 // Enhanced Components
 import ModeTabs from './ModeTabs.vue'
 import SessionList from '../explorer/SessionList.vue'
-import FileTree from '../explorer/FileTree.vue'
-import ScmPanel from '../scm/ScmPanel.vue'
-import SkillsManager from '../skills/SkillsManager.vue'
 // import McpManager from '../mcp/McpManagerModal.vue' // 已迁移到 App.vue 全屏模式
 import { api } from '@/services/electronAPI'
 import { isH5Mode, h5ApiClient } from '@/services/h5ApiClient'
@@ -344,6 +341,9 @@ import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useFileToChat } from '@/composables/useFileToChat'
 import { pathsEqual } from '@/utils/recentProjectRoots'
 import { useDialog } from '@/composables/useDialog'
+
+const FileTree = defineAsyncComponent(() => import('../explorer/FileTree.vue'))
+const ScmPanel = defineAsyncComponent(() => import('../scm/ScmPanel.vue'))
 
 interface TreeNode {
   name: string

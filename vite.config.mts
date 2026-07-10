@@ -5,6 +5,18 @@ import renderer from 'vite-plugin-electron-renderer'
 import { resolve } from 'path'
 
 export default defineConfig({
+  define: {
+    __INTLIFY_JIT_COMPILATION__: true,
+    __INTLIFY_DROP_MESSAGE_COMPILER__: false,
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      define: {
+        __INTLIFY_JIT_COMPILATION__: 'true',
+        __INTLIFY_DROP_MESSAGE_COMPILER__: 'false',
+      },
+    },
+  },
   plugins: [
     vue({
       template: {
@@ -79,13 +91,11 @@ export default defineConfig({
       external: ['@mariozechner/pi-coding-agent'],
       output: {
         manualChunks(id) {
-          // 大型图表库单独打包
-          if (id.includes('node_modules/cytoscape')) {
-            return 'vendor-cytoscape'
+          const normalizedId = id.replace(/\\/g, '/')
+          if (/\/src\/stores\/(chat|chatSession|turn)\.ts$/.test(normalizedId)) {
+            return 'stores-chat'
           }
-          if (id.includes('node_modules/mermaid')) {
-            return 'vendor-mermaid'
-          }
+          // Large optional libraries stay out of the application chunk.
           if (id.includes('node_modules/katex')) {
             return 'vendor-katex'
           }

@@ -196,7 +196,7 @@ watch(() => sessionContext.showGitGraphModal, (show) => {
     entries.value = []
     errorMsg.value = ''
   }
-})
+}, { immediate: true })
 </script>
 
 <style lang="scss" scoped>

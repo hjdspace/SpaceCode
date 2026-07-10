@@ -9,7 +9,7 @@
     />
     
     <!-- Terminal Panel: v-show 保持挂载，避免切换标签时终端被销毁 -->
-    <div v-show="isTerminalTab" class="terminal-wrapper">
+    <div v-if="terminalPanelMounted" v-show="isTerminalTab" class="terminal-wrapper">
       <TerminalPanel />
     </div>
     
@@ -112,6 +112,7 @@
 
           <!-- Work 模式自动路由：多助手匹配时的选择弹窗 -->
           <WorkAssistantPicker
+            v-if="pickerVisible"
             v-model:visible="pickerVisible"
             :candidates="pickerCandidates"
             @confirm="onPickerConfirm"
@@ -120,6 +121,7 @@
 
           <!-- Rewind Dialog -->
           <RewindDialog
+            v-if="sessionStore.rewindState.showDialog"
             :show="sessionStore.rewindState.showDialog"
             :selected-message-id="sessionStore.rewindState.selectedMessageId"
             :message-content="rewindSelectedMessageContent"
@@ -137,6 +139,7 @@
 
           <!-- Code Rewind Confirmation Dialog -->
           <CodeRewindConfirmDialog
+            v-if="sessionStore.rewindState.showCodeConfirm"
             :show="sessionStore.rewindState.showCodeConfirm"
             :files="[...sessionStore.rewindState.filesToRewind]"
             :is-loading="sessionStore.rewindState.isRewinding"
@@ -146,6 +149,7 @@
 
           <!-- Message Selector for /rewind command -->
           <MessageSelector
+            v-if="showMessageSelector"
             :show="showMessageSelector"
             :messages="userMessages"
             :selected-message-id="sessionStore.rewindState.selectedMessageId"
@@ -215,7 +219,7 @@
       </div>
     </Transition>
 
-    <ContextUsageModal v-model:show="showContextModal" />
+    <ContextUsageModal v-if="showContextModal" v-model:show="showContextModal" />
 
     <!-- Diff 面板 -->
     <Transition name="modal">
@@ -239,21 +243,24 @@
     </Transition>
 
     <!-- Session Context Commit Dialog (modal overlay) -->
-    <SessionContextCommitDialog @close="sessionContext.closeCommitDialog()" />
+    <SessionContextCommitDialog
+      v-if="sessionContext.showCommitDialog"
+      @close="sessionContext.closeCommitDialog()"
+    />
 
     <!-- Session Context Create Branch Dialog -->
-    <SessionContextCreateBranchDialog />
+    <SessionContextCreateBranchDialog v-if="sessionContext.showCreateBranchDialog" />
 
     <!-- Session Context Git Graph Modal -->
-    <SessionContextGitGraphModal />
+    <SessionContextGitGraphModal v-if="sessionContext.showGitGraphModal" />
 
     <!-- Session Context Push Dialog -->
-    <SessionContextPushDialog />
+    <SessionContextPushDialog v-if="sessionContext.showPushDialog" />
   </main>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useTurnStore, useChatSessionStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
@@ -262,7 +269,6 @@ import { useSplitLayoutStore } from '@/stores/splitLayout'
 import MessageList from '../chat/MessageList.vue'
 import RecommendedPrompts from '../chat/RecommendedPrompts.vue'
 import WorkAssistantShortcuts from '../work/WorkAssistantShortcuts.vue'
-import WorkAssistantPicker from '../work/WorkAssistantPicker.vue'
 import TeamStatusBar from '../chat/TeamStatusBar.vue'
 import TeammateTranscriptHeader from '../chat/TeammateTranscriptHeader.vue'
 import ChatInput, { type Attachment, type ImageAttachment } from '../chat/ChatInput.vue'
@@ -272,29 +278,16 @@ interface AllAttachments {
   images: ImageAttachment[]
 }
 import SessionTabBar from '../chat/SessionTabBar.vue'
-import TerminalPanel from '../terminal/TerminalPanel.vue'
 import NoProjectHome from './NoProjectHome.vue'
 import ToastNotification from '../common/ToastNotification.vue'
-import RewindDialog from '../chat/RewindDialog.vue'
-import CodeRewindConfirmDialog from '../chat/CodeRewindConfirmDialog.vue'
-import MessageSelector from '../chat/MessageSelector.vue'
 import { History, ClipboardList } from 'lucide-vue-next'
-import HistorySessionList from '../explorer/HistorySessionList.vue'
 import ContextUsageChip from '../chat/ContextUsageChip.vue'
 import ContextUsageWarningBar from '../chat/ContextUsageWarningBar.vue'
-import ContextUsageModal from '../chat/ContextUsageModal.vue'
-import DiffExplorer from '../chat/DiffExplorer.vue'
 import { useContextUsageStore } from '@/stores/contextUsage'
 import { useSessionContext } from '@/stores/sessionContext'
 import { useScmStore } from '@/stores/scm'
 import { useTaskManager } from '@/composables/useTaskManager'
 import { syncTaskStateFromToolCall } from '@/utils/taskToolSync'
-import SessionContextEnvPanel from '../session-context/SessionContextEnvPanel.vue'
-import SessionContextTaskPanel from '../session-context/SessionContextTaskPanel.vue'
-import SessionContextCommitDialog from '../session-context/SessionContextCommitDialog.vue'
-import SessionContextCreateBranchDialog from '../session-context/SessionContextCreateBranchDialog.vue'
-import SessionContextGitGraphModal from '../session-context/SessionContextGitGraphModal.vue'
-import SessionContextPushDialog from '../session-context/SessionContextPushDialog.vue'
 import { buildMessagesFromHistory } from '@/utils/sessionRestore'
 import { initLLMService, llmState, updateConfig } from '@/services/llm'
 import { pathsEqual } from '@/utils/recentProjectRoots'
@@ -304,6 +297,21 @@ import type { AgentDef } from '@/stores/agents'
 import { api } from '@/services/electronAPI'
 import { isH5Mode } from '@/services/h5ApiClient'
 import type { Message } from '@/types'
+
+const WorkAssistantPicker = defineAsyncComponent(() => import('../work/WorkAssistantPicker.vue'))
+const TerminalPanel = defineAsyncComponent(() => import('../terminal/TerminalPanel.vue'))
+const RewindDialog = defineAsyncComponent(() => import('../chat/RewindDialog.vue'))
+const CodeRewindConfirmDialog = defineAsyncComponent(() => import('../chat/CodeRewindConfirmDialog.vue'))
+const MessageSelector = defineAsyncComponent(() => import('../chat/MessageSelector.vue'))
+const HistorySessionList = defineAsyncComponent(() => import('../explorer/HistorySessionList.vue'))
+const ContextUsageModal = defineAsyncComponent(() => import('../chat/ContextUsageModal.vue'))
+const DiffExplorer = defineAsyncComponent(() => import('../chat/DiffExplorer.vue'))
+const SessionContextEnvPanel = defineAsyncComponent(() => import('../session-context/SessionContextEnvPanel.vue'))
+const SessionContextTaskPanel = defineAsyncComponent(() => import('../session-context/SessionContextTaskPanel.vue'))
+const SessionContextCommitDialog = defineAsyncComponent(() => import('../session-context/SessionContextCommitDialog.vue'))
+const SessionContextCreateBranchDialog = defineAsyncComponent(() => import('../session-context/SessionContextCreateBranchDialog.vue'))
+const SessionContextGitGraphModal = defineAsyncComponent(() => import('../session-context/SessionContextGitGraphModal.vue'))
+const SessionContextPushDialog = defineAsyncComponent(() => import('../session-context/SessionContextPushDialog.vue'))
 
 const turnStore = useTurnStore()
 const sessionStore = useChatSessionStore()
@@ -764,6 +772,12 @@ const isTerminalTab = computed(() => {
     return props.paneTabId.startsWith('terminal-')
   }
   return appStore.activeCenterTab.startsWith('terminal-')
+})
+
+// Defer xterm and PTY UI until the first terminal visit, then keep it mounted.
+const terminalPanelMounted = ref(isTerminalTab.value)
+watch(isTerminalTab, (active) => {
+  if (active) terminalPanelMounted.value = true
 })
 
 /** At least one conversation is bound to a real folder (sidebar / CLI cwd), not only default chat */

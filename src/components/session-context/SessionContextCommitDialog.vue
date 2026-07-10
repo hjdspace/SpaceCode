@@ -156,7 +156,7 @@ watch(() => sessionContext.showCommitDialog, (show) => {
       commitTextarea.value?.focus()
     })
   }
-})
+}, { immediate: true })
 </script>
 
 <style lang="scss" scoped>

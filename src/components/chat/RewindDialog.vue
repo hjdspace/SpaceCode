@@ -233,7 +233,7 @@ watch(() => props.show, (isShow) => {
     emit('update:selectedOption', 'both')
     emit('update:summarizeFeedback', '')
   }
-})
+}, { immediate: true })
 </script>
 
 <style lang="scss" scoped>

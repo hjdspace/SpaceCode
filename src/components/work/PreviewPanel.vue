@@ -59,7 +59,7 @@
             class="screenshot-item"
             @click="openFullSize(screenshotImages[index])"
           >
-            <img :src="dataUrl" :alt="`Page ${index + 1}`" />
+            <img :src="dataUrl" :alt="`Page ${index + 1}`" loading="lazy" decoding="async" />
             <span class="page-num">{{ index + 1 }}</span>
           </div>
         </div>

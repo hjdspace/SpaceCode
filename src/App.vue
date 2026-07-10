@@ -62,15 +62,18 @@
         :style="{ width: rightWidth + 'px' }"
       />
     </div>
-    <ConnectMobileDialog v-model:visible="appStore.showConnectMobile" />
-    <WorkspaceOnboarding />
-    <FileQuickOpen />
+    <ConnectMobileDialog
+      v-if="appStore.showConnectMobile"
+      v-model:visible="appStore.showConnectMobile"
+    />
+    <WorkspaceOnboarding v-if="appStore.showWorkOnboarding" />
+    <FileQuickOpen v-if="appStore.showFileQuickOpen" />
     <DialogProvider />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { defineAsyncComponent, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
@@ -79,20 +82,6 @@ import { useSplitLayoutStore } from '@/stores/splitLayout'
 import TitleBar from './components/layout/TitleBar.vue'
 import Sidebar from './components/layout/Sidebar.vue'
 import SplitContainer from './components/layout/SplitContainer.vue'
-import DesignPage from './components/design/DesignPage.vue'
-import InfoPanel from './components/layout/InfoPanel.vue'
-import TerminalTabBar from './components/terminal/TerminalTabBar.vue'
-import TerminalPanel from './components/terminal/TerminalPanel.vue'
-import TraceViewer from './components/debug/TraceViewer.vue'
-import SettingsPanel from './components/settings/SettingsPanel.vue'
-import SkillsManager from './components/skills/SkillsManager.vue'
-import AgentManager from './components/agents/AgentManager.vue'
-import McpManager from './components/mcp/McpManager.vue'
-import CronManager from './components/cron/CronManager.vue'
-import WorkAssistantGallery from './components/work/WorkAssistantGallery.vue'
-import WorkspaceOnboarding from './components/work/WorkspaceOnboarding.vue'
-import ConnectMobileDialog from './components/mobile/ConnectMobileDialog.vue'
-import FileQuickOpen from './components/layout/FileQuickOpen.vue'
 import DialogProvider from './components/common/DialogProvider.vue'
 import { api } from '@/services/electronAPI'
 import { isH5Mode } from '@/services/h5ApiClient'
@@ -103,6 +92,21 @@ import { useShortcuts } from '@/composables/useShortcuts'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useResizablePanel } from '@/composables/useResizablePanel'
 import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
+
+const DesignPage = defineAsyncComponent(() => import('./components/design/DesignPage.vue'))
+const InfoPanel = defineAsyncComponent(() => import('./components/layout/InfoPanel.vue'))
+const TerminalTabBar = defineAsyncComponent(() => import('./components/terminal/TerminalTabBar.vue'))
+const TerminalPanel = defineAsyncComponent(() => import('./components/terminal/TerminalPanel.vue'))
+const TraceViewer = defineAsyncComponent(() => import('./components/debug/TraceViewer.vue'))
+const SettingsPanel = defineAsyncComponent(() => import('./components/settings/SettingsPanel.vue'))
+const SkillsManager = defineAsyncComponent(() => import('./components/skills/SkillsManager.vue'))
+const AgentManager = defineAsyncComponent(() => import('./components/agents/AgentManager.vue'))
+const McpManager = defineAsyncComponent(() => import('./components/mcp/McpManager.vue'))
+const CronManager = defineAsyncComponent(() => import('./components/cron/CronManager.vue'))
+const WorkAssistantGallery = defineAsyncComponent(() => import('./components/work/WorkAssistantGallery.vue'))
+const WorkspaceOnboarding = defineAsyncComponent(() => import('./components/work/WorkspaceOnboarding.vue'))
+const ConnectMobileDialog = defineAsyncComponent(() => import('./components/mobile/ConnectMobileDialog.vue'))
+const FileQuickOpen = defineAsyncComponent(() => import('./components/layout/FileQuickOpen.vue'))
 
 const appStore = useAppStore()
 const sessionStore = useChatSessionStore()

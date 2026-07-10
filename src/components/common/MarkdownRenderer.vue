@@ -15,8 +15,7 @@ import hljs from 'highlight.js'
 import { useAppStore } from '@/stores/app'
 import { api } from '@/services/electronAPI'
 import { escapeHtml, replaceMentionChipMarkers } from '@/utils/mention-chips'
-import { 
-  initializeMermaid, 
+import {
   generateMermaidId, 
   createMermaidContainerHtml,
   renderAllMermaidDiagrams 
@@ -398,8 +397,6 @@ function handleLinkClick(event: MouseEvent) {
     console.log('[MarkdownRenderer] External link opened in webview:', href)
   }
 }
-
-initializeMermaid()
 
 async function renderMermaidDiagrams() {
   if (!containerRef.value) return

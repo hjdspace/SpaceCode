@@ -1,18 +1,27 @@
-import mermaid from 'mermaid'
-
 // 全局唯一的 mermaid ID 计数器
 let mermaidIdCounter = 0
+let mermaidPromise: Promise<(typeof import('mermaid'))['default']> | null = null
+
+function getMermaid() {
+  if (!mermaidPromise) {
+    mermaidPromise = import('mermaid').then(({ default: mermaid }) => {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'default',
+        securityLevel: 'strict',
+        flowchart: {
+          htmlLabels: true
+        }
+      })
+      return mermaid
+    })
+  }
+  return mermaidPromise
+}
 
 // 初始化 mermaid
-export function initializeMermaid() {
-  mermaid.initialize({
-    startOnLoad: false,
-    theme: 'default',
-    securityLevel: 'strict',
-    flowchart: {
-      htmlLabels: true
-    }
-  })
+export async function initializeMermaid() {
+  await getMermaid()
 }
 
 // 生成唯一的 mermaid 容器 ID
@@ -28,6 +37,7 @@ export function createMermaidContainerHtml(code: string, id: string): string {
 // 渲染单个 mermaid 图表
 export async function renderMermaidDiagram(container: HTMLElement, id: string): Promise<void> {
   try {
+    const mermaid = await getMermaid()
     const code = container.textContent || ''
     const { svg } = await mermaid.render(`mermaid-svg-${id}`, code)
     container.innerHTML = svg
@@ -41,7 +51,9 @@ export async function renderMermaidDiagram(container: HTMLElement, id: string): 
 // 渲染容器内的所有 mermaid 图表
 export async function renderAllMermaidDiagrams(container: HTMLElement): Promise<void> {
   const mermaidContainers = container.querySelectorAll('.mermaid-container:not(.rendered)') as NodeListOf<HTMLElement>
-  
+
+  if (mermaidContainers.length === 0) return
+
   for (const mermaidContainer of mermaidContainers) {
     const id = mermaidContainer.id
     await renderMermaidDiagram(mermaidContainer, id)

@@ -56,14 +56,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, defineAsyncComponent, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessageSquarePlus } from 'lucide-vue-next'
 import { useSplitLayoutStore, type PaneLeaf, type PaneContent } from '@/stores/splitLayout'
 import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chat'
-import ChatPanel from './ChatPanel.vue'
 import PaneHeader from './PaneHeader.vue'
+
+const ChatPanel = defineAsyncComponent(() => import('./ChatPanel.vue'))
 
 const props = defineProps<{
   node: PaneLeaf

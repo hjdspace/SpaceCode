@@ -30,7 +30,14 @@
             :key="img.id"
             class="image-attachment"
           >
-            <img v-if="img.previewUrl" :src="img.previewUrl" :alt="img.name" @click="showImagePreview(img)" />
+            <img
+              v-if="img.previewUrl"
+              :src="img.previewUrl"
+              :alt="img.name"
+              loading="lazy"
+              decoding="async"
+              @click="showImagePreview(img)"
+            />
             <div v-else class="image-placeholder" :title="img.name">{{ img.mimeType || 'image' }}</div>
             <span class="image-name">{{ img.name }}</span>
           </div>
