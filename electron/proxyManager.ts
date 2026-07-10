@@ -23,8 +23,49 @@ export class ProxyManager extends EventEmitter {
   private healthCheckTimer: ReturnType<typeof setInterval> | null = null
   private healthRetryCount: number = 0
   private restarting: boolean = false
+  private startingPromise: Promise<string> | null = null
 
+  /**
+   * 启动代理子进程。如果代理已经在运行，会先停止再重启。
+   *
+   * 如果另一个 start() 调用正在进行，会直接返回该调用的 Promise，
+   * 避免并发启动导致的竞态条件（startup auto-start 和 engineSourceChanged
+   * 可能同时调用 start()）。
+   */
   async start(config: ProxyConfig): Promise<string> {
+    // 如果已经有 start() 正在进行，直接返回同一个 Promise
+    if (this.startingPromise) {
+      debug('ProxyManager', 'start() already in progress, reusing existing promise')
+      return this.startingPromise
+    }
+
+    this.startingPromise = this.doStart(config)
+    try {
+      return await this.startingPromise
+    } finally {
+      this.startingPromise = null
+    }
+  }
+
+  /**
+   * 确保代理正在运行。如果已经在运行则不重启，避免不必要的 stop+start 循环。
+   *
+   * 引擎来源切换时调用此方法而非 start()，因为代理配置取决于 authMethod
+   * 和 API 设置，与 engineSource 无关。无需在切换引擎来源时重启代理。
+   */
+  async ensureRunning(config: ProxyConfig): Promise<string> {
+    if (this.startingPromise) {
+      debug('ProxyManager', 'ensureRunning: start() in progress, waiting')
+      return this.startingPromise
+    }
+    if (this.isRunning()) {
+      debug('ProxyManager', 'ensureRunning: proxy already running, skipping restart')
+      return this.proxyUrl
+    }
+    return this.start(config)
+  }
+
+  private async doStart(config: ProxyConfig): Promise<string> {
     if (this.process) {
       await this.stop()
     }
@@ -347,7 +388,7 @@ export class ProxyManager extends EventEmitter {
 
     try {
       await this.stop()
-      await this.start(this.config)
+      await this.doStart(this.config)
       info('ProxyManager', 'Proxy restarted successfully')
     } catch (err) {
       error('ProxyManager', 'Failed to restart proxy', { error: err instanceof Error ? err.message : String(err) })
