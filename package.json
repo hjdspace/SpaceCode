@@ -157,7 +157,10 @@
         "to": "officecli",
         "filter": [
           "**/*",
-          "!README.md"
+          "!README.md",
+          "!**/*.update.partial",
+          "!**/*.old",
+          "!**/*.tmp"
         ]
       },
       {
