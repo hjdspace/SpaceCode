@@ -521,8 +521,6 @@ onUnmounted(() => {
 
   > * {
     flex-shrink: 0;
-    content-visibility: auto;
-    contain-intrinsic-size: auto 160px;
   }
 }
 

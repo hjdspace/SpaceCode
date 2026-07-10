@@ -1210,7 +1210,12 @@ export class SessionProcess extends EventEmitter {
 
     env.CLAUDE_CODE_ROOT = this.cliRoot
 
-    env.CLAUDE_CODE_ENTRYPOINT = 'claude-desktop'
+    // 代理模式下不设置 'claude-desktop'，避免 isManagedOAuthContext() = true
+    // 导致 isAnthropicAuthEnabled() = true，CLI 使用 OAuth 认证而非代理 API Key。
+    // 非代理模式（Anthropic 提供商）保持 'claude-desktop' 以获得完整功能。
+    if (config.provider === 'anthropic') {
+      env.CLAUDE_CODE_ENTRYPOINT = 'claude-desktop'
+    }
 
     const gitBashPath = this.findGitBashPath()
     if (gitBashPath && !process.env.CLAUDE_CODE_GIT_BASH_PATH) {
@@ -1289,6 +1294,13 @@ export class SessionProcess extends EventEmitter {
     // ★ 非Anthropic 提供商统一走代理（无论 bundled 还是 installed），
     // 确保引擎使用 Anthropic API 路径 + withRetry 重试机制。
     if (config.provider !== 'anthropic') {
+      // 设置 CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST 阻止 ~/.claude/settings.json
+      // 中的 provider-managed 变量（ANTHROPIC_BASE_URL、ANTHROPIC_API_KEY、
+      // OPENAI_BASE_URL 等）覆盖 SpaceCode 代理配置。这对 installed CLI 尤为
+      // 重要：官方 CLI 的 filterSettingsEnv 可能与 bundled engine 行为不同，
+      // 全局 settings.json 的 env 会覆盖 spawn env 中的代理变量，导致请求
+      // 被转发到用户在 settings.json 中配置的第三方端点而非 SpaceCode 代理。
+      env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST = '1'
       const proxyUrl = proxyManager.getProxyUrl()
       if (proxyUrl) {
         env.ANTHROPIC_BASE_URL = proxyUrl

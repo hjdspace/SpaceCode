@@ -384,7 +384,7 @@ function createWindow() {
     // typically isn't bound to :5173 until ~1–2 s after Electron's `ready` event,
     // so a naive `loadURL` races and produces a black screen with
     // ERR_CONNECTION_REFUSED. Poll until the server answers, then load.
-    waitForViteAndLoad(mainWindow, 'http://localhost:5173')
+    waitForViteAndLoad(mainWindow, 'http://127.0.0.1:5173')
   } else {
     mainWindow.loadFile(join(__dirname, '../dist/index.html'))
   }

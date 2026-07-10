@@ -322,7 +322,9 @@ function scheduleRender() {
 
 function armTrailingFinalize() {
   pendingFinalize = true
-  if (trailingTimer !== null) return
+  if (trailingTimer !== null) {
+    clearTimeout(trailingTimer)
+  }
   trailingTimer = window.setTimeout(() => {
     trailingTimer = null
     if (!pendingFinalize) return
