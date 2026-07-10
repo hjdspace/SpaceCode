@@ -110,7 +110,7 @@ import {
   Check, X, CheckCheck, Loader2, CheckCircle, XCircle,
   FileEdit, Terminal as TerminalIcon, FileText as FileTextIcon, Shield
 } from 'lucide-vue-next'
-import { useChatStore } from '@/stores/chat'
+import { useTurnStore } from '@/stores/chat'
 
 interface Props {
   messageId: string
@@ -121,7 +121,7 @@ interface Props {
 
 const props = defineProps<Props>()
 const { t } = useI18n()
-const chatStore = useChatStore()
+const turnStore = useTurnStore()
 
 const status = ref<'pending' | 'processing' | 'completed' | 'denied'>('pending')
 const isProcessing = ref(false)
@@ -194,7 +194,7 @@ async function handleAllow() {
   status.value = 'processing'
   
   try {
-    await chatStore.allowPermission(
+    await turnStore.allowPermission(
       props.messageId, 
       props.toolUseId, 
       props.input
@@ -213,7 +213,7 @@ async function handleDeny() {
   status.value = 'processing'
   
   try {
-    await chatStore.denyPermission(
+    await turnStore.denyPermission(
       props.messageId, 
       props.toolUseId, 
       t('permission.card.actions.denied')
@@ -232,7 +232,7 @@ async function handleAlwaysAllow() {
   status.value = 'processing'
   
   try {
-    await chatStore.allowPermission(
+    await turnStore.allowPermission(
       props.messageId, 
       props.toolUseId, 
       props.input, 

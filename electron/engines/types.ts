@@ -91,6 +91,7 @@ export interface IEngine {
   getActiveSessions(): EngineSessionStatus[]
   listAgents?(cwd?: string): Promise<AgentInfo[]>
   setMainWindow(window: BrowserWindow): void
+  onRouteEvent?(listener: (sessionId: string, eventType: string, data: any) => void): () => void
   submitToolAnswer?(sessionId: string, toolCallId: string, answers: Record<string, string>): Promise<void>
   skipToolAnswer?(sessionId: string, toolCallId: string): Promise<void>
 

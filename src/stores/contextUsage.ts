@@ -7,7 +7,7 @@ import {
   enrichContextDataFromClient,
 } from '@/utils/contextUsage'
 import { api } from '@/services/electronAPI'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore, useTurnStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 
 function parseEngineContextData(raw: Record<string, unknown>): ContextUsageData | null {
@@ -65,10 +65,10 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
    */
   function startCompact() {
     if (isCompacting.value) return
-    const chatStore = useChatStore()
+    const turnStore = useTurnStore()
     isCompacting.value = true
 
-    chatStore
+    turnStore
       .sendMessage('/compact')
       .then(() => {
         // Compaction completed — refresh context data
@@ -83,9 +83,9 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
   }
 
   async function refresh(sessionId?: string, force = false) {
-    const chatStore = useChatStore()
+    const sessionStore = useChatSessionStore()
     const settingsStore = useSettingsStore()
-    const sid = sessionId ?? chatStore.currentSessionId
+    const sid = sessionId ?? sessionStore.currentSessionId
     if (!sid) {
       snapshot.value = null
       return
@@ -100,7 +100,7 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
 
     const model = settingsStore.config.model || 'claude-sonnet-4-6'
     const userCtxOverride = settingsStore.modelContextWindows[model]
-    const session = chatStore.sessions.find(s => s.id === sid)
+    const session = sessionStore.sessions.find(s => s.id === sid)
     const messages = session?.messages ?? []
 
     if (lastFetchedSessionId.value !== sid) {
@@ -147,14 +147,14 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
    * incurring an engine IPC roundtrip on every assistant event.
    */
   function applyFallback(sessionId?: string) {
-    const chatStore = useChatStore()
+    const sessionStore = useChatSessionStore()
     const settingsStore = useSettingsStore()
-    const sid = sessionId ?? chatStore.currentSessionId
+    const sid = sessionId ?? sessionStore.currentSessionId
     if (!sid) return
     // Only update if it matches the currently displayed session to avoid
     // overwriting another session's authoritative snapshot.
     if (lastFetchedSessionId.value && lastFetchedSessionId.value !== sid) return
-    const session = chatStore.sessions.find(s => s.id === sid)
+    const session = sessionStore.sessions.find(s => s.id === sid)
     const messages = session?.messages ?? []
     const model = settingsStore.config.model || 'claude-sonnet-4-6'
     const userCtxOverride = settingsStore.modelContextWindows[model]

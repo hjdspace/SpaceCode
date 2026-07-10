@@ -25,7 +25,7 @@ import { computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Palette, Square } from 'lucide-vue-next'
 import { useDesignStore } from '@/stores/design'
-import { useChatStore } from '@/stores/chat'
+import { useTurnStore } from '@/stores/chat'
 import { useAppStore } from '@/stores/app'
 import { useDesignSession } from '@/composables/useDesignSession'
 import DesignChatPane from './DesignChatPane.vue'
@@ -33,14 +33,14 @@ import ToastNotification from '@/components/common/ToastNotification.vue'
 
 const { t } = useI18n()
 const designStore = useDesignStore()
-const chatStore = useChatStore()
+const turnStore = useTurnStore()
 const appStore = useAppStore()
 const { lastUsage, activeSessionId } = storeToRefs(designStore)
 const { stopDesignGeneration } = useDesignSession()
 
 // 复用 chatStream 的 loading 状态
 const isLoading = computed(() =>
-  activeSessionId.value ? chatStore.getIsLoading(activeSessionId.value) : false
+  activeSessionId.value ? turnStore.getIsLoading(activeSessionId.value) : false
 )
 
 // 进入设计模式时自动在右侧 InfoPanel 打开设计预览工作区

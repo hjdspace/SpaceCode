@@ -50,7 +50,7 @@ import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { Palette } from 'lucide-vue-next'
 import { useDesignStore } from '@/stores/design'
-import { useChatStore, useChatSessionStore } from '@/stores/chat'
+import { useTurnStore, useChatSessionStore } from '@/stores/chat'
 import { useDesignSession } from '@/composables/useDesignSession'
 import { useMcpStore } from '@/stores/mcp'
 import { api } from '@/services/electronAPI'
@@ -63,7 +63,7 @@ import DesignSystemPicker from './DesignSystemPicker.vue'
 
 const { t } = useI18n()
 const designStore = useDesignStore()
-const chatStore = useChatStore()
+const turnStore = useTurnStore()
 const chatSessionStore = useChatSessionStore()
 const mcpStore = useMcpStore()
 const { activeSessionId } = storeToRefs(designStore)
@@ -74,7 +74,7 @@ const designSystems = ref<DesignSystemSummary[]>([])
 
 // ── loading 状态：直接复用 chatStream 的 loadingSessions ──
 const isLoading = computed(() =>
-  activeSessionId.value ? chatStore.getIsLoading(activeSessionId.value) : false
+  activeSessionId.value ? turnStore.getIsLoading(activeSessionId.value) : false
 )
 
 // ── 会话切换同步 ──────────────────────────────────────────────
@@ -106,7 +106,7 @@ onMounted(async () => {
   mcpStore.fetchServers()
 })
 
-// ── 发送消息：buildDesignMessage 添加 preamble 后走 chatStore.sendMessage ──
+// ── 发送消息：buildDesignMessage 添加 preamble 后走 turnStore.sendMessage ──
 async function onSend(content: string, attachments: AllAttachments) {
   if (!activeSessionId.value) {
     await createDesignSession()
@@ -129,7 +129,7 @@ async function onSend(content: string, attachments: AllAttachments) {
     messageContent += `\n\nImages: ${imageInfo}`
   }
 
-  await chatStore.sendMessage(messageContent, content, {
+  await turnStore.sendMessage(messageContent, content, {
     files: attachments.files,
     images: attachments.images,
   })
@@ -152,11 +152,15 @@ function selectNext(prompt: string) {
 }
 
 function handleToolSubmit(messageId: string, toolId: string, updatedInput: Record<string, unknown>) {
-  chatStore.submitToolAnswer(messageId, toolId, updatedInput as Record<string, string>)
+  const sid = activeSessionId.value
+  if (!sid) return
+  turnStore.submitToolAnswer(sid, messageId, toolId, updatedInput as Record<string, string>)
 }
 
 function handleToolSkip(messageId: string, toolId: string) {
-  chatStore.skipToolAnswer(messageId, toolId)
+  const sid = activeSessionId.value
+  if (!sid) return
+  turnStore.skipToolAnswer(sid, messageId, toolId)
 }
 
 function onDesignSystemChange(systemId: string | null) {

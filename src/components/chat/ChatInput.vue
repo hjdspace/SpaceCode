@@ -343,7 +343,7 @@ import ContextMenu from './ContextMenu.vue'
 import AttachmentMenu from './AttachmentMenu.vue'
 import { useSkillsStore } from '@/stores/skills'
 import { useAppStore } from '@/stores/app'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore, useTurnStore } from '@/stores/chat'
 import { api } from '@/services/electronAPI'
 import { useI18n } from 'vue-i18n'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
@@ -394,7 +394,8 @@ const props = defineProps<{
 // ── Stores ───────────────────────────────────────────────────────
 const settingsStore = useSettingsStore()
 const appStore = useAppStore()
-const chatStore = useChatStore()
+const sessionStore = useChatSessionStore()
+const turnStore = useTurnStore()
 const { t } = useI18n()
 const { openProjectFromPicker } = useOpenProjectWorkflow()
 const { pendingFile, consumePendingFile } = useFileToChat()
@@ -514,9 +515,9 @@ const hasContent = computed(() => editorHasContent(attachedFiles.value, attached
 const canSend = computed(() => hasContent.value && !props.isSending)
 
 const currentPendingMessages = computed(() => {
-  const sid = chatStore.currentSessionId
+  const sid = sessionStore.currentSessionId
   if (!sid) return []
-  return chatStore.getPendingMessages(sid)
+  return turnStore.getPendingMessages(sid)
 })
 
 // Model submenu style (depends on DOM refs from useModelSelector)
@@ -538,9 +539,9 @@ const modelSubmenuStyle = computed<Record<string, string>>(() => {
 
 // ── Pending Messages ─────────────────────────────────────────────
 function recallPendingMsg(msgId: string) {
-  const sid = chatStore.currentSessionId
+  const sid = sessionStore.currentSessionId
   if (!sid) return
-  const recalled = chatStore.recallPendingMessage(sid, msgId)
+  const recalled = turnStore.recallPendingMessage(sid, msgId)
   if (recalled) {
     inputText.value = recalled.content
     if (editorRef.value) {
@@ -553,8 +554,8 @@ function recallPendingMsg(msgId: string) {
 }
 
 function removePendingMsg(msgId: string) {
-  const sid = chatStore.currentSessionId
-  if (sid) chatStore.removePendingMessage(sid, msgId)
+  const sid = sessionStore.currentSessionId
+  if (sid) turnStore.removePendingMessage(sid, msgId)
 }
 
 // ── Thinking toggle ──────────────────────────────────────────────
@@ -563,7 +564,7 @@ function toggleThinking() {
   settingsStore.thinkingEnabled = thinkingEnabled.value
   settingsStore.saveSettings()
 
-  const sid = chatStore.currentSessionId
+  const sid = sessionStore.currentSessionId
   if (sid) {
     api.updateThinkingLevel(sid, thinkingEnabled.value).catch(() => {})
   }
@@ -773,13 +774,13 @@ function handleEditorKeydown(event: KeyboardEvent) {
   if (event.key === 'ArrowUp' && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
     const content = getEditorPlainText().trim()
     if (!content) {
-      const sid = chatStore.currentSessionId
+      const sid = sessionStore.currentSessionId
       if (sid) {
-        const pending = chatStore.getPendingMessages(sid)
+        const pending = turnStore.getPendingMessages(sid)
         if (pending.length > 0) {
           event.preventDefault()
           const lastMsg = pending[pending.length - 1]
-          const recalled = chatStore.recallPendingMessage(sid, lastMsg.id)
+          const recalled = turnStore.recallPendingMessage(sid, lastMsg.id)
           if (recalled) {
             inputText.value = recalled.content
             if (editorRef.value) {
@@ -1069,7 +1070,7 @@ function handleSend(steerMode = false) {
 
     if (!content && allAttachments.files.length === 0 && allAttachments.images.length === 0) return
 
-    const sid = chatStore.currentSessionId
+    const sid = sessionStore.currentSessionId
     if (!sid) return
 
     if (steerMode) {
@@ -1080,7 +1081,7 @@ function handleSend(steerMode = false) {
       showSteerHint.value = true
       setTimeout(() => { showSteerHint.value = false }, 2000)
     } else {
-      chatStore.addPendingMessage(sid, {
+      turnStore.addPendingMessage(sid, {
         id: crypto.randomUUID(),
         content,
         attachments: allAttachments.files.map(f => ({ ...f })),
@@ -1280,7 +1281,7 @@ onMounted(() => {
   skillsStore.fetchSkills(props.workingDirectory)
 
   // Load agents
-  chatStore.loadAgents()
+  sessionStore.loadAgents()
 
   document.addEventListener('keydown', handleModelKeydown)
   window.addEventListener('session-created', focusEditor)
@@ -1306,7 +1307,7 @@ watch(() => appStore.pendingInputInjection, (payload) => {
 })
 
 // Watch pending input text (rollback restore)
-watch(() => chatStore.pendingInputText, (newText) => {
+watch(() => sessionStore.pendingInputText, (newText) => {
   if (newText && newText.trim()) {
     inputText.value = newText
     nextTick(() => {
@@ -1315,15 +1316,15 @@ watch(() => chatStore.pendingInputText, (newText) => {
       }
       editorRef.value?.focus()
     })
-    chatStore.clearPendingInputText()
+    sessionStore.clearPendingInputText()
   }
 })
 
 // Watch session changes
-watch(() => chatStore.currentSessionId, () => {
+watch(() => sessionStore.currentSessionId, () => {
   focusEditor()
-  const sid = chatStore.currentSessionId
-  if (sid && chatStore.hasStash(sid)) {
+  const sid = sessionStore.currentSessionId
+  if (sid && sessionStore.hasStash(sid)) {
     nextTick(() => restoreStashLocal())
   }
 })

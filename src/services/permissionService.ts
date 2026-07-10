@@ -1,3 +1,5 @@
+import { ref, type Ref } from 'vue'
+
 export interface PermissionRequest {
   sessionId: string
   requestId: string
@@ -14,33 +16,42 @@ export interface PermissionRequest {
 }
 
 export class PermissionService {
-  private pendingPermissions = new Map<string, Map<string, PermissionRequest>>()
+  private pendingPermissions: Ref<Map<string, Map<string, PermissionRequest>>> = ref(new Map())
 
   addPermissionRequest(sessionId: string, request: PermissionRequest): void {
-    let bySession = this.pendingPermissions.get(sessionId)
+    const next = new Map(this.pendingPermissions.value)
+    let bySession = next.get(sessionId)
     if (!bySession) {
       bySession = new Map()
-      this.pendingPermissions.set(sessionId, bySession)
+      next.set(sessionId, bySession)
     }
     bySession.set(request.toolUseId, { ...request, sessionId })
+    this.pendingPermissions.value = next
   }
 
   removePermissionByRequestId(sessionId: string, requestId: string): void {
-    const bySession = this.pendingPermissions.get(sessionId)
+    const bySession = this.pendingPermissions.value.get(sessionId)
     if (!bySession) return
     // Find by requestId (we index by toolUseId, so we need a scan).
-    for (const [toolUseId, req] of bySession.entries()) {
+    const nextBySession = new Map(bySession)
+    for (const [toolUseId, req] of nextBySession.entries()) {
       if (req.requestId === requestId) {
-        bySession.delete(toolUseId)
+        nextBySession.delete(toolUseId)
         break
       }
     }
-    if (bySession.size === 0) this.pendingPermissions.delete(sessionId)
+    const next = new Map(this.pendingPermissions.value)
+    if (nextBySession.size === 0) {
+      next.delete(sessionId)
+    } else {
+      next.set(sessionId, nextBySession)
+    }
+    this.pendingPermissions.value = next
   }
 
   getPendingPermissionForToolUse(toolUseId: string, sessionId?: string): PermissionRequest | undefined {
     if (!sessionId) return undefined
-    return this.pendingPermissions.get(sessionId)?.get(toolUseId)
+    return this.pendingPermissions.value.get(sessionId)?.get(toolUseId)
   }
 
   hasPendingPermissionForToolUse(toolUseId: string, sessionId?: string): boolean {
@@ -48,25 +59,32 @@ export class PermissionService {
   }
 
   consumePermissionFor(toolUseId: string, sessionId: string): PermissionRequest | undefined {
-    const bySession = this.pendingPermissions.get(sessionId)
+    const bySession = this.pendingPermissions.value.get(sessionId)
     if (!bySession) return undefined
     const req = bySession.get(toolUseId)
     if (!req) return undefined
-    bySession.delete(toolUseId)
-    if (bySession.size === 0) this.pendingPermissions.delete(sessionId)
+    const nextBySession = new Map(bySession)
+    nextBySession.delete(toolUseId)
+    const next = new Map(this.pendingPermissions.value)
+    if (nextBySession.size === 0) {
+      next.delete(sessionId)
+    } else {
+      next.set(sessionId, nextBySession)
+    }
+    this.pendingPermissions.value = next
     return req
   }
 
   getPendingPermissions(): Map<string, Map<string, PermissionRequest>> {
-    return this.pendingPermissions
+    return this.pendingPermissions.value
   }
 
   setPendingPermissions(map: Map<string, Map<string, PermissionRequest>>): void {
-    this.pendingPermissions = map
+    this.pendingPermissions.value = map
   }
 
   clear(): void {
-    this.pendingPermissions.clear()
+    this.pendingPermissions.value = new Map()
   }
 }
 

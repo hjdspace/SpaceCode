@@ -61,7 +61,7 @@ import { useI18n } from 'vue-i18n'
 import { MessageSquarePlus } from 'lucide-vue-next'
 import { useSplitLayoutStore, type PaneLeaf, type PaneContent } from '@/stores/splitLayout'
 import { useAppStore } from '@/stores/app'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chat'
 import ChatPanel from './ChatPanel.vue'
 import PaneHeader from './PaneHeader.vue'
 
@@ -72,7 +72,7 @@ const props = defineProps<{
 const { t } = useI18n()
 const splitLayout = useSplitLayoutStore()
 const appStore = useAppStore()
-const chatStore = useChatStore()
+const sessionStore = useChatSessionStore()
 
 const isActive = computed(() => splitLayout.activePaneId === props.node.id)
 const multiLeaf = computed(() => !splitLayout.isSingleLeaf)
@@ -91,7 +91,7 @@ function onActivate() {
 
 /** 空 pane → 创建新会话并填入此 pane */
 function handleNewSession() {
-  const session = chatStore.createSession()
+  const session = sessionStore.createSession()
   if (!session) return
   const tabId = `session-${session.id}`
   // 确认 centerTabs 里有此 tab

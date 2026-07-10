@@ -10,6 +10,7 @@
 import { ref, computed, watch } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
 import { api } from '@/services/electronAPI'
+import { isH5Mode } from '@/services/h5ApiClient'
 import { normalizeApiUrl } from '@/utils/apiUrl'
 
 export interface ModelOption {
@@ -131,6 +132,7 @@ export function useModelSelector(options?: {
 
   /** Whether we can refresh the model list from API */
   const canRefreshModels = computed(() => {
+    if (isH5Mode()) return false
     switch (settingsStore.authMethod) {
       case 'anthropic_compatible':
         return !!(settingsStore.anthropicConfig.baseUrl && settingsStore.anthropicConfig.apiKey)

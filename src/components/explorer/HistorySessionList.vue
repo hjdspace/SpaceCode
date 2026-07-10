@@ -50,7 +50,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chat'
 
 const props = defineProps<{
   searchQuery?: string
@@ -82,7 +82,7 @@ const LOAD_MORE_COUNT = 20
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const chatStore = useChatStore()
+const sessionStore = useChatSessionStore()
 
 const filteredSessions = computed(() => {
   if (!props.searchQuery?.trim()) {
@@ -115,8 +115,8 @@ async function loadSessions() {
     const claudeCode = window.electronAPI?.claudeCode
     if (claudeCode) {
       let loadedSessions: SessionLite[] = []
-      if (chatStore.currentProjectRoot) {
-        loadedSessions = await claudeCode.listProjectSessions(chatStore.currentProjectRoot) as SessionLite[]
+      if (sessionStore.currentProjectRoot) {
+        loadedSessions = await claudeCode.listProjectSessions(sessionStore.currentProjectRoot) as SessionLite[]
       } else {
         loadedSessions = await claudeCode.listAllSessions() as SessionLite[]
       }

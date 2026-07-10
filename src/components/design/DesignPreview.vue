@@ -37,7 +37,6 @@
 import { ref, watch, onMounted, onUnmounted } from 'vue';
 import { buildSrcdoc } from '@/lib/artifacts/srcdoc';
 import { api } from '@/services/electronAPI';
-import { useDesignStore } from '@/stores/design';
 import { Monitor, RotateCw, Code2 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -48,37 +47,12 @@ const props = defineProps<{
 
 const iframeRef = ref<HTMLIFrameElement>();
 const showSource = ref(false);
-const designStore = useDesignStore();
 let iframeReady = false;
 
-// 监听 Electron 主进程推过来的 Chokidar 文件变更通知 (热重载主路径)
+// 文件变更监听已移至 DesignFileWorkspace.vue（始终挂载），
+// DesignPreview 仅负责 iframe 渲染与沙箱消息桥接。
 onMounted(() => {
   window.addEventListener('message', handleIframeMessage);
-  
-  api.design.onFileChanged(async ({ sessionId, filepath }) => {
-    if (sessionId !== props.sessionId) return;
-    
-    // 如果是 HTML 变动，拉取最新源码并刷新 iframe
-    if (filepath.endsWith('.html')) {
-      const code = await api.readFile(filepath);
-      if (code === null) return;
-      designStore.previewHtml = code;
-      updateIframeContent(code);
-
-      // 更新交付件列表
-      const filename = filepath.split('/').pop() || 'index.html';
-      const existing = designStore.artifactFiles.find(f => f.path === filepath);
-      if (!existing) {
-        designStore.artifactFiles.unshift({
-          name: filename,
-          path: filepath,
-          updatedAt: Date.now()
-        });
-      } else {
-        existing.updatedAt = Date.now();
-      }
-    }
-  });
 });
 
 onUnmounted(() => {

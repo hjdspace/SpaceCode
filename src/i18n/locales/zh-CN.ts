@@ -1726,6 +1726,11 @@ export default {
     pleaseSelectFirst: '请先选择',
     submitAnswer: '提交答案',
     answeredProgress: '已答 {answered}/{total}',
+    summaryTitle: '提问汇总',
+    summaryAnswered: '已回答 {count} 个问题',
+    summaryPartial: '已回答 {answered}/{total}',
+    summarySkipped: '已跳过',
+    noAnswer: '未作答',
   },
 
   chatPanel: {

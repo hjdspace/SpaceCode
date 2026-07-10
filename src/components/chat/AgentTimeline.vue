@@ -67,7 +67,7 @@
               @skip="handleToolSkip(event.toolCall!.id)"
             />
             <PermissionRequestCard
-              v-if="getPendingPermission(event.toolCall!.id)"
+              v-if="!SELF_PERMISSION_TOOL_NAMES.has(event.toolCall!.name) && getPendingPermission(event.toolCall!.id)"
               :message-id="event.messageId!"
               :tool-use-id="event.toolCall!.id"
               :tool-name="getPendingPermission(event.toolCall!.id)!.toolName"
@@ -182,8 +182,7 @@ import RetryIndicator from './RetryIndicator.vue'
 import TurnSummaryBar from './TurnSummaryBar.vue'
 import { stripDesignTags } from '@/utils/chat/buildBlocks'
 import { errorHandler } from '@/services/errorHandler'
-import { useChatStore } from '@/stores/chat'
-import { useChatStreamStore } from '@/stores/chatStream'
+import { useChatSessionStore, useTurnStore } from '@/stores/chat'
 import {
   Loader2, X, ChevronDown, Bot, AlertCircle, Clock,
   Terminal, FileText, FileEdit, Search, Globe, Wand2, Folder, Code,
@@ -195,6 +194,12 @@ const EmptyIcon = () => null
 const TASK_STATUSES = new Set(['pending', 'in_progress', 'completed'])
 const TASK_LIST_TOOL_NAMES = new Set(['TodoWrite', 'TaskList', 'TaskCreate', 'TaskUpdate'])
 const TASK_LIST_ONLY_TOOL_NAMES = new Set(['TaskList', 'TaskCreate', 'TaskUpdate'])
+// 这些工具的特殊组件本身就是权限交互 UI（emit submit/skip，并把合并后的
+// updatedInput 交给 store.allowPermission）。若再叠加 PermissionRequestCard，
+// 既会重复显示操作按钮，又会把原始 input（如 AskUserQuestion 的 questions
+// 数组）以 JSON 形式泄露到卡片下方，且 Allow 按钮会以不带 answers 的原始
+// input 提交，破坏问答流程。
+const SELF_PERMISSION_TOOL_NAMES = new Set(['AskUserQuestion'])
 
 const emit = defineEmits<{
   toolSubmit: [toolId: string, updatedInput: Record<string, unknown>]
@@ -240,32 +245,32 @@ const props = defineProps<{
 
 const expandedEvents = reactive<Record<string, boolean>>({})
 
-const chatStore = useChatStore()
-const streamStore = useChatStreamStore()
+const sessionStore = useChatSessionStore()
+const turnStore = useTurnStore()
 const taskManager = useTaskManager()
 const { t } = useI18n()
 
 function getPendingPermission(toolUseId: string) {
-  return chatStore.getPendingPermissionForToolUse(toolUseId)
+  return turnStore.getPendingPermissionForToolUse(toolUseId)
 }
 
 function handleRetry() {
-  chatStore.retryLastMessage()
+  turnStore.retryLastMessage()
 }
 
 function handleCancelRetry() {
-  chatStore.cancelRetry()
+  turnStore.cancelRetry()
 }
 
 /** 当前会话的重试状态（从响应式 store 中读取） */
 const currentRetryState = computed(() => {
-  const sid = chatStore.currentSessionId
+  const sid = sessionStore.currentSessionId
   if (!sid) return null
-  return streamStore.retryStates.get(sid) ?? null
+  return turnStore.retryStates.get(sid) ?? null
 })
 
 function handleDismissError() {
-  const sid = chatStore.currentSessionId
+  const sid = sessionStore.currentSessionId
   if (sid) errorHandler.clearInlineError(sid)
 }
 
@@ -727,7 +732,14 @@ function getTaskStateContentKey(tool: ToolCall): string {
 }
 
 function getSpecialComponentKey(event: TimelineEvent): string {
-  return event.toolCall ? `${event.toolCall.id}:${getToolContentKey(event.toolCall)}` : event.id
+  if (event.toolCall) {
+    // AskUserQuestion 卡片在 pending→completed 切换后需保持挂载，以保留本地
+    // selections/customInputs 供汇总展示。若 key 随 output 变化，tool_result
+    // 到达会触发 remount 并丢失本地状态，导致汇总卡片无法显示用户已选答案。
+    if (event.toolCall.name === 'AskUserQuestion') return event.toolCall.id
+    return `${event.toolCall.id}:${getToolContentKey(event.toolCall)}`
+  }
+  return event.id
 }
 
 function getToolTarget(tool: ToolCall): string {

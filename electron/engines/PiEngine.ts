@@ -22,6 +22,11 @@ export class PiEngine implements IEngine {
     info('PiEngine', 'Main window set')
   }
 
+  /** 注册事件路由监听器，供 H5 Server 订阅引擎事件 */
+  onRouteEvent(listener: (sessionId: string, eventType: string, data: any) => void): () => void {
+    return this.pool.onRouteEvent(listener)
+  }
+
   async startSession(sessionId: string, config: EngineSessionConfig): Promise<void> {
     info('PiEngine', `startSession | sessionId=${sessionId.slice(0, 8)} | cwd=${config.cwd} | provider=${config.provider} | model=${config.model}`)
 

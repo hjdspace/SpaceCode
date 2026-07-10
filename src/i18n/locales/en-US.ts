@@ -1726,6 +1726,11 @@ export default {
     pleaseSelectFirst: 'Please select first',
     submitAnswer: 'Submit answer',
     answeredProgress: 'Answered {answered}/{total}',
+    summaryTitle: 'Question Summary',
+    summaryAnswered: 'Answered {count} question(s)',
+    summaryPartial: 'Answered {answered}/{total}',
+    summarySkipped: 'Skipped',
+    noAnswer: 'No answer',
   },
 
   chatPanel: {

@@ -23,3 +23,7 @@ _Avoid_: Shared session, linked session
 **Engine**:
 The Claude Code CLI subprocess (or alternative engine like Pi) managed by `EngineFactory` / `ClaudeCodeProcessPool` that processes chat messages and emits streaming events.
 _Avoid_: CLI, backend
+
+**Turn**:
+One conversational cycle keyed by `sessionId`: a user message is sent, the Engine streams an assistant response (text, thinking, tool calls, tool results, permission requests), and the cycle settles on completion, abort, or error. Multiple turns can be live concurrently across panes, each keyed by its session.
+_Avoid_: Round, exchange, message cycle, request/response

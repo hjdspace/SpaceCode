@@ -1,3 +1,31 @@
+## [0.6.4](https://github.com/hjdspace/SpaceCode/compare/v0.6.3...v0.6.4) (2026-07-09)
+
+### Features
+
+* **turn:** Turn store 深化——添加骨架与 SessionSink 写回接口，迁移 TurnState 状态机、Engine 事件订阅、消息收发（send/abort/retry/submitToolAnswer/skipToolAnswer）、权限裁决、auto-retry 状态机，显式 bootstrap 初始化顺序（ADR-0003）
+* **permissionPolicy:** 抽出独立的权限模式策略 store
+* **chat:** AskUserQuestion 工具新增问题摘要视图
+* **h5:** 新增 H5 模式适配与引擎事件路由功能
+* **design:** 新增设计预览功能与 DesignFileWorkspace 组件，集成至 InfoPanel
+
+### Bug Fixes
+
+* 修复会话加载状态异常和进程退出逻辑问题
+* **chat:** 删除残留 Proxy，改为纯 re-export
+* **turn:** 修复测试 fake api 返回值与补回不变量注释
+* **chat:** 避免重复渲染权限请求卡片并修复参数泄露问题
+* **App.vue:** 修复 H5 端会话消息被覆盖的问题
+* 修复生产模式下 designResourcesPath 路径问题
+
+### Refactor
+
+* **design-panel:** 重构文件监听逻辑，优化组件职责划分
+* **turn:** 删除已废弃的 chatStream.ts 与 chatControl.ts，移除 chat.ts Proxy
+* **turn:** 用 createSettledTurn() 替换不安全的 as TurnState 断言
+* **design:** 简化 DesignPage 布局，删除 DesignSplitView
+* **design:** 优化 TemplatePicker、DesignSystemPicker、PermissionModeSelector 样式
+* **chat:** ChatInput 响应式设计优化
+
 ## [0.6.3](https://github.com/hjdspace/SpaceCode/compare/v0.6.2...v0.6.3) (2026-07-07)
 
 ### Features

@@ -1,5 +1,5 @@
 import { useDesignStore } from '@/stores/design'
-import { useChatStore, useChatSessionStore } from '@/stores/chat'
+import { useTurnStore, useChatSessionStore } from '@/stores/chat'
 import { api } from '@/services/electronAPI'
 import { findFirstQuestionForm, splitOnQuestionForms } from '@/utils/design/questionForm'
 import { buildPreamble } from '@/lib/design/templates'
@@ -10,7 +10,7 @@ import { useI18n } from 'vue-i18n'
 export function useDesignSession() {
   const { t } = useI18n()
   const designStore = useDesignStore()
-  const chatStore = useChatStore()
+  const turnStore = useTurnStore()
   const chatSessionStore = useChatSessionStore()
   const listenerDisposers = new Map<string, () => void>()
 
@@ -176,7 +176,7 @@ export function useDesignSession() {
     const responseMessage = `[form answers — discovery] ${JSON.stringify(answers)}`
     designStore.clearPendingQuestionForm()
     chatSessionStore.currentSessionId = sid
-    await chatStore.sendMessage(responseMessage)
+    await turnStore.sendMessage(responseMessage)
   }
 
   async function stopDesignGeneration() {
@@ -184,7 +184,7 @@ export function useDesignSession() {
     if (!sid) return
     // 复用 chatStream.abort 统一停止逻辑，它会处理 loadingSessions 状态清理
     chatSessionStore.currentSessionId = sid
-    await chatStore.abort()
+    await turnStore.abort()
     await api.design.stopFileWatcher()
   }
 

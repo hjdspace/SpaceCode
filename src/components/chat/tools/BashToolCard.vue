@@ -58,18 +58,18 @@ import type { ToolCall } from '@/types'
 import { Terminal, ChevronDown, Monitor, Loader2, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chat'
 import { useAppStore } from '@/stores/app'
 
 const props = defineProps<{ toolCall: ToolCall }>()
 
-const chatStore = useChatStore()
+const sessionStore = useChatSessionStore()
 const appStore = useAppStore()
 const { t } = useI18n()
 const isExpanded = ref(false)
 
 const workingDirectory = computed(() => {
-  return chatStore.workingDirectory || undefined
+  return sessionStore.workingDirectory || undefined
 })
 
 // 简化显示：取路径最后一段，形如 ~/spacecode

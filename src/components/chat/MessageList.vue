@@ -67,12 +67,13 @@ import CurrentTurnChangeCard from './CurrentTurnChangeCard.vue'
 import ArtifactSummaryCard from './ArtifactSummaryCard.vue'
 import { MessageSquare } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore, useTurnStore } from '@/stores/chat'
 import { getCompletedTurnTargets, type RewindTurnTarget } from '@/utils/turnCheckpointUtils'
 
 const { t } = useI18n()
-const chatStore = useChatStore()
-const storeTurnChangeCards = computed(() => chatStore.turnChangeCards)
+const sessionStore = useChatSessionStore()
+const turnStore = useTurnStore()
+const storeTurnChangeCards = computed(() => sessionStore.turnChangeCards)
 
 const emit = defineEmits<{
   toolSubmit: [messageId: string, toolId: string, updatedInput: Record<string, unknown>]
@@ -185,7 +186,7 @@ const messageGroups = computed<MessageGroup[]>(() => {
 
 // 若某助手分组的回合产生了产物（仅办公模式），返回对应的产物卡片项，否则 null
 function artifactCardItem(group: MessageGroup): DisplayItem | null {
-  if (chatStore.currentSession?.mode !== 'work') return null
+  if (sessionStore.currentSession?.mode !== 'work') return null
   const withArtifacts = group.messages.find(
     m => m.metadata?.artifacts && m.metadata.artifacts.length > 0
   )
@@ -339,7 +340,7 @@ function handleScroll() {
   shouldAutoScrollRef.value = isAtBottom
 
   // 记录当前滚动位置
-  const sessionId = chatStore.currentSessionId
+  const sessionId = sessionStore.currentSessionId
   if (sessionId) {
     rememberSessionScroll(sessionId, listRef.value)
   }
@@ -377,7 +378,7 @@ watch(streamScrollSignal, () => {
 }, { flush: 'post' })
 
 // 会话切换时恢复滚动位置
-watch(() => chatStore.currentSessionId, (newSessionId, oldSessionId) => {
+watch(() => sessionStore.currentSessionId, (newSessionId, oldSessionId) => {
   if (!listRef.value || !newSessionId) return
 
   // 记住旧会话的滚动位置
@@ -447,21 +448,21 @@ function debouncedLoadTurnCheckpoints(sessionId: string) {
   }
 
   _turnCheckpointsTimeout = setTimeout(async () => {
-    if (sessionId && !chatStore.isLoading && hasCompletedTurns.value) {
-      await chatStore.loadTurnCheckpoints(sessionId)
+    if (sessionId && !turnStore.isLoading && hasCompletedTurns.value) {
+      await sessionStore.loadTurnCheckpoints(sessionId)
     }
   }, 100)
 }
 
-watch(() => chatStore.currentSessionId, (sessionId) => {
-  if (sessionId && !chatStore.isLoading && hasCompletedTurns.value) {
+watch(() => sessionStore.currentSessionId, (sessionId) => {
+  if (sessionId && !turnStore.isLoading && hasCompletedTurns.value) {
     debouncedLoadTurnCheckpoints(sessionId)
   }
 })
 
 watch(() => props.messages.length, () => {
-  const sessionId = chatStore.currentSessionId
-  const isIdle = !chatStore.isLoading && !props.loading
+  const sessionId = sessionStore.currentSessionId
+  const isIdle = !turnStore.isLoading && !props.loading
 
   if (sessionId && isIdle && hasCompletedTurns.value) {
     debouncedLoadTurnCheckpoints(sessionId)
@@ -478,9 +479,9 @@ onMounted(async () => {
     scrollToBottom()
   }
 
-  const sessionId = chatStore.currentSessionId
+  const sessionId = sessionStore.currentSessionId
   if (sessionId && !props.loading && hasCompletedTurns.value) {
-    await chatStore.loadTurnCheckpoints(sessionId)
+    await sessionStore.loadTurnCheckpoints(sessionId)
   }
 
   lastSessionIdRef.value = sessionId

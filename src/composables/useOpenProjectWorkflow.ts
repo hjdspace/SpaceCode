@@ -1,6 +1,6 @@
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import { api } from '@/services/electronAPI'
 import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
@@ -21,7 +21,7 @@ export type OpenProjectByPathOptions = {
 export function useOpenProjectWorkflow() {
   const { t } = useI18n()
   const appStore = useAppStore()
-  const chatStore = useChatStore()
+  const sessionStore = useChatSessionStore()
   const settingsStore = useSettingsStore()
   const { showAlert } = useDialog()
 
@@ -38,9 +38,9 @@ export function useOpenProjectWorkflow() {
       const folderPath = result.filePaths[0]
       appStore.setProjectRoot(folderPath)
       recordRecentProjectRoot(folderPath)
-      chatStore.addProject(folderPath)
+      sessionStore.addProject(folderPath)
       syncProjectRootToSettings(folderPath)
-      const session = chatStore.createSession(t('common.newChat'), folderPath)
+      const session = sessionStore.createSession(t('common.newChat'), folderPath)
       appStore.openSessionTab(session.id, session.title)
       dispatchSessionCreated()
     } catch (error) {
@@ -58,28 +58,28 @@ export function useOpenProjectWorkflow() {
     try {
       appStore.setProjectRoot(path)
       recordRecentProjectRoot(path)
-      chatStore.addProject(path)
-      chatStore.switchProject(path)
+      sessionStore.addProject(path)
+      sessionStore.switchProject(path)
       syncProjectRootToSettings(path)
 
       if (options?.forceNewSession) {
-        const session = chatStore.createSession(t('common.newChat'), path)
+        const session = sessionStore.createSession(t('common.newChat'), path)
         appStore.openSessionTab(session.id, session.title)
         dispatchSessionCreated()
         return
       }
 
-      const inProject = chatStore.sessions.filter(
+      const inProject = sessionStore.sessions.filter(
         (s) => (s.workingDirectory || '') === path
       )
       if (inProject.length > 0) {
         const latest = [...inProject].sort(
           (a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)
         )[0]
-        chatStore.selectSession(latest.id)
+        sessionStore.selectSession(latest.id)
         appStore.switchToSessionTab(latest.id)
       } else {
-        const session = chatStore.createSession(t('common.newChat'), path)
+        const session = sessionStore.createSession(t('common.newChat'), path)
         appStore.openSessionTab(session.id, session.title)
         dispatchSessionCreated()
       }

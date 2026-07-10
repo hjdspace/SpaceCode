@@ -142,14 +142,14 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Search, Bot, X, FolderOpen, Plus, ChevronRight } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chat'
 import { useAgentsStore, type AgentDef } from '@/stores/agents'
 import { workAssistantIcon, workAvatarStyle, workDisplayName, workCategoryColor } from '@/utils/workAssistant'
 import CustomAssistantEditor from './CustomAssistantEditor.vue'
 
 const { t, locale } = useI18n()
 const appStore = useAppStore()
-const chatStore = useChatStore()
+const sessionStore = useChatSessionStore()
 const agentsStore = useAgentsStore()
 
 const query = ref('')
@@ -234,7 +234,7 @@ async function handleSelect(a: AgentDef) {
   }
   starting.value = true
   try {
-    const session = await chatStore.startWorkAssistantSession({
+    const session = await sessionStore.startWorkAssistantSession({
       name: a.name,
       skills: a.skills,
       permission: a.permission,

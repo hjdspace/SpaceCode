@@ -81,7 +81,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chat'
 import { api } from '@/services/electronAPI'
 import { FileEdit, FileText, ChevronRight, RotateCcw } from 'lucide-vue-next'
 import WorkspaceDiffSurface from './WorkspaceDiffSurface.vue'
@@ -92,7 +92,7 @@ const props = defineProps<{
 }>()
 
 const { t } = useI18n()
-const chatStore = useChatStore()
+const sessionStore = useChatSessionStore()
 
 const expandedFileIndex = ref<number | null>(null)
 const diffContent = ref<Record<string, string>>({})
@@ -115,7 +115,7 @@ const totalDeletions = computed(() =>
 )
 
 const isUndoing = computed(() => 
-  chatStore.rewindingTurnId === props.cardData.targetUserMessageId
+  sessionStore.rewindingTurnId === props.cardData.targetUserMessageId
 )
 
 const undoButtonText = computed(() => 
@@ -129,7 +129,7 @@ const undoButtonLabel = computed(() =>
 )
 
 function getRelativePath(absolutePath: string): string {
-  const workDir = props.cardData.workDir || chatStore.workingDirectory
+  const workDir = props.cardData.workDir || sessionStore.workingDirectory
   if (!workDir) return absolutePath
   
   if (absolutePath.startsWith(workDir)) {
@@ -165,8 +165,8 @@ async function toggleFileDiff(index: number) {
   diffError.value[file.path] = null
   
   try {
-    const sessionId = chatStore.currentSessionId!
-    const projectPath = chatStore.workingDirectory
+    const sessionId = sessionStore.currentSessionId!
+    const projectPath = sessionStore.workingDirectory
     const result = await api.session.getTurnCheckpointDiff(
       sessionId,
       props.cardData.targetUserMessageId,
@@ -190,8 +190,8 @@ async function toggleFileDiff(index: number) {
 
 async function handleUndo() {
   try {
-    await chatStore.undoTurn(
-      chatStore.currentSessionId!,
+    await sessionStore.undoTurn(
+      sessionStore.currentSessionId!,
       props.cardData.targetUserMessageId,
       props.cardData.checkpoint.target.userMessageIndex
     )

@@ -104,3 +104,17 @@ SpaceCode/
 - 不要提交 `.env` 等敏感文件
 - 不要使用 `any` 类型，优先使用精确的类型定义
 - 不要添加未请求的额外功能、抽象、配置项或错误处理
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (`hjdspace/SpaceCode`) and are accessed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical triage labels with default names (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.

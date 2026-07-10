@@ -31,10 +31,11 @@ vi.mock('@/services/electronAPI', () => ({
   },
 }))
 
-// 选项 A：mock @/stores/chat，避免真实 chatStore.sendMessage 触发流式 Promise 挂起
+// mock @/stores/chat，避免真实 turnStore.sendMessage 触发流式 Promise 挂起
 vi.mock('@/stores/chat', () => ({
-  useChatStore: () => ({
+  useTurnStore: () => ({
     sendMessage: sendMessageSpy,
+    abort: vi.fn().mockResolvedValue(undefined),
   }),
   useChatSessionStore: () => ({
     createSession: vi.fn().mockReturnValue({ id: 'test-session-id', mode: 'chat', messages: [] }),
@@ -43,8 +44,6 @@ vi.mock('@/stores/chat', () => ({
     updateMessage: vi.fn(),
     currentSessionId: null,
   }),
-  useChatStreamStore: () => ({}),
-  useChatControlStore: () => ({}),
 }))
 
 describe('useDesignSession', () => {

@@ -31,13 +31,13 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { LayoutGrid } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chat'
 import { useAgentsStore, type AgentDef } from '@/stores/agents'
 import { workAssistantIcon, workAvatarStyle, workDisplayName } from '@/utils/workAssistant'
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const chatStore = useChatStore()
+const sessionStore = useChatSessionStore()
 const agentsStore = useAgentsStore()
 
 const starting = ref(false)
@@ -72,9 +72,9 @@ const shortcuts = computed<AgentDef[]>(() => {
 /** 空会话且未选助手时展示；选中助手后让位给 RecommendedPrompts */
 const visible = computed(() =>
   appStore.mode === 'work' &&
-  chatStore.currentSession?.mode === 'work' &&
-  chatStore.displayMessages.length === 0 &&
-  !chatStore.currentSession?.assistantId &&
+  sessionStore.currentSession?.mode === 'work' &&
+  sessionStore.displayMessages.length === 0 &&
+  !sessionStore.currentSession?.assistantId &&
   shortcuts.value.length > 0
 )
 
@@ -88,7 +88,7 @@ async function selectAssistant(a: AgentDef) {
   try {
     // 当前已是空的 work 会话且未选助手时，直接在当前会话上切换助手，
     // 而不是新开一个会话（符合用户在输入框上方快速选择的直觉）。
-    await chatStore.switchWorkAssistant({
+    await sessionStore.switchWorkAssistant({
       name: a.name,
       skills: a.skills,
       permission: a.permission,

@@ -10,6 +10,7 @@ const MAX_PROCESSES = 3
 export class PiProcessPool {
   private processes: Map<string, PiSessionProcess> = new Map()
   private mainWindow: BrowserWindow | null = null
+  private routeEventListeners: Array<(sessionId: string, eventType: string, data: any) => void> = []
 
   private poolHandlers: Map<string, {
     message: (msg: any) => void
@@ -19,6 +20,15 @@ export class PiProcessPool {
 
   setMainWindow(window: BrowserWindow): void {
     this.mainWindow = window
+  }
+
+  /** 注册事件路由监听器，供 H5 Server 订阅引擎事件 */
+  onRouteEvent(listener: (sessionId: string, eventType: string, data: any) => void): () => void {
+    this.routeEventListeners.push(listener)
+    return () => {
+      const idx = this.routeEventListeners.indexOf(listener)
+      if (idx >= 0) this.routeEventListeners.splice(idx, 1)
+    }
   }
 
   getActiveCount(): number {
@@ -229,15 +239,22 @@ export class PiProcessPool {
       return
     }
 
-    if (!windowAvailable) {
-      warn('PiProcessPool', `[${shortSid}] Cannot route event | window unavailable | type=${eventType}`)
-      return
+    if (windowAvailable) {
+      this.mainWindow!.webContents.send(
+        `claude-code:${unifiedEvent.type}`,
+        { sessionId, data: unifiedEvent.data }
+      )
+    } else {
+      warn('PiProcessPool', `[${shortSid}] Cannot route event to renderer | windowAvailable=${windowAvailable} | type=${unifiedEvent.type}`)
     }
 
-    this.mainWindow!.webContents.send(
-      `claude-code:${unifiedEvent.type}`,
-      { sessionId, data: unifiedEvent.data }
-    )
+    for (const listener of this.routeEventListeners) {
+      try {
+        listener(sessionId, unifiedEvent.type, unifiedEvent.data)
+      } catch {
+        // ignore listener errors
+      }
+    }
     info('PiProcessPool', `[${shortSid}] route → renderer | type=${unifiedEvent.type}`)
   }
 }

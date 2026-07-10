@@ -7,7 +7,7 @@
  * - Stash hint display
  */
 import { ref } from 'vue'
-import { useChatStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chat'
 import type { Attachment, ImageAttachment } from '@/composables/types'
 
 // ── Pure logic (exported for testing) ──────────────────────────
@@ -50,7 +50,7 @@ export function createStashData(
 // ── Composable ─────────────────────────────────────────────────
 
 export function usePromptStash() {
-  const chatStore = useChatStore()
+  const sessionStore = useChatSessionStore()
   const showStashHint = ref(false)
 
   function handleStash(
@@ -61,14 +61,14 @@ export function usePromptStash() {
     onClear: () => void,
     onRestore: () => void
   ) {
-    const sid = chatStore.currentSessionId
+    const sid = sessionStore.currentSessionId
     if (!sid) return
 
     const action = resolveStashAction(
       content,
       attachedFiles.length > 0,
       attachedImages.length > 0,
-      chatStore.hasStash(sid)
+      sessionStore.hasStash(sid)
     )
 
     if (action === 'restore') {
@@ -78,7 +78,7 @@ export function usePromptStash() {
 
     if (action === 'stash') {
       const stash = createStashData(content, attachedFiles, attachedImages, editorHtml)
-      chatStore.stashPrompt(sid, stash)
+      sessionStore.stashPrompt(sid, stash)
       onClear()
       showStashHint.value = true
       setTimeout(() => { showStashHint.value = false }, 2500)
@@ -92,10 +92,10 @@ export function usePromptStash() {
     onRestoreText: (text: string) => void,
     onFocus: () => void
   ) {
-    const sid = chatStore.currentSessionId
+    const sid = sessionStore.currentSessionId
     if (!sid) return
 
-    const stash = chatStore.getStash(sid)
+    const stash = sessionStore.getStash(sid)
     if (!stash) return
 
     if (editorRef && stash.editorHtml) {
@@ -106,7 +106,7 @@ export function usePromptStash() {
     onRestoreImages(stash.images.map(img => ({ ...img })))
     onRestoreText(stash.text)
 
-    chatStore.clearStash(sid)
+    sessionStore.clearStash(sid)
     showStashHint.value = false
     onFocus()
   }
