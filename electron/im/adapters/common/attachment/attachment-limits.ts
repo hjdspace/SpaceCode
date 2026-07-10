@@ -38,11 +38,13 @@ export function validateAttachment(
       return { valid: false, error: 'too_large', maxSize: IMAGE_MAX_BYTES }
     }
 
-    if (IMAGE_MIME_BLACKLIST.has(mimeType.toLowerCase())) {
+    const lowerMime = mimeType.toLowerCase()
+
+    if (IMAGE_MIME_BLACKLIST.has(lowerMime)) {
       return { valid: false, error: 'rejected_mime' }
     }
 
-    if (!IMAGE_MIME_WHITELIST.has(mimeType.toLowerCase())) {
+    if (!IMAGE_MIME_WHITELIST.has(lowerMime)) {
       return { valid: false, error: 'unsupported_mime' }
     }
   } else {
