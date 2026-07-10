@@ -167,6 +167,7 @@ const categories = computed(() => {
     office: t('work.catOffice'),
     research: t('work.catResearch'),
     finance: t('work.catFinance'),
+    investment: t('work.catInvestment'),
     design: t('work.catDesign'),
     creative: t('work.catCreative'),
     productivity: t('work.catProductivity'),

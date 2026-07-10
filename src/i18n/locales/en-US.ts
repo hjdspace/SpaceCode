@@ -167,6 +167,7 @@ export default {
     catOffice: 'Office',
     catResearch: 'Research',
     catFinance: 'Finance',
+    catInvestment: 'Investment',
     catDesign: 'Design',
     catCreative: 'Creative',
     catProductivity: 'Productivity',

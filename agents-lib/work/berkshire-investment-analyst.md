@@ -1,7 +1,7 @@
 ---
 name: berkshire-investment-analyst
 mode: work
-category: finance
+category: investment
 description: AI Berkshire value investing framework - Buffett, Munger, Duan Yongping, Li Lu four-master analysis with 20 specialized skills for deep research, earnings analysis, industry screening, portfolio management, and thinking tools.
 description_zh: AI Berkshire 价值投资框架——巴菲特、芒格、段永平、李录四大师综合分析，内置 20 个专业投研技能，覆盖深度研究、财报分析、行业筛选、持仓管理和思维工具。
 avatar: "🧐"
