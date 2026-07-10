@@ -694,16 +694,21 @@ info('Startup', 'CuaDriver IPC handlers registered')
     info('EngineSource', `Engine source changed to: ${source}`)
     // ★ 非 Anthropic 提供商始终需要代理（无论 bundled 还是 installed），
     // 因为内置引擎的 OpenAI/Gemini 直连路径没有 withRetry 重试机制。
+    //
+    // 代理配置取决于 authMethod 和 API 设置，与 engineSource 无关。
+    // 因此切换引擎来源时使用 ensureRunning() 而非 start()，
+    // 避免不必要的 stop+restart 循环——后者在打包模式下会因
+    // 端口释放时序问题导致代理启动失败。
     const guiSettings = await loadGuiSettings()
     const authMethod = guiSettings?.authMethod
     if (authMethod && !['anthropic_compatible', 'claudeai', 'console'].includes(authMethod)) {
       const proxyConfig = buildProxyConfigFromSettings(guiSettings)
       if (proxyConfig) {
         try {
-          await proxyManager.start(proxyConfig)
-          info('EngineSource', 'Proxy started after engine source change')
+          await proxyManager.ensureRunning(proxyConfig)
+          info('EngineSource', 'Proxy ensured running after engine source change')
         } catch (err) {
-          warn('EngineSource', 'Failed to start proxy after engine source change:', err)
+          warn('EngineSource', 'Failed to ensure proxy running after engine source change:', err)
         }
       }
     } else {
