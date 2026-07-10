@@ -15,6 +15,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
+      '@electron': resolve(__dirname, 'electron'),
     },
   },
   test: {
@@ -22,7 +23,9 @@ export default defineConfig({
     include: [
       'electron/__tests__/**/*.test.ts',
       'electron/design/__tests__/**/*.test.ts',
+      'electron/im/**/__tests__/**/*.test.ts',
       'tests/composables/**/*.test.ts',
+      'tests/im/**/*.test.ts',
       'src/**/*.test.ts',
     ],
     exclude: [
