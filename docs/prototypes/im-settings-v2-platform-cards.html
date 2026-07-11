@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IM 集成 - V2 Platform Cards</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   Design Tokens
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --font-display: 'Space Grotesk', 'SF Pro Display', system-ui, sans-serif;
+  --font-body: 'IBM Plex Sans', 'SF Pro Text', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas, monospace;
+  --font-size-base: 14px;
+
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  --bg-primary: #f8f9fb;
+  --bg-secondary: #f0f1f5;
+  --bg-tertiary: #e7e9ef;
+  --bg-elevated: #ffffff;
+  --bg-hover: #e4e6ec;
+
+  --surface-soft: #f3f4f8;
+
+  --text-primary: #18191f;
+  --text-secondary: #44475a;
+  --text-muted: #5c5f7a;
+  --text-disabled: #9da1b8;
+
+  --accent-primary: #0d9488;
+  --accent-primary-hover: #14b8a6;
+  --accent-primary-glow: rgba(13, 148, 136, 0.12);
+
+  --success: #059669;
+  --success-glow: rgba(5, 150, 105, 0.15);
+  --warning: #d97706;
+  --warning-glow: rgba(217, 119, 6, 0.15);
+  --error: #dc2626;
+  --error-glow: rgba(220, 38, 38, 0.15);
+
+  --border-subtle: rgba(24, 25, 31, 0.05);
+  --border-default: rgba(24, 25, 31, 0.09);
+  --border-strong: rgba(24, 25, 31, 0.15);
+
+  --shadow-sm: 0 1px 2px rgba(24, 25, 31, 0.06);
+  --shadow-md: 0 4px 12px rgba(24, 25, 31, 0.08);
+  --shadow-lg: 0 8px 24px rgba(24, 25, 31, 0.11);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary: #0d0d0d;
+    --bg-secondary: #141414;
+    --bg-tertiary: #1a1a1a;
+    --bg-elevated: #1f1f1f;
+    --bg-hover: #262626;
+    --surface-soft: #121212;
+    --text-primary: #f5f5f5;
+    --text-secondary: #a3a3a3;
+    --text-muted: #737373;
+    --text-disabled: #525252;
+    --accent-primary: #3b82f6;
+    --accent-primary-hover: #60a5fa;
+    --accent-primary-glow: rgba(59, 130, 246, 0.25);
+    --success: #22c55e;
+    --success-glow: rgba(34, 197, 94, 0.2);
+    --warning: #f59e0b;
+    --warning-glow: rgba(245, 158, 11, 0.2);
+    --error: #ef4444;
+    --error-glow: rgba(239, 68, 68, 0.2);
+    --border-subtle: rgba(255, 255, 255, 0.04);
+    --border-default: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.15);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  }
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-body);
+  font-size: var(--font-size-base);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Page Layout
+   ═══════════════════════════════════════════════════════════════ */
+.im-page {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 40px 48px;
+}
+
+.page-header {
+  margin-bottom: 28px;
+}
+
+.page-title {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.page-desc {
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Server Status Strip
+   ═══════════════════════════════════════════════════════════════ */
+.server-strip {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  margin-bottom: 24px;
+}
+
+.server-strip.running {
+  border-color: var(--success);
+  border-width: 1.5px;
+}
+
+.server-strip-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.server-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.server-dot.running {
+  background: var(--success);
+  box-shadow: 0 0 0 3px var(--success-glow);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 3px var(--success-glow); }
+  50% { box-shadow: 0 0 0 6px transparent; }
+}
+
+.server-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.server-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  padding-left: 12px;
+  border-left: 1px solid var(--border-default);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Buttons
+   ═══════════════════════════════════════════════════════════════ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.btn:active { transform: scale(0.98); }
+
+.btn-primary {
+  background: var(--accent-primary);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: var(--accent-primary-hover);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+}
+
+.btn-secondary:hover { background: var(--bg-hover); }
+
+.btn-danger {
+  background: transparent;
+  color: var(--error);
+  border: 1px solid var(--error);
+}
+
+.btn-danger:hover { background: var(--error-glow); }
+
+.btn-sm { padding: 6px 12px; font-size: 12px; }
+
+.btn-icon {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-icon:hover { background: var(--bg-hover); color: var(--text-primary); }
+.btn-icon.danger:hover { background: var(--error-glow); color: var(--error); }
+
+/* ═══════════════════════════════════════════════════════════════
+   Platform Cards Grid
+   ═══════════════════════════════════════════════════════════════ */
+.section-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  font-family: var(--font-display);
+}
+
+.platform-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.platform-card {
+  background: var(--bg-elevated);
+  border: 1.5px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: all var(--transition-normal);
+  cursor: pointer;
+}
+
+.platform-card:hover {
+  border-color: var(--border-default);
+  box-shadow: var(--shadow-sm);
+}
+
+.platform-card.expanded {
+  grid-column: span 2;
+  cursor: default;
+  border-color: var(--accent-primary);
+  box-shadow: var(--shadow-md);
+}
+
+.platform-card.expanded:hover {
+  border-color: var(--accent-primary);
+}
+
+.platform-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+}
+
+.platform-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 18px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.platform-card.running .platform-card-icon {
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+}
+
+.platform-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.platform-card-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.platform-card-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.platform-card-badge.running {
+  background: var(--success-glow);
+  color: var(--success);
+}
+
+.platform-card-badge.running::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+.platform-card-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+.platform-card-chevron {
+  color: var(--text-muted);
+  transition: transform var(--transition-normal);
+  flex-shrink: 0;
+}
+
+.platform-card.expanded .platform-card-chevron {
+  transform: rotate(180deg);
+}
+
+/* Card Body (expandable) */
+.platform-card-body {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height var(--transition-normal);
+}
+
+.platform-card.expanded .platform-card-body {
+  max-height: 600px;
+}
+
+.platform-card-body-inner {
+  padding: 0 18px 18px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 18px;
+}
+
+/* Form Elements */
+.form-group { margin-bottom: 16px; }
+.form-group:last-child { margin-bottom: 0; }
+
+.form-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.form-hint {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 5px;
+}
+
+.form-input {
+  width: 100%;
+  padding: 10px 14px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.form-input::placeholder { color: var(--text-muted); }
+
+.form-input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-primary-glow);
+}
+
+.form-input.mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Pairing & Directory Section (full width)
+   ═══════════════════════════════════════════════════════════════ */
+.bottom-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.pairing-card, .dir-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.card-header {
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+}
+
+.card-desc {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+.card-body { padding: 18px; }
+
+/* Pairing Code */
+.pairing-code-display {
+  text-align: center;
+  padding: 20px 16px;
+  background: var(--surface-soft);
+  border-radius: var(--radius-md);
+  margin-bottom: 14px;
+  position: relative;
+  overflow: hidden;
+}
+
+.pairing-code-display::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, transparent 0%, var(--accent-primary-glow) 50%, transparent 100%);
+  opacity: 0.5;
+}
+
+.pairing-code-text {
+  position: relative;
+  font-family: var(--font-mono);
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 8px;
+  color: var(--accent-primary);
+  margin-bottom: 6px;
+}
+
+.pairing-code-expiry {
+  position: relative;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* Paired Users (compact) */
+.paired-user-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--surface-soft);
+  border-radius: var(--radius-sm);
+  margin-bottom: 5px;
+}
+
+.paired-user-row:last-child { margin-bottom: 0; }
+
+.paired-user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.paired-user-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-primary-hover));
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.paired-user-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.paired-user-id {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Variant Label
+   ═══════════════════════════════════════════════════════════════ */
+.variant-label {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  padding: 6px 14px;
+  background: var(--accent-primary);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-md);
+  z-index: 100;
+  font-family: var(--font-display);
+}
+
+svg { display: block; }
+
+/* Responsive */
+@media (max-width: 640px) {
+  .im-page { padding: 24px 20px; }
+  .platform-grid { grid-template-columns: 1fr; }
+  .platform-card.expanded { grid-column: span 1; }
+  .bottom-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="variant-label">V2 Platform Cards</div>
+
+<div class="im-page">
+  <!-- Page Header -->
+  <div class="page-header">
+    <h1 class="page-title">IM 集成</h1>
+    <p class="page-desc">配置即时通讯平台适配器，通过 Telegram、飞书、钉钉等平台与 SpaceCode 对话</p>
+  </div>
+
+  <!-- Server Status -->
+  <div class="server-strip running" id="serverStrip">
+    <div class="server-strip-left">
+      <div class="server-dot running" id="serverDot"></div>
+      <span class="server-label" id="serverLabel">IM 服务器运行中</span>
+      <span class="server-meta" id="serverMeta">ws://127.0.0.1:3456 · PID 18432</span>
+    </div>
+    <button class="btn btn-secondary btn-sm" onclick="toggleServer()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+      停止
+    </button>
+  </div>
+
+  <!-- Platform Cards -->
+  <div class="section-label">平台适配器</div>
+  <div class="platform-grid" id="platformGrid">
+    <!-- Telegram (expanded, running) -->
+    <div class="platform-card running expanded" onclick="toggleCard(this)">
+      <div class="platform-card-header">
+        <div class="platform-card-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 4.5L2.5 12.5l6 2 2 6 4-4 5 4z"/></svg>
+        </div>
+        <div class="platform-card-info">
+          <div class="platform-card-name">
+            Telegram
+            <span class="platform-card-badge running">运行中</span>
+          </div>
+          <div class="platform-card-desc">通过 Bot Token 连接 Telegram 私聊</div>
+        </div>
+        <svg class="platform-card-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="platform-card-body">
+        <div class="platform-card-body-inner" onclick="event.stopPropagation()">
+          <div class="form-group">
+            <label class="form-label">Bot Token</label>
+            <input type="password" class="form-input mono" placeholder="123456:ABC-DEF..." value="••••••••••••••••••••" />
+            <span class="form-hint">从 @BotFather 获取</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">默认工作目录</label>
+            <input type="text" class="form-input mono" placeholder="/home/user/projects" value="/home/user/spacecode-projects" />
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
+              保存
+            </button>
+            <button class="btn btn-danger">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+              停止适配器
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Feishu -->
+    <div class="platform-card" onclick="toggleCard(this)">
+      <div class="platform-card-header">
+        <div class="platform-card-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 12l10 10 10-10z"/></svg>
+        </div>
+        <div class="platform-card-info">
+          <div class="platform-card-name">飞书</div>
+          <div class="platform-card-desc">通过 App ID/Secret 连接飞书机器人</div>
+        </div>
+        <svg class="platform-card-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="platform-card-body">
+        <div class="platform-card-body-inner" onclick="event.stopPropagation()">
+          <div class="form-group">
+            <label class="form-label">App ID</label>
+            <input type="text" class="form-input mono" placeholder="cli_xxx" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">App Secret</label>
+            <input type="password" class="form-input mono" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">默认工作目录</label>
+            <input type="text" class="form-input mono" placeholder="/home/user/projects" />
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary">保存</button>
+            <button class="btn btn-secondary">启动适配器</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DingTalk -->
+    <div class="platform-card" onclick="toggleCard(this)">
+      <div class="platform-card-header">
+        <div class="platform-card-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg>
+        </div>
+        <div class="platform-card-info">
+          <div class="platform-card-name">钉钉</div>
+          <div class="platform-card-desc">通过 Client ID/Secret 连接钉钉机器人</div>
+        </div>
+        <svg class="platform-card-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="platform-card-body">
+        <div class="platform-card-body-inner" onclick="event.stopPropagation()">
+          <div class="form-group">
+            <label class="form-label">Client ID</label>
+            <input type="text" class="form-input mono" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Client Secret</label>
+            <input type="password" class="form-input mono" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">默认工作目录</label>
+            <input type="text" class="form-input mono" placeholder="/home/user/projects" />
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary">保存</button>
+            <button class="btn btn-secondary">启动适配器</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- WeChat -->
+    <div class="platform-card" onclick="toggleCard(this)">
+      <div class="platform-card-header">
+        <div class="platform-card-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l8-8 8 8M5 9v10h14V9"/></svg>
+        </div>
+        <div class="platform-card-info">
+          <div class="platform-card-name">微信</div>
+          <div class="platform-card-desc">通过 Account ID + Bot Token 连接微信</div>
+        </div>
+        <svg class="platform-card-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="platform-card-body">
+        <div class="platform-card-body-inner" onclick="event.stopPropagation()">
+          <div class="form-group">
+            <label class="form-label">Account ID</label>
+            <input type="text" class="form-input mono" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Bot Token</label>
+            <input type="password" class="form-input mono" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">默认工作目录</label>
+            <input type="text" class="form-input mono" placeholder="/home/user/projects" />
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary">保存</button>
+            <button class="btn btn-secondary">启动适配器</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- WhatsApp -->
+    <div class="platform-card" onclick="toggleCard(this)">
+      <div class="platform-card-header">
+        <div class="platform-card-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0z"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+        </div>
+        <div class="platform-card-info">
+          <div class="platform-card-name">WhatsApp</div>
+          <div class="platform-card-desc">通过 Account JID 连接 WhatsApp</div>
+        </div>
+        <svg class="platform-card-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="platform-card-body">
+        <div class="platform-card-body-inner" onclick="event.stopPropagation()">
+          <div class="form-group">
+            <label class="form-label">Account JID</label>
+            <input type="text" class="form-input mono" placeholder="xxx@s.whatsapp.net" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">默认工作目录</label>
+            <input type="text" class="form-input mono" placeholder="/home/user/projects" />
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary">保存</button>
+            <button class="btn btn-secondary">启动适配器</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Grid: Pairing + Default Dir -->
+  <div class="bottomGrid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+    <!-- Pairing -->
+    <div class="pairing-card">
+      <div class="card-header">
+        <div class="card-title">配对管理</div>
+        <div class="card-desc">生成配对码供 IM 用户绑定</div>
+      </div>
+      <div class="card-body">
+        <div class="pairing-code-display">
+          <div class="pairing-code-text">7K3M9X</div>
+          <div class="pairing-code-expiry">过期时间: 47m 32s</div>
+        </div>
+
+        <div style="display: flex; gap: 6px; margin-bottom: 14px;">
+          <button class="btn btn-secondary btn-sm" style="flex:1">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3"/></svg>
+            重新生成
+          </button>
+          <button class="btn btn-secondary btn-sm" style="flex:1">清除</button>
+        </div>
+
+        <div class="paired-user-row">
+          <div class="paired-user-info">
+            <div class="paired-user-avatar">Y</div>
+            <div>
+              <div class="paired-user-name">雅坤</div>
+              <div class="paired-user-id">telegram:88472915</div>
+            </div>
+          </div>
+          <button class="btn-icon danger">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+          </button>
+        </div>
+
+        <div class="paired-user-row">
+          <div class="paired-user-info">
+            <div class="paired-user-avatar">L</div>
+            <div>
+              <div class="paired-user-name">Liu Wei</div>
+              <div class="paired-user-id">telegram:62910483</div>
+            </div>
+          </div>
+          <button class="btn-icon danger">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Default Dir -->
+    <div class="dir-card">
+      <div class="card-header">
+        <div class="card-title">默认项目目录</div>
+        <div class="card-desc">新会话的默认工作目录</div>
+      </div>
+      <div class="card-body">
+        <div class="form-group" style="margin: 0;">
+          <input type="text" class="form-input mono" placeholder="/home/user/projects" value="/home/user/spacecode-projects" />
+          <span class="form-hint">所有未单独设置工作目录的平台适配器将使用此路径</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleCard(card) {
+  if (card.classList.contains('expanded')) return;
+
+  // Collapse all
+  document.querySelectorAll('.platform-card.expanded').forEach(c => c.classList.remove('expanded'));
+  // Expand clicked
+  card.classList.add('expanded');
+}
+
+function toggleServer() {
+  const strip = document.getElementById('serverStrip');
+  const dot = document.getElementById('serverDot');
+  const label = document.getElementById('serverLabel');
+  const meta = document.getElementById('serverMeta');
+  const btn = event.target.closest('button');
+
+  if (strip.classList.contains('running')) {
+    strip.classList.remove('running');
+    dot.classList.remove('running');
+    label.textContent = 'IM 服务器未运行';
+    meta.textContent = '点击启动以开始接收 IM 消息';
+    btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg> 启动';
+    btn.className = 'btn btn-primary btn-sm';
+  } else {
+    strip.classList.add('running');
+    dot.classList.add('running');
+    label.textContent = 'IM 服务器运行中';
+    meta.textContent = 'ws://127.0.0.1:3456 · PID 18432';
+    btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg> 停止';
+    btn.className = 'btn btn-secondary btn-sm';
+  }
+}
+</script>
+</body>
+</html>

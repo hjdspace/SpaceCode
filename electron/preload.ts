@@ -853,4 +853,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('cron:onRunCompleted', wrapper)
     },
   },
+
+  // IM Integration API
+  im: {
+    getConfig: (): Promise<any> => ipcRenderer.invoke('im:getConfig'),
+    updateConfig: (config: any): Promise<void> => ipcRenderer.invoke('im:updateConfig', config),
+    startServer: (): Promise<void> => ipcRenderer.invoke('im:startServer'),
+    stopServer: (): Promise<void> => ipcRenderer.invoke('im:stopServer'),
+    getServerStatus: (): Promise<any> => ipcRenderer.invoke('im:getServerStatus'),
+    startAdapter: (platform: string): Promise<void> => ipcRenderer.invoke('im:startAdapter', platform),
+    stopAdapter: (platform: string): Promise<void> => ipcRenderer.invoke('im:stopAdapter', platform),
+    getAdapterStatuses: (): Promise<any> => ipcRenderer.invoke('im:getAdapterStatuses'),
+    generatePairingCode: (): Promise<{ code: string; expiresAt: number }> =>
+      ipcRenderer.invoke('im:generatePairingCode'),
+    clearPairingCode: (): Promise<void> => ipcRenderer.invoke('im:clearPairingCode'),
+  },
 })

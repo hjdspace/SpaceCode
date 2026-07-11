@@ -45,8 +45,9 @@ vi.mock('ws', async () => {
       this.emit('close', code, reason ?? '')
     }
 
-    removeAllListeners(): void {
+    removeAllListeners(): this {
       super.removeAllListeners()
+      return this
     }
   }
 
@@ -56,6 +57,19 @@ vi.mock('ws', async () => {
 import { WsBridge } from '@electron/im/adapters/common/ws-bridge'
 import type { ServerMessage } from '@electron/im/adapters/common/types'
 import MockWS from 'ws'
+
+/** Extended WS type that includes test-only helper methods from the mock. */
+type MockWsInstance = InstanceType<typeof MockWS> & {
+  _receive(data: object): void
+  _close(code: number, reason?: string): void
+  _error(err: Error): void
+}
+
+/** Helper to extract the mock WS instance from bridge internals. */
+function getWs(bridge: WsBridge, chatId: string): MockWsInstance | undefined {
+  const sessions = (bridge as unknown as { sessions: Map<string, { ws: MockWsInstance }> }).sessions
+  return sessions.get(chatId)?.ws
+}
 
 describe('WsBridge', () => {
   let bridge: WsBridge
@@ -93,12 +107,12 @@ describe('WsBridge', () => {
 
     await bridge.connectSession('chat1', 'sess1', '/tmp/work')
 
-    const session = (bridge as unknown as { sessions: Map<string, { ws: InstanceType<typeof MockWS> }> }).sessions.get('chat1')
-    expect(session).toBeDefined()
+    const ws = getWs(bridge, 'chat1')
+    expect(ws).toBeDefined()
 
-    session!.ws._receive({ type: 'status', state: 'thinking', num: 1 })
-    session!.ws._receive({ type: 'status', state: 'streaming', num: 2 })
-    session!.ws._receive({ type: 'status', state: 'idle', num: 3 })
+    ws!._receive({ type: 'status', state: 'thinking', num: 1 })
+    ws!._receive({ type: 'status', state: 'streaming', num: 2 })
+    ws!._receive({ type: 'status', state: 'idle', num: 3 })
 
     vi.advanceTimersByTime(200)
     await vi.waitFor(() => expect(order.length).toBe(6))
@@ -119,12 +133,12 @@ describe('WsBridge', () => {
 
     await bridge.connectSession('chat1', 'sess1', '/tmp/work')
 
-    const oldSession = (bridge as unknown as { sessions: Map<string, { ws: InstanceType<typeof MockWS> }> }).sessions.get('chat1')
+    const oldWs = getWs(bridge, 'chat1')
 
     bridge.resetSession('chat1')
     await bridge.connectSession('chat1', 'sess2', '/tmp/work')
 
-    oldSession!.ws._receive({ type: 'status', state: 'idle' })
+    oldWs!._receive({ type: 'status', state: 'idle' })
 
     expect(received).toHaveLength(0)
   })
@@ -132,9 +146,9 @@ describe('WsBridge', () => {
   it('should send user messages via WS', async () => {
     await bridge.connectSession('chat1', 'sess1', '/tmp/work')
 
-    const session = (bridge as unknown as { sessions: Map<string, { ws: InstanceType<typeof MockWS> }> }).sessions.get('chat1')
+    const ws = getWs(bridge, 'chat1')
     const sent: string[] = []
-    session!.ws.on('_sent', (data: string) => sent.push(data))
+    ws!.on('_sent', (data: string) => sent.push(data))
 
     bridge.sendUserMessage('chat1', 'hello world')
 
@@ -146,9 +160,9 @@ describe('WsBridge', () => {
   it('should send permission responses', async () => {
     await bridge.connectSession('chat1', 'sess1', '/tmp/work')
 
-    const session = (bridge as unknown as { sessions: Map<string, { ws: InstanceType<typeof MockWS> }> }).sessions.get('chat1')
+    const ws = getWs(bridge, 'chat1')
     const sent: string[] = []
-    session!.ws.on('_sent', (data: string) => sent.push(data))
+    ws!.on('_sent', (data: string) => sent.push(data))
 
     bridge.sendPermissionResponse('chat1', 'req1', true, 'always')
 
@@ -164,9 +178,9 @@ describe('WsBridge', () => {
   it('should send stop generation', async () => {
     await bridge.connectSession('chat1', 'sess1', '/tmp/work')
 
-    const session = (bridge as unknown as { sessions: Map<string, { ws: InstanceType<typeof MockWS> }> }).sessions.get('chat1')
+    const ws = getWs(bridge, 'chat1')
     const sent: string[] = []
-    session!.ws.on('_sent', (data: string) => sent.push(data))
+    ws!.on('_sent', (data: string) => sent.push(data))
 
     bridge.sendStopGeneration('chat1')
 
@@ -177,9 +191,9 @@ describe('WsBridge', () => {
   it('should send ping on heartbeat', async () => {
     await bridge.connectSession('chat1', 'sess1', '/tmp/work')
 
-    const session = (bridge as unknown as { sessions: Map<string, { ws: InstanceType<typeof MockWS> }> }).sessions.get('chat1')
+    const ws = getWs(bridge, 'chat1')
     const sent: string[] = []
-    session!.ws.on('_sent', (data: string) => sent.push(data))
+    ws!.on('_sent', (data: string) => sent.push(data))
 
     bridge.startHeartbeat()
 
@@ -192,9 +206,9 @@ describe('WsBridge', () => {
   it('should not reconnect on normal close (code 1000)', async () => {
     await bridge.connectSession('chat1', 'sess1', '/tmp/work')
 
-    const session = (bridge as unknown as { sessions: Map<string, { ws: InstanceType<typeof MockWS> }> }).sessions.get('chat1')
+    const ws = getWs(bridge, 'chat1')
 
-    session!.ws._close(1000, 'normal')
+    ws!._close(1000, 'normal')
 
     vi.advanceTimersByTime(35_000)
 
@@ -205,9 +219,9 @@ describe('WsBridge', () => {
   it('should attempt reconnect on abnormal close with exponential backoff', async () => {
     await bridge.connectSession('chat1', 'sess1', '/tmp/work')
 
-    const session = (bridge as unknown as { sessions: Map<string, { ws: InstanceType<typeof MockWS> }> }).sessions.get('chat1')
+    const ws = getWs(bridge, 'chat1')
 
-    session!.ws._close(1006, 'abnormal')
+    ws!._close(1006, 'abnormal')
 
     vi.advanceTimersByTime(1100)
 

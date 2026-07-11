@@ -523,6 +523,19 @@ export interface ElectronAPI {
     exportArtifact: (options: { filePath: string; format: 'html' | 'zip' | 'pdf' }) => Promise<void>
     onFileChanged: (callback: (event: { sessionId: string; filepath: string }) => void) => () => void
   }
+
+  im: {
+    getConfig: () => Promise<unknown>
+    updateConfig: (config: unknown) => Promise<void>
+    startServer: () => Promise<void>
+    stopServer: () => Promise<void>
+    getServerStatus: () => Promise<{ running: boolean; port?: number; healthy?: boolean }>
+    startAdapter: (platform: string) => Promise<void>
+    stopAdapter: (platform: string) => Promise<void>
+    getAdapterStatuses: () => Promise<Record<string, { running: boolean; pid?: number; port?: number }>>
+    generatePairingCode: () => Promise<{ code: string; expiresAt: number }>
+    clearPairingCode: () => Promise<void>
+  }
 }
 
 // ── Window 全局声明 ─────────────────────────────────────────────
