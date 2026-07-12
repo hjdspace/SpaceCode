@@ -18,7 +18,8 @@ import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { WebSocketServer, WebSocket } from 'ws'
 import { info, warn, error as logError } from '../logger'
-import { h5EngineService } from '../h5EngineService'
+import { engineGateway } from '../engineGateway'
+import { EngineFactory } from '../engines/EngineFactory'
 import { translateEngineEvent } from './engineTranslator'
 import {
   loadConfig,
@@ -159,7 +160,7 @@ export class ImServer {
     this.wsServer.on('connection', (ws, req) => this.handleWsConnection(ws, req))
 
     // Subscribe to engine events
-    this.unsubEngineEvents = h5EngineService.onRouteEvent((sessionId, eventType, data) => {
+    this.unsubEngineEvents = EngineFactory.onRouteEvent((sessionId, eventType, data) => {
       this.handleEngineEvent(sessionId, eventType, data)
     })
 
@@ -256,7 +257,7 @@ export class ImServer {
 
       // Start the engine session
       const config = loadEngineSessionConfig(workDir)
-      await h5EngineService.startSession(sessionId, config)
+      await engineGateway.startSession(sessionId, config)
 
       // Store session record
       this.sessions.set(sessionId, {
@@ -347,7 +348,7 @@ export class ImServer {
   /** GET /api/sessions/recent-projects — List recent projects */
   private async handleListRecentProjects(res: ServerResponse): Promise<void> {
     try {
-      const sessions = h5EngineService.getActiveSessions()
+      const sessions = engineGateway.getActiveSessions()
       const projects = sessions.map((s: { sessionId: string; cwd?: string }) => ({
         name: s.cwd ? s.cwd.split(/[/\\]/).pop() ?? s.cwd : 'unknown',
         path: s.cwd ?? '',
@@ -446,26 +447,26 @@ export class ImServer {
     try {
       switch (msg.type) {
         case 'user_message': {
-          await h5EngineService.sendMessage(session.sessionId, msg.content)
+          await engineGateway.sendMessage(session.sessionId, msg.content)
           break
         }
 
         case 'permission_response': {
           if (msg.allowed) {
-            await h5EngineService.allowPermission(
+            await engineGateway.allowPermission(
               session.sessionId,
               msg.requestId,
               undefined,
               msg.rule === 'always' ? 'user_permanent' : 'user_temporary'
             )
           } else {
-            await h5EngineService.denyPermission(session.sessionId, msg.requestId, 'User denied')
+            await engineGateway.denyPermission(session.sessionId, msg.requestId, 'User denied')
           }
           break
         }
 
         case 'stop_generation': {
-          await h5EngineService.stop(session.sessionId)
+          await engineGateway.stop(session.sessionId)
           break
         }
 

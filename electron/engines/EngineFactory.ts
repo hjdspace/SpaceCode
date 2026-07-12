@@ -48,6 +48,34 @@ export class EngineFactory {
     }
   }
 
+  /**
+   * 订阅所有引擎（当前 + 未来创建）的事件路由。
+   * 返回取消订阅函数。
+   */
+  static onRouteEvent(listener: (sessionId: string, eventType: string, data: any) => void): () => void {
+    const unsubs: Array<() => void> = []
+    const subscribed = new WeakSet<IEngine>()
+
+    const subscribeEngine = (engine: IEngine) => {
+      if (subscribed.has(engine)) return
+      subscribed.add(engine)
+      if (typeof engine.onRouteEvent === 'function') {
+        unsubs.push(engine.onRouteEvent(listener))
+      }
+    }
+
+    for (const engine of this.engines.values()) {
+      subscribeEngine(engine)
+    }
+
+    const unsubscribeEngineCreated = this.onEngineCreated(subscribeEngine)
+
+    return () => {
+      unsubscribeEngineCreated()
+      unsubs.splice(0).forEach(fn => fn())
+    }
+  }
+
   private static notifyEngineCreated(engine: IEngine): void {
     for (const listener of this.engineCreatedListeners) {
       try {

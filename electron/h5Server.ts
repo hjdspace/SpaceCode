@@ -8,7 +8,9 @@ import { app, BrowserWindow, net } from 'electron'
 import { WebSocketServer, WebSocket } from 'ws'
 import { isAllowedFetchUrl } from './h5FetchUrlValidator'
 import { H5AuthService } from './h5AuthService'
-import { h5EngineService } from './h5EngineService'
+import { engineGateway } from './engineGateway'
+import { EngineFactory } from './engines/EngineFactory'
+import { SessionHistoryManager } from './sessionHistoryManager'
 import { info, warn, error, debug } from './logger'
 import type {
   H5ServerStatus,
@@ -75,7 +77,7 @@ export class H5Server {
     this.wsServer.on('connection', (ws, req) => this.handleWsConnection(ws, req))
 
     // 订阅引擎事件 → 转发给所有 WS 客户端
-    this.unsubEngineEvents = h5EngineService.onRouteEvent((sessionId, eventType, data) => {
+    this.unsubEngineEvents = EngineFactory.onRouteEvent((sessionId, eventType, data) => {
       // 转发所有引擎事件 — 客户端 chatStream store 已按 sessionId 过滤，
       // 仅处理有 turn state 的会话事件。
       // 之前的 mirror session 过滤会导致非镜像会话的事件被丢弃，
@@ -280,7 +282,7 @@ export class H5Server {
     switch (pathname) {
       case '/api/session/start':
         this.rememberSessionMetadata(sessionId!, config)
-        await h5EngineService.startSession(sessionId!, config)
+        await engineGateway.startSession(sessionId!, config)
         if (config?.cwd) {
           this.setMirrorSession(sessionId!, config.cwd)
         }
@@ -297,7 +299,7 @@ export class H5Server {
           return
         }
         {
-          const status = h5EngineService.getSessionStatus(sessionId)
+          const status = engineGateway.getSessionStatus(sessionId)
           if (!status?.isRunning) {
             this.sendJson(res, 409, { error: `Session ${sessionId} has no active process` })
             return
@@ -309,7 +311,7 @@ export class H5Server {
           clientMessageId || null,
         )
         try {
-          await h5EngineService.sendMessage(sessionId, content, images)
+          await engineGateway.sendMessage(sessionId, content, images)
           this.sendJson(res, 200, { ok: true })
         } catch (err) {
           this.pushEngineError(sessionId, err)
@@ -318,17 +320,17 @@ export class H5Server {
         return
 
       case '/api/session/abort':
-        await h5EngineService.abort(sessionId!)
+        await engineGateway.abort(sessionId!)
         this.sendJson(res, 200, { ok: true })
         return
 
       case '/api/session/stop':
-        await h5EngineService.stop(sessionId!)
+        await engineGateway.stop(sessionId!)
         this.sendJson(res, 200, { ok: true })
         return
 
       case '/api/session/permission/allow':
-        await h5EngineService.allowPermission(
+        await engineGateway.allowPermission(
           sessionId!,
           requestId!,
           body.updatedInput as Record<string, unknown> | undefined,
@@ -338,7 +340,7 @@ export class H5Server {
         return
 
       case '/api/session/permission/deny':
-        await h5EngineService.denyPermission(
+        await engineGateway.denyPermission(
           sessionId!,
           requestId!,
           body.message as string | undefined,
@@ -348,7 +350,7 @@ export class H5Server {
         return
 
       case '/api/session/tool-answer':
-        await h5EngineService.submitToolAnswer(
+        await engineGateway.submitToolAnswer(
           sessionId!,
           toolCallId!,
           body.answers as Record<string, string>,
@@ -357,20 +359,20 @@ export class H5Server {
         return
 
       case '/api/session/tool-skip':
-        await h5EngineService.skipToolAnswer(sessionId!, toolCallId!)
+        await engineGateway.skipToolAnswer(sessionId!, toolCallId!)
         this.sendJson(res, 200, { ok: true })
         return
 
       case '/api/session/status':
         if (sessionId) {
-          this.sendJson(res, 200, h5EngineService.getSessionStatus(sessionId))
+          this.sendJson(res, 200, engineGateway.getSessionStatus(sessionId))
         } else {
           this.sendJson(res, 400, { error: 'sessionId required' })
         }
         return
 
       case '/api/sessions/active':
-        this.sendJson(res, 200, h5EngineService.getActiveSessions())
+        this.sendJson(res, 200, engineGateway.getActiveSessions())
         return
 
       case '/api/sessions/list':
@@ -379,8 +381,13 @@ export class H5Server {
           this.sendJson(res, 400, { error: 'projectPath required' })
           return
         }
-        const sessions = await h5EngineService.listProjectSessions(projectPath)
-        this.sendJson(res, 200, sessions)
+        const sessions = await SessionHistoryManager.listProjectSessions(projectPath)
+        const mapped = sessions.map(s => ({
+          ...s,
+          title: SessionHistoryManager.getSessionTitle(s),
+          displayTime: SessionHistoryManager.formatTimestamp(s.lastMessageTimestamp),
+        }))
+        this.sendJson(res, 200, mapped)
         return
 
       case '/api/sessions/history':
@@ -390,7 +397,7 @@ export class H5Server {
           this.sendJson(res, 400, { error: 'projectPath and sessionId required' })
           return
         }
-        const history = await h5EngineService.restoreSession(hp, hs)
+        const history = await SessionHistoryManager.getFullSession(hp, hs)
         this.sendJson(res, 200, history)
         return
 
@@ -467,7 +474,7 @@ export class H5Server {
       guiSettings,
       mirrorSessionId: this.mirrorSessionId,
       mirrorProjectPath: this.mirrorProjectPath,
-      activeSessions: h5EngineService.getActiveSessions().map(s => ({
+      activeSessions: engineGateway.getActiveSessions().map(s => ({
         sessionId: s.sessionId,
         engineSessionId: s.engineSessionId,
         status: s.status,

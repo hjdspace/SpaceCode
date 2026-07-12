@@ -60,5 +60,6 @@ _temp/
 .choccy/
 .orbit/
 .zcode/
+.socverify/
 
 *.exe*

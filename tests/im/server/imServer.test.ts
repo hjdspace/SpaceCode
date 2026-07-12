@@ -5,16 +5,22 @@ import { join } from 'path'
 import { WebSocket } from 'ws'
 import type { ServerMessage } from '@electron/im/adapters/common/types'
 
-// Mock h5EngineService to avoid Electron dependency
-vi.mock('@electron/h5EngineService', () => ({
-  h5EngineService: {
+// Mock engineGateway to avoid Electron dependency
+vi.mock('@electron/engineGateway', () => ({
+  engineGateway: {
     startSession: vi.fn().mockResolvedValue(undefined),
     sendMessage: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
     allowPermission: vi.fn().mockResolvedValue(undefined),
     denyPermission: vi.fn().mockResolvedValue(undefined),
-    onRouteEvent: vi.fn().mockReturnValue(() => {}),
     getActiveSessions: vi.fn().mockReturnValue([]),
+  },
+}))
+
+// Mock EngineFactory.onRouteEvent to avoid Electron dependency
+vi.mock('@electron/engines/EngineFactory', () => ({
+  EngineFactory: {
+    onRouteEvent: vi.fn().mockReturnValue(() => {}),
   },
 }))
 
@@ -27,7 +33,7 @@ vi.mock('@electron/logger', () => ({
 }))
 
 import { ImServer } from '@electron/imServer/imServer'
-import { h5EngineService } from '@electron/h5EngineService'
+import { engineGateway } from '@electron/engineGateway'
 
 describe('ImServer', () => {
   const configDir = mkdtempSync(join(tmpdir(), 'spacecode-im-settings-'))
@@ -112,7 +118,7 @@ describe('ImServer', () => {
       }), 'utf-8')
 
       try {
-        vi.mocked(h5EngineService.startSession).mockClear()
+        vi.mocked(engineGateway.startSession).mockClear()
 
         const res = await fetch(`${baseUrl}/api/sessions`, {
           method: 'POST',
@@ -121,7 +127,7 @@ describe('ImServer', () => {
         })
 
         expect(res.status).toBe(200)
-        expect(h5EngineService.startSession).toHaveBeenCalledWith(expect.any(String), {
+        expect(engineGateway.startSession).toHaveBeenCalledWith(expect.any(String), {
           cwd: 'D:\\workspace',
           provider: 'openai',
           model: 'test-sonnet',
@@ -271,9 +277,9 @@ describe('ImServer', () => {
       // Wait a bit for the message to be processed
       await new Promise((r) => setTimeout(r, 100))
 
-      // The mock h5EngineService.sendMessage should have been called
-      const { h5EngineService } = await import('@electron/h5EngineService')
-      expect(h5EngineService.sendMessage).toHaveBeenCalledWith(sessionId, 'hello')
+      // The mock engineGateway.sendMessage should have been called
+      const { engineGateway: eg } = await import('@electron/engineGateway')
+      expect(eg.sendMessage).toHaveBeenCalledWith(sessionId, 'hello')
 
       ws.close()
     })
