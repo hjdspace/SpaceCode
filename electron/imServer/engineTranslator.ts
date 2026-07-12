@@ -91,6 +91,17 @@ export function translateEngineEvent(event: UnifiedEngineEvent): ServerMessage[]
     }
 
     case 'result': {
+      if (data?.is_error) {
+        messages.push({
+          type: 'error',
+          message: typeof data.result === 'string' ? data.result : 'Engine request failed',
+          code: 'ENGINE_RESULT_ERROR',
+          retryable: false,
+        })
+        messages.push({ type: 'status', state: 'idle' })
+        break
+      }
+
       const usage: TokenUsage = {
         inputTokens: data?.usage?.input_tokens ?? 0,
         outputTokens: data?.usage?.output_tokens ?? 0,

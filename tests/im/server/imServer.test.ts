@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, afterAll } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { WebSocket } from 'ws'
 import type { ServerMessage } from '@electron/im/adapters/common/types'
 
@@ -24,11 +27,18 @@ vi.mock('@electron/logger', () => ({
 }))
 
 import { ImServer } from '@electron/imServer/imServer'
+import { h5EngineService } from '@electron/h5EngineService'
 
 describe('ImServer', () => {
+  const configDir = mkdtempSync(join(tmpdir(), 'spacecode-im-settings-'))
+  const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
   let server: ImServer
   let baseUrl: string
   let wsUrl: string
+
+  beforeAll(() => {
+    process.env.CLAUDE_CONFIG_DIR = configDir
+  })
 
   beforeEach(async () => {
     server = new ImServer()
@@ -39,6 +49,15 @@ describe('ImServer', () => {
 
   afterEach(async () => {
     server.stop()
+  })
+
+  afterAll(() => {
+    if (previousConfigDir === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = previousConfigDir
+    }
+    rmSync(configDir, { recursive: true, force: true })
   })
 
   describe('HTTP REST API', () => {
@@ -70,6 +89,55 @@ describe('ImServer', () => {
       expect(data.sessionId).toBeDefined()
       expect(data.token).toBeDefined()
       expect(data.sessionId).toHaveLength(36) // UUID format
+    })
+
+    it('POST /api/sessions should inherit the persisted Engine settings', async () => {
+      const settingsPath = join(configDir, 'gui-settings.json')
+      writeFileSync(settingsPath, JSON.stringify({
+        authMethod: 'openai_compatible',
+        openaiConfig: {
+          baseUrl: 'https://llm.example.com/v1',
+          apiKey: 'test-api-key',
+          haikuModel: 'test-haiku',
+          sonnetModel: 'test-sonnet',
+          opusModel: 'test-opus',
+        },
+        thinkingEnabled: true,
+        effortLevel: 'high',
+        engineType: 'claude-code',
+        engineSource: 'installed',
+        installedCliPath: 'C:\\tools\\claude.exe',
+        modelContextWindows: { 'test-sonnet': 400000 },
+        rtkEnabled: true,
+      }), 'utf-8')
+
+      try {
+        vi.mocked(h5EngineService.startSession).mockClear()
+
+        const res = await fetch(`${baseUrl}/api/sessions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workDir: 'D:\\workspace' }),
+        })
+
+        expect(res.status).toBe(200)
+        expect(h5EngineService.startSession).toHaveBeenCalledWith(expect.any(String), {
+          cwd: 'D:\\workspace',
+          provider: 'openai',
+          model: 'test-sonnet',
+          apiKey: 'test-api-key',
+          baseUrl: 'https://llm.example.com/v1',
+          thinkingEnabled: true,
+          effortLevel: 'high',
+          engineType: 'claude-code',
+          engineSource: 'installed',
+          installedCliPath: 'C:\\tools\\claude.exe',
+          modelContextWindows: { 'test-sonnet': 400000 },
+          rtkEnabled: true,
+        })
+      } finally {
+        rmSync(settingsPath, { force: true })
+      }
     })
 
     it('POST /api/sessions should reject missing workDir', async () => {
