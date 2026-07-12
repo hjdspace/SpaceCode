@@ -5,8 +5,9 @@ const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null
 // 则创建 H5 适配器替换 claudeCode IPC 桥接。
 import { isH5Mode, initH5Connection, h5ApiClient } from './h5ApiClient'
 import { createH5Adapter } from './h5Adapter'
+import type { ElectronClaudeCodeAPI } from '@/types/electron'
 
-let h5Adapter: ReturnType<typeof createH5Adapter> | null = null
+let h5Adapter: ElectronClaudeCodeAPI | null = null
 const _isH5Mode = typeof window !== 'undefined' && isH5Mode()
 
 if (_isH5Mode) {
@@ -890,7 +891,7 @@ export const api = {
   // Used by chat.ts for session lifecycle, streaming, and permission management.
   // Returns null when running outside Electron (SSR / unit tests).
   // In H5 mode, returns the H5 adapter instead of the IPC bridge.
-  get claudeCode() {
+  get claudeCode(): ElectronClaudeCodeAPI | null {
     if (h5Adapter) return h5Adapter
     return electronAPI?.claudeCode ?? null
   },

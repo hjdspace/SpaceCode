@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { ElectronClaudeCodeAPI } from '@/types/electron'
 
 export interface FileEntry {
   name: string
@@ -462,7 +463,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('claude-code:isProxyRunning'),
     notifyEngineSourceChanged: (source: string) =>
       ipcRenderer.invoke('claude-code:engineSourceChanged', source),
-  },
+  } satisfies ElectronClaudeCodeAPI,
 
   // Folder selection dialog
   selectFolder: (): Promise<{ canceled: boolean; filePaths: string[] }> =>

@@ -3,6 +3,7 @@
 
 import { h5ApiClient } from './h5ApiClient'
 import { h5WebSocketClient } from './h5WebSocketClient'
+import type { ElectronClaudeCodeAPI } from '@/types/electron'
 
 type EventCallback = (data: { sessionId: string; data: any }) => void
 
@@ -185,13 +186,7 @@ export function createH5Adapter() {
     onElicitationRequest: (callback: (data: { sessionId: string; data: any }) => void) =>
       h5WebSocketClient.on('elicitation_request', callback),
 
-    onCompact: (callback: (data: { sessionId: string; data: any }) => void) =>
-      h5WebSocketClient.on('compact', callback),
-
-    onApiRetry: (callback: (data: { sessionId: string; data: any }) => void) =>
-      h5WebSocketClient.on('api_retry', callback),
-
     onError: (callback: (data: { sessionId: string; data: any }) => void) =>
       h5WebSocketClient.on('error', callback),
-  }
+  } satisfies ElectronClaudeCodeAPI
 }

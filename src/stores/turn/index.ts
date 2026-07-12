@@ -2,11 +2,11 @@ import { defineStore } from 'pinia'
 import { ref, computed, nextTick } from 'vue'
 import { api } from '@/services/electronAPI'
 import { errorHandler } from '@/services/errorHandler'
-import { useChatSessionStore } from './chatSession'
+import { useChatSessionStore } from '../chatSession'
 import { createUuid } from '@/utils/uuid'
-import { useSettingsStore } from './settings'
-import { useContextUsageStore } from './contextUsage'
-import type { SessionSink } from './turnSink'
+import { useSettingsStore } from '../settings'
+import { useContextUsageStore } from '../contextUsage'
+import type { SessionSink } from '../turnSink'
 import type { Message, ToolCall } from '@/types'
 import { ErrorCategory } from '@/types'
 import { permissionService, type PermissionRequest } from '@/services/permissionService'
@@ -17,48 +17,20 @@ import {
   isAgentLaunchResult,
 } from '@/services/teamTranscriptService'
 import { useAutoRetry, extractErrorCode } from '@/composables/useAutoRetry'
+import type { TurnState } from './types'
+import {
+  FILE_TOOLS,
+  COMMAND_TOOLS,
+  VERIFICATION_PATTERNS,
+  REQUEST_TIMEOUT,
+  MAX_INMEMORY_TOOL_OUTPUT,
+} from './types'
+import { createTimelineAssembler } from './timelineAssembler'
+import { createTurnStateMachine } from './turnStateMachine'
 
-const FILE_TOOLS = new Set(['Write', 'FileWrite', 'Edit', 'FileEdit', 'MultiEdit'])
-const COMMAND_TOOLS = new Set(['Bash'])
-const VERIFICATION_PATTERNS = [/^\s*(npm\s+test|bun\s+test|pnpm\s+test|yarn\s+test|pytest|cargo\s+test|go\s+test|jest|vitest|mocha|npx\s+playwright|ruff|eslint|biome|prettier|tsc|vue-tsc|npm\s+run\s+(test|lint|check|build|typecheck))/i]
-
-// 单个会话当前进行中的 turn 状态。turnStates 中无此 sessionId 条目 === 该会话 idle。
-export interface TurnState {
-  assistantMessageId: string
-  accumulatedContent: string
-  currentTextEventId: string | null
-  currentReasoningEventId: string | null
-  streamingHandledThinking: boolean
-  sendStartTime: number
-  timeoutId: ReturnType<typeof setTimeout> | null
-  isAutonomous: boolean
-  settled: boolean
-  resolve?: () => void
-  reject?: (e: any) => void
-}
-
-export const REQUEST_TIMEOUT = 5 * 60 * 1000
-export const AUTONOMOUS_REQUEST_TIMEOUT = 45 * 60 * 1000
-export const MAX_INMEMORY_TOOL_OUTPUT = 30_000
-
-// 构造"已结算"的空 TurnState 占位对象。用于 ensureTurn 在应丢弃事件的窗口期
-// （sendMessage 进行中 / 用户 abort / 空会话）返回——所有必填字段填入安全默认值，
-// 使对象真正满足 TurnState 接口，不再依赖 as 断言绕过类型检查。调用方仍应通过
-// ts.settled 早返回；此 helper 仅作类型诚实性与防御性兜底，避免未来调用方
-// 忘记 settled 守卫时访问到 undefined 字段。
-function createSettledTurn(): TurnState {
-  return {
-    assistantMessageId: '',
-    accumulatedContent: '',
-    currentTextEventId: null,
-    currentReasoningEventId: null,
-    streamingHandledThinking: false,
-    sendStartTime: 0,
-    timeoutId: null,
-    isAutonomous: false,
-    settled: true,
-  }
-}
+// Re-export — 外部模块通过 @/stores/turn 导入这些符号
+export type { TurnState } from './types'
+export { REQUEST_TIMEOUT, AUTONOMOUS_REQUEST_TIMEOUT, MAX_INMEMORY_TOOL_OUTPUT } from './types'
 
 // ADR-0003: Turn store 必须在 WebSocket 连接前完成订阅注册。
 // 模块级 initialized 标记：store 工厂首次实例化时记录一次初始化日志，
@@ -95,7 +67,6 @@ export function useTurnStore(injectedApi?: any) {
     const streamingContent = computed(() =>
       sessionStore.currentSessionId ? (streamingContents.value.get(sessionStore.currentSessionId) ?? '') : ''
     )
-    const turnStates = new Map<string, TurnState>()
     const pendingSendMessages = new Set<string>()
     const userAbortedSessions = new Set<string>()
 
@@ -314,62 +285,15 @@ export function useTurnStore(injectedApi?: any) {
     }
 
     // ────────────────────────────────────────────────────────────────────
-    // Timeline / message helpers（按 sessionId + TurnState 操作，不再依赖闭包）
-    // ────────────────────────────────────────────────────────────────────
-    const getAssistantMessage = (sessionId: string, ts: TurnState): Message | undefined => {
-      const s = sink.get(sessionId)
-      return s?.messages.find(m => m.id === ts.assistantMessageId)
-    }
-
-    const addTimelineEvent = (sessionId: string, ts: TurnState, event: NonNullable<Message['timelineEvents']>[number]) => {
-      const msg = getAssistantMessage(sessionId, ts)
-      if (!msg) return
-      if (msg.timelineEvents?.some(e => e.id === event.id)) return
-      msg.timelineEvents = [...(msg.timelineEvents || []), event]
-    }
-
-    const updateTimelineEvent = (sessionId: string, ts: TurnState, eventId: string, updates: Partial<NonNullable<Message['timelineEvents']>[number]>) => {
-      const msg = getAssistantMessage(sessionId, ts)
-      if (!msg?.timelineEvents) return
-      // 直接修改 event 属性，不创建新数组。
-      // 流式期间每个 text_delta/thinking_delta 都会调用此方法，
-      // 使用 map 创建新数组会导致 O(n) 复制 + 触发大量响应式更新。
-      // Vue 3 的 reactive 代理会正确追踪属性修改。
-      const event = msg.timelineEvents.find(e => e.id === eventId)
-      if (event) {
-        Object.assign(event, updates)
-      }
-    }
-
-    const ensureTextTimelineEvent = (sessionId: string, ts: TurnState): string => {
-      if (ts.currentTextEventId) return ts.currentTextEventId
-      ts.currentTextEventId = createUuid()
-      addTimelineEvent(sessionId, ts, {
-        id: ts.currentTextEventId,
-        type: 'text',
-        timestamp: Date.now(),
-        status: 'running',
-        content: ''
-      })
-      return ts.currentTextEventId
-    }
-
-    const completeCurrentTextEvent = (sessionId: string, ts: TurnState) => {
-      if (!ts.currentTextEventId) return
-      updateTimelineEvent(sessionId, ts, ts.currentTextEventId, { status: 'completed' })
-      ts.currentTextEventId = null
-    }
-
-    const addToolTimelineEvent = (sessionId: string, ts: TurnState, toolCallId: string) => {
-      completeCurrentTextEvent(sessionId, ts)
-      addTimelineEvent(sessionId, ts, {
-        id: `tool-${toolCallId}`,
-        type: 'tool_call',
-        timestamp: Date.now(),
-        status: 'running',
-        toolCallId
-      })
-    }
+    // Timeline / message helpers — 委托给 timelineAssembler 深模块
+    const {
+      getAssistantMessage,
+      addTimelineEvent,
+      updateTimelineEvent,
+      ensureTextTimelineEvent,
+      completeCurrentTextEvent,
+      addToolTimelineEvent,
+    } = createTimelineAssembler(sink)
 
     // ────────────────────────────────────────────────────────────────────
     // Handlers（store 作用域；wrapper 已完成 sessionId 路由与 settled/turn 守卫）
@@ -1206,101 +1130,31 @@ export function useTurnStore(injectedApi?: any) {
     }
 
     // ────────────────────────────────────────────────────────────────────
-    // Turn 生命周期（从 chatStream.ts 迁移；写回走 sink seam，读会话走 sink.get）
+    // Turn 生命周期 — 委托给 turnStateMachine 深模块
+    // onTimeout 回调打破与 handleResult / handleError 的循环依赖：
+    // 状态机只负责"超时了"信号，由 store 决定软收尾还是报错。
     // ────────────────────────────────────────────────────────────────────
-    const resetTimeout = (sessionId: string, ts: TurnState) => {
-      if (ts.timeoutId) clearTimeout(ts.timeoutId)
-      const limit = ts.isAutonomous ? AUTONOMOUS_REQUEST_TIMEOUT : REQUEST_TIMEOUT
-      ts.timeoutId = setTimeout(() => {
-        const cur = turnStates.get(sessionId)
-        if (!cur || cur !== ts || cur.settled) return
+    const {
+      turnStates,
+      resetTimeout,
+      beginTurn,
+      endTurn,
+      ensureTurn,
+    } = createTurnStateMachine({
+      sink,
+      traceEvent: sessionStore.traceEvent.bind(sessionStore),
+      loadingSessions,
+      streamingContents,
+      pendingSendMessages,
+      userAbortedSessions,
+      onTimeout: (sessionId, ts) => {
         if (ts.isAutonomous) {
-          // 后台续跑长跑属正常，软收尾：清 spinner、不报错
           handleResult(sessionId, ts, {})
         } else {
           handleError(sessionId, ts, new Error(`请求超时（${REQUEST_TIMEOUT / 1000}秒无响应）`))
         }
-      }, limit)
-    }
-
-    const beginTurn = (sessionId: string, opts: { isAutonomous: boolean; resolve?: () => void; reject?: (e: any) => void }): TurnState => {
-      const assistantMessageId = createUuid()
-      const ts: TurnState = {
-        assistantMessageId,
-        accumulatedContent: '',
-        currentTextEventId: null,
-        currentReasoningEventId: null,
-        streamingHandledThinking: false,
-        sendStartTime: Date.now(),
-        timeoutId: null,
-        isAutonomous: opts.isAutonomous,
-        settled: false,
-        resolve: opts.resolve,
-        reject: opts.reject,
-      }
-      turnStates.set(sessionId, ts)
-
-      loadingSessions.value.set(sessionId, true)
-      streamingContents.value.set(sessionId, '')
-      const s = sink.get(sessionId)
-      if (s) s.processStatus = 'active'
-
-      sessionStore.traceEvent({
-        sessionId,
-        messageId: assistantMessageId,
-        actor: 'assistant',
-        type: 'assistant_turn',
-        status: 'started',
-        title: opts.isAutonomous ? 'Assistant turn started (autonomous)' : 'Assistant turn started',
-      })
-
-      sink.appendMessage(sessionId, {
-        id: assistantMessageId,
-        role: 'assistant',
-        content: '',
-      })
-
-      resetTimeout(sessionId, ts)
-      return ts
-    }
-
-    const endTurn = (sessionId: string, ts: TurnState) => {
-      if (ts.timeoutId) { clearTimeout(ts.timeoutId); ts.timeoutId = null }
-      turnStates.delete(sessionId)
-      // 注意：绝不退订持久监听器
-    }
-
-    // idle 时收到流式事件 → 视为新 turn 开始（后台 agent 自动续跑的关键路径）
-    const ensureTurn = (sessionId: string): TurnState => {
-      const existing = turnStates.get(sessionId)
-      if (existing) return existing
-
-      // sendMessage 正在进行中（addMessage 已执行、beginTurn 尚未执行）：
-      // 此时 session.messages.length > 0，但不应该创建 autonomous turn，
-      // 因为用户发起的 turn 即将由 beginTurn 创建。
-      // 丢弃此窗口期内的流式事件，防止 autonomous turn 消费事件或被提前结算。
-      if (pendingSendMessages.has(sessionId)) {
-        return createSettledTurn()
-      }
-
-      // ★ 用户主动 abort 后，丢弃引擎残留事件（子代理输出等），
-      // 不创建 autonomous turn，防止会话「自动恢复运行」。
-      // 标记在 sendMessage / retryLastMessage / resendForRetry 中清除。
-      if (userAbortedSessions.has(sessionId)) {
-        return createSettledTurn()
-      }
-
-      // 新建会话尚未有任何消息时，不因 CLI 初始化事件自动创建 turn，
-      // 避免会话在用户发送消息前就显示转圈。
-      // 后台 agent 自动续跑仅对已有消息的会话生效，不影响该路径。
-      const session = sink.get(sessionId)
-      if (!session || session.messages.length === 0) {
-        // 返回一个已结算的空 turn，使调用方因 ts.settled 提前返回
-        return createSettledTurn()
-      }
-
-      return beginTurn(sessionId, { isAutonomous: true })
-    }
+      },
+    })
 
     // ── 骨架 stub：本任务只建结构，行为在任务 5/7 实现 ──
     interface MessageAttachments {
