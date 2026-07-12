@@ -18,23 +18,24 @@ export function translateEngineEvent(event: UnifiedEngineEvent): ServerMessage[]
 
   switch (type) {
     case 'stream_event': {
-      const streamType = data?.type
+      const streamEvent = data?.event ?? data
+      const streamType = streamEvent?.type
       if (streamType === 'message_start') {
         messages.push({ type: 'status', state: 'thinking' })
       } else if (streamType === 'content_block_start') {
-        const blockType = data?.content_block?.type
+        const blockType = streamEvent?.content_block?.type
         if (blockType === 'text') {
           messages.push({ type: 'content_start', blockType: 'text' })
         } else if (blockType === 'tool_use') {
           messages.push({
             type: 'content_start',
             blockType: 'tool_use',
-            toolName: data?.content_block?.name,
-            toolUseId: data?.content_block?.id,
+            toolName: streamEvent?.content_block?.name,
+            toolUseId: streamEvent?.content_block?.id,
           })
         }
       } else if (streamType === 'content_block_delta') {
-        const delta = data?.delta
+        const delta = streamEvent?.delta
         if (delta?.type === 'text_delta' && delta.text) {
           messages.push({ type: 'content_delta', text: delta.text })
         } else if (delta?.type === 'input_json_delta' && delta.partial_json) {
