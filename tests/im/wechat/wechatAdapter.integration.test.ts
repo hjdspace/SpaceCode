@@ -16,7 +16,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { WechatAdapter } from '@electron/im/adapters/wechat/wechatAdapter'
 import { WechatBot, type WechatMessage } from '@electron/im/adapters/wechat/wechatBot'
-import type { AdapterConfig } from '@electron/im/adapters/common/config'
+import { loadConfig, saveConfig, type AdapterConfig } from '@electron/im/adapters/common/config'
 import type { MessageHandler, SessionBinding } from '@electron/im/adapters/common/types'
 
 let storedBinding: SessionBinding | null = null
@@ -387,5 +387,63 @@ describe('WechatAdapter integration', () => {
       await adapter?.stop()
       vi.stubGlobal('fetch', originalFetch)
     }
+  })
+
+  it('should accept a pairing code generated after the adapter starts', async () => {
+    const startedConfig = {
+      serverUrl: 'ws://127.0.0.1:3456',
+      defaultProjectDir: '/tmp/test',
+      pairing: { code: null, expiresAt: null, createdAt: null },
+      wechat: {
+        accountId: 'wx_test',
+        botToken: 'token_test',
+        userId: 'user_test',
+        baseUrl: 'https://ilinkai.weixin.qq.com',
+        allowedUsers: [],
+        pairedUsers: [],
+        defaultWorkDir: '/tmp/test',
+      },
+    } as unknown as AdapterConfig
+    const generatedAt = Date.now()
+    const persistedConfig = {
+      ...startedConfig,
+      pairing: {
+        code: 'TESTCODE',
+        createdAt: generatedAt,
+        expiresAt: generatedAt + 60 * 60 * 1000,
+      },
+    }
+    vi.mocked(loadConfig).mockReturnValue(persistedConfig)
+
+    const adapter = new WechatAdapter({
+      bot: mockBot as WechatBot,
+      config: startedConfig,
+      serverUrl: 'ws://127.0.0.1:52483',
+    })
+    const adapterForTest = adapter as unknown as {
+      handlePolledMessage: (message: WechatMessage) => Promise<void>
+    }
+
+    await adapterForTest.handlePolledMessage({
+      fromUserId: 'unpaired_user',
+      toUserId: 'wx_test',
+      msgId: 'msg_pair_after_start',
+      msgType: 'text',
+      content: '/pair TESTCODE',
+      createTime: Date.now(),
+    })
+
+    expect(mockBot.sendTextMessage).toHaveBeenCalledWith(
+      'unpaired_user',
+      '✅ 配对成功！使用 /help 查看命令'
+    )
+    expect(saveConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pairing: expect.objectContaining({ code: null }),
+        wechat: expect.objectContaining({
+          pairedUsers: [expect.objectContaining({ userId: 'unpaired_user' })],
+        }),
+      })
+    )
   })
 })

@@ -317,6 +317,8 @@ export class WechatAdapter {
   // ────────────────────────────────────────────────────────────────────────
 
   private async handlePairing(chatId: string, code: string, userId: string): Promise<void> {
+    this.config = loadConfig()
+
     if (this.isUserPaired(userId)) {
       await this.bot.sendTextMessage(chatId, '✅ 已配对')
       return
