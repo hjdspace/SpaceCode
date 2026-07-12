@@ -72,24 +72,26 @@ export class FeishuAdapter {
   private permissionCard: FeishuPermissionCard
   private mediaHandler: FeishuMediaHandler
   private config: AdapterConfig
+  private readonly serverUrl: string
   private streamingCards: Map<string, StreamingCard> = new Map()
   private running: boolean = false
+  private recoveryChatId: string = ''
   private pollTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(opts: FeishuAdapterOptions) {
     this.bot = opts.bot
     this.config = opts.config ?? loadConfig()
 
-    const serverUrl = opts.serverUrl ?? this.config.serverUrl
+    this.serverUrl = opts.serverUrl ?? this.config.serverUrl
     const authToken = opts.authToken
 
-    this.bridge = new WsBridge({ serverUrl, authToken })
+    this.bridge = new WsBridge({ serverUrl: this.serverUrl, authToken })
     this.bridge.startHeartbeat()
 
     this.chatQueue = new ChatQueue()
     this.sessionStore = new SessionStore({ filePath: opts.sessionStorePath })
     this.httpClient = new HttpClient({
-      baseUrl: serverUrl.replace(/^ws/, 'http'),
+      baseUrl: this.serverUrl.replace(/^ws/, 'http'),
       allowedProjectRoots: [this.config.defaultProjectDir],
     })
 
@@ -420,10 +422,13 @@ export class FeishuAdapter {
     }
 
     // Recover or create session
+    this.recoveryChatId = receiveId
     const binding = await this.sessionRecovery.recover(receiveId)
     if (!binding) {
       const workDir = this.config.feishu.defaultWorkDir || this.config.defaultProjectDir
       await this.createSession(receiveId, workDir)
+      // Send the user's message after session creation
+      this.bridge.sendUserMessage(receiveId, text)
       return
     }
 
@@ -450,10 +455,10 @@ export class FeishuAdapter {
 
       this.sessionStore.set(receiveId, { sessionId, workDir })
 
-      this.bridge = new WsBridge({
-        serverUrl: this.config.serverUrl,
-        authToken: token,
-      })
+    this.bridge = new WsBridge({
+      serverUrl: this.serverUrl,
+      authToken: token,
+    })
       this.bridge.startHeartbeat()
 
       this.bridge.onServerMessage(receiveId, (msg) => this.handleServerMessage(receiveId, msg))
@@ -704,22 +709,21 @@ export class FeishuAdapter {
     }
   }
 
-  private createRecoveryBridge() {
-    const bridge = this.bridge
-    const chatIdRef = { current: '' }
-    return {
-      get sessionId(): string | null {
-        return bridge.getSessionId(chatIdRef.current)
-      },
-      get isConnected(): boolean {
-        return bridge.isConnected(chatIdRef.current)
-      },
-      async connectSession(sessionId: string, workDir: string): Promise<void> {
-        await bridge.connectSession(chatIdRef.current, sessionId, workDir)
-      },
-      resetSession(): void {
-        bridge.resetSession(chatIdRef.current)
-      },
-    }
-  }
+private createRecoveryBridge() {
+const self = this
+return {
+get sessionId(): string | null {
+return self.bridge.getSessionId(self.recoveryChatId)
+},
+get isConnected(): boolean {
+return self.bridge.isConnected(self.recoveryChatId)
+},
+async connectSession(sessionId: string, workDir: string): Promise<void> {
+await self.bridge.connectSession(self.recoveryChatId, sessionId, workDir)
+},
+resetSession(): void {
+self.bridge.resetSession(self.recoveryChatId)
+},
+}
+}
 }

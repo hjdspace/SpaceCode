@@ -68,24 +68,26 @@ export class WhatsappAdapter {
   private httpClient: HttpClient
   private mediaHandler: WhatsappMediaHandler
   private config: AdapterConfig
+  private readonly serverUrl: string
   private fullTexts: Map<string, string> = new Map()
   private pendingPermissions: Map<string, Array<{ requestId: string; toolName: string }>> = new Map()
   private running: boolean = false
+  private recoveryChatId: string = ''
 
   constructor(opts: WhatsappAdapterOptions) {
     this.bot = opts.bot
     this.config = opts.config ?? loadConfig()
 
-    const serverUrl = opts.serverUrl ?? this.config.serverUrl
+    this.serverUrl = opts.serverUrl ?? this.config.serverUrl
     const authToken = opts.authToken
 
-    this.bridge = new WsBridge({ serverUrl, authToken })
+    this.bridge = new WsBridge({ serverUrl: this.serverUrl, authToken })
     this.bridge.startHeartbeat()
 
     this.chatQueue = new ChatQueue()
     this.sessionStore = new SessionStore({ filePath: opts.sessionStorePath })
     this.httpClient = new HttpClient({
-      baseUrl: serverUrl.replace(/^ws/, 'http'),
+      baseUrl: this.serverUrl.replace(/^ws/, 'http'),
       allowedProjectRoots: [this.config.defaultProjectDir],
     })
 
@@ -205,13 +207,16 @@ export class WhatsappAdapter {
       }
     }
 
-    // Recover or create session
-    const binding = await this.sessionRecovery.recover(chatId)
-    if (!binding) {
-      const workDir = this.config.whatsapp.defaultWorkDir || this.config.defaultProjectDir
-      await this.createSession(chatId, workDir)
-      return
-    }
+// Recover or create session
+this.recoveryChatId = chatId
+const binding = await this.sessionRecovery.recover(chatId)
+if (!binding) {
+const workDir = this.config.whatsapp.defaultWorkDir || this.config.defaultProjectDir
+await this.createSession(chatId, workDir)
+// Send the user's message after session creation
+this.bridge.sendUserMessage(chatId, text)
+return
+}
 
     // Send the message
     this.bridge.sendUserMessage(chatId, text)
@@ -382,10 +387,10 @@ export class WhatsappAdapter {
 
       this.sessionStore.set(chatId, { sessionId, workDir })
 
-      this.bridge = new WsBridge({
-        serverUrl: this.config.serverUrl,
-        authToken: token,
-      })
+    this.bridge = new WsBridge({
+      serverUrl: this.serverUrl,
+      authToken: token,
+    })
       this.bridge.startHeartbeat()
 
       this.bridge.onServerMessage(chatId, (msg) => this.handleServerMessage(chatId, msg))
@@ -584,22 +589,21 @@ export class WhatsappAdapter {
     }
   }
 
-  private createRecoveryBridge() {
-    const bridge = this.bridge
-    const chatIdRef = { current: '' }
-    return {
-      get sessionId(): string | null {
-        return bridge.getSessionId(chatIdRef.current)
-      },
-      get isConnected(): boolean {
-        return bridge.isConnected(chatIdRef.current)
-      },
-      async connectSession(sessionId: string, workDir: string): Promise<void> {
-        await bridge.connectSession(chatIdRef.current, sessionId, workDir)
-      },
-      resetSession(): void {
-        bridge.resetSession(chatIdRef.current)
-      },
-    }
-  }
+private createRecoveryBridge() {
+const self = this
+return {
+get sessionId(): string | null {
+return self.bridge.getSessionId(self.recoveryChatId)
+},
+get isConnected(): boolean {
+return self.bridge.isConnected(self.recoveryChatId)
+},
+async connectSession(sessionId: string, workDir: string): Promise<void> {
+await self.bridge.connectSession(self.recoveryChatId, sessionId, workDir)
+},
+resetSession(): void {
+self.bridge.resetSession(self.recoveryChatId)
+},
+}
+}
 }

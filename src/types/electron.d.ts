@@ -378,6 +378,19 @@ export interface ElectronUpdateAPI {
   onError: (callback: (error: string) => void) => () => void
 }
 
+export interface ElectronImWechatAPI {
+  startQrLogin: () => Promise<{ qrcodeUrl: string; qrcodeId: string }>
+  checkQrStatus: (qrcodeId: string) => Promise<{
+    status: 'waiting' | 'scanned' | 'confirmed' | 'expired'
+    accountId?: string
+    botToken?: string
+    baseUrl?: string
+    userId?: string
+  }>
+  unbind: () => Promise<void>
+  isBound: () => Promise<boolean>
+}
+
 export interface ElectronCronAPI {
   list: (projectRoot: string) => Promise<CronTask[]>
   create: (projectRoot: string, task: Omit<CronTask, 'id'>) => Promise<CronTask | null>
@@ -535,6 +548,7 @@ export interface ElectronAPI {
     getAdapterStatuses: () => Promise<Record<string, { running: boolean; pid?: number; port?: number }>>
     generatePairingCode: () => Promise<{ code: string; expiresAt: number }>
     clearPairingCode: () => Promise<void>
+    wechat: ElectronImWechatAPI
   }
 }
 

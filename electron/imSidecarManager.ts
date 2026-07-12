@@ -3,22 +3,32 @@
  *
  * Manages the lifecycle of:
  * 1. IM Server sidecar (HTTP+WS server running in Electron main process)
- * 2. Platform adapter sidecars (e.g., Telegram adapter running as child process)
+ * 2. Platform adapters (running in-process, e.g., Telegram, WeChat, Feishu)
  *
  * Features:
  * - Dynamic port allocation (find available port, track usage)
  * - Health check polling (30s interval)
  * - Graceful start/stop
- * - Process tracking and cleanup
+ * - In-process adapter lifecycle management
  */
 
-import { spawn, ChildProcess } from 'child_process'
 import * as net from 'net'
-import * as path from 'path'
 import { ImServer } from './imServer/imServer'
-import { loadConfig, saveConfig } from './im/adapters/common/config'
+import { loadConfig, saveConfig, desensitizeConfig } from './im/adapters/common/config'
 import type { PlatformName, AdapterConfig } from './im/adapters/common/config'
 import { info, warn, error as logError } from './logger'
+
+// Adapter & Bot imports (in-process)
+import { TelegramBot } from './im/adapters/telegram/telegramBot'
+import { TelegramAdapter } from './im/adapters/telegram/telegramAdapter'
+import { FeishuBot } from './im/adapters/feishu/feishuBot'
+import { FeishuAdapter } from './im/adapters/feishu/feishuAdapter'
+import { DingtalkBot } from './im/adapters/dingtalk/dingtalkBot'
+import { DingtalkAdapter } from './im/adapters/dingtalk/dingtalkAdapter'
+import { WechatBot } from './im/adapters/wechat/wechatBot'
+import { WechatAdapter } from './im/adapters/wechat/wechatAdapter'
+import { WhatsappBot } from './im/adapters/whatsapp/whatsappBot'
+import { WhatsappAdapter } from './im/adapters/whatsapp/whatsappAdapter'
 
 // ──────────────────────────────────────────────────────────────────────────
 // Types
@@ -29,20 +39,42 @@ export interface ServerPlan {
   host: string
 }
 
-export interface AdapterPlan {
-  platform: PlatformName
-  port: number
-  env: Record<string, string>
-  command: string
-  args: string[]
+/** Common interface for all platform adapters — start/stop lifecycle. */
+interface RunnableAdapter {
+  start(): Promise<void>
+  stop(): Promise<void>
+}
+
+/** Tracks a running in-process adapter instance. */
+interface AdapterInstance {
+  adapter: RunnableAdapter
+  startedAt: number
 }
 
 export interface SidecarStatus {
   running: boolean
-  pid?: number
   port?: number
   healthy?: boolean
   startedAt?: number
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// WeChat QR Login Types
+// ──────────────────────────────────────────────────────────────────────────
+
+export type WechatQrStatus = 'waiting' | 'scanned' | 'confirmed' | 'expired'
+
+export interface WechatQrLoginResult {
+  qrcodeUrl: string
+  qrcodeId: string
+}
+
+export interface WechatQrStatusResult {
+  status: WechatQrStatus
+  accountId?: string
+  botToken?: string
+  baseUrl?: string
+  userId?: string
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -53,12 +85,12 @@ const HEALTH_CHECK_INTERVAL_MS = 30_000
 const PORT_RANGE_START = 40000
 const PORT_RANGE_END = 41000
 
+const WECHAT_DEFAULT_BASE_URL = 'https://ilinkai.weixin.qq.com'
+
 export class ImSidecarManager {
   private imServer: ImServer | null = null
   private serverPort: number = 0
-  private adapterProcesses: Map<PlatformName, ChildProcess> = new Map()
-  private adapterPorts: Map<PlatformName, number> = new Map()
-  private adapterStartedAt: Map<PlatformName, number> = new Map()
+  private adapterInstances: Map<PlatformName, AdapterInstance> = new Map()
   private healthCheckTimer: ReturnType<typeof setInterval> | null = null
   private usedPorts: Set<number> = new Set()
 
@@ -98,8 +130,8 @@ export class ImSidecarManager {
   stopServer(): void {
     this.stopHealthCheck()
 
-    // Stop all adapter processes
-    for (const platform of this.adapterProcesses.keys()) {
+    // Stop all adapter instances
+    for (const platform of this.adapterInstances.keys()) {
       this.stopAdapter(platform)
     }
 
@@ -126,30 +158,12 @@ export class ImSidecarManager {
   }
 
   // ────────────────────────────────────────────────────────────────────────
-  // Adapter management
+  // Adapter management (in-process)
   // ────────────────────────────────────────────────────────────────────────
 
-  /** Create a plan for starting a platform adapter. */
-  async createAdapterPlan(platform: PlatformName, config: AdapterConfig): Promise<AdapterPlan> {
-    const port = await this.findAvailablePort()
-    const serverUrl = `ws://127.0.0.1:${this.serverPort}`
-
-    const env: Record<string, string> = {
-      ADAPTER_SERVER_URL: serverUrl,
-      ...this.buildPlatformEnv(platform, config),
-    }
-
-    // The adapter is run as a Node.js script
-    const command = process.execPath
-    const adapterScript = path.join(__dirname, 'im', 'adapters', platform, 'index.js')
-    const args = [adapterScript]
-
-    return { platform, port, env, command, args }
-  }
-
-  /** Start a platform adapter sidecar. */
+  /** Start a platform adapter in-process. */
   async startAdapter(platform: PlatformName): Promise<void> {
-    if (this.adapterProcesses.has(platform)) {
+    if (this.adapterInstances.has(platform)) {
       warn('ImSidecarManager', `Adapter ${platform} is already running`)
       return
     }
@@ -159,70 +173,51 @@ export class ImSidecarManager {
     }
 
     const config = loadConfig()
-    const platformConfig = config[platform]
 
     // Check if platform is configured (has required credentials)
     if (!this.isPlatformConfigured(platform, config)) {
       throw new Error(`Platform ${platform} is not configured`)
     }
 
-    const plan = await this.createAdapterPlan(platform, config)
-
-    const child = spawn(plan.command, plan.args, {
-      env: { ...process.env, ...plan.env },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-
-    this.adapterProcesses.set(platform, child)
-    this.adapterPorts.set(platform, plan.port)
-    this.adapterStartedAt.set(platform, Date.now())
-    this.usedPorts.add(plan.port)
-
-    child.on('error', (err) => {
-      logError('ImSidecarManager', `Adapter ${platform} error: ${err.message}`)
-    })
-
-    child.on('exit', (code, signal) => {
-      info('ImSidecarManager', `Adapter ${platform} exited: code=${code} signal=${signal}`)
-      this.adapterProcesses.delete(platform)
-      this.usedPorts.delete(plan.port)
-    })
-
-    info('ImSidecarManager', `Adapter ${platform} started (port ${plan.port})`)
-  }
-
-  /** Stop a platform adapter sidecar. */
-  stopAdapter(platform: PlatformName): void {
-    const child = this.adapterProcesses.get(platform)
-    if (!child) return
+    const serverUrl = `ws://127.0.0.1:${this.serverPort}`
+    const adapter = this.createAdapter(platform, config, serverUrl)
 
     try {
-      child.kill('SIGTERM')
+      await adapter.start()
+    } catch (err) {
+      logError('ImSidecarManager', `Failed to start adapter ${platform}: ${err}`)
+      throw err
+    }
+
+    this.adapterInstances.set(platform, { adapter, startedAt: Date.now() })
+    info('ImSidecarManager', `Adapter ${platform} started (in-process)`)
+  }
+
+  /** Stop a platform adapter. */
+  stopAdapter(platform: PlatformName): void {
+    const instance = this.adapterInstances.get(platform)
+    if (!instance) return
+
+    try {
+      instance.adapter.stop()
       info('ImSidecarManager', `Adapter ${platform} stopped`)
     } catch (err) {
       logError('ImSidecarManager', `Failed to stop adapter ${platform}: ${err}`)
     }
 
-    this.adapterProcesses.delete(platform)
-    const port = this.adapterPorts.get(platform)
-    if (port) {
-      this.usedPorts.delete(port)
-      this.adapterPorts.delete(platform)
-    }
-    this.adapterStartedAt.delete(platform)
+    this.adapterInstances.delete(platform)
   }
 
   /** Get the status of a platform adapter. */
   getAdapterStatus(platform: PlatformName): SidecarStatus {
-    const child = this.adapterProcesses.get(platform)
-    if (!child || child.killed) {
+    const instance = this.adapterInstances.get(platform)
+    if (!instance) {
       return { running: false }
     }
     return {
       running: true,
-      pid: child.pid,
-      port: this.adapterPorts.get(platform),
-      startedAt: this.adapterStartedAt.get(platform),
+      port: this.serverPort,
+      startedAt: instance.startedAt,
     }
   }
 
@@ -282,19 +277,169 @@ export class ImSidecarManager {
   }
 
   // ────────────────────────────────────────────────────────────────────────
+  // WeChat QR Login
+  // ────────────────────────────────────────────────────────────────────────
+
+  /** Start WeChat QR login by fetching a QR code from the WeChat gateway. */
+  async startWechatQrLogin(): Promise<WechatQrLoginResult> {
+    const config = loadConfig()
+    const baseUrl = config.wechat.baseUrl || WECHAT_DEFAULT_BASE_URL
+
+    const response = await fetch(
+      `${baseUrl}/ilink/bot/get_bot_qrcode?bot_type=3`,
+    )
+    if (!response.ok) {
+      throw new Error(`Failed to get WeChat QR code: HTTP ${response.status}`)
+    }
+
+    const data = (await response.json()) as {
+      qrcode?: string
+      qrcode_img_content?: string
+    }
+
+    if (!data.qrcode) {
+      throw new Error('No qrcode in WeChat gateway response')
+    }
+
+    info('ImSidecarManager', `WeChat QR login started (qrcodeId: ${data.qrcode})`)
+
+    return {
+      qrcodeUrl: data.qrcode_img_content || '',
+      qrcodeId: data.qrcode,
+    }
+  }
+
+  /** Check WeChat QR login status. Saves credentials to config when confirmed. */
+  async checkWechatQrStatus(qrcodeId: string): Promise<WechatQrStatusResult> {
+    const config = loadConfig()
+    const baseUrl = config.wechat.baseUrl || WECHAT_DEFAULT_BASE_URL
+
+    const response = await fetch(
+      `${baseUrl}/ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcodeId)}`,
+      { headers: { 'iLink-App-ClientVersion': '1' } },
+    )
+
+    if (!response.ok) {
+      throw new Error(`WeChat QR status check failed: HTTP ${response.status}`)
+    }
+
+    const data = (await response.json()) as {
+      status?: string
+      bot_token?: string
+      ilink_bot_id?: string
+      baseurl?: string
+      ilink_user_id?: string
+    }
+
+    switch (data.status) {
+      case 'confirmed': {
+        // Save credentials to config
+        const current = loadConfig()
+        current.wechat.accountId = data.ilink_bot_id || current.wechat.accountId
+        current.wechat.botToken = data.bot_token || current.wechat.botToken
+        current.wechat.baseUrl = data.baseurl || current.wechat.baseUrl || WECHAT_DEFAULT_BASE_URL
+        current.wechat.userId = data.ilink_user_id || current.wechat.userId
+        saveConfig(current)
+
+        info('ImSidecarManager', `WeChat QR login confirmed (accountId: ${data.ilink_bot_id})`)
+
+        return {
+          status: 'confirmed',
+          accountId: data.ilink_bot_id,
+          botToken: data.bot_token,
+          baseUrl: data.baseurl,
+          userId: data.ilink_user_id,
+        }
+      }
+      case 'scaned':
+        return { status: 'scanned' }
+      case 'expired':
+        return { status: 'expired' }
+      case 'wait':
+      default:
+        return { status: 'waiting' }
+    }
+  }
+
+  /** Unbind WeChat bot account — clears all wechat credentials and user data. */
+  unbindWechat(): void {
+    const config = loadConfig()
+    config.wechat.accountId = ''
+    config.wechat.botToken = ''
+    config.wechat.userId = ''
+    config.wechat.allowedUsers = []
+    config.wechat.pairedUsers = []
+    // Preserve baseUrl and defaultWorkDir
+    saveConfig(config)
+
+    // Stop the wechat adapter if running
+    if (this.adapterInstances.has('wechat')) {
+      this.stopAdapter('wechat')
+    }
+
+    info('ImSidecarManager', 'WeChat bot account unbound')
+  }
+
+  /** Check if WeChat bot account is bound. */
+  isWechatBound(): boolean {
+    const config = loadConfig()
+    return !!config.wechat.accountId && !!config.wechat.botToken
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
   // Config management
   // ────────────────────────────────────────────────────────────────────────
 
   /** Get adapter config (desensitized for UI). */
   getAdapterConfig(): AdapterConfig {
-    return loadConfig()
+    return desensitizeConfig(loadConfig())
   }
 
-  /** Update adapter config. */
+  /** Update adapter config, preserving original secrets when desensitized marker is sent. */
   updateAdapterConfig(updates: Partial<AdapterConfig>): void {
     const current = loadConfig()
-    const merged = { ...current, ...updates }
-    saveConfig(merged)
+
+    // Merge top-level non-platform fields
+    if (updates.serverUrl !== undefined) current.serverUrl = updates.serverUrl
+    if (updates.defaultProjectDir !== undefined) current.defaultProjectDir = updates.defaultProjectDir
+    if (updates.pairing) current.pairing = { ...current.pairing, ...updates.pairing }
+
+    // Merge platform configs, preserving original secret values
+    if (updates.telegram) {
+      current.telegram = {
+        ...current.telegram,
+        ...updates.telegram,
+        botToken: this.preserveSecret(current.telegram.botToken, updates.telegram.botToken),
+      }
+    }
+    if (updates.feishu) {
+      current.feishu = {
+        ...current.feishu,
+        ...updates.feishu,
+        appSecret: this.preserveSecret(current.feishu.appSecret, updates.feishu.appSecret),
+        encryptKey: this.preserveSecretOpt(current.feishu.encryptKey, updates.feishu.encryptKey),
+        verificationToken: this.preserveSecretOpt(current.feishu.verificationToken, updates.feishu.verificationToken),
+      }
+    }
+    if (updates.dingtalk) {
+      current.dingtalk = {
+        ...current.dingtalk,
+        ...updates.dingtalk,
+        clientSecret: this.preserveSecret(current.dingtalk.clientSecret, updates.dingtalk.clientSecret),
+      }
+    }
+    if (updates.wechat) {
+      current.wechat = {
+        ...current.wechat,
+        ...updates.wechat,
+        botToken: this.preserveSecret(current.wechat.botToken, updates.wechat.botToken),
+      }
+    }
+    if (updates.whatsapp) {
+      current.whatsapp = { ...current.whatsapp, ...updates.whatsapp }
+    }
+
+    saveConfig(current)
   }
 
   // ────────────────────────────────────────────────────────────────────────
@@ -333,18 +478,8 @@ export class ImSidecarManager {
       }
     }
 
-    // Check adapters
-    for (const [platform, child] of this.adapterProcesses) {
-      if (child.killed || child.exitCode !== null) {
-        warn('ImSidecarManager', `Adapter ${platform} appears to be dead, cleaning up`)
-        this.adapterProcesses.delete(platform)
-        const port = this.adapterPorts.get(platform)
-        if (port) {
-          this.usedPorts.delete(port)
-          this.adapterPorts.delete(platform)
-        }
-      }
-    }
+    // Adapters run in-process; no separate health check needed.
+    // The IM Server health check above covers the shared server.
   }
 
   // ────────────────────────────────────────────────────────────────────────
@@ -377,45 +512,55 @@ export class ImSidecarManager {
     })
   }
 
-  private buildPlatformEnv(platform: PlatformName, config: AdapterConfig): Record<string, string> {
-    const env: Record<string, string> = {}
+  // ────────────────────────────────────────────────────────────────────────
+  // In-process adapter factory
+  // ────────────────────────────────────────────────────────────────────────
 
-    // Common env vars
-    env.CLAUDE_ADAPTER_DEFAULT_WORK_DIR = config.defaultProjectDir
-
-    // Platform-specific env vars
+  /** Create a platform adapter instance with its bot client. */
+  private createAdapter(platform: PlatformName, config: AdapterConfig, serverUrl: string): RunnableAdapter {
     switch (platform) {
       case 'telegram': {
         const pc = config.telegram
-        if (pc.botToken) env.TELEGRAM_BOT_TOKEN = pc.botToken
-        break
+        const bot = new TelegramBot(pc.botToken)
+        return new TelegramAdapter({ bot, config, serverUrl })
       }
       case 'feishu': {
         const pc = config.feishu
-        if (pc.appId) env.FEISHU_APP_ID = pc.appId
-        if (pc.appSecret) env.FEISHU_APP_SECRET = pc.appSecret
-        break
+        const bot = new FeishuBot(pc.appId, pc.appSecret)
+        return new FeishuAdapter({ bot, config, serverUrl })
       }
       case 'dingtalk': {
         const pc = config.dingtalk
-        if (pc.clientId) env.DINGTALK_CLIENT_ID = pc.clientId
-        if (pc.clientSecret) env.DINGTALK_CLIENT_SECRET = pc.clientSecret
-        break
+        const bot = new DingtalkBot(pc.clientId, pc.clientSecret, { apiBase: pc.endpoint || undefined })
+        return new DingtalkAdapter({ bot, config, serverUrl })
       }
       case 'wechat': {
         const pc = config.wechat
-        if (pc.accountId) env.WECHAT_ACCOUNT_ID = pc.accountId
-        if (pc.botToken) env.WECHAT_BOT_TOKEN = pc.botToken
-        break
+        const bot = new WechatBot(pc.accountId, pc.botToken, pc.userId, { baseUrl: pc.baseUrl || undefined })
+        return new WechatAdapter({ bot, config, serverUrl })
       }
       case 'whatsapp': {
         const pc = config.whatsapp
-        if (pc.accountJid) env.WHATSAPP_ACCOUNT_JID = pc.accountJid
-        break
+        const bot = new WhatsappBot(pc.accountJid, { authDir: pc.authDir || undefined })
+        return new WhatsappAdapter({ bot, config, serverUrl })
       }
+      default:
+        throw new Error(`Unknown platform: ${platform}`)
     }
+  }
 
-    return env
+  private static readonly DESENSITIZED_MARKER = '******'
+
+  /** Preserve original secret when incoming value is the desensitized marker. */
+  private preserveSecret(original: string, updated: string | undefined): string {
+    if (updated === ImSidecarManager.DESENSITIZED_MARKER && original) return original
+    return updated ?? ''
+  }
+
+  /** Preserve original optional secret when incoming value is the desensitized marker. */
+  private preserveSecretOpt(original: string | undefined, updated: string | undefined): string | undefined {
+    if (updated === ImSidecarManager.DESENSITIZED_MARKER && original) return original
+    return updated
   }
 
   private isPlatformConfigured(platform: PlatformName, config: AdapterConfig): boolean {

@@ -18,6 +18,14 @@ import { createLogger } from '../common/logger'
 import * as crypto from 'crypto'
 
 const log = createLogger('WechatBot')
+const WECHAT_CHANNEL_VERSION = 'spacecode'
+const WECHAT_TEXT_ITEM_TYPE = 1
+const WECHAT_BOT_MESSAGE_TYPE = 2
+const WECHAT_FINISHED_MESSAGE_STATE = 2
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
 
 export interface WechatMessage {
   fromUserId: string
@@ -41,7 +49,7 @@ export class WechatBot {
   private readonly userId: string
   private readonly timeout: number
   private contextToken: string = ''
-  private lastPollTime: number = 0
+  private getUpdatesBuf: string = ''
 
   constructor(
     accountId: string,
@@ -52,42 +60,36 @@ export class WechatBot {
     this.accountId = accountId
     this.botToken = botToken
     this.userId = userId
-    this.baseUrl = opts?.baseUrl ?? 'https://ilinkai.weixin.qq.com'
+    this.baseUrl = (opts?.baseUrl ?? 'https://ilinkai.weixin.qq.com').replace(/\/+$/, '')
     this.timeout = opts?.timeout ?? 35_000
-  }
-
-  /** Get bot info. */
-  async getBotInfo(): Promise<{ account_id: string; user_id: string }> {
-    const url = `${this.baseUrl}/api/bot/info`
-    const result = await this.request('GET', url)
-    return { account_id: result.account_id, user_id: result.user_id }
   }
 
   /** Send a text message to a user. */
   async sendTextMessage(toUserId: string, text: string): Promise<WechatSendResult> {
-    const result = await this.request('POST', `${this.baseUrl}/api/bot/send`, {
-      account_id: this.accountId,
-      bot_token: this.botToken,
-      user_id: toUserId,
-      msg_type: 'text',
-      content: text,
-      context_token: this.contextToken,
+    const clientId = `spacecode-${Date.now()}-${crypto.randomBytes(6).toString('hex')}`
+    await this.request('POST', `${this.baseUrl}/ilink/bot/sendmessage`, {
+      msg: {
+        from_user_id: '',
+        to_user_id: toUserId,
+        client_id: clientId,
+        message_type: WECHAT_BOT_MESSAGE_TYPE,
+        message_state: WECHAT_FINISHED_MESSAGE_STATE,
+        context_token: this.contextToken || undefined,
+        item_list: [{ type: WECHAT_TEXT_ITEM_TYPE, text_item: { text } }],
+      },
+      base_info: this.buildBaseInfo(),
     })
 
-    if (result.context_token) {
-      this.contextToken = result.context_token
-    }
-
     return {
-      msgId: result.msg_id ?? '',
-      contextToken: result.context_token,
+      msgId: clientId,
+      contextToken: this.contextToken || undefined,
     }
   }
 
   /** Send typing indicator. WeChat requires re-sending every 5s. */
   async sendTyping(toUserId: string): Promise<void> {
     try {
-      await this.request('POST', `${this.baseUrl}/api/bot/typing`, {
+      await this.request('POST', `${this.baseUrl}/ilink/bot/send_typing`, {
         account_id: this.accountId,
         bot_token: this.botToken,
         user_id: toUserId,
@@ -99,41 +101,44 @@ export class WechatBot {
     }
   }
 
-  /** Long-poll for new messages. */
+  /** Long-poll for new messages. Errors propagate to caller for retry handling. */
   async getMessages(): Promise<WechatMessage[]> {
-    const url = `${this.baseUrl}/api/bot/messages`
-    const params: Record<string, unknown> = {
-      account_id: this.accountId,
-      bot_token: this.botToken,
-      user_id: this.userId,
+    const url = `${this.baseUrl}/ilink/bot/getupdates`
+    const result = await this.request('POST', url, {
+      get_updates_buf: this.getUpdatesBuf,
+      base_info: this.buildBaseInfo(),
+    })
+
+    if (typeof result.get_updates_buf === 'string') {
+      this.getUpdatesBuf = result.get_updates_buf
     }
 
-    if (this.lastPollTime > 0) {
-      params.since = this.lastPollTime
+    const messages: WechatMessage[] = []
+    const rawMessages = Array.isArray(result.msgs) ? result.msgs : []
+    for (const rawMessage of rawMessages) {
+      if (!isRecord(rawMessage)) continue
+
+      const items = Array.isArray(rawMessage.item_list) ? rawMessage.item_list : []
+      const textItem = items.find((item) => {
+        return isRecord(item) && item.type === WECHAT_TEXT_ITEM_TYPE && isRecord(item.text_item)
+      })
+      const content = isRecord(textItem) && isRecord(textItem.text_item)
+        ? textItem.text_item.text
+        : undefined
+      if (typeof content !== 'string' || !content) continue
+
+      messages.push({
+        fromUserId: typeof rawMessage.from_user_id === 'string' ? rawMessage.from_user_id : '',
+        toUserId: typeof rawMessage.to_user_id === 'string' ? rawMessage.to_user_id : this.userId,
+        msgId: String(rawMessage.message_id ?? rawMessage.client_id ?? rawMessage.seq ?? ''),
+        msgType: 'text',
+        content,
+        contextToken: typeof rawMessage.context_token === 'string' ? rawMessage.context_token : undefined,
+        createTime: typeof rawMessage.create_time_ms === 'number' ? rawMessage.create_time_ms : 0,
+      })
     }
 
-    try {
-      const result = await this.request('GET', `${url}?${new URLSearchParams(params as Record<string, string>).toString()}`)
-
-      const messages: WechatMessage[] = (result.messages ?? []).map((m: Record<string, unknown>) => ({
-        fromUserId: m.from_user_id as string,
-        toUserId: m.to_user_id as string,
-        msgId: m.msg_id as string,
-        msgType: m.msg_type as string,
-        content: m.content as string,
-        contextToken: m.context_token as string | undefined,
-        createTime: m.create_time as number,
-      }))
-
-      if (messages.length > 0) {
-        this.lastPollTime = messages[messages.length - 1].createTime
-      }
-
-      return messages
-    } catch (err) {
-      log.error('getMessages', `Polling error: ${String(err)}`)
-      return []
-    }
+    return messages
   }
 
   /** Download and decrypt a media file from WeChat. */
@@ -192,25 +197,63 @@ export class WechatBot {
   // Private
   // ────────────────────────────────────────────────────────────────────────
 
-  private async request(method: string, url: string, body?: Record<string, unknown>): Promise<any> {
+  private buildBaseInfo(): Record<string, string> {
+    return { channel_version: WECHAT_CHANNEL_VERSION }
+  }
+
+  private async request(
+    method: 'GET' | 'POST',
+    url: string,
+    body?: Record<string, unknown>
+  ): Promise<Record<string, unknown>> {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this.timeout)
 
     try {
       const res = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.botToken}`,
+          AuthorizationType: 'ilink_bot_token',
+          'X-WECHAT-UIN': Buffer.from(
+            String(crypto.randomBytes(4).readUInt32BE(0)),
+            'utf-8'
+          ).toString('base64'),
+          'iLink-App-ClientVersion': '1',
+        },
         body: body ? JSON.stringify(body) : undefined,
         signal: controller.signal,
       })
 
-      const data = await res.json()
-
-      if (data.code && data.code !== 0 && data.code !== '0') {
-        throw new Error(`WeChat API error: ${data.message ?? data.msg ?? 'unknown'} (code: ${data.code})`)
+      if (!res.ok) {
+        throw new Error(`WeChat API HTTP ${res.status} ${res.statusText}`)
       }
 
-      return data.data ?? data
+      const text = await res.text()
+      if (!text || text.trim() === '') {
+        throw new Error('WeChat API returned empty response')
+      }
+
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(text)
+      } catch {
+        throw new Error(`WeChat API returned non-JSON response: ${text.slice(0, 200)}`)
+      }
+
+      if (!isRecord(parsed)) {
+        throw new Error('WeChat API returned invalid JSON response')
+      }
+
+      const data = isRecord(parsed.data) ? parsed.data : parsed
+
+      const code = data.ret ?? data.code
+      if (code !== undefined && code !== 0 && code !== '0') {
+        throw new Error(`WeChat API error: ${data.errmsg ?? data.message ?? data.msg ?? 'unknown'} (code: ${code})`)
+      }
+
+      return data
     } finally {
       clearTimeout(timer)
     }

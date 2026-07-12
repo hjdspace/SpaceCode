@@ -642,6 +642,23 @@ function registerImIPCHandlers(): void {
     manager.clearPairingCode()
   })
 
+  // ── WeChat QR Login ──
+  ipcMain.handle('im:wechat:startQrLogin', async () => {
+    return manager.startWechatQrLogin()
+  })
+
+  ipcMain.handle('im:wechat:checkQrStatus', async (_, qrcodeId: string) => {
+    return manager.checkWechatQrStatus(qrcodeId)
+  })
+
+  ipcMain.handle('im:wechat:unbind', () => {
+    manager.unbindWechat()
+  })
+
+  ipcMain.handle('im:wechat:isBound', () => {
+    return manager.isWechatBound()
+  })
+
   // Cleanup on app quit
   app.on('before-quit', () => {
     manager.destroy()

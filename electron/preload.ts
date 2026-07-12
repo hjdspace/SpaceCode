@@ -867,5 +867,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     generatePairingCode: (): Promise<{ code: string; expiresAt: number }> =>
       ipcRenderer.invoke('im:generatePairingCode'),
     clearPairingCode: (): Promise<void> => ipcRenderer.invoke('im:clearPairingCode'),
+    // WeChat QR Login
+    wechat: {
+      startQrLogin: (): Promise<{ qrcodeUrl: string; qrcodeId: string }> =>
+        ipcRenderer.invoke('im:wechat:startQrLogin'),
+      checkQrStatus: (qrcodeId: string): Promise<{
+        status: 'waiting' | 'scanned' | 'confirmed' | 'expired'
+        accountId?: string
+        botToken?: string
+        baseUrl?: string
+        userId?: string
+      }> => ipcRenderer.invoke('im:wechat:checkQrStatus', qrcodeId),
+      unbind: (): Promise<void> => ipcRenderer.invoke('im:wechat:unbind'),
+      isBound: (): Promise<boolean> => ipcRenderer.invoke('im:wechat:isBound'),
+    },
   },
 })

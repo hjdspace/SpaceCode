@@ -129,18 +129,129 @@
         </div>
 
         <!-- WeChat -->
-        <div v-if="activePlatform === 'wechat'" class="form-row">
-          <div class="form-group">
-            <label class="form-label">{{ $t('im.wechat.accountId') }}</label>
-            <input type="text" class="form-input mono" v-model="config.wechat.accountId" />
+        <div v-if="activePlatform === 'wechat'">
+          <!-- QR Scanning State -->
+          <div v-if="wechatScanning" class="wechat-qr-section">
+            <div class="wechat-qr-canvas-wrapper">
+              <canvas ref="wechatQrCanvas" class="wechat-qr-canvas"></canvas>
+              <div v-if="wechatQrScanStatus === 'expired'" class="wechat-qr-overlay">
+                <AlertCircle :size="32" />
+                <span>{{ $t('im.wechat.qrExpired') }}</span>
+                <button class="im-btn im-btn-primary im-btn-sm" @click="startWechatQrLogin">
+                  <RefreshCw :size="12" />
+                  {{ $t('im.wechat.refreshQr') }}
+                </button>
+              </div>
+            </div>
+            <div class="wechat-qr-status">
+              <div v-if="wechatQrScanStatus === 'waiting'" class="wechat-qr-status-text">
+                <QrCode :size="16" />
+                {{ $t('im.wechat.qrWaiting') }}
+              </div>
+              <div v-else-if="wechatQrScanStatus === 'scanned'" class="wechat-qr-status-text scanned">
+                <CheckCircle2 :size="16" />
+                {{ $t('im.wechat.qrScanned') }}
+              </div>
+              <div v-else-if="wechatQrScanStatus === 'expired'" class="wechat-qr-status-text expired">
+                <AlertCircle :size="16" />
+                {{ $t('im.wechat.qrExpired') }}
+              </div>
+              <button class="im-btn im-btn-secondary im-btn-sm" @click="cancelWechatQrLogin">
+                <X :size="11" />
+                {{ $t('common.cancel') }}
+              </button>
+            </div>
+            <div v-if="wechatQrError" class="wechat-qr-error">{{ wechatQrError }}</div>
           </div>
-          <div class="form-group">
-            <label class="form-label">{{ $t('im.wechat.botToken') }}</label>
-            <input type="password" class="form-input mono" v-model="config.wechat.botToken" />
+
+          <!-- Bound State -->
+          <div v-else-if="wechatBound" class="wechat-bound-section">
+            <div class="wechat-bound-info">
+              <div class="wechat-bound-icon">
+                <CheckCircle2 :size="20" />
+              </div>
+              <div class="wechat-bound-text">
+                <div class="wechat-bound-title">{{ $t('im.wechat.boundTitle') }}</div>
+                <div class="wechat-bound-id">{{ config.wechat.accountId }}</div>
+              </div>
+            </div>
+            <div class="wechat-bound-actions">
+              <button class="im-btn im-btn-secondary im-btn-sm" @click="startWechatQrLogin" :disabled="loading">
+                <RefreshCw :size="11" />
+                {{ $t('im.wechat.rescan') }}
+              </button>
+              <button class="im-btn im-btn-danger-outline im-btn-sm" @click="unbindWechat" :disabled="loading">
+                <Trash2 :size="11" />
+                {{ $t('im.wechat.unbind') }}
+              </button>
+            </div>
           </div>
-          <div class="form-group full-width">
-            <label class="form-label">{{ $t('im.wechat.defaultWorkDir') }}</label>
-            <input type="text" class="form-input mono" v-model="config.wechat.defaultWorkDir" />
+
+          <!-- WeChat Adapter Status (visible when bound) -->
+          <div v-if="wechatBound" class="wechat-adapter-status">
+            <div v-if="adapterStatuses['wechat']?.running" class="wechat-adapter-running">
+              <span class="wechat-adapter-dot running"></span>
+              <span>{{ $t('im.wechat.adapterRunning') }}</span>
+            </div>
+            <div v-else class="wechat-adapter-stopped">
+              <span class="wechat-adapter-dot stopped"></span>
+              <span>{{ $t('im.wechat.adapterStopped') }}</span>
+              <button
+                v-if="serverStatus.running"
+                class="im-btn im-btn-primary im-btn-sm"
+                @click="startAdapter('wechat')"
+                :disabled="loading"
+              >
+                <Play :size="11" />
+                {{ $t('im.startAdapter') }}
+              </button>
+              <span v-else class="wechat-adapter-hint">{{ $t('im.wechat.startServerFirst') }}</span>
+            </div>
+          </div>
+
+          <!-- Unbound State -->
+          <div v-else class="wechat-unbound-section">
+            <div class="wechat-unbound-hero">
+              <div class="wechat-unbound-icon">
+                <QrCode :size="32" />
+              </div>
+              <div class="wechat-unbound-text">
+                <div class="wechat-unbound-title">{{ $t('im.wechat.scanToBind') }}</div>
+                <div class="wechat-unbound-desc">{{ $t('im.wechat.scanToBindDesc') }}</div>
+              </div>
+              <button class="im-btn im-btn-primary" @click="startWechatQrLogin" :disabled="loading">
+                <QrCode :size="14" />
+                {{ $t('im.wechat.startScan') }}
+              </button>
+            </div>
+
+            <!-- Manual Config Collapsible -->
+            <button class="wechat-manual-toggle" @click="wechatManualExpanded = !wechatManualExpanded">
+              <ChevronRight :size="14" class="wechat-manual-chevron" :class="{ expanded: wechatManualExpanded }" />
+              <span>{{ $t('im.wechat.manualConfig') }}</span>
+            </button>
+            <Transition name="guide-collapse">
+              <div v-show="wechatManualExpanded" class="wechat-manual-body">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label class="form-label">{{ $t('im.wechat.accountId') }}</label>
+                    <input type="text" class="form-input mono" v-model="config.wechat.accountId" />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">{{ $t('im.wechat.botToken') }}</label>
+                    <input type="password" class="form-input mono" v-model="config.wechat.botToken" />
+                  </div>
+                </div>
+              </div>
+            </Transition>
+          </div>
+
+          <!-- Default Work Dir (always visible for wechat) -->
+          <div class="form-row" style="margin-top: 14px;">
+            <div class="form-group full-width">
+              <label class="form-label">{{ $t('im.wechat.defaultWorkDir') }}</label>
+              <input type="text" class="form-input mono" v-model="config.wechat.defaultWorkDir" />
+            </div>
           </div>
         </div>
 
@@ -171,11 +282,14 @@
             v-else
             class="im-btn im-btn-secondary im-btn-sm"
             @click="startAdapter(activePlatform)"
-            :disabled="loading || !serverStatus.running"
+            :disabled="loading || !serverStatus.running || !isCurrentPlatformConfigured"
           >
             <Play :size="11" />
             {{ $t('im.startAdapter') }}
           </button>
+          <span v-if="!isCurrentPlatformConfigured" class="form-hint config-warn">
+            {{ $t('im.fillRequiredFields') }}
+          </span>
           <button
             class="im-btn im-btn-primary im-btn-sm"
             @click="saveConfig"
@@ -319,7 +433,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, toRaw } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -327,7 +441,10 @@ import {
   Play, Square, Save, KeyRound, X, Trash2, Clock, FolderOpen,
   BookOpen, ChevronDown,
   MessageCircle, Mail, Bell, Smartphone, Phone,
+  QrCode, CheckCircle2, AlertCircle, RefreshCw, ChevronRight,
 } from 'lucide-vue-next'
+import QRCode from 'qrcode'
+import { errorHandler } from '@/services/errorHandler'
 
 // Markdown docs imported at build time via Vite ?raw
 import telegramDoc from '@/../docs/im/telegram.md?raw'
@@ -408,9 +525,148 @@ const pairedUsers = computed(() => {
   return config.value[platform]?.pairedUsers ?? []
 })
 
+/** Check if the current platform has all required fields filled. */
+const isCurrentPlatformConfigured = computed(() => {
+  switch (activePlatform.value) {
+    case 'telegram':
+      return !!config.value.telegram.botToken
+    case 'feishu':
+      return !!config.value.feishu.appId && !!config.value.feishu.appSecret
+    case 'dingtalk':
+      return !!config.value.dingtalk.clientId && !!config.value.dingtalk.clientSecret
+    case 'wechat':
+      return !!config.value.wechat.accountId && !!config.value.wechat.botToken
+    case 'whatsapp':
+      return !!config.value.whatsapp.accountJid
+    default:
+      return false
+  }
+})
+
 // ────────────────────────────────────────────────────────────────────────
 // Setup Guide
 // ────────────────────────────────────────────────────────────────────────
+
+// ────────────────────────────────────────────────────────────────────────
+// WeChat QR Login
+// ────────────────────────────────────────────────────────────────────────
+
+type WechatQrScanStatus = 'waiting' | 'scanned' | 'expired'
+
+const wechatScanning = ref(false)
+const wechatQrUrl = ref('')
+const wechatQrId = ref('')
+const wechatQrScanStatus = ref<WechatQrScanStatus>('waiting')
+const wechatQrError = ref<string | null>(null)
+const wechatQrCanvas = ref<HTMLCanvasElement | null>(null)
+const wechatManualExpanded = ref(false)
+let wechatQrPollTimer: ReturnType<typeof setInterval> | null = null
+
+const wechatBound = computed(() => !!config.value.wechat.accountId)
+
+async function startWechatQrLogin() {
+  wechatQrError.value = null
+  loading.value = true
+  try {
+    const result = await window.electronAPI?.im?.wechat?.startQrLogin()
+    if (!result) return
+
+    wechatQrUrl.value = result.qrcodeUrl
+    wechatQrId.value = result.qrcodeId
+    wechatQrScanStatus.value = 'waiting'
+    wechatScanning.value = true
+
+    // Render QR code to canvas
+    await nextTick()
+    if (wechatQrCanvas.value && result.qrcodeUrl) {
+      await QRCode.toCanvas(wechatQrCanvas.value, result.qrcodeUrl, {
+        width: 200,
+        margin: 2,
+        color: { dark: '#000000', light: '#ffffff' },
+      })
+    }
+
+    // Start polling
+    startWechatQrPolling()
+  } catch (err) {
+    wechatQrError.value = err instanceof Error ? err.message : String(err)
+    errorHandler.handleError(err)
+  } finally {
+    loading.value = false
+  }
+}
+
+function startWechatQrPolling() {
+  stopWechatQrPolling()
+  wechatQrPollTimer = setInterval(async () => {
+    if (!wechatQrId.value) return
+    try {
+      const result = await window.electronAPI?.im?.wechat?.checkQrStatus(wechatQrId.value)
+      if (!result) return
+
+      if (result.status === 'confirmed') {
+        stopWechatQrPolling()
+        wechatScanning.value = false
+        // Reload config to get updated credentials
+        await loadConfig()
+        // Auto-start the WeChat adapter so messages can flow immediately
+        if (serverStatus.value.running) {
+          try {
+            await window.electronAPI?.im?.startAdapter('wechat')
+            await refreshStatus()
+          } catch (err) {
+            console.error('[ImSettings] Failed to auto-start WeChat adapter:', err)
+            errorHandler.handleError(err)
+          }
+        }
+      } else if (result.status === 'scanned') {
+        wechatQrScanStatus.value = 'scanned'
+      } else if (result.status === 'expired') {
+        wechatQrScanStatus.value = 'expired'
+        stopWechatQrPolling()
+      }
+    } catch (err) {
+      console.error('[ImSettings] WeChat QR polling error:', err)
+    }
+  }, 2000)
+}
+
+function stopWechatQrPolling() {
+  if (wechatQrPollTimer) {
+    clearInterval(wechatQrPollTimer)
+    wechatQrPollTimer = null
+  }
+}
+
+function cancelWechatQrLogin() {
+  stopWechatQrPolling()
+  wechatScanning.value = false
+  wechatQrUrl.value = ''
+  wechatQrId.value = ''
+  wechatQrScanStatus.value = 'waiting'
+  wechatQrError.value = null
+}
+
+async function unbindWechat() {
+  loading.value = true
+  try {
+    await window.electronAPI?.im?.wechat?.unbind()
+    await loadConfig()
+  } catch (err) {
+    console.error('[ImSettings] Failed to unbind WeChat:', err)
+    errorHandler.handleError(err)
+  } finally {
+    loading.value = false
+  }
+}
+
+// Stop polling when switching away from WeChat tab
+watch(activePlatform, (newPlatform) => {
+  if (newPlatform !== 'wechat') {
+    stopWechatQrPolling()
+    wechatScanning.value = false
+  }
+})
 
 const guideExpanded = ref(false)
 
@@ -468,7 +724,7 @@ async function loadConfig() {
 async function saveConfig() {
   loading.value = true
   try {
-    await window.electronAPI?.im?.updateConfig(config.value)
+    await window.electronAPI?.im?.updateConfig(toRaw(config.value))
   } catch (err) {
     console.error('[ImSettings] Failed to save config:', err)
   } finally {
@@ -503,10 +759,13 @@ async function stopServer() {
 async function startAdapter(platform: string) {
   loading.value = true
   try {
+    // Auto-save config before starting adapter to ensure disk has latest values
+    await window.electronAPI?.im?.updateConfig(toRaw(config.value))
     await window.electronAPI?.im?.startAdapter(platform)
     await refreshStatus()
   } catch (err) {
     console.error('[ImSettings] Failed to start adapter:', err)
+    errorHandler.handleError(err)
   } finally {
     loading.value = false
   }
@@ -610,6 +869,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (statusTimer) clearInterval(statusTimer)
+  stopWechatQrPolling()
 })
 </script>
 
@@ -998,6 +1258,12 @@ onUnmounted(() => {
   border-top: 1px solid var(--border-subtle);
 }
 
+.config-warn {
+  color: var(--warning);
+  font-size: 11.5px;
+  margin-left: 8px;
+}
+
 // ────────────────────────────────────────────────────────────────────────
 // Pairing
 // ────────────────────────────────────────────────────────────────────────
@@ -1358,6 +1624,250 @@ onUnmounted(() => {
 // ────────────────────────────────────────────────────────────────────────
 // Responsive
 // ────────────────────────────────────────────────────────────────────────
+.wechat-qr-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 0;
+}
+
+.wechat-qr-canvas-wrapper {
+  position: relative;
+  width: 220px;
+  height: 220px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid var(--border-default);
+}
+
+.wechat-qr-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.wechat-qr-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.92);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.wechat-qr-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.wechat-qr-status-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+
+  &.scanned {
+    color: var(--success);
+  }
+
+  &.expired {
+    color: var(--error);
+  }
+}
+
+.wechat-qr-error {
+  font-size: 12px;
+  color: var(--error);
+  text-align: center;
+}
+
+.wechat-bound-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: var(--success-glow);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--success);
+}
+
+.wechat-bound-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.wechat-bound-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--success);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.wechat-bound-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wechat-bound-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.wechat-bound-id {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.wechat-bound-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.wechat-adapter-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  margin-top: 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.wechat-adapter-running {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--success);
+}
+
+.wechat-adapter-stopped {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.wechat-adapter-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+
+  &.running {
+    background: var(--success);
+    box-shadow: 0 0 0 3px var(--success-glow);
+  }
+
+  &.stopped {
+    background: var(--text-muted);
+  }
+}
+
+.wechat-adapter-hint {
+  font-size: 11.5px;
+  color: var(--warning);
+  font-weight: 500;
+}
+
+.wechat-unbound-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.wechat-unbound-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  background: var(--surface-soft);
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border-default);
+}
+
+.wechat-unbound-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-md);
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.wechat-unbound-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wechat-unbound-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+}
+
+.wechat-unbound-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.wechat-manual-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 4px 0;
+  transition: color var(--transition-fast);
+
+  &:hover {
+    color: var(--text-primary);
+  }
+}
+
+.wechat-manual-chevron {
+  transition: transform var(--transition-fast);
+
+  &.expanded {
+    transform: rotate(90deg);
+  }
+}
+
+.wechat-manual-body {
+  padding-top: 8px;
+}
+
 @media (max-width: 640px) {
   .form-row {
     grid-template-columns: 1fr;

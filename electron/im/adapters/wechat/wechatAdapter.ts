@@ -73,26 +73,28 @@ export class WechatAdapter {
   private mediaHandler: WechatMediaHandler
   private typingIndicator: TypingIndicator
   private config: AdapterConfig
+  private readonly serverUrl: string
   private messageBuffers: Map<string, MessageBuffer> = new Map()
   private fullTexts: Map<string, string> = new Map()
   private pendingPermissions: Map<string, Array<{ requestId: string; toolName: string }>> = new Map()
   private running: boolean = false
   private pollTimer: ReturnType<typeof setTimeout> | null = null
+  private recoveryChatId: string = ''
 
   constructor(opts: WechatAdapterOptions) {
     this.bot = opts.bot
     this.config = opts.config ?? loadConfig()
 
-    const serverUrl = opts.serverUrl ?? this.config.serverUrl
+    this.serverUrl = opts.serverUrl ?? this.config.serverUrl
     const authToken = opts.authToken
 
-    this.bridge = new WsBridge({ serverUrl, authToken })
+    this.bridge = new WsBridge({ serverUrl: this.serverUrl, authToken })
     this.bridge.startHeartbeat()
 
     this.chatQueue = new ChatQueue()
     this.sessionStore = new SessionStore({ filePath: opts.sessionStorePath })
     this.httpClient = new HttpClient({
-      baseUrl: serverUrl.replace(/^ws/, 'http'),
+      baseUrl: this.serverUrl.replace(/^ws/, 'http'),
       allowedProjectRoots: [this.config.defaultProjectDir],
     })
 
@@ -123,13 +125,6 @@ export class WechatAdapter {
   async start(): Promise<void> {
     if (this.running) return
 
-    try {
-      const info = await this.bot.getBotInfo()
-      log.info('start', `Bot started: ${info.account_id}`)
-    } catch (err) {
-      throw new Error(`Failed to validate WeChat credentials: ${String(err)}`)
-    }
-
     this.running = true
     this.pollLoop()
   }
@@ -156,6 +151,10 @@ export class WechatAdapter {
         const messages = await this.bot.getMessages()
         for (const msg of messages) {
           await this.handlePolledMessage(msg)
+        }
+        // Small delay when no messages to prevent tight-loop spinning
+        if (messages.length === 0) {
+          await new Promise((r) => setTimeout(r, 500))
         }
       } catch (err) {
         log.error('pollLoop', `Polling error: ${String(err)}`)
@@ -366,12 +365,17 @@ export class WechatAdapter {
     }
 
     // Recover or create session
+    this.recoveryChatId = chatId
     const binding = await this.sessionRecovery.recover(chatId)
     if (!binding) {
       const workDir = this.config.wechat.defaultWorkDir || this.config.defaultProjectDir
       await this.createSession(chatId, workDir)
+      // Send the user's message after session creation
+      this.bridge.sendUserMessage(chatId, text)
       return
     }
+
+    this.bridge.onServerMessage(chatId, (msg) => this.handleServerMessage(chatId, msg))
 
     // Send the message
     this.bridge.sendUserMessage(chatId, text)
@@ -397,10 +401,10 @@ export class WechatAdapter {
 
       this.sessionStore.set(chatId, { sessionId, workDir })
 
-      this.bridge = new WsBridge({
-        serverUrl: this.config.serverUrl,
-        authToken: token,
-      })
+    this.bridge = new WsBridge({
+      serverUrl: this.serverUrl,
+      authToken: token,
+    })
       this.bridge.startHeartbeat()
 
       this.bridge.onServerMessage(chatId, (msg) => this.handleServerMessage(chatId, msg))
@@ -636,20 +640,19 @@ export class WechatAdapter {
   }
 
   private createRecoveryBridge() {
-    const bridge = this.bridge
-    const chatIdRef = { current: '' }
+    const self = this
     return {
       get sessionId(): string | null {
-        return bridge.getSessionId(chatIdRef.current)
+        return self.bridge.getSessionId(self.recoveryChatId)
       },
       get isConnected(): boolean {
-        return bridge.isConnected(chatIdRef.current)
+        return self.bridge.isConnected(self.recoveryChatId)
       },
       async connectSession(sessionId: string, workDir: string): Promise<void> {
-        await bridge.connectSession(chatIdRef.current, sessionId, workDir)
+        await self.bridge.connectSession(self.recoveryChatId, sessionId, workDir)
       },
       resetSession(): void {
-        bridge.resetSession(chatIdRef.current)
+        self.bridge.resetSession(self.recoveryChatId)
       },
     }
   }
