@@ -1,32 +1,23 @@
 import { defineStore } from 'pinia'
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed } from 'vue'
 import { api } from '@/services/electronAPI'
 import { errorHandler } from '@/services/errorHandler'
 import { useChatSessionStore } from '../chatSession'
-import { createUuid } from '@/utils/uuid'
 import { useSettingsStore } from '../settings'
 import { useContextUsageStore } from '../contextUsage'
 import type { SessionSink } from '../turnSink'
-import type { Message, ToolCall } from '@/types'
 import { ErrorCategory } from '@/types'
 import { permissionService, type PermissionRequest } from '@/services/permissionService'
 import {
   isTeammateRawMessage,
   isSidechainMessage,
-  recordAgentToolCall,
-  isAgentLaunchResult,
 } from '@/services/teamTranscriptService'
-import { useAutoRetry, extractErrorCode } from '@/composables/useAutoRetry'
+import { useAutoRetry } from '@/composables/useAutoRetry'
 import type { TurnState } from './types'
-import {
-  FILE_TOOLS,
-  COMMAND_TOOLS,
-  VERIFICATION_PATTERNS,
-  REQUEST_TIMEOUT,
-  MAX_INMEMORY_TOOL_OUTPUT,
-} from './types'
+import { REQUEST_TIMEOUT } from './types'
 import { createTimelineAssembler } from './timelineAssembler'
 import { createTurnStateMachine } from './turnStateMachine'
+import { createEventHandlers, type EventReducer } from './eventHandlers'
 
 // Re-export — 外部模块通过 @/stores/turn 导入这些符号
 export type { TurnState } from './types'
@@ -286,861 +277,19 @@ export function useTurnStore(injectedApi?: any) {
 
     // ────────────────────────────────────────────────────────────────────
     // Timeline / message helpers — 委托给 timelineAssembler 深模块
-    const {
-      getAssistantMessage,
-      addTimelineEvent,
-      updateTimelineEvent,
-      ensureTextTimelineEvent,
-      completeCurrentTextEvent,
-      addToolTimelineEvent,
-    } = createTimelineAssembler(sink)
+    const timelineAssembler = createTimelineAssembler(sink)
 
     // ────────────────────────────────────────────────────────────────────
-    // Handlers（store 作用域；wrapper 已完成 sessionId 路由与 settled/turn 守卫）
+    // Turn 深模块编排：状态机 → 事件处理器。
+    // onTimeout 回调通过 handlers 前向引用打破循环依赖：
+    // 状态机先创建（需要 onTimeout），事件处理器后创建（需要 stateMachine）。
+    // 运行时安全：onTimeout 仅由 setTimeout 触发，而 setTimeout 在 beginTurn
+    // 中注册——beginTurn 只在用户交互或事件订阅中被调用，绝不会在同步初始化
+    // 期间执行，故 handlers 在 onTimeout 首次触发前必然已赋值。
     // ────────────────────────────────────────────────────────────────────
-    function remoteUserContent(data: any): string {
-      if (typeof data?.content === 'string') return data.content
-      const blocks = data?.message?.content
-      if (Array.isArray(blocks)) {
-        return blocks
-          .filter((block: any) => block?.type === 'text' && typeof block.text === 'string')
-          .map((block: any) => block.text)
-          .join('')
-      }
-      return ''
-    }
+    let handlers: EventReducer | undefined
 
-    function handleRemoteUserMessage(sessionId: string, data: any): void {
-      if (!sessionId) return
-      const content = remoteUserContent(data)
-      if (!content.trim()) return
-
-      let session = sink.get(sessionId)
-      if (!session) {
-        session = sink.ensureSession(sessionId, {
-          title: data?.title || content.slice(0, 50) || 'Remote Chat',
-          projectPath: data?.projectPath || undefined,
-        })
-      } else {
-        if (data?.projectPath && !session.workingDirectory) {
-          session.workingDirectory = data.projectPath
-        }
-        if (sessionStore.currentSessionId !== sessionId) {
-          void sessionStore.selectSession(sessionId)
-        }
-      }
-
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('h5-remote-user-message', {
-          detail: {
-            sessionId,
-            title: session.title || data?.title || content.slice(0, 50) || 'Remote Chat',
-            projectPath: session.workingDirectory || data?.projectPath || null,
-          },
-        }))
-      }
-
-      const messageId = typeof data?.messageId === 'string' ? data.messageId : ''
-      const hasExactMessage = messageId && session.messages.some(m => m.id === messageId)
-      const lastMessage = session.messages[session.messages.length - 1]
-      const isRecentDuplicate = !messageId &&
-        lastMessage?.role === 'user' &&
-        lastMessage.content === content &&
-        Date.now() - (lastMessage.timestamp || 0) < 10_000
-
-      if (!hasExactMessage && !isRecentDuplicate) {
-        sink.appendMessage(sessionId, {
-          ...(messageId ? { id: messageId } : {}),
-          role: 'user',
-          content,
-          metadata: { source: 'h5' } as any,
-        })
-      }
-
-      const existing = turnStates.get(sessionId)
-      if (existing) {
-        resetTimeout(sessionId, existing)
-        return
-      }
-      if (pendingSendMessages.has(sessionId) || userAbortedSessions.has(sessionId)) return
-
-      const ts = beginTurn(sessionId, { isAutonomous: true })
-      resetTimeout(sessionId, ts)
-    }
-
-    const handleStreamEvent = (sessionId: string, ts: TurnState, streamEvent: any) => {
-      const ev = streamEvent.event || streamEvent
-
-      if (ev.type === 'content_block_start' && ev.content_block?.type === 'text') {
-        sessionStore.logger.debug('ChatStore', `[${sessionId.slice(0, 8)}] stream_event: content_block_start(text) | accLen=${ts.accumulatedContent.length}`)
-        ts.currentTextEventId = null
-        ensureTextTimelineEvent(sessionId, ts)
-        if (ts.accumulatedContent.length > 0 && !ts.accumulatedContent.endsWith('\n')) {
-          ts.accumulatedContent += '\n\n'
-          streamingContents.value.set(sessionId, ts.accumulatedContent)
-          nextTick(() => {
-            sink.patchMessage(sessionId, ts.assistantMessageId, { content: ts.accumulatedContent })
-          })
-        }
-      }
-
-      if (ev.type === 'content_block_start' && ev.content_block?.type === 'thinking') {
-        sessionStore.logger.debug('ChatStore', `[${sessionId.slice(0, 8)}] stream_event: content_block_start(thinking)`)
-        if (ts.currentReasoningEventId) {
-          updateTimelineEvent(sessionId, ts, ts.currentReasoningEventId, { status: 'completed' })
-        }
-        const s = sink.get(sessionId)
-        if (s) {
-          const msg = s.messages.find(m => m.id === ts.assistantMessageId)
-          if (msg) {
-            if (!msg.reasoning) {
-              msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
-            }
-            ts.currentReasoningEventId = createUuid()
-            addTimelineEvent(sessionId, ts, {
-              id: ts.currentReasoningEventId,
-              type: 'reasoning',
-              timestamp: Date.now(),
-              status: 'running',
-              content: ''
-            })
-            ts.streamingHandledThinking = true
-          }
-        }
-      }
-
-      if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta?.text) {
-        const textEventId = ensureTextTimelineEvent(sessionId, ts)
-        ts.accumulatedContent += ev.delta.text
-        streamingContents.value.set(sessionId, ts.accumulatedContent)
-        const msg = getAssistantMessage(sessionId, ts)
-        const textEvent = msg?.timelineEvents?.find(event => event.id === textEventId)
-        updateTimelineEvent(sessionId, ts, textEventId, {
-          content: `${textEvent?.content || ''}${ev.delta.text}`,
-          status: 'running'
-        })
-        nextTick(() => {
-          sink.patchMessage(sessionId, ts.assistantMessageId, { content: ts.accumulatedContent })
-        })
-      }
-
-      if (ev.type === 'content_block_delta' && ev.delta?.type === 'thinking_delta' && ev.delta?.thinking) {
-        ts.streamingHandledThinking = true
-        const s = sink.get(sessionId)
-        if (s) {
-          const msg = s.messages.find(m => m.id === ts.assistantMessageId)
-          if (msg) {
-            if (!msg.reasoning) {
-              msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
-            }
-            msg.reasoning.content += ev.delta.thinking
-            if (!ts.currentReasoningEventId) {
-              ts.currentReasoningEventId = createUuid()
-              addTimelineEvent(sessionId, ts, {
-                id: ts.currentReasoningEventId,
-                type: 'reasoning',
-                timestamp: Date.now(),
-                status: 'running',
-                content: ''
-              })
-            }
-            const reasoningEvent = msg.timelineEvents?.find(event => event.id === ts.currentReasoningEventId)
-            updateTimelineEvent(sessionId, ts, ts.currentReasoningEventId, {
-              content: `${reasoningEvent?.content || ''}${ev.delta.thinking}`,
-              status: 'running'
-            })
-            // 不在此处调用 persist：thinking_delta 每秒可达数十次，
-            // 频繁持久化会阻塞主线程。thinking 内容会在 turn 结束时
-            // 由 handleResult 中的 persist 统一持久化。
-          }
-        }
-      }
-    }
-
-    const handleAssistant = (sessionId: string, ts: TurnState, assistant: any) => {
-      sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] assistant event received`)
-
-      const apiUsage = assistant.message?.usage
-      if (apiUsage) {
-        const s = sink.get(sessionId)
-        const msg = s?.messages.find(m => m.id === ts.assistantMessageId)
-        if (msg) {
-          const cacheRead = typeof apiUsage.cache_read_input_tokens === 'number'
-            ? apiUsage.cache_read_input_tokens
-            : 0
-          const cacheCreate = typeof apiUsage.cache_creation_input_tokens === 'number'
-            ? apiUsage.cache_creation_input_tokens
-            : 0
-          msg.metadata = {
-            ...msg.metadata,
-            inputTokens: apiUsage.input_tokens,
-            outputTokens: apiUsage.output_tokens,
-            ...(typeof apiUsage.cache_read_input_tokens === 'number'
-              ? { cacheReadInputTokens: apiUsage.cache_read_input_tokens }
-              : {}),
-            ...(typeof apiUsage.cache_creation_input_tokens === 'number'
-              ? { cacheCreationInputTokens: apiUsage.cache_creation_input_tokens }
-              : {}),
-            apiCallUsage: {
-              input_tokens: apiUsage.input_tokens ?? 0,
-              output_tokens: apiUsage.output_tokens ?? 0,
-              cache_read_input_tokens: cacheRead,
-              cache_creation_input_tokens: cacheCreate,
-            },
-          }
-          try {
-            useContextUsageStore().applyFallback(sessionId)
-          } catch {
-            // Non-fatal
-          }
-        }
-      }
-
-      if (assistant.message?.content) {
-        const content = assistant.message.content
-        if (Array.isArray(content)) {
-          const hasExistingTimeline = !!getAssistantMessage(sessionId, ts)?.timelineEvents?.length
-
-          if (!hasExistingTimeline) {
-            for (const block of content) {
-              if (block.type === 'text' && block.text) {
-                completeCurrentTextEvent(sessionId, ts)
-                const textEventId = ensureTextTimelineEvent(sessionId, ts)
-                ts.accumulatedContent += block.text
-                streamingContents.value.set(sessionId, ts.accumulatedContent)
-                const msg = getAssistantMessage(sessionId, ts)
-                const textEvent = msg?.timelineEvents?.find(event => event.id === textEventId)
-                updateTimelineEvent(sessionId, ts, textEventId, {
-                  content: `${textEvent?.content || ''}${block.text}`,
-                  status: 'running'
-                })
-              } else if (block.type === 'thinking') {
-                if (ts.streamingHandledThinking) continue
-                const thinkingText = block.thinking || block.text || ''
-                if (thinkingText) {
-                  completeCurrentTextEvent(sessionId, ts)
-                  const s = sink.get(sessionId)
-                  if (s) {
-                    const msg = s.messages.find(m => m.id === ts.assistantMessageId)
-                    if (msg) {
-                      if (!msg.reasoning) {
-                        msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
-                      }
-                      msg.reasoning.content += thinkingText
-                      if (!ts.currentReasoningEventId) {
-                        ts.currentReasoningEventId = createUuid()
-                        addTimelineEvent(sessionId, ts, {
-                          id: ts.currentReasoningEventId,
-                          type: 'reasoning',
-                          timestamp: msg.reasoning.startTime,
-                          status: 'running',
-                          content: ''
-                        })
-                      }
-                      const reasoningEvent = msg.timelineEvents?.find(event => event.id === ts.currentReasoningEventId)
-                      updateTimelineEvent(sessionId, ts, ts.currentReasoningEventId, {
-                        content: `${reasoningEvent?.content || ''}${thinkingText}`,
-                        status: 'completed'
-                      })
-                      ts.streamingHandledThinking = true
-                    }
-                  }
-                }
-              } else if (block.type === 'tool_use' && block.id) {
-                addToolTimelineEvent(sessionId, ts, block.id)
-              }
-            }
-
-            if (ts.accumulatedContent) {
-              sink.patchMessage(sessionId, ts.assistantMessageId, { content: ts.accumulatedContent })
-            }
-          } else {
-            const textContent = content
-              .filter((c: any) => c.type === 'text')
-              .map((c: any) => c.text || '')
-              .join('')
-
-            if (textContent && textContent.length > ts.accumulatedContent.length) {
-              const deltaText = textContent.slice(ts.accumulatedContent.length)
-              ts.accumulatedContent = textContent
-              streamingContents.value.set(sessionId, ts.accumulatedContent)
-              const textEventId = ensureTextTimelineEvent(sessionId, ts)
-              const msg = getAssistantMessage(sessionId, ts)
-              const textEvent = msg?.timelineEvents?.find(event => event.id === textEventId)
-              updateTimelineEvent(sessionId, ts, textEventId, {
-                content: `${textEvent?.content || ''}${deltaText}`,
-                status: 'running'
-              })
-              sink.patchMessage(sessionId, ts.assistantMessageId, { content: ts.accumulatedContent })
-            }
-
-            const reasoningContent = content
-              .filter((c: any) => c.type === 'thinking')
-              .map((c: any) => c.thinking || c.text || '')
-              .join('')
-
-            if (reasoningContent && !ts.streamingHandledThinking) {
-              const s = sink.get(sessionId)
-              if (s) {
-                const msg = s.messages.find(m => m.id === ts.assistantMessageId)
-                if (msg) {
-                  if (!msg.reasoning) {
-                    msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
-                  }
-                  msg.reasoning.content += reasoningContent
-                  if (!ts.currentReasoningEventId) {
-                    ts.currentReasoningEventId = createUuid()
-                    addTimelineEvent(sessionId, ts, {
-                      id: ts.currentReasoningEventId,
-                      type: 'reasoning',
-                      timestamp: msg.reasoning.startTime,
-                      status: 'running',
-                      content: ''
-                    })
-                  }
-                  const reasoningEvent = msg.timelineEvents?.find(event => event.id === ts.currentReasoningEventId)
-                  updateTimelineEvent(sessionId, ts, ts.currentReasoningEventId, {
-                    content: `${reasoningEvent?.content || ''}${reasoningContent}`,
-                    status: 'completed'
-                  })
-                  ts.streamingHandledThinking = true
-                  sink.persist(sessionId)
-                }
-              }
-            }
-          }
-
-          const toolUses = content.filter((c: any) => c.type === 'tool_use')
-          for (const toolUse of toolUses) {
-            const s = sink.get(sessionId)
-            if (s) {
-              const msg = s.messages.find(m => m.id === ts.assistantMessageId)
-              if (msg) {
-                const existingTool = msg.toolCalls?.find(tc => tc.id === toolUse.id)
-                if (!existingTool) {
-                  msg.toolCalls = [...(msg.toolCalls || []), {
-                    id: toolUse.id, name: toolUse.name, input: toolUse.input || {},
-                    status: 'running', startTime: Date.now()
-                  }]
-                  recordAgentToolCall(s, msg.toolCalls[msg.toolCalls.length - 1])
-                  addToolTimelineEvent(sessionId, ts, toolUse.id)
-                  sink.persist(sessionId)
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-
-    const handleToolUse = (sessionId: string, ts: TurnState, toolUse: any) => {
-      const toolNameLog = toolUse.name || toolUse.tool_use?.name || 'Unknown Tool'
-      sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] tool_use event | name=${toolNameLog}`)
-      const s = sink.get(sessionId)
-      if (s) {
-        const msg = s.messages.find(m => m.id === ts.assistantMessageId)
-        if (msg) {
-          const toolId = toolUse.id || toolUse.tool_use?.id || createUuid()
-          const toolName = toolUse.name || toolUse.tool_use?.name || 'Unknown Tool'
-          const toolInput = toolUse.input || toolUse.tool_use?.input || {}
-          const existingTool = msg.toolCalls?.find(tc => tc.id === toolId)
-          if (!existingTool) {
-            msg.toolCalls = [...(msg.toolCalls || []), {
-              id: toolId, name: toolName, input: toolInput,
-              status: 'running', startTime: Date.now()
-            }]
-            let traceType: string = 'tool_call'
-            if (FILE_TOOLS.has(toolName)) traceType = 'file_change'
-            else if (COMMAND_TOOLS.has(toolName)) {
-              const cmd = typeof toolInput.command === 'string' ? toolInput.command : ''
-              const isVerification = VERIFICATION_PATTERNS.some(p => p.test(cmd))
-              traceType = isVerification ? 'verification' : 'command_run'
-            }
-
-            sessionStore.traceEvent({
-              sessionId,
-              actor: 'tool',
-              type: traceType,
-              status: 'started',
-              title: toolName,
-              input: toolInput,
-              metadata: { toolId, assistantMessageId: ts.assistantMessageId },
-            })
-            addToolTimelineEvent(sessionId, ts, toolId)
-            sink.persist(sessionId)
-          }
-        }
-      }
-    }
-
-    const handleToolResult = (sessionId: string, ts: TurnState, toolResult: any) => {
-      const resultToolUseIdLog = toolResult.tool_use_id || toolResult.tool_result?.tool_use_id
-      const resultIsErrorLog = toolResult.is_error || toolResult.tool_result?.is_error
-      sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] tool_result event | toolUseId=${resultToolUseIdLog?.slice(0, 8)} | error=${!!resultIsErrorLog}`)
-      const s = sink.get(sessionId)
-      if (s) {
-        const msg = s.messages.find(m => m.id === ts.assistantMessageId)
-        if (msg?.toolCalls) {
-          const resultToolUseId = toolResult.tool_use_id || toolResult.tool_result?.tool_use_id
-          const rawResultOutput = toolResult.output ?? toolResult.content ?? toolResult.tool_result?.output ?? toolResult.tool_result?.content
-          let resultOutput = typeof rawResultOutput === 'string' ? rawResultOutput : JSON.stringify(rawResultOutput)
-          // 截断过长的工具输出，防止内存累积导致 OOM
-          if (resultOutput.length > MAX_INMEMORY_TOOL_OUTPUT) {
-            resultOutput = resultOutput.slice(0, MAX_INMEMORY_TOOL_OUTPUT) + '\n\n[Output truncated to prevent memory overflow]'
-          }
-          const resultIsError = toolResult.is_error || toolResult.tool_result?.is_error
-
-          sessionStore.updateTaskStateFromToolResult(msg.toolCalls, resultToolUseId, resultOutput)
-
-          const toolCallIndex = msg.toolCalls.findIndex(tc => tc.id === resultToolUseId)
-          if (toolCallIndex >= 0) {
-            const toolName = msg.toolCalls[toolCallIndex].name
-
-            // ★ 异步子代理检测：Agent/Task 工具返回 "async_launched" 等占位结果时，
-            // 子代理仍在后台运行，不应标记为 'completed'。
-            const isAsyncLaunch = !resultIsError &&
-              (toolName === 'Agent' || toolName === 'Task') &&
-              isAgentLaunchResult(resultOutput)
-
-            const updatedToolCalls = [...msg.toolCalls]
-            updatedToolCalls[toolCallIndex] = {
-              ...updatedToolCalls[toolCallIndex],
-              status: isAsyncLaunch
-                ? 'running'
-                : (resultIsError ? 'error' : 'completed'),
-              output: resultOutput,
-              // 异步启动时不设置 endTime——子代理仍在运行
-              ...(isAsyncLaunch ? {} : { endTime: Date.now() })
-            }
-            msg.toolCalls = updatedToolCalls
-            recordAgentToolCall(s, updatedToolCalls[toolCallIndex], isAsyncLaunch ? 'running' : (resultIsError ? 'failed' : 'completed'))
-
-            let traceType: string = 'tool_result'
-            let evidence: Array<{ kind: string; result?: string; detail: string }> | undefined
-            if (FILE_TOOLS.has(toolName)) {
-              traceType = 'file_change'
-            } else if (COMMAND_TOOLS.has(toolName)) {
-              const cmd = typeof updatedToolCalls[toolCallIndex].input?.command === 'string'
-                ? updatedToolCalls[toolCallIndex].input.command : ''
-              const isVerification = VERIFICATION_PATTERNS.some(p => p.test(cmd))
-              if (isVerification) {
-                traceType = 'verification'
-                const passKeywords = ['passed', 'pass', '0 failures', '0 errors', 'all tests passed', 'success']
-                const failKeywords = ['failed', 'fail', 'error', 'failure', 'failing']
-                const lowerOutput = resultOutput.toLowerCase()
-                const isPass = !resultIsError && passKeywords.some(k => lowerOutput.includes(k))
-                const isFail = resultIsError || failKeywords.some(k => lowerOutput.includes(k))
-                evidence = [{
-                  kind: cmd.match(/test/i) ? 'test' : cmd.match(/(lint|eslint|biome|ruff)/i) ? 'lint' : cmd.match(/(build|tsc|typecheck)/i) ? 'build' : 'manual',
-                  result: isFail ? 'fail' : isPass ? 'pass' : 'unknown',
-                  detail: resultOutput.slice(0, 500),
-                }]
-              } else {
-                traceType = 'command_run'
-              }
-            }
-
-            sessionStore.traceEvent({
-              sessionId,
-              actor: 'tool',
-              type: traceType,
-              status: resultIsError ? 'failed' : 'completed',
-              title: toolName,
-              output: resultOutput,
-              evidence,
-              metadata: { toolId: resultToolUseId, assistantMessageId: ts.assistantMessageId },
-            })
-            updateTimelineEvent(sessionId, ts, `tool-${resultToolUseId}`, {
-              status: resultIsError ? 'error' : 'completed'
-            })
-            sink.persist(sessionId)
-
-            // After file-modifying tools complete, refresh SCM and file tree so
-            // that newly created/edited files appear immediately in the source
-            // control panel and environment card — without waiting for the
-            // (possibly non-recursive) fs watcher to notice the change.
-            if (FILE_TOOLS.has(toolName) || COMMAND_TOOLS.has(toolName)) {
-              window.dispatchEvent(new CustomEvent('scm:refresh'))
-              window.dispatchEvent(new CustomEvent('refresh-file-tree'))
-            }
-          }
-        }
-      }
-    }
-
-    const handleUser = (sessionId: string, ts: TurnState, userMsg: any) => {
-      if (userMsg.message?.content && Array.isArray(userMsg.message.content)) {
-        const toolResults = userMsg.message.content.filter((c: any) => c.type === 'tool_result')
-        for (const toolResult of toolResults) {
-          const s = sink.get(sessionId)
-          if (s) {
-            const msg = s.messages.find(m => m.id === ts.assistantMessageId)
-            if (msg?.toolCalls) {
-              const toolCallIndex = msg.toolCalls.findIndex(tc => tc.id === toolResult.tool_use_id)
-              if (toolCallIndex >= 0) {
-                const rawUserToolOutput = typeof toolResult.content === 'string' ? toolResult.content : JSON.stringify(toolResult.content)
-                // 截断过长的工具输出，防止内存累积导致 OOM
-                const truncatedUserToolOutput = rawUserToolOutput.length > MAX_INMEMORY_TOOL_OUTPUT
-                  ? rawUserToolOutput.slice(0, MAX_INMEMORY_TOOL_OUTPUT) + '\n\n[Output truncated to prevent memory overflow]'
-                  : rawUserToolOutput
-                // Sync task state (TaskCreate/TaskUpdate/TaskList/TodoWrite) from tool
-                // results that arrive embedded in user messages.
-                sessionStore.updateTaskStateFromToolResult(msg.toolCalls, toolResult.tool_use_id, truncatedUserToolOutput)
-                const updatedToolCalls = [...msg.toolCalls]
-                const toolName = updatedToolCalls[toolCallIndex].name
-                // ★ 异步子代理检测（与 handleToolResult 中的逻辑一致）
-                const isAsyncLaunch = !toolResult.is_error &&
-                  (toolName === 'Agent' || toolName === 'Task') &&
-                  isAgentLaunchResult(truncatedUserToolOutput)
-                updatedToolCalls[toolCallIndex] = {
-                  ...updatedToolCalls[toolCallIndex],
-                  status: isAsyncLaunch
-                    ? 'running'
-                    : (toolResult.is_error ? 'error' : 'completed'),
-                  output: truncatedUserToolOutput,
-                  ...(isAsyncLaunch ? {} : { endTime: Date.now() })
-                }
-                msg.toolCalls = updatedToolCalls
-                recordAgentToolCall(s, updatedToolCalls[toolCallIndex], isAsyncLaunch ? 'running' : (toolResult.is_error ? 'failed' : 'completed'))
-                updateTimelineEvent(sessionId, ts, `tool-${toolResult.tool_use_id}`, {
-                  status: isAsyncLaunch ? 'running' : (toolResult.is_error ? 'error' : 'completed')
-                })
-                sink.persist(sessionId)
-              }
-            }
-          }
-        }
-      }
-    }
-
-    const handleResult = (sessionId: string, ts: TurnState, result: any) => {
-      if (ts.settled) return
-
-      // ★ 检查 CLI 返回的 is_error 标记
-      // Claude Code CLI 在遇到 API 错误（如 429 rate limit exceeded on dimension: tpm）
-      // 时，会返回 type=result, is_error=true, result="API Error: ..."。
-      // 这种情况需要走 handleError 流程（会触发自动重试 + 指数退避），
-      // 而非当作正常完成将错误文本显示为助手回复。
-      //
-      // 防御性检查：如果 result 文本以 "API Error:" 开头，即使没有 is_error 标记也当作错误处理
-      const isError = !!result?.is_error
-      const resultText = typeof result?.result === 'string' ? result.result : ''
-      const looksLikeApiError = /^API Error:/i.test(resultText)
-      if (isError || looksLikeApiError) {
-        const errorText = resultText || 'API error'
-        sessionStore.logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] result event has error, routing to handleError | isError=${isError} | looksLikeApiError=${looksLikeApiError} | errorText=${errorText.slice(0, 120)}`)
-        handleError(sessionId, ts, new Error(errorText))
-        return
-      }
-
-      ts.settled = true
-      result = result || {}
-      const elapsed = Date.now() - ts.sendStartTime
-      sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] result event (LLM response complete) | totalElapsed=${elapsed}ms | accContentLen=${ts.accumulatedContent.length} | stopReason=${result.stop_reason || '(none)'}`)
-      streamingContents.value.set(sessionId, '')
-      loadingSessions.value.set(sessionId, false)
-
-      // 重试成功：清理重试状态，UI 上的 RetryIndicator 消失
-      if (autoRetry.retryStates.value.has(sessionId)) {
-        sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry succeeded, clearing retry state`)
-        autoRetry.clearOnSuccess(sessionId)
-      }
-
-      const s = sink.get(sessionId)
-      if (s) {
-        s.processStatus = 'idle'
-        s.lastActivityAt = Date.now()
-        const msg = s.messages.find(m => m.id === ts.assistantMessageId)
-        if (msg) {
-          const finalText = typeof result.result === 'string' ? result.result : ''
-          if (finalText && finalText.length > msg.content.length) {
-            const textEventId = ensureTextTimelineEvent(sessionId, ts)
-            const deltaText = finalText.slice(msg.content.length)
-            msg.content = finalText
-            const textEvent = msg.timelineEvents?.find(event => event.id === textEventId)
-            updateTimelineEvent(sessionId, ts, textEventId, {
-              content: `${textEvent?.content || ''}${deltaText}`,
-              status: 'completed'
-            })
-          }
-          completeCurrentTextEvent(sessionId, ts)
-          if (msg.reasoning && !msg.reasoning.endTime) {
-            msg.reasoning.endTime = Date.now()
-            msg.reasoning.isExpanded = false
-          }
-          if (ts.currentReasoningEventId) {
-            updateTimelineEvent(sessionId, ts, ts.currentReasoningEventId, { status: 'completed' })
-          }
-          const hasRunningTools = !!msg.toolCalls?.some(tool => tool.status === 'running' || tool.status === 'pending')
-          const suspiciousToolStop = result.stop_reason === 'tool_use'
-          const resultUsage = result.usage
-          const previousApiCallUsage = msg.metadata?.apiCallUsage
-          msg.metadata = {
-            model: settingsStore.config.model,
-            duration: Date.now() - msg.timestamp,
-            ...(resultUsage && {
-              inputTokens: resultUsage.input_tokens,
-              outputTokens: resultUsage.output_tokens,
-              ...(typeof resultUsage.cache_read_input_tokens === 'number'
-                ? { cacheReadInputTokens: resultUsage.cache_read_input_tokens }
-                : {}),
-              ...(typeof resultUsage.cache_creation_input_tokens === 'number'
-                ? { cacheCreationInputTokens: resultUsage.cache_creation_input_tokens }
-                : {}),
-            }),
-            ...(previousApiCallUsage ? { apiCallUsage: previousApiCallUsage } : {}),
-            warning: suspiciousToolStop
-              ? 'Agent 在工具调用状态下提前结束，当前模型可能没有稳定支持多轮工具调用协议。建议重试或切换为更强的工具调用模型。'
-              : hasRunningTools
-                ? 'Agent 已结束，但仍有工具调用未返回结果。'
-                : undefined
-          }
-
-          void useContextUsageStore().refresh(sessionId, true)
-          sessionStore.traceEvent({
-            sessionId,
-            messageId: ts.assistantMessageId,
-            actor: 'assistant',
-            type: 'assistant_turn',
-            status: 'completed',
-            title: 'Assistant turn completed',
-            output: { content: msg.content },
-            metadata: {
-              duration: msg.metadata?.duration,
-              model: msg.metadata?.model,
-              stopReason: result.stop_reason || '',
-              warning: msg.metadata?.warning || '',
-            },
-          })
-
-          const fileChanges = msg.toolCalls
-            ?.filter(tc => ['Write', 'FileWrite', 'Edit', 'FileEdit', 'MultiEdit'].includes(tc.name))
-            .map(tc => ({
-              kind: tc.name,
-              path: tc.input?.file_path || tc.input?.path || '',
-            })) || []
-          const verifications = msg.toolCalls
-            ?.filter(tc => tc.name === 'Bash' && tc.output)
-            .filter(tc => {
-              const cmd = typeof tc.input?.command === 'string' ? tc.input.command : ''
-              return /^\s*(npm\s+test|bun\s+test|pnpm\s+test|yarn\s+test|pytest|cargo\s+test|go\s+test|jest|vitest|mocha|ruff|eslint|biome|prettier|tsc|vue-tsc|npm\s+run\s+(test|lint|check|build|typecheck))/i.test(cmd)
-            })
-            .map(tc => ({
-              kind: 'verification',
-              result: tc.status === 'completed' ? 'pass' : 'fail',
-              detail: (tc.output || '').slice(0, 300),
-            })) || []
-          const errors = msg.toolCalls
-            ?.filter(tc => tc.status === 'error')
-            .map(tc => ({ kind: tc.name, detail: (tc.output || '').slice(0, 300) })) || []
-
-          sessionStore.traceEvent({
-            sessionId,
-            messageId: ts.assistantMessageId,
-            actor: 'system',
-            type: 'final_summary',
-            status: errors.length > 0 ? 'failed' : 'completed',
-            title: 'Session turn summary',
-            artifacts: fileChanges.length > 0 ? fileChanges : undefined,
-            evidence: verifications.length > 0 ? verifications : undefined,
-            error: errors.length > 0 ? { message: errors.map(e => `${e.kind}: ${e.detail}`).join('; ') } : undefined,
-            metadata: {
-              toolCallCount: msg.toolCalls?.length || 0,
-              fileChangeCount: fileChanges.length,
-              verificationCount: verifications.length,
-              errorCount: errors.length,
-              contentLength: msg.content.length,
-            },
-          })
-
-          // 空的自动续跑 turn（开 turn 即 result、无任何内容）→ 摘除占位消息，避免空气泡
-          if (ts.isAutonomous && !msg.content && !msg.toolCalls?.length && !msg.reasoning) {
-            const idx = s.messages.findIndex(m => m.id === ts.assistantMessageId)
-            if (idx >= 0) s.messages.splice(idx, 1)
-          }
-
-          sink.persist(sessionId)
-
-          // 产物汇总：仅办公模式，回合结束后对 outputs/ 做 mtime 快照对比，
-          // 把本回合新生成/修改的产物写入该助手消息元数据并持久化。
-          if (s.mode === 'work' && s.workingDirectory) {
-            const workingDir = s.workingDirectory
-            const turnStart = ts.sendStartTime
-            const targetMsgId = ts.assistantMessageId
-            void (async () => {
-              try {
-                if (!resolvedApi.artifacts?.list) return
-                const { artifacts } = await resolvedApi.artifacts.list(workingDir)
-                // 1s 容差，与 ArtifactsPanel 现有约定一致；mtime>=回合开始即本回合新增/修改
-                const produced = (artifacts || []).filter((a: any) => a.mtime >= turnStart - 1000)
-                if (produced.length === 0) return
-                const sess = sink.get(sessionId)
-                const target = sess?.messages.find(m => m.id === targetMsgId)
-                if (!sess || !target) return
-                target.metadata = { ...(target.metadata || {}), artifacts: produced }
-                // 触发 MessageList 重建（其分组缓存按数组引用失效）
-                sess.messages = [...sess.messages]
-                sink.persist(sessionId)
-              } catch (err) {
-                console.error('[Artifacts] turn summary collect failed:', err)
-              }
-            })()
-          }
-
-          void sessionStore.loadTurnCheckpoints(sessionId, s.workingDirectory, true)
-        }
-      }
-
-      ts.resolve?.()
-      endTurn(sessionId, ts)
-    }
-
-    const handleError = (sessionId: string, ts: TurnState, error: any) => {
-      if (ts.settled) return
-      const elapsed = Date.now() - ts.sendStartTime
-      sessionStore.logger.error('ChatStore', `[${sessionId.slice(0, 8)}] error in message flow | elapsed=${elapsed}ms`, { error: String(error) })
-
-      // ★ 用户主动 abort 后的错误（如 "API Error: Request was abort"）：
-      // 不展示错误 toast、不触发自动重试，静默结束 turn。
-      if (userAbortedSessions.has(sessionId)) {
-        sessionStore.logger.info('ChatStore', `[${sessionId.slice(0, 8)}] error suppressed after user abort`)
-        ts.settled = true
-        loadingSessions.value.set(sessionId, false)
-        streamingContents.value.set(sessionId, '')
-        autoRetry.removeRetryState(sessionId)
-        const s = sink.get(sessionId)
-        if (s) {
-          s.processStatus = 'idle'
-          sink.persist(sessionId)
-        }
-        endTurn(sessionId, ts)
-        return
-      }
-
-      // 先分类错误（不触发 toast，仅用于判断是否可重试）
-      const classified = errorHandler.classifyError(error, {
-        sessionId,
-        provider: settingsStore.config.provider,
-        model: settingsStore.config.model,
-        baseUrl: settingsStore.config.baseUrl,
-        phase: 'stream',
-      })
-
-      // ★ 拦截可恢复错误：自动重试，不展示技术错误详情
-      if (autoRetry.shouldAutoRetry(sessionId, classified.retryable, userAbortedSessions)) {
-        // 中断引擎进程：主 LLM 的 429 等可恢复错误发生时，引擎可能已返回
-        // result 并退出（abort 为无操作），也可能仍在运行（需要中断以阻止
-        // 后续事件干扰重试定时器）。
-        const claudeCode = resolvedApi.claudeCode
-        if (claudeCode) {
-          try { claudeCode.abort(sessionId) } catch { /* ignore */ }
-        }
-
-        // 设置 ts.settled 阻止后续事件（引擎中断后的残留 result/assistant 等）
-        // 被此 turn 处理。initiateAutoRetry 不依赖 ts.settled，它会自行删除 turn。
-        ts.settled = true
-        void initiateAutoRetry(
-          sessionId,
-          ts,
-          classified.category,
-          classified.title,
-          classified.message,
-          classified.retryDelay,
-          extractErrorCode(classified.technicalDetail, classified.category),
-        )
-        return
-      }
-
-      // ── 以下为不可恢复错误或重试耗尽的最终处理 ──
-      ts.settled = true
-      loadingSessions.value.set(sessionId, false)
-      streamingContents.value.set(sessionId, '')
-
-      // 清理重试状态
-      const hadRetry = autoRetry.retryStates.value.has(sessionId)
-      autoRetry.removeRetryState(sessionId)
-
-      // 触发 toast / 日志 / inlineError
-      errorHandler.handleError(error, {
-        sessionId,
-        provider: settingsStore.config.provider,
-        model: settingsStore.config.model,
-        baseUrl: settingsStore.config.baseUrl,
-        phase: 'stream',
-      })
-
-      sessionStore.traceEvent({
-        sessionId,
-        messageId: ts.assistantMessageId,
-        actor: 'assistant',
-        type: 'assistant_turn',
-        status: 'failed',
-        title: hadRetry ? 'Assistant turn failed (retries exhausted)' : 'Assistant turn failed',
-        error: { message: classified.technicalDetail },
-      })
-
-      sink.patchMessage(sessionId, ts.assistantMessageId, {
-        content: classified.message,
-        metadata: {
-          model: settingsStore.config.model,
-          duration: Date.now() - ts.sendStartTime,
-          error: classified,
-        }
-      })
-
-      const s = sink.get(sessionId)
-      if (s) {
-        s.processStatus = 'exited'
-        sink.persist(sessionId)
-      }
-
-      ts.reject?.(error)
-      endTurn(sessionId, ts)
-    }
-
-    const handleExit = (sessionId: string, ts: TurnState, data: number | null | { code?: number | null; signal?: string | null; stderr?: string }) => {
-      let exitCode: number | null = null
-      let stderrTail: string | undefined
-      let signal: string | null | undefined
-      if (typeof data === 'number' || data === null) {
-        exitCode = data
-      } else if (data && typeof data === 'object') {
-        exitCode = data.code ?? null
-        stderrTail = data.stderr || undefined
-        signal = data.signal ?? undefined
-      }
-
-      sessionStore.logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] process exit event | code=${exitCode}${signal ? ` | signal=${signal}` : ''}${stderrTail ? ` | stderr=${stderrTail.slice(0, 200)}` : ''}`)
-
-      if (exitCode !== null && exitCode !== 0) {
-        const detail = stderrTail
-          ? stderrTail.split(/\r?\n/).filter(Boolean).slice(-3).join(' | ')
-          : undefined
-        const msg = detail
-          ? `Process exited with code ${exitCode}: ${detail}`
-          : `Process exited with code ${exitCode}`
-        handleError(sessionId, ts, new Error(msg))
-        return
-      }
-
-      // A clean process exit is only a process-lifecycle signal. The successful
-      // turn must settle on the engine's result event; otherwise an early/stale
-      // exit can make the UI show "completed" while the assistant is still
-      // streaming through the active turn.
-    }
-
-    // ────────────────────────────────────────────────────────────────────
-    // Turn 生命周期 — 委托给 turnStateMachine 深模块
-    // onTimeout 回调打破与 handleResult / handleError 的循环依赖：
-    // 状态机只负责"超时了"信号，由 store 决定软收尾还是报错。
-    // ────────────────────────────────────────────────────────────────────
-    const {
-      turnStates,
-      resetTimeout,
-      beginTurn,
-      endTurn,
-      ensureTurn,
-    } = createTurnStateMachine({
+    const stateMachine = createTurnStateMachine({
       sink,
       traceEvent: sessionStore.traceEvent.bind(sessionStore),
       loadingSessions,
@@ -1149,12 +298,59 @@ export function useTurnStore(injectedApi?: any) {
       userAbortedSessions,
       onTimeout: (sessionId, ts) => {
         if (ts.isAutonomous) {
-          handleResult(sessionId, ts, {})
+          handlers?.handleResult(sessionId, ts, {})
         } else {
-          handleError(sessionId, ts, new Error(`请求超时（${REQUEST_TIMEOUT / 1000}秒无响应）`))
+          handlers?.handleError(sessionId, ts, new Error(`请求超时（${REQUEST_TIMEOUT / 1000}秒无响应）`))
         }
       },
     })
+
+    handlers = createEventHandlers({
+      sink,
+      stateMachine,
+      timeline: timelineAssembler,
+      streamingContents,
+      loadingSessions,
+      pendingSendMessages,
+      userAbortedSessions,
+      logger: sessionStore.logger,
+      traceEvent: sessionStore.traceEvent.bind(sessionStore),
+      selectSession: (sid: string) => { void sessionStore.selectSession(sid) },
+      getCurrentSessionId: () => sessionStore.currentSessionId ?? undefined,
+      updateTaskStateFromToolResult: sessionStore.updateTaskStateFromToolResult,
+      loadTurnCheckpoints: (sid: string, projectPathOverride?: string, force?: boolean) => {
+        void sessionStore.loadTurnCheckpoints(sid, projectPathOverride, force)
+      },
+      getModel: () => settingsStore.config.model,
+      getProvider: () => settingsStore.config.provider,
+      getBaseUrl: () => settingsStore.config.baseUrl,
+      autoRetry,
+      initiateAutoRetry,
+      contextUsage: useContextUsageStore(),
+      errorHandler,
+      getClaudeCode: () => resolvedApi.claudeCode ?? null,
+      getArtifactsApi: () => resolvedApi.artifacts ?? null,
+    })
+
+    const {
+      turnStates,
+      resetTimeout,
+      beginTurn,
+      endTurn,
+      ensureTurn,
+    } = stateMachine
+
+    const {
+      handleRemoteUserMessage,
+      handleStreamEvent,
+      handleAssistant,
+      handleToolUse,
+      handleToolResult,
+      handleUser,
+      handleResult,
+      handleError,
+      handleExit,
+    } = handlers
 
     // ── 骨架 stub：本任务只建结构，行为在任务 5/7 实现 ──
     interface MessageAttachments {
