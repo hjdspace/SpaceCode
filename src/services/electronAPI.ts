@@ -1,20 +1,13 @@
-const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null
-
-// ── H5 模式检测与适配器注入 ──
-// 在模块加载时同步检测：如果 URL 含有 token 参数且不在 Electron 环境中，
-// 则创建 H5 适配器替换 claudeCode IPC 桥接。
-import { isH5Mode, initH5Connection, h5ApiClient } from './h5ApiClient'
-import { createH5Adapter } from './h5Adapter'
-import type { ElectronClaudeCodeAPI } from '@/types/electron'
-
-let h5Adapter: ElectronClaudeCodeAPI | null = null
-const _isH5Mode = typeof window !== 'undefined' && isH5Mode()
-
-if (_isH5Mode) {
-  initH5Connection()
-  h5Adapter = createH5Adapter()
-}
-
+/**
+ * electronAPI — 渲染进程访问 Electron 主进程 IPC 桥接的统一聚合层。
+ *
+ * 本模块是 thin aggregator：
+ * - 类型定义集中在此文件（被 src/types/electron.d.ts 等消费）
+ * - 按领域拆分的命名空间位于 ./api/*.ts（每个 < 100 行）
+ * - 共享运行时状态（electronAPI、_isH5Mode、h5Adapter）位于 ./api/_context.ts
+ * - 扁平方法（无子命名空间的方法）保留在此文件
+ * - 通过 spread 组合命名空间对象到 api 导出
+ */
 import type {
   CuaDriverStatus,
   CuaDriverUpdateInfo,
@@ -324,7 +317,36 @@ export interface InstallProgress {
   [key: string]: unknown
 }
 
+// ── 共享运行时状态（由 _context.ts 初始化 H5 适配器） ──
+import { electronAPI, _isH5Mode, h5Adapter } from './api/_context'
+import { h5ApiClient } from './h5ApiClient'
+import type { ElectronClaudeCodeAPI } from '@/types/electron'
+
+// ── 按领域拆分的命名空间 ──
+import { agents } from './api/agents'
+import { artifacts } from './api/artifacts'
+import { app as appApi } from './api/app'
+import { browserUse } from './api/browserUse'
+import { changelog } from './api/changelog'
+import { computerUse } from './api/computerUse'
+import { cron } from './api/cron'
+import { debug } from './api/debug'
+import { design } from './api/design'
+import { git } from './api/git'
+import { h5Access } from './api/h5Access'
+import { mcp } from './api/mcp'
+import { mobile } from './api/mobile'
+import { officecli } from './api/officecli'
+import { rtk } from './api/rtk'
+import { session } from './api/session'
+import { shell } from './api/shell'
+import { skills } from './api/skills'
+import { terminal } from './api/terminal'
+import { trace } from './api/trace'
+import { update } from './api/update'
+
 export const api = {
+  // ── 扁平方法（无子命名空间） ──
   sendMessage: (text: string) => electronAPI?.sendMessage(text) || Promise.resolve({ success: false }),
   onMessage: (callback: (msg: unknown) => void) => electronAPI?.onMessage(callback),
   getAppState: () => electronAPI?.getAppState() || Promise.resolve({ sessions: [], currentSessionId: null, theme: 'dark' }),
@@ -510,50 +532,6 @@ export const api = {
     return Promise.resolve(false)
   },
 
-  // Work artifacts (outputs/ folder)
-  artifacts: {
-    list: (workingDir: string): Promise<{ artifacts: ArtifactEntry[] }> =>
-      electronAPI?.artifacts?.list(workingDir) || Promise.resolve({ artifacts: [] }),
-    open: (filePath: string): Promise<{ success: boolean; error?: string }> =>
-      electronAPI?.artifacts?.open(filePath) || Promise.resolve({ success: false }),
-    reveal: (filePath: string): Promise<{ success: boolean }> =>
-      electronAPI?.artifacts?.reveal(filePath) || Promise.resolve({ success: false }),
-    startWatch: (artifactsDir: string): Promise<boolean> =>
-      electronAPI?.artifacts?.startWatch(artifactsDir) || Promise.resolve(false),
-    stopWatch: (): Promise<boolean> =>
-      electronAPI?.artifacts?.stopWatch() || Promise.resolve(false),
-    onChanged: (callback: (data: { eventType: string; filename: string }) => void): (() => void) => {
-      if (electronAPI?.artifacts?.onChanged) {
-        return electronAPI.artifacts.onChanged(callback)
-      }
-      return () => {}
-    },
-  },
-
-  // OfficeCLI API — binary execution, file preview, watch mode
-  officecli: {
-    version: (): Promise<string> =>
-      electronAPI?.officecli?.version() || Promise.reject('OfficeCLI not available'),
-    checkInstalled: (): Promise<boolean> =>
-      electronAPI?.officecli?.checkInstalled() || Promise.resolve(false),
-    exec: (options: { args: string[]; cwd?: string; timeout?: number; env?: Record<string, string> }) =>
-      electronAPI?.officecli?.exec(options) || Promise.reject('OfficeCLI not available'),
-    viewHtml: (filePath: string, outputDir?: string): Promise<string> =>
-      electronAPI?.officecli?.viewHtml(filePath, outputDir) || Promise.reject('OfficeCLI not available'),
-    viewScreenshot: (filePath: string, outputDir: string, page?: number): Promise<string[]> =>
-      electronAPI?.officecli?.viewScreenshot(filePath, outputDir, page) || Promise.reject('OfficeCLI not available'),
-    watchStart: (filePath: string, port?: number): Promise<{ id: string; filePath: string; port: number; url: string }> =>
-      electronAPI?.officecli?.watchStart(filePath, port) || Promise.reject('OfficeCLI not available'),
-    watchStop: (watchId: string): Promise<boolean> =>
-      electronAPI?.officecli?.watchStop(watchId) || Promise.resolve(false),
-    watchStopAll: (): Promise<number> =>
-      electronAPI?.officecli?.watchStopAll() || Promise.resolve(0),
-    watchList: (): Promise<Array<{ id: string; filePath: string; url: string }>> =>
-      electronAPI?.officecli?.watchList() || Promise.resolve([]),
-    readImageAsDataURL: (filePath: string): Promise<string> =>
-      electronAPI?.officecli?.readImageAsDataURL(filePath) || Promise.reject('OfficeCLI not available'),
-  },
-
   // File selection dialog
   selectFiles: (): Promise<{ canceled: boolean; filePaths: string[] }> => {
     if (electronAPI?.selectFiles) {
@@ -573,94 +551,7 @@ export const api = {
     return Promise.resolve({ success: false, error: 'Prompt optimizer not available' })
   },
 
-  // Git/SCM API
-  git: {
-    isRepo: (cwd: string): Promise<boolean> =>
-      electronAPI?.git?.isRepo(cwd) || Promise.resolve(false),
-    getRoot: (cwd: string): Promise<string | null> =>
-      electronAPI?.git?.getRoot(cwd) || Promise.resolve(null),
-    getStatus: (cwd: string): Promise<GitStatus | null> =>
-      electronAPI?.git?.getStatus(cwd) || Promise.resolve(null),
-    stage: (cwd: string, paths: string[]): Promise<boolean> =>
-      electronAPI?.git?.stage(cwd, paths) || Promise.resolve(false),
-    unstage: (cwd: string, paths: string[]): Promise<boolean> =>
-      electronAPI?.git?.unstage(cwd, paths) || Promise.resolve(false),
-    stageAll: (cwd: string): Promise<boolean> =>
-      electronAPI?.git?.stageAll(cwd) || Promise.resolve(false),
-    unstageAll: (cwd: string): Promise<boolean> =>
-      electronAPI?.git?.unstageAll(cwd) || Promise.resolve(false),
-    commit: (cwd: string, message: string, amend?: boolean): Promise<{ success: boolean; hash?: string; error?: string }> =>
-      electronAPI?.git?.commit(cwd, message, amend) || Promise.resolve({ success: false, error: 'Git API not available' }),
-    getDiff: (cwd: string, path: string, staged?: boolean): Promise<GitDiffResult | null> =>
-      electronAPI?.git?.getDiff(cwd, path, staged) || Promise.resolve(null),
-    getFullDiff: (cwd: string): Promise<GitFullDiffResult | null> =>
-      electronAPI?.git?.getFullDiff(cwd) || Promise.resolve(null),
-    getStagedDiff: (cwd: string): Promise<string> =>
-      electronAPI?.git?.getStagedDiff(cwd) || Promise.resolve(''),
-    showFile: (cwd: string, path: string): Promise<string | null> =>
-      electronAPI?.git?.showFile(cwd, path) || Promise.resolve(null),
-    getBranches: (cwd: string): Promise<GitBranch[]> =>
-      electronAPI?.git?.getBranches(cwd) || Promise.resolve([]),
-    checkout: (cwd: string, ref: string): Promise<{ success: boolean; error?: string }> =>
-      electronAPI?.git?.checkout(cwd, ref) || Promise.resolve({ success: false, error: 'Git API not available' }),
-    createBranch: (cwd: string, name: string, checkoutTo?: boolean): Promise<{ success: boolean; error?: string }> =>
-      electronAPI?.git?.createBranch(cwd, name, checkoutTo) || Promise.resolve({ success: false, error: 'Git API not available' }),
-    deleteBranch: (cwd: string, name: string, force?: boolean): Promise<{ success: boolean; error?: string }> =>
-      electronAPI?.git?.deleteBranch(cwd, name, force) || Promise.resolve({ success: false, error: 'Git API not available' }),
-    getLog: (cwd: string, count?: number): Promise<GitLogEntry[]> =>
-      electronAPI?.git?.getLog(cwd, count) || Promise.resolve([]),
-    discardChanges: (cwd: string, paths: string[]): Promise<boolean> =>
-      electronAPI?.git?.discardChanges(cwd, paths) || Promise.resolve(false),
-    pull: (cwd: string): Promise<{ success: boolean; error?: string }> =>
-      electronAPI?.git?.pull(cwd) || Promise.resolve({ success: false, error: 'Git API not available' }),
-    push: (cwd: string): Promise<{ success: boolean; error?: string }> =>
-      electronAPI?.git?.push(cwd) || Promise.resolve({ success: false, error: 'Git API not available' }),
-    stash: (cwd: string): Promise<{ success: boolean; error?: string }> =>
-      electronAPI?.git?.stash(cwd) || Promise.resolve({ success: false, error: 'Git API not available' }),
-    stashPop: (cwd: string): Promise<{ success: boolean; error?: string }> =>
-      electronAPI?.git?.stashPop(cwd) || Promise.resolve({ success: false, error: 'Git API not available' }),
-    fetchAll: (cwd: string): Promise<{ success: boolean; error?: string }> =>
-      electronAPI?.git?.fetchAll(cwd) || Promise.resolve({ success: false, error: 'Git API not available' }),
-    watchProject: (cwd: string): Promise<boolean> =>
-      electronAPI?.git?.watchProject(cwd) || Promise.resolve(false),
-    stopWatch: (): Promise<boolean> =>
-      electronAPI?.git?.stopWatch() || Promise.resolve(false),
-    onStatusChanged: (callback: () => void): (() => void) => {
-      if (electronAPI?.git?.onStatusChanged) {
-        return electronAPI.git.onStatusChanged(callback)
-      }
-      return () => {}
-    },
-  },
-
-  // Agent API
-  agents: {
-    listAgents: (cwd?: string): Promise<Array<{ agentType: string; description: string; source: string; model?: string; color?: string }>> => {
-      if (electronAPI?.claudeCode?.listAgents) {
-        return electronAPI.claudeCode.listAgents(cwd)
-      }
-      return Promise.resolve([])
-    },
-    scanLibrary: (cwd?: string): Promise<any> =>
-      electronAPI?.agents?.scanLibrary(cwd) || Promise.resolve({ agents: [] }),
-    getInstalled: (cwd?: string): Promise<any> =>
-      electronAPI?.agents?.getInstalled(cwd) || Promise.resolve({ agents: [] }),
-    install: (name: string, scope: string, cwd?: string): Promise<void> =>
-      electronAPI?.agents?.install(name, scope, cwd) || Promise.resolve(),
-    uninstall: (name: string, scope: string, cwd?: string): Promise<void> =>
-      electronAPI?.agents?.uninstall(name, scope, cwd) || Promise.resolve(),
-    listWorkflows: (): Promise<any> =>
-      electronAPI?.agents?.listWorkflows() || Promise.resolve({ workflows: [] }),
-    saveWorkflow: (workflow: unknown): Promise<void> =>
-      electronAPI?.agents?.saveWorkflow(workflow) || Promise.resolve(),
-    deleteWorkflow: (id: string): Promise<void> =>
-      electronAPI?.agents?.deleteWorkflow(id) || Promise.resolve(),
-    exportWorkflow: (id: string, scope: string, cwd?: string): Promise<any> =>
-      electronAPI?.agents?.exportWorkflow(id, scope, cwd) || Promise.resolve(null),
-    saveCustom: (agentName: string, content: string): Promise<{ success: boolean; path: string }> =>
-      electronAPI?.agents?.saveCustom(agentName, content) || Promise.reject('Agents API not available'),
-  },
-
+  // ClaudeCode bridge methods (flat, delegating to electronAPI.claudeCode)
   updateThinkingLevel: (sessionId: string, enabled: boolean): Promise<void> => {
     if (electronAPI?.claudeCode?.updateThinkingLevel) {
       return electronAPI.claudeCode.updateThinkingLevel(sessionId, enabled)
@@ -724,169 +615,53 @@ export const api = {
     return Promise.resolve()
   },
 
-  // Debug API
-  debug: {
-    listFiles: (): Promise<DebugFileEntry[]> => electronAPI?.debug?.listFiles() || Promise.resolve([]),
-    readFile: (filePath: string, maxBytes?: number): Promise<{ success: boolean; content?: string; error?: string }> =>
-      electronAPI?.debug?.readFile(filePath, maxBytes) || Promise.resolve({ success: false, error: 'Debug API not available' }),
-    listTraceSessions: (): Promise<TraceSessionEntry[]> => electronAPI?.debug?.listTraceSessions() || Promise.resolve([]),
-    readTraceEvents: (sessionId: string, maxEvents?: number): Promise<{ success: boolean; events?: AgentTraceEvent[]; error?: string }> =>
-      electronAPI?.debug?.readTraceEvents(sessionId, maxEvents) || Promise.resolve({ success: false, error: 'Debug API not available' }),
+  // App version
+  getAppVersion: (): Promise<string> => {
+    if (electronAPI?.getAppVersion) {
+      return electronAPI.getAppVersion()
+    }
+    return Promise.resolve('0.0.0')
   },
 
-  // Trace API — fully replicated from cc-haha
-  trace: {
-    event: (event: AgentTraceEvent) => electronAPI?.trace?.event(event),
-    /** 获取 trace 会话列表（cc-haha 兼容接口） */
-    list: (params?: { limit?: number; offset?: number; query?: string }): Promise<import('@/types/trace').TraceSessionList> => {
-      if (electronAPI?.trace?.list) return electronAPI.trace.list(params)
-      // 降级：从现有 debug API 构建
-      return (async () => {
-        const sessions = await (electronAPI?.debug?.listTraceSessions() || Promise.resolve([]))
-        return {
-          traces: sessions.map((s: import('./electronAPI').TraceSessionEntry) => ({
-            sessionId: s.sessionId,
-            session: null,
-            summary: { apiCalls: 0, failedCalls: 0, totalDurationMs: 0, totalInputTokens: 0, totalOutputTokens: 0, models: [], updatedAt: null },
-            fileSize: s.size,
-            fileUpdatedAt: new Date(s.modifiedAt).toISOString(),
-          })),
-          total: sessions.length,
-          storageDir: '',
-          settings: { enabled: true, storageDir: '' },
-        }
-      })()
-    },
-    /** 获取单个 trace 会话详情 */
-    getTrace: (sessionId: string): Promise<{ success: boolean; data?: import('@/types/trace').TraceSession; error?: string }> => {
-      if (electronAPI?.trace?.getTrace) return electronAPI.trace.getTrace(sessionId)
-      return Promise.resolve({ success: false, error: 'Not available' })
-    },
-    /** 获取单个 call 的完整详情 */
-    getTraceCall: (sessionId: string, callId: string): Promise<{ call?: import('@/types/trace').TraceCallRecord } | null> => {
-      if (electronAPI?.trace?.getTraceCall) return electronAPI.trace.getTraceCall(sessionId, callId)
-      return Promise.resolve(null)
-    },
-    /** 获取 trace 采集设置 */
-    getSettings: (): Promise<import('@/types/trace').TraceCaptureSettings | null> => {
-      if (electronAPI?.trace?.getSettings) return electronAPI.trace.getSettings()
-      return Promise.resolve(null)
-    },
-    /** 更新 trace 采集设置 */
-    updateSettings: (settings: { enabled: boolean }): Promise<{ success: boolean; error?: string }> => {
-      if (electronAPI?.trace?.updateSettings) return electronAPI.trace.updateSettings(settings)
-      return Promise.resolve({ success: false, error: 'Not available' })
-    },
-    /** 在独立窗口中打开 trace 详情 */
-    openWindow: (sessionId: string): void => {
-      if (electronAPI?.trace?.openWindow) electronAPI.trace.openWindow(sessionId)
-    },
+  // getCwd — get current working directory from main process
+  getCwd: (): Promise<string> => {
+    if (electronAPI?.getCwd) {
+      return electronAPI.getCwd()
+    }
+    return Promise.resolve('/')
   },
 
-  // Terminal API
-  terminal: {
-    create: (options?: { cwd?: string; command?: string; env?: Record<string, string> }): Promise<{ id: string | null; shell?: string; error?: string }> => {
-      if (electronAPI?.terminal) {
-        return electronAPI.terminal.create(options)
-      }
-      return Promise.resolve({ id: null, error: 'Terminal API not available' })
-    },
-    write: (id: string, data: string) => electronAPI?.terminal?.write(id, data),
-    resize: (id: string, cols: number, rows: number) => electronAPI?.terminal?.resize(id, cols, rows),
-    kill: (id: string) => electronAPI?.terminal?.kill(id),
-    runCommand: (id: string, command: string) => electronAPI?.terminal?.runCommand(id, command),
-    onData: (callback: (id: string, data: string) => void): (() => void) => {
-      if (electronAPI?.terminal) {
-        return electronAPI.terminal.onData(callback)
-      }
-      return () => {}
-    },
-    onExit: (callback: (id: string, exitCode: number) => void): (() => void) => {
-      if (electronAPI?.terminal) {
-        return electronAPI.terminal.onExit(callback)
-      }
-      return () => {}
-    },
+  // Notification API
+  showNotification: (options: { title: string; message: string }): void => {
+    if (electronAPI?.showNotification) {
+      electronAPI.showNotification(options)
+    }
   },
 
-  // Turn Checkpoint API - 轮次变更追踪
-  session: {
-    getTurnCheckpoints: (sessionId: string, projectPath?: string): Promise<{
-      ok: boolean
-      checkpoints: import('@/types').SessionTurnCheckpoint[]
-      error: string | null
-    }> =>
-      electronAPI?.session?.getTurnCheckpoints(sessionId, projectPath) ||
-      Promise.resolve({ ok: false, checkpoints: [], error: 'Session API not available' }),
+  // ── 命名空间对象（从 ./api/*.ts 导入） ──
+  agents,
+  artifacts,
+  browserUse,
+  changelog,
+  computerUse,
+  cron,
+  debug,
+  design,
+  git,
+  h5Access,
+  mcp,
+  mobile,
+  officecli,
+  rtk,
+  session,
+  shell,
+  skills,
+  terminal,
+  trace,
+  update,
+  app: appApi,
 
-    getTurnRewindPreviewFiles: (
-      sessionId: string,
-      targetUserMessageId: string,
-      userMessageIndex?: number,
-      projectPath?: string
-    ): Promise<{ ok: boolean; files: string[]; error: string | null }> =>
-      electronAPI?.session?.getTurnRewindPreviewFiles(
-        sessionId,
-        targetUserMessageId,
-        userMessageIndex,
-        projectPath
-      ) ||
-      Promise.resolve({ ok: false, files: [], error: 'Session API not available' }),
-
-    getTurnCheckpointDiff: (
-      sessionId: string,
-      targetUserMessageId: string,
-      filePath: string,
-      userMessageIndex?: number,
-      projectPath?: string
-    ): Promise<import('@/types').TurnCheckpointDiffResult> =>
-      electronAPI?.session?.getTurnCheckpointDiff(
-        sessionId,
-        targetUserMessageId,
-        filePath,
-        userMessageIndex,
-        projectPath
-      ) ||
-      Promise.resolve({
-        state: 'error',
-        path: filePath,
-        error: 'Session API not available'
-      }),
-
-    rewindTurn: (
-      sessionId: string,
-      options: { targetUserMessageId: string; userMessageIndex?: number },
-      projectPath?: string
-    ): Promise<{ ok: boolean; error: string | null }> =>
-      electronAPI?.session?.rewindTurn(sessionId, options, projectPath) ||
-      Promise.resolve({ ok: false, error: 'Session API not available' }),
-  },
-
-  mobile: {
-    startServer: () => {
-      if (electronAPI?.mobile?.startServer) {
-        return electronAPI.mobile.startServer()
-      }
-      return Promise.resolve({ url: '', token: '', port: 0, ip: '' })
-    },
-    stopServer: () => {
-      if (electronAPI?.mobile?.stopServer) {
-        return electronAPI.mobile.stopServer()
-      }
-      return Promise.resolve()
-    },
-    getStatus: () => {
-      if (electronAPI?.mobile?.getStatus) {
-        return electronAPI.mobile.getStatus()
-      }
-      return Promise.resolve({ running: false, connected: false })
-    },
-    onConnected: (cb: (clientInfo: string) => void) =>
-      electronAPI?.mobile?.onConnected(cb) ?? (() => {}),
-    onDisconnected: (cb: () => void) =>
-      electronAPI?.mobile?.onDisconnected(cb) ?? (() => {}),
-  },
-
+  // ── 直接访问器（getter） ──
   // ClaudeCode API — direct access to the claudeCode IPC bridge
   // Used by chat.ts for session lifecycle, streaming, and permission management.
   // Returns null when running outside Electron (SSR / unit tests).
@@ -904,362 +679,5 @@ export const api = {
   // Logger API — direct access to the logger IPC bridge
   get logger() {
     return electronAPI?.logger ?? null
-  },
-
-  // getCwd — get current working directory from main process
-  getCwd: (): Promise<string> => {
-    if (electronAPI?.getCwd) {
-      return electronAPI.getCwd()
-    }
-    return Promise.resolve('/')
-  },
-
-  // H5 Access API — desktop renderer controls H5 server
-  h5Access: {
-    enable: (): Promise<{ status: import('../../electron/h5Types').H5ServerStatus; token: string }> =>
-      electronAPI?.h5Access?.enable() || Promise.reject('H5 Access API not available'),
-    disable: (): Promise<void> =>
-      electronAPI?.h5Access?.disable() || Promise.resolve(),
-    regenerateToken: (): Promise<{ status: import('../../electron/h5Types').H5ServerStatus; token: string }> =>
-      electronAPI?.h5Access?.regenerateToken() || Promise.reject('H5 Access API not available'),
-    getStatus: (): Promise<import('../../electron/h5Types').H5ServerStatus> =>
-      electronAPI?.h5Access?.getStatus() || Promise.resolve({ running: false, port: 0, ip: '', publicUrl: null, connectedClients: 0 }),
-    getSettings: (): Promise<import('../../electron/h5Types').H5AccessSettings> =>
-      electronAPI?.h5Access?.getSettings() || Promise.resolve({ enabled: false, token: null, tokenPreview: null, publicBaseUrl: null, fixedPort: null }),
-    updateSettings: (input: Partial<Pick<import('../../electron/h5Types').H5AccessSettings, 'publicBaseUrl' | 'fixedPort'>>) =>
-      electronAPI?.h5Access?.updateSettings(input) || Promise.resolve({ enabled: false, token: null, tokenPreview: null, publicBaseUrl: null, fixedPort: null }),
-    setMirrorSession: (sessionId: string | null, projectPath: string | null) =>
-      electronAPI?.h5Access?.setMirrorSession(sessionId, projectPath) || Promise.resolve(),
-    checkBuild: (): Promise<{ built: boolean; path: string }> =>
-      electronAPI?.h5Access?.checkBuild() || Promise.resolve({ built: false, path: '' }),
-  },
-
-  // RTK (Rust Token Killer) API
-  rtk: {
-    getStatus: (): Promise<import('../../electron/rtkManager').RtkStatus> =>
-      electronAPI?.rtk?.getStatus() || Promise.resolve({
-        binaryInstalled: false,
-        version: null,
-        hookInstalled: false,
-        platform: typeof process !== 'undefined' ? process.platform : 'win32',
-        binaryPath: '',
-        isWindows: true,
-      }),
-    enable: (): Promise<{ success: boolean; error?: string; status: import('../../electron/rtkManager').RtkStatus }> =>
-      electronAPI?.rtk?.enable() || Promise.reject('RTK API not available'),
-    disable: (): Promise<{ success: boolean; error?: string; status: import('../../electron/rtkManager').RtkStatus }> =>
-      electronAPI?.rtk?.disable() || Promise.resolve({ success: true, status: { binaryInstalled: false, version: null, hookInstalled: false, platform: 'win32', binaryPath: '', isWindows: true } }),
-    downloadBinary: (): Promise<{ success: boolean; error?: string; status?: import('../../electron/rtkManager').RtkStatus }> =>
-      electronAPI?.rtk?.downloadBinary() || Promise.reject('RTK API not available'),
-    getStats: (): Promise<import('../../electron/rtkManager').RtkGainStats | null> =>
-      electronAPI?.rtk?.getStats() || Promise.resolve(null),
-    checkUpdate: (): Promise<import('../../electron/rtkManager').RtkUpdateInfo | null> =>
-      electronAPI?.rtk?.checkUpdate() || Promise.resolve(null),
-    getBinaryPath: (): Promise<string> =>
-      electronAPI?.rtk?.getBinaryPath() || Promise.resolve(''),
-    onDownloadProgress: (callback: (progress: { downloaded: number; total: number; percent: number }) => void) => {
-      if (electronAPI?.rtk?.onDownloadProgress) {
-        return electronAPI.rtk.onDownloadProgress(callback)
-      }
-      return () => {}
-    },
-  },
-
-  // Auto Update API
-  update: {
-    check: (): Promise<{ success: boolean; error?: string }> => {
-      if (electronAPI?.update?.check) {
-        return electronAPI.update.check()
-      }
-      return Promise.resolve({ success: false, error: 'Update API not available' })
-    },
-    download: (): Promise<{ success: boolean; error?: string }> => {
-      if (electronAPI?.update?.download) {
-        return electronAPI.update.download()
-      }
-      return Promise.resolve({ success: false, error: 'Update API not available' })
-    },
-    installAndRestart: () => {
-      if (electronAPI?.update?.installAndRestart) {
-        electronAPI.update.installAndRestart()
-      }
-    },
-    onAvailable: (callback: (info: { version: string; releaseDate: string; releaseNotes: string; releaseName?: string }) => void): (() => void) => {
-      if (electronAPI?.update?.onAvailable) {
-        return electronAPI.update.onAvailable(callback)
-      }
-      return () => {}
-    },
-    onNotAvailable: (callback: () => void): (() => void) => {
-      if (electronAPI?.update?.onNotAvailable) {
-        return electronAPI.update.onNotAvailable(callback)
-      }
-      return () => {}
-    },
-    onDownloadProgress: (callback: (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void): (() => void) => {
-      if (electronAPI?.update?.onDownloadProgress) {
-        return electronAPI.update.onDownloadProgress(callback)
-      }
-      return () => {}
-    },
-    onDownloaded: (callback: (info: { version: string }) => void): (() => void) => {
-      if (electronAPI?.update?.onDownloaded) {
-        return electronAPI.update.onDownloaded(callback)
-      }
-      return () => {}
-    },
-    onError: (callback: (error: string) => void): (() => void) => {
-      if (electronAPI?.update?.onError) {
-        return electronAPI.update.onError(callback)
-      }
-      return () => {}
-    },
-  },
-
-  // Changelog API
-  changelog: {
-    getReleaseNotes: (version: string): Promise<{ content: string; source: 'local' | 'remote' } | null> => {
-      if (electronAPI?.changelog?.getReleaseNotes) {
-        return electronAPI.changelog.getReleaseNotes(version)
-      }
-      return Promise.resolve(null)
-    },
-  },
-
-  // App version
-  getAppVersion: (): Promise<string> => {
-    if (electronAPI?.getAppVersion) {
-      return electronAPI.getAppVersion()
-    }
-    return Promise.resolve('0.0.0')
-  },
-
-  // Cron API
-  cron: {
-    list: (projectRoot: string): Promise<CronTask[]> =>
-      electronAPI?.cron?.list(projectRoot) || Promise.resolve([]),
-    create: (projectRoot: string, task: Omit<CronTask, 'id'>): Promise<CronTask | null> =>
-      electronAPI?.cron?.create(projectRoot, task) || Promise.resolve(null),
-    update: (projectRoot: string, id: string, updates: Partial<CronTask>): Promise<void> =>
-      electronAPI?.cron?.update(projectRoot, id, updates) || Promise.resolve(),
-    delete: (projectRoot: string, id: string): Promise<void> =>
-      electronAPI?.cron?.delete(projectRoot, id) || Promise.resolve(),
-    run: (projectRoot: string, id: string): Promise<{ success: boolean; error?: string } | null> =>
-      electronAPI?.cron?.run(projectRoot, id) || Promise.resolve(null),
-    runs: (projectRoot: string, limit?: number): Promise<CronRunEntry[]> =>
-      electronAPI?.cron?.runs(projectRoot, limit) || Promise.resolve([]),
-    taskRuns: (projectRoot: string, taskId: string): Promise<CronRunEntry[]> =>
-      electronAPI?.cron?.taskRuns(projectRoot, taskId) || Promise.resolve([]),
-    validate: (cron: string): Promise<{ valid: boolean; error?: string }> =>
-      electronAPI?.cron?.validate(cron) || Promise.resolve({ valid: false, error: 'Cron API not available' }),
-    describe: (cron: string): Promise<string> =>
-      electronAPI?.cron?.describe(cron) || Promise.resolve(cron),
-    onTaskFired: (callback: (data: { taskId: string; taskName: string; [key: string]: unknown }) => void): (() => void) | null =>
-      electronAPI?.cron?.onTaskFired(callback) || null,
-    onRunCompleted: (callback: (data: { runId: string; taskId: string; status: string; [key: string]: unknown }) => void): (() => void) | null =>
-      electronAPI?.cron?.onRunCompleted(callback) || null,
-  },
-
-  // MCP API
-  mcp: {
-    getServers: (): Promise<any> =>
-      electronAPI?.mcp?.getServers() || Promise.resolve(null),
-    updateServers: (servers: Record<string, unknown>): Promise<void> =>
-      electronAPI?.mcp?.updateServers(servers) || Promise.resolve(),
-    addServer: (name: string, config: unknown): Promise<void> =>
-      electronAPI?.mcp?.addServer(name, config) || Promise.resolve(),
-    deleteServer: (name: string): Promise<void> =>
-      electronAPI?.mcp?.deleteServer(name) || Promise.resolve(),
-    toggleEnabled: (name: string, enabled: boolean): Promise<void> =>
-      electronAPI?.mcp?.toggleEnabled(name, enabled) || Promise.resolve(),
-    reconnectServer: (sessionId: string, serverName: string): Promise<void> =>
-      electronAPI?.mcp?.reconnectServer(sessionId, serverName) || Promise.resolve(),
-    toggleServerRuntime: (sessionId: string, serverName: string, enabled: boolean): Promise<void> =>
-      electronAPI?.mcp?.toggleServerRuntime(sessionId, serverName, enabled) || Promise.resolve(),
-    probeServer: (config: unknown): Promise<any> =>
-      electronAPI?.mcp?.probeServer(config) || Promise.resolve(null),
-    // 依赖检测 / 一键安装（用于内置 MCP 缺失依赖时的引导）
-    checkDependency: (command: string): Promise<any> =>
-      electronAPI?.mcp?.checkDependency(command) || Promise.resolve(null),
-    installDependency: (command: 'uv'): Promise<any> =>
-      electronAPI?.mcp?.installDependency(command) || Promise.resolve({ success: false, error: 'electronAPI unavailable' }),
-    onInstallProgress: (callback: (progress: any) => void): (() => void) =>
-      electronAPI?.mcp?.onInstallProgress?.(callback) || (() => {}),
-    getActiveMcpNames: (): Promise<string[]> =>
-      electronAPI?.mcp?.getActiveMcpNames?.() || Promise.resolve([]),
-  },
-
-  // Computer Use API — cua-driver 管理
-  computerUse: {
-    getStatus: (): Promise<CuaDriverStatus> =>
-      electronAPI?.computerUse?.getStatus() ||
-      Promise.resolve({
-        platform: '',
-        platformSupported: false,
-        installed: false,
-        binaryPath: null,
-        version: null,
-        source: null,
-        ready: null,
-        canGrant: false,
-        checks: [],
-        error: 'Computer Use API not available',
-        accessibility: null,
-        screenRecording: null,
-      }),
-    install: (): Promise<{ success: boolean; error?: string }> =>
-      electronAPI?.computerUse?.install() ||
-      Promise.resolve({ success: false, error: 'Computer Use API not available' }),
-    onInstallProgress: (callback: (progress: { stage: string; message: string; percent: number }) => void): (() => void) => {
-      if (electronAPI?.computerUse?.onInstallProgress) {
-        return electronAPI.computerUse.onInstallProgress(callback)
-      }
-      return () => {}
-    },
-    doctor: (): Promise<{ ok: boolean; checks: HealthCheck[] }> =>
-      electronAPI?.computerUse?.doctor() ||
-      Promise.resolve({ ok: false, checks: [] }),
-    getPermissions: (): Promise<CuaDriverPermissions> =>
-      electronAPI?.computerUse?.getPermissions() ||
-      Promise.resolve({ accessibility: null, screenRecording: null }),
-    grantPermissions: (): Promise<{ success: boolean; error?: string }> =>
-      electronAPI?.computerUse?.grantPermissions() ||
-      Promise.resolve({ success: false, error: 'Computer Use API not available' }),
-    checkUpdate: (): Promise<CuaDriverUpdateInfo> =>
-      electronAPI?.computerUse?.checkUpdate() ||
-      Promise.resolve({ updateAvailable: false, latestVersion: null, currentVersion: null }),
-    callTool: (name: string, args: Record<string, unknown>): Promise<McpToolResult> =>
-      electronAPI?.computerUse?.callTool(name, args) ||
-      Promise.resolve({ data: null, images: [], imageMimeTypes: [], structuredContent: null, isError: true }),
-  },
-
-  // Browser-Use API — 浏览器自动化（AI 操控网页）
-  browserUse: {
-    getStatus: (): Promise<BrowserUseStatus> =>
-      electronAPI?.browserUse?.getStatus() ||
-      Promise.reject(new Error('electronAPI not available')),
-    install: (options?: BrowserUseInstallOptions): Promise<{ success: boolean; error?: string }> =>
-      electronAPI?.browserUse?.install(options) ||
-      Promise.reject(new Error('electronAPI not available')),
-    onInstallProgress: (callback: (progress: BrowserUseInstallProgress) => void): (() => void) => {
-      if (electronAPI?.browserUse?.onInstallProgress) {
-        return electronAPI.browserUse.onInstallProgress(callback)
-      }
-      return () => {}
-    },
-    doctor: (): Promise<{ ok: boolean; checks: BrowserUseHealthCheck[] }> =>
-      electronAPI?.browserUse?.doctor() ||
-      Promise.resolve({ ok: false, checks: [] }),
-    checkUpdate: (): Promise<BrowserUseUpdateInfo> =>
-      electronAPI?.browserUse?.checkUpdate() ||
-      Promise.resolve({ updateAvailable: false, latestVersion: null, currentVersion: null }),
-    callTool: (name: string, args: Record<string, unknown>): Promise<BrowserUseToolResult> =>
-      electronAPI?.browserUse?.callTool(name, args) ||
-      Promise.resolve({ data: null, screenshots: [], currentUrl: null, pageTitle: null, isError: true, stepsUsed: 0 }),
-    config: (config?: Record<string, unknown>): Promise<BrowserUseAgentConfig | null> =>
-      electronAPI?.browserUse?.config(config) ||
-      Promise.resolve(null),
-    navigate: (url: string): Promise<BrowserUseToolResult> =>
-      electronAPI?.browserUse?.navigate(url) ||
-      Promise.resolve({ data: null, screenshots: [], currentUrl: null, pageTitle: null, isError: true, stepsUsed: 0 }),
-    getLiveSnapshot: (): Promise<BrowserUseLiveSnapshot | null> =>
-      electronAPI?.browserUse?.getLiveSnapshot() ||
-      Promise.resolve(null),
-    onLiveSnapshot: (callback: (snapshot: BrowserUseLiveSnapshot) => void): (() => void) => {
-      if (electronAPI?.browserUse?.onLiveSnapshot) {
-        return electronAPI.browserUse.onLiveSnapshot(callback)
-      }
-      return () => {}
-    },
-  },
-
-  // Skills API
-  skills: {
-    getSkills: (cwd?: string): Promise<any> =>
-      electronAPI?.skills?.getSkills(cwd) || Promise.resolve({ skills: [] }),
-    getBundledSkills: (): Promise<any> =>
-      electronAPI?.skills?.getBundledSkills() || Promise.resolve({ skills: [] }),
-    createSkill: (name: string, scope: string, content: string, cwd?: string): Promise<any> =>
-      electronAPI?.skills?.createSkill(name, scope, content, cwd) || Promise.resolve(null),
-    saveSkill: (skill: unknown, content: string): Promise<any> =>
-      electronAPI?.skills?.saveSkill(skill, content) || Promise.resolve(null),
-    deleteSkill: (filePath: string): Promise<void> =>
-      electronAPI?.skills?.deleteSkill(filePath) || Promise.resolve(),
-    searchMarketplace: (query: string): Promise<any> =>
-      electronAPI?.skills?.searchMarketplace(query) || Promise.resolve({ skills: [] }),
-    installMarketplaceSkill: (source: string, skillId: string, global: boolean, cwd?: string): Promise<any> =>
-      electronAPI?.skills?.installMarketplaceSkill(source, skillId, global, cwd) || Promise.resolve({ success: false }),
-    uninstallMarketplaceSkill: (skillName: string, global: boolean, cwd?: string): Promise<void> =>
-      electronAPI?.skills?.uninstallMarketplaceSkill(skillName, global, cwd) || Promise.resolve(),
-    fetchMarketplaceReadme: (source: string, skillId: string): Promise<string | null> =>
-      electronAPI?.skills?.fetchMarketplaceReadme(source, skillId) || Promise.resolve(null),
-    scanLocalLibrary: (dirPaths: string[], cwd?: string): Promise<any> =>
-      electronAPI?.skills?.scanLocalLibrary(dirPaths, cwd) || Promise.resolve({ skills: [], bundles: [] }),
-    installLocal: (skillName: string, scope: string, cwd?: string, skillPath?: string): Promise<void> =>
-      electronAPI?.skills?.installLocal(skillName, scope, cwd, skillPath) || Promise.resolve(),
-    uninstallLocal: (skillName: string, cwd?: string): Promise<void> =>
-      electronAPI?.skills?.uninstallLocal(skillName, cwd) || Promise.resolve(),
-    installLocalBundle: (bundleId: string, scope: string, cwd?: string): Promise<void> =>
-      electronAPI?.skills?.installLocalBundle(bundleId, scope, cwd) || Promise.resolve(),
-    uninstallLocalBundle: (bundleName: string, cwd?: string): Promise<void> =>
-      electronAPI?.skills?.uninstallLocalBundle(bundleName, cwd) || Promise.resolve(),
-    addCustomDir: (dirPath: string): Promise<void> =>
-      electronAPI?.skills?.addCustomDir(dirPath) || Promise.resolve(),
-    removeCustomDir: (dirPath: string): Promise<void> =>
-      electronAPI?.skills?.removeCustomDir(dirPath) || Promise.resolve(),
-    getCustomDirs: (): Promise<any> =>
-      electronAPI?.skills?.getCustomDirs() || Promise.resolve({ directories: [] }),
-  },
-
-  // App paths API
-  app: {
-    getPath: (name: string): Promise<string> =>
-      electronAPI?.app?.getPath(name) || Promise.resolve(''),
-  },
-
-  // Shell API
-  shell: {
-    openExternal: (url: string): Promise<void> =>
-      electronAPI?.shell?.openExternal(url) || Promise.resolve(),
-  },
-
-  // Notification API
-  showNotification: (options: { title: string; message: string }): void => {
-    if (electronAPI?.showNotification) {
-      electronAPI.showNotification(options)
-    }
-  },
-
-  // Design API
-  design: {
-    listSystems: (): Promise<DesignSystemSummary[]> =>
-      electronAPI?.design?.listSystems() || Promise.resolve([]),
-    getSystemPreview: (systemId: string, pagePath: string): Promise<string> =>
-      electronAPI?.design?.getSystemPreview(systemId, pagePath) || Promise.resolve(''),
-    getSystemFile: (systemId: string, filePath: string): Promise<string> =>
-      electronAPI?.design?.getSystemFile(systemId, filePath) || Promise.resolve(''),
-    getSystemShowcase: (systemId: string): Promise<string> =>
-      electronAPI?.design?.getSystemShowcase(systemId) || Promise.resolve(''),
-    getSystemTokensHtml: (systemId: string): Promise<string> =>
-      electronAPI?.design?.getSystemTokensHtml(systemId) || Promise.resolve(''),
-    composePromptStack: (input: {
-      designSystemId?: string;
-      skillBody?: string;
-      skillName?: string;
-      locale: string;
-    }): Promise<string> =>
-      electronAPI?.design?.composePromptStack(input) || Promise.resolve(''),
-    startFileWatcher: (sessionId: string, workspacePath: string): Promise<void> =>
-      electronAPI?.design?.startFileWatcher(sessionId, workspacePath) || Promise.resolve(),
-    stopFileWatcher: (): Promise<void> =>
-      electronAPI?.design?.stopFileWatcher() || Promise.resolve(),
-    exportArtifact: (options: { filePath: string; format: 'html' | 'zip' | 'pdf' }): Promise<void> =>
-      electronAPI?.design?.exportArtifact(options) || Promise.resolve(),
-    onFileChanged: (callback: (event: { sessionId: string; filepath: string }) => void): (() => void) => {
-      if (electronAPI?.design?.onFileChanged) {
-        return electronAPI.design.onFileChanged(callback)
-      }
-      return () => {}
-    },
   },
 }

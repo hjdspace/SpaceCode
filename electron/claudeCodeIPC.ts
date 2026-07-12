@@ -10,7 +10,11 @@ import { proxyManager } from './proxyManager'
 import { probeMcpServer, type McpProbeConfig, type McpProbeResult } from './mcpProbe'
 import { loadMcpConfig, saveMcpConfig, buildEnabledMcpConfig } from './mcpConfigStore'
 import { findCuaDriverBinary, getCuaDriverVersion } from './cuaDriverService'
-import { getBrowserUseMcpServerConfig } from './browserUseService'
+import {
+  detectBuiltinFromConfig,
+  resolveBuiltinMcp,
+} from './mcpConfigResolver'
+import { installPiSdk } from './piInstaller'
 import { engineGateway, findEngineForSession } from './engineGateway'
 
 let mainWindow: BrowserWindow | null = null
@@ -65,74 +69,7 @@ export function registerClaudeCodeIPC() {
 
   ipcMain.handle('claude-code:installPiSdk', async () => {
     info('ClaudeCodeIPC', '→ installPiSdk')
-    try {
-      const { spawn } = require('child_process') as typeof import('child_process')
-      const platform = process.platform
-
-      // Try npm first, then bun
-      const installers: Array<{ cmd: string; args: string[]; label: string }> = [
-        { cmd: 'npm', args: ['install', '-g', '@mariozechner/pi-coding-agent'], label: 'npm' },
-      ]
-
-      // Check if bun is available (bundled or global)
-      const bunName = platform === 'win32' ? 'bun.exe' : 'bun'
-      const resourcesDir = process.resourcesPath || ''
-      const bundledBun = join(resourcesDir, 'engine', 'bin', bunName)
-      const devBun = join(__dirname, '../../engine/bin', bunName)
-
-      const fs = require('fs') as typeof import('fs')
-      if (fs.existsSync(bundledBun) || fs.existsSync(devBun)) {
-        const bunPath = fs.existsSync(bundledBun) ? bundledBun : devBun
-        installers.push({ cmd: bunPath, args: ['install', '-g', '@mariozechner/pi-coding-agent'], label: 'bundled bun' })
-      }
-      installers.push({ cmd: 'bun', args: ['install', '-g', '@mariozechner/pi-coding-agent'], label: 'global bun' })
-
-      let lastError: string | null = null
-      for (const installer of installers) {
-        try {
-          info('ClaudeCodeIPC', `Trying ${installer.label}: ${installer.cmd} ${installer.args.join(' ')}`)
-          const result = await new Promise<{ success: boolean; error?: string }>((resolve) => {
-            const child = spawn(installer.cmd, installer.args, {
-              stdio: ['pipe', 'pipe', 'pipe'],
-              shell: platform === 'win32',
-            })
-            let stdout = ''
-            let stderr = ''
-            child.stdout?.on('data', (d: Buffer) => { stdout += d.toString() })
-            child.stderr?.on('data', (d: Buffer) => { stderr += d.toString() })
-            child.on('close', (code: number | null) => {
-              if (code === 0) {
-                resolve({ success: true })
-              } else {
-                resolve({ success: false, error: `${installer.label} exited with code ${code}: ${stderr.trim() || stdout.trim()}` })
-              }
-            })
-            child.on('error', (err: Error) => {
-              resolve({ success: false, error: `${installer.label} failed: ${err.message}` })
-            })
-            // Timeout after 120 seconds
-            setTimeout(() => {
-              child.kill()
-              resolve({ success: false, error: `${installer.label} timed out after 120s` })
-            }, 120_000)
-          })
-
-          if (result.success) {
-            info('ClaudeCodeIPC', `Pi SDK installed successfully via ${installer.label}`)
-            return { success: true }
-          }
-          lastError = result.error || 'Unknown error'
-          info('ClaudeCodeIPC', `${installer.label} failed: ${lastError}`)
-        } catch (err) {
-          lastError = String(err)
-        }
-      }
-
-      return { success: false, error: lastError || 'No installer available. Please install Node.js or Bun first.' }
-    } catch (err) {
-      error('ClaudeCodeIPC', 'installPiSdk failed', err)
-      return { success: false, error: String(err) }
-    }
+    return installPiSdk()
   })
 
   ipcMain.handle('claude-code:submitToolAnswer', async (_, sessionId: string, toolCallId: string, answers: Record<string, string>) => engineGateway.submitToolAnswer(sessionId, toolCallId, answers))
@@ -264,55 +201,19 @@ export function registerClaudeCodeIPC() {
 
   // ── MCP Probe ── 直接探测 MCP 服务器（不依赖 engine session）
   ipcMain.handle('mcp:probeServer', async (_, config: McpProbeConfig): Promise<McpProbeResult> => {
-    // cua-driver 特殊处理：二进制可能不在 Electron 进程的 PATH 上
-    // （安装脚本创建的 junction/symlink 尚未被 Electron 缓存的 PATH 感知），
-    // 使用 findCuaDriverBinary() 解析绝对路径，与 buildEnabledMcpConfig
-    // 注入 CLI 时的逻辑保持一致。找不到时直接返回失败，避免 spawn 后
-    // "Process exited with code 1" 这种无上下文的错误。
-    if (config.command === 'cua-driver') {
-      const driverPath = findCuaDriverBinary()
-      if (driverPath) {
-        config = {
-          ...config,
-          command: driverPath,
-          env: { ...config.env, CUA_DRIVER_RS_TELEMETRY_ENABLED: '0' },
-        }
-        debug('McpProbe', `Resolved cua-driver binary: ${driverPath}`)
-      } else {
-        debug('McpProbe', 'cua-driver binary not found in PATH or well-known locations')
-        return {
-          status: 'failed',
-          error: 'cua-driver binary not found. Please install it in Computer Use settings or add it to PATH.',
-        }
+    // 内置 MCP 服务器（cua-driver / browser-use）路径解析委托给 mcpConfigResolver，
+    // 与 buildEnabledMcpConfig 共享同一份解析逻辑。
+    const builtin = detectBuiltinFromConfig(config)
+    if (builtin) {
+      const resolution = resolveBuiltinMcp(builtin)
+      if (resolution.status === 'missing') {
+        return { status: 'failed', error: resolution.error }
       }
-    }
-
-    // browser-use 特殊处理：内置预设存储的 config 是相对路径（python bridge.py --mcp），
-    // probe 时需要解析为实际 Python 路径 + bridge.py 绝对路径 + LLM 环境变量。
-    // 与 mcpConfigStore.buildEnabledMcpConfig 注入 CLI 时的逻辑保持一致。
-    // 检测条件：command 为 'python' 且 args 包含 'bridge.py'
-    if (
-      config.type === 'stdio' &&
-      config.command &&
-      (config.command === 'python' || config.command === 'python3') &&
-      config.args &&
-      config.args.some(a => a === 'bridge.py' || a.endsWith('/bridge.py') || a.endsWith('\\bridge.py'))
-    ) {
-      const buConfig = getBrowserUseMcpServerConfig()
-      if (buConfig) {
-        config = {
-          ...config,
-          command: buConfig.command,
-          args: buConfig.args,
-          env: { ...config.env, ...buConfig.env },
-        }
-        debug('McpProbe', `Resolved browser-use: ${buConfig.command} ${buConfig.args.join(' ')}`)
-      } else {
-        debug('McpProbe', 'browser-use Python or bridge.py not found')
-        return {
-          status: 'failed',
-          error: 'Python 3.11+ or browser-use bridge script not found. Please install Browser Use from the settings panel.',
-        }
+      config = {
+        ...config,
+        command: resolution.config.command,
+        args: resolution.config.args ?? config.args,
+        env: { ...config.env, ...resolution.config.env },
       }
     }
 
