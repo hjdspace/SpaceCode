@@ -137,7 +137,7 @@ import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessageCircleQuestion, ChevronDown, CheckCircle2 } from 'lucide-vue-next'
 import type { ToolCall } from '@/types'
-import { useTurnStore } from '@/stores/chat'
+import { useTurnStore } from '@/stores/turn'
 
 interface QuestionOption {
   label: string

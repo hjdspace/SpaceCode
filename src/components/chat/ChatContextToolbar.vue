@@ -126,7 +126,7 @@ import {
 } from 'lucide-vue-next'
 import { vClickOutside } from '@/directives/vClickOutside'
 import { useAppStore } from '@/stores/app'
-import { useChatSessionStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { useScmStore, type ScmBranch } from '@/stores/scm'
 import { useSessionContext } from '@/stores/sessionContext'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'

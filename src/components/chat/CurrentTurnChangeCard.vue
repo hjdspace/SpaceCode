@@ -81,7 +81,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useChatSessionStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { api } from '@/services/electronAPI'
 import { FileEdit, FileText, ChevronRight, RotateCcw } from 'lucide-vue-next'
 import WorkspaceDiffSurface from './WorkspaceDiffSurface.vue'

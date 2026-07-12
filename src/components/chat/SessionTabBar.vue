@@ -28,7 +28,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useAppStore, type CenterTab } from '@/stores/app'
-import { useChatSessionStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { useSplitLayoutStore, type PaneContent } from '@/stores/splitLayout'
 import { useI18n } from 'vue-i18n'
 import { X, Plus } from 'lucide-vue-next'

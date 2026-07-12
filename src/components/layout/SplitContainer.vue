@@ -23,7 +23,7 @@
  */
 import { watch } from 'vue'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
-import { useChatSessionStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { useAppStore } from '@/stores/app'
 import PaneNodeView from './PaneNodeView.vue'
 import TerminalHost from './TerminalHost.vue'

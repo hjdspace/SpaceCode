@@ -58,7 +58,7 @@ import type { ToolCall } from '@/types'
 import { Terminal, ChevronDown, Monitor, Loader2, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useChatSessionStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { useAppStore } from '@/stores/app'
 
 const props = defineProps<{ toolCall: ToolCall }>()

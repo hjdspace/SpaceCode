@@ -126,7 +126,7 @@ describe('H5 mirror visibility', () => {
   it('reveals the desktop mirror session in the active tab and pane when session_changed arrives', async () => {
     const { default: App } = await import('@/App.vue')
     const { useAppStore } = await import('@/stores/app')
-    const { useChatSessionStore } = await import('@/stores/chat')
+    const { useChatSessionStore } = await import('@/stores/chatSession')
     const { useSplitLayoutStore } = await import('@/stores/splitLayout')
 
     mount(App, {

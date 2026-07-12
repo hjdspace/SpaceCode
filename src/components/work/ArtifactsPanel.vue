@@ -47,7 +47,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RotateCw, PackageOpen, ExternalLink, FolderOpen, Eye } from 'lucide-vue-next'
-import { useChatSessionStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { useAppStore } from '@/stores/app'
 import { api, type ArtifactEntry } from '@/services/electronAPI'
 import { iconFor, formatSize } from '@/utils/artifactFormat'

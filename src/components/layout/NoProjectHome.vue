@@ -38,7 +38,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Folder, FolderOpen } from 'lucide-vue-next'
-import { useChatSessionStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { getRecentProjectRoots, normalizeProjectPathKey } from '@/utils/recentProjectRoots'
 

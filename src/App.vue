@@ -75,7 +75,7 @@
 <script setup lang="ts">
 import { defineAsyncComponent, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
-import { useChatSessionStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { useSettingsStore } from '@/stores/settings'
 import { useFontStore } from '@/stores/font'
 import { useSplitLayoutStore } from '@/stores/splitLayout'

@@ -262,7 +262,8 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useTurnStore, useChatSessionStore } from '@/stores/chat'
+import { useTurnStore } from '@/stores/turn'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { useSettingsStore } from '@/stores/settings'
 import { useAppStore } from '@/stores/app'
 import { useSplitLayoutStore } from '@/stores/splitLayout'

@@ -31,7 +31,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { LayoutGrid } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
-import { useChatSessionStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { useAgentsStore, type AgentDef } from '@/stores/agents'
 import { workAssistantIcon, workAvatarStyle, workDisplayName } from '@/utils/workAssistant'
 

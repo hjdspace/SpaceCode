@@ -7,7 +7,7 @@
  * - Agent name/description i18n helpers
  */
 import { ref, computed, watch, onUnmounted } from 'vue'
-import { useChatSessionStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { useI18n } from 'vue-i18n'
 
 // ── Pure logic (exported for testing) ──────────────────────────

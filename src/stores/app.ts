@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, markRaw } from 'vue'
 import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch, Package, Palette } from 'lucide-vue-next'
-import { useChatSessionStore } from './chat'
+import { useChatSessionStore } from './chatSession'
 import { useTerminalStore, type CreateTerminalOptions } from './terminal'
 import { useSplitLayoutStore } from './splitLayout'
 import { api } from '@/services/electronAPI'

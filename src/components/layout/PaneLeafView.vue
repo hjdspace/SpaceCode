@@ -61,7 +61,7 @@ import { useI18n } from 'vue-i18n'
 import { MessageSquarePlus } from 'lucide-vue-next'
 import { useSplitLayoutStore, type PaneLeaf, type PaneContent } from '@/stores/splitLayout'
 import { useAppStore } from '@/stores/app'
-import { useChatSessionStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
 import PaneHeader from './PaneHeader.vue'
 
 const ChatPanel = defineAsyncComponent(() => import('./ChatPanel.vue'))

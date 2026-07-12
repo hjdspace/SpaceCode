@@ -31,18 +31,20 @@ vi.mock('@/services/electronAPI', () => ({
   },
 }))
 
-// mock @/stores/chat，避免真实 turnStore.sendMessage 触发流式 Promise 挂起
-vi.mock('@/stores/chat', () => ({
-  useTurnStore: () => ({
-    sendMessage: sendMessageSpy,
-    abort: vi.fn().mockResolvedValue(undefined),
-  }),
+// mock stores，避免真实 turnStore.sendMessage 触发流式 Promise 挂起
+vi.mock('@/stores/chatSession', () => ({
   useChatSessionStore: () => ({
     createSession: vi.fn().mockReturnValue({ id: 'test-session-id', mode: 'chat', messages: [] }),
     initClaudeCodeSession: vi.fn().mockResolvedValue(undefined),
     sessions: [],
     updateMessage: vi.fn(),
     currentSessionId: null,
+  }),
+}))
+vi.mock('@/stores/turn', () => ({
+  useTurnStore: () => ({
+    sendMessage: sendMessageSpy,
+    abort: vi.fn().mockResolvedValue(undefined),
   }),
 }))
 

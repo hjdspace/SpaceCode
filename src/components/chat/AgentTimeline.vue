@@ -182,7 +182,8 @@ import RetryIndicator from './RetryIndicator.vue'
 import TurnSummaryBar from './TurnSummaryBar.vue'
 import { stripDesignTags } from '@/utils/chat/buildBlocks'
 import { errorHandler } from '@/services/errorHandler'
-import { useChatSessionStore, useTurnStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
+import { useTurnStore } from '@/stores/turn'
 import {
   Loader2, X, ChevronDown, Bot, AlertCircle, Clock,
   Terminal, FileText, FileEdit, Search, Globe, Wand2, Folder, Code,

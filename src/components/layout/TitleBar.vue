@@ -132,7 +132,7 @@
 
 <script setup lang="ts">
 import { useAppStore } from '@/stores/app'
-import { useChatSessionStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
 import { useI18n } from 'vue-i18n'
 import { Menu, Minus, Square, Copy, X, ChevronDown, Smartphone, PanelRight, PanelBottom, Columns2, Rows2, Download } from 'lucide-vue-next'
