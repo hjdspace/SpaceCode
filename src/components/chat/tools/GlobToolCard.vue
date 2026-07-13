@@ -45,13 +45,6 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
 <style lang="scss" scoped>
 @use './tool-card.scss' as *;
 
-.tool-target {
-  font-size: 12px;
-  padding: 1px 6px;
-  background: var(--surface-glass);
-  border-radius: 4px;
-}
-
 .file-list {
   margin: 0;
   padding: 10px 12px;
