@@ -38,25 +38,25 @@ function onPointerMove(e: PointerEvent) {
   const deltaY = e.screenY - startY
   startX = e.screenX
   startY = e.screenY
-  window.petWindowAPI.emitWindowEvent({ type: 'drag', deltaX, deltaY })
+  window.petWindowAPI!.emitWindowEvent({ type: 'drag', deltaX, deltaY })
 }
 
 function onPointerUp() {
   isDragging = false
   window.removeEventListener('pointermove', onPointerMove)
   window.removeEventListener('pointerup', onPointerUp)
-  window.petWindowAPI.emitWindowEvent({ type: 'drag-end' })
+  window.petWindowAPI!.emitWindowEvent({ type: 'drag-end' })
 }
 
 function onSpriteClick() {
-  window.petWindowAPI.emitWindowEvent({ type: 'click' })
+  window.petWindowAPI!.emitWindowEvent({ type: 'click' })
 }
 
 onMounted(async () => {
-  state.locale = await window.petWindowAPI.getLocale()
+  state.locale = await window.petWindowAPI!.getLocale()
   await initPetWindowI18n(state.locale)
 
-  window.petWindowAPI.onStateUpdate((payload: any) => {
+  window.petWindowAPI!.onStateUpdate((payload: any) => {
     state.pet = payload.pet
     state.reaction = payload.runtimeState.currentReaction
     state.isPetted = payload.runtimeState.isPetted

@@ -277,6 +277,21 @@ export interface ElectronPetAPI {
   syncPetState: (state: PetSyncPayload) => void
 }
 
+/**
+ * PetWindowAPI — petPreload.ts 中通过 contextBridge.exposeInMainWorld('petWindowAPI', ...)
+ * 暴露给独立宠物窗口渲染进程的 API 类型声明。
+ *
+ * 注意：此接口与 src/pet-window/pet-window.d.ts 中的声明通过接口合并合并，
+ * 独立窗口通过 window.petWindowAPI 访问。
+ */
+export interface PetWindowAPI {
+  getInitialState: () => Promise<any>
+  onStateUpdate: (handler: (state: any) => void) => () => void
+  emitWindowEvent: (event: any) => void
+  requestReaction: (req: any) => Promise<string | null>
+  getLocale: () => Promise<'zh-CN' | 'en-US'>
+}
+
 export interface ElectronComputerUseAPI {
   getStatus: () => Promise<CuaDriverStatus>
   install: () => Promise<{ success: boolean; error?: string }>
@@ -578,6 +593,7 @@ export interface ElectronAPI {
 declare global {
   interface Window {
     electronAPI: ElectronAPI | undefined
+    petWindowAPI?: PetWindowAPI
   }
 }
 

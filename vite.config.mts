@@ -72,6 +72,17 @@ export default defineConfig({
             outDir: 'dist-electron'
           }
         }
+      },
+      {
+        entry: 'electron/petPreload.ts',
+        onstart(options) {
+          options.reload()
+        },
+        vite: {
+          build: {
+            outDir: 'dist-electron'
+          }
+        }
       }
     ]),
     renderer()
@@ -88,6 +99,10 @@ export default defineConfig({
     emptyOutDir: true,
     chunkSizeWarningLimit: 600,
     rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        'pet-window': resolve(__dirname, 'pet-window.html'),
+      },
       external: ['@mariozechner/pi-coding-agent'],
       output: {
         manualChunks(id) {

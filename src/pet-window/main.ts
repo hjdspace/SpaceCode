@@ -6,7 +6,7 @@ import PetWindowApp from './PetWindowApp.vue'
 async function bootstrap() {
   const app = createApp(PetWindowApp)
 
-  const locale = await window.petWindowAPI.getLocale()
+  const locale = await window.petWindowAPI!.getLocale()
   const i18n = await initPetWindowI18n(locale)
   app.use(i18n)
 
