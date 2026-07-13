@@ -619,6 +619,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('pet:windowEvent', wrapper)
       return () => ipcRenderer.removeListener('pet:windowEvent', wrapper)
     },
+    createDesktopWindow: () => ipcRenderer.invoke('pet:createDesktopWindow'),
+    destroyDesktopWindow: () => ipcRenderer.invoke('pet:destroyDesktopWindow'),
+    updateWindowBounds: (bounds: any) => ipcRenderer.invoke('pet:updateWindowBounds', bounds),
+    syncPetState: (state: any) => ipcRenderer.send('pet:syncPetState', state),
   },
 
   // Computer Use API — cua-driver 二进制管理、健康检查、权限管理

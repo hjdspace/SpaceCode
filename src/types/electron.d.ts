@@ -271,6 +271,10 @@ export interface ElectronPetAPI {
   deleteAsset: (relativePath: string) => Promise<void>
   generateReaction: (req: PetReactionRequest) => Promise<string | null>
   onWindowEvent: (callback: (event: PetWindowEvent) => void) => () => void
+  createDesktopWindow: () => Promise<void>
+  destroyDesktopWindow: () => Promise<void>
+  updateWindowBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>
+  syncPetState: (state: PetSyncPayload) => void
 }
 
 export interface ElectronComputerUseAPI {

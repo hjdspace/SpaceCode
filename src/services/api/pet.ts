@@ -19,4 +19,16 @@ export const petApi = {
 
   onWindowEvent: (callback: (event: PetWindowEvent) => void): (() => void) =>
     window.electronAPI!.pet.onWindowEvent(callback),
+
+  createDesktopWindow: (): Promise<void> =>
+    window.electronAPI!.pet.createDesktopWindow(),
+
+  destroyDesktopWindow: (): Promise<void> =>
+    window.electronAPI!.pet.destroyDesktopWindow(),
+
+  updateWindowBounds: (bounds: { x: number; y: number; width: number; height: number }): Promise<void> =>
+    window.electronAPI!.pet.updateWindowBounds(bounds),
+
+  syncPetState: (state: PetSyncPayload): void =>
+    window.electronAPI!.pet.syncPetState(state),
 }
