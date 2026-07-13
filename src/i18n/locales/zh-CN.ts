@@ -1893,6 +1893,8 @@ export default {
     bashOutput: '输出',
     bashOutputTruncated: '... (输出已截断)',
     bashExitCode: '退出码 {code}',
+    commandOutput: '命令输出',
+    fileContent: '文件内容',
     read: '读取',
     readLine: '行 {offset}',
     readLines: '{count} 行',

@@ -1894,6 +1894,8 @@ export default {
     bashOutput: 'Output',
     bashOutputTruncated: '... (output truncated)',
     bashExitCode: 'Exit code {code}',
+    commandOutput: 'Command Output',
+    fileContent: 'File Content',
     read: 'Read',
     readLine: 'Line {offset}',
     readLines: '{count} lines',

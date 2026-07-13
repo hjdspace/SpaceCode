@@ -1,51 +1,55 @@
 <template>
-  <div class="bash-tool-card" :class="statusClass">
-    <div class="bash-header" @click="toggleExpand">
-      <div class="bash-icon-wrapper">
-        <Loader2 v-if="toolCall.status === 'running'" :size="14" class="spin-icon" />
-        <X v-else-if="toolCall.status === 'error'" :size="14" />
-        <Terminal v-else :size="14" />
-      </div>
-      <span class="bash-label">{{ t('toolCards.bash') }}</span>
-      <span v-if="commandPreview" class="bash-cmd-preview">{{ commandPreview }}</span>
-      <span v-if="duration" class="bash-duration">{{ duration }}s</span>
-      <div class="header-actions">
+  <div class="tool-card" :class="statusClass">
+    <div class="tool-header" :class="{ 'is-expanded': isExpanded }" @click="toggleExpand">
+      <Loader2 v-if="toolCall.status === 'running'" :size="14" class="tool-icon status-running" />
+      <X v-else-if="toolCall.status === 'error'" :size="14" class="tool-icon status-error" />
+      <Terminal v-else :size="14" class="tool-icon status-completed" />
+      <span class="tool-label">{{ t('toolCards.bash') }}</span>
+      <span class="tool-separator">·</span>
+      <span v-if="commandPreview" class="tool-target">{{ commandPreview }}</span>
+      <span v-if="duration" class="tool-meta">{{ duration }}s</span>
+      <div class="tool-actions">
         <button
           v-if="canUseTerminal"
           class="action-btn"
-          @click.stop="openInTerminalPage"
           :title="t('toolCards.bashRunInTerminal')"
+          @click.stop="openInTerminalPage"
         >
           <Monitor :size="14" />
         </button>
-        <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
+        <ChevronDown :size="14" class="tool-chevron" :class="{ 'is-expanded': isExpanded }" />
       </div>
     </div>
 
-    <div v-if="isExpanded" class="bash-body">
-      <div class="terminal-window">
-        <div class="terminal-titlebar">
-          <div class="traffic-lights">
-            <span class="light red"></span>
-            <span class="light yellow"></span>
-            <span class="light green"></span>
-          </div>
-          <span class="terminal-title">bash — {{ commandPreview || toolCall.input.command }}</span>
-          <span v-if="toolCall.status === 'running'" class="terminal-status-badge running">{{ t('toolCards.bashRunning') }}</span>
-          <span v-else-if="toolCall.status === 'completed'" class="terminal-status-badge completed">{{ t('toolCards.bashCompleted') }}</span>
-          <span v-else-if="toolCall.status === 'error'" class="terminal-status-badge error">{{ t('toolCards.bashError') }}</span>
-        </div>
-        <div class="terminal-content">
-          <div class="term-command">
-            <span class="term-prompt">$</span>
-            <span v-if="cwdDisplay" class="term-cwd">{{ cwdDisplay }}</span>
-            <span class="term-cmd-text">{{ toolCall.input.command }}</span>
-          </div>
-          <div v-if="toolCall.output" class="term-output" :class="{ 'error-output': toolCall.status === 'error' }">{{ truncatedOutput }}<span v-if="toolCall.status === 'running'" class="cursor"></span></div>
-          <div v-else-if="toolCall.status === 'running'" class="cursor-line"><span class="cursor"></span></div>
-          <div v-if="showExitCode" class="term-exit" :class="{ 'error-exit': toolCall.status === 'error' }">
-            {{ t('toolCards.bashExitCode', { code: exitCode }) }}
-            <span v-if="isTruncated" class="truncated-hint">· {{ t('toolCards.bashOutputTruncated') }}</span>
+    <div v-if="isExpanded" class="tool-body">
+      <div class="tool-section">
+        <div class="tool-section-header">{{ t('toolCards.bashOutput') }}</div>
+        <div class="tool-section-body">
+          <div class="terminal-window">
+            <div class="terminal-titlebar">
+              <div class="traffic-lights">
+                <span class="light red"></span>
+                <span class="light yellow"></span>
+                <span class="light green"></span>
+              </div>
+              <span class="terminal-title">bash — {{ commandPreview || toolCall.input.command }}</span>
+              <span v-if="toolCall.status === 'running'" class="terminal-status-badge running">{{ t('toolCards.bashRunning') }}</span>
+              <span v-else-if="toolCall.status === 'completed'" class="terminal-status-badge completed">{{ t('toolCards.bashCompleted') }}</span>
+              <span v-else-if="toolCall.status === 'error'" class="terminal-status-badge error">{{ t('toolCards.bashError') }}</span>
+            </div>
+            <div class="terminal-content">
+              <div class="term-command">
+                <span class="term-prompt">$</span>
+                <span v-if="cwdDisplay" class="term-cwd">{{ cwdDisplay }}</span>
+                <span class="term-cmd-text">{{ toolCall.input.command }}</span>
+              </div>
+              <div v-if="toolCall.output" class="term-output" :class="{ 'error-output': toolCall.status === 'error' }">{{ truncatedOutput }}<span v-if="toolCall.status === 'running'" class="cursor"></span></div>
+              <div v-else-if="toolCall.status === 'running'" class="cursor-line"><span class="cursor"></span></div>
+              <div v-if="showExitCode" class="term-exit" :class="{ 'error-exit': toolCall.status === 'error' }">
+                {{ t('toolCards.bashExitCode', { code: exitCode }) }}
+                <span v-if="isTruncated" class="truncated-hint">· {{ t('toolCards.bashOutputTruncated') }}</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -141,64 +145,8 @@ function openInTerminalPage() {
 </script>
 
 <style lang="scss" scoped>
-.bash-tool-card {
-  border-radius: 6px;
-  background: var(--surface-glass);
-  border: 1px solid var(--surface-border);
-  overflow: hidden; font-size: 13px;
-}
-.bash-header {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 12px; cursor: pointer;
-  &:hover { background: rgba(255,255,255,0.03); }
-}
-.bash-icon-wrapper {
-  width: 22px; height: 22px; border-radius: 4px;
-  background: rgba(34, 197, 94, 0.12);
-  color: #4ade80; display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
-.bash-label { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #4ade80; flex-shrink: 0; }
-.bash-cmd-preview { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); }
-.bash-duration { color: var(--text-tertiary); font-size: 11px; flex-shrink: 0; }
-.expand-icon { color: var(--text-tertiary); transition: transform 0.15s; &.is-expanded { transform: rotate(180deg); } }
+@use './tool-card.scss' as *;
 
-.status-running .bash-icon-wrapper { background: rgba(59, 130, 246, 0.12); color: #60a5fa; }
-.status-running .bash-label { color: #60a5fa; }
-.status-error .bash-icon-wrapper { background: rgba(239, 68, 68, 0.12); color: #f87171; }
-.status-error .bash-label { color: #f87171; }
-.spin-icon { animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-}
-
-.action-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 4px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.15s;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: var(--text-primary);
-  }
-}
-
-.bash-body { border-top: 1px solid var(--surface-border); padding: 10px 12px; }
-
-/* ===== 终端窗口 ===== */
 .terminal-window {
   background: #0d1117;
   border-radius: 6px;
@@ -225,6 +173,7 @@ function openInTerminalPage() {
   width: 11px;
   height: 11px;
   border-radius: 50%;
+
   &.red { background: #ff5f56; }
   &.yellow { background: #ffbd2e; }
   &.green { background: #27c93f; }
@@ -254,10 +203,12 @@ function openInTerminalPage() {
     background: rgba(59, 130, 246, 0.15);
     color: #60a5fa;
   }
+
   &.completed {
     background: rgba(34, 197, 94, 0.15);
     color: #4ade80;
   }
+
   &.error {
     background: rgba(239, 68, 68, 0.15);
     color: #f87171;

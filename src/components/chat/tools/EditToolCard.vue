@@ -1,44 +1,52 @@
 <template>
-  <div class="edit-tool-card" :class="[statusClass]">
-    <div class="edit-header" @click="toggleExpand">
-      <div class="edit-icon-wrapper">
-        <Loader2 v-if="toolCall.status === 'running'" :size="14" class="spin-icon" />
-        <X v-else-if="toolCall.status === 'error'" :size="14" />
-        <FileEdit v-else :size="14" />
+  <div class="tool-card" :class="statusClass">
+    <div class="tool-header" :class="{ 'is-expanded': isExpanded }" @click="toggleExpand">
+      <Loader2 v-if="toolCall.status === 'running'" :size="14" class="tool-icon status-running" />
+      <X v-else-if="toolCall.status === 'error'" :size="14" class="tool-icon status-error" />
+      <FileEdit v-else :size="14" class="tool-icon status-completed" />
+      <span class="tool-label">{{ t('toolCards.edit') }}</span>
+      <span class="tool-separator">·</span>
+      <span class="tool-target">{{ filePath }}</span>
+      <div class="tool-actions">
+        <button
+          class="action-btn"
+          @click.stop="openInPanel"
+          :title="t('infoPanel.openInPanel')"
+        >
+          <ExternalLink :size="14" />
+        </button>
+        <ChevronDown :size="14" class="tool-chevron" :class="{ 'is-expanded': isExpanded }" />
       </div>
-      <span class="edit-label">{{ t('toolCards.edit') }}</span>
-      <span class="edit-path">{{ filePath }}</span>
-      <button
-        class="panel-btn"
-        @click.stop="openInPanel"
-        :title="t('infoPanel.openInPanel')"
-      >
-        <ExternalLink :size="13" />
-      </button>
-      <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
     </div>
 
-    <div v-if="isExpanded" class="edit-body">
-      <!-- 专业 Diff 展示 -->
-      <div v-if="diffFile" class="git-diff-wrapper">
-        <DiffView
-          :key="diffViewKey"
-          :diff-file="diffFile"
-          :diff-view-mode="DiffModeEnum.Unified"
-          :diff-view-highlight="true"
-          class="git-diff-container"
-        />
-      </div>
+    <div v-if="isExpanded" class="tool-body">
+      <div class="tool-section">
+        <div class="tool-section-header">{{ t('toolCards.fileContent') }}</div>
+        <div class="tool-section-body diff-section-body">
+          <!-- 专业 Diff 展示 -->
+          <div v-if="diffFile" class="git-diff-wrapper">
+            <DiffView
+              :key="diffViewKey"
+              :diff-file="diffFile"
+              :diff-view-mode="DiffModeEnum.Unified"
+              :diff-view-highlight="true"
+              class="git-diff-container"
+            />
+          </div>
 
-      <!-- 无 diff 数据时的回退显示 -->
-      <div v-else class="empty-diff">
-        <span>{{ t('toolCards.editNoChanges') }}</span>
+          <!-- 无 diff 数据时的回退显示 -->
+          <div v-else class="empty-diff">
+            <span>{{ t('toolCards.editNoChanges') }}</span>
+          </div>
+        </div>
       </div>
 
       <!-- Result 输出 -->
-      <div v-if="toolCall.output" class="result-section">
-        <div class="block-label">{{ t('toolCards.editResult') }}</div>
-        <pre class="code-block result-text"><code>{{ toolCall.output }}</code></pre>
+      <div v-if="toolCall.output" class="tool-section">
+        <div class="tool-section-header">{{ t('toolCards.editResult') }}</div>
+        <div class="tool-section-body">
+          <pre class="code-block result-text"><code>{{ toolCall.output }}</code></pre>
+        </div>
       </div>
     </div>
   </div>
@@ -177,103 +185,14 @@ async function openInPanel() {
 </script>
 
 <style lang="scss" scoped>
-.edit-tool-card {
-  border-radius: 6px;
-  background: var(--surface-glass);
-  border: 1px solid var(--surface-border);
-  overflow: hidden;
-  font-size: 13px;
-}
+@use './tool-card.scss' as *;
 
-.edit-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  cursor: pointer;
-
-  &:hover {
-    background: rgba(255,255,255,0.03);
-  }
-}
-
-.edit-icon-wrapper {
-  width: 22px;
-  height: 22px;
-  border-radius: 4px;
-  background: rgba(249, 115, 22, 0.12);
-  color: #fb923c;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.status-running .edit-icon-wrapper {
-  background: rgba(59, 130, 246, 0.12);
-  color: #60a5fa;
-}
-
-.status-error .edit-icon-wrapper {
-  background: rgba(239, 68, 68, 0.12);
-  color: #f87171;
-}
-
-.edit-label {
-  font-weight: 600;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #fb923c;
-  flex-shrink: 0;
-}
-
-.edit-path {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.panel-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 4px;
-  border: none;
-  background: transparent;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: all 0.15s;
-
-  &:hover {
-    background: rgba(255,255,255,0.1);
-    color: var(--text-primary);
-  }
-}
-
-.expand-icon {
-  color: var(--text-tertiary);
-  transition: transform 0.15s;
-
-  &.is-expanded {
-    transform: rotate(180deg);
-  }
-}
-
-.edit-body {
-  border-top: 1px solid var(--surface-border);
+.diff-section-body {
+  padding: 0;
 }
 
 /* Git Diff View 容器 */
 .git-diff-wrapper {
-  margin: 8px;
   border-radius: 6px;
   overflow: hidden;
 }
@@ -283,23 +202,23 @@ async function openInPanel() {
   overflow-y: auto;
 
   /* 覆盖默认样式以匹配当前主题 */
-  --gdc-bg-color: var(--gdc-bg-color, #0d1117);
-  --gdc-text-color: var(--gdc-text-color, #c9d1d9);
-  --gdc-border-color: var(--gdc-border-color, #30363d);
+  --gdc-bg-color: var(--code-bg, #0d1117);
+  --gdc-text-color: var(--code-fg, #c9d1d9);
+  --gdc-border-color: var(--surface-border, #30363d);
 
   /* 添加行 */
-  --gdc-add-bg-color: var(--gdc-add-bg-color, rgba(46, 160, 67, 0.15));
-  --gdc-add-text-color: var(--gdc-add-text-color, #3fb950);
-  --gdc-add-gutter-bg-color: var(--gdc-add-gutter-bg-color, rgba(46, 160, 67, 0.25));
+  --gdc-add-bg-color: rgba(46, 160, 67, 0.15);
+  --gdc-add-text-color: #3fb950;
+  --gdc-add-gutter-bg-color: rgba(46, 160, 67, 0.25);
 
   /* 删除行 */
-  --gdc-remove-bg-color: var(--gdc-remove-bg-color, rgba(248, 81, 73, 0.15));
-  --gdc-remove-text-color: var(--gdc-remove-text-color, #f85149);
-  --gdc-remove-gutter-bg-color: var(--gdc-remove-gutter-bg-color, rgba(248, 81, 73, 0.25));
+  --gdc-remove-bg-color: rgba(248, 81, 73, 0.15);
+  --gdc-remove-text-color: #f85149;
+  --gdc-remove-gutter-bg-color: rgba(248, 81, 73, 0.25);
 
   /* Gutter */
-  --gdc-gutter-bg-color: var(--gdc-gutter-bg-color, #161b22);
-  --gdc-gutter-text-color: var(--gdc-gutter-text-color, #6e7681);
+  --gdc-gutter-bg-color: #161b22;
+  --gdc-gutter-text-color: #6e7681;
 
   &::-webkit-scrollbar {
     width: 8px;
@@ -323,28 +242,14 @@ async function openInPanel() {
 .empty-diff {
   padding: 20px;
   text-align: center;
-  color: #6e7681;
+  color: var(--text-muted);
   font-size: 12px;
-}
-
-.result-section {
-  padding: 10px 12px;
-  border-top: 1px solid var(--surface-border);
-}
-
-.block-label {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  margin-bottom: 6px;
-  font-weight: 500;
-  color: var(--text-tertiary);
 }
 
 .code-block {
   margin: 0;
   padding: 10px 12px;
-  border-radius: 4px;
+  border-radius: 6px;
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;
@@ -355,17 +260,7 @@ async function openInPanel() {
 }
 
 .result-text {
-  background: #0d1117;
-  color: #c9d1d9;
-}
-
-.spin-icon {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  background: var(--code-bg, #0d1117);
+  color: var(--code-fg, #c9d1d9);
 }
 </style>

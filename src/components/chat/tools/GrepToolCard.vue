@@ -1,25 +1,31 @@
 <template>
-  <div class="grep-tool-card" :class="[statusClass]">
-    <div class="grep-header" @click="toggleExpand">
-      <div class="grep-icon-wrapper">
-        <Loader2 v-if="toolCall.status === 'running'" :size="14" class="spin-icon" />
-        <X v-else-if="toolCall.status === 'error'" :size="14" />
-        <TextSearch v-else :size="14" />
+  <div class="tool-card" :class="statusClass">
+    <div class="tool-header" :class="{ 'is-expanded': isExpanded }" @click="toggleExpand">
+      <Loader2 v-if="toolCall.status === 'running'" :size="14" class="tool-icon status-running" />
+      <X v-else-if="toolCall.status === 'error'" :size="14" class="tool-icon status-error" />
+      <TextSearch v-else :size="14" class="tool-icon status-completed" />
+      <span class="tool-label">{{ t('toolCards.grep') }}</span>
+      <span class="tool-separator">·</span>
+      <code class="tool-target">{{ query }}</code>
+      <span v-if="matchCount !== null" class="tool-meta">{{ matchCount }} {{ t('toolCards.grepMatches') }}</span>
+      <div class="tool-actions">
+        <button
+          class="action-btn"
+          @click.stop="openInPanel"
+          :title="t('infoPanel.openInPanel')"
+        >
+          <ExternalLink :size="14" />
+        </button>
+        <ChevronDown :size="14" class="tool-chevron" :class="{ 'is-expanded': isExpanded }" />
       </div>
-      <span class="grep-label">{{ t('toolCards.grep') }}</span>
-      <code class="grep-query">{{ query }}</code>
-      <span v-if="matchCount !== null" class="grep-count">{{ matchCount }} {{ t('toolCards.grepMatches') }}</span>
-      <button
-        class="panel-btn"
-        @click.stop="openInPanel"
-        :title="t('infoPanel.openInPanel')"
-      >
-        <ExternalLink :size="13" />
-      </button>
-      <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
     </div>
-    <div v-if="isExpanded" class="grep-body">
-      <pre class="search-results"><code>{{ formattedOutput }}</code></pre>
+    <div v-if="isExpanded" class="tool-body">
+      <div class="tool-section">
+        <div class="tool-section-header">{{ t('toolCards.grepResults') }}</div>
+        <div class="tool-section-body">
+          <pre class="search-results"><code>{{ formattedOutput }}</code></pre>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -63,18 +69,26 @@ function openInPanel() {
 </script>
 
 <style lang="scss" scoped>
-.grep-tool-card { border-radius: 6px; background: var(--surface-glass); border: 1px solid var(--surface-border); overflow: hidden; font-size: 13px; }
-.grep-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; &:hover { background: rgba(255,255,255,0.03); } }
-.grep-icon-wrapper { width: 22px; height: 22px; border-radius: 4px; background: rgba(139, 92, 246, 0.12); color: #a78bfa; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.status-running .grep-icon-wrapper { background: rgba(59, 130, 246, 0.12); color: #60a5fa; }
-.status-error .grep-icon-wrapper { background: rgba(239, 68, 68, 0.12); color: #f87171; }
-.grep-label { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #a78bfa; flex-shrink: 0; }
-.grep-query { font-family: var(--font-mono); font-size: 12px; background: rgba(139,92,246,0.1); padding: 1px 6px; border-radius: 3px; color: #c4b5fd; }
-.grep-count { font-size: 11px; color: var(--text-tertiary); flex-shrink: 0; }
-.panel-btn { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; border: none; background: transparent; color: var(--text-tertiary); cursor: pointer; flex-shrink: 0; transition: all 0.15s; &:hover { background: rgba(255,255,255,0.1); color: var(--text-primary); } }
-.expand-icon { color: var(--text-tertiary); transition: transform 0.15s; &.is-expanded { transform: rotate(180deg); } }
-.grep-body { border-top: 1px solid var(--surface-border); }
-.search-results { margin: 0; padding: 12px; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; overflow: auto; max-height: 400px; white-space: pre; background: #0d1117; color: #f0f6fc; border-radius: 4px; }
-.spin-icon { animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+@use './tool-card.scss' as *;
+
+.tool-target {
+  font-size: 12px;
+  padding: 1px 6px;
+  background: var(--surface-glass);
+  border-radius: 4px;
+}
+
+.search-results {
+  margin: 0;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow: auto;
+  max-height: 400px;
+  white-space: pre;
+  background: var(--code-bg, #0d1117);
+  color: var(--code-fg, #f0f6fc);
+  border-radius: 6px;
+}
 </style>
