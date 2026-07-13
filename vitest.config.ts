@@ -26,6 +26,7 @@ export default defineConfig({
       'electron/im/**/__tests__/**/*.test.ts',
       'tests/composables/**/*.test.ts',
       'tests/lib/**/*.test.ts',
+      'tests/stores/**/*.test.ts',
       'tests/im/**/*.test.ts',
       'src/**/*.test.ts',
     ],
@@ -34,6 +35,7 @@ export default defineConfig({
       '**/dist/**',
       // Old tests using Node.js native test runner (not vitest compatible)
       'tests/composables/useChatCommands.rewind.test.ts',
+      'tests/stores/chat.rewind.test.ts',
     ],
   },
 })
