@@ -26,7 +26,7 @@
       </div>
 
       <div v-if="!hasParams && !hasResult" class="tool-section">
-        <div class="tool-section-header">{{ t('toolCards.executeExtraToolResult') }}</div>
+        <div class="tool-section-header">{{ t('toolCards.executeExtraToolNoResult') }}</div>
         <div class="tool-section-body">
           <pre class="json-block"><code>{{ toolCall.output || t('toolCards.executeExtraToolNoResult') }}</code></pre>
         </div>
