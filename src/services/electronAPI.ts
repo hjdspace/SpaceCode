@@ -337,6 +337,7 @@ import { h5Access } from './api/h5Access'
 import { mcp } from './api/mcp'
 import { mobile } from './api/mobile'
 import { officecli } from './api/officecli'
+import { petApi } from './api/pet'
 import { rtk } from './api/rtk'
 import { session } from './api/session'
 import { shell } from './api/shell'
@@ -652,6 +653,7 @@ export const api = {
   mcp,
   mobile,
   officecli,
+  pet: petApi,
   rtk,
   session,
   shell,
