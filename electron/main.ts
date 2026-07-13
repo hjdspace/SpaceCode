@@ -29,6 +29,7 @@ import { rtkManager } from './rtkManager'
 import { getImSidecarManager } from './imSidecarManager'
 import { PetFileService } from './petFileService'
 import { PetLLMProxy } from './petLLMProxy'
+import { PetWindowManager } from './petWindowManager'
 import { registerPetIpcHandlers } from './petIpcHandlers'
 
 // ============================================================
@@ -76,6 +77,7 @@ app.commandLine.appendSwitch('no-sandbox')
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
+let petWindowManager: PetWindowManager | null = null
 
 type ExternalEditor = 'vscode' | 'visualstudio' | 'cursor' | 'fileExplorer' | 'terminal' | 'gitBash' | 'wsl' | 'androidStudio'
 
@@ -745,10 +747,12 @@ info('Startup', 'CuaDriver IPC handlers registered')
       const petFileService = new PetFileService()
       const petLLMProxy = new PetLLMProxy()
       await petFileService.init()
+      petWindowManager = new PetWindowManager()
 
       registerPetIpcHandlers({
         petFileService,
         petLLMProxy,
+        petWindowManager,
         getMainWindow: () => mainWindow,
         getLocale: (): 'zh-CN' | 'en-US' => {
           try {
@@ -912,6 +916,9 @@ info('Startup', 'CuaDriver IPC handlers registered')
 
 app.on('window-all-closed', () => {
   info('App', 'All windows closed')
+  if (petWindowManager) {
+    petWindowManager.destroy()
+  }
   destroyTray()
   app.quit()
 })
