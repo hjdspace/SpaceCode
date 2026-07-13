@@ -27,6 +27,9 @@ import { proxyManager } from './proxyManager'
 import type { ProxyConfig } from './proxy/types'
 import { rtkManager } from './rtkManager'
 import { getImSidecarManager } from './imSidecarManager'
+import { PetFileService } from './petFileService'
+import { PetLLMProxy } from './petLLMProxy'
+import { registerPetIpcHandlers } from './petIpcHandlers'
 
 // ============================================================
 // App Startup
@@ -735,6 +738,36 @@ info('Startup', 'CuaDriver IPC handlers registered')
   // Register RTK IPC handlers
   registerRtkIPCHandlers()
   info('Startup', 'RTK IPC handlers registered')
+
+  // Register Pet IPC handlers (desktop pet system)
+  ;(async () => {
+    try {
+      const petFileService = new PetFileService()
+      const petLLMProxy = new PetLLMProxy()
+      await petFileService.init()
+
+      registerPetIpcHandlers({
+        petFileService,
+        petLLMProxy,
+        getMainWindow: () => mainWindow,
+        getLocale: (): 'zh-CN' | 'en-US' => {
+          try {
+            const settingsPath = join(app.getPath('home'), '.claude', 'gui-settings.json')
+            if (!existsSync(settingsPath)) return 'zh-CN'
+            const raw = readFileSync(settingsPath, 'utf-8')
+            if (!raw.trim()) return 'zh-CN'
+            const settings = JSON.parse(raw)
+            return settings?.language === 'en-US' ? 'en-US' : 'zh-CN'
+          } catch {
+            return 'zh-CN'
+          }
+        }
+      })
+      info('Startup', 'Pet IPC handlers registered')
+    } catch (err) {
+      error('Startup', 'Failed to initialize pet module', err)
+    }
+  })()
 
   // Auto-start H5 server if it was previously enabled
   ;(async () => {
