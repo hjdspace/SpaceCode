@@ -606,6 +606,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getActiveMcpNames: () => ipcRenderer.invoke('mcp:getActiveMcpNames'),
   },
 
+  // Pet API — 桌面宠物系统（配置读写、资源管理、LLM 反应生成、窗口事件）
+  // 注意：preload 中使用 any 类型避免导入 src 模块（preload 是独立构建）。类型安全由 electron.d.ts 保证。
+  pet: {
+    readConfig: () => ipcRenderer.invoke('pet:readConfig'),
+    writeConfig: (config: any) => ipcRenderer.invoke('pet:writeConfig', config),
+    saveAsset: (srcPath: string, petId: string) => ipcRenderer.invoke('pet:saveAsset', srcPath, petId),
+    deleteAsset: (relativePath: string) => ipcRenderer.invoke('pet:deleteAsset', relativePath),
+    generateReaction: (req: any) => ipcRenderer.invoke('pet:generateReaction', req),
+    onWindowEvent: (callback: (event: any) => void) => {
+      const wrapper = (_: unknown, data: any) => callback(data)
+      ipcRenderer.on('pet:windowEvent', wrapper)
+      return () => ipcRenderer.removeListener('pet:windowEvent', wrapper)
+    },
+  },
+
   // Computer Use API — cua-driver 二进制管理、健康检查、权限管理
   computerUse: {
     /** 获取 cua-driver 完整状态（安装、版本、权限、健康检查） */

@@ -58,6 +58,13 @@ import type {
   BrowserUseAgentConfig,
 } from '@/types/browserUse'
 
+import type {
+  PetConfig,
+  PetSyncPayload,
+  PetWindowEvent,
+  PetReactionRequest,
+} from './pet'
+
 // ── 子接口定义 ──────────────────────────────────────────────────
 
 export interface ElectronWindowAPI {
@@ -255,6 +262,15 @@ export interface ElectronMcpAPI {
   installDependency: (command: 'uv') => Promise<unknown>
   onInstallProgress: (callback: (progress: unknown) => void) => () => void
   getActiveMcpNames: () => Promise<string[]>
+}
+
+export interface ElectronPetAPI {
+  readConfig: () => Promise<PetConfig | null>
+  writeConfig: (config: PetConfig) => Promise<void>
+  saveAsset: (srcPath: string, petId: string) => Promise<string>
+  deleteAsset: (relativePath: string) => Promise<void>
+  generateReaction: (req: PetReactionRequest) => Promise<string | null>
+  onWindowEvent: (callback: (event: PetWindowEvent) => void) => () => void
 }
 
 export interface ElectronComputerUseAPI {
@@ -492,6 +508,7 @@ export interface ElectronAPI {
   trace: ElectronTraceAPI
   session: ElectronSessionAPI
   mcp: ElectronMcpAPI
+  pet: ElectronPetAPI
   computerUse: ElectronComputerUseAPI
   browserUse: ElectronBrowserUseAPI
   skills: ElectronSkillsAPI
