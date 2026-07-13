@@ -68,17 +68,20 @@
     />
     <WorkspaceOnboarding v-if="appStore.showWorkOnboarding" />
     <FileQuickOpen v-if="appStore.showFileQuickOpen" />
+    <PetEmbeddedWidget v-if="shouldShowEmbeddedPet" />
     <DialogProvider />
   </div>
 </template>
 
 <script setup lang="ts">
-import { defineAsyncComponent, ref, onMounted, onUnmounted, watch } from 'vue'
+import { defineAsyncComponent, ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useSettingsStore } from '@/stores/settings'
 import { useFontStore } from '@/stores/font'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
+import { usePetStore } from '@/stores/pet'
+import { initPetReactionGlobal } from '@/composables/usePetReaction'
 import TitleBar from './components/layout/TitleBar.vue'
 import Sidebar from './components/layout/Sidebar.vue'
 import SplitContainer from './components/layout/SplitContainer.vue'
@@ -107,11 +110,20 @@ const WorkAssistantGallery = defineAsyncComponent(() => import('./components/wor
 const WorkspaceOnboarding = defineAsyncComponent(() => import('./components/work/WorkspaceOnboarding.vue'))
 const ConnectMobileDialog = defineAsyncComponent(() => import('./components/mobile/ConnectMobileDialog.vue'))
 const FileQuickOpen = defineAsyncComponent(() => import('./components/layout/FileQuickOpen.vue'))
+const PetEmbeddedWidget = defineAsyncComponent(() => import('@/components/pets/PetEmbeddedWidget.vue'))
 
 const appStore = useAppStore()
 const sessionStore = useChatSessionStore()
 const settingsStore = useSettingsStore()
 const splitLayout = useSplitLayoutStore()
+const petStore = usePetStore()
+
+const shouldShowEmbeddedPet = computed(() =>
+  petStore.isInitialized &&
+  petStore.activePet &&
+  petStore.mode === 'embedded' &&
+  !petStore.isMuted
+)
 
 // H5 模式标记
 const h5Mode = isH5Mode()
@@ -353,6 +365,10 @@ async function initH5MirrorSession() {
 }
 
 onMounted(() => {
+  // 初始化桌面宠物系统
+  petStore.init().catch(err => console.error('[Pet] Failed to init:', err))
+  initPetReactionGlobal()
+
   // H5 模式：设置 body 类以触发移动端样式
   if (isH5Mode()) {
     document.body.classList.add('h5-mode')
