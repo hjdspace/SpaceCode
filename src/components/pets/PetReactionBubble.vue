@@ -35,7 +35,6 @@ const visible = computed(() => !!props.text && props.text.length > 0)
   box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.15));
   max-width: 200px;
   cursor: pointer;
-  white-space: nowrap;
   pointer-events: auto;
 }
 
@@ -43,6 +42,9 @@ const visible = computed(() => !!props.text && props.text.length > 0)
   font-size: 12px;
   color: var(--text-primary, #fff);
   line-height: 1.4;
+  /* 长单词（如 URL）超出容器边界时强制断行 */
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .bubble-tail {

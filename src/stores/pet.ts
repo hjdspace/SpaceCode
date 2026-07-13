@@ -58,6 +58,19 @@ export const usePetStore = defineStore('pet', () => {
     const loaded = await api.pet.readConfig()
     config.value = loaded ?? createDefaultConfig()
     isInitialized.value = true
+
+    // 启动时恢复 desktop 模式：用户上次切到 desktop 后重启需自动重建桌面窗口
+    if (config.value.mode === 'desktop' && config.value.activePetId) {
+      try {
+        await api.pet.createDesktopWindow()
+        syncToDesktopWindow()
+      } catch (err) {
+        console.error('[Pet] Failed to restore desktop window:', err)
+        // 恢复失败时回退到 embedded 模式，避免下次启动仍尝试 desktop
+        config.value.mode = 'embedded'
+        await persist()
+      }
+    }
   }
 
   async function persist(): Promise<void> {
@@ -66,7 +79,10 @@ export const usePetStore = defineStore('pet', () => {
   }
 
   async function setActivePet(petId: string): Promise<void> {
-    if (!config.value) return
+    if (!config.value) {
+      // init 未完成时显式抛错，避免静默丢失用户选择
+      throw new Error('PetStore not initialized')
+    }
     config.value.activePetId = petId
     await persist()
   }
@@ -153,6 +169,7 @@ export const usePetStore = defineStore('pet', () => {
     reactionTimer = setTimeout(() => {
       runtimeState.value.currentReaction = null
       runtimeState.value.reactionAt = null
+      syncToDesktopWindow()
     }, REACTION_DISPLAY_MS)
     syncToDesktopWindow()
   }
@@ -163,6 +180,7 @@ export const usePetStore = defineStore('pet', () => {
     if (pettedTimer) clearTimeout(pettedTimer)
     pettedTimer = setTimeout(() => {
       runtimeState.value.isPetted = false
+      syncToDesktopWindow()
     }, PETTED_DURATION_MS)
     syncToDesktopWindow()
   }

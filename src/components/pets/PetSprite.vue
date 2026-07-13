@@ -37,20 +37,17 @@ const props = defineProps<{
 }>()
 
 const frame = ref<0 | 1 | 2>(0)
-let rafId: number | null = null
-let lastFrameAt = 0
 const FRAME_INTERVAL = 500
+let intervalId: ReturnType<typeof setInterval> | null = null
 
-function tick(t: number) {
-  if (t - lastFrameAt >= FRAME_INTERVAL) {
+onMounted(() => {
+  intervalId = setInterval(() => {
     frame.value = ((frame.value + 1) % 3) as 0 | 1 | 2
-    lastFrameAt = t
-  }
-  rafId = requestAnimationFrame(tick)
-}
-
-onMounted(() => { rafId = requestAnimationFrame(tick) })
-onUnmounted(() => { if (rafId) cancelAnimationFrame(rafId) })
+  }, FRAME_INTERVAL)
+})
+onUnmounted(() => {
+  if (intervalId !== null) clearInterval(intervalId)
+})
 
 const spriteComponent = computed(() => {
   if (props.pet.visual.type === 'builtin-svg') {

@@ -21,11 +21,16 @@ const state = reactive<{
 })
 
 let isDragging = false
+// 内部状态：pointer 已按下但还未达到 drag 阈值
+let isPointerDown = false
 let startX = 0
 let startY = 0
+// 移动超过此阈值（像素）才认定为 drag，否则视为 click
+const DRAG_THRESHOLD = 4
 
 function onPointerDown(e: PointerEvent) {
-  isDragging = true
+  isPointerDown = true
+  isDragging = false
   startX = e.screenX
   startY = e.screenY
   window.addEventListener('pointermove', onPointerMove)
@@ -33,7 +38,19 @@ function onPointerDown(e: PointerEvent) {
 }
 
 function onPointerMove(e: PointerEvent) {
-  if (!isDragging) return
+  if (!isPointerDown) return
+  const dx = e.screenX - startX
+  const dy = e.screenY - startY
+
+  // 未达到 drag 阈值时不移动，让浏览器正常触发 click
+  if (!isDragging) {
+    if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) {
+      return
+    }
+    isDragging = true
+  }
+
+  // 已进入 drag，按增量移动窗口
   const deltaX = e.screenX - startX
   const deltaY = e.screenY - startY
   startX = e.screenX
@@ -42,10 +59,16 @@ function onPointerMove(e: PointerEvent) {
 }
 
 function onPointerUp() {
+  if (!isPointerDown) return
+  isPointerDown = false
+  const wasDragging = isDragging
   isDragging = false
   window.removeEventListener('pointermove', onPointerMove)
   window.removeEventListener('pointerup', onPointerUp)
-  window.petWindowAPI!.emitWindowEvent({ type: 'drag-end' })
+  // 只有真正发生 drag 时才通知 drag-end；否则视为 click，由 @click 处理
+  if (wasDragging) {
+    window.petWindowAPI!.emitWindowEvent({ type: 'drag-end' })
+  }
 }
 
 function onSpriteClick() {

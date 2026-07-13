@@ -382,9 +382,13 @@ async function initH5MirrorSession() {
   }
 }
 
-onMounted(() => {
-  // 初始化桌面宠物系统
-  petStore.init().catch(err => console.error('[Pet] Failed to init:', err))
+onMounted(async () => {
+  // 初始化桌面宠物系统（await 确保 setActivePet 不会因 init 未完成而丢失选择）
+  try {
+    await petStore.init()
+  } catch (err) {
+    console.error('[Pet] Failed to init:', err)
+  }
   initPetReactionGlobal()
 
   // H5 模式：设置 body 类以触发移动端样式
