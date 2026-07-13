@@ -25,6 +25,7 @@ export default defineConfig({
       'electron/design/__tests__/**/*.test.ts',
       'electron/im/**/__tests__/**/*.test.ts',
       'tests/composables/**/*.test.ts',
+      'tests/lib/**/*.test.ts',
       'tests/im/**/*.test.ts',
       'src/**/*.test.ts',
     ],
