@@ -40,25 +40,28 @@ const beakBottomPath = computed(() => {
 const wingTransform = computed(() =>
   isHonking.value ? 'rotate(-12 28 38)' : 'rotate(0 28 38)'
 )
+
+// 防止多实例 SVG id 冲突
+const uid = Math.random().toString(36).slice(2, 8)
 </script>
 
 <template>
   <svg viewBox="0 0 100 60" width="80" height="48" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <!-- 身体立体渐变：白色到浅灰，营造立体感 -->
-      <radialGradient id="gooseShade" cx="40%" cy="30%" r="80%">
+      <radialGradient :id="'gooseShade-' + uid" cx="40%" cy="30%" r="80%">
         <stop offset="0%" stop-color="rgba(255,255,255,0.5)" />
         <stop offset="55%" stop-color="rgba(255,255,255,0)" />
         <stop offset="100%" stop-color="rgba(0,0,0,0.25)" />
       </radialGradient>
       <!-- 阴影模糊滤镜 -->
-      <filter id="gooseShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <filter :id="'gooseShadow-' + uid" x="-50%" y="-50%" width="200%" height="200%">
         <feGaussianBlur in="SourceGraphic" stdDeviation="1.6" />
       </filter>
     </defs>
 
     <!-- 接地阴影 -->
-    <ellipse cx="35" cy="55" rx="22" ry="2.5" fill="rgba(0,0,0,0.2)" filter="url(#gooseShadow)" />
+    <ellipse cx="35" cy="55" rx="22" ry="2.5" fill="rgba(0,0,0,0.2)" :filter="'url(#gooseShadow-' + uid + ')'" />
 
     <g :transform="`translate(0, ${bodyOffsetY})`">
       <!-- 脚蹼（橙色） -->
@@ -69,12 +72,12 @@ const wingTransform = computed(() =>
 
       <!-- 身体（鹅蛋形，偏左下） -->
       <ellipse cx="35" cy="42" rx="18" ry="11" :fill="palette.primary" />
-      <ellipse cx="35" cy="42" rx="18" ry="11" fill="url(#gooseShade)" />
+      <ellipse cx="35" cy="42" rx="18" ry="11" :fill="'url(#gooseShade-' + uid + ')'" />
 
       <!-- 翅膀（frame 2 时展开旋转） -->
       <g :transform="wingTransform">
         <path d="M 28 36 Q 18 38 18 48 Q 25 46 32 42 Z" :fill="palette.primary" stroke="rgba(0,0,0,0.2)" stroke-width="0.8" />
-        <path d="M 28 36 Q 18 38 18 48 Q 25 46 32 42 Z" fill="url(#gooseShade)" />
+        <path d="M 28 36 Q 18 38 18 48 Q 25 46 32 42 Z" :fill="'url(#gooseShade-' + uid + ')'" />
         <!-- 白色羽毛细节（弧线纹理） -->
         <path d="M 22 40 Q 24 42 24 45" stroke="rgba(0,0,0,0.18)" stroke-width="0.5" fill="none" />
         <path d="M 25 38 Q 27 40 27 43" stroke="rgba(0,0,0,0.18)" stroke-width="0.5" fill="none" />
@@ -89,11 +92,11 @@ const wingTransform = computed(() =>
 
       <!-- 长曲脖子（S 形，frame 2 时前伸） -->
       <path :d="neckPath" :fill="palette.primary" stroke="rgba(0,0,0,0.15)" stroke-width="0.6" />
-      <path :d="neckPath" fill="url(#gooseShade)" />
+      <path :d="neckPath" :fill="'url(#gooseShade-' + uid + ')'" />
 
       <!-- 头部 -->
       <circle cx="70" cy="13" r="7" :fill="palette.primary" stroke="rgba(0,0,0,0.15)" stroke-width="0.6" />
-      <circle cx="70" cy="13" r="7" fill="url(#gooseShade)" />
+      <circle cx="70" cy="13" r="7" :fill="'url(#gooseShade-' + uid + ')'" />
       <!-- 头部高光 -->
       <ellipse cx="67" cy="10" rx="2.5" ry="1.5" fill="rgba(255,255,255,0.5)" />
 

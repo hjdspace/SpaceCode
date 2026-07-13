@@ -40,25 +40,28 @@ const beakBottomPath = computed(() => {
 const feetTransform = computed(() =>
   isJumping.value ? 'translate(0, -3)' : 'translate(0, 0)'
 )
+
+// 防止多实例 SVG id 冲突
+const uid = Math.random().toString(36).slice(2, 8)
 </script>
 
 <template>
   <svg viewBox="0 0 100 60" width="80" height="48" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <!-- 身体立体渐变：中心亮，边缘暗，营造圆润感 -->
-      <radialGradient id="duckShade" cx="45%" cy="30%" r="75%">
+      <radialGradient :id="'duckShade-' + uid" cx="45%" cy="30%" r="75%">
         <stop offset="0%" stop-color="rgba(255,255,255,0.4)" />
         <stop offset="55%" stop-color="rgba(255,255,255,0)" />
         <stop offset="100%" stop-color="rgba(0,0,0,0.28)" />
       </radialGradient>
       <!-- 阴影模糊滤镜 -->
-      <filter id="duckShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <filter :id="'duckShadow-' + uid" x="-50%" y="-50%" width="200%" height="200%">
         <feGaussianBlur in="SourceGraphic" stdDeviation="1.6" />
       </filter>
     </defs>
 
     <!-- 接地阴影 -->
-    <ellipse cx="50" cy="55" rx="28" ry="2.5" fill="rgba(0,0,0,0.2)" filter="url(#duckShadow)" />
+    <ellipse cx="50" cy="55" rx="28" ry="2.5" fill="rgba(0,0,0,0.2)" :filter="'url(#duckShadow-' + uid + ')'" />
     <!-- 水波纹底座：鸭子是水禽，用波纹强化物种特征 -->
     <path d="M 22 55 Q 26 53 30 55 T 38 55 T 46 55 T 54 55 T 62 55 T 70 55 T 78 55"
           stroke="rgba(0,0,0,0.18)" stroke-width="0.7" fill="none" stroke-linecap="round" />
@@ -77,17 +80,17 @@ const feetTransform = computed(() =>
 
       <!-- 身体（鸭蛋形）底色 + 立体渐变叠加 -->
       <path d="M 26 40 Q 26 28 50 28 Q 74 28 74 40 Q 74 52 50 52 Q 26 52 26 40 Z" :fill="palette.primary" />
-      <path d="M 26 40 Q 26 28 50 28 Q 74 28 74 40 Q 74 52 50 52 Q 26 52 26 40 Z" fill="url(#duckShade)" />
+      <path d="M 26 40 Q 26 28 50 28 Q 74 28 74 40 Q 74 52 50 52 Q 26 52 26 40 Z" :fill="'url(#duckShade-' + uid + ')'" />
 
       <!-- 左翅膀（frame 2 时扇动旋转） -->
       <g :transform="leftWingTransform">
         <path d="M 30 35 Q 22 38 23 46 Q 28 44 33 40 Z" :fill="palette.primary" stroke="rgba(0,0,0,0.2)" stroke-width="0.8" />
-        <path d="M 30 35 Q 22 38 23 46 Q 28 44 33 40 Z" fill="url(#duckShade)" />
+        <path d="M 30 35 Q 22 38 23 46 Q 28 44 33 40 Z" :fill="'url(#duckShade-' + uid + ')'" />
       </g>
       <!-- 右翅膀 -->
       <g :transform="rightWingTransform">
         <path d="M 70 35 Q 78 38 77 46 Q 72 44 67 40 Z" :fill="palette.primary" stroke="rgba(0,0,0,0.2)" stroke-width="0.8" />
-        <path d="M 70 35 Q 78 38 77 46 Q 72 44 67 40 Z" fill="url(#duckShade)" />
+        <path d="M 70 35 Q 78 38 77 46 Q 72 44 67 40 Z" :fill="'url(#duckShade-' + uid + ')'" />
       </g>
 
       <!-- 身体高光（半透明白椭圆） -->
@@ -98,7 +101,7 @@ const feetTransform = computed(() =>
 
       <!-- 头部 -->
       <circle cx="50" cy="20" r="11" :fill="palette.primary" stroke="rgba(0,0,0,0.15)" stroke-width="0.6" />
-      <circle cx="50" cy="20" r="11" fill="url(#duckShade)" />
+      <circle cx="50" cy="20" r="11" :fill="'url(#duckShade-' + uid + ')'" />
 
       <!-- 头部反光（accent 色，类似绿头鸭绿头反光，用橙色调保持配色一致） -->
       <path d="M 41 14 Q 50 9 59 14" :stroke="palette.accent" stroke-width="2" fill="none" opacity="0.7" stroke-linecap="round" />

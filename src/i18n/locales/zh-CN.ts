@@ -658,6 +658,8 @@ export default {
     aiMode: 'AI 生成',
     aiModeHint: '使用 LLM 根据上下文生成动态反应，会消耗 token',
     aiModel: 'AI 模型',
+    aiModelEmpty: '当前未配置可用模型，请先在「模型设置」中配置 haiku/sonnet/opus 任意一个',
+    aiModelNoConfig: '当前 provider 未配置 API Key 或 Base URL，请先在「模型设置」中完成配置',
     reactionInterval: '反应间隔',
     scale: '缩放比例',
     muted: '静音（不显示反应）',

@@ -658,6 +658,8 @@ export default {
     aiMode: 'AI Generated',
     aiModeHint: 'Uses LLM to generate dynamic reactions based on context, consumes tokens',
     aiModel: 'AI Model',
+    aiModelEmpty: 'No models configured. Please configure at least one of haiku/sonnet/opus in "Model Settings" first.',
+    aiModelNoConfig: 'Current provider has no API Key or Base URL. Please configure them in "Model Settings" first.',
     reactionInterval: 'Reaction Interval',
     scale: 'Scale',
     muted: 'Muted (no reactions)',

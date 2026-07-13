@@ -22,32 +22,35 @@ const bodyOffsetY = computed(() => {
 const capRotation = computed(() => (props.frame === 2 ? 5 : 0))
 // 帽子旋转中心 (50, 32)（帽下沿中心）
 const capTransform = computed(() => `rotate(${capRotation.value} 50 32)`)
+
+// 防止多实例 SVG id 冲突
+const uid = Math.random().toString(36).slice(2, 8)
 </script>
 
 <template>
   <svg viewBox="0 0 100 60" width="80" height="48" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <!-- 菌帽径向渐变：模拟圆顶光影 -->
-      <radialGradient id="mushroomCapGrad" cx="35%" cy="25%" r="80%">
+      <radialGradient :id="'mushroomCapGrad-' + uid" cx="35%" cy="25%" r="80%">
         <stop offset="0%" stop-color="rgba(255,255,255,0.45)" />
         <stop offset="50%" stop-color="rgba(255,255,255,0)" />
         <stop offset="100%" stop-color="rgba(0,0,0,0.4)" />
       </radialGradient>
       <!-- 菌柄线性渐变：模拟圆柱体光影 -->
-      <linearGradient id="mushroomStemGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <linearGradient :id="'mushroomStemGrad-' + uid" x1="0%" y1="0%" x2="100%" y2="0%">
         <stop offset="0%" stop-color="rgba(0,0,0,0.2)" />
         <stop offset="35%" stop-color="rgba(255,255,255,0)" />
         <stop offset="65%" stop-color="rgba(255,255,255,0)" />
         <stop offset="100%" stop-color="rgba(0,0,0,0.25)" />
       </linearGradient>
       <!-- 接地阴影模糊 -->
-      <filter id="mushroomShadowFilter" x="-50%" y="-50%" width="200%" height="200%">
+      <filter :id="'mushroomShadowFilter-' + uid" x="-50%" y="-50%" width="200%" height="200%">
         <feGaussianBlur stdDeviation="1.6" />
       </filter>
     </defs>
 
     <!-- 接地阴影（不随跳跃移动） -->
-    <ellipse cx="50" cy="55" rx="28" ry="2.5" fill="rgba(0,0,0,0.22)" filter="url(#mushroomShadowFilter)" />
+    <ellipse cx="50" cy="55" rx="28" ry="2.5" fill="rgba(0,0,0,0.22)" :filter="'url(#mushroomShadowFilter-' + uid + ')'" />
 
     <g :transform="`translate(0, ${bodyOffsetY})`">
       <!-- 地面装饰：小草剪影（用中性色，不引入第三种调色板外颜色） -->
@@ -61,7 +64,7 @@ const capTransform = computed(() => `rotate(${capRotation.value} 50 32)`)
             :fill="palette.accent" stroke="rgba(0,0,0,0.2)" stroke-width="0.6" />
       <!-- 菌柄渐变叠加（柱体光影） -->
       <path d="M 32 50 L 32 38 Q 32 35 35 35 L 65 35 Q 68 35 68 38 L 68 50 Z"
-            fill="url(#mushroomStemGrad)" />
+            :fill="'url(#mushroomStemGrad-' + uid + ')'" />
 
       <!-- 菌褶（帽下平行线，3 条由深到浅） -->
       <line x1="22" y1="34" x2="78" y2="34" stroke="rgba(0,0,0,0.35)" stroke-width="0.6" />
@@ -75,7 +78,7 @@ const capTransform = computed(() => `rotate(${capRotation.value} 50 32)`)
               :fill="palette.primary" stroke="rgba(0,0,0,0.3)" stroke-width="0.8" />
         <!-- 帽立体渐变叠加 -->
         <path d="M 15 32 Q 15 8 50 8 Q 85 8 85 32 Q 50 36 15 32 Z"
-              fill="url(#mushroomCapGrad)" />
+              :fill="'url(#mushroomCapGrad-' + uid + ')'" />
 
         <!-- 白色斑点（7 个不同大小，营造自然分布） -->
         <ellipse cx="32" cy="20" rx="3.5" ry="2.8" :fill="palette.accent" />

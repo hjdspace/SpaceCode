@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { usePetStore } from '@/stores/pet'
+import { useSettingsStore, type ProviderConfig } from '@/stores/settings'
 import type { ReactionMode } from '@/types/pet'
 
 const petStore = usePetStore()
+const settingsStore = useSettingsStore()
 const { t } = useI18n()
 
 const settings = computed(() => petStore.config?.settings)
@@ -15,9 +17,45 @@ const reactionMode = computed<ReactionMode>({
 })
 
 const aiModel = computed({
-  get: () => settings.value?.aiModel ?? 'gpt-4o-mini',
+  get: () => settings.value?.aiModel ?? '',
   set: (val) => petStore.updateSettings({ aiModel: val })
 })
+
+// 从当前 authMethod 对应 provider config 的三槽位去重提取可用模型列表
+const availableModels = computed<{ label: string; value: string }[]>(() => {
+  const method = settingsStore.authMethod
+  let cfg: ProviderConfig | undefined
+  if (method === 'openai_compatible') cfg = settingsStore.openaiConfig
+  else if (method === 'gemini_api') cfg = settingsStore.geminiConfig
+  else cfg = settingsStore.anthropicConfig
+
+  const seen = new Set<string>()
+  const out: { label: string; value: string }[] = []
+  for (const v of [cfg?.haikuModel, cfg?.sonnetModel, cfg?.opusModel]) {
+    if (v && !seen.has(v)) {
+      seen.add(v)
+      out.push({ label: v, value: v })
+    }
+  }
+  return out
+})
+
+// 当前 provider config 是否已配置 baseUrl + apiKey
+const hasApiConfig = computed(() => {
+  const method = settingsStore.authMethod
+  let cfg: ProviderConfig | undefined
+  if (method === 'openai_compatible') cfg = settingsStore.openaiConfig
+  else if (method === 'gemini_api') cfg = settingsStore.geminiConfig
+  else cfg = settingsStore.anthropicConfig
+  return !!(cfg?.apiKey && cfg?.baseUrl)
+})
+
+// 当可用模型列表变化且不包含当前选中模型时，自动同步到第一个可用模型
+watch(availableModels, (models) => {
+  if (models.length > 0 && !models.some(m => m.value === aiModel.value)) {
+    aiModel.value = models[0].value
+  }
+}, { immediate: true })
 
 const intervalSec = computed({
   get: () => Math.round((settings.value?.reactionIntervalMs ?? 60000) / 1000),
@@ -64,11 +102,11 @@ const clickThrough = computed({
 
     <div class="config-group" v-if="reactionMode === 'ai'">
       <label class="group-label">{{ t('petSettings.aiModel') }}</label>
-      <select v-model="aiModel" class="select-input">
-        <option value="gpt-4o-mini">GPT-4o mini</option>
-        <option value="gpt-4o">GPT-4o</option>
-        <option value="claude-3-5-haiku">Claude 3.5 Haiku</option>
+      <select v-if="availableModels.length > 0" v-model="aiModel" class="select-input">
+        <option v-for="m in availableModels" :key="m.value" :value="m.value">{{ m.label }}</option>
       </select>
+      <p v-else class="hint warning">{{ t('petSettings.aiModelEmpty') }}</p>
+      <p v-if="!hasApiConfig" class="hint warning">{{ t('petSettings.aiModelNoConfig') }}</p>
     </div>
 
     <div class="config-group">
@@ -141,6 +179,10 @@ const clickThrough = computed({
   color: var(--text-muted, #999);
   font-size: 11px;
   margin: 0;
+
+  &.warning {
+    color: var(--text-warning, #f0ad4e);
+  }
 }
 
 .select-input {

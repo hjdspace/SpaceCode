@@ -94,7 +94,7 @@ export interface PetReactionRequest {
 
 export const DEFAULT_PET_SETTINGS: PetSettings = {
   reactionMode: 'preset',
-  aiModel: 'gpt-4o-mini',
+  aiModel: '',
   reactionIntervalMs: 60000,
   muted: false,
   scale: 1.0,

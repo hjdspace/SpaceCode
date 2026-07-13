@@ -29,49 +29,52 @@ const bodyPath = computed(() => {
   // 默认态：圆润椭圆（x 范围 22-78，y 范围 18-50）
   return 'M 22 36 Q 22 18 50 18 Q 78 18 78 36 Q 78 50 50 50 Q 22 50 22 36 Z'
 })
+
+// 防止多实例 SVG id 冲突
+const uid = Math.random().toString(36).slice(2, 8)
 </script>
 
 <template>
   <svg viewBox="0 0 100 60" width="80" height="48" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <!-- 身体径向渐变：中心亮、边缘暗，营造果冻透明感 -->
-      <radialGradient id="blobBodyGrad" cx="35%" cy="30%" r="80%">
+      <radialGradient :id="'blobBodyGrad-' + uid" cx="35%" cy="30%" r="80%">
         <stop offset="0%" stop-color="rgba(255,255,255,0.55)" />
         <stop offset="50%" stop-color="rgba(255,255,255,0)" />
         <stop offset="100%" stop-color="rgba(0,0,0,0.3)" />
       </radialGradient>
       <!-- 内部气泡渐变（带高光感） -->
-      <radialGradient id="blobBubbleGrad" cx="30%" cy="30%" r="80%">
+      <radialGradient :id="'blobBubbleGrad-' + uid" cx="30%" cy="30%" r="80%">
         <stop offset="0%" stop-color="rgba(255,255,255,0.7)" />
         <stop offset="60%" stop-color="rgba(255,255,255,0.15)" />
         <stop offset="100%" stop-color="rgba(255,255,255,0)" />
       </radialGradient>
       <!-- 接地阴影模糊 -->
-      <filter id="blobShadowFilter" x="-50%" y="-50%" width="200%" height="200%">
+      <filter :id="'blobShadowFilter-' + uid" x="-50%" y="-50%" width="200%" height="200%">
         <feGaussianBlur stdDeviation="1.6" />
       </filter>
       <!-- 顶部高光柔化模糊 -->
-      <filter id="blobHighlightGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <filter :id="'blobHighlightGlow-' + uid" x="-50%" y="-50%" width="200%" height="200%">
         <feGaussianBlur stdDeviation="0.8" />
       </filter>
     </defs>
 
     <!-- 接地阴影（不随跳跃移动） -->
-    <ellipse cx="50" cy="55" rx="28" ry="2.5" fill="rgba(0,0,0,0.22)" filter="url(#blobShadowFilter)" />
+    <ellipse cx="50" cy="55" rx="28" ry="2.5" fill="rgba(0,0,0,0.22)" :filter="'url(#blobShadowFilter-' + uid + ')'" />
 
     <g :transform="`translate(0, ${bodyOffsetY})`">
       <!-- 身体基础填充 -->
       <path :d="bodyPath" :fill="palette.primary" stroke="rgba(0,0,0,0.18)" stroke-width="0.6" />
       <!-- 身体渐变叠加（果冻质感） -->
-      <path :d="bodyPath" fill="url(#blobBodyGrad)" />
+      <path :d="bodyPath" :fill="'url(#blobBodyGrad-' + uid + ')'" />
 
       <!-- 内含小气泡（3 个不同大小，营造果冻内含物感） -->
-      <circle cx="35" cy="30" r="2.4" fill="url(#blobBubbleGrad)" />
-      <circle cx="64" cy="35" r="1.8" fill="url(#blobBubbleGrad)" />
-      <circle cx="55" cy="24" r="1.3" fill="url(#blobBubbleGrad)" />
+      <circle cx="35" cy="30" r="2.4" :fill="'url(#blobBubbleGrad-' + uid + ')'" />
+      <circle cx="64" cy="35" r="1.8" :fill="'url(#blobBubbleGrad-' + uid + ')'" />
+      <circle cx="55" cy="24" r="1.3" :fill="'url(#blobBubbleGrad-' + uid + ')'" />
 
       <!-- 顶部高光（果冻反光感，两层叠加） -->
-      <ellipse cx="38" cy="22" rx="11" ry="3.2" fill="rgba(255,255,255,0.4)" filter="url(#blobHighlightGlow)" />
+      <ellipse cx="38" cy="22" rx="11" ry="3.2" fill="rgba(255,255,255,0.4)" :filter="'url(#blobHighlightGlow-' + uid + ')'" />
       <ellipse cx="42" cy="20" rx="4.5" ry="1.6" fill="rgba(255,255,255,0.65)" />
 
       <!-- 眼睛（frame 1 时变为 ^^ 弯月闭眼） -->

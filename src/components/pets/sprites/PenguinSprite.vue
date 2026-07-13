@@ -37,23 +37,26 @@ const crestTransform = computed(() =>
 const feetTransform = computed(() =>
   isJumping.value ? 'translate(0, -3)' : 'translate(0, 0)'
 )
+
+// 防止多实例 SVG id 冲突
+const uid = Math.random().toString(36).slice(2, 8)
 </script>
 
 <template>
   <svg viewBox="0 0 100 60" width="80" height="48" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <!-- 身体立体渐变：深灰色立体感 -->
-      <radialGradient id="penguinShade" cx="50%" cy="30%" r="75%">
+      <radialGradient :id="'penguinShade-' + uid" cx="50%" cy="30%" r="75%">
         <stop offset="0%" stop-color="rgba(255,255,255,0.25)" />
         <stop offset="55%" stop-color="rgba(255,255,255,0)" />
         <stop offset="100%" stop-color="rgba(0,0,0,0.35)" />
       </radialGradient>
       <!-- 阴影模糊滤镜 -->
-      <filter id="penguinShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <filter :id="'penguinShadow-' + uid" x="-50%" y="-50%" width="200%" height="200%">
         <feGaussianBlur in="SourceGraphic" stdDeviation="1.6" />
       </filter>
       <!-- rare 发光描边滤镜：黄色光环（用 palette.accent 色） -->
-      <filter id="penguinGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <filter :id="'penguinGlow-' + uid" x="-20%" y="-20%" width="140%" height="140%">
         <feGaussianBlur in="SourceAlpha" stdDeviation="1.4" result="blur" />
         <feFlood :flood-color="palette.accent" flood-opacity="0.5" result="glowColor" />
         <feComposite in="glowColor" in2="blur" operator="in" result="glow" />
@@ -65,7 +68,7 @@ const feetTransform = computed(() =>
     </defs>
 
     <!-- 接地阴影 -->
-    <ellipse cx="50" cy="55" rx="25" ry="2.5" fill="rgba(0,0,0,0.2)" filter="url(#penguinShadow)" />
+    <ellipse cx="50" cy="55" rx="25" ry="2.5" fill="rgba(0,0,0,0.2)" :filter="'url(#penguinShadow-' + uid + ')'" />
 
     <g :transform="`translate(0, ${bodyOffsetY})`">
       <!-- 脚蹼（橙色，frame 2 时随跳跃抬起） -->
@@ -77,8 +80,8 @@ const feetTransform = computed(() =>
       </g>
 
       <!-- 身体（深灰，圆胖，头身一体）+ rare 发光描边 -->
-      <path d="M 30 35 Q 30 18 50 18 Q 70 18 70 35 Q 70 52 50 52 Q 30 52 30 35 Z" :fill="palette.primary" filter="url(#penguinGlow)" />
-      <path d="M 30 35 Q 30 18 50 18 Q 70 18 70 35 Q 70 52 50 52 Q 30 52 30 35 Z" fill="url(#penguinShade)" />
+      <path d="M 30 35 Q 30 18 50 18 Q 70 18 70 35 Q 70 52 50 52 Q 30 52 30 35 Z" :fill="palette.primary" :filter="'url(#penguinGlow-' + uid + ')'" />
+      <path d="M 30 35 Q 30 18 50 18 Q 70 18 70 35 Q 70 52 50 52 Q 30 52 30 35 Z" :fill="'url(#penguinShade-' + uid + ')'" />
 
       <!-- 翅膀（企鹅小翅膀，贴身体，frame 2 时扇动） -->
       <g :transform="leftWingTransform">

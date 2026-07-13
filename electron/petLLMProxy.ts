@@ -5,6 +5,22 @@ import { existsSync, readFileSync } from 'fs'
 import { info, warn } from './logger'
 import type { PetReactionRequest, PetReactionTrigger } from '../src/types/pet'
 
+// gui-settings.json 中的 provider config 形状（仅取 pet 关心的字段）
+interface ProviderConfig {
+  baseUrl?: string
+  apiKey?: string
+  haikuModel?: string
+  sonnetModel?: string
+  opusModel?: string
+}
+
+interface GuiSettings {
+  authMethod?: string
+  anthropicConfig?: ProviderConfig
+  openaiConfig?: ProviderConfig
+  geminiConfig?: ProviderConfig
+}
+
 const MAX_REACTION_LENGTH = 100
 const MAX_RECENT_REACTIONS = 8
 const SIMILARITY_THRESHOLD = 0.7
@@ -64,20 +80,53 @@ interface LLMConfig {
   model: string
 }
 
-async function loadLLMConfig(): Promise<LLMConfig | null> {
+function loadGuiSettings(): GuiSettings | null {
   try {
     const settingsPath = join(app.getPath('home'), '.claude', 'gui-settings.json')
     if (!existsSync(settingsPath)) return null
     const raw = readFileSync(settingsPath, 'utf-8')
     if (!raw.trim()) return null
-    const settings = JSON.parse(raw)
-    return {
-      baseUrl: settings.apiBaseUrl || '',
-      apiKey: settings.apiKey || '',
-      model: settings.petAiModel || 'gpt-4o-mini'
-    }
+    return JSON.parse(raw) as GuiSettings
   } catch {
     return null
+  }
+}
+
+function loadPetAiModel(): string | null {
+  try {
+    const petPath = join(app.getPath('home'), '.claude', 'buddy-pets.json')
+    if (!existsSync(petPath)) return null
+    const raw = readFileSync(petPath, 'utf-8')
+    if (!raw.trim()) return null
+    const parsed = JSON.parse(raw)
+    const model = parsed?.settings?.aiModel
+    return typeof model === 'string' && model ? model : null
+  } catch {
+    return null
+  }
+}
+
+async function loadLLMConfig(): Promise<LLMConfig | null> {
+  const gui = loadGuiSettings()
+  if (!gui) return null
+
+  // 按 authMethod 分支取对应 provider config（与 promptOptimizerIPC 一致）
+  const method = gui.authMethod || 'openai_compatible'
+  let cfg: ProviderConfig | undefined
+  if (method === 'openai_compatible') cfg = gui.openaiConfig
+  else if (method === 'gemini_api') cfg = gui.geminiConfig
+  else cfg = gui.anthropicConfig
+
+  if (!cfg?.apiKey || !cfg?.baseUrl) return null
+
+  // 模型优先级：pet 设置选中的 aiModel > provider 三槽位任一
+  const model = loadPetAiModel() || cfg.sonnetModel || cfg.haikuModel || cfg.opusModel || ''
+  if (!model) return null
+
+  return {
+    baseUrl: cfg.baseUrl,
+    apiKey: cfg.apiKey,
+    model
   }
 }
 

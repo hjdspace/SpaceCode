@@ -20,54 +20,57 @@ const bodyOffsetY = computed(() => {
 })
 // 天线 LED 光晕透明度：frame 2 时闪烁增强
 const antennaGlowOpacity = computed(() => (props.frame === 2 ? 0.75 : 0.35))
+
+// 防止多实例 SVG id 冲突
+const uid = Math.random().toString(36).slice(2, 8)
 </script>
 
 <template>
   <svg viewBox="0 0 100 60" width="80" height="48" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <!-- 身体径向渐变：中心亮、边缘暗，营造金属球体立体感 -->
-      <radialGradient id="robotBodyGrad" cx="35%" cy="30%" r="80%">
+      <radialGradient :id="'robotBodyGrad-' + uid" cx="35%" cy="30%" r="80%">
         <stop offset="0%" stop-color="rgba(255,255,255,0.45)" />
         <stop offset="45%" stop-color="rgba(255,255,255,0)" />
         <stop offset="100%" stop-color="rgba(0,0,0,0.35)" />
       </radialGradient>
       <!-- 屏幕 LCD 渐变（上深下浅） -->
-      <linearGradient id="robotScreenGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <linearGradient :id="'robotScreenGrad-' + uid" x1="0%" y1="0%" x2="0%" y2="100%">
         <stop offset="0%" stop-color="rgba(0,0,0,0.6)" />
         <stop offset="100%" stop-color="rgba(0,0,0,0.4)" />
       </linearGradient>
       <!-- 接地阴影模糊滤镜 -->
-      <filter id="robotShadowFilter" x="-50%" y="-50%" width="200%" height="200%">
+      <filter :id="'robotShadowFilter-' + uid" x="-50%" y="-50%" width="200%" height="200%">
         <feGaussianBlur stdDeviation="1.6" />
       </filter>
       <!-- LED 眼睛光晕模糊 -->
-      <filter id="robotEyeGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <filter :id="'robotEyeGlow-' + uid" x="-100%" y="-100%" width="300%" height="300%">
         <feGaussianBlur stdDeviation="1.4" />
       </filter>
       <!-- 天线 LED 光晕（更大范围模糊） -->
-      <filter id="robotAntennaGlow" x="-150%" y="-150%" width="400%" height="400%">
+      <filter :id="'robotAntennaGlow-' + uid" x="-150%" y="-150%" width="400%" height="400%">
         <feGaussianBlur stdDeviation="2.2" />
       </filter>
       <!-- 稀有度（rare）发光描边光环 -->
-      <filter id="robotRareAura" x="-25%" y="-25%" width="150%" height="150%">
+      <filter :id="'robotRareAura-' + uid" x="-25%" y="-25%" width="150%" height="150%">
         <feGaussianBlur stdDeviation="1.4" />
       </filter>
     </defs>
 
     <!-- 接地阴影（不随跳跃移动） -->
-    <ellipse cx="50" cy="55" rx="28" ry="2.5" fill="rgba(0,0,0,0.25)" filter="url(#robotShadowFilter)" />
+    <ellipse cx="50" cy="55" rx="28" ry="2.5" fill="rgba(0,0,0,0.25)" :filter="'url(#robotShadowFilter-' + uid + ')'" />
 
     <g :transform="`translate(0, ${bodyOffsetY})`">
       <!-- 稀有度光环：在身体外侧的淡色光晕（rare 专属） -->
       <rect x="20" y="18" width="60" height="36" rx="8" ry="8"
-            :fill="palette.accent" opacity="0.18" filter="url(#robotRareAura)" />
+            :fill="palette.accent" opacity="0.18" :filter="'url(#robotRareAura-' + uid + ')'" />
 
       <!-- 天线杆 -->
       <line x1="50" y1="20" x2="50" y2="11"
             stroke="rgba(0,0,0,0.45)" stroke-width="1.2" stroke-linecap="round" />
       <!-- 天线 LED 光晕（frame 2 时增强） -->
       <circle cx="50" cy="9" r="4.5" :fill="palette.accent"
-              :opacity="antennaGlowOpacity" filter="url(#robotAntennaGlow)" />
+              :opacity="antennaGlowOpacity" :filter="'url(#robotAntennaGlow-' + uid + ')'" />
       <!-- 天线小球 -->
       <circle cx="50" cy="9" r="2.2" :fill="palette.accent" />
       <circle cx="49.3" cy="8.3" r="0.7" fill="rgba(255,255,255,0.85)" />
@@ -76,19 +79,19 @@ const antennaGlowOpacity = computed(() => (props.frame === 2 ? 0.75 : 0.35))
       <rect x="22" y="20" width="56" height="32" rx="6" ry="6"
             :fill="palette.primary" stroke="rgba(0,0,0,0.35)" stroke-width="0.8" />
       <!-- 身体立体渐变叠加 -->
-      <rect x="22" y="20" width="56" height="32" rx="6" ry="6" fill="url(#robotBodyGrad)" />
+      <rect x="22" y="20" width="56" height="32" rx="6" ry="6" :fill="'url(#robotBodyGrad-' + uid + ')'" />
 
       <!-- 屏幕（黑色 LCD 面板） -->
       <rect x="30" y="24" width="40" height="14" rx="2" ry="2"
-            fill="url(#robotScreenGrad)" stroke="rgba(0,0,0,0.5)" stroke-width="0.5" />
+            :fill="'url(#robotScreenGrad-' + uid + ')'" stroke="rgba(0,0,0,0.5)" stroke-width="0.5" />
       <!-- 屏幕顶部反光条 -->
       <rect x="31" y="25" width="38" height="1.5" rx="0.7" fill="rgba(255,255,255,0.12)" />
 
       <!-- LED 眼睛（带光晕，frame 1 时变为 ^^ 弯月闭眼） -->
       <template v-if="!isBlinking">
         <!-- 光晕扩散 -->
-        <circle cx="40" cy="31" r="3.2" :fill="palette.accent" opacity="0.4" filter="url(#robotEyeGlow)" />
-        <circle cx="60" cy="31" r="3.2" :fill="palette.accent" opacity="0.4" filter="url(#robotEyeGlow)" />
+        <circle cx="40" cy="31" r="3.2" :fill="palette.accent" opacity="0.4" :filter="'url(#robotEyeGlow-' + uid + ')'" />
+        <circle cx="60" cy="31" r="3.2" :fill="palette.accent" opacity="0.4" :filter="'url(#robotEyeGlow-' + uid + ')'" />
         <!-- 眼球本体 -->
         <circle cx="40" cy="31" r="1.9" :fill="palette.accent" />
         <circle cx="60" cy="31" r="1.9" :fill="palette.accent" />
