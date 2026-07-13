@@ -11,14 +11,25 @@ const { t } = useI18n()
 
 const settings = computed(() => petStore.config?.settings)
 
+/**
+ * 包装 updateSettings 并捕获 persist 错误。
+ * computed setter 不能 await，但不捕获会导致 persist 失败时
+ * 错误被静默吞噬为 unhandled rejection，用户无法察觉配置未落盘。
+ */
+function persistSettings(patch: Partial<{ reactionMode: ReactionMode; aiModel: string; reactionIntervalMs: number; scale: number; muted: boolean; alwaysOnTopDesktop: boolean; clickThrough: boolean }>): void {
+  petStore.updateSettings(patch).catch(err => {
+    console.error('[Pet] Failed to persist settings:', err)
+  })
+}
+
 const reactionMode = computed<ReactionMode>({
   get: () => settings.value?.reactionMode ?? 'preset',
-  set: (val) => petStore.updateSettings({ reactionMode: val })
+  set: (val) => persistSettings({ reactionMode: val })
 })
 
 const aiModel = computed({
   get: () => settings.value?.aiModel ?? '',
-  set: (val) => petStore.updateSettings({ aiModel: val })
+  set: (val) => persistSettings({ aiModel: val })
 })
 
 // 从当前 authMethod 对应 provider config 的三槽位去重提取可用模型列表
@@ -59,27 +70,27 @@ watch(availableModels, (models) => {
 
 const intervalSec = computed({
   get: () => Math.round((settings.value?.reactionIntervalMs ?? 60000) / 1000),
-  set: (val) => petStore.updateSettings({ reactionIntervalMs: val * 1000 })
+  set: (val) => persistSettings({ reactionIntervalMs: val * 1000 })
 })
 
 const scaleDec = computed({
   get: () => settings.value?.scale ?? 1.0,
-  set: (val) => petStore.updateSettings({ scale: val })
+  set: (val) => persistSettings({ scale: val })
 })
 
 const muted = computed({
   get: () => settings.value?.muted ?? false,
-  set: (val) => petStore.updateSettings({ muted: val })
+  set: (val) => persistSettings({ muted: val })
 })
 
 const alwaysOnTop = computed({
   get: () => settings.value?.alwaysOnTopDesktop ?? true,
-  set: (val) => petStore.updateSettings({ alwaysOnTopDesktop: val })
+  set: (val) => persistSettings({ alwaysOnTopDesktop: val })
 })
 
 const clickThrough = computed({
   get: () => settings.value?.clickThrough ?? false,
-  set: (val) => petStore.updateSettings({ clickThrough: val })
+  set: (val) => persistSettings({ clickThrough: val })
 })
 </script>
 

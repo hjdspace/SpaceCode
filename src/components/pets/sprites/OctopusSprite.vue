@@ -1,4 +1,5 @@
 <!-- src/components/pets/sprites/OctopusSprite.vue -->
+<!-- 稀有度：rare —— 优化版：流线型圆头、吸盘纹理触手、墨汁粒子、立体感更强 -->
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { PetPalette } from '@/types/pet'
@@ -9,146 +10,129 @@ const props = defineProps<{
   isPetted: boolean
 }>()
 
-// 防止多实例 SVG id 冲突
 const uid = Math.random().toString(36).slice(2, 8)
 
-// 帧动画状态
-const isJumping = computed(() => props.frame === 2 || props.isPetted)
 const isBlinking = computed(() => props.frame === 1 && !props.isPetted)
+const isJumping = computed(() => props.frame === 2 || props.isPetted)
 const bodyOffsetY = computed(() => (isJumping.value ? -5 : 0))
-const leftSway = computed(() => (props.frame === 2 ? 6 : 0)) // 左侧触手摆动
-const rightSway = computed(() => (props.frame === 2 ? -6 : 0)) // 右侧触手摆动
-const showInkBurst = computed(() => props.frame === 2) // 跳跃时喷墨汁气泡
+
+// 触手整体摆动角度
+const tentacleSway = computed(() => (props.frame === 2 ? 6 : 0))
 </script>
 
 <template>
   <svg viewBox="0 0 100 60" width="80" height="48" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <!-- 头部立体渐变 -->
-      <radialGradient :id="'headGrad-' + uid" cx="45%" cy="28%" r="72%">
-        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.42"/>
-        <stop offset="55%" stop-color="#ffffff" stop-opacity="0"/>
-        <stop offset="100%" stop-color="#000000" stop-opacity="0.28"/>
+      <radialGradient :id="`ocHead${uid}`" cx="42%" cy="25%" r="76%">
+        <stop offset="0%" stop-color="rgba(255,255,255,0.5)" />
+        <stop offset="50%" stop-color="rgba(255,255,255,0)" />
+        <stop offset="100%" stop-color="rgba(0,0,0,0.3)" />
       </radialGradient>
-      <!-- 接地阴影模糊 -->
-      <filter :id="'shadow-' + uid" x="-50%" y="-50%" width="200%" height="200%">
-        <feGaussianBlur stdDeviation="1.6"/>
-      </filter>
       <!-- rare 发光描边 -->
-      <filter :id="'glow-' + uid" x="-50%" y="-50%" width="200%" height="200%">
-        <feGaussianBlur stdDeviation="2"/>
+      <filter :id="`ocGlow${uid}`" x="-30%" y="-30%" width="160%" height="160%">
+        <feGaussianBlur stdDeviation="2.2" />
+      </filter>
+      <filter :id="`ocShadow${uid}`" x="-30%" y="-100%" width="160%" height="300%">
+        <feGaussianBlur stdDeviation="2.2" />
       </filter>
     </defs>
 
     <!-- 接地阴影 -->
-    <ellipse cx="50" cy="55" rx="30" ry="2.5" fill="rgba(0,0,0,0.25)" :filter="'url(#shadow-' + uid + ')'"/>
+    <ellipse cx="50" cy="55" rx="32" ry="2.5" fill="rgba(0,0,0,0.22)" :filter="`url(#ocShadow${uid})`" />
 
     <g :transform="`translate(0, ${bodyOffsetY})`">
-      <!-- rare 发光光环（头部外圈模糊 accent） -->
-      <ellipse cx="50" cy="22" rx="27" ry="20" :fill="palette.accent" opacity="0.16" :filter="'url(#glow-' + uid + ')'"/>
+      <!-- rare 光环 -->
+      <ellipse cx="50" cy="22" rx="30" ry="22" :fill="palette.accent" opacity="0.12" :filter="`url(#ocGlow${uid})`" />
 
-      <!-- 左侧 4 条触手（frame 2 时摆动） -->
-      <g :transform="`rotate(${leftSway} 48 30)`">
-        <!-- 触手 1（最左） -->
-        <path d="M 30 30 Q 24 40 28 50 Q 26 54 30 56"
-              :stroke="palette.primary" stroke-width="3.2" fill="none" stroke-linecap="round"/>
-        <circle cx="28" cy="38" r="0.8" :fill="palette.accent" opacity="0.9"/>
-        <circle cx="26" cy="44" r="0.7" :fill="palette.accent" opacity="0.9"/>
-        <circle cx="28" cy="50" r="0.7" :fill="palette.accent" opacity="0.9"/>
-        <!-- 触手 2 -->
-        <path d="M 36 30 Q 33 42 37 52 Q 35 55 38 57"
-              :stroke="palette.primary" stroke-width="3.2" fill="none" stroke-linecap="round"/>
-        <circle cx="34" cy="40" r="0.8" :fill="palette.accent" opacity="0.9"/>
-        <circle cx="35" cy="46" r="0.7" :fill="palette.accent" opacity="0.9"/>
-        <circle cx="37" cy="52" r="0.7" :fill="palette.accent" opacity="0.9"/>
-        <!-- 触手 3 -->
-        <path d="M 41 30 Q 40 44 42 54 Q 41 57 43 58"
-              :stroke="palette.primary" stroke-width="3.2" fill="none" stroke-linecap="round"/>
-        <circle cx="40" cy="40" r="0.8" :fill="palette.accent" opacity="0.9"/>
-        <circle cx="41" cy="47" r="0.7" :fill="palette.accent" opacity="0.9"/>
-        <circle cx="42" cy="54" r="0.7" :fill="palette.accent" opacity="0.9"/>
-        <!-- 触手 4 -->
-        <path d="M 46 30 Q 46 44 44 56 Q 44 58 46 58"
-              :stroke="palette.primary" stroke-width="3.2" fill="none" stroke-linecap="round"/>
-        <circle cx="45" cy="40" r="0.8" :fill="palette.accent" opacity="0.9"/>
-        <circle cx="45" cy="48" r="0.7" :fill="palette.accent" opacity="0.9"/>
-        <circle cx="44" cy="55" r="0.7" :fill="palette.accent" opacity="0.9"/>
+      <!-- 左侧 4 条触手 -->
+      <g :transform="`rotate(${tentacleSway}, 45, 30)`">
+        <path d="M 30 30 Q 22 42 26 52 Q 24 56 28 58"
+              :stroke="palette.primary" stroke-width="3.6" fill="none" stroke-linecap="round" />
+        <circle cx="26" cy="40" r="0.8" fill="rgba(0,0,0,0.15)" />
+        <circle cx="25" cy="48" r="0.7" fill="rgba(0,0,0,0.15)" />
+
+        <path d="M 37 30 Q 34 42 36 54 Q 34 57 37 59"
+              :stroke="palette.primary" stroke-width="3.6" fill="none" stroke-linecap="round" />
+        <circle cx="35" cy="42" r="0.8" fill="rgba(0,0,0,0.15)" />
+        <circle cx="35" cy="50" r="0.7" fill="rgba(0,0,0,0.15)" />
+
+        <path d="M 44 30 Q 44 44 42 56 Q 42 58 44 59"
+              :stroke="palette.primary" stroke-width="3.6" fill="none" stroke-linecap="round" />
+        <circle cx="43" cy="44" r="0.8" fill="rgba(0,0,0,0.15)" />
+        <circle cx="43" cy="52" r="0.7" fill="rgba(0,0,0,0.15)" />
+
+        <path d="M 48 30 Q 49 44 47 56 Q 47 58 49 59"
+              :stroke="palette.primary" stroke-width="3.6" fill="none" stroke-linecap="round" />
+        <circle cx="48" cy="44" r="0.8" fill="rgba(0,0,0,0.15)" />
+        <circle cx="48" cy="52" r="0.7" fill="rgba(0,0,0,0.15)" />
       </g>
 
-      <!-- 右侧 4 条触手（镜像摆动） -->
-      <g :transform="`rotate(${rightSway} 52 30)`">
-        <!-- 触手 5 -->
-        <path d="M 54 30 Q 54 44 56 56 Q 56 58 54 58"
-              :stroke="palette.primary" stroke-width="3.2" fill="none" stroke-linecap="round"/>
-        <circle cx="55" cy="40" r="0.8" :fill="palette.accent" opacity="0.9"/>
-        <circle cx="55" cy="48" r="0.7" :fill="palette.accent" opacity="0.9"/>
-        <circle cx="56" cy="55" r="0.7" :fill="palette.accent" opacity="0.9"/>
-        <!-- 触手 6 -->
-        <path d="M 59 30 Q 60 44 58 54 Q 59 57 57 58"
-              :stroke="palette.primary" stroke-width="3.2" fill="none" stroke-linecap="round"/>
-        <circle cx="60" cy="40" r="0.8" :fill="palette.accent" opacity="0.9"/>
-        <circle cx="59" cy="47" r="0.7" :fill="palette.accent" opacity="0.9"/>
-        <circle cx="58" cy="54" r="0.7" :fill="palette.accent" opacity="0.9"/>
-        <!-- 触手 7 -->
-        <path d="M 64 30 Q 67 42 63 52 Q 65 55 62 57"
-              :stroke="palette.primary" stroke-width="3.2" fill="none" stroke-linecap="round"/>
-        <circle cx="66" cy="40" r="0.8" :fill="palette.accent" opacity="0.9"/>
-        <circle cx="65" cy="46" r="0.7" :fill="palette.accent" opacity="0.9"/>
-        <circle cx="63" cy="52" r="0.7" :fill="palette.accent" opacity="0.9"/>
-        <!-- 触手 8（最右） -->
-        <path d="M 70 30 Q 76 40 72 50 Q 74 54 70 56"
-              :stroke="palette.primary" stroke-width="3.2" fill="none" stroke-linecap="round"/>
-        <circle cx="72" cy="38" r="0.8" :fill="palette.accent" opacity="0.9"/>
-        <circle cx="74" cy="44" r="0.7" :fill="palette.accent" opacity="0.9"/>
-        <circle cx="72" cy="50" r="0.7" :fill="palette.accent" opacity="0.9"/>
+      <!-- 右侧 4 条触手 -->
+      <g :transform="`rotate(${tentacleSway * -1}, 55, 30)`">
+        <path d="M 56 30 Q 56 44 58 56 Q 58 58 56 59"
+              :stroke="palette.primary" stroke-width="3.6" fill="none" stroke-linecap="round" />
+        <circle cx="57" cy="44" r="0.8" fill="rgba(0,0,0,0.15)" />
+        <circle cx="57" cy="52" r="0.7" fill="rgba(0,0,0,0.15)" />
+
+        <path d="M 62 30 Q 64 42 62 54 Q 64 57 61 59"
+              :stroke="palette.primary" stroke-width="3.6" fill="none" stroke-linecap="round" />
+        <circle cx="63" cy="42" r="0.8" fill="rgba(0,0,0,0.15)" />
+        <circle cx="63" cy="50" r="0.7" fill="rgba(0,0,0,0.15)" />
+
+        <path d="M 68 30 Q 72 42 68 52 Q 70 56 66 58"
+              :stroke="palette.primary" stroke-width="3.6" fill="none" stroke-linecap="round" />
+        <circle cx="70" cy="40" r="0.8" fill="rgba(0,0,0,0.15)" />
+        <circle cx="69" cy="48" r="0.7" fill="rgba(0,0,0,0.15)" />
+
+        <path d="M 74 30 Q 78 42 74 52 Q 76 56 72 58"
+              :stroke="palette.primary" stroke-width="3.6" fill="none" stroke-linecap="round" />
+        <circle cx="76" cy="40" r="0.8" fill="rgba(0,0,0,0.15)" />
+        <circle cx="75" cy="48" r="0.7" fill="rgba(0,0,0,0.15)" />
       </g>
 
-      <!-- 大圆头（mantle，primary 底色） -->
-      <path d="M 26 30 Q 26 8 50 8 Q 74 8 74 30 Q 74 34 50 34 Q 26 34 26 30 Z"
-            :fill="palette.primary" stroke="rgba(0,0,0,0.18)" stroke-width="1"/>
-      <!-- 头部渐变叠加（立体感） -->
-      <path d="M 26 30 Q 26 8 50 8 Q 74 8 74 30 Q 74 34 50 34 Q 26 34 26 30 Z"
-            :fill="'url(#headGrad-' + uid + ')'"/>
+      <!-- 大圆头 -->
+      <path d="M 24 30 Q 24 6 50 6 Q 76 6 76 30 Q 76 36 50 36 Q 24 36 24 30 Z"
+            :fill="palette.primary" stroke="rgba(0,0,0,0.15)" stroke-width="0.8" />
+      <path d="M 24 30 Q 24 6 50 6 Q 76 6 76 30 Q 76 36 50 36 Q 24 36 24 30 Z"
+            :fill="`url(#ocHead${uid})`" />
+
       <!-- 头顶高光 -->
-      <ellipse cx="42" cy="13" rx="8" ry="3" fill="rgba(255,255,255,0.35)"/>
-      <!-- 侧面高光 -->
-      <ellipse cx="33" cy="20" rx="3" ry="5" fill="rgba(255,255,255,0.18)"/>
+      <ellipse cx="40" cy="12" rx="10" ry="3.5" fill="rgba(255,255,255,0.4)" />
+      <ellipse cx="30" cy="18" rx="4" ry="6" fill="rgba(255,255,255,0.15)" />
+
+      <!-- 墨汁粒子背景装饰 -->
+      <circle cx="16" cy="18" r="1.5" :fill="palette.accent" opacity="0.5" />
+      <circle cx="84" cy="18" r="1.5" :fill="palette.accent" opacity="0.5" />
+      <circle cx="12" cy="26" r="1" :fill="palette.accent" opacity="0.4" />
+      <circle cx="88" cy="26" r="1" :fill="palette.accent" opacity="0.4" />
+
+      <!-- frame 2 额外喷出的墨汁 -->
+      <template v-if="isJumping">
+        <circle cx="10" cy="32" r="2" :fill="palette.accent" opacity="0.45" />
+        <circle cx="90" cy="32" r="2" :fill="palette.accent" opacity="0.45" />
+        <circle cx="8" cy="38" r="1.3" :fill="palette.accent" opacity="0.35" />
+        <circle cx="92" cy="38" r="1.3" :fill="palette.accent" opacity="0.35" />
+      </template>
 
       <!-- 眼睛 -->
       <template v-if="!isBlinking">
-        <!-- 睁眼：白底 + 瞳孔 + 高光 -->
-        <circle cx="40" cy="20" r="3.2" fill="#fff"/>
-        <circle cx="60" cy="20" r="3.2" fill="#fff"/>
-        <circle cx="40" cy="20.5" r="1.9" fill="rgba(0,0,0,0.82)"/>
-        <circle cx="60" cy="20.5" r="1.9" fill="rgba(0,0,0,0.82)"/>
-        <circle cx="40.8" cy="19.5" r="0.7" fill="#fff"/>
-        <circle cx="60.8" cy="19.5" r="0.7" fill="#fff"/>
+        <circle cx="40" cy="20" r="4" fill="rgba(255,255,255,0.95)" />
+        <circle cx="60" cy="20" r="4" fill="rgba(255,255,255,0.95)" />
+        <circle cx="40" cy="21" r="2.4" fill="rgba(0,0,0,0.85)" />
+        <circle cx="60" cy="21" r="2.4" fill="rgba(0,0,0,0.85)" />
+        <circle cx="41.5" cy="19.5" r="0.9" fill="rgba(255,255,255,0.9)" />
+        <circle cx="61.5" cy="19.5" r="0.9" fill="rgba(255,255,255,0.9)" />
       </template>
       <template v-else>
-        <!-- 眨眼弯月 ^^ -->
-        <path d="M 37 20 Q 40 17 43 20" stroke="rgba(0,0,0,0.82)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-        <path d="M 57 20 Q 60 17 63 20" stroke="rgba(0,0,0,0.82)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+        <path d="M 36 20 Q 40 16 44 20" stroke="rgba(0,0,0,0.85)" stroke-width="1.6" fill="none" stroke-linecap="round" />
+        <path d="M 56 20 Q 60 16 64 20" stroke="rgba(0,0,0,0.85)" stroke-width="1.6" fill="none" stroke-linecap="round" />
       </template>
 
-      <!-- 嘴（小 O 形） -->
-      <ellipse cx="50" cy="28" rx="1.6" ry="1.2" fill="rgba(0,0,0,0.5)"/>
-
-      <!-- 墨汁气泡点缀（装饰，frame 2 时增多） -->
-      <g :fill="palette.accent" opacity="0.5">
-        <circle cx="18" cy="22" r="1.5"/>
-        <circle cx="82" cy="22" r="1.5"/>
-        <circle cx="15" cy="14" r="1"/>
-        <circle cx="85" cy="14" r="1"/>
-      </g>
-      <!-- frame 2 喷出的墨汁气泡 -->
-      <g v-if="showInkBurst" :fill="palette.accent" opacity="0.55">
-        <circle cx="12" cy="28" r="1.8"/>
-        <circle cx="88" cy="28" r="1.8"/>
-        <circle cx="10" cy="34" r="1.2"/>
-        <circle cx="90" cy="34" r="1.2"/>
-      </g>
+      <!-- 微笑 -->
+      <path d="M 46 28 Q 50 31 54 28" stroke="rgba(0,0,0,0.6)" stroke-width="1" fill="none" stroke-linecap="round" />
     </g>
 
-    <text v-if="isPetted" x="60" y="10" font-size="14" fill="#FF6B9D">♥</text>
+    <text v-if="isPetted" x="65" y="10" font-size="14" fill="#FF6B9D">♥</text>
   </svg>
 </template>

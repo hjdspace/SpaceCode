@@ -90,6 +90,8 @@ export function usePetDrag(options: UsePetDragOptions) {
   onUnmounted(() => {
     window.removeEventListener('pointermove', handlePointerMove)
     window.removeEventListener('pointerup', handlePointerUp)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
   })
 
   return { isDragging, onPointerDown }

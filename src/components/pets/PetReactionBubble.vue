@@ -27,24 +27,26 @@ const visible = computed(() => !!props.text && props.text.length > 0)
   left: 50%;
   transform: translateX(-50%);
   margin-bottom: 8px;
-  padding: 6px 12px;
+  padding: 8px 14px;
   background: var(--glass-bg, rgba(255, 255, 255, 0.1));
   border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.2));
   border-radius: var(--radius-lg, 12px);
   backdrop-filter: blur(12px);
   box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.15));
-  max-width: 200px;
+  width: max-content;
+  max-width: 380px;
+  min-width: 80px;
   cursor: pointer;
   pointer-events: auto;
 }
 
 .bubble-text {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-primary, #fff);
-  line-height: 1.4;
-  /* 长单词（如 URL）超出容器边界时强制断行 */
+  line-height: 1.5;
+  white-space: pre-wrap;
+  /* 仅当长单词（如 URL）在一行内放不下时才强制断行，不影响正常中英文换行 */
   overflow-wrap: break-word;
-  word-break: break-word;
 }
 
 .bubble-tail {

@@ -12,11 +12,19 @@ const { t } = useI18n()
 const customPets = computed(() => petStore.config?.customPets ?? [])
 
 async function selectPet(petId: string) {
-  await petStore.setActivePet(petId)
+  try {
+    await petStore.setActivePet(petId)
+  } catch (err) {
+    console.error('[Pet] Failed to select pet:', err)
+  }
 }
 
 async function deleteCustomPet(petId: string) {
-  await petStore.removeCustomPet(petId)
+  try {
+    await petStore.removeCustomPet(petId)
+  } catch (err) {
+    console.error('[Pet] Failed to delete custom pet:', err)
+  }
 }
 </script>
 

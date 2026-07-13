@@ -387,7 +387,7 @@ onMounted(async () => {
   try {
     await petStore.init()
   } catch (err) {
-    console.error('[Pet] Failed to init:', err)
+    console.error('[Pet] Failed to initialize pet store:', err)
   }
   initPetReactionGlobal()
 

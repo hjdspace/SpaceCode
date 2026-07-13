@@ -1,9 +1,12 @@
 // electron/__tests__/petLLMProxy.test.ts
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs'
+import { join } from 'path'
+import { tmpdir } from 'os'
 
 vi.mock('electron', () => ({
   app: {
-    getPath: vi.fn((name: string) => `/tmp/mock-${name}`),
+    getPath: vi.fn(),
   },
 }))
 
@@ -12,7 +15,8 @@ vi.mock('../logger', () => ({
   warn: vi.fn(),
 }))
 
-import { buildSystemPrompt, isSimilar, truncate, TRIGGER_DESCRIPTION } from '../petLLMProxy'
+import { buildSystemPrompt, isSimilar, truncate, TRIGGER_DESCRIPTION, loadLLMConfig } from '../petLLMProxy'
+import { app } from 'electron'
 
 describe('petLLMProxy', () => {
   describe('buildSystemPrompt', () => {
@@ -85,5 +89,79 @@ describe('petLLMProxy', () => {
       const long = 'a'.repeat(150)
       expect(truncate(long, 100)).toHaveLength(100)
     })
+  })
+})
+
+describe('loadLLMConfig', () => {
+  let tempDir: string
+  const mockGetPath = vi.mocked(app.getPath)
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'pet-llm-test-'))
+    mkdirSync(join(tempDir, '.claude'))
+    mockGetPath.mockImplementation((name: string) => join(tempDir, name === 'home' ? '' : name))
+  })
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true })
+  })
+
+  function writeSettings(gui: object, pet: object = {}) {
+    writeFileSync(join(tempDir, '.claude', 'gui-settings.json'), JSON.stringify(gui))
+    writeFileSync(join(tempDir, '.claude', 'buddy-pets.json'), JSON.stringify({ settings: pet }))
+  }
+
+  it('openai_compatible 从 openaiConfig 提取模型', async () => {
+    writeSettings({
+      authMethod: 'openai_compatible',
+      openaiConfig: { baseUrl: 'http://openai', apiKey: 'key', sonnetModel: '', haikuModel: 'gpt-4o-mini', opusModel: '' },
+      anthropicConfig: { baseUrl: 'http://anthropic', apiKey: 'key', sonnetModel: 'claude-sonnet', haikuModel: '', opusModel: '' },
+      geminiConfig: { baseUrl: 'http://gemini', apiKey: 'key', sonnetModel: '', haikuModel: '', opusModel: '' }
+    })
+    const config = await loadLLMConfig()
+    expect(config?.model).toBe('gpt-4o-mini')
+    expect(config?.baseUrl).toBe('http://openai')
+  })
+
+  it('gemini_api 从 geminiConfig 提取模型', async () => {
+    writeSettings({
+      authMethod: 'gemini_api',
+      openaiConfig: { baseUrl: 'http://openai', apiKey: 'key', sonnetModel: '', haikuModel: '', opusModel: '' },
+      anthropicConfig: { baseUrl: 'http://anthropic', apiKey: 'key', sonnetModel: 'claude-sonnet', haikuModel: '', opusModel: '' },
+      geminiConfig: { baseUrl: 'http://gemini', apiKey: 'key', sonnetModel: 'gemini-pro', haikuModel: '', opusModel: '' }
+    })
+    const config = await loadLLMConfig()
+    expect(config?.model).toBe('gemini-pro')
+    expect(config?.baseUrl).toBe('http://gemini')
+  })
+
+  it('anthropic_compatible 从 anthropicConfig 提取模型', async () => {
+    writeSettings({
+      authMethod: 'anthropic_compatible',
+      openaiConfig: { baseUrl: 'http://openai', apiKey: 'key', sonnetModel: '', haikuModel: '', opusModel: '' },
+      anthropicConfig: { baseUrl: 'http://anthropic', apiKey: 'key', sonnetModel: 'claude-sonnet', haikuModel: '', opusModel: '' },
+      geminiConfig: { baseUrl: 'http://gemini', apiKey: 'key', sonnetModel: '', haikuModel: '', opusModel: '' }
+    })
+    const config = await loadLLMConfig()
+    expect(config?.model).toBe('claude-sonnet')
+    expect(config?.baseUrl).toBe('http://anthropic')
+  })
+
+  it('未配置 apiKey 或 baseUrl 返回 null', async () => {
+    writeSettings({
+      authMethod: 'openai_compatible',
+      openaiConfig: { baseUrl: 'http://openai', apiKey: '', sonnetModel: 'gpt-4o', haikuModel: '', opusModel: '' }
+    })
+    const config = await loadLLMConfig()
+    expect(config).toBeNull()
+  })
+
+  it('buddy-pets 中 aiModel 优先于 provider 槽位', async () => {
+    writeSettings({
+      authMethod: 'openai_compatible',
+      openaiConfig: { baseUrl: 'http://openai', apiKey: 'key', sonnetModel: 'gpt-4o', haikuModel: '', opusModel: '' }
+    }, { aiModel: 'custom-pet-model' })
+    const config = await loadLLMConfig()
+    expect(config?.model).toBe('custom-pet-model')
   })
 })

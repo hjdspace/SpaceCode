@@ -106,20 +106,21 @@ function loadPetAiModel(): string | null {
   }
 }
 
-async function loadLLMConfig(): Promise<LLMConfig | null> {
+function getProviderConfig(gui: GuiSettings): ProviderConfig | undefined {
+  const method = gui.authMethod || 'openai_compatible'
+  if (method === 'openai_compatible') return gui.openaiConfig
+  if (method === 'gemini_api') return gui.geminiConfig
+  return gui.anthropicConfig
+}
+
+export async function loadLLMConfig(): Promise<LLMConfig | null> {
   const gui = loadGuiSettings()
   if (!gui) return null
 
-  // 按 authMethod 分支取对应 provider config（与 promptOptimizerIPC 一致）
-  const method = gui.authMethod || 'openai_compatible'
-  let cfg: ProviderConfig | undefined
-  if (method === 'openai_compatible') cfg = gui.openaiConfig
-  else if (method === 'gemini_api') cfg = gui.geminiConfig
-  else cfg = gui.anthropicConfig
-
+  const cfg = getProviderConfig(gui)
   if (!cfg?.apiKey || !cfg?.baseUrl) return null
 
-  // 模型优先级：pet 设置选中的 aiModel > provider 三槽位任一
+  // 统一从当前 provider 的三槽位提取模型（openai/gemini/anthropic 均使用相同字段）
   const model = loadPetAiModel() || cfg.sonnetModel || cfg.haikuModel || cfg.opusModel || ''
   if (!model) return null
 
