@@ -16,8 +16,7 @@ const activePet = computed(() => petStore.activePet)
 const mode = computed(() => petStore.mode)
 
 async function toggleMode() {
-  // 阶段 4 才实现 desktop 模式切换，这里先留空
-  // await petStore.setMode(mode.value === 'embedded' ? 'desktop' : 'embedded')
+  await petStore.setMode(mode.value === 'embedded' ? 'desktop' : 'embedded')
 }
 
 function onPetCreated() {

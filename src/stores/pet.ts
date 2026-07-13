@@ -121,6 +121,30 @@ export const usePetStore = defineStore('pet', () => {
     await persist()
   }
 
+  function syncToDesktopWindow(): void {
+    if (mode.value !== 'desktop' || !activePet.value || !config.value) return
+    api.pet.syncPetState({
+      pet: activePet.value,
+      runtimeState: runtimeState.value,
+      settings: config.value.settings,
+      locale: getLocale()
+    })
+  }
+
+  async function setMode(newMode: PetMode): Promise<void> {
+    if (!config.value) return
+    const oldMode = config.value.mode
+    config.value.mode = newMode
+    await persist()
+
+    if (newMode === 'desktop' && oldMode !== 'desktop') {
+      await api.pet.createDesktopWindow()
+      syncToDesktopWindow()
+    } else if (newMode === 'embedded' && oldMode !== 'embedded') {
+      await api.pet.destroyDesktopWindow()
+    }
+  }
+
   function triggerReaction(text: string): void {
     runtimeState.value.currentReaction = text
     runtimeState.value.reactionAt = Date.now()
@@ -130,6 +154,7 @@ export const usePetStore = defineStore('pet', () => {
       runtimeState.value.currentReaction = null
       runtimeState.value.reactionAt = null
     }, REACTION_DISPLAY_MS)
+    syncToDesktopWindow()
   }
 
   function triggerPetted(): void {
@@ -139,6 +164,7 @@ export const usePetStore = defineStore('pet', () => {
     pettedTimer = setTimeout(() => {
       runtimeState.value.isPetted = false
     }, PETTED_DURATION_MS)
+    syncToDesktopWindow()
   }
 
   function clearReaction(): void {
@@ -148,6 +174,7 @@ export const usePetStore = defineStore('pet', () => {
       clearTimeout(reactionTimer)
       reactionTimer = null
     }
+    syncToDesktopWindow()
   }
 
   return {
@@ -164,6 +191,8 @@ export const usePetStore = defineStore('pet', () => {
     addCustomPet,
     removeCustomPet,
     updatePosition,
+    setMode,
+    syncToDesktopWindow,
     triggerReaction,
     triggerPetted,
     clearReaction,

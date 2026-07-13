@@ -12,6 +12,10 @@ vi.mock('@/services/electronAPI', () => ({
       deleteAsset: vi.fn().mockResolvedValue(undefined),
       syncPetState: vi.fn(),
       generateReaction: vi.fn().mockResolvedValue(null),
+      createDesktopWindow: vi.fn().mockResolvedValue(undefined),
+      destroyDesktopWindow: vi.fn().mockResolvedValue(undefined),
+      updateWindowBounds: vi.fn().mockResolvedValue(undefined),
+      onWindowEvent: vi.fn().mockReturnValue(() => {}),
     }
   }
 }))
