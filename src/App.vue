@@ -125,6 +125,24 @@ const shouldShowEmbeddedPet = computed(() =>
   !petStore.isMuted
 )
 
+// 监听 mode 变化：desktop 窗口的创建/销毁已由 petStore.setMode 负责，
+// 此 watch 作为 App 层面的钩子保留，便于未来扩展（如埋点、动画过渡）。
+watch(() => petStore.mode, (newMode, oldMode) => {
+  if (newMode === 'desktop' && oldMode === 'embedded') {
+    // 切换到桌面模式时，embedded widget 自动隐藏（由 shouldShowEmbeddedPet 控制）
+    // desktop 窗口已由 petStore.setMode 创建
+  } else if (newMode === 'embedded' && oldMode === 'desktop') {
+    // 切回嵌入模式，desktop 窗口已由 petStore.setMode 销毁
+  }
+})
+
+// 监听 reaction 变化，同步到 desktop 窗口
+watch(() => petStore.runtimeState.currentReaction, () => {
+  if (petStore.mode === 'desktop') {
+    petStore.syncToDesktopWindow()
+  }
+})
+
 // H5 模式标记
 const h5Mode = isH5Mode()
 

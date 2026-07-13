@@ -28,6 +28,7 @@ export default defineConfig({
       'tests/lib/**/*.test.ts',
       'tests/stores/**/*.test.ts',
       'tests/im/**/*.test.ts',
+      'tests/integration/**/*.test.ts',
       'src/**/*.test.ts',
     ],
     exclude: [
@@ -36,6 +37,9 @@ export default defineConfig({
       // Old tests using Node.js native test runner (not vitest compatible)
       'tests/composables/useChatCommands.rewind.test.ts',
       'tests/stores/chat.rewind.test.ts',
+      'tests/integration/code-rewind-confirm-flow.test.ts',
+      'tests/integration/rewind-flow.test.ts',
+      'tests/integration/rewind-input-restoration.test.ts',
     ],
   },
 })
