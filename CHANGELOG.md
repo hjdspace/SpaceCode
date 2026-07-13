@@ -1,3 +1,29 @@
+## [0.6.6](https://github.com/hjdspace/SpaceCode/compare/v0.6.5...v0.6.6) (2026-07-13)
+
+### Features
+
+* **pet:** 完成桌面宠物系统完整实现（独立窗口、悬浮嵌入双模式）
+* **pet:** 新增 18 种内置宠物物种和精灵 SVG 组件
+* **pet:** 新增 petStore Pinia 状态管理与 API 聚合层
+* **pet:** 新增 petLLMProxy LLM 代理深模块
+* **pet:** 新增独立窗口管理（petWindowManager）及 IPC 集成
+* **pet:** 新增宠物设置面板（Card/PreviewHeader/Gallery/Creator/BehaviorConfig）
+* **pet:** 新增 usePetDrag / usePetReaction composable
+* **pet:** 新增 PetReactionBubble 反应气泡组件
+* **pet:** 新增上下文事件触发宠物反应
+* **chat-tools:** 新增搜索额外工具和执行额外工具功能
+
+### Bug Fixes
+
+* **chat/toolCard:** 修复执行额外工具无结果时的显示文本
+
+### Refactor
+
+* **pet:** 重构 AI 宠物功能适配多模型配置
+* **pet:** 优化宠物系统多项交互与初始化逻辑
+* **pet sprites:** 重构所有宠物精灵组件，优化视觉表现与交互细节
+* **chat-tools:** 完成所有工具卡片的重设计对齐
+
 ## [0.6.5](https://github.com/hjdspace/SpaceCode/compare/v0.6.4...v0.6.5) (2026-07-13)
 
 ### Features
