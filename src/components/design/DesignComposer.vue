@@ -186,7 +186,8 @@ import {
   Upload,
 } from 'lucide-vue-next'
 import { useDesignStore } from '@/stores/design'
-import { useTurnStore, useChatSessionStore } from '@/stores/chat'
+import { useTurnStore } from '@/stores/turn'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { useMcpStore } from '@/stores/mcp'
 import { useDesignSession } from '@/composables/useDesignSession'
 import { api } from '@/services/electronAPI'

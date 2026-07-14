@@ -7,7 +7,7 @@
  * - Stash hint display
  */
 import { ref } from 'vue'
-import { useChatSessionStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
 import type { Attachment, ImageAttachment } from '@/composables/types'
 
 // ── Pure logic (exported for testing) ──────────────────────────

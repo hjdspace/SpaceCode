@@ -23,6 +23,8 @@ export const TOOL_COMPONENT_MAP: Record<string, () => Promise<any>> = {
   'navigate': () => import('./BrowserUseToolCard.vue'),
   'BrowserUse': () => import('./BrowserUseToolCard.vue'),
   'browser-use': () => import('./BrowserUseToolCard.vue'),
+  'SearchExtraTools': () => import('./SearchExtraToolsToolCard.vue'),
+  'ExecuteExtraTool': () => import('./ExecuteExtraToolCard.vue'),
 }
 
 const componentCache = new Map<string, Component>()

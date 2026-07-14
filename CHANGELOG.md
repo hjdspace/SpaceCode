@@ -1,3 +1,65 @@
+## [0.6.6](https://github.com/hjdspace/SpaceCode/compare/v0.6.5...v0.6.6) (2026-07-13)
+
+### Features
+
+* **pet:** 完成桌面宠物系统完整实现（独立窗口、悬浮嵌入双模式）
+* **pet:** 新增 18 种内置宠物物种和精灵 SVG 组件
+* **pet:** 新增 petStore Pinia 状态管理与 API 聚合层
+* **pet:** 新增 petLLMProxy LLM 代理深模块
+* **pet:** 新增独立窗口管理（petWindowManager）及 IPC 集成
+* **pet:** 新增宠物设置面板（Card/PreviewHeader/Gallery/Creator/BehaviorConfig）
+* **pet:** 新增 usePetDrag / usePetReaction composable
+* **pet:** 新增 PetReactionBubble 反应气泡组件
+* **pet:** 新增上下文事件触发宠物反应
+* **chat-tools:** 新增搜索额外工具和执行额外工具功能
+
+### Bug Fixes
+
+* **chat/toolCard:** 修复执行额外工具无结果时的显示文本
+
+### Refactor
+
+* **pet:** 重构 AI 宠物功能适配多模型配置
+* **pet:** 优化宠物系统多项交互与初始化逻辑
+* **pet sprites:** 重构所有宠物精灵组件，优化视觉表现与交互细节
+* **chat-tools:** 完成所有工具卡片的重设计对齐
+
+## [0.6.5](https://github.com/hjdspace/SpaceCode/compare/v0.6.4...v0.6.5) (2026-07-13)
+
+### Features
+
+* **im:** 新增 IM 集成功能，支持多即时通讯平台接入
+* **im:** 实现 IM adapter common layer（Slice 0a + 0b），含 6 个核心模块、8 个支持模块，103 个单元测试全部通过
+* **wechat:** 实现微信扫码绑定登录功能及适配器优化
+* **im-server:** 新增引擎错误处理与配置持久化功能
+* 新增伯克希尔投研框架全量技能与工具
+* **i18n:** 新增投资分类的多语言支持与分类映射
+
+### Bug Fixes
+
+* **design-system-picker:** 修复测试用例中的函数名和参数不匹配问题
+* **imServer:** 修复流式事件处理中数据获取错误的问题
+
+### Refactor
+
+* **arch:** 完成架构审查 #4 #5 #6——electronAPI 按领域拆分、IPC 工厂抽取，并删除 chat.ts 重导出 shim
+* **turn:** 拆分 turn god object 为三个深模块，并强制 ClaudeCodeApi 契约
+* **turn:** 提取 TurnEventReducer 深模块，9 个事件处理函数从 index.ts 抽出
+* 实现 Engine Gateway 并迁移原有 h5EngineService 逻辑
+* 整体优化项目初始化加载与性能表现
+* **chat:** 优化模型二级子菜单定位逻辑
+* **wechat adapter:** 为配对处理函数加载配置，并新增配对测试
+* 重构代理启动逻辑，将 start 改为 ensureRunning
+
+### Documentation
+
+* 新增 Agent skills 与项目文档
+
+### Chore
+
+* 调整开发配置与修复渲染、认证相关问题
+* **i18n:** 修改中文本地化里 catInvestment 的翻译
+
 ## [0.6.4](https://github.com/hjdspace/SpaceCode/compare/v0.6.3...v0.6.4) (2026-07-09)
 
 ### Features

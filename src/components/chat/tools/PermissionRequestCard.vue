@@ -110,7 +110,7 @@ import {
   Check, X, CheckCheck, Loader2, CheckCircle, XCircle,
   FileEdit, Terminal as TerminalIcon, FileText as FileTextIcon, Shield
 } from 'lucide-vue-next'
-import { useTurnStore } from '@/stores/chat'
+import { useTurnStore } from '@/stores/turn'
 
 interface Props {
   messageId: string

@@ -17,7 +17,8 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@electron/*": ["electron/*"]
     },
     "types": ["node", "electron"]
   },
@@ -28,7 +29,8 @@
     "src/**/*.vue",
     "electron/**/*.ts",
     "electron/__tests__/**/*.ts",
-    "tests/composables/**/*.ts"
+    "tests/composables/**/*.ts",
+    "tests/im/**/*.ts"
   ],
   "exclude": [
     "engine/**/*"

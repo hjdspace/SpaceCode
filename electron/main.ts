@@ -26,6 +26,11 @@ import { initLogger, info, warn, error, debug, isDebugMode, ipc as logIpc, trace
 import { proxyManager } from './proxyManager'
 import type { ProxyConfig } from './proxy/types'
 import { rtkManager } from './rtkManager'
+import { getImSidecarManager } from './imSidecarManager'
+import { PetFileService } from './petFileService'
+import { PetLLMProxy } from './petLLMProxy'
+import { PetWindowManager } from './petWindowManager'
+import { registerPetIpcHandlers } from './petIpcHandlers'
 
 // ============================================================
 // App Startup
@@ -72,6 +77,7 @@ app.commandLine.appendSwitch('no-sandbox')
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
+let petWindowManager: PetWindowManager | null = null
 
 type ExternalEditor = 'vscode' | 'visualstudio' | 'cursor' | 'fileExplorer' | 'terminal' | 'gitBash' | 'wsl' | 'androidStudio'
 
@@ -384,7 +390,7 @@ function createWindow() {
     // typically isn't bound to :5173 until ~1–2 s after Electron's `ready` event,
     // so a naive `loadURL` races and produces a black screen with
     // ERR_CONNECTION_REFUSED. Poll until the server answers, then load.
-    waitForViteAndLoad(mainWindow, 'http://localhost:5173')
+    waitForViteAndLoad(mainWindow, 'http://127.0.0.1:5173')
   } else {
     mainWindow.loadFile(join(__dirname, '../dist/index.html'))
   }
@@ -595,6 +601,76 @@ function createTray() {
 }
 
 // ============================================================
+// IM Integration IPC Handlers
+// ============================================================
+
+function registerImIPCHandlers(): void {
+  const manager = getImSidecarManager()
+
+  ipcMain.handle('im:getConfig', () => {
+    return manager.getAdapterConfig()
+  })
+
+  ipcMain.handle('im:updateConfig', (_, config: any) => {
+    manager.updateAdapterConfig(config)
+  })
+
+  ipcMain.handle('im:startServer', async () => {
+    await manager.startServer()
+  })
+
+  ipcMain.handle('im:stopServer', () => {
+    manager.stopServer()
+  })
+
+  ipcMain.handle('im:getServerStatus', () => {
+    return manager.getServerStatus()
+  })
+
+  ipcMain.handle('im:startAdapter', async (_, platform: string) => {
+    await manager.startAdapter(platform as any)
+  })
+
+  ipcMain.handle('im:stopAdapter', (_, platform: string) => {
+    manager.stopAdapter(platform as any)
+  })
+
+  ipcMain.handle('im:getAdapterStatuses', () => {
+    return manager.getAllAdapterStatuses()
+  })
+
+  ipcMain.handle('im:generatePairingCode', () => {
+    return manager.generatePairingCode()
+  })
+
+  ipcMain.handle('im:clearPairingCode', () => {
+    manager.clearPairingCode()
+  })
+
+  // ── WeChat QR Login ──
+  ipcMain.handle('im:wechat:startQrLogin', async () => {
+    return manager.startWechatQrLogin()
+  })
+
+  ipcMain.handle('im:wechat:checkQrStatus', async (_, qrcodeId: string) => {
+    return manager.checkWechatQrStatus(qrcodeId)
+  })
+
+  ipcMain.handle('im:wechat:unbind', () => {
+    manager.unbindWechat()
+  })
+
+  ipcMain.handle('im:wechat:isBound', () => {
+    return manager.isWechatBound()
+  })
+
+  // Cleanup on app quit
+  app.on('before-quit', () => {
+    manager.destroy()
+  })
+}
+
+// ============================================================
 // App Lifecycle
 // ============================================================
 app.whenReady().then(() => {
@@ -657,9 +733,45 @@ info('Startup', 'CuaDriver IPC handlers registered')
   registerH5AccessIPCHandlers()
   info('Startup', 'H5 Access IPC handlers registered')
 
+  // Register IM Integration IPC handlers
+  registerImIPCHandlers()
+  info('Startup', 'IM Integration IPC handlers registered')
+
   // Register RTK IPC handlers
   registerRtkIPCHandlers()
   info('Startup', 'RTK IPC handlers registered')
+
+  // Register Pet IPC handlers (desktop pet system)
+  ;(async () => {
+    try {
+      const petFileService = new PetFileService()
+      const petLLMProxy = new PetLLMProxy()
+      await petFileService.init()
+      petWindowManager = new PetWindowManager()
+
+      registerPetIpcHandlers({
+        petFileService,
+        petLLMProxy,
+        petWindowManager,
+        getMainWindow: () => mainWindow,
+        getLocale: (): 'zh-CN' | 'en-US' => {
+          try {
+            const settingsPath = join(app.getPath('home'), '.claude', 'gui-settings.json')
+            if (!existsSync(settingsPath)) return 'zh-CN'
+            const raw = readFileSync(settingsPath, 'utf-8')
+            if (!raw.trim()) return 'zh-CN'
+            const settings = JSON.parse(raw)
+            return settings?.language === 'en-US' ? 'en-US' : 'zh-CN'
+          } catch {
+            return 'zh-CN'
+          }
+        }
+      })
+      info('Startup', 'Pet IPC handlers registered')
+    } catch (err) {
+      error('Startup', 'Failed to initialize pet module', err)
+    }
+  })()
 
   // Auto-start H5 server if it was previously enabled
   ;(async () => {
@@ -804,6 +916,9 @@ info('Startup', 'CuaDriver IPC handlers registered')
 
 app.on('window-all-closed', () => {
   info('App', 'All windows closed')
+  if (petWindowManager) {
+    petWindowManager.destroy()
+  }
   destroyTray()
   app.quit()
 })

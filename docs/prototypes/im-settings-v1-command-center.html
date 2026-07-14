@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IM 集成 - V1 Command Center</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   Design Tokens (from app _variables.scss)
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --font-display: 'Space Grotesk', 'SF Pro Display', system-ui, sans-serif;
+  --font-body: 'IBM Plex Sans', 'SF Pro Text', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas, monospace;
+  --font-size-base: 14px;
+
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  --bg-primary: #f8f9fb;
+  --bg-secondary: #f0f1f5;
+  --bg-tertiary: #e7e9ef;
+  --bg-elevated: #ffffff;
+  --bg-hover: #e4e6ec;
+  --bg-active: #dbdde5;
+
+  --surface-soft: #f3f4f8;
+  --surface-card: #ecedf2;
+
+  --text-primary: #18191f;
+  --text-secondary: #44475a;
+  --text-muted: #5c5f7a;
+  --text-disabled: #9da1b8;
+
+  --accent-primary: #0d9488;
+  --accent-primary-hover: #14b8a6;
+  --accent-primary-glow: rgba(13, 148, 136, 0.12);
+
+  --success: #059669;
+  --success-glow: rgba(5, 150, 105, 0.15);
+  --warning: #d97706;
+  --warning-glow: rgba(217, 119, 6, 0.15);
+  --error: #dc2626;
+  --error-glow: rgba(220, 38, 38, 0.15);
+
+  --border-subtle: rgba(24, 25, 31, 0.05);
+  --border-default: rgba(24, 25, 31, 0.09);
+  --border-strong: rgba(24, 25, 31, 0.15);
+
+  --shadow-sm: 0 1px 2px rgba(24, 25, 31, 0.06);
+  --shadow-md: 0 4px 12px rgba(24, 25, 31, 0.08);
+  --shadow-lg: 0 8px 24px rgba(24, 25, 31, 0.11);
+}
+
+/* Dark theme support */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary: #0d0d0d;
+    --bg-secondary: #141414;
+    --bg-tertiary: #1a1a1a;
+    --bg-elevated: #1f1f1f;
+    --bg-hover: #262626;
+    --bg-active: #2e2e2e;
+    --surface-soft: #121212;
+    --surface-card: #141414;
+    --text-primary: #f5f5f5;
+    --text-secondary: #a3a3a3;
+    --text-muted: #737373;
+    --text-disabled: #525252;
+    --accent-primary: #3b82f6;
+    --accent-primary-hover: #60a5fa;
+    --accent-primary-glow: rgba(59, 130, 246, 0.25);
+    --success: #22c55e;
+    --success-glow: rgba(34, 197, 94, 0.2);
+    --warning: #f59e0b;
+    --warning-glow: rgba(245, 158, 11, 0.2);
+    --error: #ef4444;
+    --error-glow: rgba(239, 68, 68, 0.2);
+    --border-subtle: rgba(255, 255, 255, 0.04);
+    --border-default: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.15);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  }
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-body);
+  font-size: var(--font-size-base);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Page Layout
+   ═══════════════════════════════════════════════════════════════ */
+.im-page {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 40px 48px;
+}
+
+/* Page Header */
+.page-header {
+  margin-bottom: 32px;
+}
+
+.page-title {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.page-desc {
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Server Status Bar
+   ═══════════════════════════════════════════════════════════════ */
+.server-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  margin-bottom: 24px;
+  transition: border-color var(--transition-fast);
+}
+
+.server-bar.running {
+  border-color: var(--success);
+  border-width: 1.5px;
+}
+
+.server-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.server-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-muted);
+  transition: all var(--transition-normal);
+}
+
+.server-status-dot.running {
+  background: var(--success);
+  box-shadow: 0 0 0 3px var(--success-glow);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 3px var(--success-glow); }
+  50% { box-shadow: 0 0 0 6px transparent; }
+}
+
+.server-status-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.server-status-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.server-status-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.server-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Buttons
+   ═══════════════════════════════════════════════════════════════ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn-primary {
+  background: var(--accent-primary);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: var(--accent-primary-hover);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+}
+
+.btn-secondary:hover {
+  background: var(--bg-hover);
+}
+
+.btn-danger {
+  background: transparent;
+  color: var(--error);
+  border: 1px solid var(--error);
+}
+
+.btn-danger:hover {
+  background: var(--error-glow);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 8px 12px;
+}
+
+.btn-ghost:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.btn-icon {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-icon:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.btn-icon.danger:hover {
+  background: var(--error-glow);
+  color: var(--error);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Main Layout: Platform Sidebar + Config Panel
+   ═══════════════════════════════════════════════════════════════ */
+.platform-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+/* Platform Sidebar */
+.platform-sidebar {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 8px;
+  height: fit-content;
+}
+
+.platform-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font-body);
+  position: relative;
+}
+
+.platform-nav-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.platform-nav-item.active {
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.platform-nav-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 16px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.platform-nav-item.active .platform-nav-icon {
+  background: var(--accent-primary);
+  color: #fff;
+}
+
+.platform-nav-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.platform-nav-name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.platform-nav-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.platform-nav-item.active .platform-nav-status {
+  color: var(--accent-primary);
+  opacity: 0.8;
+}
+
+.platform-nav-badge {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 4px var(--success-glow);
+}
+
+/* Config Panel */
+.config-panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.config-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.config-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+}
+
+.config-panel-title-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+}
+
+.adapter-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.adapter-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.adapter-status-badge.running {
+  background: var(--success-glow);
+  color: var(--success);
+}
+
+.adapter-status-badge.stopped {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.adapter-status-badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.config-panel-body {
+  padding: 20px;
+}
+
+/* Form Elements */
+.form-group {
+  margin-bottom: 18px;
+}
+
+.form-group:last-child {
+  margin-bottom: 0;
+}
+
+.form-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.form-hint {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 5px;
+}
+
+.form-input {
+  width: 100%;
+  padding: 10px 14px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.form-input::placeholder {
+  color: var(--text-muted);
+}
+
+.form-input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-primary-glow);
+}
+
+.form-input.mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 16px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Pairing Section
+   ═══════════════════════════════════════════════════════════════ */
+.pairing-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.pairing-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.pairing-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+}
+
+.pairing-body {
+  padding: 20px;
+}
+
+.pairing-code-display {
+  text-align: center;
+  padding: 24px 20px;
+  background: var(--surface-soft);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+  position: relative;
+  overflow: hidden;
+}
+
+.pairing-code-display::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, transparent 0%, var(--accent-primary-glow) 50%, transparent 100%);
+  opacity: 0.5;
+}
+
+.pairing-code-text {
+  position: relative;
+  font-family: var(--font-mono);
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: 10px;
+  color: var(--accent-primary);
+  margin-bottom: 8px;
+}
+
+.pairing-code-expiry {
+  position: relative;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.pairing-code-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* Paired Users */
+.paired-users {
+  margin-top: 16px;
+}
+
+.paired-users-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.paired-users-count {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.paired-user-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--surface-soft);
+  border-radius: var(--radius-sm);
+  margin-bottom: 6px;
+  transition: background var(--transition-fast);
+}
+
+.paired-user-row:hover {
+  background: var(--bg-hover);
+}
+
+.paired-user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.paired-user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-primary-hover));
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.paired-user-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.paired-user-id {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Default Dir Section
+   ═══════════════════════════════════════════════════════════════ */
+.dir-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+}
+
+.dir-card-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  margin-bottom: 4px;
+}
+
+.dir-card-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Design Variant Label
+   ═══════════════════════════════════════════════════════════════ */
+.variant-label {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  padding: 6px 14px;
+  background: var(--accent-primary);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-md);
+  z-index: 100;
+  font-family: var(--font-display);
+}
+
+/* SVG icons */
+svg { display: block; }
+</style>
+</head>
+<body>
+
+<div class="variant-label">V1 Command Center</div>
+
+<div class="im-page">
+  <!-- Page Header -->
+  <div class="page-header">
+    <h1 class="page-title">IM 集成</h1>
+    <p class="page-desc">配置即时通讯平台适配器，通过 Telegram、飞书、钉钉等平台与 SpaceCode 对话</p>
+  </div>
+
+  <!-- Server Status Bar -->
+  <div class="server-bar running" id="serverBar">
+    <div class="server-bar-left">
+      <div class="server-status-dot running" id="serverDot"></div>
+      <div class="server-status-text">
+        <span class="server-status-label" id="serverStatusLabel">IM 服务器运行中</span>
+        <span class="server-status-meta" id="serverStatusMeta">ws://127.0.0.1:3456 · PID 18432</span>
+      </div>
+    </div>
+    <div class="server-bar-right">
+      <button class="btn btn-secondary btn-sm" onclick="toggleServer()">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+        停止服务器
+      </button>
+    </div>
+  </div>
+
+  <!-- Platform Layout: Sidebar + Config -->
+  <div class="platform-layout">
+    <!-- Platform Sidebar -->
+    <div class="platform-sidebar">
+      <button class="platform-nav-item active" onclick="selectPlatform(this, 'telegram')">
+        <div class="platform-nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 4.5L2.5 12.5l6 2 2 6 4-4 5 4z"/></svg>
+        </div>
+        <div class="platform-nav-info">
+          <div class="platform-nav-name">Telegram</div>
+          <div class="platform-nav-status">
+            <span class="platform-nav-badge"></span>
+            运行中
+          </div>
+        </div>
+      </button>
+
+      <button class="platform-nav-item" onclick="selectPlatform(this, 'feishu')">
+        <div class="platform-nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 12l10 10 10-10z"/></svg>
+        </div>
+        <div class="platform-nav-info">
+          <div class="platform-nav-name">飞书</div>
+          <div class="platform-nav-status">未启动</div>
+        </div>
+      </button>
+
+      <button class="platform-nav-item" onclick="selectPlatform(this, 'dingtalk')">
+        <div class="platform-nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg>
+        </div>
+        <div class="platform-nav-info">
+          <div class="platform-nav-name">钉钉</div>
+          <div class="platform-nav-status">未启动</div>
+        </div>
+      </button>
+
+      <button class="platform-nav-item" onclick="selectPlatform(this, 'wechat')">
+        <div class="platform-nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l8-8 8 8M5 9v10h14V9"/></svg>
+        </div>
+        <div class="platform-nav-info">
+          <div class="platform-nav-name">微信</div>
+          <div class="platform-nav-status">未启动</div>
+        </div>
+      </button>
+
+      <button class="platform-nav-item" onclick="selectPlatform(this, 'whatsapp')">
+        <div class="platform-nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0z"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+        </div>
+        <div class="platform-nav-info">
+          <div class="platform-nav-name">WhatsApp</div>
+          <div class="platform-nav-status">未启动</div>
+        </div>
+      </button>
+    </div>
+
+    <!-- Config Panel -->
+    <div class="config-panel">
+      <div class="config-panel-header">
+        <div class="config-panel-title">
+          <div class="config-panel-title-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 4.5L2.5 12.5l6 2 2 6 4-4 5 4z"/></svg>
+          </div>
+          Telegram
+        </div>
+        <div class="adapter-toggle">
+          <span class="adapter-status-badge running" id="adapterBadge">运行中</span>
+          <button class="btn btn-danger btn-sm" onclick="toggleAdapter()">停止适配器</button>
+        </div>
+      </div>
+
+      <div class="config-panel-body">
+        <div class="form-group">
+          <label class="form-label">Bot Token</label>
+          <input type="password" class="form-input mono" placeholder="123456:ABC-DEF..." value="••••••••••••••••••••" />
+          <span class="form-hint">从 @BotFather 获取</span>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">默认工作目录</label>
+          <input type="text" class="form-input mono" placeholder="/home/user/projects" value="/home/user/spacecode-projects" />
+        </div>
+
+        <div class="form-actions">
+          <button class="btn btn-primary">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            保存配置
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pairing Section -->
+  <div class="pairing-card">
+    <div class="pairing-header">
+      <div class="pairing-title">配对管理</div>
+      <button class="btn btn-secondary btn-sm">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+        生成配对码
+      </button>
+    </div>
+    <div class="pairing-body">
+      <div class="pairing-code-display">
+        <div class="pairing-code-text">7K3M9X</div>
+        <div class="pairing-code-expiry">过期时间: 47m 32s</div>
+      </div>
+
+      <div class="paired-users">
+        <div class="paired-users-title">
+          已配对用户
+          <span class="paired-users-count">2</span>
+        </div>
+
+        <div class="paired-user-row">
+          <div class="paired-user-info">
+            <div class="paired-user-avatar">Y</div>
+            <div>
+              <div class="paired-user-name">雅坤</div>
+              <div class="paired-user-id">telegram:88472915</div>
+            </div>
+          </div>
+          <button class="btn-icon danger" title="移除">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </button>
+        </div>
+
+        <div class="paired-user-row">
+          <div class="paired-user-info">
+            <div class="paired-user-avatar">L</div>
+            <div>
+              <div class="paired-user-name">Liu Wei</div>
+              <div class="paired-user-id">telegram:62910483</div>
+            </div>
+          </div>
+          <button class="btn-icon danger" title="移除">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Default Project Dir -->
+  <div class="dir-card">
+    <div class="dir-card-title">默认项目目录</div>
+    <p class="dir-card-desc">新会话的默认工作目录</p>
+    <div class="form-group" style="margin: 0;">
+      <input type="text" class="form-input mono" placeholder="/home/user/projects" value="/home/user/spacecode-projects" />
+    </div>
+  </div>
+</div>
+
+<script>
+function selectPlatform(el, platform) {
+  document.querySelectorAll('.platform-nav-item').forEach(item => item.classList.remove('active'));
+  el.classList.add('active');
+}
+
+function toggleServer() {
+  const bar = document.getElementById('serverBar');
+  const dot = document.getElementById('serverDot');
+  const label = document.getElementById('serverStatusLabel');
+  const meta = document.getElementById('serverStatusMeta');
+  const btn = event.target.closest('button');
+
+  if (bar.classList.contains('running')) {
+    bar.classList.remove('running');
+    dot.classList.remove('running');
+    label.textContent = 'IM 服务器未运行';
+    meta.textContent = '点击启动以开始接收 IM 消息';
+    btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg> 启动服务器';
+    btn.className = 'btn btn-primary btn-sm';
+  } else {
+    bar.classList.add('running');
+    dot.classList.add('running');
+    label.textContent = 'IM 服务器运行中';
+    meta.textContent = 'ws://127.0.0.1:3456 · PID 18432';
+    btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg> 停止服务器';
+    btn.className = 'btn btn-secondary btn-sm';
+  }
+}
+
+function toggleAdapter() {
+  const badge = document.getElementById('adapterBadge');
+  const btn = event.target.closest('button');
+
+  if (badge.classList.contains('running')) {
+    badge.classList.remove('running');
+    badge.classList.add('stopped');
+    badge.textContent = '已停止';
+    btn.textContent = '启动适配器';
+    btn.className = 'btn btn-primary btn-sm';
+  } else {
+    badge.classList.remove('stopped');
+    badge.classList.add('running');
+    badge.textContent = '运行中';
+    btn.textContent = '停止适配器';
+    btn.className = 'btn btn-danger btn-sm';
+  }
+}
+</script>
+</body>
+</html>

@@ -179,11 +179,12 @@ body.h5-mode {
       right: 0 !important;
       left: auto !important;
     }
+  }
 
-    .model-submenu {
-      min-width: 200px !important;
-      max-width: calc(100vw - 24px) !important;
-    }
+  // 模型二级子菜单 — Teleport 到 body，需单独定位
+  .model-submenu {
+    min-width: 200px !important;
+    max-width: calc(100vw - 24px) !important;
   }
 
   // 工具栏按钮缩小

@@ -1,5 +1,6 @@
 import { useDesignStore } from '@/stores/design'
-import { useTurnStore, useChatSessionStore } from '@/stores/chat'
+import { useTurnStore } from '@/stores/turn'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { api } from '@/services/electronAPI'
 import { findFirstQuestionForm, splitOnQuestionForms } from '@/utils/design/questionForm'
 import { buildPreamble } from '@/lib/design/templates'

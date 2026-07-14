@@ -58,6 +58,13 @@ import type {
   BrowserUseAgentConfig,
 } from '@/types/browserUse'
 
+import type {
+  PetConfig,
+  PetSyncPayload,
+  PetWindowEvent,
+  PetReactionRequest,
+} from './pet'
+
 // ── 子接口定义 ──────────────────────────────────────────────────
 
 export interface ElectronWindowAPI {
@@ -257,6 +264,34 @@ export interface ElectronMcpAPI {
   getActiveMcpNames: () => Promise<string[]>
 }
 
+export interface ElectronPetAPI {
+  readConfig: () => Promise<PetConfig | null>
+  writeConfig: (config: PetConfig) => Promise<void>
+  saveAsset: (srcPath: string, petId: string) => Promise<string>
+  deleteAsset: (relativePath: string) => Promise<void>
+  generateReaction: (req: PetReactionRequest) => Promise<string | null>
+  onWindowEvent: (callback: (event: PetWindowEvent) => void) => () => void
+  createDesktopWindow: () => Promise<void>
+  destroyDesktopWindow: () => Promise<void>
+  updateWindowBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>
+  syncPetState: (state: PetSyncPayload) => void
+}
+
+/**
+ * PetWindowAPI — petPreload.ts 中通过 contextBridge.exposeInMainWorld('petWindowAPI', ...)
+ * 暴露给独立宠物窗口渲染进程的 API 类型声明。
+ *
+ * 注意：此接口与 src/pet-window/pet-window.d.ts 中的声明通过接口合并合并，
+ * 独立窗口通过 window.petWindowAPI 访问。
+ */
+export interface PetWindowAPI {
+  getInitialState: () => Promise<any>
+  onStateUpdate: (handler: (state: any) => void) => () => void
+  emitWindowEvent: (event: any) => void
+  requestReaction: (req: any) => Promise<string | null>
+  getLocale: () => Promise<'zh-CN' | 'en-US'>
+}
+
 export interface ElectronComputerUseAPI {
   getStatus: () => Promise<CuaDriverStatus>
   install: () => Promise<{ success: boolean; error?: string }>
@@ -378,6 +413,19 @@ export interface ElectronUpdateAPI {
   onError: (callback: (error: string) => void) => () => void
 }
 
+export interface ElectronImWechatAPI {
+  startQrLogin: () => Promise<{ qrcodeUrl: string; qrcodeId: string }>
+  checkQrStatus: (qrcodeId: string) => Promise<{
+    status: 'waiting' | 'scanned' | 'confirmed' | 'expired'
+    accountId?: string
+    botToken?: string
+    baseUrl?: string
+    userId?: string
+  }>
+  unbind: () => Promise<void>
+  isBound: () => Promise<boolean>
+}
+
 export interface ElectronCronAPI {
   list: (projectRoot: string) => Promise<CronTask[]>
   create: (projectRoot: string, task: Omit<CronTask, 'id'>) => Promise<CronTask | null>
@@ -479,6 +527,7 @@ export interface ElectronAPI {
   trace: ElectronTraceAPI
   session: ElectronSessionAPI
   mcp: ElectronMcpAPI
+  pet: ElectronPetAPI
   computerUse: ElectronComputerUseAPI
   browserUse: ElectronBrowserUseAPI
   skills: ElectronSkillsAPI
@@ -523,6 +572,20 @@ export interface ElectronAPI {
     exportArtifact: (options: { filePath: string; format: 'html' | 'zip' | 'pdf' }) => Promise<void>
     onFileChanged: (callback: (event: { sessionId: string; filepath: string }) => void) => () => void
   }
+
+  im: {
+    getConfig: () => Promise<unknown>
+    updateConfig: (config: unknown) => Promise<void>
+    startServer: () => Promise<void>
+    stopServer: () => Promise<void>
+    getServerStatus: () => Promise<{ running: boolean; port?: number; healthy?: boolean }>
+    startAdapter: (platform: string) => Promise<void>
+    stopAdapter: (platform: string) => Promise<void>
+    getAdapterStatuses: () => Promise<Record<string, { running: boolean; pid?: number; port?: number }>>
+    generatePairingCode: () => Promise<{ code: string; expiresAt: number }>
+    clearPairingCode: () => Promise<void>
+    wechat: ElectronImWechatAPI
+  }
 }
 
 // ── Window 全局声明 ─────────────────────────────────────────────
@@ -530,6 +593,7 @@ export interface ElectronAPI {
 declare global {
   interface Window {
     electronAPI: ElectronAPI | undefined
+    petWindowAPI?: PetWindowAPI
   }
 }
 

@@ -75,6 +75,12 @@ watch(() => props.visible, async (visible) => {
   }
 })
 
+onMounted(async () => {
+  if (!props.visible) return
+  await startServer()
+  startStatusPolling()
+})
+
 async function startServer() {
   try {
     qrData.value = await api.mobile.startServer()

@@ -13,8 +13,7 @@ import { app } from 'electron'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { warn, error as logError } from './logger'
-import { findCuaDriverBinary } from './cuaDriverService'
-import { getBrowserUseMcpServerConfig } from './browserUseService'
+import { builtinNameFromServerKey, resolveBuiltinMcp } from './mcpConfigResolver'
 
 /** 内置 MCP 服务器的来源标记，与渲染层 BUILTIN_MCP_SOURCE 保持一致 */
 const BUILTIN_SOURCE = 'builtin'
@@ -202,27 +201,20 @@ export function buildEnabledMcpConfig(): McpJsonConfig | null {
       }
       mcpServers[resolvedName] = cliConfig
 
-      // cua-driver 特殊处理：解析实际二进制路径（内置或 PATH）
-      // 覆盖 config.command 为绝对路径，确保 CLI 能找到二进制。
-      // 如果找不到二进制（未安装），保留原始 'cua-driver' 命令名 —
-      // CLI 启动时该 MCP 服务器会失败，但不会影响其他服务器。
-      if (resolvedName === 'sc-computer-use' && cliConfig.type === 'stdio') {
-        const driverPath = findCuaDriverBinary()
-        if (driverPath) {
-          cliConfig.command = driverPath
-        }
-      }
-
-      // browser-use 特殊处理：解析 Python 路径 + bridge.py 路径 + 环境变量。
-      // browser-use 是 Python MCP 服务（bridge.py --mcp），需要 Python 3.11+
-      // 和 browser-use 包。如果 Python 或 bridge.py 不可用，保留原始命令 —
-      // CLI 启动时该 MCP 服务器会失败，但不会影响其他服务器。
-      if (resolvedName === 'browser-use' && cliConfig.type === 'stdio') {
-        const buConfig = getBrowserUseMcpServerConfig()
-        if (buConfig) {
-          cliConfig.command = buConfig.command
-          cliConfig.args = buConfig.args
-          cliConfig.env = buConfig.env
+      // 内置 MCP 服务器（cua-driver / browser-use）路径解析委托给 mcpConfigResolver，
+      // 与 mcp:probeServer handler 共享同一份解析逻辑。
+      // 缺失依赖时保留原始命令——CLI 启动时该服务器会失败，但不影响其他服务器。
+      if (cliConfig.type === 'stdio') {
+        const builtin = builtinNameFromServerKey(resolvedName)
+        if (builtin) {
+          const resolution = resolveBuiltinMcp(builtin)
+          if (resolution.status === 'resolved') {
+            cliConfig.command = resolution.config.command
+            if (resolution.config.args) cliConfig.args = resolution.config.args
+            if (resolution.config.env) {
+              cliConfig.env = { ...cliConfig.env, ...resolution.config.env }
+            }
+          }
         }
       }
     }

@@ -67,7 +67,8 @@ import CurrentTurnChangeCard from './CurrentTurnChangeCard.vue'
 import ArtifactSummaryCard from './ArtifactSummaryCard.vue'
 import { MessageSquare } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
-import { useChatSessionStore, useTurnStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
+import { useTurnStore } from '@/stores/turn'
 import { getCompletedTurnTargets, type RewindTurnTarget } from '@/utils/turnCheckpointUtils'
 
 const { t } = useI18n()

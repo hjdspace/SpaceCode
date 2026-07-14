@@ -1,50 +1,61 @@
 <template>
-  <div class="browser-use-tool-card" :class="[`status-${toolCall.status}`]">
+  <div class="tool-card" :class="`status-${toolCall.status}`">
     <!-- Header -->
-    <div class="bu-header" @click="toggleExpand">
-      <div class="bu-icon-wrapper">
-        <Loader2 v-if="toolCall.status === 'running'" :size="14" class="spin-icon" />
-        <Check v-else-if="toolCall.status === 'completed'" :size="14" />
-        <X v-else-if="toolCall.status === 'error'" :size="14" />
-        <Globe v-else :size="14" />
-      </div>
-      <span class="bu-label">{{ displayLabel }}</span>
-      <span v-if="targetUrl" class="bu-url">{{ targetUrl }}</span>
-      <span v-if="stepCount" class="bu-steps">{{ stepCount }} steps</span>
-      <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
+    <div class="tool-header" :class="{ 'is-expanded': isExpanded }" @click="toggleExpand">
+      <Loader2 v-if="toolCall.status === 'running'" :size="14" class="tool-icon status-running" />
+      <Check v-else-if="toolCall.status === 'completed'" :size="14" class="tool-icon status-completed" />
+      <X v-else-if="toolCall.status === 'error'" :size="14" class="tool-icon status-error" />
+      <Globe v-else :size="14" class="tool-icon" />
+      <span class="tool-label">{{ displayLabel }}</span>
+      <span class="tool-separator">·</span>
+      <span v-if="targetUrl" class="tool-target">{{ targetUrl }}</span>
+      <span v-if="stepCount" class="tool-meta">{{ stepCount }} steps</span>
+      <ChevronDown :size="14" class="tool-chevron" :class="{ 'is-expanded': isExpanded }" />
     </div>
 
     <!-- Expanded body -->
-    <div v-if="isExpanded" class="bu-body">
+    <div v-if="isExpanded" class="tool-body">
       <!-- Screenshot preview -->
-      <div v-if="screenshotSrc" class="bu-screenshot-section">
-        <div class="bu-section-label">{{ t('toolCards.browserScreenshot') }}</div>
-        <div class="bu-screenshot-wrapper">
-          <img :src="screenshotSrc" alt="Browser screenshot" class="bu-screenshot-img" />
+      <div v-if="screenshotSrc" class="tool-section">
+        <div class="tool-section-header">{{ t('toolCards.browserScreenshot') }}</div>
+        <div class="tool-section-body">
+          <div class="screenshot-wrapper">
+            <img :src="screenshotSrc" :alt="t('toolCards.browserScreenshot')" class="screenshot-img" />
+          </div>
         </div>
       </div>
 
-      <!-- URL info -->
-      <div v-if="pageUrl || pageTitle" class="bu-info-row">
-        <span v-if="pageUrl" class="bu-info-item">
-          <span class="bu-info-label">{{ t('toolCards.browserUrl') }}:</span>
-          <span class="bu-info-value bu-url-text">{{ pageUrl }}</span>
-        </span>
-        <span v-if="pageTitle" class="bu-info-item">
-          <span class="bu-info-label">{{ t('toolCards.browserTitle') }}:</span>
-          <span class="bu-info-value">{{ pageTitle }}</span>
-        </span>
+      <!-- URL / Title info -->
+      <div v-if="pageUrl || pageTitle" class="tool-section">
+        <div class="tool-section-header">{{ t('toolCards.browserUrl') }} / {{ t('toolCards.browserTitle') }}</div>
+        <div class="tool-section-body">
+          <div class="info-row">
+            <span v-if="pageUrl" class="info-item">
+              <span class="info-label">{{ t('toolCards.browserUrl') }}:</span>
+              <span class="info-value url-text">{{ pageUrl }}</span>
+            </span>
+            <span v-if="pageTitle" class="info-item">
+              <span class="info-label">{{ t('toolCards.browserTitle') }}:</span>
+              <span class="info-value">{{ pageTitle }}</span>
+            </span>
+          </div>
+        </div>
       </div>
 
       <!-- Tool result text -->
-      <div v-if="resultText" class="bu-result-section">
-        <div class="bu-section-label">{{ t('toolCards.browserResult') }}</div>
-        <pre class="bu-result-text"><code>{{ resultText }}</code></pre>
+      <div v-if="resultText" class="tool-section">
+        <div class="tool-section-header">{{ t('toolCards.browserResult') }}</div>
+        <div class="tool-section-body">
+          <pre class="code-block"><code>{{ resultText }}</code></pre>
+        </div>
       </div>
 
       <!-- Error -->
-      <div v-if="toolCall.status === 'error' && errorMsg" class="bu-error-section">
-        <pre class="bu-error-text">{{ errorMsg }}</pre>
+      <div v-if="toolCall.status === 'error' && errorMsg" class="tool-section">
+        <div class="tool-section-header">{{ t('toolCards.browserResult') }}</div>
+        <div class="tool-section-body">
+          <pre class="error-text">{{ errorMsg }}</pre>
+        </div>
       </div>
     </div>
   </div>
@@ -70,7 +81,7 @@ const TOOL_LABELS: Record<string, string> = {
 
 const displayLabel = computed(() => {
   const name = props.toolCall.name.toLowerCase()
-  return TOOL_LABELS[name] || props.toolCall.name
+  return TOOL_LABELS[name] || t('toolCards.browserUse')
 })
 
 const targetUrl = computed(() => {
@@ -124,191 +135,75 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
 </script>
 
 <style lang="scss" scoped>
-.browser-use-tool-card {
+@use './tool-card.scss' as *;
+
+.screenshot-wrapper {
   border-radius: 6px;
-  background: var(--surface-glass);
-  border: 1px solid var(--surface-border);
-  overflow: hidden;
-  font-size: 13px;
-}
-
-.bu-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  cursor: pointer;
-  
-  &:hover {
-    background: rgba(255,255,255,0.03);
-  }
-}
-
-.bu-icon-wrapper {
-  width: 22px;
-  height: 22px;
-  border-radius: 4px;
-  background: rgba(34, 197, 94, 0.12);
-  color: #22c55e;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.status-running .bu-icon-wrapper {
-  background: rgba(59, 130, 246, 0.12);
-  color: #60a5fa;
-}
-
-.status-error .bu-icon-wrapper {
-  background: rgba(239, 68, 68, 0.12);
-  color: #f87171;
-}
-
-.bu-label {
-  font-weight: 600;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #22c55e;
-  flex-shrink: 0;
-}
-
-.status-running .bu-label { color: #60a5fa; }
-.status-error .bu-label { color: #f87171; }
-
-.bu-url {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.bu-steps {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  flex-shrink: 0;
-}
-
-.expand-icon {
-  color: var(--text-tertiary);
-  transition: transform 0.15s;
-  flex-shrink: 0;
-  
-  &.is-expanded {
-    transform: rotate(180deg);
-  }
-}
-
-.bu-body {
-  border-top: 1px solid var(--surface-border);
-  padding: 10px 12px;
-}
-
-.bu-section-label {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  color: var(--text-tertiary);
-  margin-bottom: 6px;
-  font-weight: 500;
-}
-
-.bu-screenshot-section {
-  margin-bottom: 10px;
-}
-
-.bu-screenshot-wrapper {
-  border-radius: 4px;
   overflow: hidden;
   border: 1px solid var(--surface-border);
-  background: #111;
+  background: var(--code-bg, #111);
 }
 
-.bu-screenshot-img {
+.screenshot-img {
   width: 100%;
   display: block;
 }
 
-.bu-info-row {
+.info-row {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-bottom: 10px;
-  padding: 8px;
-  background: var(--bg-secondary);
-  border-radius: 4px;
 }
 
-.bu-info-item {
+.info-item {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 12px;
 }
 
-.bu-info-label {
-  color: var(--text-tertiary);
+.info-label {
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 
-.bu-info-value {
+.info-value {
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.bu-url-text {
+.url-text {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--accent-primary);
 }
 
-.bu-result-section {
-  margin-bottom: 10px;
-}
-
-.bu-result-text {
+.code-block {
   margin: 0;
-  padding: 8px 10px;
-  border-radius: 4px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--code-bg, #0d1117);
+  color: var(--code-fg, #f0f6fc);
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
   overflow: auto;
   max-height: 300px;
   white-space: pre-wrap;
-  background: #0d1117;
-  color: #f0f6fc;
   word-break: break-word;
 }
 
-.bu-error-section {
-  margin-top: 8px;
-}
-
-.bu-error-text {
+.error-text {
   margin: 0;
-  padding: 8px 10px;
-  border-radius: 4px;
+  padding: 10px 12px;
+  border-radius: 6px;
   font-size: 12px;
   background: rgba(239, 68, 68, 0.1);
-  color: #f87171;
+  color: var(--error);
   border: 1px solid rgba(239, 68, 68, 0.2);
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-.spin-icon {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 </style>

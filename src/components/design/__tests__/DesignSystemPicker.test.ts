@@ -8,7 +8,7 @@ import enUS from '@/i18n/locales/en-US'
 vi.mock('@/services/electronAPI', () => ({
   api: {
     design: {
-      getSystemPreview: vi.fn().mockResolvedValue('<html>preview</html>'),
+      getSystemShowcase: vi.fn().mockResolvedValue('<html>preview</html>'),
     },
   },
 }))
@@ -47,11 +47,11 @@ describe('DesignSystemPicker', () => {
     expect(events![0]).toEqual(['agentic'])
   })
 
-  it('悬停带预览的系统调用 getSystemPreview', async () => {
+  it('悬停带预览的系统调用 getSystemShowcase', async () => {
     const { api } = await import('@/services/electronAPI')
     const w = mount(DesignSystemPicker, { props: { systems, modelValue: null } })
     await w.find('[data-testid="ds-picker-trigger"]').trigger('click')
     await w.find('[data-testid="ds-option-agentic"]').trigger('mouseenter')
-    expect(api.design.getSystemPreview).toHaveBeenCalledWith('agentic', 'preview/colors.html')
+    expect(api.design.getSystemShowcase).toHaveBeenCalledWith('agentic')
   })
 })

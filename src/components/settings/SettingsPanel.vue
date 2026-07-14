@@ -94,6 +94,12 @@
             <RtkSettings
               v-else-if="activeTab === 'rtk'"
             />
+            <ImSettings
+              v-else-if="activeTab === 'im'"
+            />
+            <PetSettings
+              v-else-if="activeTab === 'pet'"
+            />
             <AboutSettings
               v-else-if="activeTab === 'about'"
             />
@@ -108,7 +114,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
 import {
   ArrowLeft,
-  Settings, Boxes, Palette, Wrench, Keyboard, Bot, BarChart3, Zap, Monitor, Globe, Info, Smartphone
+  Settings, Boxes, Palette, Wrench, Keyboard, Bot, BarChart3, Zap, Monitor, Globe, Info, Smartphone, MessageCircle, PawPrint
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -127,7 +133,9 @@ const ComputerUseSettings = defineAsyncComponent(() => import('./ComputerUseSett
 const BrowserUseSettings = defineAsyncComponent(() => import('./BrowserUseSettings.vue'))
 const H5AccessSettings = defineAsyncComponent(() => import('./H5AccessSettings.vue'))
 const RtkSettings = defineAsyncComponent(() => import('./RtkSettings.vue'))
+const ImSettings = defineAsyncComponent(() => import('./ImSettings.vue'))
 const AboutSettings = defineAsyncComponent(() => import('./AboutSettings.vue'))
+const PetSettings = defineAsyncComponent(() => import('./pet/PetSettings.vue'))
 
 const appStore = useAppStore()
 const settingsStore = useSettingsStore()
@@ -142,6 +150,7 @@ const settingMenuItems = computed(() => [
   { id: 'browser-use', label: t('settings.browserUse'), icon: Globe },
   { id: 'h5-access', label: t('settings.h5Access'), icon: Smartphone },
   { id: 'rtk', label: t('settings.rtk'), icon: Zap },
+  { id: 'im', label: t('im.title'), icon: MessageCircle },
 ])
 
 const personalMenuItems = computed(() => [
@@ -149,6 +158,7 @@ const personalMenuItems = computed(() => [
   { id: 'shortcuts', label: t('settings.shortcuts'), icon: Keyboard },
   { id: 'hooks', label: t('settings.hooks'), icon: Zap },
   { id: 'token-usage', label: 'Token 用量', icon: BarChart3 },
+  { id: 'pet', label: t('petSettings.title'), icon: PawPrint },
   { id: 'about', label: t('aboutSettings.title'), icon: Info },
 ])
 

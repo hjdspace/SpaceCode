@@ -42,7 +42,14 @@
           <ImageIcon :size="10" /> Image
           <span v-if="block.mediaType" class="block-id">{{ block.mediaType }}</span>
         </div>
-        <img v-if="block.dataUrl" :src="block.dataUrl" class="block-img" alt="trace image" />
+        <img
+          v-if="block.dataUrl"
+          :src="block.dataUrl"
+          class="block-img"
+          alt="trace image"
+          loading="lazy"
+          decoding="async"
+        />
       </div>
     </template>
   </div>

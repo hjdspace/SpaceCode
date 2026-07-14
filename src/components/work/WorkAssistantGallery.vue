@@ -142,7 +142,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Search, Bot, X, FolderOpen, Plus, ChevronRight } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
-import { useChatSessionStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { useAgentsStore, type AgentDef } from '@/stores/agents'
 import { workAssistantIcon, workAvatarStyle, workDisplayName, workCategoryColor } from '@/utils/workAssistant'
 import CustomAssistantEditor from './CustomAssistantEditor.vue'
@@ -167,6 +167,7 @@ const categories = computed(() => {
     office: t('work.catOffice'),
     research: t('work.catResearch'),
     finance: t('work.catFinance'),
+    investment: t('work.catInvestment'),
     design: t('work.catDesign'),
     creative: t('work.catCreative'),
     productivity: t('work.catProductivity'),

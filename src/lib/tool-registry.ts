@@ -527,6 +527,26 @@ export const TOOL_REGISTRY: ToolDefinition[] = [
     availability: 'always',
     hasSpecialUI: false,
   },
+  {
+    name: 'SearchExtraTools',
+    displayName: 'Search Extra Tools',
+    icon: 'SearchCode',
+    category: 'mcp',
+    description: 'Search and discover deferred tools',
+    availability: 'always',
+    hasSpecialUI: true,
+    primaryInputKey: 'query',
+  },
+  {
+    name: 'ExecuteExtraTool',
+    displayName: 'Execute Extra Tool',
+    icon: 'Play',
+    category: 'mcp',
+    description: 'Execute a discovered deferred tool',
+    availability: 'always',
+    hasSpecialUI: true,
+    primaryInputKey: 'tool_name',
+  },
 
   // ═══════════════════════════════════════
   // config — 配置/IDE

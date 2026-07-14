@@ -62,37 +62,29 @@
         :style="{ width: rightWidth + 'px' }"
       />
     </div>
-    <ConnectMobileDialog v-model:visible="appStore.showConnectMobile" />
-    <WorkspaceOnboarding />
-    <FileQuickOpen />
+    <ConnectMobileDialog
+      v-if="appStore.showConnectMobile"
+      v-model:visible="appStore.showConnectMobile"
+    />
+    <WorkspaceOnboarding v-if="appStore.showWorkOnboarding" />
+    <FileQuickOpen v-if="appStore.showFileQuickOpen" />
+    <PetEmbeddedWidget v-if="shouldShowEmbeddedPet" />
     <DialogProvider />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { defineAsyncComponent, ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useAppStore } from '@/stores/app'
-import { useChatSessionStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { useSettingsStore } from '@/stores/settings'
 import { useFontStore } from '@/stores/font'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
+import { usePetStore } from '@/stores/pet'
+import { initPetReactionGlobal } from '@/composables/usePetReaction'
 import TitleBar from './components/layout/TitleBar.vue'
 import Sidebar from './components/layout/Sidebar.vue'
 import SplitContainer from './components/layout/SplitContainer.vue'
-import DesignPage from './components/design/DesignPage.vue'
-import InfoPanel from './components/layout/InfoPanel.vue'
-import TerminalTabBar from './components/terminal/TerminalTabBar.vue'
-import TerminalPanel from './components/terminal/TerminalPanel.vue'
-import TraceViewer from './components/debug/TraceViewer.vue'
-import SettingsPanel from './components/settings/SettingsPanel.vue'
-import SkillsManager from './components/skills/SkillsManager.vue'
-import AgentManager from './components/agents/AgentManager.vue'
-import McpManager from './components/mcp/McpManager.vue'
-import CronManager from './components/cron/CronManager.vue'
-import WorkAssistantGallery from './components/work/WorkAssistantGallery.vue'
-import WorkspaceOnboarding from './components/work/WorkspaceOnboarding.vue'
-import ConnectMobileDialog from './components/mobile/ConnectMobileDialog.vue'
-import FileQuickOpen from './components/layout/FileQuickOpen.vue'
 import DialogProvider from './components/common/DialogProvider.vue'
 import { api } from '@/services/electronAPI'
 import { isH5Mode } from '@/services/h5ApiClient'
@@ -104,10 +96,52 @@ import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useResizablePanel } from '@/composables/useResizablePanel'
 import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
 
+const DesignPage = defineAsyncComponent(() => import('./components/design/DesignPage.vue'))
+const InfoPanel = defineAsyncComponent(() => import('./components/layout/InfoPanel.vue'))
+const TerminalTabBar = defineAsyncComponent(() => import('./components/terminal/TerminalTabBar.vue'))
+const TerminalPanel = defineAsyncComponent(() => import('./components/terminal/TerminalPanel.vue'))
+const TraceViewer = defineAsyncComponent(() => import('./components/debug/TraceViewer.vue'))
+const SettingsPanel = defineAsyncComponent(() => import('./components/settings/SettingsPanel.vue'))
+const SkillsManager = defineAsyncComponent(() => import('./components/skills/SkillsManager.vue'))
+const AgentManager = defineAsyncComponent(() => import('./components/agents/AgentManager.vue'))
+const McpManager = defineAsyncComponent(() => import('./components/mcp/McpManager.vue'))
+const CronManager = defineAsyncComponent(() => import('./components/cron/CronManager.vue'))
+const WorkAssistantGallery = defineAsyncComponent(() => import('./components/work/WorkAssistantGallery.vue'))
+const WorkspaceOnboarding = defineAsyncComponent(() => import('./components/work/WorkspaceOnboarding.vue'))
+const ConnectMobileDialog = defineAsyncComponent(() => import('./components/mobile/ConnectMobileDialog.vue'))
+const FileQuickOpen = defineAsyncComponent(() => import('./components/layout/FileQuickOpen.vue'))
+const PetEmbeddedWidget = defineAsyncComponent(() => import('@/components/pets/PetEmbeddedWidget.vue'))
+
 const appStore = useAppStore()
 const sessionStore = useChatSessionStore()
 const settingsStore = useSettingsStore()
 const splitLayout = useSplitLayoutStore()
+const petStore = usePetStore()
+
+const shouldShowEmbeddedPet = computed(() =>
+  petStore.isInitialized &&
+  petStore.activePet &&
+  petStore.mode === 'embedded' &&
+  !petStore.isMuted
+)
+
+// 监听 mode 变化：desktop 窗口的创建/销毁已由 petStore.setMode 负责，
+// 此 watch 作为 App 层面的钩子保留，便于未来扩展（如埋点、动画过渡）。
+watch(() => petStore.mode, (newMode, oldMode) => {
+  if (newMode === 'desktop' && oldMode === 'embedded') {
+    // 切换到桌面模式时，embedded widget 自动隐藏（由 shouldShowEmbeddedPet 控制）
+    // desktop 窗口已由 petStore.setMode 创建
+  } else if (newMode === 'embedded' && oldMode === 'desktop') {
+    // 切回嵌入模式，desktop 窗口已由 petStore.setMode 销毁
+  }
+})
+
+// 监听 reaction 变化，同步到 desktop 窗口
+watch(() => petStore.runtimeState.currentReaction, () => {
+  if (petStore.mode === 'desktop') {
+    petStore.syncToDesktopWindow()
+  }
+})
 
 // H5 模式标记
 const h5Mode = isH5Mode()
@@ -348,7 +382,15 @@ async function initH5MirrorSession() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // 初始化桌面宠物系统（await 确保 setActivePet 不会因 init 未完成而丢失选择）
+  try {
+    await petStore.init()
+  } catch (err) {
+    console.error('[Pet] Failed to initialize pet store:', err)
+  }
+  initPetReactionGlobal()
+
   // H5 模式：设置 body 类以触发移动端样式
   if (isH5Mode()) {
     document.body.classList.add('h5-mode')

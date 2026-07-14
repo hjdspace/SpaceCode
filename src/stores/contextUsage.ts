@@ -7,7 +7,8 @@ import {
   enrichContextDataFromClient,
 } from '@/utils/contextUsage'
 import { api } from '@/services/electronAPI'
-import { useChatSessionStore, useTurnStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
+import { useTurnStore } from '@/stores/turn'
 import { useSettingsStore } from '@/stores/settings'
 
 function parseEngineContextData(raw: Record<string, unknown>): ContextUsageData | null {

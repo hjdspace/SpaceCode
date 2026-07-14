@@ -118,7 +118,8 @@ describe('ChatPanel loading state', () => {
 
   it('passes turn-store loading to MessageList while a turn is active', async () => {
     const { default: ChatPanel } = await import('../ChatPanel.vue')
-    const { useChatSessionStore, useTurnStore } = await import('@/stores/chat')
+    const { useChatSessionStore } = await import('@/stores/chatSession')
+    const { useTurnStore } = await import('@/stores/turn')
     const { useAppStore } = await import('@/stores/app')
 
     const sessionStore = useChatSessionStore()

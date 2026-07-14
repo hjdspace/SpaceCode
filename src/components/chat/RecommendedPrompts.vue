@@ -28,7 +28,7 @@
 import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
-import { useChatSessionStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { useAgentsStore } from '@/stores/agents'
 import { workAssistantIcon, workAvatarStyle, workDisplayName } from '@/utils/workAssistant'
 

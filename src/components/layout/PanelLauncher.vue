@@ -22,7 +22,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { GitCompare, Terminal, Globe, FileSearch } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
-import { useChatSessionStore } from '@/stores/chat'
+import { useChatSessionStore } from '@/stores/chatSession'
 
 const { t } = useI18n()
 const appStore = useAppStore()

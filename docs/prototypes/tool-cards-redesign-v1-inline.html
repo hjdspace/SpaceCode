@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>工具卡片优化原型 V1 · 纯行内样式</title>
+  <style>
+    :root {
+      --bg-primary: #f8f9fb;
+      --bg-secondary: #f0f1f5;
+      --bg-tertiary: #e7e9ef;
+      --surface-glass: rgba(24, 25, 31, 0.02);
+      --surface-glass-hover: rgba(24, 25, 31, 0.04);
+      --surface-border: rgba(24, 25, 31, 0.06);
+      --surface-border-strong: rgba(24, 25, 31, 0.12);
+      --text-primary: #18191f;
+      --text-secondary: #44475a;
+      --text-muted: #5c5f7a;
+      --text-disabled: #9da1b8;
+      --accent-tertiary: #7c3aed;
+      --accent-tertiary-hover: #8b5cf6;
+      --success: #059669;
+      --error: #dc2626;
+      --warning: #d97706;
+      --info: #2563eb;
+      --bash: #22c55e;
+      --read: #3b82f6;
+      --write: #22c55e;
+      --edit: #f97316;
+      --skill: #eab308;
+      --search: #f97316;
+      --browser: #10b981;
+      --font-body: 'IBM Plex Sans', 'SF Pro Text', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 48px 24px;
+      font-family: var(--font-body);
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 20px;
+      font-weight: 600;
+      margin: 0 0 8px;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 13px;
+      margin-bottom: 32px;
+    }
+
+    .scenario {
+      margin-bottom: 40px;
+    }
+
+    .scenario-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+    }
+
+    .timeline-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0;
+      min-height: 28px;
+    }
+
+    .timeline-node {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 24px;
+      flex-shrink: 0;
+      padding-top: 6px;
+    }
+
+    .timeline-dot {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-tertiary);
+      color: var(--text-muted);
+      border: 1.5px solid var(--surface-border);
+    }
+
+    .timeline-line {
+      width: 1.5px;
+      flex: 1;
+      min-height: 8px;
+      background: var(--surface-border);
+      margin: 3px 0;
+    }
+
+    .timeline-content {
+      flex: 1;
+      min-width: 0;
+      padding: 4px 0 8px 8px;
+    }
+
+    /* ===== Tool Row Base ===== */
+    .tool-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      user-select: none;
+      transition: background var(--transition-fast);
+      max-width: 100%;
+      font-size: 13px;
+    }
+
+    .tool-row:hover,
+    .tool-row.is-expanded {
+      background: var(--surface-glass-hover);
+    }
+
+    .tool-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      color: var(--text-muted);
+    }
+
+    .tool-icon svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .tool-icon.status-running { color: var(--accent-tertiary); animation: spin 1s linear infinite; }
+    .tool-icon.status-completed { color: var(--success); }
+    .tool-icon.status-error { color: var(--error); }
+    .tool-icon.status-pending { color: var(--warning); }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .tool-label {
+      font-size: 13px;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+    }
+
+    .tool-type {
+      font-size: 13px;
+      color: var(--accent-tertiary);
+      font-weight: 500;
+      flex-shrink: 0;
+    }
+
+    .tool-type.bash { color: var(--bash); }
+    .tool-type.read { color: var(--read); }
+    .tool-type.write { color: var(--write); }
+    .tool-type.edit { color: var(--edit); }
+    .tool-type.skill { color: var(--skill); }
+    .tool-type.search { color: var(--search); }
+    .tool-type.browser { color: var(--browser); }
+
+    .tool-separator {
+      color: var(--text-disabled);
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+
+    .tool-target {
+      font-size: 13px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+      flex: 1;
+      font-family: var(--font-mono);
+    }
+
+    .tool-meta {
+      font-size: 11px;
+      color: var(--text-disabled);
+      flex-shrink: 0;
+    }
+
+    .tool-chevron {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      color: var(--text-muted);
+      opacity: 0.5;
+      transition: transform var(--transition-fast), opacity var(--transition-fast);
+    }
+
+    .tool-row:hover .tool-chevron {
+      opacity: 0.8;
+    }
+
+    .tool-chevron.is-expanded {
+      transform: rotate(180deg);
+    }
+
+    /* ===== Expanded Details ===== */
+    .tool-details {
+      margin-top: 4px;
+      padding: 0 8px;
+      animation: fadeIn 150ms ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .tool-section {
+      margin-top: 12px;
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      background: var(--bg-secondary);
+      overflow: hidden;
+    }
+
+    .tool-section-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: var(--surface-glass);
+      border-bottom: 1px solid var(--surface-border);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .tool-section-body {
+      padding: 12px;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+    }
+
+    .tool-section-body pre {
+      margin: 0;
+      padding: 10px 12px;
+      background: #0d1117;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow-x: auto;
+      color: #c9d1d9;
+      max-height: 320px;
+      overflow-y: auto;
+    }
+
+    .tool-section-body code {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      background: var(--bg-tertiary);
+      padding: 2px 4px;
+      border-radius: 3px;
+    }
+
+    .terminal-window {
+      background: #0d1117;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.1);
+      overflow: hidden;
+    }
+
+    .terminal-titlebar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: #161b22;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .traffic-lights {
+      display: flex;
+      gap: 6px;
+    }
+
+    .light {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+    }
+    .light.red { background: #ff5f56; }
+    .light.yellow { background: #ffbd2e; }
+    .light.green { background: #27c93f; }
+
+    .terminal-title {
+      flex: 1;
+      text-align: center;
+      font-size: 11px;
+      color: #8b949e;
+      font-family: var(--font-mono);
+    }
+
+    .terminal-content {
+      padding: 10px 12px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.6;
+      color: #c9d1d9;
+      max-height: 240px;
+      overflow-y: auto;
+    }
+
+    .term-command {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+
+    .term-prompt { color: #4ade80; }
+    .term-cwd { color: #60a5fa; }
+    .term-cmd-text { color: #e6edf3; word-break: break-all; white-space: pre-wrap; }
+    .term-output { white-space: pre-wrap; word-break: break-all; }
+    .term-exit {
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px dashed rgba(255,255,255,0.08);
+      font-size: 11px;
+      color: #6e7681;
+    }
+
+    .diff-stat {
+      display: inline-flex;
+      gap: 8px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+    }
+    .diff-add { color: #3fb950; }
+    .diff-del { color: #f85149; }
+
+    .hint {
+      margin-top: 40px;
+      padding: 12px 16px;
+      background: var(--surface-glass);
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .hint strong { color: var(--text-secondary); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>工具卡片优化原型 V1 · 纯行内样式</h1>
+    <div class="subtitle">目标：将 Bash、Read、Write、Edit、Skill、WebSearch、BrowserUse 等卡片统一改为类似 Subagent 的行内可展开行，减少视觉噪音。</div>
+
+    <div class="scenario">
+      <div class="scenario-title">时间线中的工具卡片序列</div>
+      <div class="timeline-item">
+        <div class="timeline-node">
+          <div class="timeline-dot">AI</div>
+          <div class="timeline-line"></div>
+        </div>
+        <div class="timeline-content">
+          <!-- Bash -->
+          <div class="tool-row" onclick="toggle('bash')">
+            <div class="tool-icon status-completed">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+            </div>
+            <span class="tool-label">Bash</span>
+            <span class="tool-separator">·</span>
+            <span class="tool-target">npm run build</span>
+            <span class="tool-meta">2.3s</span>
+            <svg class="tool-chevron" id="bash-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="tool-details" id="bash-details" style="display:none;">
+            <div class="tool-section">
+              <div class="tool-section-header">命令输出</div>
+              <div class="tool-section-body">
+                <div class="terminal-window">
+                  <div class="terminal-titlebar">
+                    <div class="traffic-lights"><span class="light red"></span><span class="light yellow"></span><span class="light green"></span></div>
+                    <span class="terminal-title">bash — npm run build</span>
+                  </div>
+                  <div class="terminal-content">
+                    <div class="term-command"><span class="term-prompt">$</span><span class="term-cwd">~/spacecode</span><span class="term-cmd-text">npm run build</span></div>
+                    <div class="term-output">> spacecode@1.0.0 build
+> vite build
+
+vite v5.4.0 building for production...
+✓ 342 modules transformed.
+✓ built in 2.31s</div>
+                    <div class="term-exit">Process exited with code 0</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Read -->
+          <div class="tool-row" onclick="toggle('read')">
+            <div class="tool-icon status-completed">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+            </div>
+            <span class="tool-label">Read</span>
+            <span class="tool-separator">·</span>
+            <span class="tool-target">src/components/chat/tools/AgentToolCard.vue</span>
+            <svg class="tool-chevron" id="read-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="tool-details" id="read-details" style="display:none;">
+            <div class="tool-section">
+              <div class="tool-section-header">文件内容</div>
+              <div class="tool-section-body">
+                <pre><code>&lt;template&gt;
+  &lt;div class="agent-tool-row"&gt;
+    &lt;div class="agent-header" @click="toggleExpand"&gt;
+      &lt;Bot :size="14" /&gt;
+      ...
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/template&gt;</code></pre>
+              </div>
+            </div>
+          </div>
+
+          <!-- Skill running -->
+          <div class="tool-row" onclick="toggle('skill')">
+            <div class="tool-icon status-running">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
+            </div>
+            <span class="tool-label">Skill</span>
+            <span class="tool-separator">·</span>
+            <span class="tool-target">/brainstorming</span>
+            <svg class="tool-chevron" id="skill-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="tool-details" id="skill-details" style="display:none;">
+            <div class="tool-section">
+              <div class="tool-section-header">技能输出</div>
+              <div class="tool-section-body">正在执行头脑风暴流程...</div>
+            </div>
+          </div>
+
+          <!-- WebSearch -->
+          <div class="tool-row" onclick="toggle('search')">
+            <div class="tool-icon status-completed">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            </div>
+            <span class="tool-label">WebSearch</span>
+            <span class="tool-separator">·</span>
+            <span class="tool-target">Vue 3 inline tool card design patterns</span>
+            <svg class="tool-chevron" id="search-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="tool-details" id="search-details" style="display:none;">
+            <div class="tool-section">
+              <div class="tool-section-header">搜索结果</div>
+              <div class="tool-section-body">
+                <pre>1. ChatGPT / Claude style: minimal inline rows with chevron expand
+2. GitHub Copilot: tool pills with dropdown details
+3. Vercel AI SDK: collapsible tool call badges</pre>
+              </div>
+            </div>
+          </div>
+
+          <!-- BrowserUse -->
+          <div class="tool-row" onclick="toggle('browser')">
+            <div class="tool-icon status-completed">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+            </div>
+            <span class="tool-label">Browser Use</span>
+            <span class="tool-separator">·</span>
+            <span class="tool-target">github.com/hjdspace/SpaceCode</span>
+            <span class="tool-meta">3 steps</span>
+            <svg class="tool-chevron" id="browser-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="tool-details" id="browser-details" style="display:none;">
+            <div class="tool-section">
+              <div class="tool-section-header">页面结果</div>
+              <div class="tool-section-body">
+                <p><strong>URL:</strong> <code>https://github.com/hjdspace/SpaceCode</code></p>
+                <p><strong>Title:</strong> SpaceCode - AI-powered coding workspace</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Edit error -->
+          <div class="tool-row" onclick="toggle('edit')">
+            <div class="tool-icon status-error">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+            </div>
+            <span class="tool-label">Edit</span>
+            <span class="tool-separator">·</span>
+            <span class="tool-target">src/utils/path.ts</span>
+            <svg class="tool-chevron" id="edit-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="tool-details" id="edit-details" style="display:none;">
+            <div class="tool-section">
+              <div class="tool-section-header">错误信息</div>
+              <div class="tool-section-body">
+                <pre style="background:rgba(220,38,38,0.08);color:#dc2626;border:1px solid rgba(220,38,38,0.15);">Error: old_string not found in file content</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hint">
+      <strong>V1 设计要点：</strong><br>
+      1. 所有工具卡片统一为行内文本行，无卡片背景/边框，与 Subagent 卡片风格一致。<br>
+      2. 折叠态显示：图标 + 工具名 + 中点分隔 + 目标内容（命令/路径/查询/URL）+ 可选元信息。<br>
+      3. 展开后使用带标题的浅色区块承载终端、代码、diff、搜索结果等富内容。<br>
+      4. 运行/完成/错误状态仅通过图标颜色表达，不破坏时间线文本流。<br>
+      5. 保留了 Bash 终端窗口、Read 代码高亮、Edit diff 等专业内容容器。
+    </div>
+  </div>
+
+  <script>
+    function toggle(id) {
+      const details = document.getElementById(id + '-details');
+      const chevron = document.getElementById(id + '-chevron');
+      const row = details.previousElementSibling;
+      const isHidden = details.style.display === 'none';
+      details.style.display = isHidden ? 'block' : 'none';
+      chevron.classList.toggle('is-expanded', isHidden);
+      row.classList.toggle('is-expanded', isHidden);
+    }
+  </script>
+</body>
+</html>

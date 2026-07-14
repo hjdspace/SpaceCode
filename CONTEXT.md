@@ -24,6 +24,10 @@ _Avoid_: Shared session, linked session
 The Claude Code CLI subprocess (or alternative engine like Pi) managed by `EngineFactory` / `ClaudeCodeProcessPool` that processes chat messages and emits streaming events.
 _Avoid_: CLI, backend
 
+**Engine Gateway**:
+The deep module that owns engine lookup (`findEngineForSession`), dispatch, capability checks, structured call logging, and error wrapping for all engine operations. Both IPC handlers (`claudeCodeIPC.ts`) and H5 Server routes delegate to it instead of calling `IEngine` directly. It is the calling-side counterpart to the Engine concept — the seam where transport (IPC or HTTP/WS) ends and engine operations begin.
+_Avoid_: engineService (conflicts with legacy `h5EngineService` name), engineManager, dispatcher (too narrow — Gateway also owns logging and errors, not just dispatch)
+
 **Turn**:
 One conversational cycle keyed by `sessionId`: a user message is sent, the Engine streams an assistant response (text, thinking, tool calls, tool results, permission requests), and the cycle settles on completion, abort, or error. Multiple turns can be live concurrently across panes, each keyed by its session.
 _Avoid_: Round, exchange, message cycle, request/response
