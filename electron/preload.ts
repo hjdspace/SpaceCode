@@ -194,6 +194,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadGuiSettings: (): Promise<{ success: boolean; data: string | null; error?: string }> =>
     ipcRenderer.invoke('settings:loadGuiSettings'),
 
+  // Profiles persistence (file-based, ~/.spacecode/profiles.json)
+  profilesLoad: (): Promise<{ success: boolean; data: string | null; error?: string }> =>
+    ipcRenderer.invoke('profiles:load'),
+  profilesSave: (data: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('profiles:save', data),
+
   // Hooks Settings persistence
   loadHooksSettings: (scope?: string): Promise<{ success: boolean; data: string | null; error?: string }> =>
     ipcRenderer.invoke('settings:loadHooksSettings', scope),

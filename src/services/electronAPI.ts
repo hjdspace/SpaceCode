@@ -477,6 +477,28 @@ export const api = {
     }
     return Promise.resolve({ success: false, data: null, error: 'loadGuiSettings not available' })
   },
+  profilesLoad: (): Promise<{ success: boolean; data: string | null; error?: string }> => {
+    if (electronAPI?.profilesLoad) {
+      return electronAPI.profilesLoad()
+    }
+    // H5 模式：从 localStorage 读取
+    if (_isH5Mode) {
+      const data = localStorage.getItem('spacecode_profiles')
+      return Promise.resolve({ success: true, data })
+    }
+    return Promise.resolve({ success: false, data: null, error: 'profilesLoad not available' })
+  },
+  profilesSave: (data: string): Promise<{ success: boolean; error?: string }> => {
+    if (electronAPI?.profilesSave) {
+      return electronAPI.profilesSave(data)
+    }
+    // H5 模式：保存到 localStorage
+    if (_isH5Mode) {
+      localStorage.setItem('spacecode_profiles', data)
+      return Promise.resolve({ success: true })
+    }
+    return Promise.resolve({ success: false, error: 'profilesSave not available' })
+  },
 
   loadHooksSettings: (scope?: string): Promise<{ success: boolean; data: string | null; error?: string }> => {
     if (electronAPI?.loadHooksSettings) {

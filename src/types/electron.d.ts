@@ -500,6 +500,9 @@ export interface ElectronAPI {
   saveGuiSettings: (data: string) => Promise<{ success: boolean; error?: string }>
   loadGuiSettings: () => Promise<{ success: boolean; data: string | null; error?: string }>
 
+  profilesLoad: () => Promise<{ success: boolean; data: string | null; error?: string }>
+  profilesSave: (data: string) => Promise<{ success: boolean; error?: string }>
+
   loadHooksSettings: (scope?: string) => Promise<{ success: boolean; data: string | null; error?: string }>
   saveHooksSettings: (hooksJson: string, scope?: string) => Promise<{ success: boolean; error?: string }>
   getBuiltinHooksRoot: () => Promise<{ success: boolean; path?: string; error?: string }>
