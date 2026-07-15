@@ -99,6 +99,8 @@ import type { ModelProfile } from '@/types/profile'
 import ModelSettings from './ModelSettings.vue'
 import { useI18n } from 'vue-i18n'
 import { useDialog } from '@/composables/useDialog'
+import { errorHandler } from '@/services/errorHandler'
+import { ErrorCategory } from '@/types'
 
 const store = useSettingsStore()
 const { t } = useI18n()
@@ -203,7 +205,21 @@ function cancelName() {
 // ── 操作栏 ──
 async function onApply() {
   if (!expandedProfile.value) return
-  await store.applyProfile(expandedProfile.value.id)
+  const name = expandedProfile.value.name
+  try {
+    await store.applyProfile(expandedProfile.value.id)
+    errorHandler.pushToast({
+      id: crypto.randomUUID(),
+      category: ErrorCategory.UNKNOWN,
+      title: t('profile.title'),
+      message: t('profile.switchedToast', { name }),
+      autoDismiss: true,
+      dismissAfter: 4000,
+      createdAt: Date.now(),
+    })
+  } catch (error) {
+    errorHandler.handleError(error)
+  }
 }
 
 async function onDuplicate() {
