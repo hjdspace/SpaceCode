@@ -516,6 +516,11 @@ export const useSettingsStore = defineStore('settings', () => {
       if (activeProfileId.value && !profiles.value.find(p => p.id === activeProfileId.value)) {
         activeProfileId.value = profiles.value[0]?.id ?? null
       }
+      // 防御：profiles 为空数组时触发迁移
+      if (profiles.value.length === 0) {
+        await migrateFromGuiSettings()
+        return
+      }
     } catch {
       // 解析失败：按首次启动迁移流程重建
       await migrateFromGuiSettings()
@@ -552,8 +557,11 @@ export const useSettingsStore = defineStore('settings', () => {
       await saveProfiles()
     } catch (err) {
       activeProfileId.value = prevActiveId
-      applyProfileFields(profiles.value.find(x => x.id === prevActiveId)!)
-      saveSettings()
+      const prev = prevActiveId ? profiles.value.find(x => x.id === prevActiveId) : null
+      if (prev) {
+        applyProfileFields(prev)
+        saveSettings()
+      }
       throw err
     }
   }

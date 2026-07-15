@@ -16,8 +16,9 @@ vi.mock('@/services/electronAPI', () => ({
 
 import { api } from '@/services/electronAPI'
 import { useSettingsStore } from '@/stores/settings'
+import type { AuthMethod } from '@/stores/settings'
 
-function mockProfile(id: string, name: string, authMethod: any = 'openai_compatible') {
+function mockProfile(id: string, name: string, authMethod: AuthMethod = 'openai_compatible') {
   return {
     id,
     name,
@@ -115,16 +116,34 @@ describe('settings store — profile actions', () => {
       expect(api.profilesSave).toHaveBeenCalled()
     })
 
-    it('apply 失败时 activeProfileId 回滚', async () => {
+    it('apply 失败时 activeProfileId 和 config 字段都回滚', async () => {
       const store = useSettingsStore()
-      store.profiles = [mockProfile('p1', '工作'), mockProfile('p2', '个人')]
+      const p1 = mockProfile('p1', '工作')
+      p1.openaiConfig = { baseUrl: 'https://p1.com', apiKey: 'sk-p1', haikuModel: '', sonnetModel: 'm1', opusModel: '' }
+      store.profiles = [p1, mockProfile('p2', '个人', 'anthropic_compatible')]
       store.activeProfileId = 'p1'
+      // 确保 p1 的 config 已应用
+      store.authMethod = 'openai_compatible'
+      store.openaiConfig = { ...p1.openaiConfig }
 
-      // 让 profilesSave 失败
       vi.mocked(api.profilesSave).mockRejectedValueOnce(new Error('save failed'))
 
       await expect(store.applyProfile('p2')).rejects.toThrow('save failed')
       expect(store.activeProfileId).toBe('p1')
+      expect(store.authMethod).toBe('openai_compatible')
+      expect(store.openaiConfig.baseUrl).toBe('https://p1.com')
+    })
+
+    it('applyProfile 对不存在的 id 不做任何改变', async () => {
+      const store = useSettingsStore()
+      store.profiles = [mockProfile('p1', '工作')]
+      store.activeProfileId = 'p1'
+      vi.clearAllMocks()
+
+      await store.applyProfile('nonexistent')
+
+      expect(store.activeProfileId).toBe('p1')
+      expect(api.profilesSave).not.toHaveBeenCalled()
     })
   })
 
@@ -189,6 +208,17 @@ describe('settings store — profile actions', () => {
       expect(store.profiles[1].name).toBe('个人-改')
       expect(api.saveGuiSettings).not.toHaveBeenCalled()
     })
+
+    it('updateProfile 对不存在的 id 不做任何改变', async () => {
+      const store = useSettingsStore()
+      store.profiles = [mockProfile('p1', '工作')]
+      vi.clearAllMocks()
+
+      await store.updateProfile('nonexistent', { name: '改' })
+
+      expect(store.profiles[0].name).toBe('工作')
+      expect(api.profilesSave).not.toHaveBeenCalled()
+    })
   })
 
   describe('deleteProfile', () => {
@@ -222,6 +252,16 @@ describe('settings store — profile actions', () => {
 
       expect(store.profiles).toHaveLength(1)
     })
+
+    it('deleteProfile 对不存在的 id 保留原列表', async () => {
+      const store = useSettingsStore()
+      store.profiles = [mockProfile('p1', '工作'), mockProfile('p2', '个人')]
+      store.activeProfileId = 'p1'
+
+      await store.deleteProfile('nonexistent')
+
+      expect(store.profiles).toHaveLength(2)
+    })
   })
 
   describe('duplicateProfile', () => {
@@ -236,6 +276,16 @@ describe('settings store — profile actions', () => {
       expect(store.profiles[1].name).toBe('工作 副本')
       expect(store.profiles[1].openaiConfig.baseUrl).toBe('https://api.deepseek.com')
       expect(store.expandedProfileId).toBe(newId)
+    })
+
+    it('duplicateProfile 对不存在的 id 返回空字符串', async () => {
+      const store = useSettingsStore()
+      store.profiles = [mockProfile('p1', '工作')]
+
+      const result = await store.duplicateProfile('nonexistent')
+
+      expect(result).toBe('')
+      expect(store.profiles).toHaveLength(1)
     })
   })
 })
