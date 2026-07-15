@@ -512,9 +512,16 @@ export const useSettingsStore = defineStore('settings', () => {
       const file: ProfilesFile = JSON.parse(result.data)
       profiles.value = file.profiles
       activeProfileId.value = file.activeProfileId
-      // 防御：activeProfileId 指向不存在的 Profile 时重置
+      // 防御：activeProfileId 指向不存在的 Profile 时重置并应用第一个
       if (activeProfileId.value && !profiles.value.find(p => p.id === activeProfileId.value)) {
-        activeProfileId.value = profiles.value[0]?.id ?? null
+        const first = profiles.value[0]
+        if (first) {
+          activeProfileId.value = first.id
+          applyProfileFields(first)
+          saveSettings()
+        } else {
+          activeProfileId.value = null
+        }
       }
       // 防御：profiles 为空数组时触发迁移
       if (profiles.value.length === 0) {
