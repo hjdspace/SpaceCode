@@ -7,7 +7,10 @@
         :data-testid="`profile-card-${p.id}`"
         class="profile-card"
         :class="{ active: p.id === store.activeProfileId, expanded: p.id === store.expandedProfileId }"
+        role="button"
+        tabindex="0"
         @click="toggleExpand(p.id)"
+        @keyup.enter="toggleExpand(p.id)"
       >
         <div class="profile-card-header">
           <span class="profile-active-dot" :class="{ on: p.id === store.activeProfileId }">●</span>
@@ -49,7 +52,10 @@
             :data-testid="`profile-name-${expandedProfile.id}`"
             class="profile-name-display"
             :title="$t('profile.editName')"
+            role="button"
+            tabindex="0"
             @click="startEditName"
+            @keyup.enter="startEditName"
           >{{ expandedProfile.name }}</span>
         </div>
         <button class="profile-collapse-btn" @click="toggleExpand(expandedProfile.id)">
@@ -60,7 +66,6 @@
       <ModelSettings
         :modelValue="expandedSettingsModel"
         @update:modelValue="onModelSettingsUpdate"
-        @change="onModelSettingsChange"
       />
 
       <div class="profile-actions">
@@ -89,13 +94,24 @@
 <script setup lang="ts">
 import { computed, ref, nextTick } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
-import type { AuthMethod, ProviderConfig } from '@/stores/settings'
+import type { AuthMethod, ProviderConfig, OAuthAccountInfo } from '@/stores/settings'
 import type { ModelProfile } from '@/types/profile'
 import ModelSettings from './ModelSettings.vue'
 import { useI18n } from 'vue-i18n'
+import { useDialog } from '@/composables/useDialog'
 
 const store = useSettingsStore()
 const { t } = useI18n()
+const { showConfirm } = useDialog()
+
+// 与 ModelSettings.vue 的 modelValue 结构保持一致
+type ModelSettingsValue = {
+  authMethod: AuthMethod
+  anthropicConfig: ProviderConfig
+  openaiConfig: ProviderConfig
+  geminiConfig: ProviderConfig
+  oauthAccount: OAuthAccountInfo | null
+}
 
 const expandedProfile = computed<ModelProfile | null>(() => {
   if (!store.expandedProfileId) return null
@@ -121,17 +137,14 @@ const expandedSettingsModel = computed(() => {
 })
 
 // ── ModelSettings 的变更转发回 store.updateProfile ──
-function onModelSettingsUpdate(val: any) {
+function onModelSettingsUpdate(val: ModelSettingsValue) {
   if (!expandedProfile.value) return
   store.updateProfile(expandedProfile.value.id, {
-    authMethod: val.authMethod as AuthMethod,
-    anthropicConfig: { ...val.anthropicConfig } as ProviderConfig,
-    openaiConfig: { ...val.openaiConfig } as ProviderConfig,
-    geminiConfig: { ...val.geminiConfig } as ProviderConfig,
+    authMethod: val.authMethod,
+    anthropicConfig: { ...val.anthropicConfig },
+    openaiConfig: { ...val.openaiConfig },
+    geminiConfig: { ...val.geminiConfig },
   })
-}
-function onModelSettingsChange() {
-  // change 事件仅作为保存触发器，实际持久化由 update:modelValue 完成
 }
 
 // ── 缩略卡标签计算 ──
@@ -201,12 +214,13 @@ async function onDuplicate() {
 async function onDelete() {
   if (!expandedProfile.value) return
   if (store.profiles.length <= 1) return
-  if (!confirm(t('profile.deleteConfirm'))) return
+  const confirmed = await showConfirm(t('profile.deleteConfirm'), { variant: 'danger' })
+  if (!confirmed) return
   await store.deleteProfile(expandedProfile.value.id)
 }
 
 async function onAddNew() {
-  await store.createProfile('未命名')
+  await store.createProfile(t('profile.untitled'))
 }
 </script>
 
@@ -223,14 +237,14 @@ async function onAddNew() {
 }
 .profile-card {
   padding: 10px 12px;
-  border: 1px solid var(--border, #333);
+  border: 1px solid var(--border-default);
   border-radius: 6px;
   cursor: pointer;
-  background: var(--surface, #1a1a1a);
+  background: var(--surface-card);
   transition: border-color 0.15s;
-  &:hover { border-color: var(--accent, #3b82f6); }
-  &.active { border-color: var(--accent, #3b82f6); background: var(--surface-active, #2a3a4a); }
-  &.expanded { border-color: var(--accent, #3b82f6); }
+  &:hover { border-color: var(--accent-primary); }
+  &.active { border-color: var(--accent-primary); background: var(--surface-active); }
+  &.expanded { border-color: var(--accent-primary); }
 }
 .profile-card-header {
   display: flex;
@@ -239,13 +253,13 @@ async function onAddNew() {
   margin-bottom: 6px;
 }
 .profile-active-dot {
-  color: var(--text-muted, #555);
+  color: var(--text-muted);
   font-size: 10px;
-  &.on { color: var(--accent, #3b82f6); }
+  &.on { color: var(--accent-primary); }
 }
 .profile-name {
   font-weight: 600;
-  color: var(--text-primary, #fff);
+  color: var(--text-primary);
   font-size: 13px;
 }
 .profile-card-meta {
@@ -253,21 +267,21 @@ async function onAddNew() {
   flex-direction: column;
   gap: 2px;
   font-size: 11px;
-  color: var(--text-muted, #888);
+  color: var(--text-muted);
 }
 .profile-card-add {
   display: flex;
   align-items: center;
   justify-content: center;
   border-style: dashed;
-  color: var(--text-muted, #888);
+  color: var(--text-muted);
   font-size: 12px;
 }
 .profile-expanded {
-  border: 1px solid var(--accent, #3b82f6);
+  border: 1px solid var(--accent-primary);
   border-radius: 6px;
   padding: 16px;
-  background: var(--surface-elevated, #1a2230);
+  background: var(--bg-elevated);
 }
 .profile-expanded-header {
   display: flex;
@@ -278,23 +292,23 @@ async function onAddNew() {
 .profile-name-display {
   font-size: 15px;
   font-weight: 600;
-  color: var(--text-primary, #fff);
+  color: var(--text-primary);
   cursor: text;
 }
 .profile-name-input {
   font-size: 15px;
   font-weight: 600;
-  background: var(--input-bg, #2a2a2a);
-  border: 1px solid var(--accent, #3b82f6);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--accent-primary);
   border-radius: 3px;
   padding: 2px 6px;
-  color: var(--text-primary, #fff);
+  color: var(--text-primary);
   outline: none;
 }
 .profile-collapse-btn {
   background: transparent;
   border: none;
-  color: var(--text-muted, #888);
+  color: var(--text-muted);
   cursor: pointer;
   font-size: 12px;
 }
@@ -303,7 +317,7 @@ async function onAddNew() {
   gap: 8px;
   margin-top: 16px;
   padding-top: 12px;
-  border-top: 1px solid var(--border, #333);
+  border-top: 1px solid var(--border-default);
 }
 .profile-btn {
   padding: 6px 14px;
@@ -312,19 +326,19 @@ async function onAddNew() {
   cursor: pointer;
   border: 1px solid transparent;
   &.primary {
-    background: var(--accent, #3b82f6);
+    background: var(--accent-primary);
     color: #fff;
     &:disabled { opacity: 0.4; cursor: not-allowed; }
   }
   &.secondary {
-    background: var(--surface-hover, #2a2a2a);
-    color: var(--text-primary, #ccc);
-    border-color: var(--border, #444);
+    background: var(--surface-hover);
+    color: var(--text-primary);
+    border-color: var(--border-default);
   }
   &.danger {
-    background: var(--danger-bg, #3a1a1a);
-    color: var(--danger-text, #f88);
-    border-color: var(--danger-border, #644);
+    background: var(--error-glow);
+    color: var(--error);
+    border-color: var(--error);
     &:disabled { opacity: 0.4; cursor: not-allowed; }
   }
 }
