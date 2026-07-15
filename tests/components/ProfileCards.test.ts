@@ -92,7 +92,7 @@ describe('ProfileCards', () => {
     expect(wrapper.text()).not.toContain('sk-secret123')
   })
 
-  it('点击缩略卡展开/收起', async () => {
+  it('进入页面默认显示 active 配置编辑区，点击卡片保持选中', async () => {
     const store = useSettingsStore()
     store.profiles = [makeProfile()]
     store.activeProfileId = 'p1'
@@ -104,9 +104,7 @@ describe('ProfileCards', () => {
     const card = wrapper.find('[data-testid="profile-card-p1"]')
     await card.trigger('click')
     expect(store.expandedProfileId).toBe('p1')
-
-    await card.trigger('click')
-    expect(store.expandedProfileId).toBeNull()
+    expect(wrapper.find('.profile-editor').exists()).toBe(true)
   })
 
   it('激活标记显示在当前 active 的卡上', async () => {
@@ -124,7 +122,7 @@ describe('ProfileCards', () => {
     expect(card1.classes()).not.toContain('active')
   })
 
-  it('"应用此配置"按钮调用 store.applyProfile', async () => {
+  it('点击非 active 卡片立即调用 store.applyProfile', async () => {
     const store = useSettingsStore()
     store.profiles = [makeProfile({ id: 'p1' }), makeProfile({ id: 'p2', name: '个人' })]
     store.activeProfileId = 'p1'
@@ -134,9 +132,10 @@ describe('ProfileCards', () => {
     const wrapper = mount(ProfileCards, mountOptions)
 
     await wrapper.vm.$nextTick()
-    const btn = wrapper.find('[data-testid="apply-btn"]')
-    await btn.trigger('click')
+    const card = wrapper.find('[data-testid="profile-card-p2"]')
+    await card.trigger('click')
     expect(spy).toHaveBeenCalledWith('p2')
+    expect(store.expandedProfileId).toBe('p2')
   })
 
   it('只剩 1 个 Profile 时删除按钮禁用', async () => {
