@@ -1878,6 +1878,21 @@ ipcMain.handle('profiles:save', async (_event, data: string) => {
   }
 })
 
+ipcMain.handle('profiles:backupCorrupt', async (_event, data: string) => {
+  try {
+    const p = getProfilesPath()
+    const dir = dirname(p)
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+    const backupPath = join(dir, `profiles.json.corrupt-${Date.now()}`)
+    writeFileSync(backupPath, data, 'utf-8')
+    debug('Profiles', `Corrupt profiles backed up to ${backupPath}`)
+    return { success: true, backupPath }
+  } catch (err: any) {
+    error('Profiles', 'Failed to backup corrupt profiles', err)
+    return { success: false, error: String(err) }
+  }
+})
+
 ipcMain.handle('stats:getTokenUsage', async () => {
   try {
     return { success: true, data: aggregateLocalTokenStats() }

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { type Locale, detectSystemLanguage } from '@/i18n'
+import { type Locale, detectSystemLanguage, i18n } from '@/i18n'
 import { api } from '@/services/electronAPI'
 import type { ModelProfile, ProfilesFile } from '@/types/profile'
 
@@ -529,7 +529,10 @@ export const useSettingsStore = defineStore('settings', () => {
         return
       }
     } catch {
-      // 解析失败：按首次启动迁移流程重建
+      // 解析失败：备份损坏文件后按首次启动迁移流程重建
+      if (result.data) {
+        await api.profilesBackupCorrupt(result.data).catch(() => {})
+      }
       await migrateFromGuiSettings()
     }
   }
@@ -577,7 +580,7 @@ export const useSettingsStore = defineStore('settings', () => {
     const now = new Date().toISOString()
     const p: ModelProfile = {
       id: crypto.randomUUID(),
-      name: name.trim() || '未命名',
+      name: name.trim() || i18n.global.t('profile.untitled'),
       authMethod: authMethod.value,
       anthropicConfig: { ...anthropicConfig.value },
       openaiConfig: { ...openaiConfig.value },
@@ -620,7 +623,7 @@ export const useSettingsStore = defineStore('settings', () => {
     const now = new Date().toISOString()
     const copy: ModelProfile = {
       id: crypto.randomUUID(),
-      name: `${src.name} 副本`,
+      name: `${src.name} ${i18n.global.t('profile.duplicateSuffix')}`,
       authMethod: src.authMethod,
       anthropicConfig: { ...src.anthropicConfig },
       openaiConfig: { ...src.openaiConfig },
@@ -639,7 +642,7 @@ export const useSettingsStore = defineStore('settings', () => {
     const now = new Date().toISOString()
     const p: ModelProfile = {
       id: crypto.randomUUID(),
-      name: '默认',
+      name: i18n.global.t('profile.defaultName'),
       authMethod: authMethod.value,
       anthropicConfig: { ...anthropicConfig.value },
       openaiConfig: { ...openaiConfig.value },

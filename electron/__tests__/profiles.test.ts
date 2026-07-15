@@ -177,4 +177,15 @@ describe('profiles IPC handlers', () => {
       expect(result.error).toBeTruthy()
     })
   })
+
+  describe('profiles:backupCorrupt', () => {
+    it('备份损坏文件到 .corrupt-{timestamp} 路径', async () => {
+      const result = await ipcHandlers['profiles:backupCorrupt']({}, 'corrupt-data')
+
+      expect(result.success).toBe(true)
+      expect(result.backupPath).toBeTruthy()
+      expect(fs.existsSync(result.backupPath)).toBe(true)
+      expect(fs.readFileSync(result.backupPath, 'utf-8')).toBe('corrupt-data')
+    })
+  })
 })

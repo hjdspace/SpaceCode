@@ -10,6 +10,7 @@ vi.mock('@/services/electronAPI', () => ({
     loadGuiSettings: vi.fn(() => Promise.resolve({ success: true, data: null })),
     profilesLoad: vi.fn(() => Promise.resolve({ success: true, data: null })),
     profilesSave: vi.fn(() => Promise.resolve({ success: true })),
+    profilesBackupCorrupt: vi.fn(() => Promise.resolve({ success: true })),
     getEnv: vi.fn(() => Promise.resolve(undefined)),
   },
 }))
@@ -86,7 +87,7 @@ describe('settings store — profile actions', () => {
       expect(store.activeProfileId).toBe('p1')
     })
 
-    it('profiles.json 解析失败时触发迁移重建', async () => {
+    it('profiles.json 解析失败时备份损坏文件并触发迁移重建', async () => {
       vi.mocked(api.profilesLoad).mockResolvedValue({
         success: true,
         data: 'not-json{',
@@ -95,6 +96,7 @@ describe('settings store — profile actions', () => {
       const store = useSettingsStore()
       await store.loadProfiles()
 
+      expect(api.profilesBackupCorrupt).toHaveBeenCalledWith('not-json{')
       expect(store.profiles).toHaveLength(1)
       expect(store.profiles[0].name).toBe('默认')
     })

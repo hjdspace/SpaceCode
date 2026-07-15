@@ -494,6 +494,7 @@ export default {
     cannotDeleteLast: 'At least one profile required',
     defaultName: 'Default',
     untitled: 'Untitled',
+    duplicateSuffix: 'Copy',
     editName: 'Click to edit name',
     collapse: 'Collapse',
     expand: 'Expand',

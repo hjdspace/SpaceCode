@@ -494,6 +494,7 @@ export default {
     cannotDeleteLast: '至少保留一个配置',
     defaultName: '默认',
     untitled: '未命名',
+    duplicateSuffix: '副本',
     editName: '点击编辑名称',
     collapse: '收起',
     expand: '展开',

@@ -199,6 +199,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('profiles:load'),
   profilesSave: (data: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('profiles:save', data),
+  profilesBackupCorrupt: (data: string): Promise<{ success: boolean; backupPath?: string; error?: string }> =>
+    ipcRenderer.invoke('profiles:backupCorrupt', data),
 
   // Hooks Settings persistence
   loadHooksSettings: (scope?: string): Promise<{ success: boolean; data: string | null; error?: string }> =>

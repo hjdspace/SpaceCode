@@ -499,6 +499,16 @@ export const api = {
     }
     return Promise.resolve({ success: false, error: 'profilesSave not available' })
   },
+  profilesBackupCorrupt: (data: string): Promise<{ success: boolean; backupPath?: string; error?: string }> => {
+    if (electronAPI?.profilesBackupCorrupt) {
+      return electronAPI.profilesBackupCorrupt(data)
+    }
+    if (_isH5Mode) {
+      console.warn('[profiles] Corrupt data backup skipped in H5 mode')
+      return Promise.resolve({ success: true })
+    }
+    return Promise.resolve({ success: false, error: 'profilesBackupCorrupt not available' })
+  },
 
   loadHooksSettings: (scope?: string): Promise<{ success: boolean; data: string | null; error?: string }> => {
     if (electronAPI?.loadHooksSettings) {
