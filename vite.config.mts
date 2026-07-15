@@ -1,7 +1,6 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import electron from 'vite-plugin-electron'
-import renderer from 'vite-plugin-electron-renderer'
 import { resolve } from 'path'
 
 export default defineConfig({
@@ -9,11 +8,14 @@ export default defineConfig({
     __INTLIFY_JIT_COMPILATION__: true,
     __INTLIFY_DROP_MESSAGE_COMPILER__: false,
   },
+  // Vite 8: esbuildOptions 已废弃，使用 rolldownOptions.transform.define
   optimizeDeps: {
-    esbuildOptions: {
-      define: {
-        __INTLIFY_JIT_COMPILATION__: 'true',
-        __INTLIFY_DROP_MESSAGE_COMPILER__: 'false',
+    rolldownOptions: {
+      transform: {
+        define: {
+          __INTLIFY_JIT_COMPILATION__: 'true',
+          __INTLIFY_DROP_MESSAGE_COMPILER__: 'false',
+        },
       },
     },
   },
@@ -32,14 +34,13 @@ export default defineConfig({
           css: {
             preprocessorOptions: {
               scss: {
-                api: 'modern-compiler',
                 silenceDeprecations: ['legacy-js-api'],
               }
             }
           },
           build: {
             outDir: 'dist-electron',
-            rollupOptions: {
+            rolldownOptions: {
               external: [
                 'electron',
                 'node-pty',
@@ -63,7 +64,6 @@ export default defineConfig({
           css: {
             preprocessorOptions: {
               scss: {
-                api: 'modern-compiler',
                 silenceDeprecations: ['legacy-js-api'],
               }
             }
@@ -84,8 +84,7 @@ export default defineConfig({
           }
         }
       }
-    ]),
-    renderer()
+    ])
   ],
   root: '.',
   base: './',
@@ -98,44 +97,52 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     chunkSizeWarningLimit: 600,
-    rollupOptions: {
+    rolldownOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
         'pet-window': resolve(__dirname, 'pet-window.html'),
       },
       external: ['@mariozechner/pi-coding-agent'],
       output: {
-        manualChunks(id) {
-          const normalizedId = id.replace(/\\/g, '/')
-          if (/\/src\/stores\/(chat|chatSession|turn)\.ts$/.test(normalizedId)) {
-            return 'stores-chat'
-          }
-          // Large optional libraries stay out of the application chunk.
-          if (id.includes('node_modules/katex')) {
-            return 'vendor-katex'
-          }
-          if (id.includes('node_modules/lucide')) {
-            return 'vendor-icons'
-          }
-          if (id.includes('node_modules/marked')) {
-            return 'vendor-markdown'
-          }
-          // Vue 核心库
-          if (id.includes('node_modules/vue') || id.includes('node_modules/pinia') || id.includes('node_modules/vue-i18n')) {
-            return 'vendor-vue'
-          }
-          // Electron 相关
-          if (id.includes('electron')) {
-            return 'vendor-electron'
-          }
-        }
-      }
-    }
+        // Vite 8: manualChunks 已废弃，使用 codeSplitting.groups 替代
+        // 通过 priority 确保高优先级组先匹配（数值越大优先级越高）
+        codeSplitting: {
+          groups: [
+            // 业务代码：聊天相关 stores 单独打包
+            {
+              name: 'stores-chat',
+              test: /src[\\/]stores[\\/](chat|chatSession|turn)\.ts$/,
+              priority: 30,
+            },
+            // 第三方库：按大小和类型分组（priority 从高到低匹配）
+            {
+              name: 'vendor-katex',
+              test: /node_modules[\\/]katex/,
+              priority: 25,
+            },
+            {
+              name: 'vendor-icons',
+              test: /node_modules[\\/]lucide/,
+              priority: 24,
+            },
+            {
+              name: 'vendor-markdown',
+              test: /node_modules[\\/]marked/,
+              priority: 23,
+            },
+            {
+              name: 'vendor-vue',
+              test: /node_modules[\\/](vue|pinia|vue-i18n)/,
+              priority: 22,
+            },
+          ],
+        },
+      },
+    },
   },
   css: {
     preprocessorOptions: {
       scss: {
-        api: 'modern-compiler',
         silenceDeprecations: ['legacy-js-api'],
         additionalData: `@use "@/styles/variables" as *; @use "@/styles/mixins" as *;`
       }

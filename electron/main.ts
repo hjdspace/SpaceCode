@@ -433,10 +433,14 @@ function createWindow() {
   })
 
   // 记录渲染进程的 console 错误
-  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
-    const levelName = ['verbose', 'info', 'warning', 'error'][level] || 'unknown'
-    if (level >= 2) { // warning and error
-      warn('Renderer', `console.${levelName}: ${message} | source=${sourceId}:${line}`)
+  // Electron 37+: console-message 参数已迁移到 event 对象属性，旧的位置参数被废弃
+  mainWindow.webContents.on('console-message', (event) => {
+    const level = event.level
+    const message = event.message
+    const line = event.lineNumber
+    const sourceId = event.sourceId
+    if (level === 'warning' || level === 'error') {
+      warn('Renderer', `console.${level}: ${message} | source=${sourceId}:${line}`)
     }
   })
 
