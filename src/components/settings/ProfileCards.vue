@@ -191,7 +191,7 @@ function startEditName() {
 function commitName() {
   if (!expandedProfile.value) return
   const trimmed = nameDraft.value.trim()
-  store.updateProfile(expandedProfile.value.id, { name: trimmed || '未命名' })
+  store.updateProfile(expandedProfile.value.id, { name: trimmed || t('profile.untitled') })
   editingName.value = false
 }
 
