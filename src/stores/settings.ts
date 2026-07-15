@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { type Locale, detectSystemLanguage } from '@/i18n'
 import { api } from '@/services/electronAPI'
+import type { ModelProfile, ProfilesFile } from '@/types/profile'
 
 export type AuthMethod = 'anthropic_compatible' | 'openai_compatible' | 'gemini_api' | 'claudeai' | 'console'
 
@@ -285,6 +286,11 @@ export const useSettingsStore = defineStore('settings', () => {
   const modelContextWindows = ref<Record<string, number>>(saved.modelContextWindows || {})
   const rtkEnabled = ref<boolean>(saved.rtkEnabled ?? false)
 
+  // ── Profile 管理（多套模型配置切换）──
+  const profiles = ref<ModelProfile[]>([])
+  const activeProfileId = ref<string | null>(null)
+  const expandedProfileId = ref<string | null>(null)  // UI 层：哪张卡展开
+
   // Computed: current provider for LLM service compatibility
   const provider = computed(() => {
     switch (authMethod.value) {
@@ -494,6 +500,143 @@ export const useSettingsStore = defineStore('settings', () => {
     }))
   }
 
+  // ── Profile actions ──────────────────────────────────────────
+
+  async function loadProfiles(): Promise<void> {
+    const result = await api.profilesLoad()
+    if (!result.success || !result.data) {
+      await migrateFromGuiSettings()
+      return
+    }
+    try {
+      const file: ProfilesFile = JSON.parse(result.data)
+      profiles.value = file.profiles
+      activeProfileId.value = file.activeProfileId
+      // 防御：activeProfileId 指向不存在的 Profile 时重置
+      if (activeProfileId.value && !profiles.value.find(p => p.id === activeProfileId.value)) {
+        activeProfileId.value = profiles.value[0]?.id ?? null
+      }
+    } catch {
+      // 解析失败：按首次启动迁移流程重建
+      await migrateFromGuiSettings()
+    }
+  }
+
+  async function saveProfiles(): Promise<void> {
+    const file: ProfilesFile = {
+      version: 1,
+      activeProfileId: activeProfileId.value,
+      profiles: profiles.value,
+    }
+    await api.profilesSave(JSON.stringify(file, null, 2))
+  }
+
+  function applyProfileFields(p: ModelProfile): void {
+    authMethod.value = p.authMethod
+    anthropicConfig.value = { ...p.anthropicConfig }
+    openaiConfig.value = { ...p.openaiConfig }
+    geminiConfig.value = { ...p.geminiConfig }
+    modelContextWindows.value = { ...p.modelContextWindows }
+  }
+
+  async function applyProfile(id: string): Promise<void> {
+    const p = profiles.value.find(x => x.id === id)
+    if (!p) return
+    const prevActiveId = activeProfileId.value
+    activeProfileId.value = id
+    applyProfileFields(p)
+    // saveSettings() 是同步函数，内部 api.saveGuiSettings() 是 fire-and-forget
+    // 它会触发主进程写 gui-settings.json + 同步 settings.json（现有链路）
+    saveSettings()
+    try {
+      await saveProfiles()
+    } catch (err) {
+      activeProfileId.value = prevActiveId
+      applyProfileFields(profiles.value.find(x => x.id === prevActiveId)!)
+      saveSettings()
+      throw err
+    }
+  }
+
+  async function createProfile(name: string): Promise<string> {
+    const now = new Date().toISOString()
+    const p: ModelProfile = {
+      id: crypto.randomUUID(),
+      name: name.trim() || '未命名',
+      authMethod: authMethod.value,
+      anthropicConfig: { ...anthropicConfig.value },
+      openaiConfig: { ...openaiConfig.value },
+      geminiConfig: { ...geminiConfig.value },
+      modelContextWindows: { ...modelContextWindows.value },
+      createdAt: now, updatedAt: now,
+    }
+    profiles.value.push(p)
+    expandedProfileId.value = p.id
+    await saveProfiles()
+    return p.id
+  }
+
+  async function updateProfile(id: string, patch: Partial<ModelProfile>): Promise<void> {
+    const i = profiles.value.findIndex(x => x.id === id)
+    if (i < 0) return
+    profiles.value[i] = { ...profiles.value[i], ...patch, updatedAt: new Date().toISOString() }
+    // 如果更新的是 active profile，同步到当前 config + saveSettings
+    if (id === activeProfileId.value) {
+      applyProfileFields(profiles.value[i])
+      saveSettings()
+    }
+    await saveProfiles()
+  }
+
+  async function deleteProfile(id: string): Promise<void> {
+    if (profiles.value.length <= 1) return   // 至少保留 1 个
+    profiles.value = profiles.value.filter(x => x.id !== id)
+    if (activeProfileId.value === id) {
+      activeProfileId.value = profiles.value[0].id
+      applyProfileFields(profiles.value[0])
+      saveSettings()
+    }
+    await saveProfiles()
+  }
+
+  async function duplicateProfile(id: string): Promise<string> {
+    const src = profiles.value.find(x => x.id === id)
+    if (!src) return ''
+    const now = new Date().toISOString()
+    const copy: ModelProfile = {
+      id: crypto.randomUUID(),
+      name: `${src.name} 副本`,
+      authMethod: src.authMethod,
+      anthropicConfig: { ...src.anthropicConfig },
+      openaiConfig: { ...src.openaiConfig },
+      geminiConfig: { ...src.geminiConfig },
+      modelContextWindows: { ...src.modelContextWindows },
+      createdAt: now, updatedAt: now,
+    }
+    profiles.value.push(copy)
+    expandedProfileId.value = copy.id
+    await saveProfiles()
+    return copy.id
+  }
+
+  async function migrateFromGuiSettings(): Promise<void> {
+    // 从当前 config（已由现有 loadFromGuiSettingsFile 加载）创建默认 Profile
+    const now = new Date().toISOString()
+    const p: ModelProfile = {
+      id: crypto.randomUUID(),
+      name: '默认',
+      authMethod: authMethod.value,
+      anthropicConfig: { ...anthropicConfig.value },
+      openaiConfig: { ...openaiConfig.value },
+      geminiConfig: { ...geminiConfig.value },
+      modelContextWindows: { ...modelContextWindows.value },
+      createdAt: now, updatedAt: now,
+    }
+    profiles.value = [p]
+    activeProfileId.value = p.id
+    await saveProfiles()
+  }
+
   function updateFromSettingsPanel(settings: AuthSettings) {
     authMethod.value = settings.authMethod
     anthropicConfig.value = { ...settings.anthropicConfig }
@@ -645,5 +788,17 @@ export const useSettingsStore = defineStore('settings', () => {
     modelContextWindows,
     getModelWith1mSuffix,
     rtkEnabled,
+    // Profile 管理
+    profiles,
+    activeProfileId,
+    expandedProfileId,
+    loadProfiles,
+    saveProfiles,
+    applyProfile,
+    createProfile,
+    updateProfile,
+    deleteProfile,
+    duplicateProfile,
+    migrateFromGuiSettings,
   }
 })
