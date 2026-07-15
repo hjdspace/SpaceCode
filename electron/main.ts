@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, shell, dialog, net, globalShortcut } from 'electron'
 import { join, resolve, extname, dirname, basename } from 'path'
-import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSync, copyFileSync, renameSync, unlinkSync, rmSync } from 'fs'
+import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSync, copyFileSync, renameSync, unlinkSync, rmSync, chmodSync } from 'fs'
 import { spawn } from 'child_process'
 import { config } from 'dotenv'
 import { TerminalManager } from './terminalManager'
@@ -1739,6 +1739,10 @@ function getGuiSettingsPath(): string {
   return join(app.getPath('home'), '.claude', 'gui-settings.json')
 }
 
+function getProfilesPath(): string {
+  return join(app.getPath('home'), '.spacecode', 'profiles.json')
+}
+
 async function loadGuiSettings(): Promise<Record<string, any> | null> {
   try {
     const settingsPath = getGuiSettingsPath()
@@ -1839,6 +1843,38 @@ ipcMain.handle('settings:loadGuiSettings', async () => {
   } catch (err: any) {
     error('Settings', 'Failed to load GUI settings', err)
     return { success: false, data: null, error: String(err) }
+  }
+})
+
+// ============================================================================
+// Profiles Persistence (~/.spacecode/profiles.json — 多套模型配置仓库)
+// ============================================================================
+ipcMain.handle('profiles:load', async () => {
+  try {
+    const p = getProfilesPath()
+    if (existsSync(p)) {
+      const raw = readFileSync(p, 'utf-8')
+      return { success: true, data: raw }
+    }
+    return { success: true, data: null }
+  } catch (err: any) {
+    error('Profiles', 'Failed to load profiles', err)
+    return { success: false, data: null, error: String(err) }
+  }
+})
+
+ipcMain.handle('profiles:save', async (_event, data: string) => {
+  try {
+    const p = getProfilesPath()
+    const dir = dirname(p)
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+    writeFileSync(p, data, 'utf-8')
+    chmodSync(p, 0o600)
+    debug('Profiles', `Profiles saved to ${p}`)
+    return { success: true }
+  } catch (err: any) {
+    error('Profiles', 'Failed to save profiles', err)
+    return { success: false, error: String(err) }
   }
 })
 
