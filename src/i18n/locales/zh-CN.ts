@@ -481,6 +481,24 @@ export default {
     selectModel: '选择模型...',
   },
 
+  profile: {
+    title: '配置',
+    addNew: '新建配置',
+    active: '已激活',
+    apply: '应用此配置',
+    duplicate: '另存为新配置',
+    delete: '删除',
+    deleteConfirm: '确认删除此配置？',
+    namePlaceholder: '配置名称',
+    switchedToast: '已切换到「{name}」配置，新会话将使用此配置',
+    cannotDeleteLast: '至少保留一个配置',
+    defaultName: '默认',
+    untitled: '未命名',
+    editName: '点击编辑名称',
+    collapse: '收起',
+    expand: '展开',
+  },
+
   project: {
     settings: '项目设置',
     projectRoot: '项目根目录',

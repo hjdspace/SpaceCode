@@ -481,6 +481,24 @@ export default {
     selectModel: 'Select model...',
   },
 
+  profile: {
+    title: 'Profiles',
+    addNew: 'New profile',
+    active: 'Active',
+    apply: 'Apply this profile',
+    duplicate: 'Duplicate',
+    delete: 'Delete',
+    deleteConfirm: 'Delete this profile?',
+    namePlaceholder: 'Profile name',
+    switchedToast: 'Switched to "{name}", new sessions will use this profile',
+    cannotDeleteLast: 'At least one profile required',
+    defaultName: 'Default',
+    untitled: 'Untitled',
+    editName: 'Click to edit name',
+    collapse: 'Collapse',
+    expand: 'Expand',
+  },
+
   project: {
     settings: 'Project Settings',
     projectRoot: 'Project Root',
