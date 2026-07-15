@@ -94,6 +94,7 @@
         <p class="profile-editor-hint">{{ $t('profile.editorHint') }}</p>
 
         <ModelSettings
+          v-if="expandedSettingsModel"
           :modelValue="expandedSettingsModel"
           @update:modelValue="onModelSettingsUpdate"
         />
@@ -160,8 +161,9 @@ const expandedProfile = computed<ModelProfile | null>(() => {
 
 const switchingProfileId = ref<string | null>(null)
 
-const expandedSettingsModel = computed(() => {
-  const p = expandedProfile.value!
+const expandedSettingsModel = computed<ModelSettingsValue | null>(() => {
+  const p = expandedProfile.value
+  if (!p) return null
   return {
     authMethod: p.authMethod,
     anthropicConfig: p.anthropicConfig,
