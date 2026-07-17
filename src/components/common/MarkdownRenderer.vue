@@ -16,15 +16,26 @@ import { useAppStore } from '@/stores/app'
 import { api } from '@/services/electronAPI'
 import { escapeHtml, replaceMentionChipMarkers } from '@/utils/mention-chips'
 import {
-  generateMermaidId, 
+  generateMermaidId,
   createMermaidContainerHtml,
-  renderAllMermaidDiagrams 
+  renderAllMermaidDiagrams
 } from '@/utils/mermaidRenderer'
+import {
+  resolveImagePath,
+  getImageMimeType,
+  toDataUrl
+} from '@/utils/markdownImagePath'
 
 const containerRef = ref<HTMLElement | null>(null)
 
 const props = defineProps<{
   content: string
+  /**
+   * 当前 markdown 文件的绝对路径（可选）。
+   * 用于解析图片相对路径：渲染后会把本地图片读为 base64 data URL 注入 <img>，
+   * 绕过 CSP 对 file: 协议的限制。仅在文件预览场景传入；聊天消息渲染时不传。
+   */
+  filePath?: string
 }>()
 
 const appStore = useAppStore()
@@ -335,6 +346,8 @@ function armTrailingFinalize() {
       setTimeout(renderMermaidDiagrams, 0)
       // 异步校验文件链接有效性
       setTimeout(validateFileLinks, 100)
+      // 异步解析本地图片相对路径 → base64 data URL（绕过 CSP）
+      setTimeout(resolveLocalImages, 100)
     }
   }, STREAM_RENDER_INTERVAL_MS)
 }
@@ -409,6 +422,8 @@ onMounted(() => {
   // 首次挂载: 立即同步渲染一次(含 file-link), 保证初始内容可点击.
   performRender(true)
   renderMermaidDiagrams()
+  // 异步解析本地图片相对路径 → base64 data URL
+  resolveLocalImages()
 })
 
 onBeforeUnmount(() => {
@@ -447,6 +462,60 @@ async function validateFileLinks() {
       link.classList.add('file-link--invalid')
     }
   }
+}
+
+/**
+ * 异步将本地图片相对路径解析为绝对路径，读取为 base64 data URL 后注入 <img src>。
+ *
+ * 必要性：marked 默认输出 <img src="./docs/a.png">，浏览器按当前页面 URL 解析
+ * 相对路径 → 404；且 index.html 的 CSP `img-src 'self' data: https:` 禁止 file:
+ * 协议。通过 readFileAsBase64 把本地图片转 data URL 注入，可同时解决这两个问题。
+ *
+ * 幂等性：用 data-img-resolved 属性标记已处理的 img，避免重复 IPC 调用。
+ * 每次 v-html 重新渲染会清空标记，需重新处理（内容可能已变）。
+ */
+async function resolveLocalImages() {
+  if (!containerRef.value) return
+  // 无 readFileAsBase64 API（如 H5 模式未适配）时跳过，保留原 src
+  if (!api.readFileAsBase64) return
+
+  const imgs = containerRef.value.querySelectorAll('img:not([data-img-resolved])')
+  if (imgs.length === 0) return
+
+  await Promise.all(Array.from(imgs).map(async (img) => {
+    const src = img.getAttribute('src')
+    // 无论能否处理都标记，避免重复扫描
+    img.setAttribute('data-img-resolved', '1')
+    if (!src) return
+
+    const absPath = resolveImagePath(props.filePath, src)
+    if (!absPath) return // 远程 URL / 锚点 / 无 filePath 的相对路径：交由浏览器处理
+
+    try {
+      let base64 = await api.readFileAsBase64(absPath)
+      let resolvedPath = absPath
+
+      // 回退：若 src 是相对路径且 markdown 目录解析失败，尝试相对 projectRoot
+      if (base64 === null) {
+        const root = appStore.projectRoot
+        if (root && !/^[A-Za-z]:[\\/]/.test(absPath) && !absPath.startsWith('/')) {
+          const rootResolved = (root.replace(/[\\/]+$/, '') + '/' + absPath.replace(/^\.\//, '')).replace(/\\/g, '/')
+          const b2 = await api.readFileAsBase64(rootResolved)
+          if (b2 !== null) {
+            base64 = b2
+            resolvedPath = rootResolved
+          }
+        }
+      }
+
+      if (base64 !== null) {
+        const mime = getImageMimeType(resolvedPath)
+        img.setAttribute('src', toDataUrl(mime, base64))
+      }
+    } catch {
+      // 读取失败：保留原 src（可能显示 broken icon）
+    }
+  }))
 }
 
 watch(() => props.content, (newVal, oldVal) => {
