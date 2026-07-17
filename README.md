@@ -8,11 +8,11 @@
 
 基于 Claude Code 引擎构建的新一代 AI 辅助编程桌面应用，深度融合大语言模型能力，为开发者提供智能化的代码编写、调试、重构和项目管理体验。
 
-[![Electron](https://img.shields.io/badge/Electron-29-47848F?style=flat-square&logo=electron)](https://www.electronjs.org/)
+[![Electron](https://img.shields.io/badge/Electron-43-47848F?style=flat-square&logo=electron)](https://www.electronjs.org/)
 [![Vue 3](https://img.shields.io/badge/Vue%203-3.4-4FC08D?style=flat-square&logo=vue.js)](https://vuejs.org/)
-[![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=flat-square&logo=vite)](https://vitejs.dev/)
+[![Vite](https://img.shields.io/badge/Vite-8-646CFF?style=flat-square&logo=vite)](https://vitejs.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
-[![Bun](https://img.shields.io/badge/Bun-2-black?style=flat-square&logo=bun)](https://bun.sh/)
+[![Bun](https://img.shields.io/badge/Bun-%3E%3D1.3-black?style=flat-square&logo=bun)](https://bun.sh/)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)]()
 
 [多模式核心](#多模式核心) · [Computer Use](#-computer-use桌面控制) · [Browser Use](#-browser-use浏览器自动化) · [更多特色](#更多特色) · [快速开始](#快速开始) · [项目结构](#项目结构) · [开发指南](#开发指南) · [技术栈](#技术栈)
@@ -276,7 +276,7 @@ SpaceCode 内置 Browser Use 浏览器自动化能力，让 AI 能够**操控真
 | 环境 | 最低版本 | 推荐版本 | 用途 |
 |------|----------|----------|------|
 | **Node.js** | >= 18 | >= 20 | Desktop 构建运行 |
-| **Bun** | >= 2.0.0 | >= 2.1.0 | CLI 引擎运行时 |
+| **Bun** | >= 1.3.0 | >= 1.3.12 | CLI 引擎运行时 |
 | **npm** | >= 9 | 最新版 | 包管理器 |
 | **Git** | >= 2.x | 最新版 | 版本控制 |
 
@@ -426,31 +426,31 @@ npm run changelog                 # 生成 CHANGELOG
 
 | 技术 | 版本 | 用途 |
 |------|------|------|
-| **Electron** | 29.x | 跨平台桌面应用框架 |
+| **Electron** | 43.x | 跨平台桌面应用框架 |
 | **Vue 3** | 3.4.x | 前端框架（Composition API） |
-| **Vite** | 5.x | 构建工具（极速热更新） |
+| **Vite** | 8.x | 构建工具（极速热更新） |
 | **TypeScript** | 5.x | 类型安全（strict 模式） |
 | **Pinia** | 2.x | Vue 状态管理 |
-| **SCSS** | 1.7.x | CSS 预处理器 |
+| **SCSS** | 1.71.x | CSS 预处理器 |
 | **xterm.js** | 6.x | 终端模拟器渲染 |
 | **node-pty** | 1.x | 伪终端（PTY）管理 |
 | **marked** | 12.x | Markdown 解析 |
 | **highlight.js** | 11.x | 语法高亮 |
 | **mermaid** | 11.x | 图表渲染 |
-| **electron-builder** | 24.x | 应用打包工具 |
+| **electron-builder** | 26.x | 应用打包工具 |
 | **electron-updater** | 6.x | 自动更新 |
 
 ### CLI 引擎（`engine/`）
 
 | 技术 | 版本 | 用途 |
 |------|------|------|
-| **Bun** | >= 2.0.0 | JavaScript 运行时、包管理器、构建工具 |
+| **Bun** | >= 1.3.0 | JavaScript 运行时、包管理器、构建工具 |
 | **TypeScript** | 6.x | 类型安全 |
 | **React** | 19.x | 终端 UI 渲染（配合 Ink） |
 | **Commander.js** | 14.x | CLI 参数解析 |
-| **@anthropic-ai/sdk** | - | Anthropic API 客户端 |
-| **OpenAI SDK** | - | OpenAI 兼容接口适配 |
-| **MCP SDK** | - | Model Context Protocol 实现 |
+| **@anthropic-ai/sdk** | 0.81.x | Anthropic API 客户端 |
+| **OpenAI SDK** | 6.x | OpenAI 兼容接口适配 |
+| **MCP SDK** | 1.29.x | Model Context Protocol 实现 |
 
 ### 移动端（`mobile-app/`）
 
