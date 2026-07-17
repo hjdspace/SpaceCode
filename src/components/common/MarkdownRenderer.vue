@@ -498,8 +498,12 @@ async function resolveLocalImages() {
       // 回退：若 src 是相对路径且 markdown 目录解析失败，尝试相对 projectRoot
       if (base64 === null) {
         const root = appStore.projectRoot
-        if (root && !/^[A-Za-z]:[\\/]/.test(absPath) && !absPath.startsWith('/')) {
-          const rootResolved = (root.replace(/[\\/]+$/, '') + '/' + absPath.replace(/^\.\//, '')).replace(/\\/g, '/')
+        // 检查原始 src 是否为相对路径（resolveImagePath 已将 URL/锚点过滤为 null 并 return，
+        // 这里只需排除绝对路径）。absPath 已是绝对路径，不能用作判断依据。
+        const isRelativeSrc = !/^[A-Za-z]:[\\/]/.test(src) && !src.startsWith('/')
+        if (root && isRelativeSrc) {
+          const rel = src.trim().replace(/^\.\//, '').replace(/\\/g, '/')
+          const rootResolved = (root.replace(/[\\/]+$/, '') + '/' + rel).replace(/\\/g, '/')
           const b2 = await api.readFileAsBase64(rootResolved)
           if (b2 !== null) {
             base64 = b2

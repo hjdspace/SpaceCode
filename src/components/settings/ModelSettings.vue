@@ -1,381 +1,267 @@
 <template>
   <div class="model-settings">
-    <div class="s-masthead">
-      <div class="s-masthead-eyebrow">Settings</div>
-      <h1 class="s-masthead-title">{{ $t('settings.modelSettings') }}</h1>
-      <p class="s-masthead-desc">{{ $t('settings.modelSettingsDesc') || '配置 AI 模型提供商、API 密钥和模型选择' }}</p>
-    </div>
+    <!-- ═══ 2 列 Grid 主体 ═══ -->
+    <div class="ms-grid">
 
-    <div class="s-panel">
-      <div class="s-panel-header">
-        <div class="s-panel-header-left">
-          <div class="s-panel-icon lang"><Server :size="14" /></div>
-          <span class="s-panel-title">{{ $t('settings.loginMethod') }}</span>
-        </div>
-      </div>
-      <div class="s-panel-body">
-        <div class="s-selection-grid">
-          <div
-            v-for="method in authMethods"
-            :key="method.id"
-            class="s-selection-card"
-            :class="{ active: authMethod === method.id }"
-            @click="selectAuthMethod(method.id)"
-          >
-            <div class="s-selection-card-icon">
-              <component :is="method.icon" :size="20" />
-            </div>
-            <div class="s-selection-card-title">{{ method.title }}</div>
-            <div class="s-selection-card-desc">{{ method.desc }}</div>
-            <div class="s-check-badge">
-              <Check :size="12" />
-            </div>
+      <!-- ─── 卡片 1：连接配置（左列，跨 1 行） ─── -->
+      <section class="ms-card ms-card-connection">
+        <header class="ms-card-header">
+          <div class="ms-card-title">
+            <div class="ms-card-icon"><Server :size="15" /></div>
+            <h2>{{ $t('settings.connectionConfig') }}</h2>
           </div>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="authMethod === 'anthropic_compatible'" class="s-panel">
-      <div class="s-panel-header">
-        <div class="s-panel-header-left">
-          <div class="s-panel-icon engine"><Server :size="14" /></div>
-          <span class="s-panel-title">{{ $t('auth.anthropicConfig') }}</span>
-        </div>
-      </div>
-      <div class="s-panel-body">
-        <div class="s-form-group">
-          <label class="s-form-label">{{ $t('auth.baseUrl') }}</label>
-          <div class="baseurl-wrapper">
-            <div class="baseurl-input-row">
-              <div class="baseurl-selected-icon" @click="togglePresetDropdown('anthropic')">
-                <div v-if="selectedProviders.anthropic" class="provider-logo" :class="selectedProviders.anthropic.logoClass">
-                  <div v-if="selectedProviders.anthropic.logoType === 'svgRaw'" class="logo-svg" v-html="selectedProviders.anthropic.svgRaw" />
-                  <img v-else-if="selectedProviders.anthropic.logoType === 'img'" :src="selectedProviders.anthropic.logoSrc" class="logo-img" alt="logo" />
-                </div>
-                <Globe v-else :size="16" class="baseurl-icon-default" />
-              </div>
-              <input
-                type="text"
-                v-model="config.anthropicConfig.baseUrl"
-                placeholder="https://api.anthropic.com"
-                class="s-form-input baseurl-input"
-              />
-              <button
-                class="s-btn s-btn-secondary baseurl-preset-btn"
-                :class="{ active: activeDropdown === 'anthropic' }"
-                @click="togglePresetDropdown('anthropic')"
-              >
-                <ChevronDown :size="14" />
-                {{ $t('auth.preset') }}
-              </button>
-            </div>
-            <BaseUrlPresets
-              :visible="activeDropdown === 'anthropic'"
-              :presets="currentPresets"
-              :selected-id="selectedProviders.anthropic?.id ?? null"
-              @select="(p) => selectProvider('anthropic', p)"
-              @close="activeDropdown = null"
-            />
-          </div>
-          <span class="s-form-hint">{{ $t('auth.leaveEmptyDefault') }}</span>
-        </div>
-        <div class="s-form-group">
-          <label class="s-form-label">{{ $t('auth.apiKey') }}</label>
-          <div class="s-input-with-action">
-            <input
-              :type="showApiKey ? 'text' : 'password'"
-              v-model="config.anthropicConfig.apiKey"
-              placeholder="sk-ant-..."
-              class="s-form-input"
-            />
-            <button class="s-btn-icon" @click="showApiKey = !showApiKey">
-              <Eye v-if="!showApiKey" :size="16" />
-              <EyeOff v-else :size="16" />
-            </button>
-          </div>
-        </div>
-        <div class="form-actions-row">
-          <button class="s-btn s-btn-secondary" @click="testConnection" :disabled="testing">
-            <Loader2 v-if="testing" :size="14" class="spin" />
-            <Plug v-else :size="14" />
-            {{ testing ? $t('auth.testing') : $t('auth.testConnection') }}
-          </button>
-          <button class="s-btn s-btn-secondary" @click="fetchModels" :disabled="fetchingModels">
-            <RefreshCw v-if="fetchingModels" :size="14" class="spin" />
-            <Download v-else :size="14" />
-            {{ fetchingModels ? $t('auth.fetching') : $t('auth.fetchModels') }}
-          </button>
-        </div>
-        <div v-if="connectionStatus" class="s-status-badge" :class="connectionStatus.type">
-          <CheckCircle v-if="connectionStatus.type === 'success'" :size="14" />
-          <XCircle v-if="connectionStatus.type === 'error'" :size="14" />
-          <AlertCircle v-if="connectionStatus.type === 'warning'" :size="14" />
-          <span>{{ connectionStatus.message }}</span>
-        </div>
-      </div>
-    </div>
-
-    <div v-else-if="authMethod === 'openai_compatible'" class="s-panel">
-      <div class="s-panel-header">
-        <div class="s-panel-header-left">
-          <div class="s-panel-icon engine"><Bot :size="14" /></div>
-          <span class="s-panel-title">{{ $t('auth.openaiConfig') }}</span>
-        </div>
-      </div>
-      <div class="s-panel-body">
-        <div class="s-form-group">
-          <label class="s-form-label">{{ $t('auth.baseUrl') }}</label>
-          <div class="baseurl-wrapper">
-            <div class="baseurl-input-row">
-              <div class="baseurl-selected-icon" @click="togglePresetDropdown('openai')">
-                <div v-if="selectedProviders.openai" class="provider-logo" :class="selectedProviders.openai.logoClass">
-                  <div v-if="selectedProviders.openai.logoType === 'svgRaw'" class="logo-svg" v-html="selectedProviders.openai.svgRaw" />
-                  <img v-else-if="selectedProviders.openai.logoType === 'img'" :src="selectedProviders.openai.logoSrc" class="logo-img" alt="logo" />
-                </div>
-                <Globe v-else :size="16" class="baseurl-icon-default" />
-              </div>
-              <input
-                type="text"
-                v-model="config.openaiConfig.baseUrl"
-                placeholder="https://api.openai.com/v1"
-                class="s-form-input baseurl-input"
-              />
-              <button
-                class="s-btn s-btn-secondary baseurl-preset-btn"
-                :class="{ active: activeDropdown === 'openai' }"
-                @click="togglePresetDropdown('openai')"
-              >
-                <ChevronDown :size="14" />
-                {{ $t('auth.preset') }}
-              </button>
-            </div>
-            <BaseUrlPresets
-              :visible="activeDropdown === 'openai'"
-              :presets="currentPresets"
-              :selected-id="selectedProviders.openai?.id ?? null"
-              @select="(p) => selectProvider('openai', p)"
-              @close="activeDropdown = null"
-            />
-          </div>
-        </div>
-        <div class="s-form-group">
-          <label class="s-form-label">{{ $t('auth.apiKey') }}</label>
-          <div class="s-input-with-action">
-            <input
-              :type="showApiKey ? 'text' : 'password'"
-              v-model="config.openaiConfig.apiKey"
-              placeholder="sk-..."
-              class="s-form-input"
-            />
-            <button class="s-btn-icon" @click="showApiKey = !showApiKey">
-              <Eye v-if="!showApiKey" :size="16" />
-              <EyeOff v-else :size="16" />
-            </button>
-          </div>
-        </div>
-        <div class="form-actions-row">
-          <button class="s-btn s-btn-secondary" @click="testConnection" :disabled="testing">
-            <Loader2 v-if="testing" :size="14" class="spin" />
-            <Plug v-else :size="14" />
-            {{ testing ? $t('auth.testing') : $t('auth.testConnection') }}
-          </button>
-          <button class="s-btn s-btn-secondary" @click="fetchModels" :disabled="fetchingModels">
-            <RefreshCw v-if="fetchingModels" :size="14" class="spin" />
-            <Download v-else :size="14" />
-            {{ fetchingModels ? $t('auth.fetching') : $t('auth.fetchModels') }}
-          </button>
-        </div>
-        <div v-if="connectionStatus" class="s-status-badge" :class="connectionStatus.type">
-          <CheckCircle v-if="connectionStatus.type === 'success'" :size="14" />
-          <XCircle v-if="connectionStatus.type === 'error'" :size="14" />
-          <AlertCircle v-if="connectionStatus.type === 'warning'" :size="14" />
-          <span>{{ connectionStatus.message }}</span>
-        </div>
-      </div>
-    </div>
-
-    <div v-else-if="authMethod === 'gemini_api'" class="s-panel">
-      <div class="s-panel-header">
-        <div class="s-panel-header-left">
-          <div class="s-panel-icon engine"><Sparkles :size="14" /></div>
-          <span class="s-panel-title">{{ $t('auth.geminiConfig') }}</span>
-        </div>
-      </div>
-      <div class="s-panel-body">
-        <div class="s-form-group">
-          <label class="s-form-label">{{ $t('auth.baseUrl') }}</label>
-          <div class="baseurl-wrapper">
-            <div class="baseurl-input-row">
-              <div class="baseurl-selected-icon" @click="togglePresetDropdown('gemini')">
-                <div v-if="selectedProviders.gemini" class="provider-logo" :class="selectedProviders.gemini.logoClass">
-                  <div v-if="selectedProviders.gemini.logoType === 'svgRaw'" class="logo-svg" v-html="selectedProviders.gemini.svgRaw" />
-                  <img v-else-if="selectedProviders.gemini.logoType === 'img'" :src="selectedProviders.gemini.logoSrc" class="logo-img" alt="logo" />
-                </div>
-                <Globe v-else :size="16" class="baseurl-icon-default" />
-              </div>
-              <input
-                type="text"
-                v-model="config.geminiConfig.baseUrl"
-                placeholder="https://generativelanguage.googleapis.com/v1beta"
-                class="s-form-input baseurl-input"
-              />
-              <button
-                class="s-btn s-btn-secondary baseurl-preset-btn"
-                :class="{ active: activeDropdown === 'gemini' }"
-                @click="togglePresetDropdown('gemini')"
-              >
-                <ChevronDown :size="14" />
-                {{ $t('auth.preset') }}
-              </button>
-            </div>
-            <BaseUrlPresets
-              :visible="activeDropdown === 'gemini'"
-              :presets="currentPresets"
-              :selected-id="selectedProviders.gemini?.id ?? null"
-              @select="(p) => selectProvider('gemini', p)"
-              @close="activeDropdown = null"
-            />
-          </div>
-          <span class="s-form-hint">{{ $t('auth.leaveEmptyGoogleDefault') }}</span>
-        </div>
-        <div class="s-form-group">
-          <label class="s-form-label">{{ $t('auth.apiKey') }}</label>
-          <div class="s-input-with-action">
-            <input
-              :type="showApiKey ? 'text' : 'password'"
-              v-model="config.geminiConfig.apiKey"
-              placeholder="AIza..."
-              class="s-form-input"
-            />
-            <button class="s-btn-icon" @click="showApiKey = !showApiKey">
-              <Eye v-if="!showApiKey" :size="16" />
-              <EyeOff v-else :size="16" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div v-else-if="authMethod === 'claudeai'" class="s-panel">
-      <div class="s-panel-header">
-        <div class="s-panel-header-left">
-          <div class="s-panel-icon lang"><Crown :size="14" /></div>
-          <span class="s-panel-title">{{ $t('auth.claudeAccount') }}</span>
-        </div>
-      </div>
-      <div class="s-panel-body">
-        <div class="oauth-content">
-          <div class="oauth-icon-wrapper">
-            <Crown :size="32" />
-          </div>
-          <p class="oauth-text">{{ $t('auth.signInClaudeDesc') }}</p>
-          <p class="oauth-hint">{{ $t('auth.oauthHint') }}</p>
-          <button class="s-btn s-btn-primary" @click="startOAuthLogin(true)" :disabled="oauthLoading">
-            <LogIn :size="16" />
-            {{ oauthLoading ? $t('auth.connecting') : $t('auth.signInWithClaude') }}
-          </button>
-          <div v-if="oauthAccount" class="oauth-status">
-            <CheckCircle :size="16" class="success-icon" />
-            <span>{{ $t('auth.loggedInAs') }} <strong>{{ oauthAccount.email }}</strong></span>
-            <span class="subscription-badge">{{ oauthAccount.subscription }}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div v-else-if="authMethod === 'console'" class="s-panel">
-      <div class="s-panel-header">
-        <div class="s-panel-header-left">
-          <div class="s-panel-icon lang"><Key :size="14" /></div>
-          <span class="s-panel-title">{{ $t('auth.anthropicConsole') }}</span>
-        </div>
-      </div>
-      <div class="s-panel-body">
-        <div class="oauth-content">
-          <div class="oauth-icon-wrapper">
-            <Key :size="32" />
-          </div>
-          <p class="oauth-text">{{ $t('auth.signInConsoleDesc') }}</p>
-          <p class="oauth-hint">{{ $t('auth.oauthHint') }}</p>
-          <button class="s-btn s-btn-primary" @click="startOAuthLogin(false)" :disabled="oauthLoading">
-            <LogIn :size="16" />
-            {{ oauthLoading ? $t('auth.connecting') : $t('auth.signInWithConsole') }}
-          </button>
-          <div v-if="oauthAccount" class="oauth-status">
-            <CheckCircle :size="16" class="success-icon" />
-            <span>{{ $t('auth.loggedInAs') }} <strong>{{ oauthAccount.email }}</strong></span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="s-panel model-config-panel">
-      <div class="s-panel-header">
-        <div class="s-panel-header-left">
-          <div class="s-panel-icon engine"><Bot :size="14" /></div>
-          <span class="s-panel-title">{{ $t('model.configuration') }}</span>
-        </div>
-      </div>
-      <div class="s-panel-body">
-        <div class="s-form-group">
-          <label class="s-form-label">{{ $t('model.haikuModel') }} <span class="s-model-tag fast">{{ $t('model.fast') }}</span></label>
-          <SearchableSelect
-            v-model="haikuModel"
-            :options="availableModels"
-            :placeholder="$t('model.selectModel')"
-          />
-        </div>
-        <div class="s-form-group">
-          <label class="s-form-label">{{ $t('model.sonnetModel') }} <span class="s-model-tag recommended">{{ $t('model.balanced') }}</span></label>
-          <SearchableSelect
-            v-model="sonnetModel"
-            :options="availableModels"
-            :placeholder="$t('model.selectModel')"
-          />
-        </div>
-        <div class="s-form-group">
-          <label class="s-form-label">{{ $t('model.opusModel') }} <span class="s-model-tag powerful">{{ $t('model.powerful') }}</span></label>
-          <SearchableSelect
-            v-model="opusModel"
-            :options="availableModels"
-            :placeholder="$t('model.selectModel')"
-          />
-        </div>
-      </div>
-    </div>
-
-    <div class="s-panel">
-      <div class="s-panel-header">
-        <div class="s-panel-header-left">
-          <div class="s-panel-icon project"><BarChart3 :size="14" /></div>
-          <span class="s-panel-title">{{ $t('contextUsage.modelContextTitle') }}</span>
-        </div>
-      </div>
-      <div class="s-panel-body">
-        <p class="context-info-desc">{{ $t('contextUsage.modelContextDesc') }}</p>
-
-        <div class="ctx-window-config">
-          <div v-for="m in contextWindowModels" :key="m.key" class="ctx-window-row">
-            <div class="ctx-window-label">
-              <span class="ctx-window-model-tag" :class="m.tagClass">{{ m.tag }}</span>
-              <span class="ctx-window-model-name" :title="m.modelId || m.placeholder">{{ m.modelId || m.placeholder }}</span>
-            </div>
-            <select
-              class="s-form-select ctx-window-select"
-              :value="getContextWindow(m.modelId)"
-              :disabled="!m.modelId"
-              @change="setContextWindow(m.modelId, ($event.target as HTMLSelectElement).value)"
+          <div class="provider-tabs" role="tablist" :aria-label="$t('settings.connectionConfig')">
+            <button
+              v-for="method in authMethods"
+              :key="method.id"
+              class="provider-tab"
+              :class="{ active: authMethod === method.id }"
+              type="button"
+              role="tab"
+              :aria-selected="authMethod === method.id"
+              @click="selectAuthMethod(method.id)"
             >
-              <option value="">{{ $t('contextUsage.contextWindowDefault') }}</option>
-              <option v-for="preset in contextWindowPresets" :key="preset.value" :value="preset.value">
-                {{ preset.label }}
-              </option>
-            </select>
+              {{ method.title }}
+            </button>
+          </div>
+        </header>
+
+        <div class="ms-card-body">
+          <!-- API Key 模式（Anthropic / OpenAI / Gemini） -->
+          <div v-if="isApiKeyMode" class="ms-form">
+            <!-- Base URL -->
+            <div class="ms-form-row">
+              <label class="ms-form-label">{{ $t('auth.baseUrl') }}</label>
+              <div class="ms-input-group">
+                <button
+                  class="provider-logo-btn"
+                  type="button"
+                  :aria-label="$t('auth.preset')"
+                  @click="togglePresetDropdown(activeTarget)"
+                >
+                  <div
+                    v-if="selectedProviders[activeTarget]"
+                    class="provider-logo"
+                    :class="selectedProviders[activeTarget]!.logoClass"
+                  >
+                    <div
+                      v-if="selectedProviders[activeTarget]!.logoType === 'svgRaw'"
+                      class="logo-svg"
+                      v-html="selectedProviders[activeTarget]!.svgRaw"
+                    />
+                    <img
+                      v-else-if="selectedProviders[activeTarget]!.logoType === 'img'"
+                      :src="selectedProviders[activeTarget]!.logoSrc"
+                      class="logo-img"
+                      alt="logo"
+                    />
+                  </div>
+                  <Globe v-else :size="16" />
+                </button>
+                <input
+                  type="text"
+                  v-model="activeConfig.baseUrl"
+                  :placeholder="activePlaceholder"
+                  class="ms-input mono"
+                />
+                <button
+                  class="ms-btn-ghost"
+                  type="button"
+                  :class="{ active: activeDropdown === activeTarget }"
+                  @click="togglePresetDropdown(activeTarget)"
+                >
+                  {{ $t('auth.preset') }}
+                  <ChevronDown :size="12" />
+                </button>
+              </div>
+              <BaseUrlPresets
+                :visible="activeDropdown === activeTarget"
+                :presets="currentPresets"
+                :selected-id="selectedProviders[activeTarget]?.id ?? null"
+                @select="(p) => selectProvider(activeTarget, p)"
+                @close="activeDropdown = null"
+              />
+              <span v-if="authMethod === 'anthropic_compatible'" class="ms-form-hint">{{ $t('auth.leaveEmptyDefault') }}</span>
+              <span v-else-if="authMethod === 'gemini_api'" class="ms-form-hint">{{ $t('auth.leaveEmptyGoogleDefault') }}</span>
+            </div>
+
+            <!-- API Key -->
+            <div class="ms-form-row">
+              <label class="ms-form-label">{{ $t('auth.apiKey') }}</label>
+              <div class="ms-api-key-group">
+                <input
+                  :type="showApiKey ? 'text' : 'password'"
+                  v-model="activeConfig.apiKey"
+                  :placeholder="activeKeyPlaceholder"
+                  class="ms-input mono"
+                />
+                <button class="ms-btn-icon" type="button" @click="showApiKey = !showApiKey" :aria-label="$t('auth.apiKey')">
+                  <Eye v-if="!showApiKey" :size="14" />
+                  <EyeOff v-else :size="14" />
+                </button>
+                <button
+                  class="ms-btn-outline-accent"
+                  type="button"
+                  :disabled="testing"
+                  @click="testConnection"
+                >
+                  <Loader2 v-if="testing" :size="13" class="spin" />
+                  <Plug v-else :size="13" />
+                  {{ testing ? $t('auth.testing') : $t('auth.testConnection') }}
+                </button>
+                <button
+                  class="ms-btn-outline-accent"
+                  type="button"
+                  :disabled="fetchingModels"
+                  @click="fetchModels"
+                >
+                  <RefreshCw v-if="fetchingModels" :size="13" class="spin" />
+                  <Download v-else :size="13" />
+                  {{ fetchingModels ? $t('auth.fetching') : $t('auth.fetchModels') }}
+                </button>
+              </div>
+            </div>
+
+            <!-- 连接状态条 -->
+            <div v-if="connectionStatus" class="ms-status-bar" :class="connectionStatus.type" role="status">
+              <CheckCircle v-if="connectionStatus.type === 'success'" :size="14" />
+              <XCircle v-else-if="connectionStatus.type === 'error'" :size="14" />
+              <AlertCircle v-else :size="14" />
+              <span class="status-text">{{ connectionStatus.message }}</span>
+              <span v-if="connectionStatus.type === 'success'" class="status-timestamp">{{ $t('settings.justNow') }}</span>
+            </div>
+          </div>
+
+          <!-- OAuth 模式（Claude.ai / Console） -->
+          <div v-else class="ms-oauth-card">
+            <div class="oauth-icon">
+              <Crown v-if="authMethod === 'claudeai'" :size="18" />
+              <Key v-else :size="18" />
+            </div>
+            <div class="oauth-info">
+              <div class="oauth-title">
+                {{ authMethod === 'claudeai' ? $t('auth.claudeAccount') : $t('auth.anthropicConsole') }}
+              </div>
+              <div class="oauth-desc">
+                {{ authMethod === 'claudeai' ? $t('auth.signInClaudeDesc') : $t('auth.signInConsoleDesc') }}
+              </div>
+              <div v-if="oauthAccount" class="oauth-account">
+                <span class="account-dot"></span>
+                <span>{{ $t('auth.loggedInAs') }} {{ oauthAccount.email }}</span>
+                <span v-if="oauthAccount.subscription && authMethod === 'claudeai'" class="subscription-badge">{{ oauthAccount.subscription }}</span>
+              </div>
+            </div>
+            <button
+              class="ms-btn-outline-accent"
+              type="button"
+              :disabled="oauthLoading"
+              @click="startOAuthLogin(authMethod === 'claudeai')"
+            >
+              <LogIn :size="13" />
+              {{ oauthLoading ? $t('auth.connecting') : (authMethod === 'claudeai' ? $t('auth.signInWithClaude') : $t('auth.signInWithConsole')) }}
+            </button>
           </div>
         </div>
+      </section>
 
-        <ContextUsagePreview :model-id="previewModelId" />
-      </div>
+      <!-- ─── 卡片 2：模型选择（右列，跨 2 行） ─── -->
+      <section class="ms-card ms-card-models">
+        <header class="ms-card-header">
+          <div class="ms-card-title">
+            <div class="ms-card-icon"><Bot :size="15" /></div>
+            <h2>{{ $t('settings.modelSelection') }}</h2>
+          </div>
+        </header>
+
+        <div class="ms-card-body ms-models-body">
+          <div class="ms-model-row">
+            <div class="ms-model-row-head">
+              <span class="ms-tag ms-tag-fast">{{ $t('model.fast') }}</span>
+              <span class="ms-model-role">{{ $t('model.haikuModel') }}</span>
+            </div>
+            <SearchableSelect
+              v-model="haikuModel"
+              :options="availableModels"
+              :placeholder="$t('model.selectModel')"
+            />
+          </div>
+
+          <div class="ms-model-row">
+            <div class="ms-model-row-head">
+              <span class="ms-tag ms-tag-recommended">{{ $t('model.balanced') }}</span>
+              <span class="ms-model-role">{{ $t('model.sonnetModel') }}</span>
+            </div>
+            <SearchableSelect
+              v-model="sonnetModel"
+              :options="availableModels"
+              :placeholder="$t('model.selectModel')"
+            />
+          </div>
+
+          <div class="ms-model-row">
+            <div class="ms-model-row-head">
+              <span class="ms-tag ms-tag-powerful">{{ $t('model.powerful') }}</span>
+              <span class="ms-model-role">{{ $t('model.opusModel') }}</span>
+            </div>
+            <SearchableSelect
+              v-model="opusModel"
+              :options="availableModels"
+              :placeholder="$t('model.selectModel')"
+            />
+          </div>
+
+          <p class="ms-hint">
+            <Info :size="12" />
+            {{ $t('settings.modelSwitchHint') }}
+          </p>
+        </div>
+      </section>
+
+      <!-- ─── 卡片 3：上下文窗口（底部全宽） ─── -->
+      <section class="ms-card ms-card-context">
+        <header class="ms-card-header">
+          <div class="ms-card-title">
+            <div class="ms-card-icon"><BarChart3 :size="15" /></div>
+            <h2>{{ $t('contextUsage.modelContextTitle') }}</h2>
+          </div>
+          <button class="ms-link-btn" type="button" @click="resetContextWindows">
+            <RotateCcw :size="11" />
+            {{ $t('settings.resetDefault') }}
+          </button>
+        </header>
+
+        <div class="ms-card-body">
+          <p class="ms-context-desc">{{ $t('contextUsage.modelContextDesc') }}</p>
+
+          <!-- 上半：3 列模型上下文选择 -->
+          <div class="ms-context-grid">
+            <div v-for="m in contextWindowModels" :key="m.key" class="ms-context-item">
+              <div class="ms-model-row-head">
+                <span class="ms-tag" :class="`ms-tag-${m.tagClass}`">{{ m.tag }}</span>
+                <span class="ms-model-role">{{ m.role }}</span>
+              </div>
+              <div class="ms-context-model-name" :title="m.modelId || m.placeholder">{{ m.modelId || m.placeholder }}</div>
+              <select
+                class="ms-context-select"
+                :value="getContextWindow(m.modelId)"
+                :disabled="!m.modelId"
+                @change="setContextWindow(m.modelId, ($event.target as HTMLSelectElement).value)"
+              >
+                <option value="">{{ $t('contextUsage.contextWindowDefault') }}</option>
+                <option v-for="preset in contextWindowPresets" :key="preset.value" :value="preset.value">
+                  {{ preset.label }}
+                </option>
+              </select>
+            </div>
+          </div>
+
+          <!-- 下半：上下文预览 -->
+          <div class="ms-context-preview">
+            <ContextUsagePreview :model-id="previewModelId" />
+          </div>
+        </div>
+      </section>
+
     </div>
   </div>
 </template>
@@ -383,9 +269,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import {
-  Server, Bot, Sparkles, Crown, Key, LogIn, CheckCircle,
-  Eye, EyeOff, RefreshCw, Plug, Loader2, Download, Check,
-  XCircle, AlertCircle, BarChart3, ChevronDown, Globe
+  Server, Bot, Crown, Key, LogIn, CheckCircle,
+  Eye, EyeOff, RefreshCw, Plug, Loader2, Download,
+  XCircle, AlertCircle, BarChart3, ChevronDown, Globe, Info, RotateCcw
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
@@ -416,11 +302,11 @@ const settingsStore = useSettingsStore()
 const { t } = useI18n()
 
 const authMethods = computed(() => [
-  { id: 'anthropic_compatible' as AuthMethod, title: 'Anthropic', desc: t('auth.compatibleApi'), icon: Server },
-  { id: 'openai_compatible' as AuthMethod, title: 'OpenAI', desc: t('auth.compatibleApi'), icon: Bot },
-  { id: 'gemini_api' as AuthMethod, title: 'Gemini', desc: t('auth.googleApi'), icon: Sparkles },
-  { id: 'claudeai' as AuthMethod, title: 'Claude', desc: t('auth.accountOAuth'), icon: Crown },
-  { id: 'console' as AuthMethod, title: 'Console', desc: t('auth.apiBilling'), icon: Key }
+  { id: 'anthropic_compatible' as AuthMethod, title: 'Anthropic' },
+  { id: 'openai_compatible' as AuthMethod, title: 'OpenAI' },
+  { id: 'gemini_api' as AuthMethod, title: 'Gemini' },
+  { id: 'claudeai' as AuthMethod, title: 'Claude' },
+  { id: 'console' as AuthMethod, title: 'Console' }
 ])
 
 const config = computed({
@@ -437,6 +323,39 @@ const authMethod = computed({
 })
 
 const oauthAccount = computed(() => config.value.oauthAccount)
+
+// 是否为 API Key 模式（非 OAuth）
+const isApiKeyMode = computed(() =>
+  authMethod.value === 'anthropic_compatible' ||
+  authMethod.value === 'openai_compatible' ||
+  authMethod.value === 'gemini_api'
+)
+
+// 当前激活的 provider target（用于 BaseUrlPresets 联动）
+const activeTarget = computed<'anthropic' | 'openai' | 'gemini'>(() => {
+  if (authMethod.value === 'openai_compatible') return 'openai'
+  if (authMethod.value === 'gemini_api') return 'gemini'
+  return 'anthropic'
+})
+
+// 当前激活的 config 引用（直接 v-model 绑定）
+const activeConfig = computed<ProviderConfig>(() => {
+  if (authMethod.value === 'openai_compatible') return config.value.openaiConfig
+  if (authMethod.value === 'gemini_api') return config.value.geminiConfig
+  return config.value.anthropicConfig
+})
+
+const activePlaceholder = computed(() => {
+  if (authMethod.value === 'openai_compatible') return 'https://api.openai.com/v1'
+  if (authMethod.value === 'gemini_api') return 'https://generativelanguage.googleapis.com/v1beta'
+  return 'https://api.anthropic.com'
+})
+
+const activeKeyPlaceholder = computed(() => {
+  if (authMethod.value === 'openai_compatible') return 'sk-...'
+  if (authMethod.value === 'gemini_api') return 'AIza...'
+  return 'sk-ant-...'
+})
 
 // 共享模型字段 — 从 anthropicConfig 读取（所有 provider 保持同步），写入所有 provider config
 const haikuModel = computed({
@@ -513,9 +432,9 @@ const previewModelId = computed(
 const contextWindowPresets = CONTEXT_WINDOW_PRESETS
 
 const contextWindowModels = computed(() => [
-  { key: 'haiku', modelId: haikuModel.value, placeholder: t('model.haikuModel'), tag: t('model.fast'), tagClass: 'fast' },
-  { key: 'sonnet', modelId: sonnetModel.value, placeholder: t('model.sonnetModel'), tag: t('model.balanced'), tagClass: 'recommended' },
-  { key: 'opus', modelId: opusModel.value, placeholder: t('model.opusModel'), tag: t('model.powerful'), tagClass: 'powerful' },
+  { key: 'haiku', modelId: haikuModel.value, placeholder: t('model.haikuModel'), tag: t('model.fast'), tagClass: 'fast', role: 'Haiku' },
+  { key: 'sonnet', modelId: sonnetModel.value, placeholder: t('model.sonnetModel'), tag: t('model.balanced'), tagClass: 'recommended', role: 'Sonnet' },
+  { key: 'opus', modelId: opusModel.value, placeholder: t('model.opusModel'), tag: t('model.powerful'), tagClass: 'powerful', role: 'Opus' },
 ])
 
 function getContextWindow(modelId: string): string {
@@ -531,6 +450,15 @@ function setContextWindow(modelId: string, value: string) {
     updated[modelId] = parseInt(value, 10)
   } else {
     delete updated[modelId]
+  }
+  settingsStore.modelContextWindows = updated
+  settingsStore.saveSettings()
+}
+
+function resetContextWindows() {
+  const updated = { ...settingsStore.modelContextWindows }
+  for (const m of [haikuModel.value, sonnetModel.value, opusModel.value]) {
+    if (m && updated[m]) delete updated[m]
   }
   settingsStore.modelContextWindows = updated
   settingsStore.saveSettings()
@@ -622,7 +550,7 @@ async function testConnection() {
     }
 
     if (!apiKey) {
-      connectionStatus.value = { type: 'warning', message: 'Please enter an API key first' }
+      connectionStatus.value = { type: 'warning', message: t('auth.enterApiKeyFirst') }
       testing.value = false
       return
     }
@@ -638,14 +566,14 @@ async function testConnection() {
     })
 
     if (!result) {
-      connectionStatus.value = { type: 'error', message: 'HTTP proxy not available - please restart the app' }
+      connectionStatus.value = { type: 'error', message: t('auth.httpProxyUnavailable') }
     } else if (result.ok) {
-      connectionStatus.value = { type: 'success', message: 'Connection successful!' }
+      connectionStatus.value = { type: 'success', message: t('auth.connectionSuccessful') }
     } else {
-      connectionStatus.value = { type: 'error', message: `Connection failed (${result.status}): ${result.error || 'Unknown error'}` }
+      connectionStatus.value = { type: 'error', message: t('auth.connectionFailed', { status: result.status, error: result.error || '' }) }
     }
   } catch (error) {
-    connectionStatus.value = { type: 'error', message: error instanceof Error ? error.message : 'Network error' }
+    connectionStatus.value = { type: 'error', message: error instanceof Error ? error.message : t('auth.networkError') }
   } finally {
     testing.value = false
     setTimeout(() => {
@@ -682,7 +610,7 @@ async function fetchModels() {
     }
 
     if (!apiKey) {
-      connectionStatus.value = { type: 'warning', message: 'Please enter an API key first' }
+      connectionStatus.value = { type: 'warning', message: t('auth.enterApiKeyFirst') }
       fetchingModels.value = false
       return
     }
@@ -698,7 +626,7 @@ async function fetchModels() {
     })
 
     if (!result) {
-      connectionStatus.value = { type: 'error', message: 'HTTP proxy not available - please restart the app' }
+      connectionStatus.value = { type: 'error', message: t('auth.httpProxyUnavailable') }
     } else if (result.ok) {
       const data = JSON.parse(result.data)
       let models: any[] = []
@@ -716,15 +644,15 @@ async function fetchModels() {
           id: m.id || m.name || String(m),
           name: m.name || m.id || String(m)
         }))
-        connectionStatus.value = { type: 'success', message: `Fetched ${models.length} models successfully!` }
+        connectionStatus.value = { type: 'success', message: t('auth.fetchedModels', { count: models.length }) }
       } else {
-        connectionStatus.value = { type: 'warning', message: 'No models found from this endpoint' }
+        connectionStatus.value = { type: 'warning', message: t('auth.noModelsFound') }
       }
     } else {
-      connectionStatus.value = { type: 'error', message: `Failed to fetch models (${result.status}): ${result.error || 'Unknown error'}` }
+      connectionStatus.value = { type: 'error', message: t('auth.fetchModelsFailed', { status: result.status, error: result.error || '' }) }
     }
   } catch (error) {
-    connectionStatus.value = { type: 'error', message: error instanceof Error ? error.message : 'Network error' }
+    connectionStatus.value = { type: 'error', message: error instanceof Error ? error.message : t('auth.networkError') }
   } finally {
     fetchingModels.value = false
     setTimeout(() => {
@@ -741,62 +669,247 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
 </script>
 
 <style lang="scss" scoped>
-
 .model-settings {
+  display: block;
+  /* 允许 BaseUrlPresets 下拉溢出 */
+  overflow: visible;
+}
+
+/* ═══ 垂直三段式布局：连接配置 → 模型选择 → 上下文窗口 ═══ */
+.ms-grid {
   display: flex;
   flex-direction: column;
-  max-width: 780px;
-  gap: 20px;
+  gap: 14px;
+  align-items: stretch;
+}
 
-  /* Allow preset dropdown to overflow panel boundaries */
-  .s-panel {
-    overflow: visible;
+@media (max-width: 880px) {
+  .ms-grid { gap: 12px; }
+}
+
+/* ═══ 卡片基础 ═══ */
+.ms-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: visible;
+  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
+  &:hover {
+    box-shadow: var(--shadow-md);
+    border-color: var(--border-default);
   }
 }
 
-/* ── Base URL Preset Dropdown ── */
-.baseurl-wrapper {
+.ms-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
+}
+
+.ms-card-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ms-card-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ms-card-title h2 {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+/* ═══ Provider tab 切换 ═══ */
+.provider-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+}
+
+.provider-tab {
+  position: relative;
+  padding: 6px 10px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--transition-fast), background var(--transition-fast);
+  &:hover {
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+  }
+  &.active {
+    color: var(--accent-primary);
+    font-weight: 600;
+  }
+  &.active::after {
+    content: '';
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    bottom: 0;
+    height: 2px;
+    background: var(--accent-primary);
+    border-radius: 1px 1px 0 0;
+  }
+}
+
+/* ═══ 卡片体 ═══ */
+.ms-card-body {
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ms-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ms-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   position: relative;
 }
 
-.baseurl-input-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.ms-form-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
-.baseurl-selected-icon {
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
-  border: 1.5px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  background: var(--bg-secondary);
+.ms-form-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.ms-input-group {
   display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+
+.ms-input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  &::placeholder { color: var(--text-disabled); }
+  &:hover { border-color: var(--border-strong); }
+  &:focus {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px var(--accent-primary-glow);
+  }
+  &.mono {
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+}
+
+/* Provider logo 占位按钮（Base URL 左侧 40x34） */
+.provider-logo-btn {
+  width: 40px;
+  height: 34px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
   cursor: pointer;
-  overflow: hidden;
-  transition: all var(--transition-fast);
-
-  &:hover {
-    border-color: var(--accent-primary);
-  }
-
-  .baseurl-icon-default {
-    color: var(--text-muted);
-  }
-}
-
-.baseurl-input {
-  flex: 1;
-}
-
-.baseurl-preset-btn {
   flex-shrink: 0;
-  padding: 8px 12px;
-  font-size: 12.5px;
+  overflow: hidden;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+  &:hover {
+    background: var(--surface-hover);
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+  }
+  .provider-logo {
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    .logo-svg {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      :deep(svg) { width: 16px; height: 16px; }
+    }
+    .logo-img {
+      width: 18px;
+      height: 18px;
+      object-fit: contain;
+    }
+  }
+}
 
+/* 次要按钮（预设） */
+.ms-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  height: 34px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+  &:hover {
+    background: var(--surface-hover);
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+  }
   &.active {
     background: var(--accent-primary-glow);
     border-color: var(--accent-primary);
@@ -804,184 +917,335 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
   }
 }
 
-/* Provider logo (shared with BaseUrlPresets) */
-.provider-logo {
-  width: 28px;
-  height: 28px;
-  border-radius: 5px;
-  display: flex;
+/* 图标按钮（眼睛切换） */
+.ms-btn-icon {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
   background: var(--bg-elevated);
-  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  cursor: pointer;
   flex-shrink: 0;
-
-  .logo-svg {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: 100%;
-
-    svg {
-      width: 16px;
-      height: 16px;
-    }
-  }
-
-  .logo-img {
-    width: 18px;
-    height: 18px;
-    object-fit: contain;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+  &:hover {
+    background: var(--surface-hover);
+    border-color: var(--border-strong);
+    color: var(--text-primary);
   }
 }
 
-/* Brand colors for currentColor-based SVG icons */
-.brand-anthropic { color: #cc785c; }
-
-.form-actions-row {
-  display: flex;
-  gap: 12px;
-  margin-top: 4px;
+/* Outline accent 按钮（测试连接 / 获取模型） */
+.ms-btn-outline-accent {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 12px;
+  height: 34px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+  &:hover:not(:disabled) {
+    background: var(--accent-primary-glow);
+    box-shadow: 0 4px 12px var(--accent-primary-glow);
+    transform: translateY(-1px);
+  }
+  &:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 1px 2px var(--accent-primary-glow);
+  }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
-.oauth-content {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.oauth-icon-wrapper {
-  width: 56px;
-  height: 56px;
+.ms-api-key-group {
   display: flex;
   align-items: center;
-  justify-content: center;
-  background: var(--bg-tertiary);
-  border-radius: 14px;
-  color: var(--accent-primary);
+  gap: 6px;
+  flex-wrap: wrap;
+  .ms-input { flex: 1; min-width: 200px; }
 }
 
-.oauth-text {
-  font-size: var(--font-size-base);
-  color: var(--text-primary);
-  margin: 0;
-}
-
-.oauth-hint {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin: 0;
-}
-
-.oauth-status {
+/* ═══ 连接状态条 ═══ */
+.ms-status-bar {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 16px;
-  background: var(--success-glow);
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  color: var(--text-primary);
-
-  .success-icon {
+  padding: 9px 12px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid transparent;
+  &.success {
+    background: var(--success-glow);
     color: var(--success);
+    border-color: rgba(5, 150, 105, 0.22);
   }
-
-  .subscription-badge {
-    margin-left: auto;
-    padding: 2px 8px;
-    background: var(--accent-primary);
-    color: white;
-    border-radius: 4px;
+  &.error {
+    background: var(--error-glow);
+    color: var(--error);
+    border-color: rgba(220, 38, 38, 0.22);
+  }
+  &.warning {
+    background: var(--warning-glow);
+    color: var(--warning);
+    border-color: rgba(217, 119, 6, 0.22);
+  }
+  .status-text { flex: 1; }
+  .status-timestamp {
+    font-family: var(--font-mono);
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 400;
+    opacity: 0.7;
   }
 }
 
-.context-info-desc {
-  margin: 0 0 12px;
+/* ═══ OAuth 卡片 ═══ */
+.ms-oauth-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  flex-wrap: wrap;
+}
+
+.oauth-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.oauth-info {
+  flex: 1;
+  min-width: 200px;
+  .oauth-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+  }
+  .oauth-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.45;
+  }
+  .oauth-account {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    .account-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--success);
+    }
+    .subscription-badge {
+      padding: 2px 6px;
+      background: var(--accent-primary);
+      color: #fff;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+  }
+}
+
+/* ═══ 模型选择卡片 ═══ */
+.ms-models-body {
+  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 720px) {
+  .ms-models-body { grid-template-columns: 1fr; }
+}
+
+.ms-model-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+  &:hover {
+    border-color: var(--border-default);
+    background: var(--surface-card);
+  }
+}
+
+.ms-model-row-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ms-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  line-height: 1.5;
+}
+
+.ms-tag-fast {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.ms-tag-recommended {
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.ms-tag-powerful {
+  background: var(--accent-secondary-glow, rgba(99, 102, 241, 0.12));
+  color: var(--accent-secondary);
+  font-weight: 600;
+}
+
+.ms-model-role {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.005em;
+}
+
+.ms-hint {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 4px 0;
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* ═══ 上下文窗口卡片 ═══ */
+.ms-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+  &:hover {
+    color: var(--accent-primary);
+    background: var(--accent-primary-glow);
+  }
+}
+
+.ms-context-desc {
+  margin: 0;
   font-size: 12px;
   line-height: 1.55;
   color: var(--text-muted);
 }
 
-.ctx-window-config {
+.ms-context-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed var(--border-default);
+}
+
+.ms-context-item {
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-bottom: 16px;
+  gap: 6px;
+  transition: border-color var(--transition-fast);
+  &:hover { border-color: var(--border-default); }
 }
 
-.ctx-window-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.ctx-window-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  flex: 1;
-}
-
-.ctx-window-model-tag {
-  flex-shrink: 0;
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-
-  &.fast { background: rgba(138, 136, 128, 0.15); color: var(--text-muted); }
-  &.recommended { background: rgba(217, 119, 87, 0.15); color: var(--accent-primary); }
-  &.powerful { background: rgba(106, 155, 204, 0.15); color: var(--accent-secondary); }
-}
-
-.ctx-window-model-name {
-  font-family: var(--font-mono, monospace);
-  font-size: 12px;
-  color: var(--text-secondary);
+.ms-context-model-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.3;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.ctx-window-select {
-  width: auto;
-  min-width: 120px;
+.ms-context-select {
+  width: 100%;
   padding: 5px 8px;
-  font-size: 12px;
-  border: 1px solid var(--surface-border);
+  font-size: 11px;
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
-  background: var(--bg-tertiary);
+  background: var(--bg-elevated);
   color: var(--text-primary);
   cursor: pointer;
   font-family: inherit;
-
-  &:focus {
-    outline: none;
-    border-color: var(--accent-primary);
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
+  outline: none;
+  &:focus { border-color: var(--accent-primary); }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
-.spin {
-  animation: spin 1s linear infinite;
+.ms-context-preview {
+  padding-top: 4px;
 }
+
+@media (max-width: 600px) {
+  .ms-context-grid { grid-template-columns: 1fr; }
+}
+
+/* ═══ 通用 ═══ */
+.spin { animation: spin 1s linear infinite; }
 
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* SearchableSelect 深度样式适配紧凑卡片 */
+.ms-model-row :deep(.searchable-select .select-trigger) {
+  height: 30px;
+  padding: 0 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
 }
 </style>

@@ -1,0 +1,1379 @@
+<!DOCTYPE html>
+<!--
+  SpaceCode 模型设置 - 重构方案 B：紧凑型分组卡片（改良式 - 推荐）
+  设计思路：保留单页结构，通过紧凑卡片分组 + 2 列 grid 提升信息密度，对现有代码改动最小
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SpaceCode · 模型设置 - 方案 B 紧凑型分组卡片</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   Design Tokens（严格使用规范提供的 CSS 变量）
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --bg-primary: #f8f9fb;
+  --bg-secondary: #f0f1f5;
+  --bg-tertiary: #e7e9ef;
+  --bg-elevated: #ffffff;
+  --surface-card: #ecedf2;
+  --surface-hover: #e4e6ec;
+  --text-primary: #18191f;
+  --text-secondary: #44475a;
+  --text-muted: #5c5f7a;
+  --text-disabled: #9da1b8;
+  --accent-primary: #0d9488;
+  --accent-primary-hover: #14b8a6;
+  --accent-primary-glow: rgba(13, 148, 136, 0.12);
+  --accent-secondary: #6366f1;
+  --accent-secondary-glow: rgba(99, 102, 241, 0.12);
+  --border-subtle: rgba(24, 25, 31, 0.05);
+  --border-default: rgba(24, 25, 31, 0.09);
+  --border-strong: rgba(24, 25, 31, 0.15);
+  --success: #059669;
+  --success-glow: rgba(5, 150, 105, 0.15);
+  --warning: #d97706;
+  --warning-glow: rgba(217, 119, 6, 0.15);
+  --error: #dc2626;
+  --error-glow: rgba(220, 38, 38, 0.15);
+  --shadow-sm: 0 1px 2px rgba(24, 25, 31, 0.06);
+  --shadow-md: 0 4px 12px rgba(24, 25, 31, 0.08);
+  --shadow-lg: 0 8px 24px rgba(24, 25, 31, 0.11);
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  padding: 32px 24px 48px;
+  min-height: 100vh;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+input {
+  font-family: inherit;
+  color: inherit;
+  outline: none;
+}
+
+::selection { background: var(--accent-primary-glow); color: var(--accent-primary); }
+
+/* ═══════════════════════════════════════════════════════════════
+   应用窗口容器（模拟桌面应用窗口，max-width 1100px 居中）
+   ═══════════════════════════════════════════════════════════════ */
+.app-window {
+  max-width: 1100px;
+  margin: 0 auto;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   顶部标题区
+   ═══════════════════════════════════════════════════════════════ */
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 28px 28px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: linear-gradient(180deg, var(--bg-elevated) 0%, var(--bg-primary) 100%);
+}
+
+.header-titles { min-width: 0; }
+
+.eyebrow {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-primary);
+  margin-bottom: 6px;
+}
+
+.page-header h1 {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  line-height: 1.2;
+  margin-bottom: 6px;
+}
+
+.header-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  max-width: 560px;
+  line-height: 1.55;
+}
+
+/* 主按钮 - 添加配置 */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  background: var(--accent-primary);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  box-shadow: 0 1px 2px rgba(13, 148, 136, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  transition: background var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.btn-primary:hover {
+  background: var(--accent-primary-hover);
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active {
+  background: var(--accent-primary);
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(13, 148, 136, 0.2);
+}
+
+.btn-primary svg { width: 14px; height: 14px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Profile 切换条 - 横向 chip 列表
+   ═══════════════════════════════════════════════════════════════ */
+.profile-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 28px 18px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-subtle);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.profile-bar::-webkit-scrollbar { height: 4px; }
+.profile-bar::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 2px; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 6px;
+  background: var(--surface-card);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.chip:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.chip.active {
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+  border-color: rgba(13, 148, 136, 0.25);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(13, 148, 136, 0.08);
+}
+
+.chip-logo {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elevated);
+  box-shadow: 0 0 0 1px var(--border-default);
+  flex-shrink: 0;
+  transition: box-shadow var(--transition-fast);
+}
+
+.chip.active .chip-logo {
+  box-shadow: 0 0 0 1px rgba(13, 148, 136, 0.35);
+}
+
+.chip-logo svg { width: 13px; height: 13px; }
+
+/* 各 provider 配色（仅 logo 内部使用，不改 design tokens） */
+.logo-anthropic { color: #d97757; }
+.logo-openai    { color: #10a37f; }
+.logo-gemini    { color: #4285f4; }
+.logo-claude    { color: #d97757; }
+.logo-console   { color: var(--text-secondary); }
+
+.chip.active .logo-anthropic,
+.chip.active .logo-claude,
+.chip.active .logo-openai,
+.chip.active .logo-gemini,
+.chip.active .logo-console {
+  color: var(--accent-primary);
+}
+
+.chip-meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-disabled);
+  margin-left: 2px;
+}
+
+.chip.active .chip-meta { color: var(--accent-primary); opacity: 0.7; }
+
+/* ═══════════════════════════════════════════════════════════════
+   主体内容区 - 2 列 grid
+   ═══════════════════════════════════════════════════════════════ */
+.content-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 16px;
+  padding: 20px 28px 28px;
+  align-items: start;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   卡片基础
+   ═══════════════════════════════════════════════════════════════ */
+.card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
+}
+
+.card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-default);
+}
+
+.card-connection { grid-column: 1; }
+.card-models     { grid-column: 2; grid-row: 1 / span 2; }
+.card-context    { grid-column: 1; }
+
+/* 卡片头 */
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.card-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.card-icon svg { width: 15px; height: 15px; }
+
+.card-title h2 {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Provider tab 切换
+   ═══════════════════════════════════════════════════════════════ */
+.provider-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.provider-tabs::-webkit-scrollbar { display: none; }
+
+.tab {
+  position: relative;
+  padding: 6px 10px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transition: color var(--transition-fast), background var(--transition-fast);
+  white-space: nowrap;
+}
+
+.tab:hover {
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+}
+
+.tab.active {
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.tab.active::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 2px;
+  background: var(--accent-primary);
+  border-radius: 1px 1px 0 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   卡片体 - 通用
+   ═══════════════════════════════════════════════════════════════ */
+.card-body {
+  padding: 16px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.form-row { display: flex; flex-direction: column; gap: 6px; }
+
+.form-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.input-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 输入框 */
+.input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.input::placeholder { color: var(--text-disabled); }
+
+.input:hover { border-color: var(--border-strong); }
+
+.input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-primary-glow);
+}
+
+.input.mono { font-family: var(--font-mono); font-size: 12px; }
+
+/* Provider logo 占位按钮（Base URL 左侧 40x40） */
+.provider-logo-btn {
+  width: 40px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.provider-logo-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.provider-logo-btn svg { width: 16px; height: 16px; }
+
+/* 预设按钮 */
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  height: 34px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+  white-space: nowrap;
+}
+
+.btn-ghost:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.btn-ghost svg { width: 12px; height: 12px; }
+
+/* 图标按钮（如眼睛切换） */
+.btn-icon {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.btn-icon:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.btn-icon svg { width: 14px; height: 14px; }
+
+/* Outline accent 按钮（测试连接 / 获取模型） */
+.btn-outline-accent {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 12px;
+  height: 34px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-primary);
+  white-space: nowrap;
+  transition: background var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+}
+
+.btn-outline-accent:hover {
+  background: var(--accent-primary-glow);
+  box-shadow: 0 4px 12px var(--accent-primary-glow);
+  transform: translateY(-1px);
+}
+
+.btn-outline-accent:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px var(--accent-primary-glow);
+}
+
+.btn-outline-accent svg { width: 13px; height: 13px; }
+
+/* API key 输入框组 - 让 input 占主要空间 */
+.api-key-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.api-key-group .input { flex: 1; }
+
+/* 连接状态条 */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.status-bar.success {
+  background: var(--success-glow);
+  color: var(--success);
+  border: 1px solid rgba(5, 150, 105, 0.22);
+}
+
+.status-bar svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+.status-bar .status-text { flex: 1; }
+
+.status-bar .timestamp {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--success);
+  opacity: 0.7;
+}
+
+/* OAuth 卡片（Claude tab 内容） */
+.oauth-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+}
+
+.oauth-card .oauth-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.oauth-card .oauth-icon svg { width: 18px; height: 18px; }
+
+.oauth-info { flex: 1; min-width: 0; }
+
+.oauth-info .oauth-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.oauth-info .oauth-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.oauth-account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.oauth-account .account-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   模型选择卡片
+   ═══════════════════════════════════════════════════════════════ */
+.card-models .card-body { gap: 10px; }
+
+.model-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.model-row:hover {
+  border-color: var(--border-default);
+  background: var(--surface-card);
+}
+
+.model-row-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  line-height: 1.5;
+}
+
+.tag-fast {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.tag-recommended {
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.tag-powerful {
+  background: var(--accent-secondary-glow);
+  color: var(--accent-secondary);
+  font-weight: 600;
+}
+
+.model-role {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.005em;
+}
+
+.model-dropdown {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  text-align: left;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.model-dropdown:hover {
+  border-color: var(--border-strong);
+}
+
+.model-dropdown:focus-visible {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-primary-glow);
+  outline: none;
+}
+
+.model-dropdown svg {
+  width: 12px;
+  height: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: transform var(--transition-fast);
+}
+
+.model-dropdown:hover svg { color: var(--text-secondary); }
+
+.hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  padding: 4px 4px 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.hint svg { width: 12px; height: 12px; flex-shrink: 0; }
+
+/* ═══════════════════════════════════════════════════════════════
+   上下文窗口卡片
+   ═══════════════════════════════════════════════════════════════ */
+.link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.link-btn:hover {
+  color: var(--accent-primary);
+  background: var(--accent-primary-glow);
+}
+
+.link-btn svg { width: 11px; height: 11px; }
+
+.context-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed var(--border-default);
+}
+
+.context-item {
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color var(--transition-fast);
+}
+
+.context-item:hover { border-color: var(--border-default); }
+
+.context-item .model-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.context-item .model-dropdown {
+  padding: 5px 8px;
+  font-size: 11px;
+}
+
+/* 上下文预览 - 横向进度条 */
+.context-preview {
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.preview-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.preview-hint {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-disabled);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.preview-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  align-items: center;
+  gap: 12px;
+}
+
+.bar-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.bar-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot-accent { background: var(--accent-primary); }
+.dot-secondary { background: var(--accent-secondary); }
+.dot-muted { background: var(--text-muted); }
+
+.bar-track {
+  position: relative;
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: 4px;
+  transition: width 400ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.bar-accent { background: var(--accent-primary); }
+.bar-secondary { background: var(--accent-secondary); }
+.bar-muted { background: var(--text-muted); }
+
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-top: 6px;
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.legend-item .bar-dot { width: 6px; height: 6px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   响应式 - 窄屏退化为单列
+   ═══════════════════════════════════════════════════════════════ */
+@media (max-width: 880px) {
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+  .card-connection, .card-models, .card-context {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .context-grid { grid-template-columns: 1fr; }
+  .bar-row { grid-template-columns: 1fr; gap: 4px; }
+}
+
+/* 焦点可见态 */
+:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+button:focus-visible, .input:focus-visible {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+</style>
+</head>
+<body>
+
+<div class="app-window">
+
+  <!-- ─── 顶部标题区 ─── -->
+  <header class="page-header">
+    <div class="header-titles">
+      <span class="eyebrow">设置</span>
+      <h1>模型设置</h1>
+      <p class="header-desc">管理多套模型配置，按场景切换 provider、模型与上下文窗口。当前方案 B 通过紧凑卡片分组提升信息密度，对现有代码改动最小。</p>
+    </div>
+    <button class="btn-primary" type="button" aria-label="添加配置">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="12" y1="5" x2="12" y2="19"></line>
+        <line x1="5" y1="12" x2="19" y2="12"></line>
+      </svg>
+      添加配置
+    </button>
+  </header>
+
+  <!-- ─── Profile 切换条 ─── -->
+  <nav class="profile-bar" aria-label="Profile 切换">
+    <button class="chip active" type="button" data-profile="default">
+      <span class="chip-logo logo-anthropic" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M13.827 3.52h3.603L24 20h-3.603l-6.57-16.48ZM6.064 3.52h3.731L16.365 20h-3.674l-1.343-3.46H5.218L3.875 20H.27L6.064 3.52Zm.692 9.69h2.347L8.043 7.95 6.756 13.21Z"/></svg>
+      </span>
+      <span class="chip-name">默认</span>
+      <span class="chip-meta">claude-sonnet-4-6</span>
+    </button>
+    <button class="chip" type="button" data-profile="work-gpt">
+      <span class="chip-logo logo-openai" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.8956zm16.5963 3.8558L13.1038 8.364l2.0201-1.1638a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.4099-.6765zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.064a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.449a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>
+      </span>
+      <span class="chip-name">工作-GPT</span>
+      <span class="chip-meta">gpt-4o</span>
+    </button>
+    <button class="chip" type="button" data-profile="exp-gemini">
+      <span class="chip-logo logo-gemini" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 24A14.304 14.304 0 0 0 0 12 14.304 14.304 0 0 0 12 0a14.305 14.305 0 0 0 12 12 14.305 14.305 0 0 0-12 12Z"/></svg>
+      </span>
+      <span class="chip-name">实验-Gemini</span>
+      <span class="chip-meta">gemini-1.5-pro</span>
+    </button>
+    <button class="chip" type="button" data-profile="claude-oauth">
+      <span class="chip-logo logo-claude" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          <circle cx="9" cy="11" r="1" fill="currentColor"></circle>
+          <circle cx="13" cy="11" r="1" fill="currentColor"></circle>
+          <circle cx="17" cy="11" r="1" fill="currentColor"></circle>
+        </svg>
+      </span>
+      <span class="chip-name">Claude账号</span>
+      <span class="chip-meta">OAuth</span>
+    </button>
+    <button class="chip" type="button" data-profile="console">
+      <span class="chip-logo logo-console" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="4 17 10 11 4 5"></polyline>
+          <line x1="12" y1="19" x2="20" y2="19"></line>
+        </svg>
+      </span>
+      <span class="chip-name">Console</span>
+      <span class="chip-meta">console</span>
+    </button>
+  </nav>
+
+  <!-- ─── 主体内容区 ─── -->
+  <main class="content-grid">
+
+    <!-- ═══ 卡片 1：连接配置（左侧占 2 列）═══ -->
+    <section class="card card-connection">
+      <header class="card-header">
+        <div class="card-title">
+          <div class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+              <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+              <line x1="6" y1="6" x2="6.01" y2="6"></line>
+              <line x1="6" y1="18" x2="6.01" y2="18"></line>
+            </svg>
+          </div>
+          <h2>连接配置</h2>
+        </div>
+        <div class="provider-tabs" role="tablist" aria-label="Provider 切换">
+          <button class="tab active" type="button" role="tab" aria-selected="true" data-tab="anthropic">Anthropic</button>
+          <button class="tab" type="button" role="tab" aria-selected="false" data-tab="openai">OpenAI</button>
+          <button class="tab" type="button" role="tab" aria-selected="false" data-tab="gemini">Gemini</button>
+          <button class="tab" type="button" role="tab" aria-selected="false" data-tab="claude">Claude</button>
+          <button class="tab" type="button" role="tab" aria-selected="false" data-tab="console">Console</button>
+        </div>
+      </header>
+
+      <div class="card-body">
+
+        <!-- Panel: API Key 模式（Anthropic / OpenAI / Gemini / Console tab 默认展示） -->
+        <div class="panel-apikey" id="panel-apikey">
+
+          <!-- Base URL -->
+          <div class="form-row">
+            <label class="form-label" for="base-url">Base URL</label>
+            <div class="input-group">
+              <button class="provider-logo-btn" type="button" aria-label="切换 provider 预设">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M13.827 3.52h3.603L24 20h-3.603l-6.57-16.48ZM6.064 3.52h3.731L16.365 20h-3.674l-1.343-3.46H5.218L3.875 20H.27L6.064 3.52Zm.692 9.69h2.347L8.043 7.95 6.756 13.21Z"/></svg>
+              </button>
+              <input id="base-url" class="input mono" type="text" value="https://api.anthropic.com" placeholder="https://api.anthropic.com">
+              <button class="btn-ghost" type="button" aria-label="选择预设">
+                预设
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- API Key -->
+          <div class="form-row">
+            <label class="form-label" for="api-key">API Key</label>
+            <div class="api-key-group">
+              <input id="api-key" class="input mono" type="password" value="sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxxxxxxx" placeholder="sk-ant-...">
+              <button class="btn-icon" type="button" id="toggle-key" aria-label="切换 API Key 可见性">
+                <svg id="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              </button>
+              <button class="btn-outline-accent" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 22v-5"></path>
+                  <path d="M9 7V2"></path>
+                  <path d="M15 7V2"></path>
+                  <path d="M6 13V8h12v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4z"></path>
+                </svg>
+                测试连接
+              </button>
+              <button class="btn-outline-accent" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                获取模型
+              </button>
+            </div>
+          </div>
+
+          <!-- 连接状态条 -->
+          <div class="status-bar success" role="status">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+              <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+            <span class="status-text">连接成功 · 12 个模型可用</span>
+            <span class="timestamp">刚刚</span>
+          </div>
+
+        </div>
+
+        <!-- Panel: OAuth 模式（Claude tab 切换后展示） -->
+        <div class="panel-oauth" id="panel-oauth" style="display:none">
+          <div class="oauth-card">
+            <div class="oauth-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path>
+              </svg>
+            </div>
+            <div class="oauth-info">
+              <div class="oauth-title">通过 OAuth 登录 Claude</div>
+              <div class="oauth-desc">使用 Anthropic 账号授权，无需手动管理 API Key。授权后可访问账号下所有可用模型。</div>
+              <div class="oauth-account">
+                <span class="account-dot"></span>
+                <span>已登录 · user@example.com</span>
+              </div>
+            </div>
+            <button class="btn-outline-accent" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+                <polyline points="10 17 15 12 10 7"></polyline>
+                <line x1="15" y1="12" x2="3" y2="12"></line>
+              </svg>
+              重新登录
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ═══ 卡片 2：模型选择（右侧 1 列）═══ -->
+    <section class="card card-models">
+      <header class="card-header">
+        <div class="card-title">
+          <div class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+              <rect x="9" y="9" width="6" height="6"></rect>
+              <line x1="9" y1="1" x2="9" y2="4"></line>
+              <line x1="15" y1="1" x2="15" y2="4"></line>
+              <line x1="9" y1="20" x2="9" y2="23"></line>
+              <line x1="15" y1="20" x2="15" y2="23"></line>
+              <line x1="20" y1="9" x2="23" y2="9"></line>
+              <line x1="20" y1="14" x2="23" y2="14"></line>
+              <line x1="1" y1="9" x2="4" y2="9"></line>
+              <line x1="1" y1="14" x2="4" y2="14"></line>
+            </svg>
+          </div>
+          <h2>模型选择</h2>
+        </div>
+      </header>
+
+      <div class="card-body">
+
+        <div class="model-row">
+          <div class="model-row-head">
+            <span class="tag tag-fast">fast</span>
+            <span class="model-role">Haiku</span>
+          </div>
+          <button class="model-dropdown" type="button">
+            <span>claude-3-5-haiku</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+        </div>
+
+        <div class="model-row">
+          <div class="model-row-head">
+            <span class="tag tag-recommended">recommended</span>
+            <span class="model-role">Sonnet</span>
+          </div>
+          <button class="model-dropdown" type="button">
+            <span>claude-sonnet-4-6</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+        </div>
+
+        <div class="model-row">
+          <div class="model-row-head">
+            <span class="tag tag-powerful">powerful</span>
+            <span class="model-role">Opus</span>
+          </div>
+          <button class="model-dropdown" type="button">
+            <span>claude-3-opus</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+        </div>
+
+        <p class="hint">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="M12 16v-4"></path>
+            <path d="M12 8h.01"></path>
+          </svg>
+          切换 provider 后模型列表会自动刷新
+        </p>
+
+      </div>
+    </section>
+
+    <!-- ═══ 卡片 3：上下文窗口（底部全宽）═══ -->
+    <section class="card card-context">
+      <header class="card-header">
+        <div class="card-title">
+          <div class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+              <polyline points="2 17 12 22 22 17"></polyline>
+              <polyline points="2 12 12 17 22 12"></polyline>
+            </svg>
+          </div>
+          <h2>上下文窗口</h2>
+        </div>
+        <button class="link-btn" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+          重置默认
+        </button>
+      </header>
+
+      <div class="card-body">
+
+        <!-- 上半：3 列模型上下文选择 -->
+        <div class="context-grid">
+
+          <div class="context-item">
+            <div class="model-row-head">
+              <span class="tag tag-fast">fast</span>
+              <span class="model-role">Haiku</span>
+            </div>
+            <div class="model-name">claude-3-5-haiku</div>
+            <button class="model-dropdown" type="button">
+              <span>200K</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+          </div>
+
+          <div class="context-item">
+            <div class="model-row-head">
+              <span class="tag tag-recommended">recommended</span>
+              <span class="model-role">Sonnet</span>
+            </div>
+            <div class="model-name">claude-sonnet-4-6</div>
+            <button class="model-dropdown" type="button">
+              <span>200K</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+          </div>
+
+          <div class="context-item">
+            <div class="model-row-head">
+              <span class="tag tag-powerful">powerful</span>
+              <span class="model-role">Opus</span>
+            </div>
+            <div class="model-name">claude-3-opus</div>
+            <button class="model-dropdown" type="button">
+              <span>默认</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+          </div>
+
+        </div>
+
+        <!-- 下半：上下文预览 -->
+        <div class="context-preview">
+          <div class="preview-label">
+            <span>上下文占用预览</span>
+            <span class="preview-hint">最近 1 小时</span>
+          </div>
+
+          <div class="preview-bars">
+            <div class="bar-row">
+              <div class="bar-label">
+                <span class="bar-dot dot-accent"></span>
+                Haiku · 18%
+              </div>
+              <div class="bar-track">
+                <div class="bar-fill bar-accent" style="width: 18%"></div>
+              </div>
+            </div>
+            <div class="bar-row">
+              <div class="bar-label">
+                <span class="bar-dot dot-secondary"></span>
+                Sonnet · 42%
+              </div>
+              <div class="bar-track">
+                <div class="bar-fill bar-secondary" style="width: 42%"></div>
+              </div>
+            </div>
+            <div class="bar-row">
+              <div class="bar-label">
+                <span class="bar-dot dot-muted"></span>
+                Opus · 8%
+              </div>
+              <div class="bar-track">
+                <div class="bar-fill bar-muted" style="width: 8%"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="legend">
+            <span class="legend-item"><span class="bar-dot dot-accent"></span>Haiku 200K</span>
+            <span class="legend-item"><span class="bar-dot dot-secondary"></span>Sonnet 200K</span>
+            <span class="legend-item"><span class="bar-dot dot-muted"></span>Opus 默认</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+</div>
+
+<script>
+// ─── 极简交互：Tab 切换 API Key / OAuth 面板 ───
+(function () {
+  var tabs = document.querySelectorAll('.provider-tabs .tab');
+  var panelApikey = document.getElementById('panel-apikey');
+  var panelOauth = document.getElementById('panel-oauth');
+
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      tabs.forEach(function (t) {
+        t.classList.remove('active');
+        t.setAttribute('aria-selected', 'false');
+      });
+      tab.classList.add('active');
+      tab.setAttribute('aria-selected', 'true');
+
+      // 切换面板：仅 Claude tab 显示 OAuth，其余显示 API Key
+      if (tab.dataset.tab === 'claude') {
+        panelApikey.style.display = 'none';
+        panelOauth.style.display = 'block';
+      } else {
+        panelApikey.style.display = 'block';
+        panelOauth.style.display = 'none';
+      }
+    });
+  });
+
+  // ─── API Key 可见性切换 ───
+  var toggleBtn = document.getElementById('toggle-key');
+  var keyInput = document.getElementById('api-key');
+  var eyeIcon = document.getElementById('eye-icon');
+
+  toggleBtn.addEventListener('click', function () {
+    if (keyInput.type === 'password') {
+      keyInput.type = 'text';
+      // 切换为 eye-off 图标
+      eyeIcon.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-10-7-10-7a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 10 7 10 7a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line>';
+    } else {
+      keyInput.type = 'password';
+      // 还原 eye 图标
+      eyeIcon.innerHTML = '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle>';
+    }
+  });
+
+  // ─── Profile chip 切换（仅视觉切换 active 态，无内容联动） ───
+  var chips = document.querySelectorAll('.profile-bar .chip');
+  chips.forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      chips.forEach(function (c) { c.classList.remove('active'); });
+      chip.classList.add('active');
+    });
+  });
+})();
+</script>
+
+</body>
+</html>
