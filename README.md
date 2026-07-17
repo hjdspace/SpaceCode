@@ -471,26 +471,150 @@ npm run changelog                 # 生成 CHANGELOG
 
 ---
 
+## 路线图
+
+SpaceCode 持续演进中，以下为近期规划方向（非承诺，可能调整）：
+
+### 🚧 进行中
+
+- **更多 LLM 服务商原生支持**：扩展 Pi Engine 与 Claude Code Engine 的服务商适配层
+- **办公模式能力扩展**：更多办公助手、更精细的产物模板与样式系统
+- **设计模式深化**：与 open-design 生态更紧密的集成、设计系统导入导出
+- **移动端体验升级**：Flutter 端原生性能优化、离线会话支持
+
+### 📋 计划中
+
+- **VS Code 扩展**：将 SpaceCode 的核心能力以 VS Code 插件形式提供
+- **Web 版本**：基于现有 H5 模式扩展完整 Web 端能力
+- **协作工作流**：多用户实时协作、共享会话与团队技能库
+- **插件市场**：开放的技能、Agent、模板第三方市场
+- **本地模型支持**：集成 Ollama / llama.cpp 等本地推理后端
+
+### ✅ 已完成里程碑
+
+- v0.6.x：桌面宠物、多模型 Profile、IM 集成、办公助手画廊
+- v0.5.x：分屏多会话、Computer Use、Browser Use、设计模式
+- v0.4.x：MCP 协议、移动端配套、Agents 智能体系统
+- v0.3.x：多引擎架构、技能库、回滚系统、权限控制
+- v0.2.x：工具卡片、Git 集成、命令系统、终端
+- v0.1.x：项目首版发布、Claude Code IPC 引擎
+
+完整历史变更详见 [CHANGELOG.md](./CHANGELOG.md)。
+
+---
+
+## 贡献
+
+欢迎各类贡献！无论是 Bug 修复、新功能开发、文档改进，还是国际化翻译、技能与智能体扩展，都非常欢迎。
+
+### 快速参与
+
+- 🐛 [报告 Bug](https://github.com/hjdspace/SpaceCode/issues/new?labels=bug&template=bug_report.md) — 在 Issue 中描述复现步骤
+- 💡 [提出建议](https://github.com/hjdspace/SpaceCode/issues/new?labels=enhancement&template=feature_request.md) — 分享你的功能想法
+- 💬 [参与讨论](https://github.com/hjdspace/SpaceCode/discussions) — 在 Discussions 中交流使用心得
+- ⭐ **Star 本项目** — 这是对维护者最大的鼓励
+- 📢 **分享给身边的朋友** — 让更多人受益
+
+### 开发贡献
+
+详细的开发流程、编码规范、提交规范与 PR 流程，请阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+
+```bash
+# 标准贡献流程
+git clone https://github.com/<你的用户名>/SpaceCode.git
+cd SpaceCode && npm install
+git checkout -b feat/your-feature
+# ...开发...
+git push origin feat/your-feature
+# 在 GitHub 上发起 Pull Request
+```
+
+### 行为准则
+
+参与本项目的每一位贡献者都应保持友善与尊重。技术讨论对事不对人，欢迎新手，耐心解答。任何形式的人身攻击、骚扰、歧视性言论都将被拒绝并关闭。
+
+---
+
+## 致谢
+
+SpaceCode 的诞生与成长离不开以下开源项目与社区的支持：
+
+### 核心依赖
+
+- [Electron](https://www.electronjs.org/) — 跨平台桌面应用框架
+- [Vue 3](https://vuejs.org/) — 渐进式 JavaScript 框架
+- [Vite](https://vitejs.dev/) — 下一代前端构建工具
+- [Pinia](https://pinia.vuejs.org/) — Vue 状态管理库
+- [xterm.js](https://xtermjs.org/) — 终端模拟器
+- [Bun](https://bun.sh/) — JavaScript 运行时与工具链
+
+### 集成生态
+
+- [cua-driver](https://github.com/trycua/cua) — Computer-Use 桌面控制驱动
+- [browser-use](https://github.com/browser-use/browser-use) — 浏览器自动化
+- [officecli](https://github.com/hjdspace/officecli) — Office 文档生成 CLI
+- [Model Context Protocol](https://modelcontextprotocol.io/) — MCP 协议规范
+
+### 灵感来源
+
+- [Claude Code](https://www.anthropic.com/claude-code) — CLI 编程引擎
+- [VS Code](https://code.visualstudio.com/) — IDE 布局与交互范式
+- [open-design](https://open-design.dev/) — 设计系统交互范式
+
+感谢所有通过 Issue、PR、Discussion 参与项目建设的 [贡献者](https://github.com/hjdspace/SpaceCode/graphs/contributors)。
+
+---
+
+## 社区与反馈
+
+| 渠道 | 用途 |
+|------|------|
+| [GitHub Issues](https://github.com/hjdspace/SpaceCode/issues) | Bug 报告、功能建议 |
+| [GitHub Discussions](https://github.com/hjdspace/SpaceCode/discussions) | 使用讨论、经验分享 |
+| [GitHub Releases](https://github.com/hjdspace/SpaceCode/releases) | 版本发布与下载 |
+| [SECURITY.md](./SECURITY.md) | 安全漏洞私下报告 |
+| 作者邮箱 `hjdspace1990@gmail.com` | 直接联系维护者 |
+
+---
+
 ## 相关文档
 
-- [更新日志](./CHANGELOG.md) — 版本迭代记录
-- [发布说明](./release-notes/) — 各版本发布亮点
-- [设计文档](./docs/superpowers/) — 架构设计与功能规划
-- [贡献指南](./CONTRIBUTING.md) — 如何参与开发
-- [安全说明](./SECURITY.md) — 安全策略与漏洞报告
+| 文档 | 说明 |
+|------|------|
+| [CHANGELOG.md](./CHANGELOG.md) | 版本迭代完整记录 |
+| [release-notes/](./release-notes/) | 各版本发布亮点 |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | 贡献指南与开发流程 |
+| [SECURITY.md](./SECURITY.md) | 安全策略与漏洞报告 |
+| [CONTEXT.md](./CONTEXT.md) | 项目领域模型与术语表 |
+| [AGENTS.md](./AGENTS.md) | AI Agent 协作指南 |
+| [docs/](./docs/) | 设计文档、IM 集成、Demo 资源 |
 
 ---
 
 ## 许可证
 
-详见 [LICENSE](./LICENSE) 文件。
+本项目基于 [MIT License](./LICENSE) 开源。
+
+Copyright © 2026 [hjdspace](https://github.com/hjdspace)
+
+---
+
+## Star History
+
+<a href="https://star-history.com/#hjdspace/SpaceCode&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=hjdspace/SpaceCode&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=hjdspace/SpaceCode&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=hjdspace/SpaceCode&type=Date" />
+  </picture>
+</a>
 
 ---
 
 <div align="center">
 
-**项目主页**: https://github.com/hjdspace/SpaceCode  
-**问题反馈**: https://github.com/hjdspace/SpaceCode/issues  
-**发布版本**: https://github.com/hjdspace/SpaceCode/releases
+**如果 SpaceCode 对你有帮助，欢迎 ⭐ Star 支持项目持续发展**
+
+[项目主页](https://github.com/hjdspace/SpaceCode) · [问题反馈](https://github.com/hjdspace/SpaceCode/issues) · [发布版本](https://github.com/hjdspace/SpaceCode/releases) · [参与讨论](https://github.com/hjdspace/SpaceCode/discussions)
 
 </div>
