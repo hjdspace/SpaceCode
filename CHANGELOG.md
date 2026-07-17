@@ -1,3 +1,41 @@
+## [0.6.7](https://github.com/hjdspace/SpaceCode/compare/v0.6.6...v0.6.7) (2026-07-17)
+
+### Features
+
+* **profiles:** 添加 ModelProfile 和 ProfilesFile 类型定义
+* **profiles:** 主进程新增 profiles:load/save IPC handler
+* **profiles:** preload 和 electronAPI 暴露 profilesLoad/save
+* **profiles:** store 新增 profile state 和 7 个 actions
+* **profiles:** i18n 新增 profile.* 区块
+* **profiles:** 新增 ProfileCards 组件及测试
+* **profiles:** SettingsPanel 集成 ProfileCards 并在启动时加载 profiles
+* **profiles:** apply 切换后显示 Toast 提示
+* **markdown:** 新增本地图片相对路径解析能力，修复预览时图片加载404与CSP限制问题
+
+### Bug Fixes
+
+* **profiles:** 修复 applyProfile 回滚崩溃风险并补充边界测试
+* **profiles:** 修复 CSS 变量名、any 类型、可访问性和 i18n 问题
+* **profiles:** 修复 commitName 中遗漏的硬编码中文
+* **profiles:** 无效 activeProfileId 重置后同步应用第一个 Profile 到 gui-settings
+* **profiles:** i18n 去硬编码 + 解析失败备份损坏文件
+* **ProfileCards:** 修复展开设置面板的空值异常和类型定义
+
+### Refactor
+
+* **profile-cards:** 重构模型配置卡片UI与交互逻辑
+* **ProfileCards:** 重构配置页面布局，优化交互体验
+
+### Build
+
+* 升级electron及相关依赖并适配新版本API
+
+### Documentation
+
+* 添加多套模型配置切换（Profile）设计文档
+* 添加多套模型配置切换（Profile）实现计划
+* 完善开源文档，新增 LICENSE/CONTRIBUTING/SECURITY 与 README 路线图等章节
+
 ## [0.6.6](https://github.com/hjdspace/SpaceCode/compare/v0.6.5...v0.6.6) (2026-07-13)
 
 ### Features
