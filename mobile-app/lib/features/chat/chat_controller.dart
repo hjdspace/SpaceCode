@@ -15,6 +15,7 @@ import '../../core/agent/local_agent_service.dart';
 import '../../core/agent/agent_types.dart';
 import '../../core/config/mobile_config.dart';
 import '../../core/github/github_service.dart';
+import '../../core/skills/skill_registry.dart';
 import '../../core/workspace/workspace_target.dart';
 
 final chatProvider = StateNotifierProvider<ChatNotifier, ChatState>((ref) {
@@ -203,6 +204,10 @@ class ChatNotifier extends StateNotifier<ChatState> {
   }
 
   void sendMessage(String content) {
+    final processed = _processSkillCommand(content);
+    if (processed == null) return;
+    final actualContent = processed;
+
     final sessionId = state.currentSessionId ?? _uuid.v4();
     if (state.currentSessionId == null) {
       state = state.copyWith(currentSessionId: sessionId);
@@ -212,7 +217,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
     final userMsg = ChatMessage(
       id: _uuid.v4(),
       role: MessageRole.user,
-      content: content,
+      content: actualContent,
     );
     final assistantMsg = ChatMessage(
       id: _uuid.v4(),
@@ -230,15 +235,37 @@ class ChatNotifier extends StateNotifier<ChatState> {
             type: RequestType.sendMessage,
             data: {
               'sessionId': sessionId,
-              'content': content,
+              'content': actualContent,
               'images': [],
               if (workspace != null) 'workspace': workspace.promptContext,
             },
           ));
     } else {
-      _runLocalAgent(sessionId, content, workspace);
+      _runLocalAgent(sessionId, actualContent, workspace);
     }
     _schedulePersist();
+  }
+
+  /// 解析 `/skill:name [task]` 命令为完整 prompt。
+  ///
+  /// 返回 null 表示输入无效（应忽略）；
+  /// 返回原字符串表示非技能命令；
+  /// 返回拼装后的字符串表示技能命令已展开。
+  String? _processSkillCommand(String content) {
+    final trimmed = content.trim();
+    if (trimmed.isEmpty) return null;
+    if (!trimmed.startsWith('/skill:')) return trimmed;
+    final rest = trimmed.substring('/skill:'.length);
+    final spaceIndex = rest.indexOf(' ');
+    final skillName =
+        spaceIndex >= 0 ? rest.substring(0, spaceIndex).trim() : rest.trim();
+    final taskText =
+        spaceIndex >= 0 ? rest.substring(spaceIndex + 1).trim() : '';
+    if (skillName.isEmpty) return null;
+    if (taskText.isEmpty) {
+      return "Load skill '$skillName' and follow its instructions.";
+    }
+    return "Load skill '$skillName' and follow its instructions for the following task:\n\n$taskText";
   }
 
   Future<void> _runLocalAgent(String sessionId, String content,
@@ -330,6 +357,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
         history: _buildLocalAgentHistory(sessionId, content),
         cancellationToken: token,
         onEvent: (event) => _handleLocalAgentEvent(sessionId, event),
+        skillRegistry: _ref.read(skillRegistryProvider),
       );
       if (workspace?.mode == WorkspaceMode.github &&
           workspace?.localPath != null &&

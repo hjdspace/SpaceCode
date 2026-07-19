@@ -7,6 +7,8 @@ import 'package:http/testing.dart';
 import 'package:spacecode_mobile/core/agent/agent_types.dart';
 import 'package:spacecode_mobile/core/agent/local_agent_service.dart';
 import 'package:spacecode_mobile/core/config/mobile_config.dart';
+import 'package:spacecode_mobile/core/skills/skill_registry.dart';
+import 'package:spacecode_mobile/core/skills/skill_types.dart';
 import 'package:spacecode_mobile/core/workspace/workspace_target.dart';
 
 void main() {
@@ -91,5 +93,52 @@ void main() {
       throwsA(isA<StateError>()),
     );
     service.dispose();
+  });
+
+  test('injects skill registry into system prompt when provided', () async {
+    late Map<String, dynamic> requestBody;
+    final client = MockClient.streaming((request, bodyStream) async {
+      final bodyBytes = await bodyStream.toBytes();
+      requestBody = jsonDecode(utf8.decode(bodyBytes)) as Map<String, dynamic>;
+      return http.StreamedResponse(
+        Stream.value(utf8.encode('data: [DONE]\n\n')),
+        200,
+        headers: {'content-type': 'text/event-stream'},
+      );
+    });
+
+    final service = LocalAgentService(client: client);
+    const skillState = SkillRegistryState(
+      skills: [
+        Skill(
+          name: 'code-review',
+          description: '审查代码',
+          filePath: '/tmp/x/SKILL.md',
+          baseDir: '/tmp/x',
+          source: SkillSourceKind.user,
+        ),
+      ],
+      diagnostics: [],
+      loading: false,
+      disabledNames: {},
+    );
+
+    await service.complete(
+      sessionId: 's',
+      config: const MobileConfig(
+        apiKey: 'k',
+        baseUrl: 'https://example.test/v1',
+        model: 'm',
+      ),
+      prompt: 'hi',
+      cancellationToken: AgentCancellationToken(),
+      onEvent: (_) {},
+      skillRegistry: skillState,
+    );
+
+    final messages = requestBody['messages'] as List;
+    final systemContent = messages.first['content'] as String;
+    expect(systemContent, contains('<available_skills>'));
+    expect(systemContent, contains('code-review'));
   });
 }
