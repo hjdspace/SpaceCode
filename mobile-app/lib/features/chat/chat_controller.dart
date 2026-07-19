@@ -384,14 +384,27 @@ class ChatNotifier extends StateNotifier<ChatState> {
   }
 
   void _handleLocalAgentEvent(String sessionId, AgentEvent event) {
-    if (event.type != AgentEventType.toolExecutionStart &&
-        event.type != AgentEventType.toolExecutionEnd) {
-      return;
-    }
     final messages =
         List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
     if (messages.isEmpty || messages.last.role != MessageRole.assistant) return;
     final assistant = messages.last;
+
+    if (event.type == AgentEventType.assistantDelta && event.delta != null) {
+      // 流式 delta：累积到最后一条 assistant 消息的 content 上
+      messages[messages.length - 1] = assistant.copyWith(
+        content: assistant.content + event.delta!,
+        isStreaming: true,
+      );
+      _setMessages(sessionId, messages);
+      _schedulePersist();
+      return;
+    }
+
+    if (event.type != AgentEventType.toolExecutionStart &&
+        event.type != AgentEventType.toolExecutionEnd) {
+      return;
+    }
+
     final calls = List<ToolCall>.from(assistant.toolCalls ?? const []);
     if (event.type == AgentEventType.toolExecutionStart &&
         event.toolCall != null) {

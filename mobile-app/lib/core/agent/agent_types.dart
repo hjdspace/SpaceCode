@@ -57,6 +57,7 @@ enum AgentEventType {
   agentStart,
   turnStart,
   assistantMessage,
+  assistantDelta,
   toolExecutionStart,
   toolExecutionEnd,
   agentEnd,
@@ -67,6 +68,7 @@ class AgentEvent {
   final AgentMessage? message;
   final AgentToolCall? toolCall;
   final String? toolResult;
+  final String? delta;
   final bool isError;
 
   const AgentEvent({
@@ -74,6 +76,7 @@ class AgentEvent {
     this.message,
     this.toolCall,
     this.toolResult,
+    this.delta,
     this.isError = false,
   });
 }

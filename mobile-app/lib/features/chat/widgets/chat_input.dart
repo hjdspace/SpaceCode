@@ -349,15 +349,11 @@ class _WorkspaceToolbar extends StatelessWidget {
         const SizedBox(width: 6),
         Expanded(
           child: InkWell(
-            onTap: isGithub ? onGithub : onLocal,
+            onTap: onGithub,
             borderRadius: BorderRadius.circular(8),
             child: _ContextChip(
-              icon: isGithub
-                  ? Icons.account_tree_outlined
-                  : Icons.folder_open_outlined,
-              label: isGithub
-                  ? (target?.repository ?? 'Github仓库')
-                  : (target?.localPath ?? '选择工作目录'),
+              icon: Icons.account_tree_outlined,
+              label: target?.repository ?? '选择 Github 仓库',
               expanded: true,
             ),
           ),
@@ -368,9 +364,14 @@ class _WorkspaceToolbar extends StatelessWidget {
             onTap: isGithub ? onBranch : onLocal,
             borderRadius: BorderRadius.circular(8),
             child: _ContextChip(
-                icon: Icons.call_split_outlined,
-                label: isGithub ? (target?.branch ?? 'Github分支') : '目录',
-                expanded: true),
+              icon: isGithub
+                  ? Icons.call_split_outlined
+                  : Icons.folder_open_outlined,
+              label: isGithub
+                  ? (target?.branch ?? 'Github分支')
+                  : (target?.localPath ?? '选择目录'),
+              expanded: true,
+            ),
           ),
         ),
       ],

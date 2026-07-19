@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
+import '../../core/agent/local_agent_service.dart';
 import '../../core/connection/connection_service.dart';
 import '../../core/connection/connection_state.dart' as conn;
 import '../../core/connection/qr_scanner_page.dart';
@@ -78,6 +79,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _apiKeyController = TextEditingController();
   final _baseUrlController = TextEditingController();
   final _modelController = TextEditingController();
+  final _agentService = LocalAgentService();
+  List<String> _availableModels = const [];
+  bool _loadingModels = false;
   String? _defaultAgentName;
   String _permissionMode = 'default';
   bool _streamingEnabled = true;
@@ -102,6 +106,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _permissionMode = permMode;
       _streamingEnabled = streaming;
     });
+    // 若已配置 API Key 和 Base URL，自动拉取一次模型列表
+    if (config.apiKey.isNotEmpty && config.baseUrl.isNotEmpty) {
+      _refreshModels();
+    }
+  }
+
+  Future<void> _refreshModels() async {
+    if (_loadingModels) return;
+    setState(() => _loadingModels = true);
+    try {
+      final models = await _agentService.listModels(
+        baseUrl: _baseUrlController.text,
+        apiKey: _apiKeyController.text,
+      );
+      if (!mounted) return;
+      setState(() {
+        _availableModels = models;
+        _loadingModels = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _loadingModels = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.toString().replaceFirst('Bad state: ', ''))),
+      );
+    }
   }
 
   @override
@@ -110,6 +140,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _apiKeyController.dispose();
     _baseUrlController.dispose();
     _modelController.dispose();
+    _agentService.dispose();
     super.dispose();
   }
 
@@ -233,11 +264,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 labelText: 'Base URL', hintText: 'https://api.openai.com/v1'),
           ),
           const SizedBox(height: 10),
-          TextField(
-            controller: _modelController,
-            style: const TextStyle(fontSize: 14),
-            decoration:
-                const InputDecoration(labelText: '模型', hintText: 'gpt-4o-mini'),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _buildModelField(),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                onPressed: _loadingModels ? null : _refreshModels,
+                icon: _loadingModels
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh, size: 20),
+                tooltip: '从 API 获取模型列表',
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           SizedBox(
@@ -384,6 +429,40 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     } finally {
       service.dispose();
     }
+  }
+
+  Widget _buildModelField() {
+    return TextField(
+      controller: _modelController,
+      style: const TextStyle(fontSize: 14),
+      decoration: InputDecoration(
+        labelText: '模型',
+        hintText: _availableModels.isEmpty
+            ? 'gpt-4o-mini（点右侧刷新拉取列表）'
+            : '从下拉选择或手动输入',
+        suffixIcon: _availableModels.isEmpty
+            ? null
+            : PopupMenuButton<String>(
+                icon: const Icon(Icons.arrow_drop_down, size: 20),
+                tooltip: '选择模型',
+                constraints: const BoxConstraints(maxHeight: 320),
+                itemBuilder: (_) => _availableModels
+                    .map((m) => PopupMenuItem<String>(
+                          value: m,
+                          child: Text(
+                            m,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ))
+                    .toList(),
+                onSelected: (value) {
+                  _modelController.text = value;
+                  _modelController.selection = TextSelection.fromPosition(
+                      TextPosition(offset: value.length));
+                },
+              ),
+      ),
+    );
   }
 
   Widget _sectionHeader(String title) {
