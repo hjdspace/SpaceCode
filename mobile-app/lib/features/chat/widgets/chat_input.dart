@@ -104,18 +104,24 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   Widget _buildPositionedMenu() {
     final renderBox = context.findRenderObject() as RenderBox?;
     final size = renderBox?.size ?? Size.zero;
-    return Positioned(
-      bottom: size.height + 8,
-      left: 12,
-      right: 12,
-      child: Material(
-        color: Colors.transparent,
-        child: SkillCommandMenu(
-          items: _commandItems,
-          selectedIndex: _commandSelectedIndex,
-          onSelected: _selectCommand,
+    return Stack(
+      children: [
+        GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: _hideCommandMenu,
+          child: const SizedBox.expand(),
         ),
-      ),
+        Positioned(
+          bottom: size.height + 8,
+          left: 12,
+          right: 12,
+          child: SkillCommandMenu(
+            items: _commandItems,
+            selectedIndex: _commandSelectedIndex,
+            onSelected: _selectCommand,
+          ),
+        ),
+      ],
     );
   }
 
