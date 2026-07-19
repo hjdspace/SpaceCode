@@ -213,7 +213,8 @@ jobs:
           PUB_CACHE="${PUB_CACHE:-$HOME/.pub-cache}"
           echo "PUB_CACHE=$PUB_CACHE"
           # 列出所有 file_picker 的 build.gradle 路径
-          mapfile -t FILE_LIST < <(find "$PUB_CACHE" -path '*/file_picker-*/android/build.gradle' -type f 2>/dev/null)
+          # 排除 example/ 子目录（example 是独立的 demo 项目，不影响插件本身）
+          mapfile -t FILE_LIST < <(find "$PUB_CACHE" -path '*/file_picker-*/android/build.gradle' -not -path '*/example/*' -type f 2>/dev/null)
           if [ ${#FILE_LIST[@]} -eq 0 ]; then
             echo "WARNING: 未找到 file_picker 的 build.gradle，可能 pubspec 版本变了"
           fi
@@ -222,7 +223,7 @@ jobs:
             # 用正则匹配任何 compileSdk 版本号（34/35等），统一改为 36
             sed -i -E 's/compileSdk[[:space:]]+[0-9]+/compileSdk 36/g' "$f"
             echo "--- After patch ---"
-            grep -n "compileSdk" "$f"
+            grep -n "compileSdk" "$f" || echo "(no compileSdk line in $f)"
           done
 
       - name: Strip Aliyun/Tencent mirrors for CI (GitHub Actions runs abroad)
