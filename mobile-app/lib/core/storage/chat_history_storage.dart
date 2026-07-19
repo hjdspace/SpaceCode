@@ -22,6 +22,7 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../features/chat/models/message.dart';
+import '../workspace/workspace_target.dart';
 
 class SessionSummary {
   final String id;
@@ -29,6 +30,7 @@ class SessionSummary {
   final DateTime createdAt;
   final DateTime updatedAt;
   final String? projectPath;
+  final WorkspaceTarget? workspaceTarget;
   final int messageCount;
 
   const SessionSummary({
@@ -37,6 +39,7 @@ class SessionSummary {
     required this.createdAt,
     required this.updatedAt,
     this.projectPath,
+    this.workspaceTarget,
     required this.messageCount,
   });
 
@@ -46,6 +49,10 @@ class SessionSummary {
     createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
     updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? DateTime.now(),
     projectPath: json['projectPath'] as String?,
+    workspaceTarget: json['workspaceTarget'] is Map<String, dynamic>
+        ? WorkspaceTarget.fromJson(
+            json['workspaceTarget'] as Map<String, dynamic>)
+        : null,
     messageCount: json['messageCount'] as int? ?? 0,
   );
 
@@ -55,6 +62,7 @@ class SessionSummary {
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
     'projectPath': projectPath,
+    'workspaceTarget': workspaceTarget?.toJson(),
     'messageCount': messageCount,
   };
 }
@@ -137,6 +145,7 @@ class ChatHistoryStorage {
     required String title,
     required List<ChatMessage> messages,
     String? projectPath,
+    WorkspaceTarget? workspaceTarget,
     DateTime? createdAt,
   }) async {
     try {
@@ -163,6 +172,7 @@ class ChatHistoryStorage {
           createdAt: created,
           updatedAt: now,
           projectPath: projectPath,
+          workspaceTarget: workspaceTarget,
           messageCount: messages.length,
         ),
         messages: messages,

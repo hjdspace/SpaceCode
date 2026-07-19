@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
@@ -11,6 +12,7 @@ import 'models/message.dart';
 import 'models/tool_call.dart';
 import 'models/permission_request.dart';
 import '../../core/agent/local_agent_service.dart';
+import '../../core/agent/agent_types.dart';
 import '../../core/config/mobile_config.dart';
 import '../../core/github/github_service.dart';
 import '../../core/workspace/workspace_target.dart';
@@ -88,6 +90,7 @@ class ChatState {
     List<SessionSummary>? sessions,
     bool? historyLoaded,
     WorkspaceTarget? workspaceTarget,
+    bool clearWorkspaceTarget = false,
   }) =>
       ChatState(
         currentSessionId: currentSessionId ?? this.currentSessionId,
@@ -98,7 +101,9 @@ class ChatState {
         projectPath: projectPath ?? this.projectPath,
         sessions: sessions ?? this.sessions,
         historyLoaded: historyLoaded ?? this.historyLoaded,
-        workspaceTarget: workspaceTarget ?? this.workspaceTarget,
+        workspaceTarget: clearWorkspaceTarget
+            ? null
+            : workspaceTarget ?? this.workspaceTarget,
       );
 
   /// 工厂方法：创建初始空状态
@@ -114,6 +119,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
   final _uuid = const Uuid();
   final _storage = ChatHistoryStorage();
   final _localAgent = LocalAgentService();
+  final Map<String, WorkspaceTarget> _workspaceBySession = {};
+  final Map<String, AgentCancellationToken> _localWorkflowTokens = {};
   StreamSubscription? _subscription;
   // 防抖保存：连续追加流式 delta 时只在停顿 500ms 后写一次盘
   Timer? _persistTimer;
@@ -150,8 +157,11 @@ class ChatNotifier extends StateNotifier<ChatState> {
       agentBySession: const {},
       sessions: data.sessions,
       projectPath: currentSummary.projectPath,
+      workspaceTarget: currentSummary.workspaceTarget,
       historyLoaded: true,
     );
+    final target = currentSummary.workspaceTarget;
+    if (target != null) _workspaceBySession[currentId] = target;
   }
 
   void _handlePush(MobilePush push) {
@@ -197,6 +207,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
     if (state.currentSessionId == null) {
       state = state.copyWith(currentSessionId: sessionId);
     }
+    final workspace = _workspaceBySession[sessionId] ?? state.workspaceTarget;
+    if (workspace != null) _workspaceBySession[sessionId] = workspace;
     final userMsg = ChatMessage(
       id: _uuid.v4(),
       role: MessageRole.user,
@@ -220,28 +232,33 @@ class ChatNotifier extends StateNotifier<ChatState> {
               'sessionId': sessionId,
               'content': content,
               'images': [],
-              if (state.workspaceTarget != null)
-                'workspace': state.workspaceTarget!.promptContext,
+              if (workspace != null) 'workspace': workspace.promptContext,
             },
           ));
     } else {
-      _runLocalAgent(sessionId, content);
+      _runLocalAgent(sessionId, content, workspace);
     }
     _schedulePersist();
   }
 
-  Future<void> _runLocalAgent(String sessionId, String content) async {
+  Future<void> _runLocalAgent(String sessionId, String content,
+      WorkspaceTarget? selectedWorkspace) async {
+    final token = AgentCancellationToken();
+    _localWorkflowTokens[sessionId]?.cancel();
+    _localWorkflowTokens[sessionId] = token;
     try {
       final config = _ref.read(mobileConfigProvider);
-      var workspace = state.workspaceTarget;
+      var workspace = selectedWorkspace;
       if (workspace?.mode == WorkspaceMode.github &&
           workspace?.localPath == null) {
         if (config.githubToken.isEmpty) throw StateError('请先在设置中完成 Github 认证');
         final documents = await getApplicationDocumentsDirectory();
         final repositoryName =
             (workspace!.repository ?? 'repository').split('/').last;
+        final branchName = (workspace.branch ?? 'default')
+            .replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
         final checkoutPath =
-            '${documents.path}${Platform.pathSeparator}spacecode-workspaces${Platform.pathSeparator}$repositoryName-$sessionId';
+            '${documents.path}${Platform.pathSeparator}spacecode-workspaces${Platform.pathSeparator}$repositoryName-$branchName-$sessionId';
         if (!await Directory(checkoutPath).exists()) {
           final github = GithubService(token: config.githubToken);
           try {
@@ -249,6 +266,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
               repository: workspace.repository!,
               branch: workspace.branch!,
               targetDirectory: checkoutPath,
+              abortTrigger: token.whenCancelled,
+              isCancelled: () => token.isCancelled,
             );
           } finally {
             github.dispose();
@@ -259,12 +278,20 @@ class ChatNotifier extends StateNotifier<ChatState> {
           branch: workspace.branch,
           localPath: checkoutPath,
         );
-        state = state.copyWith(workspaceTarget: workspace);
+        _workspaceBySession[sessionId] = workspace;
+        if (state.currentSessionId == sessionId) {
+          state = state.copyWith(workspaceTarget: workspace);
+        }
       }
+      token.throwIfCancelled();
       var answer = await _localAgent.complete(
+        sessionId: sessionId,
         config: config,
         prompt: content,
         workspace: workspace,
+        history: _buildLocalAgentHistory(sessionId, content),
+        cancellationToken: token,
+        onEvent: (event) => _handleLocalAgentEvent(sessionId, event),
       );
       if (workspace?.mode == WorkspaceMode.github &&
           workspace?.localPath != null &&
@@ -277,9 +304,12 @@ class ChatNotifier extends StateNotifier<ChatState> {
             directory: workspace.localPath!,
             title: content.length > 70 ? content.substring(0, 70) : content,
             body: '由 SpaceCode Mobile Agent 根据任务自动生成。\n\n$content',
+            abortTrigger: token.whenCancelled,
+            isCancelled: () => token.isCancelled,
           );
           answer = '$answer\n\nPull Request: $pullRequest';
         } catch (error) {
+          if (token.isCancelled) rethrow;
           answer = '$answer\n\nPull Request 创建失败：$error';
         } finally {
           github.dispose();
@@ -292,7 +322,13 @@ class ChatNotifier extends StateNotifier<ChatState> {
             messages.last.copyWith(content: answer, isStreaming: false);
         _setMessages(sessionId, messages);
       }
+    } on AgentCancelledException {
+      _markCancelledMessage(sessionId);
     } catch (error) {
+      if (token.isCancelled) {
+        _markCancelledMessage(sessionId);
+        return;
+      }
       final messages =
           List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
       if (messages.isNotEmpty && messages.last.role == MessageRole.assistant) {
@@ -304,13 +340,135 @@ class ChatNotifier extends StateNotifier<ChatState> {
         _setMessages(sessionId, messages);
       }
     } finally {
+      if (identical(_localWorkflowTokens[sessionId], token)) {
+        _localWorkflowTokens.remove(sessionId);
+      }
       _setLoading(sessionId, false);
       _schedulePersist();
     }
   }
 
+  void _markCancelledMessage(String sessionId) {
+    final messages =
+        List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
+    if (messages.isEmpty || messages.last.role != MessageRole.assistant) return;
+    final calls = (messages.last.toolCalls ?? const <ToolCall>[]).map((call) {
+      if (call.output != null) return call;
+      return call.copyWith(
+        output: '任务已停止',
+        status: ToolCallStatus.error,
+      );
+    }).toList();
+    messages[messages.length - 1] = messages.last.copyWith(
+      content: '任务已停止',
+      toolCalls: calls,
+      isStreaming: false,
+    );
+    _setMessages(sessionId, messages);
+  }
+
   void setWorkspaceTarget(WorkspaceTarget? target) {
-    state = state.copyWith(workspaceTarget: target);
+    final sessionId = state.currentSessionId;
+    if (sessionId != null) {
+      if (target == null) {
+        _workspaceBySession.remove(sessionId);
+      } else {
+        _workspaceBySession[sessionId] = target;
+      }
+    }
+    state = state.copyWith(
+      workspaceTarget: target,
+      clearWorkspaceTarget: target == null,
+    );
+    _schedulePersist();
+  }
+
+  void _handleLocalAgentEvent(String sessionId, AgentEvent event) {
+    if (event.type != AgentEventType.toolExecutionStart &&
+        event.type != AgentEventType.toolExecutionEnd) {
+      return;
+    }
+    final messages =
+        List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
+    if (messages.isEmpty || messages.last.role != MessageRole.assistant) return;
+    final assistant = messages.last;
+    final calls = List<ToolCall>.from(assistant.toolCalls ?? const []);
+    if (event.type == AgentEventType.toolExecutionStart &&
+        event.toolCall != null) {
+      calls.add(ToolCall(
+        id: event.toolCall!.id,
+        toolName: event.toolCall!.name,
+        input: jsonEncode(event.toolCall!.arguments),
+      ));
+    } else if (event.type == AgentEventType.toolExecutionEnd &&
+        event.toolCall != null) {
+      final index = calls.indexWhere((call) => call.id == event.toolCall!.id);
+      if (index >= 0) {
+        calls[index] = calls[index].copyWith(
+          output: event.toolResult,
+          status:
+              event.isError ? ToolCallStatus.error : ToolCallStatus.completed,
+        );
+      }
+    }
+    messages[messages.length - 1] = assistant.copyWith(toolCalls: calls);
+    _setMessages(sessionId, messages);
+  }
+
+  List<AgentMessage> _buildLocalAgentHistory(
+      String sessionId, String currentPrompt) {
+    final source = state.messagesBySession[sessionId] ?? const [];
+    final history = <AgentMessage>[];
+    final currentUserIndex = source.lastIndexWhere((message) =>
+        message.role == MessageRole.user && message.content == currentPrompt);
+    for (var index = 0; index < source.length; index++) {
+      final message = source[index];
+      if (index == currentUserIndex) {
+        continue;
+      }
+      if (message.role == MessageRole.user) {
+        history.add(AgentMessage.user(message.content));
+        continue;
+      }
+      if (message.role != MessageRole.assistant || message.isStreaming) {
+        continue;
+      }
+      final calls = (message.toolCalls ?? const <ToolCall>[])
+          .where((call) => call.output != null)
+          .toList();
+      if (calls.isEmpty) {
+        history.add(AgentMessage.assistant(content: message.content));
+        continue;
+      }
+      final toolCalls = calls.map((call) {
+        final decoded = _decodeToolInput(call.input);
+        return AgentToolCall(
+            id: call.id, name: call.toolName, arguments: decoded);
+      }).toList();
+      history.add(AgentMessage.assistant(toolCalls: toolCalls));
+      for (final call in calls.where((call) => call.output != null)) {
+        history.add(AgentMessage.tool(
+          toolCallId: call.id,
+          content: call.output ?? '',
+          isError: call.status == ToolCallStatus.error,
+        ));
+      }
+      if (message.content.isNotEmpty) {
+        history.add(AgentMessage.assistant(content: message.content));
+      }
+    }
+    return history;
+  }
+
+  Map<String, dynamic> _decodeToolInput(String input) {
+    try {
+      final decoded = jsonDecode(input);
+      return decoded is Map
+          ? decoded.cast<String, dynamic>()
+          : {'input': input};
+    } catch (_) {
+      return {'input': input};
+    }
   }
 
   void _handleStreamEvent(Map<String, dynamic>? data) {
@@ -558,6 +716,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
       messagesBySession: newMessagesBySession,
       loadingBySession: newLoadingBySession,
       pendingPermissions: [],
+      clearWorkspaceTarget: true,
     );
     _storage.setCurrentSessionId(sessionId);
   }
@@ -578,6 +737,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
     );
     final loadingBySession = Map<String, bool>.from(state.loadingBySession);
     loadingBySession.putIfAbsent(sessionId, () => false);
+    final workspace = _workspaceBySession[sessionId] ?? summary.workspaceTarget;
+    if (workspace != null) _workspaceBySession[sessionId] = workspace;
 
     state = state.copyWith(
       currentSessionId: sessionId,
@@ -585,6 +746,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
       loadingBySession: loadingBySession,
       projectPath: summary.projectPath,
       pendingPermissions: [],
+      workspaceTarget: workspace,
+      clearWorkspaceTarget: workspace == null,
     );
     _ref.read(connectionProvider.notifier).send(MobileRequest(
           type: RequestType.switchSession,
@@ -594,6 +757,9 @@ class ChatNotifier extends StateNotifier<ChatState> {
   }
 
   Future<void> deleteSession(String sessionId) async {
+    _localWorkflowTokens.remove(sessionId)?.cancel();
+    _localAgent.resetSession(sessionId);
+    _workspaceBySession.remove(sessionId);
     await _storage.deleteSession(sessionId);
     final sessions = state.sessions.where((s) => s.id != sessionId).toList();
     final messagesBySession =
@@ -610,6 +776,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
           loadingBySession: loadingBySession,
           currentSessionId: null,
           projectPath: null,
+          clearWorkspaceTarget: true,
         );
       } else {
         // 切到第一个会话
@@ -619,12 +786,17 @@ class ChatNotifier extends StateNotifier<ChatState> {
           messagesBySession[nextId] = msgs;
         }
         loadingBySession.putIfAbsent(nextId, () => false);
+        final workspace =
+            _workspaceBySession[nextId] ?? sessions.first.workspaceTarget;
+        if (workspace != null) _workspaceBySession[nextId] = workspace;
         state = state.copyWith(
           sessions: sessions,
           messagesBySession: messagesBySession,
           loadingBySession: loadingBySession,
           currentSessionId: nextId,
           projectPath: sessions.first.projectPath,
+          workspaceTarget: workspace,
+          clearWorkspaceTarget: workspace == null,
         );
         _ref.read(connectionProvider.notifier).send(MobileRequest(
               type: RequestType.switchSession,
@@ -655,11 +827,17 @@ class ChatNotifier extends StateNotifier<ChatState> {
   }
 
   void abort() {
-    if (state.currentSessionId != null) {
+    final sessionId = state.currentSessionId;
+    if (sessionId == null) return;
+    final connection = _ref.read(connectionProvider);
+    if (connection.state == conn.ConnectionState.connected) {
       _ref.read(connectionProvider.notifier).send(MobileRequest(
             type: RequestType.abort,
-            data: {'sessionId': state.currentSessionId},
+            data: {'sessionId': sessionId},
           ));
+    } else {
+      _localWorkflowTokens[sessionId]?.cancel();
+      _localAgent.abort(sessionId);
     }
   }
 
@@ -710,6 +888,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
       title: title,
       messages: persistableMessages,
       projectPath: state.projectPath,
+      workspaceTarget: _workspaceBySession[sid] ?? state.workspaceTarget,
     );
 
     // 同步更新 sessions 列表（upsert + 按 updatedAt 排序）
@@ -725,12 +904,15 @@ class ChatNotifier extends StateNotifier<ChatState> {
               createdAt: DateTime.now(),
               updatedAt: DateTime.now(),
               projectPath: state.projectPath,
+              workspaceTarget:
+                  _workspaceBySession[sid] ?? state.workspaceTarget,
               messageCount: persistableMessages.length,
             ),
           )
           .createdAt,
       updatedAt: DateTime.now(),
       projectPath: state.projectPath,
+      workspaceTarget: _workspaceBySession[sid] ?? state.workspaceTarget,
       messageCount: persistableMessages.length,
     );
     final newSessions =
@@ -743,6 +925,10 @@ class ChatNotifier extends StateNotifier<ChatState> {
   void dispose() {
     _persistTimer?.cancel();
     _subscription?.cancel();
+    for (final token in _localWorkflowTokens.values) {
+      token.cancel();
+    }
+    _localWorkflowTokens.clear();
     _localAgent.dispose();
     super.dispose();
   }

@@ -171,11 +171,17 @@ class GithubService {
     required String repository,
     required String branch,
     required String targetDirectory,
+    Future<void>? abortTrigger,
+    bool Function()? isCancelled,
   }) async {
-    final response = await _client.get(
+    _throwIfCancelled(isCancelled);
+    final response = await _send(
+      'GET',
       Uri.parse('https://api.github.com/repos/$repository/zipball/$branch'),
       headers: _headers,
+      abortTrigger: abortTrigger,
     );
+    _throwIfCancelled(isCancelled);
     if (response.statusCode != 200) {
       throw StateError(_errorMessage(_decode(response), '仓库下载失败'));
     }
@@ -183,6 +189,7 @@ class GithubService {
     final root = Directory(targetDirectory);
     await root.create(recursive: true);
     for (final file in archive) {
+      _throwIfCancelled(isCancelled);
       final relative = file.name.split('/').skip(1).join('/');
       if (relative.isEmpty) continue;
       final output = File(
@@ -202,13 +209,19 @@ class GithubService {
     required String base,
     required String title,
     required String body,
+    Future<void>? abortTrigger,
+    bool Function()? isCancelled,
   }) async {
-    final response = await _client.post(
+    _throwIfCancelled(isCancelled);
+    final response = await _send(
+      'POST',
       Uri.parse('https://api.github.com/repos/$repository/pulls'),
       headers: {..._headers, 'Content-Type': 'application/json'},
       body: jsonEncode(
           {'title': title, 'body': body, 'head': head, 'base': base}),
+      abortTrigger: abortTrigger,
     );
+    _throwIfCancelled(isCancelled);
     final data = _decode(response);
     if (response.statusCode < 200 ||
         response.statusCode >= 300 ||
@@ -226,28 +239,50 @@ class GithubService {
     required String directory,
     required String title,
     required String body,
+    Future<void>? abortTrigger,
+    bool Function()? isCancelled,
   }) async {
-    final ref = await _getJson('/repos/$repository/git/ref/heads/$base');
+    _throwIfCancelled(isCancelled);
+    final ref = await _getJson(
+      '/repos/$repository/git/ref/heads/$base',
+      abortTrigger: abortTrigger,
+      isCancelled: isCancelled,
+    );
     final baseCommit = (ref['object'] as Map<String, dynamic>)['sha'] as String;
-    final commit = await _getJson('/repos/$repository/git/commits/$baseCommit');
+    final commit = await _getJson(
+      '/repos/$repository/git/commits/$baseCommit',
+      abortTrigger: abortTrigger,
+      isCancelled: isCancelled,
+    );
     final baseTree = (commit['tree'] as Map<String, dynamic>)['sha'] as String;
     final branch = 'spacecode/mobile-${DateTime.now().millisecondsSinceEpoch}';
-    await _postJson('/repos/$repository/git/refs', {
-      'ref': 'refs/heads/$branch',
-      'sha': baseCommit,
-    });
+    await _postJson(
+      '/repos/$repository/git/refs',
+      {
+        'ref': 'refs/heads/$branch',
+        'sha': baseCommit,
+      },
+      abortTrigger: abortTrigger,
+      isCancelled: isCancelled,
+    );
 
     final entries = <Map<String, dynamic>>[];
     final root = Directory(directory);
     await for (final entity in root.list(recursive: true, followLinks: false)) {
+      _throwIfCancelled(isCancelled);
       if (entity is! File) continue;
       final relative = entity.path
           .substring(root.path.length + 1)
           .replaceAll(Platform.pathSeparator, '/');
-      final blob = await _postJson('/repos/$repository/git/blobs', {
-        'content': base64Encode(await entity.readAsBytes()),
-        'encoding': 'base64',
-      });
+      final blob = await _postJson(
+        '/repos/$repository/git/blobs',
+        {
+          'content': base64Encode(await entity.readAsBytes()),
+          'encoding': 'base64',
+        },
+        abortTrigger: abortTrigger,
+        isCancelled: isCancelled,
+      );
       entries.add({
         'path': relative,
         'mode': '100644',
@@ -255,29 +290,55 @@ class GithubService {
         'sha': blob['sha']
       });
     }
-    final tree = await _postJson('/repos/$repository/git/trees', {
-      'base_tree': baseTree,
-      'tree': entries,
-    });
-    final newCommit = await _postJson('/repos/$repository/git/commits', {
-      'message': title,
-      'tree': tree['sha'],
-      'parents': [baseCommit],
-    });
+    final tree = await _postJson(
+      '/repos/$repository/git/trees',
+      {
+        'base_tree': baseTree,
+        'tree': entries,
+      },
+      abortTrigger: abortTrigger,
+      isCancelled: isCancelled,
+    );
+    final newCommit = await _postJson(
+      '/repos/$repository/git/commits',
+      {
+        'message': title,
+        'tree': tree['sha'],
+        'parents': [baseCommit],
+      },
+      abortTrigger: abortTrigger,
+      isCancelled: isCancelled,
+    );
     await _patchJson(
-        '/repos/$repository/git/refs/heads/$branch', {'sha': newCommit['sha']});
+      '/repos/$repository/git/refs/heads/$branch',
+      {'sha': newCommit['sha']},
+      abortTrigger: abortTrigger,
+      isCancelled: isCancelled,
+    );
     return createPullRequest(
       repository: repository,
       head: branch,
       base: base,
       title: title,
       body: body,
+      abortTrigger: abortTrigger,
+      isCancelled: isCancelled,
     );
   }
 
-  Future<Map<String, dynamic>> _getJson(String path) async {
-    final response = await _client.get(Uri.parse('https://api.github.com$path'),
-        headers: _headers);
+  Future<Map<String, dynamic>> _getJson(
+    String path, {
+    Future<void>? abortTrigger,
+    bool Function()? isCancelled,
+  }) async {
+    _throwIfCancelled(isCancelled);
+    final response = await _send(
+      'GET',
+      Uri.parse('https://api.github.com$path'),
+      headers: _headers,
+      abortTrigger: abortTrigger,
+    );
+    _throwIfCancelled(isCancelled);
     final body = _decode(response);
     if (response.statusCode < 200 ||
         response.statusCode >= 300 ||
@@ -288,12 +349,20 @@ class GithubService {
   }
 
   Future<Map<String, dynamic>> _postJson(
-      String path, Map<String, dynamic> payload) async {
-    final response = await _client.post(
+    String path,
+    Map<String, dynamic> payload, {
+    Future<void>? abortTrigger,
+    bool Function()? isCancelled,
+  }) async {
+    _throwIfCancelled(isCancelled);
+    final response = await _send(
+      'POST',
       Uri.parse('https://api.github.com$path'),
       headers: {..._headers, 'Content-Type': 'application/json'},
       body: jsonEncode(payload),
+      abortTrigger: abortTrigger,
     );
+    _throwIfCancelled(isCancelled);
     final body = _decode(response);
     if (response.statusCode < 200 ||
         response.statusCode >= 300 ||
@@ -303,15 +372,47 @@ class GithubService {
     return body;
   }
 
-  Future<void> _patchJson(String path, Map<String, dynamic> payload) async {
-    final response = await _client.patch(
+  Future<void> _patchJson(
+    String path,
+    Map<String, dynamic> payload, {
+    Future<void>? abortTrigger,
+    bool Function()? isCancelled,
+  }) async {
+    _throwIfCancelled(isCancelled);
+    final response = await _send(
+      'PATCH',
       Uri.parse('https://api.github.com$path'),
       headers: {..._headers, 'Content-Type': 'application/json'},
       body: jsonEncode(payload),
+      abortTrigger: abortTrigger,
     );
+    _throwIfCancelled(isCancelled);
     final body = _decode(response);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw StateError(_errorMessage(body, 'Github 更新失败'));
+    }
+  }
+
+  Future<http.Response> _send(
+    String method,
+    Uri uri, {
+    required Map<String, String> headers,
+    String? body,
+    Future<void>? abortTrigger,
+  }) async {
+    final request = http.AbortableRequest(
+      method,
+      uri,
+      abortTrigger: abortTrigger,
+    )
+      ..headers.addAll(headers)
+      ..body = body ?? '';
+    return http.Response.fromStream(await _client.send(request));
+  }
+
+  void _throwIfCancelled(bool Function()? isCancelled) {
+    if (isCancelled?.call() ?? false) {
+      throw StateError('Operation cancelled');
     }
   }
 

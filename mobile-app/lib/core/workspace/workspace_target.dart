@@ -15,6 +15,24 @@ class WorkspaceTarget {
       {required this.repository, required this.branch, this.localPath})
       : mode = WorkspaceMode.github;
 
+  factory WorkspaceTarget.fromJson(Map<String, dynamic> json) {
+    if (json['mode'] == WorkspaceMode.github.name) {
+      return WorkspaceTarget.github(
+        repository: json['repository'] as String?,
+        branch: json['branch'] as String?,
+        localPath: json['localPath'] as String?,
+      );
+    }
+    return WorkspaceTarget.local(json['localPath'] as String?);
+  }
+
+  Map<String, dynamic> toJson() => {
+        'mode': mode.name,
+        'localPath': localPath,
+        'repository': repository,
+        'branch': branch,
+      };
+
   String get label => mode == WorkspaceMode.local
       ? (localPath ?? '本地目录')
       : '${repository ?? 'Github 仓库'} · ${branch ?? '默认分支'}';

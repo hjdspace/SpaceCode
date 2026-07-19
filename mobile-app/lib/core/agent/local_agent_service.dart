@@ -1,186 +1,131 @@
-import 'dart:convert';
-import 'dart:io';
 import 'package:http/http.dart' as http;
+
 import '../config/mobile_config.dart';
 import '../workspace/workspace_target.dart';
+import 'agent_loop.dart';
+import 'agent_model.dart';
+import 'agent_plugin.dart';
+import 'agent_types.dart';
+import 'openai_compatible_model.dart';
+import 'plugins/workspace_plugin.dart';
 
 class LocalAgentService {
-  final http.Client _client;
+  final AgentModel _model;
+  final List<AgentPlugin> _installedPlugins;
+  final Map<String, _AgentSessionEntry> _sessions = {};
+  final Map<String, AgentCancellationToken> _activeRuns = {};
 
-  LocalAgentService({http.Client? client}) : _client = client ?? http.Client();
+  LocalAgentService({
+    http.Client? client,
+    AgentModel? model,
+    List<AgentPlugin> plugins = const [],
+  })  : _model = model ?? OpenAiCompatibleModel(client: client),
+        _installedPlugins = List.unmodifiable(plugins);
 
   Future<String> complete({
+    String sessionId = 'default',
     required MobileConfig config,
     required String prompt,
     WorkspaceTarget? workspace,
+    List<AgentMessage> history = const [],
+    AgentCancellationToken? cancellationToken,
+    AgentEventListener? onEvent,
   }) async {
     if (config.apiKey.trim().isEmpty) {
       throw StateError('请先在设置中配置 API Key');
+    }
+    if (config.baseUrl.trim().isEmpty) {
+      throw StateError('请先在设置中配置 Base URL');
     }
     if (config.model.trim().isEmpty) {
       throw StateError('请先在设置中配置模型');
     }
 
-    final base = config.baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
-    final endpoint =
-        base.endsWith('/chat/completions') ? base : '$base/chat/completions';
-    final context = workspace?.promptContext;
-    final messages = <Map<String, dynamic>>[
-      {
-        'role': 'system',
-        'content': context == null
-            ? 'You are SpaceCode Mobile Agent. Help the user complete coding tasks. Use the provided file tools when a workspace is available.'
-            : 'You are SpaceCode Mobile Agent. Work within this workspace context:\n$context\nUse file tools to inspect and modify files, then summarize the changes.',
-      },
-      {'role': 'user', 'content': prompt},
-    ];
-    final tools = workspace?.localPath == null
-        ? null
-        : [
-            {
-              'type': 'function',
-              'function': {
-                'name': 'list_files',
-                'description': 'List files in the workspace.',
-                'parameters': {
-                  'type': 'object',
-                  'properties': {
-                    'path': {'type': 'string'}
-                  },
-                },
-              },
-            },
-            {
-              'type': 'function',
-              'function': {
-                'name': 'read_file',
-                'description': 'Read a UTF-8 text file from the workspace.',
-                'parameters': {
-                  'type': 'object',
-                  'properties': {
-                    'path': {'type': 'string'}
-                  },
-                  'required': ['path'],
-                },
-              },
-            },
-            {
-              'type': 'function',
-              'function': {
-                'name': 'write_file',
-                'description': 'Write a UTF-8 text file in the workspace.',
-                'parameters': {
-                  'type': 'object',
-                  'properties': {
-                    'path': {'type': 'string'},
-                    'content': {'type': 'string'},
-                  },
-                  'required': ['path', 'content'],
-                },
-              },
-            },
-          ];
-
-    for (var attempt = 0; attempt < 8; attempt++) {
-      final response = await _client
-          .post(
-            Uri.parse(endpoint),
-            headers: {
-              'Authorization': 'Bearer ${config.apiKey}',
-              'Content-Type': 'application/json',
-            },
-            body: jsonEncode({
-              'model': config.model,
-              'stream': false,
-              'messages': messages,
-              if (tools != null) 'tools': tools,
-            }),
-          )
-          .timeout(const Duration(seconds: 90));
-
-      final body = jsonDecode(response.body);
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        final message = body is Map<String, dynamic>
-            ? (body['error'] is Map
-                ? body['error']['message']
-                : body['message'])
-            : null;
-        throw StateError(
-            message?.toString() ?? '模型请求失败（${response.statusCode}）');
-      }
-      if (body is! Map<String, dynamic>) throw StateError('模型返回了无效响应');
-      final choices = body['choices'];
-      if (choices is! List || choices.isEmpty) throw StateError('模型没有返回内容');
-      final message = choices.first is Map ? choices.first['message'] : null;
-      if (message is! Map<String, dynamic>) throw StateError('模型返回了无效消息');
-      final toolCalls = message['tool_calls'];
-      if (toolCalls is List && toolCalls.isNotEmpty) {
-        messages.add(message);
-        for (final call in toolCalls.whereType<Map<String, dynamic>>()) {
-          final function = call['function'];
-          if (function is! Map<String, dynamic>) continue;
-          final name = function['name'] as String? ?? '';
-          final rawArguments = function['arguments'];
-          final arguments = rawArguments is String
-              ? jsonDecode(rawArguments) as Map<String, dynamic>
-              : (rawArguments as Map?)?.cast<String, dynamic>() ??
-                  <String, dynamic>{};
-          final result = await _runTool(name, arguments, workspace!.localPath!);
-          messages.add({
-            'role': 'tool',
-            'tool_call_id': call['id'] as String? ?? '',
-            'content': result,
-          });
-        }
-        continue;
-      }
-      final content = message['content'];
-      if (content is String && content.isNotEmpty) return content;
-      throw StateError('模型没有返回文本内容');
+    final workspaceKey =
+        '${workspace?.mode.name}:${workspace?.repository ?? ''}:${workspace?.branch ?? ''}:${workspace?.localPath ?? ''}';
+    var entry = _sessions[sessionId];
+    if (entry == null || entry.workspaceKey != workspaceKey) {
+      entry = _AgentSessionEntry(
+        workspaceKey: workspaceKey,
+        session: AgentSession(
+          model: _model,
+          systemPrompt: _systemPrompt(workspace),
+          plugins: _plugins(workspace),
+          initialMessages: history,
+        ),
+      );
+      _sessions[sessionId] = entry;
     }
-    throw StateError('Agent 工具调用次数超出限制');
-  }
 
-  Future<String> _runTool(
-      String name, Map<String, dynamic> arguments, String root) async {
+    final token = cancellationToken ?? AgentCancellationToken();
+    _activeRuns[sessionId]?.cancel();
+    _activeRuns[sessionId] = token;
     try {
-      switch (name) {
-        case 'list_files':
-          final directory =
-              Directory(_safePath(root, arguments['path'] as String? ?? '.'));
-          if (!await directory.exists()) return '目录不存在';
-          final entries = await directory
-              .list()
-              .map((entry) => entry.path.substring(directory.path.length + 1))
-              .toList();
-          return entries.join('\n');
-        case 'read_file':
-          final file =
-              File(_safePath(root, arguments['path'] as String? ?? ''));
-          return await file.readAsString();
-        case 'write_file':
-          final file =
-              File(_safePath(root, arguments['path'] as String? ?? ''));
-          await file.parent.create(recursive: true);
-          await file.writeAsString(arguments['content'] as String? ?? '');
-          return '已写入 ${file.path}';
-        default:
-          return '未知工具：$name';
+      final result = await entry.session.run(
+        prompt,
+        config: AgentModelConfig(
+          apiKey: config.apiKey.trim(),
+          baseUrl: config.baseUrl.trim(),
+          model: config.model.trim(),
+        ),
+        cancellationToken: token,
+        onEvent: onEvent,
+      );
+      return result.text;
+    } finally {
+      if (identical(_activeRuns[sessionId], token)) {
+        _activeRuns.remove(sessionId);
       }
-    } catch (error) {
-      return '工具执行失败：$error';
     }
   }
 
-  String _safePath(String root, String relative) {
-    final normalized = relative.replaceAll('\\', '/');
-    if (normalized.startsWith('/') || normalized.split('/').contains('..')) {
-      throw StateError('路径必须位于工作目录内');
-    }
-    return File(
-            '$root${Platform.pathSeparator}${normalized == '.' ? '' : normalized.replaceAll('/', Platform.pathSeparator)}')
-        .path;
+  List<AgentPlugin> _plugins(WorkspaceTarget? workspace) {
+    final path = workspace?.localPath;
+    return [
+      ..._installedPlugins,
+      if (path != null && path.isNotEmpty) WorkspacePlugin(path),
+    ];
   }
 
-  void dispose() => _client.close();
+  String _systemPrompt(WorkspaceTarget? workspace) {
+    final context = workspace?.promptContext;
+    return '''You are SpaceCode Mobile Coding Agent, a small autonomous coding agent inspired by Pi.
+
+Rules:
+- Inspect relevant files before editing.
+- Use edit_file for focused changes and write_file only for new files or full replacements.
+- Keep all file operations inside the workspace.
+- Verify your work with read_file or grep_files after editing.
+- Do not claim a file changed unless a tool result confirms it.
+- When no workspace tools are available, explain that limitation instead of inventing changes.
+${context == null ? '' : '\nWorkspace:\n$context'}''';
+  }
+
+  void abort(String sessionId) {
+    _activeRuns[sessionId]?.cancel();
+  }
+
+  void resetSession(String sessionId) {
+    abort(sessionId);
+    _sessions.remove(sessionId);
+  }
+
+  void dispose() {
+    for (final token in _activeRuns.values) {
+      token.cancel();
+    }
+    _activeRuns.clear();
+    _sessions.clear();
+    _model.dispose();
+  }
+}
+
+class _AgentSessionEntry {
+  final String workspaceKey;
+  final AgentSession session;
+
+  const _AgentSessionEntry({
+    required this.workspaceKey,
+    required this.session,
+  });
 }
