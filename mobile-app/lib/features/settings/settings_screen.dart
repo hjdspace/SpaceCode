@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/connection/connection_service.dart';
 import '../../core/connection/connection_state.dart' as conn;
 import '../../core/connection/qr_scanner_page.dart';
@@ -77,7 +78,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _apiKeyController = TextEditingController();
   final _baseUrlController = TextEditingController();
   final _modelController = TextEditingController();
-  final _githubTokenController = TextEditingController();
   String? _defaultAgentName;
   String _permissionMode = 'default';
   bool _streamingEnabled = true;
@@ -97,7 +97,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _apiKeyController.text = config.apiKey;
     _baseUrlController.text = config.baseUrl;
     _modelController.text = config.model;
-    _githubTokenController.text = config.githubToken;
     setState(() {
       _defaultAgentName = agentName;
       _permissionMode = permMode;
@@ -111,7 +110,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _apiKeyController.dispose();
     _baseUrlController.dispose();
     _modelController.dispose();
-    _githubTokenController.dispose();
     super.dispose();
   }
 
@@ -273,16 +271,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          TextField(
-            controller: _githubTokenController,
-            obscureText: true,
-            style: const TextStyle(fontSize: 14),
-            decoration: const InputDecoration(
-              labelText: 'Github Token',
-              hintText: 'Fine-grained token（repo 权限）',
-            ),
-          ),
-          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
@@ -323,15 +311,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _authenticateGithub() async {
-    final token = _githubTokenController.text.trim();
-    if (token.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('请输入 Github Token')));
-      return;
-    }
-    final service = GithubService(token: token);
+    const clientId = String.fromEnvironment('SPACE_CODE_GITHUB_CLIENT_ID');
+    final service = GithubService(token: '');
     try {
-      final login = await service.authenticate();
+      final flow = await service.startDeviceFlow(clientId: clientId);
+      await launchUrl(flow.verificationUri,
+          mode: LaunchMode.externalApplication);
+      if (!mounted) return;
+      final token = await _showGithubDeviceDialog(service, flow, clientId);
+      if (token == null || !mounted) return;
+      final authenticatedService = GithubService(token: token);
+      final login = await authenticatedService.authenticate();
+      authenticatedService.dispose();
       await ref
           .read(mobileConfigProvider.notifier)
           .saveGithub(token: token, login: login);
@@ -347,6 +338,57 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     } finally {
       service.dispose();
     }
+  }
+
+  Future<String?> _showGithubDeviceDialog(
+    GithubService service,
+    GithubDeviceFlow flow,
+    String clientId,
+  ) {
+    final polling = service.pollDeviceFlow(clientId: clientId, flow: flow);
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => FutureBuilder<String>(
+        future: polling,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return AlertDialog(
+              title: const Text('Github 认证失败'),
+              content: Text(snapshot.error.toString()),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('关闭'),
+                ),
+              ],
+            );
+          }
+          if (snapshot.hasData) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (dialogContext.mounted) {
+                Navigator.pop(dialogContext, snapshot.data);
+              }
+            });
+          }
+          return AlertDialog(
+            title: const Text('在浏览器中完成 Github 认证'),
+            content: SelectableText(
+              '打开 ${flow.verificationUri}\n\n验证码：${flow.userCode}\n\n授权完成后此窗口会自动关闭。',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => launchUrl(
+                  flow.verificationUri,
+                  mode: LaunchMode.externalApplication,
+                ),
+                child: const Text('重新打开网页'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   Future<void> _cloneGithubRepository() async {

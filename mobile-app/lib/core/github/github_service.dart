@@ -25,6 +25,22 @@ class GithubRepository {
       );
 }
 
+class GithubDeviceFlow {
+  final String deviceCode;
+  final String userCode;
+  final Uri verificationUri;
+  final int intervalSeconds;
+  final int expiresInSeconds;
+
+  const GithubDeviceFlow({
+    required this.deviceCode,
+    required this.userCode,
+    required this.verificationUri,
+    required this.intervalSeconds,
+    required this.expiresInSeconds,
+  });
+}
+
 class GithubService {
   final http.Client _client;
   final String token;
@@ -46,6 +62,77 @@ class GithubService {
       throw StateError(_errorMessage(body, 'Github 认证失败'));
     }
     return body['login'] as String? ?? '';
+  }
+
+  Future<GithubDeviceFlow> startDeviceFlow({required String clientId}) async {
+    if (clientId.trim().isEmpty) {
+      throw StateError('未配置 Github OAuth Client ID');
+    }
+    final response = await _client.post(
+      Uri.parse('https://github.com/login/device/code'),
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body:
+          Uri(queryParameters: {'client_id': clientId.trim(), 'scope': 'repo'})
+              .query,
+    );
+    final body = _decode(response);
+    if (response.statusCode < 200 ||
+        response.statusCode >= 300 ||
+        body is! Map<String, dynamic>) {
+      throw StateError(_errorMessage(body, '无法启动 Github 网页认证'));
+    }
+    final verification = body['verification_uri'] as String?;
+    final deviceCode = body['device_code'] as String?;
+    final userCode = body['user_code'] as String?;
+    if (verification == null || deviceCode == null || userCode == null) {
+      throw StateError('Github 返回了无效的认证信息');
+    }
+    return GithubDeviceFlow(
+      deviceCode: deviceCode,
+      userCode: userCode,
+      verificationUri: Uri.parse(verification),
+      intervalSeconds: body['interval'] as int? ?? 5,
+      expiresInSeconds: body['expires_in'] as int? ?? 900,
+    );
+  }
+
+  Future<String> pollDeviceFlow(
+      {required String clientId, required GithubDeviceFlow flow}) async {
+    var interval = flow.intervalSeconds;
+    final deadline =
+        DateTime.now().add(Duration(seconds: flow.expiresInSeconds));
+    while (DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(Duration(seconds: interval));
+      final response = await _client.post(
+        Uri.parse('https://github.com/login/oauth/access_token'),
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: Uri(queryParameters: {
+          'client_id': clientId.trim(),
+          'device_code': flow.deviceCode,
+          'grant_type': 'urn:ietf:params:oauth:grant-type:device_code',
+        }).query,
+      );
+      final body = _decode(response);
+      if (body is! Map<String, dynamic>) throw StateError('Github 返回了无效的认证响应');
+      final token = body['access_token'] as String?;
+      if (token != null && token.isNotEmpty) return token;
+      final error = body['error'] as String?;
+      if (error == 'authorization_pending') continue;
+      if (error == 'slow_down') {
+        interval += 5;
+        continue;
+      }
+      if (error == 'expired_token') throw StateError('Github 网页认证已过期，请重试');
+      if (error == 'access_denied') throw StateError('用户拒绝了 Github 授权');
+      throw StateError(body['error_description'] as String? ?? 'Github 网页认证失败');
+    }
+    throw StateError('Github 网页认证超时，请重试');
   }
 
   Future<List<GithubRepository>> listRepositories() async {
