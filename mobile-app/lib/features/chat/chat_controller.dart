@@ -111,11 +111,31 @@ class ChatNotifier extends StateNotifier<ChatState> {
   void _handleStreamEvent(Map<String, dynamic>? data) {
     if (data == null) return;
     final delta = data['delta'] as String? ?? '';
+    if (delta.isEmpty) return;
+
     final messages = List<ChatMessage>.from(state.messages);
-    if (messages.isNotEmpty && messages.last.role == MessageRole.assistant) {
+
+    // 若最后一条 assistant message 已完成（isStreaming=false，说明上一轮 assistant
+    // 事件已处理），创建新 message 容纳本轮流式输出。
+    // 这样每轮 LLM 响应对应一条独立 message，工具卡片不会被子后续文字挤压，
+    // 参考桌面端 AgentTimeline 按事件时序渲染的方式。
+    final bool needNewMessage = messages.isEmpty ||
+        messages.last.role != MessageRole.assistant ||
+        !messages.last.isStreaming;
+
+    if (needNewMessage) {
+      final newMsg = ChatMessage(
+        id: _uuid.v4(),
+        role: MessageRole.assistant,
+        content: delta,
+        isStreaming: true,
+      );
+      state = state.copyWith(messages: [...messages, newMsg]);
+    } else {
       final last = messages.last;
-      messages[messages.length - 1] =
-          last.copyWith(content: last.content + delta);
+      messages[messages.length - 1] = last.copyWith(
+        content: last.content + delta,
+      );
       state = state.copyWith(messages: messages);
     }
   }
@@ -151,12 +171,37 @@ class ChatNotifier extends StateNotifier<ChatState> {
     }
 
     final messages = List<ChatMessage>.from(state.messages);
-    if (messages.isNotEmpty && messages.last.role == MessageRole.assistant) {
+
+    // assistant 事件是「一轮 LLM 响应结束」的信号（包含完整 text 和 tool_use）。
+    // 若最后一条 assistant message 已完成（上一轮 assistant 事件已处理过），
+    // 必须创建新 message——否则本轮内容会拼到上一条末尾，丢失时序信息，
+    // 导致工具卡片被后续文字挤压到列表末尾。
+    final bool needNewMessage = messages.isEmpty ||
+        messages.last.role != MessageRole.assistant ||
+        !messages.last.isStreaming;
+
+    if (needNewMessage) {
+      final newMsg = ChatMessage(
+        id: _uuid.v4(),
+        role: MessageRole.assistant,
+        content: text,
+        thinkingContent: thinking,
+        toolCalls: toolCalls.isEmpty ? null : toolCalls,
+        // assistant 事件标志着本轮结束；若包含 tool_use，工具执行后下一轮
+        // stream_event 会创建新 message。若不含 tool_use，标记为非流式，
+        // _handleResult 仍可正常处理。
+        isStreaming: false,
+      );
+      state = state.copyWith(messages: [...messages, newMsg]);
+    } else {
+      // 用 assistant 事件的完整内容替换流式累积的 delta（避免重复），
+      // 并补上 tool_use 与 thinking
       final last = messages.last;
       messages[messages.length - 1] = last.copyWith(
         content: text.isEmpty ? last.content : text,
         thinkingContent: thinking ?? last.thinkingContent,
         toolCalls: toolCalls.isEmpty ? last.toolCalls : toolCalls,
+        isStreaming: false,
       );
       state = state.copyWith(messages: messages);
     }
