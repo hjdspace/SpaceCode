@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/connection/connection_service.dart';
 import '../../core/connection/connection_state.dart' as conn;
+import '../../core/i18n/strings.dart';
 import 'chat_controller.dart';
 import 'widgets/message_list.dart';
 import 'widgets/chat_input.dart';
@@ -92,6 +93,11 @@ class ChatScreen extends ConsumerWidget {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.extension_outlined),
+            tooltip: I18n.t('skills.title'),
+            onPressed: () => context.push('/skills'),
+          ),
           _ConnectionIndicator(state: connectionInfo.state),
           const SizedBox(width: 8),
           IconButton(

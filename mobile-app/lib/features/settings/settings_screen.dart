@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/material.dart' hide ConnectionState;
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,6 +14,7 @@ import '../../core/theme/theme_service.dart';
 import '../../core/config/mobile_config.dart';
 import '../../core/github/github_service.dart';
 import '../../core/github/github_browser_auth.dart';
+import '../../core/i18n/strings.dart';
 import '../chat/chat_controller.dart';
 
 /// 手机端偏好设置（默认 Agent / 权限模式 / 流式输出）
@@ -134,6 +137,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  /// 加载指定 locale 的字符串表到 I18n（与 main.dart 中一致，避免跨文件导出）。
+  Future<void> _initI18n(String localeCode) async {
+    final locale = localeCode == 'en' ? AppLocale.en : AppLocale.zh;
+    final path = locale == AppLocale.en
+        ? 'lib/core/i18n/locales/en.json'
+        : 'lib/core/i18n/locales/zh.json';
+    try {
+      final json = await rootBundle.loadString(path);
+      final decoded = jsonDecode(json) as Map<String, dynamic>;
+      I18n.init(locale, decoded.map((k, v) => MapEntry(k, v.toString())));
+    } catch (_) {
+      // 加载失败保持默认
+    }
+  }
+
   @override
   void dispose() {
     _urlController.dispose();
@@ -194,6 +212,47 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           // 外观分组
           _sectionHeader('外观'),
           _themeSelector(currentTheme, theme),
+          // 语言切换（在外观分组内，紧跟主题选择器）
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+                  ),
+                ),
+              ),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 0),
+                leading: const Icon(Icons.language),
+                title: Text(
+                  I18n.t('settings.language'),
+                  style: TextStyle(fontSize: 14, color: theme.colorScheme.onSurface),
+                ),
+                trailing: DropdownButton<String>(
+                  value: ref.watch(mobileConfigProvider).appLocale,
+                  items: [
+                    DropdownMenuItem(
+                      value: 'zh',
+                      child: Text(I18n.t('settings.languageZh')),
+                    ),
+                    DropdownMenuItem(
+                      value: 'en',
+                      child: Text(I18n.t('settings.languageEn')),
+                    ),
+                  ],
+                  onChanged: (value) async {
+                    if (value == null) return;
+                    await ref.read(mobileConfigProvider.notifier).saveLocale(value);
+                    await _initI18n(value);
+                    // 强制重建以应用新语言
+                    setState(() {});
+                  },
+                ),
+              ),
+            ),
+          ),
 
           // 聊天分组
           _sectionHeader('聊天'),

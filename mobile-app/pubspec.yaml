@@ -39,3 +39,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/skills/code-review/SKILL.md
+    - assets/skills/commit-message/SKILL.md
+    - lib/core/i18n/locales/zh.json
+    - lib/core/i18n/locales/en.json
