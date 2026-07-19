@@ -34,7 +34,8 @@ enum PushType {
   themeChanged('theme_changed'),
   sessionChanged('session_changed'),
   error('error'),
-  pong('pong');
+  pong('pong'),
+  skillsSync('skills_sync');
 
   const PushType(this.value);
   final String value;

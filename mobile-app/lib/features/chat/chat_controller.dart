@@ -191,9 +191,40 @@ class ChatNotifier extends StateNotifier<ChatState> {
       case PushType.settingsSync:
         _handleSettingsSync(push.data);
         break;
+      case PushType.skillsSync:
+        _handleSkillsSync(push.data);
+        break;
       default:
         break;
     }
+  }
+
+  /// 处理桌面端推送的技能同步消息。
+  ///
+  /// 推送数据格式：
+  /// ```
+  /// {
+  ///   "skills": [
+  ///     {"name": "code-review", "description": "...", "content": "---\nname: ..."}
+  ///   ]
+  /// }
+  /// ```
+  Future<void> _handleSkillsSync(Map<String, dynamic>? data) async {
+    if (data == null) return;
+    final skills = data['skills'];
+    if (skills is! List) return;
+    final docs = await getApplicationDocumentsDirectory();
+    final syncDir = Directory('${docs.path}/spacecode/skills/desktop-sync');
+    await syncDir.create(recursive: true);
+    for (final entry in skills.whereType<Map<String, dynamic>>()) {
+      final name = entry['name'] as String?;
+      final content = entry['content'] as String?;
+      if (name == null || name.isEmpty || content == null) continue;
+      final skillDir = Directory('${syncDir.path}/$name');
+      await skillDir.create(recursive: true);
+      await File('${skillDir.path}/SKILL.md').writeAsString(content);
+    }
+    await _ref.read(skillRegistryProvider.notifier).refresh();
   }
 
   /// 从推送数据中提取 sessionId，回退到当前 session（兼容老协议）
