@@ -1,14 +1,49 @@
-gradle-wrapper.jar
+# Gradle
 /.gradle
 /captures/
+/local.properties
+/.cxx/
+
+# Gradle wrapper (Flutter SDK provides these at build time)
+gradle-wrapper.jar
 /gradlew
 /gradlew.bat
-/local.properties
-GeneratedPluginRegistrant.java
-.cxx/
 
-# Remember to never publicly share your keystore.
-# See https://flutter.dev/to/reference-keystore
+# Generated plugin registrant (regenerated on build)
+GeneratedPluginRegistrant.java
+
+# Build outputs
+/build/
+/app/build/
+**/build/
+
+# Android package files
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Native libraries intermediate
+*.so.debug
+
+# Keystore - never commit (https://flutter.dev/to/reference-keystore)
 key.properties
 **/*.keystore
 **/*.jks
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Profiling / Heap dumps
+*.hprof
+
+# Logs
+*.log
