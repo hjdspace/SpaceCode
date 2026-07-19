@@ -127,7 +127,8 @@ export class MobileServer extends EventEmitter {
       }
 
       case 'new_session': {
-        this.emit('new_session', {})
+        const { sessionId } = message.data as { sessionId?: string }
+        this.emit('new_session', { sessionId })
         return null
       }
 
@@ -140,6 +141,12 @@ export class MobileServer extends EventEmitter {
       case 'list_agents': {
         this.emit('list_agents', {})
         return null
+      }
+
+      case 'set_permission_mode': {
+        const { sessionId, mode } = message.data as { sessionId: string; mode: string }
+        this.emit('set_permission_mode', { sessionId, mode })
+        return { status: 'ok' }
       }
 
       case 'get_settings': {

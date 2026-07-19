@@ -1182,8 +1182,46 @@ function registerMobileIPCHandlers(): void {
       }
     })
 
+    mobileServer.on('new_session', async ({ sessionId }: any) => {
+      // 手机端新建会话：engine 端按需启动（首次发消息时由 ensureMobileSessionThenSend 启动）
+      // 这里仅记录 sessionId，并通知桌面端切换活跃会话视图
+      try {
+        if (sessionId) {
+          mainWindow?.webContents.send('mobile:sessionChanged', { sessionId, source: 'mobile' })
+        }
+        info('MobileServer', `new session | sid=${String(sessionId).slice(0, 8)}`)
+      } catch (err) {
+        error('MobileServer', 'new_session failed', { error: String(err) })
+      }
+    })
+
+    mobileServer.on('switch_session', async ({ sessionId }: any) => {
+      // 手机端切换会话：通知桌面端切换活跃会话视图（engine 子进程继续运行）
+      try {
+        if (sessionId) {
+          mainWindow?.webContents.send('mobile:sessionChanged', { sessionId, source: 'mobile' })
+        }
+        info('MobileServer', `switch session | sid=${String(sessionId).slice(0, 8)}`)
+      } catch (err) {
+        error('MobileServer', 'switch_session failed', { error: String(err) })
+      }
+    })
+
     mobileServer.on('list_agents', async () => {
       mobileServer?.sendToClient({ type: 'agents_list', data: { agents: [] } })
+    })
+
+    mobileServer.on('set_permission_mode', async ({ sessionId, mode }: any) => {
+      try {
+        if (!sessionId || !mode) {
+          warn('MobileServer', 'set_permission_mode missing params', { hasSid: !!sessionId, hasMode: !!mode })
+          return
+        }
+        await engineGateway.setPermissionMode(sessionId, mode)
+        info('MobileServer', `permission mode set | sid=${String(sessionId).slice(0, 8)} | mode=${mode}`)
+      } catch (err) {
+        error('MobileServer', 'set_permission_mode failed', { sessionId: String(sessionId).slice(0, 8), error: String(err) })
+      }
     })
 
     mobileServer.on('get_settings', async () => {

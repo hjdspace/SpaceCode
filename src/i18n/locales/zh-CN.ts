@@ -1025,6 +1025,7 @@ export default {
     connected: '已连接',
     disconnect: '断开连接',
     cancel: '取消',
+    autoCloseHint: '3 秒后自动关闭，连接保持',
   },
 
   sessionTab: {
