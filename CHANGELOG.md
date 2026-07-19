@@ -1,3 +1,28 @@
+## [0.6.8](https://github.com/hjdspace/SpaceCode/compare/v0.6.7...v0.6.8) (2026-07-20)
+
+### Features
+
+* **mobile:** 重构本地 Agent，支持 SSE 流式输出与 OpenAI 兼容工具调用循环
+* **mobile:** 新增 GitHub Device Flow 浏览器认证、仓库列表/分支选择、自动 clone 与 PR 创建
+* **mobile:** 聊天工具栏区分本地目录与 Github 仓库入口，支持会话级工作目录切换
+* **mobile:** 设置页支持从 API 拉取模型列表并下拉选择
+* **mobile:** 应用启动时预加载 MobileConfig，避免重启后 API Key 丢失
+* **chat:** 为 Github clone 和 PR 创建添加虚拟 ToolCall 状态推送，实时反馈执行进度
+* **chat:** 新增权限模式设置，支持多会话并行管理
+* **chat:** 实现移动端与桌面端会话同步功能，新增聊天历史本地持久化
+
+### Bug Fixes
+
+* **mobile:** 修复认证完成后 Device Flow 弹窗不自动关闭的问题
+* **mobile:** 修复工作栏第二个 chip 与本地模式重复，无法选择 Github 仓库
+* **mobile:** 移除 system prompt 中 "受 Pi 启发" 等无关品牌内容
+* **chat:** 修复流式聊天消息渲染时序问题
+
+### Build
+
+* **ci:** 新增 build-android job，release APK 自动构建并上传到 GitHub Release
+* **mobile:** 修复 file_picker 8.3.7 与 AGP 9 的 compileSdk 兼容性问题
+
 ## [0.6.7](https://github.com/hjdspace/SpaceCode/compare/v0.6.6...v0.6.7) (2026-07-17)
 
 ### Features
