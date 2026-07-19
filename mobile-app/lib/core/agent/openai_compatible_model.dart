@@ -24,6 +24,7 @@ class OpenAiCompatibleModel implements AgentModel {
     final base = config.baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
     final endpoint =
         base.endsWith('/chat/completions') ? base : '$base/chat/completions';
+    final useStream = onDelta != null;
     final request = http.AbortableRequest(
       'POST',
       Uri.parse(endpoint),
@@ -32,10 +33,11 @@ class OpenAiCompatibleModel implements AgentModel {
       ..headers.addAll({
         'Authorization': 'Bearer ${config.apiKey}',
         'Content-Type': 'application/json',
+        if (useStream) 'Accept': 'text/event-stream',
       })
       ..body = jsonEncode({
         'model': config.model,
-        'stream': false,
+        'stream': useStream,
         'messages': [
           {'role': 'system', 'content': systemPrompt},
           ...messages.map(_messageToJson),
@@ -52,14 +54,32 @@ class OpenAiCompatibleModel implements AgentModel {
                   })
               .toList(),
       });
-    late http.Response response;
+
+    if (!useStream) {
+      return _completeNonStream(request, cancellationToken);
+    }
+    return _completeStream(request, cancellationToken, onDelta);
+  }
+
+  Future<AgentModelResponse> _completeNonStream(
+    http.AbortableRequest request,
+    AgentCancellationToken cancellationToken,
+  ) async {
+    http.StreamedResponse streamed;
     try {
-      final streamed =
+      streamed =
           await _client.send(request).timeout(const Duration(seconds: 90));
-      response = await http.Response.fromStream(streamed);
     } on http.RequestAbortedException {
       throw const AgentCancelledException();
     }
+    // 服务器可能即使在没有请求 stream 时也返回 SSE（例如代理强制流式），
+    // 此时降级走流式解析，确保 tool_calls 等仍能正确累积。
+    final contentType = streamed.headers['content-type'] ?? '';
+    if (contentType.contains('text/event-stream')) {
+      return _completeStreamFromResponse(
+          streamed, cancellationToken, (_) {});
+    }
+    final response = await http.Response.fromStream(streamed);
     cancellationToken.throwIfCancelled();
 
     Object? body;
@@ -87,6 +107,96 @@ class OpenAiCompatibleModel implements AgentModel {
     return AgentModelResponse(
       text: _readText(message['content']),
       toolCalls: _readToolCalls(message['tool_calls']),
+    );
+  }
+
+  Future<AgentModelResponse> _completeStream(
+    http.AbortableRequest request,
+    AgentCancellationToken cancellationToken,
+    void Function(String delta) onDelta,
+  ) async {
+    http.StreamedResponse response;
+    try {
+      response =
+          await _client.send(request).timeout(const Duration(seconds: 90));
+    } on http.RequestAbortedException {
+      throw const AgentCancelledException();
+    }
+    return _completeStreamFromResponse(
+        response, cancellationToken, onDelta);
+  }
+
+  Future<AgentModelResponse> _completeStreamFromResponse(
+    http.StreamedResponse response,
+    AgentCancellationToken cancellationToken,
+    void Function(String delta) onDelta,
+  ) async {
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final errorBody = await response.stream.bytesToString();
+      String? message;
+      try {
+        final decoded = jsonDecode(errorBody);
+        if (decoded is Map<String, dynamic>) {
+          final err = decoded['error'];
+          if (err is Map) {
+            message = err['message']?.toString();
+          } else {
+            message = decoded['message']?.toString();
+          }
+        }
+      } catch (_) {
+        message = errorBody;
+      }
+      throw StateError(message?.toString() ?? '模型请求失败（${response.statusCode}）');
+    }
+
+    final buffer = StringBuffer();
+    final toolCallBuilder = _StreamingToolCallBuilder();
+    final lineBuffer = StringBuffer();
+    try {
+      await for (final chunk in response.stream.transform(utf8.decoder)) {
+        cancellationToken.throwIfCancelled();
+        lineBuffer.write(chunk);
+        final lines = lineBuffer.toString().split('\n');
+        lineBuffer.clear();
+        if (lines.isNotEmpty && !lines.last.endsWith('\n')) {
+          lineBuffer.write(lines.removeLast());
+        }
+        for (final rawLine in lines) {
+          final line = rawLine.trim();
+          if (line.isEmpty || !line.startsWith('data:')) continue;
+          final data = line.substring(5).trim();
+          if (data == '[DONE]') {
+            toolCallBuilder.markDone();
+            continue;
+          }
+          try {
+            final decoded = jsonDecode(data);
+            if (decoded is! Map<String, dynamic>) continue;
+            final choices = decoded['choices'];
+            if (choices is! List || choices.isEmpty) continue;
+            final choice = choices.first;
+            if (choice is! Map<String, dynamic>) continue;
+            final delta = choice['delta'];
+            if (delta is! Map<String, dynamic>) continue;
+            final content = delta['content'];
+            if (content is String && content.isNotEmpty) {
+              buffer.write(content);
+              onDelta(content);
+            }
+            toolCallBuilder.consumeDelta(delta);
+          } catch (_) {
+            // 忽略解析错误的 chunk
+          }
+        }
+      }
+    } on http.RequestAbortedException {
+      throw const AgentCancelledException();
+    }
+    toolCallBuilder.markDone();
+    return AgentModelResponse(
+      text: buffer.toString(),
+      toolCalls: toolCallBuilder.buildToolCalls(),
     );
   }
 
@@ -162,4 +272,64 @@ class OpenAiCompatibleModel implements AgentModel {
 
   @override
   void dispose() => _client.close();
+}
+
+/// 在 SSE 流中累积 tool_calls 信息（支持多个并发 tool_call）。
+class _StreamingToolCallBuilder {
+  final Map<int, _StreamingToolCall> _calls = {};
+  bool _done = false;
+
+  void consumeDelta(Map<String, dynamic> delta) {
+    final toolCalls = delta['tool_calls'];
+    if (toolCalls is! List || toolCalls.isEmpty) return;
+    for (final tc in toolCalls.whereType<Map<String, dynamic>>()) {
+      final index = (tc['index'] as int?) ?? 0;
+      final existing = _calls.putIfAbsent(index, () => _StreamingToolCall());
+      final id = tc['id'] as String?;
+      if (id != null && existing.id.isEmpty) existing.id = id;
+      final function = tc['function'];
+      if (function is! Map<String, dynamic>) continue;
+      final name = function['name'] as String?;
+      if (name != null && existing.name.isEmpty) existing.name = name;
+      final args = function['arguments'];
+      if (args is String) existing.arguments.write(args);
+    }
+  }
+
+  void markDone() {
+    _done = true;
+  }
+
+  List<AgentToolCall> buildToolCalls() {
+    if (!_done) return const [];
+    final sortedKeys = _calls.keys.toList()..sort();
+    return sortedKeys.map((index) {
+      final call = _calls[index]!;
+      Map<String, dynamic> decodedArgs;
+      final raw = call.arguments.toString();
+      if (raw.isEmpty) {
+        decodedArgs = const {};
+      } else {
+        try {
+          final decoded = jsonDecode(raw);
+          decodedArgs = decoded is Map
+              ? decoded.cast<String, dynamic>()
+              : <String, dynamic>{};
+        } catch (_) {
+          decodedArgs = {'_raw': raw};
+        }
+      }
+      return AgentToolCall(
+        id: call.id.isEmpty ? 'tool-${index + 1}' : call.id,
+        name: call.name,
+        arguments: decodedArgs,
+      );
+    }).toList();
+  }
+}
+
+class _StreamingToolCall {
+  String id = '';
+  String name = '';
+  final StringBuffer arguments = StringBuffer();
 }
