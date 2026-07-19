@@ -177,8 +177,109 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  build-android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter doctor
+        run: flutter doctor -v
+
+      - name: Install mobile-app dependencies
+        working-directory: mobile-app
+        run: flutter pub get
+
+      - name: Patch file_picker compileSdk for AGP 9 compatibility
+        shell: bash
+        run: |
+          # file_picker 8.3.7 仍以 compileSdk 34 构建，与 AGP 9 / flutter_plugin_android_lifecycle
+          # 要求的 compileSdk 36+ 不兼容。强制升级到 36 以避免构建失败。
+          PUB_CACHE="${PUB_CACHE:-$HOME/.pub-cache}"
+          FILE_PICKER_GRADLE="$PUB_CACHE/hosted/pub.flutter-io.cn/file_picker-*/android/build.gradle"
+          for f in $FILE_PICKER_GRADLE; do
+            if [ -f "$f" ]; then
+              echo "Patching $f"
+              sed -i 's/compileSdk 34/compileSdk 36/g' "$f"
+              grep -n "compileSdk" "$f"
+            fi
+          done
+
+      - name: Build release APK
+        working-directory: mobile-app
+        env:
+          MOBILE_GITHUB_CLIENT_ID: ${{ secrets.MOBILE_GITHUB_CLIENT_ID }}
+        run: |
+          CLIENT_ID="${MOBILE_GITHUB_CLIENT_ID:-Ov23liy70dXxRSWb0uHP}"
+          flutter build apk --release --no-pub \
+            --dart-define=SPACE_CODE_GITHUB_CLIENT_ID="$CLIENT_ID"
+          echo "=== APK 构建产物 ==="
+          ls -lh build/app/outputs/flutter-apk/
+
+      - name: Generate artifact name with version
+        id: artifact_name
+        working-directory: mobile-app
+        shell: bash
+        run: |
+          # Flutter 把 pubspec.yaml 的 version 编译到 APK；从 pubspec 读取
+          PUBSPEC_VERSION=$(grep -E '^version:' pubspec.yaml | awk '{print $2}' | cut -d '+' -f 1)
+          echo "version=$PUBSPEC_VERSION" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          echo "apk_name=spacecode-mobile-v${PUBSPEC_VERSION}.apk" >> "$GITHUB_OUTPUT"
+
+      - name: Rename APK artifact
+        working-directory: mobile-app
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk \
+             "dist/${{ steps.artifact_name.outputs.apk_name }}"
+          ls -lh dist/
+
+      - name: Upload APK to GitHub Release
+        working-directory: mobile-app
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="${{ steps.artifact_name.outputs.release_tag }}"
+          APK="dist/${{ steps.artifact_name.outputs.apk_name }}"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG 已存在，追加 APK..."
+            gh release upload "$TAG" "$APK" --clobber
+          else
+            echo "Release $TAG 不存在，创建 draft release..."
+            gh release create "$TAG" "$APK" \
+              --draft \
+              --title "$TAG" \
+              --notes "SpaceCode Mobile v${{ steps.artifact_name.outputs.version }} 安卓客户端"
+          fi
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spacecode-mobile-android-apk
+          path: mobile-app/dist/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
   publish-release:
-    needs: build
+    needs: [build, build-android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
