@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../../core/config/mobile_config.dart';
 import '../../../core/github/github_browser_auth.dart';
 import '../../../core/github/github_service.dart';
+import '../../../core/skills/skill_registry.dart';
 import '../../../core/workspace/workspace_target.dart';
 import '../chat_controller.dart';
+import 'skill_command_menu.dart';
 
 class ChatInput extends ConsumerStatefulWidget {
   const ChatInput({super.key});
@@ -17,12 +20,22 @@ class ChatInput extends ConsumerStatefulWidget {
 class _ChatInputState extends ConsumerState<ChatInput> {
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
+  OverlayEntry? _commandMenuOverlay;
+  int _commandSelectedIndex = 0;
+  List<CommandMenuItem> _commandItems = const [];
 
   bool get _canSend =>
       _controller.text.trim().isNotEmpty && !ref.read(chatProvider).isLoading;
 
   @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onInputChanged);
+  }
+
+  @override
   void dispose() {
+    _hideCommandMenu();
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -34,6 +47,118 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     ref.read(chatProvider.notifier).sendMessage(text);
     _controller.clear();
     _focusNode.requestFocus();
+  }
+
+  void _onInputChanged() {
+    final text = _controller.text;
+    if (text.startsWith('/') && !text.contains(' ')) {
+      _showCommandMenu(text);
+    } else {
+      _hideCommandMenu();
+    }
+  }
+
+  void _showCommandMenu(String prefix) {
+    final registry = ref.read(skillRegistryProvider);
+    final allItems = <CommandMenuItem>[
+      const CommandMenuItem(
+        command: '/new',
+        description: '新建会话',
+      ),
+      const CommandMenuItem(
+        command: '/settings',
+        description: '打开设置',
+      ),
+      const CommandMenuItem(
+        command: '/skills',
+        description: '管理技能',
+      ),
+      ...registry.skills.map((s) => CommandMenuItem(
+            command: '/skill:${s.name}',
+            description: s.description,
+          )),
+    ];
+    final filtered = prefix == '/'
+        ? allItems
+        : allItems
+            .where((item) => item.command.startsWith(prefix))
+            .toList();
+    if (filtered.isEmpty) {
+      _hideCommandMenu();
+      return;
+    }
+    setState(() {
+      _commandItems = filtered;
+      _commandSelectedIndex = 0;
+    });
+    if (_commandMenuOverlay == null) {
+      _commandMenuOverlay = OverlayEntry(
+        builder: (context) => _buildPositionedMenu(),
+      );
+      Overlay.of(context).insert(_commandMenuOverlay!);
+    } else {
+      _commandMenuOverlay!.markNeedsBuild();
+    }
+  }
+
+  Widget _buildPositionedMenu() {
+    final renderBox = context.findRenderObject() as RenderBox?;
+    final size = renderBox?.size ?? Size.zero;
+    return Positioned(
+      bottom: size.height + 8,
+      left: 12,
+      right: 12,
+      child: Material(
+        color: Colors.transparent,
+        child: SkillCommandMenu(
+          items: _commandItems,
+          selectedIndex: _commandSelectedIndex,
+          onSelected: _selectCommand,
+        ),
+      ),
+    );
+  }
+
+  void _selectCommand(int index) {
+    final item = _commandItems[index];
+    _controller.text = '${item.command} ';
+    _controller.selection = TextSelection.fromPosition(
+      TextPosition(offset: _controller.text.length),
+    );
+    _hideCommandMenu();
+    _focusNode.requestFocus();
+  }
+
+  void _hideCommandMenu() {
+    _commandMenuOverlay?.remove();
+    _commandMenuOverlay = null;
+  }
+
+  bool _handleKeyEvent(KeyEvent event) {
+    if (_commandMenuOverlay == null) return false;
+    if (event is! KeyDownEvent) return false;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowDown) {
+      setState(() {
+        _commandSelectedIndex =
+            (_commandSelectedIndex + 1) % _commandItems.length;
+      });
+      _commandMenuOverlay?.markNeedsBuild();
+      return true;
+    }
+    if (key == LogicalKeyboardKey.arrowUp) {
+      setState(() {
+        _commandSelectedIndex = (_commandSelectedIndex - 1) %
+            _commandItems.length;
+      });
+      _commandMenuOverlay?.markNeedsBuild();
+      return true;
+    }
+    if (key == LogicalKeyboardKey.escape) {
+      _hideCommandMenu();
+      return true;
+    }
+    return false;
   }
 
   @override
@@ -85,31 +210,43 @@ class _ChatInputState extends ConsumerState<ChatInput> {
                 Expanded(
                   child: Container(
                     constraints: const BoxConstraints(maxHeight: 120),
-                    child: TextField(
-                      controller: _controller,
-                      focusNode: _focusNode,
-                      maxLines: null,
-                      textInputAction: TextInputAction.newline,
-                      style: TextStyle(
-                        color: theme.colorScheme.onSurface,
-                        fontSize: 15,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: '输入消息...',
-                        hintStyle: TextStyle(
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.35),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 10,
-                        ),
-                        isDense: true,
-                      ),
-                      onChanged: (_) => setState(() {}),
-                      onSubmitted: (_) {
-                        if (_canSend) _send();
+                    child: Focus(
+                      onKeyEvent: (node, event) {
+                        if (_handleKeyEvent(event)) {
+                          return KeyEventResult.handled;
+                        }
+                        return KeyEventResult.ignored;
                       },
+                      child: TextField(
+                        controller: _controller,
+                        focusNode: _focusNode,
+                        maxLines: null,
+                        textInputAction: TextInputAction.newline,
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurface,
+                          fontSize: 15,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: '输入消息...',
+                          hintStyle: TextStyle(
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.4),
+                          ),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                        ),
+                        onChanged: (_) => setState(() {}),
+                        onSubmitted: (_) {
+                          if (_commandMenuOverlay != null) {
+                            _selectCommand(_commandSelectedIndex);
+                          } else {
+                            _send();
+                          }
+                        },
+                      ),
                     ),
                   ),
                 ),
