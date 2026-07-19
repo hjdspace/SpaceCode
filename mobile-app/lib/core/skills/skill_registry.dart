@@ -132,7 +132,7 @@ class SkillRegistryNotifier extends StateNotifier<SkillRegistryState> {
     if (token.isEmpty) {
       throw StateError('请先在设置中完成 GitHub 认证');
     }
-    final installer = SkillInstaller(loader: _loader!);
+    final installer = SkillInstaller();
     await installer.installFromGithub(repoUrl, githubToken: token);
     await refresh();
   }

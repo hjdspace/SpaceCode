@@ -5,7 +5,6 @@ import 'package:path_provider/path_provider.dart';
 
 import '../agent/agent_types.dart';
 import '../github/github_service.dart';
-import 'skill_loader.dart';
 
 /// 解析后的 GitHub 仓库坐标。
 class _ParsedRepo {
@@ -18,16 +17,13 @@ class _ParsedRepo {
 /// 从 GitHub 安装技能的安装器。
 ///
 /// 复用 [GithubService.cloneRepository] 拉取仓库 zipball 并解包到
-/// 应用文档目录下的 `spacecode/skills/github/<owner>/<name>/`。
+/// 应用文档目录下的 `spacecode/skills/github/<owner>-<name>/`。
 class SkillInstaller {
-  /// 已构造好的 loader（可选；调用方通常在安装后调用 loader.load() 刷新）。
-  final SkillLoader? loader;
-
   /// 可注入的 HTTP 客户端，便于测试 mock。生产环境传入 null，由
   /// [GithubService] 自建 client。
   final http.Client? client;
 
-  SkillInstaller({this.loader, this.client});
+  SkillInstaller({this.client});
 
   /// 将任意形式的 GitHub 仓库引用解析为 owner/name。
   ///
