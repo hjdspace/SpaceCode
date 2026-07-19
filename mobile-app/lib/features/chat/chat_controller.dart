@@ -3,13 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/protocol/protocol.dart';
 import '../../core/connection/connection_service.dart';
+import '../../core/storage/chat_history_storage.dart';
 import 'models/message.dart';
 import 'models/tool_call.dart';
 import 'models/permission_request.dart';
 
 final chatProvider = StateNotifierProvider<ChatNotifier, ChatState>((ref) {
-  final notifier = ChatNotifier(ref);
-  return notifier;
+  return ChatNotifier(ref);
 });
 
 class ChatState {
@@ -18,6 +18,12 @@ class ChatState {
   final List<PermissionRequest> pendingPermissions;
   final bool isLoading;
   final String? currentAgent;
+  /// 桌面端当前激活会话的项目目录，由 session_changed 推送更新
+  final String? projectPath;
+  /// 所有历史会话索引（不含消息体），用于 SessionsScreen 列表
+  final List<SessionSummary> sessions;
+  /// 历史是否已加载完成（启动时从 SharedPreferences 异步加载）
+  final bool historyLoaded;
 
   const ChatState({
     this.currentSessionId,
@@ -25,6 +31,9 @@ class ChatState {
     this.pendingPermissions = const [],
     this.isLoading = false,
     this.currentAgent,
+    this.projectPath,
+    this.sessions = const [],
+    this.historyLoaded = false,
   });
 
   ChatState copyWith({
@@ -33,24 +42,58 @@ class ChatState {
     List<PermissionRequest>? pendingPermissions,
     bool? isLoading,
     String? currentAgent,
-  }) =>
-      ChatState(
-        currentSessionId: currentSessionId ?? this.currentSessionId,
-        messages: messages ?? this.messages,
-        pendingPermissions: pendingPermissions ?? this.pendingPermissions,
-        isLoading: isLoading ?? this.isLoading,
-        currentAgent: currentAgent ?? this.currentAgent,
-      );
+    String? projectPath,
+    List<SessionSummary>? sessions,
+    bool? historyLoaded,
+  }) => ChatState(
+    currentSessionId: currentSessionId ?? this.currentSessionId,
+    messages: messages ?? this.messages,
+    pendingPermissions: pendingPermissions ?? this.pendingPermissions,
+    isLoading: isLoading ?? this.isLoading,
+    currentAgent: currentAgent ?? this.currentAgent,
+    projectPath: projectPath ?? this.projectPath,
+    sessions: sessions ?? this.sessions,
+    historyLoaded: historyLoaded ?? this.historyLoaded,
+  );
 }
 
 class ChatNotifier extends StateNotifier<ChatState> {
   final Ref _ref;
   final _uuid = const Uuid();
+  final _storage = ChatHistoryStorage();
   StreamSubscription? _subscription;
+  // 防抖保存：连续追加流式 delta 时只在停顿 500ms 后写一次盘
+  Timer? _persistTimer;
 
   ChatNotifier(this._ref) : super(const ChatState()) {
     _subscription =
         _ref.read(connectionProvider.notifier).messages.listen(_handlePush);
+    _loadHistory();
+  }
+
+  /// 启动时从 SharedPreferences 加载历史会话列表 + 上次未关闭的当前会话消息
+  Future<void> _loadHistory() async {
+    final data = await _storage.loadAll();
+    if (data.sessions.isEmpty) {
+      state = state.copyWith(sessions: [], historyLoaded: true);
+      return;
+    }
+
+    // 自动恢复上次激活的会话（若有）
+    final currentId = data.currentSessionId ?? data.sessions.first.id;
+    final messages = await _storage.loadMessages(currentId);
+    final currentSummary = data.sessions.firstWhere(
+      (s) => s.id == currentId,
+      orElse: () => data.sessions.first,
+    );
+
+    state = state.copyWith(
+      currentSessionId: currentId,
+      messages: messages,
+      sessions: data.sessions,
+      projectPath: currentSummary.projectPath,
+      historyLoaded: true,
+    );
   }
 
   void _handlePush(MobilePush push) {
@@ -72,6 +115,9 @@ class ChatNotifier extends StateNotifier<ChatState> {
         break;
       case PushType.result:
         _handleResult(push.data);
+        break;
+      case PushType.sessionChanged:
+        _handleSessionChanged(push.data);
         break;
       default:
         break;
@@ -106,6 +152,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
             'images': [],
           },
         ));
+    _schedulePersist();
   }
 
   void _handleStreamEvent(Map<String, dynamic>? data) {
@@ -138,6 +185,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
       );
       state = state.copyWith(messages: messages);
     }
+    _schedulePersist();
   }
 
   void _handleAssistant(Map<String, dynamic>? data) {
@@ -187,15 +235,10 @@ class ChatNotifier extends StateNotifier<ChatState> {
         content: text,
         thinkingContent: thinking,
         toolCalls: toolCalls.isEmpty ? null : toolCalls,
-        // assistant 事件标志着本轮结束；若包含 tool_use，工具执行后下一轮
-        // stream_event 会创建新 message。若不含 tool_use，标记为非流式，
-        // _handleResult 仍可正常处理。
         isStreaming: false,
       );
       state = state.copyWith(messages: [...messages, newMsg]);
     } else {
-      // 用 assistant 事件的完整内容替换流式累积的 delta（避免重复），
-      // 并补上 tool_use 与 thinking
       final last = messages.last;
       messages[messages.length - 1] = last.copyWith(
         content: text.isEmpty ? last.content : text,
@@ -205,6 +248,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
       );
       state = state.copyWith(messages: messages);
     }
+    _schedulePersist();
   }
 
   void _handleToolUse(Map<String, dynamic>? data) {
@@ -221,6 +265,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
       messages[messages.length - 1] = last.copyWith(toolCalls: toolCalls);
       state = state.copyWith(messages: messages);
     }
+    _schedulePersist();
   }
 
   void _handleToolResult(Map<String, dynamic>? data) {
@@ -241,6 +286,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
       }
     }
     state = state.copyWith(messages: messages);
+    _schedulePersist();
   }
 
   void _handlePermissionRequest(Map<String, dynamic>? data) {
@@ -262,6 +308,16 @@ class ChatNotifier extends StateNotifier<ChatState> {
           messages.last.copyWith(isStreaming: false);
     }
     state = state.copyWith(messages: messages, isLoading: false);
+    _schedulePersist();
+  }
+
+  /// 桌面端推送 session_changed 事件：更新当前项目目录，让 AppBar 显示
+  void _handleSessionChanged(Map<String, dynamic>? data) {
+    if (data == null) return;
+    final projectPath = data['projectPath'] as String?;
+    if (projectPath != null) {
+      state = state.copyWith(projectPath: projectPath);
+    }
   }
 
   void allowPermission(String toolUseId) {
@@ -298,7 +354,55 @@ class ChatNotifier extends StateNotifier<ChatState> {
           type: RequestType.newSession,
           data: {'sessionId': sessionId},
         ));
-    state = ChatState(currentSessionId: sessionId);
+    state = state.copyWith(
+      currentSessionId: sessionId,
+      messages: [],
+      pendingPermissions: [],
+      isLoading: false,
+    );
+    _storage.setCurrentSessionId(sessionId);
+  }
+
+  /// 切换到历史会话：加载该会话消息，更新 currentSessionId，并通知桌面端
+  Future<void> switchToSession(String sessionId) async {
+    final messages = await _storage.loadMessages(sessionId);
+    final summary = state.sessions.firstWhere(
+      (s) => s.id == sessionId,
+      orElse: () => state.sessions.first,
+    );
+    state = state.copyWith(
+      currentSessionId: sessionId,
+      messages: messages,
+      projectPath: summary.projectPath,
+      pendingPermissions: [],
+      isLoading: false,
+    );
+    _ref.read(connectionProvider.notifier).send(MobileRequest(
+          type: RequestType.switchSession,
+          data: {'sessionId': sessionId},
+        ));
+    _storage.setCurrentSessionId(sessionId);
+  }
+
+  Future<void> deleteSession(String sessionId) async {
+    await _storage.deleteSession(sessionId);
+    final sessions = state.sessions.where((s) => s.id != sessionId).toList();
+    if (state.currentSessionId == sessionId) {
+      // 删除的是当前会话：清空消息或切到第一个会话
+      if (sessions.isEmpty) {
+        state = state.copyWith(
+          sessions: sessions,
+          currentSessionId: null,
+          messages: [],
+          projectPath: null,
+        );
+      } else {
+        await switchToSession(sessions.first.id);
+        state = state.copyWith(sessions: sessions);
+      }
+    } else {
+      state = state.copyWith(sessions: sessions);
+    }
   }
 
   /// 切换当前会话使用的 Agent，同步到 ChatState 并通知桌面端
@@ -319,8 +423,68 @@ class ChatNotifier extends StateNotifier<ChatState> {
     }
   }
 
+  /// 防抖持久化：500ms 内多次状态变更只写一次盘
+  void _schedulePersist() {
+    _persistTimer?.cancel();
+    _persistTimer = Timer(const Duration(milliseconds: 500), _persist);
+  }
+
+  Future<void> _persist() async {
+    final sid = state.currentSessionId;
+    if (sid == null) return;
+    // 仅持久化已完成的消息（避免流式中间态被存盘）
+    final messages = state.messages
+        .where((m) => !m.isStreaming || m.content.isNotEmpty)
+        .map((m) => m.isStreaming ? m.copyWith(isStreaming: false) : m)
+        .toList();
+    // 标题：取首条用户消息前 30 字符，否则用「新对话」
+    final firstUser = messages.firstWhere(
+      (m) => m.role == MessageRole.user,
+      orElse: () => messages.isNotEmpty
+          ? messages.first
+          : ChatMessage(id: '', role: MessageRole.assistant, content: '新对话'),
+    );
+    final title = firstUser.content.isEmpty
+        ? '新对话'
+        : (firstUser.content.length > 30
+            ? '${firstUser.content.substring(0, 30)}...'
+            : firstUser.content);
+
+    await _storage.saveSession(
+      sessionId: sid,
+      title: title,
+      messages: messages,
+      projectPath: state.projectPath,
+    );
+
+    // 同步更新 sessions 列表（upsert + 按 updatedAt 排序）
+    final updated = SessionSummary(
+      id: sid,
+      title: title,
+      createdAt: state.sessions.firstWhere(
+        (s) => s.id == sid,
+        orElse: () => SessionSummary(
+          id: sid,
+          title: title,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+          projectPath: state.projectPath,
+          messageCount: messages.length,
+        ),
+      ).createdAt,
+      updatedAt: DateTime.now(),
+      projectPath: state.projectPath,
+      messageCount: messages.length,
+    );
+    final newSessions = (state.sessions.where((s) => s.id != sid).toList()
+          ..add(updated))
+        ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    state = state.copyWith(sessions: newSessions);
+  }
+
   @override
   void dispose() {
+    _persistTimer?.cancel();
     _subscription?.cancel();
     super.dispose();
   }

@@ -30,6 +30,9 @@
               <span class="status-dot connected" aria-hidden="true"></span>
               <span>{{ t('mobile.connected') || '已连接' }}: {{ status.clientInfo }}</span>
             </div>
+            <p class="auto-close-hint">
+              {{ t('mobile.autoCloseHint') || '3 秒后自动关闭，连接保持' }}
+            </p>
           </div>
         </template>
       </div>
@@ -65,6 +68,9 @@ const status = ref<{ running: boolean; connected: boolean; clientInfo?: string }
 let statusInterval: ReturnType<typeof setInterval> | null = null
 let unsubConnected: (() => void) | null = null
 let unsubDisconnected: (() => void) | null = null
+// 连接成功后自动关闭的倒计时句柄；用户手动操作前若计时未结束可取消
+let autoCloseTimer: ReturnType<typeof setTimeout> | null = null
+const AUTO_CLOSE_DELAY_MS = 3000
 
 watch(() => props.visible, async (visible) => {
   if (visible) {
@@ -72,6 +78,7 @@ watch(() => props.visible, async (visible) => {
     startStatusPolling()
   } else {
     stopStatusPolling()
+    cancelAutoClose()
   }
 })
 
@@ -99,13 +106,22 @@ async function startServer() {
 function startStatusPolling() {
   unsubConnected = api.mobile.onConnected((clientInfo) => {
     status.value = { running: true, connected: true, clientInfo }
+    scheduleAutoClose()
   })
   unsubDisconnected = api.mobile.onDisconnected(() => {
     status.value = { running: true, connected: false }
+    cancelAutoClose()
   })
   statusInterval = setInterval(async () => {
     try {
+      const prev = status.value.connected
       status.value = await api.mobile.getStatus()
+      // 状态由 disconnected → connected 时也启动自动关闭（兜底，覆盖 onConnected 未触发的场景）
+      if (!prev && status.value.connected) {
+        scheduleAutoClose()
+      } else if (prev && !status.value.connected) {
+        cancelAutoClose()
+      }
     } catch {}
   }, 2000)
 }
@@ -116,7 +132,32 @@ function stopStatusPolling() {
   if (unsubDisconnected) unsubDisconnected()
 }
 
+/**
+ * 连接成功后 3 秒自动关闭弹窗（仅隐藏 UI，不停止 mobile server）。
+ * 用户可以：
+ *   - 点击弹窗任意位置或关闭按钮立即关闭
+ *   - 点击「断开连接」按钮主动断开
+ * 自动关闭后服务继续运行，已连接的手机保持连接。
+ */
+function scheduleAutoClose() {
+  if (autoCloseTimer) return
+  autoCloseTimer = setTimeout(() => {
+    autoCloseTimer = null
+    if (status.value.connected) {
+      close()
+    }
+  }, AUTO_CLOSE_DELAY_MS)
+}
+
+function cancelAutoClose() {
+  if (autoCloseTimer) {
+    clearTimeout(autoCloseTimer)
+    autoCloseTimer = null
+  }
+}
+
 async function stopAndClose() {
+  cancelAutoClose()
   await api.mobile.stopServer()
   status.value = { running: false, connected: false }
   close()
@@ -127,13 +168,14 @@ function close() {
 }
 
 onUnmounted(() => {
-  // 仅取消状态轮询，不停止 mobile server。
+  // 仅取消状态轮询和自动关闭计时器，不停止 mobile server。
   // 服务生命周期独立于弹窗 UI：关闭弹窗只是隐藏 UI，
   // 服务继续运行，已连接的手机保持连接。
   // 服务显式停止时机：
   //   1. 用户点击"断开连接"按钮（stopAndClose → api.mobile.stopServer）
   //   2. 应用退出（main.ts before-quit 中 mobileServer.stop）
   stopStatusPolling()
+  cancelAutoClose()
 })
 </script>
 
@@ -255,6 +297,17 @@ onUnmounted(() => {
 .connected-state {
   width: 100%;
   padding: 20px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.auto-close-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
 }
 
 .mobile-dialog-footer {

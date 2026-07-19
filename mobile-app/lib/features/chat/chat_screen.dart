@@ -38,7 +38,29 @@ class ChatScreen extends ConsumerWidget {
                 fontWeight: FontWeight.w600,
               ),
             ),
-            if (chatState.currentAgent != null)
+            if (chatState.projectPath != null && chatState.projectPath!.isNotEmpty)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.folder_outlined,
+                    size: 11,
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                  ),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      _basename(chatState.projectPath!),
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            else if (chatState.currentAgent != null)
               Text(
                 chatState.currentAgent!,
                 style: TextStyle(
@@ -71,6 +93,14 @@ class ChatScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// 提取路径的 basename 用于 AppBar 显示。
+  /// 同时支持 Windows 反斜杠和 POSIX 正斜杠。
+  static String _basename(String path) {
+    final normalized = path.replaceAll('\\', '/');
+    final idx = normalized.lastIndexOf('/');
+    return idx >= 0 ? normalized.substring(idx + 1) : normalized;
   }
 }
 

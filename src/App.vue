@@ -507,6 +507,7 @@ onMounted(async () => {
         sessionStore.currentProjectRoot ||
         ''
       return {
+        sessionId: sessionStore.currentSessionId || undefined,
         cwd,
         apiKey: config.apiKey,
         baseUrl: config.baseUrl,

@@ -31,6 +31,7 @@ enum PushType {
   settingsSync('settings_sync'),
   themeSync('theme_sync'),
   themeChanged('theme_changed'),
+  sessionChanged('session_changed'),
   error('error'),
   pong('pong');
 

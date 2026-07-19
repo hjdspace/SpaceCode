@@ -1190,9 +1190,25 @@ function registerMobileIPCHandlers(): void {
       mobileServer?.sendToClient({ type: 'settings_sync', data: {} })
     })
 
-    mobileServer.on('connected', (clientInfo: string) => {
+    mobileServer.on('connected', async (clientInfo: string) => {
       mainWindow?.webContents.send('mobile:onConnected', clientInfo)
       subscribeEngineEventsForMobile()
+
+      // 主动下发桌面端当前激活会话的项目目录给手机端，供其在 AppBar 显示
+      // 手机端 UI 需要知道当前在操作哪个项目（用户可能切换桌面端会话）
+      try {
+        const config = await mainWindow?.webContents.executeJavaScript(
+          `window.__spacecode_api__?.getActiveSessionConfig?.() || null`
+        )
+        if (config?.cwd) {
+          mobileServer?.sendToClient({
+            type: 'session_changed',
+            data: { projectPath: config.cwd, sessionId: config.sessionId || null },
+          })
+        }
+      } catch (err) {
+        warn('MobileServer', 'failed to send session_changed on connect', { error: String(err) })
+      }
     })
 
     mobileServer.on('disconnected', () => {
