@@ -498,6 +498,30 @@ onMounted(async () => {
       },
     }),
     getSessions: () => sessionStore.sessions || [],
+    // 桌面端当前激活会话的完整 LLM 配置 + 工作目录 + agent
+    // 供 MobileServer 启动手机端 session 时复用，避免手机端单独配置 API key
+    getActiveSessionConfig: () => {
+      const config = settingsStore.config
+      const cwd =
+        sessionStore.workingDirectory ||
+        sessionStore.currentProjectRoot ||
+        ''
+      return {
+        cwd,
+        apiKey: config.apiKey,
+        baseUrl: config.baseUrl,
+        provider: config.provider,
+        model: config.model,
+        effortLevel: config.effortLevel,
+        thinkingEnabled: settingsStore.thinkingEnabled,
+        agent: sessionStore.currentAgent || undefined,
+        engineType: settingsStore.engineType,
+        engineSource: settingsStore.engineSource,
+        installedCliPath: settingsStore.installedCliPath ?? undefined,
+        modelContextWindows: { ...settingsStore.modelContextWindows },
+        rtkEnabled: settingsStore.rtkEnabled,
+      }
+    },
   }
 
   // 监听打开技能管理器事件

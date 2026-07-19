@@ -127,8 +127,13 @@ function close() {
 }
 
 onUnmounted(() => {
+  // 仅取消状态轮询，不停止 mobile server。
+  // 服务生命周期独立于弹窗 UI：关闭弹窗只是隐藏 UI，
+  // 服务继续运行，已连接的手机保持连接。
+  // 服务显式停止时机：
+  //   1. 用户点击"断开连接"按钮（stopAndClose → api.mobile.stopServer）
+  //   2. 应用退出（main.ts before-quit 中 mobileServer.stop）
   stopStatusPolling()
-  if (props.visible) api.mobile.stopServer()
 })
 </script>
 

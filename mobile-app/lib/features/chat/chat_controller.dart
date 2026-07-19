@@ -120,7 +120,47 @@ class ChatNotifier extends StateNotifier<ChatState> {
     }
   }
 
-  void _handleAssistant(Map<String, dynamic>? data) {}
+  void _handleAssistant(Map<String, dynamic>? data) {
+    if (data == null) return;
+    final message = data['message'] as Map<String, dynamic>?;
+    if (message == null) return;
+    final content = message['content'];
+
+    String text = '';
+    String? thinking;
+    List<ToolCall> toolCalls = [];
+
+    if (content is List) {
+      for (final item in content) {
+        if (item is! Map<String, dynamic>) continue;
+        final itemType = item['type'];
+        if (itemType == 'text') {
+          text += (item['text'] as String?) ?? '';
+        } else if (itemType == 'thinking') {
+          thinking = (item['thinking'] as String?) ?? (item['text'] as String?) ?? '';
+        } else if (itemType == 'tool_use') {
+          toolCalls.add(ToolCall(
+            id: (item['id'] as String?) ?? '',
+            toolName: (item['name'] as String?) ?? '',
+            input: item['input']?.toString() ?? '',
+          ));
+        }
+      }
+    } else if (content is String) {
+      text = content;
+    }
+
+    final messages = List<ChatMessage>.from(state.messages);
+    if (messages.isNotEmpty && messages.last.role == MessageRole.assistant) {
+      final last = messages.last;
+      messages[messages.length - 1] = last.copyWith(
+        content: text.isEmpty ? last.content : text,
+        thinkingContent: thinking ?? last.thinkingContent,
+        toolCalls: toolCalls.isEmpty ? last.toolCalls : toolCalls,
+      );
+      state = state.copyWith(messages: messages);
+    }
+  }
 
   void _handleToolUse(Map<String, dynamic>? data) {
     if (data == null) return;
@@ -214,6 +254,15 @@ class ChatNotifier extends StateNotifier<ChatState> {
           data: {'sessionId': sessionId},
         ));
     state = ChatState(currentSessionId: sessionId);
+  }
+
+  /// 切换当前会话使用的 Agent，同步到 ChatState 并通知桌面端
+  void setAgent(String agentId, String agentName) {
+    state = state.copyWith(currentAgent: agentName);
+    _ref.read(connectionProvider.notifier).send(MobileRequest(
+          type: RequestType.listAgents,
+          data: {'selectedAgentId': agentId},
+        ));
   }
 
   void abort() {

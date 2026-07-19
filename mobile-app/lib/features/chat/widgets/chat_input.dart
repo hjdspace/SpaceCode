@@ -149,23 +149,38 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   }
 
   void _showAgentPicker(BuildContext context) {
+    final chatState = ref.read(chatProvider);
     showModalBottomSheet(
       context: context,
       backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (context) => const _AgentPickerSheet(),
+      builder: (sheetContext) => _AgentPickerSheet(
+        currentAgent: chatState.currentAgent,
+        onSelected: (agentId, agentName) {
+          ref.read(chatProvider.notifier).setAgent(agentId, agentName);
+          Navigator.pop(sheetContext);
+        },
+      ),
     );
   }
 }
 
 class _AgentPickerSheet extends StatelessWidget {
-  const _AgentPickerSheet();
+  final String? currentAgent;
+  final void Function(String agentId, String agentName) onSelected;
+
+  const _AgentPickerSheet({required this.currentAgent, required this.onSelected});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
+    const agents = <(String, String, String, IconData, Color)>[
+      ('code', 'Code Agent', '代码编写与调试', Icons.code_rounded, Color(0xffcc785c)),
+      ('architect', 'Architect Agent', '架构设计与分析', Icons.architecture_rounded, Color(0xff5db8a6)),
+    ];
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -193,18 +208,23 @@ class _AgentPickerSheet extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          ListTile(
-            leading: Icon(Icons.code_rounded, color: theme.colorScheme.primary),
-            title: Text('Code Agent', style: TextStyle(color: theme.colorScheme.onSurface)),
-            subtitle: Text('代码编写与调试', style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.5))),
-            onTap: () => Navigator.pop(context),
-          ),
-          ListTile(
-            leading: const Icon(Icons.architecture_rounded, color: Color(0xff5db8a6)),
-            title: Text('Architect Agent', style: TextStyle(color: theme.colorScheme.onSurface)),
-            subtitle: Text('架构设计与分析', style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.5))),
-            onTap: () => Navigator.pop(context),
-          ),
+          for (final agent in agents)
+            () {
+              final (id, name, desc, icon, color) = agent;
+              final isSelected = currentAgent == name;
+              return ListTile(
+                leading: Icon(icon, color: color),
+                title: Text(name, style: TextStyle(color: theme.colorScheme.onSurface)),
+                subtitle: Text(desc,
+                    style: TextStyle(
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.5))),
+                trailing: isSelected
+                    ? Icon(Icons.check_circle_rounded,
+                        color: theme.colorScheme.primary, size: 20)
+                    : null,
+                onTap: () => onSelected(id, name),
+              );
+            }(),
           const SizedBox(height: 8),
         ],
       ),

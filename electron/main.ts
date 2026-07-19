@@ -19,6 +19,8 @@ import type { QRCodeData, ServerStatus } from './mobileServerTypes'
 import { H5Server } from './h5Server'
 import { H5AuthService } from './h5AuthService'
 import { buildThemeSyncData } from './themeSyncBuilder'
+import { engineGateway } from './engineGateway'
+import { EngineFactory } from './engines/EngineFactory'
 import { registerPromptOptimizerIPC } from './promptOptimizerIPC'
 import { registerDesignIPCHandlers } from './design/designService'
 import { aggregateLocalTokenStats } from './tokenStatsService'
@@ -958,6 +960,8 @@ destroyAutoUpdater()
     warn('App', 'Error killing Claude Code sessions', err)
   }
   if (mobileServer) { await mobileServer.stop(); mobileServer = null }
+  unsubscribeEngineEventsForMobile?.()
+  unsubscribeEngineEventsForMobile = null
   if (h5Server) { h5Server.stop(); h5Server = null }
 })
 
@@ -1106,6 +1110,8 @@ function registerRtkIPCHandlers(): void {
 // Mobile Server Integration
 // ============================================================
 let mobileServer: MobileServer | null = null
+// engine 事件转发到 mobile 的 unsubscribe 函数
+let unsubscribeEngineEventsForMobile: (() => void) | null = null
 
 function registerMobileIPCHandlers(): void {
   ipcMain.handle('mobile:startServer', async (): Promise<QRCodeData> => {
@@ -1121,31 +1127,59 @@ function registerMobileIPCHandlers(): void {
     const qrData = await mobileServer.start()
 
     mobileServer.on('send_message', async ({ sessionId, content, images }: any) => {
-      // 通过 renderer 转发到现有 claudeCode IPC
-      mainWindow?.webContents.send('mobile:relay', { type: 'send_message', data: { sessionId, content, images } })
+      try {
+        await ensureMobileSessionThenSend(sessionId, content, images)
+      } catch (err) {
+        error('MobileServer', 'send_message failed', { sessionId: sessionId.slice(0, 8), error: String(err) })
+        mobileServer?.sendToClient({
+          type: 'error',
+          data: { message: err instanceof Error ? err.message : 'Failed to send message' },
+        })
+      }
     })
 
-    mobileServer.on('abort', ({ sessionId }: any) => {
-      mainWindow?.webContents.send('mobile:relay', { type: 'abort', data: { sessionId } })
+    mobileServer.on('abort', async ({ sessionId }: any) => {
+      try {
+        await engineGateway.abort(sessionId)
+      } catch (err) {
+        error('MobileServer', 'abort failed', { sessionId: sessionId.slice(0, 8), error: String(err) })
+      }
     })
 
-    mobileServer.on('allow_permission', ({ sessionId, toolUseId }: any) => {
-      mainWindow?.webContents.send('mobile:relay', { type: 'allow_permission', data: { sessionId, toolUseId } })
+    mobileServer.on('allow_permission', async ({ sessionId, toolUseId }: any) => {
+      try {
+        await engineGateway.allowPermission(sessionId, toolUseId)
+      } catch (err) {
+        error('MobileServer', 'allow_permission failed', { sessionId: sessionId.slice(0, 8), error: String(err) })
+      }
     })
 
-    mobileServer.on('deny_permission', ({ sessionId, toolUseId }: any) => {
-      mainWindow?.webContents.send('mobile:relay', { type: 'deny_permission', data: { sessionId, toolUseId } })
+    mobileServer.on('deny_permission', async ({ sessionId, toolUseId }: any) => {
+      try {
+        await engineGateway.denyPermission(sessionId, toolUseId)
+      } catch (err) {
+        error('MobileServer', 'deny_permission failed', { sessionId: sessionId.slice(0, 8), error: String(err) })
+      }
     })
 
-    mobileServer.on('submit_tool_answer', ({ sessionId, toolUseId, answer }: any) => {
-      mainWindow?.webContents.send('mobile:relay', { type: 'submit_tool_answer', data: { sessionId, toolUseId, answer } })
+    mobileServer.on('submit_tool_answer', async ({ sessionId, toolUseId, answer }: any) => {
+      try {
+        await engineGateway.submitToolAnswer(sessionId, toolUseId, typeof answer === 'string' ? { answer } : answer)
+      } catch (err) {
+        error('MobileServer', 'submit_tool_answer failed', { sessionId: sessionId.slice(0, 8), error: String(err) })
+      }
     })
 
     mobileServer.on('list_sessions', async () => {
-      const sessions = await mainWindow?.webContents.executeJavaScript(
-        `window.__spacecode_api__?.getSessions() || []`
-      )
-      mobileServer?.sendToClient({ type: 'sessions_list', data: { sessions: sessions || [] } })
+      try {
+        const sessions = await mainWindow?.webContents.executeJavaScript(
+          `window.__spacecode_api__?.getSessions() || []`
+        )
+        mobileServer?.sendToClient({ type: 'sessions_list', data: { sessions: sessions || [] } })
+      } catch (err) {
+        error('MobileServer', 'list_sessions failed', { error: String(err) })
+        mobileServer?.sendToClient({ type: 'sessions_list', data: { sessions: [] } })
+      }
     })
 
     mobileServer.on('list_agents', async () => {
@@ -1158,11 +1192,14 @@ function registerMobileIPCHandlers(): void {
 
     mobileServer.on('connected', (clientInfo: string) => {
       mainWindow?.webContents.send('mobile:onConnected', clientInfo)
-      forwardEngineEventsToMobile()
+      subscribeEngineEventsForMobile()
     })
 
     mobileServer.on('disconnected', () => {
       mainWindow?.webContents.send('mobile:onDisconnected')
+      // 手机断开后不再需要 engine 事件转发
+      unsubscribeEngineEventsForMobile?.()
+      unsubscribeEngineEventsForMobile = null
     })
 
     return qrData
@@ -1173,6 +1210,8 @@ function registerMobileIPCHandlers(): void {
       await mobileServer.stop()
       mobileServer = null
     }
+    unsubscribeEngineEventsForMobile?.()
+    unsubscribeEngineEventsForMobile = null
   })
 
   ipcMain.handle('mobile:getStatus', (): ServerStatus => {
@@ -1180,24 +1219,88 @@ function registerMobileIPCHandlers(): void {
   })
 }
 
-function forwardEngineEventsToMobile(): void {
-  const eventTypes = [
-    'claude-code:stream_event',
-    'claude-code:assistant',
-    'claude-code:tool_use',
-    'claude-code:tool_result',
-    'claude-code:permission_request',
-    'claude-code:result',
-  ]
-
-  for (const eventType of eventTypes) {
-    ipcMain.on(eventType, (_event, data) => {
-      if (mobileServer) {
-        const pushType = eventType.replace('claude-code:', '')
-        mobileServer.sendToClient({ type: pushType as any, data })
-      }
-    })
+/**
+ * 确保手机端引用的 sessionId 在 engine 中存在并运行，然后发送消息。
+ *
+ * 手机端发消息时 sessionId 是新生成的 UUID，桌面端 engine 没有对应会话。
+ * 直接 sendMessage 会失败（no active process）。
+ *
+ * 策略：
+ *   1. 若 session 已存在且运行中，直接 sendMessage
+ *   2. 若 session 不存在，启动新会话：
+ *      - 复用桌面端当前激活会话的完整 LLM 配置（apiKey / baseUrl / provider /
+ *        model / agent / engineType / modelContextWindows 等），避免手机端单独
+ *        配置 API key。手机端架构上是桌面端的"远程显示器/控制器"，所有 LLM
+ *        调用都在桌面端 engine 子进程里发生，因此 API key 必须由桌面端提供。
+ *      - cwd 优先取桌面端当前激活会话的 cwd，兜底用 app.getPath('home')
+ *   3. 启动后调用 sendMessage
+ */
+async function ensureMobileSessionThenSend(sessionId: string, content: string, images?: any[]): Promise<void> {
+  const status = engineGateway.getSessionStatus(sessionId)
+  if (status?.isRunning) {
+    await engineGateway.sendMessage(sessionId, content, images)
+    return
   }
+
+  // 通过 renderer 暴露的 __spacecode_api__.getActiveSessionConfig 拿到桌面端当前
+  // 激活会话的完整配置（含 API key、provider、model、agent、engineType 等）。
+  // 复用桌面端配置可保证手机端 LLM 调用与桌面端行为一致。
+  let desktopConfig: any = null
+  try {
+    desktopConfig = await mainWindow?.webContents.executeJavaScript(
+      `window.__spacecode_api__?.getActiveSessionConfig?.() || null`
+    )
+  } catch (err) {
+    warn('MobileServer', 'failed to query desktop active session config', { error: String(err) })
+  }
+
+  const cwd = desktopConfig?.cwd || app.getPath('home')
+  if (!desktopConfig?.apiKey || !desktopConfig?.provider) {
+    warn('MobileServer', `desktop LLM config incomplete | hasApiKey=${!!desktopConfig?.apiKey} | hasProvider=${!!desktopConfig?.provider} | sid=${sessionId.slice(0, 8)}`)
+  }
+
+  info('MobileServer', `starting session for mobile | sid=${sessionId.slice(0, 8)} | cwd=${cwd} | provider=${desktopConfig?.provider || '(none)'} | model=${desktopConfig?.model || '(none)'} | apiKey=${desktopConfig?.apiKey ? '***set' : '(empty)'} | agent=${desktopConfig?.agent || '(none)'}`)
+
+  await engineGateway.startSession(sessionId, {
+    cwd,
+    apiKey: desktopConfig?.apiKey,
+    baseUrl: desktopConfig?.baseUrl,
+    provider: desktopConfig?.provider,
+    model: desktopConfig?.model,
+    effortLevel: desktopConfig?.effortLevel,
+    thinkingEnabled: desktopConfig?.thinkingEnabled,
+    agent: desktopConfig?.agent,
+    engineType: desktopConfig?.engineType || 'claude-code',
+    engineSource: desktopConfig?.engineSource,
+    installedCliPath: desktopConfig?.installedCliPath,
+    modelContextWindows: desktopConfig?.modelContextWindows,
+    rtkEnabled: desktopConfig?.rtkEnabled,
+  })
+  await engineGateway.sendMessage(sessionId, content, images)
+}
+
+/**
+ * 订阅 engine 事件流并转发给手机端。
+ *
+ * 之前实现错误：监听 ipcMain.on('claude-code:stream_event', ...)，
+ * 但这个事件是 main → renderer 的单向事件，main 自己监听自己发出的
+ * 永远不会触发。
+ *
+ * 正确做法（与 h5Server 一致）：用 EngineFactory.onRouteEvent 订阅
+ * engine 内部事件流，返回 unsubscribe 函数用于清理。
+ */
+function subscribeEngineEventsForMobile(): void {
+  // 已订阅则先取消，避免重复订阅
+  unsubscribeEngineEventsForMobile?.()
+  unsubscribeEngineEventsForMobile = null
+
+  if (!mobileServer) return
+
+  unsubscribeEngineEventsForMobile = EngineFactory.onRouteEvent((sid, eventType, data) => {
+    if (!mobileServer) return
+    // 转发所有事件给手机端，手机端按 sessionId 过滤
+    mobileServer.sendToClient({ type: eventType as any, data: { ...data, sessionId: sid } })
+  })
 }
 
 async function getThemeSyncData() {

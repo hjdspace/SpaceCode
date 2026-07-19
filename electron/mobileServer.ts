@@ -3,6 +3,7 @@ import { EventEmitter } from 'events'
 import * as crypto from 'crypto'
 import * as net from 'net'
 import * as os from 'os'
+import * as child_process from 'child_process'
 import { WebSocketServer, WebSocket } from 'ws'
 import type { MobileRequest, MobilePush, QRCodeData, ServerStatus, ThemeSyncData, ConnectData } from './mobileServerTypes'
 
@@ -241,17 +242,101 @@ export class MobileServer extends EventEmitter {
     })
   }
 
+  /**
+   * 返回本机局域网 IPv4，供手机端连接。
+   *
+   * 之前实现返回 os.networkInterfaces() 第一个非 internal IPv4，存在两个问题：
+   *   1. 可能命中虚拟网卡（vgate0 / vmnet / docker 等），手机无法访问
+   *   2. Node 在 Windows 上 os.networkInterfaces() 看不到 WLAN 接口（已知限制）
+   *
+   * 现按以下优先级返回候选 IP（关键：虚拟网卡过滤优先于系统命令补充）：
+   *   P1. os.networkInterfaces() 中"非虚拟网卡 + 私网"IPv4
+   *   P2. os.networkInterfaces() 中"非虚拟网卡"任意 IPv4
+   *   P3. 系统命令（ipconfig / ip addr）输出中的私网 IPv4（弥补 Windows WLAN 不可见）
+   *   P4. 系统命令输出中的任意 IPv4
+   *   P5. os.networkInterfaces() 中所有非 internal IPv4（含虚拟网卡，最后兜底）
+   *   P6. 127.0.0.1
+   */
   private getLocalIP(): string {
-    const interfaces = os.networkInterfaces()
-    for (const name of Object.keys(interfaces)) {
-      const ifaceList = interfaces[name]
+    const virtualIfacePatterns = [
+      /^vmnet/i, /^docker/i, /^veth/i, /^br-/i, /^virbr/i, /^vgate/i,
+      /^vbox/i, /^hyper-?v/i, /^tun/i, /^tap/i, /^ppp/i, /^utun/i, /^rmnet/i,
+    ]
+    const isVirtual = (name: string) =>
+      virtualIfacePatterns.some((re) => re.test(name))
+
+    const isPrivateV4 = (ip: string) => {
+      if (ip.startsWith('192.168.')) return true
+      if (ip.startsWith('10.')) return true
+      const m = /^172\.(\d+)\./.exec(ip)
+      if (m) {
+        const second = parseInt(m[1], 10)
+        if (second >= 16 && second <= 31) return true
+      }
+      return false
+    }
+
+    // P1 / P2 / P5：来自 os.networkInterfaces()，可按接口名过滤虚拟网卡
+    const interfacesPrivate: string[] = []
+    const interfacesNonVirtual: string[] = []
+    const interfacesAll: string[] = []
+    for (const [name, ifaceList] of Object.entries(os.networkInterfaces())) {
       if (!ifaceList) continue
+      const virtual = isVirtual(name)
       for (const iface of ifaceList) {
-        if (iface.family === 'IPv4' && !iface.internal) {
-          return iface.address
+        if (iface.family !== 'IPv4' || iface.internal) continue
+        interfacesAll.push(iface.address)
+        if (!virtual) {
+          interfacesNonVirtual.push(iface.address)
+          if (isPrivateV4(iface.address)) interfacesPrivate.push(iface.address)
         }
       }
     }
+
+    // P3 / P4：来自系统命令（弥补 Windows WLAN 不可见，但拿不到接口名无法过滤虚拟网卡）
+    const cmdIPs = listLocalIPsFromSystemCommand()
+    const cmdPrivate = cmdIPs.filter(isPrivateV4)
+
+    if (interfacesPrivate.length > 0) return interfacesPrivate[0]
+    if (interfacesNonVirtual.length > 0) return interfacesNonVirtual[0]
+    if (cmdPrivate.length > 0) return cmdPrivate[0]
+    if (cmdIPs.length > 0) return cmdIPs[0]
+    if (interfacesAll.length > 0) return interfacesAll[0]
     return '127.0.0.1'
   }
+}
+
+/**
+ * 通过系统命令获取本机 IPv4 地址列表，弥补 Node 在 Windows 上
+ * os.networkInterfaces() 看不到 WLAN 接口的限制。
+ *
+ * - Windows: `ipconfig` 输出解析 IPv4 Address 行
+ * - Linux/macOS: `ip -4 addr show` 或 `ifconfig` 解析 inet 行
+ * 失败时返回空数组，不抛异常。
+ */
+function listLocalIPsFromSystemCommand(): string[] {
+  const isWindows = process.platform === 'win32'
+  const result: string[] = []
+  try {
+    const stdout = child_process.execSync(
+      isWindows ? 'ipconfig' : 'ip -4 addr show 2>/dev/null || ifconfig',
+      { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] },
+    )
+    if (isWindows) {
+      const re = /IPv4[^\d]*:\s*(\d+\.\d+\.\d+\.\d+)/g
+      let m: RegExpExecArray | null
+      while ((m = re.exec(stdout)) !== null) {
+        if (m[1] !== '127.0.0.1') result.push(m[1])
+      }
+    } else {
+      const re = /inet\s+(\d+\.\d+\.\d+\.\d+)/g
+      let m: RegExpExecArray | null
+      while ((m = re.exec(stdout)) !== null) {
+        if (m[1] !== '127.0.0.1') result.push(m[1])
+      }
+    }
+  } catch {
+    // 系统命令失败时返回空数组，调用方应继续使用 os.networkInterfaces() 结果
+  }
+  return result
 }
