@@ -219,6 +219,36 @@ jobs:
             fi
           done
 
+      - name: Strip Aliyun/Tencent mirrors for CI (GitHub Actions runs abroad)
+        working-directory: mobile-app/android
+        shell: bash
+        run: |
+          # GitHub Actions 在国外，访问 Google Maven / Maven Central / Gradle 源很快，
+          # 不需要国内镜像。阿里云镜像对 AGP 9.0.1 部分依赖（aaptcompiler、signflinger）
+          # 同步不及时会导致 502 错误，所以直接移除镜像配置。
+          for f in settings.gradle.kts build.gradle.kts; do
+            if [ -f "$f" ]; then
+              echo "=== Before: $f ==="
+              grep -n "aliyun\|tencent\|flutter-io" "$f" || true
+              # 移除阿里云、腾讯云、flutter-io 镜像行
+              sed -i '/maven { url = uri("https:\/\/maven.aliyun.com/d' "$f"
+              sed -i '/maven { url = uri("https:\/\/mirrors.cloud.tencent.com/d' "$f"
+              sed -i '/maven { url = uri("https:\/\/download.flutter.io/d' "$f"
+              echo "=== After: $f ==="
+              grep -n "maven\|google\|mavenCentral" "$f" | head -20
+            fi
+          done
+          # 同时恢复 Gradle wrapper 为官方源
+          WRAPPER=gradle/wrapper/gradle-wrapper.properties
+          if [ -f "$WRAPPER" ]; then
+            echo "=== Before: $WRAPPER ==="
+            cat "$WRAPPER"
+            # 直接重写 distributionUrl 行为官方源（避免 sed 转义 \: 的复杂性）
+            sed -i 's|^distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-9.1.0-all.zip|' "$WRAPPER"
+            echo "=== After: $WRAPPER ==="
+            cat "$WRAPPER"
+          fi
+
       - name: Build release APK
         working-directory: mobile-app
         env:
