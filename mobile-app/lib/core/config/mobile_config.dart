@@ -7,6 +7,7 @@ class MobileConfig {
   final String model;
   final String githubToken;
   final String githubLogin;
+  final String appLocale;
 
   const MobileConfig({
     this.apiKey = '',
@@ -14,6 +15,7 @@ class MobileConfig {
     this.model = 'gpt-4o-mini',
     this.githubToken = '',
     this.githubLogin = '',
+    this.appLocale = 'zh',
   });
 
   MobileConfig copyWith({
@@ -22,6 +24,7 @@ class MobileConfig {
     String? model,
     String? githubToken,
     String? githubLogin,
+    String? appLocale,
   }) =>
       MobileConfig(
         apiKey: apiKey ?? this.apiKey,
@@ -29,6 +32,7 @@ class MobileConfig {
         model: model ?? this.model,
         githubToken: githubToken ?? this.githubToken,
         githubLogin: githubLogin ?? this.githubLogin,
+        appLocale: appLocale ?? this.appLocale,
       );
 }
 
@@ -43,6 +47,7 @@ class MobileConfigNotifier extends StateNotifier<MobileConfig> {
   static const _model = 'mobile_engine_model';
   static const _githubToken = 'mobile_github_token';
   static const _githubLogin = 'mobile_github_login';
+  static const _appLocale = 'mobile_app_locale';
 
   MobileConfigNotifier() : super(const MobileConfig()) {
     load();
@@ -56,6 +61,7 @@ class MobileConfigNotifier extends StateNotifier<MobileConfig> {
       model: prefs.getString(_model) ?? 'gpt-4o-mini',
       githubToken: prefs.getString(_githubToken) ?? '',
       githubLogin: prefs.getString(_githubLogin) ?? '',
+      appLocale: prefs.getString(_appLocale) ?? 'zh',
     );
     return state;
   }
@@ -91,5 +97,11 @@ class MobileConfigNotifier extends StateNotifier<MobileConfig> {
     await prefs.remove(_githubToken);
     await prefs.remove(_githubLogin);
     state = state.copyWith(githubToken: '', githubLogin: '');
+  }
+
+  Future<void> saveLocale(String locale) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_appLocale, locale);
+    state = state.copyWith(appLocale: locale);
   }
 }
