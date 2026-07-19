@@ -18,6 +18,7 @@ class OpenAiCompatibleModel implements AgentModel {
     required List<AgentMessage> messages,
     required List<AgentToolDefinition> tools,
     required AgentCancellationToken cancellationToken,
+    void Function(String delta)? onDelta,
   }) async {
     cancellationToken.throwIfCancelled();
     final base = config.baseUrl.trim().replaceAll(RegExp(r'/+$'), '');

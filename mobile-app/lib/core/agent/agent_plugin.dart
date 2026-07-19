@@ -43,6 +43,10 @@ abstract class AgentPlugin {
 
   Future<void> afterToolCall(
       AgentToolCall call, AgentToolResult result) async {}
+
+  /// 返回追加到 systemPrompt 末尾的文本，默认空。
+  /// AgentSession 在每次调用 model.complete 前拼接所有 plugin 的 suffix。
+  String buildSystemPromptSuffix() => '';
 }
 
 class AgentToolRegistry {

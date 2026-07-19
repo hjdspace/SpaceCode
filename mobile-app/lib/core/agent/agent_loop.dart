@@ -41,12 +41,25 @@ class AgentSession {
       for (var turn = 0; turn < maxTurns; turn++) {
         token.throwIfCancelled();
         onEvent?.call(const AgentEvent(type: AgentEventType.turnStart));
+        final suffix = _tools.plugins
+            .map((plugin) => plugin.buildSystemPromptSuffix())
+            .where((text) => text.isNotEmpty)
+            .join();
+        final effectiveSystemPrompt = suffix.isEmpty
+            ? systemPrompt
+            : '$systemPrompt$suffix';
         final response = await model.complete(
           config: config,
-          systemPrompt: systemPrompt,
+          systemPrompt: effectiveSystemPrompt,
           messages: List<AgentMessage>.from(_messages),
           tools: _tools.definitions,
           cancellationToken: token,
+          onDelta: (delta) {
+            onEvent?.call(AgentEvent(
+              type: AgentEventType.assistantDelta,
+              delta: delta,
+            ));
+          },
         );
         token.throwIfCancelled();
 
