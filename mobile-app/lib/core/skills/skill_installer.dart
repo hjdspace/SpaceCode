@@ -77,27 +77,30 @@ class SkillInstaller {
     String repoUrl, {
     required String githubToken,
     String branch = 'main',
-    AgentCancellationToken? cancellation,
   }) async {
+    if (githubToken.trim().isEmpty) {
+      throw StateError('请先在设置中完成 GitHub 认证');
+    }
     final parsed = parseGithubUrl(repoUrl);
     if (parsed == null) {
-      throw StateError('无效的 GitHub 仓库 URL: $repoUrl');
+      throw StateError('无法解析 GitHub URL：$repoUrl');
     }
     final docs = await getApplicationDocumentsDirectory();
     final targetDir = Directory(
-      '${docs.path}/spacecode/skills/github/${parsed.owner}/${parsed.name}',
+      '${docs.path}/spacecode/skills/github/${parsed.owner}-${parsed.name}',
     );
     if (await targetDir.exists()) {
       await targetDir.delete(recursive: true);
     }
     final github = GithubService(token: githubToken, client: client);
+    final cancellation = AgentCancellationToken();
     try {
       await github.cloneRepository(
         repository: '${parsed.owner}/${parsed.name}',
         branch: branch,
         targetDirectory: targetDir.path,
-        abortTrigger: cancellation?.whenCancelled,
-        isCancelled: cancellation == null ? null : () => cancellation.isCancelled,
+        abortTrigger: cancellation.whenCancelled,
+        isCancelled: () => cancellation.isCancelled,
       );
     } finally {
       github.dispose();

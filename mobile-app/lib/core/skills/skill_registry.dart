@@ -130,7 +130,7 @@ class SkillRegistryNotifier extends StateNotifier<SkillRegistryState> {
     _loader ??= await _buildLoader();
     final token = _ref.read(mobileConfigProvider).githubToken;
     if (token.isEmpty) {
-      throw StateError('请先在设置中完成 Github 认证');
+      throw StateError('请先在设置中完成 GitHub 认证');
     }
     final installer = SkillInstaller(loader: _loader!);
     await installer.installFromGithub(repoUrl, githubToken: token);
