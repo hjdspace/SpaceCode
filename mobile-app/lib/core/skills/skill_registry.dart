@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/bundled_skills.dart';
+import '../config/mobile_config.dart';
 import 'skill_installer.dart';
 import 'skill_loader.dart';
 import 'skill_types.dart';
@@ -74,10 +75,11 @@ class SkillRegistryState {
 class SkillRegistryNotifier extends StateNotifier<SkillRegistryState> {
   static const _disabledKey = 'skills_disabled_names';
 
+  final Ref _ref;
   SkillLoader? _loader;
   SharedPreferences? _prefs;
 
-  SkillRegistryNotifier(Ref ref) : super(SkillRegistryState.empty) {
+  SkillRegistryNotifier(this._ref) : super(SkillRegistryState.empty) {
     refresh();
   }
 
@@ -126,8 +128,12 @@ class SkillRegistryNotifier extends StateNotifier<SkillRegistryState> {
   /// 安装 GitHub 仓库技能。委托给 SkillInstaller。
   Future<void> installFromGithub(String repoUrl) async {
     _loader ??= await _buildLoader();
+    final token = _ref.read(mobileConfigProvider).githubToken;
+    if (token.isEmpty) {
+      throw StateError('请先在设置中完成 Github 认证');
+    }
     final installer = SkillInstaller(loader: _loader!);
-    await installer.installFromGithub(repoUrl);
+    await installer.installFromGithub(repoUrl, githubToken: token);
     await refresh();
   }
 
