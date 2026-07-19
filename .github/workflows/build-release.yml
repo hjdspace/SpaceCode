@@ -209,14 +209,20 @@ jobs:
         run: |
           # file_picker 8.3.7 仍以 compileSdk 34 构建，与 AGP 9 / flutter_plugin_android_lifecycle
           # 要求的 compileSdk 36+ 不兼容。强制升级到 36 以避免构建失败。
+          # 兼容 pub.flutter-io.cn（国内）和 pub.dev（CI 国外）两种缓存路径
           PUB_CACHE="${PUB_CACHE:-$HOME/.pub-cache}"
-          FILE_PICKER_GRADLE="$PUB_CACHE/hosted/pub.flutter-io.cn/file_picker-*/android/build.gradle"
-          for f in $FILE_PICKER_GRADLE; do
-            if [ -f "$f" ]; then
-              echo "Patching $f"
-              sed -i 's/compileSdk 34/compileSdk 36/g' "$f"
-              grep -n "compileSdk" "$f"
-            fi
+          echo "PUB_CACHE=$PUB_CACHE"
+          # 列出所有 file_picker 的 build.gradle 路径
+          mapfile -t FILE_LIST < <(find "$PUB_CACHE" -path '*/file_picker-*/android/build.gradle' -type f 2>/dev/null)
+          if [ ${#FILE_LIST[@]} -eq 0 ]; then
+            echo "WARNING: 未找到 file_picker 的 build.gradle，可能 pubspec 版本变了"
+          fi
+          for f in "${FILE_LIST[@]}"; do
+            echo "=== Patching $f ==="
+            # 用正则匹配任何 compileSdk 版本号（34/35等），统一改为 36
+            sed -i -E 's/compileSdk[[:space:]]+[0-9]+/compileSdk 36/g' "$f"
+            echo "--- After patch ---"
+            grep -n "compileSdk" "$f"
           done
 
       - name: Strip Aliyun/Tencent mirrors for CI (GitHub Actions runs abroad)
