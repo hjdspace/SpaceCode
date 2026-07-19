@@ -260,7 +260,24 @@ class ChatNotifier extends StateNotifier<ChatState> {
         final checkoutPath =
             '${documents.path}${Platform.pathSeparator}spacecode-workspaces${Platform.pathSeparator}$repositoryName-$branchName-$sessionId';
         if (!await Directory(checkoutPath).exists()) {
+          // 推送虚拟 ToolCall：clone github 仓库（让用户看到 Agent 正在做什么）
+          final cloneToolCallId = 'clone-${_uuid.v4()}';
+          _handleLocalAgentEvent(
+            sessionId,
+            AgentEvent(
+              type: AgentEventType.toolExecutionStart,
+              toolCall: AgentToolCall(
+                id: cloneToolCallId,
+                name: 'clone_github_repository',
+                arguments: {
+                  'repository': workspace.repository ?? '',
+                  'branch': workspace.branch ?? '',
+                },
+              ),
+            ),
+          );
           final github = GithubService(token: config.githubToken);
+          String cloneError = '';
           try {
             await github.cloneRepository(
               repository: workspace.repository!,
@@ -269,8 +286,29 @@ class ChatNotifier extends StateNotifier<ChatState> {
               abortTrigger: token.whenCancelled,
               isCancelled: () => token.isCancelled,
             );
+          } catch (error) {
+            if (token.isCancelled) rethrow;
+            cloneError = error.toString();
           } finally {
             github.dispose();
+          }
+          _handleLocalAgentEvent(
+            sessionId,
+            AgentEvent(
+              type: AgentEventType.toolExecutionEnd,
+              toolCall: AgentToolCall(
+                id: cloneToolCallId,
+                name: 'clone_github_repository',
+                arguments: const {},
+              ),
+              toolResult: cloneError.isEmpty
+                  ? '已 clone 到 $checkoutPath'
+                  : 'clone 失败：$cloneError',
+              isError: cloneError.isNotEmpty,
+            ),
+          );
+          if (cloneError.isNotEmpty) {
+            throw StateError('Github 仓库 clone 失败：$cloneError');
           }
         }
         workspace = WorkspaceTarget.github(
@@ -296,10 +334,28 @@ class ChatNotifier extends StateNotifier<ChatState> {
       if (workspace?.mode == WorkspaceMode.github &&
           workspace?.localPath != null &&
           config.githubToken.isNotEmpty) {
+        // 推送虚拟 ToolCall：创建 PR
+        final prToolCallId = 'pr-${_uuid.v4()}';
+        _handleLocalAgentEvent(
+          sessionId,
+          AgentEvent(
+            type: AgentEventType.toolExecutionStart,
+            toolCall: AgentToolCall(
+              id: prToolCallId,
+              name: 'create_pull_request',
+              arguments: {
+                'repository': workspace!.repository ?? '',
+                'base': workspace.branch ?? '',
+              },
+            ),
+          ),
+        );
         final github = GithubService(token: config.githubToken);
+        String prResult = '';
+        String? prError;
         try {
           final pullRequest = await github.commitDirectoryAndCreatePullRequest(
-            repository: workspace!.repository!,
+            repository: workspace.repository!,
             base: workspace.branch!,
             directory: workspace.localPath!,
             title: content.length > 70 ? content.substring(0, 70) : content,
@@ -307,13 +363,28 @@ class ChatNotifier extends StateNotifier<ChatState> {
             abortTrigger: token.whenCancelled,
             isCancelled: () => token.isCancelled,
           );
+          prResult = pullRequest;
           answer = '$answer\n\nPull Request: $pullRequest';
         } catch (error) {
           if (token.isCancelled) rethrow;
+          prError = error.toString();
           answer = '$answer\n\nPull Request 创建失败：$error';
         } finally {
           github.dispose();
         }
+        _handleLocalAgentEvent(
+          sessionId,
+          AgentEvent(
+            type: AgentEventType.toolExecutionEnd,
+            toolCall: AgentToolCall(
+              id: prToolCallId,
+              name: 'create_pull_request',
+              arguments: const {},
+            ),
+            toolResult: prError != null ? 'PR 创建失败：$prError' : prResult,
+            isError: prError != null,
+          ),
+        );
       }
       final messages =
           List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
