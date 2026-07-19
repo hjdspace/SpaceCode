@@ -1225,7 +1225,21 @@ function registerMobileIPCHandlers(): void {
     })
 
     mobileServer.on('get_settings', async () => {
-      mobileServer?.sendToClient({ type: 'settings_sync', data: {} })
+      try {
+        const config = await mainWindow?.webContents.executeJavaScript(
+          `window.__spacecode_api__?.getActiveSessionConfig?.() || null`
+        )
+        mobileServer?.sendToClient({
+          type: 'settings_sync',
+          data: {
+            apiKey: config?.apiKey || '',
+            baseUrl: config?.baseUrl || '',
+            model: config?.model || '',
+          },
+        })
+      } catch (err) {
+        warn('MobileServer', 'failed to sync settings', { error: String(err) })
+      }
     })
 
     mobileServer.on('connected', async (clientInfo: string) => {
@@ -1244,6 +1258,14 @@ function registerMobileIPCHandlers(): void {
             data: { projectPath: config.cwd, sessionId: config.sessionId || null },
           })
         }
+        mobileServer?.sendToClient({
+          type: 'settings_sync',
+          data: {
+            apiKey: config?.apiKey || '',
+            baseUrl: config?.baseUrl || '',
+            model: config?.model || '',
+          },
+        })
       } catch (err) {
         warn('MobileServer', 'failed to send session_changed on connect', { error: String(err) })
       }

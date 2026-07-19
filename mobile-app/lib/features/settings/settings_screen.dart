@@ -2,11 +2,14 @@ import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:file_picker/file_picker.dart';
 import '../../core/connection/connection_service.dart';
 import '../../core/connection/connection_state.dart' as conn;
 import '../../core/connection/qr_scanner_page.dart';
 import '../../core/protocol/protocol.dart';
 import '../../core/theme/theme_service.dart';
+import '../../core/config/mobile_config.dart';
+import '../../core/github/github_service.dart';
 import '../chat/chat_controller.dart';
 
 /// 手机端偏好设置（默认 Agent / 权限模式 / 流式输出）
@@ -71,6 +74,10 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _urlController = TextEditingController();
+  final _apiKeyController = TextEditingController();
+  final _baseUrlController = TextEditingController();
+  final _modelController = TextEditingController();
+  final _githubTokenController = TextEditingController();
   String? _defaultAgentName;
   String _permissionMode = 'default';
   bool _streamingEnabled = true;
@@ -85,7 +92,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final agentName = await MobilePreferences.getDefaultAgentName();
     final permMode = await MobilePreferences.getPermissionMode();
     final streaming = await MobilePreferences.getStreamingEnabled();
+    final config = await ref.read(mobileConfigProvider.notifier).load();
     if (!mounted) return;
+    _apiKeyController.text = config.apiKey;
+    _baseUrlController.text = config.baseUrl;
+    _modelController.text = config.model;
+    _githubTokenController.text = config.githubToken;
     setState(() {
       _defaultAgentName = agentName;
       _permissionMode = permMode;
@@ -96,6 +108,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   void dispose() {
     _urlController.dispose();
+    _apiKeyController.dispose();
+    _baseUrlController.dispose();
+    _modelController.dispose();
+    _githubTokenController.dispose();
     super.dispose();
   }
 
@@ -116,7 +132,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               children: [
                 GestureDetector(
                   onTap: () => context.pop(),
-                  child: Icon(Icons.arrow_back_ios, size: 20, color: theme.colorScheme.onSurface),
+                  child: Icon(Icons.arrow_back_ios,
+                      size: 20, color: theme.colorScheme.onSurface),
                 ),
                 const SizedBox(width: 10),
                 Text(
@@ -130,12 +147,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ],
             ),
           ),
-          Divider(height: 1, color: theme.colorScheme.onSurface.withValues(alpha: 0.08)),
+          Divider(
+              height: 1,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.08)),
 
           // 连接分组
           _sectionHeader('连接'),
           _connectionTile(connectionInfo, theme),
           _disconnectTile(connectionInfo, theme),
+
+          _sectionHeader('手机 Agent 引擎'),
+          _engineSettings(theme),
+
+          _sectionHeader('Github'),
+          _githubSettings(theme),
 
           // 外观分组
           _sectionHeader('外观'),
@@ -171,7 +196,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               children: [
                 Text(
                   'SpaceCode Mobile',
-                  style: TextStyle(fontSize: 14, color: theme.colorScheme.onSurface),
+                  style: TextStyle(
+                      fontSize: 14, color: theme.colorScheme.onSurface),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -187,6 +213,197 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  Widget _engineSettings(ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        children: [
+          TextField(
+            controller: _apiKeyController,
+            obscureText: true,
+            style: const TextStyle(fontSize: 14),
+            decoration: const InputDecoration(
+                labelText: 'API Key', hintText: '用于手机端内置 Agent'),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _baseUrlController,
+            style: const TextStyle(fontSize: 14),
+            decoration: const InputDecoration(
+                labelText: 'Base URL', hintText: 'https://api.openai.com/v1'),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _modelController,
+            style: const TextStyle(fontSize: 14),
+            decoration:
+                const InputDecoration(labelText: '模型', hintText: 'gpt-4o-mini'),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                await ref.read(mobileConfigProvider.notifier).save(
+                      apiKey: _apiKeyController.text,
+                      baseUrl: _baseUrlController.text,
+                      model: _modelController.text,
+                    );
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('手机 Agent 配置已保存')));
+                }
+              },
+              icon: const Icon(Icons.save_outlined, size: 17),
+              label: const Text('保存手机引擎配置'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _githubSettings(ThemeData theme) {
+    final config = ref.watch(mobileConfigProvider);
+    final connected = config.githubLogin.isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _githubTokenController,
+            obscureText: true,
+            style: const TextStyle(fontSize: 14),
+            decoration: const InputDecoration(
+              labelText: 'Github Token',
+              hintText: 'Fine-grained token（repo 权限）',
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _authenticateGithub,
+                  icon: Icon(
+                      connected
+                          ? Icons.verified_outlined
+                          : Icons.login_outlined,
+                      size: 17),
+                  label: Text(
+                      connected ? '已连接 @${config.githubLogin}' : '连接 Github'),
+                ),
+              ),
+              if (connected) ...[
+                const SizedBox(width: 8),
+                IconButton(
+                  tooltip: '断开 Github',
+                  onPressed: () =>
+                      ref.read(mobileConfigProvider.notifier).clearGithub(),
+                  icon: const Icon(Icons.link_off_outlined),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: TextButton.icon(
+              onPressed: connected ? _cloneGithubRepository : null,
+              icon: const Icon(Icons.download_outlined, size: 17),
+              label: const Text('手动 Clone 仓库到本地'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _authenticateGithub() async {
+    final token = _githubTokenController.text.trim();
+    if (token.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('请输入 Github Token')));
+      return;
+    }
+    final service = GithubService(token: token);
+    try {
+      final login = await service.authenticate();
+      await ref
+          .read(mobileConfigProvider.notifier)
+          .saveGithub(token: token, login: login);
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Github 已连接：@$login')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      service.dispose();
+    }
+  }
+
+  Future<void> _cloneGithubRepository() async {
+    final token = ref.read(mobileConfigProvider).githubToken;
+    final service = GithubService(token: token);
+    try {
+      final repos = await service.listRepositories();
+      if (!mounted) return;
+      final repo = await showModalBottomSheet<GithubRepository>(
+        context: context,
+        builder: (sheetContext) => ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Text('选择要 Clone 的仓库',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+            ...repos.map((item) => ListTile(
+                  title: Text(item.fullName),
+                  subtitle: Text('默认分支：${item.defaultBranch}'),
+                  onTap: () => Navigator.pop(sheetContext, item),
+                )),
+          ],
+        ),
+      );
+      if (repo == null || !mounted) return;
+      final branches = await service.listBranches(repo.fullName);
+      if (!mounted) return;
+      final branch = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => SimpleDialog(
+          title: const Text('选择分支'),
+          children: branches
+              .map((item) => SimpleDialogOption(
+                    onPressed: () => Navigator.pop(dialogContext, item),
+                    child: Text(item),
+                  ))
+              .toList(),
+        ),
+      );
+      if (branch == null || !mounted) return;
+      final target = await FilePicker.platform
+          .getDirectoryPath(dialogTitle: '选择 Clone 目标目录');
+      if (target == null || !mounted) return;
+      await service.cloneRepository(
+          repository: repo.fullName, branch: branch, targetDirectory: target);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${repo.fullName} 已下载到 $target')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      service.dispose();
+    }
   }
 
   Widget _sectionHeader(String title) {
@@ -253,7 +470,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             const SizedBox(height: 12),
             TextField(
               controller: _urlController,
-              style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 14),
+              style:
+                  TextStyle(color: theme.colorScheme.onSurface, fontSize: 14),
               decoration: InputDecoration(
                 hintText: 'ws://host:port',
                 hintStyle: TextStyle(
@@ -287,7 +505,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           child: FilledButton(
             onPressed: () {
               if (_urlController.text.isNotEmpty) {
-                ref.read(connectionProvider.notifier).connect(_urlController.text);
+                ref
+                    .read(connectionProvider.notifier)
+                    .connect(_urlController.text);
               }
             },
             style: FilledButton.styleFrom(
@@ -297,7 +517,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 borderRadius: BorderRadius.circular(8),
               ),
             ),
-            child: const Text('连接', style: TextStyle(fontWeight: FontWeight.w600)),
+            child:
+                const Text('连接', style: TextStyle(fontWeight: FontWeight.w600)),
           ),
         ),
       );
@@ -316,7 +537,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               borderRadius: BorderRadius.circular(8),
             ),
           ),
-          child: const Text('断开连接', style: TextStyle(fontWeight: FontWeight.w600)),
+          child:
+              const Text('断开连接', style: TextStyle(fontWeight: FontWeight.w600)),
         ),
       ),
     );
@@ -326,8 +548,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final themes = [
       (AppTheme.light, '浅色', const Color(0xfff8f9fb), const Color(0xff0d9488)),
       (AppTheme.dark, '深色', const Color(0xff0d0d0d), const Color(0xff3b82f6)),
-      (AppTheme.anthropic, 'Anthropic', const Color(0xfffaf9f5), const Color(0xffcc785c)),
-      (AppTheme.anthropicDark, 'Anthropic 深色', const Color(0xff181715), const Color(0xffcc785c)),
+      (
+        AppTheme.anthropic,
+        'Anthropic',
+        const Color(0xfffaf9f5),
+        const Color(0xffcc785c)
+      ),
+      (
+        AppTheme.anthropicDark,
+        'Anthropic 深色',
+        const Color(0xff181715),
+        const Color(0xffcc785c)
+      ),
     ];
 
     return Padding(
@@ -351,13 +583,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         border: isSelected
                             ? Border.all(color: accentColor, width: 2)
                             : Border.all(
-                                color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+                                color: theme.colorScheme.onSurface
+                                    .withValues(alpha: 0.08),
                                 width: 1,
                               ),
                       ),
                       child: isSelected
                           ? Center(
-                              child: Icon(Icons.check, size: 18, color: accentColor),
+                              child: Icon(Icons.check,
+                                  size: 18, color: accentColor),
                             )
                           : null,
                     ),
@@ -368,8 +602,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         fontSize: 11,
                         color: isSelected
                             ? theme.colorScheme.onSurface
-                            : theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                        fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                            : theme.colorScheme.onSurface
+                                .withValues(alpha: 0.5),
+                        fontWeight:
+                            isSelected ? FontWeight.w600 : FontWeight.normal,
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -440,8 +676,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       builder: (sheetContext) {
         final theme = Theme.of(sheetContext);
         const agents = <(String, String, String, IconData, Color)>[
-          ('code', 'Code Agent', '代码编写与调试', Icons.code_rounded, Color(0xffcc785c)),
-          ('architect', 'Architect Agent', '架构设计与分析', Icons.architecture_rounded, Color(0xff5db8a6)),
+          (
+            'code',
+            'Code Agent',
+            '代码编写与调试',
+            Icons.code_rounded,
+            Color(0xffcc785c)
+          ),
+          (
+            'architect',
+            'Architect Agent',
+            '架构设计与分析',
+            Icons.architecture_rounded,
+            Color(0xff5db8a6)
+          ),
         ];
         return Padding(
           padding: const EdgeInsets.all(16),
@@ -475,10 +723,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   final isSelected = _defaultAgentName == name;
                   return ListTile(
                     leading: Icon(icon, color: color),
-                    title: Text(name, style: TextStyle(color: theme.colorScheme.onSurface)),
+                    title: Text(name,
+                        style: TextStyle(color: theme.colorScheme.onSurface)),
                     subtitle: Text(desc,
                         style: TextStyle(
-                            color: theme.colorScheme.onSurface.withValues(alpha: 0.5))),
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.5))),
                     trailing: isSelected
                         ? Icon(Icons.check_circle_rounded,
                             color: theme.colorScheme.primary, size: 20)
@@ -550,10 +800,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   final (id, name, desc) = mode;
                   final isSelected = _permissionMode == id;
                   return ListTile(
-                    title: Text(name, style: TextStyle(color: theme.colorScheme.onSurface)),
+                    title: Text(name,
+                        style: TextStyle(color: theme.colorScheme.onSurface)),
                     subtitle: Text(desc,
                         style: TextStyle(
-                            color: theme.colorScheme.onSurface.withValues(alpha: 0.5))),
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.5))),
                     trailing: isSelected
                         ? Icon(Icons.check_circle_rounded,
                             color: theme.colorScheme.primary, size: 20)
@@ -564,7 +816,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       final chatState = ref.read(chatProvider);
                       final sid = chatState.currentSessionId;
                       if (sid != null) {
-                        ref.read(connectionProvider.notifier).send(MobileRequest(
+                        ref
+                            .read(connectionProvider.notifier)
+                            .send(MobileRequest(
                               type: RequestType.setPermissionMode,
                               data: {'sessionId': sid, 'mode': id},
                             ));
@@ -628,10 +882,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   final (val, name, desc) = opt;
                   final isSelected = _streamingEnabled == val;
                   return ListTile(
-                    title: Text(name, style: TextStyle(color: theme.colorScheme.onSurface)),
+                    title: Text(name,
+                        style: TextStyle(color: theme.colorScheme.onSurface)),
                     subtitle: Text(desc,
                         style: TextStyle(
-                            color: theme.colorScheme.onSurface.withValues(alpha: 0.5))),
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.5))),
                     trailing: isSelected
                         ? Icon(Icons.check_circle_rounded,
                             color: theme.colorScheme.primary, size: 20)

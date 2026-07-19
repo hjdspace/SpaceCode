@@ -31,21 +31,36 @@ class ChatScreen extends ConsumerWidget {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              chatState.currentSessionId != null ? 'SpaceCode' : '新对话',
-              style: const TextStyle(
+            const Text(
+              'SpaceCode',
+              style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
               ),
             ),
-            if (chatState.projectPath != null && chatState.projectPath!.isNotEmpty)
+            if (chatState.currentSessionId == null)
+              Text(
+                '新对话',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.5),
+                ),
+              )
+            else if (chatState.projectPath != null &&
+                chatState.projectPath!.isNotEmpty)
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
                     Icons.folder_outlined,
                     size: 11,
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.5),
                   ),
                   const SizedBox(width: 4),
                   Flexible(
@@ -54,7 +69,10 @@ class ChatScreen extends ConsumerWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 11,
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.5),
                       ),
                     ),
                   ),
@@ -65,7 +83,10 @@ class ChatScreen extends ConsumerWidget {
                 chatState.currentAgent!,
                 style: TextStyle(
                   fontSize: 11,
-                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.5),
                 ),
               ),
           ],
@@ -163,8 +184,10 @@ class _PermissionSheet extends ConsumerWidget {
 
     return PermissionCard(
       request: request,
-      onAllow: () => ref.read(chatProvider.notifier).allowPermission(request.toolUseId),
-      onDeny: () => ref.read(chatProvider.notifier).denyPermission(request.toolUseId),
+      onAllow: () =>
+          ref.read(chatProvider.notifier).allowPermission(request.toolUseId),
+      onDeny: () =>
+          ref.read(chatProvider.notifier).denyPermission(request.toolUseId),
     );
   }
 }

@@ -1,12 +1,19 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/protocol/protocol.dart';
 import '../../core/connection/connection_service.dart';
+import '../../core/connection/connection_state.dart' as conn;
 import '../../core/storage/chat_history_storage.dart';
 import 'models/message.dart';
 import 'models/tool_call.dart';
 import 'models/permission_request.dart';
+import '../../core/agent/local_agent_service.dart';
+import '../../core/config/mobile_config.dart';
+import '../../core/github/github_service.dart';
+import '../../core/workspace/workspace_target.dart';
 
 final chatProvider = StateNotifierProvider<ChatNotifier, ChatState>((ref) {
   return ChatNotifier(ref);
@@ -24,19 +31,26 @@ final chatProvider = StateNotifierProvider<ChatNotifier, ChatState>((ref) {
 ///   用户切换回旧会话时能看到完整对话
 class ChatState {
   final String? currentSessionId;
+
   /// 每个 session 的消息缓存（并行会话的核心数据结构）
   final Map<String, List<ChatMessage>> messagesBySession;
+
   /// 每个 session 的 loading 状态（是否正在等待 LLM 响应）
   final Map<String, bool> loadingBySession;
+
   /// 每个 session 的 agent 名称
   final Map<String, String> agentBySession;
   final List<PermissionRequest> pendingPermissions;
+
   /// 桌面端当前激活会话的项目目录，由 session_changed 推送更新
   final String? projectPath;
+
   /// 所有历史会话索引（不含消息体），用于 SessionsScreen 列表
   final List<SessionSummary> sessions;
+
   /// 历史是否已加载完成（启动时从 SharedPreferences 异步加载）
   final bool historyLoaded;
+  final WorkspaceTarget? workspaceTarget;
 
   const ChatState({
     this.currentSessionId,
@@ -47,15 +61,18 @@ class ChatState {
     this.projectPath,
     this.sessions = const [],
     this.historyLoaded = false,
+    this.workspaceTarget,
   });
 
   /// 当前会话的消息列表（只读视图）
-  List<ChatMessage> get messages =>
-      currentSessionId == null ? const [] : (messagesBySession[currentSessionId] ?? const []);
+  List<ChatMessage> get messages => currentSessionId == null
+      ? const []
+      : (messagesBySession[currentSessionId] ?? const []);
 
   /// 当前会话是否正在等待 LLM 响应
-  bool get isLoading =>
-      currentSessionId == null ? false : (loadingBySession[currentSessionId] ?? false);
+  bool get isLoading => currentSessionId == null
+      ? false
+      : (loadingBySession[currentSessionId] ?? false);
 
   /// 当前会话的 agent 名称
   String? get currentAgent =>
@@ -70,16 +87,19 @@ class ChatState {
     String? projectPath,
     List<SessionSummary>? sessions,
     bool? historyLoaded,
-  }) => ChatState(
-    currentSessionId: currentSessionId ?? this.currentSessionId,
-    messagesBySession: messagesBySession ?? this.messagesBySession,
-    loadingBySession: loadingBySession ?? this.loadingBySession,
-    agentBySession: agentBySession ?? this.agentBySession,
-    pendingPermissions: pendingPermissions ?? this.pendingPermissions,
-    projectPath: projectPath ?? this.projectPath,
-    sessions: sessions ?? this.sessions,
-    historyLoaded: historyLoaded ?? this.historyLoaded,
-  );
+    WorkspaceTarget? workspaceTarget,
+  }) =>
+      ChatState(
+        currentSessionId: currentSessionId ?? this.currentSessionId,
+        messagesBySession: messagesBySession ?? this.messagesBySession,
+        loadingBySession: loadingBySession ?? this.loadingBySession,
+        agentBySession: agentBySession ?? this.agentBySession,
+        pendingPermissions: pendingPermissions ?? this.pendingPermissions,
+        projectPath: projectPath ?? this.projectPath,
+        sessions: sessions ?? this.sessions,
+        historyLoaded: historyLoaded ?? this.historyLoaded,
+        workspaceTarget: workspaceTarget ?? this.workspaceTarget,
+      );
 
   /// 工厂方法：创建初始空状态
   factory ChatState.initial() => const ChatState(
@@ -93,6 +113,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
   final Ref _ref;
   final _uuid = const Uuid();
   final _storage = ChatHistoryStorage();
+  final _localAgent = LocalAgentService();
   StreamSubscription? _subscription;
   // 防抖保存：连续追加流式 delta 时只在停顿 500ms 后写一次盘
   Timer? _persistTimer;
@@ -156,6 +177,9 @@ class ChatNotifier extends StateNotifier<ChatState> {
       case PushType.sessionChanged:
         _handleSessionChanged(push.data);
         break;
+      case PushType.settingsSync:
+        _handleSettingsSync(push.data);
+        break;
       default:
         break;
     }
@@ -188,15 +212,105 @@ class ChatNotifier extends StateNotifier<ChatState> {
     _setMessages(sessionId, newMessages);
     _setLoading(sessionId, true);
 
-    _ref.read(connectionProvider.notifier).send(MobileRequest(
-          type: RequestType.sendMessage,
-          data: {
-            'sessionId': sessionId,
-            'content': content,
-            'images': [],
-          },
-        ));
+    final connection = _ref.read(connectionProvider);
+    if (connection.state == conn.ConnectionState.connected) {
+      _ref.read(connectionProvider.notifier).send(MobileRequest(
+            type: RequestType.sendMessage,
+            data: {
+              'sessionId': sessionId,
+              'content': content,
+              'images': [],
+              if (state.workspaceTarget != null)
+                'workspace': state.workspaceTarget!.promptContext,
+            },
+          ));
+    } else {
+      _runLocalAgent(sessionId, content);
+    }
     _schedulePersist();
+  }
+
+  Future<void> _runLocalAgent(String sessionId, String content) async {
+    try {
+      final config = _ref.read(mobileConfigProvider);
+      var workspace = state.workspaceTarget;
+      if (workspace?.mode == WorkspaceMode.github &&
+          workspace?.localPath == null) {
+        if (config.githubToken.isEmpty) throw StateError('请先在设置中完成 Github 认证');
+        final documents = await getApplicationDocumentsDirectory();
+        final repositoryName =
+            (workspace!.repository ?? 'repository').split('/').last;
+        final checkoutPath =
+            '${documents.path}${Platform.pathSeparator}spacecode-workspaces${Platform.pathSeparator}$repositoryName-$sessionId';
+        if (!await Directory(checkoutPath).exists()) {
+          final github = GithubService(token: config.githubToken);
+          try {
+            await github.cloneRepository(
+              repository: workspace.repository!,
+              branch: workspace.branch!,
+              targetDirectory: checkoutPath,
+            );
+          } finally {
+            github.dispose();
+          }
+        }
+        workspace = WorkspaceTarget.github(
+          repository: workspace.repository,
+          branch: workspace.branch,
+          localPath: checkoutPath,
+        );
+        state = state.copyWith(workspaceTarget: workspace);
+      }
+      var answer = await _localAgent.complete(
+        config: config,
+        prompt: content,
+        workspace: workspace,
+      );
+      if (workspace?.mode == WorkspaceMode.github &&
+          workspace?.localPath != null &&
+          config.githubToken.isNotEmpty) {
+        final github = GithubService(token: config.githubToken);
+        try {
+          final pullRequest = await github.commitDirectoryAndCreatePullRequest(
+            repository: workspace!.repository!,
+            base: workspace.branch!,
+            directory: workspace.localPath!,
+            title: content.length > 70 ? content.substring(0, 70) : content,
+            body: '由 SpaceCode Mobile Agent 根据任务自动生成。\n\n$content',
+          );
+          answer = '$answer\n\nPull Request: $pullRequest';
+        } catch (error) {
+          answer = '$answer\n\nPull Request 创建失败：$error';
+        } finally {
+          github.dispose();
+        }
+      }
+      final messages =
+          List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
+      if (messages.isNotEmpty && messages.last.role == MessageRole.assistant) {
+        messages[messages.length - 1] =
+            messages.last.copyWith(content: answer, isStreaming: false);
+        _setMessages(sessionId, messages);
+      }
+    } catch (error) {
+      final messages =
+          List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
+      if (messages.isNotEmpty && messages.last.role == MessageRole.assistant) {
+        messages[messages.length - 1] = messages.last.copyWith(
+          content:
+              '本地 Agent：${error.toString().replaceFirst('Bad state: ', '')}',
+          isStreaming: false,
+        );
+        _setMessages(sessionId, messages);
+      }
+    } finally {
+      _setLoading(sessionId, false);
+      _schedulePersist();
+    }
+  }
+
+  void setWorkspaceTarget(WorkspaceTarget? target) {
+    state = state.copyWith(workspaceTarget: target);
   }
 
   void _handleStreamEvent(Map<String, dynamic>? data) {
@@ -206,7 +320,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
 
     final sessionId = _extractSessionId(data);
     if (sessionId == null) return;
-    final messages = List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
+    final messages =
+        List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
 
     // 若最后一条 assistant message 已完成（isStreaming=false，说明上一轮 assistant
     // 事件已处理），创建新 message 容纳本轮流式输出。
@@ -249,7 +364,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
         if (itemType == 'text') {
           text += (item['text'] as String?) ?? '';
         } else if (itemType == 'thinking') {
-          thinking = (item['thinking'] as String?) ?? (item['text'] as String?) ?? '';
+          thinking =
+              (item['thinking'] as String?) ?? (item['text'] as String?) ?? '';
         } else if (itemType == 'tool_use') {
           toolCalls.add(ToolCall(
             id: (item['id'] as String?) ?? '',
@@ -264,7 +380,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
 
     final sessionId = _extractSessionId(data);
     if (sessionId == null) return;
-    final messages = List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
+    final messages =
+        List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
 
     final bool needNewMessage = messages.isEmpty ||
         messages.last.role != MessageRole.assistant ||
@@ -302,10 +419,12 @@ class ChatNotifier extends StateNotifier<ChatState> {
     );
     final sessionId = _extractSessionId(data);
     if (sessionId == null) return;
-    final messages = List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
+    final messages =
+        List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
     if (messages.isNotEmpty && messages.last.role == MessageRole.assistant) {
       final last = messages.last;
-      final toolCalls = List<ToolCall>.from(last.toolCalls ?? [])..add(toolCall);
+      final toolCalls = List<ToolCall>.from(last.toolCalls ?? [])
+        ..add(toolCall);
       messages[messages.length - 1] = last.copyWith(toolCalls: toolCalls);
       _setMessages(sessionId, messages);
     }
@@ -318,7 +437,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
     final output = data['output']?.toString() ?? '';
     final sessionId = _extractSessionId(data);
     if (sessionId == null) return;
-    final messages = List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
+    final messages =
+        List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
     for (int i = messages.length - 1; i >= 0; i--) {
       final msg = messages[i];
       if (msg.toolCalls != null) {
@@ -343,14 +463,15 @@ class ChatNotifier extends StateNotifier<ChatState> {
       toolName: data['toolName'] as String? ?? '',
       input: data['input']?.toString() ?? '',
     );
-    state = state.copyWith(
-        pendingPermissions: [...state.pendingPermissions, request]);
+    state = state
+        .copyWith(pendingPermissions: [...state.pendingPermissions, request]);
   }
 
   void _handleResult(Map<String, dynamic>? data) {
     final sessionId = _extractSessionId(data);
     if (sessionId == null) return;
-    final messages = List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
+    final messages =
+        List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
     if (messages.isNotEmpty && messages.last.isStreaming) {
       messages[messages.length - 1] =
           messages.last.copyWith(isStreaming: false);
@@ -369,6 +490,26 @@ class ChatNotifier extends StateNotifier<ChatState> {
     }
   }
 
+  void _handleSettingsSync(Map<String, dynamic>? data) {
+    if (data == null) return;
+    final apiKey = data['apiKey'] as String?;
+    final baseUrl = data['baseUrl'] as String?;
+    final model = data['model'] as String?;
+    if (apiKey == null ||
+        baseUrl == null ||
+        model == null ||
+        apiKey.isEmpty ||
+        baseUrl.isEmpty ||
+        model.isEmpty) {
+      return;
+    }
+    _ref.read(mobileConfigProvider.notifier).save(
+          apiKey: apiKey,
+          baseUrl: baseUrl,
+          model: model,
+        );
+  }
+
   void allowPermission(String toolUseId) {
     _ref.read(connectionProvider.notifier).send(MobileRequest(
           type: RequestType.allowPermission,
@@ -378,8 +519,9 @@ class ChatNotifier extends StateNotifier<ChatState> {
           },
         ));
     state = state.copyWith(
-      pendingPermissions:
-          state.pendingPermissions.where((p) => p.toolUseId != toolUseId).toList(),
+      pendingPermissions: state.pendingPermissions
+          .where((p) => p.toolUseId != toolUseId)
+          .toList(),
     );
   }
 
@@ -392,8 +534,9 @@ class ChatNotifier extends StateNotifier<ChatState> {
           },
         ));
     state = state.copyWith(
-      pendingPermissions:
-          state.pendingPermissions.where((p) => p.toolUseId != toolUseId).toList(),
+      pendingPermissions: state.pendingPermissions
+          .where((p) => p.toolUseId != toolUseId)
+          .toList(),
     );
   }
 
@@ -405,7 +548,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
           type: RequestType.newSession,
           data: {'sessionId': sessionId},
         ));
-    final newMessagesBySession = Map<String, List<ChatMessage>>.from(state.messagesBySession);
+    final newMessagesBySession =
+        Map<String, List<ChatMessage>>.from(state.messagesBySession);
     newMessagesBySession[sessionId] = [];
     final newLoadingBySession = Map<String, bool>.from(state.loadingBySession);
     newLoadingBySession[sessionId] = false;
@@ -422,7 +566,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
   /// 不影响其他会话的 engine 进程
   Future<void> switchToSession(String sessionId) async {
     // 若该 session 的消息未加载到内存，从 storage 加载
-    final messagesBySession = Map<String, List<ChatMessage>>.from(state.messagesBySession);
+    final messagesBySession =
+        Map<String, List<ChatMessage>>.from(state.messagesBySession);
     if (!messagesBySession.containsKey(sessionId)) {
       final messages = await _storage.loadMessages(sessionId);
       messagesBySession[sessionId] = messages;
@@ -451,7 +596,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
   Future<void> deleteSession(String sessionId) async {
     await _storage.deleteSession(sessionId);
     final sessions = state.sessions.where((s) => s.id != sessionId).toList();
-    final messagesBySession = Map<String, List<ChatMessage>>.from(state.messagesBySession);
+    final messagesBySession =
+        Map<String, List<ChatMessage>>.from(state.messagesBySession);
     messagesBySession.remove(sessionId);
     final loadingBySession = Map<String, bool>.from(state.loadingBySession);
     loadingBySession.remove(sessionId);
@@ -570,24 +716,26 @@ class ChatNotifier extends StateNotifier<ChatState> {
     final updated = SessionSummary(
       id: sid,
       title: title,
-      createdAt: state.sessions.firstWhere(
-        (s) => s.id == sid,
-        orElse: () => SessionSummary(
-          id: sid,
-          title: title,
-          createdAt: DateTime.now(),
-          updatedAt: DateTime.now(),
-          projectPath: state.projectPath,
-          messageCount: persistableMessages.length,
-        ),
-      ).createdAt,
+      createdAt: state.sessions
+          .firstWhere(
+            (s) => s.id == sid,
+            orElse: () => SessionSummary(
+              id: sid,
+              title: title,
+              createdAt: DateTime.now(),
+              updatedAt: DateTime.now(),
+              projectPath: state.projectPath,
+              messageCount: persistableMessages.length,
+            ),
+          )
+          .createdAt,
       updatedAt: DateTime.now(),
       projectPath: state.projectPath,
       messageCount: persistableMessages.length,
     );
-    final newSessions = (state.sessions.where((s) => s.id != sid).toList()
-          ..add(updated))
-        ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    final newSessions =
+        (state.sessions.where((s) => s.id != sid).toList()..add(updated))
+          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     state = state.copyWith(sessions: newSessions);
   }
 
@@ -595,6 +743,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
   void dispose() {
     _persistTimer?.cancel();
     _subscription?.cancel();
+    _localAgent.dispose();
     super.dispose();
   }
 }
