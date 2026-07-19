@@ -1,4 +1,5 @@
 {
+  "common.refresh": "Refresh",
   "skills.title": "Skills",
   "skills.empty": "No skills yet. Tap install in the top right or sync from desktop.",
   "skills.install": "Install",

@@ -27,6 +27,7 @@ class SkillsScreen extends ConsumerWidget {
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
+            tooltip: I18n.t('common.refresh'),
             onPressed: () =>
                 ref.read(skillRegistryProvider.notifier).refresh(),
           ),
@@ -62,10 +63,7 @@ class SkillsScreen extends ConsumerWidget {
                       return SkillCard(
                         skill: skill,
                         enabled: enabled,
-                        onTap: () => context.push(
-                          '/skills/${skill.name}',
-                          extra: skill.name,
-                        ),
+                        onTap: () => context.push('/skills/${skill.name}'),
                       );
                     },
                   ),
