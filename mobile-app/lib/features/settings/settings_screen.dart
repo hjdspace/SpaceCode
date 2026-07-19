@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../core/connection/connection_service.dart';
 import '../../core/connection/connection_state.dart' as conn;
 import '../../core/connection/qr_scanner_page.dart';
@@ -11,6 +10,7 @@ import '../../core/protocol/protocol.dart';
 import '../../core/theme/theme_service.dart';
 import '../../core/config/mobile_config.dart';
 import '../../core/github/github_service.dart';
+import '../../core/github/github_browser_auth.dart';
 import '../chat/chat_controller.dart';
 
 /// 手机端偏好设置（默认 Agent / 权限模式 / 流式输出）
@@ -311,84 +311,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _authenticateGithub() async {
-    const clientId = String.fromEnvironment('SPACE_CODE_GITHUB_CLIENT_ID');
-    final service = GithubService(token: '');
     try {
-      final flow = await service.startDeviceFlow(clientId: clientId);
-      await launchUrl(flow.verificationUri,
-          mode: LaunchMode.externalApplication);
-      if (!mounted) return;
-      final token = await _showGithubDeviceDialog(service, flow, clientId);
-      if (token == null || !mounted) return;
-      final authenticatedService = GithubService(token: token);
-      final login = await authenticatedService.authenticate();
-      authenticatedService.dispose();
+      final auth = await authenticateGithubInBrowser(context);
+      if (auth == null || !mounted) return;
       await ref
           .read(mobileConfigProvider.notifier)
-          .saveGithub(token: token, login: login);
+          .saveGithub(token: auth.token, login: auth.login);
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Github 已连接：@$login')));
+            .showSnackBar(SnackBar(content: Text('Github 已连接：@${auth.login}')));
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(error.toString().replaceFirst('Bad state: ', ''))));
       }
-    } finally {
-      service.dispose();
     }
-  }
-
-  Future<String?> _showGithubDeviceDialog(
-    GithubService service,
-    GithubDeviceFlow flow,
-    String clientId,
-  ) {
-    final polling = service.pollDeviceFlow(clientId: clientId, flow: flow);
-    return showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => FutureBuilder<String>(
-        future: polling,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return AlertDialog(
-              title: const Text('Github 认证失败'),
-              content: Text(snapshot.error.toString()),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('关闭'),
-                ),
-              ],
-            );
-          }
-          if (snapshot.hasData) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (dialogContext.mounted) {
-                Navigator.pop(dialogContext, snapshot.data);
-              }
-            });
-          }
-          return AlertDialog(
-            title: const Text('在浏览器中完成 Github 认证'),
-            content: SelectableText(
-              '打开 ${flow.verificationUri}\n\n验证码：${flow.userCode}\n\n授权完成后此窗口会自动关闭。',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => launchUrl(
-                  flow.verificationUri,
-                  mode: LaunchMode.externalApplication,
-                ),
-                child: const Text('重新打开网页'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
   }
 
   Future<void> _cloneGithubRepository() async {

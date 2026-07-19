@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../../core/config/mobile_config.dart';
+import '../../../core/github/github_browser_auth.dart';
 import '../../../core/github/github_service.dart';
 import '../../../core/workspace/workspace_target.dart';
 import '../chat_controller.dart';
@@ -56,13 +57,6 @@ class _ChatInputState extends ConsumerState<ChatInput> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _WorkspaceToolbar(
-              target: chatState.workspaceTarget,
-              onLocal: _chooseLocalDirectory,
-              onGithub: _chooseGithubRepository,
-              onBranch: _chooseGithubBranch,
-            ),
-            const SizedBox(height: 8),
             Row(
               children: [
                 GestureDetector(
@@ -162,6 +156,13 @@ class _ChatInputState extends ConsumerState<ChatInput> {
                   ),
               ],
             ),
+            const SizedBox(height: 6),
+            _WorkspaceToolbar(
+              target: chatState.workspaceTarget,
+              onLocal: _chooseLocalDirectory,
+              onGithub: _chooseGithubRepository,
+              onBranch: _chooseGithubBranch,
+            ),
           ],
         ),
       ),
@@ -179,12 +180,16 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   }
 
   Future<void> _chooseGithubRepository() async {
-    final config = ref.read(mobileConfigProvider);
+    var config = ref.read(mobileConfigProvider);
     if (config.githubToken.isEmpty) {
+      final auth = await authenticateGithubInBrowser(context);
+      if (auth == null || !mounted) return;
+      await ref.read(mobileConfigProvider.notifier).saveGithub(
+            token: auth.token,
+            login: auth.login,
+          );
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('请先在设置中完成 Github 认证')));
-      return;
+      config = ref.read(mobileConfigProvider);
     }
     final service = GithubService(token: config.githubToken);
     try {
@@ -333,13 +338,13 @@ class _WorkspaceToolbar extends StatelessWidget {
           onSelected: (mode) =>
               mode == WorkspaceMode.local ? onLocal() : onGithub(),
           itemBuilder: (context) => const [
-            PopupMenuItem(
-                value: WorkspaceMode.github, child: Text('云端 Github')),
-            PopupMenuItem(value: WorkspaceMode.local, child: Text('本地目录')),
+            PopupMenuItem(value: WorkspaceMode.github, child: Text('云端')),
+            PopupMenuItem(value: WorkspaceMode.local, child: Text('本地')),
           ],
           child: _ContextChip(
-              icon: isGithub ? Icons.cloud_outlined : Icons.folder_outlined,
-              label: modeLabel),
+            icon: isGithub ? Icons.cloud_outlined : Icons.folder_outlined,
+            label: modeLabel,
+          ),
         ),
         const SizedBox(width: 6),
         Expanded(
@@ -350,18 +355,23 @@ class _WorkspaceToolbar extends StatelessWidget {
               icon: isGithub
                   ? Icons.account_tree_outlined
                   : Icons.folder_open_outlined,
-              label: target?.repository ?? target?.localPath ?? '选择工作目录',
+              label: isGithub
+                  ? (target?.repository ?? 'Github仓库')
+                  : (target?.localPath ?? '选择工作目录'),
               expanded: true,
             ),
           ),
         ),
         const SizedBox(width: 6),
-        InkWell(
-          onTap: isGithub ? onBranch : onLocal,
-          borderRadius: BorderRadius.circular(8),
-          child: _ContextChip(
-              icon: Icons.call_split_outlined,
-              label: isGithub ? (target?.branch ?? '分支') : '目录'),
+        Expanded(
+          child: InkWell(
+            onTap: isGithub ? onBranch : onLocal,
+            borderRadius: BorderRadius.circular(8),
+            child: _ContextChip(
+                icon: Icons.call_split_outlined,
+                label: isGithub ? (target?.branch ?? 'Github分支') : '目录',
+                expanded: true),
+          ),
         ),
       ],
     );
