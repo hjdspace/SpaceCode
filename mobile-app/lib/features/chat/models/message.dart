@@ -34,4 +34,30 @@ class ChatMessage {
     thinkingContent: thinkingContent ?? this.thinkingContent,
     isStreaming: isStreaming ?? this.isStreaming,
   );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'role': role.name,
+    'content': content,
+    'toolCalls': toolCalls?.map((t) => t.toJson()).toList(),
+    'thinkingContent': thinkingContent,
+    'isStreaming': isStreaming,
+    'timestamp': timestamp.toIso8601String(),
+  };
+
+  factory ChatMessage.fromJson(Map<String, dynamic> json) => ChatMessage(
+    id: json['id'] as String? ?? '',
+    role: MessageRole.values.firstWhere(
+      (e) => e.name == json['role'],
+      orElse: () => MessageRole.assistant,
+    ),
+    content: json['content'] as String? ?? '',
+    toolCalls: (json['toolCalls'] as List<dynamic>?)
+        ?.map((t) => ToolCall.fromJson(t as Map<String, dynamic>))
+        .toList(),
+    thinkingContent: json['thinkingContent'] as String?,
+    // 反序列化时一律标记为已完成（流式状态不持久化）
+    isStreaming: false,
+    timestamp: DateTime.tryParse(json['timestamp'] as String? ?? '') ?? DateTime.now(),
+  );
 }

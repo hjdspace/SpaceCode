@@ -55,10 +55,8 @@
               v-model="settingsData"
               @change="onSettingsChange"
             />
-            <ModelSettings
+            <ProfileCards
               v-else-if="activeTab === 'model'"
-              v-model="settingsData"
-              @change="onSettingsChange"
             />
             <McpSettings
               v-else-if="activeTab === 'mcp'"
@@ -123,6 +121,7 @@ import appIcon from '@/assets/app-icon.svg'
 
 const GeneralSettings = defineAsyncComponent(() => import('./GeneralSettings.vue'))
 const ModelSettings = defineAsyncComponent(() => import('./ModelSettings.vue'))
+const ProfileCards = defineAsyncComponent(() => import('./ProfileCards.vue'))
 const McpSettings = defineAsyncComponent(() => import('./McpSettings.vue'))
 const AppearanceSettings = defineAsyncComponent(() => import('./AppearanceSettings.vue'))
 const ToolsSettings = defineAsyncComponent(() => import('./ToolsSettings.vue'))
@@ -211,6 +210,7 @@ function onSettingsChange() {
 }
 
 loadSettings()
+settingsStore.loadProfiles()
 
 function loadSettings() {
   isLoadingSettings = true

@@ -1,3 +1,66 @@
+## [0.6.8](https://github.com/hjdspace/SpaceCode/compare/v0.6.7...v0.6.8) (2026-07-20)
+
+### Features
+
+* **mobile:** 重构本地 Agent，支持 SSE 流式输出与 OpenAI 兼容工具调用循环
+* **mobile:** 新增 GitHub Device Flow 浏览器认证、仓库列表/分支选择、自动 clone 与 PR 创建
+* **mobile:** 聊天工具栏区分本地目录与 Github 仓库入口，支持会话级工作目录切换
+* **mobile:** 设置页支持从 API 拉取模型列表并下拉选择
+* **mobile:** 应用启动时预加载 MobileConfig，避免重启后 API Key 丢失
+* **chat:** 为 Github clone 和 PR 创建添加虚拟 ToolCall 状态推送，实时反馈执行进度
+* **chat:** 新增权限模式设置，支持多会话并行管理
+* **chat:** 实现移动端与桌面端会话同步功能，新增聊天历史本地持久化
+
+### Bug Fixes
+
+* **mobile:** 修复认证完成后 Device Flow 弹窗不自动关闭的问题
+* **mobile:** 修复工作栏第二个 chip 与本地模式重复，无法选择 Github 仓库
+* **mobile:** 移除 system prompt 中 "受 Pi 启发" 等无关品牌内容
+* **chat:** 修复流式聊天消息渲染时序问题
+
+### Build
+
+* **ci:** 新增 build-android job，release APK 自动构建并上传到 GitHub Release
+* **mobile:** 修复 file_picker 8.3.7 与 AGP 9 的 compileSdk 兼容性问题
+
+## [0.6.7](https://github.com/hjdspace/SpaceCode/compare/v0.6.6...v0.6.7) (2026-07-17)
+
+### Features
+
+* **profiles:** 添加 ModelProfile 和 ProfilesFile 类型定义
+* **profiles:** 主进程新增 profiles:load/save IPC handler
+* **profiles:** preload 和 electronAPI 暴露 profilesLoad/save
+* **profiles:** store 新增 profile state 和 7 个 actions
+* **profiles:** i18n 新增 profile.* 区块
+* **profiles:** 新增 ProfileCards 组件及测试
+* **profiles:** SettingsPanel 集成 ProfileCards 并在启动时加载 profiles
+* **profiles:** apply 切换后显示 Toast 提示
+* **markdown:** 新增本地图片相对路径解析能力，修复预览时图片加载404与CSP限制问题
+
+### Bug Fixes
+
+* **profiles:** 修复 applyProfile 回滚崩溃风险并补充边界测试
+* **profiles:** 修复 CSS 变量名、any 类型、可访问性和 i18n 问题
+* **profiles:** 修复 commitName 中遗漏的硬编码中文
+* **profiles:** 无效 activeProfileId 重置后同步应用第一个 Profile 到 gui-settings
+* **profiles:** i18n 去硬编码 + 解析失败备份损坏文件
+* **ProfileCards:** 修复展开设置面板的空值异常和类型定义
+
+### Refactor
+
+* **profile-cards:** 重构模型配置卡片UI与交互逻辑
+* **ProfileCards:** 重构配置页面布局，优化交互体验
+
+### Build
+
+* 升级electron及相关依赖并适配新版本API
+
+### Documentation
+
+* 添加多套模型配置切换（Profile）设计文档
+* 添加多套模型配置切换（Profile）实现计划
+* 完善开源文档，新增 LICENSE/CONTRIBUTING/SECURITY 与 README 路线图等章节
+
 ## [0.6.6](https://github.com/hjdspace/SpaceCode/compare/v0.6.5...v0.6.6) (2026-07-13)
 
 ### Features

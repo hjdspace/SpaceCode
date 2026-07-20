@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../chat_controller.dart';
+import '../models/message.dart';
 import 'message_bubble.dart';
 
 class MessageList extends ConsumerStatefulWidget {
@@ -37,8 +38,17 @@ class _MessageListState extends ConsumerState<MessageList> {
     final messages = chatState.messages;
 
     ref.listen(chatProvider, (prev, next) {
-      if (prev?.messages.length != next.messages.length ||
-          prev?.messages.last.content != next.messages.last.content) {
+      final prevMessages = prev?.messages ?? const <ChatMessage>[];
+      final nextMessages = next.messages;
+
+      // 长度变化（新增/删除消息）或最后一条消息内容变化（流式追加）时滚动到底部
+      // 必须先判空，避免空列表访问 .last 抛 Bad state: No element
+      final lengthChanged = prevMessages.length != nextMessages.length;
+      final lastContentChanged = prevMessages.isNotEmpty &&
+          nextMessages.isNotEmpty &&
+          prevMessages.last.content != nextMessages.last.content;
+
+      if (lengthChanged || lastContentChanged) {
         _scrollToBottom();
       }
     });

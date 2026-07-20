@@ -11,7 +11,8 @@ enum RequestType {
   newSession('new_session'),
   switchSession('switch_session'),
   listAgents('list_agents'),
-  getSettings('get_settings');
+  getSettings('get_settings'),
+  setPermissionMode('set_permission_mode');
 
   const RequestType(this.value);
   final String value;
@@ -31,6 +32,7 @@ enum PushType {
   settingsSync('settings_sync'),
   themeSync('theme_sync'),
   themeChanged('theme_changed'),
+  sessionChanged('session_changed'),
   error('error'),
   pong('pong');
 

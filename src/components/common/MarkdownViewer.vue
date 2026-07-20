@@ -35,7 +35,7 @@
 
     <div class="viewer-body">
       <div v-if="mode === 'preview'" class="preview-pane">
-        <MarkdownRenderer :content="content" />
+        <MarkdownRenderer :content="content" :file-path="filePath" />
       </div>
 
       <div v-else class="source-pane">
@@ -57,6 +57,11 @@ type ViewMode = 'preview' | 'source'
 const props = withDefaults(defineProps<{
   content: string
   fileName?: string
+  /**
+   * 当前 markdown 文件的绝对路径（可选）。
+   * 透传给 MarkdownRenderer，用于解析图片相对路径为本地 base64 data URL。
+   */
+  filePath?: string
   defaultMode?: ViewMode
 }>(), {
   defaultMode: 'preview',

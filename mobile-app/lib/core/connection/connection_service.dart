@@ -19,13 +19,42 @@ class ConnectionNotifier extends StateNotifier<ConnectionInfo> {
   ConnectionNotifier() : super(const ConnectionInfo());
 
   Future<void> connect(String url) async {
+    // 先清理上一次的连接资源，避免旧 stream 事件污染新状态
+    _subscription?.cancel();
+    _channel?.sink.close();
+    _channel = null;
+
     state = const ConnectionInfo(state: ConnectionState.connecting);
 
+    Uri parsed;
     try {
-      _channel = WebSocketChannel.connect(Uri.parse(url));
+      parsed = Uri.parse(url);
+    } catch (e) {
+      state = ConnectionInfo(
+        state: ConnectionState.error,
+        errorMessage: '无效的 URL: $e',
+      );
+      return;
+    }
 
-      _subscription = _channel!.stream.listen(
-        (data) {
+    try {
+      _channel = WebSocketChannel.connect(parsed);
+      // 主动等待握手完成；连接失败（DNS/路由/拒绝/超时）会在此抛出
+      // 否则错误会冒泡为 Unhandled Exception，状态卡在 connecting
+      await _channel!.ready;
+    } catch (e) {
+      state = ConnectionInfo(
+        state: ConnectionState.error,
+        errorMessage: e.toString(),
+      );
+      _channel = null;
+      return;
+    }
+
+    // 握手成功后注册监听；后续 stream 错误（断连等）仍走 onError
+    _subscription = _channel!.stream.listen(
+      (data) {
+        try {
           final json = jsonDecode(data as String) as Map<String, dynamic>;
           final push = MobilePush.fromJson(json);
 
@@ -37,23 +66,25 @@ class ConnectionNotifier extends StateNotifier<ConnectionInfo> {
           }
 
           _messageController.add(push);
-        },
-        onError: (error) {
-          state = ConnectionInfo(
-            state: ConnectionState.error,
-            errorMessage: error.toString(),
-          );
-        },
-        onDone: () {
+        } catch (e) {
+          // 业务层解析异常不应影响连接本身
+          _messageController.addError(e);
+        }
+      },
+      onError: (error) {
+        state = ConnectionInfo(
+          state: ConnectionState.error,
+          errorMessage: error.toString(),
+        );
+      },
+      onDone: () {
+        // 仅在非 error 状态下回退到 disconnected，避免覆盖错误信息
+        if (state.state != ConnectionState.error) {
           state = const ConnectionInfo(state: ConnectionState.disconnected);
-        },
-      );
-    } catch (e) {
-      state = ConnectionInfo(
-        state: ConnectionState.error,
-        errorMessage: e.toString(),
-      );
-    }
+        }
+      },
+      cancelOnError: true,
+    );
   }
 
   void send(MobileRequest request) {

@@ -8,11 +8,11 @@
 
 基于 Claude Code 引擎构建的新一代 AI 辅助编程桌面应用，深度融合大语言模型能力，为开发者提供智能化的代码编写、调试、重构和项目管理体验。
 
-[![Electron](https://img.shields.io/badge/Electron-29-47848F?style=flat-square&logo=electron)](https://www.electronjs.org/)
+[![Electron](https://img.shields.io/badge/Electron-43-47848F?style=flat-square&logo=electron)](https://www.electronjs.org/)
 [![Vue 3](https://img.shields.io/badge/Vue%203-3.4-4FC08D?style=flat-square&logo=vue.js)](https://vuejs.org/)
-[![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=flat-square&logo=vite)](https://vitejs.dev/)
+[![Vite](https://img.shields.io/badge/Vite-8-646CFF?style=flat-square&logo=vite)](https://vitejs.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
-[![Bun](https://img.shields.io/badge/Bun-2-black?style=flat-square&logo=bun)](https://bun.sh/)
+[![Bun](https://img.shields.io/badge/Bun-%3E%3D1.3-black?style=flat-square&logo=bun)](https://bun.sh/)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)]()
 
 [多模式核心](#多模式核心) · [Computer Use](#-computer-use桌面控制) · [Browser Use](#-browser-use浏览器自动化) · [更多特色](#更多特色) · [快速开始](#快速开始) · [项目结构](#项目结构) · [开发指南](#开发指南) · [技术栈](#技术栈)
@@ -276,7 +276,7 @@ SpaceCode 内置 Browser Use 浏览器自动化能力，让 AI 能够**操控真
 | 环境 | 最低版本 | 推荐版本 | 用途 |
 |------|----------|----------|------|
 | **Node.js** | >= 18 | >= 20 | Desktop 构建运行 |
-| **Bun** | >= 2.0.0 | >= 2.1.0 | CLI 引擎运行时 |
+| **Bun** | >= 1.3.0 | >= 1.3.12 | CLI 引擎运行时 |
 | **npm** | >= 9 | 最新版 | 包管理器 |
 | **Git** | >= 2.x | 最新版 | 版本控制 |
 
@@ -426,31 +426,31 @@ npm run changelog                 # 生成 CHANGELOG
 
 | 技术 | 版本 | 用途 |
 |------|------|------|
-| **Electron** | 29.x | 跨平台桌面应用框架 |
+| **Electron** | 43.x | 跨平台桌面应用框架 |
 | **Vue 3** | 3.4.x | 前端框架（Composition API） |
-| **Vite** | 5.x | 构建工具（极速热更新） |
+| **Vite** | 8.x | 构建工具（极速热更新） |
 | **TypeScript** | 5.x | 类型安全（strict 模式） |
 | **Pinia** | 2.x | Vue 状态管理 |
-| **SCSS** | 1.7.x | CSS 预处理器 |
+| **SCSS** | 1.71.x | CSS 预处理器 |
 | **xterm.js** | 6.x | 终端模拟器渲染 |
 | **node-pty** | 1.x | 伪终端（PTY）管理 |
 | **marked** | 12.x | Markdown 解析 |
 | **highlight.js** | 11.x | 语法高亮 |
 | **mermaid** | 11.x | 图表渲染 |
-| **electron-builder** | 24.x | 应用打包工具 |
+| **electron-builder** | 26.x | 应用打包工具 |
 | **electron-updater** | 6.x | 自动更新 |
 
 ### CLI 引擎（`engine/`）
 
 | 技术 | 版本 | 用途 |
 |------|------|------|
-| **Bun** | >= 2.0.0 | JavaScript 运行时、包管理器、构建工具 |
+| **Bun** | >= 1.3.0 | JavaScript 运行时、包管理器、构建工具 |
 | **TypeScript** | 6.x | 类型安全 |
 | **React** | 19.x | 终端 UI 渲染（配合 Ink） |
 | **Commander.js** | 14.x | CLI 参数解析 |
-| **@anthropic-ai/sdk** | - | Anthropic API 客户端 |
-| **OpenAI SDK** | - | OpenAI 兼容接口适配 |
-| **MCP SDK** | - | Model Context Protocol 实现 |
+| **@anthropic-ai/sdk** | 0.81.x | Anthropic API 客户端 |
+| **OpenAI SDK** | 6.x | OpenAI 兼容接口适配 |
+| **MCP SDK** | 1.29.x | Model Context Protocol 实现 |
 
 ### 移动端（`mobile-app/`）
 
@@ -471,26 +471,151 @@ npm run changelog                 # 生成 CHANGELOG
 
 ---
 
+## 路线图
+
+SpaceCode 持续演进中，以下为近期规划方向（非承诺，可能调整）：
+
+### 🚧 进行中
+
+- **更多 LLM 服务商原生支持**：扩展 Pi Engine 与 Claude Code Engine 的服务商适配层
+- **办公模式能力扩展**：更多办公助手、更精细的产物模板与样式系统
+- **移动端体验升级**：Flutter 端原生性能优化、离线会话支持
+
+### 📋 计划中
+
+- **宠物 UI 优化**：桌面宠物交互体验与视觉表现升级、更多互动反馈与场景化反应
+- **设计模式优化**：强化设计对话流程、扩展结构化卡片类型、优化设计文件工作区
+- **Mixture of Agents**：多智能体协作编排，支持任务自动拆分、并行执行与结果聚合
+- **插件系统**：开放的应用内插件机制，支持第三方扩展 UI、工具与工作流
+- **Web 版本**：基于现有 H5 模式扩展完整 Web 端能力
+- **协作工作流**：多用户实时协作、共享会话与团队技能库
+- **本地模型支持**：集成 Ollama / llama.cpp 等本地推理后端
+
+### ✅ 已完成里程碑
+
+- v0.6.x：桌面宠物、多模型 Profile、IM 集成、办公助手画廊
+- v0.5.x：分屏多会话、Computer Use、Browser Use、设计模式
+- v0.4.x：MCP 协议、移动端配套、Agents 智能体系统
+- v0.3.x：多引擎架构、技能库、回滚系统、权限控制
+- v0.2.x：工具卡片、Git 集成、命令系统、终端
+- v0.1.x：项目首版发布、Claude Code IPC 引擎
+
+完整历史变更详见 [CHANGELOG.md](./CHANGELOG.md)。
+
+---
+
+## 贡献
+
+欢迎各类贡献！无论是 Bug 修复、新功能开发、文档改进，还是国际化翻译、技能与智能体扩展，都非常欢迎。
+
+### 快速参与
+
+- 🐛 [报告 Bug](https://github.com/hjdspace/SpaceCode/issues/new?labels=bug&template=bug_report.md) — 在 Issue 中描述复现步骤
+- 💡 [提出建议](https://github.com/hjdspace/SpaceCode/issues/new?labels=enhancement&template=feature_request.md) — 分享你的功能想法
+- 💬 [参与讨论](https://github.com/hjdspace/SpaceCode/discussions) — 在 Discussions 中交流使用心得
+- ⭐ **Star 本项目** — 这是对维护者最大的鼓励
+- 📢 **分享给身边的朋友** — 让更多人受益
+
+### 开发贡献
+
+详细的开发流程、编码规范、提交规范与 PR 流程，请阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+
+```bash
+# 标准贡献流程
+git clone https://github.com/<你的用户名>/SpaceCode.git
+cd SpaceCode && npm install
+git checkout -b feat/your-feature
+# ...开发...
+git push origin feat/your-feature
+# 在 GitHub 上发起 Pull Request
+```
+
+### 行为准则
+
+参与本项目的每一位贡献者都应保持友善与尊重。技术讨论对事不对人，欢迎新手，耐心解答。任何形式的人身攻击、骚扰、歧视性言论都将被拒绝并关闭。
+
+---
+
+## 致谢
+
+SpaceCode 的诞生与成长离不开以下开源项目与社区的支持：
+
+### 核心依赖
+
+- [Electron](https://www.electronjs.org/) — 跨平台桌面应用框架
+- [Vue 3](https://vuejs.org/) — 渐进式 JavaScript 框架
+- [Vite](https://vitejs.dev/) — 下一代前端构建工具
+- [Pinia](https://pinia.vuejs.org/) — Vue 状态管理库
+- [xterm.js](https://xtermjs.org/) — 终端模拟器
+- [Bun](https://bun.sh/) — JavaScript 运行时与工具链
+
+### 集成生态
+
+- [cua-driver](https://github.com/trycua/cua) — Computer-Use 桌面控制驱动
+- [browser-use](https://github.com/browser-use/browser-use) — 浏览器自动化
+- [officecli](https://github.com/hjdspace/officecli) — Office 文档生成 CLI
+- [Model Context Protocol](https://modelcontextprotocol.io/) — MCP 协议规范
+
+### 灵感来源
+
+- [Claude Code](https://www.anthropic.com/claude-code) — CLI 编程引擎
+- [VS Code](https://code.visualstudio.com/) — IDE 布局与交互范式
+- [open-design](https://open-design.dev/) — 设计系统交互范式
+
+感谢所有通过 Issue、PR、Discussion 参与项目建设的 [贡献者](https://github.com/hjdspace/SpaceCode/graphs/contributors)。
+
+---
+
+## 社区与反馈
+
+| 渠道 | 用途 |
+|------|------|
+| [GitHub Issues](https://github.com/hjdspace/SpaceCode/issues) | Bug 报告、功能建议 |
+| [GitHub Discussions](https://github.com/hjdspace/SpaceCode/discussions) | 使用讨论、经验分享 |
+| [GitHub Releases](https://github.com/hjdspace/SpaceCode/releases) | 版本发布与下载 |
+| [SECURITY.md](./SECURITY.md) | 安全漏洞私下报告 |
+| 作者邮箱 `hjdspace1990@gmail.com` | 直接联系维护者 |
+
+---
+
 ## 相关文档
 
-- [更新日志](./CHANGELOG.md) — 版本迭代记录
-- [发布说明](./release-notes/) — 各版本发布亮点
-- [设计文档](./docs/superpowers/) — 架构设计与功能规划
-- [贡献指南](./CONTRIBUTING.md) — 如何参与开发
-- [安全说明](./SECURITY.md) — 安全策略与漏洞报告
+| 文档 | 说明 |
+|------|------|
+| [CHANGELOG.md](./CHANGELOG.md) | 版本迭代完整记录 |
+| [release-notes/](./release-notes/) | 各版本发布亮点 |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | 贡献指南与开发流程 |
+| [SECURITY.md](./SECURITY.md) | 安全策略与漏洞报告 |
+| [CONTEXT.md](./CONTEXT.md) | 项目领域模型与术语表 |
+| [AGENTS.md](./AGENTS.md) | AI Agent 协作指南 |
+| [docs/](./docs/) | 设计文档、IM 集成、Demo 资源 |
 
 ---
 
 ## 许可证
 
-详见 [LICENSE](./LICENSE) 文件。
+本项目基于 [MIT License](./LICENSE) 开源。
+
+Copyright © 2026 [hjdspace](https://github.com/hjdspace)
+
+---
+
+## Star History
+
+<a href="https://star-history.com/#hjdspace/SpaceCode&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=hjdspace/SpaceCode&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=hjdspace/SpaceCode&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=hjdspace/SpaceCode&type=Date" />
+  </picture>
+</a>
 
 ---
 
 <div align="center">
 
-**项目主页**: https://github.com/hjdspace/SpaceCode  
-**问题反馈**: https://github.com/hjdspace/SpaceCode/issues  
-**发布版本**: https://github.com/hjdspace/SpaceCode/releases
+**如果 SpaceCode 对你有帮助，欢迎 ⭐ Star 支持项目持续发展**
+
+[项目主页](https://github.com/hjdspace/SpaceCode) · [问题反馈](https://github.com/hjdspace/SpaceCode/issues) · [发布版本](https://github.com/hjdspace/SpaceCode/releases) · [参与讨论](https://github.com/hjdspace/SpaceCode/discussions)
 
 </div>

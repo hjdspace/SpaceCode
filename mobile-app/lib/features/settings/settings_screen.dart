@@ -1,10 +1,71 @@
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:file_picker/file_picker.dart';
+import '../../core/agent/local_agent_service.dart';
 import '../../core/connection/connection_service.dart';
 import '../../core/connection/connection_state.dart' as conn;
 import '../../core/connection/qr_scanner_page.dart';
+import '../../core/protocol/protocol.dart';
 import '../../core/theme/theme_service.dart';
+import '../../core/config/mobile_config.dart';
+import '../../core/github/github_service.dart';
+import '../../core/github/github_browser_auth.dart';
+import '../chat/chat_controller.dart';
+
+/// 手机端偏好设置（默认 Agent / 权限模式 / 流式输出）
+/// 持久化到 SharedPreferences；权限模式会同步到桌面端 engine
+class MobilePreferences {
+  static const _kDefaultAgent = 'pref_default_agent_id';
+  static const _kDefaultAgentName = 'pref_default_agent_name';
+  static const _kPermissionMode = 'pref_permission_mode';
+  static const _kStreamingEnabled = 'pref_streaming_enabled';
+
+  static Future<String?> getDefaultAgentId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_kDefaultAgent);
+  }
+
+  static Future<String?> getDefaultAgentName() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_kDefaultAgentName);
+  }
+
+  static Future<void> setDefaultAgent(String id, String name) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kDefaultAgent, id);
+    await prefs.setString(_kDefaultAgentName, name);
+  }
+
+  static Future<String> getPermissionMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_kPermissionMode) ?? 'default';
+  }
+
+  static Future<void> setPermissionMode(String mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kPermissionMode, mode);
+  }
+
+  static Future<bool> getStreamingEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kStreamingEnabled) ?? true;
+  }
+
+  static Future<void> setStreamingEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kStreamingEnabled, enabled);
+  }
+}
+
+/// 权限模式选项
+const _permissionModes = <(String, String, String)>[
+  ('default', '默认', '每次工具调用前询问'),
+  ('plan', '计划模式', '只读，不执行任何写操作'),
+  ('acceptEdits', '自动接受编辑', '自动允许文件编辑'),
+  ('bypassPermissions', '跳过权限', '所有工具调用自动允许（危险）'),
+];
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -15,10 +76,71 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _urlController = TextEditingController();
+  final _apiKeyController = TextEditingController();
+  final _baseUrlController = TextEditingController();
+  final _modelController = TextEditingController();
+  final _agentService = LocalAgentService();
+  List<String> _availableModels = const [];
+  bool _loadingModels = false;
+  String? _defaultAgentName;
+  String _permissionMode = 'default';
+  bool _streamingEnabled = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPrefs();
+  }
+
+  Future<void> _loadPrefs() async {
+    final agentName = await MobilePreferences.getDefaultAgentName();
+    final permMode = await MobilePreferences.getPermissionMode();
+    final streaming = await MobilePreferences.getStreamingEnabled();
+    final config = await ref.read(mobileConfigProvider.notifier).load();
+    if (!mounted) return;
+    _apiKeyController.text = config.apiKey;
+    _baseUrlController.text = config.baseUrl;
+    _modelController.text = config.model;
+    setState(() {
+      _defaultAgentName = agentName;
+      _permissionMode = permMode;
+      _streamingEnabled = streaming;
+    });
+    // 若已配置 API Key 和 Base URL，自动拉取一次模型列表
+    if (config.apiKey.isNotEmpty && config.baseUrl.isNotEmpty) {
+      _refreshModels();
+    }
+  }
+
+  Future<void> _refreshModels() async {
+    if (_loadingModels) return;
+    setState(() => _loadingModels = true);
+    try {
+      final models = await _agentService.listModels(
+        baseUrl: _baseUrlController.text,
+        apiKey: _apiKeyController.text,
+      );
+      if (!mounted) return;
+      setState(() {
+        _availableModels = models;
+        _loadingModels = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _loadingModels = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.toString().replaceFirst('Bad state: ', ''))),
+      );
+    }
+  }
 
   @override
   void dispose() {
     _urlController.dispose();
+    _apiKeyController.dispose();
+    _baseUrlController.dispose();
+    _modelController.dispose();
+    _agentService.dispose();
     super.dispose();
   }
 
@@ -39,7 +161,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               children: [
                 GestureDetector(
                   onTap: () => context.pop(),
-                  child: Icon(Icons.arrow_back_ios, size: 20, color: theme.colorScheme.onSurface),
+                  child: Icon(Icons.arrow_back_ios,
+                      size: 20, color: theme.colorScheme.onSurface),
                 ),
                 const SizedBox(width: 10),
                 Text(
@@ -53,12 +176,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ],
             ),
           ),
-          Divider(height: 1, color: theme.colorScheme.onSurface.withValues(alpha: 0.08)),
+          Divider(
+              height: 1,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.08)),
 
           // 连接分组
           _sectionHeader('连接'),
           _connectionTile(connectionInfo, theme),
           _disconnectTile(connectionInfo, theme),
+
+          _sectionHeader('手机 Agent 引擎'),
+          _engineSettings(theme),
+
+          _sectionHeader('Github'),
+          _githubSettings(theme),
 
           // 外观分组
           _sectionHeader('外观'),
@@ -66,9 +197,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
           // 聊天分组
           _sectionHeader('聊天'),
-          _navTile('默认 Agent', '默认助手', theme),
-          _navTile('权限模式', '默认', theme),
-          _navTile('流式输出', '开启', theme),
+          _navTile(
+            title: '默认 Agent',
+            value: _defaultAgentName ?? '未设置',
+            theme: theme,
+            onTap: _showAgentPicker,
+          ),
+          _navTile(
+            title: '权限模式',
+            value: _permissionModeLabel(_permissionMode),
+            theme: theme,
+            onTap: _showPermissionModePicker,
+          ),
+          _navTile(
+            title: '流式输出',
+            value: _streamingEnabled ? '开启' : '关闭',
+            theme: theme,
+            onTap: _showStreamingPicker,
+          ),
 
           // 关于分组
           _sectionHeader('关于'),
@@ -79,7 +225,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               children: [
                 Text(
                   'SpaceCode Mobile',
-                  style: TextStyle(fontSize: 14, color: theme.colorScheme.onSurface),
+                  style: TextStyle(
+                      fontSize: 14, color: theme.colorScheme.onSurface),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -93,6 +240,227 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _engineSettings(ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        children: [
+          TextField(
+            controller: _apiKeyController,
+            obscureText: true,
+            style: const TextStyle(fontSize: 14),
+            decoration: const InputDecoration(
+                labelText: 'API Key', hintText: '用于手机端内置 Agent'),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _baseUrlController,
+            style: const TextStyle(fontSize: 14),
+            decoration: const InputDecoration(
+                labelText: 'Base URL', hintText: 'https://api.openai.com/v1'),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _buildModelField(),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                onPressed: _loadingModels ? null : _refreshModels,
+                icon: _loadingModels
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh, size: 20),
+                tooltip: '从 API 获取模型列表',
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                await ref.read(mobileConfigProvider.notifier).save(
+                      apiKey: _apiKeyController.text,
+                      baseUrl: _baseUrlController.text,
+                      model: _modelController.text,
+                    );
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('手机 Agent 配置已保存')));
+                }
+              },
+              icon: const Icon(Icons.save_outlined, size: 17),
+              label: const Text('保存手机引擎配置'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _githubSettings(ThemeData theme) {
+    final config = ref.watch(mobileConfigProvider);
+    final connected = config.githubLogin.isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _authenticateGithub,
+                  icon: Icon(
+                      connected
+                          ? Icons.verified_outlined
+                          : Icons.login_outlined,
+                      size: 17),
+                  label: Text(
+                      connected ? '已连接 @${config.githubLogin}' : '连接 Github'),
+                ),
+              ),
+              if (connected) ...[
+                const SizedBox(width: 8),
+                IconButton(
+                  tooltip: '断开 Github',
+                  onPressed: () =>
+                      ref.read(mobileConfigProvider.notifier).clearGithub(),
+                  icon: const Icon(Icons.link_off_outlined),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: TextButton.icon(
+              onPressed: connected ? _cloneGithubRepository : null,
+              icon: const Icon(Icons.download_outlined, size: 17),
+              label: const Text('手动 Clone 仓库到本地'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _authenticateGithub() async {
+    try {
+      final auth = await authenticateGithubInBrowser(context);
+      if (auth == null || !mounted) return;
+      await ref
+          .read(mobileConfigProvider.notifier)
+          .saveGithub(token: auth.token, login: auth.login);
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Github 已连接：@${auth.login}')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(error.toString().replaceFirst('Bad state: ', ''))));
+      }
+    }
+  }
+
+  Future<void> _cloneGithubRepository() async {
+    final token = ref.read(mobileConfigProvider).githubToken;
+    final service = GithubService(token: token);
+    try {
+      final repos = await service.listRepositories();
+      if (!mounted) return;
+      final repo = await showModalBottomSheet<GithubRepository>(
+        context: context,
+        builder: (sheetContext) => ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Text('选择要 Clone 的仓库',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+            ...repos.map((item) => ListTile(
+                  title: Text(item.fullName),
+                  subtitle: Text('默认分支：${item.defaultBranch}'),
+                  onTap: () => Navigator.pop(sheetContext, item),
+                )),
+          ],
+        ),
+      );
+      if (repo == null || !mounted) return;
+      final branches = await service.listBranches(repo.fullName);
+      if (!mounted) return;
+      final branch = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => SimpleDialog(
+          title: const Text('选择分支'),
+          children: branches
+              .map((item) => SimpleDialogOption(
+                    onPressed: () => Navigator.pop(dialogContext, item),
+                    child: Text(item),
+                  ))
+              .toList(),
+        ),
+      );
+      if (branch == null || !mounted) return;
+      final target = await FilePicker.platform
+          .getDirectoryPath(dialogTitle: '选择 Clone 目标目录');
+      if (target == null || !mounted) return;
+      await service.cloneRepository(
+          repository: repo.fullName, branch: branch, targetDirectory: target);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${repo.fullName} 已下载到 $target')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      service.dispose();
+    }
+  }
+
+  Widget _buildModelField() {
+    return TextField(
+      controller: _modelController,
+      style: const TextStyle(fontSize: 14),
+      decoration: InputDecoration(
+        labelText: '模型',
+        hintText: _availableModels.isEmpty
+            ? 'gpt-4o-mini（点右侧刷新拉取列表）'
+            : '从下拉选择或手动输入',
+        suffixIcon: _availableModels.isEmpty
+            ? null
+            : PopupMenuButton<String>(
+                icon: const Icon(Icons.arrow_drop_down, size: 20),
+                tooltip: '选择模型',
+                constraints: const BoxConstraints(maxHeight: 320),
+                itemBuilder: (_) => _availableModels
+                    .map((m) => PopupMenuItem<String>(
+                          value: m,
+                          child: Text(
+                            m,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ))
+                    .toList(),
+                onSelected: (value) {
+                  _modelController.text = value;
+                  _modelController.selection = TextSelection.fromPosition(
+                      TextPosition(offset: value.length));
+                },
+              ),
       ),
     );
   }
@@ -161,7 +529,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             const SizedBox(height: 12),
             TextField(
               controller: _urlController,
-              style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 14),
+              style:
+                  TextStyle(color: theme.colorScheme.onSurface, fontSize: 14),
               decoration: InputDecoration(
                 hintText: 'ws://host:port',
                 hintStyle: TextStyle(
@@ -195,7 +564,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           child: FilledButton(
             onPressed: () {
               if (_urlController.text.isNotEmpty) {
-                ref.read(connectionProvider.notifier).connect(_urlController.text);
+                ref
+                    .read(connectionProvider.notifier)
+                    .connect(_urlController.text);
               }
             },
             style: FilledButton.styleFrom(
@@ -205,7 +576,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 borderRadius: BorderRadius.circular(8),
               ),
             ),
-            child: const Text('连接', style: TextStyle(fontWeight: FontWeight.w600)),
+            child:
+                const Text('连接', style: TextStyle(fontWeight: FontWeight.w600)),
           ),
         ),
       );
@@ -224,7 +596,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               borderRadius: BorderRadius.circular(8),
             ),
           ),
-          child: const Text('断开连接', style: TextStyle(fontWeight: FontWeight.w600)),
+          child:
+              const Text('断开连接', style: TextStyle(fontWeight: FontWeight.w600)),
         ),
       ),
     );
@@ -234,8 +607,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final themes = [
       (AppTheme.light, '浅色', const Color(0xfff8f9fb), const Color(0xff0d9488)),
       (AppTheme.dark, '深色', const Color(0xff0d0d0d), const Color(0xff3b82f6)),
-      (AppTheme.anthropic, 'Anthropic', const Color(0xfffaf9f5), const Color(0xffcc785c)),
-      (AppTheme.anthropicDark, 'Anthropic 深色', const Color(0xff181715), const Color(0xffcc785c)),
+      (
+        AppTheme.anthropic,
+        'Anthropic',
+        const Color(0xfffaf9f5),
+        const Color(0xffcc785c)
+      ),
+      (
+        AppTheme.anthropicDark,
+        'Anthropic 深色',
+        const Color(0xff181715),
+        const Color(0xffcc785c)
+      ),
     ];
 
     return Padding(
@@ -259,13 +642,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         border: isSelected
                             ? Border.all(color: accentColor, width: 2)
                             : Border.all(
-                                color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+                                color: theme.colorScheme.onSurface
+                                    .withValues(alpha: 0.08),
                                 width: 1,
                               ),
                       ),
                       child: isSelected
                           ? Center(
-                              child: Icon(Icons.check, size: 18, color: accentColor),
+                              child: Icon(Icons.check,
+                                  size: 18, color: accentColor),
                             )
                           : null,
                     ),
@@ -276,8 +661,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         fontSize: 11,
                         color: isSelected
                             ? theme.colorScheme.onSurface
-                            : theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                        fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                            : theme.colorScheme.onSurface
+                                .withValues(alpha: 0.5),
+                        fontWeight:
+                            isSelected ? FontWeight.w600 : FontWeight.normal,
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -291,7 +678,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  Widget _navTile(String title, String value, ThemeData theme) {
+  Widget _navTile({
+    required String title,
+    required String value,
+    required ThemeData theme,
+    required VoidCallback onTap,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Container(
@@ -304,6 +696,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
         child: ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 0),
+          onTap: onTap,
           title: Text(
             title,
             style: TextStyle(fontSize: 14, color: theme.colorScheme.onSurface),
@@ -329,6 +722,256 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
       ),
     );
+  }
+
+  /// 默认 Agent 选择器：复用 chat_input 中的 Agent 列表
+  void _showAgentPicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        const agents = <(String, String, String, IconData, Color)>[
+          (
+            'code',
+            'Code Agent',
+            '代码编写与调试',
+            Icons.code_rounded,
+            Color(0xffcc785c)
+          ),
+          (
+            'architect',
+            'Architect Agent',
+            '架构设计与分析',
+            Icons.architecture_rounded,
+            Color(0xff5db8a6)
+          ),
+        ];
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Text(
+                '选择默认 Agent',
+                style: TextStyle(
+                  color: theme.colorScheme.onSurface,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 12),
+              for (final agent in agents)
+                () {
+                  final (id, name, desc, icon, color) = agent;
+                  final isSelected = _defaultAgentName == name;
+                  return ListTile(
+                    leading: Icon(icon, color: color),
+                    title: Text(name,
+                        style: TextStyle(color: theme.colorScheme.onSurface)),
+                    subtitle: Text(desc,
+                        style: TextStyle(
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.5))),
+                    trailing: isSelected
+                        ? Icon(Icons.check_circle_rounded,
+                            color: theme.colorScheme.primary, size: 20)
+                        : null,
+                    onTap: () async {
+                      await MobilePreferences.setDefaultAgent(id, name);
+                      // 同时同步到当前会话
+                      ref.read(chatProvider.notifier).setAgent(id, name);
+                      if (!sheetContext.mounted) return;
+                      setState(() => _defaultAgentName = name);
+                      Navigator.pop(sheetContext);
+                    },
+                  );
+                }(),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// 权限模式选择器：选中后同步到桌面端 engine
+  void _showPermissionModePicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Text(
+                '权限模式',
+                style: TextStyle(
+                  color: theme.colorScheme.onSurface,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '影响当前会话的工具调用权限（重启会话后生效）',
+                style: TextStyle(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 12),
+              for (final mode in _permissionModes)
+                () {
+                  final (id, name, desc) = mode;
+                  final isSelected = _permissionMode == id;
+                  return ListTile(
+                    title: Text(name,
+                        style: TextStyle(color: theme.colorScheme.onSurface)),
+                    subtitle: Text(desc,
+                        style: TextStyle(
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.5))),
+                    trailing: isSelected
+                        ? Icon(Icons.check_circle_rounded,
+                            color: theme.colorScheme.primary, size: 20)
+                        : null,
+                    onTap: () async {
+                      await MobilePreferences.setPermissionMode(id);
+                      // 同步到桌面端当前会话
+                      final chatState = ref.read(chatProvider);
+                      final sid = chatState.currentSessionId;
+                      if (sid != null) {
+                        ref
+                            .read(connectionProvider.notifier)
+                            .send(MobileRequest(
+                              type: RequestType.setPermissionMode,
+                              data: {'sessionId': sid, 'mode': id},
+                            ));
+                      }
+                      if (!sheetContext.mounted) return;
+                      setState(() => _permissionMode = id);
+                      Navigator.pop(sheetContext);
+                    },
+                  );
+                }(),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// 流式输出选择器：仅 UI 状态持久化（engine 默认流式）
+  void _showStreamingPicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        final options = <(bool, String, String)>[
+          (true, '开启', '流式显示 LLM 响应（推荐）'),
+          (false, '关闭', '等待完整响应后显示'),
+        ];
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Text(
+                '流式输出',
+                style: TextStyle(
+                  color: theme.colorScheme.onSurface,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 12),
+              for (final opt in options)
+                () {
+                  final (val, name, desc) = opt;
+                  final isSelected = _streamingEnabled == val;
+                  return ListTile(
+                    title: Text(name,
+                        style: TextStyle(color: theme.colorScheme.onSurface)),
+                    subtitle: Text(desc,
+                        style: TextStyle(
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.5))),
+                    trailing: isSelected
+                        ? Icon(Icons.check_circle_rounded,
+                            color: theme.colorScheme.primary, size: 20)
+                        : null,
+                    onTap: () async {
+                      await MobilePreferences.setStreamingEnabled(val);
+                      if (!sheetContext.mounted) return;
+                      setState(() => _streamingEnabled = val);
+                      Navigator.pop(sheetContext);
+                    },
+                  );
+                }(),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  String _permissionModeLabel(String mode) {
+    for (final (id, name, _) in _permissionModes) {
+      if (id == mode) return name;
+    }
+    return '默认';
   }
 
   Color _connectionColor(conn.ConnectionState state) {

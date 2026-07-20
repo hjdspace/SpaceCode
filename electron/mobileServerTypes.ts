@@ -4,7 +4,7 @@
 export interface MobileRequest {
   type: 'connect' | 'send_message' | 'abort' | 'allow_permission' | 'deny_permission'
       | 'submit_tool_answer' | 'list_sessions' | 'restore_session' | 'new_session'
-      | 'switch_session' | 'list_agents' | 'get_settings'
+      | 'switch_session' | 'list_agents' | 'get_settings' | 'set_permission_mode'
   id?: string
   data?: Record<string, unknown>
 }
@@ -14,6 +14,7 @@ export interface MobilePush {
   type: 'connected' | 'stream_event' | 'assistant' | 'tool_use' | 'tool_result'
       | 'permission_request' | 'result' | 'sessions_list' | 'agents_list'
       | 'settings_sync' | 'theme_sync' | 'theme_changed' | 'error' | 'pong'
+      | 'session_changed'
   data?: Record<string, unknown>
 }
 

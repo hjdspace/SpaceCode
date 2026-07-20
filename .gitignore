@@ -62,4 +62,7 @@ _temp/
 .zcode/
 .socverify/
 
+# Brainstorm visual companion sessions
+.superpowers/
+
 *.exe*

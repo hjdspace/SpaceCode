@@ -1,0 +1,1544 @@
+<!DOCTYPE html>
+<!--
+  SpaceCode 模型设置 - 重构方案 A：分步向导式 (Stepper Wizard)
+  设计思路：将冗长的单页表单拆解为 4 步向导，降低认知负担，新手友好
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SpaceCode 模型设置 — 方案 A：分步向导式</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #f8f9fb;
+      --bg-secondary: #f0f1f5;
+      --bg-tertiary: #e7e9ef;
+      --bg-elevated: #ffffff;
+      --surface-card: #ecedf2;
+      --surface-hover: #e4e6ec;
+      --text-primary: #18191f;
+      --text-secondary: #44475a;
+      --text-muted: #5c5f7a;
+      --text-disabled: #9da1b8;
+      --accent-primary: #0d9488;
+      --accent-primary-hover: #14b8a6;
+      --accent-primary-glow: rgba(13, 148, 136, 0.12);
+      --accent-secondary: #6366f1;
+      --border-subtle: rgba(24, 25, 31, 0.05);
+      --border-default: rgba(24, 25, 31, 0.09);
+      --border-strong: rgba(24, 25, 31, 0.15);
+      --success: #059669;
+      --success-glow: rgba(5, 150, 105, 0.15);
+      --warning: #d97706;
+      --warning-glow: rgba(217, 119, 6, 0.15);
+      --error: #dc2626;
+      --error-glow: rgba(220, 38, 38, 0.15);
+      --shadow-sm: 0 1px 2px rgba(24, 25, 31, 0.06);
+      --shadow-md: 0 4px 12px rgba(24, 25, 31, 0.08);
+      --shadow-lg: 0 8px 24px rgba(24, 25, 31, 0.11);
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --radius-xl: 16px;
+      --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body { height: 100%; }
+
+    body {
+      font-family: 'IBM Plex Sans', system-ui, sans-serif;
+      background:
+        radial-gradient(1200px 600px at 50% -10%, rgba(13, 148, 136, 0.06), transparent 60%),
+        radial-gradient(900px 500px at 100% 100%, rgba(99, 102, 241, 0.05), transparent 60%),
+        var(--bg-secondary);
+      color: var(--text-primary);
+      padding: 32px 24px;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      background: var(--bg-primary);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-lg);
+      border: 1px solid var(--border-subtle);
+      overflow: hidden;
+    }
+
+    /* ============ Header ============ */
+    .header {
+      padding: 28px 32px 22px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 24px;
+      border-bottom: 1px solid var(--border-subtle);
+      background: linear-gradient(180deg, var(--bg-elevated) 0%, var(--bg-primary) 100%);
+    }
+    .eyebrow {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--accent-primary);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .eyebrow::before {
+      content: '';
+      width: 14px;
+      height: 1.5px;
+      background: var(--accent-primary);
+      display: inline-block;
+      border-radius: 2px;
+    }
+    .header h1 {
+      font-family: 'Space Grotesk', system-ui, sans-serif;
+      font-size: 26px;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.015em;
+      line-height: 1.2;
+    }
+    .header .description {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 6px;
+      max-width: 520px;
+    }
+    .btn-primary {
+      background: var(--accent-primary);
+      color: #fff;
+      border: 1px solid var(--accent-primary);
+      padding: 9px 14px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+      box-shadow: var(--shadow-sm);
+      white-space: nowrap;
+    }
+    .btn-primary:hover {
+      background: var(--accent-primary-hover);
+      border-color: var(--accent-primary-hover);
+      box-shadow: 0 4px 14px rgba(13, 148, 136, 0.28);
+    }
+    .btn-primary:active { transform: translateY(1px); }
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .btn-primary svg { flex-shrink: 0; }
+
+    .btn-secondary {
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-default);
+      padding: 8px 13px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all var(--transition-fast);
+    }
+    .btn-secondary:hover {
+      background: var(--surface-hover);
+      border-color: var(--border-strong);
+      color: var(--text-primary);
+    }
+    .btn-secondary:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-secondary);
+      border: 1px solid var(--border-default);
+      padding: 0 12px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all var(--transition-fast);
+      height: 38px;
+    }
+    .btn-ghost:hover {
+      background: var(--surface-hover);
+      color: var(--text-primary);
+    }
+
+    /* ============ Profile Bar ============ */
+    .profile-bar {
+      display: flex;
+      gap: 8px;
+      padding: 14px 32px;
+      overflow-x: auto;
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-elevated);
+      scrollbar-width: thin;
+      scrollbar-color: var(--border-default) transparent;
+    }
+    .profile-bar::-webkit-scrollbar { height: 6px; }
+    .profile-bar::-webkit-scrollbar-track { background: transparent; }
+    .profile-bar::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 3px; }
+
+    .profile-chip {
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px 6px 6px;
+      border-radius: var(--radius-md);
+      background: var(--surface-card);
+      border: 1.5px solid transparent;
+      cursor: pointer;
+      transition: all var(--transition-fast);
+      font-size: 13px;
+      color: var(--text-secondary);
+      font-family: inherit;
+    }
+    .profile-chip:hover { background: var(--surface-hover); }
+    .profile-chip.active {
+      background: var(--bg-elevated);
+      border-color: var(--accent-primary);
+      color: var(--text-primary);
+      box-shadow: 0 0 0 3px var(--accent-primary-glow);
+    }
+    .chip-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .chip-icon svg { width: 14px; height: 14px; }
+    .chip-name { font-weight: 500; }
+    .chip-meta {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-muted);
+      padding-left: 8px;
+      border-left: 1px solid var(--border-default);
+      margin-left: 2px;
+    }
+    .profile-chip.active .chip-meta { color: var(--text-secondary); border-left-color: var(--border-strong); }
+    .chip-check {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent-primary);
+      color: #fff;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .chip-check svg { width: 10px; height: 10px; }
+    .profile-chip.active .chip-check { display: flex; }
+
+    /* Provider icon backgrounds */
+    .pi-anthropic { background: linear-gradient(135deg, #d97757 0%, #c4622f 100%); }
+    .pi-openai { background: linear-gradient(135deg, #2a2a2a 0%, #000 100%); }
+    .pi-gemini { background: linear-gradient(135deg, #4285f4 0%, #1a73e8 50%, #9b72cb 100%); }
+    .pi-claudeai { background: linear-gradient(135deg, #d97757 0%, #cc6b3a 100%); }
+    .pi-console { background: linear-gradient(135deg, #3a3f4f 0%, #1f2330 100%); }
+
+    /* ============ Wizard Layout ============ */
+    .wizard {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      min-height: 580px;
+    }
+
+    /* ============ Stepper ============ */
+    .stepper {
+      padding: 28px 16px 28px 32px;
+      background: var(--bg-elevated);
+      border-right: 1px solid var(--border-subtle);
+      position: relative;
+    }
+    .stepper-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 18px;
+      padding-left: 4px;
+    }
+    .step {
+      display: grid;
+      grid-template-columns: 32px 1fr;
+      gap: 12px;
+      position: relative;
+      padding-bottom: 22px;
+      cursor: pointer;
+    }
+    .step:last-child { padding-bottom: 0; }
+    .step::before {
+      content: '';
+      position: absolute;
+      left: 15px;
+      top: 34px;
+      bottom: -4px;
+      width: 2px;
+      background: var(--border-default);
+      z-index: 1;
+    }
+    .step:last-child::before { display: none; }
+    .step.completed::before { background: var(--accent-primary); }
+
+    .step-circle {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 600;
+      background: var(--bg-elevated);
+      color: var(--text-muted);
+      border: 1.5px solid var(--border-default);
+      position: relative;
+      z-index: 2;
+      transition: all var(--transition-fast);
+      font-family: 'Space Grotesk', system-ui, sans-serif;
+    }
+    .step.completed .step-circle {
+      background: var(--accent-primary);
+      color: #fff;
+      border-color: var(--accent-primary);
+    }
+    .step.current .step-circle {
+      background: var(--bg-elevated);
+      color: var(--accent-primary);
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 0 4px var(--accent-primary-glow);
+    }
+    .step-circle svg { width: 14px; height: 14px; }
+
+    .step-info { padding-top: 4px; min-width: 0; }
+    .step-name {
+      font-size: 13.5px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      transition: color var(--transition-fast);
+    }
+    .step.current .step-name {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+    .step.completed .step-name { color: var(--text-primary); }
+    .step-desc {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      margin-top: 2px;
+      line-height: 1.4;
+    }
+
+    /* Active step arrow indicator (points right toward content) */
+    .step.current .step-info {
+      position: relative;
+    }
+    .step.current .step-info::after {
+      content: '';
+      position: absolute;
+      right: -16px;
+      top: 10px;
+      width: 0;
+      height: 0;
+      border-top: 6px solid transparent;
+      border-bottom: 6px solid transparent;
+      border-left: 7px solid var(--accent-primary);
+      filter: drop-shadow(0 0 4px var(--accent-primary-glow));
+    }
+
+    /* ============ Content Area ============ */
+    .content {
+      padding: 28px 32px 24px;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-primary);
+      min-width: 0;
+    }
+    .step-content { display: none; flex: 1; flex-direction: column; }
+    .step-content.active { display: flex; animation: fadeIn 220ms ease-out; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .step-header { margin-bottom: 22px; }
+    .step-title {
+      font-family: 'Space Grotesk', system-ui, sans-serif;
+      font-size: 19px;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .step-title-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--accent-primary);
+      background: var(--accent-primary-glow);
+      padding: 3px 8px;
+      border-radius: var(--radius-sm);
+      letter-spacing: 0;
+    }
+    .step-subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .step-body { flex: 1; }
+
+    /* ============ Step 1: Provider Grid ============ */
+    .provider-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+    .provider-card {
+      position: relative;
+      background: var(--bg-elevated);
+      border: 1.5px solid var(--border-default);
+      border-radius: var(--radius-lg);
+      padding: 18px 14px 16px;
+      cursor: pointer;
+      transition: all var(--transition-fast);
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .provider-card:hover {
+      border-color: var(--border-strong);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-md);
+    }
+    .provider-card.selected {
+      border-color: var(--accent-primary);
+      background: linear-gradient(180deg, rgba(13, 148, 136, 0.04) 0%, var(--bg-elevated) 60%);
+      box-shadow: 0 0 0 3px var(--accent-primary-glow);
+    }
+    .provider-card .pc-check {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--accent-primary);
+      color: #fff;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .provider-card.selected .pc-check { display: flex; }
+    .provider-card .pc-check svg { width: 11px; height: 11px; }
+    .pc-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+    }
+    .pc-icon svg { width: 20px; height: 20px; }
+    .pc-name {
+      font-family: 'Space Grotesk', system-ui, sans-serif;
+      font-size: 14.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .pc-desc {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+
+    /* ============ Form Fields ============ */
+    .field { margin-bottom: 18px; }
+    .field-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-bottom: 7px;
+    }
+    .field-label-hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+    .input-row {
+      display: flex;
+      align-items: stretch;
+      gap: 8px;
+    }
+    .input-wrap {
+      position: relative;
+      flex: 1;
+      display: flex;
+      align-items: stretch;
+      background: var(--bg-elevated);
+      border: 1.5px solid var(--border-default);
+      border-radius: var(--radius-md);
+      transition: all var(--transition-fast);
+      overflow: hidden;
+    }
+    .input-wrap:focus-within {
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 0 3px var(--accent-primary-glow);
+    }
+    .input-prefix-icon {
+      width: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-secondary);
+      border-right: 1px solid var(--border-subtle);
+      flex-shrink: 0;
+    }
+    .input-prefix-icon .pc-icon {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+    }
+    .input-prefix-icon .pc-icon svg { width: 12px; height: 12px; }
+    .input-wrap input {
+      flex: 1;
+      border: none;
+      outline: none;
+      padding: 0 12px;
+      font-size: 13px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-primary);
+      background: transparent;
+      min-width: 0;
+    }
+    .input-wrap input::placeholder { color: var(--text-disabled); }
+    .input-suffix-btn {
+      background: transparent;
+      border: none;
+      border-left: 1px solid var(--border-subtle);
+      padding: 0 12px;
+      cursor: pointer;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all var(--transition-fast);
+    }
+    .input-suffix-btn:hover { color: var(--text-primary); background: var(--surface-hover); }
+
+    .preset-dropdown {
+      position: relative;
+    }
+    .preset-menu {
+      position: absolute;
+      top: calc(100% + 4px);
+      right: 0;
+      min-width: 220px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-lg);
+      padding: 5px;
+      z-index: 20;
+      display: none;
+    }
+    .preset-menu.open { display: block; animation: fadeIn 150ms ease-out; }
+    .preset-item {
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 12.5px;
+      color: var(--text-secondary);
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      transition: background var(--transition-fast);
+    }
+    .preset-item:hover { background: var(--surface-hover); color: var(--text-primary); }
+    .preset-item-url {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      color: var(--text-muted);
+    }
+
+    /* ============ Test Connection / Status Bar ============ */
+    .connection-block {
+      margin-top: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .test-btn-row { display: flex; align-items: center; gap: 10px; }
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      border-radius: var(--radius-md);
+      font-size: 12.5px;
+      font-weight: 500;
+      border: 1px solid transparent;
+      transition: all var(--transition-fast);
+      min-height: 36px;
+    }
+    .status-bar svg { flex-shrink: 0; }
+    .status-bar.success {
+      background: var(--success-glow);
+      border-color: rgba(5, 150, 105, 0.25);
+      color: var(--success);
+    }
+    .status-bar.testing {
+      background: var(--warning-glow);
+      border-color: rgba(217, 119, 6, 0.25);
+      color: var(--warning);
+    }
+    .status-bar.failed {
+      background: var(--error-glow);
+      border-color: rgba(220, 38, 38, 0.25);
+      color: var(--error);
+    }
+    .status-bar.idle {
+      background: var(--bg-secondary);
+      border-color: var(--border-default);
+      color: var(--text-muted);
+    }
+    .status-bar .status-meta {
+      margin-left: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      opacity: 0.85;
+    }
+    .spinner {
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+    .status-preview {
+      margin-top: 8px;
+      padding: 12px;
+      background: var(--bg-secondary);
+      border: 1px dashed var(--border-default);
+      border-radius: var(--radius-md);
+    }
+    .status-preview-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+    .status-preview .status-bar + .status-bar { margin-top: 6px; }
+    .status-preview .status-bar { min-height: 30px; padding: 7px 10px; font-size: 12px; }
+
+    /* ============ OAuth Card ============ */
+    .oauth-card {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 16px;
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, var(--bg-elevated) 100%);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-lg);
+    }
+    .oauth-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .oauth-icon svg { width: 20px; height: 20px; }
+    .oauth-info { flex: 1; min-width: 0; }
+    .oauth-title { font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
+    .oauth-desc { font-size: 12px; color: var(--text-muted); margin-top: 1px; }
+    .oauth-btn {
+      background: var(--accent-secondary);
+      color: #fff;
+      border: none;
+      padding: 8px 14px;
+      border-radius: var(--radius-md);
+      font-size: 12.5px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all var(--transition-fast);
+    }
+    .oauth-btn:hover { background: #5558e0; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
+    .oauth-logged-in {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--success);
+      font-size: 12.5px;
+      font-weight: 500;
+      padding: 7px 12px;
+      background: var(--success-glow);
+      border: 1px solid rgba(5, 150, 105, 0.25);
+      border-radius: var(--radius-md);
+    }
+
+    /* ============ Step 3: Model Selectors ============ */
+    .model-list { display: flex; flex-direction: column; gap: 10px; }
+    .model-row {
+      display: grid;
+      grid-template-columns: 110px 1fr auto;
+      align-items: center;
+      gap: 14px;
+      padding: 12px 14px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      transition: all var(--transition-fast);
+    }
+    .model-row:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
+    .model-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 9px;
+      border-radius: var(--radius-sm);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      border: 1px solid transparent;
+      width: fit-content;
+    }
+    .model-tag svg { width: 11px; height: 11px; }
+    .tag-fast { background: rgba(99, 102, 241, 0.1); color: var(--accent-secondary); border-color: rgba(99, 102, 241, 0.2); }
+    .tag-recommended { background: var(--success-glow); color: var(--success); border-color: rgba(5, 150, 105, 0.25); }
+    .tag-powerful { background: rgba(217, 119, 6, 0.12); color: var(--warning); border-color: rgba(217, 119, 6, 0.25); }
+
+    .model-label-block { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .model-label-name {
+      font-family: 'Space Grotesk', system-ui, sans-serif;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .model-label-desc { font-size: 11.5px; color: var(--text-muted); }
+
+    .model-select {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: 7px 10px 7px 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12.5px;
+      color: var(--text-primary);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+      min-width: 220px;
+      justify-content: space-between;
+    }
+    .model-select:hover { border-color: var(--accent-primary); background: var(--bg-elevated); }
+    .model-select svg { color: var(--text-muted); }
+
+    .model-action-row {
+      display: flex;
+      justify-content: flex-start;
+      margin-top: 16px;
+    }
+
+    /* ============ Step 4: Context Window ============ */
+    .context-list { display: flex; flex-direction: column; gap: 8px; }
+    .context-row {
+      display: grid;
+      grid-template-columns: 110px 1fr auto;
+      align-items: center;
+      gap: 14px;
+      padding: 10px 14px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      transition: all var(--transition-fast);
+    }
+    .context-row:hover { background: var(--surface-hover); }
+    .context-model-name {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12.5px;
+      color: var(--text-primary);
+    }
+
+    .context-preview {
+      margin-top: 22px;
+      padding: 16px 18px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-lg);
+    }
+    .preview-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 12px;
+    }
+    .preview-title {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .preview-subtitle {
+      font-size: 11.5px;
+      color: var(--text-muted);
+    }
+    .progress-bar {
+      height: 8px;
+      background: var(--bg-tertiary);
+      border-radius: 4px;
+      overflow: hidden;
+      position: relative;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent-primary) 0%, var(--accent-primary-hover) 100%);
+      border-radius: 4px;
+      transition: width 400ms cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 0 8px var(--accent-primary-glow);
+    }
+    .preview-stats {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      color: var(--text-muted);
+    }
+    .preview-stats .used { color: var(--accent-primary); font-weight: 500; }
+
+    /* ============ Actions Footer ============ */
+    .actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 20px;
+      margin-top: 20px;
+      border-top: 1px solid var(--border-subtle);
+    }
+    .actions-left, .actions-right { display: flex; gap: 8px; align-items: center; }
+    .step-progress-text {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+      margin-right: 8px;
+    }
+
+    /* Responsive */
+    @media (max-width: 820px) {
+      .wizard { grid-template-columns: 1fr; }
+      .stepper { border-right: none; border-bottom: 1px solid var(--border-subtle); padding: 20px 24px; }
+      .provider-grid { grid-template-columns: repeat(2, 1fr); }
+      .header { flex-direction: column; align-items: flex-start; }
+      .model-row, .context-row { grid-template-columns: 1fr; gap: 8px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- ============ Header ============ -->
+    <header class="header">
+      <div class="header-left">
+        <div class="eyebrow">设置</div>
+        <h1>模型设置</h1>
+        <p class="description">管理 AI 服务商凭证、模型选择与上下文窗口配置。分步向导式编辑，新手友好。</p>
+      </div>
+      <div class="header-right">
+        <button class="btn-primary" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          添加配置
+        </button>
+      </div>
+    </header>
+
+    <!-- ============ Profile Bar ============ -->
+    <div class="profile-bar" id="profileBar">
+      <button class="profile-chip active" data-profile="default">
+        <span class="chip-icon pi-anthropic">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M13.8 5H16L10 19H7.8L13.8 5Z"/></svg>
+        </span>
+        <span class="chip-name">默认</span>
+        <span class="chip-meta">claude-sonnet-4-6</span>
+        <span class="chip-check">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </span>
+      </button>
+      <button class="profile-chip" data-profile="work-gpt">
+        <span class="chip-icon pi-openai">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="8"/><path d="M8 12c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke-linecap="round"/></svg>
+        </span>
+        <span class="chip-name">工作-GPT</span>
+        <span class="chip-meta">gpt-4o</span>
+        <span class="chip-check">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </span>
+      </button>
+      <button class="profile-chip" data-profile="exp-gemini">
+        <span class="chip-icon pi-gemini">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L13.5 9.5L21 11L13.5 12.5L12 21L10.5 12.5L3 11L10.5 9.5L12 2Z"/></svg>
+        </span>
+        <span class="chip-name">实验-Gemini</span>
+        <span class="chip-meta">gemini-1.5-pro</span>
+        <span class="chip-check">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </span>
+      </button>
+      <button class="profile-chip" data-profile="claude-account">
+        <span class="chip-icon pi-claudeai">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        </span>
+        <span class="chip-name">Claude 账号</span>
+        <span class="chip-meta">claude-3-5-sonnet</span>
+        <span class="chip-check">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </span>
+      </button>
+      <button class="profile-chip" data-profile="console">
+        <span class="chip-icon pi-console">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        </span>
+        <span class="chip-name">Console</span>
+        <span class="chip-meta">claude-3-5-haiku</span>
+        <span class="chip-check">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </span>
+      </button>
+    </div>
+
+    <!-- ============ Wizard ============ -->
+    <div class="wizard">
+      <!-- Stepper -->
+      <aside class="stepper">
+        <div class="stepper-title">配置流程</div>
+
+        <div class="step completed" data-step="1">
+          <div class="step-circle">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </div>
+          <div class="step-info">
+            <div class="step-name">选择服务商</div>
+            <div class="step-desc">Anthropic / OpenAI / Gemini 等</div>
+          </div>
+        </div>
+
+        <div class="step current" data-step="2">
+          <div class="step-circle">2</div>
+          <div class="step-info">
+            <div class="step-name">配置凭证</div>
+            <div class="step-desc">API Key 或 OAuth 登录</div>
+          </div>
+        </div>
+
+        <div class="step" data-step="3">
+          <div class="step-circle">3</div>
+          <div class="step-info">
+            <div class="step-name">选择模型</div>
+            <div class="step-desc">为三种场景选择模型</div>
+          </div>
+        </div>
+
+        <div class="step" data-step="4">
+          <div class="step-circle">4</div>
+          <div class="step-info">
+            <div class="step-name">上下文窗口</div>
+            <div class="step-desc">配置 token 上限</div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Content -->
+      <main class="content">
+
+        <!-- ===== Step 1: 选择服务商 ===== -->
+        <section class="step-content" data-step-content="1">
+          <div class="step-header">
+            <div class="step-title">选择服务商 <span class="step-title-badge">Step 1 / 4</span></div>
+            <div class="step-subtitle">选择 AI 服务提供商，可随时切换</div>
+          </div>
+          <div class="step-body">
+            <div class="provider-grid" id="providerGrid">
+              <div class="provider-card selected" data-provider="anthropic">
+                <div class="pc-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+                <div class="pc-icon pi-anthropic">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M13.8 5H16L10 19H7.8L13.8 5ZM17.5 19L19.5 14L21.5 19H17.5Z"/></svg>
+                </div>
+                <div class="pc-name">Anthropic</div>
+                <div class="pc-desc">Claude API 官方接口，支持 Sonnet / Haiku / Opus 全系列</div>
+              </div>
+              <div class="provider-card" data-provider="openai">
+                <div class="pc-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+                <div class="pc-icon pi-openai">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="8"/><path d="M8 12c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke-linecap="round"/></svg>
+                </div>
+                <div class="pc-name">OpenAI</div>
+                <div class="pc-desc">GPT 系列模型，兼容标准 OpenAI API 协议</div>
+              </div>
+              <div class="provider-card" data-provider="gemini">
+                <div class="pc-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+                <div class="pc-icon pi-gemini">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L13.5 9.5L21 11L13.5 12.5L12 21L10.5 12.5L3 11L10.5 9.5L12 2Z"/></svg>
+                </div>
+                <div class="pc-name">Gemini</div>
+                <div class="pc-desc">Google AI Studio，支持 Gemini 1.5 / 2.0 系列</div>
+              </div>
+              <div class="provider-card" data-provider="claudeai">
+                <div class="pc-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+                <div class="pc-icon pi-claudeai">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                </div>
+                <div class="pc-name">Claude.ai</div>
+                <div class="pc-desc">使用 Claude 账号 OAuth 登录，无需 API Key</div>
+              </div>
+              <div class="provider-card" data-provider="console">
+                <div class="pc-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+                <div class="pc-icon pi-console">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                </div>
+                <div class="pc-name">Console</div>
+                <div class="pc-desc">Claude Console OAuth 接入，适合企业账号</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== Step 2: 配置凭证 ===== -->
+        <section class="step-content active" data-step-content="2">
+          <div class="step-header">
+            <div class="step-title">配置凭证 <span class="step-title-badge">Step 2 / 4</span></div>
+            <div class="step-subtitle">为 Anthropic 配置 API Key 与端点地址</div>
+          </div>
+          <div class="step-body">
+
+            <!-- Base URL -->
+            <div class="field">
+              <div class="field-label">
+                <span>Base URL</span>
+                <span class="field-label-hint">API 端点地址</span>
+              </div>
+              <div class="input-row">
+                <div class="input-wrap">
+                  <div class="input-prefix-icon">
+                    <div class="pc-icon pi-anthropic">
+                      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M13.8 5H16L10 19H7.8L13.8 5Z"/></svg>
+                    </div>
+                  </div>
+                  <input type="text" value="https://api.anthropic.com" spellcheck="false" />
+                </div>
+                <div class="preset-dropdown">
+                  <button class="btn-ghost" type="button" id="presetBtn">
+                    预设
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                  </button>
+                  <div class="preset-menu" id="presetMenu">
+                    <div class="preset-item">
+                      <span>Anthropic 官方</span>
+                      <span class="preset-item-url">https://api.anthropic.com</span>
+                    </div>
+                    <div class="preset-item">
+                      <span>国内镜像</span>
+                      <span class="preset-item-url">https://anthropic-proxy.example.cn</span>
+                    </div>
+                    <div class="preset-item">
+                      <span>自定义代理</span>
+                      <span class="preset-item-url">https://gateway.my-company.com/anthropic</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- API Key -->
+            <div class="field">
+              <div class="field-label">
+                <span>API Key</span>
+                <span class="field-label-hint">仅本地存储，不会上传服务器</span>
+              </div>
+              <div class="input-row">
+                <div class="input-wrap">
+                  <input type="password" id="apiKeyInput" value="sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" spellcheck="false" />
+                  <button class="input-suffix-btn" type="button" id="toggleKeyBtn" aria-label="切换 API Key 可见性">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" id="eyeIcon">
+                      <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path>
+                      <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Test connection -->
+            <div class="field">
+              <div class="field-label">
+                <span>连接测试</span>
+                <span class="field-label-hint">点击下方按钮验证凭证可用性</span>
+              </div>
+              <div class="connection-block">
+                <div class="test-btn-row">
+                  <button class="btn-primary" type="button" id="testConnBtn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                    </svg>
+                    <span id="testBtnText">测试连接</span>
+                  </button>
+                  <span style="font-size:11.5px;color:var(--text-muted);">点击按钮可循环演示三种状态</span>
+                </div>
+
+                <!-- Live status bar (reflects current state) -->
+                <div class="status-bar success" id="liveStatus">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                  </svg>
+                  <span>已连接 · Anthropic API 响应正常</span>
+                  <span class="status-meta">245ms</span>
+                </div>
+
+                <!-- Static state preview (shows all three states) -->
+                <div class="status-preview">
+                  <div class="status-preview-title">状态指示器样式预览</div>
+                  <div class="status-bar success">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                      <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                    </svg>
+                    <span>成功 · 连接已建立</span>
+                    <span class="status-meta">245ms</span>
+                  </div>
+                  <div class="status-bar testing">
+                    <svg class="spinner" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="12" y1="2" x2="12" y2="6"></line>
+                      <line x1="12" y1="18" x2="12" y2="22"></line>
+                      <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line>
+                      <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
+                      <line x1="2" y1="12" x2="6" y2="12"></line>
+                      <line x1="18" y1="12" x2="22" y2="12"></line>
+                      <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line>
+                      <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
+                    </svg>
+                    <span>测试中 · 正在验证凭证...</span>
+                  </div>
+                  <div class="status-bar failed">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <line x1="15" y1="9" x2="9" y2="15"></line>
+                      <line x1="9" y1="9" x2="15" y2="15"></line>
+                    </svg>
+                    <span>失败 · 401 Unauthorized</span>
+                    <span class="status-meta">API Key 无效</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- OAuth example card (shown only for OAuth providers; rendered here as reference) -->
+            <div class="field" id="oauthField" style="display:none;">
+              <div class="field-label">
+                <span>OAuth 授权（Claude.ai / Console 类型时显示）</span>
+              </div>
+              <div class="oauth-card">
+                <div class="oauth-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+                  </svg>
+                </div>
+                <div class="oauth-info">
+                  <div class="oauth-title">使用 Claude 账号登录</div>
+                  <div class="oauth-desc">浏览器中将打开授权页面，登录后自动返回</div>
+                </div>
+                <button class="oauth-btn" type="button">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+                    <polyline points="10 17 15 12 10 7"/>
+                    <line x1="15" y1="12" x2="3" y2="12"/>
+                  </svg>
+                  登录授权
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- ===== Step 3: 选择模型 ===== -->
+        <section class="step-content" data-step-content="3">
+          <div class="step-header">
+            <div class="step-title">选择模型 <span class="step-title-badge">Step 3 / 4</span></div>
+            <div class="step-subtitle">为三种使用场景分别指定模型</div>
+          </div>
+          <div class="step-body">
+            <div class="model-list">
+
+              <div class="model-row">
+                <span class="model-tag tag-fast">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                  快速
+                </span>
+                <div class="model-label-block">
+                  <span class="model-label-name">Haiku · 轻量任务</span>
+                  <span class="model-label-desc">代码补全、轻量问答、文件检索</span>
+                </div>
+                <div class="model-select">
+                  <span>claude-3-5-haiku-20241022</span>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </div>
+              </div>
+
+              <div class="model-row">
+                <span class="model-tag tag-recommended">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                  推荐
+                </span>
+                <div class="model-label-block">
+                  <span class="model-label-name">Sonnet · 日常主力</span>
+                  <span class="model-label-desc">编程、推理、多步任务的最佳平衡</span>
+                </div>
+                <div class="model-select">
+                  <span>claude-sonnet-4-6</span>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </div>
+              </div>
+
+              <div class="model-row">
+                <span class="model-tag tag-powerful">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                  强大
+                </span>
+                <div class="model-label-block">
+                  <span class="model-label-name">Opus · 复杂推理</span>
+                  <span class="model-label-desc">架构设计、复杂算法、深度分析</span>
+                </div>
+                <div class="model-select">
+                  <span>claude-opus-4-1</span>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </div>
+              </div>
+
+            </div>
+
+            <div class="model-action-row">
+              <button class="btn-secondary" type="button" id="refreshModelsBtn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 4 23 10 17 10"></polyline>
+                  <polyline points="1 20 1 14 7 14"></polyline>
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+                <span id="refreshModelsText">获取模型列表</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== Step 4: 上下文窗口 ===== -->
+        <section class="step-content" data-step-content="4">
+          <div class="step-header">
+            <div class="step-title">上下文窗口 <span class="step-title-badge">Step 4 / 4</span></div>
+            <div class="step-subtitle">为每个模型设定上下文 token 上限</div>
+          </div>
+          <div class="step-body">
+            <div class="context-list">
+
+              <div class="context-row">
+                <span class="model-tag tag-fast">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                  快速
+                </span>
+                <span class="context-model-name">claude-3-5-haiku</span>
+                <div class="model-select">
+                  <span>200K</span>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </div>
+              </div>
+
+              <div class="context-row">
+                <span class="model-tag tag-recommended">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                  推荐
+                </span>
+                <span class="context-model-name">claude-sonnet-4-6</span>
+                <div class="model-select">
+                  <span>200K</span>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </div>
+              </div>
+
+              <div class="context-row">
+                <span class="model-tag tag-powerful">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                  强大
+                </span>
+                <span class="context-model-name">claude-opus-4-1</span>
+                <div class="model-select">
+                  <span>200K</span>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </div>
+              </div>
+
+            </div>
+
+            <div class="context-preview">
+              <div class="preview-header">
+                <span class="preview-title">上下文占用预览</span>
+                <span class="preview-subtitle">基于 Sonnet · 200K 窗口</span>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-fill" style="width: 18%;"></div>
+              </div>
+              <div class="preview-stats">
+                <span><span class="used">36K</span> 已用 · 系统提示 8K + 对话 28K</span>
+                <span>剩余 164K / 200K tokens</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ Actions Footer ============ -->
+        <div class="actions">
+          <div class="actions-left">
+            <span class="step-progress-text" id="progressText">2 / 4</span>
+            <button class="btn-secondary" type="button" id="prevBtn">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+              上一步
+            </button>
+          </div>
+          <div class="actions-right">
+            <button class="btn-secondary" type="button" id="skipBtn">跳过</button>
+            <button class="btn-primary" type="button" id="nextBtn">
+              <span id="nextBtnText">下一步</span>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </button>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <script>
+    // ============ Step Navigation ============
+    const totalSteps = 4;
+    let currentStep = 2; // 默认展示 Step 2
+
+    const stepEls = document.querySelectorAll('.step[data-step]');
+    const contentEls = document.querySelectorAll('.step-content[data-step-content]');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const nextBtnText = document.getElementById('nextBtnText');
+    const skipBtn = document.getElementById('skipBtn');
+    const progressText = document.getElementById('progressText');
+
+    function renderStepper() {
+      stepEls.forEach(el => {
+        const n = parseInt(el.dataset.step, 10);
+        el.classList.remove('completed', 'current');
+        const circle = el.querySelector('.step-circle');
+        if (n < currentStep) {
+          el.classList.add('completed');
+          circle.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+        } else if (n === currentStep) {
+          el.classList.add('current');
+          circle.textContent = String(n);
+        } else {
+          circle.textContent = String(n);
+        }
+      });
+    }
+
+    function renderContent() {
+      contentEls.forEach(el => {
+        const n = parseInt(el.dataset.stepContent, 10);
+        el.classList.toggle('active', n === currentStep);
+      });
+      progressText.textContent = currentStep + ' / ' + totalSteps;
+      prevBtn.disabled = currentStep === 1;
+      if (currentStep === totalSteps) {
+        nextBtnText.textContent = '完成';
+        skipBtn.style.display = 'none';
+      } else {
+        nextBtnText.textContent = '下一步';
+        skipBtn.style.display = '';
+      }
+    }
+
+    function goTo(n) {
+      currentStep = Math.max(1, Math.min(totalSteps, n));
+      renderStepper();
+      renderContent();
+    }
+
+    stepEls.forEach(el => {
+      el.addEventListener('click', () => goTo(parseInt(el.dataset.step, 10)));
+    });
+    prevBtn.addEventListener('click', () => goTo(currentStep - 1));
+    nextBtn.addEventListener('click', () => {
+      if (currentStep === totalSteps) {
+        nextBtnText.textContent = '已保存';
+        nextBtn.disabled = true;
+        setTimeout(() => {
+          nextBtn.disabled = false;
+          nextBtnText.textContent = '完成';
+        }, 1500);
+      } else {
+        goTo(currentStep + 1);
+      }
+    });
+
+    renderStepper();
+    renderContent();
+
+    // ============ Profile Chip Switching ============
+    const chips = document.querySelectorAll('.profile-chip');
+    chips.forEach(chip => {
+      chip.addEventListener('click', () => {
+        chips.forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+      });
+    });
+
+    // ============ Provider Card Selection (Step 1) ============
+    const providerCards = document.querySelectorAll('.provider-card');
+    providerCards.forEach(card => {
+      card.addEventListener('click', () => {
+        providerCards.forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+      });
+    });
+
+    // ============ API Key visibility toggle ============
+    const apiKeyInput = document.getElementById('apiKeyInput');
+    const toggleKeyBtn = document.getElementById('toggleKeyBtn');
+    const eyeIcon = document.getElementById('eyeIcon');
+    toggleKeyBtn.addEventListener('click', () => {
+      if (apiKeyInput.type === 'password') {
+        apiKeyInput.type = 'text';
+        eyeIcon.outerHTML = '<svg id="eyeIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"></path><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"></path><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"></path><line x1="2" y1="2" x2="22" y2="22"></line></svg>';
+      } else {
+        apiKeyInput.type = 'password';
+        eyeIcon.outerHTML = '<svg id="eyeIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+      }
+    });
+
+    // ============ Preset dropdown ============
+    const presetBtn = document.getElementById('presetBtn');
+    const presetMenu = document.getElementById('presetMenu');
+    presetBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      presetMenu.classList.toggle('open');
+    });
+    document.addEventListener('click', () => presetMenu.classList.remove('open'));
+    presetMenu.querySelectorAll('.preset-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const url = item.querySelector('.preset-item-url').textContent;
+        const input = document.querySelector('.input-wrap input');
+        if (input) input.value = url;
+        presetMenu.classList.remove('open');
+      });
+    });
+
+    // ============ Test Connection — cycle through 3 states ============
+    const testConnBtn = document.getElementById('testConnBtn');
+    const testBtnText = document.getElementById('testBtnText');
+    const liveStatus = document.getElementById('liveStatus');
+    let testCycle = 0; // 0=success, 1=testing→failed, 2=testing→success ...
+
+    const spinnerSVG = '<svg class="spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>';
+    const successSVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>';
+    const errorSVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>';
+
+    function setStatus(kind, label, meta) {
+      liveStatus.className = 'status-bar ' + kind;
+      let icon = successSVG;
+      if (kind === 'testing') icon = spinnerSVG;
+      if (kind === 'failed') icon = errorSVG;
+      let html = icon + '<span>' + label + '</span>';
+      if (meta) html += '<span class="status-meta">' + meta + '</span>';
+      liveStatus.innerHTML = html;
+    }
+
+    testConnBtn.addEventListener('click', () => {
+      if (testConnBtn.disabled) return;
+      testConnBtn.disabled = true;
+      testBtnText.textContent = '测试中...';
+      setStatus('testing', '正在测试连接...', '');
+      const willSucceed = (testCycle % 2 === 0);
+      testCycle++;
+      setTimeout(() => {
+        testConnBtn.disabled = false;
+        testBtnText.textContent = '测试连接';
+        if (willSucceed) {
+          const latency = 200 + Math.floor(Math.random() * 120);
+          setStatus('success', '已连接 · Anthropic API 响应正常', latency + 'ms');
+        } else {
+          setStatus('failed', '连接失败 · 401 Unauthorized', 'API Key 无效');
+        }
+      }, 1400);
+    });
+
+    // ============ Refresh Models button (Step 3) ============
+    const refreshBtn = document.getElementById('refreshModelsBtn');
+    const refreshText = document.getElementById('refreshModelsText');
+    refreshBtn.addEventListener('click', () => {
+      if (refreshBtn.disabled) return;
+      refreshBtn.disabled = true;
+      refreshText.textContent = '正在获取...';
+      setTimeout(() => {
+        refreshBtn.disabled = false;
+        refreshText.textContent = '获取模型列表';
+      }, 1200);
+    });
+  </script>
+</body>
+</html>

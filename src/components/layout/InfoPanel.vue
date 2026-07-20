@@ -16,6 +16,7 @@
         v-else-if="mode === 'markdown'"
         :content="appStore.currentFile?.content || ''"
         :file-name="appStore.currentFile?.name"
+        :file-path="appStore.currentFile?.path"
       />
       <ToolDiffViewer v-else-if="mode === 'tool-diff'" />
 

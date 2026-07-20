@@ -26,27 +26,20 @@ class MessageBubble extends ConsumerWidget {
           maxWidth: MediaQuery.of(context).size.width * 0.82,
         ),
         margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 12),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: isUser
-              ? const Color(0xffcc785c)
-              : const Color(0xff252320),
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(12),
-            topRight: const Radius.circular(12),
-            bottomLeft: isUser
-                ? const Radius.circular(12)
-                : const Radius.circular(4),
-            bottomRight: isUser
-                ? const Radius.circular(4)
-                : const Radius.circular(12),
-          ),
-          border: isUser
-              ? null
-              : Border.all(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
+        // LLM 答复不使用 bubble 外壳：避免黑底黑字可读性问题；
+        // 仅用户消息保留气泡以区分发送方。
+        padding: isUser ? const EdgeInsets.all(12) : EdgeInsets.zero,
+        decoration: isUser
+            ? const BoxDecoration(
+                color: Color(0xffcc785c),
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  topRight: Radius.circular(12),
+                  bottomLeft: Radius.circular(12),
+                  bottomRight: Radius.circular(4),
                 ),
-        ),
+              )
+            : const BoxDecoration(),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -74,7 +67,32 @@ class MessageBubble extends ConsumerWidget {
                       : MarkdownRenderer(
                           content: message.content,
                           isStreaming: message.isStreaming,
-                        ),
+                        )
+            else if (!isUser && message.isStreaming)
+              // 助手消息正在流式输出但内容尚未到达：显示加载指示
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.5,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '正在思考...',
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
             if (message.toolCalls != null && message.toolCalls!.isNotEmpty)
               ...message.toolCalls!.map(
                 (tc) => ToolCallCard(toolCall: tc),

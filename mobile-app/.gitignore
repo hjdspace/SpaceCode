@@ -43,3 +43,20 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Android build directories (Gradle intermediate outputs)
+/android/build/
+/android/app/build/
+/android/.gradle/
+/android/captures/
+/android/.cxx/
+
+# Android debug artifacts at project root
+/arm64_v8a_debug.jar
+/*.jar
+
+# Local configuration files (may contain sensitive info)
+*.env
+.env.local
+
+screenshots/
