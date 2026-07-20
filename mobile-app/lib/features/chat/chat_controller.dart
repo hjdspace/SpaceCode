@@ -479,6 +479,23 @@ class ChatNotifier extends StateNotifier<ChatState> {
         _setMessages(sessionId, messages);
       }
     } finally {
+      // 清理当前 turn 的 assembler，避免下次发消息复用旧的事件列表
+      // （否则旧 text/toolCall 事件会被带到新 turn，导致 UI 显示历史内容
+      //  且旧 toolCallId 在新 message.toolCalls 中找不到 → 显示 "unknown"）
+      final assembler = _assemblers.remove(sessionId);
+      if (assembler != null) {
+        assembler.completeTurn();
+        final messages =
+            List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
+        if (messages.isNotEmpty &&
+            messages.last.role == MessageRole.assistant &&
+            !messages.last.isStreaming) {
+          messages[messages.length - 1] = messages.last.copyWith(
+            timelineEvents: assembler.events,
+          );
+          _setMessages(sessionId, messages);
+        }
+      }
       if (identical(_localWorkflowTokens[sessionId], token)) {
         _localWorkflowTokens.remove(sessionId);
       }
