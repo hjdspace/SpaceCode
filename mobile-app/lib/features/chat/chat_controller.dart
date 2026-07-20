@@ -337,13 +337,15 @@ class ChatNotifier extends StateNotifier<ChatState> {
           final github = GithubService(token: config.githubToken);
           String cloneError = '';
           try {
-            await github.cloneRepository(
+            await for (final _ in github.cloneRepository(
               repository: workspace.repository!,
               branch: workspace.branch!,
               targetDirectory: checkoutPath,
               abortTrigger: token.whenCancelled,
               isCancelled: () => token.isCancelled,
-            );
+            )) {
+              // 中间进度忽略；任务 7 中接入 TimelineAssembler 时再处理
+            }
           } catch (error) {
             if (token.isCancelled) rethrow;
             cloneError = error.toString();

@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:http/http.dart' as http;
 
+import 'clone_progress.dart';
+
 class GithubRepository {
   final String fullName;
   final String name;
@@ -167,31 +169,94 @@ class GithubService {
         .toList();
   }
 
-  Future<void> cloneRepository({
+  /// 下载仓库 zipball 并解压到 [targetDirectory]，通过 Stream 推送进度。
+  ///
+  /// 进度阶段顺序：[ClonePhase.downloading] → [ClonePhase.extracting] →
+  /// [ClonePhase.done]。失败时推送 [ClonePhase.error] 后终止。
+  /// [abortTrigger] 用于异步中止 HTTP 请求；[isCancelled] 用于解压循环同步检查。
+  Stream<CloneProgress> cloneRepository({
     required String repository,
     required String branch,
     required String targetDirectory,
     Future<void>? abortTrigger,
     bool Function()? isCancelled,
-  }) async {
+  }) async* {
     _throwIfCancelled(isCancelled);
-    final response = await _send(
+    final request = http.AbortableRequest(
       'GET',
       Uri.parse('https://api.github.com/repos/$repository/zipball/$branch'),
-      headers: _headers,
       abortTrigger: abortTrigger,
-    );
-    _throwIfCancelled(isCancelled);
+    )..headers.addAll(_headers);
+    final response = await _client.send(request);
+
     if (response.statusCode != 200) {
-      throw StateError(_errorMessage(_decode(response), '仓库下载失败'));
+      final errorBody = await response.stream.bytesToString();
+      yield CloneProgress(
+        phase: ClonePhase.error,
+        receivedBytes: 0,
+        totalBytes: null,
+        processedFiles: 0,
+        errorMessage: _errorMessage(
+            _safeDecode(errorBody), '仓库下载失败 (HTTP ${response.statusCode})'),
+      );
+      return;
     }
-    final archive = ZipDecoder().decodeBytes(response.bodyBytes);
+
+    final totalBytes = int.tryParse(
+        response.headers['content-length'] ?? '');
+    final bytes = <int>[];
+    await for (final chunk in response.stream) {
+      if (isCancelled?.call() == true) {
+        yield CloneProgress(
+          phase: ClonePhase.error,
+          receivedBytes: bytes.length,
+          totalBytes: totalBytes,
+          processedFiles: 0,
+          errorMessage: '已取消',
+        );
+        return;
+      }
+      bytes.addAll(chunk);
+      yield CloneProgress(
+        phase: ClonePhase.downloading,
+        receivedBytes: bytes.length,
+        totalBytes: totalBytes,
+        processedFiles: 0,
+      );
+    }
+
+    if (isCancelled?.call() == true) {
+      yield CloneProgress(
+        phase: ClonePhase.error,
+        receivedBytes: bytes.length,
+        totalBytes: totalBytes,
+        processedFiles: 0,
+        errorMessage: '已取消',
+      );
+      return;
+    }
+
+    final archive = ZipDecoder().decodeBytes(bytes);
+    final totalFiles = archive.length;
     final root = Directory(targetDirectory);
     await root.create(recursive: true);
+    var processed = 0;
     for (final file in archive) {
-      _throwIfCancelled(isCancelled);
+      if (isCancelled?.call() == true) {
+        yield CloneProgress(
+          phase: ClonePhase.error,
+          receivedBytes: bytes.length,
+          totalBytes: totalBytes,
+          processedFiles: processed,
+          totalFiles: totalFiles,
+          errorMessage: '已取消',
+        );
+        return;
+      }
       final relative = file.name.split('/').skip(1).join('/');
-      if (relative.isEmpty) continue;
+      if (relative.isEmpty) {
+        continue;
+      }
       final output = File(
           '${root.path}${Platform.pathSeparator}${relative.replaceAll('/', Platform.pathSeparator)}');
       if (file.isFile) {
@@ -200,6 +265,33 @@ class GithubService {
       } else {
         await Directory(output.path).create(recursive: true);
       }
+      processed++;
+      if (processed % 5 == 0 || processed == totalFiles) {
+        yield CloneProgress(
+          phase: ClonePhase.extracting,
+          receivedBytes: bytes.length,
+          totalBytes: totalBytes,
+          processedFiles: processed,
+          totalFiles: totalFiles,
+        );
+      }
+    }
+
+    yield CloneProgress(
+      phase: ClonePhase.done,
+      receivedBytes: bytes.length,
+      totalBytes: totalBytes,
+      processedFiles: totalFiles,
+      totalFiles: totalFiles,
+      resultPath: targetDirectory,
+    );
+  }
+
+  dynamic _safeDecode(String body) {
+    try {
+      return jsonDecode(body);
+    } catch (_) {
+      return null;
     }
   }
 

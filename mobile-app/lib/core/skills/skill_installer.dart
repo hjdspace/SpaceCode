@@ -91,13 +91,15 @@ class SkillInstaller {
     final github = GithubService(token: githubToken, client: client);
     final cancellation = AgentCancellationToken();
     try {
-      await github.cloneRepository(
+      await for (final _ in github.cloneRepository(
         repository: '${parsed.owner}/${parsed.name}',
         branch: branch,
         targetDirectory: targetDir.path,
         abortTrigger: cancellation.whenCancelled,
         isCancelled: () => cancellation.isCancelled,
-      );
+      )) {
+        // 中间进度忽略；技能安装无需进度反馈
+      }
     } finally {
       github.dispose();
     }

@@ -478,8 +478,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final target = await FilePicker.platform
           .getDirectoryPath(dialogTitle: '选择 Clone 目标目录');
       if (target == null || !mounted) return;
-      await service.cloneRepository(
-          repository: repo.fullName, branch: branch, targetDirectory: target);
+      await for (final _ in service.cloneRepository(
+          repository: repo.fullName, branch: branch, targetDirectory: target)) {
+        // 中间进度忽略；任务 9 中接入 CloneNotifier 时再处理
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('${repo.fullName} 已下载到 $target')));
