@@ -5,8 +5,6 @@ import 'package:go_router/go_router.dart';
 import 'package:spacecode_mobile/core/i18n/strings.dart';
 import 'package:spacecode_mobile/core/skills/local_library_index.dart';
 import 'package:spacecode_mobile/core/skills/local_library_notifier.dart';
-import 'package:spacecode_mobile/core/skills/skill_registry.dart';
-import 'package:spacecode_mobile/core/skills/skill_types.dart';
 import 'package:spacecode_mobile/features/skills/local_library_screen.dart';
 
 void main() {

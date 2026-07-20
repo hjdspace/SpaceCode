@@ -47,7 +47,7 @@ void main() async {
 
     final content = await skillFile.readAsString();
     final frontmatter = parseFrontmatter(content);
-    final skillName = frontmatter['name'] as String?;
+    final skillName = frontmatter['name'];
     if (skillName == null || skillName.isEmpty) {
       stderr.writeln('Warning: $name/SKILL.md missing name field, skipping');
       noSkillSkipped++;
@@ -61,8 +61,8 @@ void main() async {
 
     entries.add({
       'name': skillName,
-      'description': frontmatter['description'] as String? ?? '',
-      'category': frontmatter['category'] as String? ?? 'other',
+      'description': frontmatter['description'] ?? '',
+      'category': frontmatter['category'] ?? 'other',
       'assetPath': 'assets/skills-lib/$skillName/SKILL.md',
     });
   }
