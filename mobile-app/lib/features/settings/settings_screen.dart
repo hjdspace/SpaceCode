@@ -1,10 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../core/agent/local_agent_service.dart';
 import '../../core/connection/connection_service.dart';
@@ -485,9 +486,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
       );
       if (branch == null || !mounted) return;
-      final target = await FilePicker.platform
-          .getDirectoryPath(dialogTitle: '选择 Clone 目标目录');
-      if (target == null || !mounted) return;
+      // 用 APP 专属目录避免 Android SAF content:// URI 无法写入的问题
+      // 路径：<app-documents>/repos/<repo-name>/
+      final docsDir = await getApplicationDocumentsDirectory();
+      final repoName = repo.fullName.split('/').last;
+      final target = '${docsDir.path}${Platform.pathSeparator}repos${Platform.pathSeparator}$repoName';
+      // 若已存在则先清空（重新 clone）
+      final existingDir = Directory(target);
+      if (await existingDir.exists()) {
+        await existingDir.delete(recursive: true);
+      }
 
       // 交给后台 CloneNotifier，立即返回（不阻塞 UI）
       try {
@@ -1195,8 +1203,8 @@ class _CloneTaskCard extends ConsumerWidget {
               ),
             ),
             TextButton(
-              onPressed: () => _launchFileManager(state.resultPath),
-              child: const Text('打开目录'),
+              onPressed: () => _copyPath(context, state.resultPath),
+              child: const Text('复制路径'),
             ),
             TextButton(
               onPressed: () => ref.read(cloneProvider.notifier).reset(),
@@ -1205,7 +1213,7 @@ class _CloneTaskCard extends ConsumerWidget {
           ],
         ),
         const SizedBox(height: 4),
-        Text(
+        SelectableText(
           '路径：${state.resultPath ?? ''}',
           style: TextStyle(
             fontSize: 12,
@@ -1259,13 +1267,16 @@ class _CloneTaskCard extends ConsumerWidget {
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
-  Future<void> _launchFileManager(String? path) async {
+  Future<void> _copyPath(BuildContext context, String? path) async {
     if (path == null) return;
-    // Android: 用 url_launcher 打开 content:// URI 不可靠，
-    // 改为提示用户复制路径
-    // 这里仅做最少实现：弹 SnackBar 提示路径已复制
-    // 完整方案需引入 flutter_file_manager 或 platform channel，超出本次范围
-    // ignore: unused_result
     await Clipboard.setData(ClipboardData(text: path));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('路径已复制：$path'),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
   }
 }
