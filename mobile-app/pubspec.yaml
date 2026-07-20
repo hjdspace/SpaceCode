@@ -42,5 +42,7 @@ flutter:
   assets:
     - assets/skills/code-review/SKILL.md
     - assets/skills/commit-message/SKILL.md
+    - assets/skills-lib/index.json
+    - assets/skills-lib/
     - lib/core/i18n/locales/zh.json
     - lib/core/i18n/locales/en.json
