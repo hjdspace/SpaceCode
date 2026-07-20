@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../core/agent/local_agent_service.dart';
@@ -486,25 +486,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
       );
       if (branch == null || !mounted) return;
-      // 让用户输入自定义子路径（相对 APP 外部存储目录）
-      // 用 getExternalStorageDirectory() 避免 SAF content:// URI 无法写入的问题
-      // 路径：<external-storage>/Android/data/<pkg>/files/<用户输入子路径>/
-      // 用户可在手机文件管理器中导航到该目录查看 clone 的项目
-      final extDir = await getExternalStorageDirectory();
-      if (extDir == null || !mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('无法访问外部存储目录')));
+      // 让用户选择系统目录（如 Download），解析 SAF URI 为真实路径
+      final pickedDir = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: '选择 Clone 目标目录',
+      );
+      if (pickedDir == null || !mounted) return;
+      // 解析 SAF content:// URI 为真实文件系统路径
+      // 例如 content://com.android.externalstorage.documents/tree/primary%3ADownload
+      // → /storage/emulated/0/Download
+      final basePath = _safUriToPath(pickedDir);
+      if (basePath == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('无法解析所选目录路径，请选择主存储下的目录（如 Download）')));
+        }
         return;
       }
+      // 目标路径：<用户选的目录>/<仓库名>/（如 Download/SpaceCode/）
       final repoName = repo.fullName.split('/').last;
-      final defaultSubPath = 'repos${Platform.pathSeparator}$repoName';
-      final subPath = await _showPathInputDialog(
-        defaultValue: defaultSubPath,
-        hint: '相对路径，如 repos/my-project',
-      );
-      if (subPath == null || !mounted) return;
-      final target =
-          '${extDir.path}${Platform.pathSeparator}${subPath.replaceAll('/', Platform.pathSeparator)}';
+      final target = '$basePath$Platform.pathSeparator$repoName';
       // 若已存在则先清空（重新 clone）
       final existingDir = Directory(target);
       if (await existingDir.exists()) {
@@ -534,47 +534,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  /// 弹出对话框让用户输入自定义子路径。
-  /// 返回 null 表示用户取消。
-  Future<String?> _showPathInputDialog({
-    required String defaultValue,
-    required String hint,
-  }) async {
-    final controller = TextEditingController(text: defaultValue);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('输入 Clone 子路径'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(hint, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-            const SizedBox(height: 8),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                labelText: '子路径',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, null),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
-            child: const Text('确定'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    return result;
+  /// 将 SAF content:// URI 解析为真实文件系统路径。
+  ///
+  /// 支持格式：
+  /// - content://com.android.externalstorage.documents/tree/primary%3ADownload
+  ///   → /storage/emulated/0/Download
+  /// - content://com.android.externalstorage.documents/tree/XXXX-XXXX%3ADownload
+  ///   → /storage/XXXX-XXXX/Download
+  /// - 已是真实路径（/storage/...）→ 原样返回
+  /// 无法识别返回 null。
+  String? _safUriToPath(String uri) {
+    // 已是真实路径
+    if (uri.startsWith('/')) return uri;
+
+    final decoded = Uri.decodeFull(uri);
+    final match = RegExp(r'tree/(.+)').firstMatch(decoded);
+    if (match == null) return null;
+    final treePath = match.group(1)!;
+
+    if (treePath.startsWith('primary:')) {
+      // 主存储：primary:Download → /storage/emulated/0/Download
+      final subPath = treePath.substring('primary:'.length);
+      return subPath.isEmpty
+          ? '/storage/emulated/0'
+          : '/storage/emulated/0/$subPath';
+    }
+
+    // SD 卡或其他存储：XXXX-XXXX:Download → /storage/XXXX-XXXX/Download
+    final colonIndex = treePath.indexOf(':');
+    if (colonIndex > 0) {
+      final storageId = treePath.substring(0, colonIndex);
+      final subPath = treePath.substring(colonIndex + 1);
+      return subPath.isEmpty
+          ? '/storage/$storageId'
+          : '/storage/$storageId/$subPath';
+    }
+    return null;
   }
 
   Widget _buildModelField() {
