@@ -5,6 +5,7 @@ import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../core/agent/local_agent_service.dart';
@@ -492,8 +493,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       );
       if (pickedDir == null || !mounted) return;
       // 解析 SAF content:// URI 为真实文件系统路径
-      // 例如 content://com.android.externalstorage.documents/tree/primary%3ADownload
-      // → /storage/emulated/0/Download
       final basePath = _safUriToPath(pickedDir);
       if (basePath == null) {
         if (mounted) {
@@ -502,11 +501,39 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         }
         return;
       }
-      // 目标路径：<用户选的目录>/<仓库名>/（如 Download/SpaceCode/）
       final repoName = repo.fullName.split('/').last;
-      final target = '$basePath$Platform.pathSeparator$repoName';
+      // 修复字符串插值：$basePath$Platform.pathSeparator$repoName 会被误解析
+      // 正确写法用 ${Platform.pathSeparator}
+      final target = '$basePath${Platform.pathSeparator}$repoName';
+      // 尝试创建目录，Android 11+ 可能 Permission denied
+      // 若失败则 fallback 到 APP 专属外部存储目录，保留用户选的目录名作为子目录
+      String actualTarget = target;
+      try {
+        await Directory(target).create(recursive: true);
+      } catch (_) {
+        // fallback：<externalStorage>/Android/data/<pkg>/files/<用户选的目录名>/<仓库名>/
+        final extDir = await getExternalStorageDirectory();
+        if (extDir == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('无法访问外部存储目录，clone 失败')));
+          }
+          return;
+        }
+        final selectedDirName = basePath.split(Platform.pathSeparator).last;
+        actualTarget =
+            '${extDir.path}${Platform.pathSeparator}$selectedDirName${Platform.pathSeparator}$repoName';
+        await Directory(actualTarget).create(recursive: true);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                '系统权限限制，已克隆到 APP 专属目录：$actualTarget'),
+            duration: const Duration(seconds: 6),
+          ));
+        }
+      }
       // 若已存在则先清空（重新 clone）
-      final existingDir = Directory(target);
+      final existingDir = Directory(actualTarget);
       if (await existingDir.exists()) {
         await existingDir.delete(recursive: true);
       }
@@ -516,7 +543,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         await ref.read(cloneProvider.notifier).startClone(
               repository: repo.fullName,
               branch: branch,
-              targetDirectory: target,
+              targetDirectory: actualTarget,
             );
       } on StateError catch (error) {
         if (mounted) {
