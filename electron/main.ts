@@ -1025,11 +1025,12 @@ function registerH5AccessIPCHandlers(): void {
     }
   })
 
-  // 开发模式检查 dist/h5 是否存在
+  // 检查 dist（H5 前端构建产物）是否存在。
+  // dist 在 asar 包内（package.json files 配置），与桌面窗口加载路径
+  // (main.ts: join(__dirname, '../dist/index.html')) 保持一致，
+  // 不能用 process.resourcesPath（指向 asar 包外，找不到 dist）。
   ipcMain.handle('h5:checkBuild', (): { built: boolean; path: string } => {
-    const distRoot = app.isPackaged
-      ? join(process.resourcesPath, 'dist')
-      : join(__dirname, '..', 'dist')
+    const distRoot = join(__dirname, '..', 'dist')
     const indexPath = join(distRoot, 'index.html')
     return { built: existsSync(indexPath), path: distRoot }
   })
