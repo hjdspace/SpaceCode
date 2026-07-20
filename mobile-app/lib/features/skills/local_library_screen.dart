@@ -154,10 +154,36 @@ class _LocalLibraryScreenState extends ConsumerState<LocalLibraryScreen> {
                   return LocalLibraryCard(
                     skill: skill,
                     installStatus: status,
-                    onInstall: () =>
-                        ref.read(localLibraryProvider.notifier).install(skill),
-                    onUninstall: () =>
-                        ref.read(localLibraryProvider.notifier).uninstall(skill.name),
+                    onInstall: () {
+                      () async {
+                        try {
+                          await ref
+                              .read(localLibraryProvider.notifier)
+                              .install(skill);
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('安装失败：$e')),
+                            );
+                          }
+                        }
+                      }();
+                    },
+                    onUninstall: () {
+                      () async {
+                        try {
+                          await ref
+                              .read(localLibraryProvider.notifier)
+                              .uninstall(skill.name);
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('卸载失败：$e')),
+                            );
+                          }
+                        }
+                      }();
+                    },
                     onTap: () => context.push('/skills/library/${skill.name}'),
                   );
                 },
