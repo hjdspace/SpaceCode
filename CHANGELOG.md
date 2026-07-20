@@ -1,3 +1,23 @@
+## [0.6.9](https://github.com/hjdspace/SpaceCode/compare/v0.6.8...v0.6.9) (2026-07-21)
+
+### Features
+
+* **mobile:** 新增本地技能库系统，SkillsScreen 改造为 TabBar 布局，支持浏览/搜索/分类筛选/详情页/一键安装到用户目录
+* **mobile:** 新增 Clone 进度反馈，cloneRepository 改造为 Stream<CloneProgress>，CloneNotifier 后台 StateNotifier 驱动设置页实时显示进度与完成状态
+* **mobile:** 新增 Agent Timeline 渲染，TimelineEvent/TimelineAssembler 装配器接入 ChatController 与 MessageBubble 双路径渲染
+* **mobile:** 硬编码 GitHub OAuth Client ID 作为 debug 构建默认值，便于开发调试
+* **macos:** 注册 package_info_plus 插件以支持桌面端版本号动态读取
+
+### Bug Fixes
+
+* **mobile:** 修复 clone 路径字符串插值 bug 与 Android 11+ 权限问题
+* **mobile:** clone 支持选择系统目录且按仓库名创建子目录，修复目录写入失败和打开目录无反应
+* **mobile:** clone 支持自定义路径且保留项目根目录，删除 Timeline 圆点装饰
+* **mobile:** 修复多轮对话 assembler 残留导致显示历史内容
+* **mobile:** 设置页版本号改为从 package_info_plus 动态读取，避免硬编码
+* **mobile:** 修复本地技能库分类筛选、asset 加载、安装反馈三个 bug
+* **MarkdownRenderer:** 修复本地图片解析和渲染时序问题
+
 ## [0.6.8](https://github.com/hjdspace/SpaceCode/compare/v0.6.7...v0.6.8) (2026-07-20)
 
 ### Features
