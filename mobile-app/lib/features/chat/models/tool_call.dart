@@ -7,7 +7,7 @@ class ToolCall {
   final String? output;
   final ToolCallStatus status;
 
-  ToolCall({
+  const ToolCall({
     required this.id,
     required this.toolName,
     required this.input,
