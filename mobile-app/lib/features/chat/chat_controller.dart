@@ -15,8 +15,10 @@ import '../../core/agent/local_agent_service.dart';
 import '../../core/agent/agent_types.dart';
 import '../../core/config/mobile_config.dart';
 import '../../core/github/github_service.dart';
+import '../../core/github/clone_progress.dart';
 import '../../core/skills/skill_registry.dart';
 import '../../core/workspace/workspace_target.dart';
+import 'timeline_assembler.dart';
 
 final chatProvider = StateNotifierProvider<ChatNotifier, ChatState>((ref) {
   return ChatNotifier(ref);
@@ -122,6 +124,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
   final _localAgent = LocalAgentService();
   final Map<String, WorkspaceTarget> _workspaceBySession = {};
   final Map<String, AgentCancellationToken> _localWorkflowTokens = {};
+  /// 每个 session 的当前 turn 装配器（生命周期 = 一次 assistant turn）。
+  final Map<String, TimelineAssembler> _assemblers = {};
   StreamSubscription? _subscription;
   // 防抖保存：连续追加流式 delta 时只在停顿 500ms 后写一次盘
   Timer? _persistTimer;
@@ -337,14 +341,17 @@ class ChatNotifier extends StateNotifier<ChatState> {
           final github = GithubService(token: config.githubToken);
           String cloneError = '';
           try {
-            await for (final _ in github.cloneRepository(
+            await for (final progress in github.cloneRepository(
               repository: workspace.repository!,
               branch: workspace.branch!,
               targetDirectory: checkoutPath,
               abortTrigger: token.whenCancelled,
               isCancelled: () => token.isCancelled,
             )) {
-              // 中间进度忽略；任务 7 中接入 TimelineAssembler 时再处理
+              if (progress.phase == ClonePhase.error) {
+                cloneError = progress.errorMessage ?? 'clone 失败';
+              }
+              // 中间进度不更新 UI；虚拟 ToolCallCard 已显示"运行中"
             }
           } catch (error) {
             if (token.isCancelled) rethrow;
@@ -520,12 +527,15 @@ class ChatNotifier extends StateNotifier<ChatState> {
         List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
     if (messages.isEmpty || messages.last.role != MessageRole.assistant) return;
     final assistant = messages.last;
+    final assembler =
+        _assemblers.putIfAbsent(sessionId, () => TimelineAssembler());
 
     if (event.type == AgentEventType.assistantDelta && event.delta != null) {
-      // 流式 delta：累积到最后一条 assistant 消息的 content 上
+      assembler.appendTextDelta(event.delta!);
       messages[messages.length - 1] = assistant.copyWith(
         content: assistant.content + event.delta!,
         isStreaming: true,
+        timelineEvents: assembler.events,
       );
       _setMessages(sessionId, messages);
       _schedulePersist();
@@ -540,23 +550,31 @@ class ChatNotifier extends StateNotifier<ChatState> {
     final calls = List<ToolCall>.from(assistant.toolCalls ?? const []);
     if (event.type == AgentEventType.toolExecutionStart &&
         event.toolCall != null) {
-      calls.add(ToolCall(
+      final newCall = ToolCall(
         id: event.toolCall!.id,
         toolName: event.toolCall!.name,
         input: jsonEncode(event.toolCall!.arguments),
-      ));
+      );
+      calls.add(newCall);
+      assembler.addToolCall(newCall);
     } else if (event.type == AgentEventType.toolExecutionEnd &&
         event.toolCall != null) {
       final index = calls.indexWhere((call) => call.id == event.toolCall!.id);
       if (index >= 0) {
+        final newStatus = event.isError
+            ? ToolCallStatus.error
+            : ToolCallStatus.completed;
         calls[index] = calls[index].copyWith(
           output: event.toolResult,
-          status:
-              event.isError ? ToolCallStatus.error : ToolCallStatus.completed,
+          status: newStatus,
         );
+        assembler.completeToolCall(event.toolCall!.id, newStatus);
       }
     }
-    messages[messages.length - 1] = assistant.copyWith(toolCalls: calls);
+    messages[messages.length - 1] = assistant.copyWith(
+      toolCalls: calls,
+      timelineEvents: assembler.events,
+    );
     _setMessages(sessionId, messages);
   }
 
@@ -626,24 +644,30 @@ class ChatNotifier extends StateNotifier<ChatState> {
     final messages =
         List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
 
-    // 若最后一条 assistant message 已完成（isStreaming=false，说明上一轮 assistant
-    // 事件已处理），创建新 message 容纳本轮流式输出。
     final bool needNewMessage = messages.isEmpty ||
         messages.last.role != MessageRole.assistant ||
         !messages.last.isStreaming;
 
+    ChatMessage msg;
+    TimelineAssembler assembler;
     if (needNewMessage) {
-      final newMsg = ChatMessage(
+      msg = ChatMessage(
         id: _uuid.v4(),
         role: MessageRole.assistant,
         content: delta,
         isStreaming: true,
       );
-      _setMessages(sessionId, [...messages, newMsg]);
+      assembler = _assemblers[sessionId] = TimelineAssembler();
+      assembler.appendTextDelta(delta);
+      msg = msg.copyWith(timelineEvents: assembler.events);
+      _setMessages(sessionId, [...messages, msg]);
     } else {
       final last = messages.last;
+      assembler = _assemblers.putIfAbsent(sessionId, () => TimelineAssembler());
+      assembler.appendTextDelta(delta);
       messages[messages.length - 1] = last.copyWith(
         content: last.content + delta,
+        timelineEvents: assembler.events,
       );
       _setMessages(sessionId, messages);
     }
@@ -724,13 +748,19 @@ class ChatNotifier extends StateNotifier<ChatState> {
     if (sessionId == null) return;
     final messages =
         List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
-    if (messages.isNotEmpty && messages.last.role == MessageRole.assistant) {
-      final last = messages.last;
-      final toolCalls = List<ToolCall>.from(last.toolCalls ?? [])
-        ..add(toolCall);
-      messages[messages.length - 1] = last.copyWith(toolCalls: toolCalls);
-      _setMessages(sessionId, messages);
+    if (messages.isEmpty || messages.last.role != MessageRole.assistant) {
+      return;
     }
+    final last = messages.last;
+    final toolCalls = List<ToolCall>.from(last.toolCalls ?? [])..add(toolCall);
+    final assembler =
+        _assemblers.putIfAbsent(sessionId, () => TimelineAssembler());
+    assembler.addToolCall(toolCall);
+    messages[messages.length - 1] = last.copyWith(
+      toolCalls: toolCalls,
+      timelineEvents: assembler.events,
+    );
+    _setMessages(sessionId, messages);
     _schedulePersist();
   }
 
@@ -738,19 +768,37 @@ class ChatNotifier extends StateNotifier<ChatState> {
     if (data == null) return;
     final toolUseId = data['toolUseId'] as String? ?? '';
     final output = data['output']?.toString() ?? '';
+    final isError = data['isError'] as bool? ?? false;
     final sessionId = _extractSessionId(data);
     if (sessionId == null) return;
     final messages =
         List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
     for (int i = messages.length - 1; i >= 0; i--) {
       final msg = messages[i];
-      if (msg.toolCalls != null) {
+      if (msg.toolCalls != null && msg.toolCalls!.any((tc) => tc.id == toolUseId)) {
         final toolCalls = msg.toolCalls!
             .map((tc) => tc.id == toolUseId
-                ? tc.copyWith(output: output, status: ToolCallStatus.completed)
+                ? tc.copyWith(
+                    output: output,
+                    status: isError
+                        ? ToolCallStatus.error
+                        : ToolCallStatus.completed)
                 : tc)
             .toList();
-        messages[i] = msg.copyWith(toolCalls: toolCalls);
+        final assembler = _assemblers[sessionId];
+        if (assembler != null) {
+          assembler.completeToolCall(
+              toolUseId,
+              isError
+                  ? ToolCallStatus.error
+                  : ToolCallStatus.completed);
+          messages[i] = msg.copyWith(
+            toolCalls: toolCalls,
+            timelineEvents: assembler.events,
+          );
+        } else {
+          messages[i] = msg.copyWith(toolCalls: toolCalls);
+        }
         break;
       }
     }
@@ -773,11 +821,16 @@ class ChatNotifier extends StateNotifier<ChatState> {
   void _handleResult(Map<String, dynamic>? data) {
     final sessionId = _extractSessionId(data);
     if (sessionId == null) return;
+    final assembler = _assemblers.remove(sessionId);
     final messages =
         List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
     if (messages.isNotEmpty && messages.last.isStreaming) {
-      messages[messages.length - 1] =
-          messages.last.copyWith(isStreaming: false);
+      final last = messages.last;
+      assembler?.completeTurn();
+      messages[messages.length - 1] = last.copyWith(
+        isStreaming: false,
+        timelineEvents: assembler != null ? assembler.events : last.timelineEvents,
+      );
       _setMessages(sessionId, messages);
     }
     _setLoading(sessionId, false);
