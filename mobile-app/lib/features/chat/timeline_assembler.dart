@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'models/timeline_event.dart';
 import 'models/tool_call.dart';
 

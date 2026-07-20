@@ -1222,8 +1222,8 @@ class _CloneTaskCard extends ConsumerWidget {
       children: [
         Row(
           children: [
-            Icon(Icons.error_rounded,
-                color: const Color(0xffc64545), size: 18),
+            const Icon(Icons.error_rounded,
+                color: Color(0xffc64545), size: 18),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
