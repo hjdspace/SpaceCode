@@ -15,6 +15,8 @@ import '../../core/theme/theme_service.dart';
 import '../../core/config/mobile_config.dart';
 import '../../core/github/github_service.dart';
 import '../../core/github/github_browser_auth.dart';
+import '../../core/github/clone_notifier.dart';
+import '../../core/github/clone_progress.dart';
 import '../../core/i18n/strings.dart';
 import '../chat/chat_controller.dart';
 
@@ -413,6 +415,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               label: const Text('手动 Clone 仓库到本地'),
             ),
           ),
+          // Clone 任务进度/完成/错误显示
+          Consumer(builder: (context, ref, _) {
+            final cloneState = ref.watch(cloneProvider);
+            if (cloneState.status == CloneStatus.idle) {
+              return const SizedBox.shrink();
+            }
+            return _CloneTaskCard(state: cloneState);
+          }),
         ],
       ),
     );
@@ -478,18 +488,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final target = await FilePicker.platform
           .getDirectoryPath(dialogTitle: '选择 Clone 目标目录');
       if (target == null || !mounted) return;
-      await for (final _ in service.cloneRepository(
-          repository: repo.fullName, branch: branch, targetDirectory: target)) {
-        // 中间进度忽略；任务 9 中接入 CloneNotifier 时再处理
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${repo.fullName} 已下载到 $target')));
+
+      // 交给后台 CloneNotifier，立即返回（不阻塞 UI）
+      try {
+        await ref.read(cloneProvider.notifier).startClone(
+              repository: repo.fullName,
+              branch: branch,
+              targetDirectory: target,
+            );
+      } on StateError catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(error.message)));
+        }
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(error.toString())));
       }
     } finally {
       service.dispose();
@@ -1063,5 +1079,193 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       case conn.ConnectionState.error:
         return '连接错误';
     }
+  }
+}
+
+class _CloneTaskCard extends ConsumerWidget {
+  final CloneState state;
+
+  const _CloneTaskCard({required this.state});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
+        ),
+      ),
+      child: _buildContent(context, ref, theme),
+    );
+  }
+
+  Widget _buildContent(BuildContext context, WidgetRef ref, ThemeData theme) {
+    switch (state.status) {
+      case CloneStatus.running:
+        return _buildRunning(context, ref, theme);
+      case CloneStatus.done:
+        return _buildDone(context, ref, theme);
+      case CloneStatus.error:
+        return _buildError(context, ref, theme);
+      case CloneStatus.idle:
+        return const SizedBox.shrink();
+    }
+  }
+
+  Widget _buildRunning(BuildContext context, WidgetRef ref, ThemeData theme) {
+    final progress = state.progress;
+    final phase = progress?.phase ?? ClonePhase.downloading;
+    final percent = phase == ClonePhase.extracting
+        ? progress?.extractPercent
+        : progress?.downloadPercent;
+    final label = phase == ClonePhase.extracting ? '解压中' : '下载中';
+    final detail = phase == ClonePhase.extracting
+        ? '文件 ${progress?.processedFiles ?? 0}/${progress?.totalFiles ?? '?'}'
+        : '${_formatBytes(progress?.receivedBytes ?? 0)}'
+            '/${progress?.totalBytes == null ? '?' : _formatBytes(progress!.totalBytes!)}';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '$label：${state.repositoryName ?? ''}',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => ref.read(cloneProvider.notifier).cancel(),
+              child: const Text('取消'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        LinearProgressIndicator(
+          value: percent,
+          backgroundColor: theme.colorScheme.surface,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          percent == null
+              ? '$label中… ($detail)'
+              : '$label ${(percent * 100).toStringAsFixed(0)}% ($detail)',
+          style: TextStyle(
+            fontSize: 12,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDone(BuildContext context, WidgetRef ref, ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.check_circle_rounded,
+                color: const Color(0xff5db872), size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '${state.repositoryName ?? ''} 已克隆',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => _launchFileManager(state.resultPath),
+              child: const Text('打开目录'),
+            ),
+            TextButton(
+              onPressed: () => ref.read(cloneProvider.notifier).reset(),
+              child: const Text('清除'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '路径：${state.resultPath ?? ''}',
+          style: TextStyle(
+            fontSize: 12,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildError(BuildContext context, WidgetRef ref, ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.error_rounded,
+                color: const Color(0xffc64545), size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '${state.repositoryName ?? ''} 克隆失败',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => ref.read(cloneProvider.notifier).reset(),
+              child: const Text('清除'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          state.errorMessage ?? '未知错误',
+          style: TextStyle(
+            fontSize: 12,
+            color: theme.colorScheme.error,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  Future<void> _launchFileManager(String? path) async {
+    if (path == null) return;
+    // Android: 用 url_launcher 打开 content:// URI 不可靠，
+    // 改为提示用户复制路径
+    // 这里仅做最少实现：弹 SnackBar 提示路径已复制
+    // 完整方案需引入 flutter_file_manager 或 platform channel，超出本次范围
+    // ignore: unused_result
+    await Clipboard.setData(ClipboardData(text: path));
   }
 }
