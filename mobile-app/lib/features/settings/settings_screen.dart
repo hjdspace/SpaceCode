@@ -486,11 +486,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
       );
       if (branch == null || !mounted) return;
-      // 用 APP 专属目录避免 Android SAF content:// URI 无法写入的问题
-      // 路径：<app-documents>/repos/<repo-name>/
-      final docsDir = await getApplicationDocumentsDirectory();
+      // 让用户输入自定义子路径（相对 APP 外部存储目录）
+      // 用 getExternalStorageDirectory() 避免 SAF content:// URI 无法写入的问题
+      // 路径：<external-storage>/Android/data/<pkg>/files/<用户输入子路径>/
+      // 用户可在手机文件管理器中导航到该目录查看 clone 的项目
+      final extDir = await getExternalStorageDirectory();
+      if (extDir == null || !mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('无法访问外部存储目录')));
+        return;
+      }
       final repoName = repo.fullName.split('/').last;
-      final target = '${docsDir.path}${Platform.pathSeparator}repos${Platform.pathSeparator}$repoName';
+      final defaultSubPath = 'repos${Platform.pathSeparator}$repoName';
+      final subPath = await _showPathInputDialog(
+        defaultValue: defaultSubPath,
+        hint: '相对路径，如 repos/my-project',
+      );
+      if (subPath == null || !mounted) return;
+      final target =
+          '${extDir.path}${Platform.pathSeparator}${subPath.replaceAll('/', Platform.pathSeparator)}';
       // 若已存在则先清空（重新 clone）
       final existingDir = Directory(target);
       if (await existingDir.exists()) {
@@ -518,6 +532,49 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     } finally {
       service.dispose();
     }
+  }
+
+  /// 弹出对话框让用户输入自定义子路径。
+  /// 返回 null 表示用户取消。
+  Future<String?> _showPathInputDialog({
+    required String defaultValue,
+    required String hint,
+  }) async {
+    final controller = TextEditingController(text: defaultValue);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('输入 Clone 子路径'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(hint, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: '子路径',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, null),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return result;
   }
 
   Widget _buildModelField() {

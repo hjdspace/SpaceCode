@@ -143,9 +143,6 @@ class MessageBubble extends ConsumerWidget {
         final isRunning = message.isStreaming &&
             event.status == TimelineEventStatus.running;
         return _TimelineEntry(
-          dotColor: _statusColor(event.status, theme),
-          showLine: !isLast,
-          lineColor: theme.colorScheme.onSurface.withValues(alpha: 0.15),
           child: isRunning
               ? StreamingText(text: event.content ?? '')
               : MarkdownRenderer(content: event.content ?? ''),
@@ -163,16 +160,10 @@ class MessageBubble extends ConsumerWidget {
           return const SizedBox.shrink();
         }
         return _TimelineEntry(
-          dotColor: _statusColor(event.status, theme),
-          showLine: !isLast,
-          lineColor: theme.colorScheme.onSurface.withValues(alpha: 0.15),
           child: ToolCallCard(toolCall: toolCall),
         );
       case TimelineEventType.reasoning:
         return _TimelineEntry(
-          dotColor: theme.colorScheme.onSurface.withValues(alpha: 0.4),
-          showLine: !isLast,
-          lineColor: theme.colorScheme.onSurface.withValues(alpha: 0.15),
           child: ThinkingBlock(
             content: event.content ?? '',
             isStreaming: message.isStreaming &&
@@ -184,71 +175,19 @@ class MessageBubble extends ConsumerWidget {
         return const SizedBox.shrink();
     }
   }
-
-  Color _statusColor(TimelineEventStatus status, ThemeData theme) {
-    switch (status) {
-      case TimelineEventStatus.running:
-      case TimelineEventStatus.pending:
-        return theme.colorScheme.primary;
-      case TimelineEventStatus.completed:
-        return theme.colorScheme.primary;
-      case TimelineEventStatus.error:
-        return theme.colorScheme.error;
-    }
-  }
 }
 
-/// Timeline 单条目：左侧圆点 + 竖线 + 右侧内容。
+/// Timeline 单条目：仅事件内容（无装饰）。
 class _TimelineEntry extends StatelessWidget {
-  final Color dotColor;
-  final bool showLine;
-  final Color lineColor;
   final Widget child;
 
-  const _TimelineEntry({
-    required this.dotColor,
-    required this.showLine,
-    required this.lineColor,
-    required this.child,
-  });
+  const _TimelineEntry({required this.child});
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // 左侧装饰列：圆点 + 竖线
-        SizedBox(
-          width: 24,
-          child: Column(
-            children: [
-              Container(
-                width: 12,
-                height: 12,
-                margin: const EdgeInsets.only(top: 4),
-                decoration: BoxDecoration(
-                  color: dotColor,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              if (showLine)
-                Container(
-                  width: 2,
-                  height: 28,
-                  color: lineColor,
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 8),
-        // 右侧内容
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: child,
-          ),
-        ),
-      ],
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: child,
     );
   }
 }

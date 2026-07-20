@@ -240,6 +240,10 @@ class GithubService {
     final totalFiles = archive.length;
     final root = Directory(targetDirectory);
     await root.create(recursive: true);
+
+    // GitHub zipball 根目录形如 `<owner>-<repo>-<short-sha>/`，
+    // 保留该根目录作为项目目录，避免文件散落在 targetDirectory 下。
+    // 输出结构：<targetDirectory>/<owner>-<repo>-<short-sha>/<files>
     var processed = 0;
     for (final file in archive) {
       if (isCancelled?.call() == true) {
@@ -253,7 +257,8 @@ class GithubService {
         );
         return;
       }
-      final relative = file.name.split('/').skip(1).join('/');
+      // 保留完整相对路径（含 GitHub 根目录前缀）
+      final relative = file.name;
       if (relative.isEmpty) {
         continue;
       }
@@ -277,13 +282,24 @@ class GithubService {
       }
     }
 
+    // 推断实际项目目录（GitHub zipball 根目录名）
+    String projectPath = targetDirectory;
+    if (archive.isNotEmpty) {
+      final firstSlash = archive.first.name.indexOf('/');
+      if (firstSlash > 0) {
+        final rootDirName = archive.first.name.substring(0, firstSlash);
+        projectPath =
+            '$targetDirectory${Platform.pathSeparator}$rootDirName';
+      }
+    }
+
     yield CloneProgress(
       phase: ClonePhase.done,
       receivedBytes: bytes.length,
       totalBytes: totalBytes,
       processedFiles: totalFiles,
       totalFiles: totalFiles,
-      resultPath: targetDirectory,
+      resultPath: projectPath,
     );
   }
 

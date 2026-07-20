@@ -48,7 +48,8 @@ void main() {
       expect(progresses.any((p) => p.phase == ClonePhase.downloading), isTrue);
       expect(progresses.any((p) => p.phase == ClonePhase.extracting), isTrue);
       expect(progresses.last.phase, ClonePhase.done);
-      expect(progresses.last.resultPath, targetDir);
+      // resultPath 应包含 GitHub zipball 根目录（测试 zip 第一段为 'repo'）
+      expect(progresses.last.resultPath, '$targetDir${Platform.pathSeparator}repo');
       // 第一个 downloading 进度应包含 totalBytes
       final firstDownload =
           progresses.firstWhere((p) => p.phase == ClonePhase.downloading);
