@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../../core/agent/local_agent_service.dart';
 import '../../core/connection/connection_service.dart';
 import '../../core/connection/connection_state.dart' as conn;
@@ -88,6 +89,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _defaultAgentName;
   String _permissionMode = 'default';
   bool _streamingEnabled = true;
+  String _version = '';
 
   @override
   void initState() {
@@ -100,6 +102,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final permMode = await MobilePreferences.getPermissionMode();
     final streaming = await MobilePreferences.getStreamingEnabled();
     final config = await ref.read(mobileConfigProvider.notifier).load();
+    final packageInfo = await PackageInfo.fromPlatform();
     if (!mounted) return;
     _apiKeyController.text = config.apiKey;
     _baseUrlController.text = config.baseUrl;
@@ -108,6 +111,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _defaultAgentName = agentName;
       _permissionMode = permMode;
       _streamingEnabled = streaming;
+      _version = 'v${packageInfo.version}';
     });
     // 若已配置 API Key 和 Base URL，自动拉取一次模型列表
     if (config.apiKey.isNotEmpty && config.baseUrl.isNotEmpty) {
@@ -289,7 +293,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'v0.1.0',
+                  _version.isEmpty ? '' : _version,
                   style: TextStyle(
                     fontSize: 12,
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
