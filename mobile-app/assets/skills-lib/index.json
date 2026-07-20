@@ -1,0 +1,474 @@
+{
+  "version": 1,
+  "generatedAt": "2026-07-20T14:42:56.523390Z",
+  "skills": [
+    {
+      "name": "algorithmic-art",
+      "description": "Creating algorithmic art using p5.js with seeded randomness and interactive parameter exploration. Use this when users request creating art using code, generative art, algorithmic art, flow fields, or particle systems. Create original algorithmic art rather than copying existing artists' work to avoid copyright violations.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/algorithmic-art/SKILL.md"
+    },
+    {
+      "name": "berkshire-bottleneck-hunter",
+      "description": "AI Berkshire skill: 供应链瓶颈猎手：AI驱动的全球产业链瓶颈套利. Source: berkshire-bottleneck-hunter.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-bottleneck-hunter/SKILL.md"
+    },
+    {
+      "name": "berkshire-deep-company-series",
+      "description": "AI Berkshire skill: 深度公司系列：8 篇长文拆一家公司. Source: berkshire-deep-company-series.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-deep-company-series/SKILL.md"
+    },
+    {
+      "name": "berkshire-dyp-ask",
+      "description": "AI Berkshire skill: 段永平问答：以他的方式思考. Source: berkshire-dyp-ask.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-dyp-ask/SKILL.md"
+    },
+    {
+      "name": "berkshire-earnings-review",
+      "description": "AI Berkshire skill: 财报精读：一手资料深度解读. Source: berkshire-earnings-review.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-earnings-review/SKILL.md"
+    },
+    {
+      "name": "berkshire-earnings-team",
+      "description": "AI Berkshire skill: 财报精读团队：四大师并行解读 + 公众号发布. Source: berkshire-earnings-team.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-earnings-team/SKILL.md"
+    },
+    {
+      "name": "berkshire-financial-data",
+      "description": "AI Berkshire skill: 财务数据获取与交叉验证规范. Source: berkshire-financial-data.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-financial-data/SKILL.md"
+    },
+    {
+      "name": "berkshire-industry-funnel",
+      "description": "AI Berkshire skill: 行业漏斗筛选：从全市场到 3 家的价值投资精选流程. Source: berkshire-industry-funnel.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-industry-funnel/SKILL.md"
+    },
+    {
+      "name": "berkshire-industry-research",
+      "description": "AI Berkshire skill: 行业投资研究：产业链全景扫描 + 四大师个股分析框架. Source: berkshire-industry-research.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-industry-research/SKILL.md"
+    },
+    {
+      "name": "berkshire-investment-checklist",
+      "description": "AI Berkshire skill: 巴菲特价值投资买入前 Checklist. Source: berkshire-investment-checklist.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-investment-checklist/SKILL.md"
+    },
+    {
+      "name": "berkshire-investment-memo-craft",
+      "description": "Codex-only writing and layout overlay for AI Berkshire investment research reports. Use whenever Codex creates, rewrites, revises, or critiques company/industry/fund research reports, especially long-form Markdown reports that need financial rigor, readable business mechanics, contrarian analysis, valuation-to-action guidance, investor-specific recommendations, restrained typography, and clear buy/hold/sell signals. Do not use this to modify Claude Code slash-command sources.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-investment-memo-craft/SKILL.md"
+    },
+    {
+      "name": "berkshire-investment-research",
+      "description": "AI Berkshire skill: 投资研究：巴菲特-芒格-段永平-李录 四大师综合分析框架. Source: berkshire-investment-research.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-investment-research/SKILL.md"
+    },
+    {
+      "name": "berkshire-investment-team",
+      "description": "AI Berkshire skill: 投研团队：四角色并行分析框架. Source: berkshire-investment-team.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-investment-team/SKILL.md"
+    },
+    {
+      "name": "berkshire-management-deep-dive",
+      "description": "AI Berkshire skill: 管理层纵深研究：买股票就是买人. Source: berkshire-management-deep-dive.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-management-deep-dive/SKILL.md"
+    },
+    {
+      "name": "berkshire-news-pulse",
+      "description": "公司新闻脉搏：股价异动时快速归因。用 4 个并行 Agent 侦察公司事件/监管政策/行业对手/市场情绪，产出\"事件时间线 + 异动主因判断 + 是否触发论文重审\"。",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-news-pulse/SKILL.md"
+    },
+    {
+      "name": "berkshire-portfolio-review",
+      "description": "AI Berkshire skill: 组合管理：从\\\"研究公司\\\"到\\\"管理组合\\\". Source: berkshire-portfolio-review.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-portfolio-review/SKILL.md"
+    },
+    {
+      "name": "berkshire-private-company-research",
+      "description": "AI Berkshire skill: 未上市公司研究：多Agent并行深度研究框架. Source: berkshire-private-company-research.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-private-company-research/SKILL.md"
+    },
+    {
+      "name": "berkshire-quality-screen",
+      "description": "AI Berkshire skill: 去劣筛选：7条指标快速排除非一流公司. Source: berkshire-quality-screen.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-quality-screen/SKILL.md"
+    },
+    {
+      "name": "berkshire-shared",
+      "description": "AI Berkshire 共享工具库：金融严谨性验证工具（financial_rigor.py）、A股数据获取（ashare_data.py）、雪球爬虫（xueqiu_scraper.py）、股票筛选器（stock_screener.py）、动量回测（momentum_backtest.py）、晨星公允价值（morningstar_fair_value.py）、报告审计（report_audit.py）等。所有 berkshire-* 技能依赖此共享工具。",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-shared/SKILL.md"
+    },
+    {
+      "name": "berkshire-thesis-drift",
+      "description": "AI Berkshire skill: 投资论文漂移检测：分清事实变化与措辞变化. Source: berkshire-thesis-drift.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-thesis-drift/SKILL.md"
+    },
+    {
+      "name": "berkshire-thesis-tracker",
+      "description": "AI Berkshire skill: 投资论文追踪：买入后的纪律系统. Source: berkshire-thesis-tracker.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-thesis-tracker/SKILL.md"
+    },
+    {
+      "name": "berkshire-wechat-article",
+      "description": "AI Berkshire skill: 微信公众号文章：作者-编辑-读者三Agent协作. Source: berkshire-wechat-article.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/berkshire-wechat-article/SKILL.md"
+    },
+    {
+      "name": "brand-guidelines",
+      "description": "Applies Anthropic's official brand colors and typography to any sort of artifact that may benefit from having Anthropic's look-and-feel. Use it when brand colors or style guidelines, visual formatting, or company design standards apply.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/brand-guidelines/SKILL.md"
+    },
+    {
+      "name": "canvas-design",
+      "description": "Create beautiful visual art in .png and .pdf documents using design philosophy. You should use this skill when the user asks to create a poster, piece of art, design, or other static piece. Create original visual designs, never copying existing artists' work to avoid copyright violations.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/canvas-design/SKILL.md"
+    },
+    {
+      "name": "claude-api",
+      "description": "Build, debug, and optimize Claude API / Anthropic SDK apps. Apps built with this skill should include prompt caching. Also handles migrating existing Claude API code between Claude model versions (4.5 → 4.6, 4.6 → 4.7, retired-model replacements). TRIGGER when: code imports `anthropic`/`@anthropic-ai/sdk`; user asks for the Claude API, Anthropic SDK, or Managed Agents; user adds/modifies/tunes a Claude feature (caching, thinking, compaction, tool use, batch, files, citations, memory) or model (Opus/Sonnet/Haiku) in a file; questions about prompt caching / cache hit rate in an Anthropic SDK project. SKIP: file imports `openai`/other-provider SDK, filename like `*-openai.py`/`*-generic.py`, provider-neutral code, general programming/ML.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/claude-api/SKILL.md"
+    },
+    {
+      "name": "code-review",
+      "description": "Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes — Standards (does the code follow this repo's documented coding standards?) and Spec (does the code match what the originating issue/PRD asked for?). Runs both reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \"review since X\".",
+      "category": "other",
+      "assetPath": "assets/skills-lib/code-review/SKILL.md"
+    },
+    {
+      "name": "codebase-design",
+      "description": "Shared vocabulary for designing deep modules. Use when the user wants to design or improve a module's interface, find deepening opportunities, decide where a seam goes, make code more testable or AI-navigable, or when another skill needs the deep-module vocabulary.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/codebase-design/SKILL.md"
+    },
+    {
+      "name": "diagnose",
+      "description": "Disciplined diagnosis loop for hard bugs and performance regressions. Reproduce → minimise → hypothesise → instrument → fix → regression-test. Use when user says \"diagnose this\" / \"debug this\", reports a bug, says something is broken/throwing/failing, or describes a performance regression.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/diagnose/SKILL.md"
+    },
+    {
+      "name": "diagnosing-bugs",
+      "description": "Diagnosis loop for hard bugs and performance regressions. Use when the user says \"diagnose\"/\"debug this\", or reports something broken/throwing/failing/slow.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/diagnosing-bugs/SKILL.md"
+    },
+    {
+      "name": "doc-coauthoring",
+      "description": "Guide users through a structured workflow for co-authoring documentation. Use when user wants to write documentation, proposals, technical specs, decision docs, or similar structured content. This workflow helps users efficiently transfer context, refine content through iteration, and verify the doc works for readers. Trigger when user mentions writing docs, creating proposals, drafting specs, or similar documentation tasks.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/doc-coauthoring/SKILL.md"
+    },
+    {
+      "name": "docx",
+      "description": "Use this skill whenever the user wants to create, read, edit, or manipulate Word documents (.docx files). Triggers include: any mention of 'Word doc', 'word document', '.docx', or requests to produce professional documents with formatting like tables of contents, headings, page numbers, or letterheads. Also use when extracting or reorganizing content from .docx files, inserting or replacing images in documents, performing find-and-replace in Word files, working with tracked changes or comments, or converting content into a polished Word document. If the user asks for a 'report', 'memo', 'letter', 'template', or similar deliverable as a Word or .docx file, use this skill. Do NOT use for PDFs, spreadsheets, Google Docs, or general coding tasks unrelated to document generation.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/docx/SKILL.md"
+    },
+    {
+      "name": "domain-modeling",
+      "description": "Build and sharpen a project's domain model. Use when the user wants to pin down domain terminology or a ubiquitous language, record an architectural decision, or when another skill needs to maintain the domain model.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/domain-modeling/SKILL.md"
+    },
+    {
+      "name": "frontend-code-review",
+      "description": "Use when 用户需要审查前端代码（React/Vue/Next.js/TypeScript/Tailwind等）、检查代码质量、性能问题、可维护性、安全漏洞、最佳实践落地时。触发场景：前端代码评审、前端代码优化、React/Vue代码检查、TypeScript代码审查、前端性能优化、前端安全审计、前端代码规范检查。",
+      "category": "other",
+      "assetPath": "assets/skills-lib/frontend-code-review/SKILL.md"
+    },
+    {
+      "name": "frontend-design",
+      "description": "Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/frontend-design/SKILL.md"
+    },
+    {
+      "name": "grill-me",
+      "description": "Interview the user relentlessly about a plan or design until reaching shared understanding, resolving each branch of the decision tree. Use when user wants to stress-test a plan, get grilled on their design, or mentions \"grill me\".",
+      "category": "other",
+      "assetPath": "assets/skills-lib/grill-me/SKILL.md"
+    },
+    {
+      "name": "grill-with-docs",
+      "description": "A relentless interview to sharpen a plan or design, which also creates docs (ADR's and glossary) as we go.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/grill-with-docs/SKILL.md"
+    },
+    {
+      "name": "guizang-ppt-skill",
+      "description": "生成横向翻页网页 PPT（单 HTML 文件），含 WebGL 背景、章节幕封、数据大字报、图片网格等模板。提供两种风格：① \"电子杂志 × 电子墨水\"（衬线 + 流体背景 + 暖色） ② \"瑞士国际主义\"（无衬线 + 网格点阵 + IKB/柠檬黄/柠檬绿/安全橙高亮）。当用户需要制作分享 / 演讲 / 发布会风格的网页 PPT，或提到\"杂志风 PPT\"、\"瑞士风 PPT\"、\"Swiss Style\"、\"horizontal swipe deck\"时使用。",
+      "category": "other",
+      "assetPath": "assets/skills-lib/guizang-ppt-skill/SKILL.md"
+    },
+    {
+      "name": "handoff",
+      "description": "Compact the current conversation into a handoff document for another agent to pick up.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/handoff/SKILL.md"
+    },
+    {
+      "name": "html-ppt",
+      "description": "HTML PPT Studio — author professional static HTML presentations in many styles, layouts, and animations, all driven by templates. Use when the user asks for a presentation, PPT, slides, keynote, deck, slideshow, \"幻灯片\", \"演讲稿\", \"做一份 PPT\", \"做一份 slides\", a reveal-style HTML deck, a 小红书 图文, or any kind of multi-slide pitch/report/sharing document that should look tasteful and be usable with keyboard navigation. Triggers include keywords like \"presentation\", \"ppt\", \"slides\", \"deck\", \"keynote\", \"reveal\", \"slideshow\", \"幻灯片\", \"演讲稿\", \"分享稿\", \"小红书图文\", \"talk slides\", \"pitch deck\", \"tech sharing\", \"technical presentation\".",
+      "category": "other",
+      "assetPath": "assets/skills-lib/html-ppt/SKILL.md"
+    },
+    {
+      "name": "html-slide-to-pptx",
+      "description": "Convert structured single-slide or small deck HTML files into editable PPTX slides with native text boxes, shapes, chips, arrows, and panels. Use when the user has an HTML slide/design draft and wants a high-fidelity editable PowerPoint instead of a screenshot-based export. Also use when the HTML does not fit an existing slide family and a new preset must be added before conversion. Especially useful for Gartner/analyst-style technical slides, architecture pages, AI runtime pages, and other fixed-layout HTML presentation pages.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/html-slide-to-pptx/SKILL.md"
+    },
+    {
+      "name": "huashu-design",
+      "description": "花叔Design——用HTML做高保真原型、交互Demo、幻灯片、动画、设计变体探索+设计方向顾问+专家评审。根据任务embody对应专家（UX/动画师/幻灯片设计师/原型师），避免web design tropes。触发词：做原型、设计Demo、交互原型、HTML演示、动画Demo、设计变体、hi-fi设计、UI mockup、prototype、设计探索、做个HTML页面、做个可视化、app原型、iOS原型、移动应用mockup、导出MP4、导出GIF、60fps视频、设计风格、设计方向、设计哲学、配色方案、视觉风格、推荐风格、选个风格、做个好看的、评审、好不好看、review this design、带解说的动画、解说视频、概念解释视频、长视频科普、配音动画、voiceover、narration、TTS+动画、5分钟讲清楚什么是XX。**主干能力**：Junior Designer工作流（先假设+reasoning+placeholder再迭代）、反AI slop清单、React+Babel最佳实践、Tweaks变体切换、Speaker Notes、Starter Components（幻灯片/变体/动画/设备边框/解说Stage）、App原型守则（Wikimedia/Met/Unsplash取真图+AppPhone可交互+Playwright点击测试）、HTML动画→MP4/GIF导出（25fps基础+60fps插帧+palette优化+场景化BGM+自动fade）、**带解说长动画pipeline**（豆包TTS+实测时长生timeline+NarrationStage+ducking混音；铁律：连续运动叙事，禁PowerPoint切换）。**需求模糊Fallback**：设计方向顾问——5流派×20哲学（Pentagram信息建筑/Field.io运动诗学/Kenya Hara东方极简/Sagmeister实验先锋等）推3方向+24预制showcase+并行3 Demo选。**可选**：5维度评审（哲学一致/视觉层级/细节/功能/创新各10分+修复清单）。",
+      "category": "other",
+      "assetPath": "assets/skills-lib/huashu-design/SKILL.md"
+    },
+    {
+      "name": "impeccable",
+      "description": "Use when the user wants to design, redesign, shape, critique, audit, polish, clarify, distill, harden, optimize, adapt, animate, colorize, extract, or otherwise improve a frontend interface. Covers websites, landing pages, dashboards, product UI, app shells, components, forms, settings, onboarding, and empty states. Handles UX review, visual hierarchy, information architecture, cognitive load, accessibility, performance, responsive behavior, theming, anti-patterns, typography, fonts, spacing, layout, alignment, color, motion, micro-interactions, UX copy, error states, edge cases, i18n, and reusable design systems or tokens. Also use for bland designs that need to become bolder or more delightful, loud designs that should become quieter, live browser iteration on UI elements, or ambitious visual effects that should feel technically extraordinary. Not for backend-only or non-UI tasks.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/impeccable/SKILL.md"
+    },
+    {
+      "name": "implement",
+      "description": "Implement a piece of work based on a PRD or set of issues.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/implement/SKILL.md"
+    },
+    {
+      "name": "improve-codebase-architecture",
+      "description": "Scan a codebase for deepening opportunities, present them as a visual HTML report, then grill through whichever one you pick.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/improve-codebase-architecture/SKILL.md"
+    },
+    {
+      "name": "internal-comms",
+      "description": "A set of resources to help me write all kinds of internal communications, using the formats that my company likes to use. Claude should use this skill whenever asked to write some sort of internal communications (status reports, leadership updates, 3P updates, company newsletters, FAQs, incident reports, project updates, etc.).",
+      "category": "other",
+      "assetPath": "assets/skills-lib/internal-comms/SKILL.md"
+    },
+    {
+      "name": "karpathy-guidelines",
+      "description": "Behavioral guidelines to reduce common LLM coding mistakes. Use when writing, reviewing, or refactoring code to avoid overcomplication, make surgical changes, surface assumptions, and define verifiable success criteria.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/karpathy-guidelines/SKILL.md"
+    },
+    {
+      "name": "mcp-builder",
+      "description": "Guide for creating high-quality MCP (Model Context Protocol) servers that enable LLMs to interact with external services through well-designed tools. Use when building MCP servers to integrate external APIs or services, whether in Python (FastMCP) or Node/TypeScript (MCP SDK).",
+      "category": "other",
+      "assetPath": "assets/skills-lib/mcp-builder/SKILL.md"
+    },
+    {
+      "name": "morph-ppt",
+      "description": "Use this skill when the user wants a .pptx with smooth cross-slide animation — PowerPoint Morph transitions, Keynote-style continuous motion, shapes that grow / move / rotate as the slide advances. Trigger on: 'morph', 'morph transition', 'smooth transition', 'continuous animation across slides', 'Keynote-style transition', 'animated slide sequence', 'shape continuity across slides'. Output is a single .pptx. This skill is a scene layer on top of officecli-pptx — inherits every pptx v2 rule (visual floor, grid, palettes, connector canon, Delivery Gate 1–5a). DO NOT invoke for a generic deck, pitch deck, or board review without cross-slide motion — route those to officecli-pptx base or officecli-pitch-deck.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/morph-ppt/SKILL.md"
+    },
+    {
+      "name": "morph-ppt-3d",
+      "description": "3D Morph PPT — extends morph-ppt with GLB model insertion, cinematographic camera, model-content layout, and enriched visual design system.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/morph-ppt-3d/SKILL.md"
+    },
+    {
+      "name": "officecli-academic-paper",
+      "description": "Use this skill to build academic-style .docx output: journal / conference / thesis chapters carrying formal citation style (APA, Chicago, IEEE, MLA), numbered equations, figure & table cross-references, footnotes/endnotes, bibliography, or multi-column journal layout. Trigger on: 'research paper', 'journal paper', 'conference paper', 'manuscript', 'thesis', 'APA', 'MLA', 'Chicago', 'IEEE two-column', 'bibliography', 'hanging indent', 'citation style', 'abstract + keywords', 'equation numbering', 'cross-reference', paper with footnotes/endnotes. Output is a single .docx.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/officecli-academic-paper/SKILL.md"
+    },
+    {
+      "name": "officecli-data-dashboard",
+      "description": "Use this skill to build a multi-element Excel dashboard — Dashboard sheet on open, multiple formula-driven KPI cards, multiple charts, sparklines, and conditional formatting — from CSV or tabular input. Trigger on: 'dashboard', 'KPI dashboard', 'analytics dashboard', 'executive dashboard', 'metrics dashboard', 'CSV to dashboard', 'data visualization'. Output is a single .xlsx. Scene-layer on officecli-xlsx: inherits every xlsx hard rule. DO NOT invoke for: a single budget tracker / one-sheet CSV-with-formatting (use xlsx), a 3-statement / DCF / LBO financial model (use financial-model), a weekly report with ≤ 1 chart and < 10 rows (use xlsx).",
+      "category": "other",
+      "assetPath": "assets/skills-lib/officecli-data-dashboard/SKILL.md"
+    },
+    {
+      "name": "officecli-docx",
+      "description": "Use this skill any time a .docx file is involved -- as input, output, or both. This includes: creating Word documents, reports, letters, memos, or proposals; reading, parsing, or extracting text from any .docx file; editing, modifying, or updating existing documents; working with templates, tracked changes, comments, headers/footers, or tables of contents. Trigger whenever the user mentions 'Word doc', 'document', 'report', 'letter', 'memo', or references a .docx filename.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/officecli-docx/SKILL.md"
+    },
+    {
+      "name": "officecli-financial-model",
+      "description": "Use this skill when the user wants to build a financial model — 3-statement model, DCF valuation, LBO, SaaS unit economics, sensitivity / scenario analysis, debt schedule, or fundraising projections — in Excel. Trigger on: 'financial model', '3-statement model', 'P&L + BS + CF', 'DCF', 'WACC', 'NPV', 'terminal value', 'LBO', 'debt schedule', 'cash sweep', 'MOIC', 'IRR / XIRR', 'sensitivity table', 'scenario analysis', 'ARR model', 'unit economics', 'CAC / LTV', 'cap table forecast'. Output is a single formula-driven .xlsx. This skill is a scene layer on top of officecli-xlsx — it inherits every xlsx v2 rule (4-color code, visual floor, number formats, cache-drift, Known Issues, Delivery Gate minimum cycle). DO NOT invoke for a simple budget tracker, CSV dump, or operational KPI sheet — route those to officecli-xlsx base.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/officecli-financial-model/SKILL.md"
+    },
+    {
+      "name": "officecli-pitch-deck",
+      "description": "Use this skill when the user is building a fundraising / investor pitch deck — seed, Series A / B / C, convertible note, SAFE round, strategic raise. Trigger on: 'pitch deck', 'investor deck', 'Series A deck', 'Series B deck', 'Series C deck', 'fundraising deck', 'seed pitch', 'VC deck', 'raising capital', 'term sheet presentation'. Output is a single .pptx. This skill is a scene layer on top of officecli-pptx — inherits every pptx v2 rule (visual floor, grid, palettes, connector canon, Delivery Gate). DO NOT invoke for a generic board review, sales deck, all-hands, or product launch — route those to officecli-pptx base.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/officecli-pitch-deck/SKILL.md"
+    },
+    {
+      "name": "officecli-pptx",
+      "description": "Use this skill any time a .pptx file is involved -- as input, output, or both. This includes: creating slide decks, pitch decks, or presentations; reading, parsing, or extracting text from any .pptx file; editing, modifying, or updating existing presentations; combining or splitting slide files; working with templates, layouts, speaker notes, or comments. Trigger whenever the user mentions 'deck', 'slides', 'presentation', 'pitch', or references a .pptx filename.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/officecli-pptx/SKILL.md"
+    },
+    {
+      "name": "officecli-word-form",
+      "description": "Use this skill to create fillable Word forms (.docx) with real Content Controls (SDT) + legacy FormField checkboxes + MERGEFIELD mail-merge placeholders + document protection. Trigger on: 'fillable form', 'form fields', 'content controls', 'SDT', 'word form', 'fill in', 'only editable fields', 'protect document', 'onboarding form', 'HR intake', 'survey template', 'contract / SOW template', 'mail-merge template', 'compliance checklist', 'medical intake questionnaire'. Output is a single .docx where specific fields are editable and the rest is locked. This skill is INDEPENDENT, not a scene layer on docx — payload is `<w:sdt>` + `<w:ffData>` + `<w:fldChar>` + `documentProtection`, none of which docx base skill covers. Do NOT trigger for regular reports, letters, memos, academic papers, pitch decks, or any document with no user-fillable fields — route those to officecli-docx or its scene layers.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/officecli-word-form/SKILL.md"
+    },
+    {
+      "name": "officecli-xlsx",
+      "description": "Use this skill any time a .xlsx file is involved -- as input, output, or both. This includes: creating spreadsheets, financial models, dashboards, or trackers; reading, parsing, or extracting data from any .xlsx file; editing, modifying, or updating existing workbooks; working with formulas, charts, pivot tables, or templates; importing CSV/TSV data into Excel format. Trigger whenever the user mentions 'spreadsheet', 'workbook', 'Excel', 'financial model', 'tracker', 'dashboard', or references a .xlsx/.csv filename.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/officecli-xlsx/SKILL.md"
+    },
+    {
+      "name": "pdf",
+      "description": "Use this skill whenever the user wants to do anything with PDF files. This includes reading or extracting text/tables from PDFs, combining or merging multiple PDFs into one, splitting PDFs apart, rotating pages, adding watermarks, creating new PDFs, filling PDF forms, encrypting/decrypting PDFs, extracting images, and OCR on scanned PDFs to make them searchable. If the user mentions a .pdf file or asks to produce one, use this skill.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/pdf/SKILL.md"
+    },
+    {
+      "name": "ppt-agent-workflow",
+      "description": ">-",
+      "category": "other",
+      "assetPath": "assets/skills-lib/ppt-agent-workflow/SKILL.md"
+    },
+    {
+      "name": "ppt-office-assistant",
+      "description": ">-",
+      "category": "other",
+      "assetPath": "assets/skills-lib/ppt-office-assistant/SKILL.md"
+    },
+    {
+      "name": "pptx",
+      "description": "Use this skill any time a .pptx file is involved in any way — as input, output, or both. This includes: creating slide decks, pitch decks, or presentations; reading, parsing, or extracting text from any .pptx file (even if the extracted content will be used elsewhere, like in an email or summary); editing, modifying, or updating existing presentations; combining or splitting slide files; working with templates, layouts, speaker notes, or comments. Trigger whenever the user mentions \\\"deck,\\\" \\\"slides,\\\" \\\"presentation,\\\" or references a .pptx filename, regardless of what they plan to do with the content afterward. If a .pptx file needs to be opened, created, or touched, use this skill.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/pptx/SKILL.md"
+    },
+    {
+      "name": "prototype",
+      "description": "Build a throwaway prototype to answer a design question. Use when the user wants to sanity-check whether a state model or logic feels right, or explore what a UI should look like.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/prototype/SKILL.md"
+    },
+    {
+      "name": "research",
+      "description": "Investigate a question against high-trust primary sources and capture the findings as a Markdown file in the repo. Use when the user wants a topic researched, docs or API facts gathered, or reading legwork delegated to a background agent.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/research/SKILL.md"
+    },
+    {
+      "name": "resolving-merge-conflicts",
+      "description": "Use when you need to resolve an in-progress git merge/rebase conflict.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/resolving-merge-conflicts/SKILL.md"
+    },
+    {
+      "name": "setup-matt-pocock-skills",
+      "description": "Configure this repo for the engineering skills — set up its issue tracker, triage label vocabulary, and domain doc layout. Run once before first use of the other engineering skills.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/setup-matt-pocock-skills/SKILL.md"
+    },
+    {
+      "name": "setup-pre-commit",
+      "description": "Set up Husky pre-commit hooks with lint-staged (Prettier), type checking, and tests in the current repo. Use when user wants to add pre-commit hooks, set up Husky, configure lint-staged, or add commit-time formatting/typechecking/testing.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/setup-pre-commit/SKILL.md"
+    },
+    {
+      "name": "skill-creator",
+      "description": "Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for better triggering accuracy.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/skill-creator/SKILL.md"
+    },
+    {
+      "name": "slack-gif-creator",
+      "description": "Knowledge and utilities for creating animated GIFs optimized for Slack. Provides constraints, validation tools, and animation concepts. Use when users request animated GIFs for Slack like \"make me a GIF of X doing Y for Slack.\"",
+      "category": "other",
+      "assetPath": "assets/skills-lib/slack-gif-creator/SKILL.md"
+    },
+    {
+      "name": "tdd",
+      "description": "Test-driven development. Use when the user wants to build features or fix bugs test-first, mentions \"red-green-refactor\", or wants integration tests.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/tdd/SKILL.md"
+    },
+    {
+      "name": "theme-factory",
+      "description": "Toolkit for styling artifacts with a theme. These artifacts can be slides, docs, reportings, HTML landing pages, etc. There are 10 pre-set themes with colors/fonts that you can apply to any artifact that has been creating, or can generate a new theme on-the-fly.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/theme-factory/SKILL.md"
+    },
+    {
+      "name": "to-issues",
+      "description": "Break a plan, spec, or PRD into independently-grabbable issues on the project issue tracker using tracer-bullet vertical slices.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/to-issues/SKILL.md"
+    },
+    {
+      "name": "to-prd",
+      "description": "Turn the current conversation into a PRD and publish it to the project issue tracker — no interview, just synthesis of what you've already discussed.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/to-prd/SKILL.md"
+    },
+    {
+      "name": "triage",
+      "description": "Move issues and external PRs through a state machine of triage roles — categorise, verify, grill if needed, and write agent-ready briefs.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/triage/SKILL.md"
+    },
+    {
+      "name": "web-artifacts-builder",
+      "description": "Suite of tools for creating elaborate, multi-component claude.ai HTML artifacts using modern frontend web technologies (React, Tailwind CSS, shadcn/ui). Use for complex artifacts requiring state management, routing, or shadcn/ui components - not for simple single-file HTML/JSX artifacts.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/web-artifacts-builder/SKILL.md"
+    },
+    {
+      "name": "webapp-testing",
+      "description": "Toolkit for interacting with and testing local web applications using Playwright. Supports verifying frontend functionality, debugging UI behavior, capturing browser screenshots, and viewing browser logs.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/webapp-testing/SKILL.md"
+    },
+    {
+      "name": "write-a-skill",
+      "description": "Create new agent skills with proper structure, progressive disclosure, and bundled resources. Use when user wants to create, write, or build a new skill.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/write-a-skill/SKILL.md"
+    },
+    {
+      "name": "xlsx",
+      "description": "Use this skill any time a spreadsheet file is the primary input or output. This means any task where the user wants to: open, read, edit, or fix an existing .xlsx, .xlsm, .csv, or .tsv file (e.g., adding columns, computing formulas, formatting, charting, cleaning messy data); create a new spreadsheet from scratch or from other data sources; or convert between tabular file formats. Trigger especially when the user references a spreadsheet file by name or path — even casually (like \\\"the xlsx in my downloads\\\") — and wants something done to it or produced from it. Also trigger for cleaning or restructuring messy tabular data files (malformed rows, misplaced headers, junk data) into proper spreadsheets. The deliverable must be a spreadsheet file. Do NOT trigger when the primary deliverable is a Word document, HTML report, standalone Python script, database pipeline, or Google Sheets API integration, even if tabular data is involved.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/xlsx/SKILL.md"
+    },
+    {
+      "name": "zoom-out",
+      "description": "Tell the agent to zoom out and give broader context or a higher-level perspective. Use when you're unfamiliar with a section of code or need to understand how it fits into the bigger picture.",
+      "category": "other",
+      "assetPath": "assets/skills-lib/zoom-out/SKILL.md"
+    }
+  ]
+}
