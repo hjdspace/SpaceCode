@@ -11,15 +11,10 @@ class GithubAuthResult {
 
 Future<GithubAuthResult?> authenticateGithubInBrowser(
     BuildContext context) async {
-  const clientId = String.fromEnvironment('SPACE_CODE_GITHUB_CLIENT_ID');
-  if (clientId.trim().isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Github 网页认证需要 OAuth App Client ID，请按 README 配置后重启应用'),
-      ),
-    );
-    return null;
-  }
+  const clientId = String.fromEnvironment(
+    'SPACE_CODE_GITHUB_CLIENT_ID',
+    defaultValue: 'Ov23liy70dXxRSWb0uHP',
+  );
   final service = GithubService(token: '');
   try {
     final flow = await service.startDeviceFlow(clientId: clientId);
