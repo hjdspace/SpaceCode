@@ -61,7 +61,12 @@ class LocalAgentService {
     }
 
     final model = OpenAiCompatibleModel(client: _client);
-    final localPath = workspace?.localPath;
+    // 无工作区时回退到 BinaryResolver 的 homeDir（App 专属目录），
+    // 确保 Shell 命令执行能力始终可用
+    final localPath = workspace?.localPath ??
+        (BinaryResolver.instance.isInitialized
+            ? BinaryResolver.instance.homeDir
+            : null);
     final env = BinaryResolver.instance.isInitialized
         ? BinaryResolver.instance.environment
         : Platform.environment;
