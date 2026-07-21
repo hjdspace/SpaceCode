@@ -55,5 +55,19 @@
   "chat.commandSettings": "打开设置",
   "chat.commandSkills": "管理技能",
   "chat.groupCommands": "常用",
-  "chat.groupSkills": "技能"
+  "chat.groupSkills": "技能",
+  "permission.mode.default": "默认",
+  "permission.mode.plan": "计划模式",
+  "permission.mode.acceptEdits": "自动接受编辑",
+  "permission.mode.bypassPermissions": "跳过权限",
+  "permission.mode.description.default": "每次工具调用前询问",
+  "permission.mode.description.plan": "只读，不执行任何写操作",
+  "permission.mode.description.acceptEdits": "自动允许文件编辑",
+  "permission.mode.description.bypassPermissions": "所有工具调用自动允许（危险）",
+  "permission.request.title": "权限请求",
+  "permission.request.allow": "允许",
+  "permission.request.deny": "拒绝",
+  "permission.request.timeout": "权限请求超时",
+  "permission.request.reasonWrite": "写操作需要用户确认",
+  "permission.request.reasonDangerous": "危险操作需要用户确认"
 }

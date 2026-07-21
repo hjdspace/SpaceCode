@@ -55,5 +55,19 @@
   "chat.commandSettings": "Open settings",
   "chat.commandSkills": "Manage skills",
   "chat.groupCommands": "Commands",
-  "chat.groupSkills": "Skills"
+  "chat.groupSkills": "Skills",
+  "permission.mode.default": "Default",
+  "permission.mode.plan": "Plan",
+  "permission.mode.acceptEdits": "Accept Edits",
+  "permission.mode.bypassPermissions": "Bypass Permissions",
+  "permission.mode.description.default": "Ask before every tool call",
+  "permission.mode.description.plan": "Read-only, no write operations",
+  "permission.mode.description.acceptEdits": "Auto-allow file edits",
+  "permission.mode.description.bypassPermissions": "Auto-allow all tool calls (dangerous)",
+  "permission.request.title": "Permission Request",
+  "permission.request.allow": "Allow",
+  "permission.request.deny": "Deny",
+  "permission.request.timeout": "Permission request timed out",
+  "permission.request.reasonWrite": "Write operation requires confirmation",
+  "permission.request.reasonDangerous": "Dangerous operation requires confirmation"
 }

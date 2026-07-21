@@ -11,6 +11,7 @@ import '../../core/storage/chat_history_storage.dart';
 import 'models/message.dart';
 import 'models/tool_call.dart';
 import 'models/permission_request.dart';
+import '../../core/agent/agent_plugin.dart';
 import '../../core/agent/local_agent_service.dart';
 import '../../core/agent/agent_types.dart';
 import '../../core/config/mobile_config.dart';
@@ -18,6 +19,7 @@ import '../../core/github/github_service.dart';
 import '../../core/github/clone_progress.dart';
 import '../../core/skills/skill_registry.dart';
 import '../../core/workspace/workspace_target.dart';
+import '../settings/settings_screen.dart' show MobilePreferences;
 import 'timeline_assembler.dart';
 import 'models/chat_attachment.dart';
 
@@ -432,6 +434,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
         }
       }
       token.throwIfCancelled();
+      // 读取权限模式（修复本地 Agent 模式下 pref_permission_mode 不生效问题）
+      final permissionMode = await MobilePreferences.getPermissionMode();
       var answer = await _localAgent.complete(
         sessionId: sessionId,
         config: config,
@@ -441,6 +445,20 @@ class ChatNotifier extends StateNotifier<ChatState> {
         cancellationToken: token,
         onEvent: (event) => _handleLocalAgentEvent(sessionId, event),
         skillRegistry: _ref.read(skillRegistryProvider),
+        permissionMode: permissionMode,
+        onPermissionRequest: (event) {
+          // AgentSession 推送权限请求 → 转换为 PermissionRequest 加入 state
+          final request = PermissionRequest(
+            sessionId: sessionId,
+            toolUseId: event.permissionRequestId ?? '',
+            toolName: event.permissionToolName ?? '',
+            input: event.permissionArguments != null
+                ? jsonEncode(event.permissionArguments)
+                : '',
+          );
+          state = state.copyWith(
+              pendingPermissions: [...state.pendingPermissions, request]);
+        },
       );
       if (workspace?.mode == WorkspaceMode.github &&
           workspace?.localPath != null &&
@@ -969,13 +987,25 @@ class ChatNotifier extends StateNotifier<ChatState> {
   }
 
   void allowPermission(String toolUseId) {
-    _ref.read(connectionProvider.notifier).send(MobileRequest(
-          type: RequestType.allowPermission,
-          data: {
-            'sessionId': state.currentSessionId,
-            'toolUseId': toolUseId,
-          },
-        ));
+    final sessionId = state.currentSessionId;
+    // 桌面协同模式：通过 WS 发送 allowPermission
+    final connection = _ref.read(connectionProvider);
+    if (connection.state == conn.ConnectionState.connected && sessionId != null) {
+      _ref.read(connectionProvider.notifier).send(MobileRequest(
+            type: RequestType.allowPermission,
+            data: {
+              'sessionId': sessionId,
+              'toolUseId': toolUseId,
+            },
+          ));
+    } else if (sessionId != null) {
+      // 本地 Agent 模式：通过 LocalAgentService 注入 decision
+      _localAgent.resolvePermission(
+        sessionId,
+        toolUseId,
+        const AgentToolDecision.allow(),
+      );
+    }
     state = state.copyWith(
       pendingPermissions: state.pendingPermissions
           .where((p) => p.toolUseId != toolUseId)
@@ -984,13 +1014,25 @@ class ChatNotifier extends StateNotifier<ChatState> {
   }
 
   void denyPermission(String toolUseId) {
-    _ref.read(connectionProvider.notifier).send(MobileRequest(
-          type: RequestType.denyPermission,
-          data: {
-            'sessionId': state.currentSessionId,
-            'toolUseId': toolUseId,
-          },
-        ));
+    final sessionId = state.currentSessionId;
+    // 桌面协同模式：通过 WS 发送 denyPermission
+    final connection = _ref.read(connectionProvider);
+    if (connection.state == conn.ConnectionState.connected && sessionId != null) {
+      _ref.read(connectionProvider.notifier).send(MobileRequest(
+            type: RequestType.denyPermission,
+            data: {
+              'sessionId': sessionId,
+              'toolUseId': toolUseId,
+            },
+          ));
+    } else if (sessionId != null) {
+      // 本地 Agent 模式：通过 LocalAgentService 注入 decision
+      _localAgent.resolvePermission(
+        sessionId,
+        toolUseId,
+        const AgentToolDecision.deny('用户拒绝'),
+      );
+    }
     state = state.copyWith(
       pendingPermissions: state.pendingPermissions
           .where((p) => p.toolUseId != toolUseId)

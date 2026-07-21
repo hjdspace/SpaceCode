@@ -11,19 +11,31 @@ import 'agent_model.dart';
 import 'agent_plugin.dart';
 import 'agent_types.dart';
 import 'openai_compatible_model.dart';
+import 'permission_interceptor.dart';
 import 'plugins/skill_plugin.dart';
 import 'plugins/workspace_plugin.dart';
+
+/// 权限询问回调类型。
+///
+/// 由 [LocalAgentService.complete] 在收到 [AgentEventType.permissionRequest]
+/// 事件时调用，UI 层（ChatNotifier）负责把请求加入 pendingPermissions 列表，
+/// 并在用户响应后通过返回值告知 decision。
+typedef LocalPermissionHandler = void Function(AgentEvent permissionEvent);
 
 class LocalAgentService {
   final http.Client _client;
 
   LocalAgentService({http.Client? client}) : _client = client ?? http.Client();
 
-  /// 完成一次 Agent 调用，保留原签名兼容 chat_controller。
+  /// 完成一次 Agent 调用。
   ///
-  /// 内部构造 [AgentSession] + Plugins，委托给 [OpenAiCompatibleModel]。
-  /// 文本 delta 通过 [onEvent] 实时推送（`AgentEventType.assistantDelta`），
-  /// 完整文本作为返回值返回。
+  /// [permissionMode] 从 SharedPreferences 读取并传入，影响所有 Plugin 的
+  /// beforeToolCall 决策（default/plan/acceptEdits/bypassPermissions）。
+  ///
+  /// [onPermissionRequest] 在 AgentSession 推送 permissionRequest 事件时调用，
+  /// UI 层渲染 PermissionCard，用户响应后通过 [resolvePermission] 注入。
+  ///
+  /// 返回值：最终 assistant 文本。
   Future<String> complete({
     required String sessionId,
     required MobileConfig config,
@@ -33,6 +45,8 @@ class LocalAgentService {
     required AgentCancellationToken cancellationToken,
     required void Function(AgentEvent) onEvent,
     SkillRegistryState? skillRegistry,
+    String permissionMode = PermissionMode.defaultMode,
+    LocalPermissionHandler? onPermissionRequest,
   }) async {
     if (config.apiKey.trim().isEmpty) {
       throw StateError('请先在设置中配置 API Key');
@@ -43,6 +57,8 @@ class LocalAgentService {
 
     final model = OpenAiCompatibleModel(client: _client);
     final plugins = <AgentPlugin>[
+      // 横切权限拦截器（不提供工具，只实现 beforeToolCall）
+      PermissionInterceptorPlugin(),
       if (workspace?.localPath != null) WorkspacePlugin(workspace!.localPath!),
       if (skillRegistry != null && skillRegistry.skills.isNotEmpty)
         SkillPlugin(skillRegistry),
@@ -54,9 +70,11 @@ class LocalAgentService {
       plugins: plugins,
       initialMessages: history,
       maxTurns: 8,
+      permissionMode: permissionMode,
     );
 
-    final result = await session.run(
+    // 监听事件：把 permissionRequest 事件转发给 UI 层
+    Future<AgentRunResult> runFuture = session.run(
       prompt,
       config: AgentModelConfig(
         apiKey: config.apiKey,
@@ -64,9 +82,35 @@ class LocalAgentService {
         model: config.model,
       ),
       cancellationToken: cancellationToken,
-      onEvent: onEvent,
+      onEvent: (event) {
+        if (event.type == AgentEventType.permissionRequest &&
+            onPermissionRequest != null) {
+          onPermissionRequest(event);
+        }
+        onEvent(event);
+      },
     );
-    return result.text;
+
+    // 暴露 session 给上层用于 resolvePermission
+    _sessionsBySessionId[sessionId] = session;
+    try {
+      final result = await runFuture;
+      return result.text;
+    } finally {
+      _sessionsBySessionId.remove(sessionId);
+    }
+  }
+
+  /// 进行中的 AgentSession（按 sessionId 索引），用于权限响应注入。
+  final Map<String, AgentSession> _sessionsBySessionId = {};
+
+  /// 用户响应权限询问。
+  ///
+  /// 由 ChatNotifier 在用户点击 PermissionCard 后调用，转发给对应 sessionId
+  /// 的 [AgentSession.resolvePermission]。
+  void resolvePermission(String sessionId, String requestId,
+      AgentToolDecision decision) {
+    _sessionsBySessionId[sessionId]?.resolvePermission(requestId, decision);
   }
 
   /// 兼容 chat_controller 调用：实际取消由 cancellationToken 控制。
@@ -76,7 +120,7 @@ class LocalAgentService {
 
   /// 重置 session 状态（noop，cancellationToken 由调用方管理）。
   void resetSession(String sessionId) {
-    // no-op
+    _sessionsBySessionId.remove(sessionId);
   }
 
   /// 从 API 获取可用模型列表（OpenAI 兼容 /models 接口）。

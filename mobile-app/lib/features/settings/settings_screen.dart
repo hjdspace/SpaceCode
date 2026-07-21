@@ -67,12 +67,12 @@ class MobilePreferences {
   }
 }
 
-/// 权限模式选项
-const _permissionModes = <(String, String, String)>[
-  ('default', '默认', '每次工具调用前询问'),
-  ('plan', '计划模式', '只读，不执行任何写操作'),
-  ('acceptEdits', '自动接受编辑', '自动允许文件编辑'),
-  ('bypassPermissions', '跳过权限', '所有工具调用自动允许（危险）'),
+/// 权限模式选项（id + i18n key + 描述 i18n key）
+const _permissionModeKeys = <(String, String, String)>[
+  ('default', 'permission.mode.default', 'permission.mode.description.default'),
+  ('plan', 'permission.mode.plan', 'permission.mode.description.plan'),
+  ('acceptEdits', 'permission.mode.acceptEdits', 'permission.mode.description.acceptEdits'),
+  ('bypassPermissions', 'permission.mode.bypassPermissions', 'permission.mode.description.bypassPermissions'),
 ];
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -1022,14 +1022,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              for (final mode in _permissionModes)
+              for (final mode in _permissionModeKeys)
                 () {
-                  final (id, name, desc) = mode;
+                  final (id, nameKey, descKey) = mode;
                   final isSelected = _permissionMode == id;
                   return ListTile(
-                    title: Text(name,
+                    title: Text(I18n.t(nameKey),
                         style: TextStyle(color: theme.colorScheme.onSurface)),
-                    subtitle: Text(desc,
+                    subtitle: Text(I18n.t(descKey),
                         style: TextStyle(
                             color: theme.colorScheme.onSurface
                                 .withValues(alpha: 0.5))),
@@ -1136,10 +1136,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   String _permissionModeLabel(String mode) {
-    for (final (id, name, _) in _permissionModes) {
-      if (id == mode) return name;
+    for (final (id, nameKey, _) in _permissionModeKeys) {
+      if (id == mode) return I18n.t(nameKey);
     }
-    return '默认';
+    return I18n.t('permission.mode.default');
   }
 
   Color _connectionColor(conn.ConnectionState state) {
