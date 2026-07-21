@@ -42,5 +42,6 @@
   "settings.languageEn": "English",
   "chat.mentionFile": "选择文件",
   "chat.mentionFolder": "选择文件夹",
-  "chat.mentionImage": "选择图片"
+  "chat.mentionImage": "选择图片",
+  "chat.modelTitle": "选择模型"
 }
