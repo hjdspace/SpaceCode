@@ -99,6 +99,13 @@ class MobileConfigNotifier extends StateNotifier<MobileConfig> {
     state = state.copyWith(githubToken: '', githubLogin: '');
   }
 
+  Future<void> saveModel(String model) async {
+    final prefs = await SharedPreferences.getInstance();
+    final trimmedModel = model.trim();
+    await prefs.setString(_model, trimmedModel);
+    state = state.copyWith(model: trimmedModel);
+  }
+
   Future<void> saveLocale(String locale) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_appLocale, locale);
