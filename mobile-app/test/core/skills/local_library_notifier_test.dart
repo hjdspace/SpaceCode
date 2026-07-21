@@ -5,8 +5,8 @@ import 'package:spacecode_mobile/core/skills/local_library_notifier.dart';
 void main() {
   group('LocalLibraryState', () {
     test('filteredSkills returns all when category is all and query empty', () {
-      final state = LocalLibraryState(
-        skills: const [
+      const state = LocalLibraryState(
+        skills: [
           LocalLibrarySkill(
               name: 'a', description: 'alpha', category: 'development', assetPath: 'p/a'),
           LocalLibrarySkill(
@@ -14,7 +14,7 @@ void main() {
         ],
         loading: false,
         error: null,
-        installedNames: const {},
+        installedNames: {},
         selectedCategory: 'all',
         searchQuery: '',
       );
@@ -22,8 +22,8 @@ void main() {
     });
 
     test('filteredSkills filters by category', () {
-      final state = LocalLibraryState(
-        skills: const [
+      const state = LocalLibraryState(
+        skills: [
           LocalLibrarySkill(
               name: 'a', description: 'alpha', category: 'development', assetPath: 'p/a'),
           LocalLibrarySkill(
@@ -31,7 +31,7 @@ void main() {
         ],
         loading: false,
         error: null,
-        installedNames: const {},
+        installedNames: {},
         selectedCategory: 'office',
         searchQuery: '',
       );
@@ -40,8 +40,8 @@ void main() {
     });
 
     test('filteredSkills filters by search query (case insensitive)', () {
-      final state = LocalLibraryState(
-        skills: const [
+      const state = LocalLibraryState(
+        skills: [
           LocalLibrarySkill(
               name: 'code-review', description: 'Review changes', category: 'development', assetPath: 'p'),
           LocalLibrarySkill(
@@ -49,7 +49,7 @@ void main() {
         ],
         loading: false,
         error: null,
-        installedNames: const {},
+        installedNames: {},
         selectedCategory: 'all',
         searchQuery: 'REVIEW',
       );
@@ -58,8 +58,8 @@ void main() {
     });
 
     test('filteredSkills filters by both category and query', () {
-      final state = LocalLibraryState(
-        skills: const [
+      const state = LocalLibraryState(
+        skills: [
           LocalLibrarySkill(
               name: 'code-review', description: 'Review', category: 'development', assetPath: 'p'),
           LocalLibrarySkill(
@@ -69,7 +69,7 @@ void main() {
         ],
         loading: false,
         error: null,
-        installedNames: const {},
+        installedNames: {},
         selectedCategory: 'development',
         searchQuery: 'review',
       );
@@ -77,14 +77,14 @@ void main() {
     });
 
     test('isInstalled returns true when name in installedNames', () {
-      final state = LocalLibraryState(
-        skills: const [
+      const state = LocalLibraryState(
+        skills: [
           LocalLibrarySkill(
               name: 'a', description: '', category: 'other', assetPath: 'p'),
         ],
         loading: false,
         error: null,
-        installedNames: const {'a'},
+        installedNames: {'a'},
         selectedCategory: 'all',
         searchQuery: '',
       );

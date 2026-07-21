@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:spacecode_mobile/core/agent/agent_model.dart';
 import 'package:spacecode_mobile/core/agent/agent_plugin.dart';
 import 'package:spacecode_mobile/core/agent/agent_types.dart';
 import 'package:spacecode_mobile/core/agent/plugins/shell_plugin.dart';
@@ -14,7 +13,7 @@ void main() {
       workingDirectory: '/tmp/ws',
       environment: const {},
       executor: (_, __) async =>
-          ShellCommandResult(exitCode: 0, stdout: '', stderr: ''),
+          const ShellCommandResult(exitCode: 0, stdout: '', stderr: ''),
     );
     final tools = plugin.createTools();
     expect(tools, hasLength(1));
@@ -32,7 +31,7 @@ void main() {
     final plugin = ShellPlugin.forTest(
       workingDirectory: '/tmp/ws',
       environment: const {'PATH': '/bin'},
-      executor: (command, _) async => ShellCommandResult(
+      executor: (command, _) async => const ShellCommandResult(
         exitCode: 0,
         stdout: 'hello world',
         stderr: '',
@@ -55,7 +54,7 @@ void main() {
     final plugin = ShellPlugin.forTest(
       workingDirectory: '/tmp/ws',
       environment: const {},
-      executor: (command, _) async => ShellCommandResult(
+      executor: (command, _) async => const ShellCommandResult(
         exitCode: 1,
         stdout: '',
         stderr: 'command not found',
@@ -113,7 +112,7 @@ void main() {
       environment: const {},
       executor: (command, timeout) async {
         captured = timeout;
-        return ShellCommandResult(exitCode: 0, stdout: '', stderr: '');
+        return const ShellCommandResult(exitCode: 0, stdout: '', stderr: '');
       },
     );
     final tool = plugin.createTools().single;
@@ -136,7 +135,7 @@ void main() {
       workingDirectory: '/tmp/ws',
       environment: const {},
       executor: (command, _) async =>
-          ShellCommandResult(exitCode: 0, stdout: '', stderr: ''),
+          const ShellCommandResult(exitCode: 0, stdout: '', stderr: ''),
     );
     final tool = plugin.createTools().single;
 
@@ -154,7 +153,7 @@ void main() {
     final plugin = ShellPlugin.forTest(
       workingDirectory: '/tmp/ws',
       environment: const {},
-      executor: (command, _) async => ShellCommandResult(
+      executor: (command, _) async => const ShellCommandResult(
         exitCode: -1,
         stdout: 'partial',
         stderr: '',
@@ -179,7 +178,7 @@ void main() {
       workingDirectory: '/tmp/ws',
       environment: const {},
       executor: (command, _) async =>
-          ShellCommandResult(exitCode: 0, stdout: '', stderr: ''),
+          const ShellCommandResult(exitCode: 0, stdout: '', stderr: ''),
     );
     final tool = plugin.createTools().single;
 
@@ -195,7 +194,7 @@ void main() {
     final plugin = ShellPlugin.forTest(
       workingDirectory: '/tmp/ws',
       environment: const {},
-      executor: (command, _) async => ShellCommandResult(
+      executor: (command, _) async => const ShellCommandResult(
         exitCode: -1,
         stdout: '',
         stderr: '',

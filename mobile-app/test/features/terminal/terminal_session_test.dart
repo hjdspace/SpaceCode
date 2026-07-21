@@ -142,7 +142,7 @@ void main() {
     final events = <TerminalOutput>[];
     final subscription = session.output.listen(events.add);
 
-    final done = session.execute('long running');
+    session.execute('long running');
     await Future.delayed(Duration.zero);
 
     await session.dispose();

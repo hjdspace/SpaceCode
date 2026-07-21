@@ -97,8 +97,8 @@ void main() {
       };
       final index = LocalLibraryIndex.fromJson(json);
       final after = DateTime.now();
-      expect(index.generatedAt.isAfter(before.subtract(Duration(seconds: 1))), true);
-      expect(index.generatedAt.isBefore(after.add(Duration(seconds: 1))), true);
+      expect(index.generatedAt.isAfter(before.subtract(const Duration(seconds: 1))), true);
+      expect(index.generatedAt.isBefore(after.add(const Duration(seconds: 1))), true);
     });
 
     test('fromJson handles missing skills field', () {

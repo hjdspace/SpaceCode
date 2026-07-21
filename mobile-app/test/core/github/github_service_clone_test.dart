@@ -14,7 +14,7 @@ void main() {
     test('emits downloading progress with totalBytes from Content-Length',
         () async {
       final zipBytes = _buildZip([
-        _ArchiveFile('repo/file1.txt', [1, 2, 3]),
+        const _ArchiveFile('repo/file1.txt', [1, 2, 3]),
       ]);
       final client = MockClient.streaming((request, bodyStream) async {
         return http.StreamedResponse(
@@ -81,7 +81,7 @@ void main() {
 
     test('respects isCancelled callback during download', () async {
       final zipBytes = _buildZip([
-        _ArchiveFile('repo/file1.txt', [1, 2, 3]),
+        const _ArchiveFile('repo/file1.txt', [1, 2, 3]),
       ]);
       final client = MockClient.streaming((request, bodyStream) async {
         return http.StreamedResponse(

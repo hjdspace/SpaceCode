@@ -158,8 +158,6 @@ void main() {
         isTrue,
       );
       // _RecordingPlugin 应该接收到 afterToolCall（即工具确实执行了）
-      final recording = session as dynamic;
-      // 工具应该执行成功（_RecordingPlugin 记录了 after 调用）
     });
 
     test('deny request blocks tool execution', () async {
@@ -184,7 +182,7 @@ void main() {
         permissionMode: PermissionMode.defaultMode,
       );
 
-      final result = await session.run(
+      await session.run(
         'write file',
         config: const AgentModelConfig(
           apiKey: 'k',

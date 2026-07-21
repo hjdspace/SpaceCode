@@ -166,7 +166,6 @@ class _WorkspaceToolbarState extends ConsumerState<WorkspaceToolbar> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final target = ref.watch(chatProvider).workspaceTarget;
     final isGithub = target?.mode == WorkspaceMode.github;
     final hasTarget = target != null;
