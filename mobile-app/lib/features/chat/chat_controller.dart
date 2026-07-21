@@ -19,6 +19,7 @@ import '../../core/github/github_service.dart';
 import '../../core/github/clone_progress.dart';
 import '../../core/skills/skill_registry.dart';
 import '../../core/workspace/workspace_target.dart';
+import '../../core/i18n/strings.dart';
 import '../settings/settings_screen.dart' show MobilePreferences;
 import 'timeline_assembler.dart';
 import 'models/chat_attachment.dart';
@@ -53,6 +54,13 @@ class ChatState {
   final Map<String, List<ChatAttachment>> attachmentsBySession;
   final List<PermissionRequest> pendingPermissions;
 
+  /// 每个 session 是否可"继续上一次"（上次因 maxTurns 截断时为 true）。
+  ///
+  /// 由 [_runLocalAgent] 在 [AgentStopReason.maxTurns] 时置 true，
+  /// 用户点击 ChatInput 顶部的"继续"按钮后调用 [ChatNotifier.continueLastTurn]，
+  /// 复用历史再次发起一次 Agent 调用。
+  final Map<String, bool> canContinueBySession;
+
   /// 桌面端当前激活会话的项目目录，由 session_changed 推送更新
   final String? projectPath;
 
@@ -70,6 +78,7 @@ class ChatState {
     required this.agentBySession,
     required this.attachmentsBySession,
     this.pendingPermissions = const [],
+    this.canContinueBySession = const {},
     this.projectPath,
     this.sessions = const [],
     this.historyLoaded = false,
@@ -95,6 +104,11 @@ class ChatState {
       ? const []
       : attachmentsBySession[currentSessionId] ?? const [];
 
+  /// 当前会话上次是否因 maxTurns 截断，UI 据此显示"继续"按钮
+  bool get canContinue => currentSessionId == null
+      ? false
+      : (canContinueBySession[currentSessionId] ?? false);
+
   ChatState copyWith({
     String? currentSessionId,
     Map<String, List<ChatMessage>>? messagesBySession,
@@ -102,6 +116,7 @@ class ChatState {
     Map<String, String>? agentBySession,
     Map<String, List<ChatAttachment>>? attachmentsBySession,
     List<PermissionRequest>? pendingPermissions,
+    Map<String, bool>? canContinueBySession,
     String? projectPath,
     List<SessionSummary>? sessions,
     bool? historyLoaded,
@@ -116,6 +131,8 @@ class ChatState {
         attachmentsBySession:
             attachmentsBySession ?? this.attachmentsBySession,
         pendingPermissions: pendingPermissions ?? this.pendingPermissions,
+        canContinueBySession:
+            canContinueBySession ?? this.canContinueBySession,
         projectPath: projectPath ?? this.projectPath,
         sessions: sessions ?? this.sessions,
         historyLoaded: historyLoaded ?? this.historyLoaded,
@@ -130,6 +147,7 @@ class ChatState {
         loadingBySession: {},
         agentBySession: {},
         attachmentsBySession: {},
+        canContinueBySession: {},
       );
 }
 
@@ -267,6 +285,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
     if (state.currentSessionId == null) {
       state = state.copyWith(currentSessionId: sessionId);
     }
+    // 用户新发消息 → 清掉上次的"可续跑"标记（避免按钮残留）
+    _setCanContinue(sessionId, false);
     final workspace = _workspaceBySession[sessionId] ?? state.workspaceTarget;
     if (workspace != null) _workspaceBySession[sessionId] = workspace;
     final userMsg = ChatMessage(
@@ -436,7 +456,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
       token.throwIfCancelled();
       // 读取权限模式（修复本地 Agent 模式下 pref_permission_mode 不生效问题）
       final permissionMode = await MobilePreferences.getPermissionMode();
-      var answer = await _localAgent.complete(
+      final runResult = await _localAgent.complete(
         sessionId: sessionId,
         config: config,
         prompt: prompt,
@@ -460,6 +480,14 @@ class ChatNotifier extends StateNotifier<ChatState> {
               pendingPermissions: [...state.pendingPermissions, request]);
         },
       );
+      var answer = runResult.text;
+      // stopReason 透传：maxTurns 截断时追加提示并标记可续跑；
+      // 自然完成则清掉可续跑标记。
+      final canContinue = runResult.stopReason == AgentStopReason.maxTurns;
+      if (canContinue) {
+        answer = '$answer\n\n${I18n.t('chat.maxTurnsReached')}';
+      }
+      _setCanContinue(sessionId, canContinue);
       if (workspace?.mode == WorkspaceMode.github &&
           workspace?.localPath != null &&
           config.githubToken.isNotEmpty) {
@@ -582,6 +610,30 @@ class ChatNotifier extends StateNotifier<ChatState> {
       isStreaming: false,
     );
     _setMessages(sessionId, messages);
+  }
+
+  /// 更新某个 session 的 canContinue 标记。
+  void _setCanContinue(String sessionId, bool value) {
+    final newMap = Map<String, bool>.from(state.canContinueBySession);
+    if (value) {
+      newMap[sessionId] = true;
+    } else {
+      newMap.remove(sessionId);
+    }
+    state = state.copyWith(canContinueBySession: newMap);
+  }
+
+  /// 续跑上一次因 maxTurns 截断的任务。
+  ///
+  /// 复用当前 session 的历史消息（包括已完成的工具调用与中间产物），
+  /// 发送一条固定 prompt 让 Agent 接着上次进度继续执行。
+  /// 仅在 [ChatState.canContinue] 为 true 时有效；调用后立即清掉标记，
+  /// 防止用户连点导致重复发起。
+  void continueLastTurn() {
+    final sessionId = state.currentSessionId;
+    if (sessionId == null) return;
+    if (!(state.canContinueBySession[sessionId] ?? false)) return;
+    sendMessage(I18n.t('chat.continueLastTurnPrompt'));
   }
 
   void setWorkspaceTarget(WorkspaceTarget? target) {

@@ -404,6 +404,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     final chatState = ref.watch(chatProvider);
     final isLoading = chatState.isLoading;
     final attachments = chatState.currentAttachments;
+    final showContinue = chatState.canContinue && !isLoading;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
@@ -420,6 +421,13 @@ class _ChatInputState extends ConsumerState<ChatInput> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (showContinue) ...[
+              _ContinueBanner(
+                onTap: () =>
+                    ref.read(chatProvider.notifier).continueLastTurn(),
+              ),
+              const SizedBox(height: 8),
+            ],
             Card(
               elevation: 0,
               shape: RoundedRectangleBorder(
@@ -631,6 +639,59 @@ class _ToolIconButton extends StatelessWidget {
           icon,
           size: 20,
           color: color ?? theme.colorScheme.onSurface.withValues(alpha: 0.6),
+        ),
+      ),
+    );
+  }
+}
+
+/// "继续上次任务"横幅：上次因 maxTurns 截断时显示在输入框上方。
+///
+/// 点击调用 [ChatNotifier.continueLastTurn]，复用历史再次发起 Agent 调用。
+class _ContinueBanner extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _ContinueBanner({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xff7c3aed).withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: const Color(0xff7c3aed).withValues(alpha: 0.4),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.play_arrow_rounded,
+              size: 18,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                I18n.t('chat.continueLastTurn'),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+            ),
+            Icon(
+              Icons.arrow_forward_rounded,
+              size: 16,
+              color: theme.colorScheme.primary.withValues(alpha: 0.7),
+            ),
+          ],
         ),
       ),
     );

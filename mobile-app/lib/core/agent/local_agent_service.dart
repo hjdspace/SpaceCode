@@ -40,8 +40,9 @@ class LocalAgentService {
   /// [onPermissionRequest] 在 AgentSession 推送 permissionRequest 事件时调用，
   /// UI 层渲染 PermissionCard，用户响应后通过 [resolvePermission] 注入。
   ///
-  /// 返回值：最终 assistant 文本。
-  Future<String> complete({
+  /// 返回值：[AgentRunResult]，包含最终 assistant 文本与停止原因
+  /// （[AgentStopReason.maxTurns] 表示因达到最大轮数被截断，UI 可据此提示"继续"）。
+  Future<AgentRunResult> complete({
     required String sessionId,
     required MobileConfig config,
     required String prompt,
@@ -96,7 +97,9 @@ class LocalAgentService {
       systemPrompt: _buildBaseSystemPrompt(workspace?.promptContext),
       plugins: plugins,
       initialMessages: history,
-      maxTurns: 8,
+      // 100 轮参考自 claude-code 安全闸：MAX_GOAL_TURNS=150 / FORK_AGENT=200。
+      // 8 轮过少，复杂编码任务会被截断在编辑/验证中段。
+      maxTurns: 150,
       permissionMode: permissionMode,
     );
 
@@ -122,7 +125,7 @@ class LocalAgentService {
     _sessionsBySessionId[sessionId] = session;
     try {
       final result = await runFuture;
-      return result.text;
+      return result;
     } finally {
       _sessionsBySessionId.remove(sessionId);
     }
