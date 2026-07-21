@@ -39,5 +39,8 @@
   "skills.categoryOther": "其他",
   "settings.language": "语言",
   "settings.languageZh": "中文",
-  "settings.languageEn": "English"
+  "settings.languageEn": "English",
+  "chat.mentionFile": "选择文件",
+  "chat.mentionFolder": "选择文件夹",
+  "chat.mentionImage": "选择图片"
 }
