@@ -14,6 +14,7 @@ import 'agent_types.dart';
 import 'binary_resolver.dart';
 import 'openai_compatible_model.dart';
 import 'permission_interceptor.dart';
+import 'plugins/git_plugin.dart';
 import 'plugins/shell_plugin.dart';
 import 'plugins/skill_plugin.dart';
 import 'plugins/workspace_plugin.dart';
@@ -63,12 +64,20 @@ class LocalAgentService {
     final env = BinaryResolver.instance.isInitialized
         ? BinaryResolver.instance.environment
         : Platform.environment;
+    final gitPath = BinaryResolver.instance.gitPath;
     final plugins = <AgentPlugin>[
       // 横切权限拦截器（不提供工具，只实现 beforeToolCall）
       PermissionInterceptorPlugin(),
       if (localPath != null) WorkspacePlugin(localPath),
       if (localPath != null)
         ShellPlugin(workingDirectory: localPath, environment: env),
+      // GitPlugin 仅在 git 二进制可用时加载
+      if (localPath != null && gitPath != null)
+        GitPlugin(
+          gitPath: gitPath,
+          workingDirectory: localPath,
+          environment: env,
+        ),
       if (skillRegistry != null && skillRegistry.skills.isNotEmpty)
         SkillPlugin(skillRegistry),
     ];

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
 import 'core/agent/binary_resolver.dart';
+import 'core/agent/git_binary_extractor.dart';
 import 'core/config/mobile_config.dart';
 import 'core/i18n/strings.dart';
 
@@ -17,6 +18,8 @@ void main() async {
   // 失败不阻断启动（TerminalScreen 会 fallback 到 Platform.environment）
   try {
     await BinaryResolver.instance.initialize();
+    // 尝试解压捆绑的 git 二进制（assets 不存在时优雅降级，GitPlugin 不加载）
+    await GitBinaryExtractor.extract();
   } catch (_) {
     // ignore - BinaryResolver 未初始化时 TerminalScreen 会回退到 Platform.environment
   }
