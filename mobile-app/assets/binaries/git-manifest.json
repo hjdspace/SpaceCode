@@ -1,0 +1,29 @@
+{
+  "version": "2.43.0",
+  "description": "Pre-compiled git binary for Android (built via Termux)",
+  "binaries": {
+    "arm64-v8a": {
+      "asset": "assets/binaries/git-arm64-v8a",
+      "sha256": "PLACEHOLDER_FILL_AFTER_BUILD"
+    },
+    "armeabi-v7a": {
+      "asset": "assets/binaries/git-armeabi-v7a",
+      "sha256": "PLACEHOLDER_FILL_AFTER_BUILD"
+    },
+    "x86_64": {
+      "asset": "assets/binaries/git-x86_64",
+      "sha256": "PLACEHOLDER_FILL_AFTER_BUILD"
+    }
+  },
+  "_build_instructions": {
+    "script": "scripts/build-git-binary.sh",
+    "environment": "Termux (Android) or Linux with Android NDK",
+    "steps": [
+      "1. 在 Termux 中执行 scripts/build-git-binary.sh",
+      "2. 脚本会编译 git 并生成 git-{abi} 二进制文件",
+      "3. 脚本自动计算 SHA-256 并更新本 manifest",
+      "4. 将生成的二进制文件复制到 assets/binaries/ 目录",
+      "5. 运行 flutter build 重新打包 APK"
+    ]
+  }
+}

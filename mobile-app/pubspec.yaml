@@ -48,6 +48,7 @@ flutter:
     - assets/skills-lib/
     - lib/core/i18n/locales/zh.json
     - lib/core/i18n/locales/en.json
+    - assets/binaries/git-manifest.json
     - assets/skills-lib/algorithmic-art/
     - assets/skills-lib/berkshire-bottleneck-hunter/
     - assets/skills-lib/berkshire-deep-company-series/
