@@ -61,7 +61,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   String? get _workspacePath {
     final chatState = ref.read(chatProvider);
     final target = chatState.workspaceTarget;
-    return target?.localPath;
+    if (target?.localPath != null) return target!.localPath;
+    // 无工作区时回退到 BinaryResolver 的 homeDir（App 专属目录）
+    if (BinaryResolver.instance.isInitialized) {
+      return BinaryResolver.instance.homeDir;
+    }
+    return null;
   }
 
   void _ensureSession() {

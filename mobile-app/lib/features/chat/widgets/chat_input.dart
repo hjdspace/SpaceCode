@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:go_router/go_router.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import '../../../core/i18n/strings.dart';
 import '../../../core/skills/skill_registry.dart';
 import '../chat_controller.dart';
 import '../models/chat_attachment.dart';
+import 'attachment_picker_sheet.dart';
 import 'command_menu.dart';
 import 'mention_picker.dart';
 import 'model_selector.dart';
@@ -276,37 +276,6 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     return false;
   }
 
-  Future<void> _pickFile() async {
-    final result = await FilePicker.platform.pickFiles(allowMultiple: false);
-    final file = result?.files.firstOrNull;
-    final path = file?.path;
-    if (path == null || path.isEmpty) return;
-    ref.read(chatProvider.notifier).addAttachment(
-          ChatAttachment(
-            kind: ChatAttachmentKind.file,
-            name: file!.name,
-            path: path,
-          ),
-        );
-  }
-
-  Future<void> _pickImage() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
-      allowMultiple: false,
-    );
-    final file = result?.files.firstOrNull;
-    final path = file?.path;
-    if (path == null || path.isEmpty) return;
-    ref.read(chatProvider.notifier).addAttachment(
-          ChatAttachment(
-            kind: ChatAttachmentKind.image,
-            name: file!.name,
-            path: path,
-          ),
-        );
-  }
-
   void _insertShortcutSlash() {
     final text = _controller.text;
     final newText = text.isEmpty ? '/' : '$text/';
@@ -317,11 +286,39 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     _focusNode.requestFocus();
   }
 
+  Future<void> _showAttachmentMenu() async {
+    final result = await showModalBottomSheet<List<ChatAttachment>>(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => AttachmentPickerSheet(
+        onAction: (action) {
+          switch (action) {
+            case AttachmentPickerAction.skills:
+              context.go('/skills');
+            case AttachmentPickerAction.shortcut:
+              _insertShortcutSlash();
+          }
+        },
+      ),
+    );
+    final attachments = result ?? const <ChatAttachment>[];
+    if (attachments.isEmpty) return;
+    final notifier = ref.read(chatProvider.notifier);
+    for (final attachment in attachments) {
+      notifier.addAttachment(attachment);
+    }
+  }
+
   Future<void> _toggleListening() async {
     if (!_speechAvailable) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('语音输入不可用')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('语音输入不可用')),
+        );
+      }
       return;
     }
     if (_isListening) {
@@ -331,10 +328,12 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     }
     try {
       final available = await _speech.initialize(
-        onError: (_) => setState(() => _isListening = false),
+        onError: (_) {
+          if (mounted) setState(() => _isListening = false);
+        },
         onStatus: (status) {
           if (status == 'done' || status == 'notListening') {
-            setState(() => _isListening = false);
+            if (mounted) setState(() => _isListening = false);
           }
         },
       );
@@ -348,11 +347,20 @@ class _ChatInputState extends ConsumerState<ChatInput> {
       }
       await _speech.listen(
         onResult: (result) {
+          if (!mounted) return;
           final text = result.recognizedWords;
-          _controller.text = text;
-          _controller.selection = TextSelection.fromPosition(
-            TextPosition(offset: text.length),
-          );
+          if (text.isEmpty) return;
+          setState(() {
+            final current = _controller.text;
+            if (current.isEmpty) {
+              _controller.text = text;
+            } else {
+              _controller.text = '$current $text';
+            }
+            _controller.selection = TextSelection.fromPosition(
+              TextPosition(offset: _controller.text.length),
+            );
+          });
         },
         listenOptions: SpeechListenOptions(
           partialResults: true,
@@ -456,58 +464,29 @@ class _ChatInputState extends ConsumerState<ChatInput> {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Expanded(
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            _ToolIconButton(
-                              icon: Icons.insert_drive_file_outlined,
-                              onTap: _pickFile,
-                            ),
-                            _ToolIconButton(
-                              icon: Icons.image_outlined,
-                              onTap: _pickImage,
-                            ),
-                            _PillButton(
-                              icon: Icons.auto_awesome_outlined,
-                              label: I18n.t('chat.skillsPill'),
-                              iconColor: const Color(0xff4caf50),
-                              onTap: () => context.go('/skills'),
-                            ),
-                            _PillButton(
-                              icon: Icons.bolt_outlined,
-                              label: I18n.t('chat.shortcutPill'),
-                              iconColor: const Color(0xffffb300),
-                              onTap: _insertShortcutSlash,
-                            ),
-                            const SizedBox(width: 6),
-                            Container(
-                              width: 1,
-                              height: 18,
-                              color: theme.colorScheme.onSurface
-                                  .withValues(alpha: 0.15),
-                            ),
-                            const SizedBox(width: 6),
-                            ModelSelector(
-                              onSelected: ref.read(chatProvider.notifier).setModel,
-                            ),
-                            _ToolIconButton(
-                              icon: _isListening ? Icons.mic : Icons.mic_none_outlined,
-                              onTap: _toggleListening,
-                              color: _isListening
-                                  ? theme.colorScheme.primary
-                                  : theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                            ),
-                            _ToolIconButton(
-                              icon: Icons.settings_outlined,
-                              onTap: () => context.go('/settings'),
-                            ),
-                          ],
-                        ),
-                      ),
+                    _ToolIconButton(
+                      icon: Icons.add_rounded,
+                      onTap: _showAttachmentMenu,
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
+                    Container(
+                      width: 1,
+                      height: 18,
+                      color: theme.colorScheme.onSurface
+                          .withValues(alpha: 0.15),
+                    ),
+                    const SizedBox(width: 6),
+                    ModelSelector(
+                      onSelected: ref.read(chatProvider.notifier).setModel,
+                    ),
+                    _ToolIconButton(
+                      icon: _isListening ? Icons.mic : Icons.mic_none_outlined,
+                      onTap: _toggleListening,
+                      color: _isListening
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                    ),
+                    const Spacer(),
                     GestureDetector(
                       onTap: isLoading
                           ? () => ref.read(chatProvider.notifier).abort()
@@ -629,42 +608,3 @@ class _ToolIconButton extends StatelessWidget {
   }
 }
 
-class _PillButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color iconColor;
-  final VoidCallback? onTap;
-
-  const _PillButton({
-    required this.icon,
-    required this.label,
-    required this.iconColor,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 14, color: iconColor),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                color: theme.colorScheme.onSurface,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

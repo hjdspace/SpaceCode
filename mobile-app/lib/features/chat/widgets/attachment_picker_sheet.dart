@@ -3,12 +3,20 @@ import 'package:file_picker/file_picker.dart';
 import '../../../core/i18n/strings.dart';
 import '../models/chat_attachment.dart';
 
+/// 附件抽屉中的非附件操作。
+enum AttachmentPickerAction { skills, shortcut }
+
 /// 附件选择底部抽屉。
 ///
 /// 通过 [showModalBottomSheet] 弹出，返回用户选择的 [ChatAttachment] 列表。
 /// 若用户取消或选择失败，返回空列表。
+///
+/// 当用户选择“技能”或“快捷”时，通过 [onAction] 回调通知调用方，
+/// 此时返回的空列表不应被忽略。
 class AttachmentPickerSheet extends StatelessWidget {
-  const AttachmentPickerSheet({super.key});
+  final ValueChanged<AttachmentPickerAction>? onAction;
+
+  const AttachmentPickerSheet({super.key, this.onAction});
 
   Future<void> _pickFiles(BuildContext context) async {
     final result = await FilePicker.platform.pickFiles(allowMultiple: true);
@@ -127,6 +135,35 @@ class AttachmentPickerSheet extends StatelessWidget {
                 style: TextStyle(color: theme.colorScheme.onSurface),
               ),
               onTap: () => _pickImages(context),
+            ),
+            const Divider(height: 24),
+            ListTile(
+              leading: Icon(
+                Icons.auto_awesome_outlined,
+                color: theme.colorScheme.primary,
+              ),
+              title: Text(
+                I18n.t('chat.skillsPill'),
+                style: TextStyle(color: theme.colorScheme.onSurface),
+              ),
+              onTap: () {
+                Navigator.pop(context, const <ChatAttachment>[]);
+                onAction?.call(AttachmentPickerAction.skills);
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                Icons.bolt_outlined,
+                color: theme.colorScheme.primary,
+              ),
+              title: Text(
+                I18n.t('chat.shortcutPill'),
+                style: TextStyle(color: theme.colorScheme.onSurface),
+              ),
+              onTap: () {
+                Navigator.pop(context, const <ChatAttachment>[]);
+                onAction?.call(AttachmentPickerAction.shortcut);
+              },
             ),
           ],
         ),
