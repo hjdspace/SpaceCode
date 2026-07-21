@@ -15,6 +15,7 @@ import 'binary_resolver.dart';
 import 'openai_compatible_model.dart';
 import 'permission_interceptor.dart';
 import 'plugins/git_plugin.dart';
+import 'plugins/python_plugin.dart';
 import 'plugins/shell_plugin.dart';
 import 'plugins/skill_plugin.dart';
 import 'plugins/workspace_plugin.dart';
@@ -65,6 +66,7 @@ class LocalAgentService {
         ? BinaryResolver.instance.environment
         : Platform.environment;
     final gitPath = BinaryResolver.instance.gitPath;
+    final pythonReady = BinaryResolver.instance.pythonReady;
     final plugins = <AgentPlugin>[
       // 横切权限拦截器（不提供工具，只实现 beforeToolCall）
       PermissionInterceptorPlugin(),
@@ -78,6 +80,8 @@ class LocalAgentService {
           workingDirectory: localPath,
           environment: env,
         ),
+      // PythonPlugin 仅在 Chaquopy 桥接就绪时加载
+      if (pythonReady) PythonPlugin(),
       if (skillRegistry != null && skillRegistry.skills.isNotEmpty)
         SkillPlugin(skillRegistry),
     ];

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
 import 'core/agent/binary_resolver.dart';
+import 'core/agent/chaquopy_bridge.dart';
 import 'core/agent/git_binary_extractor.dart';
 import 'core/config/mobile_config.dart';
 import 'core/i18n/strings.dart';
@@ -20,6 +21,8 @@ void main() async {
     await BinaryResolver.instance.initialize();
     // 尝试解压捆绑的 git 二进制（assets 不存在时优雅降级，GitPlugin 不加载）
     await GitBinaryExtractor.extract();
+    // 初始化 Chaquopy Python 桥接（非 Android 或未集成时优雅降级，PythonPlugin 不加载）
+    await ChaquopyBridge.instance.initialize();
   } catch (_) {
     // ignore - BinaryResolver 未初始化时 TerminalScreen 会回退到 Platform.environment
   }
