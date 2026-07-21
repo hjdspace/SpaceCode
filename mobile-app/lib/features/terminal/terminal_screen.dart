@@ -295,6 +295,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                   hintText: I18n.t('terminal.inputHint'),
                   hintStyle: const TextStyle(color: Colors.white38),
                   isDense: true,
+                  filled: false,
                   border: InputBorder.none,
                   contentPadding: const EdgeInsets.symmetric(vertical: 8),
                 ),
