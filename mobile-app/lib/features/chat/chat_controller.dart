@@ -19,6 +19,7 @@ import '../../core/github/clone_progress.dart';
 import '../../core/skills/skill_registry.dart';
 import '../../core/workspace/workspace_target.dart';
 import 'timeline_assembler.dart';
+import 'models/chat_attachment.dart';
 
 final chatProvider = StateNotifierProvider<ChatNotifier, ChatState>((ref) {
   return ChatNotifier(ref);
@@ -45,6 +46,9 @@ class ChatState {
 
   /// 每个 session 的 agent 名称
   final Map<String, String> agentBySession;
+
+  /// 每个 session 的待发送附件
+  final Map<String, List<ChatAttachment>> attachmentsBySession;
   final List<PermissionRequest> pendingPermissions;
 
   /// 桌面端当前激活会话的项目目录，由 session_changed 推送更新
@@ -62,6 +66,7 @@ class ChatState {
     required this.messagesBySession,
     required this.loadingBySession,
     required this.agentBySession,
+    required this.attachmentsBySession,
     this.pendingPermissions = const [],
     this.projectPath,
     this.sessions = const [],
@@ -88,6 +93,7 @@ class ChatState {
     Map<String, List<ChatMessage>>? messagesBySession,
     Map<String, bool>? loadingBySession,
     Map<String, String>? agentBySession,
+    Map<String, List<ChatAttachment>>? attachmentsBySession,
     List<PermissionRequest>? pendingPermissions,
     String? projectPath,
     List<SessionSummary>? sessions,
@@ -100,6 +106,8 @@ class ChatState {
         messagesBySession: messagesBySession ?? this.messagesBySession,
         loadingBySession: loadingBySession ?? this.loadingBySession,
         agentBySession: agentBySession ?? this.agentBySession,
+        attachmentsBySession:
+            attachmentsBySession ?? this.attachmentsBySession,
         pendingPermissions: pendingPermissions ?? this.pendingPermissions,
         projectPath: projectPath ?? this.projectPath,
         sessions: sessions ?? this.sessions,
@@ -114,6 +122,7 @@ class ChatState {
         messagesBySession: {},
         loadingBySession: {},
         agentBySession: {},
+        attachmentsBySession: {},
       );
 }
 
@@ -238,10 +247,14 @@ class ChatNotifier extends StateNotifier<ChatState> {
     return sid ?? state.currentSessionId;
   }
 
-  void sendMessage(String content) {
+  void sendMessage(
+    String content, {
+    List<ChatAttachment>? attachments,
+  }) {
     final processed = _processSkillCommand(content);
     if (processed == null) return;
     final actualContent = processed;
+    final effectiveAttachments = attachments ?? currentAttachments();
 
     final sessionId = state.currentSessionId ?? _uuid.v4();
     if (state.currentSessionId == null) {
@@ -272,12 +285,26 @@ class ChatNotifier extends StateNotifier<ChatState> {
               'sessionId': sessionId,
               'content': actualContent,
               'images': [],
+              'attachments': effectiveAttachments
+                  .map((attachment) => {
+                        'kind': attachment.kind.name,
+                        'name': attachment.name,
+                        'path': attachment.path,
+                        'contentBase64': attachment.contentBase64,
+                      })
+                  .toList(),
               if (workspace != null) 'workspace': workspace.promptContext,
             },
           ));
     } else {
-      _runLocalAgent(sessionId, actualContent, workspace);
+      _runLocalAgent(
+        sessionId,
+        actualContent,
+        workspace,
+        attachments: effectiveAttachments,
+      );
     }
+    _clearCurrentAttachments();
     _schedulePersist();
   }
 
@@ -303,11 +330,22 @@ class ChatNotifier extends StateNotifier<ChatState> {
     return "Load skill '$skillName' and follow its instructions for the following task:\n\n$taskText";
   }
 
-  Future<void> _runLocalAgent(String sessionId, String content,
-      WorkspaceTarget? selectedWorkspace) async {
+  Future<void> _runLocalAgent(
+    String sessionId,
+    String content,
+    WorkspaceTarget? selectedWorkspace, {
+    List<ChatAttachment>? attachments,
+  }) async {
     final token = AgentCancellationToken();
     _localWorkflowTokens[sessionId]?.cancel();
     _localWorkflowTokens[sessionId] = token;
+
+    var prompt = content;
+    if (attachments != null && attachments.isNotEmpty) {
+      final context = attachments.map((a) => a.promptContext).join('\n\n');
+      prompt = '$context\n\n$prompt';
+    }
+
     try {
       final config = _ref.read(mobileConfigProvider);
       var workspace = selectedWorkspace;
@@ -392,7 +430,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
       var answer = await _localAgent.complete(
         sessionId: sessionId,
         config: config,
-        prompt: content,
+        prompt: prompt,
         workspace: workspace,
         history: _buildLocalAgentHistory(sessionId, content),
         cancellationToken: token,
@@ -537,6 +575,48 @@ class ChatNotifier extends StateNotifier<ChatState> {
       clearWorkspaceTarget: target == null,
     );
     _schedulePersist();
+  }
+
+  void addAttachment(ChatAttachment attachment) {
+    final sessionId = state.currentSessionId;
+    if (sessionId == null) return;
+    final map = Map<String, List<ChatAttachment>>.from(
+        state.attachmentsBySession);
+    map[sessionId] = [...(map[sessionId] ?? []), attachment];
+    state = state.copyWith(attachmentsBySession: map);
+  }
+
+  void removeAttachment(ChatAttachment attachment) {
+    final sessionId = state.currentSessionId;
+    if (sessionId == null) return;
+    final map = Map<String, List<ChatAttachment>>.from(
+        state.attachmentsBySession);
+    final list = map[sessionId];
+    if (list == null) return;
+    final newList =
+        list.where((item) => item != attachment).toList();
+    if (newList.length == list.length) return;
+    map[sessionId] = newList;
+    state = state.copyWith(attachmentsBySession: map);
+  }
+
+  List<ChatAttachment> currentAttachments() {
+    final sessionId = state.currentSessionId;
+    if (sessionId == null) return [];
+    return state.attachmentsBySession[sessionId] ?? [];
+  }
+
+  void _clearCurrentAttachments() {
+    final sessionId = state.currentSessionId;
+    if (sessionId == null) return;
+    final map = Map<String, List<ChatAttachment>>.from(
+        state.attachmentsBySession);
+    map.remove(sessionId);
+    state = state.copyWith(attachmentsBySession: map);
+  }
+
+  Future<void> setModel(String model) async {
+    await _ref.read(mobileConfigProvider.notifier).saveModel(model);
   }
 
   void _handleLocalAgentEvent(String sessionId, AgentEvent event) {
