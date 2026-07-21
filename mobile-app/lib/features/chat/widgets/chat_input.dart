@@ -11,6 +11,7 @@ import 'attachment_picker_sheet.dart';
 import 'command_menu.dart';
 import 'mention_picker.dart';
 import 'model_selector.dart';
+import 'workspace_toolbar.dart';
 
 class ChatInput extends ConsumerStatefulWidget {
   const ChatInput({super.key});
@@ -400,130 +401,141 @@ class _ChatInputState extends ConsumerState<ChatInput> {
       ),
       child: SafeArea(
         top: false,
-        child: Card(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-            side: BorderSide(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
-            ),
-          ),
-          color: theme.colorScheme.surface,
-          margin: EdgeInsets.zero,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (attachments.isNotEmpty) ...[
-                  _AttachmentChips(
-                    attachments: attachments,
-                    onRemove: _removeAttachment,
-                  ),
-                  const SizedBox(height: 8),
-                ],
-                Focus(
-                  onKeyEvent: (node, event) {
-                    if (_handleKeyEvent(event)) {
-                      return KeyEventResult.handled;
-                    }
-                    return KeyEventResult.ignored;
-                  },
-                  child: TextField(
-                    controller: _controller,
-                    focusNode: _focusNode,
-                    maxLines: null,
-                    textInputAction: TextInputAction.newline,
-                    style: TextStyle(
-                      color: theme.colorScheme.onSurface,
-                      fontSize: 15,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: I18n.t('chat.inputHint'),
-                      hintStyle: TextStyle(
-                        color: theme.colorScheme.onSurface
-                            .withValues(alpha: 0.4),
-                      ),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 6,
-                      ),
-                      isDense: true,
-                    ),
-                    onChanged: (_) => setState(() {}),
-                    onSubmitted: (_) {
-                      if (_commandMenuOverlay != null) {
-                        _selectCommand(_commandSelectedIndex);
-                      } else {
-                        _send();
-                      }
-                    },
-                  ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+                side: BorderSide(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
                 ),
-                const SizedBox(height: 8),
-                Row(
+              ),
+              color: theme.colorScheme.surface,
+              margin: EdgeInsets.zero,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    _ToolIconButton(
-                      icon: Icons.add_rounded,
-                      onTap: _showAttachmentMenu,
-                    ),
-                    const SizedBox(width: 6),
-                    Container(
-                      width: 1,
-                      height: 18,
-                      color: theme.colorScheme.onSurface
-                          .withValues(alpha: 0.15),
-                    ),
-                    const SizedBox(width: 6),
-                    ModelSelector(
-                      onSelected: ref.read(chatProvider.notifier).setModel,
-                    ),
-                    _ToolIconButton(
-                      icon: _isListening ? Icons.mic : Icons.mic_none_outlined,
-                      onTap: _toggleListening,
-                      color: _isListening
-                          ? theme.colorScheme.primary
-                          : theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                    ),
-                    const Spacer(),
-                    GestureDetector(
-                      onTap: isLoading
-                          ? () => ref.read(chatProvider.notifier).abort()
-                          : _canSend
-                              ? _send
-                              : null,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: isLoading
-                              ? const Color(0xffc64545).withValues(alpha: 0.15)
-                              : _canSend
-                                  ? const Color(0xff7c3aed)
-                                  : theme.colorScheme.onSurface
-                                      .withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(
-                          isLoading
-                              ? Icons.stop_rounded
-                              : Icons.arrow_upward_rounded,
-                          size: 18,
-                          color: isLoading
-                              ? const Color(0xffc64545)
-                              : _canSend
-                                  ? Colors.white
-                                  : theme.colorScheme.onSurface
-                                      .withValues(alpha: 0.3),
-                        ),
+                    if (attachments.isNotEmpty) ...[
+                      _AttachmentChips(
+                        attachments: attachments,
+                        onRemove: _removeAttachment,
                       ),
+                      const SizedBox(height: 8),
+                    ],
+                    Focus(
+                      onKeyEvent: (node, event) {
+                        if (_handleKeyEvent(event)) {
+                          return KeyEventResult.handled;
+                        }
+                        return KeyEventResult.ignored;
+                      },
+                      child: TextField(
+                        controller: _controller,
+                        focusNode: _focusNode,
+                        maxLines: null,
+                        textInputAction: TextInputAction.newline,
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurface,
+                          fontSize: 15,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: I18n.t('chat.inputHint'),
+                          hintStyle: TextStyle(
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.4),
+                          ),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 6,
+                          ),
+                          isDense: true,
+                        ),
+                        onChanged: (_) => setState(() {}),
+                        onSubmitted: (_) {
+                          if (_commandMenuOverlay != null) {
+                            _selectCommand(_commandSelectedIndex);
+                          } else {
+                            _send();
+                          }
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        _ToolIconButton(
+                          icon: Icons.add_rounded,
+                          onTap: _showAttachmentMenu,
+                        ),
+                        const SizedBox(width: 6),
+                        Container(
+                          width: 1,
+                          height: 18,
+                          color: theme.colorScheme.onSurface
+                              .withValues(alpha: 0.15),
+                        ),
+                        const SizedBox(width: 6),
+                        ModelSelector(
+                          onSelected: ref.read(chatProvider.notifier).setModel,
+                        ),
+                        _ToolIconButton(
+                          icon: _isListening
+                              ? Icons.mic
+                              : Icons.mic_none_outlined,
+                          onTap: _toggleListening,
+                          color: _isListening
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.onSurface
+                                  .withValues(alpha: 0.6),
+                        ),
+                        const Spacer(),
+                        GestureDetector(
+                          onTap: isLoading
+                              ? () => ref.read(chatProvider.notifier).abort()
+                              : _canSend
+                                  ? _send
+                                  : null,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: isLoading
+                                  ? const Color(0xffc64545)
+                                      .withValues(alpha: 0.15)
+                                  : _canSend
+                                      ? const Color(0xff7c3aed)
+                                      : theme.colorScheme.onSurface
+                                          .withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(
+                              isLoading
+                                  ? Icons.stop_rounded
+                                  : Icons.arrow_upward_rounded,
+                              size: 18,
+                              color: isLoading
+                                  ? const Color(0xffc64545)
+                                  : _canSend
+                                      ? Colors.white
+                                      : theme.colorScheme.onSurface
+                                          .withValues(alpha: 0.3),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
+              ),
             ),
-          ),
+            const SizedBox(height: 6),
+            const WorkspaceToolbar(),
+          ],
         ),
       ),
     );
@@ -607,4 +619,3 @@ class _ToolIconButton extends StatelessWidget {
     );
   }
 }
-
