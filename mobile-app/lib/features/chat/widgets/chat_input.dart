@@ -464,6 +464,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
                             color: theme.colorScheme.onSurface
                                 .withValues(alpha: 0.4),
                           ),
+                          filled: false,
                           border: InputBorder.none,
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 8,
