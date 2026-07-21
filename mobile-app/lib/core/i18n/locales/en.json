@@ -45,6 +45,15 @@
   "chat.mentionImage": "Choose image",
   "chat.modelTitle": "Select Model",
   "chat.inputHint": "Type a message...",
+  "chat.send": "Send",
+  "chat.attachmentFile": "File",
+  "chat.attachmentFolder": "Folder",
+  "chat.attachmentImage": "Image",
   "chat.skillsPill": "Skills",
-  "chat.shortcutPill": "Shortcut"
+  "chat.shortcutPill": "Shortcut",
+  "chat.commandNew": "New session",
+  "chat.commandSettings": "Open settings",
+  "chat.commandSkills": "Manage skills",
+  "chat.groupCommands": "Commands",
+  "chat.groupSkills": "Skills"
 }

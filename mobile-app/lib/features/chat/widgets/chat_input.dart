@@ -115,25 +115,25 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   void _showCommandMenu(String prefix) {
     final registry = ref.read(skillRegistryProvider);
     final allItems = <CommandMenuItem>[
-      const CommandMenuItem(
+      CommandMenuItem(
         command: '/new',
-        description: '新建会话',
-        group: '常用',
+        description: I18n.t('chat.commandNew'),
+        group: I18n.t('chat.groupCommands'),
       ),
-      const CommandMenuItem(
+      CommandMenuItem(
         command: '/settings',
-        description: '打开设置',
-        group: '常用',
+        description: I18n.t('chat.commandSettings'),
+        group: I18n.t('chat.groupCommands'),
       ),
-      const CommandMenuItem(
+      CommandMenuItem(
         command: '/skills',
-        description: '管理技能',
-        group: '常用',
+        description: I18n.t('chat.commandSkills'),
+        group: I18n.t('chat.groupCommands'),
       ),
       ...registry.skills.map((s) => CommandMenuItem(
             command: '/skill:${s.name}',
             description: s.description,
-            group: '技能',
+            group: I18n.t('chat.groupSkills'),
           )),
     ];
     final filtered = prefix == '/'

@@ -45,6 +45,15 @@
   "chat.mentionImage": "选择图片",
   "chat.modelTitle": "选择模型",
   "chat.inputHint": "输入消息...",
+  "chat.send": "发送",
+  "chat.attachmentFile": "文件",
+  "chat.attachmentFolder": "文件夹",
+  "chat.attachmentImage": "图片",
   "chat.skillsPill": "技能",
-  "chat.shortcutPill": "快捷"
+  "chat.shortcutPill": "快捷",
+  "chat.commandNew": "新建会话",
+  "chat.commandSettings": "打开设置",
+  "chat.commandSkills": "管理技能",
+  "chat.groupCommands": "常用",
+  "chat.groupSkills": "技能"
 }
