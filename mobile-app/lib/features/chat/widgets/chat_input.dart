@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import '../../../core/i18n/strings.dart';
 import '../../../core/skills/skill_registry.dart';
@@ -314,38 +315,53 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   }
 
   Future<void> _toggleListening() async {
-    if (!_speechAvailable) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('语音输入不可用')),
-        );
-      }
-      return;
-    }
     if (_isListening) {
       await _speech.stop();
       if (mounted) setState(() => _isListening = false);
       return;
     }
-    try {
-      final available = await _speech.initialize(
-        onError: (_) {
-          if (mounted) setState(() => _isListening = false);
-        },
-        onStatus: (status) {
-          if (status == 'done' || status == 'notListening') {
-            if (mounted) setState(() => _isListening = false);
-          }
-        },
-      );
-      if (!available) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('无法使用语音识别')),
-          );
-        }
-        return;
+
+    // 主动请求录音权限（Android 6.0+ 需要运行时请求）
+    final micStatus = await Permission.microphone.request();
+    if (micStatus != PermissionStatus.granted) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('需要麦克风权限才能使用语音输入'),
+            action: SnackBarAction(
+              label: '去设置',
+              onPressed: () => openAppSettings(),
+            ),
+          ),
+        );
       }
+      return;
+    }
+
+    try {
+      // 每次点击都重新 initialize，避免首次初始化失败后无法重试
+      if (!_speechAvailable) {
+        final available = await _speech.initialize(
+          onError: (_) {
+            if (mounted) setState(() => _isListening = false);
+          },
+          onStatus: (status) {
+            if (status == 'done' || status == 'notListening') {
+              if (mounted) setState(() => _isListening = false);
+            }
+          },
+        );
+        if (!available) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('无法使用语音识别，请检查设备是否支持')),
+            );
+          }
+          return;
+        }
+        if (mounted) setState(() => _speechAvailable = true);
+      }
+
       await _speech.listen(
         onResult: (result) {
           if (!mounted) return;
