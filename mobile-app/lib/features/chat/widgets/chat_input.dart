@@ -428,7 +428,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
                 ),
               ),
-              color: theme.colorScheme.surface,
+              color: theme.scaffoldBackgroundColor,
               margin: EdgeInsets.zero,
               child: Padding(
                 padding: const EdgeInsets.all(12),
