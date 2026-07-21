@@ -1,3 +1,34 @@
+## [0.6.10](https://github.com/hjdspace/SpaceCode/compare/v0.6.9...v0.6.10) (2026-07-22)
+
+### Features
+
+* **mobile:** 实现内置终端与 Shell 命令执行能力，支持工作区内执行命令
+* **mobile:** 实现 GitPlugin 12 个结构化 Git 工具
+* **mobile:** 实现 Python 沙盒与 PythonPlugin，支持 Python 代码执行
+* **mobile:** 新增权限拦截器（CommandClassifier 命令危险等级分类 + PermissionInterceptorPlugin 异步询问流程 + 集成到本地 Agent 与 UI）
+* **mobile:** Android Chaquopy 集成与 git 二进制构建脚本
+* **mobile/chat:** 重写聊天输入框组件，新增模型选择器、@mention 选择浮层、附件选择底部抽屉、附件 Chip 组件
+* **mobile/chat:** 扩展 ChatState / ChatNotifier 支持附件与模型切换，新增 ModelService 与 modelsProvider
+* **mobile/chat:** 使用 CommandMenu 替换 SkillCommandMenu 并支持命令分组
+* **mobile/chat:** 补全聊天输入框 i18n 字典并新增 widget 测试
+* **mobile/config:** 添加 saveModel 方法以支持保存当前模型
+* **mobile:** Agent 续跑能力，maxTurns 提升至 150（参考 claude-code 安全闸），截断时提示并可一键继续上次任务
+* **i18n:** 新增工作区相关多语言文案
+
+### Bug Fixes
+
+* **mobile:** 聊天输入框 TextField 禁用主题填充，消除浅灰背景
+* **mobile:** 语音输入主动请求麦克风权限，修复点击无反应问题
+* **mobile:** 终端输入框禁用主题填充背景，避免亮色主题下白底白字
+* **mobile/chat:** 恢复 WorkspaceToolbar 至输入框下方
+* **mobile:** 无工作区时回退到 homeDir 确保终端和 Shell 工具可用
+* **mobile:** 暂时禁用 Chaquopy 插件（不兼容 Gradle 9）
+* **chat:** 修复聊天输入栏工具按钮超出屏幕的问题
+
+### Refactor
+
+* **mobile/chat:** 合并工具栏入口到+号、修复语音输入、移除设置按钮
+
 ## [0.6.9](https://github.com/hjdspace/SpaceCode/compare/v0.6.8...v0.6.9) (2026-07-21)
 
 ### Features
