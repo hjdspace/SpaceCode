@@ -8,7 +8,7 @@ import '../../../core/github/github_service.dart';
 import '../../../core/skills/skill_registry.dart';
 import '../../../core/workspace/workspace_target.dart';
 import '../chat_controller.dart';
-import 'skill_command_menu.dart';
+import 'command_menu.dart';
 
 class ChatInput extends ConsumerStatefulWidget {
   const ChatInput({super.key});
@@ -64,18 +64,22 @@ class _ChatInputState extends ConsumerState<ChatInput> {
       const CommandMenuItem(
         command: '/new',
         description: '新建会话',
+        group: '常用',
       ),
       const CommandMenuItem(
         command: '/settings',
         description: '打开设置',
+        group: '常用',
       ),
       const CommandMenuItem(
         command: '/skills',
         description: '管理技能',
+        group: '常用',
       ),
       ...registry.skills.map((s) => CommandMenuItem(
             command: '/skill:${s.name}',
             description: s.description,
+            group: '技能',
           )),
     ];
     final filtered = prefix == '/'
@@ -115,7 +119,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
           bottom: size.height + 8,
           left: 12,
           right: 12,
-          child: SkillCommandMenu(
+          child: CommandMenu(
             items: _commandItems,
             selectedIndex: _commandSelectedIndex,
             onSelected: _selectCommand,
