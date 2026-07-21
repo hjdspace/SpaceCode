@@ -456,49 +456,58 @@ class _ChatInputState extends ConsumerState<ChatInput> {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    _ToolIconButton(
-                      icon: Icons.insert_drive_file_outlined,
-                      onTap: _pickFile,
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            _ToolIconButton(
+                              icon: Icons.insert_drive_file_outlined,
+                              onTap: _pickFile,
+                            ),
+                            _ToolIconButton(
+                              icon: Icons.image_outlined,
+                              onTap: _pickImage,
+                            ),
+                            _PillButton(
+                              icon: Icons.auto_awesome_outlined,
+                              label: I18n.t('chat.skillsPill'),
+                              iconColor: const Color(0xff4caf50),
+                              onTap: () => context.go('/skills'),
+                            ),
+                            _PillButton(
+                              icon: Icons.bolt_outlined,
+                              label: I18n.t('chat.shortcutPill'),
+                              iconColor: const Color(0xffffb300),
+                              onTap: _insertShortcutSlash,
+                            ),
+                            const SizedBox(width: 6),
+                            Container(
+                              width: 1,
+                              height: 18,
+                              color: theme.colorScheme.onSurface
+                                  .withValues(alpha: 0.15),
+                            ),
+                            const SizedBox(width: 6),
+                            ModelSelector(
+                              onSelected: ref.read(chatProvider.notifier).setModel,
+                            ),
+                            _ToolIconButton(
+                              icon: _isListening ? Icons.mic : Icons.mic_none_outlined,
+                              onTap: _toggleListening,
+                              color: _isListening
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                            ),
+                            _ToolIconButton(
+                              icon: Icons.settings_outlined,
+                              onTap: () => context.go('/settings'),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                    _ToolIconButton(
-                      icon: Icons.image_outlined,
-                      onTap: _pickImage,
-                    ),
-                    _PillButton(
-                      icon: Icons.auto_awesome_outlined,
-                      label: I18n.t('chat.skillsPill'),
-                      iconColor: const Color(0xff4caf50),
-                      onTap: () => context.go('/skills'),
-                    ),
-                    _PillButton(
-                      icon: Icons.bolt_outlined,
-                      label: I18n.t('chat.shortcutPill'),
-                      iconColor: const Color(0xffffb300),
-                      onTap: _insertShortcutSlash,
-                    ),
-                    const SizedBox(width: 6),
-                    Container(
-                      width: 1,
-                      height: 18,
-                      color: theme.colorScheme.onSurface
-                          .withValues(alpha: 0.15),
-                    ),
-                    const SizedBox(width: 6),
-                    ModelSelector(
-                      onSelected: ref.read(chatProvider.notifier).setModel,
-                    ),
-                    _ToolIconButton(
-                      icon: _isListening ? Icons.mic : Icons.mic_none_outlined,
-                      onTap: _toggleListening,
-                      color: _isListening
-                          ? theme.colorScheme.primary
-                          : theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                    ),
-                    _ToolIconButton(
-                      icon: Icons.settings_outlined,
-                      onTap: () => context.go('/settings'),
-                    ),
-                    const Spacer(),
+                    const SizedBox(width: 8),
                     GestureDetector(
                       onTap: isLoading
                           ? () => ref.read(chatProvider.notifier).abort()
