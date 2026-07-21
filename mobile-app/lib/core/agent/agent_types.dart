@@ -61,6 +61,10 @@ enum AgentEventType {
   toolExecutionStart,
   toolExecutionEnd,
   agentEnd,
+  /// 权限询问事件：Plugin 抛出 PermissionRequestedException，
+  /// AgentSession 推送此事件给 UI，UI 渲染 PermissionCard，
+  /// 用户响应后通过 AgentSession.resolvePermission 解锁。
+  permissionRequest,
 }
 
 class AgentEvent {
@@ -71,6 +75,17 @@ class AgentEvent {
   final String? delta;
   final bool isError;
 
+  /// 权限请求 ID（仅 type == permissionRequest 时有效）
+  final String? permissionRequestId;
+  /// 权限请求关联的工具名（仅 type == permissionRequest 时有效）
+  final String? permissionToolName;
+  /// 权限请求关联的工具参数 JSON（仅 type == permissionRequest 时有效）
+  final Map<String, dynamic>? permissionArguments;
+  /// 权限请求原因（仅 type == permissionRequest 时有效）
+  final String? permissionReason;
+  /// 危险等级（read/write/dangerous，仅 type == permissionRequest 时有效）
+  final String? permissionDangerLevel;
+
   const AgentEvent({
     required this.type,
     this.message,
@@ -78,7 +93,30 @@ class AgentEvent {
     this.toolResult,
     this.delta,
     this.isError = false,
+    this.permissionRequestId,
+    this.permissionToolName,
+    this.permissionArguments,
+    this.permissionReason,
+    this.permissionDangerLevel,
   });
+
+  /// 构造权限请求事件的便捷方法。
+  factory AgentEvent.permissionRequest({
+    required String requestId,
+    required AgentToolCall toolCall,
+    required String reason,
+    required String dangerLevel,
+  }) {
+    return AgentEvent(
+      type: AgentEventType.permissionRequest,
+      permissionRequestId: requestId,
+      toolCall: toolCall,
+      permissionToolName: toolCall.name,
+      permissionArguments: toolCall.arguments,
+      permissionReason: reason,
+      permissionDangerLevel: dangerLevel,
+    );
+  }
 }
 
 enum AgentStopReason { completed, maxTurns }

@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'agent_model.dart';
 import 'agent_plugin.dart';
 import 'agent_types.dart';
+import 'permission_exception.dart';
 
 typedef AgentEventListener = void Function(AgentEvent event);
 
@@ -12,6 +15,19 @@ class AgentSession {
   final AgentToolRegistry _tools;
   final List<AgentMessage> _messages = [];
 
+  /// 当前会话的权限模式（default/plan/acceptEdits/bypassPermissions）。
+  ///
+  /// 由 [LocalAgentService] 在构造 session 时传入，影响所有 Plugin 的
+  /// beforeToolCall 决策。
+  final String permissionMode;
+
+  /// 进行中的权限询问：requestId → Completer。
+  ///
+  /// Plugin 抛出 [PermissionRequestedException] 时，[AgentSession] 创建
+  /// Completer 并存入此 Map，推送 [AgentEventType.permissionRequest] 事件给 UI。
+  /// UI 收到用户响应后调用 [resolvePermission] 完成 Completer，工具调用继续。
+  final Map<String, Completer<AgentToolDecision>> _pendingPermissions = {};
+
   AgentSession({
     required this.model,
     required this.systemPrompt,
@@ -19,11 +35,33 @@ class AgentSession {
     List<AgentMessage> initialMessages = const [],
     this.maxTurns = 16,
     this.contextMessageLimit = 48,
+    this.permissionMode = PermissionMode.defaultMode,
   }) : _tools = AgentToolRegistry(plugins) {
     _messages.addAll(initialMessages);
   }
 
   List<AgentMessage> get messages => List.unmodifiable(_messages);
+
+  /// 用户响应权限询问。
+  ///
+  /// 由 ChatNotifier 在用户点击 PermissionCard 的"允许/拒绝"按钮后调用。
+  /// 如果 [requestId] 不存在（已超时或会话已取消），此调用为 no-op。
+  void resolvePermission(String requestId, AgentToolDecision decision) {
+    final completer = _pendingPermissions.remove(requestId);
+    if (completer != null && !completer.isCompleted) {
+      completer.complete(decision);
+    }
+  }
+
+  /// 取消所有进行中的权限询问（用于会话取消时）。
+  void _cancelAllPendingPermissions() {
+    for (final completer in _pendingPermissions.values) {
+      if (!completer.isCompleted) {
+        completer.complete(const AgentToolDecision.deny('Session cancelled'));
+      }
+    }
+    _pendingPermissions.clear();
+  }
 
   Future<AgentRunResult> run(
     String prompt, {
@@ -114,6 +152,7 @@ class AgentSession {
         newMessages: newMessages,
       );
     } finally {
+      _cancelAllPendingPermissions();
       onEvent?.call(const AgentEvent(type: AgentEventType.agentEnd));
     }
   }
@@ -121,18 +160,23 @@ class AgentSession {
   Future<AgentToolResult> _executeTool(
     AgentToolCall call,
     AgentCancellationToken token,
+    AgentEventListener? onEvent,
   ) async {
     try {
-      final tool = _tools.find(call.name);
-      if (tool == null) {
-        return AgentToolResult(
-          content: 'Tool ${call.name} not found',
-          isError: true,
-        );
-      }
+      // 1. 横切拦截：所有 Plugin 的 beforeToolCall 先执行
+      //    （即使工具未注册，拦截器也能 deny 危险调用）
       for (final plugin in _tools.plugins) {
         token.throwIfCancelled();
-        final decision = await plugin.beforeToolCall(call);
+        AgentToolDecision decision;
+        try {
+          decision = await plugin.beforeToolCall(
+            call,
+            permissionMode: permissionMode,
+          );
+        } on PermissionRequestedException catch (request) {
+          // 异步询问用户：推送事件 + 等待 Completer
+          decision = await _askUser(request, token, onEvent);
+        }
         if (!decision.allowed) {
           return AgentToolResult(
             content: decision.reason ?? 'Tool execution blocked',
@@ -140,6 +184,15 @@ class AgentSession {
           );
         }
       }
+      // 2. 工具查找
+      final tool = _tools.find(call.name);
+      if (tool == null) {
+        return AgentToolResult(
+          content: 'Tool ${call.name} not found',
+          isError: true,
+        );
+      }
+      // 3. 执行 + afterToolCall
       token.throwIfCancelled();
       final result = await tool.execute(call.arguments, token);
       for (final plugin in _tools.plugins) {
@@ -152,6 +205,53 @@ class AgentSession {
     } catch (error) {
       return AgentToolResult(
           content: 'Tool ${call.name} failed: $error', isError: true);
+    }
+  }
+
+  /// 推送权限询问事件给 UI 并等待用户响应。
+  ///
+  /// 流程：
+  /// 1. 创建 Completer 存入 [_pendingPermissions]
+  /// 2. 推送 [AgentEventType.permissionRequest] 事件给 UI
+  /// 3. 等待 [resolvePermission] 完成 Completer（或 5 分钟超时自动 deny）
+  Future<AgentToolDecision> _askUser(
+    PermissionRequestedException request,
+    AgentCancellationToken token,
+    AgentEventListener? onEvent,
+  ) async {
+    final completer = Completer<AgentToolDecision>();
+    _pendingPermissions[request.requestId] = completer;
+
+    onEvent?.call(AgentEvent.permissionRequest(
+      requestId: request.requestId,
+      toolCall: request.toolCall,
+      reason: request.reason,
+      dangerLevel: request.dangerLevel,
+    ));
+
+    // 5 分钟超时自动拒绝
+    final timeoutFuture = Future<AgentToolDecision>.delayed(
+      const Duration(minutes: 5),
+      () => const AgentToolDecision.deny('Permission request timed out'),
+    );
+
+    // 会话取消时自动拒绝
+    final cancelFuture = token.whenCancelled.then((_) =>
+        const AgentToolDecision.deny('Session cancelled'));
+
+    try {
+      final decision = await Future.any(
+        [completer.future, timeoutFuture, cancelFuture],
+      );
+      // 清理：若 completer 仍未完成（因为超时或取消先返回），标记为已完成
+      if (!completer.isCompleted) {
+        completer.complete(decision);
+      }
+      _pendingPermissions.remove(request.requestId);
+      return decision;
+    } catch (error) {
+      _pendingPermissions.remove(request.requestId);
+      return AgentToolDecision.deny('Permission request failed: $error');
     }
   }
 
@@ -186,7 +286,7 @@ class AgentSession {
       toolCall: call,
     ));
     try {
-      final result = await _executeTool(call, token);
+      final result = await _executeTool(call, token, onEvent);
       onEvent?.call(AgentEvent(
         type: AgentEventType.toolExecutionEnd,
         toolCall: call,

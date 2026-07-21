@@ -34,10 +34,34 @@ class AgentToolDecision {
   const AgentToolDecision.deny(this.reason) : allowed = false;
 }
 
+/// 权限模式常量。
+///
+/// 与桌面端 engine / mobile-app SharedPreferences 中的字符串值保持一致。
+class PermissionMode {
+  static const defaultMode = 'default';
+  static const plan = 'plan';
+  static const acceptEdits = 'acceptEdits';
+  static const bypassPermissions = 'bypassPermissions';
+
+  static const all = [defaultMode, plan, acceptEdits, bypassPermissions];
+}
+
 abstract class AgentPlugin {
   List<AgentTool> createTools() => const [];
 
-  Future<AgentToolDecision> beforeToolCall(AgentToolCall call) async {
+  /// 工具调用前的拦截钩子。
+  ///
+  /// [permissionMode] 为当前会话的权限模式（default/plan/acceptEdits/bypassPermissions）。
+  /// Plugin 可基于此判断是否：
+  /// - 直接允许（return AgentToolDecision.allow()）
+  /// - 直接拒绝（return AgentToolDecision.deny(reason)）
+  /// - 抛 [PermissionRequestedException] 请求用户决定
+  ///
+  /// 默认实现：允许所有工具调用（向后兼容现有 Plugin）。
+  Future<AgentToolDecision> beforeToolCall(
+    AgentToolCall call, {
+    String permissionMode = PermissionMode.defaultMode,
+  }) async {
     return const AgentToolDecision.allow();
   }
 
