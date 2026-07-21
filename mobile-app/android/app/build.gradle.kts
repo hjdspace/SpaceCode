@@ -1,9 +1,22 @@
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        // 注：Chaquopy 16.0.0 目前不兼容 Gradle 9（使用了已移除的 org.gradle.util.VersionNumber）
+        // 暂时禁用 Chaquopy 插件，Python 功能将不可用（PythonPlugin 优雅降级不加载）
+        // 待 Chaquopy 发布兼容 Gradle 9 的版本后，取消下方注释即可启用
+        // classpath("com.chaquo.python:gradle:16.0.0")
+    }
+}
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
-    // Chaquopy：嵌入式 CPython，提供 PythonPlugin 的 Android 端实现
-    id("com.chaquo.python")
+    // Chaquopy 暂时禁用（不兼容 Gradle 9）
+    // id("com.chaquo.python")
 }
 
 android {
@@ -31,18 +44,16 @@ android {
         }
     }
 
-    // Chaquopy Python 嵌入配置
-    // - version：CPython 版本（Chaquopy 16 支持 3.8-3.12）
-    // - pip：仅允许纯 Python 包，避免 C 扩展编译问题
-    chaquopy {
-        defaultConfig {
-            version = "3.11"
-            pip {
-                // 暂不预装第三方包；Agent 运行时所需的 stdlib 已随 CPython 打包
-                // 后续可在此添加 pure-Python 包，如 "requests"
-            }
-        }
-    }
+    // Chaquopy Python 嵌入配置（暂时禁用，待兼容 Gradle 9 后启用）
+    // chaquopy {
+    //     defaultConfig {
+    //         version = "3.11"
+    //         pip {
+    //             // 暂不预装第三方包；Agent 运行时所需的 stdlib 已随 CPython 打包
+    //             // 后续可在此添加 pure-Python 包，如 "requests"
+    //         }
+    //     }
+    // }
 
     buildTypes {
         release {
