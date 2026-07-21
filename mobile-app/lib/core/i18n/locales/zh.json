@@ -43,5 +43,8 @@
   "chat.mentionFile": "选择文件",
   "chat.mentionFolder": "选择文件夹",
   "chat.mentionImage": "选择图片",
-  "chat.modelTitle": "选择模型"
+  "chat.modelTitle": "选择模型",
+  "chat.inputHint": "输入消息...",
+  "chat.skillsPill": "技能",
+  "chat.shortcutPill": "快捷"
 }

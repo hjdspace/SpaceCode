@@ -25,6 +25,7 @@ dependencies:
   json_annotation: ^4.9.0
   http: ^1.2.2
   file_picker: ^8.0.7
+  speech_to_text: ^7.0.0
   archive: ^3.6.1
   path_provider: ^2.1.5
   url_launcher: ^6.3.1

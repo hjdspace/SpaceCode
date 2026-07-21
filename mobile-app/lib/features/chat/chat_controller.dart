@@ -88,6 +88,11 @@ class ChatState {
   String? get currentAgent =>
       currentSessionId == null ? null : agentBySession[currentSessionId];
 
+  /// 当前会话的待发送附件
+  List<ChatAttachment> get currentAttachments => currentSessionId == null
+      ? const []
+      : attachmentsBySession[currentSessionId] ?? const [];
+
   ChatState copyWith({
     String? currentSessionId,
     Map<String, List<ChatMessage>>? messagesBySession,

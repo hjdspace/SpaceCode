@@ -43,5 +43,8 @@
   "chat.mentionFile": "Choose file",
   "chat.mentionFolder": "Choose folder",
   "chat.mentionImage": "Choose image",
-  "chat.modelTitle": "Select Model"
+  "chat.modelTitle": "Select Model",
+  "chat.inputHint": "Type a message...",
+  "chat.skillsPill": "Skills",
+  "chat.shortcutPill": "Shortcut"
 }
