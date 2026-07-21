@@ -69,5 +69,15 @@
   "permission.request.deny": "Deny",
   "permission.request.timeout": "Permission request timed out",
   "permission.request.reasonWrite": "Write operation requires confirmation",
-  "permission.request.reasonDangerous": "Dangerous operation requires confirmation"
+  "permission.request.reasonDangerous": "Dangerous operation requires confirmation",
+  "terminal.title": "Terminal",
+  "terminal.inputHint": "Type a command...",
+  "terminal.clear": "Clear",
+  "terminal.interrupt": "Interrupt",
+  "terminal.noWorkspace": "No workspace selected, cannot start terminal",
+  "terminal.commandRunning": "A command is running. Abort it?",
+  "terminal.confirmAbort": "Abort",
+  "terminal.keepRunning": "Keep running",
+  "terminal.exitCode": "Exit code {code}, {ms}ms",
+  "terminal.sendToAgent": "Send to Agent"
 }

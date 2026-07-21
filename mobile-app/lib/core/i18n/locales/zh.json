@@ -69,5 +69,15 @@
   "permission.request.deny": "拒绝",
   "permission.request.timeout": "权限请求超时",
   "permission.request.reasonWrite": "写操作需要用户确认",
-  "permission.request.reasonDangerous": "危险操作需要用户确认"
+  "permission.request.reasonDangerous": "危险操作需要用户确认",
+  "terminal.title": "终端",
+  "terminal.inputHint": "输入命令...",
+  "terminal.clear": "清屏",
+  "terminal.interrupt": "中断",
+  "terminal.noWorkspace": "未选择工作区，无法启动终端",
+  "terminal.commandRunning": "命令运行中，是否中止？",
+  "terminal.confirmAbort": "中止",
+  "terminal.keepRunning": "继续运行",
+  "terminal.exitCode": "退出码 {code}，耗时 {ms}ms",
+  "terminal.sendToAgent": "发送给 Agent"
 }

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
@@ -10,8 +11,10 @@ import 'agent_loop.dart';
 import 'agent_model.dart';
 import 'agent_plugin.dart';
 import 'agent_types.dart';
+import 'binary_resolver.dart';
 import 'openai_compatible_model.dart';
 import 'permission_interceptor.dart';
+import 'plugins/shell_plugin.dart';
 import 'plugins/skill_plugin.dart';
 import 'plugins/workspace_plugin.dart';
 
@@ -56,10 +59,16 @@ class LocalAgentService {
     }
 
     final model = OpenAiCompatibleModel(client: _client);
+    final localPath = workspace?.localPath;
+    final env = BinaryResolver.instance.isInitialized
+        ? BinaryResolver.instance.environment
+        : Platform.environment;
     final plugins = <AgentPlugin>[
       // 横切权限拦截器（不提供工具，只实现 beforeToolCall）
       PermissionInterceptorPlugin(),
-      if (workspace?.localPath != null) WorkspacePlugin(workspace!.localPath!),
+      if (localPath != null) WorkspacePlugin(localPath),
+      if (localPath != null)
+        ShellPlugin(workingDirectory: localPath, environment: env),
       if (skillRegistry != null && skillRegistry.skills.isNotEmpty)
         SkillPlugin(skillRegistry),
     ];

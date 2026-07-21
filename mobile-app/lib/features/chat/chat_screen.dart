@@ -94,6 +94,11 @@ class ChatScreen extends ConsumerWidget {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.terminal_outlined),
+            tooltip: I18n.t('terminal.title'),
+            onPressed: () => context.push('/terminal'),
+          ),
+          IconButton(
             icon: const Icon(Icons.extension_outlined),
             tooltip: I18n.t('skills.title'),
             onPressed: () => context.push('/skills'),

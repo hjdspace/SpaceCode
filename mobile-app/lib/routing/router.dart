@@ -8,6 +8,7 @@ import '../features/settings/settings_screen.dart';
 import '../features/skills/local_library_detail_page.dart';
 import '../features/skills/skill_detail_page.dart';
 import '../features/skills/skills_screen.dart';
+import '../features/terminal/terminal_screen.dart';
 
 final router = GoRouter(
   routes: [
@@ -18,6 +19,10 @@ final router = GoRouter(
     GoRoute(
       path: '/settings',
       builder: (context, state) => const SettingsScreen(),
+    ),
+    GoRoute(
+      path: '/terminal',
+      builder: (context, state) => const TerminalScreen(),
     ),
     GoRoute(
       path: '/skills',

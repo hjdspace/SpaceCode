@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
+import 'core/agent/binary_resolver.dart';
 import 'core/config/mobile_config.dart';
 import 'core/i18n/strings.dart';
 
@@ -12,6 +13,13 @@ void main() async {
   // 预加载手机 Agent 引擎配置，避免 chat 发送消息时读到默认空值
   final config = await container.read(mobileConfigProvider.notifier).load();
   await _initI18n(config.appLocale);
+  // 初始化 BinaryResolver：创建 home/bin 目录，构建 PATH 环境变量
+  // 失败不阻断启动（TerminalScreen 会 fallback 到 Platform.environment）
+  try {
+    await BinaryResolver.instance.initialize();
+  } catch (_) {
+    // ignore - BinaryResolver 未初始化时 TerminalScreen 会回退到 Platform.environment
+  }
   runApp(UncontrolledProviderScope(
     container: container,
     child: const SpaceCodeApp(),
