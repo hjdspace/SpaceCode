@@ -246,6 +246,18 @@ const { register } = useShortcuts({
 
 const mainContent = ref<HTMLElement | null>(null)
 
+// ── Ctrl+P 快捷键：跨文件搜索（快速打开） ──
+function onGlobalKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'p' && !e.shiftKey && !e.altKey) {
+    // 仅在有项目时拦截
+    if (appStore.projectRoot) {
+      e.preventDefault()
+      e.stopPropagation()
+      appStore.showFileQuickOpen = true
+    }
+  }
+}
+
 // ── 面板拖拽缩放（通过 useResizablePanel composable 管理） ──
 const {
   size: leftWidth,
@@ -534,6 +546,9 @@ onMounted(async () => {
   // 桌面端：手机 H5 发送消息后，打开/激活对应会话，保证主页面同步可见。
   window.addEventListener('h5-remote-user-message', revealRemoteChatSession)
 
+  // 注册 Ctrl+P 全局键盘监听
+  document.addEventListener('keydown', onGlobalKeydown, true)
+
   // 桌面端：监听会话切换，通知 H5 Server 镜像会话
   if (!isH5Mode() && api.h5Access) {
     watch(() => [sessionStore.currentSessionId, appStore.projectRoot], ([sid, projectPath]) => {
@@ -561,6 +576,7 @@ onUnmounted(() => {
   window.removeEventListener('open-skills-manager', handleOpenSkillsManager)
   window.removeEventListener('open-mcp-manager', handleOpenMCPManager)
   window.removeEventListener('h5-remote-user-message', revealRemoteChatSession)
+  document.removeEventListener('keydown', onGlobalKeydown, true)
 })
 </script>
 

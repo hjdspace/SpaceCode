@@ -760,6 +760,10 @@ export default {
     closeTerminalDesc: 'Close current terminal',
     clearTerminal: 'Clear Terminal',
     clearTerminalDesc: 'Clear terminal output',
+    findInFile: 'Find in File',
+    findInFileDesc: 'Search within the current file',
+    quickOpen: 'Quick Open',
+    quickOpenDesc: 'Search and open files by name',
   },
 
   scm: {
@@ -1018,6 +1022,16 @@ export default {
     placeholder: 'Search files by name...',
     noProject: 'Open a project first',
     noResults: 'No matching files',
+  },
+
+  codeViewer: {
+    search: 'Find',
+    searchPlaceholder: 'Find in file...',
+    caseSensitive: 'Match case',
+    previousMatch: 'Previous match',
+    nextMatch: 'Next match',
+    closeSearch: 'Close search',
+    noResults: 'No results',
   },
 
   mobile: {
