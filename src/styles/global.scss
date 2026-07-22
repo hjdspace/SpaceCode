@@ -290,6 +290,42 @@ h6 { font-size: 0.75rem; }
   transform: translateX(20px);
 }
 
+// ── 面板拖拽性能优化 ──────────────────────────────────────────────
+// 拖拽分隔条期间在 <body> 添加 .panel-resizing 类，
+// 临时禁用 backdrop-filter、transition、animation 等昂贵效果，
+// 避免 webview / 复合层在每次 mousemove 时重绘导致 UI 卡顿。
+body.panel-resizing {
+  .info-panel,
+  .office-preview-panel,
+  .preview-toolbar,
+  .glass-surface,
+  .glass-surface-strong {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .info-panel {
+    animation: none !important;
+
+    &::before {
+      display: none !important;
+    }
+  }
+
+  // webview 自身不需要在拖拽期间做内部重排
+  webview {
+    pointer-events: none !important;
+  }
+
+  // 禁用所有 transition，避免布局变化触发过渡动画
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
 // Commit dialog scale transition
 .commit-dialog-enter-active {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
