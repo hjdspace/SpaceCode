@@ -1039,6 +1039,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               repository: repo.fullName,
               branch: branch,
               targetDirectory: actualTarget,
+              useTermux: false,
             );
       } on StateError catch (error) {
         if (mounted) {

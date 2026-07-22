@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/mobile_config.dart';
 import 'clone_progress.dart';
+import 'git_clone_service.dart';
 import 'github_service.dart';
 
 /// Clone 任务状态。
@@ -51,6 +52,12 @@ final cloneServiceFactoryProvider =
   return (token) => GithubService(token: token);
 });
 
+/// GitCloneService 工厂 Provider:测试时可 override。
+final gitCloneServiceFactoryProvider =
+    Provider<GitCloneService Function(String token)>((ref) {
+  return (token) => GitCloneService(token: token);
+});
+
 /// Clone 任务的后台 StateNotifier。
 ///
 /// 生命周期独立于设置页：StateNotifier 持有任务 Future，
@@ -69,6 +76,7 @@ class CloneNotifier extends StateNotifier<CloneState> {
     required String repository,
     required String branch,
     required String targetDirectory,
+    required bool useTermux,
   }) async {
     if (state.status == CloneStatus.running) {
       throw StateError('已有 clone 任务运行中');
@@ -77,7 +85,6 @@ class CloneNotifier extends StateNotifier<CloneState> {
     if (token.isEmpty) {
       throw StateError('未连接 GitHub');
     }
-    final service = _ref.read(cloneServiceFactoryProvider)(token);
     _abortCompleter = Completer<void>();
     _cancelled = false;
     state = CloneState(
@@ -85,21 +92,29 @@ class CloneNotifier extends StateNotifier<CloneState> {
       progress: null,
       repositoryName: repository,
     );
-    _task = _runTask(
-      service: service,
-      repository: repository,
-      branch: branch,
-      targetDirectory: targetDirectory,
-    );
+    _task = useTermux
+        ? _runTermuxTask(
+            token: token,
+            repository: repository,
+            branch: branch,
+            targetDirectory: targetDirectory,
+          )
+        : _runZipballTask(
+            token: token,
+            repository: repository,
+            branch: branch,
+            targetDirectory: targetDirectory,
+          );
     await _task;
   }
 
-  Future<void> _runTask({
-    required GithubService service,
+  Future<void> _runZipballTask({
+    required String token,
     required String repository,
     required String branch,
     required String targetDirectory,
   }) async {
+    final service = _ref.read(cloneServiceFactoryProvider)(token);
     try {
       await for (final progress in service.cloneRepository(
         repository: repository,
@@ -108,27 +123,7 @@ class CloneNotifier extends StateNotifier<CloneState> {
         abortTrigger: _abortCompleter?.future,
         isCancelled: () => _cancelled,
       )) {
-        if (progress.phase == ClonePhase.done) {
-          state = CloneState(
-            status: CloneStatus.done,
-            progress: progress,
-            resultPath: progress.resultPath,
-            repositoryName: repository,
-          );
-        } else if (progress.phase == ClonePhase.error) {
-          state = CloneState(
-            status: CloneStatus.error,
-            progress: progress,
-            errorMessage: progress.errorMessage,
-            repositoryName: repository,
-          );
-        } else {
-          state = state.copyWith(
-            status: CloneStatus.running,
-            progress: progress,
-            repositoryName: repository,
-          );
-        }
+        _emitProgress(progress, repository);
       }
     } catch (error) {
       state = CloneState(
@@ -138,6 +133,63 @@ class CloneNotifier extends StateNotifier<CloneState> {
       );
     } finally {
       service.dispose();
+    }
+  }
+
+  Future<void> _runTermuxTask({
+    required String token,
+    required String repository,
+    required String branch,
+    required String targetDirectory,
+  }) async {
+    final service = _ref.read(gitCloneServiceFactoryProvider)(token);
+    try {
+      await for (final progress in service.cloneViaTermux(
+        repository: repository,
+        branch: branch,
+        targetDirectory: targetDirectory,
+      )) {
+        _emitProgress(progress, repository);
+        if (_cancelled) {
+          state = CloneState(
+            status: CloneStatus.error,
+            errorMessage: '已取消',
+            repositoryName: repository,
+          );
+          return;
+        }
+      }
+    } catch (error) {
+      state = CloneState(
+        status: CloneStatus.error,
+        errorMessage: error.toString(),
+        repositoryName: repository,
+      );
+    }
+  }
+
+  /// 把 CloneProgress 映射到 CloneState。
+  void _emitProgress(CloneProgress progress, String repository) {
+    if (progress.phase == ClonePhase.done) {
+      state = CloneState(
+        status: CloneStatus.done,
+        progress: progress,
+        resultPath: progress.resultPath,
+        repositoryName: repository,
+      );
+    } else if (progress.phase == ClonePhase.error) {
+      state = CloneState(
+        status: CloneStatus.error,
+        progress: progress,
+        errorMessage: progress.errorMessage,
+        repositoryName: repository,
+      );
+    } else {
+      state = state.copyWith(
+        status: CloneStatus.running,
+        progress: progress,
+        repositoryName: repository,
+      );
     }
   }
 
