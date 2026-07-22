@@ -116,8 +116,7 @@ mobile-app/
 │       │   └── widgets/
 │       │       ├── message_bubble.dart
 │       │       ├── tool_call_card.dart    # 工具调用 UI
-│       │       ├── streaming_text.dart    # 流式输出 UI
-│       │       └── markdown_renderer.dart
+│       │       └── markdown_renderer.dart # Markdown 渲染（含流式）
 │       ├── settings/settings_screen.dart   # 设置页（API 配置 + GitHub 认证）
 │       └── ...
 ├── android/                              # Android 原生配置
