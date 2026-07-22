@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 /// Termux 命令执行结果。
@@ -40,6 +41,10 @@ class TermuxBridge {
   static final TermuxBridge instance = TermuxBridge._();
 
   TermuxBridge._();
+
+  /// 测试用公开构造函数。
+  @visibleForTesting
+  TermuxBridge.forTesting() : this._();
 
   static const _channel = MethodChannel('spacecode/termux');
 
