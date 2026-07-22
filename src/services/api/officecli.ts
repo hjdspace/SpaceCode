@@ -5,6 +5,10 @@ export const officecli = {
     electronAPI?.officecli?.version() || Promise.reject('OfficeCLI not available'),
   checkInstalled: (): Promise<boolean> =>
     electronAPI?.officecli?.checkInstalled() || Promise.resolve(false),
+  download: (): Promise<{ success: boolean; path?: string; error?: string }> =>
+    electronAPI?.officecli?.download() || Promise.reject('OfficeCLI not available'),
+  onDownloadProgress: (callback: (progress: { stage: string; message: string; percent: number }) => void): (() => void) =>
+    electronAPI?.officecli?.onDownloadProgress(callback) || (() => {}),
   exec: (options: { args: string[]; cwd?: string; timeout?: number; env?: Record<string, string> }) =>
     electronAPI?.officecli?.exec(options) || Promise.reject('OfficeCLI not available'),
   viewHtml: (filePath: string, outputDir?: string): Promise<string> =>

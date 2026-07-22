@@ -503,6 +503,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     version: () => ipcRenderer.invoke('officecli:version'),
     /** Check if the binary is installed */
     checkInstalled: () => ipcRenderer.invoke('officecli:checkInstalled'),
+    /** Download binary from GitHub Releases (in-app, for packaged builds without bundled binary) */
+    download: (): Promise<{ success: boolean; path?: string; error?: string }> =>
+      ipcRenderer.invoke('officecli:download'),
+    /** Subscribe to download progress events */
+    onDownloadProgress: (callback: (progress: { stage: string; message: string; percent: number }) => void) => {
+      const handler = (_: unknown, data: { stage: string; message: string; percent: number }) => callback(data)
+      ipcRenderer.on('officecli:downloadProgress', handler)
+      return () => ipcRenderer.removeListener('officecli:downloadProgress', handler)
+    },
     /** Execute an arbitrary officecli command */
     exec: (options: { args: string[]; cwd?: string; timeout?: number; env?: Record<string, string> }) =>
       ipcRenderer.invoke('officecli:exec', options),

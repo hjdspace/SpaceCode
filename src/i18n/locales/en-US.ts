@@ -224,6 +224,9 @@ export default {
     startingWatch: 'Starting live preview…',
     openExternal: 'Open externally',
     revealInFolder: 'Show in folder',
+    downloadBinary: 'Download OfficeCLI',
+    downloading: 'Downloading…',
+    downloadFailed: 'Download failed',
   },
 
   customAssistant: {

@@ -33,7 +33,19 @@
           <Loader2 :size="20" class="spin-icon" />
           <span>{{ t('officePreview.rendering') }}</span>
         </div>
-        <div v-else-if="errorMsg" class="preview-error">{{ errorMsg }}</div>
+        <div v-else-if="errorMsg" class="preview-error">
+          <div class="error-content">
+            <span class="error-text">{{ errorMsg }}</span>
+            <button v-if="binaryMissing && !downloading" class="download-btn" @click="handleDownload">
+              <Download :size="14" />
+              {{ t('officePreview.downloadBinary') }}
+            </button>
+            <div v-else-if="downloading" class="download-progress">
+              <Loader2 :size="14" class="spin-icon" />
+              <span>{{ downloadMsg }} ({{ downloadPercent }}%)</span>
+            </div>
+          </div>
+        </div>
         <webview
           v-else-if="htmlPreviewUrl"
           ref="previewWebviewRef"
@@ -50,7 +62,19 @@
           <Loader2 :size="20" class="spin-icon" />
           <span>{{ t('officePreview.generatingScreenshots') }}</span>
         </div>
-        <div v-else-if="errorMsg" class="preview-error">{{ errorMsg }}</div>
+        <div v-else-if="errorMsg" class="preview-error">
+          <div class="error-content">
+            <span class="error-text">{{ errorMsg }}</span>
+            <button v-if="binaryMissing && !downloading" class="download-btn" @click="handleDownload">
+              <Download :size="14" />
+              {{ t('officePreview.downloadBinary') }}
+            </button>
+            <div v-else-if="downloading" class="download-progress">
+              <Loader2 :size="14" class="spin-icon" />
+              <span>{{ downloadMsg }} ({{ downloadPercent }}%)</span>
+            </div>
+          </div>
+        </div>
         <div v-else-if="screenshotImages.length === 0" class="preview-empty">{{ t('officePreview.noScreenshots') }}</div>
         <div v-else class="screenshot-list">
           <div
@@ -71,7 +95,19 @@
           <Loader2 :size="20" class="spin-icon" />
           <span>{{ t('officePreview.startingWatch') }}</span>
         </div>
-        <div v-else-if="errorMsg" class="preview-error">{{ errorMsg }}</div>
+        <div v-else-if="errorMsg" class="preview-error">
+          <div class="error-content">
+            <span class="error-text">{{ errorMsg }}</span>
+            <button v-if="binaryMissing && !downloading" class="download-btn" @click="handleDownload">
+              <Download :size="14" />
+              {{ t('officePreview.downloadBinary') }}
+            </button>
+            <div v-else-if="downloading" class="download-progress">
+              <Loader2 :size="14" class="spin-icon" />
+              <span>{{ downloadMsg }} ({{ downloadPercent }}%)</span>
+            </div>
+          </div>
+        </div>
         <webview
           v-else-if="watchUrl"
           ref="previewWebviewRef"
@@ -88,7 +124,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Loader2, ExternalLink, FolderOpen } from 'lucide-vue-next'
+import { Loader2, ExternalLink, FolderOpen, Download } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { api } from '@/services/electronAPI'
 
@@ -108,6 +144,18 @@ const screenshotDataUrls = ref<string[]>([])
 const watchUrl = ref('')
 const watchId = ref('')
 const previewWebviewRef = ref<any>(null)
+
+/** OfficeCLI binary 缺失检测 */
+const binaryMissing = computed(() =>
+  errorMsg.value.toLowerCase().includes('binary not found') ||
+  errorMsg.value.toLowerCase().includes('officecli not available')
+)
+/** 下载状态 */
+const downloading = ref(false)
+const downloadMsg = ref('')
+const downloadPercent = ref(0)
+/** downloadProgress 事件取消订阅函数 */
+let downloadProgressUnsubscribe: (() => void) | null = null
 
 /** artifacts:changed 事件取消订阅函数 */
 let artifactsUnsubscribe: (() => void) | null = null
@@ -160,7 +208,7 @@ async function renderHtml() {
     const htmlPath = await api.officecli.viewHtml(props.filePath)
     htmlPreviewUrl.value = pathToFileURL(htmlPath)
   } catch (err) {
-    errorMsg.value = String(err)
+    errorMsg.value = extractErrorMessage(err)
     console.error('[OfficePreview] HTML render failed:', err)
   } finally {
     loading.value = false
@@ -180,7 +228,7 @@ async function renderScreenshots() {
     )
     screenshotDataUrls.value = dataUrls
   } catch (err) {
-    errorMsg.value = String(err)
+    errorMsg.value = extractErrorMessage(err)
     console.error('[OfficePreview] Screenshot render failed:', err)
   } finally {
     loading.value = false
@@ -195,7 +243,7 @@ async function startWatch() {
     watchId.value = handle.id
     watchUrl.value = handle.url
   } catch (err) {
-    errorMsg.value = String(err)
+    errorMsg.value = extractErrorMessage(err)
     console.error('[OfficePreview] Watch start failed:', err)
   } finally {
     loading.value = false
@@ -233,6 +281,45 @@ function openFullSize(imgPath: string) {
 
 function openExternal() {
   api.artifacts.open(props.filePath)
+}
+
+/** 从 Error 或 unknown 中提取消息字符串 */
+function extractErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message
+  return String(err)
+}
+
+/** 一键下载 OfficeCLI binary */
+async function handleDownload() {
+  if (downloading.value) return
+  downloading.value = true
+  downloadMsg.value = t('officePreview.downloading')
+  downloadPercent.value = 0
+
+  // Subscribe to progress events
+  downloadProgressUnsubscribe = api.officecli.onDownloadProgress((progress) => {
+    downloadMsg.value = progress.message
+    downloadPercent.value = progress.percent
+  })
+
+  try {
+    const result = await api.officecli.download()
+    if (result.success) {
+      errorMsg.value = ''
+      // Retry the current preview mode after successful download
+      await switchMode(currentMode.value)
+    } else {
+      errorMsg.value = result.error || t('officePreview.downloadFailed')
+    }
+  } catch (err) {
+    errorMsg.value = extractErrorMessage(err)
+  } finally {
+    downloading.value = false
+    if (downloadProgressUnsubscribe) {
+      downloadProgressUnsubscribe()
+      downloadProgressUnsubscribe = null
+    }
+  }
 }
 
 function revealInFolder() {
@@ -297,6 +384,10 @@ onBeforeUnmount(async () => {
   if (artifactsUnsubscribe) {
     artifactsUnsubscribe()
     artifactsUnsubscribe = null
+  }
+  if (downloadProgressUnsubscribe) {
+    downloadProgressUnsubscribe()
+    downloadProgressUnsubscribe = null
   }
   if (rerenderDebounceTimer) {
     clearTimeout(rerenderDebounceTimer)
@@ -432,6 +523,44 @@ onBeforeUnmount(async () => {
   padding: 20px;
   text-align: center;
   word-break: break-word;
+
+  .error-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    max-width: 400px;
+  }
+
+  .error-text {
+    line-height: 1.5;
+  }
+}
+
+.download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  border: 1px solid var(--accent-primary);
+  background: var(--accent-primary);
+  color: white;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    opacity: 0.9;
+  }
+}
+
+.download-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent-primary);
+  font-size: 12px;
 }
 
 .preview-empty {
