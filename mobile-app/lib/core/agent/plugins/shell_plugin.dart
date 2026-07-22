@@ -3,10 +3,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../agent_model.dart';
 import '../agent_plugin.dart';
 import '../agent_types.dart';
+import '../binary_resolver.dart';
+import '../termux_bridge.dart';
 
 /// Shell 命令执行结果（executor 返回给 ShellPlugin）。
 class ShellCommandResult {
@@ -40,6 +43,9 @@ typedef ShellExecutor = Future<ShellCommandResult> Function(
 ///
 /// 在 Android 上通过 BinaryResolver.environment 配置 PATH，
 /// 工作目录固定在 [workingDirectory]。
+///
+/// 当 [BinaryResolver.termuxReady] 为 true 时（即 Termux 已安装并通过桥接可用），
+/// 命令会通过 [TermuxBridge] 在 Termux 环境中执行，从而支持 git 等工具。
 Future<ShellCommandResult> defaultShellExecutor({
   required String command,
   required String workingDirectory,
@@ -47,6 +53,16 @@ Future<ShellCommandResult> defaultShellExecutor({
   required Duration timeout,
   required AgentCancellationToken cancellationToken,
 }) async {
+  // Termux 桥接模式：通过 Termux 执行 shell 命令
+  if (BinaryResolver.instance.termuxReady) {
+    return _runViaTermux(
+      command: command,
+      workingDirectory: workingDirectory,
+      timeout: timeout,
+      cancellationToken: cancellationToken,
+    );
+  }
+
   final sw = Stopwatch()..start();
   Process? process;
   try {
@@ -106,6 +122,77 @@ Future<ShellCommandResult> defaultShellExecutor({
     timedOut: timedOut,
     cancelled: cancelled,
   );
+}
+
+/// 通过 Termux 桥接执行 shell 命令。
+///
+/// 命令通过 `sh -c <command>` 在 Termux 环境中执行，工作目录透传给 Termux。
+/// Termux 内部自带超时处理，这里再叠加 [cancellationToken] 响应：
+/// 一旦取消，立即返回 cancelled 结果（Termux 后台进程可能仍在运行，但 Flutter 端不再等待）。
+Future<ShellCommandResult> _runViaTermux({
+  required String command,
+  required String workingDirectory,
+  required Duration timeout,
+  required AgentCancellationToken cancellationToken,
+}) async {
+  if (cancellationToken.isCancelled) {
+    return const ShellCommandResult(
+      exitCode: -1,
+      stdout: '',
+      stderr: 'Command cancelled',
+      cancelled: true,
+    );
+  }
+
+  final sw = Stopwatch()..start();
+  final runFuture = TermuxBridge.instance.runCommand(
+    command: 'sh',
+    args: ['-c', command],
+    workdir: workingDirectory,
+    timeoutMs: timeout.inMilliseconds,
+  );
+
+  // 监听取消信号：一旦取消，立即返回 cancelled 结果
+  // （Termux 端进程无法通过 RunCommandService 主动 kill，但用户感知上已取消）
+  final cancelFuture = cancellationToken.whenCancelled.then((_) => true);
+
+  try {
+    final result = await Future.any([
+      runFuture.then((r) => _TermuxOutcome(r, false)),
+      cancelFuture.then((_) => const _TermuxOutcome(null, true)),
+    ]);
+    sw.stop();
+    if (result.cancelled) {
+      return ShellCommandResult(
+        exitCode: -1,
+        stdout: '',
+        stderr: 'Command cancelled',
+        durationMs: sw.elapsedMilliseconds,
+        cancelled: true,
+      );
+    }
+    final r = result.result!;
+    return ShellCommandResult(
+      exitCode: r.exitCode,
+      stdout: r.stdout,
+      stderr: r.stderr,
+      durationMs: r.durationMs,
+    );
+  } on PlatformException catch (e) {
+    sw.stop();
+    return ShellCommandResult(
+      exitCode: -1,
+      stdout: '',
+      stderr: 'Termux error: ${e.code} - ${e.message}',
+      durationMs: sw.elapsedMilliseconds,
+    );
+  }
+}
+
+class _TermuxOutcome {
+  final TermuxResult? result;
+  final bool cancelled;
+  const _TermuxOutcome(this.result, this.cancelled);
 }
 
 /// 提供 `run_command` 工具，在 workspace 目录下执行 shell 命令。

@@ -30,6 +30,7 @@ class BinaryResolver {
   Map<String, String> _systemEnvironment = const {};
   String? _gitPath;
   bool _pythonReady = false;
+  bool _termuxReady = false;
   bool _initialized = false;
 
   /// 初始化：创建目录、构建环境变量。
@@ -87,6 +88,19 @@ class BinaryResolver {
   void markPythonReady() {
     _pythonReady = true;
   }
+
+  /// 标记 Termux 桥接已就绪。
+  ///
+  /// 调用后 [gitPath] 会设置为虚拟路径 `termux:git`，
+  /// 表示 git 命令通过 Termux 桥接执行而非本地二进制。
+  void markTermuxReady() {
+    _termuxReady = true;
+    // 设置虚拟 gitPath 让 GitPlugin 加载
+    _gitPath ??= 'termux:git';
+  }
+
+  /// Termux 桥接是否可用。
+  bool get termuxReady => _termuxReady;
 
   String? get gitPath => _gitPath;
   bool get pythonReady => _pythonReady;

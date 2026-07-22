@@ -3,10 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../agent_model.dart';
 import '../agent_plugin.dart';
 import '../agent_types.dart';
+import '../termux_bridge.dart';
 
 /// Git 命令执行结果。
 class GitCommandResult {
@@ -36,12 +38,40 @@ typedef GitExecutor = Future<GitCommandResult> Function(
 });
 
 /// 默认执行器：调用 `gitPath args...`。
+///
+/// 当 `gitPath` 为 `termux:git` 时，通过 [TermuxBridge] 执行 git 命令。
+/// 否则通过 [Process.run] 执行本地 git 二进制。
 Future<GitCommandResult> defaultGitExecutor(
   String gitPath,
   List<String> args, {
   required String workingDirectory,
   required Map<String, String> environment,
 }) async {
+  // Termux 桥接模式
+  if (gitPath == 'termux:git') {
+    try {
+      final result = await TermuxBridge.instance.runGit(
+        args: args,
+        workdir: workingDirectory,
+        timeoutMs: 60000,
+      );
+      return GitCommandResult(
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        durationMs: result.durationMs,
+      );
+    } on PlatformException catch (e) {
+      return GitCommandResult(
+        exitCode: -1,
+        stdout: '',
+        stderr: 'Termux error: ${e.code} - ${e.message}',
+        durationMs: 0,
+      );
+    }
+  }
+
+  // 本地二进制模式
   final sw = Stopwatch()..start();
   final result = await Process.run(
     gitPath,
