@@ -152,7 +152,9 @@ const defaultShortcuts: ShortcutCategory[] = [
       { id: 'focus_input', name: t('shortcutsSettings.focusInput'), description: t('shortcutsSettings.focusInputDesc'), keys: ['Ctrl', 'L'], defaultKeys: ['Ctrl', 'L'] },
       { id: 'toggle_sidebar', name: t('shortcutsSettings.toggleSidebar'), description: t('shortcutsSettings.toggleSidebarDesc'), keys: ['Ctrl', 'B'], defaultKeys: ['Ctrl', 'B'] },
       { id: 'next_chat', name: t('shortcutsSettings.nextChat'), description: t('shortcutsSettings.nextChatDesc'), keys: ['Ctrl', 'Tab'], defaultKeys: ['Ctrl', 'Tab'] },
-      { id: 'prev_chat', name: t('shortcutsSettings.prevChat'), description: t('shortcutsSettings.prevChatDesc'), keys: ['Ctrl', 'Shift', 'Tab'], defaultKeys: ['Ctrl', 'Shift', 'Tab'] }
+      { id: 'prev_chat', name: t('shortcutsSettings.prevChat'), description: t('shortcutsSettings.prevChatDesc'), keys: ['Ctrl', 'Shift', 'Tab'], defaultKeys: ['Ctrl', 'Shift', 'Tab'] },
+      { id: 'quick_open', name: t('shortcutsSettings.quickOpen'), description: t('shortcutsSettings.quickOpenDesc'), keys: ['Ctrl', 'P'], defaultKeys: ['Ctrl', 'P'] },
+      { id: 'find_in_file', name: t('shortcutsSettings.findInFile'), description: t('shortcutsSettings.findInFileDesc'), keys: ['Ctrl', 'F'], defaultKeys: ['Ctrl', 'F'] }
     ]
   },
   {
