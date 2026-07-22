@@ -760,6 +760,10 @@ export default {
     closeTerminalDesc: '关闭当前终端',
     clearTerminal: '清空终端',
     clearTerminalDesc: '清空终端输出',
+    findInFile: '文件内搜索',
+    findInFileDesc: '在当前文件中搜索',
+    quickOpen: '快速打开',
+    quickOpenDesc: '按文件名搜索并打开文件',
   },
 
   scm: {
@@ -1018,6 +1022,16 @@ export default {
     placeholder: '按文件名搜索...',
     noProject: '请先打开一个项目',
     noResults: '没有匹配的文件',
+  },
+
+  codeViewer: {
+    search: '查找',
+    searchPlaceholder: '在文件中查找...',
+    caseSensitive: '区分大小写',
+    previousMatch: '上一个匹配',
+    nextMatch: '下一个匹配',
+    closeSearch: '关闭搜索',
+    noResults: '无结果',
   },
 
   mobile: {
