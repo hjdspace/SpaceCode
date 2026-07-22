@@ -107,7 +107,7 @@ void main() {
     expect(resolver.environment['HOME'], '${tempRoot.path}/spacecode/home');
   });
 
-  test('initialize throws when docsDirectoryProvider fails', () async {
+  test('initialize throws when docsDirectoryProvider fails', () {
     final resolver = BinaryResolver.forTest();
     expect(
       () => resolver.initialize(
@@ -117,5 +117,38 @@ void main() {
       ),
       throwsA(isA<StateError>()),
     );
+  });
+
+  group('BinaryResolver TermuxReadiness', () {
+    test('initial readiness is notInstalled', () {
+      final resolver = BinaryResolver.forTest();
+      expect(resolver.termuxReadiness, TermuxReadiness.notInstalled);
+    });
+
+    test('setTermuxReadiness updates getter', () {
+      final resolver = BinaryResolver.forTest();
+      resolver.setTermuxReadiness(TermuxReadiness.ready);
+      expect(resolver.termuxReadiness, TermuxReadiness.ready);
+    });
+
+    test('setTermuxReadiness ready sets gitPath to termux:git', () {
+      final resolver = BinaryResolver.forTest();
+      resolver.setTermuxReadiness(TermuxReadiness.ready);
+      expect(resolver.gitPath, 'termux:git');
+    });
+
+    test('setTermuxReadiness installedNoGit does not set gitPath', () {
+      final resolver = BinaryResolver.forTest();
+      resolver.setTermuxReadiness(TermuxReadiness.installedNoGit);
+      expect(resolver.gitPath, isNull);
+      expect(resolver.termuxReadiness, TermuxReadiness.installedNoGit);
+    });
+
+    test('markTermuxReady is equivalent to setTermuxReadiness(ready)', () {
+      final resolver = BinaryResolver.forTest();
+      resolver.markTermuxReady();
+      expect(resolver.termuxReadiness, TermuxReadiness.ready);
+      expect(resolver.gitPath, 'termux:git');
+    });
   });
 }

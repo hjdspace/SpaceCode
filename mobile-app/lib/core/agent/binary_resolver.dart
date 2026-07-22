@@ -3,6 +3,16 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+/// Termux 就绪状态。
+enum TermuxReadiness {
+  /// 未安装 Termux
+  notInstalled,
+  /// 已安装 Termux 但 git 不可用(未 pkg install git 或未配置 allow-external-apps)
+  installedNoGit,
+  /// 完全就绪:Termux 已安装 + git 可执行
+  ready,
+}
+
 /// 二进制路径解析与环境变量管理。
 ///
 /// 启动时通过 [initialize] 创建 App 专属的 `home` 和 `bin` 目录，
@@ -30,7 +40,7 @@ class BinaryResolver {
   Map<String, String> _systemEnvironment = const {};
   String? _gitPath;
   bool _pythonReady = false;
-  bool _termuxReady = false;
+  TermuxReadiness _termuxReadiness = TermuxReadiness.notInstalled;
   bool _initialized = false;
 
   /// 初始化：创建目录、构建环境变量。
@@ -89,18 +99,26 @@ class BinaryResolver {
     _pythonReady = true;
   }
 
-  /// 标记 Termux 桥接已就绪。
+  /// 设置 Termux 就绪状态。
   ///
-  /// 调用后 [gitPath] 会设置为虚拟路径 `termux:git`，
-  /// 表示 git 命令通过 Termux 桥接执行而非本地二进制。
-  void markTermuxReady() {
-    _termuxReady = true;
-    // 设置虚拟 gitPath 让 GitPlugin 加载
-    _gitPath ??= 'termux:git';
+  /// 当 [readiness] 为 [TermuxReadiness.ready] 时,自动设置 [gitPath] 为 `termux:git`,
+  /// 让 GitPlugin 通过 Termux 桥接执行。
+  void setTermuxReadiness(TermuxReadiness readiness) {
+    _termuxReadiness = readiness;
+    if (readiness == TermuxReadiness.ready) {
+      _gitPath ??= 'termux:git';
+    }
   }
 
-  /// Termux 桥接是否可用。
-  bool get termuxReady => _termuxReady;
+  /// Termux 桥接就绪状态。
+  TermuxReadiness get termuxReadiness => _termuxReadiness;
+
+  /// 标记 Termux 桥接已就绪(向后兼容)。
+  ///
+  /// 等价于 `setTermuxReadiness(TermuxReadiness.ready)`。
+  void markTermuxReady() {
+    setTermuxReadiness(TermuxReadiness.ready);
+  }
 
   String? get gitPath => _gitPath;
   bool get pythonReady => _pythonReady;
