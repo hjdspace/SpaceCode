@@ -144,7 +144,8 @@ async function main() {
     console.error(`[OfficeCLI] Failed to fetch release info: ${err.message}`)
     console.error(`[OfficeCLI] You can manually download from: https://github.com/iOfficeAI/OfficeCLI/releases`)
     console.error(`[OfficeCLI] Place the binary at: ${targetPath}`)
-    process.exit(1)
+    console.warn(`[OfficeCLI] Build will continue without the binary. Users can download it via the in-app download button.`)
+    return
   }
 
   // Find matching asset
@@ -156,7 +157,8 @@ async function main() {
     console.error(`[OfficeCLI] Available assets:`)
     assets.forEach(a => console.error(`  - ${a.name} (${(a.size / 1024 / 1024).toFixed(1)} MB)`))
     console.error(`[OfficeCLI] You can manually download from: ${release.html_url || 'https://github.com/iOfficeAI/OfficeCLI/releases'}`)
-    process.exit(1)
+    console.warn(`[OfficeCLI] Build will continue without the binary. Users can download it via the in-app download button.`)
+    return
   }
 
   console.log(`[OfficeCLI] Release: ${release.tag_name || 'latest'}`)
@@ -182,11 +184,11 @@ async function main() {
     }
   } catch (err) {
     console.error(`[OfficeCLI] Download failed: ${err.message}`)
-    process.exit(1)
+    console.warn(`[OfficeCLI] Build will continue without the binary. Users can download it via the in-app download button.`)
   }
 }
 
 main().catch(err => {
   console.error(`[OfficeCLI] Fatal error: ${err.message}`)
-  process.exit(1)
+  console.warn(`[OfficeCLI] Build will continue without the binary. Users can download it via the in-app download button.`)
 })
