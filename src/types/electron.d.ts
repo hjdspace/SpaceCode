@@ -182,9 +182,11 @@ export interface ElectronArtifactsAPI {
 }
 
 export interface ElectronOfficeCLIAPI {
-  version: () => Promise<string>
-  checkInstalled: () => Promise<boolean>
-  exec: (options: { args: string[]; cwd?: string; timeout?: number; env?: Record<string, string> }) => Promise<unknown>
+version: () => Promise<string>
+checkInstalled: () => Promise<boolean>
+download: () => Promise<{ success: boolean; path?: string; error?: string }>
+onDownloadProgress: (callback: (progress: { stage: string; message: string; percent: number }) => void) => () => void
+exec: (options: { args: string[]; cwd?: string; timeout?: number; env?: Record<string, string> }) => Promise<unknown>
   viewHtml: (filePath: string, outputDir?: string) => Promise<string>
   viewScreenshot: (filePath: string, outputDir: string, page?: number) => Promise<string[]>
   watchStart: (filePath: string, port?: number) => Promise<{ id: string; filePath: string; port: number; url: string }>
