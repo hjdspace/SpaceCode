@@ -5,8 +5,10 @@
       <X v-else-if="toolCall.status === 'error'" :size="14" class="tool-icon status-error" />
       <FileEdit v-else :size="14" class="tool-icon status-completed" />
       <span class="tool-label">{{ t('toolCards.edit') }}</span>
-      <span class="tool-separator">·</span>
-      <span class="tool-target">{{ filePath }}</span>
+      <template v-if="filePath">
+        <span class="tool-separator">·</span>
+        <span class="tool-target">{{ filePath }}</span>
+      </template>
       <span v-if="toolCall.status === 'running'" class="tool-meta status-running">{{ t('toolCards.editStreaming') }}</span>
       <div class="tool-actions">
         <button
@@ -70,7 +72,12 @@ const appStore = useAppStore()
 const { t } = useI18n()
 
 const statusClass = computed(() => `status-${props.toolCall.status}`)
-const filePath = computed(() => props.toolCall.input?.file_path || props.toolCall.input?.path || t('toolCards.editUnknownFile'))
+const filePath = computed(() => {
+  const fp = props.toolCall.input?.file_path || props.toolCall.input?.path
+  if (fp) return fp
+  if (props.toolCall.status === 'running') return ''
+  return t('toolCards.editUnknownFile')
+})
 
 function toggleExpand() { isExpanded.value = !isExpanded.value }
 

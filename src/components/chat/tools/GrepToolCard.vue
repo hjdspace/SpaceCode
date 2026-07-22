@@ -5,8 +5,10 @@
       <X v-else-if="toolCall.status === 'error'" :size="14" class="tool-icon status-error" />
       <TextSearch v-else :size="14" class="tool-icon status-completed" />
       <span class="tool-label">{{ t('toolCards.grep') }}</span>
-      <span class="tool-separator">·</span>
-      <code class="tool-target">{{ query }}</code>
+      <template v-if="query">
+        <span class="tool-separator">·</span>
+        <code class="tool-target">{{ query }}</code>
+      </template>
       <span v-if="matchCount !== null" class="tool-meta">{{ matchCount }} {{ t('toolCards.grepMatches') }}</span>
       <div class="tool-actions">
         <button

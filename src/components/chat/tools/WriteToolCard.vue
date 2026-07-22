@@ -5,8 +5,10 @@
       <X v-else-if="toolCall.status === 'error'" :size="14" class="tool-icon status-error" />
       <FilePlus v-else :size="14" class="tool-icon status-completed" />
       <span class="tool-label">{{ t('toolCards.write') }}</span>
-      <span class="tool-separator">·</span>
-      <span class="tool-target">{{ filePath }}</span>
+      <template v-if="filePath">
+        <span class="tool-separator">·</span>
+        <span class="tool-target">{{ filePath }}</span>
+      </template>
       <span v-if="toolCall.status === 'running'" class="tool-meta status-running">{{ t('toolCards.writeStreaming') }}</span>
       <span v-else-if="outputSummary" class="tool-meta" :class="summaryClass">{{ outputSummary }}</span>
       <div class="tool-actions">
@@ -56,7 +58,13 @@ const appStore = useAppStore()
 const { t } = useI18n()
 
 const statusClass = computed(() => `status-${props.toolCall.status}`)
-const filePath = computed(() => props.toolCall.input?.file_path || props.toolCall.input?.path || t('toolCards.writeUnknownFile'))
+const filePath = computed(() => {
+  const fp = props.toolCall.input?.file_path || props.toolCall.input?.path
+  if (fp) return fp
+  // 流式期间 input 尚未填充，不显示"未知文件"，留空让模板隐藏
+  if (props.toolCall.status === 'running') return ''
+  return t('toolCards.writeUnknownFile')
+})
 const outputSummary = computed(() => {
   const out = props.toolCall.output || ''
   if (out.includes('successfully')) return t('toolCards.writeSuccess')

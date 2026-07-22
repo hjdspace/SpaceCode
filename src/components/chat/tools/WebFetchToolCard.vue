@@ -5,8 +5,10 @@
       <X v-else-if="toolCall.status === 'error'" :size="14" class="tool-icon status-error" />
       <Globe v-else :size="14" class="tool-icon status-completed" />
       <span class="tool-label">{{ t('toolCards.webFetch') }}</span>
-      <span class="tool-separator">·</span>
-      <span class="tool-target">{{ urlDisplay }}</span>
+      <template v-if="urlDisplay">
+        <span class="tool-separator">·</span>
+        <span class="tool-target">{{ urlDisplay }}</span>
+      </template>
       <div class="tool-actions">
         <button
           class="action-btn"

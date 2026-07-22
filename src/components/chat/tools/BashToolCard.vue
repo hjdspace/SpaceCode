@@ -5,8 +5,10 @@
       <X v-else-if="toolCall.status === 'error'" :size="14" class="tool-icon status-error" />
       <Terminal v-else :size="14" class="tool-icon status-completed" />
       <span class="tool-label">{{ t('toolCards.bash') }}</span>
-      <span class="tool-separator">·</span>
-      <span v-if="commandPreview" class="tool-target">{{ commandPreview }}</span>
+      <template v-if="commandPreview">
+        <span class="tool-separator">·</span>
+        <span class="tool-target">{{ commandPreview }}</span>
+      </template>
       <span v-if="duration" class="tool-meta">{{ duration }}s</span>
       <div class="tool-actions">
         <button

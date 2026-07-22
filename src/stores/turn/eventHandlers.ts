@@ -122,7 +122,9 @@ function remoteUserContent(data: any): string {
 /**
  * 从部分 JSON 字符串中尝试提取关键工具输入字段（file_path / path / command / query / pattern / url），
  * 让 UI 能在 LLM 流式生成工具参数时就显示工具目标。
- * 仅提取已完整的字符串值（引号闭合的），不会返回半截值。
+ * 支持两种匹配模式：
+ * 1. 完整字符串值（引号已闭合）：`"file_path": "/path/to/file.html"`
+ * 2. 部分字符串值（引号尚未闭合）：`"file_path": "/path/to/file.ht`
  */
 function tryExtractEarlyInput(partialJson: string): Record<string, unknown> | null {
   const result: Record<string, unknown> = {}
@@ -130,10 +132,20 @@ function tryExtractEarlyInput(partialJson: string): Record<string, unknown> | nu
 
   const fields = ['file_path', 'path', 'command', 'query', 'pattern', 'url']
   for (const field of fields) {
-    const regex = new RegExp(`"${field}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`)
-    const match = partialJson.match(regex)
-    if (match) {
-      result[field] = match[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\')
+    // 先尝试匹配引号闭合的完整值
+    const closedRegex = new RegExp(`"${field}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`)
+    const closedMatch = partialJson.match(closedRegex)
+    if (closedMatch) {
+      result[field] = closedMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\')
+      found = true
+      continue
+    }
+
+    // 再尝试匹配引号尚未闭合的部分值（值正在流式传输中）
+    const partialRegex = new RegExp(`"${field}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)$`)
+    const partialMatch = partialJson.match(partialRegex)
+    if (partialMatch) {
+      result[field] = partialMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\')
       found = true
     }
   }

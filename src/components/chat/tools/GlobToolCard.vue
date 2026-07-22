@@ -5,8 +5,10 @@
       <X v-else-if="toolCall.status === 'error'" :size="14" class="tool-icon status-error" />
       <Search v-else :size="14" class="tool-icon status-completed" />
       <span class="tool-label">{{ t('toolCards.glob') }}</span>
-      <span class="tool-separator">·</span>
-      <code class="tool-target">{{ pattern }}</code>
+      <template v-if="pattern">
+        <span class="tool-separator">·</span>
+        <code class="tool-target">{{ pattern }}</code>
+      </template>
       <span v-if="matchCount !== null" class="tool-meta">{{ matchCount }} {{ t('toolCards.globResults') }}</span>
       <ChevronDown :size="14" class="tool-chevron" :class="{ 'is-expanded': isExpanded }" />
     </div>
