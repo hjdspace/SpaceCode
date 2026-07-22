@@ -54,7 +54,7 @@ Future<ShellCommandResult> defaultShellExecutor({
   required AgentCancellationToken cancellationToken,
 }) async {
   // Termux 桥接模式：通过 Termux 执行 shell 命令
-  if (BinaryResolver.instance.termuxReady) {
+  if (BinaryResolver.instance.termuxReadiness == TermuxReadiness.ready) {
     debugPrint('[ShellPlugin] Executing via Termux: $command');
     return _runViaTermux(
       command: command,
