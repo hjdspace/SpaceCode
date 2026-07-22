@@ -4,9 +4,34 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
-import 'package:record/record.dart';
 
 import 'voice_input_service.dart';
+
+// Stub: record 包暂因 record_linux 版本不兼容被移除，
+// 语音输入回退到 speech_to_text 方案。恢复 record 依赖后还原此文件。
+class AudioRecorder {
+  Future<bool> hasPermission() async => false;
+  Future<void> start(dynamic config, {required String path}) async {
+    throw UnsupportedError('record package not available');
+  }
+  Future<void> stop() async {}
+  Future<void> dispose() async {}
+}
+class RecordConfig {
+  final dynamic encoder;
+  final int sampleRate;
+  final int numChannels;
+  final int bitRate;
+  const RecordConfig({
+    required this.encoder,
+    required this.sampleRate,
+    required this.numChannels,
+    required this.bitRate,
+  });
+}
+class AudioEncoder {
+  static const aacLc = null;
+}
 
 /// 基于 record + OpenAI Whisper API 的语音输入实现
 ///

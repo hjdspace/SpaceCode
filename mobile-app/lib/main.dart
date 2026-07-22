@@ -26,8 +26,10 @@ void main() async {
     await ChaquopyBridge.instance.initialize();
     // 检测 Termux 是否安装，若可用则标记 termuxReady（让 GitPlugin/ShellPlugin 走 Termux 桥接）
     final termuxInstalled = await TermuxBridge.instance.checkInstalled();
+    debugPrint('[Termux] checkInstalled() = $termuxInstalled');
     if (termuxInstalled) {
       BinaryResolver.instance.markTermuxReady();
+      debugPrint('[Termux] markTermuxReady() called, gitPath=${BinaryResolver.instance.gitPath}');
     }
   } catch (_) {
     // ignore - BinaryResolver 未初始化时 TerminalScreen 会回退到 Platform.environment

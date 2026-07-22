@@ -49,6 +49,7 @@ Future<GitCommandResult> defaultGitExecutor(
 }) async {
   // Termux 桥接模式
   if (gitPath == 'termux:git') {
+    debugPrint('[GitPlugin] Executing via Termux: git ${args.join(" ")}');
     try {
       final result = await TermuxBridge.instance.runGit(
         args: args,

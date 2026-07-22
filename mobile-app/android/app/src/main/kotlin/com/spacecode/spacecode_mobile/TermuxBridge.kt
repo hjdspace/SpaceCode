@@ -80,8 +80,10 @@ class TermuxBridge(private val context: Context) : MethodChannel.MethodCallHandl
                 @Suppress("DEPRECATION")
                 context.packageManager.getPackageInfo(TERMUX_PACKAGE, 0)
             }
+            Log.d(TAG, "isInstalled() = true")
             true
         } catch (e: Exception) {
+            Log.w(TAG, "isInstalled() = false: ${e.javaClass.simpleName}: ${e.message}")
             false
         }
     }
@@ -106,6 +108,7 @@ class TermuxBridge(private val context: Context) : MethodChannel.MethodCallHandl
 
         // 命令路径：如果是绝对路径直接用，否则拼接 Termux prefix
         val commandPath = if (command.startsWith("/")) command else "$TERMUX_PREFIX/bin/$command"
+        Log.d(TAG, "runCommand: command=$command commandPath=$commandPath args=$args workdir=$workdir timeoutMs=$timeoutMs")
 
         val requestCode = requestCodeCounter.incrementAndGet()
         val resultAction = "spacecode.termux.RESULT_$requestCode"
@@ -154,6 +157,7 @@ class TermuxBridge(private val context: Context) : MethodChannel.MethodCallHandl
                 val stdout = intent.getStringExtra(EXTRA_STDOUT) ?: ""
                 val stderr = intent.getStringExtra(EXTRA_STDERR) ?: ""
                 val exitCode = intent.getIntExtra(EXTRA_EXIT_CODE, -1)
+                Log.d(TAG, "onReceive: exitCode=$exitCode stdoutLen=${stdout.length} stderrLen=${stderr.length} stderr=$stderr")
 
                 result.success(
                     mapOf(
@@ -198,6 +202,7 @@ class TermuxBridge(private val context: Context) : MethodChannel.MethodCallHandl
 
         try {
             context.startService(runIntent)
+            Log.d(TAG, "startService succeeded for $commandPath")
         } catch (e: Exception) {
             handler.removeCallbacks(timeoutRunnable)
             synchronized(activeReceivers) {

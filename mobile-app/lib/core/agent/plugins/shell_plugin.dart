@@ -55,6 +55,7 @@ Future<ShellCommandResult> defaultShellExecutor({
 }) async {
   // Termux 桥接模式：通过 Termux 执行 shell 命令
   if (BinaryResolver.instance.termuxReady) {
+    debugPrint('[ShellPlugin] Executing via Termux: $command');
     return _runViaTermux(
       command: command,
       workingDirectory: workingDirectory,
