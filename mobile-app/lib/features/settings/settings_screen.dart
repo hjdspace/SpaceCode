@@ -9,6 +9,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../core/agent/local_agent_service.dart';
+import '../../core/agent/binary_resolver.dart';
+import '../../core/agent/termux_readiness_checker.dart';
 import '../../core/connection/connection_service.dart';
 import '../../core/connection/connection_state.dart' as conn;
 import '../../core/connection/qr_scanner_page.dart';
@@ -94,6 +96,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String _permissionMode = 'default';
   bool _streamingEnabled = true;
   String _version = '';
+  TermuxReadiness _termuxReadiness = TermuxReadiness.notInstalled;
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _termuxCardKey = GlobalKey();
 
   @override
   void initState() {
@@ -107,6 +112,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final streaming = await MobilePreferences.getStreamingEnabled();
     final config = await ref.read(mobileConfigProvider.notifier).load();
     final packageInfo = await PackageInfo.fromPlatform();
+    final readiness = await TermuxReadinessChecker().check();
+    BinaryResolver.instance.setTermuxReadiness(readiness);
     if (!mounted) return;
     _apiKeyController.text = config.apiKey;
     _baseUrlController.text = config.baseUrl;
@@ -116,6 +123,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _permissionMode = permMode;
       _streamingEnabled = streaming;
       _version = 'v${packageInfo.version}';
+      _termuxReadiness = readiness;
     });
     // 若已配置 API Key 和 Base URL，自动拉取一次模型列表
     if (config.apiKey.isNotEmpty && config.baseUrl.isNotEmpty) {
@@ -219,6 +227,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           // 引擎分组
           _sectionTitle('手机 Agent 引擎'),
           _engineCard(theme),
+
+          // Termux 环境分组
+          _sectionTitle('Termux 环境'),
+          _termuxCard(theme),
 
           // Github 分组
           _sectionTitle('Github'),
@@ -556,6 +568,162 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  // --- Termux 环境卡片 ---
+
+  Widget _termuxCard(ThemeData theme) {
+    return Container(
+      key: _termuxCardKey,
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _termuxStatusIcon(_termuxReadiness),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _termuxStatusLabel(_termuxReadiness),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_termuxReadiness != TermuxReadiness.ready) ...[
+            const SizedBox(height: 12),
+            Text(
+              _termuxReadiness == TermuxReadiness.notInstalled
+                  ? '请从 F-Droid 安装 Termux（Google Play 版已停止更新），安装后点「重新检测」'
+                  : '请在 Termux 中执行以下配置：',
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
+            ),
+            if (_termuxReadiness == TermuxReadiness.installedNoGit) ...[
+              const SizedBox(height: 8),
+              _termuxConfigStep(theme, '1', 'pkg install git'),
+              _termuxConfigStep(theme, '2', '编辑 ~/.termux/termux.properties，添加 allow-external-apps=true'),
+              _termuxConfigStep(theme, '3', 'termux-setup-storage（授权共享存储）'),
+              _termuxConfigStep(theme, '4', 'termux-reload-settings'),
+            ],
+          ],
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _recheckTermux,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('重新检测'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _termuxStatusIcon(TermuxReadiness readiness) {
+    switch (readiness) {
+      case TermuxReadiness.ready:
+        return const Icon(Icons.check_circle_rounded, color: Color(0xff5db872), size: 18);
+      case TermuxReadiness.installedNoGit:
+        return const Icon(Icons.warning_rounded, color: Color(0xffd4a017), size: 18);
+      case TermuxReadiness.notInstalled:
+        return const Icon(Icons.cancel_rounded, color: Color(0xffc64545), size: 18);
+    }
+  }
+
+  String _termuxStatusLabel(TermuxReadiness readiness) {
+    switch (readiness) {
+      case TermuxReadiness.ready:
+        return 'Termux 环境就绪，支持完整 git 操作';
+      case TermuxReadiness.installedNoGit:
+        return 'Termux 已安装，但 Git 未就绪';
+      case TermuxReadiness.notInstalled:
+        return 'Termux 未安装';
+    }
+  }
+
+  Widget _termuxConfigStep(ThemeData theme, String num, String cmd) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 18,
+            height: 18,
+            margin: const EdgeInsets.only(top: 2),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                num,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: SelectableText(
+              cmd,
+              style: TextStyle(
+                fontSize: 12,
+                fontFamily: 'monospace',
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _recheckTermux() async {
+    final readiness = await TermuxReadinessChecker().check();
+    BinaryResolver.instance.setTermuxReadiness(readiness);
+    if (mounted) {
+      setState(() => _termuxReadiness = readiness);
+      final msg = readiness == TermuxReadiness.ready
+          ? 'Termux 环境就绪'
+          : readiness == TermuxReadiness.installedNoGit
+              ? 'Termux 已安装但 Git 未就绪，请按提示配置'
+              : 'Termux 未安装';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    }
+  }
+
+  void _scrollToTermuxCard() {
+    final ctx = _termuxCardKey.currentContext;
+    if (ctx != null) {
+      Scrollable.ensureVisible(ctx, duration: const Duration(milliseconds: 400));
+    }
   }
 
   // --- Github 卡片 ---
