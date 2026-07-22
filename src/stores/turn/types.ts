@@ -15,6 +15,10 @@ export interface TurnState {
   settled: boolean
   resolve?: () => void
   reject?: (e: any) => void
+  /** 流式期间正在生成的 tool_use ID（content_block_start → stop 窗口期） */
+  currentStreamingToolId: string | null
+  /** 累积每个工具的 input_json_delta 分片，content_block_stop 时整体解析 */
+  streamingToolJson: Map<string, string>
 }
 
 export const REQUEST_TIMEOUT = 5 * 60 * 1000
@@ -41,5 +45,7 @@ export function createSettledTurn(): TurnState {
     timeoutId: null,
     isAutonomous: false,
     settled: true,
+    currentStreamingToolId: null,
+    streamingToolJson: new Map(),
   }
 }

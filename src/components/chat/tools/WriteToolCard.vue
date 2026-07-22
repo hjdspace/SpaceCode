@@ -7,7 +7,8 @@
       <span class="tool-label">{{ t('toolCards.write') }}</span>
       <span class="tool-separator">·</span>
       <span class="tool-target">{{ filePath }}</span>
-      <span v-if="outputSummary" class="tool-meta" :class="summaryClass">{{ outputSummary }}</span>
+      <span v-if="toolCall.status === 'running'" class="tool-meta status-running">{{ t('toolCards.writeStreaming') }}</span>
+      <span v-else-if="outputSummary" class="tool-meta" :class="summaryClass">{{ outputSummary }}</span>
       <div class="tool-actions">
         <button
           class="action-btn"
@@ -191,5 +192,6 @@ async function openInPanel() {
 .tool-meta {
   &.status-completed { color: var(--success); }
   &.status-error { color: var(--error); }
+  &.status-running { color: var(--accent-primary); }
 }
 </style>

@@ -119,6 +119,28 @@ function remoteUserContent(data: any): string {
   return ''
 }
 
+/**
+ * 从部分 JSON 字符串中尝试提取关键工具输入字段（file_path / path / command / query / pattern / url），
+ * 让 UI 能在 LLM 流式生成工具参数时就显示工具目标。
+ * 仅提取已完整的字符串值（引号闭合的），不会返回半截值。
+ */
+function tryExtractEarlyInput(partialJson: string): Record<string, unknown> | null {
+  const result: Record<string, unknown> = {}
+  let found = false
+
+  const fields = ['file_path', 'path', 'command', 'query', 'pattern', 'url']
+  for (const field of fields) {
+    const regex = new RegExp(`"${field}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`)
+    const match = partialJson.match(regex)
+    if (match) {
+      result[field] = match[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\')
+      found = true
+    }
+  }
+
+  return found ? result : null
+}
+
 export function createEventHandlers(opts: EventReducerOptions): EventReducer {
   const {
     sink,
@@ -297,6 +319,95 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
         }
       }
     }
+
+    // ── tool_use 流式处理：在 LLM 生成工具调用时就立即创建 toolCall，
+    // 让 UI 即时渲染工具卡片（无需等待完整 assistant 消息）──
+    if (ev.type === 'content_block_start' && ev.content_block?.type === 'tool_use') {
+      const toolId: string = ev.content_block.id || createUuid()
+      const toolName: string = ev.content_block.name || 'Unknown Tool'
+      logger.debug('ChatStore', `[${sessionId.slice(0, 8)}] stream_event: content_block_start(tool_use) | name=${toolName} | id=${toolId.slice(0, 8)}`)
+
+      ts.currentStreamingToolId = toolId
+      ts.streamingToolJson.set(toolId, '')
+
+      const s = sink.get(sessionId)
+      if (s) {
+        const msg = s.messages.find(m => m.id === ts.assistantMessageId)
+        if (msg) {
+          const existingTool = msg.toolCalls?.find(tc => tc.id === toolId)
+          if (!existingTool) {
+            msg.toolCalls = [...(msg.toolCalls || []), {
+              id: toolId, name: toolName, input: {},
+              status: 'running', startTime: Date.now()
+            }]
+            addToolTimelineEvent(sessionId, ts, toolId)
+            sink.persist(sessionId)
+          }
+        }
+      }
+    }
+
+    if (ev.type === 'content_block_delta' && ev.delta?.type === 'input_json_delta' && ev.delta?.partial_json) {
+      const toolId = ts.currentStreamingToolId
+      if (toolId) {
+        const prev = ts.streamingToolJson.get(toolId) || ''
+        const accumulated = prev + ev.delta.partial_json
+        ts.streamingToolJson.set(toolId, accumulated)
+
+        // 尝试从部分 JSON 中提取关键信息（file_path / path / command 等），
+        // 让 UI 能尽早显示工具目标
+        const earlyInput = tryExtractEarlyInput(accumulated)
+        if (earlyInput) {
+          const s = sink.get(sessionId)
+          if (s) {
+            const msg = s.messages.find(m => m.id === ts.assistantMessageId)
+            if (msg?.toolCalls) {
+              const idx = msg.toolCalls.findIndex(tc => tc.id === toolId)
+              if (idx >= 0) {
+                const updatedToolCalls = [...msg.toolCalls]
+                updatedToolCalls[idx] = {
+                  ...updatedToolCalls[idx],
+                  input: { ...updatedToolCalls[idx].input, ...earlyInput }
+                }
+                msg.toolCalls = updatedToolCalls
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (ev.type === 'content_block_stop' && ts.currentStreamingToolId) {
+      const toolId = ts.currentStreamingToolId
+      const accumulated = ts.streamingToolJson.get(toolId) || ''
+      ts.currentStreamingToolId = null
+      ts.streamingToolJson.delete(toolId)
+
+      // 解析完整的工具输入 JSON
+      if (accumulated) {
+        try {
+          const parsed = JSON.parse(accumulated)
+          const s = sink.get(sessionId)
+          if (s) {
+            const msg = s.messages.find(m => m.id === ts.assistantMessageId)
+            if (msg?.toolCalls) {
+              const idx = msg.toolCalls.findIndex(tc => tc.id === toolId)
+              if (idx >= 0) {
+                const updatedToolCalls = [...msg.toolCalls]
+                updatedToolCalls[idx] = {
+                  ...updatedToolCalls[idx],
+                  input: parsed
+                }
+                msg.toolCalls = updatedToolCalls
+                sink.persist(sessionId)
+              }
+            }
+          }
+        } catch {
+          logger.debug('ChatStore', `[${sessionId.slice(0, 8)}] stream_event: failed to parse accumulated tool JSON for ${toolId.slice(0, 8)}`)
+        }
+      }
+    }
   }
 
   const handleAssistant = (sessionId: string, ts: TurnState, assistant: any) => {
@@ -467,6 +578,18 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
                 recordAgentToolCall(s, msg.toolCalls[msg.toolCalls.length - 1])
                 addToolTimelineEvent(sessionId, ts, toolUse.id)
                 sink.persist(sessionId)
+              } else if (toolUse.input && Object.keys(toolUse.input).length > 0 && msg.toolCalls) {
+                // 流式期间可能只填充了部分 input，用完整数据覆盖
+                const idx = msg.toolCalls.findIndex(tc => tc.id === toolUse.id)
+                if (idx >= 0) {
+                  const updatedToolCalls = [...msg.toolCalls]
+                  updatedToolCalls[idx] = {
+                    ...updatedToolCalls[idx],
+                    input: toolUse.input
+                  }
+                  msg.toolCalls = updatedToolCalls
+                  sink.persist(sessionId)
+                }
               }
             }
           }
@@ -510,6 +633,24 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
           })
           addToolTimelineEvent(sessionId, ts, toolId)
           sink.persist(sessionId)
+        } else if (msg.toolCalls) {
+          // 流式期间已创建的 toolCall，用完整数据补充 input
+          const idx = msg.toolCalls.findIndex(tc => tc.id === toolId)
+          if (idx >= 0) {
+            const hasFullInput = toolInput && Object.keys(toolInput).length > 0
+            const currentInput = msg.toolCalls[idx].input || {}
+            const currentInputKeys = Object.keys(currentInput)
+            // 仅当当前 input 为空或不完整时才覆盖
+            if (hasFullInput && currentInputKeys.length < Object.keys(toolInput).length) {
+              const updatedToolCalls = [...msg.toolCalls]
+              updatedToolCalls[idx] = {
+                ...updatedToolCalls[idx],
+                input: toolInput
+              }
+              msg.toolCalls = updatedToolCalls
+              sink.persist(sessionId)
+            }
+          }
         }
       }
     }

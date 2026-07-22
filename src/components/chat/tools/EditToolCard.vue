@@ -7,6 +7,7 @@
       <span class="tool-label">{{ t('toolCards.edit') }}</span>
       <span class="tool-separator">·</span>
       <span class="tool-target">{{ filePath }}</span>
+      <span v-if="toolCall.status === 'running'" class="tool-meta status-running">{{ t('toolCards.editStreaming') }}</span>
       <div class="tool-actions">
         <button
           class="action-btn"
