@@ -192,9 +192,12 @@ export class H5Server {
 
     // 安全区：规范化路径，防止目录遍历
     const safePath = normalize(relativePath).replace(/^(\.\.[/\\])+/, '')
-    const distRoot = app.isPackaged
-      ? join(process.resourcesPath, 'dist')
-      : join(__dirname, '..', 'dist')
+    // dist 目录在 asar 包内（package.json files 配置），与桌面窗口加载路径
+    // (main.ts: join(__dirname, '../dist/index.html')) 保持一致。
+    // 无论是开发模式还是打包模式，__dirname 都指向 dist-electron/，
+    // 上一层即为 dist/。app.isPackaged + process.resourcesPath 路径
+    // 指向 asar 包外，找不到 dist 目录。
+    const distRoot = join(__dirname, '..', 'dist')
 
     const filePath = join(distRoot, safePath)
 

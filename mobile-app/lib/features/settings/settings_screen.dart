@@ -1,8 +1,13 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart' hide ConnectionState;
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:file_picker/file_picker.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../../core/agent/local_agent_service.dart';
 import '../../core/connection/connection_service.dart';
 import '../../core/connection/connection_state.dart' as conn;
@@ -12,6 +17,9 @@ import '../../core/theme/theme_service.dart';
 import '../../core/config/mobile_config.dart';
 import '../../core/github/github_service.dart';
 import '../../core/github/github_browser_auth.dart';
+import '../../core/github/clone_notifier.dart';
+import '../../core/github/clone_progress.dart';
+import '../../core/i18n/strings.dart';
 import '../chat/chat_controller.dart';
 
 /// 手机端偏好设置（默认 Agent / 权限模式 / 流式输出）
@@ -59,12 +67,12 @@ class MobilePreferences {
   }
 }
 
-/// 权限模式选项
-const _permissionModes = <(String, String, String)>[
-  ('default', '默认', '每次工具调用前询问'),
-  ('plan', '计划模式', '只读，不执行任何写操作'),
-  ('acceptEdits', '自动接受编辑', '自动允许文件编辑'),
-  ('bypassPermissions', '跳过权限', '所有工具调用自动允许（危险）'),
+/// 权限模式选项（id + i18n key + 描述 i18n key）
+const _permissionModeKeys = <(String, String, String)>[
+  ('default', 'permission.mode.default', 'permission.mode.description.default'),
+  ('plan', 'permission.mode.plan', 'permission.mode.description.plan'),
+  ('acceptEdits', 'permission.mode.acceptEdits', 'permission.mode.description.acceptEdits'),
+  ('bypassPermissions', 'permission.mode.bypassPermissions', 'permission.mode.description.bypassPermissions'),
 ];
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -85,6 +93,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _defaultAgentName;
   String _permissionMode = 'default';
   bool _streamingEnabled = true;
+  String _version = '';
 
   @override
   void initState() {
@@ -97,6 +106,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final permMode = await MobilePreferences.getPermissionMode();
     final streaming = await MobilePreferences.getStreamingEnabled();
     final config = await ref.read(mobileConfigProvider.notifier).load();
+    final packageInfo = await PackageInfo.fromPlatform();
     if (!mounted) return;
     _apiKeyController.text = config.apiKey;
     _baseUrlController.text = config.baseUrl;
@@ -105,6 +115,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _defaultAgentName = agentName;
       _permissionMode = permMode;
       _streamingEnabled = streaming;
+      _version = 'v${packageInfo.version}';
     });
     // 若已配置 API Key 和 Base URL，自动拉取一次模型列表
     if (config.apiKey.isNotEmpty && config.baseUrl.isNotEmpty) {
@@ -131,6 +142,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(error.toString().replaceFirst('Bad state: ', ''))),
       );
+    }
+  }
+
+  /// 加载指定 locale 的字符串表到 I18n（与 main.dart 中一致，避免跨文件导出）。
+  Future<void> _initI18n(String localeCode) async {
+    final locale = localeCode == 'en' ? AppLocale.en : AppLocale.zh;
+    final path = locale == AppLocale.en
+        ? 'lib/core/i18n/locales/en.json'
+        : 'lib/core/i18n/locales/zh.json';
+    try {
+      final json = await rootBundle.loadString(path);
+      final decoded = jsonDecode(json) as Map<String, dynamic>;
+      I18n.init(locale, decoded.map((k, v) => MapEntry(k, v.toString())));
+    } catch (_) {
+      // 加载失败保持默认
     }
   }
 
@@ -194,6 +220,47 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           // 外观分组
           _sectionHeader('外观'),
           _themeSelector(currentTheme, theme),
+          // 语言切换（在外观分组内，紧跟主题选择器）
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+                  ),
+                ),
+              ),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 0),
+                leading: const Icon(Icons.language),
+                title: Text(
+                  I18n.t('settings.language'),
+                  style: TextStyle(fontSize: 14, color: theme.colorScheme.onSurface),
+                ),
+                trailing: DropdownButton<String>(
+                  value: ref.watch(mobileConfigProvider).appLocale,
+                  items: [
+                    DropdownMenuItem(
+                      value: 'zh',
+                      child: Text(I18n.t('settings.languageZh')),
+                    ),
+                    DropdownMenuItem(
+                      value: 'en',
+                      child: Text(I18n.t('settings.languageEn')),
+                    ),
+                  ],
+                  onChanged: (value) async {
+                    if (value == null) return;
+                    await ref.read(mobileConfigProvider.notifier).saveLocale(value);
+                    await _initI18n(value);
+                    // 强制重建以应用新语言
+                    setState(() {});
+                  },
+                ),
+              ),
+            ),
+          ),
 
           // 聊天分组
           _sectionHeader('聊天'),
@@ -230,7 +297,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'v0.1.0',
+                  _version.isEmpty ? '' : _version,
                   style: TextStyle(
                     fontSize: 12,
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
@@ -350,6 +417,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               label: const Text('手动 Clone 仓库到本地'),
             ),
           ),
+          // Clone 任务进度/完成/错误显示
+          Consumer(builder: (context, ref, _) {
+            final cloneState = ref.watch(cloneProvider);
+            if (cloneState.status == CloneStatus.idle) {
+              return const SizedBox.shrink();
+            }
+            return _CloneTaskCard(state: cloneState);
+          }),
         ],
       ),
     );
@@ -412,23 +487,116 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
       );
       if (branch == null || !mounted) return;
-      final target = await FilePicker.platform
-          .getDirectoryPath(dialogTitle: '选择 Clone 目标目录');
-      if (target == null || !mounted) return;
-      await service.cloneRepository(
-          repository: repo.fullName, branch: branch, targetDirectory: target);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${repo.fullName} 已下载到 $target')));
+      // 让用户选择系统目录（如 Download），解析 SAF URI 为真实路径
+      final pickedDir = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: '选择 Clone 目标目录',
+      );
+      if (pickedDir == null || !mounted) return;
+      // 解析 SAF content:// URI 为真实文件系统路径
+      final basePath = _safUriToPath(pickedDir);
+      if (basePath == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('无法解析所选目录路径，请选择主存储下的目录（如 Download）')));
+        }
+        return;
+      }
+      final repoName = repo.fullName.split('/').last;
+      // 修复字符串插值：$basePath$Platform.pathSeparator$repoName 会被误解析
+      // 正确写法用 ${Platform.pathSeparator}
+      final target = '$basePath${Platform.pathSeparator}$repoName';
+      // 尝试创建目录，Android 11+ 可能 Permission denied
+      // 若失败则 fallback 到 APP 专属外部存储目录，保留用户选的目录名作为子目录
+      String actualTarget = target;
+      try {
+        await Directory(target).create(recursive: true);
+      } catch (_) {
+        // fallback：<externalStorage>/Android/data/<pkg>/files/<用户选的目录名>/<仓库名>/
+        final extDir = await getExternalStorageDirectory();
+        if (extDir == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('无法访问外部存储目录，clone 失败')));
+          }
+          return;
+        }
+        final selectedDirName = basePath.split(Platform.pathSeparator).last;
+        actualTarget =
+            '${extDir.path}${Platform.pathSeparator}$selectedDirName${Platform.pathSeparator}$repoName';
+        await Directory(actualTarget).create(recursive: true);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                '系统权限限制，已克隆到 APP 专属目录：$actualTarget'),
+            duration: const Duration(seconds: 6),
+          ));
+        }
+      }
+      // 若已存在则先清空（重新 clone）
+      final existingDir = Directory(actualTarget);
+      if (await existingDir.exists()) {
+        await existingDir.delete(recursive: true);
+      }
+
+      // 交给后台 CloneNotifier，立即返回（不阻塞 UI）
+      try {
+        await ref.read(cloneProvider.notifier).startClone(
+              repository: repo.fullName,
+              branch: branch,
+              targetDirectory: actualTarget,
+            );
+      } on StateError catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(error.message)));
+        }
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(error.toString())));
       }
     } finally {
       service.dispose();
     }
+  }
+
+  /// 将 SAF content:// URI 解析为真实文件系统路径。
+  ///
+  /// 支持格式：
+  /// - content://com.android.externalstorage.documents/tree/primary%3ADownload
+  ///   → /storage/emulated/0/Download
+  /// - content://com.android.externalstorage.documents/tree/XXXX-XXXX%3ADownload
+  ///   → /storage/XXXX-XXXX/Download
+  /// - 已是真实路径（/storage/...）→ 原样返回
+  /// 无法识别返回 null。
+  String? _safUriToPath(String uri) {
+    // 已是真实路径
+    if (uri.startsWith('/')) return uri;
+
+    final decoded = Uri.decodeFull(uri);
+    final match = RegExp(r'tree/(.+)').firstMatch(decoded);
+    if (match == null) return null;
+    final treePath = match.group(1)!;
+
+    if (treePath.startsWith('primary:')) {
+      // 主存储：primary:Download → /storage/emulated/0/Download
+      final subPath = treePath.substring('primary:'.length);
+      return subPath.isEmpty
+          ? '/storage/emulated/0'
+          : '/storage/emulated/0/$subPath';
+    }
+
+    // SD 卡或其他存储：XXXX-XXXX:Download → /storage/XXXX-XXXX/Download
+    final colonIndex = treePath.indexOf(':');
+    if (colonIndex > 0) {
+      final storageId = treePath.substring(0, colonIndex);
+      final subPath = treePath.substring(colonIndex + 1);
+      return subPath.isEmpty
+          ? '/storage/$storageId'
+          : '/storage/$storageId/$subPath';
+    }
+    return null;
   }
 
   Widget _buildModelField() {
@@ -854,14 +1022,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              for (final mode in _permissionModes)
+              for (final mode in _permissionModeKeys)
                 () {
-                  final (id, name, desc) = mode;
+                  final (id, nameKey, descKey) = mode;
                   final isSelected = _permissionMode == id;
                   return ListTile(
-                    title: Text(name,
+                    title: Text(I18n.t(nameKey),
                         style: TextStyle(color: theme.colorScheme.onSurface)),
-                    subtitle: Text(desc,
+                    subtitle: Text(I18n.t(descKey),
                         style: TextStyle(
                             color: theme.colorScheme.onSurface
                                 .withValues(alpha: 0.5))),
@@ -968,10 +1136,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   String _permissionModeLabel(String mode) {
-    for (final (id, name, _) in _permissionModes) {
-      if (id == mode) return name;
+    for (final (id, nameKey, _) in _permissionModeKeys) {
+      if (id == mode) return I18n.t(nameKey);
     }
-    return '默认';
+    return I18n.t('permission.mode.default');
   }
 
   Color _connectionColor(conn.ConnectionState state) {
@@ -997,6 +1165,197 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return '未连接';
       case conn.ConnectionState.error:
         return '连接错误';
+    }
+  }
+}
+
+class _CloneTaskCard extends ConsumerWidget {
+  final CloneState state;
+
+  const _CloneTaskCard({required this.state});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
+        ),
+      ),
+      child: _buildContent(context, ref, theme),
+    );
+  }
+
+  Widget _buildContent(BuildContext context, WidgetRef ref, ThemeData theme) {
+    switch (state.status) {
+      case CloneStatus.running:
+        return _buildRunning(context, ref, theme);
+      case CloneStatus.done:
+        return _buildDone(context, ref, theme);
+      case CloneStatus.error:
+        return _buildError(context, ref, theme);
+      case CloneStatus.idle:
+        return const SizedBox.shrink();
+    }
+  }
+
+  Widget _buildRunning(BuildContext context, WidgetRef ref, ThemeData theme) {
+    final progress = state.progress;
+    final phase = progress?.phase ?? ClonePhase.downloading;
+    final percent = phase == ClonePhase.extracting
+        ? progress?.extractPercent
+        : progress?.downloadPercent;
+    final label = phase == ClonePhase.extracting ? '解压中' : '下载中';
+    final detail = phase == ClonePhase.extracting
+        ? '文件 ${progress?.processedFiles ?? 0}/${progress?.totalFiles ?? '?'}'
+        : '${_formatBytes(progress?.receivedBytes ?? 0)}'
+            '/${progress?.totalBytes == null ? '?' : _formatBytes(progress!.totalBytes!)}';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '$label：${state.repositoryName ?? ''}',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => ref.read(cloneProvider.notifier).cancel(),
+              child: const Text('取消'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        LinearProgressIndicator(
+          value: percent,
+          backgroundColor: theme.colorScheme.surface,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          percent == null
+              ? '$label中… ($detail)'
+              : '$label ${(percent * 100).toStringAsFixed(0)}% ($detail)',
+          style: TextStyle(
+            fontSize: 12,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDone(BuildContext context, WidgetRef ref, ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.check_circle_rounded,
+                color: Color(0xff5db872), size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '${state.repositoryName ?? ''} 已克隆',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => _copyPath(context, state.resultPath),
+              child: const Text('复制路径'),
+            ),
+            TextButton(
+              onPressed: () => ref.read(cloneProvider.notifier).reset(),
+              child: const Text('清除'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        SelectableText(
+          '路径：${state.resultPath ?? ''}',
+          style: TextStyle(
+            fontSize: 12,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildError(BuildContext context, WidgetRef ref, ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.error_rounded,
+                color: Color(0xffc64545), size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '${state.repositoryName ?? ''} 克隆失败',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => ref.read(cloneProvider.notifier).reset(),
+              child: const Text('清除'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          state.errorMessage ?? '未知错误',
+          style: TextStyle(
+            fontSize: 12,
+            color: theme.colorScheme.error,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  Future<void> _copyPath(BuildContext context, String? path) async {
+    if (path == null) return;
+    await Clipboard.setData(ClipboardData(text: path));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('路径已复制：$path'),
+          duration: const Duration(seconds: 4),
+        ),
+      );
     }
   }
 }

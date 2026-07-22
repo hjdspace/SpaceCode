@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/i18n/strings.dart';
 import '../models/permission_request.dart';
 
 class PermissionCard extends StatelessWidget {
@@ -53,7 +54,7 @@ class PermissionCard extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Text(
-                '权限请求',
+                I18n.t('permission.request.title'),
                 style: TextStyle(
                   color: theme.colorScheme.onSurface,
                   fontSize: 16,
@@ -116,9 +117,9 @@ class PermissionCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  child: const Text(
-                    '拒绝',
-                    style: TextStyle(fontWeight: FontWeight.w600),
+                  child: Text(
+                    I18n.t('permission.request.deny'),
+                    style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                 ),
               ),
@@ -133,9 +134,9 @@ class PermissionCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  child: const Text(
-                    '允许',
-                    style: TextStyle(
+                  child: Text(
+                    I18n.t('permission.request.allow'),
+                    style: const TextStyle(
                       fontWeight: FontWeight.w600,
                       color: Color(0xff181715),
                     ),

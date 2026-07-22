@@ -94,4 +94,111 @@ void main() {
     await expectLater(completion, throwsA(isA<AgentCancelledException>()));
     model.dispose();
   });
+
+  test('streams delta content via onDelta callback', () async {
+    final client = MockClient.streaming((request, bodyStream) async {
+      await bodyStream.drain<void>();
+      final chunks = [
+        'data: ${jsonEncode({
+          'choices': [
+            {'delta': {'content': 'Hel'}}
+          ]
+        })}\n\n',
+        'data: ${jsonEncode({
+          'choices': [
+            {'delta': {'content': 'lo'}}
+          ]
+        })}\n\n',
+        'data: [DONE]\n\n',
+      ];
+      final bytes = <int>[];
+      for (final c in chunks) {
+        bytes.addAll(utf8.encode(c));
+      }
+      return http.StreamedResponse(
+        Stream.value(bytes),
+        200,
+        headers: {'content-type': 'text/event-stream'},
+      );
+    });
+
+    final model = OpenAiCompatibleModel(client: client);
+    final deltas = <String>[];
+
+    final result = await model.complete(
+      config: const AgentModelConfig(
+        apiKey: 'k',
+        baseUrl: 'https://example.test/v1',
+        model: 'm',
+      ),
+      systemPrompt: 'agent',
+      messages: const [AgentMessage.user('hi')],
+      tools: const [],
+      cancellationToken: AgentCancellationToken(),
+      onDelta: deltas.add,
+    );
+
+    expect(result.text, 'Hello');
+    expect(deltas, ['Hel', 'lo']);
+  });
+
+  test('parses streamed tool_calls', () async {
+    final client = MockClient.streaming((request, bodyStream) async {
+      await bodyStream.drain<void>();
+      final chunks = [
+        'data: ${jsonEncode({
+          'choices': [
+            {
+              'delta': {
+                'tool_calls': [
+                  {
+                    'id': 'call-1',
+                    'function': {'name': 'read_file', 'arguments': '{"path":"a'}
+                  }
+                ]
+              }
+            }
+          ]
+        })}\n\n',
+        'data: ${jsonEncode({
+          'choices': [
+            {
+              'delta': {
+                'tool_calls': [
+                  {'function': {'arguments': '.txt"}'}}
+                ]
+              }
+            }
+          ]
+        })}\n\n',
+        'data: [DONE]\n\n',
+      ];
+      final bytes = <int>[];
+      for (final c in chunks) {
+        bytes.addAll(utf8.encode(c));
+      }
+      return http.StreamedResponse(
+        Stream.value(bytes),
+        200,
+        headers: {'content-type': 'text/event-stream'},
+      );
+    });
+
+    final model = OpenAiCompatibleModel(client: client);
+    final result = await model.complete(
+      config: const AgentModelConfig(
+        apiKey: 'k',
+        baseUrl: 'https://example.test/v1',
+        model: 'm',
+      ),
+      systemPrompt: 'agent',
+      messages: const [AgentMessage.user('hi')],
+      tools: const [],
+      cancellationToken: AgentCancellationToken(),
+    );
+
+    expect(result.toolCalls.length, 1);
+    expect(result.toolCalls.first.name, 'read_file');
+    expect(result.toolCalls.first.arguments, {'path': 'a.txt'});
+  });
 }

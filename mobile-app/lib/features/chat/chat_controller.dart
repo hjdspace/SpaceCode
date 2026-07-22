@@ -11,11 +11,18 @@ import '../../core/storage/chat_history_storage.dart';
 import 'models/message.dart';
 import 'models/tool_call.dart';
 import 'models/permission_request.dart';
+import '../../core/agent/agent_plugin.dart';
 import '../../core/agent/local_agent_service.dart';
 import '../../core/agent/agent_types.dart';
 import '../../core/config/mobile_config.dart';
 import '../../core/github/github_service.dart';
+import '../../core/github/clone_progress.dart';
+import '../../core/skills/skill_registry.dart';
 import '../../core/workspace/workspace_target.dart';
+import '../../core/i18n/strings.dart';
+import '../settings/settings_screen.dart' show MobilePreferences;
+import 'timeline_assembler.dart';
+import 'models/chat_attachment.dart';
 
 final chatProvider = StateNotifierProvider<ChatNotifier, ChatState>((ref) {
   return ChatNotifier(ref);
@@ -42,7 +49,17 @@ class ChatState {
 
   /// 每个 session 的 agent 名称
   final Map<String, String> agentBySession;
+
+  /// 每个 session 的待发送附件
+  final Map<String, List<ChatAttachment>> attachmentsBySession;
   final List<PermissionRequest> pendingPermissions;
+
+  /// 每个 session 是否可"继续上一次"（上次因 maxTurns 截断时为 true）。
+  ///
+  /// 由 [_runLocalAgent] 在 [AgentStopReason.maxTurns] 时置 true，
+  /// 用户点击 ChatInput 顶部的"继续"按钮后调用 [ChatNotifier.continueLastTurn]，
+  /// 复用历史再次发起一次 Agent 调用。
+  final Map<String, bool> canContinueBySession;
 
   /// 桌面端当前激活会话的项目目录，由 session_changed 推送更新
   final String? projectPath;
@@ -59,7 +76,9 @@ class ChatState {
     required this.messagesBySession,
     required this.loadingBySession,
     required this.agentBySession,
+    required this.attachmentsBySession,
     this.pendingPermissions = const [],
+    this.canContinueBySession = const {},
     this.projectPath,
     this.sessions = const [],
     this.historyLoaded = false,
@@ -80,12 +99,24 @@ class ChatState {
   String? get currentAgent =>
       currentSessionId == null ? null : agentBySession[currentSessionId];
 
+  /// 当前会话的待发送附件
+  List<ChatAttachment> get currentAttachments => currentSessionId == null
+      ? const []
+      : attachmentsBySession[currentSessionId] ?? const [];
+
+  /// 当前会话上次是否因 maxTurns 截断，UI 据此显示"继续"按钮
+  bool get canContinue => currentSessionId == null
+      ? false
+      : (canContinueBySession[currentSessionId] ?? false);
+
   ChatState copyWith({
     String? currentSessionId,
     Map<String, List<ChatMessage>>? messagesBySession,
     Map<String, bool>? loadingBySession,
     Map<String, String>? agentBySession,
+    Map<String, List<ChatAttachment>>? attachmentsBySession,
     List<PermissionRequest>? pendingPermissions,
+    Map<String, bool>? canContinueBySession,
     String? projectPath,
     List<SessionSummary>? sessions,
     bool? historyLoaded,
@@ -97,7 +128,11 @@ class ChatState {
         messagesBySession: messagesBySession ?? this.messagesBySession,
         loadingBySession: loadingBySession ?? this.loadingBySession,
         agentBySession: agentBySession ?? this.agentBySession,
+        attachmentsBySession:
+            attachmentsBySession ?? this.attachmentsBySession,
         pendingPermissions: pendingPermissions ?? this.pendingPermissions,
+        canContinueBySession:
+            canContinueBySession ?? this.canContinueBySession,
         projectPath: projectPath ?? this.projectPath,
         sessions: sessions ?? this.sessions,
         historyLoaded: historyLoaded ?? this.historyLoaded,
@@ -111,6 +146,8 @@ class ChatState {
         messagesBySession: {},
         loadingBySession: {},
         agentBySession: {},
+        attachmentsBySession: {},
+        canContinueBySession: {},
       );
 }
 
@@ -121,6 +158,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
   final _localAgent = LocalAgentService();
   final Map<String, WorkspaceTarget> _workspaceBySession = {};
   final Map<String, AgentCancellationToken> _localWorkflowTokens = {};
+  /// 每个 session 的当前 turn 装配器（生命周期 = 一次 assistant turn）。
+  final Map<String, TimelineAssembler> _assemblers = {};
   StreamSubscription? _subscription;
   // 防抖保存：连续追加流式 delta 时只在停顿 500ms 后写一次盘
   Timer? _persistTimer;
@@ -190,9 +229,40 @@ class ChatNotifier extends StateNotifier<ChatState> {
       case PushType.settingsSync:
         _handleSettingsSync(push.data);
         break;
+      case PushType.skillsSync:
+        _handleSkillsSync(push.data);
+        break;
       default:
         break;
     }
+  }
+
+  /// 处理桌面端推送的技能同步消息。
+  ///
+  /// 推送数据格式：
+  /// ```
+  /// {
+  ///   "skills": [
+  ///     {"name": "code-review", "description": "...", "content": "---\nname: ..."}
+  ///   ]
+  /// }
+  /// ```
+  Future<void> _handleSkillsSync(Map<String, dynamic>? data) async {
+    if (data == null) return;
+    final skills = data['skills'];
+    if (skills is! List) return;
+    final docs = await getApplicationDocumentsDirectory();
+    final syncDir = Directory('${docs.path}/spacecode/skills/desktop-sync');
+    await syncDir.create(recursive: true);
+    for (final entry in skills.whereType<Map<String, dynamic>>()) {
+      final name = entry['name'] as String?;
+      final content = entry['content'] as String?;
+      if (name == null || name.isEmpty || content == null) continue;
+      final skillDir = Directory('${syncDir.path}/$name');
+      await skillDir.create(recursive: true);
+      await File('${skillDir.path}/SKILL.md').writeAsString(content);
+    }
+    await _ref.read(skillRegistryProvider.notifier).refresh();
   }
 
   /// 从推送数据中提取 sessionId，回退到当前 session（兼容老协议）
@@ -202,17 +272,27 @@ class ChatNotifier extends StateNotifier<ChatState> {
     return sid ?? state.currentSessionId;
   }
 
-  void sendMessage(String content) {
+  void sendMessage(
+    String content, {
+    List<ChatAttachment>? attachments,
+  }) {
+    final processed = _processSkillCommand(content);
+    if (processed == null) return;
+    final actualContent = processed;
+    final effectiveAttachments = attachments ?? currentAttachments();
+
     final sessionId = state.currentSessionId ?? _uuid.v4();
     if (state.currentSessionId == null) {
       state = state.copyWith(currentSessionId: sessionId);
     }
+    // 用户新发消息 → 清掉上次的"可续跑"标记（避免按钮残留）
+    _setCanContinue(sessionId, false);
     final workspace = _workspaceBySession[sessionId] ?? state.workspaceTarget;
     if (workspace != null) _workspaceBySession[sessionId] = workspace;
     final userMsg = ChatMessage(
       id: _uuid.v4(),
       role: MessageRole.user,
-      content: content,
+      content: actualContent,
     );
     final assistantMsg = ChatMessage(
       id: _uuid.v4(),
@@ -230,22 +310,69 @@ class ChatNotifier extends StateNotifier<ChatState> {
             type: RequestType.sendMessage,
             data: {
               'sessionId': sessionId,
-              'content': content,
+              'content': actualContent,
               'images': [],
+              'attachments': effectiveAttachments
+                  .map((attachment) => {
+                        'kind': attachment.kind.name,
+                        'name': attachment.name,
+                        'path': attachment.path,
+                        'contentBase64': attachment.contentBase64,
+                      })
+                  .toList(),
               if (workspace != null) 'workspace': workspace.promptContext,
             },
           ));
     } else {
-      _runLocalAgent(sessionId, content, workspace);
+      _runLocalAgent(
+        sessionId,
+        actualContent,
+        workspace,
+        attachments: effectiveAttachments,
+      );
     }
+    _clearCurrentAttachments();
     _schedulePersist();
   }
 
-  Future<void> _runLocalAgent(String sessionId, String content,
-      WorkspaceTarget? selectedWorkspace) async {
+  /// 解析 `/skill:name [task]` 命令为完整 prompt。
+  ///
+  /// 返回 null 表示输入无效（应忽略）；
+  /// 返回原字符串表示非技能命令；
+  /// 返回拼装后的字符串表示技能命令已展开。
+  String? _processSkillCommand(String content) {
+    final trimmed = content.trim();
+    if (trimmed.isEmpty) return null;
+    if (!trimmed.startsWith('/skill:')) return trimmed;
+    final rest = trimmed.substring('/skill:'.length);
+    final spaceIndex = rest.indexOf(' ');
+    final skillName =
+        spaceIndex >= 0 ? rest.substring(0, spaceIndex).trim() : rest.trim();
+    final taskText =
+        spaceIndex >= 0 ? rest.substring(spaceIndex + 1).trim() : '';
+    if (skillName.isEmpty) return null;
+    if (taskText.isEmpty) {
+      return "Load skill '$skillName' and follow its instructions.";
+    }
+    return "Load skill '$skillName' and follow its instructions for the following task:\n\n$taskText";
+  }
+
+  Future<void> _runLocalAgent(
+    String sessionId,
+    String content,
+    WorkspaceTarget? selectedWorkspace, {
+    List<ChatAttachment>? attachments,
+  }) async {
     final token = AgentCancellationToken();
     _localWorkflowTokens[sessionId]?.cancel();
     _localWorkflowTokens[sessionId] = token;
+
+    var prompt = content;
+    if (attachments != null && attachments.isNotEmpty) {
+      final context = attachments.map((a) => a.promptContext).join('\n\n');
+      prompt = '$context\n\n$prompt';
+    }
+
     try {
       final config = _ref.read(mobileConfigProvider);
       var workspace = selectedWorkspace;
@@ -279,13 +406,18 @@ class ChatNotifier extends StateNotifier<ChatState> {
           final github = GithubService(token: config.githubToken);
           String cloneError = '';
           try {
-            await github.cloneRepository(
+            await for (final progress in github.cloneRepository(
               repository: workspace.repository!,
               branch: workspace.branch!,
               targetDirectory: checkoutPath,
               abortTrigger: token.whenCancelled,
               isCancelled: () => token.isCancelled,
-            );
+            )) {
+              if (progress.phase == ClonePhase.error) {
+                cloneError = progress.errorMessage ?? 'clone 失败';
+              }
+              // 中间进度不更新 UI；虚拟 ToolCallCard 已显示"运行中"
+            }
           } catch (error) {
             if (token.isCancelled) rethrow;
             cloneError = error.toString();
@@ -322,15 +454,40 @@ class ChatNotifier extends StateNotifier<ChatState> {
         }
       }
       token.throwIfCancelled();
-      var answer = await _localAgent.complete(
+      // 读取权限模式（修复本地 Agent 模式下 pref_permission_mode 不生效问题）
+      final permissionMode = await MobilePreferences.getPermissionMode();
+      final runResult = await _localAgent.complete(
         sessionId: sessionId,
         config: config,
-        prompt: content,
+        prompt: prompt,
         workspace: workspace,
         history: _buildLocalAgentHistory(sessionId, content),
         cancellationToken: token,
         onEvent: (event) => _handleLocalAgentEvent(sessionId, event),
+        skillRegistry: _ref.read(skillRegistryProvider),
+        permissionMode: permissionMode,
+        onPermissionRequest: (event) {
+          // AgentSession 推送权限请求 → 转换为 PermissionRequest 加入 state
+          final request = PermissionRequest(
+            sessionId: sessionId,
+            toolUseId: event.permissionRequestId ?? '',
+            toolName: event.permissionToolName ?? '',
+            input: event.permissionArguments != null
+                ? jsonEncode(event.permissionArguments)
+                : '',
+          );
+          state = state.copyWith(
+              pendingPermissions: [...state.pendingPermissions, request]);
+        },
       );
+      var answer = runResult.text;
+      // stopReason 透传：maxTurns 截断时追加提示并标记可续跑；
+      // 自然完成则清掉可续跑标记。
+      final canContinue = runResult.stopReason == AgentStopReason.maxTurns;
+      if (canContinue) {
+        answer = '$answer\n\n${I18n.t('chat.maxTurnsReached')}';
+      }
+      _setCanContinue(sessionId, canContinue);
       if (workspace?.mode == WorkspaceMode.github &&
           workspace?.localPath != null &&
           config.githubToken.isNotEmpty) {
@@ -411,6 +568,23 @@ class ChatNotifier extends StateNotifier<ChatState> {
         _setMessages(sessionId, messages);
       }
     } finally {
+      // 清理当前 turn 的 assembler，避免下次发消息复用旧的事件列表
+      // （否则旧 text/toolCall 事件会被带到新 turn，导致 UI 显示历史内容
+      //  且旧 toolCallId 在新 message.toolCalls 中找不到 → 显示 "unknown"）
+      final assembler = _assemblers.remove(sessionId);
+      if (assembler != null) {
+        assembler.completeTurn();
+        final messages =
+            List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
+        if (messages.isNotEmpty &&
+            messages.last.role == MessageRole.assistant &&
+            !messages.last.isStreaming) {
+          messages[messages.length - 1] = messages.last.copyWith(
+            timelineEvents: assembler.events,
+          );
+          _setMessages(sessionId, messages);
+        }
+      }
       if (identical(_localWorkflowTokens[sessionId], token)) {
         _localWorkflowTokens.remove(sessionId);
       }
@@ -438,6 +612,30 @@ class ChatNotifier extends StateNotifier<ChatState> {
     _setMessages(sessionId, messages);
   }
 
+  /// 更新某个 session 的 canContinue 标记。
+  void _setCanContinue(String sessionId, bool value) {
+    final newMap = Map<String, bool>.from(state.canContinueBySession);
+    if (value) {
+      newMap[sessionId] = true;
+    } else {
+      newMap.remove(sessionId);
+    }
+    state = state.copyWith(canContinueBySession: newMap);
+  }
+
+  /// 续跑上一次因 maxTurns 截断的任务。
+  ///
+  /// 复用当前 session 的历史消息（包括已完成的工具调用与中间产物），
+  /// 发送一条固定 prompt 让 Agent 接着上次进度继续执行。
+  /// 仅在 [ChatState.canContinue] 为 true 时有效；调用后立即清掉标记，
+  /// 防止用户连点导致重复发起。
+  void continueLastTurn() {
+    final sessionId = state.currentSessionId;
+    if (sessionId == null) return;
+    if (!(state.canContinueBySession[sessionId] ?? false)) return;
+    sendMessage(I18n.t('chat.continueLastTurnPrompt'));
+  }
+
   void setWorkspaceTarget(WorkspaceTarget? target) {
     final sessionId = state.currentSessionId;
     if (sessionId != null) {
@@ -454,17 +652,62 @@ class ChatNotifier extends StateNotifier<ChatState> {
     _schedulePersist();
   }
 
+  void addAttachment(ChatAttachment attachment) {
+    final sessionId = state.currentSessionId;
+    if (sessionId == null) return;
+    final map = Map<String, List<ChatAttachment>>.from(
+        state.attachmentsBySession);
+    map[sessionId] = [...(map[sessionId] ?? []), attachment];
+    state = state.copyWith(attachmentsBySession: map);
+  }
+
+  void removeAttachment(ChatAttachment attachment) {
+    final sessionId = state.currentSessionId;
+    if (sessionId == null) return;
+    final map = Map<String, List<ChatAttachment>>.from(
+        state.attachmentsBySession);
+    final list = map[sessionId];
+    if (list == null) return;
+    final newList =
+        list.where((item) => item != attachment).toList();
+    if (newList.length == list.length) return;
+    map[sessionId] = newList;
+    state = state.copyWith(attachmentsBySession: map);
+  }
+
+  List<ChatAttachment> currentAttachments() {
+    final sessionId = state.currentSessionId;
+    if (sessionId == null) return [];
+    return state.attachmentsBySession[sessionId] ?? [];
+  }
+
+  void _clearCurrentAttachments() {
+    final sessionId = state.currentSessionId;
+    if (sessionId == null) return;
+    final map = Map<String, List<ChatAttachment>>.from(
+        state.attachmentsBySession);
+    map.remove(sessionId);
+    state = state.copyWith(attachmentsBySession: map);
+  }
+
+  Future<void> setModel(String model) async {
+    await _ref.read(mobileConfigProvider.notifier).saveModel(model);
+  }
+
   void _handleLocalAgentEvent(String sessionId, AgentEvent event) {
     final messages =
         List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
     if (messages.isEmpty || messages.last.role != MessageRole.assistant) return;
     final assistant = messages.last;
+    final assembler =
+        _assemblers.putIfAbsent(sessionId, () => TimelineAssembler());
 
     if (event.type == AgentEventType.assistantDelta && event.delta != null) {
-      // 流式 delta：累积到最后一条 assistant 消息的 content 上
+      assembler.appendTextDelta(event.delta!);
       messages[messages.length - 1] = assistant.copyWith(
         content: assistant.content + event.delta!,
         isStreaming: true,
+        timelineEvents: assembler.events,
       );
       _setMessages(sessionId, messages);
       _schedulePersist();
@@ -479,23 +722,31 @@ class ChatNotifier extends StateNotifier<ChatState> {
     final calls = List<ToolCall>.from(assistant.toolCalls ?? const []);
     if (event.type == AgentEventType.toolExecutionStart &&
         event.toolCall != null) {
-      calls.add(ToolCall(
+      final newCall = ToolCall(
         id: event.toolCall!.id,
         toolName: event.toolCall!.name,
         input: jsonEncode(event.toolCall!.arguments),
-      ));
+      );
+      calls.add(newCall);
+      assembler.addToolCall(newCall);
     } else if (event.type == AgentEventType.toolExecutionEnd &&
         event.toolCall != null) {
       final index = calls.indexWhere((call) => call.id == event.toolCall!.id);
       if (index >= 0) {
+        final newStatus = event.isError
+            ? ToolCallStatus.error
+            : ToolCallStatus.completed;
         calls[index] = calls[index].copyWith(
           output: event.toolResult,
-          status:
-              event.isError ? ToolCallStatus.error : ToolCallStatus.completed,
+          status: newStatus,
         );
+        assembler.completeToolCall(event.toolCall!.id, newStatus);
       }
     }
-    messages[messages.length - 1] = assistant.copyWith(toolCalls: calls);
+    messages[messages.length - 1] = assistant.copyWith(
+      toolCalls: calls,
+      timelineEvents: assembler.events,
+    );
     _setMessages(sessionId, messages);
   }
 
@@ -565,24 +816,30 @@ class ChatNotifier extends StateNotifier<ChatState> {
     final messages =
         List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
 
-    // 若最后一条 assistant message 已完成（isStreaming=false，说明上一轮 assistant
-    // 事件已处理），创建新 message 容纳本轮流式输出。
     final bool needNewMessage = messages.isEmpty ||
         messages.last.role != MessageRole.assistant ||
         !messages.last.isStreaming;
 
+    ChatMessage msg;
+    TimelineAssembler assembler;
     if (needNewMessage) {
-      final newMsg = ChatMessage(
+      msg = ChatMessage(
         id: _uuid.v4(),
         role: MessageRole.assistant,
         content: delta,
         isStreaming: true,
       );
-      _setMessages(sessionId, [...messages, newMsg]);
+      assembler = _assemblers[sessionId] = TimelineAssembler();
+      assembler.appendTextDelta(delta);
+      msg = msg.copyWith(timelineEvents: assembler.events);
+      _setMessages(sessionId, [...messages, msg]);
     } else {
       final last = messages.last;
+      assembler = _assemblers.putIfAbsent(sessionId, () => TimelineAssembler());
+      assembler.appendTextDelta(delta);
       messages[messages.length - 1] = last.copyWith(
         content: last.content + delta,
+        timelineEvents: assembler.events,
       );
       _setMessages(sessionId, messages);
     }
@@ -663,13 +920,19 @@ class ChatNotifier extends StateNotifier<ChatState> {
     if (sessionId == null) return;
     final messages =
         List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
-    if (messages.isNotEmpty && messages.last.role == MessageRole.assistant) {
-      final last = messages.last;
-      final toolCalls = List<ToolCall>.from(last.toolCalls ?? [])
-        ..add(toolCall);
-      messages[messages.length - 1] = last.copyWith(toolCalls: toolCalls);
-      _setMessages(sessionId, messages);
+    if (messages.isEmpty || messages.last.role != MessageRole.assistant) {
+      return;
     }
+    final last = messages.last;
+    final toolCalls = List<ToolCall>.from(last.toolCalls ?? [])..add(toolCall);
+    final assembler =
+        _assemblers.putIfAbsent(sessionId, () => TimelineAssembler());
+    assembler.addToolCall(toolCall);
+    messages[messages.length - 1] = last.copyWith(
+      toolCalls: toolCalls,
+      timelineEvents: assembler.events,
+    );
+    _setMessages(sessionId, messages);
     _schedulePersist();
   }
 
@@ -677,19 +940,37 @@ class ChatNotifier extends StateNotifier<ChatState> {
     if (data == null) return;
     final toolUseId = data['toolUseId'] as String? ?? '';
     final output = data['output']?.toString() ?? '';
+    final isError = data['isError'] as bool? ?? false;
     final sessionId = _extractSessionId(data);
     if (sessionId == null) return;
     final messages =
         List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
     for (int i = messages.length - 1; i >= 0; i--) {
       final msg = messages[i];
-      if (msg.toolCalls != null) {
+      if (msg.toolCalls != null && msg.toolCalls!.any((tc) => tc.id == toolUseId)) {
         final toolCalls = msg.toolCalls!
             .map((tc) => tc.id == toolUseId
-                ? tc.copyWith(output: output, status: ToolCallStatus.completed)
+                ? tc.copyWith(
+                    output: output,
+                    status: isError
+                        ? ToolCallStatus.error
+                        : ToolCallStatus.completed)
                 : tc)
             .toList();
-        messages[i] = msg.copyWith(toolCalls: toolCalls);
+        final assembler = _assemblers[sessionId];
+        if (assembler != null) {
+          assembler.completeToolCall(
+              toolUseId,
+              isError
+                  ? ToolCallStatus.error
+                  : ToolCallStatus.completed);
+          messages[i] = msg.copyWith(
+            toolCalls: toolCalls,
+            timelineEvents: assembler.events,
+          );
+        } else {
+          messages[i] = msg.copyWith(toolCalls: toolCalls);
+        }
         break;
       }
     }
@@ -712,11 +993,16 @@ class ChatNotifier extends StateNotifier<ChatState> {
   void _handleResult(Map<String, dynamic>? data) {
     final sessionId = _extractSessionId(data);
     if (sessionId == null) return;
+    final assembler = _assemblers.remove(sessionId);
     final messages =
         List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
     if (messages.isNotEmpty && messages.last.isStreaming) {
-      messages[messages.length - 1] =
-          messages.last.copyWith(isStreaming: false);
+      final last = messages.last;
+      assembler?.completeTurn();
+      messages[messages.length - 1] = last.copyWith(
+        isStreaming: false,
+        timelineEvents: assembler != null ? assembler.events : last.timelineEvents,
+      );
       _setMessages(sessionId, messages);
     }
     _setLoading(sessionId, false);
@@ -753,13 +1039,25 @@ class ChatNotifier extends StateNotifier<ChatState> {
   }
 
   void allowPermission(String toolUseId) {
-    _ref.read(connectionProvider.notifier).send(MobileRequest(
-          type: RequestType.allowPermission,
-          data: {
-            'sessionId': state.currentSessionId,
-            'toolUseId': toolUseId,
-          },
-        ));
+    final sessionId = state.currentSessionId;
+    // 桌面协同模式：通过 WS 发送 allowPermission
+    final connection = _ref.read(connectionProvider);
+    if (connection.state == conn.ConnectionState.connected && sessionId != null) {
+      _ref.read(connectionProvider.notifier).send(MobileRequest(
+            type: RequestType.allowPermission,
+            data: {
+              'sessionId': sessionId,
+              'toolUseId': toolUseId,
+            },
+          ));
+    } else if (sessionId != null) {
+      // 本地 Agent 模式：通过 LocalAgentService 注入 decision
+      _localAgent.resolvePermission(
+        sessionId,
+        toolUseId,
+        const AgentToolDecision.allow(),
+      );
+    }
     state = state.copyWith(
       pendingPermissions: state.pendingPermissions
           .where((p) => p.toolUseId != toolUseId)
@@ -768,13 +1066,25 @@ class ChatNotifier extends StateNotifier<ChatState> {
   }
 
   void denyPermission(String toolUseId) {
-    _ref.read(connectionProvider.notifier).send(MobileRequest(
-          type: RequestType.denyPermission,
-          data: {
-            'sessionId': state.currentSessionId,
-            'toolUseId': toolUseId,
-          },
-        ));
+    final sessionId = state.currentSessionId;
+    // 桌面协同模式：通过 WS 发送 denyPermission
+    final connection = _ref.read(connectionProvider);
+    if (connection.state == conn.ConnectionState.connected && sessionId != null) {
+      _ref.read(connectionProvider.notifier).send(MobileRequest(
+            type: RequestType.denyPermission,
+            data: {
+              'sessionId': sessionId,
+              'toolUseId': toolUseId,
+            },
+          ));
+    } else if (sessionId != null) {
+      // 本地 Agent 模式：通过 LocalAgentService 注入 decision
+      _localAgent.resolvePermission(
+        sessionId,
+        toolUseId,
+        const AgentToolDecision.deny('用户拒绝'),
+      );
+    }
     state = state.copyWith(
       pendingPermissions: state.pendingPermissions
           .where((p) => p.toolUseId != toolUseId)

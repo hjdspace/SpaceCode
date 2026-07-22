@@ -1,3 +1,54 @@
+## [0.6.10](https://github.com/hjdspace/SpaceCode/compare/v0.6.9...v0.6.10) (2026-07-22)
+
+### Features
+
+* **mobile:** 实现内置终端与 Shell 命令执行能力，支持工作区内执行命令
+* **mobile:** 实现 GitPlugin 12 个结构化 Git 工具
+* **mobile:** 实现 Python 沙盒与 PythonPlugin，支持 Python 代码执行
+* **mobile:** 新增权限拦截器（CommandClassifier 命令危险等级分类 + PermissionInterceptorPlugin 异步询问流程 + 集成到本地 Agent 与 UI）
+* **mobile:** Android Chaquopy 集成与 git 二进制构建脚本
+* **mobile/chat:** 重写聊天输入框组件，新增模型选择器、@mention 选择浮层、附件选择底部抽屉、附件 Chip 组件
+* **mobile/chat:** 扩展 ChatState / ChatNotifier 支持附件与模型切换，新增 ModelService 与 modelsProvider
+* **mobile/chat:** 使用 CommandMenu 替换 SkillCommandMenu 并支持命令分组
+* **mobile/chat:** 补全聊天输入框 i18n 字典并新增 widget 测试
+* **mobile/config:** 添加 saveModel 方法以支持保存当前模型
+* **mobile:** Agent 续跑能力，maxTurns 提升至 150（参考 claude-code 安全闸），截断时提示并可一键继续上次任务
+* **i18n:** 新增工作区相关多语言文案
+
+### Bug Fixes
+
+* **mobile:** 聊天输入框 TextField 禁用主题填充，消除浅灰背景
+* **mobile:** 语音输入主动请求麦克风权限，修复点击无反应问题
+* **mobile:** 终端输入框禁用主题填充背景，避免亮色主题下白底白字
+* **mobile/chat:** 恢复 WorkspaceToolbar 至输入框下方
+* **mobile:** 无工作区时回退到 homeDir 确保终端和 Shell 工具可用
+* **mobile:** 暂时禁用 Chaquopy 插件（不兼容 Gradle 9）
+* **chat:** 修复聊天输入栏工具按钮超出屏幕的问题
+
+### Refactor
+
+* **mobile/chat:** 合并工具栏入口到+号、修复语音输入、移除设置按钮
+
+## [0.6.9](https://github.com/hjdspace/SpaceCode/compare/v0.6.8...v0.6.9) (2026-07-21)
+
+### Features
+
+* **mobile:** 新增本地技能库系统，SkillsScreen 改造为 TabBar 布局，支持浏览/搜索/分类筛选/详情页/一键安装到用户目录
+* **mobile:** 新增 Clone 进度反馈，cloneRepository 改造为 Stream<CloneProgress>，CloneNotifier 后台 StateNotifier 驱动设置页实时显示进度与完成状态
+* **mobile:** 新增 Agent Timeline 渲染，TimelineEvent/TimelineAssembler 装配器接入 ChatController 与 MessageBubble 双路径渲染
+* **mobile:** 硬编码 GitHub OAuth Client ID 作为 debug 构建默认值，便于开发调试
+* **macos:** 注册 package_info_plus 插件以支持桌面端版本号动态读取
+
+### Bug Fixes
+
+* **mobile:** 修复 clone 路径字符串插值 bug 与 Android 11+ 权限问题
+* **mobile:** clone 支持选择系统目录且按仓库名创建子目录，修复目录写入失败和打开目录无反应
+* **mobile:** clone 支持自定义路径且保留项目根目录，删除 Timeline 圆点装饰
+* **mobile:** 修复多轮对话 assembler 残留导致显示历史内容
+* **mobile:** 设置页版本号改为从 package_info_plus 动态读取，避免硬编码
+* **mobile:** 修复本地技能库分类筛选、asset 加载、安装反馈三个 bug
+* **MarkdownRenderer:** 修复本地图片解析和渲染时序问题
+
 ## [0.6.8](https://github.com/hjdspace/SpaceCode/compare/v0.6.7...v0.6.8) (2026-07-20)
 
 ### Features

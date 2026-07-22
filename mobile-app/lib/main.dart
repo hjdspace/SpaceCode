@@ -1,15 +1,49 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
+import 'core/agent/binary_resolver.dart';
+import 'core/agent/chaquopy_bridge.dart';
+import 'core/agent/git_binary_extractor.dart';
 import 'core/config/mobile_config.dart';
+import 'core/i18n/strings.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final container = ProviderContainer();
   // 预加载手机 Agent 引擎配置，避免 chat 发送消息时读到默认空值
-  await container.read(mobileConfigProvider.notifier).load();
+  final config = await container.read(mobileConfigProvider.notifier).load();
+  await _initI18n(config.appLocale);
+  // 初始化 BinaryResolver：创建 home/bin 目录，构建 PATH 环境变量
+  // 失败不阻断启动（TerminalScreen 会 fallback 到 Platform.environment）
+  try {
+    await BinaryResolver.instance.initialize();
+    // 尝试解压捆绑的 git 二进制（assets 不存在时优雅降级，GitPlugin 不加载）
+    await GitBinaryExtractor.extract();
+    // 初始化 Chaquopy Python 桥接（非 Android 或未集成时优雅降级，PythonPlugin 不加载）
+    await ChaquopyBridge.instance.initialize();
+  } catch (_) {
+    // ignore - BinaryResolver 未初始化时 TerminalScreen 会回退到 Platform.environment
+  }
   runApp(UncontrolledProviderScope(
     container: container,
     child: const SpaceCodeApp(),
   ));
+}
+
+/// 加载指定 locale 的 JSON 字符串表到 I18n 静态类。
+/// 加载失败时保持默认（key 本身），不阻断启动。
+Future<void> _initI18n(String localeCode) async {
+  final locale = localeCode == 'en' ? AppLocale.en : AppLocale.zh;
+  final path = locale == AppLocale.en
+      ? 'lib/core/i18n/locales/en.json'
+      : 'lib/core/i18n/locales/zh.json';
+  try {
+    final json = await rootBundle.loadString(path);
+    final decoded = jsonDecode(json) as Map<String, dynamic>;
+    I18n.init(locale, decoded.map((k, v) => MapEntry(k, v.toString())));
+  } catch (_) {
+    // 加载失败保持默认（key 本身）
+  }
 }

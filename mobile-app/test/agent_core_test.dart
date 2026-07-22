@@ -19,6 +19,7 @@ class _QueuedModel extends AgentModel {
     required List<AgentMessage> messages,
     required List<AgentToolDefinition> tools,
     required AgentCancellationToken cancellationToken,
+    void Function(String delta)? onDelta,
   }) async {
     requests.add(List<AgentMessage>.from(messages));
     return responses.removeAt(0);
@@ -33,6 +34,7 @@ class _BlockingModel extends AgentModel {
     required List<AgentMessage> messages,
     required List<AgentToolDefinition> tools,
     required AgentCancellationToken cancellationToken,
+    void Function(String delta)? onDelta,
   }) async {
     await cancellationToken.whenCancelled;
     throw const AgentCancelledException();

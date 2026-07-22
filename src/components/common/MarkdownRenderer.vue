@@ -8,7 +8,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import hljs from 'highlight.js'
@@ -341,13 +341,14 @@ function armTrailingFinalize() {
     if (!pendingFinalize) return
     pendingFinalize = false
     performRender(true)
-    // 内容稳定后再尝试渲染 mermaid 图.
     if (!isUnmounted) {
-      setTimeout(renderMermaidDiagrams, 0)
-      // 异步校验文件链接有效性
-      setTimeout(validateFileLinks, 100)
-      // 异步解析本地图片相对路径 → base64 data URL（绕过 CSP）
-      setTimeout(resolveLocalImages, 100)
+      nextTick().then(() => {
+        if (isUnmounted) return
+        // 内容稳定且 DOM 已更新后再处理依赖真实节点的增强逻辑。
+        setTimeout(renderMermaidDiagrams, 0)
+        setTimeout(validateFileLinks, 100)
+        setTimeout(resolveLocalImages, 100)
+      })
     }
   }, STREAM_RENDER_INTERVAL_MS)
 }
@@ -421,9 +422,12 @@ async function renderMermaidDiagrams() {
 onMounted(() => {
   // 首次挂载: 立即同步渲染一次(含 file-link), 保证初始内容可点击.
   performRender(true)
-  renderMermaidDiagrams()
-  // 异步解析本地图片相对路径 → base64 data URL
-  resolveLocalImages()
+  nextTick().then(() => {
+    if (isUnmounted) return
+    renderMermaidDiagrams()
+    // 异步解析本地图片相对路径 → base64 data URL
+    resolveLocalImages()
+  })
 })
 
 onBeforeUnmount(() => {
