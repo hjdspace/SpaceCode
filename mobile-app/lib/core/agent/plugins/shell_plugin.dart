@@ -44,7 +44,7 @@ typedef ShellExecutor = Future<ShellCommandResult> Function(
 /// 在 Android 上通过 BinaryResolver.environment 配置 PATH，
 /// 工作目录固定在 [workingDirectory]。
 ///
-/// 当 [BinaryResolver.termuxReady] 为 true 时（即 Termux 已安装并通过桥接可用），
+/// 当 [BinaryResolver.termuxReadiness] 为 [TermuxReadiness.ready] 时（即 Termux 已安装并通过桥接可用），
 /// 命令会通过 [TermuxBridge] 在 Termux 环境中执行，从而支持 git 等工具。
 Future<ShellCommandResult> defaultShellExecutor({
   required String command,
