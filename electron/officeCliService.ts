@@ -10,11 +10,13 @@
  * All IPC channels are prefixed with `officecli:`.
  */
 
-import { ipcMain, app } from 'electron'
+import { ipcMain, app, BrowserWindow } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
+import * as http from 'http'
+import * as https from 'https'
 import { info, warn, debug } from './logger'
 
 // ===== Types =====
@@ -264,6 +266,210 @@ export async function ensureOfficeCliInstalled(): Promise<void> {
   }
 }
 
+// ===== In-app binary download =====
+
+/** TLS 证书相关错误码（企业代理环境常见） */
+const TLS_ERROR_CODES = new Set([
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'CERT_HAS_EXPIRED',
+  'SELF_SIGNED_CERT_IN_CHAIN',
+  'DEPTH_ZERO_SELF_SIGNED_CERT',
+  'ERR_TLS_CERT_ALTNAME_INVALID',
+  'UNABLE_TO_GET_ISSUER_CERT',
+  'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+])
+
+const GITHUB_API_URL = 'https://api.github.com/repos/iOfficeAI/OfficeCLI/releases'
+
+/** HTTPS GET with redirect following and TLS error retry */
+function httpsGet(url: string, maxRedirects = 5, allowInsecure = false): Promise<http.IncomingMessage> {
+  return new Promise((resolve, reject) => {
+    const doRequest = (insecure: boolean) => {
+      const options: https.RequestOptions = {
+        headers: {
+          'User-Agent': 'SpaceCode-OfficeCLI',
+          'Accept': 'application/vnd.github+json',
+        },
+      }
+      if (insecure) {
+        options.agent = new https.Agent({ rejectUnauthorized: false })
+      }
+      https.get(url, options, (res) => {
+        if ([301, 302, 303, 307, 308].includes(res.statusCode ?? 0)) {
+          if (maxRedirects <= 0) {
+            reject(new Error('Too many redirects'))
+            return
+          }
+          const location = res.headers.location
+          if (!location) {
+            reject(new Error('Redirect without Location header'))
+            return
+          }
+          res.resume()
+          httpsGet(location, maxRedirects - 1, insecure).then(resolve).catch(reject)
+          return
+        }
+        if (res.statusCode !== 200) {
+          res.resume()
+          reject(new Error(`HTTP ${res.statusCode} for ${url}`))
+          return
+        }
+        resolve(res)
+      }).on('error', (e: NodeJS.ErrnoException) => {
+        if (!insecure && TLS_ERROR_CODES.has(e.code ?? '')) {
+          warn('OfficeCli', `TLS certificate verification failed (${e.code}), retrying with insecure mode...`)
+          doRequest(true)
+        } else {
+          reject(e)
+        }
+      })
+    }
+    doRequest(allowInsecure)
+  })
+}
+
+/** Fetch JSON from URL */
+async function fetchJson(url: string): Promise<unknown> {
+  const res = await httpsGet(url)
+  const chunks: Buffer[] = []
+  for await (const chunk of res) {
+    chunks.push(chunk as Buffer)
+  }
+  return JSON.parse(Buffer.concat(chunks).toString())
+}
+
+interface GithubRelease {
+  tag_name: string
+  html_url: string
+  assets: Array<{
+    name: string
+    size: number
+    browser_download_url: string
+  }>
+}
+
+/** Send download progress to all renderer windows */
+function sendDownloadProgress(progress: { stage: string; message: string; percent: number }): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('officecli:downloadProgress', progress)
+  }
+}
+
+/**
+ * Download the OfficeCLI binary from GitHub Releases to ~/.officecli/bin/.
+ * Reports progress via the `officecli:downloadProgress` IPC event.
+ *
+ * @returns The path to the downloaded binary.
+ */
+export async function downloadOfficeCliBinary(): Promise<string> {
+  const exeName = getPlatformBinaryName()
+  const installDir = getOfficeCliInstallDir()
+  const installedPath = getOfficeCliInstalledBinary()
+
+  // If already installed and working, skip download
+  if (fs.existsSync(installedPath)) {
+    try {
+      const result = await execOfficeCli({ args: ['--version'], timeout: 5000 })
+      if (result.exitCode === 0) {
+        info('OfficeCli', `Already installed | version=${result.stdout.trim()} | path=${installedPath}`)
+        sendDownloadProgress({ stage: 'done', message: result.stdout.trim(), percent: 100 })
+        return installedPath
+      }
+    } catch {
+      // version check failed, continue to download
+    }
+  }
+
+  // Ensure install directory exists
+  fs.mkdirSync(installDir, { recursive: true })
+
+  // Fetch latest release info
+  sendDownloadProgress({ stage: 'fetching', message: 'Fetching release info...', percent: 0 })
+  const release = (await fetchJson(`${GITHUB_API_URL}/latest`)) as GithubRelease
+
+  // Find matching asset
+  const asset = release.assets?.find((a) => a.name === exeName)
+  if (!asset) {
+    const available = release.assets?.map((a) => a.name).join(', ') || 'none'
+    throw new Error(`No matching asset found for ${exeName}. Available: ${available}`)
+  }
+
+  info('OfficeCli', `Downloading | release=${release.tag_name} | asset=${asset.name} | size=${(asset.size / 1024 / 1024).toFixed(1)}MB`)
+
+  // Download with progress
+  sendDownloadProgress({ stage: 'downloading', message: `Downloading ${asset.name}...`, percent: 0 })
+
+  const tmpPath = installedPath + '.tmp'
+  const file = fs.createWriteStream(tmpPath)
+  const res = await httpsGet(asset.browser_download_url)
+
+  const contentLength = parseInt(res.headers['content-length'] || '0', 10)
+  let downloaded = 0
+
+  return new Promise<string>((resolve, reject) => {
+    res.on('data', (chunk: Buffer) => {
+      downloaded += chunk.length
+      file.write(chunk)
+      if (contentLength > 0) {
+        const percent = Math.round((downloaded / contentLength) * 100)
+        sendDownloadProgress({
+          stage: 'downloading',
+          message: `Downloading... ${percent}%`,
+          percent,
+        })
+      }
+    })
+
+    res.on('end', () => {
+      file.end(() => {
+        // Rename tmp file to final path
+        try {
+          if (fs.existsSync(installedPath)) {
+            fs.unlinkSync(installedPath)
+          }
+          fs.renameSync(tmpPath, installedPath)
+        } catch (err) {
+          reject(new Error(`Failed to save binary: ${String(err)}`))
+          return
+        }
+
+        // Make executable on Unix
+        if (process.platform !== 'win32') {
+          try {
+            fs.chmodSync(installedPath, 0o755)
+          } catch { /* ignore */ }
+        }
+
+        // Verify
+        sendDownloadProgress({ stage: 'verifying', message: 'Verifying installation...', percent: 95 })
+        execOfficeCli({ args: ['--version'], timeout: 10000 })
+          .then((result) => {
+            if (result.exitCode === 0) {
+              info('OfficeCli', `Download complete | version=${result.stdout.trim()}`)
+              sendDownloadProgress({ stage: 'done', message: result.stdout.trim(), percent: 100 })
+              resolve(installedPath)
+            } else {
+              warn('OfficeCli', `Downloaded but version check failed | stderr=${result.stderr}`)
+              sendDownloadProgress({ stage: 'done', message: 'installed', percent: 100 })
+              resolve(installedPath)
+            }
+          })
+          .catch((err) => {
+            warn('OfficeCli', `Downloaded but verification failed: ${String(err)}`)
+            sendDownloadProgress({ stage: 'done', message: 'installed', percent: 100 })
+            resolve(installedPath)
+          })
+      })
+    })
+
+    res.on('error', (err: Error) => {
+      file.destroy()
+      try { fs.unlinkSync(tmpPath) } catch { /* ignore */ }
+      reject(new Error(`Download failed: ${err.message}`))
+    })
+  })
+}
+
 // ===== IPC Handler registration =====
 
 export function registerOfficeCliIPCHandlers(): void {
@@ -280,6 +486,18 @@ export function registerOfficeCliIPCHandlers(): void {
 ipcMain.handle('officecli:checkInstalled', async (): Promise<boolean> => {
 return resolveOfficeCliBinary() !== null
 })
+
+  // Download binary from GitHub Releases (in-app, for packaged builds without bundled binary)
+  ipcMain.handle('officecli:download', async (): Promise<{ success: boolean; path?: string; error?: string }> => {
+    try {
+      const binaryPath = await downloadOfficeCliBinary()
+      return { success: true, path: binaryPath }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      warn('OfficeCli', `In-app download failed: ${message}`)
+      return { success: false, error: message }
+    }
+  })
 
   // Execute arbitrary command
   ipcMain.handle('officecli:exec', async (_event, options: OfficeCliExecOptions): Promise<OfficeCliExecResult> => {
