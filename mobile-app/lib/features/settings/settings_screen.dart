@@ -170,6 +170,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     super.dispose();
   }
 
+  // ============================================================
+  //  方案 A：分组卡片布局（iOS Settings 风格）
+  //  间距系统：4 / 8 / 12 / 16 / 24 / 32 px
+  //  卡片：bg-elevated, 14px radius, border 0.08 alpha
+  //  分区头：大写 + 字间距 0.8, textSecondary
+  // ============================================================
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -179,182 +186,354 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       body: ListView(
+        padding: const EdgeInsets.only(bottom: 48),
         children: [
-          // 自定义 header：返回箭头 + 标题
+          // 大标题 header
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
             child: Row(
               children: [
                 GestureDetector(
                   onTap: () => context.pop(),
                   child: Icon(Icons.arrow_back_ios,
-                      size: 20, color: theme.colorScheme.onSurface),
+                      size: 20, color: theme.colorScheme.primary),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 12),
                 Text(
                   '设置',
                   style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.5,
                     color: theme.colorScheme.onSurface,
                   ),
                 ),
               ],
             ),
           ),
-          Divider(
-              height: 1,
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.08)),
 
           // 连接分组
-          _sectionHeader('连接'),
-          _connectionTile(connectionInfo, theme),
-          _disconnectTile(connectionInfo, theme),
+          _sectionTitle('连接'),
+          _connectionCard(connectionInfo, theme),
 
-          _sectionHeader('手机 Agent 引擎'),
-          _engineSettings(theme),
+          // 引擎分组
+          _sectionTitle('手机 Agent 引擎'),
+          _engineCard(theme),
 
-          _sectionHeader('Github'),
-          _githubSettings(theme),
+          // Github 分组
+          _sectionTitle('Github'),
+          _githubCard(theme),
+          // Clone 进度（条件显示，独立卡片）
+          Consumer(builder: (context, ref, _) {
+            final cloneState = ref.watch(cloneProvider);
+            if (cloneState.status == CloneStatus.idle) {
+              return const SizedBox.shrink();
+            }
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+              child: _CloneTaskCard(state: cloneState),
+            );
+          }),
 
           // 外观分组
-          _sectionHeader('外观'),
-          _themeSelector(currentTheme, theme),
-          // 语言切换（在外观分组内，紧跟主题选择器）
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Container(
-              decoration: BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
-                  ),
-                ),
-              ),
-              child: ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 0),
-                leading: const Icon(Icons.language),
-                title: Text(
-                  I18n.t('settings.language'),
-                  style: TextStyle(fontSize: 14, color: theme.colorScheme.onSurface),
-                ),
-                trailing: DropdownButton<String>(
-                  value: ref.watch(mobileConfigProvider).appLocale,
-                  items: [
-                    DropdownMenuItem(
-                      value: 'zh',
-                      child: Text(I18n.t('settings.languageZh')),
-                    ),
-                    DropdownMenuItem(
-                      value: 'en',
-                      child: Text(I18n.t('settings.languageEn')),
-                    ),
-                  ],
-                  onChanged: (value) async {
-                    if (value == null) return;
-                    await ref.read(mobileConfigProvider.notifier).saveLocale(value);
-                    await _initI18n(value);
-                    // 强制重建以应用新语言
-                    setState(() {});
-                  },
-                ),
-              ),
-            ),
-          ),
+          _sectionTitle('外观'),
+          _appearanceCard(currentTheme, theme),
 
           // 聊天分组
-          _sectionHeader('聊天'),
-          _navTile(
-            title: '默认 Agent',
-            value: _defaultAgentName ?? '未设置',
-            theme: theme,
-            onTap: _showAgentPicker,
-          ),
-          _navTile(
-            title: '权限模式',
-            value: _permissionModeLabel(_permissionMode),
-            theme: theme,
-            onTap: _showPermissionModePicker,
-          ),
-          _navTile(
-            title: '流式输出',
-            value: _streamingEnabled ? '开启' : '关闭',
-            theme: theme,
-            onTap: _showStreamingPicker,
-          ),
+          _sectionTitle('聊天'),
+          _chatCard(theme),
 
           // 关于分组
-          _sectionHeader('关于'),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'SpaceCode Mobile',
-                  style: TextStyle(
-                      fontSize: 14, color: theme.colorScheme.onSurface),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  _version.isEmpty ? '' : _version,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          _sectionTitle('关于'),
+          _aboutCard(theme),
         ],
       ),
     );
   }
 
-  Widget _engineSettings(ThemeData theme) {
+  /// 分区标题：大写 + 字间距，textSecondary 色
+  Widget _sectionTitle(String title) {
+    final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        children: [
-          TextField(
-            controller: _apiKeyController,
-            obscureText: true,
-            style: const TextStyle(fontSize: 14),
-            decoration: const InputDecoration(
-                labelText: 'API Key', hintText: '用于手机端内置 Agent'),
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+      child: Text(
+        title.toUpperCase(),
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.8,
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+        ),
+      ),
+    );
+  }
+
+  /// 卡片容器：统一圆角 14px + border
+  Widget _card({required List<Widget> children}) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+        ),
+      ),
+      child: Column(children: children),
+    );
+  }
+
+  /// 卡片内导航行（带底部分隔线）
+  Widget _cardNavRow({
+    required String title,
+    required String value,
+    required ThemeData theme,
+    required VoidCallback onTap,
+    bool showDivider = true,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: showDivider
+            ? BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+                  ),
+                ),
+              )
+            : null,
+        child: Row(
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 14,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 14,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              Icons.chevron_right,
+              size: 18,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 带标签的表单字段
+  Widget _labeledField({
+    required String label,
+    required Widget child,
+    required ThemeData theme,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+            letterSpacing: 0.6,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
           ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _baseUrlController,
-            style: const TextStyle(fontSize: 14),
-            decoration: const InputDecoration(
-                labelText: 'Base URL', hintText: 'https://api.openai.com/v1'),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        ),
+        const SizedBox(height: 6),
+        child,
+      ],
+    );
+  }
+
+  // --- 连接卡片 ---
+
+  Widget _connectionCard(conn.ConnectionInfo connectionInfo, ThemeData theme) {
+    final isConnected =
+        connectionInfo.state == conn.ConnectionState.connected;
+    return _card(
+      children: [
+        // 状态行
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+          child: Row(
             children: [
-              Expanded(
-                child: _buildModelField(),
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: _connectionColor(connectionInfo.state),
+                  shape: BoxShape.circle,
+                ),
               ),
               const SizedBox(width: 8),
-              IconButton(
-                onPressed: _loadingModels ? null : _refreshModels,
-                icon: _loadingModels
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.refresh, size: 20),
-                tooltip: '从 API 获取模型列表',
+              Text(
+                _connectionLabel(connectionInfo.state),
+                style: TextStyle(
+                  color: theme.colorScheme.onSurface,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
+        ),
+        if (connectionInfo.clientInfo != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+            child: Text(
+              '设备: ${connectionInfo.clientInfo}',
+              style: TextStyle(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                fontSize: 12,
+              ),
+            ),
+          ),
+        // URL 输入
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
+          child: TextField(
+            controller: _urlController,
+            style:
+                TextStyle(color: theme.colorScheme.onSurface, fontSize: 14),
+            decoration: InputDecoration(
+              hintText: 'ws://host:port',
+              hintStyle: TextStyle(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.35),
+              ),
+              suffixIcon: IconButton(
+                icon: const Icon(Icons.qr_code_scanner_rounded),
+                onPressed: () async {
+                  final result = await Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => const QRScannerPage()),
+                  );
+                  if (result != null && result is String) {
+                    _urlController.text = result;
+                  }
+                },
+              ),
+            ),
+          ),
+        ),
+        // 连接/断开按钮
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+          child: SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: isConnected
+                  ? () =>
+                      ref.read(connectionProvider.notifier).disconnect()
+                  : () {
+                      if (_urlController.text.isNotEmpty) {
+                        ref
+                            .read(connectionProvider.notifier)
+                            .connect(_urlController.text);
+                      }
+                    },
+              style: FilledButton.styleFrom(
+                backgroundColor: isConnected
+                    ? const Color(0xffc64545)
+                    : theme.colorScheme.primary,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: Text(
+                isConnected ? '断开连接' : '连接',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- 引擎卡片 ---
+
+  Widget _engineCard(ThemeData theme) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+        ),
+      ),
+      child: Column(
+        children: [
+          // API Key
+          _labeledField(
+            label: 'API Key',
+            theme: theme,
+            child: TextField(
+              controller: _apiKeyController,
+              obscureText: true,
+              style: const TextStyle(fontSize: 14),
+              decoration: const InputDecoration(
+                hintText: '用于手机端内置 Agent',
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Base URL
+          _labeledField(
+            label: 'Base URL',
+            theme: theme,
+            child: TextField(
+              controller: _baseUrlController,
+              style: const TextStyle(fontSize: 14),
+              decoration: const InputDecoration(
+                hintText: 'https://api.openai.com/v1',
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // 模型
+          _labeledField(
+            label: '模型',
+            theme: theme,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _buildModelField()),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: _loadingModels ? null : _refreshModels,
+                  icon: _loadingModels
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh, size: 20),
+                  tooltip: '从 API 获取模型列表',
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          // 保存按钮
           SizedBox(
             width: double.infinity,
-            child: OutlinedButton.icon(
+            child: FilledButton.icon(
               onPressed: () async {
                 await ref.read(mobileConfigProvider.notifier).save(
                       apiKey: _apiKeyController.text,
@@ -367,7 +546,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 }
               },
               icon: const Icon(Icons.save_outlined, size: 17),
-              label: const Text('保存手机引擎配置'),
+              label: const Text('保存配置'),
+              style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.primary,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
             ),
           ),
         ],
@@ -375,57 +558,369 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  Widget _githubSettings(ThemeData theme) {
+  // --- Github 卡片 ---
+
+  Widget _githubCard(ThemeData theme) {
     final config = ref.watch(mobileConfigProvider);
     final connected = config.githubLogin.isNotEmpty;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _authenticateGithub,
-                  icon: Icon(
-                      connected
-                          ? Icons.verified_outlined
-                          : Icons.login_outlined,
-                      size: 17),
-                  label: Text(
-                      connected ? '已连接 @${config.githubLogin}' : '连接 Github'),
+    return _card(
+      children: [
+        // 连接 / 断开 Github
+        InkWell(
+          onTap: _authenticateGithub,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
                 ),
               ),
-              if (connected) ...[
-                const SizedBox(width: 8),
-                IconButton(
-                  tooltip: '断开 Github',
-                  onPressed: () =>
-                      ref.read(mobileConfigProvider.notifier).clearGithub(),
-                  icon: const Icon(Icons.link_off_outlined),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: connected
+                        ? const Color(0x1a5db8a6)
+                        : theme.colorScheme.onSurface
+                            .withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    connected
+                        ? Icons.verified_outlined
+                        : Icons.login_outlined,
+                    size: 16,
+                    color: connected
+                        ? const Color(0xff5db8a6)
+                        : theme.colorScheme.onSurface
+                            .withValues(alpha: 0.5),
+                  ),
                 ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    connected
+                        ? '已连接 @${config.githubLogin}'
+                        : '连接 Github',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                if (connected)
+                  GestureDetector(
+                    onTap: () =>
+                        ref.read(mobileConfigProvider.notifier).clearGithub(),
+                    child: const Text(
+                      '断开',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Color(0xffc64545),
+                      ),
+                    ),
+                  ),
               ],
-            ],
-          ),
-          const SizedBox(height: 8),
-          SizedBox(
-            width: double.infinity,
-            child: TextButton.icon(
-              onPressed: connected ? _cloneGithubRepository : null,
-              icon: const Icon(Icons.download_outlined, size: 17),
-              label: const Text('手动 Clone 仓库到本地'),
             ),
           ),
-          // Clone 任务进度/完成/错误显示
-          Consumer(builder: (context, ref, _) {
-            final cloneState = ref.watch(cloneProvider);
-            if (cloneState.status == CloneStatus.idle) {
-              return const SizedBox.shrink();
-            }
-            return _CloneTaskCard(state: cloneState);
-          }),
+        ),
+        // Clone 仓库
+        InkWell(
+          onTap: connected ? _cloneGithubRepository : null,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: const Color(0x1ae8a55a),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.download_outlined,
+                    size: 16,
+                    color: Color(0xffe8a55a),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    '手动 Clone 仓库到本地',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: connected
+                          ? theme.colorScheme.onSurface
+                          : theme.colorScheme.onSurface
+                              .withValues(alpha: 0.4),
+                    ),
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right,
+                  size: 18,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- 外观卡片（主题 + 语言） ---
+
+  Widget _appearanceCard(AppTheme currentTheme, ThemeData theme) {
+    final themes = [
+      (AppTheme.light, '浅色', const Color(0xfff8f9fb), const Color(0xff0d9488)),
+      (AppTheme.dark, '深色', const Color(0xff0d0d0d), const Color(0xff3b82f6)),
+      (AppTheme.anthropic, 'Anthropic', const Color(0xfffaf9f5), const Color(0xffcc785c)),
+      (AppTheme.anthropicDark, 'A-Dark', const Color(0xff181715), const Color(0xffcc785c)),
+    ];
+
+    return _card(
+      children: [
+        // 主题色块网格
+        Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: themes.map((item) {
+              final (appTheme, label, bgColor, accentColor) = item;
+              final isSelected = currentTheme == appTheme;
+              return Expanded(
+                child: GestureDetector(
+                  onTap: () =>
+                      ref.read(themeProvider.notifier).setTheme(appTheme),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Column(
+                      children: [
+                        Container(
+                          height: 56,
+                          decoration: BoxDecoration(
+                            color: bgColor,
+                            borderRadius: BorderRadius.circular(10),
+                            border: isSelected
+                                ? Border.all(color: accentColor, width: 2)
+                                : Border.all(
+                                    color: theme.colorScheme.onSurface
+                                        .withValues(alpha: 0.08),
+                                    width: 1,
+                                  ),
+                          ),
+                          child: isSelected
+                              ? Align(
+                                  alignment: Alignment.topRight,
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(
+                                        top: 6, right: 6),
+                                    child: Container(
+                                      width: 16,
+                                      height: 16,
+                                      decoration: BoxDecoration(
+                                        color: accentColor,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Icon(Icons.check,
+                                          size: 10, color: bgColor),
+                                    ),
+                                  ),
+                                )
+                              : null,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          label,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: isSelected
+                                ? FontWeight.w600
+                                : FontWeight.normal,
+                            color: isSelected
+                                ? theme.colorScheme.onSurface
+                                : theme.colorScheme.onSurface
+                                    .withValues(alpha: 0.5),
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        // 语言行
+        Container(
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+              ),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.onSurface
+                        .withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.language,
+                    size: 16,
+                    color: theme.colorScheme.onSurface
+                        .withValues(alpha: 0.5),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    I18n.t('settings.language'),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                DropdownButton<String>(
+                  value: ref.watch(mobileConfigProvider).appLocale,
+                  underline: const SizedBox(),
+                  items: [
+                    DropdownMenuItem(
+                      value: 'zh',
+                      child: Text(I18n.t('settings.languageZh')),
+                    ),
+                    DropdownMenuItem(
+                      value: 'en',
+                      child: Text(I18n.t('settings.languageEn')),
+                    ),
+                  ],
+                  onChanged: (value) async {
+                    if (value == null) return;
+                    await ref
+                        .read(mobileConfigProvider.notifier)
+                        .saveLocale(value);
+                    await _initI18n(value);
+                    setState(() {});
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- 聊天卡片 ---
+
+  Widget _chatCard(ThemeData theme) {
+    return _card(
+      children: [
+        _cardNavRow(
+          title: '默认 Agent',
+          value: _defaultAgentName ?? '未设置',
+          theme: theme,
+          onTap: _showAgentPicker,
+          showDivider: true,
+        ),
+        _cardNavRow(
+          title: '权限模式',
+          value: _permissionModeLabel(_permissionMode),
+          theme: theme,
+          onTap: _showPermissionModePicker,
+          showDivider: true,
+        ),
+        _cardNavRow(
+          title: '流式输出',
+          value: _streamingEnabled ? '开启' : '关闭',
+          theme: theme,
+          onTap: _showStreamingPicker,
+          showDivider: false,
+        ),
+      ],
+    );
+  }
+
+  // --- 关于卡片 ---
+
+  Widget _aboutCard(ThemeData theme) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+        ),
+      ),
+      child: Column(
+        children: [
+          Text(
+            'SpaceCode Mobile',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            _version.isEmpty ? '' : _version,
+            style: TextStyle(
+              fontSize: 12,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+            ),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildModelField() {
+    return TextField(
+      controller: _modelController,
+      style: const TextStyle(fontSize: 14),
+      decoration: InputDecoration(
+        labelText: '模型',
+        hintText: _availableModels.isEmpty
+            ? 'gpt-4o-mini（点右侧刷新拉取列表）'
+            : '从下拉选择或手动输入',
+        suffixIcon: _availableModels.isEmpty
+            ? null
+            : PopupMenuButton<String>(
+                icon: const Icon(Icons.arrow_drop_down, size: 20),
+                tooltip: '选择模型',
+                constraints: const BoxConstraints(maxHeight: 320),
+                itemBuilder: (_) => _availableModels
+                    .map((m) => PopupMenuItem<String>(
+                          value: m,
+                          child: Text(
+                            m,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ))
+                    .toList(),
+                onSelected: (value) {
+                  _modelController.text = value;
+                  _modelController.selection = TextSelection.fromPosition(
+                      TextPosition(offset: value.length));
+                },
+              ),
       ),
     );
   }
@@ -597,299 +1092,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           : '/storage/$storageId/$subPath';
     }
     return null;
-  }
-
-  Widget _buildModelField() {
-    return TextField(
-      controller: _modelController,
-      style: const TextStyle(fontSize: 14),
-      decoration: InputDecoration(
-        labelText: '模型',
-        hintText: _availableModels.isEmpty
-            ? 'gpt-4o-mini（点右侧刷新拉取列表）'
-            : '从下拉选择或手动输入',
-        suffixIcon: _availableModels.isEmpty
-            ? null
-            : PopupMenuButton<String>(
-                icon: const Icon(Icons.arrow_drop_down, size: 20),
-                tooltip: '选择模型',
-                constraints: const BoxConstraints(maxHeight: 320),
-                itemBuilder: (_) => _availableModels
-                    .map((m) => PopupMenuItem<String>(
-                          value: m,
-                          child: Text(
-                            m,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ))
-                    .toList(),
-                onSelected: (value) {
-                  _modelController.text = value;
-                  _modelController.selection = TextSelection.fromPosition(
-                      TextPosition(offset: value.length));
-                },
-              ),
-      ),
-    );
-  }
-
-  Widget _sectionHeader(String title) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
-      child: Text(
-        title,
-        style: TextStyle(
-          color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-
-  Widget _connectionTile(conn.ConnectionInfo connectionInfo, ThemeData theme) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: theme.cardColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: _connectionColor(connectionInfo.state),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  _connectionLabel(connectionInfo.state),
-                  style: TextStyle(
-                    color: theme.colorScheme.onSurface,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-            if (connectionInfo.clientInfo != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                '设备: ${connectionInfo.clientInfo}',
-                style: TextStyle(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                  fontSize: 12,
-                ),
-              ),
-            ],
-            const SizedBox(height: 12),
-            TextField(
-              controller: _urlController,
-              style:
-                  TextStyle(color: theme.colorScheme.onSurface, fontSize: 14),
-              decoration: InputDecoration(
-                hintText: 'ws://host:port',
-                hintStyle: TextStyle(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.35),
-                ),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.qr_code_scanner_rounded),
-                  onPressed: () async {
-                    final result = await Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const QRScannerPage()),
-                    );
-                    if (result != null && result is String) {
-                      _urlController.text = result;
-                    }
-                  },
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _disconnectTile(conn.ConnectionInfo connectionInfo, ThemeData theme) {
-    if (connectionInfo.state != conn.ConnectionState.connected) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-        child: SizedBox(
-          width: double.infinity,
-          child: FilledButton(
-            onPressed: () {
-              if (_urlController.text.isNotEmpty) {
-                ref
-                    .read(connectionProvider.notifier)
-                    .connect(_urlController.text);
-              }
-            },
-            style: FilledButton.styleFrom(
-              backgroundColor: theme.colorScheme.primary,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            child:
-                const Text('连接', style: TextStyle(fontWeight: FontWeight.w600)),
-          ),
-        ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      child: SizedBox(
-        width: double.infinity,
-        child: FilledButton(
-          onPressed: () => ref.read(connectionProvider.notifier).disconnect(),
-          style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xffc64545),
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-          child:
-              const Text('断开连接', style: TextStyle(fontWeight: FontWeight.w600)),
-        ),
-      ),
-    );
-  }
-
-  Widget _themeSelector(AppTheme currentTheme, ThemeData theme) {
-    final themes = [
-      (AppTheme.light, '浅色', const Color(0xfff8f9fb), const Color(0xff0d9488)),
-      (AppTheme.dark, '深色', const Color(0xff0d0d0d), const Color(0xff3b82f6)),
-      (
-        AppTheme.anthropic,
-        'Anthropic',
-        const Color(0xfffaf9f5),
-        const Color(0xffcc785c)
-      ),
-      (
-        AppTheme.anthropicDark,
-        'Anthropic 深色',
-        const Color(0xff181715),
-        const Color(0xffcc785c)
-      ),
-    ];
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: themes.map((item) {
-          final (appTheme, label, bgColor, accentColor) = item;
-          final isSelected = currentTheme == appTheme;
-          return Expanded(
-            child: GestureDetector(
-              onTap: () => ref.read(themeProvider.notifier).setTheme(appTheme),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Column(
-                  children: [
-                    Container(
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: bgColor,
-                        borderRadius: BorderRadius.circular(8),
-                        border: isSelected
-                            ? Border.all(color: accentColor, width: 2)
-                            : Border.all(
-                                color: theme.colorScheme.onSurface
-                                    .withValues(alpha: 0.08),
-                                width: 1,
-                              ),
-                      ),
-                      child: isSelected
-                          ? Center(
-                              child: Icon(Icons.check,
-                                  size: 18, color: accentColor),
-                            )
-                          : null,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: isSelected
-                            ? theme.colorScheme.onSurface
-                            : theme.colorScheme.onSurface
-                                .withValues(alpha: 0.5),
-                        fontWeight:
-                            isSelected ? FontWeight.w600 : FontWeight.normal,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-
-  Widget _navTile({
-    required String title,
-    required String value,
-    required ThemeData theme,
-    required VoidCallback onTap,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
-            ),
-          ),
-        ),
-        child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 0),
-          onTap: onTap,
-          title: Text(
-            title,
-            style: TextStyle(fontSize: 14, color: theme.colorScheme.onSurface),
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                ),
-              ),
-              const SizedBox(width: 4),
-              Icon(
-                Icons.chevron_right,
-                size: 18,
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   /// 默认 Agent 选择器：复用 chat_input 中的 Agent 列表
@@ -1178,13 +1380,12 @@ class _CloneTaskCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     return Container(
-      margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: theme.cardColor,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
         ),
       ),
       child: _buildContent(context, ref, theme),
