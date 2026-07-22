@@ -97,7 +97,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _streamingEnabled = true;
   String _version = '';
   TermuxReadiness _termuxReadiness = TermuxReadiness.notInstalled;
-  final ScrollController _scrollController = ScrollController();
   final GlobalKey _termuxCardKey = GlobalKey();
 
   @override
@@ -1195,6 +1194,40 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ));
         }
       }
+      // 二选一弹窗:Termux 未就绪时让用户选择安装 Termux 或降级 zipball
+      final readiness = BinaryResolver.instance.termuxReadiness;
+      var useTermux = readiness == TermuxReadiness.ready;
+      if (!useTermux) {
+        if (!mounted) return;
+        final choice = await showDialog<_CloneFallbackChoice>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Termux 未就绪'),
+            content: const Text(
+              '当前 Termux 环境不可用，无法执行真正的 git clone。\n\n'
+              '选择「安装 Termux」可获得完整 git 支持（推荐），\n'
+              '选择「仅下载源码包」将下载不含 .git 的源代码快照，'
+              '无法执行 git 命令。',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, _CloneFallbackChoice.installTermux),
+                child: const Text('安装 Termux'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, _CloneFallbackChoice.zipballOnly),
+                child: const Text('仅下载源码包'),
+              ),
+            ],
+          ),
+        );
+        if (choice == _CloneFallbackChoice.installTermux) {
+          _scrollToTermuxCard();
+          return;
+        }
+        if (choice != _CloneFallbackChoice.zipballOnly) return; // 用户取消
+      }
+
       // 若已存在则先清空（重新 clone）
       final existingDir = Directory(actualTarget);
       if (await existingDir.exists()) {
@@ -1207,7 +1240,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               repository: repo.fullName,
               branch: branch,
               targetDirectory: actualTarget,
-              useTermux: false,
+              useTermux: useTermux,
             );
       } on StateError catch (error) {
         if (mounted) {
@@ -1728,4 +1761,10 @@ class _CloneTaskCard extends ConsumerWidget {
       );
     }
   }
+}
+
+/// _cloneGithubRepository 二选一弹窗的选项。
+enum _CloneFallbackChoice {
+  installTermux,
+  zipballOnly,
 }
