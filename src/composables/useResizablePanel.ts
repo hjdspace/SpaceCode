@@ -4,6 +4,11 @@
  * 从 App.vue 中抽取的左右面板、终端面板拖拽逻辑，封装为可复用的 composable。
  * 支持 horizontal / vertical 两种方向，支持 reverse（右面板/终端向上拖增大），
  * 支持动态 max（右面板最大宽度依赖左面板宽度）。
+ *
+ * 性能优化：
+ *  - 使用 requestAnimationFrame 节流 mousemove，避免高频更新导致 UI 卡顿
+ *  - 拖拽期间在 <body> 添加 `panel-resizing` 类，通过 CSS 禁用 backdrop-filter、
+ *    transition 等昂贵效果，大幅减少 webview/复合层的重绘开销
  */
 import { ref, onUnmounted, type Ref } from 'vue'
 
@@ -37,6 +42,18 @@ export function useResizablePanel(options: UseResizablePanelOptions): UseResizab
 
   let startPos = 0
   let startSize = 0
+  /** rAF 句柄，用于节流 */
+  let rafId: number | null = null
+  /** 缓存最新一次 mousemove 计算出的尺寸，等 rAF 回调时写入 */
+  let pendingSize: number | null = null
+
+  function flushPending() {
+    rafId = null
+    if (pendingSize === null) return
+    size.value = pendingSize
+    options.onUpdate?.(pendingSize)
+    pendingSize = null
+  }
 
   function handleMousemove(e: MouseEvent) {
     if (!isResizing.value) return
@@ -48,16 +65,29 @@ export function useResizablePanel(options: UseResizablePanelOptions): UseResizab
     const maxSize = typeof options.max === 'function' ? options.max() : options.max
     const newSize = Math.min(Math.max(startSize + diff, options.min), maxSize)
 
-    size.value = newSize
-    options.onUpdate?.(newSize)
+    // 缓存目标值，用 rAF 合并同一帧内的多次 mousemove
+    pendingSize = newSize
+    if (rafId === null) {
+      rafId = requestAnimationFrame(flushPending)
+    }
   }
 
   function handleMouseup() {
+    // 确保最后一帧的值被写入
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId)
+      rafId = null
+    }
+    if (pendingSize !== null) {
+      flushPending()
+    }
+
     isResizing.value = false
     document.removeEventListener('mousemove', handleMousemove)
     document.removeEventListener('mouseup', handleMouseup)
     document.body.style.cursor = ''
     document.body.style.userSelect = ''
+    document.body.classList.remove('panel-resizing')
   }
 
   function onMousedown(e: MouseEvent) {
@@ -69,13 +99,20 @@ export function useResizablePanel(options: UseResizablePanelOptions): UseResizab
     document.addEventListener('mouseup', handleMouseup)
     document.body.style.cursor = options.direction === 'horizontal' ? 'col-resize' : 'row-resize'
     document.body.style.userSelect = 'none'
+    // 添加全局标记类，CSS 据此在拖拽期间禁用 backdrop-filter / transition
+    document.body.classList.add('panel-resizing')
   }
 
   onUnmounted(() => {
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId)
+      rafId = null
+    }
     document.removeEventListener('mousemove', handleMousemove)
     document.removeEventListener('mouseup', handleMouseup)
     document.body.style.cursor = ''
     document.body.style.userSelect = ''
+    document.body.classList.remove('panel-resizing')
   })
 
   return { size, isResizing, onMousedown }
