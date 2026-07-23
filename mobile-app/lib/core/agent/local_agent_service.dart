@@ -18,7 +18,10 @@ import 'plugins/git_plugin.dart';
 import 'plugins/python_plugin.dart';
 import 'plugins/shell_plugin.dart';
 import 'plugins/skill_plugin.dart';
+import 'plugins/web_fetch_plugin.dart';
+import 'plugins/web_search_plugin.dart';
 import 'plugins/workspace_plugin.dart';
+import 'web/web_search_provider_factory.dart';
 
 /// 权限询问回调类型。
 ///
@@ -90,6 +93,14 @@ class LocalAgentService {
       if (pythonReady) PythonPlugin(),
       if (skillRegistry != null && skillRegistry.skills.isNotEmpty)
         SkillPlugin(skillRegistry),
+      // 联网搜索 + 网页抓取(无 workspace 依赖,始终加载)
+      WebSearchPlugin(
+        WebSearchProviderFactory.create(
+          WebSearchProviderFactory.parseType(config.searchProvider),
+          apiKey: config.searchApiKey,
+        ),
+      ),
+      WebFetchPlugin(),
     ];
 
     final session = AgentSession(
