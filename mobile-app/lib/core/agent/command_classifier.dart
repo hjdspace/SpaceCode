@@ -51,6 +51,9 @@ class CommandClassifier {
     // Python
     'run_python': DangerLevel.write,
     'run_python_file': DangerLevel.write,
+    // Web 联网(只读)
+    'web_search': DangerLevel.read,
+    'fetch_url': DangerLevel.read,
   };
 
   /// 解析 shell 命令字符串判定危险等级。
