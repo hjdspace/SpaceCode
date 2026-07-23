@@ -21,6 +21,8 @@ import '../../core/github/github_service.dart';
 import '../../core/github/github_browser_auth.dart';
 import '../../core/github/clone_notifier.dart';
 import '../../core/github/clone_progress.dart';
+import '../../core/agent/web/web_search_provider.dart';
+import '../../core/agent/web/web_search_provider_factory.dart';
 import '../../core/i18n/strings.dart';
 import '../chat/chat_controller.dart';
 
@@ -98,6 +100,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String _version = '';
   TermuxReadiness _termuxReadiness = TermuxReadiness.notInstalled;
   final GlobalKey _termuxCardKey = GlobalKey();
+  final _searchKeyController = TextEditingController();
+  bool _searchTesting = false;
+  String? _searchTestResult;
 
   @override
   void initState() {
@@ -117,6 +122,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _apiKeyController.text = config.apiKey;
     _baseUrlController.text = config.baseUrl;
     _modelController.text = config.model;
+    _searchKeyController.text = config.searchApiKey;
     setState(() {
       _defaultAgentName = agentName;
       _permissionMode = permMode;
@@ -173,6 +179,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _apiKeyController.dispose();
     _baseUrlController.dispose();
     _modelController.dispose();
+    _searchKeyController.dispose();
     _agentService.dispose();
     super.dispose();
   }
@@ -245,6 +252,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               child: _CloneTaskCard(state: cloneState),
             );
           }),
+
+          // 联网搜索分组
+          _sectionTitle(I18n.t('settings.webSearch.title')),
+          _webSearchCard(theme),
 
           // 外观分组
           _sectionTitle('外观'),
@@ -841,6 +852,157 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  // --- 联网搜索卡片 ---
+
+  Widget _webSearchCard(ThemeData theme) {
+    final config = ref.watch(mobileConfigProvider);
+    final providerType =
+        WebSearchProviderFactory.parseType(config.searchProvider);
+    final hintKey = 'settings.webSearch.apiKeyHint.${providerType.name}';
+
+    return _card(
+      children: [
+        // Provider 选择
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+          child: _labeledField(
+            label: I18n.t('settings.webSearch.provider'),
+            theme: theme,
+            child: DropdownButtonFormField<WebSearchProviderType>(
+              key: ValueKey(providerType),
+              initialValue: providerType,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              items: [
+                DropdownMenuItem(
+                  value: WebSearchProviderType.jina,
+                  child: Text(I18n.t('settings.webSearch.providerJina')),
+                ),
+                DropdownMenuItem(
+                  value: WebSearchProviderType.tavily,
+                  child: Text(I18n.t('settings.webSearch.providerTavily')),
+                ),
+                DropdownMenuItem(
+                  value: WebSearchProviderType.brave,
+                  child: Text(I18n.t('settings.webSearch.providerBrave')),
+                ),
+              ],
+              onChanged: (value) async {
+                if (value == null) return;
+                await ref.read(mobileConfigProvider.notifier).saveSearch(
+                      provider: value.name,
+                      apiKey: config.searchApiKey,
+                    );
+              },
+            ),
+          ),
+        ),
+        // API Key 输入
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: _labeledField(
+            label: I18n.t('settings.webSearch.apiKey'),
+            theme: theme,
+            child: TextField(
+              controller: _searchKeyController,
+              style: TextStyle(
+                color: theme.colorScheme.onSurface,
+                fontSize: 14,
+              ),
+              decoration: InputDecoration(
+                isDense: true,
+                border: const OutlineInputBorder(),
+                hintText: I18n.t(hintKey),
+                hintStyle: TextStyle(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.35),
+                ),
+              ),
+              onChanged: (value) async {
+                await ref.read(mobileConfigProvider.notifier).saveSearch(
+                      provider: config.searchProvider,
+                      apiKey: value,
+                    );
+              },
+            ),
+          ),
+        ),
+        // 提示文案
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Text(
+            I18n.t(hintKey),
+            style: TextStyle(
+              fontSize: 12,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            ),
+          ),
+        ),
+        // 测试按钮 + 结果
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+          child: Row(
+            children: [
+              FilledButton.tonal(
+                onPressed: _searchTesting
+                    ? null
+                    : () async {
+                        setState(() {
+                          _searchTesting = true;
+                          _searchTestResult = null;
+                        });
+                        try {
+                          final provider = WebSearchProviderFactory.create(
+                            providerType,
+                            apiKey: config.searchApiKey,
+                          );
+                          await provider.search(query: 'test');
+                          if (!mounted) return;
+                          setState(() {
+                            _searchTestResult =
+                                I18n.t('settings.webSearch.testSuccess');
+                          });
+                        } catch (e) {
+                          if (!mounted) return;
+                          setState(() {
+                            _searchTestResult = I18n.t(
+                                'settings.webSearch.testFailed',
+                                {'error': e.toString()});
+                          });
+                        } finally {
+                          if (mounted) {
+                            setState(() => _searchTesting = false);
+                          }
+                        }
+                      },
+                child: _searchTesting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(I18n.t('settings.webSearch.test')),
+              ),
+              const SizedBox(width: 12),
+              if (_searchTestResult != null)
+                Flexible(
+                  child: Text(
+                    _searchTestResult!,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: theme.colorScheme.onSurface
+                          .withValues(alpha: 0.7),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   // --- 外观卡片（主题 + 语言） ---
 
   Widget _appearanceCard(AppTheme currentTheme, ThemeData theme) {
@@ -981,7 +1143,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         .read(mobileConfigProvider.notifier)
                         .saveLocale(value);
                     await _initI18n(value);
-                    setState(() {});
+                    if (mounted) {
+                      setState(() {});
+                    }
                   },
                 ),
               ],
@@ -1368,7 +1532,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       await MobilePreferences.setDefaultAgent(id, name);
                       // 同时同步到当前会话
                       ref.read(chatProvider.notifier).setAgent(id, name);
-                      if (!sheetContext.mounted) return;
+                      if (!sheetContext.mounted || !mounted) return;
                       setState(() => _defaultAgentName = name);
                       Navigator.pop(sheetContext);
                     },
@@ -1454,7 +1618,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               data: {'sessionId': sid, 'mode': id},
                             ));
                       }
-                      if (!sheetContext.mounted) return;
+                      if (!sheetContext.mounted || !mounted) return;
                       setState(() => _permissionMode = id);
                       Navigator.pop(sheetContext);
                     },
@@ -1525,7 +1689,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         : null,
                     onTap: () async {
                       await MobilePreferences.setStreamingEnabled(val);
-                      if (!sheetContext.mounted) return;
+                      if (!sheetContext.mounted || !mounted) return;
                       setState(() => _streamingEnabled = val);
                       Navigator.pop(sheetContext);
                     },
