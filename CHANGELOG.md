@@ -1,3 +1,38 @@
+## [0.6.11](https://github.com/hjdspace/SpaceCode/compare/v0.6.10...v0.6.11) (2026-07-24)
+
+### Features
+
+* **mobile:** 实现手机端联网搜索能力（WebSearchProvider 接口 + Jina/Tavily/Brave 三种 Provider + 工厂模式，默认 Jina 免 Key）
+* **mobile:** 新增 web_search 与 fetch_url 工具并注册到 Agent（归类为只读权限）
+* **mobile:** MobileConfig 新增 searchProvider/searchApiKey 字段及持久化，设置页新增联网搜索配置卡片
+* **mobile:** 联网搜索 i18n 文案支持中英双语
+* **mobile:** 通过 Termux 桥接实现真 git clone（GitCloneService 分四段执行 + TermuxReadiness 三态检测 + 临时 credential helper 注入）
+* **mobile:** 设置页新增 Termux 环境引导卡片（三态展示 + 配置步骤 + 重新检测）
+* **mobile:** clone 前置二选一弹窗（Termux 未就绪时引导安装或降级 zipball）
+* **mobile:** GitPlugin 对 pull/push/fetch 注入临时 credential helper（token 不持久化）
+* **sessions:** 实现会话列表页面的国际化与项目分组功能
+* **chat/workspace:** 添加上地项目管理功能
+* **chat-tools:** 实现工具调用流式渲染与状态展示
+* **search:** CodeViewer 新增搜索功能与快捷键（Ctrl+P 快速打开、Ctrl+F 查找）
+* **i18n:** 新增文件搜索与代码查看器多语言文案
+* **performance:** 优化分栏面板拖动性能与可调整大小逻辑
+* **officecli:** 实现 OfficeCLI 二进制应用内下载与进度跟踪
+
+### Bug Fixes
+
+* **sessions:** 修复会话切换时的组件卸载断言错误
+* **mobile:** 修复 MobileConfig.load 未读取搜索配置
+* **mobile:** 修复 Android 语音输入无反应（切换至 Whisper API 方案）
+* **mobile:** shell_plugin 迁移到 termuxReadiness getter（任务1回归修复）
+* **eventhandlers:** 实现 rate limit 错误处理
+* 修复多处异步状态异常与测试适配问题
+
+### Refactor
+
+* **mobile:** main.dart 启动时用 TermuxReadinessChecker 三态检测替代 checkInstalled
+* **chat:** 合并流式文本组件到 Markdown 渲染器
+* **chat-tools:** 优化工具卡片空值展示逻辑
+
 ## [0.6.10](https://github.com/hjdspace/SpaceCode/compare/v0.6.9...v0.6.10) (2026-07-22)
 
 ### Features
