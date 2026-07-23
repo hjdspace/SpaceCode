@@ -84,6 +84,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   }
 
   void _onOutput(TerminalOutput event) {
+    if (!mounted) return;
     setState(() {
       switch (event.type) {
         case TerminalOutputType.stdout:

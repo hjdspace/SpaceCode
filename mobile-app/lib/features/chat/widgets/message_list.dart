@@ -13,9 +13,31 @@ class MessageList extends ConsumerStatefulWidget {
 
 class _MessageListState extends ConsumerState<MessageList> {
   final ScrollController _scrollController = ScrollController();
+  ProviderSubscription<ChatState>? _chatSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _chatSubscription = ref.listenManual(chatProvider, (prev, next) {
+      final prevMessages = prev?.messages ?? const <ChatMessage>[];
+      final nextMessages = next.messages;
+
+      // 长度变化（新增/删除消息）或最后一条消息内容变化（流式追加）时滚动到底部
+      // 必须先判空，避免空列表访问 .last 抛 Bad state: No element
+      final lengthChanged = prevMessages.length != nextMessages.length;
+      final lastContentChanged = prevMessages.isNotEmpty &&
+          nextMessages.isNotEmpty &&
+          prevMessages.last.content != nextMessages.last.content;
+
+      if (lengthChanged || lastContentChanged) {
+        _scrollToBottom();
+      }
+    });
+  }
 
   @override
   void dispose() {
+    _chatSubscription?.close();
     _scrollController.dispose();
     super.dispose();
   }
@@ -36,22 +58,6 @@ class _MessageListState extends ConsumerState<MessageList> {
   Widget build(BuildContext context) {
     final chatState = ref.watch(chatProvider);
     final messages = chatState.messages;
-
-    ref.listen(chatProvider, (prev, next) {
-      final prevMessages = prev?.messages ?? const <ChatMessage>[];
-      final nextMessages = next.messages;
-
-      // 长度变化（新增/删除消息）或最后一条消息内容变化（流式追加）时滚动到底部
-      // 必须先判空，避免空列表访问 .last 抛 Bad state: No element
-      final lengthChanged = prevMessages.length != nextMessages.length;
-      final lastContentChanged = prevMessages.isNotEmpty &&
-          nextMessages.isNotEmpty &&
-          prevMessages.last.content != nextMessages.last.content;
-
-      if (lengthChanged || lastContentChanged) {
-        _scrollToBottom();
-      }
-    });
 
     if (messages.isEmpty) {
       return Center(

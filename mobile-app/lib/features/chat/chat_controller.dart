@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
@@ -1233,6 +1234,20 @@ class ChatNotifier extends StateNotifier<ChatState> {
       _localWorkflowTokens[sessionId]?.cancel();
       _localAgent.abort(sessionId);
     }
+  }
+
+  /// 测试辅助：向当前会话追加一条消息，不触发 Agent 或网络请求。
+  @visibleForTesting
+  void addMessageForTest(ChatMessage message) {
+    final sid = state.currentSessionId ?? _uuid.v4();
+    if (state.currentSessionId == null) {
+      state = state.copyWith(currentSessionId: sid);
+    }
+    final messages = <ChatMessage>[
+      ...(state.messagesBySession[sid] ?? []),
+      message,
+    ];
+    _setMessages(sid, messages);
   }
 
   /// 更新某个 session 的消息缓存（不可变更新）

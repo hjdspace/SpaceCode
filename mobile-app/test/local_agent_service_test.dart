@@ -65,7 +65,8 @@ void main() {
       },
     );
 
-    expect(result, '完成');
+    expect(result.text, '完成');
+    expect(result.stopReason, AgentStopReason.completed);
     expect(deltas.join(), '完成');
     expect(requestedUri.toString(), 'https://example.test/v1/chat/completions');
     expect(requestedBody['model'], 'test-model');
