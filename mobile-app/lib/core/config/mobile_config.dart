@@ -72,6 +72,8 @@ class MobileConfigNotifier extends StateNotifier<MobileConfig> {
       githubToken: prefs.getString(_githubToken) ?? '',
       githubLogin: prefs.getString(_githubLogin) ?? '',
       appLocale: prefs.getString(_appLocale) ?? 'zh',
+      searchProvider: prefs.getString(_searchProvider) ?? 'jina',
+      searchApiKey: prefs.getString(_searchApiKey) ?? '',
     );
     return state;
   }

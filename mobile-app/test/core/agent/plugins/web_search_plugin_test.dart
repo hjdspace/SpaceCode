@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:spacecode_mobile/core/agent/agent_plugin.dart';
 import 'package:spacecode_mobile/core/agent/agent_types.dart';
 import 'package:spacecode_mobile/core/agent/plugins/web_search_plugin.dart';
 import 'package:spacecode_mobile/core/agent/web/web_search_provider.dart';
