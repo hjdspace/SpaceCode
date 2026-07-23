@@ -126,5 +126,7 @@
   "terminal.confirmAbort": "中止",
   "terminal.keepRunning": "继续运行",
   "terminal.exitCode": "退出码 {code}，耗时 {ms}ms",
-  "terminal.sendToAgent": "发送给 Agent"
+  "terminal.sendToAgent": "发送给 Agent",
+  "foreground.title": "SpaceCode Agent",
+  "foreground.running": "任务执行中..."
 }

@@ -16,6 +16,7 @@ import '../../core/agent/agent_plugin.dart';
 import '../../core/agent/local_agent_service.dart';
 import '../../core/agent/agent_types.dart';
 import '../../core/config/mobile_config.dart';
+import '../../core/foreground/foreground_service.dart';
 import '../../core/github/github_service.dart';
 import '../../core/github/clone_progress.dart';
 import '../../core/skills/skill_registry.dart';
@@ -375,6 +376,12 @@ class ChatNotifier extends StateNotifier<ChatState> {
     }
 
     try {
+      // 启动前台服务 + WakeLock，防止息屏后 LLM 任务被系统终止。
+      // 仅 Android 生效；iOS 为 no-op。引用计数支持多会话并行。
+      await ForegroundService.acquire(
+        I18n.t('foreground.title'),
+        I18n.t('foreground.running'),
+      );
       final config = _ref.read(mobileConfigProvider);
       var workspace = selectedWorkspace;
       if (workspace?.mode == WorkspaceMode.github &&
@@ -569,6 +576,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
         _setMessages(sessionId, messages);
       }
     } finally {
+      // 释放前台服务（引用计数 -1，归零时停止服务 + 释放 WakeLock）
+      await ForegroundService.release();
       // 清理当前 turn 的 assembler，避免下次发消息复用旧的事件列表
       // （否则旧 text/toolCall 事件会被带到新 turn，导致 UI 显示历史内容
       //  且旧 toolCallId 在新 message.toolCalls 中找不到 → 显示 "unknown"）
@@ -1339,6 +1348,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
     }
     _localWorkflowTokens.clear();
     _localAgent.dispose();
+    // 兜底：确保前台服务被停止（原生侧 MainActivity.onDestroy 也会再停一次）
+    ForegroundService.forceStop();
     super.dispose();
   }
 }

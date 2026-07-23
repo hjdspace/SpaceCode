@@ -126,5 +126,7 @@
   "terminal.confirmAbort": "Abort",
   "terminal.keepRunning": "Keep running",
   "terminal.exitCode": "Exit code {code}, {ms}ms",
-  "terminal.sendToAgent": "Send to Agent"
+  "terminal.sendToAgent": "Send to Agent",
+  "foreground.title": "SpaceCode Agent",
+  "foreground.running": "Task running..."
 }
