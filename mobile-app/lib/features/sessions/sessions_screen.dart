@@ -185,9 +185,17 @@ class SessionsScreen extends ConsumerWidget {
                 title: item.summary.title,
                 subtitle: _formatSubtitle(item.summary),
                 isActive: item.summary.id == currentId,
-                onTap: () {
-                  ref.read(chatProvider.notifier).switchToSession(item.summary.id);
-                  Navigator.of(context).pop();
+                onTap: () async {
+                  // 必须先 await 状态更新完成再 pop，否则 Drawer 关闭动画期间
+                  // SessionsScreen（ConsumerWidget）正在卸载，switchToSession
+                  // 的 state.copyWith 会通知已卸载的 widget 重建，触发
+                  // InheritedElement.unmount 的 '_dependents.isEmpty' 断言失败。
+                  await ref
+                      .read(chatProvider.notifier)
+                      .switchToSession(item.summary.id);
+                  if (context.mounted) {
+                    Navigator.of(context).pop();
+                  }
                 },
               ),
             )),
