@@ -8,6 +8,8 @@ class MobileConfig {
   final String githubToken;
   final String githubLogin;
   final String appLocale;
+  final String searchProvider;
+  final String searchApiKey;
 
   const MobileConfig({
     this.apiKey = '',
@@ -16,6 +18,8 @@ class MobileConfig {
     this.githubToken = '',
     this.githubLogin = '',
     this.appLocale = 'zh',
+    this.searchProvider = 'jina',
+    this.searchApiKey = '',
   });
 
   MobileConfig copyWith({
@@ -25,6 +29,8 @@ class MobileConfig {
     String? githubToken,
     String? githubLogin,
     String? appLocale,
+    String? searchProvider,
+    String? searchApiKey,
   }) =>
       MobileConfig(
         apiKey: apiKey ?? this.apiKey,
@@ -33,6 +39,8 @@ class MobileConfig {
         githubToken: githubToken ?? this.githubToken,
         githubLogin: githubLogin ?? this.githubLogin,
         appLocale: appLocale ?? this.appLocale,
+        searchProvider: searchProvider ?? this.searchProvider,
+        searchApiKey: searchApiKey ?? this.searchApiKey,
       );
 }
 
@@ -48,6 +56,8 @@ class MobileConfigNotifier extends StateNotifier<MobileConfig> {
   static const _githubToken = 'mobile_github_token';
   static const _githubLogin = 'mobile_github_login';
   static const _appLocale = 'mobile_app_locale';
+  static const _searchProvider = 'mobile_search_provider';
+  static const _searchApiKey = 'mobile_search_api_key';
 
   MobileConfigNotifier() : super(const MobileConfig()) {
     load();
@@ -110,5 +120,18 @@ class MobileConfigNotifier extends StateNotifier<MobileConfig> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_appLocale, locale);
     state = state.copyWith(appLocale: locale);
+  }
+
+  Future<void> saveSearch({
+    required String provider,
+    required String apiKey,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_searchProvider, provider);
+    await prefs.setString(_searchApiKey, apiKey.trim());
+    state = state.copyWith(
+      searchProvider: provider,
+      searchApiKey: apiKey.trim(),
+    );
   }
 }
