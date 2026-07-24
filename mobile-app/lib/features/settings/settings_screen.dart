@@ -628,7 +628,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               const SizedBox(height: 8),
               _termuxConfigStep(theme, '1', 'pkg install git'),
               _termuxConfigStep(theme, '2', '编辑 ~/.termux/termux.properties，添加 allow-external-apps=true'),
-              _termuxConfigStep(theme, '3', 'termux-setup-storage（授权共享存储）'),
+              _termuxConfigStep(theme, '3', I18n.t('settings.termux.grantRunCommandPermission')),
               _termuxConfigStep(theme, '4', 'termux-reload-settings'),
             ],
           ],

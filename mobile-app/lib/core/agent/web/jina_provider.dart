@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
@@ -14,7 +16,8 @@ class JinaProvider implements WebSearchProvider {
   final String? apiKey;
   final http.Client client;
 
-  JinaProvider({this.apiKey, http.Client? client}) : client = client ?? http.Client();
+  JinaProvider({this.apiKey, http.Client? client})
+      : client = client ?? http.Client();
 
   @override
   WebSearchProviderType get type => WebSearchProviderType.jina;
@@ -33,9 +36,16 @@ class JinaProvider implements WebSearchProvider {
     if (apiKey != null && apiKey!.isNotEmpty) {
       headers['authorization'] = 'Bearer $apiKey';
     }
-    final response = await client
-        .get(uri, headers: headers)
-        .timeout(timeout);
+    final http.Response response;
+    try {
+      response = await client.get(uri, headers: headers).timeout(timeout);
+    } on TimeoutException {
+      throw const WebSearchException('Jina 搜索请求超时，请检查网络后重试');
+    } on SocketException {
+      throw const WebSearchException('无法连接 Jina 搜索服务，请检查网络、代理或切换搜索服务');
+    } on http.ClientException {
+      throw const WebSearchException('无法连接 Jina 搜索服务，请检查网络、代理或切换搜索服务');
+    }
 
     if (response.statusCode == 429) {
       throw const WebSearchException('请求过于频繁,请稍后重试或配置 API Key 提升额度',
@@ -43,7 +53,8 @@ class JinaProvider implements WebSearchProvider {
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw WebSearchException(
-        'Jina 搜索失败: ${response.body}'.substring(0, response.body.length > 500 ? 500 : response.body.length),
+        'Jina 搜索失败: ${response.body}'.substring(
+            0, response.body.length > 500 ? 500 : response.body.length),
         statusCode: response.statusCode,
       );
     }

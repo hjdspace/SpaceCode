@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.app.PendingIntent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -38,6 +39,7 @@ class TermuxBridge(private val context: Context) : MethodChannel.MethodCallHandl
         private const val EXTRA_WORKDIR = "com.termux.RUN_COMMAND_WORKDIR"
         private const val EXTRA_BACKGROUND = "com.termux.RUN_COMMAND_BACKGROUND"
         private const val EXTRA_PENDING_INTENT = "com.termux.RUN_COMMAND_PENDING_INTENT"
+        private const val EXTRA_RESULT_BUNDLE = "com.termux.RUN_COMMAND_RESULT"
 
         // 结果回调 extras（Termux 返回的 PendingIntent 中）
         const val EXTRA_STDOUT = "stdout"
@@ -45,6 +47,8 @@ class TermuxBridge(private val context: Context) : MethodChannel.MethodCallHandl
         const val EXTRA_EXIT_CODE = "exitCode"
         const val EXTRA_ERR = "err"
         const val EXTRA_ERRCD = "errcd"
+        private const val EXTRA_ERROR_MESSAGE = "errmsg"
+        private const val RUN_COMMAND_PERMISSION = "com.termux.permission.RUN_COMMAND"
 
         // Termux 前缀路径
         const val TERMUX_PREFIX = "/data/data/com.termux/files/usr"
@@ -105,6 +109,15 @@ class TermuxBridge(private val context: Context) : MethodChannel.MethodCallHandl
             result.error("TERMUX_NOT_INSTALLED", "Termux is not installed", null)
             return
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+            context.checkSelfPermission(RUN_COMMAND_PERMISSION) != PackageManager.PERMISSION_GRANTED) {
+            result.error(
+                "PERMISSION_DENIED",
+                "Grant SpaceCode the Termux Run Command permission in system settings",
+                null
+            )
+            return
+        }
 
         // 命令路径：如果是绝对路径直接用，否则拼接 Termux prefix
         val commandPath = if (command.startsWith("/")) command else "$TERMUX_PREFIX/bin/$command"
@@ -143,20 +156,28 @@ class TermuxBridge(private val context: Context) : MethodChannel.MethodCallHandl
                     return
                 }
 
-                val err = intent.getStringExtra(EXTRA_ERR)
-                val errcd = intent.getIntExtra(EXTRA_ERRCD, -1)
-                if (err != null || errcd != -1) {
+                // Termux returns command results in RUN_COMMAND_RESULT. Keep the
+                // direct-extra fallback for older Termux releases.
+                val resultBundle = intent.getBundleExtra(EXTRA_RESULT_BUNDLE)
+                val errorCode = resultBundle?.getInt(EXTRA_ERR, -1)
+                    ?: intent.getIntExtra(EXTRA_ERRCD, -1)
+                val errorMessage = resultBundle?.getString(EXTRA_ERROR_MESSAGE)
+                    ?: intent.getStringExtra(EXTRA_ERR)
+                if (errorCode != -1 || errorMessage != null) {
                     result.error(
                         "TERMUX_ERROR",
-                        err ?: "Unknown Termux error (code=$errcd)",
-                        mapOf("errcd" to errcd)
+                        errorMessage ?: "Unknown Termux error (code=$errorCode)",
+                        mapOf("errcd" to errorCode)
                     )
                     return
                 }
 
-                val stdout = intent.getStringExtra(EXTRA_STDOUT) ?: ""
-                val stderr = intent.getStringExtra(EXTRA_STDERR) ?: ""
-                val exitCode = intent.getIntExtra(EXTRA_EXIT_CODE, -1)
+                val stdout = resultBundle?.getString(EXTRA_STDOUT)
+                    ?: intent.getStringExtra(EXTRA_STDOUT) ?: ""
+                val stderr = resultBundle?.getString(EXTRA_STDERR)
+                    ?: intent.getStringExtra(EXTRA_STDERR) ?: ""
+                val exitCode = resultBundle?.getInt(EXTRA_EXIT_CODE, -1)
+                    ?: intent.getIntExtra(EXTRA_EXIT_CODE, -1)
                 Log.d(TAG, "onReceive: exitCode=$exitCode stdoutLen=${stdout.length} stderrLen=${stderr.length} stderr=$stderr")
 
                 result.success(

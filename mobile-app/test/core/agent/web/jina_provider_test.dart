@@ -81,6 +81,26 @@ void main() {
       );
     });
 
+    test('search converts client connection failures to WebSearchException',
+        () async {
+      final client = MockClient(
+        (request) async =>
+            throw http.ClientException('Network is unreachable', request.url),
+      );
+      final provider = JinaProvider(client: client);
+
+      expect(
+        () => provider.search(query: 'test'),
+        throwsA(
+          isA<WebSearchException>().having(
+            (error) => error.message,
+            'message',
+            contains('无法连接 Jina 搜索服务'),
+          ),
+        ),
+      );
+    });
+
     test('search returns empty list when data field is empty', () async {
       final client = MockClient((_) async => http.Response(
           jsonEncode({'data': []}), 200,
