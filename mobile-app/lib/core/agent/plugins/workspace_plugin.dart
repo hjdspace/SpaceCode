@@ -4,6 +4,19 @@ import '../agent_model.dart';
 import '../agent_plugin.dart';
 import '../agent_types.dart';
 
+/// 路径解析结果。调用方应先检查 [isError]。
+class PathResolution {
+  final String? path;
+  final String? error;
+
+  const PathResolution._({this.path, this.error});
+
+  bool get isError => error != null;
+
+  const PathResolution.ok(String path) : this._(path: path);
+  const PathResolution.error(String message) : this._(error: message);
+}
+
 class WorkspacePlugin extends AgentPlugin {
   final String rootPath;
 
@@ -28,7 +41,10 @@ abstract class _WorkspaceTool extends AgentTool {
     final normalized = relativePath.replaceAll('\\', '/');
     final segments =
         normalized.split('/').where((segment) => segment.isNotEmpty).toList();
-    if (normalized.startsWith('/') || segments.contains('..')) {
+    // Windows 盘符绝对路径（如 D:\foo）或 Unix 绝对路径（/foo）都拒绝
+    final isAbsolute = normalized.startsWith('/') ||
+        RegExp(r'^[a-zA-Z]:[\\/]').hasMatch(normalized);
+    if (isAbsolute || segments.contains('..')) {
       throw StateError('Path must stay inside the workspace');
     }
     final resolvedRoot = Directory(rootPath).resolveSymbolicLinksSync();
@@ -54,6 +70,44 @@ abstract class _WorkspaceTool extends AgentTool {
       throw StateError('Path must stay inside the workspace');
     }
     return candidate;
+  }
+
+  /// 从 [arguments] 提取相对路径，兼容 `path`（本地历史）和 `file_path`
+  /// （Claude Code 习惯）两种字段名。
+  /// 返回 null 表示调用方未提供路径。
+  String? readPathArg(Map<String, dynamic> arguments) {
+    final raw = arguments['path'] ?? arguments['file_path'];
+    if (raw is String && raw.isNotEmpty) return raw;
+    return null;
+  }
+
+  /// 从 [arguments] 提取字符串字段，按 [keys] 顺序返回首个非空值。
+  /// 用于兼容 `old_string`/`old_text` 等同义字段名。
+  String readStringArg(Map<String, dynamic> arguments, List<String> keys,
+      [String defaultValue = '']) {
+    for (final key in keys) {
+      final v = arguments[key];
+      if (v is String) return v;
+    }
+    return defaultValue;
+  }
+
+  /// 解析并校验路径。失败时返回包含明确提示的错误消息。
+  /// 调用方应检查返回的 `isError` 字段。
+  PathResolution resolvePath(Map<String, dynamic> arguments) {
+    final raw = readPathArg(arguments);
+    if (raw == null) {
+      return const PathResolution.error(
+          'path (or file_path) is required and must be a non-empty relative path');
+    }
+    try {
+      return PathResolution.ok(safePath(raw));
+    } on StateError {
+      return PathResolution.error(
+          'Path must be a relative path inside the workspace '
+          '(got: "$raw"). Use forward slashes for subdirectories, '
+          'e.g. "src/foo.dart".');
+    }
   }
 
   String relativePath(String absolutePath) {
@@ -152,11 +206,16 @@ class _WriteFileTool extends _WorkspaceTool {
   @override
   AgentToolDefinition get definition => const AgentToolDefinition(
         name: 'write_file',
-        description: 'Create or replace a UTF-8 text file in the workspace.',
+        description: 'Create or replace a UTF-8 text file in the workspace. '
+            'Pass a relative path (e.g. "src/foo.dart"); '
+            '"file_path" is accepted as an alias for "path".',
         inputSchema: {
           'type': 'object',
           'properties': {
-            'path': {'type': 'string'},
+            'path': {
+              'type': 'string',
+              'description': 'Relative path from workspace root.'
+            },
             'content': {'type': 'string'},
           },
           'required': ['path', 'content'],
@@ -167,7 +226,11 @@ class _WriteFileTool extends _WorkspaceTool {
   Future<AgentToolResult> execute(Map<String, dynamic> arguments,
       AgentCancellationToken cancellationToken) async {
     cancellationToken.throwIfCancelled();
-    final file = File(safePath(arguments['path'] as String? ?? ''));
+    final resolution = resolvePath(arguments);
+    if (resolution.isError) {
+      return AgentToolResult(content: resolution.error!, isError: true);
+    }
+    final file = File(resolution.path!);
     await file.parent.create(recursive: true);
     await file.writeAsString(arguments['content'] as String? ?? '');
     return AgentToolResult(content: 'Wrote ${relativePath(file.path)}');
@@ -183,16 +246,21 @@ class _EditFileTool extends _WorkspaceTool {
   @override
   AgentToolDefinition get definition => const AgentToolDefinition(
         name: 'edit_file',
-        description:
-            'Replace one exact text occurrence in an existing UTF-8 file.',
+        description: 'Replace one exact text occurrence in an existing UTF-8 file. '
+            'Use old_string/new_string (old_text/new_text accepted as aliases). '
+            'Pass a relative path (e.g. "src/foo.dart"); '
+            '"file_path" is accepted as an alias for "path".',
         inputSchema: {
           'type': 'object',
           'properties': {
-            'path': {'type': 'string'},
-            'old_text': {'type': 'string'},
-            'new_text': {'type': 'string'},
+            'path': {
+              'type': 'string',
+              'description': 'Relative path from workspace root.'
+            },
+            'old_string': {'type': 'string'},
+            'new_string': {'type': 'string'},
           },
-          'required': ['path', 'old_text', 'new_text'],
+          'required': ['path', 'old_string', 'new_string'],
         },
       );
 
@@ -200,27 +268,34 @@ class _EditFileTool extends _WorkspaceTool {
   Future<AgentToolResult> execute(Map<String, dynamic> arguments,
       AgentCancellationToken cancellationToken) async {
     cancellationToken.throwIfCancelled();
-    final file = File(safePath(arguments['path'] as String? ?? ''));
+    final resolution = resolvePath(arguments);
+    if (resolution.isError) {
+      return AgentToolResult(content: resolution.error!, isError: true);
+    }
+    final file = File(resolution.path!);
     if (!await file.exists()) {
       return const AgentToolResult(content: 'File not found', isError: true);
     }
-    final oldText = arguments['old_text'] as String? ?? '';
+    // 兼容 old_string（Claude Code 标准）和 old_text（历史别名）
+    final oldText = readStringArg(arguments, ['old_string', 'old_text']);
     if (oldText.isEmpty) {
       return const AgentToolResult(
-          content: 'old_text must not be empty', isError: true);
+          content: 'old_string must not be empty', isError: true);
     }
+    final newText = readStringArg(arguments, ['new_string', 'new_text']);
     final content = await file.readAsString();
     final first = content.indexOf(oldText);
     if (first < 0) {
       return const AgentToolResult(
-          content: 'old_text was not found', isError: true);
+          content: 'old_string was not found in file', isError: true);
     }
     if (content.indexOf(oldText, first + oldText.length) >= 0) {
       return const AgentToolResult(
-          content: 'old_text occurs more than once', isError: true);
+          content:
+              'old_string occurs more than once; provide more context to uniquely identify the occurrence',
+          isError: true);
     }
-    final next = content.replaceRange(
-        first, first + oldText.length, arguments['new_text'] as String? ?? '');
+    final next = content.replaceRange(first, first + oldText.length, newText);
     await file.writeAsString(next);
     return AgentToolResult(content: 'Edited ${relativePath(file.path)}');
   }

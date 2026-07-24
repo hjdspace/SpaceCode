@@ -15,6 +15,9 @@ class _SuffixModel extends AgentModel {
     required List<AgentToolDefinition> tools,
     required AgentCancellationToken cancellationToken,
     void Function(String delta)? onDelta,
+    AgentToolCallStartCallback? onToolCallStart,
+    AgentToolCallDeltaCallback? onToolCallDelta,
+    AgentToolCallStopCallback? onToolCallStop,
   }) async {
     capturedSystemPrompt = systemPrompt;
     return const AgentModelResponse(text: 'done');
@@ -82,6 +85,9 @@ class _DeltaModel extends AgentModel {
     required List<AgentToolDefinition> tools,
     required AgentCancellationToken cancellationToken,
     void Function(String delta)? onDelta,
+    AgentToolCallStartCallback? onToolCallStart,
+    AgentToolCallDeltaCallback? onToolCallDelta,
+    AgentToolCallStopCallback? onToolCallStop,
   }) async {
     onDelta?.call('Hel');
     onDelta?.call('lo');

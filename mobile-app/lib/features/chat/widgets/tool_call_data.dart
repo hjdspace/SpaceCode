@@ -158,8 +158,12 @@ class ToolCallData {
     String? filePath = input['path'] as String? ?? input['file_path'] as String?;
     String? command = input['command'] as String? ?? input['cmd'] as String?;
     String? workDir = input['cwd'] as String? ?? input['workdir'] as String?;
-    String? oldString = input['old_string'] as String? ?? input['oldString'] as String?;
-    String? newString = input['new_string'] as String? ?? input['newString'] as String?;
+    String? oldString = input['old_string'] as String? ??
+        input['oldString'] as String? ??
+        input['old_text'] as String?;
+    String? newString = input['new_string'] as String? ??
+        input['newString'] as String? ??
+        input['new_text'] as String?;
     String? searchPattern = input['pattern'] as String? ??
         input['query'] as String? ??
         input['search'] as String?;

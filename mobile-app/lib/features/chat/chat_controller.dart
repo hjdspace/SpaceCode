@@ -162,6 +162,17 @@ class ChatNotifier extends StateNotifier<ChatState> {
   final Map<String, AgentCancellationToken> _localWorkflowTokens = {};
   /// 每个 session 的当前 turn 装配器（生命周期 = 一次 assistant turn）。
   final Map<String, TimelineAssembler> _assemblers = {};
+  /// 桌面协同模式下，每个 session 当前正在流式输出的 tool_use 块 ID。
+  ///
+  /// 由 `content_block_start(type=tool_use)` 设置，由 `content_block_stop` 清除。
+  /// 用于在 LLM 生成工具参数时立即创建 `status=running` 的 ToolCall，
+  /// 让 UI 即时显示工具卡片，而不是等到 `tool_use` / `assistant` 完整事件。
+  final Map<String, String?> _currentStreamingToolIdBySession = {};
+  /// 桌面协同模式下，每个 session 中每个流式 tool 的累积 partial JSON。
+  ///
+  /// key: sessionId, value: { toolId: StringBuffer(partial_json) }。
+  /// `content_block_delta(input_json_delta)` 累积，`content_block_stop` 解析。
+  final Map<String, Map<String, StringBuffer>> _streamingToolJsonBySession = {};
   StreamSubscription? _subscription;
   // 防抖保存：连续追加流式 delta 时只在停顿 500ms 后写一次盘
   Timer? _persistTimer;
@@ -272,6 +283,23 @@ class ChatNotifier extends StateNotifier<ChatState> {
     if (data == null) return state.currentSessionId;
     final sid = data['sessionId'] as String?;
     return sid ?? state.currentSessionId;
+  }
+
+  /// 把桌面端推送的 tool_use input 字段统一序列化为 JSON 字符串。
+  ///
+  /// 桌面协同模式下，引擎 stream-json 输出的 `input` 是 JSON 对象，
+  /// 经 electron 透传到 mobile-app 时仍是 `Map<String, dynamic>`。
+  /// 直接用 `Map.toString()` 会得到 `{key: value}`（key 无引号）的非合法 JSON，
+  /// 导致下游 `_parseJson` 解析失败、所有结构化字段丢失。
+  /// 这里强制用 `jsonEncode` 保证产出合法 JSON 字符串。
+  String _encodeToolInput(Object? raw) {
+    if (raw == null) return '';
+    if (raw is String) return raw;
+    try {
+      return jsonEncode(raw);
+    } catch (_) {
+      return raw.toString();
+    }
   }
 
   void sendMessage(
@@ -724,6 +752,91 @@ class ChatNotifier extends StateNotifier<ChatState> {
       return;
     }
 
+    // 流式工具调用：LLM 还在生成参数时就立即创建 running ToolCall
+    if (event.type == AgentEventType.toolCallStreamingStart &&
+        event.toolCall != null) {
+      final toolId = event.toolCall!.id;
+      final toolName = event.toolCall!.name;
+      final calls = List<ToolCall>.from(assistant.toolCalls ?? const []);
+      // 兜底：若已存在则不重复添加
+      if (!calls.any((c) => c.id == toolId)) {
+        final newCall = ToolCall(
+          id: toolId,
+          toolName: toolName,
+          input: '',
+        );
+        calls.add(newCall);
+        assembler.addToolCall(newCall);
+        messages[messages.length - 1] = assistant.copyWith(
+          toolCalls: calls,
+          timelineEvents: assembler.events,
+        );
+        _setMessages(sessionId, messages);
+        _schedulePersist();
+      }
+      return;
+    }
+
+    if (event.type == AgentEventType.toolCallStreamingDelta &&
+        event.toolCall != null) {
+      final toolId = event.toolCall!.id;
+      final partialJson = event.toolCallPartialJson ?? '';
+      if (partialJson.isEmpty) return;
+      // 提前提取 file_path / command 等字段，让 UI 立即显示工具目标
+      final earlyInput = _tryExtractEarlyInput(partialJson);
+      if (earlyInput == null) return;
+      final calls = List<ToolCall>.from(assistant.toolCalls ?? const []);
+      final idx = calls.indexWhere((c) => c.id == toolId);
+      if (idx < 0) return;
+      calls[idx] = ToolCall(
+        id: calls[idx].id,
+        toolName: calls[idx].toolName,
+        input: jsonEncode(earlyInput),
+        output: calls[idx].output,
+        status: calls[idx].status,
+      );
+      messages[messages.length - 1] = assistant.copyWith(
+        toolCalls: calls,
+        timelineEvents: assembler.events,
+      );
+      _setMessages(sessionId, messages);
+      _schedulePersist();
+      return;
+    }
+
+    if (event.type == AgentEventType.toolCallStreamingComplete &&
+        event.toolCall != null) {
+      final toolId = event.toolCall!.id;
+      final fullJson = event.toolCallPartialJson ?? '';
+      if (fullJson.isEmpty) return;
+      Map<String, dynamic> parsed;
+      try {
+        final decoded = jsonDecode(fullJson);
+        parsed = decoded is Map
+            ? decoded.cast<String, dynamic>()
+            : <String, dynamic>{};
+      } catch (_) {
+        parsed = {'_raw': fullJson};
+      }
+      final calls = List<ToolCall>.from(assistant.toolCalls ?? const []);
+      final idx = calls.indexWhere((c) => c.id == toolId);
+      if (idx < 0) return;
+      calls[idx] = ToolCall(
+        id: calls[idx].id,
+        toolName: calls[idx].toolName,
+        input: jsonEncode(parsed),
+        output: calls[idx].output,
+        status: calls[idx].status,
+      );
+      messages[messages.length - 1] = assistant.copyWith(
+        toolCalls: calls,
+        timelineEvents: assembler.events,
+      );
+      _setMessages(sessionId, messages);
+      _schedulePersist();
+      return;
+    }
+
     if (event.type != AgentEventType.toolExecutionStart &&
         event.type != AgentEventType.toolExecutionEnd) {
       return;
@@ -732,13 +845,30 @@ class ChatNotifier extends StateNotifier<ChatState> {
     final calls = List<ToolCall>.from(assistant.toolCalls ?? const []);
     if (event.type == AgentEventType.toolExecutionStart &&
         event.toolCall != null) {
-      final newCall = ToolCall(
-        id: event.toolCall!.id,
-        toolName: event.toolCall!.name,
-        input: jsonEncode(event.toolCall!.arguments),
-      );
-      calls.add(newCall);
-      assembler.addToolCall(newCall);
+      final toolId = event.toolCall!.id;
+      final existingIndex = calls.indexWhere((c) => c.id == toolId);
+      if (existingIndex < 0) {
+        // 未流式添加过（兜底）：直接创建 running ToolCall
+        final newCall = ToolCall(
+          id: toolId,
+          toolName: event.toolCall!.name,
+          input: jsonEncode(event.toolCall!.arguments),
+        );
+        calls.add(newCall);
+        assembler.addToolCall(newCall);
+      } else {
+        // 已流式添加过：用完整 arguments 更新 input（覆盖早期提取的部分字段）
+        // status 保持 running（实际执行状态由 toolExecutionEnd 更新）
+        calls[existingIndex] = ToolCall(
+          id: calls[existingIndex].id,
+          toolName: event.toolCall!.name.isNotEmpty
+              ? event.toolCall!.name
+              : calls[existingIndex].toolName,
+          input: jsonEncode(event.toolCall!.arguments),
+          output: calls[existingIndex].output,
+          status: calls[existingIndex].status,
+        );
+      }
     } else if (event.type == AgentEventType.toolExecutionEnd &&
         event.toolCall != null) {
       final index = calls.indexWhere((call) => call.id == event.toolCall!.id);
@@ -818,11 +948,205 @@ class ChatNotifier extends StateNotifier<ChatState> {
 
   void _handleStreamEvent(Map<String, dynamic>? data) {
     if (data == null) return;
-    final delta = data['delta'] as String? ?? '';
-    if (delta.isEmpty) return;
-
     final sessionId = _extractSessionId(data);
     if (sessionId == null) return;
+
+    // 优先按桌面端 stream_event 结构处理（content_block_start/delta/stop）。
+    // 桌面端 EngineFactory.onRouteEvent 转发时 data 形如 { event: {...}, sessionId }。
+    final event = data['event'];
+    if (event is Map<String, dynamic>) {
+      _handleStreamEventBlock(sessionId, event);
+      _schedulePersist();
+      return;
+    }
+
+    // 兼容旧格式：data['delta'] 是纯文本 delta（旧版桌面端或简化协议）。
+    final delta = data['delta'] as String? ?? '';
+    if (delta.isEmpty) return;
+    _appendTextDelta(sessionId, delta);
+    _schedulePersist();
+  }
+
+  /// 处理桌面端 stream_event 的 content_block_* 事件。
+  ///
+  /// 对标桌面端 `src/stores/turn/eventHandlers.ts` 的 `handleStreamEvent`：
+  /// - `content_block_start(tool_use)` → 立即创建 `status=running` 的 ToolCall + 加入 timeline
+  /// - `content_block_delta(text_delta)` → 流式文本追加
+  /// - `content_block_delta(input_json_delta)` → 累积 partial JSON + 提前提取关键字段
+  /// - `content_block_delta(thinking_delta)` → 思考流追加
+  /// - `content_block_stop` → 解析完整 JSON 写回 toolCall.input
+  void _handleStreamEventBlock(String sessionId, Map<String, dynamic> ev) {
+    final type = ev['type'] as String? ?? '';
+
+    if (type == 'content_block_start') {
+      final contentBlock = ev['content_block'];
+      if (contentBlock is Map<String, dynamic>) {
+        final blockType = contentBlock['type'] as String? ?? '';
+        if (blockType == 'tool_use') {
+          _handleToolUseBlockStart(sessionId, contentBlock);
+        }
+        // text / thinking block_start 不需要特殊处理：
+        // delta 到达时由 assembler 自然累积。
+      }
+      return;
+    }
+
+    if (type == 'content_block_delta') {
+      final delta = ev['delta'];
+      if (delta is! Map<String, dynamic>) return;
+      final deltaType = delta['type'] as String? ?? '';
+      if (deltaType == 'text_delta') {
+        final text = delta['text'] as String? ?? '';
+        if (text.isNotEmpty) {
+          _appendTextDelta(sessionId, text);
+        }
+      } else if (deltaType == 'input_json_delta') {
+        final partialJson = delta['partial_json'] as String? ?? '';
+        if (partialJson.isNotEmpty) {
+          _handleToolUseJsonDelta(sessionId, partialJson);
+        }
+      } else if (deltaType == 'thinking_delta') {
+        final thinking = delta['thinking'] as String? ?? '';
+        if (thinking.isNotEmpty) {
+          _appendReasoningDelta(sessionId, thinking);
+        }
+      }
+      return;
+    }
+
+    if (type == 'content_block_stop') {
+      _handleToolUseBlockStop(sessionId);
+      return;
+    }
+  }
+
+  /// `content_block_start(type=tool_use)`：立即创建 running ToolCall 并加入 timeline。
+  ///
+  /// 对标桌面端 `eventHandlers.ts:337-360`。
+  void _handleToolUseBlockStart(
+      String sessionId, Map<String, dynamic> contentBlock) {
+    final toolId = (contentBlock['id'] as String?) ?? _uuid.v4();
+    final toolName = (contentBlock['name'] as String?) ?? 'Unknown Tool';
+
+    _currentStreamingToolIdBySession[sessionId] = toolId;
+    _streamingToolJsonBySession
+        .putIfAbsent(sessionId, () => {})[toolId] = StringBuffer();
+
+    final messages =
+        List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
+    if (messages.isEmpty || messages.last.role != MessageRole.assistant) return;
+    final last = messages.last;
+
+    // 兜底：如果该 toolCallId 已存在，不重复添加
+    final existingCalls = last.toolCalls ?? const <ToolCall>[];
+    if (existingCalls.any((tc) => tc.id == toolId)) return;
+
+    final newCall = ToolCall(
+      id: toolId,
+      toolName: toolName,
+      input: '',
+      // status 默认为 running
+    );
+    final calls = [...existingCalls, newCall];
+    final assembler =
+        _assemblers.putIfAbsent(sessionId, () => TimelineAssembler());
+    assembler.addToolCall(newCall);
+
+    messages[messages.length - 1] = last.copyWith(
+      toolCalls: calls,
+      timelineEvents: assembler.events,
+    );
+    _setMessages(sessionId, messages);
+  }
+
+  /// `content_block_delta(input_json_delta)`：累积 partial JSON，
+  /// 并尝试提前提取 file_path / path / command 等字段以让 UI 尽早显示工具目标。
+  ///
+  /// 对标桌面端 `eventHandlers.ts:362-390`。
+  void _handleToolUseJsonDelta(String sessionId, String partialJson) {
+    final toolId = _currentStreamingToolIdBySession[sessionId];
+    if (toolId == null) return;
+    final buffers = _streamingToolJsonBySession[sessionId];
+    if (buffers == null) return;
+    final buffer = buffers[toolId];
+    if (buffer == null) return;
+    buffer.write(partialJson);
+
+    // 提前提取关键字段，让 UI 立即显示 file_path / command 等
+    final earlyInput = _tryExtractEarlyInput(buffer.toString());
+    if (earlyInput == null) return;
+
+    final messages =
+        List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
+    if (messages.isEmpty || messages.last.role != MessageRole.assistant) return;
+    final last = messages.last;
+    final calls = last.toolCalls;
+    if (calls == null) return;
+    final idx = calls.indexWhere((tc) => tc.id == toolId);
+    if (idx < 0) return;
+
+    // 用早期提取的字段覆盖 input（流式过程中部分字段会随时间完整）
+    final updated = ToolCall(
+      id: calls[idx].id,
+      toolName: calls[idx].toolName,
+      input: jsonEncode(earlyInput),
+      output: calls[idx].output,
+      status: calls[idx].status,
+    );
+    final newCalls = List<ToolCall>.from(calls);
+    newCalls[idx] = updated;
+    messages[messages.length - 1] = last.copyWith(toolCalls: newCalls);
+    _setMessages(sessionId, messages);
+  }
+
+  /// `content_block_stop`：解析累积的完整 JSON 写回 toolCall.input。
+  ///
+  /// 对标桌面端 `eventHandlers.ts:392-422`。
+  void _handleToolUseBlockStop(String sessionId) {
+    final toolId = _currentStreamingToolIdBySession.remove(sessionId);
+    if (toolId == null) return;
+    final buffers = _streamingToolJsonBySession[sessionId];
+    if (buffers == null) return;
+    final buffer = buffers.remove(toolId);
+    if (buffer == null) return;
+    final accumulated = buffer.toString();
+    if (accumulated.isEmpty) return;
+
+    Map<String, dynamic> parsed;
+    try {
+      final decoded = jsonDecode(accumulated);
+      parsed = decoded is Map
+          ? decoded.cast<String, dynamic>()
+          : <String, dynamic>{};
+    } catch (_) {
+      parsed = {'_raw': accumulated};
+    }
+
+    final messages =
+        List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
+    if (messages.isEmpty || messages.last.role != MessageRole.assistant) return;
+    final last = messages.last;
+    final calls = last.toolCalls;
+    if (calls == null) return;
+    final idx = calls.indexWhere((tc) => tc.id == toolId);
+    if (idx < 0) return;
+
+    final updated = ToolCall(
+      id: calls[idx].id,
+      toolName: calls[idx].toolName,
+      input: jsonEncode(parsed),
+      output: calls[idx].output,
+      status: calls[idx].status,
+    );
+    final newCalls = List<ToolCall>.from(calls);
+    newCalls[idx] = updated;
+    messages[messages.length - 1] = last.copyWith(toolCalls: newCalls);
+    _setMessages(sessionId, messages);
+  }
+
+  /// 流式文本 delta 到达：追加到最后一条 assistant 消息（若不存在则创建）。
+  void _appendTextDelta(String sessionId, String delta) {
+    if (delta.isEmpty) return;
     final messages =
         List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
 
@@ -853,7 +1177,58 @@ class ChatNotifier extends StateNotifier<ChatState> {
       );
       _setMessages(sessionId, messages);
     }
-    _schedulePersist();
+  }
+
+  /// 流式思考 delta 到达：追加到 reasoning timeline 事件。
+  void _appendReasoningDelta(String sessionId, String delta) {
+    final messages =
+        List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
+    if (messages.isEmpty || messages.last.role != MessageRole.assistant) return;
+    final last = messages.last;
+    final assembler =
+        _assemblers.putIfAbsent(sessionId, () => TimelineAssembler());
+    assembler.appendReasoningDelta(delta);
+    messages[messages.length - 1] = last.copyWith(
+      thinkingContent: (last.thinkingContent ?? '') + delta,
+      timelineEvents: assembler.events,
+    );
+    _setMessages(sessionId, messages);
+  }
+
+  /// 从部分 JSON 中提前提取 file_path / path / command / query / pattern / url 字段。
+  ///
+  /// 对标桌面端 `eventHandlers.ts:tryExtractEarlyInput`：在引号尚未闭合时也能提取，
+  /// 让 UI 在 LLM 还在生成工具参数时就能显示工具目标。
+  Map<String, dynamic>? _tryExtractEarlyInput(String partialJson) {
+    const fields = ['file_path', 'path', 'command', 'query', 'pattern', 'url'];
+    final result = <String, dynamic>{};
+    var found = false;
+
+    for (final field in fields) {
+      // 先匹配引号闭合的完整值
+      final closedRegex =
+          RegExp('"$field"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"');
+      final closedMatch = closedRegex.firstMatch(partialJson);
+      if (closedMatch != null) {
+        result[field] = closedMatch.group(1)!
+            .replaceAll('\\"', '"')
+            .replaceAll('\\\\', '\\');
+        found = true;
+        continue;
+      }
+      // 再匹配引号尚未闭合的部分值（值正在流式传输中）
+      final partialRegex =
+          RegExp('"$field"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)\$');
+      final partialMatch = partialRegex.firstMatch(partialJson);
+      if (partialMatch != null) {
+        result[field] = partialMatch.group(1)!
+            .replaceAll('\\"', '"')
+            .replaceAll('\\\\', '\\');
+        found = true;
+      }
+    }
+
+    return found ? result : null;
   }
 
   void _handleAssistant(Map<String, dynamic>? data) {
@@ -879,7 +1254,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
           toolCalls.add(ToolCall(
             id: (item['id'] as String?) ?? '',
             toolName: (item['name'] as String?) ?? '',
-            input: item['input']?.toString() ?? '',
+            input: _encodeToolInput(item['input']),
           ));
         }
       }
@@ -908,10 +1283,16 @@ class ChatNotifier extends StateNotifier<ChatState> {
       _setMessages(sessionId, [...messages, newMsg]);
     } else {
       final last = messages.last;
+      // 合并 toolCalls：流式过程（content_block_start）可能已经创建了
+      // running 状态的 ToolCall。assistant 事件携带完整 input/toolName，
+      // 但不应覆盖 status/output（工具执行状态由 toolResult 更新）。
+      final List<ToolCall>? mergedToolCalls = toolCalls.isEmpty
+          ? last.toolCalls
+          : _mergeAssistantToolCalls(last.toolCalls ?? const [], toolCalls);
       messages[messages.length - 1] = last.copyWith(
         content: text.isEmpty ? last.content : text,
         thinkingContent: thinking ?? last.thinkingContent,
-        toolCalls: toolCalls.isEmpty ? last.toolCalls : toolCalls,
+        toolCalls: mergedToolCalls,
         isStreaming: false,
       );
       _setMessages(sessionId, messages);
@@ -919,12 +1300,37 @@ class ChatNotifier extends StateNotifier<ChatState> {
     _schedulePersist();
   }
 
+  /// 合并 assistant 事件携带的 toolCalls 与流式过程中已存在的 toolCalls。
+  ///
+  /// - 已存在的 id：保留 status/output（流式过程中是 running，工具实际
+  ///   执行状态由 toolResult 更新），用 assistant 事件的完整 input 覆盖。
+  /// - 不存在的 id：追加新 ToolCall（status 默认 running）。
+  List<ToolCall> _mergeAssistantToolCalls(
+      List<ToolCall> existing, List<ToolCall> fromAssistant) {
+    final result = List<ToolCall>.from(existing);
+    for (final incoming in fromAssistant) {
+      final idx = result.indexWhere((tc) => tc.id == incoming.id);
+      if (idx >= 0) {
+        result[idx] = ToolCall(
+          id: incoming.id,
+          toolName: incoming.toolName,
+          input: incoming.input,
+          output: result[idx].output,
+          status: result[idx].status,
+        );
+      } else {
+        result.add(incoming);
+      }
+    }
+    return result;
+  }
+
   void _handleToolUse(Map<String, dynamic>? data) {
     if (data == null) return;
     final toolCall = ToolCall(
       id: data['toolUseId'] as String? ?? '',
       toolName: data['toolName'] as String? ?? '',
-      input: data['input']?.toString() ?? '',
+      input: _encodeToolInput(data['input']),
     );
     final sessionId = _extractSessionId(data);
     if (sessionId == null) return;
@@ -934,10 +1340,27 @@ class ChatNotifier extends StateNotifier<ChatState> {
       return;
     }
     final last = messages.last;
-    final toolCalls = List<ToolCall>.from(last.toolCalls ?? [])..add(toolCall);
+    final existingCalls = last.toolCalls ?? const <ToolCall>[];
+    // 兼容流式过程：若 content_block_start 已经创建了 running ToolCall，
+    // 这里只更新 input 为完整 JSON，不重复添加，也不重复 addToolCall。
+    final existingIndex =
+        existingCalls.indexWhere((tc) => tc.id == toolCall.id);
+    final List<ToolCall> toolCalls;
     final assembler =
         _assemblers.putIfAbsent(sessionId, () => TimelineAssembler());
-    assembler.addToolCall(toolCall);
+    if (existingIndex >= 0) {
+      toolCalls = List<ToolCall>.from(existingCalls);
+      toolCalls[existingIndex] = ToolCall(
+        id: toolCall.id,
+        toolName: toolCall.toolName,
+        input: toolCall.input,
+        output: toolCalls[existingIndex].output,
+        status: toolCalls[existingIndex].status,
+      );
+    } else {
+      toolCalls = [...existingCalls, toolCall];
+      assembler.addToolCall(toolCall);
+    }
     messages[messages.length - 1] = last.copyWith(
       toolCalls: toolCalls,
       timelineEvents: assembler.events,
@@ -994,7 +1417,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
       sessionId: data['sessionId'] as String? ?? '',
       toolUseId: data['toolUseId'] as String? ?? '',
       toolName: data['toolName'] as String? ?? '',
-      input: data['input']?.toString() ?? '',
+      input: _encodeToolInput(data['input']),
     );
     state = state
         .copyWith(pendingPermissions: [...state.pendingPermissions, request]);
@@ -1004,6 +1427,9 @@ class ChatNotifier extends StateNotifier<ChatState> {
     final sessionId = _extractSessionId(data);
     if (sessionId == null) return;
     final assembler = _assemblers.remove(sessionId);
+    // 清理流式工具调用状态（兜底，正常情况下 content_block_stop 已清理）
+    _currentStreamingToolIdBySession.remove(sessionId);
+    _streamingToolJsonBySession.remove(sessionId);
     final messages =
         List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
     if (messages.isNotEmpty && messages.last.isStreaming) {
@@ -1348,6 +1774,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
     }
     _localWorkflowTokens.clear();
     _localAgent.dispose();
+    _currentStreamingToolIdBySession.clear();
+    _streamingToolJsonBySession.clear();
     // 兜底：确保前台服务被停止（原生侧 MainActivity.onDestroy 也会再停一次）
     ForegroundService.forceStop();
     super.dispose();
