@@ -1,9 +1,13 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:spacecode_mobile/core/agent/agent_loop.dart';
 import 'package:spacecode_mobile/core/agent/agent_model.dart';
 import 'package:spacecode_mobile/core/agent/agent_types.dart';
+import 'package:spacecode_mobile/core/agent/openai_compatible_model.dart';
 import 'package:spacecode_mobile/core/agent/plugins/workspace_plugin.dart';
 
 class _QueuedModel extends AgentModel {
@@ -102,6 +106,124 @@ void main() {
         isTrue);
     expect(events.any((event) => event.type == AgentEventType.toolExecutionEnd),
         isTrue);
+  });
+
+  test('continues when a streaming request receives a JSON tool response',
+      () async {
+    var requestCount = 0;
+    final client = MockClient((request) async {
+      requestCount++;
+      final message = requestCount == 1
+          ? {
+              'content': null,
+              'tool_calls': [
+                {
+                  'id': 'call-1',
+                  'type': 'function',
+                  'function': {
+                    'name': 'write_file',
+                    'arguments': '{"path":"result.txt","content":"done"}',
+                  },
+                },
+              ],
+            }
+          : {'content': '文件已更新'};
+      return http.Response.bytes(
+        utf8.encode(jsonEncode({
+          'choices': [
+            {'message': message},
+          ],
+        })),
+        200,
+        headers: {'content-type': 'application/json; charset=utf-8'},
+      );
+    });
+    final model = OpenAiCompatibleModel(client: client);
+    final session = AgentSession(
+      model: model,
+      systemPrompt: 'coding agent',
+      plugins: [WorkspacePlugin(workspace.path)],
+    );
+
+    final result = await session.run(
+      '创建结果文件',
+      config: const AgentModelConfig(
+        apiKey: 'test',
+        baseUrl: 'https://example.test/v1',
+        model: 'test-model',
+      ),
+    );
+
+    expect(result.text, '文件已更新');
+    expect(requestCount, 2);
+    expect(
+        await File('${workspace.path}${Platform.pathSeparator}result.txt')
+            .readAsString(),
+        'done');
+    model.dispose();
+  });
+
+  test('continues the same run after an RPM rate limit response', () async {
+    var requestCount = 0;
+    final client = MockClient((request) async {
+      requestCount++;
+      if (requestCount == 6) {
+        return http.Response(
+          jsonEncode({
+            'error': {'message': 'rpm exhausted'},
+          }),
+          429,
+          headers: {
+            'content-type': 'application/json; charset=utf-8',
+            'retry-after': '0',
+          },
+        );
+      }
+      final message = requestCount <= 5
+          ? {
+              'content': null,
+              'tool_calls': [
+                {
+                  'id': 'call-$requestCount',
+                  'type': 'function',
+                  'function': {
+                    'name': 'list_files',
+                    'arguments': '{"path":"."}',
+                  },
+                },
+              ],
+            }
+          : {'content': '任务已完成'};
+      return http.Response.bytes(
+        utf8.encode(jsonEncode({
+          'choices': [
+            {'message': message},
+          ],
+        })),
+        200,
+        headers: {'content-type': 'application/json; charset=utf-8'},
+      );
+    });
+    final model = OpenAiCompatibleModel(client: client);
+    final session = AgentSession(
+      model: model,
+      systemPrompt: 'coding agent',
+      plugins: [WorkspacePlugin(workspace.path)],
+    );
+
+    final result = await session.run(
+      '检查工作区并完成任务',
+      config: const AgentModelConfig(
+        apiKey: 'test',
+        baseUrl: 'https://example.test/v1',
+        model: 'test-model',
+      ),
+    );
+
+    expect(result.text, '任务已完成');
+    expect(result.stopReason, AgentStopReason.completed);
+    expect(requestCount, 7);
+    model.dispose();
   });
 
   test('retains prior turns in the same session', () async {

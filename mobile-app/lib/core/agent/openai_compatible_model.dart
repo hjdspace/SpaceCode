@@ -6,6 +6,9 @@ import 'agent_model.dart';
 import 'agent_types.dart';
 
 class OpenAiCompatibleModel implements AgentModel {
+  static const _maxRateLimitRetries = 2;
+  static const _defaultRateLimitDelay = Duration(minutes: 1);
+
   final http.Client _client;
 
   OpenAiCompatibleModel({http.Client? client})
@@ -33,47 +36,72 @@ class OpenAiCompatibleModel implements AgentModel {
         onToolCallStart != null ||
         onToolCallDelta != null ||
         onToolCallStop != null;
-    final request = http.AbortableRequest(
-      'POST',
-      Uri.parse(endpoint),
-      abortTrigger: cancellationToken.whenCancelled,
-    )
-      ..headers.addAll({
-        'Authorization': 'Bearer ${config.apiKey}',
-        'Content-Type': 'application/json',
-        if (useStream) 'Accept': 'text/event-stream',
-      })
-      ..body = jsonEncode({
-        'model': config.model,
-        'stream': useStream,
-        'messages': [
-          {'role': 'system', 'content': systemPrompt},
-          ...messages.map(_messageToJson),
-        ],
-        if (tools.isNotEmpty)
-          'tools': tools
-              .map((tool) => {
-                    'type': 'function',
-                    'function': {
-                      'name': tool.name,
-                      'description': tool.description,
-                      'parameters': tool.inputSchema,
-                    },
-                  })
-              .toList(),
-      });
+    final body = jsonEncode({
+      'model': config.model,
+      'stream': useStream,
+      'messages': [
+        {'role': 'system', 'content': systemPrompt},
+        ...messages.map(_messageToJson),
+      ],
+      if (tools.isNotEmpty)
+        'tools': tools
+            .map((tool) => {
+                  'type': 'function',
+                  'function': {
+                    'name': tool.name,
+                    'description': tool.description,
+                    'parameters': tool.inputSchema,
+                  },
+                })
+            .toList(),
+    });
 
-    if (!useStream) {
-      return _completeNonStream(request, cancellationToken);
+    for (var retry = 0;; retry++) {
+      final request = http.AbortableRequest(
+        'POST',
+        Uri.parse(endpoint),
+        abortTrigger: cancellationToken.whenCancelled,
+      )
+        ..headers.addAll({
+          'Authorization': 'Bearer ${config.apiKey}',
+          'Content-Type': 'application/json',
+          if (useStream) 'Accept': 'text/event-stream',
+        })
+        ..body = body;
+
+      try {
+        if (!useStream) {
+          return await _completeNonStream(request, cancellationToken);
+        }
+        return await _completeStream(
+          request,
+          cancellationToken,
+          onDelta ?? (_) {},
+          onToolCallStart,
+          onToolCallDelta,
+          onToolCallStop,
+        );
+      } on _RateLimitException catch (error) {
+        if (retry >= _maxRateLimitRetries) {
+          throw StateError(error.message);
+        }
+        await _waitForRateLimit(error.retryAfter, cancellationToken);
+      }
     }
-    return _completeStream(
-      request,
-      cancellationToken,
-      onDelta ?? (_) {},
-      onToolCallStart,
-      onToolCallDelta,
-      onToolCallStop,
-    );
+  }
+
+  Future<void> _waitForRateLimit(
+    Duration? retryAfter,
+    AgentCancellationToken cancellationToken,
+  ) async {
+    final delay = retryAfter ?? _defaultRateLimitDelay;
+    if (delay > Duration.zero) {
+      await Future.any<void>([
+        Future<void>.delayed(delay),
+        cancellationToken.whenCancelled,
+      ]);
+    }
+    cancellationToken.throwIfCancelled();
   }
 
   Future<AgentModelResponse> _completeNonStream(
@@ -100,6 +128,13 @@ class OpenAiCompatibleModel implements AgentModel {
         null,
       );
     }
+    return _completeJsonFromResponse(streamed, cancellationToken);
+  }
+
+  Future<AgentModelResponse> _completeJsonFromResponse(
+    http.StreamedResponse streamed,
+    AgentCancellationToken cancellationToken,
+  ) async {
     final response = await http.Response.fromStream(streamed);
     cancellationToken.throwIfCancelled();
 
@@ -116,6 +151,12 @@ class OpenAiCompatibleModel implements AgentModel {
           : body is Map
               ? body['message']
               : null;
+      if (response.statusCode == 429) {
+        throw _RateLimitException(
+          message?.toString() ?? 'Rate limit exceeded',
+          _retryAfter(response.headers),
+        );
+      }
       throw StateError(message?.toString() ?? '模型请求失败（${response.statusCode}）');
     }
     if (body is! Map<String, dynamic>) throw StateError('模型返回了无效响应');
@@ -145,6 +186,10 @@ class OpenAiCompatibleModel implements AgentModel {
           await _client.send(request).timeout(const Duration(seconds: 90));
     } on http.RequestAbortedException {
       throw const AgentCancelledException();
+    }
+    final contentType = response.headers['content-type'] ?? '';
+    if (contentType.contains('application/json')) {
+      return _completeJsonFromResponse(response, cancellationToken);
     }
     return _completeStreamFromResponse(
       response,
@@ -180,6 +225,12 @@ class OpenAiCompatibleModel implements AgentModel {
       } catch (_) {
         message = errorBody;
       }
+      if (response.statusCode == 429) {
+        throw _RateLimitException(
+          message?.toString() ?? 'Rate limit exceeded',
+          _retryAfter(response.headers),
+        );
+      }
       throw StateError(message?.toString() ?? '模型请求失败（${response.statusCode}）');
     }
 
@@ -190,46 +241,49 @@ class OpenAiCompatibleModel implements AgentModel {
       onToolCallStop: onToolCallStop,
     );
     final lineBuffer = StringBuffer();
+    void processLine(String rawLine) {
+      final line = rawLine.trim();
+      if (line.isEmpty || !line.startsWith('data:')) return;
+      final data = line.substring(5).trim();
+      if (data == '[DONE]') {
+        toolCallBuilder.markDone();
+        return;
+      }
+      try {
+        final decoded = jsonDecode(data);
+        if (decoded is! Map<String, dynamic>) return;
+        final choices = decoded['choices'];
+        if (choices is! List || choices.isEmpty) return;
+        final choice = choices.first;
+        if (choice is! Map<String, dynamic>) return;
+        final delta = choice['delta'];
+        if (delta is! Map<String, dynamic>) return;
+        final content = delta['content'];
+        if (content is String && content.isNotEmpty) {
+          buffer.write(content);
+          onDelta(content);
+        }
+        toolCallBuilder.consumeDelta(delta);
+      } catch (_) {
+        // 忽略解析错误的事件
+      }
+    }
+
     try {
       await for (final chunk in response.stream.transform(utf8.decoder)) {
         cancellationToken.throwIfCancelled();
         lineBuffer.write(chunk);
         final lines = lineBuffer.toString().split('\n');
         lineBuffer.clear();
-        if (lines.isNotEmpty && !lines.last.endsWith('\n')) {
-          lineBuffer.write(lines.removeLast());
-        }
+        lineBuffer.write(lines.removeLast());
         for (final rawLine in lines) {
-          final line = rawLine.trim();
-          if (line.isEmpty || !line.startsWith('data:')) continue;
-          final data = line.substring(5).trim();
-          if (data == '[DONE]') {
-            toolCallBuilder.markDone();
-            continue;
-          }
-          try {
-            final decoded = jsonDecode(data);
-            if (decoded is! Map<String, dynamic>) continue;
-            final choices = decoded['choices'];
-            if (choices is! List || choices.isEmpty) continue;
-            final choice = choices.first;
-            if (choice is! Map<String, dynamic>) continue;
-            final delta = choice['delta'];
-            if (delta is! Map<String, dynamic>) continue;
-            final content = delta['content'];
-            if (content is String && content.isNotEmpty) {
-              buffer.write(content);
-              onDelta(content);
-            }
-            toolCallBuilder.consumeDelta(delta);
-          } catch (_) {
-            // 忽略解析错误的 chunk
-          }
+          processLine(rawLine);
         }
       }
     } on http.RequestAbortedException {
       throw const AgentCancelledException();
     }
+    processLine(lineBuffer.toString());
     toolCallBuilder.markDone();
     return AgentModelResponse(
       text: buffer.toString(),
@@ -307,8 +361,21 @@ class OpenAiCompatibleModel implements AgentModel {
     return calls;
   }
 
+  Duration? _retryAfter(Map<String, String> headers) {
+    final seconds = int.tryParse(headers['retry-after'] ?? '');
+    if (seconds == null || seconds < 0) return null;
+    return Duration(seconds: seconds);
+  }
+
   @override
   void dispose() => _client.close();
+}
+
+class _RateLimitException implements Exception {
+  final String message;
+  final Duration? retryAfter;
+
+  const _RateLimitException(this.message, this.retryAfter);
 }
 
 /// 在 SSE 流中累积 tool_calls 信息（支持多个并发 tool_call）。
