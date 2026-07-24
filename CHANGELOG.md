@@ -1,3 +1,20 @@
+## [0.6.12](https://github.com/hjdspace/SpaceCode/compare/v0.6.11...v0.6.12) (2026-07-25)
+
+### Features
+
+* **agent:** 新增限流重试与无换行SSE事件处理能力
+* **chat:** 实现工具调用流式支持与聊天体验优化
+* **chat:** 重构工具卡片系统，新增多类型工具卡片与国际化支持
+* **android:** 添加前台服务支持，防止LLM任务被系统终止
+
+### Bug Fixes
+
+* **markdown渲染:** 修复流式代码块调试模式下的断言错误
+
+### Refactor
+
+* **i18n:** 补充多语言文案，优化搜索与Termux相关逻辑
+
 ## [0.6.11](https://github.com/hjdspace/SpaceCode/compare/v0.6.10...v0.6.11) (2026-07-24)
 
 ### Features
