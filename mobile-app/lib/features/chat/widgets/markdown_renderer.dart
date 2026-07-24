@@ -164,6 +164,15 @@ class _MarkdownRendererState extends State<MarkdownRenderer>
 
 class _PreBlockBuilder extends MarkdownElementBuilder {
   @override
+  Widget? visitText(md.Text text, TextStyle? preferredStyle) {
+    // flutter_markdown still expects custom block builders to contribute at
+    // least one inline child when visiting text. Without this placeholder,
+    // fenced code blocks leave an empty inline stack behind and trip the
+    // builder.dart `_inlines.isEmpty` assertion in debug builds.
+    return const SizedBox.shrink();
+  }
+
+  @override
   Widget? visitElementAfterWithContext(
     BuildContext context,
     md.Element element,
@@ -177,7 +186,8 @@ class _PreBlockBuilder extends MarkdownElementBuilder {
 
     if (codeChild is md.Element) {
       final code = codeChild.textContent;
-      final language = codeChild.attributes['class']?.replaceFirst('language-', '');
+      final language =
+          codeChild.attributes['class']?.replaceFirst('language-', '');
       return CodeBlock(
         code: code,
         language: language,
