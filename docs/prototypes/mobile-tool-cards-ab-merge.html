@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mobile App 工具卡片 · A+B 融合方案 · 4 主题适配</title>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: #2a2823;
+    padding: 40px 24px 80px;
+    color: #faf9f5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page-header {
+    max-width: 1700px;
+    margin: 0 auto 32px;
+  }
+  .page-header h1 {
+    font-family: 'Newsreader', serif;
+    font-size: 28px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    margin-bottom: 6px;
+  }
+  .page-header p {
+    font-size: 13px;
+    color: rgba(250, 249, 245, 0.6);
+    line-height: 1.7;
+    max-width: 900px;
+  }
+  .page-header p code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    background: rgba(250, 249, 245, 0.08);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: #faf9f5;
+  }
+
+  .variants-row {
+    max-width: 1700px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    align-items: start;
+  }
+  @media (max-width: 1400px) {
+    .variants-row { grid-template-columns: repeat(2, 1fr); max-width: 900px; }
+  }
+  @media (max-width: 700px) {
+    .variants-row { grid-template-columns: 1fr; max-width: 420px; }
+  }
+
+  /* ============ 手机框 ============ */
+  .phone {
+    width: 100%;
+    background: var(--phone-frame);
+    border-radius: 40px;
+    padding: 10px;
+    box-shadow: 0 20px 50px -15px rgba(0,0,0,0.5), 0 8px 16px -8px rgba(0,0,0,0.3);
+  }
+  .phone-screen {
+    border-radius: 30px;
+    overflow: hidden;
+    height: 820px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+  }
+  .phone-notch {
+    position: absolute;
+    top: 8px; left: 50%;
+    transform: translateX(-50%);
+    width: 100px; height: 24px;
+    background: var(--phone-frame);
+    border-radius: 12px;
+    z-index: 10;
+  }
+  .phone-status {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 22px 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    flex-shrink: 0;
+  }
+  .phone-status .right { display: flex; gap: 4px; align-items: center; }
+  .phone-status .battery {
+    width: 20px; height: 10px;
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    position: relative;
+    opacity: 0.7;
+  }
+  .phone-status .battery::after {
+    content: '';
+    position: absolute;
+    right: -3px; top: 2px;
+    width: 2px; height: 6px;
+    background: currentColor;
+    border-radius: 0 1px 1px 0;
+    opacity: 0.7;
+  }
+
+  .chat-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .chat-area::-webkit-scrollbar { width: 0; }
+
+  .assistant-meta {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--text-muted);
+    padding: 0 4px 4px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .section-label {
+    font-size: 9.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    padding: 8px 4px 4px;
+    opacity: 0.7;
+  }
+
+  /* ============ 工具卡片通用 ============ */
+  .tool-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .tool-card.write { border-left: 3px solid var(--success); }
+  .tool-card.edit { border-left: 3px solid var(--accent-primary); }
+
+  .card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--card-border);
+    background: var(--card-head-bg);
+  }
+  .traffic {
+    display: flex;
+    gap: 4px;
+    margin-right: 2px;
+  }
+  .traffic span {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+  }
+  .traffic .r { background: #ff5f56; }
+  .traffic .y { background: #ffbd2e; }
+  .traffic .g { background: #27c93f; }
+
+  .tool-name {
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+    font-size: 11.5px;
+    font-weight: 600;
+    flex: 1;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tool-name .arg {
+    color: var(--text-muted);
+    font-weight: 400;
+    margin-left: 6px;
+  }
+  .tool-name .accent { color: var(--accent-primary); }
+
+  .status-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 3px;
+    letter-spacing: 0.04em;
+  }
+  .status-tag.ok {
+    color: var(--success);
+    background: var(--success-bg);
+  }
+  .status-tag.err {
+    color: var(--error);
+    background: var(--error-bg);
+  }
+  .status-tag.added {
+    color: var(--success);
+    background: var(--success-bg);
+    border: 1px solid var(--success-border);
+  }
+
+  .diff-stat {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .diff-stat.add { color: var(--success); }
+  .diff-stat.del { color: var(--error); }
+
+  /* ============ 终端（run_command） ============ */
+  .terminal {
+    background: var(--terminal-bg);
+    color: var(--terminal-fg);
+    padding: 12px;
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+    font-size: 10.5px;
+    line-height: 1.65;
+  }
+  .terminal .prompt { color: var(--terminal-prompt); }
+  .terminal .path { color: var(--terminal-path); }
+  .terminal .cmd { color: var(--terminal-fg); font-weight: 500; }
+  .terminal .out { color: var(--terminal-out); }
+  .terminal .out-ok { color: var(--success); }
+  .terminal .cursor {
+    display: inline-block;
+    width: 6px; height: 12px;
+    background: var(--terminal-prompt);
+    vertical-align: text-bottom;
+    margin-left: 2px;
+    animation: blink 1s steps(2) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ============ 代码块（READ / WRITE） ============ */
+  .code-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: var(--code-head-bg);
+    border-bottom: 1px solid var(--card-border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+  }
+  .code-head .file-path {
+    color: var(--text-primary);
+    font-weight: 500;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .code-head .meta {
+    color: var(--text-muted);
+  }
+
+  .code {
+    background: var(--code-bg);
+    color: var(--code-fg);
+    padding: 10px 12px;
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+    font-size: 10.5px;
+    line-height: 1.7;
+    overflow-x: auto;
+  }
+  .code::-webkit-scrollbar { height: 0; }
+  .code .ln {
+    color: var(--code-ln);
+    margin-right: 12px;
+    user-select: none;
+    display: inline-block;
+    width: 18px;
+    text-align: right;
+  }
+  .code .kw { color: var(--code-kw); }
+  .code .str { color: var(--code-str); }
+  .code .fn { color: var(--code-fn); }
+  .code .com { color: var(--code-com); font-style: italic; }
+  .code .num { color: var(--code-num); }
+  .code .var { color: var(--code-var); }
+  .code .pun { color: var(--code-pun); }
+
+  .code.write-code {
+    background: var(--code-write-bg);
+  }
+  .code.write-code .add-sign {
+    color: var(--success);
+    margin-right: 6px;
+    font-weight: 700;
+  }
+
+  /* ============ diff（EDIT） ============ */
+  .diff {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    line-height: 1.7;
+    background: var(--diff-bg);
+  }
+  .diff .hunk {
+    padding: 4px 12px;
+    color: var(--text-muted);
+    font-size: 9.5px;
+    background: var(--diff-hunk-bg);
+    border-bottom: 1px solid var(--card-border);
+  }
+  .diff .line {
+    padding: 0 12px;
+    display: flex;
+    white-space: pre;
+  }
+  .diff .line .lnum {
+    width: 20px;
+    color: var(--code-ln);
+    user-select: none;
+    flex-shrink: 0;
+  }
+  .diff .line .sign {
+    width: 10px;
+    flex-shrink: 0;
+    user-select: none;
+    font-weight: 700;
+  }
+  .diff .line .content { flex: 1; }
+  .diff .line.del {
+    background: var(--diff-del-bg);
+  }
+  .diff .line.del .sign { color: var(--error); }
+  .diff .line.del .content { color: var(--diff-del-fg); }
+  .diff .line.add {
+    background: var(--diff-add-bg);
+  }
+  .diff .line.add .sign { color: var(--success); }
+  .diff .line.add .content { color: var(--diff-add-fg); }
+  .diff .line.ctx .content { color: var(--text-secondary); }
+  .diff .line.ctx .sign { color: transparent; }
+
+  /* ============ web_search ============ */
+  .search-results {
+    padding: 6px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .search-item {
+    padding: 4px 0;
+    border-bottom: 1px solid var(--card-border);
+  }
+  .search-item:last-child { border-bottom: none; }
+  .search-item .title {
+    font-size: 11px;
+    color: var(--accent-primary);
+    font-weight: 500;
+    margin-bottom: 2px;
+    line-height: 1.4;
+  }
+  .search-item .url {
+    font-size: 9.5px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 3px;
+  }
+  .search-item .snippet {
+    font-size: 10.5px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
+  /* ============ 4 套主题变量 ============ */
+
+  /* Theme: light */
+  [data-theme="light"] {
+    --phone-frame: #181715;
+    --bg-primary: #f8f9fb;
+    --text-primary: #18191f;
+    --text-secondary: #44475a;
+    --text-muted: #6e7191;
+    --accent-primary: #0d9488;
+    --success: #059669;
+    --error: #dc2626;
+    --card-bg: #ffffff;
+    --card-border: rgba(24, 25, 31, 0.08);
+    --card-head-bg: rgba(24, 25, 31, 0.02);
+    --success-bg: rgba(5, 150, 105, 0.1);
+    --error-bg: rgba(220, 38, 38, 0.1);
+    --success-border: rgba(5, 150, 105, 0.25);
+    /* 终端：永远深色 */
+    --terminal-bg: #1a1918;
+    --terminal-fg: #faf9f5;
+    --terminal-prompt: #0d9488;
+    --terminal-path: #58a6ff;
+    --terminal-out: #a09d96;
+    /* 代码块：浅色主题（GitHub Light 风） */
+    --code-bg: #f0f1f5;
+    --code-fg: #18191f;
+    --code-head-bg: #e7e9ef;
+    --code-ln: #b3b0c0;
+    --code-kw: #be123c;
+    --code-str: #1e40af;
+    --code-fn: #0d9488;
+    --code-com: #6e7191;
+    --code-num: #7c3aed;
+    --code-var: #c2410c;
+    --code-pun: #44475a;
+    --code-write-bg: rgba(5, 150, 105, 0.04);
+    /* diff */
+    --diff-bg: #ffffff;
+    --diff-hunk: rgba(13, 148, 136, 0.06);
+    --diff-hunk-bg: rgba(13, 148, 136, 0.06);
+    --diff-del-bg: rgba(220, 38, 38, 0.08);
+    --diff-del-fg: #991b1b;
+    --diff-add-bg: rgba(5, 150, 105, 0.08);
+    --diff-add-fg: #166534;
+  }
+
+  /* Theme: dark */
+  [data-theme="dark"] {
+    --phone-frame: #000000;
+    --bg-primary: #0d0d0d;
+    --text-primary: #f5f5f5;
+    --text-secondary: #a3a3a3;
+    --text-muted: #737373;
+    --accent-primary: #3b82f6;
+    --success: #22c55e;
+    --error: #ef4444;
+    --card-bg: #141414;
+    --card-border: rgba(255, 255, 255, 0.08);
+    --card-head-bg: #1a1a1a;
+    --success-bg: rgba(34, 197, 94, 0.15);
+    --error-bg: rgba(239, 68, 68, 0.15);
+    --success-border: rgba(34, 197, 94, 0.3);
+    --terminal-bg: #000000;
+    --terminal-fg: #f5f5f5;
+    --terminal-prompt: #22c55e;
+    --terminal-path: #3b82f6;
+    --terminal-out: #737373;
+    --code-bg: #0d0d0d;
+    --code-fg: #f5f5f5;
+    --code-head-bg: #141414;
+    --code-ln: #3a3a3a;
+    --code-kw: #ff7b72;
+    --code-str: #a5d6ff;
+    --code-fn: #d2a8ff;
+    --code-com: #737373;
+    --code-num: #79c0ff;
+    --code-var: #ffa657;
+    --code-pun: #f5f5f5;
+    --code-write-bg: rgba(34, 197, 94, 0.04);
+    --diff-bg: #0d0d0d;
+    --diff-hunk-bg: rgba(59, 130, 246, 0.08);
+    --diff-del-bg: rgba(239, 68, 68, 0.12);
+    --diff-del-fg: #ffa198;
+    --diff-add-bg: rgba(34, 197, 94, 0.12);
+    --diff-add-fg: #7ee787;
+  }
+
+  /* Theme: anthropic (light warm) */
+  [data-theme="anthropic"] {
+    --phone-frame: #181715;
+    --bg-primary: #faf9f5;
+    --text-primary: #141413;
+    --text-secondary: #3d3d3a;
+    --text-muted: #6c6a64;
+    --accent-primary: #cc785c;
+    --success: #5db872;
+    --error: #c64545;
+    --card-bg: #faf9f5;
+    --card-border: rgba(24, 23, 21, 0.08);
+    --card-head-bg: #efe9de;
+    --success-bg: rgba(93, 184, 114, 0.15);
+    --error-bg: rgba(198, 69, 69, 0.12);
+    --success-border: rgba(93, 184, 114, 0.3);
+    --terminal-bg: #1a1918;
+    --terminal-fg: #faf9f5;
+    --terminal-prompt: #cc785c;
+    --terminal-path: #5db8a6;
+    --terminal-out: #a09d96;
+    --code-bg: #1a1918;
+    --code-fg: #faf9f5;
+    --code-head-bg: #efe9de;
+    --code-ln: #4a4843;
+    --code-kw: #e08870;
+    --code-str: #7dce94;
+    --code-fn: #7dccbe;
+    --code-com: #6c6a64;
+    --code-num: #f0b56a;
+    --code-var: #dd8a6e;
+    --code-pun: #a09d96;
+    --code-write-bg: rgba(93, 184, 114, 0.06);
+    --diff-bg: #efe9de;
+    --diff-hunk-bg: rgba(204, 120, 92, 0.08);
+    --diff-del-bg: rgba(198, 69, 69, 0.12);
+    --diff-del-fg: #8b3a3a;
+    --diff-add-bg: rgba(93, 184, 114, 0.15);
+    --diff-add-fg: #3d8c54;
+  }
+
+  /* Theme: anthropicDark */
+  [data-theme="anthropicDark"] {
+    --phone-frame: #000000;
+    --bg-primary: #181715;
+    --text-primary: #faf9f5;
+    --text-secondary: #a09d96;
+    --text-muted: #6c6a64;
+    --accent-primary: #cc785c;
+    --success: #5db872;
+    --error: #c64545;
+    --card-bg: #1c1b1a;
+    --card-border: rgba(250, 249, 245, 0.08);
+    --card-head-bg: #1f1e1b;
+    --success-bg: rgba(93, 184, 114, 0.15);
+    --error-bg: rgba(198, 69, 69, 0.15);
+    --success-border: rgba(93, 184, 114, 0.3);
+    --terminal-bg: #0a0908;
+    --terminal-fg: #faf9f5;
+    --terminal-prompt: #cc785c;
+    --terminal-path: #5db8a6;
+    --terminal-out: #6c6a64;
+    --code-bg: #0a0908;
+    --code-fg: #faf9f5;
+    --code-head-bg: #1f1e1b;
+    --code-ln: #3a3833;
+    --code-kw: #e08870;
+    --code-str: #7dce94;
+    --code-fn: #7dccbe;
+    --code-com: #6c6a64;
+    --code-num: #f0b56a;
+    --code-var: #dd8a6e;
+    --code-pun: #a09d96;
+    --code-write-bg: rgba(93, 184, 114, 0.06);
+    --diff-bg: #181715;
+    --diff-hunk-bg: rgba(204, 120, 92, 0.1);
+    --diff-del-bg: rgba(198, 69, 69, 0.15);
+    --diff-del-fg: #e08880;
+    --diff-add-bg: rgba(93, 184, 114, 0.15);
+    --diff-add-fg: #7dce94;
+  }
+
+  /* ============ Variant 标签 ============ */
+  .variant-label {
+    text-align: center;
+    padding: 12px 0 8px;
+  }
+  .variant-label .name {
+    font-family: 'Newsreader', serif;
+    font-size: 17px;
+    font-weight: 500;
+    color: #faf9f5;
+    letter-spacing: -0.01em;
+  }
+  .variant-label .tagline {
+    font-size: 11px;
+    color: rgba(250, 249, 245, 0.5);
+    margin-top: 4px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .variant-label .swatches {
+    margin-top: 8px;
+    display: flex;
+    gap: 4px;
+    justify-content: center;
+  }
+  .variant-label .swatches span {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+
+  /* footer */
+  .footer-note {
+    max-width: 1700px;
+    margin: 40px auto 0;
+    padding: 20px 24px;
+    background: rgba(250, 249, 245, 0.04);
+    border: 1px solid rgba(250, 249, 245, 0.08);
+    border-radius: 12px;
+    font-size: 12.5px;
+    color: rgba(250, 249, 245, 0.75);
+    line-height: 1.75;
+  }
+  .footer-note strong { color: #faf9f5; }
+  .footer-note code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    background: rgba(250, 249, 245, 0.08);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: #faf9f5;
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>Mobile App 工具卡片 · A+B 融合方案</h1>
+  <p>融合方案：<strong>A 的 Anthropic 暖色气质</strong>（卡片圆角、配色跟随主题）+ <strong>B 的开发者技术感</strong>（macOS 红黄绿窗口控件作为 run_command 标识、GitHub 风格 diff、JetBrains Mono 全等宽）。所有颜色从现有 <code>SpaceCodeTheme._ColorSet</code> 取，代码高亮色从 <code>CodeTheme</code> 取，4 套主题下完美适配。</p>
+</div>
+
+<div class="variants-row" id="variantsRow"></div>
+
+<div class="footer-note">
+  <strong>设计要点（Flutter 实现指引）</strong>：<br>
+  · <strong>主题色源</strong>：卡片背景、边框、文字色全部从 <code>Theme.of(context).colorScheme</code> + <code>SpaceCodeTheme._ColorSet</code> 取，不写死 hex。代码高亮色从 <code>CodeTheme.light/dark/anthropic/anthropicDark</code> 匹配当前主题取。<br>
+  · <strong>终端永远深色</strong>：<code>run_command</code> 卡片的终端区域无论浅色/深色主题都用深色底（终端模拟器惯例），但 prompt 色跟随 <code>accentPrimary</code>（light=青绿、dark=蓝、anthropic=橙、anthropicDark=橙）。<br>
+  · <strong>macOS 窗口控件</strong>：所有 <code>run_command</code> 卡片头部固定红黄绿三色点（#ff5f56 / #ffbd2e / #27c93f），不随主题变——这是开发者识别符号，类似 VSCode 终端。<br>
+  · <strong>diff 红绿背景</strong>：删除行 <code>error.withOpacity(0.12)</code>，新增行 <code>success.withOpacity(0.15)</code>；浅色主题用深红/深绿字，深色主题用浅红/浅绿字（自动跟随 <code>textPrimary</code> 亮度）。<br>
+  · <strong>WRITE 左色条</strong>：卡片左侧 3px 绿色边 (<code>success</code>) + 头部 <code>+ ADDED</code> 标签 + 代码区淡绿底 <code>success.withOpacity(0.04)</code>。<br>
+  · <strong>READ 代码块</strong>：浅色主题用浅色代码底（如 GitHub Light），深色主题用深色代码底；行号色 <code>textMuted.withOpacity(0.5)</code>。<br>
+  · <strong>ToolCall model 扩展</strong>：需新增结构化字段 <code>toolKind</code>（run_command/read/write/edit/search/other）、<code>filePath</code>、<code>language</code>、<code>diffHunks</code>（List&lt;DiffLine&gt;）、<code>terminalOutput</code>。头部渲染根据 <code>toolKind</code> 分发到对应子 widget。
+</div>
+
+<script>
+// ============ 工具卡片数据 ============
+const toolData = [
+  {
+    kind: 'run_command',
+    sectionLabel: 'RUN_COMMAND · 终端',
+    head: {
+      traffic: true,
+      name: '<span class="accent">run</span>_command',
+      arg: '· zsh',
+      status: { type: 'ok', text: 'EXIT 0' }
+    },
+    body: `
+<div class="terminal">
+  <div><span class="prompt">➜</span> <span class="path">~/project</span> <span class="cmd">git status</span></div>
+  <div class="out">On branch main</div>
+  <div class="out">Changes not staged for commit:</div>
+  <div class="out">&nbsp;&nbsp;modified:&nbsp;&nbsp;lib/utils/logger.ts</div>
+  <div class="out">&nbsp;&nbsp;modified:&nbsp;&nbsp;src/config.ts</div>
+  <div class="out-ok">no changes added to commit</div>
+  <div><span class="prompt">➜</span> <span class="path">~/project</span><span class="cursor"></span></div>
+</div>`
+  },
+  {
+    kind: 'read',
+    sectionLabel: 'READ · 语法高亮',
+    head: {
+      traffic: false,
+      name: '<span class="accent">read</span>',
+      arg: '· lib/utils/logger.ts',
+      status: { type: 'ok', text: '42 行' }
+    },
+    body: `
+<div class="code-head">
+  <span class="file-path">lib/utils/logger.ts</span>
+  <span class="meta">TypeScript · L1-13</span>
+</div>
+<div class="code">
+<div><span class="ln">1</span><span class="kw">import</span> <span class="pun">{</span> <span class="var">formatDate</span> <span class="pun">}</span> <span class="kw">from</span> <span class="str">'./date'</span><span class="pun">;</span></div>
+<div><span class="ln">2</span></div>
+<div><span class="ln">3</span><span class="kw">export enum</span> <span class="fn">LogLevel</span> <span class="pun">{</span></div>
+<div><span class="ln">4</span>&nbsp;&nbsp;<span class="var">Debug</span> <span class="pun">=</span> <span class="str">'debug'</span><span class="pun">,</span></div>
+<div><span class="ln">5</span>&nbsp;&nbsp;<span class="var">Info</span> <span class="pun">=</span> <span class="str">'info'</span><span class="pun">,</span></div>
+<div><span class="ln">6</span>&nbsp;&nbsp;<span class="var">Warn</span> <span class="pun">=</span> <span class="str">'warn'</span><span class="pun">,</span></div>
+<div><span class="ln">7</span><span class="pun">}</span></div>
+<div><span class="ln">8</span></div>
+<div><span class="ln">9</span><span class="com">// 统一日志出口</span></div>
+<div><span class="ln">10</span><span class="kw">export function</span> <span class="fn">log</span><span class="pun">(</span><span class="var">msg</span><span class="pun">:</span> <span class="kw">string</span><span class="pun">)</span> <span class="pun">{</span></div>
+<div><span class="ln">11</span>&nbsp;&nbsp;<span class="kw">const</span> <span class="var">ts</span> <span class="pun">=</span> <span class="fn">formatDate</span><span class="pun">(</span><span class="kw">new</span> <span class="fn">Date</span><span class="pun">());</span></div>
+<div><span class="ln">12</span>&nbsp;&nbsp;<span class="var">console</span><span class="pun">.</span><span class="fn">info</span><span class="pun">(</span><span class="str">\`[\${ts}] \${msg}\`</span><span class="pun">);</span></div>
+<div><span class="ln">13</span><span class="pun">}</span></div>
+</div>`
+  },
+  {
+    kind: 'write',
+    sectionLabel: 'WRITE · 新建文件',
+    head: {
+      traffic: false,
+      name: '<span class="accent">write</span>',
+      arg: '· src/hello.ts',
+      status: { type: 'added', text: '+ ADDED' }
+    },
+    body: `
+<div class="code-head">
+  <span class="file-path">src/hello.ts</span>
+  <span class="meta">3 行 · 新建</span>
+</div>
+<div class="code write-code">
+<div><span class="add-sign">+</span><span class="kw">export function</span> <span class="fn">hello</span><span class="pun">(</span><span class="var">name</span><span class="pun">:</span> <span class="kw">string</span><span class="pun">)</span> <span class="pun">{</span></div>
+<div><span class="add-sign">+</span>&nbsp;&nbsp;<span class="kw">return</span> <span class="str">\`Hello, \${name}!\`</span><span class="pun">;</span></div>
+<div><span class="add-sign">+</span><span class="pun">}</span></div>
+</div>`
+  },
+  {
+    kind: 'edit',
+    sectionLabel: 'EDIT · diff',
+    head: {
+      traffic: false,
+      name: '<span class="accent">edit</span>',
+      arg: '· logger.ts',
+      stats: [{ class: 'add', text: '+3' }, { class: 'del', text: '-2' }]
+    },
+    body: `
+<div class="diff">
+  <div class="hunk">@@ -10,7 +10,8 @@ lib/utils/logger.ts</div>
+  <div class="line ctx"><span class="lnum">10</span><span class="sign"> </span><span class="content"><span class="kw">export function</span> <span class="fn">log</span><span class="pun">(</span><span class="var">msg</span><span class="pun">:</span> <span class="kw">string</span><span class="pun">)</span> <span class="pun">{</span></span></div>
+  <div class="line del"><span class="lnum">11</span><span class="sign">-</span><span class="content">&nbsp;&nbsp;<span class="var">console</span><span class="pun">.</span><span class="fn">log</span><span class="pun">(</span><span class="var">msg</span><span class="pun">);</span></span></div>
+  <div class="line del"><span class="lnum">12</span><span class="sign">-</span><span class="content"><span class="pun">}</span></span></div>
+  <div class="line add"><span class="lnum">11</span><span class="sign">+</span><span class="content">&nbsp;&nbsp;<span class="kw">const</span> <span class="var">ts</span> <span class="pun">=</span> <span class="fn">Date</span><span class="pun">.</span><span class="fn">now</span><span class="pun">();</span></span></div>
+  <div class="line add"><span class="lnum">12</span><span class="sign">+</span><span class="content">&nbsp;&nbsp;<span class="var">console</span><span class="pun">.</span><span class="fn">info</span><span class="pun">(</span><span class="str">\`[\${ts}] \${msg}\`</span><span class="pun">);</span></span></div>
+  <div class="line add"><span class="lnum">13</span><span class="sign">+</span><span class="content"><span class="pun">}</span></span></div>
+</div>`
+  },
+  {
+    kind: 'web_search',
+    sectionLabel: 'WEB_SEARCH · 搜索结果',
+    head: {
+      traffic: false,
+      name: '<span class="accent">web</span>_search',
+      arg: '· "Flutter 3.27"',
+      status: { type: 'ok', text: '3 HITS' }
+    },
+    body: `
+<div class="search-results">
+  <div class="search-item">
+    <div class="title">Flutter 3.27 release notes · Medium</div>
+    <div class="url">medium.com › flutter › 3.27-release</div>
+    <div class="snippet">Flutter 3.27 brings Impeller improvements, Dart 3.5 Wasm...</div>
+  </div>
+  <div class="search-item">
+    <div class="title">What's new in Flutter 3.27 · official docs</div>
+    <div class="url">docs.flutter.dev › release</div>
+    <div class="snippet">本版本重点优化 iOS Impeller 渲染性能与 Material 3 适配...</div>
+  </div>
+</div>`
+  }
+];
+
+// ============ 渲染单个工具卡片 ============
+function renderCard(tool) {
+  let statusHtml = '';
+  if (tool.head.status) {
+    statusHtml = `<span class="status-tag ${tool.head.status.type}">${tool.head.status.text}</span>`;
+  } else if (tool.head.stats) {
+    statusHtml = tool.head.stats.map(s => `<span class="diff-stat ${s.class}">${s.text}</span>`).join(' ');
+  }
+
+  let trafficHtml = '';
+  if (tool.head.traffic) {
+    trafficHtml = `<div class="traffic"><span class="r"></span><span class="y"></span><span class="g"></span></div>`;
+  }
+
+  return `
+    <div class="section-label">${tool.sectionLabel}</div>
+    <div class="tool-card ${tool.kind}">
+      <div class="card-head">
+        ${trafficHtml}
+        <span class="tool-name">${tool.head.name}<span class="arg">${tool.head.arg || ''}</span></span>
+        ${statusHtml}
+      </div>
+      ${tool.body}
+    </div>`;
+}
+
+// ============ 4 套主题元数据 ============
+const themes = [
+  {
+    id: 'light',
+    name: 'Light',
+    tagline: '#f8f9fb · 青绿 #0d9488',
+    swatches: ['#f8f9fb', '#0d9488', '#059669', '#dc2626']
+  },
+  {
+    id: 'dark',
+    name: 'Dark',
+    tagline: '#0d0d0d · 蓝 #3b82f6',
+    swatches: ['#0d0d0d', '#3b82f6', '#22c55e', '#ef4444']
+  },
+  {
+    id: 'anthropic',
+    name: 'Anthropic',
+    tagline: '#faf9f5 · 橙 #cc785c',
+    swatches: ['#faf9f5', '#cc785c', '#5db872', '#c64545']
+  },
+  {
+    id: 'anthropicDark',
+    name: 'Anthropic Dark',
+    tagline: '#181715 · 橙 #cc785c',
+    swatches: ['#181715', '#cc785c', '#5db872', '#c64545']
+  }
+];
+
+// ============ 渲染 4 个手机框 ============
+const row = document.getElementById('variantsRow');
+row.innerHTML = themes.map(t => `
+  <div>
+    <div class="variant-label">
+      <div class="name">${t.name}</div>
+      <div class="tagline">${t.tagline}</div>
+      <div class="swatches">${t.swatches.map(c => `<span style="background:${c};"></span>`).join('')}</div>
+    </div>
+    <div class="phone" data-theme="${t.id}">
+      <div class="phone-screen">
+        <div class="phone-notch"></div>
+        <div class="phone-status">
+          <span>9:41</span>
+          <span class="right">
+            <span style="font-size:10px;">●●●</span>
+            <span class="battery"></span>
+          </span>
+        </div>
+        <div class="chat-area">
+          <div class="assistant-meta">CLAUDE · 已完成</div>
+          ${toolData.map(renderCard).join('')}
+        </div>
+      </div>
+    </div>
+  </div>
+`).join('');
+</script>
+
+</body>
+</html>

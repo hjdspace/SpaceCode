@@ -129,5 +129,22 @@
   "terminal.exitCode": "退出码 {code}，耗时 {ms}ms",
   "terminal.sendToAgent": "发送给 Agent",
   "foreground.title": "SpaceCode Agent",
-  "foreground.running": "任务执行中..."
+  "foreground.running": "任务执行中...",
+  "chat.tool.statusRunning": "运行中",
+  "chat.tool.statusCompleted": "已完成",
+  "chat.tool.statusError": "出错",
+  "chat.tool.input": "输入",
+  "chat.tool.output": "输出",
+  "chat.tool.copied": "已复制",
+  "chat.tool.exitCode": "退出码 {code}",
+  "chat.tool.noOutput": "无输出",
+  "chat.tool.noContent": "无内容",
+  "chat.tool.emptyDiff": "无变更",
+  "chat.tool.noMatches": "无匹配结果",
+  "chat.tool.noResults": "无搜索结果",
+  "chat.tool.linesAdded": "+{count} 行",
+  "chat.tool.linesRemoved": "-{count} 行",
+  "chat.tool.duration": "{ms}ms",
+  "chat.tool.viewDetails": "查看详情",
+  "chat.tool.hideDetails": "收起详情"
 }

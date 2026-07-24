@@ -129,5 +129,22 @@
   "terminal.exitCode": "Exit code {code}, {ms}ms",
   "terminal.sendToAgent": "Send to Agent",
   "foreground.title": "SpaceCode Agent",
-  "foreground.running": "Task running..."
+  "foreground.running": "Task running...",
+  "chat.tool.statusRunning": "Running",
+  "chat.tool.statusCompleted": "Done",
+  "chat.tool.statusError": "Error",
+  "chat.tool.input": "Input",
+  "chat.tool.output": "Output",
+  "chat.tool.copied": "Copied",
+  "chat.tool.exitCode": "Exit {code}",
+  "chat.tool.noOutput": "No output",
+  "chat.tool.noContent": "No content",
+  "chat.tool.emptyDiff": "No changes",
+  "chat.tool.noMatches": "No matches",
+  "chat.tool.noResults": "No results",
+  "chat.tool.linesAdded": "+{count} lines",
+  "chat.tool.linesRemoved": "-{count} lines",
+  "chat.tool.duration": "{ms}ms",
+  "chat.tool.viewDetails": "View details",
+  "chat.tool.hideDetails": "Hide details"
 }

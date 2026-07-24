@@ -10,6 +10,50 @@ class CodeTheme {
     required this.attr, required this.tag,
   });
 
+  /// 转换为 `flutter_highlight` 所需的 theme map。
+  ///
+  /// key 对应 highlight.js 的 CSS class（如 'root'、'keyword'、'string'），
+  /// value 是该 class 的文本样式。背景色由 'root' 承载。
+  Map<String, TextStyle> get toHighlightMap => {
+        'root': TextStyle(
+          backgroundColor: bg,
+          color: fg,
+          fontFamily: 'monospace',
+          fontSize: 13,
+          height: 1.5,
+        ),
+        'keyword': TextStyle(color: keyword, fontWeight: FontWeight.w600),
+        'literal': TextStyle(color: number),
+        'symbol': TextStyle(color: keyword),
+        'bullet': TextStyle(color: number),
+        'section': TextStyle(color: function, fontWeight: FontWeight.w600),
+        'title': TextStyle(color: function, fontWeight: FontWeight.w600),
+        'title.function': TextStyle(color: function, fontWeight: FontWeight.w600),
+        'title.class': TextStyle(color: function, fontWeight: FontWeight.w600),
+        'string': TextStyle(color: string),
+        'string.escape': TextStyle(color: string),
+        'number': TextStyle(color: number),
+        'comment': TextStyle(color: comment, fontStyle: FontStyle.italic),
+        'function': TextStyle(color: function),
+        'built_in': TextStyle(color: builtin),
+        'attr': TextStyle(color: attr),
+        'tag': TextStyle(color: tag),
+        'meta': TextStyle(color: comment),
+        'variable': TextStyle(color: fg),
+        'params': TextStyle(color: fg),
+        'type': TextStyle(color: builtin),
+        'operator': TextStyle(color: keyword),
+        'property': TextStyle(color: attr),
+        'punctuation': TextStyle(color: fg),
+        'regexp': TextStyle(color: string),
+        'selector': TextStyle(color: attr),
+        'class': TextStyle(color: function),
+        'doctag': TextStyle(color: comment),
+        'name': TextStyle(color: tag),
+        'strong': const TextStyle(fontWeight: FontWeight.bold),
+        'emphasis': const TextStyle(fontStyle: FontStyle.italic),
+      };
+
   static const light = CodeTheme(
     bg: Color(0xffeef0f5), fg: Color(0xff18191f),
     keyword: Color(0xffbe123c), string: Color(0xff1e40af), number: Color(0xff7c3aed),
@@ -53,5 +97,19 @@ class CodeTheme {
       return Color(int.parse(str.substring(1), radix: 16) + 0xff000000);
     }
     return const Color(0xff000000);
+  }
+
+  /// 根据当前 [BuildContext] 的 scaffoldBackgroundColor 精确匹配 4 套主题。
+  /// 无法匹配时按 Brightness 回退到 light / dark。
+  static CodeTheme of(BuildContext context) {
+    final bgColor = Theme.of(context).scaffoldBackgroundColor;
+    if (bgColor == const Color(0xfffaf9f5)) return CodeTheme.anthropic;
+    if (bgColor == const Color(0xff181715)) return CodeTheme.anthropicDark;
+    if (bgColor == const Color(0xff0d0d0d)) return CodeTheme.dark;
+    if (bgColor == const Color(0xfff8f9fb)) return CodeTheme.light;
+    // 自定义主题颜色：按亮度回退
+    return Theme.of(context).brightness == Brightness.dark
+        ? CodeTheme.dark
+        : CodeTheme.light;
   }
 }
