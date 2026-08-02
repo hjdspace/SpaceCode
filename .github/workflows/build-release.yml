@@ -159,23 +159,42 @@ jobs:
       - name: Build frontend
         run: npx vite build
 
-      - name: Build & Publish (Mac)
+      # 注意：这里使用 --publish never，由 publish-release job 统一上传到 release，
+      # 避免三个平台并发 --publish always 时的竞争条件（曾经导致 Windows exe 上传被静默吞掉）
+      - name: Build (Mac)
         if: matrix.platform == 'mac'
-        run: npx electron-builder --mac --publish always
+        run: npx electron-builder --mac --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build & Publish (Linux)
+      - name: Build (Linux)
         if: matrix.platform == 'linux'
-        run: npx electron-builder --linux AppImage deb --publish always
+        run: npx electron-builder --linux AppImage deb --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build & Publish (Windows)
+      - name: Build (Windows)
         if: matrix.platform == 'win'
-        run: npx electron-builder --win --publish always
+        run: npx electron-builder --win --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: |
+            release/*.exe
+            release/*.exe.blockmap
+            release/*.yml
+            release/*.dmg
+            release/*.zip
+            release/*.zip.blockmap
+            release/*.AppImage
+            release/*.deb
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
 
   build-android:
     runs-on: ubuntu-latest
@@ -343,6 +362,44 @@ jobs:
             cp "$NOTES_FILE" /tmp/release-notes.md
           fi
           echo "path=/tmp/release-notes.md" >> "$GITHUB_OUTPUT"
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: List downloaded artifacts
+        shell: bash
+        run: |
+          echo "=== Downloaded release assets ==="
+          find release-assets -type f -exec ls -lh {} \;
+
+      - name: Create draft release and upload desktop assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          # APK 已由 build-android job 上传，这里只处理 desktop 资产
+          # 创建或更新 release（draft 状态，最后再发布）
+          if gh release view "${GITHUB_REF_NAME}" > /dev/null 2>&1; then
+            echo "Release ${GITHUB_REF_NAME} 已存在，追加 desktop 资产..."
+          else
+            echo "Release ${GITHUB_REF_NAME} 不存在，创建 draft release..."
+            gh release create "${GITHUB_REF_NAME}" \
+              --draft \
+              --title "${GITHUB_REF_NAME}" \
+              --notes-file "${{ steps.release_notes.outputs.path }}"
+          fi
+
+          # 统一上传所有 desktop 资产，避免并发竞争
+          # 使用 --clobber 覆盖已存在的文件
+          find release-assets -type f | while read -r f; do
+            echo "上传: $f"
+            gh release upload "${GITHUB_REF_NAME}" "$f" --clobber
+          done
 
       - name: Publish release
         env:
