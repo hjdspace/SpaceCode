@@ -105,6 +105,44 @@ SpaceCode/
 - 不要使用 `any` 类型，优先使用精确的类型定义
 - 不要添加未请求的额外功能、抽象、配置项或错误处理
 
+## Mobile App
+
+移动端子项目位于 `mobile-app/`（Flutter + Riverpod + go_router）。
+
+### 构建与测试
+
+```bash
+cd mobile-app
+flutter pub get
+flutter analyze                       # 静态分析
+flutter test                          # 全量测试
+flutter test test/path/to_test.dart   # 单个测试文件
+flutter build apk --release           # 构建 release APK
+```
+
+### 安装到真机（保留应用数据）
+
+**关键：禁止使用 `flutter install` 安装更新。** 它会先卸载旧版本再重装，导致用户已配置的 API、SharedPreferences 等本地数据全部丢失。
+
+正确方式：使用 `adb install -r` 覆盖安装，`-r` 表示 reinstall，保留应用数据：
+
+```bash
+# adb 默认路径（Windows）：
+%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe
+
+# 列出设备
+adb devices
+
+# 覆盖安装（保留数据），-r=reinstall，-t=允许测试包
+adb -s <device-id> install -r -t mobile-app\build\app\outputs\flutter-apk\app-release.apk
+```
+
+如果遇到签名不一致导致 `-r` 失败，需统一 release 构建的 keystore，而不是回退到卸载重装。
+
+### 版本号约定
+
+更新版本时同时提升 `pubspec.yaml` 中的 `version: X.Y.Z+buildCode`（`+buildCode` 对应 Android `versionCode`），确保 `flutter install` 在极端情况下也能走升级路径而非卸载重装。
+
 ## Agent skills
 
 ### Issue tracker

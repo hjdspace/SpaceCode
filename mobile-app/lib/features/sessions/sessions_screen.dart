@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/i18n/strings.dart';
 import '../../../core/storage/chat_history_storage.dart';
+import '../../../core/workspace/file_explorer_service.dart';
 import '../../../core/workspace/workspace_target.dart';
 import '../chat/chat_controller.dart';
+import '../files/file_explorer_screen.dart';
 import 'session_tile.dart';
 
 /// 会话按项目分组后的数据模型。
@@ -23,13 +25,30 @@ class _SessionGroup {
   /// 副标题（云端项目显示仓库名，本地项目显示路径）。
   final String? subtitle;
 
+  /// 该分组对应的工作区目标（用于文件管理）。未分类分组为 null。
+  final WorkspaceTarget? workspace;
+
   _SessionGroup({
     required this.displayName,
     required this.groupKey,
     required this.sessions,
     required this.isCloud,
     this.subtitle,
+    this.workspace,
   });
+
+  /// 是否可进入文件管理浏览。
+  bool get canBrowseFiles {
+    final ws = workspace;
+    if (ws == null) return false;
+    if (ws.mode == WorkspaceMode.local) {
+      return ws.localPath != null && ws.localPath!.isNotEmpty;
+    }
+    if (ws.mode == WorkspaceMode.github) {
+      return ws.repository != null && ws.repository!.isNotEmpty;
+    }
+    return false;
+  }
 }
 
 /// 包装 SessionSummary 以携带额外排序信息。
@@ -39,7 +58,33 @@ class SessionSummaryItem {
 }
 
 class SessionsScreen extends ConsumerWidget {
-  const SessionsScreen({super.key});
+  /// 点击文件条目时触发，由 ChatScreen 负责关闭 Drawer 并 push 预览页。
+  final void Function(WorkspaceTarget workspace, FileEntry entry)?
+      onPreviewFile;
+
+  /// 关闭 Drawer 的回调。
+  ///
+  /// SessionsScreen 运行在 Drawer 的嵌套 Navigator 内，
+  /// 不能用 `Navigator.of(context).pop()` 关闭 Drawer（那会 pop 掉
+  /// SessionsScreen 自身导致白屏）。由 ChatScreen 提供此回调，
+  /// 内部调用 `scaffoldKey.currentState?.closeDrawer()`。
+  /// 测试中不传此回调，fallback 到 `Navigator.of(context).pop()`。
+  final VoidCallback? onClose;
+
+  const SessionsScreen({
+    super.key,
+    this.onPreviewFile,
+    this.onClose,
+  });
+
+  /// 关闭 Drawer：优先用回调，fallback 到 Navigator.pop（兼容无嵌套 Navigator 的场景）。
+  void _close(BuildContext context) {
+    if (onClose != null) {
+      onClose!();
+    } else {
+      Navigator.of(context).pop();
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -61,7 +106,7 @@ class SessionsScreen extends ConsumerWidget {
             tooltip: I18n.t('sessions.newSession'),
             onPressed: () {
               ref.read(chatProvider.notifier).newSession();
-              Navigator.of(context).pop();
+              _close(context);
             },
           ),
         ],
@@ -76,7 +121,7 @@ class SessionsScreen extends ConsumerWidget {
             isActive: currentId == null,
             onTap: () {
               ref.read(chatProvider.notifier).newSession();
-              Navigator.of(context).pop();
+              _close(context);
             },
           ),
           const Divider(height: 16),
@@ -164,6 +209,8 @@ class SessionsScreen extends ConsumerWidget {
                   ),
                 ),
               ],
+              if (group.canBrowseFiles)
+                _buildFileExplorerButton(context, group),
             ],
           ),
         ),
@@ -186,7 +233,7 @@ class SessionsScreen extends ConsumerWidget {
                 subtitle: _formatSubtitle(item.summary),
                 isActive: item.summary.id == currentId,
                 onTap: () async {
-                  // 必须先 await 状态更新完成再 pop，否则 Drawer 关闭动画期间
+                  // 必须先 await 状态更新完成再关闭 Drawer，否则 Drawer 关闭动画期间
                   // SessionsScreen（ConsumerWidget）正在卸载，switchToSession
                   // 的 state.copyWith 会通知已卸载的 widget 重建，触发
                   // InheritedElement.unmount 的 '_dependents.isEmpty' 断言失败。
@@ -194,12 +241,50 @@ class SessionsScreen extends ConsumerWidget {
                       .read(chatProvider.notifier)
                       .switchToSession(item.summary.id);
                   if (context.mounted) {
-                    Navigator.of(context).pop();
+                    _close(context);
                   }
                 },
               ),
             )),
       ],
+    );
+  }
+
+  /// 分组标题栏右侧的文件管理入口图标。
+  Widget _buildFileExplorerButton(BuildContext context, _SessionGroup group) {
+    final theme = Theme.of(context);
+    return Tooltip(
+      message: I18n.t('fileExplorer.title'),
+      child: InkWell(
+        onTap: () => _openFileExplorer(context, group),
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Icon(
+            Icons.folder_open_rounded,
+            size: 16,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 在 Drawer 嵌套 Navigator 中 push 文件管理页，覆盖会话列表。
+  void _openFileExplorer(BuildContext context, _SessionGroup group) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => FileExplorerScreen(
+          workspace: group.workspace!,
+          displayName: group.displayName,
+          onPreviewFile: (entry) {
+            // 先 pop 文件管理页回到会话列表，再触发预览回调
+            // （预览回调由 ChatScreen 负责关闭 Drawer 并 push 预览页到根 Navigator）
+            Navigator.of(context).pop();
+            onPreviewFile?.call(group.workspace!, entry);
+          },
+        ),
+      ),
     );
   }
 
@@ -257,12 +342,22 @@ class SessionsScreen extends ConsumerWidget {
         displayName = I18n.t('sessions.uncategorized');
       }
 
+      // 提取工作区目标供文件管理使用
+      WorkspaceTarget? workspace;
+      if (target != null) {
+        workspace = target;
+      } else if (first.projectPath != null &&
+          first.projectPath!.isNotEmpty) {
+        workspace = WorkspaceTarget.local(first.projectPath);
+      }
+
       return _SessionGroup(
         displayName: displayName,
         groupKey: key,
         sessions: groupSessions.map((s) => SessionSummaryItem(s)).toList(),
         isCloud: isCloud,
         subtitle: subtitle != displayName ? subtitle : null,
+        workspace: workspace,
       );
     }).toList();
 

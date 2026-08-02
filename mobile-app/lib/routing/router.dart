@@ -14,7 +14,7 @@ final router = GoRouter(
   routes: [
     GoRoute(
       path: '/',
-      builder: (context, state) => const ChatScreen(),
+      builder: (context, state) => ChatScreen(),
     ),
     GoRoute(
       path: '/settings',

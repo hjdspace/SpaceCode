@@ -4,6 +4,9 @@ import 'package:go_router/go_router.dart';
 import '../../core/connection/connection_service.dart';
 import '../../core/connection/connection_state.dart' as conn;
 import '../../core/i18n/strings.dart';
+import '../../core/workspace/file_explorer_service.dart';
+import '../../core/workspace/workspace_target.dart';
+import '../files/file_preview_screen.dart';
 import 'chat_controller.dart';
 import 'widgets/message_list.dart';
 import 'widgets/chat_input.dart';
@@ -12,7 +15,10 @@ import 'widgets/permission_card.dart';
 import '../sessions/sessions_screen.dart';
 
 class ChatScreen extends ConsumerWidget {
-  const ChatScreen({super.key});
+  /// 用于在文件预览回调中关闭 Drawer。
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  ChatScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -20,6 +26,7 @@ class ChatScreen extends ConsumerWidget {
     final connectionInfo = ref.watch(connectionProvider);
 
     return Scaffold(
+      key: _scaffoldKey,
       appBar: AppBar(
         leading: Builder(builder: (innerContext) {
           return IconButton(
@@ -113,8 +120,18 @@ class ChatScreen extends ConsumerWidget {
           ),
         ],
       ),
-      drawer: const Drawer(
-        child: SessionsScreen(),
+      drawer: Drawer(
+        // 嵌套 Navigator：文件管理页在 Drawer 内 push，覆盖会话列表，
+        // 返回时回到会话列表而不是关闭整个 Drawer。
+        child: Navigator(
+          onGenerateRoute: (_) => MaterialPageRoute(
+            builder: (_) => SessionsScreen(
+              onClose: () => _scaffoldKey.currentState?.closeDrawer(),
+              onPreviewFile: (workspace, entry) =>
+                  _handlePreviewFile(context, workspace, entry),
+            ),
+          ),
+        ),
       ),
       body: Column(
         children: [
@@ -133,6 +150,27 @@ class ChatScreen extends ConsumerWidget {
     final normalized = path.replaceAll('\\', '/');
     final idx = normalized.lastIndexOf('/');
     return idx >= 0 ? normalized.substring(idx + 1) : normalized;
+  }
+
+  /// 文件预览回调：关闭 Drawer 并在根 Navigator push 预览页。
+  ///
+  /// [context] 是 ChatScreen build 方法的 context，用于定位根 Navigator。
+  /// 关闭 Drawer 与 push 预览页在同一帧执行：预览页立即覆盖整个屏幕，
+  /// Drawer 在底层继续关闭动画（不可见）。
+  void _handlePreviewFile(
+    BuildContext context,
+    WorkspaceTarget workspace,
+    FileEntry entry,
+  ) {
+    _scaffoldKey.currentState?.closeDrawer();
+    Navigator.of(context, rootNavigator: true).push(
+      MaterialPageRoute(
+        builder: (_) => FilePreviewScreen(
+          workspace: workspace,
+          entry: entry,
+        ),
+      ),
+    );
   }
 }
 

@@ -1,5 +1,6 @@
 {
   "common.refresh": "Refresh",
+  "common.cancel": "Cancel",
   "skills.title": "Skills",
   "skills.empty": "No skills yet. Tap install in the top right or sync from desktop.",
   "skills.install": "Install",
@@ -149,5 +150,24 @@
   "chat.tool.linesRemoved": "-{count} lines",
   "chat.tool.duration": "{ms}ms",
   "chat.tool.viewDetails": "View details",
-  "chat.tool.hideDetails": "Hide details"
+  "chat.tool.hideDetails": "Hide details",
+  "fileExplorer.title": "Files",
+  "fileExplorer.loading": "Loading...",
+  "fileExplorer.empty": "Empty directory",
+  "fileExplorer.error": "Failed to load: {error}",
+  "fileExplorer.localProject": "Local project",
+  "fileExplorer.githubProject": "GitHub repository",
+  "fileExplorer.githubApiFallback": "No local clone, using GitHub API",
+  "fileExplorer.rateLimited": "GitHub API rate limited, try again later",
+  "fileExplorer.permissionTitle": "Storage Access Required",
+  "fileExplorer.permissionMessage": "To read files in your project directory, please grant \"All files access\" permission. Tap the button below to open system settings, find SpaceCode and enable the permission, then return.",
+  "fileExplorer.permissionGrant": "Open Settings",
+  "filePreview.loading": "Loading...",
+  "filePreview.error": "Failed to load: {error}",
+  "filePreview.unsupported": "Unsupported file type for preview",
+  "filePreview.binaryFile": "Binary file, preview not supported",
+  "filePreview.fileTooLarge": "File too large, showing first {lines} lines",
+  "filePreview.notFound": "File not found or deleted",
+  "filePreview.copyPath": "Copy path",
+  "filePreview.pathCopied": "Path copied"
 }

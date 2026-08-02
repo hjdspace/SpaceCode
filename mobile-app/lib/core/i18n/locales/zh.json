@@ -1,5 +1,6 @@
 {
   "common.refresh": "刷新",
+  "common.cancel": "取消",
   "skills.title": "技能",
   "skills.empty": "暂无技能，点击右上角安装或从桌面端同步",
   "skills.install": "安装",
@@ -149,5 +150,24 @@
   "chat.tool.linesRemoved": "-{count} 行",
   "chat.tool.duration": "{ms}ms",
   "chat.tool.viewDetails": "查看详情",
-  "chat.tool.hideDetails": "收起详情"
+  "chat.tool.hideDetails": "收起详情",
+  "fileExplorer.title": "文件管理",
+  "fileExplorer.loading": "加载中...",
+  "fileExplorer.empty": "空目录",
+  "fileExplorer.error": "加载失败：{error}",
+  "fileExplorer.localProject": "本地项目",
+  "fileExplorer.githubProject": "GitHub 仓库",
+  "fileExplorer.githubApiFallback": "本地 clone 不存在，已切换 GitHub API",
+  "fileExplorer.rateLimited": "GitHub API 速率受限，请稍后再试",
+  "fileExplorer.permissionTitle": "需要存储访问权限",
+  "fileExplorer.permissionMessage": "为读取项目目录中的文件，需要授权「所有文件访问权限」。点击下方按钮跳转到系统设置，找到 SpaceCode 并开启权限后返回即可。",
+  "fileExplorer.permissionGrant": "前往设置授权",
+  "filePreview.loading": "加载中...",
+  "filePreview.error": "加载失败：{error}",
+  "filePreview.unsupported": "不支持预览此文件类型",
+  "filePreview.binaryFile": "二进制文件，不支持预览",
+  "filePreview.fileTooLarge": "文件过大，已截断显示前 {lines} 行",
+  "filePreview.notFound": "文件不存在或已被删除",
+  "filePreview.copyPath": "复制路径",
+  "filePreview.pathCopied": "路径已复制"
 }
