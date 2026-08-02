@@ -1,3 +1,24 @@
+## [0.7.0](https://github.com/hjdspace/SpaceCode/compare/v0.6.12...v0.7.0) (2026-08-02)
+
+### Features
+
+* **pet:** 重构桌面宠物系统，采用 Sprite Atlas + CSS background-position 帧动画（PetSpriteAtlas.vue）替代旧版 SVG 实现
+* **pet:** 新增 9 种状态动画 + 16 方向视线追踪（petAnimation.ts），宠物随鼠标位置自然转头
+* **pet:** 实现任务监控映射，petSessionModel 将 chatSession/turn store 映射为 5 状态模型（idle/thinking/acting/waiting/done），经 IPC 推送至宠物窗口
+* **pet:** 新增多只内置宠物独立精神图绘，设置面板（PetSettings.vue）支持 4 只宠物选择与尺寸/动画/任务面板开关
+* **pet:** 实现透明置顶窗口、16ms 光标采样拖拽、面板边缘翻转（24px 滞回区间）与区域穿透（petWindowManager.ts）
+* **mobile:** 新增文件浏览器与代码预览（file_explorer_service.dart / file_explorer_screen.dart / file_preview_screen.dart），目录树展开折叠、文件预览支持代码高亮与 Markdown 渲染，顶部面包屑路径快速跳转
+* **search:** 添加 Tavily 免费代理搜索支持并优化搜索错误展示
+
+### Bug Fixes
+
+* **pet:** 修复多宠物状态同步问题
+* **electron:** 优化进程池方法的空进程处理逻辑
+
+### Refactor
+
+* **pet:** 重构桌面宠物系统，移除旧版反应逻辑与冗余代码（清理 42 个旧 SVG/composable/LLM 代理/测试文件）
+
 ## [0.6.12](https://github.com/hjdspace/SpaceCode/compare/v0.6.11...v0.6.12) (2026-07-25)
 
 ### Features
