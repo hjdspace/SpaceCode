@@ -348,7 +348,6 @@ import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
 import { api } from '@/services/electronAPI'
-import { triggerPetReaction } from '@/composables/usePetReaction'
 import { useI18n } from 'vue-i18n'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useFileToChat } from '@/composables/useFileToChat'
@@ -644,21 +643,11 @@ function updateContextMenuPosition() {
 }
 
 // ── Editor event handlers (orchestration) ────────────────────────
-let typingTimer: ReturnType<typeof setTimeout> | null = null
-
-function notifyPetTyping() {
-  if (typingTimer) clearTimeout(typingTimer)
-  typingTimer = setTimeout(() => {
-    triggerPetReaction('typing')
-  }, 500)
-}
-
 function handleEditorInput() {
   inputText.value = getEditorPlainText()
   autoResize()
   checkSlashTrigger()
   checkContextTrigger()
-  notifyPetTyping()
 }
 
 function checkSlashTrigger() {

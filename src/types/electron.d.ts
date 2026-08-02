@@ -60,9 +60,8 @@ import type {
 
 import type {
   PetConfig,
+  PetPreferences,
   PetSyncPayload,
-  PetWindowEvent,
-  PetReactionRequest,
 } from './pet'
 
 // ── 子接口定义 ──────────────────────────────────────────────────
@@ -269,14 +268,13 @@ export interface ElectronMcpAPI {
 export interface ElectronPetAPI {
   readConfig: () => Promise<PetConfig | null>
   writeConfig: (config: PetConfig) => Promise<void>
-  saveAsset: (srcPath: string, petId: string) => Promise<string>
-  deleteAsset: (relativePath: string) => Promise<void>
-  generateReaction: (req: PetReactionRequest) => Promise<string | null>
-  onWindowEvent: (callback: (event: PetWindowEvent) => void) => () => void
   createDesktopWindow: () => Promise<void>
   destroyDesktopWindow: () => Promise<void>
-  updateWindowBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>
   syncPetState: (state: PetSyncPayload) => void
+  /** 监听偏好变更（来自宠物窗口的偏好变更，主进程转发） */
+  onPreferencesChanged: (callback: (patch: Partial<PetPreferences>) => void) => () => void
+  /** 监听会话跳转请求（来自宠物窗口的 focusSession，主进程转发） */
+  onNavigateSession: (callback: (sessionId: string) => void) => () => void
 }
 
 /**

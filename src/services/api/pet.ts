@@ -1,5 +1,5 @@
 // src/services/api/pet.ts
-import type { PetConfig, PetSyncPayload, PetReactionRequest, PetWindowEvent } from '@/types/pet'
+import type { PetConfig, PetPreferences, PetSyncPayload } from '@/types/pet'
 
 /**
  * 深拷贝 Vue reactive proxy 为纯对象。
@@ -17,27 +17,20 @@ export const petApi = {
   writeConfig: (config: PetConfig): Promise<void> =>
     window.electronAPI!.pet.writeConfig(toPlain(config)),
 
-  saveAsset: (srcPath: string, petId: string): Promise<string> =>
-    window.electronAPI!.pet.saveAsset(srcPath, petId),
-
-  deleteAsset: (relativePath: string): Promise<void> =>
-    window.electronAPI!.pet.deleteAsset(relativePath),
-
-  generateReaction: (req: PetReactionRequest): Promise<string | null> =>
-    window.electronAPI!.pet.generateReaction(toPlain(req)),
-
-  onWindowEvent: (callback: (event: PetWindowEvent) => void): (() => void) =>
-    window.electronAPI!.pet.onWindowEvent(callback),
-
   createDesktopWindow: (): Promise<void> =>
     window.electronAPI!.pet.createDesktopWindow(),
 
   destroyDesktopWindow: (): Promise<void> =>
     window.electronAPI!.pet.destroyDesktopWindow(),
 
-  updateWindowBounds: (bounds: { x: number; y: number; width: number; height: number }): Promise<void> =>
-    window.electronAPI!.pet.updateWindowBounds(toPlain(bounds)),
-
   syncPetState: (state: PetSyncPayload): void =>
     window.electronAPI!.pet.syncPetState(toPlain(state)),
+
+  /** 监听偏好变更（来自宠物窗口的偏好变更，主进程转发） */
+  onPreferencesChanged: (callback: (patch: Partial<PetPreferences>) => void): () => void =>
+    window.electronAPI!.pet.onPreferencesChanged(callback),
+
+  /** 监听会话跳转请求（来自宠物窗口的 focusSession，主进程转发） */
+  onNavigateSession: (callback: (sessionId: string) => void): () => void =>
+    window.electronAPI!.pet.onNavigateSession(callback),
 }

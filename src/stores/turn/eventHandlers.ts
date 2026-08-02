@@ -23,7 +23,6 @@ import {
   recordAgentToolCall,
   isAgentLaunchResult,
 } from '@/services/teamTranscriptService'
-import { triggerPetReaction } from '@/composables/usePetReaction'
 
 // ── 收窄的依赖接口（接口隔离：handler 只看到它需要的子集）──
 
@@ -750,10 +749,6 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
             window.dispatchEvent(new CustomEvent('scm:refresh'))
             window.dispatchEvent(new CustomEvent('refresh-file-tree'))
           }
-
-          if (resultIsError) {
-            triggerPetReaction('error')
-          }
         }
       }
     }
@@ -972,7 +967,6 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       }
     }
 
-    triggerPetReaction('success')
     ts.resolve?.()
     endTurn(sessionId, ts)
   }

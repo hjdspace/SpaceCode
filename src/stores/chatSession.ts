@@ -321,12 +321,36 @@ export const useChatSessionStore = defineStore('chatSession', () => {
 
   const sessions = ref<Session[]>(loadSessionsFromStorage())
 
-  void hydrateImageAttachments(sessions.value)
-  void hydrateSessionsFromJsonl(sessions.value)
   const lastSessionId = sessions.value.length > 0
     ? [...sessions.value].sort((a, b) => b.updatedAt - a.updatedAt)[0].id
     : null
   const currentSessionId = ref<string | null>(lastSessionId)
+
+  // ── 会话懒加载 ──
+  // 启动时只 hydrate 当前会话（图片附件 + JSONL 完整历史），其他会话在
+  // selectSession 切换时按需恢复。避免会话较多时启动卡顿（每个会话都要
+  // 串行读取 JSONL 文件 + 解析重建消息）。
+  const hydratedSessionIds = new Set<string>()
+
+  async function hydrateSingleSession(sessionId: string): Promise<void> {
+    if (hydratedSessionIds.has(sessionId)) return
+    hydratedSessionIds.add(sessionId)
+    const session = sessions.value.find((s) => s.id === sessionId)
+    if (!session) return
+    try {
+      await Promise.all([
+        hydrateImageAttachments([session]),
+        hydrateSessionsFromJsonl([session]),
+      ])
+    } catch (err) {
+      console.error('[ChatStore] hydrateSingleSession failed:', err)
+    }
+  }
+
+  // 启动时只恢复当前会话
+  if (lastSessionId) {
+    void hydrateSingleSession(lastSessionId)
+  }
 
   // ────────────────────────────────────────────────────────────────────
   // Prompt Stash
@@ -570,6 +594,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     }
     sessions.value.unshift(session)
     currentSessionId.value = session.id
+    // 新建的会话没有 JSONL 历史，标记为已 hydrate 避免无意义的恢复尝试
+    hydratedSessionIds.add(session.id)
     clearTurnCheckpoints()
     saveToStorage()
     traceEvent({
@@ -1153,6 +1179,12 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     const session = sessions.value.find(s => s.id === sessionId)
     if (session?.workingDirectory) {
       currentProjectRoot.value = session.workingDirectory
+    }
+
+    // 懒加载：首次切换到该会话时从 JSONL 恢复完整历史 + 图片附件。
+    // 跳过正在 streaming 的会话，避免覆盖流式写入的最新消息。
+    if (session && !hydratedSessionIds.has(sessionId) && !isSessionLoading(sessionId)) {
+      void hydrateSingleSession(sessionId)
     }
 
     clearTurnCheckpoints()

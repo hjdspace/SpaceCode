@@ -82,7 +82,6 @@ vi.mock('../proxyManager', () => ({ proxyManager: { stop: vi.fn() } }))
 vi.mock('../rtkManager', () => ({ rtkManager: {} }))
 vi.mock('../imSidecarManager', () => ({ getImSidecarManager: vi.fn() }))
 vi.mock('../petFileService', () => ({ PetFileService: class {} }))
-vi.mock('../petLLMProxy', () => ({ PetLLMProxy: class {} }))
 vi.mock('../petWindowManager', () => ({ PetWindowManager: class {} }))
 vi.mock('../petIpcHandlers', () => ({ registerPetIpcHandlers: vi.fn() }))
 

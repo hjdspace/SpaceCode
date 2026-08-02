@@ -1,218 +1,290 @@
 // src/stores/pet.ts
-import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import { api } from '@/services/electronAPI'
-import { BUILTIN_PETS } from '@/lib/builtinPets'
-import { DEFAULT_PET_SETTINGS, DEFAULT_PET_RUNTIME_STATE } from '@/types/pet'
-import type { Pet, PetConfig, PetSettings, PetMode, PetRuntimeState } from '@/types/pet'
+// 桌面宠物 Pinia store。职责：偏好管理 + 任务状态聚合 + IPC 推送。
+// 参考 cc-haha 重构：丢弃旧的 SVG/反应气泡/AI 反应模型，改为
+// sprite atlas 渲染 + 任务状态监控。本 store 只负责数据收集与同步，
+// 渲染由独立桌面窗口（petWindowManager）完成。
 
-const REACTION_DISPLAY_MS = 10_000
-const PETTED_DURATION_MS = 2500
+import { defineStore } from 'pinia'
+import { ref, computed, watch, watchEffect } from 'vue'
+import { api } from '@/services/electronAPI'
+import { findBuiltinPet } from '@/lib/builtinPets'
+import {
+  buildPetSessionActivities,
+  pickPrimaryPetActivity,
+  petStatusAnimation,
+} from '@/lib/petSessionModel'
+import type { PetSessionInput, PetSessionActivity } from '@/lib/petSessionModel'
+import type { PetAnimationState } from '@/lib/petAnimation'
+import {
+  createDefaultPetConfig,
+  DEFAULT_PET_PREFERENCES,
+  DEFAULT_PET_WINDOW_STATE,
+} from '@/types/pet'
+import type {
+  PetConfig,
+  PetPreferences,
+  PetWindowState,
+  PetSyncPayload,
+  BuiltinPetDescriptor,
+} from '@/types/pet'
+import type { Session } from '@/types'
+import { useChatSessionStore } from './chatSession'
+import { useTurnStore } from '@/stores/turn'
+
+// 任务状态聚合节流间隔。流式响应期间 loadingSessions/streamingContents 频繁变化，
+// 节流避免每个 text_delta 都重建活动列表。
+const AGGREGATION_THROTTLE_MS = 500
+// IPC 推送节流间隔。activities/preferences/selectedPet 变化时合并发送。
+const SYNC_THROTTLE_MS = 150
+// 聚合的最近会话数量上限（与 PetSyncPayload 语义一致）。
+const AGGREGATION_SESSION_LIMIT = 9
 
 export const usePetStore = defineStore('pet', () => {
+  // ── 持久化配置 + 派生状态 ──
   const config = ref<PetConfig | null>(null)
-  const runtimeState = ref<PetRuntimeState>({ ...DEFAULT_PET_RUNTIME_STATE })
   const isInitialized = ref(false)
+  const activities = ref<PetSessionActivity[]>([])
 
-  let reactionTimer: ReturnType<typeof setTimeout> | null = null
-  let pettedTimer: ReturnType<typeof setTimeout> | null = null
-
-  const allPets = computed<Pet[]>(() => [
-    ...BUILTIN_PETS,
-    ...(config.value?.customPets ?? [])
-  ])
-
-  const activePet = computed<Pet | null>(() => {
-    const id = config.value?.activePetId
-    if (!id) return null
-    return allPets.value.find(p => p.id === id) ?? null
+  const preferences = computed<PetPreferences>(
+    () => config.value?.preferences ?? DEFAULT_PET_PREFERENCES,
+  )
+  const windowState = computed<PetWindowState>(
+    () => config.value?.windowState ?? DEFAULT_PET_WINDOW_STATE,
+  )
+  const selectedPet = computed<BuiltinPetDescriptor>(() =>
+    findBuiltinPet(preferences.value.selectedPetId),
+  )
+  const primaryActivity = computed<PetSessionActivity | null>(() =>
+    pickPrimaryPetActivity(activities.value),
+  )
+  const animationState = computed<PetAnimationState>(() => {
+    const status = primaryActivity.value?.status
+    return status ? petStatusAnimation(status) : 'idle'
   })
 
-  const mode = computed<PetMode>(() => config.value?.mode ?? 'embedded')
-  const isMuted = computed(() => config.value?.settings.muted ?? false)
-
-  function createDefaultConfig(): PetConfig {
-    return {
-      version: 1,
-      activePetId: '',
-      mode: 'embedded',
-      embeddedPosition: { x: 0.85, y: 0.78 },
-      desktopWindow: { x: 1200, y: 700, width: 120, height: 120 },
-      settings: { ...DEFAULT_PET_SETTINGS },
-      customPets: []
-    }
-  }
-
+  // ── locale ──
   function getLocale(): 'zh-CN' | 'en-US' {
     try {
       const saved = localStorage.getItem('claude_desktop_settings')
       if (saved) {
-        const parsed = JSON.parse(saved)
+        const parsed = JSON.parse(saved) as { language?: string }
         return parsed.language === 'en-US' ? 'en-US' : 'zh-CN'
       }
-    } catch { /* ignore */ }
+    } catch {
+      // ignore parse errors
+    }
     return 'zh-CN'
   }
 
-  async function init(): Promise<void> {
-    const loaded = await api.pet.readConfig()
-    config.value = loaded ?? createDefaultConfig()
-    isInitialized.value = true
+  // ── 任务状态聚合 ──
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null
+  let refreshPending = false
 
-    // 启动时恢复 desktop 模式：用户上次切到 desktop 后重启需自动重建桌面窗口
-    if (config.value.mode === 'desktop' && config.value.activePetId) {
-      try {
-        await api.pet.createDesktopWindow()
-        syncToDesktopWindow()
-      } catch (err) {
-        console.error('[Pet] Failed to restore desktop window:', err)
-        // 恢复失败时回退到 embedded 模式，避免下次启动仍尝试 desktop
-        config.value.mode = 'embedded'
-        await persist()
-      }
+  function scheduleRefresh(): void {
+    if (refreshTimer) {
+      refreshPending = true
+      return
     }
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null
+      refreshActivities()
+      if (refreshPending) {
+        refreshPending = false
+        scheduleRefresh()
+      }
+    }, AGGREGATION_THROTTLE_MS)
   }
 
+  function countRunningTeammates(session: Session): number {
+    const teammates = session.teamContext?.teammates
+    if (!teammates) return 0
+    let count = 0
+    for (const teammate of Object.values(teammates)) {
+      if (teammate.status === 'running') count += 1
+    }
+    return count
+  }
+
+  function refreshActivities(): void {
+    const chatSessionStore = useChatSessionStore()
+    const turnStore = useTurnStore()
+    const sessions = chatSessionStore.sessions
+    const recent = [...sessions]
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, AGGREGATION_SESSION_LIMIT)
+
+    const inputs: PetSessionInput[] = recent.map((session) => {
+      const messages = session.messages
+      const last = messages.length > 0 ? messages[messages.length - 1] : null
+      return {
+        sessionId: session.id,
+        title: session.title,
+        updatedAt: session.updatedAt,
+        processStatus: session.processStatus,
+        isLoading: turnStore.getIsLoading(session.id),
+        streamingText: turnStore.getStreamingContent(session.id),
+        hasPendingPermission: turnStore.pendingPermissions.has(session.id),
+        lastMessage: last
+          ? {
+              role: last.role,
+              content: last.content,
+              hasError: !!last.metadata?.error,
+            }
+          : null,
+        runningTeammatesCount: countRunningTeammates(session),
+      }
+    })
+
+    activities.value = buildPetSessionActivities(inputs, AGGREGATION_SESSION_LIMIT)
+  }
+
+  // ── IPC 推送（主应用 → 独立窗口） ──
+  let syncTimer: ReturnType<typeof setTimeout> | null = null
+  let syncPending = false
+
+  function performSync(): void {
+    if (!preferences.value.enabled) return
+    const payload: PetSyncPayload = {
+      pet: selectedPet.value,
+      preferences: preferences.value,
+      activities: activities.value,
+      primaryActivity: primaryActivity.value,
+      animationState: animationState.value,
+      locale: getLocale(),
+    }
+    api.pet.syncPetState(payload)
+  }
+
+  function syncToDesktopWindow(): void {
+    if (!preferences.value.enabled) return
+    if (syncTimer) {
+      syncPending = true
+      return
+    }
+    syncTimer = setTimeout(() => {
+      syncTimer = null
+      performSync()
+      if (syncPending) {
+        syncPending = false
+        syncToDesktopWindow()
+      }
+    }, SYNC_THROTTLE_MS)
+  }
+
+  // activities/preferences/selectedPet 变化时自动推送（节流）
+  watch([activities, selectedPet, preferences], () => {
+    syncToDesktopWindow()
+  })
+
+  // ── 持久化 ──
   async function persist(): Promise<void> {
     if (!config.value) return
     await api.pet.writeConfig(config.value)
   }
 
-  async function setActivePet(petId: string): Promise<void> {
+  async function updatePreferences(patch: Partial<PetPreferences>): Promise<void> {
     if (!config.value) {
-      // init 未完成时显式抛错，避免静默丢失用户选择
-      throw new Error('PetStore not initialized')
+      config.value = createDefaultPetConfig()
     }
-    config.value.activePetId = petId
+    const prevEnabled = config.value.preferences.enabled
+    config.value.preferences = { ...config.value.preferences, ...patch }
     await persist()
-  }
 
-  async function updateSettings(patch: Partial<PetSettings>): Promise<void> {
-    if (!config.value) return
-    config.value.settings = { ...config.value.settings, ...patch }
-    await persist()
-  }
-
-  async function addCustomPet(pet: Pet, assetSrcPath?: string): Promise<void> {
-    if (!config.value) return
-
-    let finalPet = pet
-    if (assetSrcPath) {
-      const relativePath = await api.pet.saveAsset(assetSrcPath, pet.id)
-      finalPet = {
-        ...pet,
-        visual: { type: 'image', path: relativePath, frameCount: 1 }
+    // enabled 切换：true → 创建桌面窗口；false → 销毁
+    if (patch.enabled !== undefined && patch.enabled !== prevEnabled) {
+      try {
+        if (patch.enabled) {
+          await api.pet.createDesktopWindow()
+        } else {
+          await api.pet.destroyDesktopWindow()
+        }
+      } catch (error) {
+        console.error('[Pet] Failed to toggle desktop window:', error)
       }
     }
-
-    config.value.customPets.push(finalPet)
-    config.value.activePetId = finalPet.id
-    await persist()
+    syncToDesktopWindow()
   }
 
-  async function removeCustomPet(petId: string): Promise<void> {
-    if (!config.value) return
-    const pet = config.value.customPets.find(p => p.id === petId)
-    if (!pet) return
-
-    if (pet.visual.type === 'image') {
-      await api.pet.deleteAsset(pet.visual.path)
-    }
-
-    config.value.customPets = config.value.customPets.filter(p => p.id !== petId)
-    if (config.value.activePetId === petId) {
-      config.value.activePetId = ''
-    }
-    await persist()
-  }
-
-  async function updatePosition(pos: { x: number; y: number }): Promise<void> {
-    if (!config.value) return
-    if (mode.value === 'embedded') {
-      config.value.embeddedPosition = pos
-    } else {
-      config.value.desktopWindow.x = pos.x
-      config.value.desktopWindow.y = pos.y
-    }
-    await persist()
-  }
-
-  function syncToDesktopWindow(): void {
-    if (mode.value !== 'desktop' || !activePet.value || !config.value) return
-    api.pet.syncPetState({
-      pet: activePet.value,
-      runtimeState: runtimeState.value,
-      settings: config.value.settings,
-      locale: getLocale()
+  // ── 任务状态聚合：监听 chatSession + turn store 变化 ──
+  let aggregationStarted = false
+  function startAggregation(): void {
+    if (aggregationStarted) return
+    aggregationStarted = true
+    watchEffect(() => {
+      if (!isInitialized.value) return
+      const chatSessionStore = useChatSessionStore()
+      const turnStore = useTurnStore()
+      const sessions = chatSessionStore.sessions
+      // 建立响应式依赖：会话元数据 + 每个 session 在 turn store 中的状态。
+      // 不读取消息正文（流式期间体积大），仅触发节流后的重建。
+      for (const session of sessions) {
+        void session.updatedAt
+        void session.processStatus
+        void session.messages.length
+        void turnStore.loadingSessions.get(session.id)
+        void turnStore.streamingContents.get(session.id)
+        void turnStore.pendingPermissions.has(session.id)
+      }
+      scheduleRefresh()
     })
   }
 
-  async function setMode(newMode: PetMode): Promise<void> {
-    if (!config.value) return
-    const oldMode = config.value.mode
-    config.value.mode = newMode
-    await persist()
+  // ── 接收独立窗口事件（独立窗口 → 主应用） ──
+  let listenersRegistered = false
+  function registerIpcListeners(): void {
+    if (listenersRegistered) return
+    listenersRegistered = true
+    // 独立窗口改了偏好（如展开/收起任务面板）后同步回主应用
+    api.pet.onPreferencesChanged((patch) => {
+      void updatePreferences(patch)
+    })
+    // 宠物点击任务行跳转对应会话
+    api.pet.onNavigateSession((sessionId) => {
+      useChatSessionStore().selectSession(sessionId)
+    })
+  }
 
-    if (newMode === 'desktop' && oldMode !== 'desktop') {
-      await api.pet.createDesktopWindow()
-      syncToDesktopWindow()
-    } else if (newMode === 'embedded' && oldMode !== 'embedded') {
-      await api.pet.destroyDesktopWindow()
+  // ── 初始化 ──
+  async function init(): Promise<void> {
+    if (isInitialized.value) return
+
+    let loaded: PetConfig | null = null
+    try {
+      loaded = await api.pet.readConfig()
+    } catch (error) {
+      console.error('[Pet] Failed to read pet config:', error)
     }
-  }
+    config.value = loaded ?? createDefaultPetConfig()
+    isInitialized.value = true
 
-  function triggerReaction(text: string): void {
-    runtimeState.value.currentReaction = text
-    runtimeState.value.reactionAt = Date.now()
+    registerIpcListeners()
 
-    if (reactionTimer) clearTimeout(reactionTimer)
-    reactionTimer = setTimeout(() => {
-      runtimeState.value.currentReaction = null
-      runtimeState.value.reactionAt = null
-      syncToDesktopWindow()
-    }, REACTION_DISPLAY_MS)
-    syncToDesktopWindow()
-  }
-
-  function triggerPetted(): void {
-    runtimeState.value.isPetted = true
-
-    if (pettedTimer) clearTimeout(pettedTimer)
-    pettedTimer = setTimeout(() => {
-      runtimeState.value.isPetted = false
-      syncToDesktopWindow()
-    }, PETTED_DURATION_MS)
-    syncToDesktopWindow()
-  }
-
-  function clearReaction(): void {
-    runtimeState.value.currentReaction = null
-    runtimeState.value.reactionAt = null
-    if (reactionTimer) {
-      clearTimeout(reactionTimer)
-      reactionTimer = null
+    // 启用状态下恢复桌面窗口
+    if (config.value.preferences.enabled) {
+      try {
+        await api.pet.createDesktopWindow()
+      } catch (error) {
+        console.error('[Pet] Failed to create desktop window:', error)
+      }
     }
+
+    refreshActivities()
     syncToDesktopWindow()
+    startAggregation()
   }
 
   return {
     config,
-    activePet,
-    runtimeState,
+    preferences,
+    windowState,
+    selectedPet,
     isInitialized,
-    allPets,
-    mode,
-    isMuted,
+    activities,
+    primaryActivity,
+    animationState,
     init,
-    setActivePet,
-    updateSettings,
-    addCustomPet,
-    removeCustomPet,
-    updatePosition,
-    setMode,
+    persist,
+    updatePreferences,
     syncToDesktopWindow,
-    triggerReaction,
-    triggerPetted,
-    clearReaction,
   }
 })

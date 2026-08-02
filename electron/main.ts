@@ -30,8 +30,7 @@ import type { ProxyConfig } from './proxy/types'
 import { rtkManager } from './rtkManager'
 import { getImSidecarManager } from './imSidecarManager'
 import { PetFileService } from './petFileService'
-import { PetLLMProxy } from './petLLMProxy'
-import { PetWindowManager } from './petWindowManager'
+import { PetWindowController } from './petWindowManager'
 import { registerPetIpcHandlers } from './petIpcHandlers'
 
 // ============================================================
@@ -79,7 +78,7 @@ app.commandLine.appendSwitch('no-sandbox')
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
-let petWindowManager: PetWindowManager | null = null
+let petWindowManager: PetWindowController | null = null
 
 type ExternalEditor = 'vscode' | 'visualstudio' | 'cursor' | 'fileExplorer' | 'terminal' | 'gitBash' | 'wsl' | 'androidStudio'
 
@@ -751,13 +750,14 @@ info('Startup', 'CuaDriver IPC handlers registered')
   ;(async () => {
     try {
       const petFileService = new PetFileService()
-      const petLLMProxy = new PetLLMProxy()
       await petFileService.init()
-      petWindowManager = new PetWindowManager()
+      petWindowManager = new PetWindowController({
+        preloadPath: join(__dirname, 'petPreload.js'),
+        isDev,
+      })
 
       registerPetIpcHandlers({
         petFileService,
-        petLLMProxy,
         petWindowManager,
         getMainWindow: () => mainWindow,
         getLocale: (): 'zh-CN' | 'en-US' => {
