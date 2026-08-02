@@ -275,6 +275,8 @@ export interface ElectronPetAPI {
   onPreferencesChanged: (callback: (patch: Partial<PetPreferences>) => void) => () => void
   /** 监听会话跳转请求（来自宠物窗口的 focusSession，主进程转发） */
   onNavigateSession: (callback: (sessionId: string) => void) => () => void
+  /** 监听宠物窗口就绪请求（窗口 mount 后请求主应用推送一次完整状态） */
+  onResyncRequest: (callback: () => void) => () => void
 }
 
 /**

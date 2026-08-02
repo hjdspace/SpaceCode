@@ -187,6 +187,7 @@ export const usePetStore = defineStore('pet', () => {
       config.value = createDefaultPetConfig()
     }
     const prevEnabled = config.value.preferences.enabled
+    const prevSelectedPetId = config.value.preferences.selectedPetId
     config.value.preferences = { ...config.value.preferences, ...patch }
     await persist()
 
@@ -202,7 +203,13 @@ export const usePetStore = defineStore('pet', () => {
         console.error('[Pet] Failed to toggle desktop window:', error)
       }
     }
-    syncToDesktopWindow()
+
+    // 切换宠物时立即推送（不经过节流），确保桌面窗口即时更新 sprite 图
+    if (patch.selectedPetId && patch.selectedPetId !== prevSelectedPetId) {
+      performSync()
+    } else {
+      syncToDesktopWindow()
+    }
   }
 
   // ── 任务状态聚合：监听 chatSession + turn store 变化 ──
@@ -241,6 +248,11 @@ export const usePetStore = defineStore('pet', () => {
     // 宠物点击任务行跳转对应会话
     api.pet.onNavigateSession((sessionId) => {
       useChatSessionStore().selectSession(sessionId)
+    })
+    // 宠物窗口 mount 完成，立即推送一次完整状态
+    // （窗口创建时主应用的 syncPetState 可能在 listener 注册前发送，状态丢失）
+    api.pet.onResyncRequest(() => {
+      performSync()
     })
   }
 

@@ -643,6 +643,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('petMainWindow:navigateSession', wrapper)
       return () => ipcRenderer.removeListener('petMainWindow:navigateSession', wrapper)
     },
+    /** 监听宠物窗口就绪请求（窗口 mount 后请求主应用推送一次完整状态） */
+    onResyncRequest: (callback: () => void) => {
+      const wrapper = () => callback()
+      ipcRenderer.on('pet:resyncRequest', wrapper)
+      return () => ipcRenderer.removeListener('pet:resyncRequest', wrapper)
+    },
   },
 
   // Computer Use API — cua-driver 二进制管理、健康检查、权限管理

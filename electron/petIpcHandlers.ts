@@ -83,7 +83,12 @@ export function registerPetIpcHandlers(deps: PetIpcDeps): void {
   // ── 宠物窗口专用 invoke ──
 
   ipcMain.handle('petWindow:getInitialState', () => {
-    // 状态由主应用通过 syncPetState 推送，初始无状态
+    // 宠物窗口 mount 完成后来拉初始状态。此时主应用的首次 syncPetState 可能
+    // 在窗口 listener 注册前就已发送（时序竞态），状态丢失导致 state.pet 为 null。
+    // 这里通知主应用立即重新推送一次完整状态，确保窗口收到。
+    deps
+      .getMainWindow()
+      ?.webContents.send('pet:resyncRequest')
     return null
   })
 
