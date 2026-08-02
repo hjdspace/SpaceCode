@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'brave_provider.dart';
 import 'jina_provider.dart';
 import 'tavily_provider.dart';
+import 'tavily_proxy_provider.dart';
 import 'web_search_provider.dart';
 
 /// 根据 [WebSearchProviderType] 构建 [WebSearchProvider] 实例。
@@ -21,6 +22,9 @@ class WebSearchProviderFactory {
         return JinaProvider(apiKey: apiKey, client: client);
       case WebSearchProviderType.tavily:
         return TavilyProvider(apiKey: apiKey ?? '', client: client);
+      case WebSearchProviderType.tavilyProxy:
+        // 自建免费代理,无需 API Key,忽略传入的 apiKey。
+        return TavilyProxyProvider(client: client);
       case WebSearchProviderType.brave:
         return BraveProvider(apiKey: apiKey ?? '', client: client);
     }
@@ -31,6 +35,8 @@ class WebSearchProviderFactory {
     switch (value) {
       case 'tavily':
         return WebSearchProviderType.tavily;
+      case 'tavilyProxy':
+        return WebSearchProviderType.tavilyProxy;
       case 'brave':
         return WebSearchProviderType.brave;
       case 'jina':

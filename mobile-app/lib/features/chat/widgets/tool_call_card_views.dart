@@ -1278,6 +1278,11 @@ class WebSearchCardView extends StatelessWidget {
   Widget build(BuildContext context) {
     final query = data.searchQuery ?? '';
     final results = _parseResults(data.rawOutput);
+    final errorMessage = _parseError(data.rawOutput);
+    // 出错时副标题显示"出错",否则显示结果数
+    final subtitle = errorMessage != null
+        ? I18n.t('chat.tool.statusError')
+        : (results.isEmpty ? null : '${results.length} results');
 
     return ToolCardShell(
       data: data,
@@ -1285,16 +1290,24 @@ class WebSearchCardView extends StatelessWidget {
         data: data,
         icon: Icons.travel_explore_rounded,
         title: query.isEmpty ? data.toolName : query,
-        subtitle: results.isEmpty ? null : '${results.length} results',
+        subtitle: subtitle,
         isExpanded: isExpanded,
         onToggle: onToggle,
       ),
       body: isExpanded
           ? Padding(
               padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-              child: results.isEmpty
-                  ? _EmptyHint(text: I18n.t('chat.tool.noResults'))
-                  : _SearchResultListView(results: results),
+              child: errorMessage != null
+                  ? _EmptyHint(
+                      text: I18n.t(
+                        'chat.tool.searchError',
+                        {'error': errorMessage},
+                      ),
+                      isError: true,
+                    )
+                  : results.isEmpty
+                      ? _EmptyHint(text: I18n.t('chat.tool.noResults'))
+                      : _SearchResultListView(results: results),
             )
           : null,
     );
@@ -1321,6 +1334,22 @@ class WebSearchCardView extends StatelessWidget {
       // ignore
     }
     return const [];
+  }
+
+  /// 解析工具返回的 error 字段。provider 抛异常时插件会返回 {"error": "..."}，
+  /// 此时不应显示"无搜索结果",而应展示真实错误以便排查。
+  String? _parseError(String? output) {
+    if (output == null || output.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(output);
+      if (decoded is Map<String, dynamic>) {
+        final error = decoded['error'];
+        if (error is String && error.isNotEmpty) return error;
+      }
+    } catch (_) {
+      // ignore
+    }
+    return null;
   }
 }
 
@@ -1750,17 +1779,21 @@ class _MonoBlock extends StatelessWidget {
 
 class _EmptyHint extends StatelessWidget {
   final String text;
-  const _EmptyHint({required this.text});
+  final bool isError;
+  const _EmptyHint({required this.text, this.isError = false});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final color = isError
+        ? theme.colorScheme.error.withValues(alpha: 0.85)
+        : theme.colorScheme.onSurface.withValues(alpha: 0.4);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
       child: Text(
         text,
         style: TextStyle(
-          color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+          color: color,
           fontSize: 12,
           fontStyle: FontStyle.italic,
         ),

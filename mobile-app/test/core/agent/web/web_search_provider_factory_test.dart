@@ -4,6 +4,7 @@ import 'package:http/testing.dart';
 import 'package:spacecode_mobile/core/agent/web/brave_provider.dart';
 import 'package:spacecode_mobile/core/agent/web/jina_provider.dart';
 import 'package:spacecode_mobile/core/agent/web/tavily_provider.dart';
+import 'package:spacecode_mobile/core/agent/web/tavily_proxy_provider.dart';
 import 'package:spacecode_mobile/core/agent/web/web_search_provider.dart';
 import 'package:spacecode_mobile/core/agent/web/web_search_provider_factory.dart';
 
@@ -39,6 +40,25 @@ void main() {
       );
       expect(p, isA<BraveProvider>());
       expect(p.type, WebSearchProviderType.brave);
+    });
+
+    test('create tavilyProxy returns TavilyProxyProvider and ignores apiKey',
+        () {
+      final p = WebSearchProviderFactory.create(
+        WebSearchProviderType.tavilyProxy,
+        apiKey: 'should-be-ignored',
+        client: mockClient,
+      );
+      expect(p, isA<TavilyProxyProvider>());
+      expect(p.type, WebSearchProviderType.tavilyProxy);
+      expect(p.requiresApiKey, isFalse);
+    });
+
+    test('parseType returns tavilyProxy for "tavilyProxy"', () {
+      expect(
+        WebSearchProviderFactory.parseType('tavilyProxy'),
+        WebSearchProviderType.tavilyProxy,
+      );
     });
 
     test('create tavily with null apiKey defaults to empty string', () {

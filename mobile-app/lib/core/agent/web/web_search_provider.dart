@@ -1,5 +1,5 @@
 /// 搜索 Provider 类型枚举。
-enum WebSearchProviderType { jina, tavily, brave }
+enum WebSearchProviderType { jina, tavily, tavilyProxy, brave }
 
 /// 统一搜索结果数据结构。
 class WebSearchResult {

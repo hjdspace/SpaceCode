@@ -859,6 +859,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final providerType =
         WebSearchProviderFactory.parseType(config.searchProvider);
     final hintKey = 'settings.webSearch.apiKeyHint.${providerType.name}';
+    // Tavily 免费代理无需 API Key,禁用 Key 输入框。
+    final keyDisabled =
+        providerType == WebSearchProviderType.tavilyProxy;
 
     return _card(
       children: [
@@ -876,6 +879,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 isDense: true,
               ),
               items: [
+                DropdownMenuItem(
+                  value: WebSearchProviderType.tavilyProxy,
+                  child: Text(
+                      I18n.t('settings.webSearch.providerTavilyProxy')),
+                ),
                 DropdownMenuItem(
                   value: WebSearchProviderType.jina,
                   child: Text(I18n.t('settings.webSearch.providerJina')),
@@ -907,6 +915,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             theme: theme,
             child: TextField(
               controller: _searchKeyController,
+              enabled: !keyDisabled,
               style: TextStyle(
                 color: theme.colorScheme.onSurface,
                 fontSize: 14,
