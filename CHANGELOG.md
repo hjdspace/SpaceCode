@@ -1,3 +1,14 @@
+## [0.7.1](https://github.com/hjdspace/SpaceCode/compare/v0.7.0...v0.7.1) (2026-08-09)
+
+### Features
+
+* **chat:** 新增输入框底部状态栏，展示任务进度与文件改动信息
+* **chat:** 支持通过点击、回车或空格快捷打开文件改动审查面板
+
+### Refactor
+
+* 优化启动流程与缓存逻辑，通过按需加载、延迟挂载和并行请求提升首屏加载速度
+
 ## [0.7.0](https://github.com/hjdspace/SpaceCode/compare/v0.6.12...v0.7.0) (2026-08-02)
 
 ### Features
