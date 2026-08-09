@@ -98,7 +98,7 @@
       <div class="input-toolbar">
         <div class="toolbar-left">
           <!-- + 号按钮 -->
-          <button class="toolbar-btn add-btn" @click="handleAddClick" :title="t('chatInput.addAttachment')">
+          <button class="toolbar-btn add-btn" @click="handleAddClickAndLoadAgents" :title="t('chatInput.addAttachment')">
             <Plus :size="18" />
           </button>
 
@@ -346,7 +346,6 @@ import ChatContextToolbar from './ChatContextToolbar.vue'
 import SlashCommandMenu from './SlashCommandMenu.vue'
 import ContextMenu from './ContextMenu.vue'
 import AttachmentMenu from './AttachmentMenu.vue'
-import { useSkillsStore } from '@/stores/skills'
 import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
@@ -488,6 +487,16 @@ const {
 function selectAgentAndCloseMenu(agentType: string) {
   selectAgent(agentType)
   closeAttachmentMenu()
+}
+
+let agentsLoadPromise: Promise<void> | null = null
+
+function handleAddClickAndLoadAgents() {
+  handleAddClick()
+  if (sessionStore.availableAgents.length > 0 || agentsLoadPromise) return
+  agentsLoadPromise = sessionStore.loadAgents().finally(() => {
+    agentsLoadPromise = null
+  })
 }
 
 // File attachments
@@ -1303,13 +1312,6 @@ async function handleOpenProjectFolder() {
 // ── Lifecycle & Watchers ─────────────────────────────────────────
 onMounted(() => {
   initializeModelSelector(props.modelValue)
-
-  // Load skills
-  const skillsStore = useSkillsStore()
-  skillsStore.fetchSkills(props.workingDirectory)
-
-  // Load agents
-  sessionStore.loadAgents()
 
   document.addEventListener('keydown', handleModelKeydown)
   window.addEventListener('session-created', focusEditor)

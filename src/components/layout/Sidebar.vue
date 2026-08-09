@@ -226,7 +226,12 @@
 
       <!-- Explorer Panel -->
       <Transition name="fade" mode="out-in">
-        <div v-show="activeTab === 'explorer'" key="explorer" class="panel explorer-panel">
+        <div
+          v-if="mountedTabs.explorer"
+          v-show="activeTab === 'explorer'"
+          key="explorer"
+          class="panel explorer-panel"
+        >
           <div class="traffic-lights-spacer" :class="{ 'mac-spacer': isMac }"></div>
           <div class="panel-header">
             <span class="panel-title">{{ t('sidebar.explorer') }}</span>
@@ -242,7 +247,12 @@
 
       <!-- SCM Panel -->
       <Transition name="fade" mode="out-in">
-        <div v-show="activeTab === 'scm'" key="scm" class="panel scm-panel-wrapper">
+        <div
+          v-if="mountedTabs.scm"
+          v-show="activeTab === 'scm'"
+          key="scm"
+          class="panel scm-panel-wrapper"
+        >
           <div class="traffic-lights-spacer" :class="{ 'mac-spacer': isMac }"></div>
           <div class="panel-header">
             <span class="panel-title">{{ t('sidebar.sourceControl') }}</span>
@@ -365,6 +375,7 @@ const { addFileToFile } = useFileToChat()
 const { showAlert, showConfirm } = useDialog()
 
 const activeTab = ref<'explorer' | 'scm' | 'history' | 'terminal'>('history')
+const mountedTabs = ref({ explorer: false, scm: false })
 // const showMcpManager = ref(false) // 已迁移到 appStore.showMCPManager
 
 // 按当前 Work/Code 模式过滤会话列表（旧会话无 mode 字段时视为 'code'）
@@ -451,6 +462,9 @@ function handleTabClick(tab: 'explorer' | 'scm' | 'history' | 'terminal') {
     appStore.toggleSidebar()
   } else {
     activeTab.value = tab
+    if (tab === 'explorer' || tab === 'scm') {
+      mountedTabs.value[tab] = true
+    }
     if (appStore.sidebarCollapsed) {
       appStore.toggleSidebar()
     }

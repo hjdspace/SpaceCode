@@ -21,7 +21,9 @@
       ></div>
       <div class="center-panel">
         <div class="center-content">
-          <SettingsPanel v-if="appStore.showSettings" />
+          <KeepAlive v-if="appStore.showSettings">
+            <SettingsPanel />
+          </KeepAlive>
           <SkillsManager v-else-if="appStore.showSkillsManager" />
           <AgentManager v-else-if="appStore.showAgentManager" />
           <McpManager v-else-if="appStore.showMCPManager" />
@@ -84,6 +86,7 @@ import TitleBar from './components/layout/TitleBar.vue'
 import Sidebar from './components/layout/Sidebar.vue'
 import SplitContainer from './components/layout/SplitContainer.vue'
 import DialogProvider from './components/common/DialogProvider.vue'
+import AsyncLoadingState from './components/common/AsyncLoadingState.vue'
 import { api } from '@/services/electronAPI'
 import { isH5Mode } from '@/services/h5ApiClient'
 import { getCachedDesktopConfig } from '@/services/h5Bootstrap'
@@ -99,7 +102,11 @@ const InfoPanel = defineAsyncComponent(() => import('./components/layout/InfoPan
 const TerminalTabBar = defineAsyncComponent(() => import('./components/terminal/TerminalTabBar.vue'))
 const TerminalPanel = defineAsyncComponent(() => import('./components/terminal/TerminalPanel.vue'))
 const TraceViewer = defineAsyncComponent(() => import('./components/debug/TraceViewer.vue'))
-const SettingsPanel = defineAsyncComponent(() => import('./components/settings/SettingsPanel.vue'))
+const SettingsPanel = defineAsyncComponent({
+  loader: () => import('./components/settings/SettingsPanel.vue'),
+  loadingComponent: AsyncLoadingState,
+  delay: 0,
+})
 const SkillsManager = defineAsyncComponent(() => import('./components/skills/SkillsManager.vue'))
 const AgentManager = defineAsyncComponent(() => import('./components/agents/AgentManager.vue'))
 const McpManager = defineAsyncComponent(() => import('./components/mcp/McpManager.vue'))
@@ -366,13 +373,11 @@ async function initH5MirrorSession() {
   }
 }
 
-onMounted(async () => {
-  // 初始化桌面宠物系统（await 确保 setActivePet 不会因 init 未完成而丢失选择）
-  try {
-    await petStore.init()
-  } catch (err) {
+onMounted(() => {
+  // 宠物窗口是独立功能，不阻塞项目上下文和聊天首屏初始化。
+  void petStore.init().catch((err) => {
     console.error('[Pet] Failed to initialize pet store:', err)
-  }
+  })
 
   // H5 模式：设置 body 类以触发移动端样式
   if (isH5Mode()) {

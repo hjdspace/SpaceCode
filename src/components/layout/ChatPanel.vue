@@ -498,9 +498,37 @@ function handleContinue() {
 
 // Session Context: sync git stats from the real diff line counts
 let gitStatsRequestId = 0
+let scmRefreshKey: string | null = null
+
+function clearSessionContextGitStats() {
+  sessionContext.updateGitStats({ additions: 0, deletions: 0, files: [] })
+}
+
+// Git status is project-wide, but it is expensive and is not part of an empty
+// conversation's first paint. Initialize it when a session has real messages;
+// the SCM panel still refreshes independently when the user opens it.
+watch(
+  () => [paneSessionId.value, paneMessages.value.length, paneWorkingDirectory.value] as const,
+  ([sessionId, messageCount, workingDirectory]) => {
+    if (!sessionId || messageCount === 0 || !workingDirectory) {
+      scmRefreshKey = null
+      gitStatsRequestId++
+      clearSessionContextGitStats()
+      return
+    }
+
+    const nextKey = `${sessionId}:${workingDirectory}`
+    if (scmRefreshKey === nextKey) return
+    scmRefreshKey = nextKey
+    void scmStore.refresh()
+  },
+  { immediate: true },
+)
 
 watch(
   () => [
+    paneSessionId.value,
+    paneMessages.value.length,
     paneWorkingDirectory.value,
     scmStore.staged,
     scmStore.unstaged,
@@ -508,19 +536,24 @@ watch(
   ],
   async () => {
     const requestId = ++gitStatsRequestId
+    if (!paneSessionId.value || paneMessages.value.length === 0) {
+      clearSessionContextGitStats()
+      return
+    }
+
     const totalChanged =
       scmStore.staged.length +
       scmStore.unstaged.length +
       scmStore.untracked.length
 
     if (totalChanged === 0) {
-      sessionContext.updateGitStats({ additions: 0, deletions: 0, files: [] })
+      clearSessionContextGitStats()
       return
     }
 
     const cwd = paneWorkingDirectory.value || appStore.projectRoot
     if (!cwd) {
-      sessionContext.updateGitStats({ additions: 0, deletions: 0, files: [] })
+      clearSessionContextGitStats()
       return
     }
 
@@ -539,12 +572,12 @@ watch(
           })),
         })
       } else {
-        sessionContext.updateGitStats({ additions: 0, deletions: 0, files: [] })
+        clearSessionContextGitStats()
       }
     } catch (e) {
       if (requestId !== gitStatsRequestId) return
       console.error('[SessionContext] Failed to sync git stats:', e)
-      sessionContext.updateGitStats({ additions: 0, deletions: 0, files: [] })
+      clearSessionContextGitStats()
     }
   },
   { deep: true },
@@ -832,10 +865,6 @@ onMounted(async () => {
   if (paneSessionId.value) {
     void contextUsageStore.refresh(paneSessionId.value)
   }
-
-  // Initialize SCM store: starts file watcher, which will trigger
-  // git stats sync → auto-expand the env panel when changes appear.
-  void scmStore.refresh()
 
   // chat-main width is observed by the watchEffect above (reactive to chatMainRef)
 

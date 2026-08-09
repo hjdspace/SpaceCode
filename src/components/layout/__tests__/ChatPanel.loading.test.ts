@@ -35,6 +35,7 @@ vi.mock('@/services/electronAPI', () => ({
     h5Access: { setMirrorSession: vi.fn().mockResolvedValue(undefined) },
     git: {
       getStatus: vi.fn().mockResolvedValue(null),
+      getFullDiff: vi.fn().mockResolvedValue(null),
       getRoot: vi.fn().mockResolvedValue(null),
       isRepo: vi.fn().mockResolvedValue(false),
     },
@@ -121,6 +122,7 @@ describe('ChatPanel loading state', () => {
     const { useChatSessionStore } = await import('@/stores/chatSession')
     const { useTurnStore } = await import('@/stores/turn')
     const { useAppStore } = await import('@/stores/app')
+    const { api } = await import('@/services/electronAPI')
 
     const sessionStore = useChatSessionStore()
     const turnStore = useTurnStore()
@@ -130,6 +132,7 @@ describe('ChatPanel loading state', () => {
     sessionStore.selectSession(session.id)
     appStore.projectRoot = 'D:/repo'
     sessionStore.addMessage({ role: 'user', content: 'hello' }, session.id)
+    vi.mocked(api.git.getStatus).mockClear()
     const ts = (turnStore as any).beginTurn(session.id, { isAutonomous: false })
 
     const wrapper = shallowMount(ChatPanel, {
@@ -141,7 +144,31 @@ describe('ChatPanel loading state', () => {
     await nextTick()
 
     expect(wrapper.findComponent(MessageListStub).props('loading')).toBe(true)
+    expect(api.git.getStatus).toHaveBeenCalledWith('D:/repo')
 
     ;(turnStore as any).endTurn(session.id, ts)
+  })
+
+  it('does not scan git status or full diff for an empty conversation', async () => {
+    const { default: ChatPanel } = await import('../ChatPanel.vue')
+    const { useChatSessionStore } = await import('@/stores/chatSession')
+    const { useAppStore } = await import('@/stores/app')
+    const { api } = await import('@/services/electronAPI')
+
+    const sessionStore = useChatSessionStore()
+    const appStore = useAppStore()
+    const session = sessionStore.createSession('New Chat', 'D:/repo', 'sess-empty')
+    appStore.projectRoot = 'D:/repo'
+    vi.mocked(api.git.getStatus).mockClear()
+    vi.mocked(api.git.getFullDiff).mockClear()
+
+    shallowMount(ChatPanel, {
+      props: { sessionId: session.id },
+      global: { plugins: [pinia] },
+    })
+    await nextTick()
+
+    expect(api.git.getStatus).not.toHaveBeenCalled()
+    expect(api.git.getFullDiff).not.toHaveBeenCalled()
   })
 })

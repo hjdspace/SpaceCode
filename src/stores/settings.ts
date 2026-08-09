@@ -161,14 +161,25 @@ function loadLegacySettings(): Partial<AuthSettings> {
 
 async function loadEnvSettings(): Promise<Partial<AuthSettings>> {
   try {
-    const llmProvider = await api.getEnv('LLM_PROVIDER')
-    const anthropicKey = await api.getEnv('ANTHROPIC_API_KEY')
-    const openaiKey = await api.getEnv('OPENAI_API_KEY')
-    const openaiBaseUrl = await api.getEnv('OPENAI_BASE_URL')
-    const anthropicBaseUrl = await api.getEnv('ANTHROPIC_BASE_URL')
-    const openaiModel = await api.getEnv('OPENAI_MODEL')
-    const geminiKey = await api.getEnv('GEMINI_API_KEY')
-    const geminiBaseUrl = await api.getEnv('GEMINI_BASE_URL')
+    const [
+      llmProvider,
+      anthropicKey,
+      openaiKey,
+      openaiBaseUrl,
+      anthropicBaseUrl,
+      openaiModel,
+      geminiKey,
+      geminiBaseUrl,
+    ] = await Promise.all([
+      api.getEnv('LLM_PROVIDER'),
+      api.getEnv('ANTHROPIC_API_KEY'),
+      api.getEnv('OPENAI_API_KEY'),
+      api.getEnv('OPENAI_BASE_URL'),
+      api.getEnv('ANTHROPIC_BASE_URL'),
+      api.getEnv('OPENAI_MODEL'),
+      api.getEnv('GEMINI_API_KEY'),
+      api.getEnv('GEMINI_BASE_URL'),
+    ])
 
     // 优先根据 LLM_PROVIDER 环境变量判断
     if (llmProvider === 'openai' || llmProvider === 'openai_compatible') {
@@ -502,38 +513,54 @@ export const useSettingsStore = defineStore('settings', () => {
 
   // ── Profile actions ──────────────────────────────────────────
 
+  let profilesLoaded = false
+  let profilesLoadPromise: Promise<void> | null = null
+
   async function loadProfiles(): Promise<void> {
-    const result = await api.profilesLoad()
-    if (!result.success || !result.data) {
-      await migrateFromGuiSettings()
-      return
-    }
-    try {
-      const file: ProfilesFile = JSON.parse(result.data)
-      profiles.value = file.profiles
-      activeProfileId.value = file.activeProfileId
-      // 防御：activeProfileId 指向不存在的 Profile 时重置并应用第一个
-      if (activeProfileId.value && !profiles.value.find(p => p.id === activeProfileId.value)) {
-        const first = profiles.value[0]
-        if (first) {
-          activeProfileId.value = first.id
-          applyProfileFields(first)
-          saveSettings()
-        } else {
-          activeProfileId.value = null
-        }
-      }
-      // 防御：profiles 为空数组时触发迁移
-      if (profiles.value.length === 0) {
+    if (profilesLoaded) return
+    if (profilesLoadPromise) return profilesLoadPromise
+
+    profilesLoadPromise = (async () => {
+      const result = await api.profilesLoad()
+      if (!result.success || !result.data) {
         await migrateFromGuiSettings()
+        profilesLoaded = true
         return
       }
-    } catch {
-      // 解析失败：备份损坏文件后按首次启动迁移流程重建
-      if (result.data) {
-        await api.profilesBackupCorrupt(result.data).catch(() => {})
+      try {
+        const file: ProfilesFile = JSON.parse(result.data)
+        profiles.value = file.profiles
+        activeProfileId.value = file.activeProfileId
+        // 防御：activeProfileId 指向不存在的 Profile 时重置并应用第一个
+        if (activeProfileId.value && !profiles.value.find(p => p.id === activeProfileId.value)) {
+          const first = profiles.value[0]
+          if (first) {
+            activeProfileId.value = first.id
+            applyProfileFields(first)
+            saveSettings()
+          } else {
+            activeProfileId.value = null
+          }
+        }
+        // 防御：profiles 为空数组时触发迁移
+        if (profiles.value.length === 0) {
+          await migrateFromGuiSettings()
+        }
+        profilesLoaded = true
+      } catch {
+        // 解析失败：备份损坏文件后按首次启动迁移流程重建
+        if (result.data) {
+          await api.profilesBackupCorrupt(result.data).catch(() => {})
+        }
+        await migrateFromGuiSettings()
+        profilesLoaded = true
       }
-      await migrateFromGuiSettings()
+    })()
+
+    try {
+      await profilesLoadPromise
+    } finally {
+      profilesLoadPromise = null
     }
   }
 

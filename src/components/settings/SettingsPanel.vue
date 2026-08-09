@@ -109,7 +109,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, defineAsyncComponent, type AsyncComponentLoader } from 'vue'
 import {
   ArrowLeft,
   Settings, Boxes, Palette, Wrench, Keyboard, Bot, BarChart3, Zap, Monitor, Globe, Info, Smartphone, MessageCircle, Cat
@@ -118,23 +118,30 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore, type AuthSettings, type AuthMethod, type OAuthAccountInfo, type EngineType } from '@/stores/settings'
 import appIcon from '@/assets/app-icon.svg'
+import AsyncLoadingState from '../common/AsyncLoadingState.vue'
 
-const GeneralSettings = defineAsyncComponent(() => import('./GeneralSettings.vue'))
-const ModelSettings = defineAsyncComponent(() => import('./ModelSettings.vue'))
-const ProfileCards = defineAsyncComponent(() => import('./ProfileCards.vue'))
-const McpSettings = defineAsyncComponent(() => import('./McpSettings.vue'))
-const AppearanceSettings = defineAsyncComponent(() => import('./AppearanceSettings.vue'))
-const ToolsSettings = defineAsyncComponent(() => import('./ToolsSettings.vue'))
-const ShortcutsSettings = defineAsyncComponent(() => import('./ShortcutsSettings.vue'))
-const TokenUsageSettings = defineAsyncComponent(() => import('./TokenUsageSettings.vue'))
-const HookSettings = defineAsyncComponent(() => import('./HookSettings.vue'))
-const ComputerUseSettings = defineAsyncComponent(() => import('./ComputerUseSettings.vue'))
-const BrowserUseSettings = defineAsyncComponent(() => import('./BrowserUseSettings.vue'))
-const H5AccessSettings = defineAsyncComponent(() => import('./H5AccessSettings.vue'))
-const RtkSettings = defineAsyncComponent(() => import('./RtkSettings.vue'))
-const ImSettings = defineAsyncComponent(() => import('./ImSettings.vue'))
-const PetSettings = defineAsyncComponent(() => import('./pet/PetSettings.vue'))
-const AboutSettings = defineAsyncComponent(() => import('./AboutSettings.vue'))
+const asyncSetting = (loader: AsyncComponentLoader) => defineAsyncComponent({
+  loader,
+  loadingComponent: AsyncLoadingState,
+  delay: 0,
+})
+
+const GeneralSettings = asyncSetting(() => import('./GeneralSettings.vue'))
+const ModelSettings = asyncSetting(() => import('./ModelSettings.vue'))
+const ProfileCards = asyncSetting(() => import('./ProfileCards.vue'))
+const McpSettings = asyncSetting(() => import('./McpSettings.vue'))
+const AppearanceSettings = asyncSetting(() => import('./AppearanceSettings.vue'))
+const ToolsSettings = asyncSetting(() => import('./ToolsSettings.vue'))
+const ShortcutsSettings = asyncSetting(() => import('./ShortcutsSettings.vue'))
+const TokenUsageSettings = asyncSetting(() => import('./TokenUsageSettings.vue'))
+const HookSettings = asyncSetting(() => import('./HookSettings.vue'))
+const ComputerUseSettings = asyncSetting(() => import('./ComputerUseSettings.vue'))
+const BrowserUseSettings = asyncSetting(() => import('./BrowserUseSettings.vue'))
+const H5AccessSettings = asyncSetting(() => import('./H5AccessSettings.vue'))
+const RtkSettings = asyncSetting(() => import('./RtkSettings.vue'))
+const ImSettings = asyncSetting(() => import('./ImSettings.vue'))
+const PetSettings = asyncSetting(() => import('./pet/PetSettings.vue'))
+const AboutSettings = asyncSetting(() => import('./AboutSettings.vue'))
 
 const appStore = useAppStore()
 const settingsStore = useSettingsStore()

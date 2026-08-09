@@ -40,6 +40,18 @@ describe('settings store — profile actions', () => {
   })
 
   describe('loadProfiles', () => {
+    it('并发或重复打开设置时只读取一次 profiles.json', async () => {
+      vi.mocked(api.profilesLoad).mockImplementation(() => new Promise(resolve => {
+        setTimeout(() => resolve({ success: true, data: null }), 5)
+      }))
+
+      const store = useSettingsStore()
+      await Promise.all([store.loadProfiles(), store.loadProfiles()])
+      await store.loadProfiles()
+
+      expect(api.profilesLoad).toHaveBeenCalledOnce()
+    })
+
     it('首次启动（profiles.json 不存在）触发迁移，创建"默认"Profile', async () => {
       const store = useSettingsStore()
       vi.mocked(api.profilesLoad).mockResolvedValue({ success: true, data: null })

@@ -321,15 +321,14 @@ export const useChatSessionStore = defineStore('chatSession', () => {
 
   const sessions = ref<Session[]>(loadSessionsFromStorage())
 
-  const lastSessionId = sessions.value.length > 0
-    ? [...sessions.value].sort((a, b) => b.updatedAt - a.updatedAt)[0].id
-    : null
-  const currentSessionId = ref<string | null>(lastSessionId)
+  // Desktop startup stays on an empty, ready-to-send conversation. Historical
+  // sessions remain available in the sidebar and are hydrated only when the
+  // user explicitly opens one. H5 mirror mode selects its session explicitly.
+  const currentSessionId = ref<string | null>(null)
 
   // ── 会话懒加载 ──
-  // 启动时只 hydrate 当前会话（图片附件 + JSONL 完整历史），其他会话在
-  // selectSession 切换时按需恢复。避免会话较多时启动卡顿（每个会话都要
-  // 串行读取 JSONL 文件 + 解析重建消息）。
+  // 会话在 selectSession 切换时按需恢复，避免启动阶段读取 JSONL 文件并
+  // 解析重建消息阻塞首屏。
   const hydratedSessionIds = new Set<string>()
 
   async function hydrateSingleSession(sessionId: string): Promise<void> {
@@ -345,11 +344,6 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     } catch (err) {
       console.error('[ChatStore] hydrateSingleSession failed:', err)
     }
-  }
-
-  // 启动时只恢复当前会话
-  if (lastSessionId) {
-    void hydrateSingleSession(lastSessionId)
   }
 
   // ────────────────────────────────────────────────────────────────────
