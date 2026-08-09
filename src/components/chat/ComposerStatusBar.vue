@@ -33,6 +33,13 @@
       :class="{ 'has-changes': hasChanges }"
       @mouseenter="handleChangesEnter"
       @mouseleave="handleChangesLeave"
+      @click="openChangesPanel"
+      @keydown.enter.prevent="openChangesPanel"
+      @keydown.space.prevent="openChangesPanel"
+      role="button"
+      tabindex="0"
+      :title="t('composerStatus.openReview')"
+      :aria-label="t('composerStatus.openReview')"
     >
       <span class="zone-label">{{ changesSummary }}</span>
       <span v-if="hasChanges" class="changes-stats">
@@ -185,6 +192,12 @@ function clearTimers() {
 
 function openTasksPanel() {
   sessionContext.openRightPanel('tasks')
+}
+
+function openChangesPanel() {
+  sessionContext.openReviewPanel()
+  showChangesPopup.value = false
+  changesHover.value = false
 }
 
 function openFileDiff(path: string) {

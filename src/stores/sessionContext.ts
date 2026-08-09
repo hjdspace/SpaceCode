@@ -113,6 +113,13 @@ export const useSessionContext = defineStore('sessionContext', () => {
     showRightPanel.value = true
   }
 
+  function openReviewPanel() {
+    rightPanelView.value = 'review'
+    expandedReviewFiles.value = new Set()
+    pendingReviewFile.value = null
+    showRightPanel.value = true
+  }
+
   function clearPendingReviewFile() {
     pendingReviewFile.value = null
   }
@@ -301,6 +308,7 @@ export const useSessionContext = defineStore('sessionContext', () => {
 
     // Right panel
     openRightPanel,
+    openReviewPanel,
     openReviewWithFile,
     clearPendingReviewFile,
     closeRightPanel,
