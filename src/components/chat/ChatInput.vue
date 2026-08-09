@@ -61,6 +61,9 @@
     </div>
 
     <div class="input-wrapper" :class="{ 'has-content': hasContent, 'is-sending': isSending, 'is-optimizing': isOptimizing }">
+      <!-- 悬浮任务/改动状态栏 -->
+      <ComposerStatusBar />
+
       <!-- 文本输入区域 — contenteditable 支持内联 chip -->
       <div class="textarea-wrapper" @click="focusEditor">
         <div
@@ -352,6 +355,7 @@ import { useI18n } from 'vue-i18n'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useFileToChat } from '@/composables/useFileToChat'
 import PermissionModeSelector from './PermissionModeSelector.vue'
+import ComposerStatusBar from './ComposerStatusBar.vue'
 
 // ── Composables ──────────────────────────────────────────────────
 import { useModelSelector, type ModelOption } from '@/composables/useModelSelector'
@@ -1499,6 +1503,7 @@ watch(pendingFile, (file) => {
   border-radius: 20px;
   background: var(--bg-primary);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
 
   &:focus-within {
     border-color: var(--surface-border-strong);

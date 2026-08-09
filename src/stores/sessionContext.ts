@@ -72,6 +72,7 @@ export const useSessionContext = defineStore('sessionContext', () => {
 
   // === Review state ===
   const expandedReviewFiles = ref<Set<string>>(new Set())
+  const pendingReviewFile = ref<string | null>(null)
 
   // === Computed ===
   /** 是否有任何面板展开（用于胶囊判断） */
@@ -103,6 +104,17 @@ export const useSessionContext = defineStore('sessionContext', () => {
   function openRightPanel(view: RightPanelView = 'tasks') {
     rightPanelView.value = view
     showRightPanel.value = true
+  }
+
+  function openReviewWithFile(path: string) {
+    rightPanelView.value = 'review'
+    expandedReviewFiles.value = new Set()
+    pendingReviewFile.value = path
+    showRightPanel.value = true
+  }
+
+  function clearPendingReviewFile() {
+    pendingReviewFile.value = null
   }
 
   function closeRightPanel() {
@@ -247,6 +259,7 @@ export const useSessionContext = defineStore('sessionContext', () => {
     gitDeletions.value = 0
     changedFiles.value = []
     expandedReviewFiles.value = new Set()
+    pendingReviewFile.value = null
   }
 
   // === Auto mode watcher: when activity changes, clear user override and re-evaluate ===
@@ -277,6 +290,7 @@ export const useSessionContext = defineStore('sessionContext', () => {
     gitDeletions,
     changedFiles,
     expandedReviewFiles,
+    pendingReviewFile,
     hasActivity,
 
     // Env panel
@@ -287,6 +301,8 @@ export const useSessionContext = defineStore('sessionContext', () => {
 
     // Right panel
     openRightPanel,
+    openReviewWithFile,
+    clearPendingReviewFile,
     closeRightPanel,
     switchRightPanelView,
 

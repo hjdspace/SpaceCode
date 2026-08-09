@@ -289,7 +289,7 @@ function getWindowIconPath(): string {
   return iconPath
 }
 
-function waitForViteAndLoad(window: BrowserWindow, url: string, maxRetries = 50, interval = 200): void {
+function waitForViteAndLoad(window: BrowserWindow, url: string, interval = 200): void {
   let attempts = 0
   const tryLoad = () => {
     attempts++
@@ -301,14 +301,10 @@ function waitForViteAndLoad(window: BrowserWindow, url: string, maxRetries = 50,
       })
     })
     req.on('error', () => {
-      if (attempts < maxRetries) {
-        setTimeout(tryLoad, interval)
-      } else {
-        error('Startup', `Vite dev server not ready after ${maxRetries} attempts, loading anyway`)
-        window.loadURL(url).catch((err: Error) => {
-          error('Startup', `Failed to load URL: ${err.message}`)
-        })
+      if (attempts === 1 || attempts % 25 === 0) {
+        warn('Startup', `Vite dev server not ready after ${attempts} attempt(s), retrying`)
       }
+      setTimeout(tryLoad, interval)
     })
     req.end()
   }

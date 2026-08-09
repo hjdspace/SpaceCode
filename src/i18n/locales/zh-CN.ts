@@ -1153,6 +1153,14 @@ export default {
     messageSteered: '消息已注入当前对话',
   },
 
+  composerStatus: {
+    taskProgress: '任务进度 {completed}/{total}',
+    fileChanges: '文件改动 ({count})',
+    stepProgress: '步骤 {completed}/{total}',
+    filesChanged: '{count} 个文件改动',
+    noChanges: '暂无改动',
+  },
+
   skills: {
     localLibrary: '本地技能库',
     localLibraryDesc: '浏览和安装本地技能库中的技能',

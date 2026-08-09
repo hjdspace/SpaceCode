@@ -1153,6 +1153,14 @@ export default {
     messageSteered: 'Message steered into current turn',
   },
 
+  composerStatus: {
+    taskProgress: 'Task progress {completed}/{total}',
+    fileChanges: 'File changes ({count})',
+    stepProgress: 'Step {completed}/{total}',
+    filesChanged: '{count} files changed',
+    noChanges: 'No changes',
+  },
+
   skills: {
     localLibrary: 'Local Library',
     localLibraryDesc: 'Browse and install skills from local library',
