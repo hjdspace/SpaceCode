@@ -56,15 +56,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessageSquarePlus } from 'lucide-vue-next'
 import { useSplitLayoutStore, type PaneLeaf, type PaneContent } from '@/stores/splitLayout'
 import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import PaneHeader from './PaneHeader.vue'
-
-const ChatPanel = defineAsyncComponent(() => import('./ChatPanel.vue'))
+// 主聊天界面是首屏核心 UI，同步导入确保立即渲染，避免异步组件首次加载导致白屏延迟。
+import ChatPanel from './ChatPanel.vue'
 
 const props = defineProps<{
   node: PaneLeaf
