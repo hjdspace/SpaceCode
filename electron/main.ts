@@ -315,6 +315,95 @@ function waitForViteAndLoad(window: BrowserWindow, url: string, interval = 200):
   tryLoad()
 }
 
+// ============================================================
+// Splash Screen — 加载期间显示的轻量窗口（内联 HTML，不依赖 Vite 编译）
+// ============================================================
+let splashWindow: BrowserWindow | null = null
+
+function createSplashScreen(): void {
+  // 只在 dev 模式下显示 splash：生产模式从本地文件加载很快，不需要
+  if (!isDev) return
+
+  splashWindow = new BrowserWindow({
+    width: 360,
+    height: 240,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    skipTaskbar: true,
+    show: true,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+
+  // 内联 HTML：包含 SpaceCode logo 文字 + 旋转加载动画
+  // 使用 data URL，完全脱离 Vite，瞬间显示
+  const splashHtml = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: transparent;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    user-select: none; -webkit-user-select: none;
+  }
+  .container {
+    background: rgba(12, 12, 29, 0.95);
+    border-radius: 12px;
+    padding: 32px 40px;
+    display: flex; flex-direction: column;
+    align-items: center; gap: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  }
+  .logo {
+    font-size: 24px; font-weight: 600;
+    color: #e0e0e0;
+    letter-spacing: 1px;
+  }
+  .spinner {
+    width: 28px; height: 28px;
+    border: 3px solid rgba(255, 255, 255, 0.15);
+    border-top-color: #6c8aff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  .text {
+    font-size: 12px; color: #888;
+    letter-spacing: 0.5px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">SpaceCode</div>
+    <div class="spinner"></div>
+    <div class="text">Loading...</div>
+  </div>
+</body>
+</html>`
+
+  splashWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(splashHtml))
+  splashWindow.on('closed', () => { splashWindow = null })
+}
+
+function closeSplashScreen(): void {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.close()
+    splashWindow = null
+  }
+}
+
 function createWindow() {
   const debugMode = isDebugMode()
 
@@ -326,9 +415,7 @@ function createWindow() {
     title: 'SpaceCode',
     icon: getWindowIconPath(),
     backgroundColor: '#0c0c1d',
-    // dev 模式下立即显示窗口（深色背景），避免 Vite 编译期间用户看不到任何窗口；
-    // 生产模式从本地文件加载很快，保持 show:false 等 ready-to-show 避免白屏闪烁。
-    show: isDev,
+    show: false,
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -371,16 +458,9 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     info('Startup', `Window ready-to-show | elapsed=${Date.now() - startTime}ms`)
-    // dev 模式下窗口已立即显示，此处只需 focus；
-    // 生产模式下需要 show() 首次显示窗口
-    if (!isDev) {
-      mainWindow?.show()
-    }
+    mainWindow?.show()
     mainWindow?.focus()
-  })
-
-  mainWindow.webContents.on('did-start-loading', () => {
-    info('Startup', `Page did-start-loading | elapsed=${Date.now() - startTime}ms`)
+    closeSplashScreen()
   })
 
   mainWindow.webContents.on('did-finish-load', () => {
@@ -389,6 +469,7 @@ function createWindow() {
       info('Startup', 'ready-to-show did not fire, showing window as fallback')
       mainWindow.show()
       mainWindow.focus()
+      closeSplashScreen()
     }
     if (isDev) {
       mainWindow?.webContents.openDevTools()
@@ -697,6 +778,9 @@ app.whenReady().then(() => {
     debug('Startup', earlyMsg)
   }
 
+  // 在主窗口加载前显示 splash（dev 模式下 Vite 编译较慢，splash 提供视觉反馈）
+  createSplashScreen()
+
   createWindow()
   info('Startup', `Window created | elapsed=${Date.now() - startTime}ms`)
 
@@ -935,6 +1019,7 @@ info('Startup', 'CuaDriver IPC handlers registered')
 
 app.on('window-all-closed', () => {
   info('App', 'All windows closed')
+  closeSplashScreen()
   if (petWindowManager) {
     petWindowManager.destroy()
   }
