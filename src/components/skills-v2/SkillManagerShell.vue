@@ -15,6 +15,7 @@ import type { SkillTabId } from '@/types/skillManagerV2'
 import SkillSettingsPage from './SkillSettingsPage.vue'
 import SkillLibraryPage from './SkillLibraryPage.vue'
 import SkillDetailSlider from './SkillDetailSlider.vue'
+import InstallPage from './InstallPage.vue'
 
 const { t } = useI18n()
 const store = useSkillManagerStore()
@@ -114,11 +115,7 @@ async function handleRefresh(): Promise<void> {
           <SkillLibraryPage v-if="store.activeTab === 'library'" />
 
           <!-- Install Tab (Slice 3) -->
-          <div v-else-if="store.activeTab === 'install'" class="sm-tab-content">
-            <div class="sm-placeholder">
-              {{ t('skillManagerV2.tabs.install') }}
-            </div>
-          </div>
+          <InstallPage v-else-if="store.activeTab === 'install'" />
 
           <!-- Packs Tab (Slice 6) -->
           <div v-else-if="store.activeTab === 'packs'" class="sm-tab-content">

@@ -300,18 +300,47 @@ export interface AddCenterSkillInput {
   sourceUri?: string
   sourceRef?: string
   renamedId?: string
+  importedFromAgent?: string
+  importedFromPath?: string
+  /** When true, treat sourcePath as a parent directory containing multiple skill subdirectories. */
+  multi?: boolean
+  /** "copy" (default) or "link" — how the skill is imported into the center library. */
+  importMode?: 'copy' | 'link'
 }
 
 export interface AddCenterSkillCandidate {
-  inferredId: string
+  skillId: string
+  proposedSkillId: string
   name: string
+  description: string
+  sourceDir: string
   hash: string
   action: 'create' | 'update' | 'blocked'
+  existingSourceType: SourceType | null
   reason: string | null
 }
 
 export interface AddCenterSkillPreview {
   candidates: AddCenterSkillCandidate[]
+  blockers: AddCenterSkillCandidate[]
+  unchangedCount: number
+  centerPath: string
+}
+
+export interface AddCenterSkillDecision {
+  skillId: string
+  proposedSkillId?: string
+  /** "create" (rename), "update" (overwrite), or "skip" */
+  resolution: 'create' | 'update' | 'skip'
+}
+
+export interface AddCenterSkillResult {
+  /** IDs of newly created skills. */
+  skillIds: string[]
+  /** IDs of updated skills. */
+  updated: string[]
+  /** IDs of skipped skills. */
+  skipped: string[]
 }
 
 // ── Upsert Pack ────────────────────────────────────────────────────

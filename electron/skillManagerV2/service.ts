@@ -22,6 +22,10 @@ import {
   readFrontmatter,
   buildFileTree,
   removePath,
+  copyDirRecursive,
+  expandTilde,
+  inferSkillId,
+  pathExists,
 } from './fsutil'
 import { scanCenterLibrary } from './scanner'
 import { getBuiltInAgents } from './agentRegistry'
@@ -40,6 +44,12 @@ import type {
   SkillTargetClaim,
   DeleteCenterSkillPreview,
   FileTreeNode,
+  AddCenterSkillInput,
+  AddCenterSkillCandidate,
+  AddCenterSkillPreview,
+  AddCenterSkillDecision,
+  AddCenterSkillResult,
+  SourceType,
 } from '@/types/skillManagerV2'
 
 // ── Default settings ───────────────────────────────────────────────
@@ -517,6 +527,366 @@ export class SkillManagerService {
 
     // Delete the directory from filesystem
     removePath(row.center_path)
+  }
+
+  // ── Add Center Skill (Slice 3) ──────────────────────────────────
+
+  /**
+   * Preview adding an external skill to the center library.
+   * Validates the source, computes hashes, and detects conflicts.
+   *
+   * Reference: AgentBro `service.rs` `preview_add_center_skill()`
+   */
+  previewAddCenterSkill(input: AddCenterSkillInput): AddCenterSkillPreview {
+    const expandedSrc = expandTilde(input.sourcePath)
+
+    if (!pathExists(expandedSrc)) {
+      throw new Error(`Source path does not exist: ${expandedSrc}`)
+    }
+
+    if (!fs.statSync(expandedSrc).isDirectory()) {
+      throw new Error(`Source path is not a directory: ${expandedSrc}`)
+    }
+
+    // Determine skill directories to process
+    const dirs = this.resolveSkillDirs(expandedSrc, input.multi ?? false)
+
+    if (dirs.length === 0) {
+      throw new Error(
+        'No valid skill directories found (each must contain SKILL.md)'
+      )
+    }
+
+    const candidates: AddCenterSkillCandidate[] = []
+    const blockers: AddCenterSkillCandidate[] = []
+    let unchangedCount = 0
+
+    for (const dir of dirs) {
+      const proposed = inferSkillId(dir)
+      const fm = readFrontmatter(dir)
+      const name = fm.map.get('name') ?? proposed
+      const description = fm.map.get('description') ?? ''
+      const hash = hashDir(dir)
+
+      // Check if a skill with this ID already exists in DB
+      const existing = this.db.conn.prepare(
+        'SELECT id, current_hash, center_path FROM skills WHERE id = ?'
+      ).get(proposed) as { id: string; current_hash: string; center_path: string } | undefined
+
+      if (!existing) {
+        // No conflict → create
+        candidates.push({
+          skillId: proposed,
+          proposedSkillId: proposed,
+          name,
+          description,
+          sourceDir: dir,
+          hash,
+          action: 'create',
+          existingSourceType: null,
+          reason: null,
+        })
+        continue
+      }
+
+      // Skill exists — check if same source
+      const sourceRow = this.db.conn.prepare(
+        'SELECT source_type, source_uri FROM skill_sources WHERE skill_id = ?'
+      ).get(proposed) as { source_type: string; source_uri: string | null } | undefined
+
+      const sameSource = this.sourcesMatchForCandidate(input, dir, sourceRow)
+
+      if (sameSource) {
+        // Same source → check if content is unchanged
+        if (existing.current_hash === hash) {
+          unchangedCount++
+          continue
+        }
+        // Content differs → update
+        candidates.push({
+          skillId: proposed,
+          proposedSkillId: proposed,
+          name,
+          description,
+          sourceDir: dir,
+          hash,
+          action: 'update',
+          existingSourceType: (sourceRow?.source_type as SourceType) ?? null,
+          reason: null,
+        })
+      } else {
+        // Different source → blocked
+        blockers.push({
+          skillId: proposed,
+          proposedSkillId: proposed,
+          name,
+          description,
+          sourceDir: dir,
+          hash,
+          action: 'blocked',
+          existingSourceType: (sourceRow?.source_type as SourceType) ?? null,
+          reason: `A different skill already uses id '${proposed}'. Choose overwrite, rename, or skip.`,
+        })
+      }
+    }
+
+    return {
+      candidates,
+      blockers,
+      unchangedCount,
+      centerPath: this.centerPath,
+    }
+  }
+
+  /**
+   * Execute adding an external skill to the center library.
+   * Processes decisions for blocked items, copies files, records sources.
+   *
+   * Reference: AgentBro `service.rs` `execute_add_center_skill()`
+   */
+  executeAddCenterSkill(
+    input: AddCenterSkillInput,
+    decisions: AddCenterSkillDecision[]
+  ): AddCenterSkillResult {
+    const preview = this.previewAddCenterSkill(input)
+
+    fs.mkdirSync(this.centerPath, { recursive: true })
+
+    const created: string[] = []
+    const updated: string[] = []
+    const skipped: string[] = []
+
+    // Build decision lookup
+    const decisionMap = new Map<string, AddCenterSkillDecision>()
+    for (const d of decisions) {
+      decisionMap.set(d.skillId, d)
+    }
+
+    // Process blockers — require explicit decision
+    for (const blocker of preview.blockers) {
+      const dec = decisionMap.get(blocker.skillId)
+
+      if (!dec) {
+        throw new Error(
+          `Blocked skill '${blocker.skillId}' requires an explicit decision (overwrite/rename/skip).`
+        )
+      }
+
+      if (dec.resolution === 'skip') {
+        skipped.push(blocker.skillId)
+        continue
+      }
+
+      if (dec.resolution === 'update') {
+        // Overwrite existing
+        this.writeSkillToCenter(blocker.skillId, blocker.sourceDir, input)
+        updated.push(blocker.skillId)
+        continue
+      }
+
+      if (dec.resolution === 'create') {
+        // Rename
+        const newId = dec.proposedSkillId ?? `${blocker.skillId}-import`
+        this.writeSkillToCenter(newId, blocker.sourceDir, input)
+        created.push(newId)
+        continue
+      }
+    }
+
+    // Process candidates — create/update unless skip
+    for (const cand of preview.candidates) {
+      const dec = decisionMap.get(cand.skillId)
+
+      if (dec?.resolution === 'skip') {
+        skipped.push(cand.skillId)
+        continue
+      }
+
+      if (cand.action === 'update') {
+        this.writeSkillToCenter(cand.skillId, cand.sourceDir, input)
+        updated.push(cand.skillId)
+        continue
+      }
+
+      // Create — allow rename override
+      const newId = dec?.proposedSkillId
+      if (newId && newId !== cand.skillId) {
+        this.writeSkillToCenter(newId, cand.sourceDir, input)
+        created.push(newId)
+      } else {
+        this.writeSkillToCenter(cand.skillId, cand.sourceDir, input)
+        created.push(cand.skillId)
+      }
+    }
+
+    // Auto-scan center library to update DB
+    scanCenterLibrary(this.db, this.centerPath)
+
+    return {
+      skillIds: created,
+      updated,
+      skipped,
+    }
+  }
+
+  // ── Add Center Skill helpers ────────────────────────────────────
+
+  /**
+   * Resolve which directories to process from the source path.
+   * If multi is true, scan all subdirectories that are valid skill dirs.
+   * If the source itself is a skill dir, use it directly.
+   * Otherwise, scan subdirectories for skill dirs.
+   */
+  private resolveSkillDirs(srcPath: string, multi: boolean): string[] {
+    if (multi) {
+      return this.scanSubDirsForSkills(srcPath)
+    }
+
+    if (isSkillDir(srcPath)) {
+      return [srcPath]
+    }
+
+    // Not a skill dir itself — try scanning subdirectories
+    return this.scanSubDirsForSkills(srcPath)
+  }
+
+  /** Scan immediate subdirectories for valid skill directories. */
+  private scanSubDirsForSkills(parentDir: string): string[] {
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(parentDir, { withFileTypes: true })
+    } catch {
+      return []
+    }
+
+    const dirs: string[] = []
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      if (entry.isSymbolicLink()) continue
+      if (isIgnoredEntry(entry.name)) continue
+      const subDir = path.join(parentDir, entry.name)
+      if (isSkillDir(subDir)) {
+        dirs.push(subDir)
+      }
+    }
+    return dirs
+  }
+
+  /**
+   * Check if the input source matches the existing DB source for a candidate.
+   * Same source means same source_type AND (same source_uri OR same hash if no URI).
+   */
+  private sourcesMatchForCandidate(
+    input: AddCenterSkillInput,
+    sourceDir: string,
+    existing: { source_type: string; source_uri: string | null } | undefined
+  ): boolean {
+    if (!existing) {
+      // No source record — compare by hash
+      const sourceHash = hashDir(sourceDir)
+      const skillRow = this.db.conn.prepare(
+        'SELECT current_hash FROM skills WHERE id = ?'
+      ).get(inferSkillId(sourceDir)) as { current_hash: string } | undefined
+      return skillRow?.current_hash === sourceHash
+    }
+
+    // Same source type?
+    if (existing.source_type !== input.sourceType) return false
+
+    // If both have URIs, compare them
+    if (existing.source_uri && input.sourceUri) {
+      return existing.source_uri === input.sourceUri
+    }
+
+    // If neither has URI, compare by hash
+    if (!existing.source_uri && !input.sourceUri) {
+      const sourceHash = hashDir(sourceDir)
+      const skillRow = this.db.conn.prepare(
+        'SELECT current_hash FROM skills WHERE id = ?'
+      ).get(inferSkillId(sourceDir)) as { current_hash: string } | undefined
+      return skillRow?.current_hash === sourceHash
+    }
+
+    // One has URI, the other doesn't → different sources
+    return false
+  }
+
+  /**
+   * Write a skill from sourceDir into the center library at centerPath/skillId.
+   * Overwrites existing directory if present, then records the source.
+   */
+  private writeSkillToCenter(
+    skillId: string,
+    sourceDir: string,
+    input: AddCenterSkillInput
+  ): void {
+    const dest = path.join(this.centerPath, skillId)
+
+    // Remove existing destination if present
+    if (pathExists(dest)) {
+      removePath(dest)
+    }
+
+    // Copy the skill directory
+    copyDirRecursive(sourceDir, dest)
+
+    // Record source in DB
+    this.recordSourceAfterWrite(skillId, dest, sourceDir, input)
+  }
+
+  /**
+   * Record/update the skill and source rows in the DB after writing to disk.
+   */
+  private recordSourceAfterWrite(
+    skillId: string,
+    destPath: string,
+    sourceDir: string,
+    input: AddCenterSkillInput
+  ): void {
+    const fm = readFrontmatter(destPath)
+    const name = fm.map.get('name') ?? skillId
+    const description = fm.map.get('description') ?? ''
+    const hash = hashDir(destPath)
+    const frontmatterJson = JSON.stringify(Object.fromEntries(fm.map))
+    const now = nowIso()
+
+    this.db.transaction((tx) => {
+      // Upsert skill row
+      tx.prepare(`
+        INSERT INTO skills (id, name, description, skill_type, center_path, current_hash, frontmatter_json, created_at, updated_at, last_scanned_at)
+        VALUES (?, ?, ?, 'skill', ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name,
+          description = excluded.description,
+          current_hash = excluded.current_hash,
+          frontmatter_json = excluded.frontmatter_json,
+          updated_at = excluded.updated_at,
+          last_scanned_at = excluded.last_scanned_at
+      `).run(skillId, name, description, destPath, hash, frontmatterJson, now, now, now)
+
+      // Upsert source row
+      const sourceUri = input.sourceUri ?? sourceDir
+      tx.prepare(`
+        INSERT INTO skill_sources (skill_id, source_type, source_uri, source_ref, imported_from_agent, imported_from_path, installed_via, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'spacecode', ?, ?)
+        ON CONFLICT(skill_id) DO UPDATE SET
+          source_type = excluded.source_type,
+          source_uri = excluded.source_uri,
+          source_ref = excluded.source_ref,
+          imported_from_agent = excluded.imported_from_agent,
+          imported_from_path = excluded.imported_from_path,
+          updated_at = excluded.updated_at
+      `).run(
+        skillId,
+        input.sourceType,
+        sourceUri,
+        input.sourceRef ?? null,
+        input.importedFromAgent ?? null,
+        input.importedFromPath ?? null,
+        now,
+        now
+      )
+    })
   }
 }
 

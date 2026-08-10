@@ -20,6 +20,10 @@ import type {
   ViewMode,
   SkillDetail,
   DeleteCenterSkillPreview,
+  AddCenterSkillInput,
+  AddCenterSkillPreview,
+  AddCenterSkillDecision,
+  AddCenterSkillResult,
 } from '@/types/skillManagerV2'
 
 // ── Filters ────────────────────────────────────────────────────────
@@ -260,6 +264,44 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
     }
   }
 
+  // ── Slice 3: Import to center library ──────────────────────────
+
+  /** Preview adding a skill from an external source to the center library. */
+  async function previewAddCenterSkill(input: AddCenterSkillInput): Promise<AddCenterSkillPreview | null> {
+    const sm = api.skillManagerV2
+    if (!sm) return null
+
+    try {
+      return await sm.previewAddCenterSkill(input)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      return null
+    }
+  }
+
+  /** Execute adding a skill to the center library, then refresh overview. */
+  async function executeAddCenterSkill(
+    input: AddCenterSkillInput,
+    decisions: AddCenterSkillDecision[]
+  ): Promise<AddCenterSkillResult | null> {
+    const sm = api.skillManagerV2
+    if (!sm) return null
+
+    busyAction.value = 'import-skill'
+    error.value = null
+
+    try {
+      const result = await sm.executeAddCenterSkill(input, decisions)
+      await loadOverview()
+      return result
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      return null
+    } finally {
+      busyAction.value = null
+    }
+  }
+
   return {
     // State
     activeTab,
@@ -300,5 +342,7 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
     clearSelectedSkill,
     previewDeleteSkill,
     executeDeleteSkill,
+    previewAddCenterSkill,
+    executeAddCenterSkill,
   }
 })

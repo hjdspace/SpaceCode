@@ -14,6 +14,10 @@ import type {
   SkillSummary,
   SkillDetail,
   DeleteCenterSkillPreview,
+  AddCenterSkillInput,
+  AddCenterSkillPreview,
+  AddCenterSkillDecision,
+  AddCenterSkillResult,
 } from '@/types/skillManagerV2'
 
 let service: SkillManagerService | null = null
@@ -82,6 +86,22 @@ export function registerSkillManagerV2IPCHandlers(): void {
   ipcMain.handle(SCHEMA_MANAGER_CHANNELS.OPEN_PATH, (_event, targetPath: string) => {
     return shell.openPath(targetPath)
   })
+
+  // ── Add Center Skill (Slice 3) ─────────────────────────────────
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.PREVIEW_ADD_CENTER_SKILL,
+    (_event, input: AddCenterSkillInput): AddCenterSkillPreview => {
+      return getService().previewAddCenterSkill(input)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.EXECUTE_ADD_CENTER_SKILL,
+    (_event, input: AddCenterSkillInput, decisions: AddCenterSkillDecision[]): AddCenterSkillResult => {
+      return getService().executeAddCenterSkill(input, decisions)
+    }
+  )
 }
 
 /** Close the skill manager service (for cleanup). */

@@ -953,5 +953,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('skill-manager:execute-delete-center-skill', skillId),
     openPath: (targetPath: string): Promise<string> =>
       ipcRenderer.invoke('skill-manager:open-path', targetPath),
+    previewAddCenterSkill: (input: Record<string, unknown>) =>
+      ipcRenderer.invoke('skill-manager:preview-add-center-skill', input),
+    executeAddCenterSkill: (input: Record<string, unknown>, decisions: Record<string, unknown>[]) =>
+      ipcRenderer.invoke('skill-manager:execute-add-center-skill', input, decisions),
   },
 })

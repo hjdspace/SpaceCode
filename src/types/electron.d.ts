@@ -33,6 +33,10 @@ SkillManagerSettings,
 SkillSummary,
 SkillDetail,
 DeleteCenterSkillPreview,
+AddCenterSkillInput,
+AddCenterSkillPreview,
+AddCenterSkillDecision,
+AddCenterSkillResult,
 } from '@/types/skillManagerV2'
 
 import type {
@@ -612,6 +616,8 @@ getSkillDetail: (skillId: string) => Promise<SkillDetail | null>
 previewDeleteCenterSkill: (skillId: string) => Promise<DeleteCenterSkillPreview | null>
 executeDeleteCenterSkill: (skillId: string) => Promise<void>
 openPath: (targetPath: string) => Promise<string>
+previewAddCenterSkill: (input: AddCenterSkillInput) => Promise<AddCenterSkillPreview>
+executeAddCenterSkill: (input: AddCenterSkillInput, decisions: AddCenterSkillDecision[]) => Promise<AddCenterSkillResult>
 }
 }
 
