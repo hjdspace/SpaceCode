@@ -105,6 +105,20 @@ SpaceCode/
 - 不要使用 `any` 类型，优先使用精确的类型定义
 - 不要添加未请求的额外功能、抽象、配置项或错误处理
 
+## 修改后验证检查
+
+**每次修改代码后，必须依次执行以下三条命令，全部通过才算完成：**
+
+```sh
+npm run build        # 1. 确认编译成功（main + preload + renderer 三进程构建）
+npm run typecheck    # 2. 确认类型检查通过（tsconfig.node.json + tsconfig.web.json）
+npm run test         # 3. 确认测试通过（Vitest 全部测试用例）
+```
+
+- 如果任一命令失败，必须修复后重新执行全部四条命令
+- 不得跳过或忽略任何一条检查
+- 修复 linter 报错后也需重新执行上述检查
+
 ## Mobile App
 
 移动端子项目位于 `mobile-app/`（Flutter + Riverpod + go_router）。

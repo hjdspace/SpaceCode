@@ -714,4 +714,9 @@ export const api = {
   get logger() {
     return electronAPI?.logger ?? null
   },
+
+  // Skill Manager V2 API — direct access to the skillManagerV2 IPC bridge
+  get skillManagerV2() {
+    return electronAPI?.skillManagerV2 ?? null
+  },
 }

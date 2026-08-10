@@ -6,6 +6,7 @@ import { config } from 'dotenv'
 import { TerminalManager } from './terminalManager'
 import { registerGitIPCHandlers } from './gitService'
 import { registerSkillsIPCHandlers, registerLocalLibraryIPCHandlers } from './skillsService'
+import { registerSkillManagerV2IPCHandlers } from './skillManagerV2'
 import { registerAgentsIPCHandlers } from './agentsService'
 import { registerArtifactsIPCHandlers, stopArtifactsWatch } from './artifactsService'
 import { registerCronIPCHandlers } from './cronService'
@@ -701,6 +702,10 @@ app.whenReady().then(() => {
   // Register Local Library IPC handlers
   registerLocalLibraryIPCHandlers()
   info('Startup', 'Local Library IPC handlers registered')
+
+  // Register Skill Manager V2 IPC handlers
+  registerSkillManagerV2IPCHandlers()
+  info('Startup', 'Skill Manager V2 IPC handlers registered')
 
   // Register Agents IPC handlers
   registerAgentsIPCHandlers()

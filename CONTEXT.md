@@ -1,33 +1,36 @@
-# SpaceCode
+# SpaceCode Domain Model — Skill Manager
 
-A desktop AI coding assistant built with Electron + Vue 3, with mobile browser access capability.
+> This is a glossary. It defines the ubiquitous language for the Skill Manager feature.
+> No implementation details. No specs. Just terms and their definitions.
 
-## Language
+## Core Terms
 
-**H5 Access**:
-The feature that allows a phone browser to access the SpaceCode frontend over the local network, by scanning a QR code containing an HTTP URL with an access token.
-_Avoid_: Mobile web, remote access, web client
+| Term | Definition |
+| --- | --- |
+| **Center Library (中心库)** | SpaceCode's unified local Skill repository at `~/.spacecode/skills`. The single source of truth for all managed Skills. |
+| **Center Skill (中心库 Skill)** | A Skill directory that has been imported into the Center Library and has a database record. Its directory name is the default Skill ID. |
+| **Agent Skill (Agent Skill)** | A Skill that lives in an Agent's own directory. May be managed (has a Target record) or unmanaged (orphan file). |
+| **Target** | A single Skill's installation record in a single Agent's directory. Records the actual install mode (link or copy), hash, and status. |
+| **Claim** | The reason a Target exists. Either `direct` (user installed it individually) or `pack` (installed via a Skill Pack). One Target can have multiple Claims. |
+| **Skill Pack (技能包)** | A named group of Center Skill IDs. Not bound to any Agent. Can be applied to and revoked from multiple Agents. |
+| **link** | A symlink in the Agent directory pointing to the Center Library Skill. Center Library updates propagate automatically. |
+| **copy** | A recursive file copy of the Center Library Skill into the Agent directory. Requires explicit sync afterward. |
+| **Unmanaged (未管理)** | A Skill file exists in an Agent directory or the Center Library, but the database has no trusted record for it. |
+| **Copy Divergence (copy 分叉)** | Both the Center Library Skill and the Agent's copy have changed. Cannot be auto-resolved. |
 
-**H5 Server**:
-An HTTP + WebSocket server embedded in the Electron main process that serves the Vue frontend as static files and proxies API/WebSocket requests to the Claude Code engine.
-_Avoid_: Sidecar, mobile server
+## Agent Registry
 
-**H5 Adapter**:
-A drop-in replacement for `window.electronAPI.claudeCode` that routes IPC-style calls over HTTP REST and WebSocket when the frontend runs in a browser (H5 mode) instead of Electron.
-_Avoid_: API shim, transport layer
+| Term | Definition |
+| --- | --- |
+| **Agent** | A coding assistant tool that has its own Skills directory. SpaceCode manages Skill distribution to Agents. |
+| **Agent Registry** | The built-in list of known Agents (Claude Code, Codex, Cursor, Trae) and their Skill directory paths. Extensible with custom entries. |
 
-**Mirror Session**:
-The connection mode where the H5 client follows the desktop's currently active chat session, sharing the same `sessionId` and `projectPath`. The phone is an extension of the desktop, not an independent client.
-_Avoid_: Shared session, linked session
+## Operations
 
-**Engine**:
-The Claude Code CLI subprocess (or alternative engine like Pi) managed by `EngineFactory` / `ClaudeCodeProcessPool` that processes chat messages and emits streaming events.
-_Avoid_: CLI, backend
-
-**Engine Gateway**:
-The deep module that owns engine lookup (`findEngineForSession`), dispatch, capability checks, structured call logging, and error wrapping for all engine operations. Both IPC handlers (`claudeCodeIPC.ts`) and H5 Server routes delegate to it instead of calling `IEngine` directly. It is the calling-side counterpart to the Engine concept — the seam where transport (IPC or HTTP/WS) ends and engine operations begin.
-_Avoid_: engineService (conflicts with legacy `h5EngineService` name), engineManager, dispatcher (too narrow — Gateway also owns logging and errors, not just dispatch)
-
-**Turn**:
-One conversational cycle keyed by `sessionId`: a user message is sent, the Engine streams an assistant response (text, thinking, tool calls, tool results, permission requests), and the cycle settles on completion, abort, or error. Multiple turns can be live concurrently across panes, each keyed by its session.
-_Avoid_: Round, exchange, message cycle, request/response
+| Term | Definition |
+| --- | --- |
+| **Distribute (分发)** | Install a Center Skill into one or more Agent directories via link or copy. |
+| **Adopt (接管)** | Import an unmanaged Agent Skill into the Center Library, optionally replacing the Agent's copy with a symlink. |
+| **Revoke (撤销)** | Remove a Skill Pack's Claims from an Agent. Only deletes files when no Claims remain. |
+| **Diagnose (诊断)** | Scan the Center Library and all Agent directories for issues: unmanaged, broken links, outdated copies, conflicts. |
+| **Snapshot (快照)** | A JSON export of the entire Skill Manager state. Used for backup, debugging, and SQLite recovery. |
