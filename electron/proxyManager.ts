@@ -24,6 +24,7 @@ export class ProxyManager extends EventEmitter {
   private healthRetryCount: number = 0
   private restarting: boolean = false
   private startingPromise: Promise<string> | null = null
+  private lastHealthStatus: 'unknown' | 'healthy' | 'unhealthy' = 'unknown'
 
   /**
    * 启动代理子进程。如果代理已经在运行，会先停止再重启。
@@ -74,6 +75,7 @@ export class ProxyManager extends EventEmitter {
     config.port = port
     this.config = config
     this.healthRetryCount = 0
+    this.lastHealthStatus = 'unknown'
 
     const proxyScript = this.resolveProxyScript()
 
@@ -337,11 +339,21 @@ export class ProxyManager extends EventEmitter {
       const healthy = await this.checkHealth()
       if (healthy) {
         this.healthRetryCount = 0
-        debug('ProxyManager', 'Health check passed')
+        // 仅在状态变化时打印（首次成功 / 从故障恢复），避免每 30s 刷屏
+        if (this.lastHealthStatus !== 'healthy') {
+          if (this.lastHealthStatus === 'unhealthy') {
+            info('ProxyManager', 'Health check passed (recovered)')
+          } else {
+            debug('ProxyManager', 'Health check passed')
+          }
+          this.lastHealthStatus = 'healthy'
+        }
       } else {
+        this.lastHealthStatus = 'unhealthy'
         this.handleHealthCheckFailure()
       }
     } catch {
+      this.lastHealthStatus = 'unhealthy'
       this.handleHealthCheckFailure()
     }
   }

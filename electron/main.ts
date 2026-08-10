@@ -326,7 +326,9 @@ function createWindow() {
     title: 'SpaceCode',
     icon: getWindowIconPath(),
     backgroundColor: '#0c0c1d',
-    show: false,
+    // dev 模式下立即显示窗口（深色背景），避免 Vite 编译期间用户看不到任何窗口；
+    // 生产模式从本地文件加载很快，保持 show:false 等 ready-to-show 避免白屏闪烁。
+    show: isDev,
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -368,14 +370,21 @@ function createWindow() {
   })
 
   mainWindow.once('ready-to-show', () => {
-    info('Startup', 'Window ready-to-show')
-    mainWindow?.show()
+    info('Startup', `Window ready-to-show | elapsed=${Date.now() - startTime}ms`)
+    // dev 模式下窗口已立即显示，此处只需 focus；
+    // 生产模式下需要 show() 首次显示窗口
+    if (!isDev) {
+      mainWindow?.show()
+    }
     mainWindow?.focus()
-    info('Startup', 'Window shown')
+  })
+
+  mainWindow.webContents.on('did-start-loading', () => {
+    info('Startup', `Page did-start-loading | elapsed=${Date.now() - startTime}ms`)
   })
 
   mainWindow.webContents.on('did-finish-load', () => {
-    info('Startup', 'Page did-finish-load')
+    info('Startup', `Page did-finish-load | elapsed=${Date.now() - startTime}ms`)
     if (mainWindow && !mainWindow.isVisible()) {
       info('Startup', 'ready-to-show did not fire, showing window as fallback')
       mainWindow.show()
