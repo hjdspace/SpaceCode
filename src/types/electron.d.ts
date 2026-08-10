@@ -27,6 +27,13 @@ import type {
   ArtifactEntry,
   DesignSystemSummary,
 } from '@/services/electronAPI'
+import type {
+SkillManagerOverview,
+SkillManagerSettings,
+SkillSummary,
+SkillDetail,
+DeleteCenterSkillPreview,
+} from '@/types/skillManagerV2'
 
 import type {
   TraceSessionList,
@@ -592,6 +599,20 @@ export interface ElectronAPI {
     clearPairingCode: () => Promise<void>
     wechat: ElectronImWechatAPI
   }
+
+skillManagerV2: {
+bootstrap: () => Promise<{ success: boolean }>
+init: () => Promise<SkillManagerOverview>
+getOverview: () => Promise<SkillManagerOverview>
+refresh: () => Promise<SkillManagerOverview>
+getSettings: () => Promise<SkillManagerSettings>
+updateSettings: (patch: Partial<SkillManagerSettings>) => Promise<SkillManagerSettings>
+listCenterSkills: () => Promise<SkillSummary[]>
+getSkillDetail: (skillId: string) => Promise<SkillDetail | null>
+previewDeleteCenterSkill: (skillId: string) => Promise<DeleteCenterSkillPreview | null>
+executeDeleteCenterSkill: (skillId: string) => Promise<void>
+openPath: (targetPath: string) => Promise<string>
+}
 }
 
 // ── Window 全局声明 ─────────────────────────────────────────────

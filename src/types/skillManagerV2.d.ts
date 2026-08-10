@@ -1,0 +1,329 @@
+/**
+ * Skill Manager V2 — Type Definitions
+ *
+ * All DTOs for the Skill Manager v2 module.
+ * Reference: AgentBro `src/services/skillApiV2.ts` interfaces.
+ */
+
+// ── Enums / Literal Types ──────────────────────────────────────────
+
+export type SkillTabId = 'library' | 'install' | 'packs' | 'agents' | 'diagnostics' | 'settings'
+export type ViewMode = 'cards' | 'list'
+export type InstallMode = 'link' | 'copy'
+export type ActualMode = 'link' | 'copy'
+export type LinkFailPolicy = 'ask' | 'copy'
+export type SkillStatus = 'ok' | 'unmanaged' | 'conflict' | 'broken_link' | 'copy_outdated' | 'copy_modified' | 'copy_diverged' | 'missing'
+export type SourceType = 'local_folder' | 'archive' | 'github' | 'url' | 'agent_import' | 'manual_center' | 'marketplace'
+export type ClaimType = 'direct' | 'pack'
+export type DiagnosisSeverity = 'info' | 'warning' | 'error'
+export type FixKind = 'auto' | 'confirm' | 'manual' | 'info'
+export type EntityType = 'skill' | 'target' | 'pack' | 'agent' | 'snapshot'
+export type UnmanagedItemType = 'skill_dir' | 'skill_file' | 'config_file'
+export type CopySyncStatus = 'ok' | 'copy_outdated' | 'copy_modified' | 'copy_diverged'
+export type CopySyncAction = 'center_over_agent' | 'agent_over_center' | 'manual'
+
+// ── Settings ───────────────────────────────────────────────────────
+
+export interface SkillManagerSettings {
+  centerLibraryPath: string
+  defaultInstallMode: InstallMode
+  linkFailPolicy: LinkFailPolicy
+  startupScan: boolean
+  showUnmanaged: boolean
+}
+
+// ── Overview ───────────────────────────────────────────────────────
+
+export interface SkillManagerMetrics {
+  centerSkillCount: number
+  agentTargetCount: number
+  unmanagedCount: number
+  diagnosisIssueCount: number
+}
+
+export interface SkillManagerOverview {
+  metrics: SkillManagerMetrics
+  settings: SkillManagerSettings
+  skills: SkillSummary[]
+  agents: AgentSummary[]
+  packs: SkillPackSummary[]
+  issues: DiagnosisIssue[]
+  unmanaged: UnmanagedItemDto[]
+}
+
+// ── Skill ──────────────────────────────────────────────────────────
+
+export interface SkillSummary {
+  id: string
+  name: string
+  description: string
+  skillType: string
+  centerPath: string
+  currentHash: string
+  status: SkillStatus
+  sourceType: SourceType | null
+  agentBadges: AgentBadge[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AgentBadge {
+  agentId: string
+  agentName: string
+  mode: ActualMode
+  status: SkillStatus
+}
+
+export interface SkillSource {
+  skillId: string
+  sourceType: SourceType
+  sourceUri: string | null
+  sourceRef: string | null
+  importedFromAgent: string | null
+  importedFromPath: string | null
+  installedVia: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SkillTarget {
+  id: string
+  skillId: string
+  agentId: string
+  targetPath: string
+  installMode: InstallMode
+  actualMode: ActualMode
+  sourceHash: string
+  currentHash: string | null
+  status: SkillStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SkillTargetClaim {
+  id: string
+  targetId: string
+  claimType: ClaimType
+  packId: string | null
+  createdAt: string
+}
+
+export interface FileTreeNode {
+  name: string
+  nodeType: 'dir' | 'file'
+  path: string
+  children: FileTreeNode[] | null
+}
+
+export interface SkillDetail {
+  id: string
+  name: string
+  description: string
+  skillType: string
+  centerPath: string
+  currentHash: string
+  frontmatterJson: string
+  source: SkillSource | null
+  targets: SkillTarget[]
+  claims: SkillTargetClaim[]
+  files: FileTreeNode | null
+  createdAt: string
+  updatedAt: string
+  lastScannedAt: string | null
+}
+
+// ── Agent ──────────────────────────────────────────────────────────
+
+export interface AgentSummary {
+  id: string
+  displayName: string
+  skillsDir: string | null
+  configPath: string | null
+  mcpConfigPath: string | null
+  pluginDir: string | null
+  version: string | null
+  latestVersion: string | null
+  enabled: boolean
+  lastScannedAt: string | null
+  managedSkillCount: number
+  unmanagedCount: number
+}
+
+export interface AgentDetail {
+  id: string
+  displayName: string
+  skillsDir: string | null
+  configPath: string | null
+  version: string | null
+  skills: SkillTarget[]
+  unmanaged: UnmanagedItemDto[]
+  appliedPacks: SkillPackSummary[]
+  healthIssues: DiagnosisIssue[]
+}
+
+// ── Skill Pack ─────────────────────────────────────────────────────
+
+export interface SkillPackSummary {
+  id: string
+  name: string
+  description: string
+  tags: string[]
+  memberCount: number
+  appliedAgentCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SkillPackMember {
+  packId: string
+  skillId: string
+  sortOrder: number
+  required: boolean
+}
+
+export interface SkillPackDetail {
+  id: string
+  name: string
+  description: string
+  tags: string[]
+  members: SkillPackMember[]
+  appliedAgents: AgentSummary[]
+  createdAt: string
+  updatedAt: string
+}
+
+// ── Unmanaged ──────────────────────────────────────────────────────
+
+export interface UnmanagedItemDto {
+  id: string
+  itemType: UnmanagedItemType
+  agentId: string | null
+  path: string
+  inferredSkillId: string | null
+  hash: string | null
+  reason: string
+  firstSeenAt: string
+  lastSeenAt: string
+}
+
+// ── Diagnosis ──────────────────────────────────────────────────────
+
+export interface DiagnosisIssue {
+  id: string
+  issueType: string
+  severity: DiagnosisSeverity
+  entityType: EntityType
+  entityId: string | null
+  title: string
+  detail: string
+  fixKind: FixKind
+  payloadJson: string
+  createdAt: string
+  resolvedAt: string | null
+}
+
+// ── Distribution ──────────────────────────────────────────────────
+
+export interface DistributionChange {
+  skillId: string
+  skillName: string
+  agentId: string
+  agentName: string
+  action: 'create' | 'reuse' | 'blocked'
+  mode: InstallMode
+  reason: string | null
+}
+
+export interface DistributionBlocker {
+  skillId: string
+  skillName: string
+  agentId: string
+  agentName: string
+  reason: string
+}
+
+export interface DistributionPreview {
+  changes: DistributionChange[]
+  blockers: DistributionBlocker[]
+}
+
+export interface DistributionResult {
+  success: boolean
+  created: number
+  reused: number
+  failed: number
+  errors: string[]
+}
+
+// ── Delete Preview ─────────────────────────────────────────────────
+
+export interface DeleteCenterSkillPreview {
+  skillId: string
+  skillName: string
+  affectedTargets: SkillTarget[]
+}
+
+// ── Adopt ──────────────────────────────────────────────────────────
+
+export type AdoptOption = 'import_to_center' | 'replace_with_link' | 'replace_with_copy'
+
+export interface AdoptPreview {
+  agentId: string
+  unmanagedId: string
+  inferredSkillId: string
+  centerHasSameName: boolean
+  centerSkillId: string | null
+  options: AdoptOption[]
+  conflictReason: string | null
+}
+
+// ── Copy Sync ──────────────────────────────────────────────────────
+
+export interface CopySyncPreview {
+  targetId: string
+  status: CopySyncStatus
+  centerHash: string
+  agentHash: string | null
+}
+
+export interface CopySyncResult {
+  success: boolean
+  action: CopySyncAction
+  message: string
+}
+
+// ── Add Center Skill ───────────────────────────────────────────────
+
+export interface AddCenterSkillInput {
+  sourcePath: string
+  sourceType: SourceType
+  sourceUri?: string
+  sourceRef?: string
+  renamedId?: string
+}
+
+export interface AddCenterSkillCandidate {
+  inferredId: string
+  name: string
+  hash: string
+  action: 'create' | 'update' | 'blocked'
+  reason: string | null
+}
+
+export interface AddCenterSkillPreview {
+  candidates: AddCenterSkillCandidate[]
+}
+
+// ── Upsert Pack ────────────────────────────────────────────────────
+
+export interface UpsertPackInput {
+  id?: string
+  name: string
+  description?: string
+  tags?: string[]
+  memberSkillIds: string[]
+}
+
+// ── IPC Channel Names ──────────────────────────────────────────────
+// Channel name constants are defined in electron/skillManagerV2/channels.ts
+// (runtime values cannot live in .d.ts files)

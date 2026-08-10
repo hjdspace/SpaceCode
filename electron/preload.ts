@@ -928,4 +928,30 @@ contextBridge.exposeInMainWorld('electronAPI', {
       isBound: (): Promise<boolean> => ipcRenderer.invoke('im:wechat:isBound'),
     },
   },
+
+  // Skill Manager V2 API
+  skillManagerV2: {
+    bootstrap: (): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('skill-manager:bootstrap'),
+    init: () =>
+      ipcRenderer.invoke('skill-manager:init'),
+    getOverview: () =>
+      ipcRenderer.invoke('skill-manager:overview'),
+    refresh: () =>
+      ipcRenderer.invoke('skill-manager:refresh'),
+    getSettings: () =>
+      ipcRenderer.invoke('skill-manager:settings'),
+    updateSettings: (patch: Record<string, unknown>) =>
+      ipcRenderer.invoke('skill-manager:update-settings', patch),
+    listCenterSkills: () =>
+      ipcRenderer.invoke('skill-manager:list-center-skills'),
+    getSkillDetail: (skillId: string) =>
+      ipcRenderer.invoke('skill-manager:get-skill-detail', skillId),
+    previewDeleteCenterSkill: (skillId: string) =>
+      ipcRenderer.invoke('skill-manager:preview-delete-center-skill', skillId),
+    executeDeleteCenterSkill: (skillId: string) =>
+      ipcRenderer.invoke('skill-manager:execute-delete-center-skill', skillId),
+    openPath: (targetPath: string): Promise<string> =>
+      ipcRenderer.invoke('skill-manager:open-path', targetPath),
+  },
 })
