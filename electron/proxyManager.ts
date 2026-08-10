@@ -266,13 +266,15 @@ export class ProxyManager extends EventEmitter {
       // 主进程中 __dirname 指向 asar 内路径，Electron fs 会自动重定向；
       // 但代理子进程使用 ELECTRON_RUN_AS_NODE=1，不支持 asar 路径重定向，
       // 因此需要显式解析到 app.asar.unpacked 路径。
-      const asarPath = path.join(__dirname, 'proxy', 'index.js')
-      const unpackedPath = asarPath.replace(/\.asar([\\/])/, '.asar.unpacked$1')
-      // 优先使用 unpacked 路径（子进程需要），如果不存在则回退到 asar 路径
-      if (fs.existsSync(unpackedPath)) {
-        return unpackedPath
+      const packagedCandidates = [
+        path.join(process.resourcesPath, 'app.asar.unpacked', 'dist-electron', 'proxy', 'index.js'),
+        path.join(__dirname, 'proxy', 'index.js').replace(/\.asar([\\/])/, '.asar.unpacked$1'),
+        path.join(__dirname, 'proxy', 'index.js'),
+      ]
+      for (const candidate of packagedCandidates) {
+        if (fs.existsSync(candidate)) return candidate
       }
-      return asarPath
+      return packagedCandidates[0]
     }
     const compiledPath = path.join(__dirname, 'proxy', 'index.js')
     if (fs.existsSync(compiledPath)) {

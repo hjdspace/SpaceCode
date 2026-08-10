@@ -88,4 +88,44 @@ for (const filePath of TARGET_FILES) {
   patchedCount++
 }
 
+// node-pty's relative loader runs from app.asar, while electron-builder
+// places native .node files in app.asar.unpacked. Retry the real filesystem
+// path so packaging does not turn a native-load error into a misleading
+// MODULE_NOT_FOUND error.
+const utilsPath = path.join(NODE_PTY_DIR, 'lib', 'utils.js')
+if (fs.existsSync(utilsPath)) {
+  const original = fs.readFileSync(utilsPath, 'utf8')
+  if (!original.includes('[spacecode-patch-v1]')) {
+    const oldCatch = [
+      '            catch (e) {',
+      '                lastError = e;',
+      '            }',
+    ].join('\n')
+    const newCatch = [
+      '            catch (e) {',
+      '                // [spacecode-patch-v1] asar unpacked fallback',
+      '                var _unpackedError;',
+      '                try {',
+      '                    var _path = require("path");',
+      '                    var _fs = require("fs");',
+      '                    var _resolved = _path.resolve(__dirname, dir + "/" + name + ".node");',
+      '                    var _unpacked = _resolved.replace("app.asar", "app.asar.unpacked").replace("node_modules.asar", "node_modules.asar.unpacked");',
+      '                    if (_unpacked !== _resolved && _fs.existsSync(_unpacked)) {',
+      '                        return { dir: dir, module: require(_unpacked) };',
+      '                    }',
+      '                } catch (_e2) { _unpackedError = _e2; }',
+      '                lastError = _unpackedError || e;',
+      '            }',
+    ].join('\n')
+    if (original.includes(oldCatch)) {
+      fs.writeFileSync(utilsPath, original.replace(oldCatch, newCatch))
+      console.log('[patch-node-pty] Patched node-pty/lib/utils.js for app.asar.unpacked fallback')
+    } else {
+      console.warn('[patch-node-pty] Could not find node-pty/lib/utils.js loader catch block')
+    }
+  } else {
+    console.log('[patch-node-pty] node-pty/lib/utils.js already patched')
+  }
+}
+
 console.log(`[patch-node-pty] Done. Patched: ${patchedCount}, Skipped: ${skippedCount}`)

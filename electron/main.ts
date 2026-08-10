@@ -32,6 +32,7 @@ import { getImSidecarManager } from './imSidecarManager'
 import { PetFileService } from './petFileService'
 import { PetWindowController } from './petWindowManager'
 import { registerPetIpcHandlers } from './petIpcHandlers'
+import { setupLinuxPlatform } from './platformSetup'
 
 // ============================================================
 // App Startup
@@ -68,6 +69,8 @@ if (existsSync(envPath)) {
 } else {
   earlyLog(`No .env found at: ${envPath}`)
 }
+
+setupLinuxPlatform()
 
 // Windows: set AppUserModelId so taskbar shows the correct icon instead of Electron default
 if (process.platform === 'win32') {
