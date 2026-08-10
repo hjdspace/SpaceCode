@@ -1,3 +1,16 @@
+## [0.7.2](https://github.com/hjdspace/SpaceCode/compare/v0.7.1...v0.7.2) (2026-08-11)
+
+### Features
+
+* **electron:** 开发模式下添加启动闪屏窗口
+* **skill-manager-v2:** 实现 Skill Manager V2 核心功能，包括技能库页面、搜索、分页、导入中心库（hash冲突检测、预览/执行）
+* **linux:** 完善Linux平台打包与运行适配
+
+### Refactor
+
+* **electron:** 优化窗口显示逻辑和代理健康检查日志
+* **layout:** 将ChatPanel改为同步导入以避免加载延迟
+
 ## [0.7.1](https://github.com/hjdspace/SpaceCode/compare/v0.7.0...v0.7.1) (2026-08-09)
 
 ### Features
