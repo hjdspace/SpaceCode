@@ -1,172 +1,65 @@
 # AGENTS.md
 
-This file provides guidance to SpaceCode when working with code in this repository.
-
 ## Tech Stack
 
-- **Frontend**: Vue 3 + TypeScript + Vite 5
-- **Desktop**: Electron 29 (main process: `electron/`, renderer: `src/`)
+- **Frontend**: Vue 3 + TypeScript + Vite 8
+- **Desktop**: Electron 43 (main: `electron/`, renderer: `src/`)
 - **State**: Pinia stores in `src/stores/`
-- **Styling**: Sass (`.scss`), scoped styles in Vue SFC
-- **Engine**: Bun runtime in `engine/` (CLI sub-project)
+- **Styling**: Sass, scoped SCSS in Vue SFC
+- **Engine**: Bun runtime in `engine/` (独立 CLI 子项目, read-only)
 - **AI SDK**: `@anthropic-ai/sdk`, `openai`
 
-## Commands
+## Architecture
 
-```bash
-npm run dev              # Start Vite dev server
-npm run build            # Type-check + Vite build
-npm run typecheck        # vue-tsc type checking only
-npm run preview          # Vite preview
-npm run electron:dev     # Electron dev mode (via Vite)
-npm run electron:build   # Full Electron build (icons + engine + electron-builder)
+**三栏布局**: Sidebar → ChatPanel → InfoPanel, 面板宽度由 `splitLayout` store 管理.
 
-npm run test:electron              # Node test runner (Electron unit tests)
-npx vitest run                     # Vitest (Vue composables + Electron tests)
-npx vitest run --reporter=verbose  # Verbose vitest output
+**Engine 抽象**: `EngineFactory` (`electron/engines/`) 按类型创建引擎实例 (`ClaudeCodeEngine`, `PiEngine`). `engineGateway` 是统一调用入口 — 三个 adapter (`claudeCodeIPC.ts` / `h5Server.ts` / `imServer.ts`) 的引擎派发全部委托到此. 详见 `docs/adr/0004-engine-gateway-deep-module.md`.
 
-cd engine && bun install           # Engine deps
-cd engine && bun run build-desktop.ts  # Build engine
-```
+**Chat Session 生命周期**: `chatSession` store 管理会话列表 → `sessionProcess` (Electron) 管理 CLI 子进程 → `turn` store (`src/stores/turn/`) 处理流式响应与工具事件.
 
-## Project Structure
-
-```
-SpaceCode/
-├── src/                    # Vue 3 渲染进程
-│   ├── components/         # Vue SFC 组件
-│   │   ├── chat/           # 聊天/对话相关组件
-│   │   ├── layout/         # 分栏布局、标题栏、侧边栏
-│   │   ├── common/         # 通用 UI 组件
-│   │   ├── explorer/       # 文件浏览器
-│   │   ├── scm/            # Git 源码管理
-│   │   ├── settings/       # 设置面板
-│   │   ├── terminal/       # 终端组件
-│   │   ├── agents/         # Agent 管理
-│   │   ├── mcp/            # MCP 配置
-│   │   └── skills/         # 技能管理
-│   ├── stores/             # Pinia stores (chatSession, chatStream, app, settings, mcp, scm...)
-│   ├── composables/        # Vue composable functions (useChat, useContentEditor, ...)
-│   ├── services/           # LLM 客户端、API 服务
-│   ├── lib/                # 业务逻辑库
-│   ├── styles/             # 全局样式 (variables, themes)
-│   ├── types/              # TypeScript 类型定义
-│   ├── utils/              # 工具函数
-│   ├── i18n/               # 国际化
-│   └── App.vue             # 根组件（三栏布局）
-│
-├── electron/               # Electron 主进程
-│   ├── main.ts             # 主进程入口
-│   ├── preload.ts          # Context Bridge (安全 IPC API 暴露)
-│   ├── claudeCodeIPC.ts    # Codex CLI 进程 IPC
-│   ├── sessionProcess.ts   # Chat session 进程管理
-│   ├── skillsService.ts    # 技能管理服务
-│   └── gitService.ts       # Git 操作服务
-│
-├── engine/                 # CLI 核心引擎 (Bun, 独立子项目)
-├── tests/                  # Python 集成测试 (pytest)
-├── vite.config.mts         # Vite 配置
-└── vitest.config.ts        # Vitest 配置
-```
-
-## Key Architecture
-
-- **三栏布局**: Sidebar（左侧导航）→ ChatPanel（中间主聊天区）→ InfoPanel（右侧信息面板），通过 `splitLayout` store 管理面板宽度
-- **Chat Session 生命周期**: `chatSession` store 管理会话列表 → `sessionProcess` (Electron) 管理 Codex CLI 子进程 → `chatStream` store 处理流式响应
-- **IPC 通信**: Electron main ↔ renderer 通过 preload.ts 的 contextBridge 暴露安全 API
-- **Pinia stores** 集中在 `src/stores/`，按功能模块拆分（chat, app, settings, mcp, scm, terminal 等）
-- **Vue 组件** 遵循组合式 API (`<script setup lang="ts">`)，样式使用 scoped SCSS
+**IPC 通信**: Electron main ↔ renderer, 通过 `preload.ts` 的 contextBridge 暴露安全 API.
 
 ## Code Style
 
-- TypeScript 严格模式，`@/` 路径别名映射到 `src/`
-- 组件文件名使用 PascalCase（如 `ChatPanel.vue`），composables 使用 `use` 前缀（`useChat.ts`），stores 使用驼峰（`chatSession.ts`）
-- Vue SFC 使用 `<script setup lang="ts">` + scoped SCSS 样式
-- 遵循 Conventional Commits 规范（feat/fix/style/refactor 等前缀）
-- npm scripts 定义在 `package.json`，engine 子项目使用 Bun
+- TypeScript 严格模式; `@/` → `src/`, `@electron/` → `electron/`
+- 组件 PascalCase (`ChatPanel.vue`), composables `use` 前缀, stores 驼峰
+- Vue SFC: `<script setup lang="ts">` + scoped SCSS
+- Conventional Commits (feat/fix/style/refactor)
+- 使用精确类型, 避免 `any`
 
-## Test Conventions
+## Testing
 
-- Electron 主进程测试：`electron/__tests__/*.test.ts`（Node test runner: `node --test`）
-- Vue composables 测试：`tests/composables/*.test.ts`（vitest）
-- Component 测试：`tests/components/`（vitest）
-- Python 集成测试：`tests/*.py`（pytest）
-- 构建验证：修改后运行 `npm run build` 确保通过
+两个 test runner, 权威划分见 `vitest.config.ts` 的 `include` / `exclude`:
+
+- **Vitest** (`npm run test`): `electron/__tests__/`, `tests/composables/`, `tests/components/`, `tests/stores/`, `tests/im/`, `tests/integration/`, `tests/lib/`, `src/**/*.test.ts`
+- **Node test runner** (`npm run test:electron`): `tests/electron/*.test.ts`
+- **Python** (`pytest`): `tests/test_*.py`
 
 ## Rules
-- 原型HTML UI在docs/prototypes目录生成
-- 所有实现需要考虑i18n国际化
 
-## 禁止事项
+- 原型 HTML UI 生成在 `docs/prototypes/`
+- 所有实现考虑 i18n (`src/i18n/locales/zh-CN.ts`, `en-US.ts`)
 
-- 不要修改 `engine/` 目录下的代码（独立的 CLI 子项目）
-- 不要直接修改 `dist/`、`dist-electron/`、`release/` 等构建产物
-- 不要提交 `.env` 等敏感文件
-- 不要使用 `any` 类型，优先使用精确的类型定义
-- 不要添加未请求的额外功能、抽象、配置项或错误处理
+## Guardrails
 
-## 修改后验证检查
+- `engine/` 为独立子项目, 视为只读
+- 构建产物 (`dist/`, `dist-electron/`, `release/`) 视为只读
+- 敏感文件 (`.env`, API keys) 不提交
+- 仅实现请求的功能, 不添加额外抽象或配置项
 
-**每次修改代码后，必须依次执行以下三条命令，全部通过才算完成：**
+## Verification
+
+每次代码修改后依次执行, 全部通过才算完成:
 
 ```sh
-npm run build        # 1. 确认编译成功（main + preload + renderer 三进程构建）
-npm run typecheck    # 2. 确认类型检查通过（tsconfig.node.json + tsconfig.web.json）
-npm run test         # 3. 确认测试通过（Vitest 全部测试用例）
+npm run build     # vue-tsc --noEmit + vite build (已含类型检查)
+npm run test      # vitest 全部用例
 ```
 
-- 如果任一命令失败，必须修复后重新执行全部四条命令
-- 不得跳过或忽略任何一条检查
-- 修复 linter 报错后也需重新执行上述检查
-
-## Mobile App
-
-移动端子项目位于 `mobile-app/`（Flutter + Riverpod + go_router）。
-
-### 构建与测试
-
-```bash
-cd mobile-app
-flutter pub get
-flutter analyze                       # 静态分析
-flutter test                          # 全量测试
-flutter test test/path/to_test.dart   # 单个测试文件
-flutter build apk --release           # 构建 release APK
-```
-
-### 安装到真机（保留应用数据）
-
-**关键：禁止使用 `flutter install` 安装更新。** 它会先卸载旧版本再重装，导致用户已配置的 API、SharedPreferences 等本地数据全部丢失。
-
-正确方式：使用 `adb install -r` 覆盖安装，`-r` 表示 reinstall，保留应用数据：
-
-```bash
-# adb 默认路径（Windows）：
-%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe
-
-# 列出设备
-adb devices
-
-# 覆盖安装（保留数据），-r=reinstall，-t=允许测试包
-adb -s <device-id> install -r -t mobile-app\build\app\outputs\flutter-apk\app-release.apk
-```
-
-如果遇到签名不一致导致 `-r` 失败，需统一 release 构建的 keystore，而不是回退到卸载重装。
-
-### 版本号约定
-
-更新版本时同时提升 `pubspec.yaml` 中的 `version: X.Y.Z+buildCode`（`+buildCode` 对应 Android `versionCode`），确保 `flutter install` 在极端情况下也能走升级路径而非卸载重装。
+任一失败则修复后重新执行全部命令.
 
 ## Agent skills
 
-### Issue tracker
-
-Issues live in GitHub Issues (`hjdspace/SpaceCode`) and are accessed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Five canonical triage labels with default names (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context layout: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+- **Issue tracker**: GitHub Issues (`hjdspace/SpaceCode`), via `gh` CLI → `docs/agents/issue-tracker.md`
+- **Triage labels**: `needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix` → `docs/agents/triage-labels.md`
+- **Domain docs**: `CONTEXT.md` + `docs/adr/` → `docs/agents/domain.md`
