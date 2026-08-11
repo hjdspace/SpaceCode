@@ -116,6 +116,15 @@ void main() {
           DangerLevel.write);
     });
 
+    test('web tools return read', () {
+      expect(CommandClassifier.classify('web_search', const {'query': 'q'}),
+          DangerLevel.read);
+      expect(
+          CommandClassifier.classify(
+              'fetch_url', const {'url': 'https://x.com'}),
+          DangerLevel.read);
+    });
+
     test('unknown tool defaults to write', () {
       expect(CommandClassifier.classify('some_unknown_tool', const {}),
           DangerLevel.write);

@@ -56,6 +56,7 @@ pi-engine/
 frontend-code-review/
 
 _temp/
+.cache/linux-pty/
 
 .codegraph/
 .choccy/

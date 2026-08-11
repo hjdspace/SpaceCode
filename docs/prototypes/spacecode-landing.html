@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SpaceCode — AI 智能编程桌面助手</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  /* ========== Reset & Base ========== */
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #0a0a0b;
+    color: #e4e4e7;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+  ::selection { background: rgba(168, 85, 247, 0.3); color: #fff; }
+  a { color: inherit; text-decoration: none; }
+
+  /* ========== Grid Background ========== */
+  .grid-bg {
+    position: fixed; inset: 0; z-index: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+    background-size: 60px 60px;
+    pointer-events: none;
+  }
+
+  /* ========== Glow Orbs ========== */
+  .glow-orb {
+    position: fixed; border-radius: 50%; filter: blur(120px);
+    pointer-events: none; z-index: 0;
+  }
+  .glow-orb--1 {
+    top: -10%; left: -5%; width: 50vw; height: 50vw;
+    background: radial-gradient(circle, rgba(168,85,247,0.15), transparent 70%);
+  }
+  .glow-orb--2 {
+    bottom: -10%; right: -5%; width: 45vw; height: 45vw;
+    background: radial-gradient(circle, rgba(59,130,246,0.12), transparent 70%);
+  }
+  .glow-orb--3 {
+    top: 40%; left: 50%; width: 40vw; height: 40vw;
+    background: radial-gradient(circle, rgba(236,72,153,0.08), transparent 70%);
+    transform: translate(-50%, -50%);
+  }
+
+  /* ========== Navbar ========== */
+  .navbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    padding: 0 2rem; height: 64px;
+    display: flex; align-items: center; justify-content: space-between;
+    background: rgba(10,10,11,0.8); backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .navbar__logo {
+    display: flex; align-items: center; gap: 10px;
+    font-weight: 700; font-size: 1.15rem; letter-spacing: -0.02em;
+  }
+  .navbar__logo svg { width: 28px; height: 28px; }
+  .navbar__links { display: flex; align-items: center; gap: 2rem; }
+  .navbar__links a {
+    font-size: 0.875rem; color: rgba(255,255,255,0.5);
+    transition: color 0.2s; font-weight: 450;
+  }
+  .navbar__links a:hover { color: rgba(255,255,255,0.9); }
+  .navbar__actions { display: flex; align-items: center; gap: 0.75rem; }
+  .btn-ghost {
+    padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.875rem;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: transparent; color: rgba(255,255,255,0.7); cursor: pointer;
+    transition: all 0.2s; font-weight: 500;
+  }
+  .btn-ghost:hover { border-color: rgba(255,255,255,0.25); color: #fff; }
+  .btn-primary {
+    padding: 0.5rem 1.25rem; border-radius: 8px; font-size: 0.875rem;
+    border: none; background: #a855f7; color: #fff; cursor: pointer;
+    transition: all 0.2s; font-weight: 500;
+  }
+  .btn-primary:hover { background: #9333ea; transform: translateY(-1px); }
+
+  /* ========== Hero ========== */
+  .hero {
+    position: relative; z-index: 1;
+    min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center; padding: 8rem 2rem 6rem;
+  }
+  .hero__badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 0.4rem 1rem; border-radius: 100px;
+    font-size: 0.8rem; font-weight: 500; letter-spacing: 0.02em;
+    background: rgba(168,85,247,0.1); border: 1px solid rgba(168,85,247,0.2);
+    color: #c084fc; margin-bottom: 2rem;
+    animation: fadeUp 0.8s ease both;
+  }
+  .hero__badge-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #22c55e; animation: pulseDot 2s ease infinite;
+  }
+  @keyframes pulseDot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  .hero h1 {
+    font-size: clamp(2.8rem, 6vw, 5rem); font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.1;
+    background: linear-gradient(135deg, #fff 30%, rgba(255,255,255,0.5));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text; max-width: 900px;
+    animation: fadeUp 0.8s 0.1s ease both;
+  }
+  .hero h1 .highlight {
+    background: linear-gradient(135deg, #a855f7, #ec4899);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .hero p {
+    font-size: clamp(1.05rem, 1.5vw, 1.25rem); color: rgba(255,255,255,0.5);
+    max-width: 640px; margin-top: 1.5rem; font-weight: 400;
+    animation: fadeUp 0.8s 0.2s ease both;
+  }
+  .hero__actions {
+    display: flex; gap: 1rem; margin-top: 2.5rem;
+    animation: fadeUp 0.8s 0.3s ease both;
+  }
+  .hero__actions .btn-primary {
+    padding: 0.85rem 2rem; font-size: 1rem; border-radius: 10px;
+  }
+  .hero__actions .btn-ghost {
+    padding: 0.85rem 2rem; font-size: 1rem; border-radius: 10px;
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ========== Stats ========== */
+  .stats {
+    position: relative; z-index: 1;
+    display: flex; justify-content: center; gap: 4rem;
+    padding: 0 2rem 5rem; flex-wrap: wrap;
+    animation: fadeUp 0.8s 0.4s ease both;
+  }
+  .stat { text-align: center; }
+  .stat__num {
+    font-size: 2.2rem; font-weight: 800; letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #a855f7, #3b82f6);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .stat__label { font-size: 0.85rem; color: rgba(255,255,255,0.4); margin-top: 4px; }
+
+  /* ========== Section Common ========== */
+  .section {
+    position: relative; z-index: 1;
+    padding: 6rem 2rem; max-width: 1200px; margin: 0 auto;
+  }
+  .section__label {
+    font-size: 0.8rem; font-weight: 600; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #a855f7; margin-bottom: 0.75rem;
+  }
+  .section__title {
+    font-size: clamp(2rem, 3.5vw, 2.8rem); font-weight: 700;
+    letter-spacing: -0.02em; line-height: 1.2;
+    margin-bottom: 1rem;
+  }
+  .section__sub {
+    font-size: 1.05rem; color: rgba(255,255,255,0.45);
+    max-width: 600px; line-height: 1.7;
+  }
+
+  /* ========== Mode Cards ========== */
+  .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; margin-top: 3rem; }
+  .mode-card {
+    position: relative; border-radius: 16px; padding: 2.5rem 2rem;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); cursor: default;
+    overflow: hidden;
+  }
+  .mode-card::before {
+    content: ''; position: absolute; inset: 0; opacity: 0;
+    transition: opacity 0.4s; border-radius: 16px;
+  }
+  .mode-card:hover {
+    transform: translateY(-4px); border-color: rgba(168,85,247,0.25);
+    background: rgba(168,85,247,0.05);
+  }
+  .mode-card:hover::before { opacity: 1; }
+  .mode-card__icon {
+    width: 48px; height: 48px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.5rem; margin-bottom: 1.25rem;
+    background: rgba(168,85,247,0.1); border: 1px solid rgba(168,85,247,0.15);
+  }
+  .mode-card h3 { font-size: 1.2rem; font-weight: 600; margin-bottom: 0.75rem; }
+  .mode-card p { font-size: 0.9rem; color: rgba(255,255,255,0.45); line-height: 1.7; }
+  .mode-card__tags { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1.25rem; }
+  .mode-card__tag {
+    padding: 0.25rem 0.7rem; border-radius: 6px;
+    font-size: 0.75rem; font-weight: 500;
+    background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.5);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+
+  /* ========== Feature Grid ========== */
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 3rem; }
+  .feature-card {
+    padding: 1.5rem; border-radius: 12px;
+    background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05);
+    transition: all 0.3s ease;
+  }
+  .feature-card:hover {
+    background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.1);
+    transform: translateY(-2px);
+  }
+  .feature-card__emoji { font-size: 1.5rem; margin-bottom: 0.75rem; }
+  .feature-card h4 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.4rem; }
+  .feature-card p { font-size: 0.82rem; color: rgba(255,255,255,0.4); line-height: 1.6; }
+
+  /* ========== Tech Stack ========== */
+  .tech-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.75rem; margin-top: 3rem;
+  }
+  .tech-item {
+    padding: 1rem 1.25rem; border-radius: 10px;
+    background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05);
+    text-align: center; font-size: 0.82rem; font-weight: 500;
+    transition: all 0.3s;
+  }
+  .tech-item:hover {
+    background: rgba(168,85,247,0.06); border-color: rgba(168,85,247,0.2);
+    transform: translateY(-2px);
+  }
+  .tech-item__version {
+    display: block; font-size: 0.7rem; font-weight: 400;
+    color: rgba(255,255,255,0.3); margin-top: 2px;
+  }
+
+  /* ========== Architecture ========== */
+  .arch-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem; margin-top: 3rem;
+  }
+  .arch-card {
+    padding: 1.5rem; border-radius: 12px; text-align: center;
+    background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05);
+    transition: all 0.3s;
+  }
+  .arch-card:hover { border-color: rgba(168,85,247,0.2); transform: translateY(-2px); }
+  .arch-card__icon { font-size: 2rem; margin-bottom: 0.75rem; }
+  .arch-card h4 { font-size: 0.9rem; font-weight: 600; margin-bottom: 0.3rem; }
+  .arch-card p { font-size: 0.78rem; color: rgba(255,255,255,0.4); }
+
+  /* ========== Timeline ========== */
+  .timeline { margin-top: 3rem; position: relative; }
+  .timeline::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+    width: 1px; background: rgba(255,255,255,0.06);
+  }
+  .timeline-item {
+    padding-left: 2rem; padding-bottom: 2rem;
+    position: relative; border-left: 1px solid rgba(255,255,255,0.06);
+    margin-left: 0;
+  }
+  .timeline-item:last-child { padding-bottom: 0; }
+  .timeline-item::before {
+    content: ''; position: absolute; left: -5px; top: 4px;
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #a855f7; border: 2px solid #0a0a0b;
+  }
+  .timeline-item__ver {
+    font-size: 0.75rem; font-weight: 600; color: #a855f7;
+    margin-bottom: 0.25rem;
+  }
+  .timeline-item__desc {
+    font-size: 0.85rem; color: rgba(255,255,255,0.5);
+  }
+
+  /* ========== CTA ========== */
+  .cta-section {
+    position: relative; z-index: 1;
+    text-align: center; padding: 6rem 2rem;
+  }
+  .cta-section__inner {
+    max-width: 700px; margin: 0 auto;
+  }
+  .cta-section h2 {
+    font-size: clamp(2rem, 3vw, 2.5rem); font-weight: 700;
+    letter-spacing: -0.02em; margin-bottom: 1rem;
+  }
+  .cta-section p {
+    color: rgba(255,255,255,0.45); font-size: 1.05rem; margin-bottom: 2rem;
+  }
+  .cta-buttons { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+  .cta-buttons .btn-primary {
+    padding: 0.85rem 2.5rem; font-size: 1rem; border-radius: 10px;
+  }
+  .cta-buttons .btn-ghost {
+    padding: 0.85rem 2.5rem; font-size: 1rem; border-radius: 10px;
+  }
+
+  /* ========== Footer ========== */
+  .footer {
+    position: relative; z-index: 1;
+    text-align: center; padding: 3rem 2rem;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    font-size: 0.82rem; color: rgba(255,255,255,0.3);
+  }
+  .footer-links { display: flex; justify-content: center; gap: 1.5rem; margin-bottom: 1rem; }
+  .footer-links a { color: rgba(255,255,255,0.4); transition: color 0.2s; }
+  .footer-links a:hover { color: rgba(255,255,255,0.7); }
+
+  /* ========== Scroll Animations ========== */
+  .reveal {
+    opacity: 0; transform: translateY(30px);
+    transition: all 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .reveal.visible { opacity: 1; transform: translateY(0); }
+
+  /* ========== Responsive ========== */
+  @media (max-width: 768px) {
+    .navbar__links { display: none; }
+    .hero h1 { font-size: clamp(2rem, 8vw, 3rem); }
+    .stats { gap: 2rem; }
+    .modes { grid-template-columns: 1fr; }
+    .section { padding: 4rem 1.5rem; }
+  }
+
+  /* ========== Divider ========== */
+  .divider {
+    position: relative; z-index: 1;
+    height: 1px; max-width: 1200px; margin: 0 auto;
+    background: linear-gradient(to right, transparent, rgba(255,255,255,0.06), transparent);
+  }
+</style>
+</head>
+<body>
+
+<!-- Background -->
+<div class="grid-bg"></div>
+<div class="glow-orb glow-orb--1"></div>
+<div class="glow-orb glow-orb--2"></div>
+<div class="glow-orb glow-orb--3"></div>
+
+<!-- ==================== Navbar ==================== -->
+<nav class="navbar">
+  <div class="navbar__logo">
+    <svg viewBox="0 0 28 28" fill="none">
+      <rect width="28" height="28" rx="6" fill="url(#logo-grad)"/>
+      <path d="M8 14L12 10L16 14L12 18L8 14Z" fill="white" fill-opacity="0.9"/>
+      <path d="M14 8L18 12L14 16L10 12L14 8Z" fill="white" fill-opacity="0.6"/>
+      <defs>
+        <linearGradient id="logo-grad" x1="0" y1="0" x2="28" y2="28">
+          <stop stop-color="#a855f7"/>
+          <stop offset="1" stop-color="#3b82f6"/>
+        </linearGradient>
+      </defs>
+    </svg>
+    SpaceCode
+  </div>
+  <div class="navbar__links">
+    <a href="#modes">能力</a>
+    <a href="#features">特色</a>
+    <a href="#tech">技术栈</a>
+    <a href="#roadmap">路线图</a>
+  </div>
+  <div class="navbar__actions">
+    <a href="https://github.com/hjdspace/SpaceCode" target="_blank" class="btn-ghost">GitHub</a>
+    <a href="https://github.com/hjdspace/SpaceCode/releases" target="_blank" class="btn-primary">下载</a>
+  </div>
+</nav>
+
+<!-- ==================== Hero ==================== -->
+<section class="hero">
+  <div class="hero__badge">
+    <span class="hero__badge-dot"></span>
+    v0.6.10 · 跨平台 AI 桌面助手
+  </div>
+  <h1>
+    让 AI 成为你的<br>
+    <span class="highlight">编码 · 办公 · 设计</span><br>
+    全能搭档
+  </h1>
+  <p>
+    基于 Claude Code 引擎构建的新一代 AI 桌面应用，深度融合大语言模型能力，
+    为开发者提供智能化的代码编写、文档产出与 UI/UX 设计体验。
+  </p>
+  <div class="hero__actions">
+    <a href="https://github.com/hjdspace/SpaceCode/releases" target="_blank" class="btn-primary">立即下载</a>
+    <a href="https://github.com/hjdspace/SpaceCode" target="_blank" class="btn-ghost">查看源码 →</a>
+  </div>
+</section>
+
+<!-- ==================== Stats ==================== -->
+<div class="stats">
+  <div class="stat">
+    <div class="stat__num">70+</div>
+    <div class="stat__label">内置 Agent</div>
+  </div>
+  <div class="stat">
+    <div class="stat__num">50+</div>
+    <div class="stat__label">内置技能</div>
+  </div>
+  <div class="stat">
+    <div class="stat__num">20+</div>
+    <div class="stat__label">办公助手</div>
+  </div>
+  <div class="stat">
+    <div class="stat__num">3</div>
+    <div class="stat__label">核心模式</div>
+  </div>
+  <div class="stat">
+    <div class="stat__num">6</div>
+    <div class="stat__label">平台支持</div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ==================== Modes ==================== -->
+<section class="section" id="modes">
+  <div class="reveal">
+    <div class="section__label">三大核心模式</div>
+    <h2 class="section__title">一个工具，三种身份</h2>
+    <p class="section__sub">顶部一键切换，共享会话管理、多模型支持、技能系统等底层能力。</p>
+  </div>
+  <div class="modes">
+    <div class="mode-card reveal">
+      <div class="mode-card__icon">💻</div>
+      <h3>编码模式</h3>
+      <p>面向开发者的 AI 编程助手，深度集成 Claude Code 引擎，提供从代码编写、调试、重构到项目管理的全流程辅助。</p>
+      <div class="mode-card__tags">
+        <span class="mode-card__tag">AI 对话编程</span>
+        <span class="mode-card__tag">工具调用卡片</span>
+        <span class="mode-card__tag">代码 Diff</span>
+        <span class="mode-card__tag">Git SCM</span>
+        <span class="mode-card__tag">集成终端</span>
+        <span class="mode-card__tag">对话回滚</span>
+      </div>
+    </div>
+    <div class="mode-card reveal">
+      <div class="mode-card__icon">💼</div>
+      <h3>办公模式</h3>
+      <p>面向职场场景的 AI 办公助手，内置 20+ 专业助手，直接生成可编辑的 .pptx / .docx / .xlsx 文件。</p>
+      <div class="mode-card__tags">
+        <span class="mode-card__tag">PPT 制作</span>
+        <span class="mode-card__tag">Word 文档</span>
+        <span class="mode-card__tag">Excel 表格</span>
+        <span class="mode-card__tag">学术论文</span>
+        <span class="mode-card__tag">财务模型</span>
+        <span class="mode-card__tag">数据看板</span>
+      </div>
+    </div>
+    <div class="mode-card reveal">
+      <div class="mode-card__icon">🎨</div>
+      <h3>设计模式</h3>
+      <p>面向 UI/UX 设计与前端原型的 AI 设计工作台，深度复刻 open-design 交互范式，完成设计系统分析与产物生成。</p>
+      <div class="mode-card__tags">
+        <span class="mode-card__tag">设计系统</span>
+        <span class="mode-card__tag">模板选择</span>
+        <span class="mode-card__tag">结构化卡片</span>
+        <span class="mode-card__tag">源码预览</span>
+        <span class="mode-card__tag">一键导出</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ==================== Features ==================== -->
+<section class="section" id="features">
+  <div class="reveal">
+    <div class="section__label">更多特色</div>
+    <h2 class="section__title">强大能力，触手可及</h2>
+    <p class="section__sub">从桌面操控到浏览器自动化，从多模型支持到移动端协同，SpaceCode 为你打造完整的 AI 工作台。</p>
+  </div>
+  <div class="features">
+    <div class="feature-card reveal">
+      <div class="feature-card__emoji">🖥️</div>
+      <h4>Computer Use 桌面控制</h4>
+      <p>基于 cua-driver 的后台桌面操控，AI 可截图、点击、输入文字、滚动、拖拽，真实光标始终不动。</p>
+    </div>
+    <div class="feature-card reveal">
+      <div class="feature-card__emoji">🌐</div>
+      <h4>Browser Use 浏览器自动化</h4>
+      <p>AI 操控真实浏览器完成网页浏览、信息检索、表单填写，支持本地与云端浏览器。</p>
+    </div>
+    <div class="feature-card reveal">
+      <div class="feature-card__emoji">🤖</div>
+      <h4>双引擎多模型架构</h4>
+      <p>Claude Code CLI + Pi Engine 双引擎，支持 Anthropic、OpenAI、Gemini、Grok、DeepSeek 等主流 LLM。</p>
+    </div>
+    <div class="feature-card reveal">
+      <div class="feature-card__emoji">🔌</div>
+      <h4>MCP 协议生态</h4>
+      <p>支持 stdio / SSE / HTTP 三种传输方式，内置 Computer Use 与 Browser Use MCP 预设，可视化配置。</p>
+    </div>
+    <div class="feature-card reveal">
+      <div class="feature-card__emoji">📚</div>
+      <h4>技能库与智能体系统</h4>
+      <p>50+ 内置技能（前端设计、PPT 生成、代码审查、TDD 等），70+ 内置 Agent，支持工作流编辑。</p>
+    </div>
+    <div class="feature-card reveal">
+      <div class="feature-card__emoji">📱</div>
+      <h4>移动端配套</h4>
+      <p>Flutter 跨平台应用，扫码配对桌面端，主题实时同步，远程审批与代理管理。</p>
+    </div>
+    <div class="feature-card reveal">
+      <div class="feature-card__emoji">⚡</div>
+      <h4>高级功能</h4>
+      <p>定时任务 Cron、Hook 管理系统、上下文用量追踪、链路追踪 Trace、迷你浏览器工作台。</p>
+    </div>
+    <div class="feature-card reveal">
+      <div class="feature-card__emoji">🎨</div>
+      <h4>精致用户体验</h4>
+      <p>Dark/Light 双主题，Anthropic 配色规范，完整中英文国际化，可自定义快捷键，响应式设计。</p>
+    </div>
+    <div class="feature-card reveal">
+      <div class="feature-card__emoji">🔄</div>
+      <h4>分屏多会话布局</h4>
+      <p>三栏式 IDE 布局，分屏多会话并行展示，浏览器式 Tab 管理，后台会话保持，LRU 进程池管理。</p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ==================== Architecture ==================== -->
+<section class="section">
+  <div class="reveal">
+    <div class="section__label">项目架构</div>
+    <h2 class="section__title">清晰的模块化结构</h2>
+    <p class="section__sub">Monorepo 架构，桌面 GUI + CLI 核心引擎 + Flutter 移动端三端协同。</p>
+  </div>
+  <div class="arch-grid">
+    <div class="arch-card reveal">
+      <div class="arch-card__icon">🖥️</div>
+      <h4>Electron 主进程</h4>
+      <p>IPC 通信、会话管理、进程池、cua-driver、Git、终端、技能、自动更新</p>
+    </div>
+    <div class="arch-card reveal">
+      <div class="arch-card__icon">🎨</div>
+      <h4>Vue 3 渲染进程</h4>
+      <p>三栏布局、20+ 组件模块、Pinia 状态管理、组合式 API、scoped SCSS</p>
+    </div>
+    <div class="arch-card reveal">
+      <div class="arch-card__icon">⚙️</div>
+      <h4>CLI 核心引擎</h4>
+      <p>Bun 运行时、Claude Code / Pi 双引擎适配、MCP 协议实现、Commander 参数解析</p>
+    </div>
+    <div class="arch-card reveal">
+      <div class="arch-card__icon">📱</div>
+      <h4>Flutter 移动端</h4>
+      <p>Android / iOS / macOS / Linux / Windows / Web 六端，WebSocket 桌面通信</p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ==================== Tech Stack ==================== -->
+<section class="section" id="tech">
+  <div class="reveal">
+    <div class="section__label">技术栈</div>
+    <h2 class="section__title">现代化技术选型</h2>
+    <p class="section__sub">从 Electron 43 到 Vue 3.4，从 Vite 8 到 Bun 运行时，持续跟进前沿技术。</p>
+  </div>
+  <div class="tech-grid">
+    <div class="tech-item reveal">Electron <span class="tech-item__version">43.x</span></div>
+    <div class="tech-item reveal">Vue 3 <span class="tech-item__version">3.4.x</span></div>
+    <div class="tech-item reveal">Vite <span class="tech-item__version">8.x</span></div>
+    <div class="tech-item reveal">TypeScript <span class="tech-item__version">5.x</span></div>
+    <div class="tech-item reveal">Pinia <span class="tech-item__version">2.x</span></div>
+    <div class="tech-item reveal">SCSS <span class="tech-item__version">1.71+</span></div>
+    <div class="tech-item reveal">Bun <span class="tech-item__version">≥1.3</span></div>
+    <div class="tech-item reveal">xterm.js <span class="tech-item__version">6.x</span></div>
+    <div class="tech-item reveal">node-pty <span class="tech-item__version">1.x</span></div>
+    <div class="tech-item reveal">Mermaid <span class="tech-item__version">11.x</span></div>
+    <div class="tech-item reveal">highlight.js <span class="tech-item__version">11.x</span></div>
+    <div class="tech-item reveal">marked <span class="tech-item__version">12.x</span></div>
+    <div class="tech-item reveal">electron-builder <span class="tech-item__version">26.x</span></div>
+    <div class="tech-item reveal">electron-updater <span class="tech-item__version">6.x</span></div>
+    <div class="tech-item reveal">Vue Test Utils <span class="tech-item__version">2.x</span></div>
+    <div class="tech-item reveal">jsdom <span class="tech-item__version">29.x</span></div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ==================== Roadmap ==================== -->
+<section class="section" id="roadmap">
+  <div class="reveal">
+    <div class="section__label">路线图</div>
+    <h2 class="section__title">持续演进，不断前行</h2>
+    <p class="section__sub">SpaceCode 仍在快速迭代中，以下为近期规划方向。</p>
+  </div>
+  <div class="timeline">
+    <div class="timeline-item reveal">
+      <div class="timeline-item__ver">v0.6.x — 已完成</div>
+      <div class="timeline-item__desc">桌面宠物、多模型 Profile、IM 集成、办公助手画廊</div>
+    </div>
+    <div class="timeline-item reveal">
+      <div class="timeline-item__ver">v0.5.x — 已完成</div>
+      <div class="timeline-item__desc">分屏多会话、Computer Use、Browser Use、设计模式</div>
+    </div>
+    <div class="timeline-item reveal">
+      <div class="timeline-item__ver">v0.4.x — 已完成</div>
+      <div class="timeline-item__desc">MCP 协议、移动端配套、Agents 智能体系统</div>
+    </div>
+    <div class="timeline-item reveal">
+      <div class="timeline-item__ver">🚧 进行中</div>
+      <div class="timeline-item__desc">更多 LLM 服务商原生支持、办公模式能力扩展、移动端体验升级</div>
+    </div>
+    <div class="timeline-item reveal">
+      <div class="timeline-item__ver">📋 计划中</div>
+      <div class="timeline-item__desc">宠物 UI 优化、设计模式强化、Mixture of Agents、插件系统、Web 版本、协作工作流、本地模型支持</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ==================== CTA ==================== -->
+<section class="cta-section">
+  <div class="cta-section__inner reveal">
+    <h2>开始你的 AI 编程之旅</h2>
+    <p>SpaceCode 完全开源免费，欢迎 Star、下载、参与贡献。</p>
+    <div class="cta-buttons">
+      <a href="https://github.com/hjdspace/SpaceCode/releases" target="_blank" class="btn-primary">下载 SpaceCode</a>
+      <a href="https://github.com/hjdspace/SpaceCode" target="_blank" class="btn-ghost">GitHub 仓库 →</a>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== Footer ==================== -->
+<footer class="footer">
+  <div class="footer-links">
+    <a href="https://github.com/hjdspace/SpaceCode" target="_blank">GitHub</a>
+    <a href="https://github.com/hjdspace/SpaceCode/issues" target="_blank">Issues</a>
+    <a href="https://github.com/hjdspace/SpaceCode/releases" target="_blank">Releases</a>
+    <a href="https://github.com/hjdspace/SpaceCode/discussions" target="_blank">Discussions</a>
+  </div>
+  <p>Copyright © 2026 <a href="https://github.com/hjdspace" style="color: rgba(255,255,255,0.5);">hjdspace</a> · MIT License</p>
+</footer>
+
+<!-- ==================== Scroll Reveal ==================== -->
+<script>
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+    }
+  });
+}, { threshold: 0.1 });
+
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+</script>
+
+</body>
+</html>

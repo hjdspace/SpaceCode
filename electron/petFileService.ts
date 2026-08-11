@@ -3,7 +3,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, unlinkSync, renameSync } from 'fs'
 import { info, warn } from './logger'
-import type { PetConfig } from '../src/types/pet'
+import { createDefaultPetConfig, type PetConfig } from '../src/types/pet'
 
 const CONFIG_FILENAME = 'buddy-pets.json'
 const ASSETS_DIRNAME = 'buddy-pets-assets'
@@ -27,7 +27,12 @@ export class PetFileService {
     if (!existsSync(this.assetsDir)) {
       mkdirSync(this.assetsDir, { recursive: true })
     }
-    this.cache = await this.read()
+    let config = await this.read()
+    if (!config) {
+      // 首次启动或配置损坏：创建默认配置并落盘，保证 getCachedConfig 始终可用
+      config = createDefaultPetConfig()
+      await this.write(config)
+    }
     info('PetFileService', `Initialized, cache ${this.cache ? 'loaded' : 'empty'}`)
   }
 
@@ -37,7 +42,14 @@ export class PetFileService {
       const raw = readFileSync(this.configPath, 'utf-8')
       if (!raw.trim()) return null
       const config = JSON.parse(raw) as PetConfig
-      if (!config.version || !config.settings || !Array.isArray(config.customPets)) {
+      // 校验新结构：version(number) + preferences(object) + windowState(object)
+      if (
+        typeof config.version !== 'number' ||
+        !config.preferences ||
+        typeof config.preferences !== 'object' ||
+        !config.windowState ||
+        typeof config.windowState !== 'object'
+      ) {
         warn('PetFileService', 'Config schema invalid')
         return null
       }

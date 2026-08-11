@@ -21,7 +21,9 @@
       ></div>
       <div class="center-panel">
         <div class="center-content">
-          <SettingsPanel v-if="appStore.showSettings" />
+          <KeepAlive v-if="appStore.showSettings">
+            <SettingsPanel />
+          </KeepAlive>
           <SkillsManager v-else-if="appStore.showSkillsManager" />
           <AgentManager v-else-if="appStore.showAgentManager" />
           <McpManager v-else-if="appStore.showMCPManager" />
@@ -68,24 +70,23 @@
     />
     <WorkspaceOnboarding v-if="appStore.showWorkOnboarding" />
     <FileQuickOpen v-if="appStore.showFileQuickOpen" />
-    <PetEmbeddedWidget v-if="shouldShowEmbeddedPet" />
     <DialogProvider />
   </div>
 </template>
 
 <script setup lang="ts">
-import { defineAsyncComponent, ref, onMounted, onUnmounted, watch, computed } from 'vue'
+import { defineAsyncComponent, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useSettingsStore } from '@/stores/settings'
 import { useFontStore } from '@/stores/font'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
 import { usePetStore } from '@/stores/pet'
-import { initPetReactionGlobal } from '@/composables/usePetReaction'
 import TitleBar from './components/layout/TitleBar.vue'
 import Sidebar from './components/layout/Sidebar.vue'
 import SplitContainer from './components/layout/SplitContainer.vue'
 import DialogProvider from './components/common/DialogProvider.vue'
+import AsyncLoadingState from './components/common/AsyncLoadingState.vue'
 import { api } from '@/services/electronAPI'
 import { isH5Mode } from '@/services/h5ApiClient'
 import { getCachedDesktopConfig } from '@/services/h5Bootstrap'
@@ -101,7 +102,11 @@ const InfoPanel = defineAsyncComponent(() => import('./components/layout/InfoPan
 const TerminalTabBar = defineAsyncComponent(() => import('./components/terminal/TerminalTabBar.vue'))
 const TerminalPanel = defineAsyncComponent(() => import('./components/terminal/TerminalPanel.vue'))
 const TraceViewer = defineAsyncComponent(() => import('./components/debug/TraceViewer.vue'))
-const SettingsPanel = defineAsyncComponent(() => import('./components/settings/SettingsPanel.vue'))
+const SettingsPanel = defineAsyncComponent({
+  loader: () => import('./components/settings/SettingsPanel.vue'),
+  loadingComponent: AsyncLoadingState,
+  delay: 0,
+})
 const SkillsManager = defineAsyncComponent(() => import('./components/skills/SkillsManager.vue'))
 const AgentManager = defineAsyncComponent(() => import('./components/agents/AgentManager.vue'))
 const McpManager = defineAsyncComponent(() => import('./components/mcp/McpManager.vue'))
@@ -110,38 +115,12 @@ const WorkAssistantGallery = defineAsyncComponent(() => import('./components/wor
 const WorkspaceOnboarding = defineAsyncComponent(() => import('./components/work/WorkspaceOnboarding.vue'))
 const ConnectMobileDialog = defineAsyncComponent(() => import('./components/mobile/ConnectMobileDialog.vue'))
 const FileQuickOpen = defineAsyncComponent(() => import('./components/layout/FileQuickOpen.vue'))
-const PetEmbeddedWidget = defineAsyncComponent(() => import('@/components/pets/PetEmbeddedWidget.vue'))
 
 const appStore = useAppStore()
 const sessionStore = useChatSessionStore()
 const settingsStore = useSettingsStore()
 const splitLayout = useSplitLayoutStore()
 const petStore = usePetStore()
-
-const shouldShowEmbeddedPet = computed(() =>
-  petStore.isInitialized &&
-  petStore.activePet &&
-  petStore.mode === 'embedded' &&
-  !petStore.isMuted
-)
-
-// 监听 mode 变化：desktop 窗口的创建/销毁已由 petStore.setMode 负责，
-// 此 watch 作为 App 层面的钩子保留，便于未来扩展（如埋点、动画过渡）。
-watch(() => petStore.mode, (newMode, oldMode) => {
-  if (newMode === 'desktop' && oldMode === 'embedded') {
-    // 切换到桌面模式时，embedded widget 自动隐藏（由 shouldShowEmbeddedPet 控制）
-    // desktop 窗口已由 petStore.setMode 创建
-  } else if (newMode === 'embedded' && oldMode === 'desktop') {
-    // 切回嵌入模式，desktop 窗口已由 petStore.setMode 销毁
-  }
-})
-
-// 监听 reaction 变化，同步到 desktop 窗口
-watch(() => petStore.runtimeState.currentReaction, () => {
-  if (petStore.mode === 'desktop') {
-    petStore.syncToDesktopWindow()
-  }
-})
 
 // H5 模式标记
 const h5Mode = isH5Mode()
@@ -394,14 +373,11 @@ async function initH5MirrorSession() {
   }
 }
 
-onMounted(async () => {
-  // 初始化桌面宠物系统（await 确保 setActivePet 不会因 init 未完成而丢失选择）
-  try {
-    await petStore.init()
-  } catch (err) {
+onMounted(() => {
+  // 宠物窗口是独立功能，不阻塞项目上下文和聊天首屏初始化。
+  void petStore.init().catch((err) => {
     console.error('[Pet] Failed to initialize pet store:', err)
-  }
-  initPetReactionGlobal()
+  })
 
   // H5 模式：设置 body 类以触发移动端样式
   if (isH5Mode()) {

@@ -98,6 +98,38 @@ class AgentSession {
               delta: delta,
             ));
           },
+          onToolCallStart: (toolId, toolName) {
+            onEvent?.call(AgentEvent(
+              type: AgentEventType.toolCallStreamingStart,
+              toolCall: AgentToolCall(
+                id: toolId,
+                name: toolName,
+                arguments: const {},
+              ),
+            ));
+          },
+          onToolCallDelta: (toolId, partialJson) {
+            onEvent?.call(AgentEvent(
+              type: AgentEventType.toolCallStreamingDelta,
+              toolCall: AgentToolCall(
+                id: toolId,
+                name: '',
+                arguments: const {},
+              ),
+              toolCallPartialJson: partialJson,
+            ));
+          },
+          onToolCallStop: (toolId, fullJson) {
+            onEvent?.call(AgentEvent(
+              type: AgentEventType.toolCallStreamingComplete,
+              toolCall: AgentToolCall(
+                id: toolId,
+                name: '',
+                arguments: const {},
+              ),
+              toolCallPartialJson: fullJson,
+            ));
+          },
         );
         token.throwIfCancelled();
 

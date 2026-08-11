@@ -139,6 +139,23 @@ function defaultRoot(): PaneLeaf {
   return makeLeaf({ kind: 'main', tabId: null })
 }
 
+function containsSessionPane(node: PaneNode): boolean {
+  if (isLeaf(node)) return node.content.kind === 'session'
+  return containsSessionPane(node.children[0]) || containsSessionPane(node.children[1])
+}
+
+function clearSessionPanes(node: PaneNode): PaneNode {
+  if (isLeaf(node)) {
+    return node.content.kind === 'session'
+      ? { ...node, content: { kind: 'empty', tabId: null } }
+      : node
+  }
+  return {
+    ...node,
+    children: [clearSessionPanes(node.children[0]), clearSessionPanes(node.children[1])],
+  }
+}
+
 function loadRootFromStorage(): PaneNode {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -147,9 +164,13 @@ function loadRootFromStorage(): PaneNode {
     if (parsed && isValidNode(parsed)) {
       // 限制 leaf ≤ 4，保护：超出则丢弃
       if (countLeaves(parsed) <= MAX_LEAVES) {
-        // 如果所有 leaf 都是 empty，说明是之前 bug 残留的脏数据 → 忽略并返回默认 main leaf
-        const allEmpty = collectLeaves(parsed).every(l => l.content.kind === 'empty')
-        if (!allEmpty) return parsed
+        // Session tabs are not persisted alongside the layout. Restoring a
+        // session pane here would make SplitContainer select a historical
+        // session during startup and hydrate its JSONL before the first paint.
+        // Historical sessions are opened explicitly from the sidebar instead.
+        const startupRoot = containsSessionPane(parsed) ? clearSessionPanes(parsed) : parsed
+        const allEmpty = collectLeaves(startupRoot).every(l => l.content.kind === 'empty')
+        if (!allEmpty) return startupRoot
       }
     }
   } catch { /* ignore */ }

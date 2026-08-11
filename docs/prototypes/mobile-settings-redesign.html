@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SpaceCode Mobile — 设置页面 UI 优化原型</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --bg-primary:#181715;
+    --bg-secondary:#1c1b1a;
+    --bg-tertiary:#1f1e1b;
+    --bg-elevated:#252320;
+    --bg-hover:#2d2c29;
+    --bg-active:#353332;
+    --text-primary:#faf9f5;
+    --text-secondary:#a09d96;
+    --text-muted:#6c6a64;
+    --accent-primary:#cc785c;
+    --accent-secondary:#5db8a6;
+    --accent-tertiary:#e8a55a;
+    --success:#5db872;
+    --warning:#d4a017;
+    --error:#c64545;
+    --border:rgba(250,249,245,0.08);
+    --border-strong:rgba(250,249,245,0.12);
+  }
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    background:#0d0c0a;
+    color:var(--text-primary);
+    min-height:100vh;
+    padding:40px 24px;
+  }
+  h1{font-size:28px;font-weight:700;text-align:center;margin-bottom:8px;letter-spacing:-0.02em}
+  .subtitle{text-align:center;color:var(--text-secondary);font-size:14px;margin-bottom:48px;max-width:680px;margin-left:auto;margin-right:auto;line-height:1.6}
+  .variants{display:flex;gap:32px;justify-content:center;flex-wrap:wrap;max-width:2200px;margin:0 auto}
+  .variant-col{display:flex;flex-direction:column;align-items:center;gap:16px}
+  .variant-label{font-size:13px;font-weight:600;color:var(--accent-secondary);text-transform:uppercase;letter-spacing:0.08em}
+  .variant-desc{font-size:12px;color:var(--text-muted);max-width:320px;text-align:center;line-height:1.5;margin-bottom:8px}
+  .phone{
+    width:375px;height:812px;background:var(--bg-primary);
+    border-radius:44px;border:8px solid #2a2826;
+    overflow:hidden;position:relative;
+    box-shadow:0 24px 64px rgba(0,0,0,0.5),0 0 0 1px rgba(250,249,245,0.04);
+  }
+  .phone-screen{width:100%;height:100%;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}
+  .phone-screen::-webkit-scrollbar{width:0}
+  .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:150px;height:28px;background:#2a2826;border-radius:0 0 18px 18px;z-index:100}
+  .status-bar{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 24px 0 28px;font-size:14px;font-weight:600;flex-shrink:0}
+  .status-icons{display:flex;gap:6px;align-items:center}
+  .status-icons span{font-size:12px}
+
+  /* Shared */
+  .field-label{font-size:11px;font-weight:500;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;display:block}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:12px 20px;border-radius:10px;font-size:14px;font-weight:600;border:none;cursor:pointer}
+  .btn-primary{background:var(--accent-primary);color:#181715}
+  .btn-outline{background:transparent;border:1px solid var(--border-strong);color:var(--text-primary)}
+  .btn-danger{background:rgba(198,69,69,0.15);color:var(--error);border:1px solid rgba(198,69,69,0.3)}
+  .btn-block{display:flex;width:100%}
+
+  /* ====== Analysis ====== */
+  .analysis{max-width:840px;margin:0 auto 64px;padding:0 24px}
+  .analysis h3{font-size:18px;font-weight:700;margin-bottom:16px}
+  .analysis ul{list-style:none;padding:0}
+  .analysis li{padding:8px 0;font-size:14px;color:var(--text-secondary);line-height:1.6;border-bottom:1px solid var(--border);display:flex;gap:10px}
+  .analysis li::before{content:'▸';color:var(--accent-primary);flex-shrink:0}
+  .analysis .tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:rgba(204,120,92,0.15);color:var(--accent-primary);margin-left:6px}
+
+  /* ============================================================
+     VARIANT A: Grouped Inset Cards (iOS Settings 风格)
+     ============================================================ */
+  .va-screen{background:var(--bg-primary)}
+  .va-header{padding:8px 20px 20px;display:flex;align-items:center;gap:12px}
+  .va-header .back{color:var(--accent-primary);font-size:20px}
+  .va-header h2{font-size:28px;font-weight:700;letter-spacing:-0.02em}
+  .va-section{padding:0 20px;margin-bottom:32px}
+  .va-section-title{font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;padding-left:4px}
+  .va-card{background:var(--bg-elevated);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+  .va-card-row{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)}
+  .va-card-row:last-child{border-bottom:none}
+  .va-card-row-label{display:flex;align-items:center;gap:12px}
+  .va-card-row-label .ic{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px}
+  .va-card-row-label .tx{font-size:14px;color:var(--text-primary)}
+  .va-card-row-val{display:flex;align-items:center;gap:6px;font-size:14px;color:var(--text-muted)}
+  .va-conn-status{display:flex;align-items:center;gap:8px;padding:14px 16px;border-bottom:1px solid var(--border)}
+  .va-dot{width:8px;height:8px;border-radius:50%;background:var(--success)}
+  .va-conn-text{font-size:14px;font-weight:500}
+  .va-conn-device{font-size:12px;color:var(--text-muted);margin-top:2px}
+  .va-form{padding:14px 16px}
+  .va-form-group{margin-bottom:12px}
+  .va-form-group:last-child{margin-bottom:0}
+  .va-form-row{display:flex;gap:8px;align-items:flex-start}
+  .va-form-row .fi{flex:1}
+  .fi{width:100%;padding:12px 14px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:10px;color:var(--text-primary);font-size:14px;outline:none}
+  .fi::placeholder{color:var(--text-muted)}
+  .va-refresh{width:44px;height:44px;flex-shrink:0;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--accent-primary);cursor:pointer;font-size:18px}
+  .va-theme-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:14px 16px}
+  .va-theme-sw{height:56px;border-radius:10px;border:2px solid transparent;cursor:pointer;position:relative;display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px}
+  .va-theme-sw.selected{border-color:var(--accent-primary)}
+  .va-theme-sw .chk{position:absolute;top:6px;right:6px;width:16px;height:16px;border-radius:50%;background:var(--accent-primary);display:flex;align-items:center;justify-content:center;font-size:10px;color:#181715}
+  .va-theme-sw .nm{font-size:10px;font-weight:600}
+  .va-about{padding:16px;text-align:center;color:var(--text-muted);font-size:12px;line-height:1.6}
+  .va-about strong{color:var(--text-secondary);font-size:14px;display:block;margin-bottom:2px}
+
+  /* ============================================================
+     VARIANT B: Accent-Striped Panels (色条分区面板)
+     ============================================================ */
+  .vb-screen{background:var(--bg-secondary)}
+  .vb-header{padding:12px 20px 24px;background:var(--bg-primary)}
+  .vb-header-top{display:flex;align-items:center;gap:10px}
+  .vb-header-top .back{color:var(--text-secondary);font-size:20px}
+  .vb-header h2{font-size:24px;font-weight:700;letter-spacing:-0.02em}
+  .vb-header p{font-size:13px;color:var(--text-muted);margin-top:4px}
+  .vb-banner{margin:0 16px 20px;padding:16px 20px;border-radius:14px;background:linear-gradient(135deg,rgba(93,184,166,0.15),rgba(93,184,166,0.05));border:1px solid rgba(93,184,166,0.25);display:flex;align-items:center;gap:12px}
+  .vb-banner-dot{width:10px;height:10px;border-radius:50%;background:var(--success);flex-shrink:0;box-shadow:0 0 12px var(--success)}
+  .vb-banner-text .tt{font-size:14px;font-weight:600}
+  .vb-banner-text .sub{font-size:12px;color:var(--text-secondary);margin-top:2px}
+  .vb-panel{background:var(--bg-primary);border-left:3px solid var(--accent-primary);margin-bottom:4px}
+  .vb-panel.teal{border-left-color:var(--accent-secondary)}
+  .vb-panel.amber{border-left-color:var(--accent-tertiary)}
+  .vb-panel.muted{border-left-color:var(--text-muted)}
+  .vb-panel-header{padding:14px 20px 6px}
+  .vb-panel-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em}
+  .vb-panel.teal .vb-panel-title{color:var(--accent-secondary)}
+  .vb-panel.amber .vb-panel-title{color:var(--accent-tertiary)}
+  .vb-panel.muted .vb-panel-title{color:var(--text-muted)}
+  .vb-panel-body{padding:4px 20px 16px}
+  .vb-field{margin-bottom:10px}
+  .vb-field:last-child{margin-bottom:0}
+  .vb-field-label{font-size:11px;color:var(--text-muted);margin-bottom:4px;display:block}
+  .vb-input{width:100%;padding:10px 12px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:13px;outline:none}
+  .vb-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border)}
+  .vb-row:last-child{border-bottom:none}
+  .vb-row-label{font-size:14px;color:var(--text-primary)}
+  .vb-row-value{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary)}
+  .vb-theme-row{display:flex;gap:8px;margin-top:8px}
+  .vb-theme-chip{flex:1;height:44px;border-radius:8px;border:2px solid transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600}
+  .vb-theme-chip.selected{border-color:var(--accent-primary)}
+  .vb-footer{padding:24px 20px 40px;text-align:center}
+  .vb-footer .nm{font-size:15px;font-weight:600;color:var(--text-secondary)}
+  .vb-footer .vr{font-size:12px;color:var(--text-muted);margin-top:2px}
+
+  /* ============================================================
+     VARIANT C: Minimalist Flat (极简扁平)
+     ============================================================ */
+  .vc-screen{background:var(--bg-primary)}
+  .vc-header{padding:12px 24px 8px;display:flex;align-items:center;gap:8px}
+  .vc-header .back{color:var(--text-secondary);font-size:22px}
+  .vc-header h2{font-size:32px;font-weight:700;letter-spacing:-0.03em}
+  .vc-conn-banner{margin:16px 24px 0;padding:16px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+  .vc-conn-dot{width:8px;height:8px;border-radius:50%;background:var(--success)}
+  .vc-conn-text{font-size:15px;font-weight:500}
+  .vc-conn-sub{font-size:12px;color:var(--text-muted);margin-top:2px}
+  .vc-section{padding:32px 24px 0}
+  .vc-section:first-of-type{padding-top:24px}
+  .vc-section-header{display:flex;align-items:baseline;gap:8px;margin-bottom:16px}
+  .vc-section-num{font-size:11px;font-weight:700;color:var(--accent-primary);font-variant-numeric:tabular-nums}
+  .vc-section-title{font-size:18px;font-weight:600;letter-spacing:-0.01em}
+  .vc-field{margin-bottom:16px}
+  .vc-field-label{font-size:12px;color:var(--text-muted);margin-bottom:4px;display:block}
+  .vc-input{width:100%;padding:10px 0;background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--text-primary);font-size:15px;outline:none}
+  .vc-input:focus{border-bottom-color:var(--accent-primary)}
+  .vc-input::placeholder{color:var(--text-muted)}
+  .vc-model-row{display:flex;gap:8px;align-items:center}
+  .vc-model-row .vc-input{flex:1}
+  .vc-refresh{width:36px;height:36px;background:transparent;border:1px solid var(--border);border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--accent-primary);cursor:pointer;font-size:16px;flex-shrink:0}
+  .vc-nav-item{display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid var(--border)}
+  .vc-nav-item:last-child{border-bottom:none}
+  .vc-nav-label{font-size:15px}
+  .vc-nav-value{display:flex;align-items:center;gap:6px;font-size:14px;color:var(--text-muted)}
+  .vc-theme-row{display:flex;gap:12px}
+  .vc-theme-sw{width:48px;height:48px;border-radius:50%;border:2px solid transparent;cursor:pointer;position:relative}
+  .vc-theme-sw.selected{border-color:var(--accent-primary)}
+  .vc-theme-sw.selected::after{content:'';position:absolute;inset:-6px;border-radius:50%;border:1px solid var(--accent-primary);opacity:0.3}
+  .vc-about{padding:0}
+  .vc-about .nm{font-size:14px;color:var(--text-secondary)}
+  .vc-about .vr{font-size:13px;color:var(--text-muted);margin-top:2px}
+  .vc-about .tg{display:inline-block;margin-top:12px;font-size:11px;color:var(--text-muted);border:1px solid var(--border);border-radius:4px;padding:2px 8px}
+
+  /* ============================================================
+     VARIANT D: Bento Grid Hybrid (便当格混合)
+     ============================================================ */
+  .vd-screen{background:var(--bg-secondary)}
+  .vd-header{padding:8px 16px 16px;display:flex;align-items:center;gap:10px;background:var(--bg-primary)}
+  .vd-header .back{color:var(--text-secondary);font-size:20px}
+  .vd-header h2{font-size:22px;font-weight:700;letter-spacing:-0.02em}
+  .vd-grid{padding:16px;display:grid;gap:12px}
+  .vd-conn-card{padding:16px;border-radius:16px;background:var(--bg-elevated);border:1px solid var(--border);display:flex;align-items:center;gap:14px}
+  .vd-conn-icon{width:40px;height:40px;border-radius:12px;background:rgba(93,184,114,0.15);display:flex;align-items:center;justify-content:center;font-size:18px}
+  .vd-conn-text .tt{font-size:14px;font-weight:600}
+  .vd-conn-text .sub{font-size:12px;color:var(--text-muted);margin-top:2px}
+  .vd-section-label{font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.1em;margin-top:8px;padding-left:4px}
+  .vd-engine-card{padding:16px;border-radius:16px;background:var(--bg-elevated);border:1px solid var(--border)}
+  .vd-engine-card .fld{margin-bottom:10px}
+  .vd-engine-card .fld:last-child{margin-bottom:0}
+  .vd-engine-card .flb{font-size:11px;color:var(--text-muted);margin-bottom:4px}
+  .vd-engine-card .inp{width:100%;padding:10px 12px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:13px;outline:none}
+  .vd-engine-card .mr{display:flex;gap:8px}
+  .vd-engine-card .mr .inp{flex:1}
+  .vd-engine-card .rb{width:40px;height:40px;flex-shrink:0;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--accent-primary);cursor:pointer}
+  .vd-github-card{padding:14px 16px;border-radius:16px;background:var(--bg-elevated);border:1px solid var(--border);display:flex;align-items:center;gap:10px}
+  .vd-github-icon{font-size:18px}
+  .vd-github-text{flex:1;font-size:14px}
+  .vd-theme-card{padding:16px;border-radius:16px;background:var(--bg-elevated);border:1px solid var(--border)}
+  .vd-theme-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .vd-theme-item{text-align:center;cursor:pointer}
+  .vd-theme-sw{height:48px;border-radius:12px;border:2px solid transparent;display:flex;align-items:center;justify-content:center}
+  .vd-theme-sw.selected{border-color:var(--accent-primary)}
+  .vd-theme-sw .chk{font-size:14px;color:var(--text-primary)}
+  .vd-theme-nm{font-size:10px;margin-top:6px;color:var(--text-muted)}
+  .vd-theme-item.selected .vd-theme-nm{color:var(--text-primary);font-weight:600}
+  .vd-nav-card{background:var(--bg-elevated);border:1px solid var(--border);border-radius:16px;overflow:hidden}
+  .vd-nav-row{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)}
+  .vd-nav-row:last-child{border-bottom:none}
+  .vd-nav-label{font-size:14px}
+  .vd-nav-value{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary)}
+  .vd-lang-row{display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-top:1px solid var(--border);margin-top:8px}
+  .vd-about-mini{padding:16px;text-align:center}
+  .vd-about-mini .nm{font-size:13px;color:var(--text-secondary)}
+  .vd-about-mini .vr{font-size:11px;color:var(--text-muted);margin-top:2px}
+
+  /* ============================================================
+     VARIANT E: Tabbed Compact (标签页紧凑)
+     ============================================================ */
+  .ve-screen{background:var(--bg-primary);display:flex;flex-direction:column;height:100%}
+  .ve-header{padding:8px 20px 0;flex-shrink:0}
+  .ve-header-top{display:flex;align-items:center;gap:10px;padding-bottom:16px}
+  .ve-header-top .back{color:var(--text-secondary);font-size:20px}
+  .ve-header h2{font-size:22px;font-weight:700;letter-spacing:-0.02em}
+  .ve-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0;overflow-x:auto}
+  .ve-tabs::-webkit-scrollbar{display:none}
+  .ve-tab{padding:10px 14px;font-size:13px;font-weight:500;color:var(--text-muted);border-bottom:2px solid transparent;white-space:nowrap;cursor:pointer;flex-shrink:0}
+  .ve-tab.active{color:var(--accent-primary);border-bottom-color:var(--accent-primary);font-weight:600}
+  .ve-content{flex:1;overflow-y:auto;padding:20px}
+  .ve-group{margin-bottom:24px}
+  .ve-group-title{font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;padding-left:4px}
+  .ve-list{background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+  .ve-list-item{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border)}
+  .ve-list-item:last-child{border-bottom:none}
+  .ve-list-label{display:flex;align-items:center;gap:10px}
+  .ve-list-label .icb{width:28px;height:28px;border-radius:8px;background:var(--bg-tertiary);display:flex;align-items:center;justify-content:center;font-size:13px}
+  .ve-list-label .tx{font-size:14px}
+  .ve-list-val{display:flex;align-items:center;gap:4px;font-size:13px;color:var(--text-muted)}
+  .ve-conn-card{padding:16px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:14px;margin-bottom:16px}
+  .ve-conn-top{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  .ve-conn-dot{width:8px;height:8px;border-radius:50%;background:var(--success)}
+  .ve-conn-label{font-size:14px;font-weight:500}
+  .ve-conn-input{width:100%;padding:10px 12px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:13px;outline:none}
+  .ve-field{margin-bottom:10px}
+  .ve-field-label{font-size:11px;color:var(--text-muted);margin-bottom:4px;display:block}
+  .ve-input{width:100%;padding:10px 12px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:13px;outline:none}
+  .ve-model-row{display:flex;gap:8px;align-items:center}
+  .ve-model-row .ve-input{flex:1}
+  .ve-refresh-btn{width:40px;height:40px;flex-shrink:0;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--accent-primary);cursor:pointer;font-size:16px}
+  .ve-theme-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .ve-theme-sw{height:48px;border-radius:10px;border:2px solid transparent;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .ve-theme-sw.selected{border-color:var(--accent-primary)}
+  .ve-about{text-align:center;padding:24px 0}
+  .ve-about .nm{font-size:14px;color:var(--text-secondary)}
+  .ve-about .vr{font-size:12px;color:var(--text-muted);margin-top:2px}
+</style>
+</head>
+<body>
+
+<h1>SpaceCode Mobile — 设置页面 UI 优化</h1>
+<p class="subtitle">基于 impeccable/layout 空间设计原则，对当前手机端设置页进行布局分析与优化。以下展示 5 种方案，请在手机模拟器宽度（375px）下浏览。</p>
+
+<div class="analysis">
+  <h3>当前布局问题诊断</h3>
+  <ul>
+    <li><strong>间距无系统</strong>：16/12/8/10/24/4/2 等任意值混用，10px 不属于 4pt 刻度，缺乏统一间距尺度 <span class="tag">Spacing</span></li>
+    <li><strong>层级弱</strong>：标题仅 17px、分区头仅 12px + 0.5 透明度，眯眼测试无法区分主次 <span class="tag">Hierarchy</span></li>
+    <li><strong>节奏单调</strong>：每个分区都是「头→列表」的重复结构，无紧凑/宽松交替，无视觉焦点 <span class="tag">Rhythm</span></li>
+    <li><strong>卡片使用不一致</strong>：连接区单独用卡片，其余分区用裸 ListTile + border-bottom，容器策略混乱 <span class="tag">Cards</span></li>
+    <li><strong>表单拥挤</strong>：引擎配置 3 个输入框间距仅 10px，缺少语义分组 <span class="tag">Density</span></li>
+    <li><strong>主题选择器过小</strong>：色块高 48px，标签 11px，在 4 列中过于紧凑 <span class="tag">Touch Target</span></li>
+    <li><strong>关于区空洞</strong>：仅 2 行文字，无视觉重量，与上方分区无过渡 <span class="tag">Hierarchy</span></li>
+  </ul>
+</div>
+
+<div class="variants">
+
+  <!-- ============ VARIANT A: Grouped Inset Cards ============ -->
+  <div class="variant-col">
+    <div class="variant-label">方案 A — 分组卡片</div>
+    <div class="variant-desc">iOS Settings 风格：大标题 + 分组圆角卡片，间距系统 4/8/12/16/24/32，分区头使用大写字母 + 字间距强化层级。</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="phone-screen va-screen">
+        <div class="status-bar"><span>9:41</span><div class="status-icons"><span>●●●●</span></div></div>
+        <div class="va-header"><span class="back">‹</span><h2>设置</h2></div>
+
+        <div class="va-section">
+          <div class="va-section-title">连接</div>
+          <div class="va-card">
+            <div class="va-conn-status">
+              <div class="va-dot"></div>
+              <div><div class="va-conn-text">已连接</div><div class="va-conn-device">设备: SpaceCode-Desktop</div></div>
+            </div>
+            <div style="padding:8px 16px 14px"><input class="fi" placeholder="ws://host:port" value="ws://192.168.1.5:8080"></div>
+            <div style="padding:0 16px 14px"><button class="btn btn-danger btn-block">断开连接</button></div>
+          </div>
+        </div>
+
+        <div class="va-section">
+          <div class="va-section-title">手机 Agent 引擎</div>
+          <div class="va-card"><div class="va-form">
+            <div class="va-form-group"><span class="field-label">API Key</span><input class="fi" type="password" value="sk-••••••••"></div>
+            <div class="va-form-group"><span class="field-label">Base URL</span><input class="fi" value="https://api.openai.com/v1"></div>
+            <div class="va-form-group"><span class="field-label">模型</span><div class="va-form-row"><input class="fi" value="gpt-4o-mini"><button class="va-refresh">↻</button></div></div>
+            <button class="btn btn-primary btn-block" style="margin-top:4px">保存配置</button>
+          </div></div>
+        </div>
+
+        <div class="va-section">
+          <div class="va-section-title">Github</div>
+          <div class="va-card">
+            <div class="va-card-row"><div class="va-card-row-label"><div class="ic" style="background:rgba(93,184,166,0.15);color:var(--accent-secondary)">⊕</div><span class="tx">已连接 @hjdspace</span></div><span class="va-card-row-val">断开</span></div>
+            <div class="va-card-row"><div class="va-card-row-label"><div class="ic" style="background:rgba(232,165,90,0.15);color:var(--accent-tertiary)">↓</div><span class="tx">手动 Clone 仓库</span></div><span class="va-card-row-val">›</span></div>
+          </div>
+        </div>
+
+        <div class="va-section">
+          <div class="va-section-title">外观</div>
+          <div class="va-card">
+            <div class="va-theme-grid">
+              <div class="va-theme-sw" style="background:#f8f9fb"><span class="nm" style="color:#18191f">浅色</span></div>
+              <div class="va-theme-sw" style="background:#0d0d0d"><span class="nm">深色</span></div>
+              <div class="va-theme-sw selected" style="background:#181715"><div class="chk">✓</div></div>
+              <div class="va-theme-sw" style="background:#faf9f5"><span class="nm" style="color:#141413">A浅</span></div>
+            </div>
+            <div class="va-card-row" style="border-top:1px solid var(--border)"><div class="va-card-row-label"><div class="ic" style="background:var(--bg-tertiary);color:var(--text-secondary)">🌐</div><span class="tx">语言</span></div><span class="va-card-row-val">中文 ▾</span></div>
+          </div>
+        </div>
+
+        <div class="va-section">
+          <div class="va-section-title">聊天</div>
+          <div class="va-card">
+            <div class="va-card-row"><span class="tx">默认 Agent</span><span class="va-card-row-val">未设置 ›</span></div>
+            <div class="va-card-row"><span class="tx">权限模式</span><span class="va-card-row-val">默认 ›</span></div>
+            <div class="va-card-row"><span class="tx">流式输出</span><span class="va-card-row-val">开启 ›</span></div>
+          </div>
+        </div>
+
+        <div class="va-section" style="margin-bottom:48px">
+          <div class="va-section-title">关于</div>
+          <div class="va-card"><div class="va-about"><strong>SpaceCode Mobile</strong>v1.0.0</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ VARIANT B: Accent-Striped Panels ============ -->
+  <div class="variant-col">
+    <div class="variant-label">方案 B — 色条面板</div>
+    <div class="variant-desc">每分区左侧 3px 色条做语义编码（连接=橙、引擎=青、外观=琥珀），连接状态提升为顶部 Banner，分区之间用 4px 间距做"呼吸"。</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="phone-screen vb-screen">
+        <div class="status-bar"><span>9:41</span><div class="status-icons"><span>●●●●</span></div></div>
+        <div class="vb-header"><div class="vb-header-top"><span class="back">‹</span><div><h2>设置</h2><p>管理连接、引擎与偏好</p></div></div></div>
+
+        <div class="vb-banner">
+          <div class="vb-banner-dot"></div>
+          <div class="vb-banner-text"><div class="tt">已连接</div><div class="sub">设备: SpaceCode-Desktop · ws://192.168.1.5:8080</div></div>
+        </div>
+
+        <div class="vb-panel teal">
+          <div class="vb-panel-header"><span class="vb-panel-title">手机 Agent 引擎</span></div>
+          <div class="vb-panel-body">
+            <div class="vb-field"><span class="vb-field-label">API Key</span><input class="vb-input" type="password" value="sk-••••••••"></div>
+            <div class="vb-field"><span class="vb-field-label">Base URL</span><input class="vb-input" value="https://api.openai.com/v1"></div>
+            <div class="vb-field"><span class="vb-field-label">模型</span><div style="display:flex;gap:8px;align-items:center"><input class="vb-input" style="flex:1" value="gpt-4o-mini"><button class="va-refresh">↻</button></div></div>
+            <button class="btn btn-primary btn-block" style="margin-top:8px;background:var(--accent-secondary)">保存配置</button>
+          </div>
+        </div>
+
+        <div class="vb-panel amber">
+          <div class="vb-panel-header"><span class="vb-panel-title">Github</span></div>
+          <div class="vb-panel-body">
+            <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn btn-outline" style="flex:1">✓ 已连接 @hjdspace</button><button class="btn btn-danger">断开</button></div>
+            <button class="btn btn-outline btn-block">↓ 手动 Clone 仓库</button>
+          </div>
+        </div>
+
+        <div class="vb-panel amber">
+          <div class="vb-panel-header"><span class="vb-panel-title">外观</span></div>
+          <div class="vb-panel-body">
+            <div class="vb-row"><span class="vb-row-label">主题</span></div>
+            <div class="vb-theme-row">
+              <div class="vb-theme-chip" style="background:#f8f9fb"><span style="color:#18191f">浅色</span></div>
+              <div class="vb-theme-chip" style="background:#0d0d0d"><span>深色</span></div>
+              <div class="vb-theme-chip selected" style="background:#181715"><span>A-Dark</span></div>
+              <div class="vb-theme-chip" style="background:#faf9f5"><span style="color:#141413">A浅</span></div>
+            </div>
+            <div class="vb-row" style="margin-top:8px"><span class="vb-row-label">语言</span><span class="vb-row-value">中文 ▾</span></div>
+          </div>
+        </div>
+
+        <div class="vb-panel">
+          <div class="vb-panel-header"><span class="vb-panel-title">聊天</span></div>
+          <div class="vb-panel-body">
+            <div class="vb-row"><span class="vb-row-label">默认 Agent</span><span class="vb-row-value">未设置 ›</span></div>
+            <div class="vb-row"><span class="vb-row-label">权限模式</span><span class="vb-row-value">默认 ›</span></div>
+            <div class="vb-row"><span class="vb-row-label">流式输出</span><span class="vb-row-value">开启 ›</span></div>
+          </div>
+        </div>
+
+        <div class="vb-footer"><div class="nm">SpaceCode Mobile</div><div class="vr">v1.0.0</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ VARIANT C: Minimalist Flat ============ -->
+  <div class="variant-col">
+    <div class="variant-label">方案 C — 极简扁平</div>
+    <div class="variant-desc">零卡片容器，纯靠间距 + 细线分隔分组。分区编号 01-05 做视觉锚点，输入框去边框仅保留下划线，最大化留白。</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="phone-screen vc-screen">
+        <div class="status-bar"><span>9:41</span><div class="status-icons"><span>●●●●</span></div></div>
+        <div class="vc-header"><span class="back">‹</span><h2>设置</h2></div>
+
+        <div class="vc-conn-banner">
+          <div class="vc-conn-dot"></div>
+          <div><div class="vc-conn-text">已连接</div><div class="vc-conn-sub">SpaceCode-Desktop</div></div>
+          <div style="margin-left:auto;font-size:13px;color:var(--text-muted)">ws://…8080</div>
+        </div>
+
+        <div class="vc-section">
+          <div class="vc-section-header"><span class="vc-section-num">01</span><span class="vc-section-title">Agent 引擎</span></div>
+          <div class="vc-field"><span class="vc-field-label">API Key</span><input class="vc-input" type="password" value="sk-••••••••"></div>
+          <div class="vc-field"><span class="vc-field-label">Base URL</span><input class="vc-input" value="https://api.openai.com/v1"></div>
+          <div class="vc-field"><span class="vc-field-label">模型</span><div class="vc-model-row"><input class="vc-input" value="gpt-4o-mini"><button class="vc-refresh">↻</button></div></div>
+          <button class="btn btn-primary" style="margin-top:8px">保存</button>
+        </div>
+
+        <div class="vc-section">
+          <div class="vc-section-header"><span class="vc-section-num">02</span><span class="vc-section-title">Github</span></div>
+          <div class="vc-nav-item"><span class="vc-nav-label">连接状态</span><span class="vc-nav-value">已连接 @hjdspace</span></div>
+          <div class="vc-nav-item"><span class="vc-nav-label">Clone 仓库</span><span class="vc-nav-value">›</span></div>
+        </div>
+
+        <div class="vc-section">
+          <div class="vc-section-header"><span class="vc-section-num">03</span><span class="vc-section-title">外观</span></div>
+          <div class="vc-theme-row" style="margin-bottom:16px">
+            <div class="vc-theme-sw" style="background:#f8f9fb"></div>
+            <div class="vc-theme-sw" style="background:#0d0d0d"></div>
+            <div class="vc-theme-sw selected" style="background:#181715"></div>
+            <div class="vc-theme-sw" style="background:#faf9f5"></div>
+          </div>
+          <div class="vc-nav-item"><span class="vc-nav-label">语言</span><span class="vc-nav-value">中文 ›</span></div>
+        </div>
+
+        <div class="vc-section">
+          <div class="vc-section-header"><span class="vc-section-num">04</span><span class="vc-section-title">聊天</span></div>
+          <div class="vc-nav-item"><span class="vc-nav-label">默认 Agent</span><span class="vc-nav-value">未设置 ›</span></div>
+          <div class="vc-nav-item"><span class="vc-nav-label">权限模式</span><span class="vc-nav-value">默认 ›</span></div>
+          <div class="vc-nav-item"><span class="vc-nav-label">流式输出</span><span class="vc-nav-value">开启 ›</span></div>
+        </div>
+
+        <div class="vc-section">
+          <div class="vc-section-header"><span class="vc-section-num">05</span><span class="vc-section-title">关于</span></div>
+          <div class="vc-about"><div class="nm">SpaceCode Mobile</div><div class="vr">v1.0.0</div><span class="tg">Build 2026.07</span></div>
+        </div>
+        <div style="height:48px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ VARIANT D: Bento Grid Hybrid ============ -->
+  <div class="variant-col">
+    <div class="variant-label">方案 D — 便当格混合</div>
+    <div class="variant-desc">Bento 网格策略：连接作为宽幅卡片、引擎紧凑分组、主题色块大尺寸、关于作为底部迷你卡片，通过容器大小对比制造节奏。</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="phone-screen vd-screen">
+        <div class="status-bar"><span>9:41</span><div class="status-icons"><span>●●●●</span></div></div>
+        <div class="vd-header"><span class="back">‹</span><h2>设置</h2></div>
+
+        <div class="vd-grid">
+          <div class="vd-conn-card">
+            <div class="vd-conn-icon">●</div>
+            <div class="vd-conn-text"><div class="tt">已连接</div><div class="sub">SpaceCode-Desktop</div></div>
+            <button class="btn btn-danger" style="padding:8px 14px;font-size:12px">断开</button>
+          </div>
+
+          <div class="vd-section-label">Agent 引擎</div>
+          <div class="vd-engine-card">
+            <div class="fld"><div class="flb">API KEY</div><input class="inp" type="password" value="sk-••••••••"></div>
+            <div class="fld"><div class="flb">BASE URL</div><input class="inp" value="https://api.openai.com/v1"></div>
+            <div class="fld"><div class="flb">MODEL</div><div class="mr"><input class="inp" style="flex:1" value="gpt-4o-mini"><button class="rb">↻</button></div></div>
+            <button class="btn btn-primary btn-block" style="margin-top:4px">保存配置</button>
+          </div>
+
+          <div class="vd-section-label">Github</div>
+          <div class="vd-github-card"><span class="vd-github-icon">⊕</span><span class="vd-github-text">已连接 @hjdspace</span><span style="color:var(--text-muted);font-size:13px">断开 ›</span></div>
+          <div class="vd-github-card"><span class="vd-github-icon">↓</span><span class="vd-github-text">手动 Clone 仓库</span><span style="color:var(--text-muted);font-size:13px">›</span></div>
+
+          <div class="vd-section-label">外观</div>
+          <div class="vd-theme-card">
+            <div class="vd-theme-grid">
+              <div class="vd-theme-item"><div class="vd-theme-sw" style="background:#f8f9fb"></div><div class="vd-theme-nm">浅色</div></div>
+              <div class="vd-theme-item"><div class="vd-theme-sw" style="background:#0d0d0d"></div><div class="vd-theme-nm">深色</div></div>
+              <div class="vd-theme-item selected"><div class="vd-theme-sw selected" style="background:#181715"><span class="chk">✓</span></div><div class="vd-theme-nm">A-Dark</div></div>
+              <div class="vd-theme-item"><div class="vd-theme-sw" style="background:#faf9f5"></div><div class="vd-theme-nm">A浅</div></div>
+            </div>
+            <div class="vd-lang-row"><span style="font-size:14px">语言</span><span style="font-size:13px;color:var(--text-secondary)">中文 ▾</span></div>
+          </div>
+
+          <div class="vd-section-label">聊天</div>
+          <div class="vd-nav-card">
+            <div class="vd-nav-row"><span class="vd-nav-label">默认 Agent</span><span class="vd-nav-value">未设置 ›</span></div>
+            <div class="vd-nav-row"><span class="vd-nav-label">权限模式</span><span class="vd-nav-value">默认 ›</span></div>
+            <div class="vd-nav-row"><span class="vd-nav-label">流式输出</span><span class="vd-nav-value">开启 ›</span></div>
+          </div>
+
+          <div class="vd-about-mini"><div class="nm">SpaceCode Mobile</div><div class="vr">v1.0.0</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ VARIANT E: Tabbed Compact ============ -->
+  <div class="variant-col">
+    <div class="variant-label">方案 E — 标签页紧凑</div>
+    <div class="variant-desc">顶部水平标签页分区（连接/引擎/外观/聊天/关于），每次只展示一个分区内容，减少滚动距离，适合设置项持续增长的场景。</div>
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="phone-screen ve-screen">
+        <div class="status-bar"><span>9:41</span><div class="status-icons"><span>●●●●</span></div></div>
+        <div class="ve-header"><div class="ve-header-top"><span class="back">‹</span><h2>设置</h2></div></div>
+        <div class="ve-tabs">
+          <div class="ve-tab active">连接</div>
+          <div class="ve-tab">引擎</div>
+          <div class="ve-tab">Github</div>
+          <div class="ve-tab">外观</div>
+          <div class="ve-tab">聊天</div>
+          <div class="ve-tab">关于</div>
+        </div>
+        <div class="ve-content">
+          <div class="ve-conn-card">
+            <div class="ve-conn-top"><div class="ve-conn-dot"></div><span class="ve-conn-label">已连接</span><span style="margin-left:auto;font-size:12px;color:var(--text-muted)">SpaceCode-Desktop</span></div>
+            <input class="ve-conn-input" value="ws://192.168.1.5:8080" placeholder="ws://host:port">
+            <div style="margin-top:12px"><button class="btn btn-danger btn-block">断开连接</button></div>
+          </div>
+
+          <div class="ve-group">
+            <div class="ve-group-title">引擎配置（预览）</div>
+            <div class="ve-list">
+              <div class="ve-list-item"><div class="ve-list-label"><div class="icb">🔑</div><span class="tx">API Key</span></div><span class="ve-list-val">已设置 ›</span></div>
+              <div class="ve-list-item"><div class="ve-list-label"><div class="icb">🔗</div><span class="tx">Base URL</span></div><span class="ve-list-val">api.openai.com ›</span></div>
+              <div class="ve-list-item"><div class="ve-list-label"><div class="icb">🤖</div><span class="tx">模型</span></div><span class="ve-list-val">gpt-4o-mini ›</span></div>
+            </div>
+          </div>
+
+          <div class="ve-group">
+            <div class="ve-group-title">外观（预览）</div>
+            <div class="ve-theme-grid" style="margin-bottom:12px">
+              <div class="ve-theme-sw" style="background:#f8f9fb"></div>
+              <div class="ve-theme-sw" style="background:#0d0d0d"></div>
+              <div class="ve-theme-sw selected" style="background:#181715"></div>
+              <div class="ve-theme-sw" style="background:#faf9f5"></div>
+            </div>
+            <div class="ve-list">
+              <div class="ve-list-item"><div class="ve-list-label"><div class="icb">🌐</div><span class="tx">语言</span></div><span class="ve-list-val">中文 ›</span></div>
+            </div>
+          </div>
+
+          <div class="ve-group">
+            <div class="ve-group-title">聊天（预览）</div>
+            <div class="ve-list">
+              <div class="ve-list-item"><div class="ve-list-label"><div class="icb">🤖</div><span class="tx">默认 Agent</span></div><span class="ve-list-val">未设置 ›</span></div>
+              <div class="ve-list-item"><div class="ve-list-label"><div class="icb">🔒</div><span class="tx">权限模式</span></div><span class="ve-list-val">默认 ›</span></div>
+              <div class="ve-list-item"><div class="ve-list-label"><div class="icb">📡</div><span class="tx">流式输出</span></div><span class="ve-list-val">开启 ›</span></div>
+            </div>
+          </div>
+
+          <div class="ve-about"><div class="nm">SpaceCode Mobile</div><div class="vr">v1.0.0</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

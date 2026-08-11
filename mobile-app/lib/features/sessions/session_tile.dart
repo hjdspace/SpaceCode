@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/i18n/strings.dart';
 
 class SessionTile extends StatelessWidget {
   final String title;
@@ -20,10 +21,10 @@ class SessionTile extends StatelessWidget {
     if (time == null) return '';
     final now = DateTime.now();
     final diff = now.difference(time);
-    if (diff.inMinutes < 1) return '刚刚';
-    if (diff.inHours < 1) return '${diff.inMinutes}分钟前';
-    if (diff.inDays < 1) return '${diff.inHours}小时前';
-    if (diff.inDays < 7) return '${diff.inDays}天前';
+    if (diff.inMinutes < 1) return I18n.t('sessions.justNow');
+    if (diff.inHours < 1) return I18n.t('sessions.minutesAgo', {'count': diff.inMinutes.toString()});
+    if (diff.inDays < 1) return I18n.t('sessions.hoursAgo', {'count': diff.inHours.toString()});
+    if (diff.inDays < 7) return I18n.t('sessions.daysAgo', {'count': diff.inDays.toString()});
     return '${time.month}/${time.day}';
   }
 

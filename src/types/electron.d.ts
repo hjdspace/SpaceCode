@@ -27,6 +27,17 @@ import type {
   ArtifactEntry,
   DesignSystemSummary,
 } from '@/services/electronAPI'
+import type {
+SkillManagerOverview,
+SkillManagerSettings,
+SkillSummary,
+SkillDetail,
+DeleteCenterSkillPreview,
+AddCenterSkillInput,
+AddCenterSkillPreview,
+AddCenterSkillDecision,
+AddCenterSkillResult,
+} from '@/types/skillManagerV2'
 
 import type {
   TraceSessionList,
@@ -60,9 +71,8 @@ import type {
 
 import type {
   PetConfig,
+  PetPreferences,
   PetSyncPayload,
-  PetWindowEvent,
-  PetReactionRequest,
 } from './pet'
 
 // ── 子接口定义 ──────────────────────────────────────────────────
@@ -269,14 +279,15 @@ export interface ElectronMcpAPI {
 export interface ElectronPetAPI {
   readConfig: () => Promise<PetConfig | null>
   writeConfig: (config: PetConfig) => Promise<void>
-  saveAsset: (srcPath: string, petId: string) => Promise<string>
-  deleteAsset: (relativePath: string) => Promise<void>
-  generateReaction: (req: PetReactionRequest) => Promise<string | null>
-  onWindowEvent: (callback: (event: PetWindowEvent) => void) => () => void
   createDesktopWindow: () => Promise<void>
   destroyDesktopWindow: () => Promise<void>
-  updateWindowBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>
   syncPetState: (state: PetSyncPayload) => void
+  /** 监听偏好变更（来自宠物窗口的偏好变更，主进程转发） */
+  onPreferencesChanged: (callback: (patch: Partial<PetPreferences>) => void) => () => void
+  /** 监听会话跳转请求（来自宠物窗口的 focusSession，主进程转发） */
+  onNavigateSession: (callback: (sessionId: string) => void) => () => void
+  /** 监听宠物窗口就绪请求（窗口 mount 后请求主应用推送一次完整状态） */
+  onResyncRequest: (callback: () => void) => () => void
 }
 
 /**
@@ -592,6 +603,22 @@ export interface ElectronAPI {
     clearPairingCode: () => Promise<void>
     wechat: ElectronImWechatAPI
   }
+
+skillManagerV2: {
+bootstrap: () => Promise<{ success: boolean }>
+init: () => Promise<SkillManagerOverview>
+getOverview: () => Promise<SkillManagerOverview>
+refresh: () => Promise<SkillManagerOverview>
+getSettings: () => Promise<SkillManagerSettings>
+updateSettings: (patch: Partial<SkillManagerSettings>) => Promise<SkillManagerSettings>
+listCenterSkills: () => Promise<SkillSummary[]>
+getSkillDetail: (skillId: string) => Promise<SkillDetail | null>
+previewDeleteCenterSkill: (skillId: string) => Promise<DeleteCenterSkillPreview | null>
+executeDeleteCenterSkill: (skillId: string) => Promise<void>
+openPath: (targetPath: string) => Promise<string>
+previewAddCenterSkill: (input: AddCenterSkillInput) => Promise<AddCenterSkillPreview>
+executeAddCenterSkill: (input: AddCenterSkillInput, decisions: AddCenterSkillDecision[]) => Promise<AddCenterSkillResult>
+}
 }
 
 // ── Window 全局声明 ─────────────────────────────────────────────

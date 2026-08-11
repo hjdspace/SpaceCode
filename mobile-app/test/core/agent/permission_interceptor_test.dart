@@ -222,6 +222,9 @@ class _QueuedModel extends AgentModel {
     required List<AgentToolDefinition> tools,
     required AgentCancellationToken cancellationToken,
     void Function(String delta)? onDelta,
+    AgentToolCallStartCallback? onToolCallStart,
+    AgentToolCallDeltaCallback? onToolCallDelta,
+    AgentToolCallStopCallback? onToolCallStop,
   }) async {
     requests.add(List<AgentMessage>.from(messages));
     return responses.removeAt(0);

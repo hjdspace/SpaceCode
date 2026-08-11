@@ -129,7 +129,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   ClipboardList, FileDiff, X, ChevronRight,
@@ -232,6 +232,38 @@ function parseDiffHunks(hunks: any[]): DiffLine[] {
   }
   return lines
 }
+
+async function expandPendingFile(path: string) {
+  if (!sessionContext.isReviewFileExpanded(path)) {
+    sessionContext.toggleReviewFile(path)
+  }
+  if (!diffData[path] && !loadingDiffs.value.has(path)) {
+    await loadFileDiff(path)
+  }
+}
+
+function applyPendingReviewFile() {
+  const path = sessionContext.pendingReviewFile
+  if (!path) return
+  if (sessionContext.rightPanelView === 'review' && sessionContext.showRightPanel) {
+    void expandPendingFile(path)
+    sessionContext.clearPendingReviewFile()
+  }
+}
+
+onMounted(applyPendingReviewFile)
+
+watch(() => sessionContext.pendingReviewFile, (path) => {
+  if (!path) return
+  if (sessionContext.rightPanelView === 'review' && sessionContext.showRightPanel) {
+    void expandPendingFile(path)
+    sessionContext.clearPendingReviewFile()
+  }
+})
+
+watch(() => [sessionContext.rightPanelView, sessionContext.showRightPanel], () => {
+  applyPendingReviewFile()
+})
 </script>
 
 <style lang="scss" scoped>

@@ -1,0 +1,45 @@
+/**
+ * Skill Manager V2 — IPC Channel Names
+ *
+ * Centralized definition of all `skill-manager:*` IPC channel names.
+ * Reference: AgentBro `src-tauri/src/skills/v2/commands.rs`
+ */
+
+export const SCHEMA_MANAGER_CHANNELS = {
+  BOOTSTRAP: 'skill-manager:bootstrap',
+  INIT: 'skill-manager:init',
+  OVERVIEW: 'skill-manager:overview',
+  REFRESH: 'skill-manager:refresh',
+  SETTINGS: 'skill-manager:settings',
+  UPDATE_SETTINGS: 'skill-manager:update-settings',
+  LIST_CENTER_SKILLS: 'skill-manager:list-center-skills',
+  GET_SKILL_DETAIL: 'skill-manager:get-skill-detail',
+  PREVIEW_ADD_CENTER_SKILL: 'skill-manager:preview-add-center-skill',
+  EXECUTE_ADD_CENTER_SKILL: 'skill-manager:execute-add-center-skill',
+  PREVIEW_DELETE_CENTER_SKILL: 'skill-manager:preview-delete-center-skill',
+  EXECUTE_DELETE_CENTER_SKILL: 'skill-manager:execute-delete-center-skill',
+  OPEN_PATH: 'skill-manager:open-path',
+  PREVIEW_DISTRIBUTE: 'skill-manager:preview-distribute',
+  EXECUTE_DISTRIBUTE: 'skill-manager:execute-distribute',
+  SCAN_AGENT_INVENTORY: 'skill-manager:scan-agent-inventory',
+  LIST_UNMANAGED: 'skill-manager:list-unmanaged',
+  PREVIEW_ADOPT: 'skill-manager:preview-adopt',
+  EXECUTE_ADOPT: 'skill-manager:execute-adopt',
+  EXECUTE_ADOPT_BATCH: 'skill-manager:execute-adopt-batch',
+  PREVIEW_SYNC_COPY: 'skill-manager:preview-sync-copy',
+  EXECUTE_SYNC_COPY: 'skill-manager:execute-sync-copy',
+  PREVIEW_COPY_DIFF: 'skill-manager:preview-copy-diff',
+  DELETE_TARGET: 'skill-manager:delete-target',
+  LIST_PACKS: 'skill-manager:list-packs',
+  GET_PACK_DETAIL: 'skill-manager:get-pack-detail',
+  UPSERT_PACK: 'skill-manager:upsert-pack',
+  DELETE_PACK: 'skill-manager:delete-pack',
+  PREVIEW_APPLY_PACK: 'skill-manager:preview-apply-pack',
+  EXECUTE_APPLY_PACK: 'skill-manager:execute-apply-pack',
+  PREVIEW_REMOVE_PACK_FROM_AGENT: 'skill-manager:preview-remove-pack-from-agent',
+  EXECUTE_REMOVE_PACK_FROM_AGENT: 'skill-manager:execute-remove-pack-from-agent',
+  RUN_DIAGNOSIS: 'skill-manager:run-diagnosis',
+  LIST_DIAGNOSIS_ISSUES: 'skill-manager:list-diagnosis-issues',
+  EXECUTE_SAFE_FIXES: 'skill-manager:execute-safe-fixes',
+  EXPORT_SNAPSHOT: 'skill-manager:export-snapshot',
+} as const

@@ -24,6 +24,7 @@ export default defineConfig({
       'electron/__tests__/**/*.test.ts',
       'electron/design/__tests__/**/*.test.ts',
       'electron/im/**/__tests__/**/*.test.ts',
+      'electron/skillManagerV2/__tests__/**/*.test.ts',
       'tests/composables/**/*.test.ts',
       'tests/components/**/*.test.ts',
       'tests/lib/**/*.test.ts',

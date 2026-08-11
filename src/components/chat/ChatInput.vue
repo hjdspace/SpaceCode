@@ -61,6 +61,9 @@
     </div>
 
     <div class="input-wrapper" :class="{ 'has-content': hasContent, 'is-sending': isSending, 'is-optimizing': isOptimizing }">
+      <!-- 悬浮任务/改动状态栏 -->
+      <ComposerStatusBar />
+
       <!-- 文本输入区域 — contenteditable 支持内联 chip -->
       <div class="textarea-wrapper" @click="focusEditor">
         <div
@@ -95,7 +98,7 @@
       <div class="input-toolbar">
         <div class="toolbar-left">
           <!-- + 号按钮 -->
-          <button class="toolbar-btn add-btn" @click="handleAddClick" :title="t('chatInput.addAttachment')">
+          <button class="toolbar-btn add-btn" @click="handleAddClickAndLoadAgents" :title="t('chatInput.addAttachment')">
             <Plus :size="18" />
           </button>
 
@@ -343,16 +346,15 @@ import ChatContextToolbar from './ChatContextToolbar.vue'
 import SlashCommandMenu from './SlashCommandMenu.vue'
 import ContextMenu from './ContextMenu.vue'
 import AttachmentMenu from './AttachmentMenu.vue'
-import { useSkillsStore } from '@/stores/skills'
 import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
 import { api } from '@/services/electronAPI'
-import { triggerPetReaction } from '@/composables/usePetReaction'
 import { useI18n } from 'vue-i18n'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useFileToChat } from '@/composables/useFileToChat'
 import PermissionModeSelector from './PermissionModeSelector.vue'
+import ComposerStatusBar from './ComposerStatusBar.vue'
 
 // ── Composables ──────────────────────────────────────────────────
 import { useModelSelector, type ModelOption } from '@/composables/useModelSelector'
@@ -485,6 +487,16 @@ const {
 function selectAgentAndCloseMenu(agentType: string) {
   selectAgent(agentType)
   closeAttachmentMenu()
+}
+
+let agentsLoadPromise: Promise<void> | null = null
+
+function handleAddClickAndLoadAgents() {
+  handleAddClick()
+  if (sessionStore.availableAgents.length > 0 || agentsLoadPromise) return
+  agentsLoadPromise = sessionStore.loadAgents().finally(() => {
+    agentsLoadPromise = null
+  })
 }
 
 // File attachments
@@ -644,21 +656,11 @@ function updateContextMenuPosition() {
 }
 
 // ── Editor event handlers (orchestration) ────────────────────────
-let typingTimer: ReturnType<typeof setTimeout> | null = null
-
-function notifyPetTyping() {
-  if (typingTimer) clearTimeout(typingTimer)
-  typingTimer = setTimeout(() => {
-    triggerPetReaction('typing')
-  }, 500)
-}
-
 function handleEditorInput() {
   inputText.value = getEditorPlainText()
   autoResize()
   checkSlashTrigger()
   checkContextTrigger()
-  notifyPetTyping()
 }
 
 function checkSlashTrigger() {
@@ -1311,13 +1313,6 @@ async function handleOpenProjectFolder() {
 onMounted(() => {
   initializeModelSelector(props.modelValue)
 
-  // Load skills
-  const skillsStore = useSkillsStore()
-  skillsStore.fetchSkills(props.workingDirectory)
-
-  // Load agents
-  sessionStore.loadAgents()
-
   document.addEventListener('keydown', handleModelKeydown)
   window.addEventListener('session-created', focusEditor)
 })
@@ -1510,6 +1505,7 @@ watch(pendingFile, (file) => {
   border-radius: 20px;
   background: var(--bg-primary);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
 
   &:focus-within {
     border-color: var(--surface-border-strong);

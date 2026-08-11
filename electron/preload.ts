@@ -623,23 +623,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getActiveMcpNames: () => ipcRenderer.invoke('mcp:getActiveMcpNames'),
   },
 
-  // Pet API — 桌面宠物系统（配置读写、资源管理、LLM 反应生成、窗口事件）
+  // Pet API — 桌面宠物系统（配置读写、桌面窗口控制、状态同步、偏好/会话事件）
   // 注意：preload 中使用 any 类型避免导入 src 模块（preload 是独立构建）。类型安全由 electron.d.ts 保证。
   pet: {
     readConfig: () => ipcRenderer.invoke('pet:readConfig'),
     writeConfig: (config: any) => ipcRenderer.invoke('pet:writeConfig', config),
-    saveAsset: (srcPath: string, petId: string) => ipcRenderer.invoke('pet:saveAsset', srcPath, petId),
-    deleteAsset: (relativePath: string) => ipcRenderer.invoke('pet:deleteAsset', relativePath),
-    generateReaction: (req: any) => ipcRenderer.invoke('pet:generateReaction', req),
-    onWindowEvent: (callback: (event: any) => void) => {
-      const wrapper = (_: unknown, data: any) => callback(data)
-      ipcRenderer.on('pet:windowEvent', wrapper)
-      return () => ipcRenderer.removeListener('pet:windowEvent', wrapper)
-    },
     createDesktopWindow: () => ipcRenderer.invoke('pet:createDesktopWindow'),
     destroyDesktopWindow: () => ipcRenderer.invoke('pet:destroyDesktopWindow'),
-    updateWindowBounds: (bounds: any) => ipcRenderer.invoke('pet:updateWindowBounds', bounds),
     syncPetState: (state: any) => ipcRenderer.send('pet:syncPetState', state),
+    /** 监听偏好变更（来自宠物窗口的偏好变更，主进程转发） */
+    onPreferencesChanged: (callback: (patch: any) => void) => {
+      const wrapper = (_: unknown, data: any) => callback(data)
+      ipcRenderer.on('pet:preferencesChanged', wrapper)
+      return () => ipcRenderer.removeListener('pet:preferencesChanged', wrapper)
+    },
+    /** 监听会话跳转请求（来自宠物窗口的 focusSession，主进程转发） */
+    onNavigateSession: (callback: (sessionId: string) => void) => {
+      const wrapper = (_: unknown, sessionId: string) => callback(sessionId)
+      ipcRenderer.on('petMainWindow:navigateSession', wrapper)
+      return () => ipcRenderer.removeListener('petMainWindow:navigateSession', wrapper)
+    },
+    /** 监听宠物窗口就绪请求（窗口 mount 后请求主应用推送一次完整状态） */
+    onResyncRequest: (callback: () => void) => {
+      const wrapper = () => callback()
+      ipcRenderer.on('pet:resyncRequest', wrapper)
+      return () => ipcRenderer.removeListener('pet:resyncRequest', wrapper)
+    },
   },
 
   // Computer Use API — cua-driver 二进制管理、健康检查、权限管理
@@ -918,5 +927,35 @@ contextBridge.exposeInMainWorld('electronAPI', {
       unbind: (): Promise<void> => ipcRenderer.invoke('im:wechat:unbind'),
       isBound: (): Promise<boolean> => ipcRenderer.invoke('im:wechat:isBound'),
     },
+  },
+
+  // Skill Manager V2 API
+  skillManagerV2: {
+    bootstrap: (): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('skill-manager:bootstrap'),
+    init: () =>
+      ipcRenderer.invoke('skill-manager:init'),
+    getOverview: () =>
+      ipcRenderer.invoke('skill-manager:overview'),
+    refresh: () =>
+      ipcRenderer.invoke('skill-manager:refresh'),
+    getSettings: () =>
+      ipcRenderer.invoke('skill-manager:settings'),
+    updateSettings: (patch: Record<string, unknown>) =>
+      ipcRenderer.invoke('skill-manager:update-settings', patch),
+    listCenterSkills: () =>
+      ipcRenderer.invoke('skill-manager:list-center-skills'),
+    getSkillDetail: (skillId: string) =>
+      ipcRenderer.invoke('skill-manager:get-skill-detail', skillId),
+    previewDeleteCenterSkill: (skillId: string) =>
+      ipcRenderer.invoke('skill-manager:preview-delete-center-skill', skillId),
+    executeDeleteCenterSkill: (skillId: string) =>
+      ipcRenderer.invoke('skill-manager:execute-delete-center-skill', skillId),
+    openPath: (targetPath: string): Promise<string> =>
+      ipcRenderer.invoke('skill-manager:open-path', targetPath),
+    previewAddCenterSkill: (input: Record<string, unknown>) =>
+      ipcRenderer.invoke('skill-manager:preview-add-center-skill', input),
+    executeAddCenterSkill: (input: Record<string, unknown>, decisions: Record<string, unknown>[]) =>
+      ipcRenderer.invoke('skill-manager:execute-add-center-skill', input, decisions),
   },
 })

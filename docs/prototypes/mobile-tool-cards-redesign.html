@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mobile App 工具卡片优化 · 3 方向对比</title>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: #e5e0d5;
+    padding: 40px 24px 80px;
+    color: #18191f;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page-header {
+    max-width: 1280px;
+    margin: 0 auto 32px;
+  }
+  .page-header h1 {
+    font-family: 'Newsreader', serif;
+    font-size: 28px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: #181715;
+    margin-bottom: 6px;
+  }
+  .page-header p {
+    font-size: 13px;
+    color: #6c6a64;
+    line-height: 1.6;
+    max-width: 720px;
+  }
+
+  .variants-row {
+    max-width: 1280px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    align-items: start;
+  }
+  @media (max-width: 1100px) {
+    .variants-row { grid-template-columns: 1fr; max-width: 420px; }
+  }
+
+  /* ============ 手机框（通用） ============ */
+  .phone {
+    width: 100%;
+    max-width: 400px;
+    margin: 0 auto;
+    background: #181715;
+    border-radius: 44px;
+    padding: 12px;
+    box-shadow: 0 30px 60px -20px rgba(24, 23, 21, 0.35), 0 10px 20px -10px rgba(24, 23, 21, 0.25);
+  }
+  .phone-screen {
+    border-radius: 32px;
+    overflow: hidden;
+    height: 820px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+  .phone-notch {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 110px;
+    height: 28px;
+    background: #181715;
+    border-radius: 14px;
+    z-index: 10;
+  }
+  .phone-status {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 24px 8px;
+    font-size: 13px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .phone-status .right { display: flex; gap: 4px; align-items: center; }
+  .phone-status .battery {
+    width: 22px; height: 11px;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    position: relative;
+    opacity: 0.7;
+  }
+  .phone-status .battery::after {
+    content: '';
+    position: absolute;
+    right: -3px; top: 3px;
+    width: 2px; height: 5px;
+    background: currentColor;
+    border-radius: 0 1px 1px 0;
+    opacity: 0.7;
+  }
+
+  .chat-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 14px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .chat-area::-webkit-scrollbar { width: 0; }
+
+  .assistant-meta {
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: -4px;
+    padding: 0 4px;
+    letter-spacing: 0.02em;
+  }
+
+  /* ============ 共用工具调用数据样式 ============ */
+  .tool-section-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 12px 4px 4px;
+    opacity: 0.5;
+  }
+
+  /* ============ 方向 A · Anthropic Warm ============ */
+  .theme-a .phone-screen { background: #faf9f5; color: #181715; }
+  .theme-a .phone-status { color: #181715; }
+  .theme-a .assistant-meta { color: #cc785c; }
+
+  .theme-a .a-card {
+    background: #faf9f5;
+    border: 1px solid rgba(24, 23, 21, 0.08);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .theme-a .a-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(24, 23, 21, 0.06);
+  }
+  .theme-a .a-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .theme-a .a-tool-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    flex: 1;
+    color: #181715;
+  }
+  .theme-a .a-status {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .theme-a .a-body { padding: 0; }
+
+  /* A · run_command 终端 */
+  .theme-a .a-terminal {
+    background: #1a1918;
+    color: #faf9f5;
+    padding: 12px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    line-height: 1.65;
+  }
+  .theme-a .a-terminal .prompt { color: #cc785c; }
+  .theme-a .a-terminal .cmd { color: #faf9f5; font-weight: 500; }
+  .theme-a .a-terminal .out { color: #a09d96; }
+  .theme-a .a-terminal .out-ok { color: #7dce94; }
+  .theme-a .a-terminal .cursor {
+    display: inline-block;
+    width: 7px;
+    height: 13px;
+    background: #cc785c;
+    vertical-align: text-bottom;
+    margin-left: 2px;
+    animation: blink 1s steps(2) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* A · READ 代码块 */
+  .theme-a .a-code-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: #efe9de;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: #6c6a64;
+  }
+  .theme-a .a-code-head .file-icon { color: #cc785c; }
+  .theme-a .a-code-head .file-path { flex: 1; color: #3d3d3a; font-weight: 500; }
+  .theme-a .a-code-head .lines { color: #8e8b82; }
+  .theme-a .a-code {
+    background: #1a1918;
+    color: #faf9f5;
+    padding: 10px 12px 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.7;
+    overflow-x: auto;
+  }
+  .theme-a .a-code::-webkit-scrollbar { height: 0; }
+  .theme-a .a-code .ln { color: #4a4843; margin-right: 12px; user-select: none; }
+  .theme-a .a-code .kw { color: #e08870; }
+  .theme-a .a-code .str { color: #7dce94; }
+  .theme-a .a-code .fn { color: #7dccbe; }
+  .theme-a .a-code .com { color: #6c6a64; font-style: italic; }
+  .theme-a .a-code .num { color: #f0b56a; }
+  .theme-a .a-code .pun { color: #a09d96; }
+
+  /* A · WRITE 新建文件 */
+  .theme-a .a-card.write { border-left: 3px solid #5db872; }
+  .theme-a .a-write-tag {
+    background: rgba(93, 184, 114, 0.15);
+    color: #3d8c54;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* A · EDIT diff */
+  .theme-a .a-diff {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.7;
+    background: #efe9de;
+  }
+  .theme-a .a-diff .hunk {
+    padding: 4px 12px;
+    color: #8e8b82;
+    font-size: 10px;
+    background: rgba(204, 120, 92, 0.08);
+  }
+  .theme-a .a-diff .line {
+    padding: 0 12px;
+    display: flex;
+    white-space: pre;
+  }
+  .theme-a .a-diff .line .lnum {
+    width: 22px;
+    color: #b3afa5;
+    user-select: none;
+    flex-shrink: 0;
+  }
+  .theme-a .a-diff .line .sign {
+    width: 12px;
+    flex-shrink: 0;
+    user-select: none;
+  }
+  .theme-a .a-diff .line .content { flex: 1; }
+  .theme-a .a-diff .line.del { background: rgba(198, 69, 69, 0.12); }
+  .theme-a .a-diff .line.del .sign { color: #c64545; }
+  .theme-a .a-diff .line.del .content { color: #8b3a3a; }
+  .theme-a .a-diff .line.add { background: rgba(93, 184, 114, 0.15); }
+  .theme-a .a-diff .line.add .sign { color: #5db872; }
+  .theme-a .a-diff .line.add .content { color: #3d8c54; }
+  .theme-a .a-diff .line.ctx .content { color: #3d3d3a; }
+  .theme-a .a-diff .line.ctx .sign { color: transparent; }
+
+  /* A · web_search */
+  .theme-a .a-search-results {
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .theme-a .a-search-item {
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(24, 23, 21, 0.06);
+  }
+  .theme-a .a-search-item:last-child { border-bottom: none; }
+  .theme-a .a-search-item .title {
+    font-size: 12px;
+    color: #cc785c;
+    font-weight: 500;
+    margin-bottom: 2px;
+    line-height: 1.4;
+  }
+  .theme-a .a-search-item .url {
+    font-size: 10px;
+    color: #8e8b82;
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 4px;
+  }
+  .theme-a .a-search-item .snippet {
+    font-size: 11px;
+    color: #3d3d3a;
+    line-height: 1.5;
+  }
+
+  /* ============ 方向 B · Dev Dark IDE ============ */
+  .theme-b .phone-screen { background: #0d1117; color: #c9d1d9; }
+  .theme-b .phone-status { color: #c9d1d9; }
+  .theme-b .assistant-meta { color: #58a6ff; }
+
+  .theme-b .b-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .theme-b .b-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #0d1117;
+    border-bottom: 1px solid #30363d;
+  }
+  .theme-b .b-traffic {
+    display: flex;
+    gap: 5px;
+    margin-right: 4px;
+  }
+  .theme-b .b-traffic span {
+    width: 9px; height: 9px; border-radius: 50%;
+  }
+  .theme-b .b-traffic .r { background: #ff5f56; }
+  .theme-b .b-traffic .y { background: #ffbd2e; }
+  .theme-b .b-traffic .g { background: #27c93f; }
+  .theme-b .b-tool-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: #8b949e;
+    flex: 1;
+  }
+  .theme-b .b-tool-name .accent { color: #58a6ff; }
+  .theme-b .b-status {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: #8b949e;
+  }
+  .theme-b .b-status.ok { color: #3fb950; }
+  .theme-b .b-status.err { color: #f85149; }
+  .theme-b .b-status.run { color: #d29922; }
+
+  /* B · run_command 终端 */
+  .theme-b .b-terminal {
+    background: #010409;
+    padding: 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.7;
+    color: #c9d1d9;
+  }
+  .theme-b .b-terminal .prompt { color: #3fb950; }
+  .theme-b .b-terminal .path { color: #58a6ff; }
+  .theme-b .b-terminal .cmd { color: #c9d1d9; }
+  .theme-b .b-terminal .out { color: #8b949e; }
+  .theme-b .b-terminal .out-ok { color: #3fb950; }
+  .theme-b .b-terminal .cursor {
+    display: inline-block;
+    width: 7px;
+    height: 13px;
+    background: #58a6ff;
+    vertical-align: text-bottom;
+    margin-left: 2px;
+    animation: blink 1s steps(2) infinite;
+  }
+
+  /* B · READ 代码块 */
+  .theme-b .b-code-head {
+    display: flex;
+    align-items: center;
+    padding: 6px 12px;
+    background: #0d1117;
+    border-bottom: 1px solid #30363d;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+  }
+  .theme-b .b-code-head .tab {
+    color: #c9d1d9;
+    background: #161b22;
+    padding: 3px 10px;
+    border-radius: 4px 4px 0 0;
+    border: 1px solid #30363d;
+    border-bottom: none;
+    margin-bottom: -7px;
+  }
+  .theme-b .b-code-head .lang {
+    color: #8b949e;
+    margin-left: auto;
+  }
+  .theme-b .b-code {
+    background: #0d1117;
+    padding: 10px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.7;
+    overflow-x: auto;
+    color: #c9d1d9;
+  }
+  .theme-b .b-code::-webkit-scrollbar { height: 0; }
+  .theme-b .b-code .ln { color: #484f58; margin-right: 14px; user-select: none; }
+  .theme-b .b-code .kw { color: #ff7b72; }
+  .theme-b .b-code .str { color: #a5d6ff; }
+  .theme-b .b-code .fn { color: #d2a8ff; }
+  .theme-b .b-code .com { color: #8b949e; font-style: italic; }
+  .theme-b .b-code .num { color: #79c0ff; }
+  .theme-b .b-code .var { color: #ffa657; }
+  .theme-b .b-code .pun { color: #c9d1d9; }
+
+  /* B · WRITE 新建文件 */
+  .theme-b .b-card.write { border-color: #3fb950; }
+  .theme-b .b-card.write .b-card-head { border-bottom-color: rgba(63, 185, 80, 0.3); }
+  .theme-b .b-write-tag {
+    background: rgba(63, 185, 80, 0.15);
+    color: #3fb950;
+    border: 1px solid rgba(63, 185, 80, 0.3);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+  .theme-b .b-code.write-code {
+    background: rgba(63, 185, 80, 0.04);
+  }
+  .theme-b .b-code.write-code .ln-new {
+    color: #3fb950;
+    margin-right: 14px;
+    user-select: none;
+  }
+  .theme-b .b-code.write-code .add-sign {
+    color: #3fb950;
+    margin-right: 6px;
+  }
+
+  /* B · EDIT diff */
+  .theme-b .b-diff {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.7;
+    background: #0d1117;
+  }
+  .theme-b .b-diff .hunk {
+    padding: 4px 14px;
+    color: #8b949e;
+    font-size: 10px;
+    background: rgba(56, 139, 253, 0.08);
+    border-bottom: 1px solid #30363d;
+  }
+  .theme-b .b-diff .line {
+    padding: 0 14px;
+    display: flex;
+    white-space: pre;
+  }
+  .theme-b .b-diff .line .lnum {
+    width: 24px;
+    color: #484f58;
+    user-select: none;
+    flex-shrink: 0;
+  }
+  .theme-b .b-diff .line .sign {
+    width: 12px;
+    flex-shrink: 0;
+    user-select: none;
+  }
+  .theme-b .b-diff .line .content { flex: 1; }
+  .theme-b .b-diff .line.del { background: rgba(248, 81, 73, 0.1); }
+  .theme-b .b-diff .line.del .sign { color: #f85149; }
+  .theme-b .b-diff .line.del .content { color: #ffa198; }
+  .theme-b .b-diff .line.add { background: rgba(63, 185, 80, 0.1); }
+  .theme-b .b-diff .line.add .sign { color: #3fb950; }
+  .theme-b .b-diff .line.add .content { color: #7ee787; }
+  .theme-b .b-diff .line.ctx .content { color: #8b949e; }
+  .theme-b .b-diff .line.ctx .sign { color: transparent; }
+
+  /* B · web_search */
+  .theme-b .b-search-results {
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .theme-b .b-search-item {
+    padding: 6px 0;
+    border-bottom: 1px solid #21262d;
+  }
+  .theme-b .b-search-item:last-child { border-bottom: none; }
+  .theme-b .b-search-item .title {
+    font-size: 11.5px;
+    color: #58a6ff;
+    font-weight: 500;
+    margin-bottom: 2px;
+    line-height: 1.4;
+  }
+  .theme-b .b-search-item .url {
+    font-size: 10px;
+    color: #8b949e;
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 4px;
+  }
+  .theme-b .b-search-item .snippet {
+    font-size: 10.5px;
+    color: #c9d1d9;
+    line-height: 1.5;
+  }
+
+  /* ============ 方向 C · Minimal Chip ============ */
+  .theme-c .phone-screen { background: #ffffff; color: #18191f; }
+  .theme-c .phone-status { color: #18191f; }
+  .theme-c .assistant-meta { color: #18191f; }
+
+  .theme-c .c-card {
+    background: transparent;
+    border-left: 2px solid #e5e5e5;
+    padding: 0 0 0 12px;
+    margin: 4px 0;
+  }
+  .theme-c .c-card.running { border-left-color: #18191f; }
+  .theme-c .c-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+  }
+  .theme-c .c-tool-name {
+    font-size: 12px;
+    font-weight: 500;
+    color: #18191f;
+    flex: 1;
+  }
+  .theme-c .c-tool-name .args {
+    color: #737373;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 400;
+    margin-left: 6px;
+  }
+  .theme-c .c-status {
+    font-size: 10px;
+    color: #737373;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .theme-c .c-status.ok { color: #18191f; }
+  .theme-c .c-status.err { color: #dc2626; }
+  .theme-c .c-status.run { color: #737373; }
+  .theme-c .c-status::before {
+    content: '·';
+    margin-right: 4px;
+  }
+
+  /* C · run_command */
+  .theme-c .c-terminal {
+    margin-top: 6px;
+    padding: 10px 12px;
+    background: #f6f6f6;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.65;
+    color: #18191f;
+  }
+  .theme-c .c-terminal .prompt { color: #737373; }
+  .theme-c .c-terminal .cmd { color: #18191f; }
+  .theme-c .c-terminal .out { color: #525252; }
+  .theme-c .c-terminal .out-ok { color: #16a34a; }
+
+  /* C · READ 代码块 */
+  .theme-c .c-code-head {
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: #737373;
+  }
+  .theme-c .c-code-head .file-path { color: #18191f; font-weight: 500; }
+  .theme-c .c-code-head .meta { color: #a3a3a3; }
+  .theme-c .c-code {
+    margin-top: 4px;
+    padding: 10px 12px;
+    background: #fafafa;
+    border: 1px solid #f0f0f0;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.7;
+    overflow-x: auto;
+    color: #18191f;
+  }
+  .theme-c .c-code::-webkit-scrollbar { height: 0; }
+  .theme-c .c-code .ln { color: #d4d4d4; margin-right: 12px; user-select: none; }
+  .theme-c .c-code .kw { color: #be123c; }
+  .theme-c .c-code .str { color: #1e40af; }
+  .theme-c .c-code .fn { color: #0d9488; }
+  .theme-c .c-code .com { color: #a3a3a3; font-style: italic; }
+  .theme-c .c-code .num { color: #7c3aed; }
+
+  /* C · WRITE 新建文件 */
+  .theme-c .c-card.write { border-left-color: #16a34a; }
+  .theme-c .c-write-tag {
+    color: #16a34a;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .theme-c .c-code.write-code {
+    background: rgba(22, 163, 74, 0.04);
+    border-color: rgba(22, 163, 74, 0.2);
+  }
+  .theme-c .c-code.write-code .add-sign {
+    color: #16a34a;
+    margin-right: 6px;
+  }
+
+  /* C · EDIT diff */
+  .theme-c .c-card.edit { border-left-color: #ea580c; }
+  .theme-c .c-diff {
+    margin-top: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.7;
+  }
+  .theme-c .c-diff .line {
+    padding: 0 4px;
+    display: flex;
+    white-space: pre;
+  }
+  .theme-c .c-diff .line .lnum {
+    width: 22px;
+    color: #d4d4d4;
+    user-select: none;
+    flex-shrink: 0;
+  }
+  .theme-c .c-diff .line .sign {
+    width: 12px;
+    flex-shrink: 0;
+    user-select: none;
+  }
+  .theme-c .c-diff .line .content { flex: 1; }
+  .theme-c .c-diff .line.del .sign { color: #dc2626; }
+  .theme-c .c-diff .line.del .content { color: #dc2626; }
+  .theme-c .c-diff .line.add .sign { color: #16a34a; }
+  .theme-c .c-diff .line.add .content { color: #16a34a; }
+  .theme-c .c-diff .line.ctx .content { color: #525252; }
+  .theme-c .c-diff .line.ctx .sign { color: transparent; }
+
+  /* C · web_search */
+  .theme-c .c-search-results {
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .theme-c .c-search-item {
+    padding: 4px 0;
+  }
+  .theme-c .c-search-item .title {
+    font-size: 12px;
+    color: #18191f;
+    font-weight: 500;
+    margin-bottom: 2px;
+    line-height: 1.4;
+  }
+  .theme-c .c-search-item .url {
+    font-size: 10px;
+    color: #a3a3a3;
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 2px;
+  }
+  .theme-c .c-search-item .snippet {
+    font-size: 11px;
+    color: #525252;
+    line-height: 1.5;
+  }
+
+  /* ============ Variant 标签 ============ */
+  .variant-label {
+    text-align: center;
+    padding: 16px 0 8px;
+  }
+  .variant-label .name {
+    font-family: 'Newsreader', serif;
+    font-size: 18px;
+    font-weight: 500;
+    color: #181715;
+    letter-spacing: -0.01em;
+  }
+  .variant-label .tagline {
+    font-size: 11px;
+    color: #6c6a64;
+    margin-top: 4px;
+    letter-spacing: 0.02em;
+  }
+  .variant-label .traits {
+    margin-top: 8px;
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .variant-label .traits span {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: rgba(24, 23, 21, 0.06);
+    color: #3d3d3a;
+  }
+
+  /* footer 提示 */
+  .footer-note {
+    max-width: 1280px;
+    margin: 48px auto 0;
+    padding: 20px 24px;
+    background: rgba(24, 23, 21, 0.04);
+    border-radius: 12px;
+    font-size: 12px;
+    color: #6c6a64;
+    line-height: 1.7;
+  }
+  .footer-note strong { color: #181715; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>Mobile App 工具卡片优化</h1>
+  <p>3 个差异化设计方向，每个方向都展示 5 类工具调用：run_command（终端）、READ（语法高亮）、WRITE（新建文件）、EDIT（diff）、web_search。基于现有 mobile-app 的 Anthropic 暖色主题与 ToolCall model 结构。</p>
+</div>
+
+<div class="variants-row">
+
+  <!-- ==================== 方向 A · Anthropic Warm ==================== -->
+  <div>
+    <div class="variant-label">
+      <div class="name">A · Anthropic Warm</div>
+      <div class="tagline">暖米原生 · Claude.ai 气质</div>
+      <div class="traits">
+        <span>暖色 #faf9f5</span>
+        <span>橙 #cc785c</span>
+        <span>serif 标题</span>
+        <span>圆角 12px</span>
+      </div>
+    </div>
+    <div class="phone theme-a">
+      <div class="phone-screen">
+        <div class="phone-notch"></div>
+        <div class="phone-status">
+          <span>9:41</span>
+          <span class="right">
+            <span style="font-size:11px;">●●●</span>
+            <span class="battery"></span>
+          </span>
+        </div>
+        <div class="chat-area">
+          <div class="assistant-meta">CLAUDE · 已完成</div>
+
+          <div class="tool-section-label">RUN_COMMAND</div>
+          <div class="a-card">
+            <div class="a-card-head">
+              <span class="a-dot" style="background:#5db872;"></span>
+              <span class="a-tool-name">run_command</span>
+              <span class="a-status" style="color:#5db872;">已完成</span>
+            </div>
+            <div class="a-body">
+              <div class="a-terminal">
+                <div><span class="prompt">~/project $</span> <span class="cmd">git status</span></div>
+                <div class="out">On branch main</div>
+                <div class="out">Changes not staged for commit:</div>
+                <div class="out">&nbsp;&nbsp;modified:&nbsp;&nbsp; lib/utils/logger.ts</div>
+                <div class="out">&nbsp;&nbsp;modified:&nbsp;&nbsp; src/config.ts</div>
+                <div class="out-ok">no changes added to commit</div>
+                <div><span class="prompt">~/project $</span><span class="cursor"></span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tool-section-label">READ</div>
+          <div class="a-card">
+            <div class="a-card-head">
+              <span class="a-dot" style="background:#cc785c;"></span>
+              <span class="a-tool-name">read</span>
+              <span class="a-status" style="color:#5db872;">42 行</span>
+            </div>
+            <div class="a-code-head">
+              <span class="file-icon">▣</span>
+              <span class="file-path">lib/utils/logger.ts</span>
+              <span class="lines">TypeScript · 1-42</span>
+            </div>
+            <div class="a-code">
+<div><span class="ln">1</span><span class="kw">import</span> <span class="pun">{</span> <span class="var">formatDate</span> <span class="pun">}</span> <span class="kw">from</span> <span class="str">'./date'</span><span class="pun">;</span></div>
+<div><span class="ln">2</span></div>
+<div><span class="ln">3</span><span class="kw">export</span> <span class="kw">enum</span> <span class="fn">LogLevel</span> <span class="pun">{</span></div>
+<div><span class="ln">4</span>&nbsp;&nbsp;<span class="var">Debug</span> <span class="pun">=</span> <span class="str">'debug'</span><span class="pun">,</span></div>
+<div><span class="ln">5</span>&nbsp;&nbsp;<span class="var">Info</span> <span class="pun">=</span> <span class="str">'info'</span><span class="pun">,</span></div>
+<div><span class="ln">6</span>&nbsp;&nbsp;<span class="var">Warn</span> <span class="pun">=</span> <span class="str">'warn'</span><span class="pun">,</span></div>
+<div><span class="ln">7</span><span class="pun">}</span></div>
+<div><span class="ln">8</span></div>
+<div><span class="ln">9</span><span class="com">// 统一日志出口</span></div>
+<div><span class="ln">10</span><span class="kw">export</span> <span class="kw">function</span> <span class="fn">log</span><span class="pun">(</span><span class="var">msg</span><span class="pun">:</span> <span class="kw">string</span><span class="pun">,</span> <span class="var">level</span><span class="pun">:</span> <span class="fn">LogLevel</span> <span class="pun">=</span> <span class="var">LogLevel</span><span class="pun">.</span><span class="var">Info</span><span class="pun">)</span> <span class="pun">{</span></div>
+<div><span class="ln">11</span>&nbsp;&nbsp;<span class="kw">const</span> <span class="var">ts</span> <span class="pun">=</span> <span class="fn">formatDate</span><span class="pun">(</span><span class="kw">new</span> <span class="fn">Date</span><span class="pun">());</span></div>
+<div><span class="ln">12</span>&nbsp;&nbsp;<span class="var">console</span><span class="pun">.</span><span class="fn">info</span><span class="pun">(</span><span class="str">`[${ts}] ${level}: ${msg}`</span><span class="pun">);</span></div>
+<div><span class="ln">13</span><span class="pun">}</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tool-section-label">WRITE</div>
+          <div class="a-card write">
+            <div class="a-card-head">
+              <span class="a-dot" style="background:#5db872;"></span>
+              <span class="a-tool-name">write</span>
+              <span class="a-write-tag">+ 新建</span>
+            </div>
+            <div class="a-code-head">
+              <span class="file-icon" style="color:#5db872;">+</span>
+              <span class="file-path">src/hello.ts</span>
+              <span class="lines">8 行</span>
+            </div>
+            <div class="a-code">
+<div><span class="ln">1</span><span class="kw">export</span> <span class="kw">function</span> <span class="fn">hello</span><span class="pun">(</span><span class="var">name</span><span class="pun">:</span> <span class="kw">string</span><span class="pun">)</span> <span class="pun">{</span></div>
+<div><span class="ln">2</span>&nbsp;&nbsp;<span class="kw">return</span> <span class="str">`Hello, ${name}!`</span><span class="pun">;</span></div>
+<div><span class="ln">3</span><span class="pun">}</span></div>
+            </div>
+          </div>
+
+          <div class="tool-section-label">EDIT</div>
+          <div class="a-card">
+            <div class="a-card-head">
+              <span class="a-dot" style="background:#cc785c;"></span>
+              <span class="a-tool-name">edit</span>
+              <span class="a-status" style="color:#5db872;">+3</span>
+              <span class="a-status" style="color:#c64545; margin-left:4px;">-2</span>
+            </div>
+            <div class="a-diff">
+              <div class="hunk">@@ -10,7 +10,8 @@ lib/utils/logger.ts</div>
+              <div class="line ctx"><span class="lnum">10</span><span class="sign"> </span><span class="content"><span class="kw">export</span> <span class="kw">function</span> <span class="fn">log</span>(<span class="var">msg</span>: <span class="kw">string</span>) {</span></div>
+              <div class="line del"><span class="lnum">11</span><span class="sign">-</span><span class="content">&nbsp;&nbsp;<span class="var">console</span>.<span class="fn">log</span>(<span class="var">msg</span>);</span></div>
+              <div class="line del"><span class="lnum">12</span><span class="sign">-</span><span class="content">}</span></div>
+              <div class="line add"><span class="lnum">11</span><span class="sign">+</span><span class="content">&nbsp;&nbsp;<span class="kw">const</span> <span class="var">ts</span> = <span class="fn">Date</span>.<span class="fn">now</span>();</span></div>
+              <div class="line add"><span class="lnum">12</span><span class="sign">+</span><span class="content">&nbsp;&nbsp;<span class="var">console</span>.<span class="fn">info</span>(<span class="str">`[${ts}] ${msg}`</span>);</span></div>
+              <div class="line add"><span class="lnum">13</span><span class="sign">+</span><span class="content">}</span></div>
+              <div class="line ctx"><span class="lnum">14</span><span class="sign"> </span><span class="content"></span></div>
+            </div>
+          </div>
+
+          <div class="tool-section-label">WEB_SEARCH</div>
+          <div class="a-card">
+            <div class="a-card-head">
+              <span class="a-dot" style="background:#cc785c;"></span>
+              <span class="a-tool-name">web_search</span>
+              <span class="a-status" style="color:#5db872;">3 结果</span>
+            </div>
+            <div class="a-search-results">
+              <div class="a-search-item">
+                <div class="title">Flutter 3.27 release notes · Medium</div>
+                <div class="url">medium.com › flutter › 3.27-release</div>
+                <div class="snippet">Flutter 3.27 brings Impeller improvements, Dart 3.5 Wasm 稳定支持...</div>
+              </div>
+              <div class="a-search-item">
+                <div class="title">What's new in Flutter 3.27 - official docs</div>
+                <div class="url">docs.flutter.dev › release</div>
+                <div class="snippet">本版本重点优化了 iOS Impeller 渲染性能与 Material 3 适配...</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 方向 B · Dev Dark IDE ==================== -->
+  <div>
+    <div class="variant-label">
+      <div class="name">B · Dev Dark IDE</div>
+      <div class="tagline">VSCode / GitHub Dark · 开发者原生</div>
+      <div class="traits">
+        <span>深色 #0d1117</span>
+        <span>蓝绿红</span>
+        <span>JetBrains Mono</span>
+        <span>窗口控件</span>
+      </div>
+    </div>
+    <div class="phone theme-b">
+      <div class="phone-screen">
+        <div class="phone-notch"></div>
+        <div class="phone-status">
+          <span>9:41</span>
+          <span class="right">
+            <span style="font-size:11px;">●●●</span>
+            <span class="battery"></span>
+          </span>
+        </div>
+        <div class="chat-area">
+          <div class="assistant-meta">CLAUDE · 已完成</div>
+
+          <div class="tool-section-label" style="color:#8b949e;">RUN_COMMAND</div>
+          <div class="b-card">
+            <div class="b-card-head">
+              <div class="b-traffic"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+              <span class="b-tool-name"><span class="accent">run</span>_command · zsh</span>
+              <span class="b-status ok">EXIT 0</span>
+            </div>
+            <div class="b-terminal">
+              <div><span class="prompt">➜</span> <span class="path">~/project</span> <span class="cmd">git status</span></div>
+              <div class="out">On branch main</div>
+              <div class="out">Changes not staged for commit:</div>
+              <div class="out">&nbsp;&nbsp;modified:&nbsp;&nbsp; lib/utils/logger.ts</div>
+              <div class="out">&nbsp;&nbsp;modified:&nbsp;&nbsp; src/config.ts</div>
+              <div class="out-ok">no changes added to commit</div>
+              <div><span class="prompt">➜</span> <span class="path">~/project</span><span class="cursor"></span></div>
+            </div>
+          </div>
+
+          <div class="tool-section-label" style="color:#8b949e;">READ</div>
+          <div class="b-card">
+            <div class="b-code-head">
+              <span class="tab">logger.ts</span>
+              <span class="lang">TypeScript</span>
+            </div>
+            <div class="b-code">
+<div><span class="ln">1</span><span class="kw">import</span> <span class="pun">{</span> <span class="var">formatDate</span> <span class="pun">} from</span> <span class="str">'./date'</span><span class="pun">;</span></div>
+<div><span class="ln">2</span></div>
+<div><span class="ln">3</span><span class="kw">export enum</span> <span class="fn">LogLevel</span> <span class="pun">{</span></div>
+<div><span class="ln">4</span>&nbsp;&nbsp;<span class="var">Debug</span> <span class="pun">=</span> <span class="str">'debug'</span><span class="pun">,</span></div>
+<div><span class="ln">5</span>&nbsp;&nbsp;<span class="var">Info</span> <span class="pun">=</span> <span class="str">'info'</span><span class="pun">,</span></div>
+<div><span class="ln">6</span>&nbsp;&nbsp;<span class="var">Warn</span> <span class="pun">=</span> <span class="str">'warn'</span><span class="pun">,</span></div>
+<div><span class="ln">7</span><span class="pun">}</span></div>
+<div><span class="ln">8</span></div>
+<div><span class="ln">9</span><span class="com">// 统一日志出口</span></div>
+<div><span class="ln">10</span><span class="kw">export function</span> <span class="fn">log</span><span class="pun">(</span><span class="var">msg</span><span class="pun">:</span> <span class="kw">string</span><span class="pun">,</span> <span class="var">level</span><span class="pun">:</span> <span class="fn">LogLevel</span> <span class="pun">=</span> <span class="var">LogLevel</span><span class="pun">.</span><span class="var">Info</span><span class="pun">) {</span></div>
+<div><span class="ln">11</span>&nbsp;&nbsp;<span class="kw">const</span> <span class="var">ts</span> <span class="pun">=</span> <span class="fn">formatDate</span><span class="pun">(</span><span class="kw">new</span> <span class="fn">Date</span><span class="pun">());</span></div>
+<div><span class="ln">12</span>&nbsp;&nbsp;<span class="var">console</span><span class="pun">.</span><span class="fn">info</span><span class="pun">(</span><span class="str">`[${ts}] ${level}: ${msg}`</span><span class="pun">);</span></div>
+<div><span class="ln">13</span><span class="pun">}</span></div>
+            </div>
+          </div>
+
+          <div class="tool-section-label" style="color:#8b949e;">WRITE</div>
+          <div class="b-card write">
+            <div class="b-card-head">
+              <div class="b-traffic"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+              <span class="b-tool-name"><span class="accent">write</span> · src/hello.ts</span>
+              <span class="b-write-tag">+ ADDED</span>
+            </div>
+            <div class="b-code write-code">
+<div><span class="ln-new">+</span><span class="add-sign">1</span><span class="kw">export function</span> <span class="fn">hello</span><span class="pun">(</span><span class="var">name</span><span class="pun">:</span> <span class="kw">string</span><span class="pun">) {</span></div>
+<div><span class="ln-new">+</span><span class="add-sign">2</span>&nbsp;&nbsp;<span class="kw">return</span> <span class="str">`Hello, ${name}!`</span><span class="pun">;</span></div>
+<div><span class="ln-new">+</span><span class="add-sign">3</span><span class="pun">}</span></div>
+            </div>
+          </div>
+
+          <div class="tool-section-label" style="color:#8b949e;">EDIT</div>
+          <div class="b-card">
+            <div class="b-card-head">
+              <div class="b-traffic"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+              <span class="b-tool-name"><span class="accent">edit</span> · logger.ts</span>
+              <span class="b-status" style="color:#3fb950;">+3</span>
+              <span class="b-status" style="color:#f85149;">-2</span>
+            </div>
+            <div class="b-diff">
+              <div class="hunk">@@ -10,7 +10,8 @@</div>
+              <div class="line ctx"><span class="lnum">10</span><span class="sign"> </span><span class="content"><span class="kw">export function</span> <span class="fn">log</span><span class="pun">(</span><span class="var">msg</span><span class="pun">:</span> <span class="kw">string</span><span class="pun">) {</span></span></div>
+              <div class="line del"><span class="lnum">11</span><span class="sign">-</span><span class="content">&nbsp;&nbsp;<span class="var">console</span><span class="pun">.</span><span class="fn">log</span><span class="pun">(</span><span class="var">msg</span><span class="pun">);</span></span></div>
+              <div class="line del"><span class="lnum">12</span><span class="sign">-</span><span class="content"><span class="pun">}</span></span></div>
+              <div class="line add"><span class="lnum">11</span><span class="sign">+</span><span class="content">&nbsp;&nbsp;<span class="kw">const</span> <span class="var">ts</span> <span class="pun">=</span> <span class="fn">Date</span><span class="pun">.</span><span class="fn">now</span><span class="pun">();</span></span></div>
+              <div class="line add"><span class="lnum">12</span><span class="sign">+</span><span class="content">&nbsp;&nbsp;<span class="var">console</span><span class="pun">.</span><span class="fn">info</span><span class="pun">(</span><span class="str">`[${ts}] ${msg}`</span><span class="pun">);</span></span></div>
+              <div class="line add"><span class="lnum">13</span><span class="sign">+</span><span class="content"><span class="pun">}</span></span></div>
+            </div>
+          </div>
+
+          <div class="tool-section-label" style="color:#8b949e;">WEB_SEARCH</div>
+          <div class="b-card">
+            <div class="b-card-head">
+              <div class="b-traffic"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+              <span class="b-tool-name"><span class="accent">web</span>_search · "Flutter 3.27"</span>
+              <span class="b-status ok">3 HITS</span>
+            </div>
+            <div class="b-search-results">
+              <div class="b-search-item">
+                <div class="title">Flutter 3.27 release notes · Medium</div>
+                <div class="url">medium.com › flutter › 3.27-release</div>
+                <div class="snippet">Flutter 3.27 brings Impeller improvements, Dart 3.5 Wasm...</div>
+              </div>
+              <div class="b-search-item">
+                <div class="title">What's new in Flutter 3.27 - official docs</div>
+                <div class="url">docs.flutter.dev › release</div>
+                <div class="snippet">本版本重点优化了 iOS Impeller 渲染性能与 Material 3 适配...</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 方向 C · Minimal Chip ==================== -->
+  <div>
+    <div class="variant-label">
+      <div class="name">C · Minimal Chip</div>
+      <div class="tagline">极简 · Linear / Notion 风格</div>
+      <div class="traits">
+        <span>白底</span>
+        <span>左色条</span>
+        <span>无背景</span>
+        <span>低密度</span>
+      </div>
+    </div>
+    <div class="phone theme-c">
+      <div class="phone-screen">
+        <div class="phone-notch"></div>
+        <div class="phone-status">
+          <span>9:41</span>
+          <span class="right">
+            <span style="font-size:11px;">●●●</span>
+            <span class="battery"></span>
+          </span>
+        </div>
+        <div class="chat-area">
+          <div class="assistant-meta">CLAUDE · 已完成</div>
+
+          <div class="tool-section-label">RUN_COMMAND</div>
+          <div class="c-card running">
+            <div class="c-card-head">
+              <span class="c-tool-name">run_command<span class="args">git status</span></span>
+              <span class="c-status ok">已完成</span>
+            </div>
+            <div class="c-terminal">
+              <div><span class="prompt">$</span> <span class="cmd">git status</span></div>
+              <div class="out">On branch main</div>
+              <div class="out">Changes not staged for commit:</div>
+              <div class="out">&nbsp;&nbsp;modified: lib/utils/logger.ts</div>
+              <div class="out">&nbsp;&nbsp;modified: src/config.ts</div>
+              <div class="out-ok">no changes added to commit</div>
+            </div>
+          </div>
+
+          <div class="tool-section-label">READ</div>
+          <div class="c-card">
+            <div class="c-card-head">
+              <span class="c-tool-name">read<span class="args">lib/utils/logger.ts</span></span>
+              <span class="c-status ok">42 行</span>
+            </div>
+            <div class="c-code-head">
+              <span class="file-path">lib/utils/logger.ts</span>
+              <span class="meta">· TypeScript</span>
+            </div>
+            <div class="c-code">
+<div><span class="ln">1</span><span class="kw">import</span> { formatDate } <span class="kw">from</span> <span class="str">'./date'</span>;</div>
+<div><span class="ln">2</span></div>
+<div><span class="ln">3</span><span class="kw">export enum</span> <span class="fn">LogLevel</span> {</div>
+<div><span class="ln">4</span>&nbsp;&nbsp;Debug = <span class="str">'debug'</span>,</div>
+<div><span class="ln">5</span>&nbsp;&nbsp;Info = <span class="str">'info'</span>,</div>
+<div><span class="ln">6</span>&nbsp;&nbsp;Warn = <span class="str">'warn'</span>,</div>
+<div><span class="ln">7</span>}</div>
+<div><span class="ln">8</span></div>
+<div><span class="ln">9</span><span class="com">// 统一日志出口</span></div>
+<div><span class="ln">10</span><span class="kw">export function</span> <span class="fn">log</span>(msg: <span class="kw">string</span>) {</div>
+<div><span class="ln">11</span>&nbsp;&nbsp;<span class="kw">const</span> ts = <span class="fn">formatDate</span>(<span class="kw">new</span> <span class="fn">Date</span>());</div>
+<div><span class="ln">12</span>&nbsp;&nbsp;console.info(<span class="str">`[${ts}] ${msg}`</span>);</div>
+<div><span class="ln">13</span>}</div>
+            </div>
+          </div>
+
+          <div class="tool-section-label">WRITE</div>
+          <div class="c-card write">
+            <div class="c-card-head">
+              <span class="c-tool-name">write<span class="args">src/hello.ts</span></span>
+              <span class="c-write-tag">+ 新建</span>
+            </div>
+            <div class="c-code write-code">
+<div><span class="add-sign">+</span><span class="kw">export function</span> <span class="fn">hello</span>(name: <span class="kw">string</span>) {</div>
+<div><span class="add-sign">+</span>&nbsp;&nbsp;<span class="kw">return</span> <span class="str">`Hello, ${name}!`</span>;</div>
+<div><span class="add-sign">+</span>}</div>
+            </div>
+          </div>
+
+          <div class="tool-section-label">EDIT</div>
+          <div class="c-card edit">
+            <div class="c-card-head">
+              <span class="c-tool-name">edit<span class="args">logger.ts</span></span>
+              <span class="c-status ok">+3</span>
+              <span class="c-status err">-2</span>
+            </div>
+            <div class="c-diff">
+              <div class="line ctx"><span class="lnum">10</span><span class="sign"> </span><span class="content"><span class="kw">export function</span> <span class="fn">log</span>(msg: <span class="kw">string</span>) {</span></div>
+              <div class="line del"><span class="lnum">11</span><span class="sign">-</span><span class="content">&nbsp;&nbsp;console.log(msg);</span></div>
+              <div class="line del"><span class="lnum">12</span><span class="sign">-</span><span class="content">}</span></div>
+              <div class="line add"><span class="lnum">11</span><span class="sign">+</span><span class="content">&nbsp;&nbsp;<span class="kw">const</span> ts = <span class="fn">Date</span>.<span class="fn">now</span>();</span></div>
+              <div class="line add"><span class="lnum">12</span><span class="sign">+</span><span class="content">&nbsp;&nbsp;console.info(<span class="str">`[${ts}] ${msg}`</span>);</span></div>
+              <div class="line add"><span class="lnum">13</span><span class="sign">+</span><span class="content">}</span></div>
+            </div>
+          </div>
+
+          <div class="tool-section-label">WEB_SEARCH</div>
+          <div class="c-card">
+            <div class="c-card-head">
+              <span class="c-tool-name">web_search<span class="args">"Flutter 3.27"</span></span>
+              <span class="c-status ok">3 结果</span>
+            </div>
+            <div class="c-search-results">
+              <div class="c-search-item">
+                <div class="title">Flutter 3.27 release notes · Medium</div>
+                <div class="url">medium.com › flutter › 3.27-release</div>
+                <div class="snippet">Flutter 3.27 brings Impeller improvements...</div>
+              </div>
+              <div class="c-search-item">
+                <div class="title">What's new in Flutter 3.27 - official docs</div>
+                <div class="url">docs.flutter.dev › release</div>
+                <div class="snippet">本版本重点优化了 iOS Impeller 渲染性能...</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer-note">
+  <strong>对比要点</strong>：<br>
+  · <strong>A · Anthropic Warm</strong>：暖米色 + 暖深终端，与现有 mobile-app 主题完全一致，迁移成本最低；serif 标题 + monospace 代码，Claude.ai 原生感。代码块用深色（CodeTheme.anthropicDark 已定义）。<br>
+  · <strong>B · Dev Dark IDE</strong>：全深色界面 + GitHub Dark 配色，专业开发者气质；macOS 终端窗口控件（红黄绿点）+ VSCode tab 样式；diff 用 GitHub 风格的红绿背景。<br>
+  · <strong>C · Minimal Chip</strong>：白底 + 左色条 + 无卡片背景，Linear/Notion 风格；信息密度最低，扫读最快；diff 仅用文字色区分（红字/绿字），无背景色块。<br><br>
+  <strong>选择建议</strong>：若要保持与现有 Anthropic 主题一致，选 A；若 mobile-app 未来要做开发者专属深色模式，选 B；若追求极简和移动端可读性，选 C。也可「混搭」——例如 A 的配色 + B 的终端窗口控件。
+</div>
+
+</body>
+</html>

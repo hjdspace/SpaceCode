@@ -1,3 +1,100 @@
+## [0.7.2](https://github.com/hjdspace/SpaceCode/compare/v0.7.1...v0.7.2) (2026-08-11)
+
+### Features
+
+* **electron:** 开发模式下添加启动闪屏窗口
+* **skill-manager-v2:** 实现 Skill Manager V2 核心功能，包括技能库页面、搜索、分页、导入中心库（hash冲突检测、预览/执行）
+* **linux:** 完善Linux平台打包与运行适配
+
+### Refactor
+
+* **electron:** 优化窗口显示逻辑和代理健康检查日志
+* **layout:** 将ChatPanel改为同步导入以避免加载延迟
+
+## [0.7.1](https://github.com/hjdspace/SpaceCode/compare/v0.7.0...v0.7.1) (2026-08-09)
+
+### Features
+
+* **chat:** 新增输入框底部状态栏，展示任务进度与文件改动信息
+* **chat:** 支持通过点击、回车或空格快捷打开文件改动审查面板
+
+### Refactor
+
+* 优化启动流程与缓存逻辑，通过按需加载、延迟挂载和并行请求提升首屏加载速度
+
+## [0.7.0](https://github.com/hjdspace/SpaceCode/compare/v0.6.12...v0.7.0) (2026-08-02)
+
+### Features
+
+* **pet:** 重构桌面宠物系统，采用 Sprite Atlas + CSS background-position 帧动画（PetSpriteAtlas.vue）替代旧版 SVG 实现
+* **pet:** 新增 9 种状态动画 + 16 方向视线追踪（petAnimation.ts），宠物随鼠标位置自然转头
+* **pet:** 实现任务监控映射，petSessionModel 将 chatSession/turn store 映射为 5 状态模型（idle/thinking/acting/waiting/done），经 IPC 推送至宠物窗口
+* **pet:** 新增多只内置宠物独立精神图绘，设置面板（PetSettings.vue）支持 4 只宠物选择与尺寸/动画/任务面板开关
+* **pet:** 实现透明置顶窗口、16ms 光标采样拖拽、面板边缘翻转（24px 滞回区间）与区域穿透（petWindowManager.ts）
+* **mobile:** 新增文件浏览器与代码预览（file_explorer_service.dart / file_explorer_screen.dart / file_preview_screen.dart），目录树展开折叠、文件预览支持代码高亮与 Markdown 渲染，顶部面包屑路径快速跳转
+* **search:** 添加 Tavily 免费代理搜索支持并优化搜索错误展示
+
+### Bug Fixes
+
+* **pet:** 修复多宠物状态同步问题
+* **electron:** 优化进程池方法的空进程处理逻辑
+
+### Refactor
+
+* **pet:** 重构桌面宠物系统，移除旧版反应逻辑与冗余代码（清理 42 个旧 SVG/composable/LLM 代理/测试文件）
+
+## [0.6.12](https://github.com/hjdspace/SpaceCode/compare/v0.6.11...v0.6.12) (2026-07-25)
+
+### Features
+
+* **agent:** 新增限流重试与无换行SSE事件处理能力
+* **chat:** 实现工具调用流式支持与聊天体验优化
+* **chat:** 重构工具卡片系统，新增多类型工具卡片与国际化支持
+* **android:** 添加前台服务支持，防止LLM任务被系统终止
+
+### Bug Fixes
+
+* **markdown渲染:** 修复流式代码块调试模式下的断言错误
+
+### Refactor
+
+* **i18n:** 补充多语言文案，优化搜索与Termux相关逻辑
+
+## [0.6.11](https://github.com/hjdspace/SpaceCode/compare/v0.6.10...v0.6.11) (2026-07-24)
+
+### Features
+
+* **mobile:** 实现手机端联网搜索能力（WebSearchProvider 接口 + Jina/Tavily/Brave 三种 Provider + 工厂模式，默认 Jina 免 Key）
+* **mobile:** 新增 web_search 与 fetch_url 工具并注册到 Agent（归类为只读权限）
+* **mobile:** MobileConfig 新增 searchProvider/searchApiKey 字段及持久化，设置页新增联网搜索配置卡片
+* **mobile:** 联网搜索 i18n 文案支持中英双语
+* **mobile:** 通过 Termux 桥接实现真 git clone（GitCloneService 分四段执行 + TermuxReadiness 三态检测 + 临时 credential helper 注入）
+* **mobile:** 设置页新增 Termux 环境引导卡片（三态展示 + 配置步骤 + 重新检测）
+* **mobile:** clone 前置二选一弹窗（Termux 未就绪时引导安装或降级 zipball）
+* **mobile:** GitPlugin 对 pull/push/fetch 注入临时 credential helper（token 不持久化）
+* **sessions:** 实现会话列表页面的国际化与项目分组功能
+* **chat/workspace:** 添加上地项目管理功能
+* **chat-tools:** 实现工具调用流式渲染与状态展示
+* **search:** CodeViewer 新增搜索功能与快捷键（Ctrl+P 快速打开、Ctrl+F 查找）
+* **i18n:** 新增文件搜索与代码查看器多语言文案
+* **performance:** 优化分栏面板拖动性能与可调整大小逻辑
+* **officecli:** 实现 OfficeCLI 二进制应用内下载与进度跟踪
+
+### Bug Fixes
+
+* **sessions:** 修复会话切换时的组件卸载断言错误
+* **mobile:** 修复 MobileConfig.load 未读取搜索配置
+* **mobile:** 修复 Android 语音输入无反应（切换至 Whisper API 方案）
+* **mobile:** shell_plugin 迁移到 termuxReadiness getter（任务1回归修复）
+* **eventhandlers:** 实现 rate limit 错误处理
+* 修复多处异步状态异常与测试适配问题
+
+### Refactor
+
+* **mobile:** main.dart 启动时用 TermuxReadinessChecker 三态检测替代 checkInstalled
+* **chat:** 合并流式文本组件到 Markdown 渲染器
+* **chat-tools:** 优化工具卡片空值展示逻辑
+
 ## [0.6.10](https://github.com/hjdspace/SpaceCode/compare/v0.6.9...v0.6.10) (2026-07-22)
 
 ### Features

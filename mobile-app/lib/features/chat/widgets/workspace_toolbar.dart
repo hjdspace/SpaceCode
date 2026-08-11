@@ -5,6 +5,7 @@ import '../../../core/config/mobile_config.dart';
 import '../../../core/github/github_browser_auth.dart';
 import '../../../core/github/github_service.dart';
 import '../../../core/i18n/strings.dart';
+import '../../../core/workspace/recent_projects_service.dart';
 import '../../../core/workspace/workspace_target.dart';
 import '../chat_controller.dart';
 
@@ -16,15 +17,7 @@ class WorkspaceToolbar extends ConsumerStatefulWidget {
 }
 
 class _WorkspaceToolbarState extends ConsumerState<WorkspaceToolbar> {
-  Future<void> _chooseLocalDirectory() async {
-    final path = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: I18n.t('chat.workspaceSelectLocal'),
-    );
-    if (path == null || !mounted) return;
-    ref
-        .read(chatProvider.notifier)
-        .setWorkspaceTarget(WorkspaceTarget.local(path));
-  }
+  // ── GitHub ──────────────────────────────────────────────────────────
 
   Future<void> _chooseGithubRepository() async {
     var config = ref.read(mobileConfigProvider);
@@ -164,8 +157,172 @@ class _WorkspaceToolbarState extends ConsumerState<WorkspaceToolbar> {
     }
   }
 
+  // ── Local ───────────────────────────────────────────────────────────
+
+  Future<void> _chooseLocalDirectory() async {
+    final path = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: I18n.t('chat.workspaceSelectLocal'),
+    );
+    if (path == null || !mounted) return;
+    ref
+        .read(chatProvider.notifier)
+        .setWorkspaceTarget(WorkspaceTarget.local(path));
+    await RecentProjectsService.recordProject(path);
+    setState(() {});
+  }
+
+  /// 弹出底部抽屉，显示最近打开的项目列表 + "打开文件夹"按钮。
+  Future<void> _showLocalProjectPicker() async {
+    final recentProjects = await RecentProjectsService.getRecentProjects();
+    if (!mounted) return;
+
+    final theme = Theme.of(context);
+    final target = ref.read(chatProvider).workspaceTarget;
+    final currentPath = target?.localPath;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 标题栏
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                child: Row(
+                  children: [
+                    Icon(Icons.history, size: 18,
+                        color: theme.colorScheme.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      I18n.t('chat.workspaceRecentProjects'),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: () => Navigator.pop(sheetContext),
+                      child: Icon(Icons.close, size: 20,
+                          color: theme.colorScheme.onSurface
+                              .withValues(alpha: 0.5)),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              // 项目列表
+              if (recentProjects.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 20, vertical: 32),
+                  child: Column(
+                    children: [
+                      Icon(Icons.folder_open_outlined, size: 40,
+                          color: theme.colorScheme.onSurface
+                              .withValues(alpha: 0.3)),
+                      const SizedBox(height: 8),
+                      Text(
+                        I18n.t('chat.workspaceNoRecentProjects'),
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: theme.colorScheme.onSurface
+                              .withValues(alpha: 0.5),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.4,
+                  ),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: recentProjects.length,
+                    itemBuilder: (context, index) {
+                      final path = recentProjects[index];
+                      final name = RecentProjectsService.projectDisplayName(path);
+                      final isCurrent = currentPath != null &&
+                          RecentProjectsService.normalizePathKey(path) ==
+                              RecentProjectsService.normalizePathKey(currentPath);
+                      return ListTile(
+                        leading: Icon(
+                          isCurrent
+                              ? Icons.check_circle
+                              : Icons.folder_outlined,
+                          size: 20,
+                          color: isCurrent
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.onSurface
+                                  .withValues(alpha: 0.6),
+                        ),
+                        title: Text(
+                          name,
+                          style: TextStyle(
+                            fontWeight: isCurrent
+                                ? FontWeight.w600
+                                : FontWeight.normal,
+                          ),
+                        ),
+                        subtitle: Text(
+                          path,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.4),
+                          ),
+                        ),
+                        onTap: () {
+                          Navigator.pop(sheetContext);
+                          ref.read(chatProvider.notifier).setWorkspaceTarget(
+                                WorkspaceTarget.local(path),
+                              );
+                          RecentProjectsService.recordProject(path);
+                          setState(() {});
+                        },
+                      );
+                    },
+                  ),
+                ),
+              const Divider(height: 1),
+              // 打开文件夹按钮
+              ListTile(
+                leading: Icon(Icons.create_new_folder_outlined,
+                    size: 22, color: theme.colorScheme.primary),
+                title: Text(
+                  I18n.t('chat.workspaceOpenFolder'),
+                  style: TextStyle(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _chooseLocalDirectory();
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ── Build ───────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final target = ref.watch(chatProvider).workspaceTarget;
     final isGithub = target?.mode == WorkspaceMode.github;
     final hasTarget = target != null;
@@ -174,6 +331,67 @@ class _WorkspaceToolbarState extends ConsumerState<WorkspaceToolbar> {
         : hasTarget
             ? I18n.t('chat.workspaceLocal')
             : I18n.t('chat.workspaceNone');
+
+    // ── GitHub 模式：保持原有三组件布局 ──
+    if (isGithub) {
+      return Row(
+        children: [
+          PopupMenuButton<WorkspaceMode>(
+            initialValue: target?.mode,
+            onSelected: (mode) => mode == WorkspaceMode.local
+                ? _chooseLocalDirectory()
+                : _chooseGithubRepository(),
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: WorkspaceMode.github,
+                child: Text(I18n.t('chat.workspaceGithub')),
+              ),
+              PopupMenuItem(
+                value: WorkspaceMode.local,
+                child: Text(I18n.t('chat.workspaceLocal')),
+              ),
+            ],
+            child: _ContextChip(
+              icon: Icons.cloud_outlined,
+              label: modeLabel,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: InkWell(
+              onTap: _chooseGithubRepository,
+              borderRadius: BorderRadius.circular(8),
+              child: _ContextChip(
+                icon: Icons.account_tree_outlined,
+                label: target?.repository ??
+                    I18n.t('chat.workspaceRepository'),
+                expanded: true,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: InkWell(
+              onTap: _chooseGithubBranch,
+              borderRadius: BorderRadius.circular(8),
+              child: _ContextChip(
+                icon: Icons.call_split_outlined,
+                label: target?.branch ??
+                    I18n.t('chat.workspaceBranchDefault'),
+                expanded: true,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // ── 本地模式 / 未选择模式 ──
+    // 左侧：模式切换（本地/云端）
+    // 右侧：项目目录下拉（显示项目名，点击展开最近项目列表）
+    final projectName = target?.localPath != null
+        ? RecentProjectsService.projectDisplayName(target!.localPath!)
+        : I18n.t('chat.workspaceDirectory');
 
     return Row(
       children: [
@@ -193,37 +411,24 @@ class _WorkspaceToolbarState extends ConsumerState<WorkspaceToolbar> {
             ),
           ],
           child: _ContextChip(
-            icon: isGithub ? Icons.cloud_outlined : Icons.folder_outlined,
-            label: modeLabel,
+            icon: Icons.computer_outlined,
+            label: I18n.t('chat.workspaceLocal'),
           ),
         ),
         const SizedBox(width: 6),
         Expanded(
           child: InkWell(
-            onTap: isGithub ? _chooseGithubRepository : _chooseLocalDirectory,
+            onTap: _showLocalProjectPicker,
             borderRadius: BorderRadius.circular(8),
             child: _ContextChip(
-              icon: isGithub
-                  ? Icons.account_tree_outlined
-                  : Icons.folder_open_outlined,
-              label: isGithub
-                  ? (target?.repository ?? I18n.t('chat.workspaceRepository'))
-                  : (target?.localPath ?? I18n.t('chat.workspaceDirectory')),
+              icon: Icons.folder_outlined,
+              label: projectName,
               expanded: true,
-            ),
-          ),
-        ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: InkWell(
-            onTap: isGithub ? _chooseGithubBranch : _chooseLocalDirectory,
-            borderRadius: BorderRadius.circular(8),
-            child: _ContextChip(
-              icon: Icons.call_split_outlined,
-              label: isGithub
-                  ? (target?.branch ?? I18n.t('chat.workspaceBranchDefault'))
-                  : I18n.t('chat.workspaceLocal'),
-              expanded: true,
+              trailing: Icon(
+                Icons.arrow_drop_down,
+                size: 18,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+              ),
             ),
           ),
         ),
@@ -236,11 +441,13 @@ class _ContextChip extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool expanded;
+  final Widget? trailing;
 
   const _ContextChip({
     required this.icon,
     required this.label,
     this.expanded = false,
+    this.trailing,
   });
 
   @override
@@ -258,6 +465,10 @@ class _ContextChip extends StatelessWidget {
             style: const TextStyle(fontSize: 12),
           ),
         ),
+        if (trailing != null) ...[
+          const SizedBox(width: 2),
+          trailing!,
+        ],
       ],
     );
     return Container(

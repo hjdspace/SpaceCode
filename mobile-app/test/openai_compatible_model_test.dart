@@ -201,4 +201,50 @@ void main() {
     expect(result.toolCalls.first.name, 'read_file');
     expect(result.toolCalls.first.arguments, {'path': 'a.txt'});
   });
+
+  test('parses the final SSE event without a trailing newline', () async {
+    final client = MockClient.streaming((request, bodyStream) async {
+      await bodyStream.drain<void>();
+      final event = 'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {
+                  'tool_calls': [
+                    {
+                      'id': 'call-1',
+                      'function': {
+                        'name': 'read_file',
+                        'arguments': '{"path":"a.txt"}',
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          })}';
+      return http.StreamedResponse(
+        Stream.value(utf8.encode(event)),
+        200,
+        headers: {'content-type': 'text/event-stream'},
+      );
+    });
+    final model = OpenAiCompatibleModel(client: client);
+
+    final result = await model.complete(
+      config: const AgentModelConfig(
+        apiKey: 'k',
+        baseUrl: 'https://example.test/v1',
+        model: 'm',
+      ),
+      systemPrompt: 'agent',
+      messages: const [AgentMessage.user('hi')],
+      tools: const [],
+      cancellationToken: AgentCancellationToken(),
+      onDelta: (_) {},
+    );
+
+    expect(result.toolCalls.single.name, 'read_file');
+    expect(result.toolCalls.single.arguments, {'path': 'a.txt'});
+    model.dispose();
+  });
 }

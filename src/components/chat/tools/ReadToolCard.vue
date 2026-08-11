@@ -5,8 +5,10 @@
       <X v-else-if="toolCall.status === 'error'" :size="14" class="tool-icon status-error" />
       <FileText v-else :size="14" class="tool-icon status-completed" />
       <span class="tool-label">{{ t('toolCards.read') }}</span>
-      <span class="tool-separator">·</span>
-      <span class="tool-target">{{ filePath }}</span>
+      <template v-if="filePath">
+        <span class="tool-separator">·</span>
+        <span class="tool-target">{{ filePath }}</span>
+      </template>
       <div class="tool-actions">
         <button
           class="action-btn"
@@ -55,7 +57,12 @@ const appStore = useAppStore()
 const { t } = useI18n()
 
 const statusClass = computed(() => `status-${props.toolCall.status}`)
-const filePath = computed(() => props.toolCall.input?.file_path || props.toolCall.input?.path || t('toolCards.readUnknownFile'))
+const filePath = computed(() => {
+  const fp = props.toolCall.input?.file_path || props.toolCall.input?.path
+  if (fp) return fp
+  if (props.toolCall.status === 'running') return ''
+  return t('toolCards.readUnknownFile')
+})
 const offset = computed(() => props.toolCall.input?.offset)
 const limit = computed(() => props.toolCall.input?.limit)
 const outputLines = computed(() => (props.toolCall.output || '').split('\n').length)

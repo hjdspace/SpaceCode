@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/message.dart';
 import '../models/timeline_event.dart';
 import '../models/tool_call.dart';
-import 'streaming_text.dart';
 import 'thinking_block.dart';
 import 'tool_call_card.dart';
 import 'markdown_renderer.dart';
@@ -78,15 +77,10 @@ class MessageBubble extends ConsumerWidget {
             isStreaming: message.isStreaming,
           ),
         if (message.content.isNotEmpty)
-          message.isStreaming
-              ? StreamingText(
-                  text: message.content,
-                  isStreaming: message.isStreaming,
-                )
-              : MarkdownRenderer(
-                  content: message.content,
-                  isStreaming: message.isStreaming,
-                )
+          MarkdownRenderer(
+            content: message.content,
+            isStreaming: message.isStreaming,
+          )
         else if (message.isStreaming)
           Row(
             mainAxisSize: MainAxisSize.min,
@@ -143,9 +137,10 @@ class MessageBubble extends ConsumerWidget {
         final isRunning = message.isStreaming &&
             event.status == TimelineEventStatus.running;
         return _TimelineEntry(
-          child: isRunning
-              ? StreamingText(text: event.content ?? '')
-              : MarkdownRenderer(content: event.content ?? ''),
+          child: MarkdownRenderer(
+            content: event.content ?? '',
+            isStreaming: isRunning,
+          ),
         );
       case TimelineEventType.toolCall:
         final toolCall = message.toolCalls?.firstWhere(

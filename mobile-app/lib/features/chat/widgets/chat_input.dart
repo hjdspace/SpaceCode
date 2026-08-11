@@ -1,11 +1,17 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:speech_to_text/speech_to_text.dart';
+
+import '../../../core/config/mobile_config.dart';
 import '../../../core/i18n/strings.dart';
 import '../../../core/skills/skill_registry.dart';
+import '../../../core/voice/speech_to_text_input_service.dart';
+import '../../../core/voice/voice_input_service.dart';
+import '../../../core/voice/whisper_cloud_input_service.dart';
 import '../chat_controller.dart';
 import '../models/chat_attachment.dart';
 import 'attachment_picker_sheet.dart';
@@ -24,13 +30,12 @@ class ChatInput extends ConsumerStatefulWidget {
 class _ChatInputState extends ConsumerState<ChatInput> {
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
-  final _speech = SpeechToText();
+  late final VoiceInputService _voiceService;
   OverlayEntry? _commandMenuOverlay;
   OverlayEntry? _mentionOverlay;
   int _commandSelectedIndex = 0;
   List<CommandMenuItem> _commandItems = const [];
-  bool _speechAvailable = false;
-  bool _isListening = false;
+  VoiceInputState _voiceState = VoiceInputState.idle;
 
   bool get _canSend =>
       _controller.text.trim().isNotEmpty && !ref.read(chatProvider).isLoading;
@@ -39,25 +44,20 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   void initState() {
     super.initState();
     _controller.addListener(_onInputChanged);
-    _initSpeech();
+    _voiceService = _createVoiceService();
   }
 
-  Future<void> _initSpeech() async {
-    try {
-      final available = await _speech.initialize(
-        onError: (_) => setState(() => _isListening = false),
-        onStatus: (status) {
-          if (status == 'done' || status == 'notListening') {
-            setState(() => _isListening = false);
-          }
-        },
-      );
-      if (mounted) {
-        setState(() => _speechAvailable = available);
-      }
-    } catch (_) {
-      setState(() => _speechAvailable = false);
+  VoiceInputService _createVoiceService() {
+    // iOS 用系统原生 Speech Framework（speech_to_text 包），体验最佳、离线
+    if (Platform.isIOS) {
+      return SpeechToTextInputService();
     }
+    // Android 及其他平台用 record + Whisper API（兼容国内无 GMS 设备）
+    final config = ref.read(mobileConfigProvider);
+    return WhisperCloudInputService(
+      apiBaseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+    );
   }
 
   @override
@@ -66,7 +66,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     _hideMentionPicker();
     _controller.dispose();
     _focusNode.dispose();
-    _speech.cancel();
+    _voiceService.dispose();
     super.dispose();
   }
 
@@ -315,21 +315,24 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   }
 
   Future<void> _toggleListening() async {
-    if (_isListening) {
-      await _speech.stop();
-      if (mounted) setState(() => _isListening = false);
+    // 正在转写中，禁用点击
+    if (_voiceState == VoiceInputState.transcribing) return;
+
+    // 正在聆听/录音 → 停止并触发转写
+    if (_voiceState == VoiceInputState.listening) {
+      await _voiceService.stop();
       return;
     }
 
-    // 主动请求录音权限（Android 6.0+ 需要运行时请求）
+    // 主动请求录音权限（Android 6.0+ / iOS 需要运行时请求）
     final micStatus = await Permission.microphone.request();
     if (micStatus != PermissionStatus.granted) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('需要麦克风权限才能使用语音输入'),
+            content: Text(I18n.t('chat.voiceInputPermissionDenied')),
             action: SnackBarAction(
-              label: '去设置',
+              label: I18n.t('chat.voiceInputOpenSettings'),
               onPressed: () => openAppSettings(),
             ),
           ),
@@ -338,34 +341,18 @@ class _ChatInputState extends ConsumerState<ChatInput> {
       return;
     }
 
-    try {
-      // 每次点击都重新 initialize，避免首次初始化失败后无法重试
-      if (!_speechAvailable) {
-        final available = await _speech.initialize(
-          onError: (_) {
-            if (mounted) setState(() => _isListening = false);
-          },
-          onStatus: (status) {
-            if (status == 'done' || status == 'notListening') {
-              if (mounted) setState(() => _isListening = false);
-            }
-          },
-        );
-        if (!available) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('无法使用语音识别，请检查设备是否支持')),
-            );
-          }
-          return;
-        }
-        if (mounted) setState(() => _speechAvailable = true);
-      }
+    // Android 端 WhisperCloud 每次启动前刷新 config（用户可能刚改了 API key）
+    final service = _voiceService;
+    if (service is WhisperCloudInputService) {
+      final config = ref.read(mobileConfigProvider);
+      service.updateConfig(apiBaseUrl: config.baseUrl, apiKey: config.apiKey);
+    }
 
-      await _speech.listen(
+    try {
+      final ok = await _voiceService.startListening(
         onResult: (result) {
           if (!mounted) return;
-          final text = result.recognizedWords;
+          final text = result.text;
           if (text.isEmpty) return;
           setState(() {
             final current = _controller.text;
@@ -379,16 +366,35 @@ class _ChatInputState extends ConsumerState<ChatInput> {
             );
           });
         },
-        listenOptions: SpeechListenOptions(
-          partialResults: true,
-          cancelOnError: true,
-        ),
+        onError: (error) {
+          if (!mounted) return;
+          final message = error.code == 'noApiKey'
+              ? I18n.t('chat.voiceInputNoApiKey')
+              : I18n.t('chat.voiceInputError', {'error': error.message});
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(message)),
+          );
+        },
+        onStateChange: (state) {
+          if (!mounted) return;
+          setState(() => _voiceState = state);
+        },
       );
-      if (mounted) setState(() => _isListening = true);
-    } catch (error) {
+
+      // startListening 同步返回 false 且状态未变化（设备不支持 / 未配置 key）
+      if (!ok && mounted && _voiceState == VoiceInputState.idle) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(I18n.t('chat.voiceInputUnavailable'))),
+        );
+      }
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('语音输入失败：$error')),
+          SnackBar(
+            content: Text(
+              I18n.t('chat.voiceInputError', {'error': e.toString()}),
+            ),
+          ),
         );
       }
     }
@@ -508,16 +514,30 @@ class _ChatInputState extends ConsumerState<ChatInput> {
                         ModelSelector(
                           onSelected: ref.read(chatProvider.notifier).setModel,
                         ),
-                        _ToolIconButton(
-                          icon: _isListening
-                              ? Icons.mic
-                              : Icons.mic_none_outlined,
-                          onTap: _toggleListening,
-                          color: _isListening
-                              ? theme.colorScheme.primary
-                              : theme.colorScheme.onSurface
-                                  .withValues(alpha: 0.6),
-                        ),
+                        if (_voiceState == VoiceInputState.transcribing)
+                          Padding(
+                            padding: const EdgeInsets.all(6),
+                            child: SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: theme.colorScheme.onSurface
+                                    .withValues(alpha: 0.5),
+                              ),
+                            ),
+                          )
+                        else
+                          _ToolIconButton(
+                            icon: _voiceState == VoiceInputState.listening
+                                ? Icons.mic
+                                : Icons.mic_none_outlined,
+                            onTap: _toggleListening,
+                            color: _voiceState == VoiceInputState.listening
+                                ? theme.colorScheme.primary
+                                : theme.colorScheme.onSurface
+                                    .withValues(alpha: 0.6),
+                          ),
                         const Spacer(),
                         GestureDetector(
                           onTap: isLoading

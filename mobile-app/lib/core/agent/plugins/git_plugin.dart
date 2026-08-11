@@ -3,10 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../agent_model.dart';
 import '../agent_plugin.dart';
 import '../agent_types.dart';
+import '../termux_bridge.dart';
 
 /// Git 命令执行结果。
 class GitCommandResult {
@@ -36,12 +38,67 @@ typedef GitExecutor = Future<GitCommandResult> Function(
 });
 
 /// 默认执行器：调用 `gitPath args...`。
+///
+/// 当 `gitPath` 为 `termux:git` 时，通过 [TermuxBridge] 执行 git 命令。
+/// 否则通过 [Process.run] 执行本地 git 二进制。
+///
+/// 对 `pull/push/fetch/ls-remote` 命令,若 environment 含
+/// `SPACECODE_GITHUB_TOKEN`,注入临时 credential helper(token 不持久化)。
+///
+/// [testExecutor] 仅供测试注入,生产留空走默认路径(TermuxBridge 或 Process.run)。
 Future<GitCommandResult> defaultGitExecutor(
   String gitPath,
   List<String> args, {
   required String workingDirectory,
   required Map<String, String> environment,
+  Future<GitCommandResult> Function(List<String> effectiveArgs)? testExecutor,
 }) async {
+  // Termux 桥接模式
+  if (gitPath == 'termux:git') {
+    // 对需要认证的命令注入临时 credential helper
+    const authCommands = ['pull', 'push', 'fetch', 'ls-remote'];
+    final needsAuth = args.isNotEmpty && authCommands.contains(args.first);
+    final token = environment['SPACECODE_GITHUB_TOKEN'];
+    List<String> effectiveArgs = args;
+    if (needsAuth && token != null && token.isNotEmpty) {
+      // 临时 credential helper:命令结束后不留痕迹
+      final helper =
+          "!f(){ echo username=x-access-token; echo password=$token; }; f";
+      effectiveArgs = ['-c', 'credential.helper=$helper', ...args];
+    }
+    debugPrint('[GitPlugin] Executing via Termux: git ${effectiveArgs.join(" ")}');
+
+    // 测试注入路径:不触发真实 TermuxBridge
+    if (testExecutor != null) {
+      return testExecutor(effectiveArgs);
+    }
+
+    try {
+      final result = await TermuxBridge.instance.runGit(
+        args: effectiveArgs,
+        workdir: workingDirectory,
+        timeoutMs: 60000,
+      );
+      return GitCommandResult(
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        durationMs: result.durationMs,
+      );
+    } on PlatformException catch (e) {
+      return GitCommandResult(
+        exitCode: -1,
+        stdout: '',
+        stderr: 'Termux error: ${e.code} - ${e.message}',
+        durationMs: 0,
+      );
+    }
+  }
+
+  // 本地二进制模式
+  if (testExecutor != null) {
+    return testExecutor(args);
+  }
   final sw = Stopwatch()..start();
   final result = await Process.run(
     gitPath,

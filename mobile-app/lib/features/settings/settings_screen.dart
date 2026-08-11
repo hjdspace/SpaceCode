@@ -9,6 +9,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../core/agent/local_agent_service.dart';
+import '../../core/agent/binary_resolver.dart';
+import '../../core/agent/termux_readiness_checker.dart';
 import '../../core/connection/connection_service.dart';
 import '../../core/connection/connection_state.dart' as conn;
 import '../../core/connection/qr_scanner_page.dart';
@@ -19,6 +21,8 @@ import '../../core/github/github_service.dart';
 import '../../core/github/github_browser_auth.dart';
 import '../../core/github/clone_notifier.dart';
 import '../../core/github/clone_progress.dart';
+import '../../core/agent/web/web_search_provider.dart';
+import '../../core/agent/web/web_search_provider_factory.dart';
 import '../../core/i18n/strings.dart';
 import '../chat/chat_controller.dart';
 
@@ -94,6 +98,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String _permissionMode = 'default';
   bool _streamingEnabled = true;
   String _version = '';
+  TermuxReadiness _termuxReadiness = TermuxReadiness.notInstalled;
+  final GlobalKey _termuxCardKey = GlobalKey();
+  final _searchKeyController = TextEditingController();
+  bool _searchTesting = false;
+  String? _searchTestResult;
 
   @override
   void initState() {
@@ -107,15 +116,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final streaming = await MobilePreferences.getStreamingEnabled();
     final config = await ref.read(mobileConfigProvider.notifier).load();
     final packageInfo = await PackageInfo.fromPlatform();
+    final readiness = await TermuxReadinessChecker().check();
+    BinaryResolver.instance.setTermuxReadiness(readiness);
     if (!mounted) return;
     _apiKeyController.text = config.apiKey;
     _baseUrlController.text = config.baseUrl;
     _modelController.text = config.model;
+    _searchKeyController.text = config.searchApiKey;
     setState(() {
       _defaultAgentName = agentName;
       _permissionMode = permMode;
       _streamingEnabled = streaming;
       _version = 'v${packageInfo.version}';
+      _termuxReadiness = readiness;
     });
     // 若已配置 API Key 和 Base URL，自动拉取一次模型列表
     if (config.apiKey.isNotEmpty && config.baseUrl.isNotEmpty) {
@@ -166,9 +179,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _apiKeyController.dispose();
     _baseUrlController.dispose();
     _modelController.dispose();
+    _searchKeyController.dispose();
     _agentService.dispose();
     super.dispose();
   }
+
+  // ============================================================
+  //  方案 A：分组卡片布局（iOS Settings 风格）
+  //  间距系统：4 / 8 / 12 / 16 / 24 / 32 px
+  //  卡片：bg-elevated, 14px radius, border 0.08 alpha
+  //  分区头：大写 + 字间距 0.8, textSecondary
+  // ============================================================
 
   @override
   Widget build(BuildContext context) {
@@ -179,182 +200,362 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       body: ListView(
+        padding: const EdgeInsets.only(bottom: 48),
         children: [
-          // 自定义 header：返回箭头 + 标题
+          // 大标题 header
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
             child: Row(
               children: [
                 GestureDetector(
                   onTap: () => context.pop(),
                   child: Icon(Icons.arrow_back_ios,
-                      size: 20, color: theme.colorScheme.onSurface),
+                      size: 20, color: theme.colorScheme.primary),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 12),
                 Text(
                   '设置',
                   style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.5,
                     color: theme.colorScheme.onSurface,
                   ),
                 ),
               ],
             ),
           ),
-          Divider(
-              height: 1,
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.08)),
 
           // 连接分组
-          _sectionHeader('连接'),
-          _connectionTile(connectionInfo, theme),
-          _disconnectTile(connectionInfo, theme),
+          _sectionTitle('连接'),
+          _connectionCard(connectionInfo, theme),
 
-          _sectionHeader('手机 Agent 引擎'),
-          _engineSettings(theme),
+          // 引擎分组
+          _sectionTitle('手机 Agent 引擎'),
+          _engineCard(theme),
 
-          _sectionHeader('Github'),
-          _githubSettings(theme),
+          // Termux 环境分组
+          _sectionTitle('Termux 环境'),
+          _termuxCard(theme),
+
+          // Github 分组
+          _sectionTitle('Github'),
+          _githubCard(theme),
+          // Clone 进度（条件显示，独立卡片）
+          Consumer(builder: (context, ref, _) {
+            final cloneState = ref.watch(cloneProvider);
+            if (cloneState.status == CloneStatus.idle) {
+              return const SizedBox.shrink();
+            }
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+              child: _CloneTaskCard(state: cloneState),
+            );
+          }),
+
+          // 联网搜索分组
+          _sectionTitle(I18n.t('settings.webSearch.title')),
+          _webSearchCard(theme),
 
           // 外观分组
-          _sectionHeader('外观'),
-          _themeSelector(currentTheme, theme),
-          // 语言切换（在外观分组内，紧跟主题选择器）
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Container(
-              decoration: BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
-                  ),
-                ),
-              ),
-              child: ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 0),
-                leading: const Icon(Icons.language),
-                title: Text(
-                  I18n.t('settings.language'),
-                  style: TextStyle(fontSize: 14, color: theme.colorScheme.onSurface),
-                ),
-                trailing: DropdownButton<String>(
-                  value: ref.watch(mobileConfigProvider).appLocale,
-                  items: [
-                    DropdownMenuItem(
-                      value: 'zh',
-                      child: Text(I18n.t('settings.languageZh')),
-                    ),
-                    DropdownMenuItem(
-                      value: 'en',
-                      child: Text(I18n.t('settings.languageEn')),
-                    ),
-                  ],
-                  onChanged: (value) async {
-                    if (value == null) return;
-                    await ref.read(mobileConfigProvider.notifier).saveLocale(value);
-                    await _initI18n(value);
-                    // 强制重建以应用新语言
-                    setState(() {});
-                  },
-                ),
-              ),
-            ),
-          ),
+          _sectionTitle('外观'),
+          _appearanceCard(currentTheme, theme),
 
           // 聊天分组
-          _sectionHeader('聊天'),
-          _navTile(
-            title: '默认 Agent',
-            value: _defaultAgentName ?? '未设置',
-            theme: theme,
-            onTap: _showAgentPicker,
-          ),
-          _navTile(
-            title: '权限模式',
-            value: _permissionModeLabel(_permissionMode),
-            theme: theme,
-            onTap: _showPermissionModePicker,
-          ),
-          _navTile(
-            title: '流式输出',
-            value: _streamingEnabled ? '开启' : '关闭',
-            theme: theme,
-            onTap: _showStreamingPicker,
-          ),
+          _sectionTitle('聊天'),
+          _chatCard(theme),
 
           // 关于分组
-          _sectionHeader('关于'),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'SpaceCode Mobile',
-                  style: TextStyle(
-                      fontSize: 14, color: theme.colorScheme.onSurface),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  _version.isEmpty ? '' : _version,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          _sectionTitle('关于'),
+          _aboutCard(theme),
         ],
       ),
     );
   }
 
-  Widget _engineSettings(ThemeData theme) {
+  /// 分区标题：大写 + 字间距，textSecondary 色
+  Widget _sectionTitle(String title) {
+    final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        children: [
-          TextField(
-            controller: _apiKeyController,
-            obscureText: true,
-            style: const TextStyle(fontSize: 14),
-            decoration: const InputDecoration(
-                labelText: 'API Key', hintText: '用于手机端内置 Agent'),
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+      child: Text(
+        title.toUpperCase(),
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.8,
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+        ),
+      ),
+    );
+  }
+
+  /// 卡片容器：统一圆角 14px + border
+  Widget _card({required List<Widget> children}) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+        ),
+      ),
+      child: Column(children: children),
+    );
+  }
+
+  /// 卡片内导航行（带底部分隔线）
+  Widget _cardNavRow({
+    required String title,
+    required String value,
+    required ThemeData theme,
+    required VoidCallback onTap,
+    bool showDivider = true,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: showDivider
+            ? BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+                  ),
+                ),
+              )
+            : null,
+        child: Row(
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 14,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 14,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              Icons.chevron_right,
+              size: 18,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 带标签的表单字段
+  Widget _labeledField({
+    required String label,
+    required Widget child,
+    required ThemeData theme,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+            letterSpacing: 0.6,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
           ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _baseUrlController,
-            style: const TextStyle(fontSize: 14),
-            decoration: const InputDecoration(
-                labelText: 'Base URL', hintText: 'https://api.openai.com/v1'),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        ),
+        const SizedBox(height: 6),
+        child,
+      ],
+    );
+  }
+
+  // --- 连接卡片 ---
+
+  Widget _connectionCard(conn.ConnectionInfo connectionInfo, ThemeData theme) {
+    final isConnected =
+        connectionInfo.state == conn.ConnectionState.connected;
+    return _card(
+      children: [
+        // 状态行
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+          child: Row(
             children: [
-              Expanded(
-                child: _buildModelField(),
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: _connectionColor(connectionInfo.state),
+                  shape: BoxShape.circle,
+                ),
               ),
               const SizedBox(width: 8),
-              IconButton(
-                onPressed: _loadingModels ? null : _refreshModels,
-                icon: _loadingModels
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.refresh, size: 20),
-                tooltip: '从 API 获取模型列表',
+              Text(
+                _connectionLabel(connectionInfo.state),
+                style: TextStyle(
+                  color: theme.colorScheme.onSurface,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
+        ),
+        if (connectionInfo.clientInfo != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+            child: Text(
+              '设备: ${connectionInfo.clientInfo}',
+              style: TextStyle(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                fontSize: 12,
+              ),
+            ),
+          ),
+        // URL 输入
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
+          child: TextField(
+            controller: _urlController,
+            style:
+                TextStyle(color: theme.colorScheme.onSurface, fontSize: 14),
+            decoration: InputDecoration(
+              hintText: 'ws://host:port',
+              hintStyle: TextStyle(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.35),
+              ),
+              suffixIcon: IconButton(
+                icon: const Icon(Icons.qr_code_scanner_rounded),
+                onPressed: () async {
+                  final result = await Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => const QRScannerPage()),
+                  );
+                  if (result != null && result is String) {
+                    _urlController.text = result;
+                  }
+                },
+              ),
+            ),
+          ),
+        ),
+        // 连接/断开按钮
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+          child: SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: isConnected
+                  ? () =>
+                      ref.read(connectionProvider.notifier).disconnect()
+                  : () {
+                      if (_urlController.text.isNotEmpty) {
+                        ref
+                            .read(connectionProvider.notifier)
+                            .connect(_urlController.text);
+                      }
+                    },
+              style: FilledButton.styleFrom(
+                backgroundColor: isConnected
+                    ? const Color(0xffc64545)
+                    : theme.colorScheme.primary,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: Text(
+                isConnected ? '断开连接' : '连接',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- 引擎卡片 ---
+
+  Widget _engineCard(ThemeData theme) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+        ),
+      ),
+      child: Column(
+        children: [
+          // API Key
+          _labeledField(
+            label: 'API Key',
+            theme: theme,
+            child: TextField(
+              controller: _apiKeyController,
+              obscureText: true,
+              style: const TextStyle(fontSize: 14),
+              decoration: const InputDecoration(
+                hintText: '用于手机端内置 Agent',
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Base URL
+          _labeledField(
+            label: 'Base URL',
+            theme: theme,
+            child: TextField(
+              controller: _baseUrlController,
+              style: const TextStyle(fontSize: 14),
+              decoration: const InputDecoration(
+                hintText: 'https://api.openai.com/v1',
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // 模型
+          _labeledField(
+            label: '模型',
+            theme: theme,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _buildModelField()),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: _loadingModels ? null : _refreshModels,
+                  icon: _loadingModels
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh, size: 20),
+                  tooltip: '从 API 获取模型列表',
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          // 保存按钮
           SizedBox(
             width: double.infinity,
-            child: OutlinedButton.icon(
+            child: FilledButton.icon(
               onPressed: () async {
                 await ref.read(mobileConfigProvider.notifier).save(
                       apiKey: _apiKeyController.text,
@@ -367,7 +568,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 }
               },
               icon: const Icon(Icons.save_outlined, size: 17),
-              label: const Text('保存手机引擎配置'),
+              label: const Text('保存配置'),
+              style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.primary,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
             ),
           ),
         ],
@@ -375,57 +580,687 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  Widget _githubSettings(ThemeData theme) {
-    final config = ref.watch(mobileConfigProvider);
-    final connected = config.githubLogin.isNotEmpty;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+  // --- Termux 环境卡片 ---
+
+  Widget _termuxCard(ThemeData theme) {
+    return Container(
+      key: _termuxCardKey,
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+        ),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
+              _termuxStatusIcon(_termuxReadiness),
+              const SizedBox(width: 8),
               Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _authenticateGithub,
-                  icon: Icon(
-                      connected
-                          ? Icons.verified_outlined
-                          : Icons.login_outlined,
-                      size: 17),
-                  label: Text(
-                      connected ? '已连接 @${config.githubLogin}' : '连接 Github'),
+                child: Text(
+                  _termuxStatusLabel(_termuxReadiness),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurface,
+                  ),
                 ),
               ),
-              if (connected) ...[
-                const SizedBox(width: 8),
-                IconButton(
-                  tooltip: '断开 Github',
-                  onPressed: () =>
-                      ref.read(mobileConfigProvider.notifier).clearGithub(),
-                  icon: const Icon(Icons.link_off_outlined),
-                ),
-              ],
             ],
           ),
-          const SizedBox(height: 8),
+          if (_termuxReadiness != TermuxReadiness.ready) ...[
+            const SizedBox(height: 12),
+            Text(
+              _termuxReadiness == TermuxReadiness.notInstalled
+                  ? '请从 F-Droid 安装 Termux（Google Play 版已停止更新），安装后点「重新检测」'
+                  : '请在 Termux 中执行以下配置：',
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
+            ),
+            if (_termuxReadiness == TermuxReadiness.installedNoGit) ...[
+              const SizedBox(height: 8),
+              _termuxConfigStep(theme, '1', 'pkg install git'),
+              _termuxConfigStep(theme, '2', '编辑 ~/.termux/termux.properties，添加 allow-external-apps=true'),
+              _termuxConfigStep(theme, '3', I18n.t('settings.termux.grantRunCommandPermission')),
+              _termuxConfigStep(theme, '4', 'termux-reload-settings'),
+            ],
+          ],
+          const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
-            child: TextButton.icon(
-              onPressed: connected ? _cloneGithubRepository : null,
-              icon: const Icon(Icons.download_outlined, size: 17),
-              label: const Text('手动 Clone 仓库到本地'),
+            child: OutlinedButton.icon(
+              onPressed: _recheckTermux,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('重新检测'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
             ),
           ),
-          // Clone 任务进度/完成/错误显示
-          Consumer(builder: (context, ref, _) {
-            final cloneState = ref.watch(cloneProvider);
-            if (cloneState.status == CloneStatus.idle) {
-              return const SizedBox.shrink();
-            }
-            return _CloneTaskCard(state: cloneState);
-          }),
         ],
+      ),
+    );
+  }
+
+  Widget _termuxStatusIcon(TermuxReadiness readiness) {
+    switch (readiness) {
+      case TermuxReadiness.ready:
+        return const Icon(Icons.check_circle_rounded, color: Color(0xff5db872), size: 18);
+      case TermuxReadiness.installedNoGit:
+        return const Icon(Icons.warning_rounded, color: Color(0xffd4a017), size: 18);
+      case TermuxReadiness.notInstalled:
+        return const Icon(Icons.cancel_rounded, color: Color(0xffc64545), size: 18);
+    }
+  }
+
+  String _termuxStatusLabel(TermuxReadiness readiness) {
+    switch (readiness) {
+      case TermuxReadiness.ready:
+        return 'Termux 环境就绪，支持完整 git 操作';
+      case TermuxReadiness.installedNoGit:
+        return 'Termux 已安装，但 Git 未就绪';
+      case TermuxReadiness.notInstalled:
+        return 'Termux 未安装';
+    }
+  }
+
+  Widget _termuxConfigStep(ThemeData theme, String num, String cmd) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 18,
+            height: 18,
+            margin: const EdgeInsets.only(top: 2),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                num,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: SelectableText(
+              cmd,
+              style: TextStyle(
+                fontSize: 12,
+                fontFamily: 'monospace',
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _recheckTermux() async {
+    final readiness = await TermuxReadinessChecker().check();
+    BinaryResolver.instance.setTermuxReadiness(readiness);
+    if (mounted) {
+      setState(() => _termuxReadiness = readiness);
+      final msg = readiness == TermuxReadiness.ready
+          ? 'Termux 环境就绪'
+          : readiness == TermuxReadiness.installedNoGit
+              ? 'Termux 已安装但 Git 未就绪，请按提示配置'
+              : 'Termux 未安装';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    }
+  }
+
+  void _scrollToTermuxCard() {
+    final ctx = _termuxCardKey.currentContext;
+    if (ctx != null) {
+      Scrollable.ensureVisible(ctx, duration: const Duration(milliseconds: 400));
+    }
+  }
+
+  // --- Github 卡片 ---
+
+  Widget _githubCard(ThemeData theme) {
+    final config = ref.watch(mobileConfigProvider);
+    final connected = config.githubLogin.isNotEmpty;
+    return _card(
+      children: [
+        // 连接 / 断开 Github
+        InkWell(
+          onTap: _authenticateGithub,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: connected
+                        ? const Color(0x1a5db8a6)
+                        : theme.colorScheme.onSurface
+                            .withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    connected
+                        ? Icons.verified_outlined
+                        : Icons.login_outlined,
+                    size: 16,
+                    color: connected
+                        ? const Color(0xff5db8a6)
+                        : theme.colorScheme.onSurface
+                            .withValues(alpha: 0.5),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    connected
+                        ? '已连接 @${config.githubLogin}'
+                        : '连接 Github',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                if (connected)
+                  GestureDetector(
+                    onTap: () =>
+                        ref.read(mobileConfigProvider.notifier).clearGithub(),
+                    child: const Text(
+                      '断开',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Color(0xffc64545),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        // Clone 仓库
+        InkWell(
+          onTap: connected ? _cloneGithubRepository : null,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: const Color(0x1ae8a55a),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.download_outlined,
+                    size: 16,
+                    color: Color(0xffe8a55a),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    '手动 Clone 仓库到本地',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: connected
+                          ? theme.colorScheme.onSurface
+                          : theme.colorScheme.onSurface
+                              .withValues(alpha: 0.4),
+                    ),
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right,
+                  size: 18,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- 联网搜索卡片 ---
+
+  Widget _webSearchCard(ThemeData theme) {
+    final config = ref.watch(mobileConfigProvider);
+    final providerType =
+        WebSearchProviderFactory.parseType(config.searchProvider);
+    final hintKey = 'settings.webSearch.apiKeyHint.${providerType.name}';
+    // Tavily 免费代理无需 API Key,禁用 Key 输入框。
+    final keyDisabled =
+        providerType == WebSearchProviderType.tavilyProxy;
+
+    return _card(
+      children: [
+        // Provider 选择
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+          child: _labeledField(
+            label: I18n.t('settings.webSearch.provider'),
+            theme: theme,
+            child: DropdownButtonFormField<WebSearchProviderType>(
+              key: ValueKey(providerType),
+              initialValue: providerType,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              items: [
+                DropdownMenuItem(
+                  value: WebSearchProviderType.tavilyProxy,
+                  child: Text(
+                      I18n.t('settings.webSearch.providerTavilyProxy')),
+                ),
+                DropdownMenuItem(
+                  value: WebSearchProviderType.jina,
+                  child: Text(I18n.t('settings.webSearch.providerJina')),
+                ),
+                DropdownMenuItem(
+                  value: WebSearchProviderType.tavily,
+                  child: Text(I18n.t('settings.webSearch.providerTavily')),
+                ),
+                DropdownMenuItem(
+                  value: WebSearchProviderType.brave,
+                  child: Text(I18n.t('settings.webSearch.providerBrave')),
+                ),
+              ],
+              onChanged: (value) async {
+                if (value == null) return;
+                await ref.read(mobileConfigProvider.notifier).saveSearch(
+                      provider: value.name,
+                      apiKey: config.searchApiKey,
+                    );
+              },
+            ),
+          ),
+        ),
+        // API Key 输入
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: _labeledField(
+            label: I18n.t('settings.webSearch.apiKey'),
+            theme: theme,
+            child: TextField(
+              controller: _searchKeyController,
+              enabled: !keyDisabled,
+              style: TextStyle(
+                color: theme.colorScheme.onSurface,
+                fontSize: 14,
+              ),
+              decoration: InputDecoration(
+                isDense: true,
+                border: const OutlineInputBorder(),
+                hintText: I18n.t(hintKey),
+                hintStyle: TextStyle(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.35),
+                ),
+              ),
+              onChanged: (value) async {
+                await ref.read(mobileConfigProvider.notifier).saveSearch(
+                      provider: config.searchProvider,
+                      apiKey: value,
+                    );
+              },
+            ),
+          ),
+        ),
+        // 提示文案
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Text(
+            I18n.t(hintKey),
+            style: TextStyle(
+              fontSize: 12,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            ),
+          ),
+        ),
+        // 测试按钮 + 结果
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+          child: Row(
+            children: [
+              FilledButton.tonal(
+                onPressed: _searchTesting
+                    ? null
+                    : () async {
+                        setState(() {
+                          _searchTesting = true;
+                          _searchTestResult = null;
+                        });
+                        try {
+                          final provider = WebSearchProviderFactory.create(
+                            providerType,
+                            apiKey: config.searchApiKey,
+                          );
+                          await provider.search(query: 'test');
+                          if (!mounted) return;
+                          setState(() {
+                            _searchTestResult =
+                                I18n.t('settings.webSearch.testSuccess');
+                          });
+                        } catch (e) {
+                          if (!mounted) return;
+                          setState(() {
+                            _searchTestResult = I18n.t(
+                                'settings.webSearch.testFailed',
+                                {'error': e.toString()});
+                          });
+                        } finally {
+                          if (mounted) {
+                            setState(() => _searchTesting = false);
+                          }
+                        }
+                      },
+                child: _searchTesting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(I18n.t('settings.webSearch.test')),
+              ),
+              const SizedBox(width: 12),
+              if (_searchTestResult != null)
+                Flexible(
+                  child: Text(
+                    _searchTestResult!,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: theme.colorScheme.onSurface
+                          .withValues(alpha: 0.7),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- 外观卡片（主题 + 语言） ---
+
+  Widget _appearanceCard(AppTheme currentTheme, ThemeData theme) {
+    final themes = [
+      (AppTheme.light, '浅色', const Color(0xfff8f9fb), const Color(0xff0d9488)),
+      (AppTheme.dark, '深色', const Color(0xff0d0d0d), const Color(0xff3b82f6)),
+      (AppTheme.anthropic, 'Anthropic', const Color(0xfffaf9f5), const Color(0xffcc785c)),
+      (AppTheme.anthropicDark, 'A-Dark', const Color(0xff181715), const Color(0xffcc785c)),
+    ];
+
+    return _card(
+      children: [
+        // 主题色块网格
+        Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: themes.map((item) {
+              final (appTheme, label, bgColor, accentColor) = item;
+              final isSelected = currentTheme == appTheme;
+              return Expanded(
+                child: GestureDetector(
+                  onTap: () =>
+                      ref.read(themeProvider.notifier).setTheme(appTheme),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Column(
+                      children: [
+                        Container(
+                          height: 56,
+                          decoration: BoxDecoration(
+                            color: bgColor,
+                            borderRadius: BorderRadius.circular(10),
+                            border: isSelected
+                                ? Border.all(color: accentColor, width: 2)
+                                : Border.all(
+                                    color: theme.colorScheme.onSurface
+                                        .withValues(alpha: 0.08),
+                                    width: 1,
+                                  ),
+                          ),
+                          child: isSelected
+                              ? Align(
+                                  alignment: Alignment.topRight,
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(
+                                        top: 6, right: 6),
+                                    child: Container(
+                                      width: 16,
+                                      height: 16,
+                                      decoration: BoxDecoration(
+                                        color: accentColor,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Icon(Icons.check,
+                                          size: 10, color: bgColor),
+                                    ),
+                                  ),
+                                )
+                              : null,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          label,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: isSelected
+                                ? FontWeight.w600
+                                : FontWeight.normal,
+                            color: isSelected
+                                ? theme.colorScheme.onSurface
+                                : theme.colorScheme.onSurface
+                                    .withValues(alpha: 0.5),
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        // 语言行
+        Container(
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+              ),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.onSurface
+                        .withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.language,
+                    size: 16,
+                    color: theme.colorScheme.onSurface
+                        .withValues(alpha: 0.5),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    I18n.t('settings.language'),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                DropdownButton<String>(
+                  value: ref.watch(mobileConfigProvider).appLocale,
+                  underline: const SizedBox(),
+                  items: [
+                    DropdownMenuItem(
+                      value: 'zh',
+                      child: Text(I18n.t('settings.languageZh')),
+                    ),
+                    DropdownMenuItem(
+                      value: 'en',
+                      child: Text(I18n.t('settings.languageEn')),
+                    ),
+                  ],
+                  onChanged: (value) async {
+                    if (value == null) return;
+                    await ref
+                        .read(mobileConfigProvider.notifier)
+                        .saveLocale(value);
+                    await _initI18n(value);
+                    if (mounted) {
+                      setState(() {});
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- 聊天卡片 ---
+
+  Widget _chatCard(ThemeData theme) {
+    return _card(
+      children: [
+        _cardNavRow(
+          title: '默认 Agent',
+          value: _defaultAgentName ?? '未设置',
+          theme: theme,
+          onTap: _showAgentPicker,
+          showDivider: true,
+        ),
+        _cardNavRow(
+          title: '权限模式',
+          value: _permissionModeLabel(_permissionMode),
+          theme: theme,
+          onTap: _showPermissionModePicker,
+          showDivider: true,
+        ),
+        _cardNavRow(
+          title: '流式输出',
+          value: _streamingEnabled ? '开启' : '关闭',
+          theme: theme,
+          onTap: _showStreamingPicker,
+          showDivider: false,
+        ),
+      ],
+    );
+  }
+
+  // --- 关于卡片 ---
+
+  Widget _aboutCard(ThemeData theme) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+        ),
+      ),
+      child: Column(
+        children: [
+          Text(
+            'SpaceCode Mobile',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            _version.isEmpty ? '' : _version,
+            style: TextStyle(
+              fontSize: 12,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModelField() {
+    return TextField(
+      controller: _modelController,
+      style: const TextStyle(fontSize: 14),
+      decoration: InputDecoration(
+        labelText: '模型',
+        hintText: _availableModels.isEmpty
+            ? 'gpt-4o-mini（点右侧刷新拉取列表）'
+            : '从下拉选择或手动输入',
+        suffixIcon: _availableModels.isEmpty
+            ? null
+            : PopupMenuButton<String>(
+                icon: const Icon(Icons.arrow_drop_down, size: 20),
+                tooltip: '选择模型',
+                constraints: const BoxConstraints(maxHeight: 320),
+                itemBuilder: (_) => _availableModels
+                    .map((m) => PopupMenuItem<String>(
+                          value: m,
+                          child: Text(
+                            m,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ))
+                    .toList(),
+                onSelected: (value) {
+                  _modelController.text = value;
+                  _modelController.selection = TextSelection.fromPosition(
+                      TextPosition(offset: value.length));
+                },
+              ),
       ),
     );
   }
@@ -532,6 +1367,40 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ));
         }
       }
+      // 二选一弹窗:Termux 未就绪时让用户选择安装 Termux 或降级 zipball
+      final readiness = BinaryResolver.instance.termuxReadiness;
+      var useTermux = readiness == TermuxReadiness.ready;
+      if (!useTermux) {
+        if (!mounted) return;
+        final choice = await showDialog<_CloneFallbackChoice>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Termux 未就绪'),
+            content: const Text(
+              '当前 Termux 环境不可用，无法执行真正的 git clone。\n\n'
+              '选择「安装 Termux」可获得完整 git 支持（推荐），\n'
+              '选择「仅下载源码包」将下载不含 .git 的源代码快照，'
+              '无法执行 git 命令。',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, _CloneFallbackChoice.installTermux),
+                child: const Text('安装 Termux'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, _CloneFallbackChoice.zipballOnly),
+                child: const Text('仅下载源码包'),
+              ),
+            ],
+          ),
+        );
+        if (choice == _CloneFallbackChoice.installTermux) {
+          _scrollToTermuxCard();
+          return;
+        }
+        if (choice != _CloneFallbackChoice.zipballOnly) return; // 用户取消
+      }
+
       // 若已存在则先清空（重新 clone）
       final existingDir = Directory(actualTarget);
       if (await existingDir.exists()) {
@@ -544,6 +1413,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               repository: repo.fullName,
               branch: branch,
               targetDirectory: actualTarget,
+              useTermux: useTermux,
             );
       } on StateError catch (error) {
         if (mounted) {
@@ -597,299 +1467,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           : '/storage/$storageId/$subPath';
     }
     return null;
-  }
-
-  Widget _buildModelField() {
-    return TextField(
-      controller: _modelController,
-      style: const TextStyle(fontSize: 14),
-      decoration: InputDecoration(
-        labelText: '模型',
-        hintText: _availableModels.isEmpty
-            ? 'gpt-4o-mini（点右侧刷新拉取列表）'
-            : '从下拉选择或手动输入',
-        suffixIcon: _availableModels.isEmpty
-            ? null
-            : PopupMenuButton<String>(
-                icon: const Icon(Icons.arrow_drop_down, size: 20),
-                tooltip: '选择模型',
-                constraints: const BoxConstraints(maxHeight: 320),
-                itemBuilder: (_) => _availableModels
-                    .map((m) => PopupMenuItem<String>(
-                          value: m,
-                          child: Text(
-                            m,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ))
-                    .toList(),
-                onSelected: (value) {
-                  _modelController.text = value;
-                  _modelController.selection = TextSelection.fromPosition(
-                      TextPosition(offset: value.length));
-                },
-              ),
-      ),
-    );
-  }
-
-  Widget _sectionHeader(String title) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
-      child: Text(
-        title,
-        style: TextStyle(
-          color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-
-  Widget _connectionTile(conn.ConnectionInfo connectionInfo, ThemeData theme) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: theme.cardColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: _connectionColor(connectionInfo.state),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  _connectionLabel(connectionInfo.state),
-                  style: TextStyle(
-                    color: theme.colorScheme.onSurface,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-            if (connectionInfo.clientInfo != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                '设备: ${connectionInfo.clientInfo}',
-                style: TextStyle(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                  fontSize: 12,
-                ),
-              ),
-            ],
-            const SizedBox(height: 12),
-            TextField(
-              controller: _urlController,
-              style:
-                  TextStyle(color: theme.colorScheme.onSurface, fontSize: 14),
-              decoration: InputDecoration(
-                hintText: 'ws://host:port',
-                hintStyle: TextStyle(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.35),
-                ),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.qr_code_scanner_rounded),
-                  onPressed: () async {
-                    final result = await Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const QRScannerPage()),
-                    );
-                    if (result != null && result is String) {
-                      _urlController.text = result;
-                    }
-                  },
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _disconnectTile(conn.ConnectionInfo connectionInfo, ThemeData theme) {
-    if (connectionInfo.state != conn.ConnectionState.connected) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-        child: SizedBox(
-          width: double.infinity,
-          child: FilledButton(
-            onPressed: () {
-              if (_urlController.text.isNotEmpty) {
-                ref
-                    .read(connectionProvider.notifier)
-                    .connect(_urlController.text);
-              }
-            },
-            style: FilledButton.styleFrom(
-              backgroundColor: theme.colorScheme.primary,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            child:
-                const Text('连接', style: TextStyle(fontWeight: FontWeight.w600)),
-          ),
-        ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      child: SizedBox(
-        width: double.infinity,
-        child: FilledButton(
-          onPressed: () => ref.read(connectionProvider.notifier).disconnect(),
-          style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xffc64545),
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-          child:
-              const Text('断开连接', style: TextStyle(fontWeight: FontWeight.w600)),
-        ),
-      ),
-    );
-  }
-
-  Widget _themeSelector(AppTheme currentTheme, ThemeData theme) {
-    final themes = [
-      (AppTheme.light, '浅色', const Color(0xfff8f9fb), const Color(0xff0d9488)),
-      (AppTheme.dark, '深色', const Color(0xff0d0d0d), const Color(0xff3b82f6)),
-      (
-        AppTheme.anthropic,
-        'Anthropic',
-        const Color(0xfffaf9f5),
-        const Color(0xffcc785c)
-      ),
-      (
-        AppTheme.anthropicDark,
-        'Anthropic 深色',
-        const Color(0xff181715),
-        const Color(0xffcc785c)
-      ),
-    ];
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: themes.map((item) {
-          final (appTheme, label, bgColor, accentColor) = item;
-          final isSelected = currentTheme == appTheme;
-          return Expanded(
-            child: GestureDetector(
-              onTap: () => ref.read(themeProvider.notifier).setTheme(appTheme),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Column(
-                  children: [
-                    Container(
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: bgColor,
-                        borderRadius: BorderRadius.circular(8),
-                        border: isSelected
-                            ? Border.all(color: accentColor, width: 2)
-                            : Border.all(
-                                color: theme.colorScheme.onSurface
-                                    .withValues(alpha: 0.08),
-                                width: 1,
-                              ),
-                      ),
-                      child: isSelected
-                          ? Center(
-                              child: Icon(Icons.check,
-                                  size: 18, color: accentColor),
-                            )
-                          : null,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: isSelected
-                            ? theme.colorScheme.onSurface
-                            : theme.colorScheme.onSurface
-                                .withValues(alpha: 0.5),
-                        fontWeight:
-                            isSelected ? FontWeight.w600 : FontWeight.normal,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-
-  Widget _navTile({
-    required String title,
-    required String value,
-    required ThemeData theme,
-    required VoidCallback onTap,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
-            ),
-          ),
-        ),
-        child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 0),
-          onTap: onTap,
-          title: Text(
-            title,
-            style: TextStyle(fontSize: 14, color: theme.colorScheme.onSurface),
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                ),
-              ),
-              const SizedBox(width: 4),
-              Icon(
-                Icons.chevron_right,
-                size: 18,
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   /// 默认 Agent 选择器：复用 chat_input 中的 Agent 列表
@@ -964,7 +1541,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       await MobilePreferences.setDefaultAgent(id, name);
                       // 同时同步到当前会话
                       ref.read(chatProvider.notifier).setAgent(id, name);
-                      if (!sheetContext.mounted) return;
+                      if (!sheetContext.mounted || !mounted) return;
                       setState(() => _defaultAgentName = name);
                       Navigator.pop(sheetContext);
                     },
@@ -1050,7 +1627,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               data: {'sessionId': sid, 'mode': id},
                             ));
                       }
-                      if (!sheetContext.mounted) return;
+                      if (!sheetContext.mounted || !mounted) return;
                       setState(() => _permissionMode = id);
                       Navigator.pop(sheetContext);
                     },
@@ -1121,7 +1698,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         : null,
                     onTap: () async {
                       await MobilePreferences.setStreamingEnabled(val);
-                      if (!sheetContext.mounted) return;
+                      if (!sheetContext.mounted || !mounted) return;
                       setState(() => _streamingEnabled = val);
                       Navigator.pop(sheetContext);
                     },
@@ -1178,13 +1755,12 @@ class _CloneTaskCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     return Container(
-      margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: theme.cardColor,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
         ),
       ),
       child: _buildContent(context, ref, theme),
@@ -1358,4 +1934,10 @@ class _CloneTaskCard extends ConsumerWidget {
       );
     }
   }
+}
+
+/// _cloneGithubRepository 二选一弹窗的选项。
+enum _CloneFallbackChoice {
+  installTermux,
+  zipballOnly,
 }

@@ -228,17 +228,29 @@ export class ClaudeCodeProcessPool {
   }
 
   getMcpStatus(sessionId: string): Promise<Record<string, unknown> | undefined> {
-    const proc = this.requireRunning(sessionId, 'getMcpStatus')
+    const proc = this.processes.get(sessionId)
+    if (!proc || !proc.isRunning()) {
+      debug('ProcessPool', `[${sessionId.slice(0, 8)}] getMcpStatus: no active process, returning undefined`)
+      return Promise.resolve(undefined)
+    }
     return proc.getMcpStatus()
   }
 
   getContextUsage(sessionId: string): Promise<Record<string, unknown> | undefined> {
-    const proc = this.requireRunning(sessionId, 'getContextUsage')
+    const proc = this.processes.get(sessionId)
+    if (!proc || !proc.isRunning()) {
+      debug('ProcessPool', `[${sessionId.slice(0, 8)}] getContextUsage: no active process, returning undefined`)
+      return Promise.resolve(undefined)
+    }
     return proc.getContextUsage()
   }
 
   getSettings(sessionId: string): Promise<Record<string, unknown> | undefined> {
-    const proc = this.requireRunning(sessionId, 'getSettings')
+    const proc = this.processes.get(sessionId)
+    if (!proc || !proc.isRunning()) {
+      debug('ProcessPool', `[${sessionId.slice(0, 8)}] getSettings: no active process, returning undefined`)
+      return Promise.resolve(undefined)
+    }
     return proc.getSettings()
   }
 

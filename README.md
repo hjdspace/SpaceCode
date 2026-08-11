@@ -15,7 +15,7 @@
 [![Bun](https://img.shields.io/badge/Bun-%3E%3D1.3-black?style=flat-square&logo=bun)](https://bun.sh/)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)]()
 
-[多模式核心](#多模式核心) · [Computer Use](#-computer-use桌面控制) · [Browser Use](#-browser-use浏览器自动化) · [更多特色](#更多特色) · [快速开始](#快速开始) · [项目结构](#项目结构) · [开发指南](#开发指南) · [技术栈](#技术栈)
+[多模式核心](#多模式核心) · [Computer Use](#-computer-use桌面控制) · [Browser Use](#-browser-use浏览器自动化) · [桌面宠物](#-桌面宠物desktop-pet) · [移动端](#-移动端配套) · [更多特色](#更多特色) · [快速开始](#快速开始) · [项目结构](#项目结构) · [开发指南](#开发指南) · [技术栈](#技术栈)
 
 </div>
 
@@ -252,12 +252,61 @@ SpaceCode 内置 Browser Use 浏览器自动化能力，让 AI 能够**操控真
 - **会话上下文面板**：Git 图表、分支创建、环境变量管理、任务面板
 - **迷你浏览器工作台**：内置 WebView 浏览器，支持 HTML 产物自动预览
 
+### 🐾 桌面宠物（Desktop Pet）
+
+SpaceCode 内置桌面宠物系统，让 AI 编程助手在桌面角落陪伴你的每一次会话，并通过状态映射实时反映 AI 任务进展。
+
+**核心亮点：**
+
+| 能力 | 说明 |
+|------|------|
+| **Sprite Atlas 帧动画** | 基于 Sprite Atlas + CSS `background-position` 的帧切换实现（PetSpriteAtlas.vue），替代旧版 SVG 方案，渲染更流畅、资源更紧凑 |
+| **多状态动画** | 9 种状态动画 + 16 方向视线追踪（petAnimation.ts），宠物会随鼠标位置自然转头 |
+| **任务监控映射** | 通过 petSessionModel 将 SpaceCode 的 chatSession/turn store 映射为 5 状态模型（idle / thinking / acting / waiting / done），由 pet.ts store 聚合并经 IPC 推送至宠物窗口，AI 干活时宠物同步卖萌 |
+| **多只内置宠物** | 4 只独立精神图绘（Sprite 图集），在设置面板一键切换 |
+| **透明置顶窗口** | 透明顶层窗口，支持 16ms 光标采样拖拽，面板边缘翻转带 24px 滞回区间，区域穿透不挡操作（petWindowManager.ts） |
+| **设置面板** | PetSettings.vue 提供 4 只宠物选择、尺寸 / 动画 / 任务面板开关 |
+| **会话联动** | 宠物状态与桌面端会话生命周期绑定，回滚、暂停、续跑均会反映到宠物 |
+
+**工作流程：**
+
+1. 在设置面板「桌面宠物」中选择喜爱的宠物与尺寸
+2. 开启任务面板开关，宠物窗口将在 AI 思考、工具调用、等待审批时切换对应动画
+3. 拖拽宠物至屏幕任意边缘，自动翻转方向并避免遮挡图标
+4. 在不操作的区域点击穿透，正常使用下方应用
+
+<div align="center">
+
+*桌面宠物：Sprite Atlas 帧动画 + 任务状态映射，AI 干活时陪你一起卖萌*
+
+</div>
+
 ### 📱 移动端配套
 
-- **Flutter 跨平台应用**：支持 Android、iOS、macOS、Linux、Windows、Web 六端
-- **扫码配对**：扫描桌面端二维码快速连接
-- **主题实时同步**：桌面端主题配置实时同步到移动端
-- **远程操作**：移动端查看会话、审批工具调用、管理代理
+SpaceCode 提供功能完整的 Flutter 移动端配套应用（`mobile-app/`），不止是远程遥控，更是独立可用的移动 AI 编程助手。
+
+**核心亮点：**
+
+| 能力 | 说明 |
+|------|------|
+| **Flutter 跨平台** | 支持 Android、iOS、macOS、Linux、Windows、Web 六端 |
+| **扫码配对** | 扫描桌面端二维码快速连接，主题实时同步 |
+| **远程会话协作** | 移动端查看会话、审批工具调用、管理代理 |
+| **本地 Agent 引擎** | 独立运行的 Agent，支持续跑（maxTurns 150）、限流重试、SSE 流式响应 |
+| **文件浏览器与预览** | 项目目录树展开 / 折叠，文件点击进入主页面预览，支持代码高亮与 Markdown 渲染，顶部面包屑路径快速跳转 |
+| **内置终端与 Shell** | 工作区内执行 Shell 命令，GitPlugin 提供 12 个结构化 Git 工具 |
+| **Python 沙盒** | PythonPlugin 支持在移动端执行 Python 代码 |
+| **真 git clone（Termux 桥接）** | GitCloneService 分四段执行 git clone，TermuxReadiness 三态检测，token 通过临时 credential helper 注入不持久化 |
+| **联网搜索** | WebSearchProvider 抽象 + Jina（默认免 Key）/ Tavily / Brave 三种 Provider，web_search / fetch_url 工具注册到 Agent（只读权限） |
+| **权限拦截器** | CommandClassifier 命令危险等级分类 + PermissionInterceptorPlugin 异步询问流程 |
+| **前台服务保活** | Android 前台服务，防止 LLM 长任务被系统终止 |
+| **完整 i18n** | 中英文双语支持，覆盖会话、搜索、Termux、聊天输入等全部模块 |
+
+<div align="center">
+
+*移动端配套：从远程协作到本地 Agent，再到文件浏览、终端、Git、Python 沙盒与联网搜索*
+
+</div>
 
 ### 🎨 精致的用户体验
 
@@ -493,6 +542,7 @@ SpaceCode 持续演进中，以下为近期规划方向（非承诺，可能调�
 
 ### ✅ 已完成里程碑
 
+- v0.7.x：桌面宠物 Sprite Atlas 重构 + 多只宠物内置 + 任务监控映射、移动端文件浏览器与代码预览、Tavily 免费代理搜索
 - v0.6.x：桌面宠物、多模型 Profile、IM 集成、办公助手画廊
 - v0.5.x：分屏多会话、Computer Use、Browser Use、设计模式
 - v0.4.x：MCP 协议、移动端配套、Agents 智能体系统

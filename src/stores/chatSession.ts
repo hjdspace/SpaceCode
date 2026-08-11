@@ -321,12 +321,30 @@ export const useChatSessionStore = defineStore('chatSession', () => {
 
   const sessions = ref<Session[]>(loadSessionsFromStorage())
 
-  void hydrateImageAttachments(sessions.value)
-  void hydrateSessionsFromJsonl(sessions.value)
-  const lastSessionId = sessions.value.length > 0
-    ? [...sessions.value].sort((a, b) => b.updatedAt - a.updatedAt)[0].id
-    : null
-  const currentSessionId = ref<string | null>(lastSessionId)
+  // Desktop startup stays on an empty, ready-to-send conversation. Historical
+  // sessions remain available in the sidebar and are hydrated only when the
+  // user explicitly opens one. H5 mirror mode selects its session explicitly.
+  const currentSessionId = ref<string | null>(null)
+
+  // ── 会话懒加载 ──
+  // 会话在 selectSession 切换时按需恢复，避免启动阶段读取 JSONL 文件并
+  // 解析重建消息阻塞首屏。
+  const hydratedSessionIds = new Set<string>()
+
+  async function hydrateSingleSession(sessionId: string): Promise<void> {
+    if (hydratedSessionIds.has(sessionId)) return
+    hydratedSessionIds.add(sessionId)
+    const session = sessions.value.find((s) => s.id === sessionId)
+    if (!session) return
+    try {
+      await Promise.all([
+        hydrateImageAttachments([session]),
+        hydrateSessionsFromJsonl([session]),
+      ])
+    } catch (err) {
+      console.error('[ChatStore] hydrateSingleSession failed:', err)
+    }
+  }
 
   // ────────────────────────────────────────────────────────────────────
   // Prompt Stash
@@ -570,6 +588,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     }
     sessions.value.unshift(session)
     currentSessionId.value = session.id
+    // 新建的会话没有 JSONL 历史，标记为已 hydrate 避免无意义的恢复尝试
+    hydratedSessionIds.add(session.id)
     clearTurnCheckpoints()
     saveToStorage()
     traceEvent({
@@ -1153,6 +1173,12 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     const session = sessions.value.find(s => s.id === sessionId)
     if (session?.workingDirectory) {
       currentProjectRoot.value = session.workingDirectory
+    }
+
+    // 懒加载：首次切换到该会话时从 JSONL 恢复完整历史 + 图片附件。
+    // 跳过正在 streaming 的会话，避免覆盖流式写入的最新消息。
+    if (session && !hydratedSessionIds.has(sessionId) && !isSessionLoading(sessionId)) {
+      void hydrateSingleSession(sessionId)
     }
 
     clearTurnCheckpoints()

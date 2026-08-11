@@ -6,6 +6,7 @@ import 'app.dart';
 import 'core/agent/binary_resolver.dart';
 import 'core/agent/chaquopy_bridge.dart';
 import 'core/agent/git_binary_extractor.dart';
+import 'core/agent/termux_readiness_checker.dart';
 import 'core/config/mobile_config.dart';
 import 'core/i18n/strings.dart';
 
@@ -23,6 +24,13 @@ void main() async {
     await GitBinaryExtractor.extract();
     // 初始化 Chaquopy Python 桥接（非 Android 或未集成时优雅降级，PythonPlugin 不加载）
     await ChaquopyBridge.instance.initialize();
+    // 检测 Termux 就绪状态（三态），写入 BinaryResolver
+    final readiness = await TermuxReadinessChecker().check();
+    debugPrint('[Termux] readiness = $readiness');
+    BinaryResolver.instance.setTermuxReadiness(readiness);
+    if (readiness == TermuxReadiness.ready) {
+      debugPrint('[Termux] ready, gitPath=${BinaryResolver.instance.gitPath}');
+    }
   } catch (_) {
     // ignore - BinaryResolver 未初始化时 TerminalScreen 会回退到 Platform.environment
   }

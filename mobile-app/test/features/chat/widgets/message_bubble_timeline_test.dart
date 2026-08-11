@@ -93,8 +93,8 @@ void main() {
     // 文本按顺序渲染
     expect(find.text('before'), findsOneWidget);
     expect(find.text('after'), findsOneWidget);
-    // 工具调用卡片存在
-    expect(find.text('list_files'), findsOneWidget);
+    // 工具调用卡片存在（新卡片以路径作为标题，list_files 输入 path="."）
+    expect(find.text('.'), findsOneWidget);
   });
 
   testWidgets('user message always uses legacy path', (tester) async {

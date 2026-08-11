@@ -6,6 +6,7 @@ import { config } from 'dotenv'
 import { TerminalManager } from './terminalManager'
 import { registerGitIPCHandlers } from './gitService'
 import { registerSkillsIPCHandlers, registerLocalLibraryIPCHandlers } from './skillsService'
+import { registerSkillManagerV2IPCHandlers } from './skillManagerV2'
 import { registerAgentsIPCHandlers } from './agentsService'
 import { registerArtifactsIPCHandlers, stopArtifactsWatch } from './artifactsService'
 import { registerCronIPCHandlers } from './cronService'
@@ -30,9 +31,9 @@ import type { ProxyConfig } from './proxy/types'
 import { rtkManager } from './rtkManager'
 import { getImSidecarManager } from './imSidecarManager'
 import { PetFileService } from './petFileService'
-import { PetLLMProxy } from './petLLMProxy'
-import { PetWindowManager } from './petWindowManager'
+import { PetWindowController } from './petWindowManager'
 import { registerPetIpcHandlers } from './petIpcHandlers'
+import { setupLinuxPlatform } from './platformSetup'
 
 // ============================================================
 // App Startup
@@ -70,6 +71,8 @@ if (existsSync(envPath)) {
   earlyLog(`No .env found at: ${envPath}`)
 }
 
+setupLinuxPlatform()
+
 // Windows: set AppUserModelId so taskbar shows the correct icon instead of Electron default
 if (process.platform === 'win32') {
   app.setAppUserModelId('com.spacecode.desktop')
@@ -79,7 +82,7 @@ app.commandLine.appendSwitch('no-sandbox')
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
-let petWindowManager: PetWindowManager | null = null
+let petWindowManager: PetWindowController | null = null
 
 type ExternalEditor = 'vscode' | 'visualstudio' | 'cursor' | 'fileExplorer' | 'terminal' | 'gitBash' | 'wsl' | 'androidStudio'
 
@@ -290,7 +293,7 @@ function getWindowIconPath(): string {
   return iconPath
 }
 
-function waitForViteAndLoad(window: BrowserWindow, url: string, maxRetries = 50, interval = 200): void {
+function waitForViteAndLoad(window: BrowserWindow, url: string, interval = 200): void {
   let attempts = 0
   const tryLoad = () => {
     attempts++
@@ -302,18 +305,103 @@ function waitForViteAndLoad(window: BrowserWindow, url: string, maxRetries = 50,
       })
     })
     req.on('error', () => {
-      if (attempts < maxRetries) {
-        setTimeout(tryLoad, interval)
-      } else {
-        error('Startup', `Vite dev server not ready after ${maxRetries} attempts, loading anyway`)
-        window.loadURL(url).catch((err: Error) => {
-          error('Startup', `Failed to load URL: ${err.message}`)
-        })
+      if (attempts === 1 || attempts % 25 === 0) {
+        warn('Startup', `Vite dev server not ready after ${attempts} attempt(s), retrying`)
       }
+      setTimeout(tryLoad, interval)
     })
     req.end()
   }
   tryLoad()
+}
+
+// ============================================================
+// Splash Screen — 加载期间显示的轻量窗口（内联 HTML，不依赖 Vite 编译）
+// ============================================================
+let splashWindow: BrowserWindow | null = null
+
+function createSplashScreen(): void {
+  // 只在 dev 模式下显示 splash：生产模式从本地文件加载很快，不需要
+  if (!isDev) return
+
+  splashWindow = new BrowserWindow({
+    width: 360,
+    height: 240,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    skipTaskbar: true,
+    show: true,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+
+  // 内联 HTML：包含 SpaceCode logo 文字 + 旋转加载动画
+  // 使用 data URL，完全脱离 Vite，瞬间显示
+  const splashHtml = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: transparent;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    user-select: none; -webkit-user-select: none;
+  }
+  .container {
+    background: rgba(12, 12, 29, 0.95);
+    border-radius: 12px;
+    padding: 32px 40px;
+    display: flex; flex-direction: column;
+    align-items: center; gap: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  }
+  .logo {
+    font-size: 24px; font-weight: 600;
+    color: #e0e0e0;
+    letter-spacing: 1px;
+  }
+  .spinner {
+    width: 28px; height: 28px;
+    border: 3px solid rgba(255, 255, 255, 0.15);
+    border-top-color: #6c8aff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  .text {
+    font-size: 12px; color: #888;
+    letter-spacing: 0.5px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">SpaceCode</div>
+    <div class="spinner"></div>
+    <div class="text">Loading...</div>
+  </div>
+</body>
+</html>`
+
+  splashWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(splashHtml))
+  splashWindow.on('closed', () => { splashWindow = null })
+}
+
+function closeSplashScreen(): void {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.close()
+    splashWindow = null
+  }
 }
 
 function createWindow() {
@@ -369,18 +457,19 @@ function createWindow() {
   })
 
   mainWindow.once('ready-to-show', () => {
-    info('Startup', 'Window ready-to-show')
+    info('Startup', `Window ready-to-show | elapsed=${Date.now() - startTime}ms`)
     mainWindow?.show()
     mainWindow?.focus()
-    info('Startup', 'Window shown')
+    closeSplashScreen()
   })
 
   mainWindow.webContents.on('did-finish-load', () => {
-    info('Startup', 'Page did-finish-load')
+    info('Startup', `Page did-finish-load | elapsed=${Date.now() - startTime}ms`)
     if (mainWindow && !mainWindow.isVisible()) {
       info('Startup', 'ready-to-show did not fire, showing window as fallback')
       mainWindow.show()
       mainWindow.focus()
+      closeSplashScreen()
     }
     if (isDev) {
       mainWindow?.webContents.openDevTools()
@@ -689,6 +778,9 @@ app.whenReady().then(() => {
     debug('Startup', earlyMsg)
   }
 
+  // 在主窗口加载前显示 splash（dev 模式下 Vite 编译较慢，splash 提供视觉反馈）
+  createSplashScreen()
+
   createWindow()
   info('Startup', `Window created | elapsed=${Date.now() - startTime}ms`)
 
@@ -703,6 +795,10 @@ app.whenReady().then(() => {
   // Register Local Library IPC handlers
   registerLocalLibraryIPCHandlers()
   info('Startup', 'Local Library IPC handlers registered')
+
+  // Register Skill Manager V2 IPC handlers
+  registerSkillManagerV2IPCHandlers()
+  info('Startup', 'Skill Manager V2 IPC handlers registered')
 
   // Register Agents IPC handlers
   registerAgentsIPCHandlers()
@@ -751,13 +847,14 @@ info('Startup', 'CuaDriver IPC handlers registered')
   ;(async () => {
     try {
       const petFileService = new PetFileService()
-      const petLLMProxy = new PetLLMProxy()
       await petFileService.init()
-      petWindowManager = new PetWindowManager()
+      petWindowManager = new PetWindowController({
+        preloadPath: join(__dirname, 'petPreload.js'),
+        isDev,
+      })
 
       registerPetIpcHandlers({
         petFileService,
-        petLLMProxy,
         petWindowManager,
         getMainWindow: () => mainWindow,
         getLocale: (): 'zh-CN' | 'en-US' => {
@@ -922,6 +1019,7 @@ info('Startup', 'CuaDriver IPC handlers registered')
 
 app.on('window-all-closed', () => {
   info('App', 'All windows closed')
+  closeSplashScreen()
   if (petWindowManager) {
     petWindowManager.destroy()
   }

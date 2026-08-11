@@ -71,6 +71,8 @@ export function createTurnStateMachine(opts: TurnStateMachineOptions): TurnState
       settled: false,
       resolve: opts.resolve,
       reject: opts.reject,
+      currentStreamingToolId: null,
+      streamingToolJson: new Map(),
     }
     turnStates.set(sessionId, ts)
 

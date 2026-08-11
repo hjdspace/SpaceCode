@@ -24,6 +24,7 @@ export class ProxyManager extends EventEmitter {
   private healthRetryCount: number = 0
   private restarting: boolean = false
   private startingPromise: Promise<string> | null = null
+  private lastHealthStatus: 'unknown' | 'healthy' | 'unhealthy' = 'unknown'
 
   /**
    * 启动代理子进程。如果代理已经在运行，会先停止再重启。
@@ -74,6 +75,7 @@ export class ProxyManager extends EventEmitter {
     config.port = port
     this.config = config
     this.healthRetryCount = 0
+    this.lastHealthStatus = 'unknown'
 
     const proxyScript = this.resolveProxyScript()
 
@@ -266,13 +268,15 @@ export class ProxyManager extends EventEmitter {
       // 主进程中 __dirname 指向 asar 内路径，Electron fs 会自动重定向；
       // 但代理子进程使用 ELECTRON_RUN_AS_NODE=1，不支持 asar 路径重定向，
       // 因此需要显式解析到 app.asar.unpacked 路径。
-      const asarPath = path.join(__dirname, 'proxy', 'index.js')
-      const unpackedPath = asarPath.replace(/\.asar([\\/])/, '.asar.unpacked$1')
-      // 优先使用 unpacked 路径（子进程需要），如果不存在则回退到 asar 路径
-      if (fs.existsSync(unpackedPath)) {
-        return unpackedPath
+      const packagedCandidates = [
+        path.join(process.resourcesPath, 'app.asar.unpacked', 'dist-electron', 'proxy', 'index.js'),
+        path.join(__dirname, 'proxy', 'index.js').replace(/\.asar([\\/])/, '.asar.unpacked$1'),
+        path.join(__dirname, 'proxy', 'index.js'),
+      ]
+      for (const candidate of packagedCandidates) {
+        if (fs.existsSync(candidate)) return candidate
       }
-      return asarPath
+      return packagedCandidates[0]
     }
     const compiledPath = path.join(__dirname, 'proxy', 'index.js')
     if (fs.existsSync(compiledPath)) {
@@ -335,11 +339,21 @@ export class ProxyManager extends EventEmitter {
       const healthy = await this.checkHealth()
       if (healthy) {
         this.healthRetryCount = 0
-        debug('ProxyManager', 'Health check passed')
+        // 仅在状态变化时打印（首次成功 / 从故障恢复），避免每 30s 刷屏
+        if (this.lastHealthStatus !== 'healthy') {
+          if (this.lastHealthStatus === 'unhealthy') {
+            info('ProxyManager', 'Health check passed (recovered)')
+          } else {
+            debug('ProxyManager', 'Health check passed')
+          }
+          this.lastHealthStatus = 'healthy'
+        }
       } else {
+        this.lastHealthStatus = 'unhealthy'
         this.handleHealthCheckFailure()
       }
     } catch {
+      this.lastHealthStatus = 'unhealthy'
       this.handleHealthCheckFailure()
     }
   }
