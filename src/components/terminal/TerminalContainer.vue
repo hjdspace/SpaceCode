@@ -3,11 +3,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { api } from '@/services/electronAPI'
+import { useAppStore } from '@/stores/app'
 import { useTerminalStore } from '@/stores/terminal'
+import { getTerminalTheme } from './terminalTheme'
 import '@xterm/xterm/css/xterm.css'
 
 const props = defineProps<{
@@ -21,6 +23,7 @@ const emit = defineEmits<{
 }>()
 
 const containerRef = ref<HTMLElement | null>(null)
+const appStore = useAppStore()
 const terminalStore = useTerminalStore()
 
 let terminal: Terminal | null = null
@@ -31,55 +34,6 @@ let removeDataListener: (() => void) | null = null
 let removeExitListener: (() => void) | null = null
 let resizeObserver: ResizeObserver | null = null
 let contextmenuHandler: ((e: Event) => void) | null = null
-
-function getTheme() {
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
-  return isDark ? {
-    background: '#0d0d0d',
-    foreground: '#f5f5f5',
-    cursor: '#f5f5f5',
-    cursorAccent: '#0d0d0d',
-    selectionBackground: 'rgba(59, 130, 246, 0.3)',
-    black: '#0d0d0d',
-    red: '#ef4444',
-    green: '#22c55e',
-    yellow: '#f59e0b',
-    blue: '#3b82f6',
-    magenta: '#8b5cf6',
-    cyan: '#06b6d4',
-    white: '#f5f5f5',
-    brightBlack: '#525252',
-    brightRed: '#f87171',
-    brightGreen: '#4ade80',
-    brightYellow: '#fbbf24',
-    brightBlue: '#60a5fa',
-    brightMagenta: '#a78bfa',
-    brightCyan: '#22d3ee',
-    brightWhite: '#f5f5f5',
-  } : {
-    background: '#ffffff',
-    foreground: '#171717',
-    cursor: '#171717',
-    cursorAccent: '#ffffff',
-    selectionBackground: 'rgba(37, 99, 235, 0.2)',
-    black: '#171717',
-    red: '#dc2626',
-    green: '#16a34a',
-    yellow: '#d97706',
-    blue: '#2563eb',
-    magenta: '#7c3aed',
-    cyan: '#0891b2',
-    white: '#171717',
-    brightBlack: '#525252',
-    brightRed: '#ef4444',
-    brightGreen: '#22c55e',
-    brightYellow: '#f59e0b',
-    brightBlue: '#3b82f6',
-    brightMagenta: '#8b5cf6',
-    brightCyan: '#06b6d4',
-    brightWhite: '#171717',
-  }
-}
 
 /**
  * 从剪贴板读取文本并粘贴到终端
@@ -135,10 +89,11 @@ async function initTerminal() {
     }
 
     terminal = new Terminal({
-      theme: getTheme(),
+      theme: getTerminalTheme(appStore.theme),
       fontSize: 13,
       fontFamily: "'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas, monospace",
-      lineHeight: 1.4,
+      lineHeight: 1.45,
+      letterSpacing: 0,
       cursorBlink: true,
       cursorStyle: 'bar',
       scrollback: 5000,
@@ -279,17 +234,13 @@ function clear() {
   terminal?.clear()
 }
 
-const themeObserver = new MutationObserver(() => {
+const stopThemeWatch = watch(() => appStore.theme, (theme) => {
   if (terminal) {
-    terminal.options.theme = getTheme()
+    terminal.options.theme = getTerminalTheme(theme)
   }
 })
 
 onMounted(async () => {
-  themeObserver.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ['data-theme']
-  })
   await nextTick()
   await initTerminal()
 })
@@ -300,7 +251,7 @@ onUnmounted(() => {
   removeDataListener?.()
   removeExitListener?.()
   resizeObserver?.disconnect()
-  themeObserver.disconnect()
+  stopThemeWatch()
 
   // 移除右键菜单监听
   if (contextmenuHandler && containerRef.value) {
@@ -320,23 +271,25 @@ defineExpose({ focus, runCommand, clear })
 .terminal-container {
   width: 100%;
   height: 100%;
-  padding: 4px 8px;
+  padding: 10px 12px 8px;
   overflow: hidden;
+  background: var(--bg-primary);
 
   :deep(.xterm) {
     height: 100%;
+    font-variant-ligatures: none;
   }
 
   :deep(.xterm-viewport) {
     &::-webkit-scrollbar {
-      width: 8px;
+      width: 6px;
     }
     &::-webkit-scrollbar-track {
       background: transparent;
     }
     &::-webkit-scrollbar-thumb {
       background: var(--border-default);
-      border-radius: var(--radius-full);
+      border-radius: 3px;
       &:hover {
         background: var(--text-muted);
       }
