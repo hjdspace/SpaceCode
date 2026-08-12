@@ -10,6 +10,8 @@
 
 import { onMounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ArrowLeft } from 'lucide-vue-next'
+import { useAppStore } from '@/stores/app'
 import { useSkillManagerStore } from '@/stores/skillManagerStore'
 import type { SkillTabId } from '@/types/skillManagerV2'
 import SkillSettingsPage from './SkillSettingsPage.vue'
@@ -21,6 +23,11 @@ import AgentManagementPage from './AgentManagementPage.vue'
 
 const { t } = useI18n()
 const store = useSkillManagerStore()
+const appStore = useAppStore()
+
+function handleClose(): void {
+  appStore.showSkillsManager = false
+}
 
 // ── Tab definitions ───────────────────────────────────────────────
 
@@ -54,7 +61,12 @@ async function handleRefresh(): Promise<void> {
   <div class="skill-manager-v2">
     <!-- ── Header ─────────────────────────────────────────────── -->
     <header class="sm-header">
-      <h1 class="sm-title">{{ t('skillManagerV2.title') }}</h1>
+      <div class="sm-header-left">
+        <button class="sm-close-btn" @click="handleClose" :title="t('common.close')">
+          <ArrowLeft :size="18" />
+        </button>
+        <h1 class="sm-title">{{ t('skillManagerV2.title') }}</h1>
+      </div>
       <button
         class="sm-refresh-btn"
         :disabled="store.loading"
@@ -170,6 +182,31 @@ async function handleRefresh(): Promise<void> {
   flex-shrink: 0;
 }
 
+.sm-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sm-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md, 6px);
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #888);
+  cursor: pointer;
+  transition: all 0.15s;
+
+  &:hover {
+    background: var(--bg-hover, #2a2a2a);
+    color: var(--text-primary, #e0e0e0);
+  }
+}
+
 .sm-title {
   font-size: 18px;
   font-weight: 600;
@@ -183,7 +220,9 @@ async function handleRefresh(): Promise<void> {
   background: transparent;
   color: inherit;
   cursor: pointer;
-  font-size&:hover {
+  font-size: 13px;
+
+  &:hover {
     background: var(--bg-hover, #2a2a2a);
   }
   &:disabled {

@@ -108,7 +108,7 @@ const SettingsPanel = defineAsyncComponent({
   loadingComponent: AsyncLoadingState,
   delay: 0,
 })
-const SkillsManager = defineAsyncComponent(() => import('./components/skills/SkillsManager.vue'))
+const SkillsManager = defineAsyncComponent(() => import('./components/skills-v2/SkillManagerShell.vue'))
 const AgentManager = defineAsyncComponent(() => import('./components/agents/AgentManager.vue'))
 const McpManager = defineAsyncComponent(() => import('./components/mcp/McpManager.vue'))
 const CronManager = defineAsyncComponent(() => import('./components/cron/CronManager.vue'))
