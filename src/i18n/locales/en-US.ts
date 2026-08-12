@@ -2404,6 +2404,7 @@ export default {
       github: 'GitHub',
       url: 'URL',
       agentImport: 'Agent Import',
+      agentOverride: 'Agent Override',
       manualCenter: 'Manual Center',
       marketplace: 'Marketplace',
     },

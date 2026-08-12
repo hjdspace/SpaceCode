@@ -2402,6 +2402,7 @@ export default {
       github: 'GitHub',
       url: 'URL',
       agentImport: 'Agent 导入',
+      agentOverride: 'Agent 覆盖',
       manualCenter: '手动添加',
       marketplace: '市场',
     },

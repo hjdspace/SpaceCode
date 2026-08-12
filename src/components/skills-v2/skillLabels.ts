@@ -39,6 +39,7 @@ export const SOURCE_LABEL_KEYS: Record<SourceType, string> = {
   github: 'skillManagerV2.source.github',
   url: 'skillManagerV2.source.url',
   agent_import: 'skillManagerV2.source.agentImport',
+  agent_override: 'skillManagerV2.source.agentOverride',
   manual_center: 'skillManagerV2.source.manualCenter',
   marketplace: 'skillManagerV2.source.marketplace',
 }

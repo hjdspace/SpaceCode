@@ -973,5 +973,33 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('skill-manager:execute-adopt', agentId, unmanagedId, option, renamedId),
     executeAdoptBatch: (items: Record<string, unknown>[]) =>
       ipcRenderer.invoke('skill-manager:execute-adopt-batch', items),
+
+    // Skill Packs
+    listPacks: () =>
+      ipcRenderer.invoke('skill-manager:list-packs'),
+    getPackDetail: (packId: string) =>
+      ipcRenderer.invoke('skill-manager:get-pack-detail', packId),
+    upsertPack: (input: Record<string, unknown>) =>
+      ipcRenderer.invoke('skill-manager:upsert-pack', input),
+    previewDeletePack: (packId: string) =>
+      ipcRenderer.invoke('skill-manager:preview-delete-pack', packId),
+    deletePack: (packId: string) =>
+      ipcRenderer.invoke('skill-manager:delete-pack', packId),
+    previewApplyPack: (packId: string, targetAgentIds: string[], requestedMode: string) =>
+      ipcRenderer.invoke('skill-manager:preview-apply-pack', packId, targetAgentIds, requestedMode),
+    executeApplyPack: (packId: string, targetAgentIds: string[], requestedMode: string) =>
+      ipcRenderer.invoke('skill-manager:execute-apply-pack', packId, targetAgentIds, requestedMode),
+    previewRemovePackFromAgent: (packId: string, agentId: string) =>
+      ipcRenderer.invoke('skill-manager:preview-remove-pack-from-agent', packId, agentId),
+    executeRemovePackFromAgent: (packId: string, agentId: string) =>
+      ipcRenderer.invoke('skill-manager:execute-remove-pack-from-agent', packId, agentId),
+
+    // Copy Sync
+    previewSyncCopy: (targetId: string) =>
+      ipcRenderer.invoke('skill-manager:preview-sync-copy', targetId),
+    executeSyncCopy: (targetId: string, action: string) =>
+      ipcRenderer.invoke('skill-manager:execute-sync-copy', targetId, action),
+    previewCopyTargetDiff: (targetId: string) =>
+      ipcRenderer.invoke('skill-manager:preview-copy-diff', targetId),
   },
 })

@@ -27,6 +27,16 @@ import type {
   AdoptBatchResult,
   AgentInventoryScanResult,
   UnmanagedItemDto,
+  SkillPackSummary,
+  SkillPackDetail,
+  UpsertPackInput,
+  DeletePackPreview,
+  RemovePackFromAgentPreview,
+  RemovePackFromAgentResult,
+  CopySyncPreview,
+  CopySyncResult,
+  CopySyncAction,
+  CopyTargetDiffPreview,
 } from '@/types/skillManagerV2'
 
 let service: SkillManagerService | null = null
@@ -169,6 +179,94 @@ export function registerSkillManagerV2IPCHandlers(): void {
     SCHEMA_MANAGER_CHANNELS.EXECUTE_ADOPT_BATCH,
     (_event, items: AdoptBatchItem[]): AdoptBatchResult => {
       return getService().executeAdoptBatch(items)
+    }
+  )
+
+  // ── Skill Packs ───────────────────────────────────────────────────
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.LIST_PACKS,
+    (): SkillPackSummary[] => {
+      return getService().listPacks()
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.GET_PACK_DETAIL,
+    (_event, packId: string): SkillPackDetail | null => {
+      return getService().getPackDetail(packId)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.UPSERT_PACK,
+    (_event, input: UpsertPackInput): SkillPackDetail => {
+      return getService().upsertPack(input)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.PREVIEW_DELETE_PACK,
+    (_event, packId: string): DeletePackPreview => {
+      return getService().previewDeletePack(packId)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.DELETE_PACK,
+    (_event, packId: string): void => {
+      getService().deletePack(packId)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.PREVIEW_APPLY_PACK,
+    (_event, packId: string, targetAgentIds: string[], requestedMode: InstallMode): DistributionPreview => {
+      return getService().previewApplyPack(packId, targetAgentIds, requestedMode)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.EXECUTE_APPLY_PACK,
+    (_event, packId: string, targetAgentIds: string[], requestedMode: InstallMode): DistributionResult => {
+      return getService().executeApplyPack(packId, targetAgentIds, requestedMode)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.PREVIEW_REMOVE_PACK_FROM_AGENT,
+    (_event, packId: string, agentId: string): RemovePackFromAgentPreview => {
+      return getService().previewRemovePackFromAgent(packId, agentId)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.EXECUTE_REMOVE_PACK_FROM_AGENT,
+    (_event, packId: string, agentId: string): RemovePackFromAgentResult => {
+      return getService().removePackFromAgent(packId, agentId)
+    }
+  )
+
+  // ── Copy Sync ─────────────────────────────────────────────────────
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.PREVIEW_SYNC_COPY,
+    (_event, targetId: string): CopySyncPreview => {
+      return getService().previewSyncCopy(targetId)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.EXECUTE_SYNC_COPY,
+    (_event, targetId: string, action: CopySyncAction): CopySyncResult => {
+      return getService().executeSyncCopy(targetId, action)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.PREVIEW_COPY_DIFF,
+    (_event, targetId: string): CopyTargetDiffPreview => {
+      return getService().previewCopyTargetDiff(targetId)
     }
   )
 }

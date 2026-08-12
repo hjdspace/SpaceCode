@@ -13,7 +13,7 @@ export type InstallMode = 'link' | 'copy'
 export type ActualMode = 'link' | 'copy'
 export type LinkFailPolicy = 'ask' | 'copy'
 export type SkillStatus = 'ok' | 'unmanaged' | 'conflict' | 'broken_link' | 'copy_outdated' | 'copy_modified' | 'copy_diverged' | 'missing'
-export type SourceType = 'local_folder' | 'archive' | 'github' | 'url' | 'agent_import' | 'manual_center' | 'marketplace'
+export type SourceType = 'local_folder' | 'archive' | 'github' | 'url' | 'agent_import' | 'agent_override' | 'manual_center' | 'marketplace'
 export type ClaimType = 'direct' | 'pack'
 export type DiagnosisSeverity = 'info' | 'warning' | 'error'
 export type FixKind = 'auto' | 'confirm' | 'manual' | 'info'
@@ -177,8 +177,10 @@ export interface SkillPackSummary {
 export interface SkillPackMember {
   packId: string
   skillId: string
+  skillName: string
   sortOrder: number
   required: boolean
+  missing: boolean
 }
 
 export interface SkillPackDetail {
@@ -281,15 +283,36 @@ export interface AdoptPreview {
 
 export interface CopySyncPreview {
   targetId: string
-  status: CopySyncStatus
+  skillId: string
+  targetPath: string
+  sourceHash: string
   centerHash: string
   agentHash: string | null
+  status: CopySyncStatus
+  suggested: CopySyncAction | 'none'
 }
 
 export interface CopySyncResult {
   success: boolean
   action: CopySyncAction
   message: string
+  preview: CopySyncPreview | null
+}
+
+export interface CopyTargetDiffFile {
+  path: string
+  changeType: 'modified' | 'copy_removed' | 'copy_added'
+  centerContent: string | null
+  copyContent: string | null
+}
+
+export interface CopyTargetDiffPreview {
+  targetId: string
+  skillId: string
+  targetPath: string
+  centerPath: string
+  status: CopySyncStatus
+  files: CopyTargetDiffFile[]
 }
 
 // ── Add Center Skill ───────────────────────────────────────────────
@@ -382,6 +405,43 @@ export interface AgentInventoryScanResult {
   managed: SkillTarget[]
   unmanaged: UnmanagedItemDto[]
   conflicts: UnmanagedItemDto[]
+}
+
+// ── Pack Remove Preview ────────────────────────────────────────────
+
+export interface PackAffectedTarget {
+  targetId: string
+  agentId: string
+  targetPath: string
+  mode: string
+  claimCount: number
+}
+
+export interface RemovePackFromAgentPreview {
+  packId: string
+  packName: string
+  agentId: string
+  agentName: string
+  affectedTargets: PackAffectedTarget[]
+  willRemoveTargets: number
+  willPreserveTargets: number
+}
+
+export interface RemovePackFromAgentResult {
+  packId: string
+  agentId: string
+  removedClaims: number
+  removedTargets: number
+  preservedTargets: number
+}
+
+export interface DeletePackPreview {
+  packId: string
+  packName: string
+  appliedAgents: string[]
+  affectedTargets: PackAffectedTarget[]
+  removable: boolean
+  warnings: string[]
 }
 
 // ── IPC Channel Names ──────────────────────────────────────────────

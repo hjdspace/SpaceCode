@@ -33,6 +33,7 @@ export const SCHEMA_MANAGER_CHANNELS = {
   LIST_PACKS: 'skill-manager:list-packs',
   GET_PACK_DETAIL: 'skill-manager:get-pack-detail',
   UPSERT_PACK: 'skill-manager:upsert-pack',
+  PREVIEW_DELETE_PACK: 'skill-manager:preview-delete-pack',
   DELETE_PACK: 'skill-manager:delete-pack',
   PREVIEW_APPLY_PACK: 'skill-manager:preview-apply-pack',
   EXECUTE_APPLY_PACK: 'skill-manager:execute-apply-pack',

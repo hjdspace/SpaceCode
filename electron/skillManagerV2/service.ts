@@ -8,6 +8,7 @@
  * Reference: AgentBro `src-tauri/src/skills/v2/service.rs`
  */
 
+import * as crypto from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -35,6 +36,8 @@ import type {
   SkillManagerOverview,
   SkillManagerSettings,
   SkillPackSummary,
+  SkillPackDetail,
+  SkillPackMember,
   SkillSummary,
   DiagnosisIssue,
   UnmanagedItemDto,
@@ -62,6 +65,17 @@ import type {
   AdoptBatchResult,
   AdoptResult,
   AgentInventoryScanResult,
+  UpsertPackInput,
+  RemovePackFromAgentPreview,
+  RemovePackFromAgentResult,
+  DeletePackPreview,
+  PackAffectedTarget,
+  CopySyncPreview,
+  CopySyncResult,
+  CopySyncAction,
+  CopyTargetDiffPreview,
+  CopyTargetDiffFile,
+  CopySyncStatus,
 } from '@/types/skillManagerV2'
 
 // ── Default settings ───────────────────────────────────────────────
@@ -1484,6 +1498,686 @@ export class SkillManagerService {
 
     return { results, successCount, failureCount }
   }
+
+  // ── Skill Packs ──────────────────────────────────────────────────
+
+  /**
+   * Create or update a skill pack.
+   *
+   * Reference: AgentBro `service.rs` `upsert_skill_pack()`
+   */
+  upsertPack(input: UpsertPackInput): SkillPackDetail {
+    const name = input.name.trim()
+    if (!name) {
+      throw new Error('Pack name is required.')
+    }
+
+    // Validate members exist in center library
+    for (const skillId of input.memberSkillIds) {
+      const exists = this.db.conn.prepare(
+        'SELECT 1 FROM skills WHERE id = ?'
+      ).get(skillId)
+      if (!exists) {
+        throw new Error(`Pack member '${skillId}' is not in the center library.`)
+      }
+    }
+
+    const now = nowIso()
+    const tagsJson = JSON.stringify(input.tags ?? [])
+    const id = input.id ?? `pack-${uuidShort()}`
+
+    this.db.transaction((tx) => {
+      // Upsert pack row
+      tx.prepare(`
+        INSERT INTO skill_packs (id, name, description, tags_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name,
+          description = excluded.description,
+          tags_json = excluded.tags_json,
+          updated_at = excluded.updated_at
+      `).run(id, name, input.description ?? '', tagsJson, now, now)
+
+      // Replace members
+      tx.prepare('DELETE FROM skill_pack_members WHERE pack_id = ?').run(id)
+      const memberStmt = tx.prepare(
+        'INSERT INTO skill_pack_members (pack_id, skill_id, sort_order, required) VALUES (?, ?, ?, 1)'
+      )
+      input.memberSkillIds.forEach((skillId, idx) => {
+        memberStmt.run(id, skillId, idx)
+      })
+    })
+
+    return this.getPackDetail(id)!
+  }
+
+  /**
+   * Get full detail for a skill pack: members + applied agents.
+   * Returns null if pack not found.
+   *
+   * Reference: AgentBro `service.rs` `get_skill_pack_detail()`
+   */
+  getPackDetail(packId: string): SkillPackDetail | null {
+    const row = this.db.conn.prepare(`
+      SELECT id, name, description, tags_json, created_at, updated_at
+      FROM skill_packs WHERE id = ?
+    `).get(packId) as PackDetailRow | undefined
+
+    if (!row) return null
+
+    const members = this.getPackMembers(packId)
+    const appliedAgents = this.getPackAppliedAgents(packId)
+
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      tags: JSON.parse(row.tags_json) as string[],
+      members,
+      appliedAgents,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }
+  }
+
+  /** Get pack members with skill names and missing flags. */
+  private getPackMembers(packId: string): SkillPackMember[] {
+    const rows = this.db.conn.prepare(`
+      SELECT m.pack_id, m.skill_id, m.sort_order, m.required,
+             s.name AS skill_name
+      FROM skill_pack_members m
+      LEFT JOIN skills s ON s.id = m.skill_id
+      WHERE m.pack_id = ?
+      ORDER BY m.sort_order
+    `).all(packId) as PackMemberRow[]
+
+    return rows.map((r) => ({
+      packId: r.pack_id,
+      skillId: r.skill_id,
+      skillName: r.skill_name ?? r.skill_id,
+      sortOrder: r.sort_order,
+      required: r.required === 1,
+      missing: r.skill_name === null,
+    }))
+  }
+
+  /** Get agents that have this pack applied (via pack claims on their targets). */
+  private getPackAppliedAgents(packId: string): AgentSummary[] {
+    const agentIds = this.db.conn.prepare(`
+      SELECT DISTINCT t.agent_id
+      FROM skill_target_claims c
+      JOIN skill_targets t ON t.id = c.target_id
+      WHERE c.pack_id = ?
+    `).all(packId) as Array<{ agent_id: string }>
+
+    if (agentIds.length === 0) return []
+
+    const agents = this.listAgents()
+    const agentIdSet = new Set(agentIds.map((a) => a.agent_id))
+    return agents.filter((a) => agentIdSet.has(a.id))
+  }
+
+  /**
+   * Preview deleting a skill pack.
+   * Shows affected agents and whether the pack can be safely deleted.
+   */
+  previewDeletePack(packId: string): DeletePackPreview {
+    const row = this.db.conn.prepare(
+      'SELECT id, name FROM skill_packs WHERE id = ?'
+    ).get(packId) as { id: string; name: string } | undefined
+
+    if (!row) {
+      throw new Error(`Pack not found: ${packId}`)
+    }
+
+    const affectedTargets = this.getPackAffectedTargets(packId, null)
+    const appliedAgents = [...new Set(affectedTargets.map((t) => t.agentId))]
+    const removable = affectedTargets.length === 0
+    const warnings = removable
+      ? []
+      : [`Skill pack '${row.name}' is still applied to ${appliedAgents.length} agent(s). Revoke it before deleting.`]
+
+    return {
+      packId: row.id,
+      packName: row.name,
+      appliedAgents,
+      affectedTargets,
+      removable,
+      warnings,
+    }
+  }
+
+  /**
+   * Delete a skill pack.
+   * Throws if the pack is still applied to any agent.
+   */
+  deletePack(packId: string): void {
+    const preview = this.previewDeletePack(packId)
+    if (!preview.removable) {
+      throw new Error(
+        `Pack '${preview.packName}' is applied to ${preview.appliedAgents.length} agent(s). Revoke it from all agents first.`
+      )
+    }
+
+    // Delete pack (cascade removes skill_pack_members)
+    this.db.conn.prepare('DELETE FROM skill_packs WHERE id = ?').run(packId)
+  }
+
+  /**
+   * Preview applying a pack to target agents.
+   * Reuses the distribution preview logic.
+   */
+  previewApplyPack(
+    packId: string,
+    targetAgentIds: string[],
+    requestedMode: InstallMode
+  ): DistributionPreview {
+    const detail = this.getPackDetail(packId)
+    if (!detail) {
+      throw new Error(`Pack not found: ${packId}`)
+    }
+
+    const skillIds = detail.members.map((m) => m.skillId)
+    return this.previewDistribute(skillIds, targetAgentIds, requestedMode)
+  }
+
+  /**
+   * Execute applying a pack to target agents.
+   * Distributes all member skills and writes pack claims.
+   */
+  executeApplyPack(
+    packId: string,
+    targetAgentIds: string[],
+    requestedMode: InstallMode
+  ): DistributionResult {
+    const detail = this.getPackDetail(packId)
+    if (!detail) {
+      throw new Error(`Pack not found: ${packId}`)
+    }
+
+    const preview = this.previewDistribute(
+      detail.members.map((m) => m.skillId),
+      targetAgentIds,
+      requestedMode
+    )
+
+    return this.executeDistributeWithPackClaim(preview, packId)
+  }
+
+  /**
+   * Execute distribution with pack claims instead of direct claims.
+   */
+  private executeDistributeWithPackClaim(
+    preview: DistributionPreview,
+    packId: string
+  ): DistributionResult {
+    const settings = this.getSettings()
+    let created = 0
+    let reused = 0
+    let failed = 0
+    const errors: string[] = []
+
+    for (const change of preview.changes) {
+      try {
+        if (change.action === 'reuse') {
+          // Target already exists — add pack claim if not present
+          this.ensurePackClaim(change.skillId, change.agentId, packId)
+          reused++
+          continue
+        }
+
+        if (change.action === 'create') {
+          const skillRow = this.db.conn.prepare(
+            'SELECT id, name, center_path, current_hash FROM skills WHERE id = ?'
+          ).get(change.skillId) as { id: string; name: string; center_path: string; current_hash: string }
+
+          const agentRow = this.db.conn.prepare(
+            'SELECT id, display_name, skills_dir FROM agents WHERE id = ?'
+          ).get(change.agentId) as { id: string; display_name: string; skills_dir: string | null }
+
+          const centerPath = skillRow.center_path
+          const targetPath = path.join(agentRow.skills_dir ?? '', change.skillId)
+
+          let actualMode: 'link' | 'copy' = change.mode
+
+          if (change.mode === 'link') {
+            const linkResult = createLink(centerPath, targetPath, settings.linkFailPolicy)
+            actualMode = linkResult.actualMode
+            if (linkResult.error) {
+              errors.push(`${change.skillId} → ${change.agentId}: ${linkResult.error}`)
+              failed++
+              continue
+            }
+          } else {
+            copyDirRecursive(centerPath, targetPath)
+          }
+
+          // Write target + pack claim
+          this.writeTargetAndPackClaim(
+            change.skillId,
+            change.agentId,
+            targetPath,
+            change.mode,
+            actualMode,
+            skillRow.current_hash,
+            packId
+          )
+
+          created++
+        }
+      } catch (e) {
+        errors.push(`${change.skillId} → ${change.agentId}: ${(e as Error).message}`)
+        failed++
+      }
+    }
+
+    return {
+      success: failed === 0,
+      created,
+      reused,
+      failed,
+      errors,
+    }
+  }
+
+  /**
+   * Write a skill_target row and a pack claim row.
+   */
+  private writeTargetAndPackClaim(
+    skillId: string,
+    agentId: string,
+    targetPath: string,
+    installMode: InstallMode,
+    actualMode: 'link' | 'copy',
+    sourceHash: string,
+    packId: string
+  ): void {
+    const now = nowIso()
+    const targetId = `${skillId}__${agentId}`
+
+    this.db.transaction((tx) => {
+      // Upsert target
+      tx.prepare(`
+        INSERT INTO skill_targets (id, skill_id, agent_id, target_path, install_mode, actual_mode, source_hash, current_hash, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'ok', ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          install_mode = excluded.install_mode,
+          actual_mode = excluded.actual_mode,
+          source_hash = excluded.source_hash,
+          status = 'ok',
+          updated_at = excluded.updated_at
+      `).run(targetId, skillId, agentId, targetPath, installMode, actualMode, sourceHash, now, now)
+
+      // Upsert pack claim (UNIQUE on target_id + claim_type + pack_id)
+      tx.prepare(`
+        INSERT INTO skill_target_claims (id, target_id, claim_type, pack_id, created_at)
+        VALUES (?, ?, 'pack', ?, ?)
+        ON CONFLICT(target_id, claim_type, pack_id) DO NOTHING
+      `).run(`${targetId}__pack__${packId}`, targetId, packId, now)
+    })
+  }
+
+  /**
+   * Ensure a pack claim exists on an already-existing target.
+   */
+  private ensurePackClaim(skillId: string, agentId: string, packId: string): void {
+    const targetId = `${skillId}__${agentId}`
+    const now = nowIso()
+
+    this.db.conn.prepare(`
+      INSERT INTO skill_target_claims (id, target_id, claim_type, pack_id, created_at)
+      VALUES (?, ?, 'pack', ?, ?)
+      ON CONFLICT(target_id, claim_type, pack_id) DO NOTHING
+    `).run(`${targetId}__pack__${packId}`, targetId, packId, now)
+  }
+
+  /**
+   * Preview removing a pack from an agent.
+   * Shows which targets will be removed (last claim) vs preserved (other claims remain).
+   */
+  previewRemovePackFromAgent(packId: string, agentId: string): RemovePackFromAgentPreview {
+    const packRow = this.db.conn.prepare(
+      'SELECT id, name FROM skill_packs WHERE id = ?'
+    ).get(packId) as { id: string; name: string } | undefined
+
+    if (!packRow) {
+      throw new Error(`Pack not found: ${packId}`)
+    }
+
+    const agentRow = this.db.conn.prepare(
+      'SELECT id, display_name FROM agents WHERE id = ?'
+    ).get(agentId) as { id: string; display_name: string } | undefined
+
+    if (!agentRow) {
+      throw new Error(`Agent not found: ${agentId}`)
+    }
+
+    const affectedTargets = this.getPackAffectedTargets(packId, agentId)
+    const willRemove = affectedTargets.filter((t) => t.claimCount <= 1).length
+    const willPreserve = affectedTargets.length - willRemove
+
+    return {
+      packId: packRow.id,
+      packName: packRow.name,
+      agentId,
+      agentName: agentRow.display_name,
+      affectedTargets,
+      willRemoveTargets: willRemove,
+      willPreserveTargets: willPreserve,
+    }
+  }
+
+  /**
+   * Remove a pack from an agent.
+   * Deletes only the pack's claims; removes target files only when no claims remain.
+   */
+  removePackFromAgent(packId: string, agentId: string): RemovePackFromAgentResult {
+    const preview = this.previewRemovePackFromAgent(packId, agentId)
+
+    let removedClaims = 0
+    let removedTargets = 0
+    let preservedTargets = 0
+
+    for (const target of preview.affectedTargets) {
+      // Delete the pack claim
+      this.db.conn.prepare(
+        'DELETE FROM skill_target_claims WHERE target_id = ? AND pack_id = ?'
+      ).run(target.targetId, packId)
+      removedClaims++
+
+      // Check remaining claims
+      const remaining = this.countClaims(target.targetId)
+      if (remaining === 0) {
+        // Remove target file + DB record
+        removePath(target.targetPath)
+        this.db.conn.prepare('DELETE FROM skill_targets WHERE id = ?').run(target.targetId)
+        removedTargets++
+      } else {
+        preservedTargets++
+      }
+    }
+
+    return {
+      packId,
+      agentId,
+      removedClaims,
+      removedTargets,
+      preservedTargets,
+    }
+  }
+
+  /** Count claims on a target. */
+  private countClaims(targetId: string): number {
+    const row = this.db.conn.prepare(
+      'SELECT COUNT(*) AS c FROM skill_target_claims WHERE target_id = ?'
+    ).get(targetId) as { c: number }
+    return row.c
+  }
+
+  /** Get affected targets for a pack, optionally filtered by agent. */
+  private getPackAffectedTargets(packId: string, agentId: string | null): PackAffectedTarget[] {
+    const sql = agentId
+      ? `SELECT DISTINCT t.id, t.agent_id, t.target_path, t.actual_mode
+         FROM skill_target_claims c
+         JOIN skill_targets t ON t.id = c.target_id
+         WHERE c.pack_id = ? AND t.agent_id = ?
+         ORDER BY t.agent_id, t.target_path`
+      : `SELECT DISTINCT t.id, t.agent_id, t.target_path, t.actual_mode
+         FROM skill_target_claims c
+         JOIN skill_targets t ON t.id = c.target_id
+         WHERE c.pack_id = ?
+         ORDER BY t.agent_id, t.target_path`
+
+    const params = agentId ? [packId, agentId] : [packId]
+    const rows = this.db.conn.prepare(sql).all(...params) as Array<{
+      id: string
+      agent_id: string
+      target_path: string
+      actual_mode: string
+    }>
+
+    return rows.map((r) => ({
+      targetId: r.id,
+      agentId: r.agent_id,
+      targetPath: r.target_path,
+      mode: r.actual_mode,
+      claimCount: this.countClaims(r.id),
+    }))
+  }
+
+  // ── Copy Sync ────────────────────────────────────────────────────
+
+  /**
+   * Preview copy sync for a target.
+   * Computes center hash + agent copy hash and determines status.
+   *
+   * Reference: AgentBro `service.rs` `preview_sync_copy_target()`
+   */
+  previewSyncCopy(targetId: string): CopySyncPreview {
+    const row = this.db.conn.prepare(`
+      SELECT id, skill_id, target_path, source_hash, current_hash, actual_mode
+      FROM skill_targets WHERE id = ?
+    `).get(targetId) as TargetSyncRow | undefined
+
+    if (!row) {
+      throw new Error(`Target not found: ${targetId}`)
+    }
+
+    // Only copy targets are syncable
+    if (row.actual_mode !== 'copy') {
+      throw new Error(`Target ${targetId} is not a copy target (mode: ${row.actual_mode})`)
+    }
+
+    // Get center library hash from live disk
+    const skillRow = this.db.conn.prepare(
+      'SELECT id, center_path, current_hash FROM skills WHERE id = ?'
+    ).get(row.skill_id) as { id: string; center_path: string; current_hash: string } | undefined
+
+    if (!skillRow) {
+      throw new Error(`Skill not found: ${row.skill_id}`)
+    }
+
+    const centerHash = pathExists(skillRow.center_path) && fs.statSync(skillRow.center_path).isDirectory()
+      ? hashDir(skillRow.center_path)
+      : skillRow.current_hash
+
+    const agentHash = pathExists(row.target_path) && fs.statSync(row.target_path).isDirectory()
+      ? hashDir(row.target_path)
+      : row.current_hash ?? null
+
+    const centerChanged = centerHash !== row.source_hash
+    const copyChanged = agentHash !== null && agentHash !== row.source_hash
+
+    let status: CopySyncStatus
+    let suggested: CopySyncAction | 'none'
+
+    if (centerChanged && copyChanged) {
+      status = 'copy_diverged'
+      suggested = 'manual'
+    } else if (centerChanged) {
+      status = 'copy_outdated'
+      suggested = 'center_over_agent'
+    } else if (copyChanged) {
+      status = 'copy_modified'
+      suggested = 'agent_over_center'
+    } else {
+      status = 'ok'
+      suggested = 'none'
+    }
+
+    return {
+      targetId,
+      skillId: row.skill_id,
+      targetPath: row.target_path,
+      sourceHash: row.source_hash,
+      centerHash,
+      agentHash,
+      status,
+      suggested,
+    }
+  }
+
+  /**
+   * Execute copy sync.
+   * - center_over_agent: overwrite agent copy with center library version
+   * - agent_over_center: overwrite center library with agent copy
+   * - manual: keep diverged state (no file writes, just mark status)
+   *
+   * Reference: AgentBro `service.rs` `execute_sync_copy_target()`
+   */
+  executeSyncCopy(targetId: string, action: CopySyncAction): CopySyncResult {
+    const preview = this.previewSyncCopy(targetId)
+    const now = nowIso()
+
+    if (action === 'center_over_agent') {
+      const skillRow = this.db.conn.prepare(
+        'SELECT center_path FROM skills WHERE id = ?'
+      ).get(preview.skillId) as { center_path: string }
+
+      // Overwrite agent copy with center library content
+      removePath(preview.targetPath)
+      copyDirRecursive(skillRow.center_path, preview.targetPath)
+
+      const newSourceHash = hashDir(skillRow.center_path)
+      const newAgentHash = hashDir(preview.targetPath)
+
+      this.db.transaction((tx) => {
+        tx.prepare(
+          'UPDATE skills SET current_hash = ?, updated_at = ? WHERE id = ?'
+        ).run(newSourceHash, now, preview.skillId)
+
+        tx.prepare(`
+          UPDATE skill_targets
+          SET source_hash = ?, current_hash = ?, status = 'ok', updated_at = ?
+          WHERE id = ?
+        `).run(newSourceHash, newAgentHash, now, targetId)
+      })
+
+      const nextPreview = this.previewSyncCopy(targetId)
+      return {
+        success: true,
+        action,
+        message: `Agent copy updated from center library.`,
+        preview: nextPreview,
+      }
+    }
+
+    if (action === 'agent_over_center') {
+      // Overwrite center library with agent copy
+      const skillRow = this.db.conn.prepare(
+        'SELECT center_path FROM skills WHERE id = ?'
+      ).get(preview.skillId) as { center_path: string }
+
+      removePath(skillRow.center_path)
+      copyDirRecursive(preview.targetPath, skillRow.center_path)
+
+      const newHash = hashDir(skillRow.center_path)
+
+      this.db.transaction((tx) => {
+        tx.prepare(
+          'UPDATE skills SET current_hash = ?, updated_at = ? WHERE id = ?'
+        ).run(newHash, now, preview.skillId)
+
+        tx.prepare(`
+          UPDATE skill_targets
+          SET source_hash = ?, current_hash = ?, status = 'ok', updated_at = ?
+          WHERE id = ?
+        `).run(newHash, newHash, now, targetId)
+
+        // Record source as agent_override
+        tx.prepare(`
+          UPDATE skill_sources
+          SET source_type = 'agent_override', updated_at = ?
+          WHERE skill_id = ?
+        `).run(now, preview.skillId)
+      })
+
+      const nextPreview = this.previewSyncCopy(targetId)
+      return {
+        success: true,
+        action,
+        message: `Center library updated from agent copy.`,
+        preview: nextPreview,
+      }
+    }
+
+    // action === 'manual' — just mark status as copy_diverged
+    this.db.conn.prepare(`
+      UPDATE skill_targets SET status = 'copy_diverged', updated_at = ? WHERE id = ?
+    `).run(now, targetId)
+
+    const nextPreview = this.previewSyncCopy(targetId)
+    return {
+      success: true,
+      action,
+      message: `Diverged state preserved. Manual resolution required.`,
+      preview: nextPreview,
+    }
+  }
+
+  /**
+   * Preview file-level diff between center library and agent copy.
+   *
+   * Reference: AgentBro `service.rs` `preview_copy_target_diff()`
+   */
+  previewCopyTargetDiff(targetId: string): CopyTargetDiffPreview {
+    const sync = this.previewSyncCopy(targetId)
+
+    const skillRow = this.db.conn.prepare(
+      'SELECT center_path FROM skills WHERE id = ?'
+    ).get(sync.skillId) as { center_path: string }
+
+    const centerPath = skillRow.center_path
+    const copyPath = sync.targetPath
+
+    if (!pathExists(centerPath) || !fs.statSync(centerPath).isDirectory()) {
+      throw new Error(`Center path is not a directory: ${centerPath}`)
+    }
+    if (!pathExists(copyPath) || !fs.statSync(copyPath).isDirectory()) {
+      throw new Error(`Copy target is not a directory: ${copyPath}`)
+    }
+
+    const centerFiles = collectRelativeFiles(centerPath)
+    const copyFiles = collectRelativeFiles(copyPath)
+    const allFiles = new Set([...centerFiles, ...copyFiles])
+
+    const files: CopyTargetDiffFile[] = []
+    for (const rel of allFiles) {
+      const centerBytes = readRelativeFile(centerPath, rel)
+      const copyBytes = readRelativeFile(copyPath, rel)
+
+      if (centerBytes !== null && copyBytes !== null && centerBytes === copyBytes) {
+        continue // Same content
+      }
+
+      let changeType: CopyTargetDiffFile['changeType']
+      if (centerBytes !== null && copyBytes !== null) {
+        changeType = 'modified'
+      } else if (centerBytes !== null && copyBytes === null) {
+        changeType = 'copy_removed'
+      } else if (centerBytes === null && copyBytes !== null) {
+        changeType = 'copy_added'
+      } else {
+        continue
+      }
+
+      files.push({
+        path: rel,
+        changeType,
+        centerContent: centerBytes,
+        copyContent: copyBytes,
+      })
+    }
+
+    return {
+      targetId,
+      skillId: sync.skillId,
+      targetPath: sync.targetPath,
+      centerPath,
+      status: sync.status,
+      files,
+    }
+  }
 }
 
 // Helper function to avoid `this` binding issues in batch loop
@@ -1492,6 +2186,12 @@ function service_executeAdoptSingle(
   item: AdoptBatchItem
 ): void {
   svc.executeAdopt(item.agentId, item.unmanagedId, item.option, item.renamedId)
+}
+
+// ── UUID short helper ─────────────────────────────────────────────
+
+function uuidShort(): string {
+  return crypto.randomBytes(6).toString('hex')
 }
 
 // ── Internal row types ─────────────────────────────────────────────
@@ -1611,4 +2311,68 @@ interface ClaimRow {
   claim_type: string
   pack_id: string | null
   created_at: string
+}
+
+interface PackDetailRow {
+  id: string
+  name: string
+  description: string
+  tags_json: string
+  created_at: string
+  updated_at: string
+}
+
+interface PackMemberRow {
+  pack_id: string
+  skill_id: string
+  sort_order: number
+  required: number
+  skill_name: string | null
+}
+
+interface TargetSyncRow {
+  id: string
+  skill_id: string
+  target_path: string
+  source_hash: string
+  current_hash: string | null
+  actual_mode: string
+}
+
+// ── Copy sync helpers ──────────────────────────────────────────────
+
+/** Collect relative file paths from a directory (non-recursive, flat). */
+function collectRelativeFiles(dir: string): Set<string> {
+  const result = new Set<string>()
+  collectRelativeFilesRecursive(dir, '', result)
+  return result
+}
+
+function collectRelativeFilesRecursive(baseDir: string, relPrefix: string, out: Set<string>): void {
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(baseDir, { withFileTypes: true })
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    if (isIgnoredEntry(entry.name)) continue
+    const rel = relPrefix ? path.join(relPrefix, entry.name) : entry.name
+    if (entry.isDirectory()) {
+      if (entry.isSymbolicLink()) continue
+      collectRelativeFilesRecursive(path.join(baseDir, entry.name), rel, out)
+    } else if (entry.isFile()) {
+      out.add(rel)
+    }
+  }
+}
+
+/** Read a file relative to a base directory. Returns null if not found. */
+function readRelativeFile(baseDir: string, relPath: string): string | null {
+  const fullPath = path.join(baseDir, relPath)
+  try {
+    return fs.readFileSync(fullPath, 'utf-8')
+  } catch {
+    return null
+  }
 }

@@ -14,6 +14,15 @@ import type {
   SkillSummary,
   AgentSummary,
   SkillPackSummary,
+  SkillPackDetail,
+  UpsertPackInput,
+  DeletePackPreview,
+  RemovePackFromAgentPreview,
+  RemovePackFromAgentResult,
+  CopySyncPreview,
+  CopySyncResult,
+  CopySyncAction,
+  CopyTargetDiffPreview,
   DiagnosisIssue,
   UnmanagedItemDto,
   SkillTabId,
@@ -63,6 +72,8 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
   const initialized = ref(false)
   const selectedSkillId = ref<string | null>(null)
   const selectedSkillDetail = ref<SkillDetail | null>(null)
+  const selectedPackDetail = ref<SkillPackDetail | null>(null)
+  const packDetailLoading = ref(false)
   const detailLoading = ref(false)
   const busyAction = ref<string | null>(null)
 
@@ -445,6 +456,214 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
     }
   }
 
+  // ── Skill Packs ───────────────────────────────────────────────────
+
+  /** Load pack detail for the selected pack. */
+  async function loadPackDetail(packId: string): Promise<void> {
+    const sm = api.skillManagerV2
+    if (!sm) return
+
+    packDetailLoading.value = true
+    error.value = null
+
+    try {
+      selectedPackDetail.value = await sm.getPackDetail(packId)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      selectedPackDetail.value = null
+    } finally {
+      packDetailLoading.value = false
+    }
+  }
+
+  /** Clear the selected pack. */
+  function clearSelectedPack(): void {
+    selectedPackDetail.value = null
+  }
+
+  /** Create or update a skill pack, then refresh overview. */
+  async function upsertPack(input: UpsertPackInput): Promise<SkillPackDetail | null> {
+    const sm = api.skillManagerV2
+    if (!sm) return null
+
+    busyAction.value = 'upsert-pack'
+    error.value = null
+
+    try {
+      const detail = await sm.upsertPack(input)
+      await loadOverview()
+      return detail
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      return null
+    } finally {
+      busyAction.value = null
+    }
+  }
+
+  /** Preview deleting a skill pack. */
+  async function previewDeletePack(packId: string): Promise<DeletePackPreview | null> {
+    const sm = api.skillManagerV2
+    if (!sm) return null
+
+    try {
+      return await sm.previewDeletePack(packId)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      return null
+    }
+  }
+
+  /** Delete a skill pack, then refresh overview. */
+  async function deletePack(packId: string): Promise<void> {
+    const sm = api.skillManagerV2
+    if (!sm) return
+
+    busyAction.value = 'delete-pack'
+    error.value = null
+
+    try {
+      await sm.deletePack(packId)
+      clearSelectedPack()
+      await loadOverview()
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+    } finally {
+      busyAction.value = null
+    }
+  }
+
+  /** Preview applying a pack to target agents. */
+  async function previewApplyPack(
+    packId: string,
+    targetAgentIds: string[],
+    requestedMode: InstallMode
+  ): Promise<DistributionPreview | null> {
+    const sm = api.skillManagerV2
+    if (!sm) return null
+
+    try {
+      return await sm.previewApplyPack(packId, targetAgentIds, requestedMode)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      return null
+    }
+  }
+
+  /** Execute applying a pack to target agents, then refresh overview. */
+  async function executeApplyPack(
+    packId: string,
+    targetAgentIds: string[],
+    requestedMode: InstallMode
+  ): Promise<DistributionResult | null> {
+    const sm = api.skillManagerV2
+    if (!sm) return null
+
+    busyAction.value = 'apply-pack'
+    error.value = null
+
+    try {
+      const result = await sm.executeApplyPack(packId, targetAgentIds, requestedMode)
+      await loadOverview()
+      return result
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      return null
+    } finally {
+      busyAction.value = null
+    }
+  }
+
+  /** Preview removing a pack from an agent. */
+  async function previewRemovePackFromAgent(
+    packId: string,
+    agentId: string
+  ): Promise<RemovePackFromAgentPreview | null> {
+    const sm = api.skillManagerV2
+    if (!sm) return null
+
+    try {
+      return await sm.previewRemovePackFromAgent(packId, agentId)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      return null
+    }
+  }
+
+  /** Remove a pack from an agent, then refresh overview. */
+  async function removePackFromAgent(
+    packId: string,
+    agentId: string
+  ): Promise<RemovePackFromAgentResult | null> {
+    const sm = api.skillManagerV2
+    if (!sm) return null
+
+    busyAction.value = 'remove-pack'
+    error.value = null
+
+    try {
+      const result = await sm.executeRemovePackFromAgent(packId, agentId)
+      await loadOverview()
+      return result
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      return null
+    } finally {
+      busyAction.value = null
+    }
+  }
+
+  // ── Copy Sync ─────────────────────────────────────────────────────
+
+  /** Preview copy sync for a target. */
+  async function previewSyncCopy(targetId: string): Promise<CopySyncPreview | null> {
+    const sm = api.skillManagerV2
+    if (!sm) return null
+
+    try {
+      return await sm.previewSyncCopy(targetId)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      return null
+    }
+  }
+
+  /** Execute copy sync for a target, then refresh overview. */
+  async function executeSyncCopy(
+    targetId: string,
+    action: CopySyncAction
+  ): Promise<CopySyncResult | null> {
+    const sm = api.skillManagerV2
+    if (!sm) return null
+
+    busyAction.value = 'sync-copy'
+    error.value = null
+
+    try {
+      const result = await sm.executeSyncCopy(targetId, action)
+      await loadOverview()
+      return result
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      return null
+    } finally {
+      busyAction.value = null
+    }
+  }
+
+  /** Preview file-level diff between center library and agent copy. */
+  async function previewCopyTargetDiff(targetId: string): Promise<CopyTargetDiffPreview | null> {
+    const sm = api.skillManagerV2
+    if (!sm) return null
+
+    try {
+      return await sm.previewCopyTargetDiff(targetId)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      return null
+    }
+  }
+
   return {
     // State
     activeTab,
@@ -457,6 +676,8 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
     initialized,
     selectedSkillId,
     selectedSkillDetail,
+    selectedPackDetail,
+    packDetailLoading,
     detailLoading,
     busyAction,
 
@@ -494,5 +715,21 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
     previewAdopt,
     executeAdopt,
     executeAdoptBatch,
+
+    // Skill Pack actions
+    loadPackDetail,
+    clearSelectedPack,
+    upsertPack,
+    previewDeletePack,
+    deletePack,
+    previewApplyPack,
+    executeApplyPack,
+    previewRemovePackFromAgent,
+    removePackFromAgent,
+
+    // Copy Sync actions
+    previewSyncCopy,
+    executeSyncCopy,
+    previewCopyTargetDiff,
   }
 })

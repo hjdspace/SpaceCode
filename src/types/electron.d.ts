@@ -46,6 +46,16 @@ AdoptBatchItem,
 AdoptBatchResult,
 AgentInventoryScanResult,
 UnmanagedItemDto,
+SkillPackSummary,
+SkillPackDetail,
+UpsertPackInput,
+DeletePackPreview,
+RemovePackFromAgentPreview,
+RemovePackFromAgentResult,
+CopySyncPreview,
+CopySyncResult,
+CopySyncAction,
+CopyTargetDiffPreview,
 } from '@/types/skillManagerV2'
 
 import type {
@@ -635,6 +645,20 @@ listUnmanaged: () => Promise<UnmanagedItemDto[]>
 previewAdopt: (agentId: string, unmanagedId: string) => Promise<AdoptPreview>
 executeAdopt: (agentId: string, unmanagedId: string, option: AdoptOption, renamedId?: string) => Promise<void>
 executeAdoptBatch: (items: AdoptBatchItem[]) => Promise<AdoptBatchResult>
+// Skill Packs
+listPacks: () => Promise<SkillPackSummary[]>
+getPackDetail: (packId: string) => Promise<SkillPackDetail | null>
+upsertPack: (input: UpsertPackInput) => Promise<SkillPackDetail>
+previewDeletePack: (packId: string) => Promise<DeletePackPreview>
+deletePack: (packId: string) => Promise<void>
+previewApplyPack: (packId: string, targetAgentIds: string[], requestedMode: InstallMode) => Promise<DistributionPreview>
+executeApplyPack: (packId: string, targetAgentIds: string[], requestedMode: InstallMode) => Promise<DistributionResult>
+previewRemovePackFromAgent: (packId: string, agentId: string) => Promise<RemovePackFromAgentPreview>
+executeRemovePackFromAgent: (packId: string, agentId: string) => Promise<RemovePackFromAgentResult>
+// Copy Sync
+previewSyncCopy: (targetId: string) => Promise<CopySyncPreview>
+executeSyncCopy: (targetId: string, action: CopySyncAction) => Promise<CopySyncResult>
+previewCopyTargetDiff: (targetId: string) => Promise<CopyTargetDiffPreview>
 }
 }
 
