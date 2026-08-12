@@ -337,7 +337,9 @@ export const useAppStore = defineStore('app', () => {
       infoPanelVisible.value = false
     } else {
       infoPanelVisible.value = true
-      panelHome.value = true
+      if (infoPanelTabs.value.length === 0) {
+        panelHome.value = true
+      }
     }
   }
 

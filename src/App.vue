@@ -60,7 +60,8 @@
         :class="{ active: isRightResizing }"
       ></div>
       <InfoPanel
-        v-if="appStore.infoPanelVisible"
+        v-if="appStore.infoPanelVisible || appStore.infoPanelTabs.length > 0"
+        v-show="appStore.infoPanelVisible"
         :style="{ width: rightWidth + 'px' }"
       />
     </div>

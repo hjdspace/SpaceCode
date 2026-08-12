@@ -9,7 +9,6 @@ const lightAnsi = {
   blue: '#2457c5',
   magenta: '#7048b8',
   cyan: '#087f8c',
-  white: '#e7e9ef',
   brightBlack: '#6e7191',
   brightRed: '#dc3548',
   brightGreen: '#158f68',
@@ -17,7 +16,6 @@ const lightAnsi = {
   brightBlue: '#3269dc',
   brightMagenta: '#8257c7',
   brightCyan: '#0995a5',
-  brightWhite: '#f8f9fb',
 }
 
 const darkAnsi = {
@@ -67,6 +65,8 @@ export function getTerminalTheme(theme: ThemeId): ITheme {
       ...lightAnsi,
       background: '#faf9f5',
       foreground: '#2d2a24',
+      white: '#2d2a24',
+      brightWhite: '#2d2a24',
       cursor: '#a9583e',
       cursorAccent: '#faf9f5',
       selectionBackground: 'rgba(204, 120, 92, 0.22)',
@@ -77,6 +77,8 @@ export function getTerminalTheme(theme: ThemeId): ITheme {
     ...lightAnsi,
     background: '#f8f9fb',
     foreground: '#18191f',
+    white: '#18191f',
+    brightWhite: '#18191f',
     cursor: '#0d9488',
     cursorAccent: '#f8f9fb',
     selectionBackground: 'rgba(13, 148, 136, 0.2)',

@@ -16,4 +16,14 @@ describe('getTerminalTheme', () => {
     expect(getTerminalTheme('dark').foreground).toBe('#f5f5f5')
     expect(getTerminalTheme('anthropic-dark').foreground).toBe('#faf9f5')
   })
+
+  it.each<ThemeId>(['light', 'anthropic'])(
+    'keeps ANSI white text readable in the %s theme',
+    (theme) => {
+      const terminalTheme = getTerminalTheme(theme)
+
+      expect(terminalTheme.white).toBe(terminalTheme.foreground)
+      expect(terminalTheme.brightWhite).toBe(terminalTheme.foreground)
+    },
+  )
 })
