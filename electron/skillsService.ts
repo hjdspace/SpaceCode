@@ -64,10 +64,6 @@ function getGlobalPluginsRoot(): string {
   return join(app.getPath('home'), '.claude', 'plugins')
 }
 
-function getProjectPluginsRoot(cwd: string): string {
-  return join(cwd, '.claude', 'plugins')
-}
-
 function getInstalledPluginsFilePath(): string {
   return join(getGlobalPluginsRoot(), 'installed_plugins.json')
 }
@@ -276,47 +272,96 @@ function resolvePluginSourcePath(bundleDir: string, source: string): string {
   return resolvedSource
 }
 
-/**
- * Scan a plugins root directory and return every plugin's `skills/<name>/SKILL.md`
- * as Skill[] with source='plugin'. installedSource is reused to carry plugin name.
- */
-function readPluginSkills(pluginsRoot: string): Skill[] {
-  if (!existsSync(pluginsRoot)) return []
+function readPluginSkillsDir(skillsDir: string, pluginName: string): Skill[] {
+  if (!existsSync(skillsDir)) return []
   const out: Skill[] = []
   try {
-    const pluginDirs = readdirSync(pluginsRoot, { withFileTypes: true })
-    for (const pd of pluginDirs) {
-      if (!pd.isDirectory()) continue
-      const pluginDir = join(pluginsRoot, pd.name)
-      const skillsDir = join(pluginDir, 'skills')
-      if (!existsSync(skillsDir)) continue
-      try {
-        const skillEntries = readdirSync(skillsDir, { withFileTypes: true })
-        for (const se of skillEntries) {
-          if (!se.isDirectory()) continue
-          const filePath = join(skillsDir, se.name, 'SKILL.md')
-          if (!existsSync(filePath)) continue
-          try {
-            const content = readFileSync(filePath, 'utf-8')
-            const fm = parseYamlFrontMatter(content)
-            const rawName = fm?.name || se.name
-            const name = `${pd.name}:${rawName}`
-            const description = fm?.description ||
-              content.split('\n').find(l => l.trim() && !l.startsWith('#') && !l.startsWith('---'))?.trim() ||
-              `Skill: /${name}`
-            out.push({ name, description, content, source: 'plugin', filePath, installedSource: 'claude' })
-          } catch (err) {
-            console.error(`[Skills] Failed to read plugin skill: ${filePath}`, err)
-          }
-        }
-      } catch (err) {
-        console.error(`[Skills] Failed to read plugin skills dir: ${skillsDir}`, err)
-      }
+    const skillEntries = readdirSync(skillsDir, { withFileTypes: true })
+    for (const entry of skillEntries) {
+      const skillDir = join(skillsDir, entry.name)
+      if (!entry.isDirectory() && !isDirectoryPath(skillDir)) continue
+      out.push(...readPluginSkill(skillDir, pluginName))
     }
   } catch (err) {
-    console.error(`[Skills] Failed to scan plugins root: ${pluginsRoot}`, err)
+    console.error(`[Skills] Failed to read plugin skills dir: ${skillsDir}`, err)
   }
   return out
+}
+
+function readPluginSkill(skillDir: string, pluginName: string): Skill[] {
+  const filePath = join(skillDir, 'SKILL.md')
+  if (!existsSync(filePath)) return []
+  try {
+    const content = readFileSync(filePath, 'utf-8')
+    const fm = parseYamlFrontMatter(content)
+    const rawName = fm?.name || basename(skillDir)
+    const name = `${pluginName}:${rawName}`
+    const description = fm?.description ||
+      content.split('\n').find(l => l.trim() && !l.startsWith('#') && !l.startsWith('---'))?.trim() ||
+      `Skill: /${name}`
+    return [{ name, description, content, source: 'plugin', filePath, installedSource: 'claude' }]
+  } catch (err) {
+    console.error(`[Skills] Failed to read plugin skill: ${filePath}`, err)
+    return []
+  }
+}
+
+function isPluginEntryInScope(entry: any, cwd?: string): boolean {
+  if (entry?.scope === 'user') return true
+  if (!cwd || (entry?.scope !== 'project' && entry?.scope !== 'local')) return false
+  return resolve(entry.projectPath || '') === resolve(cwd)
+}
+
+function readEnabledPlugins(cwd?: string): Record<string, boolean> {
+  const globalSettings = readJsonFile(getSettingsPath('global'))
+  const projectSettings = cwd ? readJsonFile(getSettingsPath('project', cwd)) : null
+  return {
+    ...(globalSettings?.enabledPlugins || {}),
+    ...(projectSettings?.enabledPlugins || {}),
+  }
+}
+
+/** Discover the enabled plugin instances that Claude Code records for this cwd. */
+function readPluginSkills(cwd?: string): Skill[] {
+  const installed = readInstalledPluginsFile()
+  const enabledPlugins = readEnabledPlugins(cwd)
+  const skills: Skill[] = []
+
+  for (const [pluginId, entries] of Object.entries(installed.plugins)) {
+    if (enabledPlugins[pluginId] !== true) continue
+    const pluginName = pluginId.split('@')[0]
+    const entry = entries.find(candidate => isPluginEntryInScope(candidate, cwd))
+    if (!entry?.installPath || !existsSync(entry.installPath)) continue
+
+    const manifest = readJsonFile(join(entry.installPath, '.claude-plugin', 'plugin.json'))
+    const configuredSkills: string[] = Array.isArray(manifest?.skills)
+      ? manifest.skills.filter((skillPath: unknown): skillPath is string => typeof skillPath === 'string')
+      : []
+    if (configuredSkills.length > 0) {
+      for (const skillPath of configuredSkills) {
+        const configuredPath = resolve(entry.installPath, skillPath)
+        const discovered = existsSync(join(configuredPath, 'SKILL.md'))
+          ? readPluginSkill(configuredPath, pluginName)
+          : readPluginSkillsDir(configuredPath, pluginName)
+        skills.push(...discovered)
+      }
+      continue
+    }
+
+    for (const skillsDir of [join(entry.installPath, 'skills'), join(entry.installPath, '.claude', 'skills')]) {
+      skills.push(...readPluginSkillsDir(skillsDir, pluginName))
+    }
+  }
+
+  return skills
+}
+
+function isDirectoryPath(filePath: string): boolean {
+  try {
+    return statSync(filePath).isDirectory()
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -332,7 +377,7 @@ function readSkillsFromDir(dirPath: string, source: Skill['source']): Skill[] {
     const entries = readdirSync(dirPath, { withFileTypes: true })
 
     for (const entry of entries) {
-      if (entry.isDirectory()) {
+      if (entry.isDirectory() || isDirectoryPath(join(dirPath, entry.name))) {
         const skillDir = join(dirPath, entry.name)
         const filePath = join(skillDir, 'SKILL.md')
         if (!existsSync(filePath)) {
@@ -614,10 +659,7 @@ export function registerSkillsIPCHandlers(): void {
 
       const projectSkills = cwd ? getProjectSkillsDirs(cwd).flatMap(dir => readSkillsFromDir(dir, 'project')) : []
 
-      const pluginSkills = [
-        ...readPluginSkills(getGlobalPluginsRoot()),
-        ...(cwd ? readPluginSkills(getProjectPluginsRoot(cwd)) : [])
-      ]
+      const pluginSkills = readPluginSkills(cwd)
 
       // Combine and deduplicate
       const allSkills = [...globalSkills, ...projectSkills, ...pluginSkills]
@@ -1323,18 +1365,12 @@ function checkSkillInstalled(skillName: string, cwd?: string): boolean {
     if (isSkillInstalled(skillName, projectSkills)) return true
   }
 
-  // Also check installed plugin bundles (skills installed as part of a bundle)
-  const pluginRoots = [getGlobalPluginsRoot()]
-  if (cwd) pluginRoots.push(getProjectPluginsRoot(cwd))
-  for (const pluginsRoot of pluginRoots) {
-    const pluginSkills = readPluginSkills(pluginsRoot)
-    // Plugin skills have names like "bundleName:skillName", check both formats
-    if (pluginSkills.some(s => {
-      const parts = s.name.split(':')
-      return s.name.toLowerCase() === skillName.toLowerCase() ||
-        (parts.length === 2 && parts[1].toLowerCase() === skillName.toLowerCase())
-    })) return true
-  }
+  const pluginSkills = readPluginSkills(cwd)
+  if (pluginSkills.some(s => {
+    const parts = s.name.split(':')
+    return s.name.toLowerCase() === skillName.toLowerCase() ||
+      (parts.length === 2 && parts[1].toLowerCase() === skillName.toLowerCase())
+  })) return true
 
   return false
 }

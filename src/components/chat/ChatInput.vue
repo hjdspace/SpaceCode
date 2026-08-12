@@ -427,12 +427,15 @@ const {
 } = modelSelector
 
 // Slash commands
-const slashCommands = useSlashCommands()
+const slashCommands = useSlashCommands({
+  workingDirectory: () => props.workingDirectory || '',
+})
 const {
   slashTriggerPosition, slashMenuPosition,
   filteredSlashCommands, showSlashCommandMenu,
   highlightedSlashCommand,
   navigateSlashCommands, closeSlashCommandMenu, openSkillsManager: openSkillsManagerBase,
+  triggerSlashMenu,
   commandPalette, iconMap,
 } = slashCommands
 
@@ -675,7 +678,7 @@ function checkSlashTrigger() {
 
   if (slashMatch && !showContextMenu.value) {
     slashTriggerPosition.value = lastNewLine + 1
-    commandPalette.triggerMenu(slashMatch[1] || '')
+    void triggerSlashMenu(slashMatch[1] || '')
 
     nextTick(() => {
       updateSlashMenuPosition()

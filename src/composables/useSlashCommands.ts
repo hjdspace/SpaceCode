@@ -72,7 +72,7 @@ export function removeSlashTriggerText(text: string): { cleaned: string; trigger
 
 // ── Composable ─────────────────────────────────────────────────
 
-export function useSlashCommands() {
+export function useSlashCommands(options: { workingDirectory?: () => string } = {}) {
   const commandPalette = useCommandPalette()
   const skillsStore = useSkillsStore()
   const mcpStore = useMcpStore()
@@ -165,6 +165,14 @@ export function useSlashCommands() {
     slashTriggerPosition.value = -1
   }
 
+  async function triggerSlashMenu(filter: string = ''): Promise<void> {
+    const wasOpen = commandPalette.showMenu.value
+    commandPalette.triggerMenu(filter)
+    if (!wasOpen) {
+      await skillsStore.fetchSkills(options.workingDirectory?.() || undefined)
+    }
+  }
+
   function openSkillsManager() {
     commandPalette.closeMenu()
   }
@@ -188,6 +196,7 @@ export function useSlashCommands() {
 
     // Actions
     navigateSlashCommands,
+    triggerSlashMenu,
     closeSlashCommandMenu,
     openSkillsManager,
     commandPalette,
