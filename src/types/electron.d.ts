@@ -56,6 +56,9 @@ CopySyncPreview,
 CopySyncResult,
 CopySyncAction,
 CopyTargetDiffPreview,
+DiagnosisIssue,
+AgentSummary,
+AgentDetail,
 } from '@/types/skillManagerV2'
 
 import type {
@@ -659,6 +662,15 @@ executeRemovePackFromAgent: (packId: string, agentId: string) => Promise<RemoveP
 previewSyncCopy: (targetId: string) => Promise<CopySyncPreview>
 executeSyncCopy: (targetId: string, action: CopySyncAction) => Promise<CopySyncResult>
 previewCopyTargetDiff: (targetId: string) => Promise<CopyTargetDiffPreview>
+// Diagnosis
+runDiagnosis: () => Promise<DiagnosisIssue[]>
+listDiagnosisIssues: () => Promise<DiagnosisIssue[]>
+executeSafeFixes: () => Promise<{ fixedCount: number; details: string[] }>
+exportSnapshot: () => Promise<Record<string, unknown>>
+// Agent Management
+listAgents: () => Promise<AgentSummary[]>
+getAgentDetail: (agentId: string) => Promise<AgentDetail | null>
+scanAgentDetail: (agentId: string) => Promise<AgentDetail | null>
 }
 }
 

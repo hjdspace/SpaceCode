@@ -37,6 +37,9 @@ import type {
   CopySyncResult,
   CopySyncAction,
   CopyTargetDiffPreview,
+  DiagnosisIssue,
+  AgentSummary,
+  AgentDetail,
 } from '@/types/skillManagerV2'
 
 let service: SkillManagerService | null = null
@@ -267,6 +270,61 @@ export function registerSkillManagerV2IPCHandlers(): void {
     SCHEMA_MANAGER_CHANNELS.PREVIEW_COPY_DIFF,
     (_event, targetId: string): CopyTargetDiffPreview => {
       return getService().previewCopyTargetDiff(targetId)
+    }
+  )
+
+  // ── Diagnosis ─────────────────────────────────────────────────────
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.RUN_DIAGNOSIS,
+    (_event): DiagnosisIssue[] => {
+      return getService().runDiagnosis()
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.LIST_DIAGNOSIS_ISSUES,
+    (_event): DiagnosisIssue[] => {
+      return getService().listDiagnosisIssues()
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.EXECUTE_SAFE_FIXES,
+    (_event): { fixedCount: number; details: string[] } => {
+      return getService().executeSafeFixes()
+    }
+  )
+
+  // ── Snapshot Export ───────────────────────────────────────────────
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.EXPORT_SNAPSHOT,
+    (_event): Record<string, unknown> => {
+      return getService().exportSnapshot() as unknown as Record<string, unknown>
+    }
+  )
+
+  // ── Agent Management ──────────────────────────────────────────────
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.LIST_AGENTS,
+    (): AgentSummary[] => {
+      return getService().listAgents()
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.GET_AGENT_DETAIL,
+    (_event, agentId: string) => {
+      return getService().getAgentDetail(agentId)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.SCAN_AGENT_DETAIL,
+    (_event, agentId: string) => {
+      return getService().scanAgentDetail(agentId)
     }
   )
 }

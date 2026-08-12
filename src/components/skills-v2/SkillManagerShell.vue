@@ -16,6 +16,8 @@ import SkillSettingsPage from './SkillSettingsPage.vue'
 import SkillLibraryPage from './SkillLibraryPage.vue'
 import SkillDetailSlider from './SkillDetailSlider.vue'
 import InstallPage from './InstallPage.vue'
+import DiagnosisPage from './DiagnosisPage.vue'
+import AgentManagementPage from './AgentManagementPage.vue'
 
 const { t } = useI18n()
 const store = useSkillManagerStore()
@@ -132,34 +134,11 @@ async function handleRefresh(): Promise<void> {
             </div>
           </div>
 
-          <!-- Agents Tab (Slice 9) -->
-          <div v-else-if="store.activeTab === 'agents'" class="sm-tab-content">
-            <div v-if="store.agents.length === 0" class="sm-empty">
-              <p>{{ t('skillManagerV2.empty.noAgents') }}</p>
-            </div>
-            <div v-else class="sm-agent-list">
-              <div v-for="agent in store.agents" :key="agent.id" class="sm-agent-item">
-                <h3>{{ agent.displayName }}</h3>
-                <p v-if="agent.skillsDir">{{ agent.skillsDir }}</p>
-                <span>{{ agent.managedSkillCount }} managed · {{ agent.unmanagedCount }} unmanaged</span>
-              </div>
-            </div>
-          </div>
+          <!-- Agents Tab -->
+          <AgentManagementPage v-else-if="store.activeTab === 'agents'" />
 
-          <!-- Diagnostics Tab (Slice 8) -->
-          <div v-else-if="store.activeTab === 'diagnostics'" class="sm-tab-content">
-            <div v-if="store.issues.length === 0" class="sm-empty">
-              <p>{{ t('skillManagerV2.empty.noIssues') }}</p>
-              <p class="sm-empty-desc">{{ t('skillManagerV2.empty.noIssuesDesc') }}</p>
-            </div>
-            <div v-else class="sm-issue-list">
-              <div v-for="issue in store.issues" :key="issue.id" class="sm-issue-item">
-                <span class="sm-issue-severity" :class="issue.severity">{{ issue.severity }}</span>
-                <h3>{{ issue.title }}</h3>
-                <p>{{ issue.detail }}</p>
-              </div>
-            </div>
-          </div>
+          <!-- Diagnostics Tab -->
+          <DiagnosisPage v-else-if="store.activeTab === 'diagnostics'" />
 
           <!-- Settings Tab -->
           <SkillSettingsPage v-else-if="store.activeTab === 'settings'" />

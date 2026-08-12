@@ -43,4 +43,7 @@ export const SCHEMA_MANAGER_CHANNELS = {
   LIST_DIAGNOSIS_ISSUES: 'skill-manager:list-diagnosis-issues',
   EXECUTE_SAFE_FIXES: 'skill-manager:execute-safe-fixes',
   EXPORT_SNAPSHOT: 'skill-manager:export-snapshot',
+  LIST_AGENTS: 'skill-manager:list-agents',
+  GET_AGENT_DETAIL: 'skill-manager:get-agent-detail',
+  SCAN_AGENT_DETAIL: 'skill-manager:scan-agent-detail',
 } as const

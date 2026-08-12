@@ -31,6 +31,8 @@ import {
 } from './fsutil'
 import { scanCenterLibrary } from './scanner'
 import { getBuiltInAgents } from './agentRegistry'
+import { DiagnosisEngine } from './diagnosis'
+import { exportSnapshot, type SkillManagerSnapshot } from './snapshot'
 import type {
   AgentSummary,
   SkillManagerOverview,
@@ -76,6 +78,7 @@ import type {
   CopyTargetDiffPreview,
   CopyTargetDiffFile,
   CopySyncStatus,
+  AgentDetail,
 } from '@/types/skillManagerV2'
 
 // ── Default settings ───────────────────────────────────────────────
@@ -915,6 +918,150 @@ export class SkillManagerService {
     })
   }
 
+  // ── Diagnosis (Slice 8) ────────────────────────────────────────
+
+  /**
+   * Run a full diagnosis scan: clear old issues, detect new ones, persist to DB.
+   * Returns the list of new issues found.
+   *
+   * Reference: AgentBro `src-tauri/src/skills/v2/diagnosis.rs` `run()`
+   */
+  runDiagnosis(): DiagnosisIssue[] {
+    const engine = new DiagnosisEngine(this.db, this.centerPath)
+    return engine.run()
+  }
+
+  /**
+   * Execute all auto-level safe fixes.
+   * Returns a summary of what was fixed.
+   */
+  executeSafeFixes(): { fixedCount: number; details: string[] } {
+    const engine = new DiagnosisEngine(this.db, this.centerPath)
+    return engine.executeSafeFixes()
+  }
+
+  // ── Agent Detail (Slice 9) ─────────────────────────────────────
+
+  /**
+   * Get full detail for a single agent: skills, unmanaged, applied packs, health issues.
+   * Returns null if the agent id is not found.
+   *
+   * Reference: AgentBro `service.rs` `get_agent_detail()`
+   */
+  getAgentDetail(agentId: string): AgentDetail | null {
+    const row = this.db.conn.prepare(`
+      SELECT id, display_name, skills_dir, config_path, version, last_scanned_at
+      FROM agents WHERE id = ?
+    `).get(agentId) as AgentDetailRow | undefined
+
+    if (!row) return null
+
+    const skills = this.getAgentManagedTargets(agentId)
+    const unmanaged = this.getAgentUnmanaged(agentId)
+    const appliedPacks = this.getAgentAppliedPacks(agentId)
+    const healthIssues = this.getAgentHealthIssues(agentId)
+
+    return {
+      id: row.id,
+      displayName: row.display_name,
+      skillsDir: row.skills_dir,
+      configPath: row.config_path,
+      version: row.version,
+      lastScannedAt: row.last_scanned_at,
+      skills,
+      unmanaged,
+      appliedPacks,
+      healthIssues,
+    }
+  }
+
+  /**
+   * Scan a single agent and return updated detail.
+   * Delegates to scanAgentInventory to refresh the unmanaged items, then returns detail.
+   */
+  scanAgentDetail(agentId: string): AgentDetail | null {
+    this.scanAgentInventory(agentId)
+    return this.getAgentDetail(agentId)
+  }
+
+  /** Get unmanaged items for a specific agent. */
+  private getAgentUnmanaged(agentId: string): UnmanagedItemDto[] {
+    const rows = this.db.conn.prepare(`
+      SELECT id, item_type, agent_id, path, inferred_skill_id, hash, reason, first_seen_at, last_seen_at
+      FROM unmanaged_items WHERE agent_id = ?
+      ORDER BY last_seen_at DESC
+    `).all(agentId) as UnmanagedRow[]
+
+    return rows.map((r) => ({
+      id: r.id,
+      itemType: r.item_type as UnmanagedItemDto['itemType'],
+      agentId: r.agent_id,
+      path: r.path,
+      inferredSkillId: r.inferred_skill_id,
+      hash: r.hash,
+      reason: r.reason,
+      firstSeenAt: r.first_seen_at,
+      lastSeenAt: r.last_seen_at,
+    }))
+  }
+
+  /** Get packs applied to a specific agent. */
+  private getAgentAppliedPacks(agentId: string): SkillPackSummary[] {
+    const packIds = this.db.conn.prepare(`
+      SELECT DISTINCT c.pack_id
+      FROM skill_target_claims c
+      JOIN skill_targets t ON t.id = c.target_id
+      WHERE t.agent_id = ? AND c.pack_id IS NOT NULL
+    `).all(agentId) as Array<{ pack_id: string }>
+
+    if (packIds.length === 0) return []
+
+    const allPacks = this.listPacks()
+    const packIdSet = new Set(packIds.map((p) => p.pack_id))
+    return allPacks.filter((p) => packIdSet.has(p.id))
+  }
+
+  /** Get health issues for a specific agent. */
+  private getAgentHealthIssues(agentId: string): DiagnosisIssue[] {
+    const rows = this.db.conn.prepare(`
+      SELECT DISTINCT d.id, d.issue_type, d.severity, d.entity_type, d.entity_id, d.title, d.detail, d.fix_kind, d.payload_json, d.created_at, d.resolved_at
+      FROM diagnosis_issues d
+      WHERE d.resolved_at IS NULL AND (
+        (d.entity_type = 'agent' AND d.entity_id = ?)
+        OR (d.entity_type = 'target' AND d.entity_id IN (
+          SELECT id FROM skill_targets WHERE agent_id = ?
+        ))
+        OR d.payload_json LIKE ?
+      )
+      ORDER BY
+        CASE d.severity WHEN 'error' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,
+        d.created_at DESC
+    `).all(agentId, agentId, `%"agentId":"${agentId}"%`) as IssueRow[]
+
+    return rows.map((r) => ({
+      id: r.id,
+      issueType: r.issue_type,
+      severity: r.severity as DiagnosisIssue['severity'],
+      entityType: r.entity_type as DiagnosisIssue['entityType'],
+      entityId: r.entity_id,
+      title: r.title,
+      detail: r.detail,
+      fixKind: r.fix_kind as DiagnosisIssue['fixKind'],
+      payloadJson: r.payload_json,
+      createdAt: r.created_at,
+      resolvedAt: r.resolved_at,
+    }))
+  }
+
+  // ── Snapshot Export ────────────────────────────────────────────
+
+  /**
+   * Export a JSON snapshot of the entire Skill Manager state.
+   */
+  exportSnapshot(): SkillManagerSnapshot {
+    return exportSnapshot(this.db, this.centerPath)
+  }
+
   // ── Distribute to Agent (Slice 4) ───────────────────────────────
 
   /**
@@ -1183,8 +1330,8 @@ export class SkillManagerService {
       // Skip if managed (has a target record)
       if (managedSkillIds.has(entry.name)) continue
 
-      // Compute hash and infer skill ID
-      const inferredId = inferSkillId(skillDirPath)
+      // Compute hash and infer skill ID from directory name (matches center library convention)
+      const inferredId = entry.name
       const hash = hashDir(skillDirPath)
       const unmanagedId = `${agentId}__${entry.name}`
 
@@ -2337,6 +2484,15 @@ interface TargetSyncRow {
   source_hash: string
   current_hash: string | null
   actual_mode: string
+}
+
+interface AgentDetailRow {
+  id: string
+  display_name: string
+  skills_dir: string | null
+  config_path: string | null
+  version: string | null
+  last_scanned_at: string | null
 }
 
 // ── Copy sync helpers ──────────────────────────────────────────────

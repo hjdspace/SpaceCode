@@ -155,6 +155,7 @@ export interface AgentDetail {
   skillsDir: string | null
   configPath: string | null
   version: string | null
+  lastScannedAt: string | null
   skills: SkillTarget[]
   unmanaged: UnmanagedItemDto[]
   appliedPacks: SkillPackSummary[]

@@ -41,6 +41,7 @@ import type {
   AdoptBatchItem,
   AdoptBatchResult,
   AgentInventoryScanResult,
+  AgentDetail,
 } from '@/types/skillManagerV2'
 
 // ── Filters ────────────────────────────────────────────────────────
@@ -76,6 +77,12 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
   const packDetailLoading = ref(false)
   const detailLoading = ref(false)
   const busyAction = ref<string | null>(null)
+  const selectedAgentId = ref<string | null>(null)
+  const selectedAgentDetail = ref<AgentDetail | null>(null)
+  const agentDetailLoading = ref(false)
+  const diagnosisIssues = ref<DiagnosisIssue[]>([])
+  const diagnosisLoading = ref(false)
+  const safeFixResult = ref<{ fixedCount: number; details: string[] } | null>(null)
 
   // ── Computed ───────────────────────────────────────────────────
 
@@ -613,6 +620,104 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
     }
   }
 
+  // ── Diagnosis ─────────────────────────────────────────────────────
+
+  /** Run a full diagnosis scan. */
+  async function runDiagnosis(): Promise<void> {
+    const sm = api.skillManagerV2
+    if (!sm) return
+
+    diagnosisLoading.value = true
+    error.value = null
+
+    try {
+      diagnosisIssues.value = await sm.runDiagnosis()
+      await loadOverview()
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+    } finally {
+      diagnosisLoading.value = false
+    }
+  }
+
+  /** Execute all auto-level safe fixes. */
+  async function executeSafeFixes(): Promise<void> {
+    const sm = api.skillManagerV2
+    if (!sm) return
+
+    busyAction.value = 'safe-fixes'
+    error.value = null
+
+    try {
+      safeFixResult.value = await sm.executeSafeFixes()
+      // Re-run diagnosis to refresh issue list
+      diagnosisIssues.value = await sm.runDiagnosis()
+      await loadOverview()
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+    } finally {
+      busyAction.value = null
+    }
+  }
+
+  /** Export a JSON snapshot of the Skill Manager state. */
+  async function exportSnapshot(): Promise<Record<string, unknown> | null> {
+    const sm = api.skillManagerV2
+    if (!sm) return null
+
+    try {
+      return await sm.exportSnapshot()
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      return null
+    }
+  }
+
+  // ── Agent Detail ──────────────────────────────────────────────────
+
+  /** Load agent detail for the selected agent. */
+  async function loadAgentDetail(agentId: string): Promise<void> {
+    const sm = api.skillManagerV2
+    if (!sm) return
+
+    selectedAgentId.value = agentId
+    agentDetailLoading.value = true
+    error.value = null
+
+    try {
+      selectedAgentDetail.value = await sm.getAgentDetail(agentId)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      selectedAgentDetail.value = null
+    } finally {
+      agentDetailLoading.value = false
+    }
+  }
+
+  /** Scan and refresh a single agent's detail. */
+  async function scanAgentDetail(agentId: string): Promise<void> {
+    const sm = api.skillManagerV2
+    if (!sm) return
+
+    busyAction.value = 'scan-agent-detail'
+    error.value = null
+
+    try {
+      selectedAgentDetail.value = await sm.scanAgentDetail(agentId)
+      await loadOverview()
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+    } finally {
+      busyAction.value = null
+    }
+  }
+
+  /** Clear the selected agent. */
+  function clearSelectedAgent(): void {
+    selectedAgentId.value = null
+    selectedAgentDetail.value = null
+  }
+
   // ── Copy Sync ─────────────────────────────────────────────────────
 
   /** Preview copy sync for a target. */
@@ -680,6 +785,12 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
     packDetailLoading,
     detailLoading,
     busyAction,
+    selectedAgentId,
+    selectedAgentDetail,
+    agentDetailLoading,
+    diagnosisIssues,
+    diagnosisLoading,
+    safeFixResult,
 
     // Computed
     skills,
@@ -731,5 +842,15 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
     previewSyncCopy,
     executeSyncCopy,
     previewCopyTargetDiff,
+
+    // Diagnosis actions
+    runDiagnosis,
+    executeSafeFixes,
+    exportSnapshot,
+
+    // Agent Detail actions
+    loadAgentDetail,
+    scanAgentDetail,
+    clearSelectedAgent,
   }
 })

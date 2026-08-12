@@ -1001,5 +1001,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('skill-manager:execute-sync-copy', targetId, action),
     previewCopyTargetDiff: (targetId: string) =>
       ipcRenderer.invoke('skill-manager:preview-copy-diff', targetId),
+
+    // Diagnosis
+    runDiagnosis: () =>
+      ipcRenderer.invoke('skill-manager:run-diagnosis'),
+    listDiagnosisIssues: () =>
+      ipcRenderer.invoke('skill-manager:list-diagnosis-issues'),
+    executeSafeFixes: () =>
+      ipcRenderer.invoke('skill-manager:execute-safe-fixes'),
+    exportSnapshot: () =>
+      ipcRenderer.invoke('skill-manager:export-snapshot'),
+
+    // Agent Management
+    listAgents: () =>
+      ipcRenderer.invoke('skill-manager:list-agents'),
+    getAgentDetail: (agentId: string) =>
+      ipcRenderer.invoke('skill-manager:get-agent-detail', agentId),
+    scanAgentDetail: (agentId: string) =>
+      ipcRenderer.invoke('skill-manager:scan-agent-detail', agentId),
   },
 })
