@@ -1,5 +1,5 @@
 /**
- * Skill Manager V2 — Slice 5 Tests
+ * Skill Manager V2 — Agent Scan & Adopt Tests
  *
  * Tests for scanAgentInventory, listUnmanaged, previewAdopt, executeAdopt, executeAdoptBatch.
  * TDD: written before implementation.
@@ -67,7 +67,7 @@ function createAgentSkill(
 
 // ── Tests ──────────────────────────────────────────────────────────
 
-describe('SkillManagerService — Slice 5: Agent Scan & Adopt', () => {
+describe('SkillManagerService — Agent Scan & Adopt', () => {
   beforeEach(() => {
     tmpDir = makeTmpDir()
     centerPath = path.join(tmpDir, 'skills')

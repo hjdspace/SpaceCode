@@ -1,5 +1,5 @@
 /**
- * Skill Manager V2 — Slice 4 Tests
+ * Skill Manager V2 — Distribute Tests
  *
  * Tests for previewDistribute, executeDistribute, deleteTarget.
  * TDD: written before implementation.
