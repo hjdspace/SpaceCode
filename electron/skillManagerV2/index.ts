@@ -6,6 +6,10 @@
  */
 
 import { ipcMain, shell } from 'electron'
+import { execSync } from 'child_process'
+import * as fs from 'fs'
+import * as path from 'path'
+import * as os from 'os'
 import { SkillManagerService } from './service'
 import { SCHEMA_MANAGER_CHANNELS } from './channels'
 import type {
@@ -325,6 +329,33 @@ export function registerSkillManagerV2IPCHandlers(): void {
     SCHEMA_MANAGER_CHANNELS.SCAN_AGENT_DETAIL,
     (_event, agentId: string) => {
       return getService().scanAgentDetail(agentId)
+    }
+  )
+
+  // ── GitHub Clone ───────────────────────────────────────────────────
+
+  ipcMain.handle(
+    'skill-manager:clone-github-repo',
+    async (_event, url: string, branch?: string, subPath?: string): Promise<{ success: boolean; localPath?: string; error?: string }> => {
+      try {
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-mgr-gh-'))
+        const cloneTarget = branch ? `${url} --branch ${branch}` : url
+        execSync(`git clone --depth 1 ${cloneTarget} repo`, {
+          cwd: tmpDir,
+          timeout: 60000,
+          stdio: 'pipe',
+        })
+        const repoPath = path.join(tmpDir, 'repo')
+        const finalPath = subPath ? path.join(repoPath, subPath) : repoPath
+
+        if (!fs.existsSync(finalPath)) {
+          return { success: false, error: `Path not found: ${subPath}` }
+        }
+
+        return { success: true, localPath: finalPath }
+      } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : String(e) }
+      }
     }
   )
 }

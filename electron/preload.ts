@@ -1018,6 +1018,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getAgentDetail: (agentId: string) =>
       ipcRenderer.invoke('skill-manager:get-agent-detail', agentId),
     scanAgentDetail: (agentId: string) =>
-      ipcRenderer.invoke('skill-manager:scan-agent-detail', agentId),
+    ipcRenderer.invoke('skill-manager:scan-agent-detail', agentId),
+    cloneGitHubRepo: (url: string, branch?: string, subPath?: string) =>
+    ipcRenderer.invoke('skill-manager:clone-github-repo', url, branch, subPath),
   },
 })

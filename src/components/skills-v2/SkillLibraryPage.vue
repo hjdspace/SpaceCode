@@ -105,7 +105,7 @@ function getSkillGlyph(name: string): string {
 </script>
 
 <template>
-  <div class="slp-layout">
+  <div class="slp-layout" :class="{ 'with-inspector': showInspector }">
     <!-- Left: Skill Browser -->
     <div class="slp-browser-side">
       <!-- Status Strip -->
@@ -424,15 +424,19 @@ function getSkillGlyph(name: string): string {
 .slp-layout {
   height: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr);
   min-height: 0;
+}
+
+.slp-layout.with-inspector {
+  grid-template-columns: minmax(0, 1fr) 300px;
 }
 
 .slp-browser-side {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px 20px 24px;
+  padding: 16px 20px 32px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -570,7 +574,7 @@ function getSkillGlyph(name: string): string {
 
 .slp-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 10px;
 }
 

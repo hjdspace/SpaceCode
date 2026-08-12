@@ -211,6 +211,7 @@ async function handleRefresh(): Promise<void> {
   overflow: hidden;
   background: var(--bg-primary);
   color: var(--text-primary);
+  position: relative;
 }
 
 // ── Left Rail ────────────────────────────────────────────────────

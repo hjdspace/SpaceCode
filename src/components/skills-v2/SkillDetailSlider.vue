@@ -179,11 +179,11 @@ const fileTreeText = computed(() => renderFileTree(detail.value?.files ?? null))
 
 <style scoped lang="scss">
 .skill-detail-slider {
-  position: fixed;
+  position: absolute;
   top: 0;
   right: 0;
+  bottom: 0;
   width: 400px;
-  height: 100vh;
   background: var(--bg-elevated);
   border-left: 1px solid var(--border-default);
   display: flex;

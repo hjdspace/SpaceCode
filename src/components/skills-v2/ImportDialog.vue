@@ -344,15 +344,16 @@ defineExpose({ open, close })
 }
 
 .import-dialog {
-  background: var(--bg-primary, #1e1e1e);
-  color: var(--text-primary, #e0e0e0);
-  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-radius: var(--radius-lg);
   width: 600px;
   max-width: 90vw;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border-color, #333);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-lg);
 }
 
 .import-dialog-header {
@@ -360,7 +361,7 @@ defineExpose({ open, close })
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color, #333);
+  border-bottom: 1px solid var(--border-default);
 
   h2 {
     font-size: 16px;
@@ -408,25 +409,33 @@ defineExpose({ open, close })
 .import-folder-input {
   flex: 1;
   padding: 8px 10px;
-  border: 1px solid var(--border-color, #555);
-  border-radius: 4px;
-  background: var(--bg-input, #2a2a2a);
-  color: inherit;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  color: var(--text-primary);
   font-size: 13px;
+  outline: none;
+
+  &:focus {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px var(--accent-primary-glow);
+  }
 }
 
 .import-folder-btn {
   padding: 8px 16px;
-  border: 1px solid var(--border-color, #555);
-  border-radius: 4px;
-  background: var(--bg-hover, #2a2a2a);
-  color: inherit;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  color: var(--text-primary);
   cursor: pointer;
   font-size: 13px;
   white-space: nowrap;
+  transition: all 0.15s;
 
   &:hover {
-    background: var(--bg-active, #094771);
+    background: var(--bg-active);
+    border-color: var(--border-strong);
   }
 
   &:disabled {
@@ -443,13 +452,14 @@ defineExpose({ open, close })
 }
 
 .import-error {
-  color: var(--error-color, #f48771);
+  color: var(--error);
 }
 
 .import-unchanged {
   padding: 8px 12px;
-  background: var(--bg-badge, #333);
-  border-radius: 4px;
+  background: var(--surface-card);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
   font-size: 12px;
   opacity: 0.8;
   margin-bottom: 12px;
@@ -471,9 +481,10 @@ defineExpose({ open, close })
   align-items: flex-start;
   justify-content: space-between;
   padding: 10px 12px;
-  border: 1px solid var(--border-color, #333);
-  border-radius: 4px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
   margin-bottom: 6px;
+  background: var(--surface-soft);
 }
 
 .import-candidate-info,
@@ -507,18 +518,18 @@ defineExpose({ open, close })
   white-space: nowrap;
 
   &.create {
-    background: #4ec9b0;
-    color: #fff;
+    background: rgba(5, 150, 105, 0.12);
+    color: var(--success);
   }
 
   &.update {
-    background: #75beff;
-    color: #fff;
+    background: rgba(99, 102, 241, 0.12);
+    color: var(--accent-secondary);
   }
 
   &.blocked {
-    background: #f48771;
-    color: #fff;
+    background: rgba(220, 38, 38, 0.1);
+    color: var(--error);
   }
 }
 
@@ -540,10 +551,10 @@ defineExpose({ open, close })
 .import-rename-input {
   width: 120px;
   padding: 4px 8px;
-  border: 1px solid var(--border-color, #555);
-  border-radius: 3px;
-  background: var(--bg-input, #2a2a2a);
-  color: inherit;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
+  background: var(--surface-soft);
+  color: var(--text-primary);
   font-size: 12px;
 }
 
@@ -559,33 +570,35 @@ defineExpose({ open, close })
   justify-content: flex-end;
   gap: 8px;
   padding: 16px 20px;
-  border-top: 1px solid var(--border-color, #333);
+  border-top: 1px solid var(--border-default);
 }
 
 .import-btn {
   padding: 8px 20px;
-  border: 1px solid var(--border-color, #555);
-  border-radius: 4px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 13px;
+  transition: all 0.15s;
 }
 
 .import-btn-cancel {
   background: transparent;
-  color: inherit;
+  color: var(--text-primary);
 
   &:hover {
-    background: var(--bg-hover, #2a2a2a);
+    background: var(--bg-hover);
+    border-color: var(--border-strong);
   }
 }
 
 .import-btn-confirm {
-  background: var(--accent-color, #007acc);
+  background: var(--accent-primary);
   color: #fff;
-  border-color: var(--accent-color, #007acc);
+  border-color: var(--accent-primary);
 
   &:hover:not(:disabled) {
-    opacity: 0.9;
+    background: var(--accent-primary-hover);
   }
 
   &:disabled {

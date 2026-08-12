@@ -344,16 +344,18 @@ function severityLabel(severity: string): string {
 
 .amp-layout {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: 240px minmax(0, 1fr);
   gap: 12px;
   height: 100%;
   padding: 16px 20px;
+  overflow: hidden;
 }
 
 // ── Side Panel ────────────────────────────────────────────────────
 
 .amp-side-panel {
   min-width: 0;
+  min-height: 0;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   background: var(--bg-elevated);
@@ -366,6 +368,7 @@ function severityLabel(severity: string): string {
   padding: 12px;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--surface-soft);
+  flex-shrink: 0;
 
   h3 {
     margin: 0;
@@ -468,6 +471,7 @@ function severityLabel(severity: string): string {
 
 .amp-detail-panel {
   min-width: 0;
+  min-height: 0;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   background: var(--bg-elevated);
@@ -492,6 +496,7 @@ function severityLabel(severity: string): string {
   padding: 14px;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--surface-soft);
+  flex-shrink: 0;
 }
 
 .amp-agent-title {
@@ -505,6 +510,9 @@ function severityLabel(severity: string): string {
     margin: 0;
     font-size: 16px;
     font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   p {
     margin: 4px 0 0;
@@ -542,6 +550,8 @@ function severityLabel(severity: string): string {
   display: flex;
   gap: 6px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .amp-btn {
@@ -579,20 +589,19 @@ function severityLabel(severity: string): string {
 
 .amp-tabs {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   padding: 10px 14px 0;
   border-bottom: 1px solid var(--border-subtle);
   overflow-x: auto;
+  flex-shrink: 0;
 
   button {
     height: 28px;
     padding: 0 12px;
     border: 1px solid var(--border-default);
-    border-radius: var(--radius-full);
     border-bottom: none;
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
-    background: var(--bg-elevated);
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    background: var(--surface-soft);
     color: var(--text-muted);
     font-size: 12px;
     font-weight: 600;
@@ -600,10 +609,17 @@ function severityLabel(severity: string): string {
     cursor: pointer;
     transition: all 0.15s;
 
+    &:hover {
+      color: var(--text-primary);
+      background: var(--bg-elevated);
+    }
+
     &.active {
-      border-color: var(--accent-primary);
-      background: var(--accent-primary-glow);
+      border-color: var(--border-default);
+      border-bottom-color: var(--bg-elevated);
+      background: var(--bg-elevated);
       color: var(--accent-primary);
+      font-weight: 700;
     }
   }
 }
@@ -618,7 +634,7 @@ function severityLabel(severity: string): string {
 
 .amp-info-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
   gap: 8px;
   margin-bottom: 14px;
 }
@@ -655,7 +671,7 @@ function severityLabel(severity: string): string {
 
 .amp-data-row {
   display: grid;
-  grid-template-columns: 26px 1fr auto;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
   gap: 9px;
   align-items: center;
   padding: 9px;
@@ -663,11 +679,15 @@ function severityLabel(severity: string): string {
   border-radius: var(--radius-sm);
   background: var(--surface-soft);
   font-size: 12px;
+  min-width: 0;
 
   strong {
     display: block;
     font-size: 12px;
     font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   span {
     display: block;
