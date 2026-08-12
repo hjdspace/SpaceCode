@@ -28,6 +28,9 @@ export const useSessionContext = defineStore('sessionContext', () => {
   const showRightPanel = ref(false)
   const rightPanelView = ref<RightPanelView>('tasks')
 
+  // 记住右侧面板展开前环境卡片的显隐状态，用于右侧面板折叠后恢复
+  const envPanelCollapsedByRightPanel = ref(false)
+
   // === Branch dropdown overlay ===
   const showBranchDropdown = ref(false)
 
@@ -251,6 +254,7 @@ export const useSessionContext = defineStore('sessionContext', () => {
   function reset() {
     showEnvPanel.value = false
     showRightPanel.value = false
+    envPanelCollapsedByRightPanel.value = false
     showBranchDropdown.value = false
     showCommitDialog.value = false
     showCreateBranchDialog.value = false
@@ -268,6 +272,25 @@ export const useSessionContext = defineStore('sessionContext', () => {
     expandedReviewFiles.value = new Set()
     pendingReviewFile.value = null
   }
+
+  // === 右侧面板展开时自动折叠环境卡片，折叠后恢复原状 ===
+  watch(showRightPanel, (open) => {
+    if (open) {
+      // 右侧面板展开：若环境卡片当前可见则自动折叠并记住需要恢复
+      if (showEnvPanel.value) {
+        envPanelCollapsedByRightPanel.value = true
+        showEnvPanel.value = false
+      } else {
+        envPanelCollapsedByRightPanel.value = false
+      }
+    } else {
+      // 右侧面板折叠：恢复环境卡片之前的状态
+      if (envPanelCollapsedByRightPanel.value) {
+        showEnvPanel.value = true
+        envPanelCollapsedByRightPanel.value = false
+      }
+    }
+  })
 
   // === Auto mode watcher: when activity changes, clear user override and re-evaluate ===
   watch(hasActivity, () => {
