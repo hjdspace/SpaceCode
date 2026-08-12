@@ -18,6 +18,7 @@ import SkillDetailSlider from './SkillDetailSlider.vue'
 import InstallPage from './InstallPage.vue'
 import DiagnosisPage from './DiagnosisPage.vue'
 import AgentManagementPage from './AgentManagementPage.vue'
+import SkillPackPage from './SkillPackPage.vue'
 
 const { t } = useI18n()
 const store = useSkillManagerStore()
@@ -176,20 +177,7 @@ async function handleRefresh(): Promise<void> {
           <SkillLibraryPage v-if="store.activeTab === 'library'" />
           <InstallPage v-else-if="store.activeTab === 'install'" />
 
-          <!-- Packs Tab -->
-          <div v-else-if="store.activeTab === 'packs'" class="sm2-workspace">
-            <div v-if="store.packs.length === 0" class="sm2-empty">
-              <p class="sm2-empty-title">{{ t('skillManagerV2.empty.noPacks') }}</p>
-              <p class="sm2-empty-desc">{{ t('skillManagerV2.empty.noPacksDesc') }}</p>
-            </div>
-            <div v-else class="sm2-pack-list">
-              <div v-for="pack in store.packs" :key="pack.id" class="sm2-pack-item">
-                <h3>{{ pack.name }}</h3>
-                <p>{{ pack.description }}</p>
-                <span>{{ pack.memberCount }} skills · {{ pack.appliedAgentCount }} agents</span>
-              </div>
-            </div>
-          </div>
+          <SkillPackPage v-else-if="store.activeTab === 'packs'" />
 
           <AgentManagementPage v-else-if="store.activeTab === 'agents'" />
           <DiagnosisPage v-else-if="store.activeTab === 'diagnostics'" />
