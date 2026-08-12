@@ -345,7 +345,6 @@ export default {
     input: 'Input',
     output: 'Output',
     hiddenLines: '{count} hidden lines',
-    progressUpdate: 'Progress {completed}/{total}',
     turnChangesTitle: '{count} files changed',
     turnChangesLatestSubtitle: 'Current turn checkpoint',
     turnChangesHistoricalSubtitle: 'Historical turn',

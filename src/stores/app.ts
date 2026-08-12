@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed, markRaw } from 'vue'
+import { ref, computed, markRaw, watch } from 'vue'
 import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch, Package, Palette } from 'lucide-vue-next'
 import { useChatSessionStore } from './chatSession'
 import { useTerminalStore, type CreateTerminalOptions } from './terminal'
@@ -330,6 +330,17 @@ export const useAppStore = defineStore('app', () => {
   function setTerminalDockHeight(h: number) {
     terminalDockHeight.value = Math.min(Math.max(h, TERMINAL_DOCK_MIN), TERMINAL_DOCK_MAX)
   }
+
+  // 当所有终端标签关闭后，自动收起底部终端面板
+  watch(
+    () => useTerminalStore().tabs.length,
+    (len) => {
+      if (len === 0 && terminalDockVisible.value) {
+        terminalDockVisible.value = false
+        terminalDockMounted.value = false
+      }
+    }
+  )
 
   /** 标题栏面板按钮：切换右侧面板显隐；打开时进入启动器 */
   function toggleInfoPanel() {

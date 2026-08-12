@@ -171,7 +171,7 @@ function revealChatSession(detail: H5RemoteUserMessageDetail) {
 
   if (splitLayout.isSingleLeaf) {
     const leaf = splitLayout.activePane
-    if (leaf && leaf.content.kind !== 'main') {
+    if (leaf) {
       splitLayout.setPaneContent(leaf.id, { kind: 'session', tabId })
       splitLayout.setActivePane(leaf.id)
     }

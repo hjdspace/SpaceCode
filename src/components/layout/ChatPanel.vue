@@ -159,7 +159,7 @@
           />
         </div>
 
-        <!-- Right: Env Panel (floating glassmorphism card) -->
+        <!-- Right: Env Panel (floating solid card) -->
         <Transition name="sc-env-fade">
           <SessionContextEnvPanel v-if="sessionContext.showEnvPanel" @continue="handleContinue" />
         </Transition>
@@ -2032,9 +2032,7 @@ overflow: hidden;
   align-items: center;
   gap: 6px;
   padding: 6px 14px;
-  background: var(--glass-bg);
-  backdrop-filter: blur(16px) saturate(1.2);
-  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  background: var(--bg-elevated);
   border: 1px solid var(--glass-border);
   border-radius: 20px;
   color: var(--text-secondary);
@@ -2047,7 +2045,7 @@ overflow: hidden;
     var(--glass-inset);
 
   &:hover {
-    background: var(--glass-hover);
+    background: var(--bg-elevated);
     color: var(--text-primary);
     border-color: var(--glass-border);
     box-shadow:

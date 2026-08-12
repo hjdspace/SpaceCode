@@ -345,7 +345,6 @@ export default {
     input: '输入',
     output: '输出',
     hiddenLines: '{count} 行已折叠',
-    progressUpdate: '进度更新 {completed}/{total}',
     turnChangesTitle: '{count} 个文件已更改',
     turnChangesLatestSubtitle: '当前轮次检查点',
     turnChangesHistoricalSubtitle: '历史轮次',

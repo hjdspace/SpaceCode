@@ -22,13 +22,8 @@
         class="timeline-item"
         :class="[`status-${tool.status}`, { 'is-last': index === displayToolCalls.length - 1 }]"
       >
-        <!-- Task items (non-card) -->
-        <template v-if="tool.taskItems.length && !shouldShowTaskBoard">
-          <TaskListCard :tasks="tool.taskItems" class="timeline-task-inline" />
-        </template>
-
         <!-- Special tool cards rendered inline -->
-        <template v-else-if="shouldRenderSpecialComponent(tool)">
+        <template v-if="shouldRenderSpecialComponent(tool)">
           <div class="timeline-node">
             <div class="timeline-dot" :class="`status-${tool.status}`">
               <Loader2 v-if="tool.status === 'running'" :size="12" class="spin-icon" />
@@ -83,12 +78,6 @@
         </template>
       </div>
 
-      <!-- 全局任务看板 -->
-      <TaskListCard
-        v-if="allTasks.length && shouldShowTaskBoard"
-        :tasks="allTasks"
-        class="timeline-task-board"
-      />
     </div>
   </div>
 </template>
@@ -96,16 +85,12 @@
 <script setup lang="ts">
 import type { ToolCall } from '@/types'
 import type { Component } from 'vue'
-import TaskListCard, { type TaskListItem } from './TaskListCard.vue'
-import { useTaskManager } from '@/composables/useTaskManager'
 import { computed, markRaw, onMounted, reactive, ref, watch } from 'vue'
 import { hasToolComponent, resolveToolComponent } from '@/components/chat/tools/index'
 import {
   Loader2, Check, X, ChevronDown, CheckCircle2, XCircle, CircleDot,
   Terminal, FileText, FileEdit, Search, Globe, Wand2, Bot, Folder, Code, MessageCircleQuestion
 } from 'lucide-vue-next'
-
-const taskManager = useTaskManager()
 
 const props = defineProps<{
   toolCalls: ToolCall[]
@@ -119,8 +104,6 @@ const emit = defineEmits<{
 const isCollapsed = ref(false)
 const expandedItems = reactive<Record<string, boolean>>({})
 
-const TASK_STATUSES = new Set(['pending', 'in_progress', 'completed'])
-const TASK_LIST_TOOL_NAMES = new Set(['TodoWrite', 'TaskList', 'TaskCreate', 'TaskUpdate'])
 const TASK_LIST_ONLY_TOOL_NAMES = new Set(['TaskList', 'TaskCreate', 'TaskUpdate'])
 
 const TOOL_ICON_MAP: Record<string, Component> = {
@@ -214,18 +197,6 @@ function formatOutput(output: string): string {
   return output
 }
 
-const allTasks = computed(() => {
-  return taskManager.getAllTasks().map(task => ({
-    id: task.id,
-    content: task.content,
-    status: task.status,
-    owner: task.owner,
-    blockedBy: task.blockedBy
-  } as TaskListItem))
-})
-
-const shouldShowTaskBoard = computed(() => allTasks.value.length > 1)
-
 const summaryStatus = computed(() => {
   if (props.toolCalls.some(tool => tool.status === 'running' || tool.status === 'pending')) return 'running'
   if (props.toolCalls.some(tool => tool.status === 'error')) return 'error'
@@ -250,77 +221,8 @@ const displayToolCalls = computed(() => {
   // 这样当特殊组件异步加载完成后，computed 会自动重新计算
   const _componentDeps = Object.keys(specialComponents).join(',')
 
-  const parsed = props.toolCalls.map((tool) => ({
-    ...tool,
-    taskItems: getTaskListItems(tool)
-  }))
-
-  const latestTaskListIndex = findLatestTaskListIndex(parsed)
-
-  return parsed.filter((tool, index) => {
-    const isTaskListTool = TASK_LIST_TOOL_NAMES.has(tool.name)
-    if (!isTaskListTool) return true
-    if (!tool.taskItems.length) return true
-    return index === latestTaskListIndex
-  })
+  return props.toolCalls.filter(tool => !TASK_LIST_ONLY_TOOL_NAMES.has(tool.name))
 })
-
-function findLatestTaskListIndex(tools: Array<ToolCall & { taskItems: TaskListItem[] }>): number {
-  for (let i = tools.length - 1; i >= 0; i--) {
-    if (tools[i].taskItems.length > 0) return i
-  }
-  return -1
-}
-
-function getTaskListItems(toolCall: ToolCall): TaskListItem[] {
-  if (toolCall.name === 'TodoWrite') return parseTodoWriteItems(toolCall.input)
-  if (toolCall.name === 'TaskList') return parseTaskListOutput(toolCall.output)
-  if (toolCall.name === 'TaskCreate') return parseTaskCreateOutput(toolCall.output)
-  if (toolCall.name === 'TaskUpdate') return parseTaskUpdateOutput(toolCall.output)
-  return []
-}
-
-function parseTodoWriteItems(input: Record<string, any>): TaskListItem[] {
-  if (!Array.isArray(input.todos)) return []
-  return input.todos
-    .filter((todo): todo is Record<string, any> => {
-      return typeof todo?.content === 'string' && TASK_STATUSES.has(todo.status)
-    })
-    .map((todo) => ({ content: todo.content, status: todo.status }))
-}
-
-function parseTaskListOutput(output?: string): TaskListItem[] {
-  if (!output || output === 'No tasks found') return []
-  return output.split('\n').reduce<TaskListItem[]>((items, line) => {
-    const match = line.match(/^#([^\s]+) \[(pending|in_progress|completed)\] (.*?)(?: \(([^)]+)\))?(?: \[blocked by (.+)\])?$/)
-    if (!match) return items
-    items.push({
-      id: match[1],
-      status: match[2] as TaskListItem['status'],
-      content: match[3],
-      owner: match[4],
-      blockedBy: match[5]?.split(', ').filter(Boolean) || []
-    })
-    return items
-  }, [])
-}
-
-function parseTaskCreateOutput(output?: string): TaskListItem[] {
-  if (!output) return []
-  const match = output.match(/^Task #(\d+) created successfully: (.+)$/)
-  if (!match) return []
-  return [{ id: match[1], content: match[2], status: 'pending' }]
-}
-
-function parseTaskUpdateOutput(output?: string): TaskListItem[] {
-  if (!output) return []
-  const updatedMatch = output.match(/^Updated task #(\d+)/)
-  if (!updatedMatch) return []
-  const taskId = updatedMatch[1]
-  const statusChangeMatch = output.match(/statusChange: (\w+) -> (\w+)/)
-  const status = statusChangeMatch ? statusChangeMatch[2] : undefined
-  return [{ id: taskId, content: `Task #${taskId} updated`, status: (status as TaskListItem['status']) || 'pending' }]
-}
 
 // Keyed by tool NAME (not id): one resolved component is reused across
 // every tool call of the same name, so subsequent calls render instantly
@@ -439,11 +341,6 @@ function handleToolSkip(toolId: string) {
 .timeline-body {
   border-top: 1px solid var(--surface-border);
   padding: 8px 14px 12px;
-}
-
-.timeline-task-board {
-  margin-top: 8px;
-  margin-left: 32px;
 }
 
 .timeline-item {
@@ -593,11 +490,6 @@ function handleToolSkip(toolId: string) {
     color: var(--text-muted);
     max-height: 300px;
   }
-}
-
-.timeline-task-inline {
-  margin-left: 32px;
-  margin-bottom: 4px;
 }
 
 .spin-icon {

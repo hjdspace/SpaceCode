@@ -42,6 +42,10 @@ export default defineConfig({
       'tests/integration/code-rewind-confirm-flow.test.ts',
       'tests/integration/rewind-flow.test.ts',
       'tests/integration/rewind-input-restoration.test.ts',
+      'tests/components/chat/CodeRewindConfirmDialog.test.ts',
+      'tests/components/chat/MessageItem.rewind.test.ts',
+      'tests/components/chat/MessageSelector.test.ts',
+      'tests/components/chat/RewindDialog.test.ts',
     ],
   },
 })

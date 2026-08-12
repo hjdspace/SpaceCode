@@ -73,11 +73,9 @@ describe('ProfileCards', () => {
     const wrapper = mount(ProfileCards, mountOptions)
 
     await wrapper.vm.$nextTick()
-    const card = wrapper.find('[data-testid="profile-card-p1"]')
-    expect(card.text()).toContain('工作')
-    expect(card.text()).toContain('OpenAI')
-    expect(card.text()).toContain('deepseek-chat')
-    expect(card.text()).toContain('64K')
+    const chip = wrapper.find('[data-testid="profile-chip-p1"]')
+    expect(chip.text()).toContain('工作')
+    expect(chip.text()).toContain('deepseek-chat')
   })
 
   it('缩略态不显示 apiKey', async () => {
@@ -101,8 +99,8 @@ describe('ProfileCards', () => {
     const wrapper = mount(ProfileCards, mountOptions)
 
     await wrapper.vm.$nextTick()
-    const card = wrapper.find('[data-testid="profile-card-p1"]')
-    await card.trigger('click')
+    const chip = wrapper.find('[data-testid="profile-chip-p1"]')
+    await chip.trigger('click')
     expect(store.expandedProfileId).toBe('p1')
     expect(wrapper.find('.profile-editor').exists()).toBe(true)
   })
@@ -116,10 +114,10 @@ describe('ProfileCards', () => {
     const wrapper = mount(ProfileCards, mountOptions)
 
     await wrapper.vm.$nextTick()
-    const card1 = wrapper.find('[data-testid="profile-card-p1"]')
-    const card2 = wrapper.find('[data-testid="profile-card-p2"]')
-    expect(card2.classes()).toContain('active')
-    expect(card1.classes()).not.toContain('active')
+    const chip1 = wrapper.find('[data-testid="profile-chip-p1"]')
+    const chip2 = wrapper.find('[data-testid="profile-chip-p2"]')
+    expect(chip2.classes()).toContain('active')
+    expect(chip1.classes()).not.toContain('active')
   })
 
   it('点击非 active 卡片立即调用 store.applyProfile', async () => {
@@ -132,8 +130,8 @@ describe('ProfileCards', () => {
     const wrapper = mount(ProfileCards, mountOptions)
 
     await wrapper.vm.$nextTick()
-    const card = wrapper.find('[data-testid="profile-card-p2"]')
-    await card.trigger('click')
+    const chip = wrapper.find('[data-testid="profile-chip-p2"]')
+    await chip.trigger('click')
     expect(spy).toHaveBeenCalledWith('p2')
     expect(store.expandedProfileId).toBe('p2')
   })

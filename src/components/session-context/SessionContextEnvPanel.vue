@@ -370,10 +370,7 @@ function handleGitOpsCreateBranch() {
   flex: 1;
   min-height: 0;
 
-  // Glassmorphism
-  background: var(--glass-bg);
-  backdrop-filter: blur(20px) saturate(1.2);
-  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  background: var(--bg-elevated);
   border: 1px solid var(--glass-border);
   box-shadow:
     var(--glass-shadow-1),
@@ -426,9 +423,7 @@ function handleGitOpsCreateBranch() {
   z-index: 30;
   min-width: 160px;
   padding: 4px;
-  background: var(--glass-bg);
-  backdrop-filter: blur(20px) saturate(1.2);
-  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  background: var(--bg-elevated);
   border: 1px solid var(--glass-border);
   border-radius: 10px;
   box-shadow: var(--glass-shadow-1), var(--glass-shadow-2);
@@ -546,9 +541,7 @@ function handleGitOpsCreateBranch() {
   right: 8px;
   z-index: 30;
   padding: 4px;
-  background: var(--glass-bg);
-  backdrop-filter: blur(20px) saturate(1.2);
-  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  background: var(--bg-elevated);
   border: 1px solid var(--glass-border);
   border-radius: 10px;
   box-shadow: var(--glass-shadow-1), var(--glass-shadow-2);
@@ -774,9 +767,7 @@ function handleGitOpsCreateBranch() {
   // (no tasks yet) `max-height: 100%` would squeeze the list flat.
   max-height: min(70vh, 480px);
   z-index: 25;
-  background: var(--glass-bg);
-  backdrop-filter: blur(20px) saturate(1.2);
-  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  background: var(--bg-elevated);
   border: 1px solid var(--glass-border);
   border-radius: 14px;
   display: flex;
