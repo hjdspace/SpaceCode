@@ -24,6 +24,14 @@ import type {
   AddCenterSkillPreview,
   AddCenterSkillDecision,
   AddCenterSkillResult,
+  InstallMode,
+  DistributionPreview,
+  DistributionResult,
+  AdoptOption,
+  AdoptPreview,
+  AdoptBatchItem,
+  AdoptBatchResult,
+  AgentInventoryScanResult,
 } from '@/types/skillManagerV2'
 
 // ── Filters ────────────────────────────────────────────────────────
@@ -302,6 +310,141 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
     }
   }
 
+  // ── Slice 4: Distribute to Agent ────────────────────────────────
+
+  /** Preview distributing skills to agents. */
+  async function previewDistribute(
+    skillIds: string[],
+    targetAgentIds: string[],
+    requestedMode: InstallMode
+  ): Promise<DistributionPreview | null> {
+    const sm = api.skillManagerV2
+    if (!sm) return null
+
+    try {
+      return await sm.previewDistribute(skillIds, targetAgentIds, requestedMode)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      return null
+    }
+  }
+
+  /** Execute distribution, then refresh overview. */
+  async function executeDistribute(preview: DistributionPreview): Promise<DistributionResult | null> {
+    const sm = api.skillManagerV2
+    if (!sm) return null
+
+    busyAction.value = 'distribute'
+    error.value = null
+
+    try {
+      const result = await sm.executeDistribute(preview)
+      await loadOverview()
+      return result
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      return null
+    } finally {
+      busyAction.value = null
+    }
+  }
+
+  /** Delete a single target from an agent, then refresh. */
+  async function deleteTarget(targetId: string): Promise<void> {
+    const sm = api.skillManagerV2
+    if (!sm) return
+
+    busyAction.value = 'delete-target'
+    error.value = null
+
+    try {
+      await sm.deleteTarget(targetId)
+      await loadOverview()
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+    } finally {
+      busyAction.value = null
+    }
+  }
+
+  // ── Slice 5: Agent Scan & Adopt ────────────────────────────────
+
+  /** Scan an agent's skills directory for managed/unmanaged/conflict items. */
+  async function scanAgentInventory(agentId: string): Promise<AgentInventoryScanResult | null> {
+    const sm = api.skillManagerV2
+    if (!sm) return null
+
+    busyAction.value = 'scan-agent'
+    error.value = null
+
+    try {
+      const result = await sm.scanAgentInventory(agentId)
+      await loadOverview()
+      return result
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      return null
+    } finally {
+      busyAction.value = null
+    }
+  }
+
+  /** Preview adopting an unmanaged skill. */
+  async function previewAdopt(agentId: string, unmanagedId: string): Promise<AdoptPreview | null> {
+    const sm = api.skillManagerV2
+    if (!sm) return null
+
+    try {
+      return await sm.previewAdopt(agentId, unmanagedId)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      return null
+    }
+  }
+
+  /** Execute adopting an unmanaged skill, then refresh. */
+  async function executeAdopt(
+    agentId: string,
+    unmanagedId: string,
+    option: AdoptOption,
+    renamedId?: string
+  ): Promise<void> {
+    const sm = api.skillManagerV2
+    if (!sm) return
+
+    busyAction.value = 'adopt'
+    error.value = null
+
+    try {
+      await sm.executeAdopt(agentId, unmanagedId, option, renamedId)
+      await loadOverview()
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+    } finally {
+      busyAction.value = null
+    }
+  }
+
+  /** Execute batch adoption of multiple unmanaged skills. */
+  async function executeAdoptBatch(items: AdoptBatchItem[]): Promise<AdoptBatchResult | null> {
+    const sm = api.skillManagerV2
+    if (!sm) return null
+
+    busyAction.value = 'adopt-batch'
+    error.value = null
+
+    try {
+      const result = await sm.executeAdoptBatch(items)
+      await loadOverview()
+      return result
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      return null
+    } finally {
+      busyAction.value = null
+    }
+  }
+
   return {
     // State
     activeTab,
@@ -344,5 +487,12 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
     executeDeleteSkill,
     previewAddCenterSkill,
     executeAddCenterSkill,
+    previewDistribute,
+    executeDistribute,
+    deleteTarget,
+    scanAgentInventory,
+    previewAdopt,
+    executeAdopt,
+    executeAdoptBatch,
   }
 })

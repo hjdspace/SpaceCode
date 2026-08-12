@@ -18,6 +18,15 @@ import type {
   AddCenterSkillPreview,
   AddCenterSkillDecision,
   AddCenterSkillResult,
+  InstallMode,
+  DistributionPreview,
+  DistributionResult,
+  AdoptOption,
+  AdoptPreview,
+  AdoptBatchItem,
+  AdoptBatchResult,
+  AgentInventoryScanResult,
+  UnmanagedItemDto,
 } from '@/types/skillManagerV2'
 
 let service: SkillManagerService | null = null
@@ -100,6 +109,66 @@ export function registerSkillManagerV2IPCHandlers(): void {
     SCHEMA_MANAGER_CHANNELS.EXECUTE_ADD_CENTER_SKILL,
     (_event, input: AddCenterSkillInput, decisions: AddCenterSkillDecision[]): AddCenterSkillResult => {
       return getService().executeAddCenterSkill(input, decisions)
+    }
+  )
+
+  // ── Distribute (Slice 4) ──────────────────────────────────────────
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.PREVIEW_DISTRIBUTE,
+    (_event, skillIds: string[], targetAgentIds: string[], requestedMode: InstallMode): DistributionPreview => {
+      return getService().previewDistribute(skillIds, targetAgentIds, requestedMode)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.EXECUTE_DISTRIBUTE,
+    (_event, preview: DistributionPreview): DistributionResult => {
+      return getService().executeDistribute(preview)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.DELETE_TARGET,
+    (_event, targetId: string): void => {
+      getService().deleteTarget(targetId)
+    }
+  )
+
+  // ── Agent Scan & Adopt (Slice 5) ─────────────────────────────────
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.SCAN_AGENT_INVENTORY,
+    (_event, agentId: string): AgentInventoryScanResult => {
+      return getService().scanAgentInventory(agentId)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.LIST_UNMANAGED,
+    (): UnmanagedItemDto[] => {
+      return getService().listUnmanaged()
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.PREVIEW_ADOPT,
+    (_event, agentId: string, unmanagedId: string): AdoptPreview => {
+      return getService().previewAdopt(agentId, unmanagedId)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.EXECUTE_ADOPT,
+    (_event, agentId: string, unmanagedId: string, option: AdoptOption, renamedId?: string): void => {
+      getService().executeAdopt(agentId, unmanagedId, option, renamedId)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.EXECUTE_ADOPT_BATCH,
+    (_event, items: AdoptBatchItem[]): AdoptBatchResult => {
+      return getService().executeAdoptBatch(items)
     }
   )
 }

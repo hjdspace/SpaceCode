@@ -26,6 +26,7 @@ import {
   expandTilde,
   inferSkillId,
   pathExists,
+  createLink,
 } from './fsutil'
 import { scanCenterLibrary } from './scanner'
 import { getBuiltInAgents } from './agentRegistry'
@@ -50,6 +51,17 @@ import type {
   AddCenterSkillDecision,
   AddCenterSkillResult,
   SourceType,
+  InstallMode,
+  DistributionPreview,
+  DistributionChange,
+  DistributionBlocker,
+  DistributionResult,
+  AdoptOption,
+  AdoptPreview,
+  AdoptBatchItem,
+  AdoptBatchResult,
+  AdoptResult,
+  AgentInventoryScanResult,
 } from '@/types/skillManagerV2'
 
 // ── Default settings ───────────────────────────────────────────────
@@ -888,6 +900,598 @@ export class SkillManagerService {
       )
     })
   }
+
+  // ── Distribute to Agent (Slice 4) ───────────────────────────────
+
+  /**
+   * Preview distributing center library skills to one or more agents.
+   * For each skill×agent pair, determines: create / reuse / blocked.
+   *
+   * Reference: AgentBro `service.rs` `preview_distribute()`
+   */
+  previewDistribute(
+    skillIds: string[],
+    targetAgentIds: string[],
+    requestedMode: InstallMode
+  ): DistributionPreview {
+    const changes: DistributionChange[] = []
+    const blockers: DistributionBlocker[] = []
+
+    for (const skillId of skillIds) {
+      // Verify skill exists in center library
+      const skillRow = this.db.conn.prepare(
+        'SELECT id, name, center_path, current_hash FROM skills WHERE id = ?'
+      ).get(skillId) as { id: string; name: string; center_path: string; current_hash: string } | undefined
+
+      if (!skillRow) {
+        throw new Error(`Skill not found in center library: ${skillId}`)
+      }
+
+      for (const agentId of targetAgentIds) {
+        const agentRow = this.db.conn.prepare(
+          'SELECT id, display_name, skills_dir FROM agents WHERE id = ?'
+        ).get(agentId) as { id: string; display_name: string; skills_dir: string | null } | undefined
+
+        if (!agentRow) {
+          throw new Error(`Agent not found: ${agentId}`)
+        }
+
+        const targetPath = path.join(agentRow.skills_dir ?? '', skillId)
+
+        // Check if target already exists in DB (managed)
+        const existingTarget = this.db.conn.prepare(
+          'SELECT id, skill_id, agent_id, target_path, install_mode, actual_mode, source_hash, current_hash, status FROM skill_targets WHERE skill_id = ? AND agent_id = ?'
+        ).get(skillId, agentId) as TargetRow | undefined
+
+        if (existingTarget) {
+          // Reuse — target already managed
+          changes.push({
+            skillId,
+            skillName: skillRow.name,
+            agentId,
+            agentName: agentRow.display_name,
+            action: 'reuse',
+            mode: existingTarget.install_mode as InstallMode,
+            reason: null,
+          })
+          continue
+        }
+
+        // Check if something unmanaged exists at the target path
+        if (pathExists(targetPath)) {
+          // Unmanaged same-name — blocked
+          blockers.push({
+            skillId,
+            skillName: skillRow.name,
+            agentId,
+            agentName: agentRow.display_name,
+            reason: `Unmanaged file exists at ${targetPath}. Adopt it first.`,
+          })
+          continue
+        }
+
+        // Create
+        changes.push({
+          skillId,
+          skillName: skillRow.name,
+          agentId,
+          agentName: agentRow.display_name,
+          action: 'create',
+          mode: requestedMode,
+          reason: null,
+        })
+      }
+    }
+
+    return { changes, blockers }
+  }
+
+  /**
+   * Execute distribution: create links/copies, write target + claim records.
+   *
+   * Reference: AgentBro `service.rs` `execute_distribute()`
+   */
+  executeDistribute(preview: DistributionPreview): DistributionResult {
+    const settings = this.getSettings()
+    let created = 0
+    let reused = 0
+    let failed = 0
+    const errors: string[] = []
+
+    for (const change of preview.changes) {
+      try {
+        if (change.action === 'reuse') {
+          reused++
+          continue
+        }
+
+        if (change.action === 'create') {
+          const skillRow = this.db.conn.prepare(
+            'SELECT id, name, center_path, current_hash FROM skills WHERE id = ?'
+          ).get(change.skillId) as { id: string; name: string; center_path: string; current_hash: string }
+
+          const agentRow = this.db.conn.prepare(
+            'SELECT id, display_name, skills_dir FROM agents WHERE id = ?'
+          ).get(change.agentId) as { id: string; display_name: string; skills_dir: string | null }
+
+          const centerPath = skillRow.center_path
+          const targetPath = path.join(agentRow.skills_dir ?? '', change.skillId)
+
+          let actualMode: 'link' | 'copy' = change.mode
+
+          if (change.mode === 'link') {
+            const linkResult = createLink(centerPath, targetPath, settings.linkFailPolicy)
+            actualMode = linkResult.actualMode
+            if (linkResult.error) {
+              errors.push(`${change.skillId} → ${change.agentId}: ${linkResult.error}`)
+              failed++
+              continue
+            }
+          } else {
+            // Copy mode
+            copyDirRecursive(centerPath, targetPath)
+          }
+
+          // Write target + claim to DB
+          this.writeTargetAndClaim(
+            change.skillId,
+            change.agentId,
+            targetPath,
+            change.mode,
+            actualMode,
+            skillRow.current_hash
+          )
+
+          created++
+        }
+      } catch (e) {
+        errors.push(`${change.skillId} → ${change.agentId}: ${(e as Error).message}`)
+        failed++
+      }
+    }
+
+    return {
+      success: failed === 0,
+      created,
+      reused,
+      failed,
+      errors,
+    }
+  }
+
+  /**
+   * Write a skill_target row and a direct claim row.
+   */
+  private writeTargetAndClaim(
+    skillId: string,
+    agentId: string,
+    targetPath: string,
+    installMode: InstallMode,
+    actualMode: 'link' | 'copy',
+    sourceHash: string
+  ): void {
+    const now = nowIso()
+    const targetId = `${skillId}__${agentId}`
+
+    this.db.transaction((tx) => {
+      // Upsert target
+      tx.prepare(`
+        INSERT INTO skill_targets (id, skill_id, agent_id, target_path, install_mode, actual_mode, source_hash, current_hash, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'ok', ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          install_mode = excluded.install_mode,
+          actual_mode = excluded.actual_mode,
+          source_hash = excluded.source_hash,
+          status = 'ok',
+          updated_at = excluded.updated_at
+      `).run(targetId, skillId, agentId, targetPath, installMode, actualMode, sourceHash, now, now)
+
+      // Upsert direct claim (UNIQUE on target_id + claim_type + pack_id)
+      tx.prepare(`
+        INSERT INTO skill_target_claims (id, target_id, claim_type, pack_id, created_at)
+        VALUES (?, ?, 'direct', NULL, ?)
+        ON CONFLICT(target_id, claim_type, pack_id) DO NOTHING
+      `).run(`${targetId}__direct`, targetId, now)
+    })
+  }
+
+  /**
+   * Delete a single target from an agent.
+   * Removes the file/link and all DB records (target + claims via cascade).
+   *
+   * Reference: AgentBro `service.rs` delete target logic
+   */
+  deleteTarget(targetId: string): void {
+    const row = this.db.conn.prepare(
+      'SELECT id, skill_id, agent_id, target_path FROM skill_targets WHERE id = ?'
+    ).get(targetId) as { id: string; skill_id: string; agent_id: string; target_path: string } | undefined
+
+    if (!row) {
+      throw new Error(`Target not found: ${targetId}`)
+    }
+
+    // Remove the file/link from disk
+    removePath(row.target_path)
+
+    // Delete from DB (cascade will remove claims)
+    this.db.conn.prepare('DELETE FROM skill_targets WHERE id = ?').run(targetId)
+  }
+
+  // ── Agent Scan & Adopt (Slice 5) ────────────────────────────────
+
+  /**
+   * Scan an agent's skills directory for managed / unmanaged / conflict items.
+   * Updates the unmanaged_items table with discovered items.
+   *
+   * Reference: AgentBro `service.rs` `scan_agent_inventory()`
+   */
+  scanAgentInventory(agentId: string): AgentInventoryScanResult {
+    const agentRow = this.db.conn.prepare(
+      'SELECT id, display_name, skills_dir FROM agents WHERE id = ?'
+    ).get(agentId) as { id: string; display_name: string; skills_dir: string | null } | undefined
+
+    if (!agentRow) {
+      throw new Error(`Agent not found: ${agentId}`)
+    }
+
+    const skillsDir = agentRow.skills_dir ?? ''
+    const managedTargets = this.getAgentManagedTargets(agentId)
+    const managedSkillIds = new Set(managedTargets.map((t) => t.skillId))
+
+    // Get center library skill IDs and hashes
+    const centerSkills = this.db.conn.prepare(
+      'SELECT id, current_hash FROM skills'
+    ).all() as Array<{ id: string; current_hash: string }>
+    const centerSkillMap = new Map(centerSkills.map((s) => [s.id, s.current_hash]))
+
+    // Scan the agent directory for skill dirs
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(skillsDir, { withFileTypes: true })
+    } catch {
+      entries = []
+    }
+
+    const unmanaged: UnmanagedItemDto[] = []
+    const conflicts: UnmanagedItemDto[] = []
+    const now = nowIso()
+
+    // Remove old unmanaged items for this agent
+    this.db.conn.prepare('DELETE FROM unmanaged_items WHERE agent_id = ?').run(agentId)
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      if (isIgnoredEntry(entry.name)) continue
+
+      const skillDirPath = path.join(skillsDir, entry.name)
+      if (!isSkillDir(skillDirPath)) continue
+
+      // Skip if managed (has a target record)
+      if (managedSkillIds.has(entry.name)) continue
+
+      // Compute hash and infer skill ID
+      const inferredId = inferSkillId(skillDirPath)
+      const hash = hashDir(skillDirPath)
+      const unmanagedId = `${agentId}__${entry.name}`
+
+      // Check if center library has same-name skill
+      const centerHash = centerSkillMap.get(inferredId)
+      if (centerHash) {
+        // Same name exists in center — check if hash matches
+        if (centerHash !== hash) {
+          // Conflict — same name, different content
+          conflicts.push({
+            id: unmanagedId,
+            itemType: 'skill_dir',
+            agentId,
+            path: skillDirPath,
+            inferredSkillId: inferredId,
+            hash,
+            reason: `Same-name skill '${inferredId}' exists in center library but content differs`,
+            firstSeenAt: now,
+            lastSeenAt: now,
+          })
+        } else {
+          // Same name, same hash — effectively managed (might be a copy or link)
+          // Treat as unmanaged but with a note that it matches center
+          unmanaged.push({
+            id: unmanagedId,
+            itemType: 'skill_dir',
+            agentId,
+            path: skillDirPath,
+            inferredSkillId: inferredId,
+            hash,
+            reason: 'Skill matches center library content but has no managed target',
+            firstSeenAt: now,
+            lastSeenAt: now,
+          })
+        }
+      } else {
+        // No same-name in center — genuinely unmanaged
+        unmanaged.push({
+          id: unmanagedId,
+          itemType: 'skill_dir',
+          agentId,
+          path: skillDirPath,
+          inferredSkillId: inferredId,
+          hash,
+          reason: 'Skill not found in center library',
+          firstSeenAt: now,
+          lastSeenAt: now,
+        })
+      }
+    }
+
+    // Write unmanaged + conflict items to DB
+    const insertStmt = this.db.conn.prepare(`
+      INSERT OR REPLACE INTO unmanaged_items (id, item_type, agent_id, path, inferred_skill_id, hash, reason, first_seen_at, last_seen_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    for (const item of [...unmanaged, ...conflicts]) {
+      insertStmt.run(
+        item.id,
+        item.itemType,
+        item.agentId,
+        item.path,
+        item.inferredSkillId,
+        item.hash,
+        item.reason,
+        item.firstSeenAt,
+        item.lastSeenAt
+      )
+    }
+
+    // Update agent's last scanned timestamp
+    this.db.conn.prepare('UPDATE agents SET last_scanned_at = ? WHERE id = ?').run(now, agentId)
+
+    return {
+      agentId,
+      managed: managedTargets,
+      unmanaged,
+      conflicts,
+    }
+  }
+
+  /** Get all managed targets for an agent. */
+  private getAgentManagedTargets(agentId: string): SkillTarget[] {
+    const rows = this.db.conn.prepare(`
+      SELECT id, skill_id, agent_id, target_path, install_mode, actual_mode,
+             source_hash, current_hash, status, created_at, updated_at
+      FROM skill_targets WHERE agent_id = ?
+      ORDER BY created_at
+    `).all(agentId) as TargetRow[]
+
+    return rows.map((r) => ({
+      id: r.id,
+      skillId: r.skill_id,
+      agentId: r.agent_id,
+      targetPath: r.target_path,
+      installMode: r.install_mode as SkillTarget['installMode'],
+      actualMode: r.actual_mode as SkillTarget['actualMode'],
+      sourceHash: r.source_hash,
+      currentHash: r.current_hash,
+      status: r.status as SkillTarget['status'],
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    }))
+  }
+
+  /**
+   * Preview adopting an unmanaged skill into the center library.
+   *
+   * Reference: AgentBro `service.rs` `preview_adopt()`
+   */
+  previewAdopt(agentId: string, unmanagedId: string): AdoptPreview {
+    const row = this.db.conn.prepare(
+      'SELECT id, agent_id, path, inferred_skill_id, hash, reason FROM unmanaged_items WHERE id = ?'
+    ).get(unmanagedId) as UnmanagedRow | undefined
+
+    if (!row) {
+      throw new Error(`Unmanaged item not found: ${unmanagedId}`)
+    }
+
+    const inferredSkillId = row.inferred_skill_id ?? path.basename(row.path)
+
+    // Check if center library has a same-name skill
+    const centerSkill = this.db.conn.prepare(
+      'SELECT id, current_hash FROM skills WHERE id = ?'
+    ).get(inferredSkillId) as { id: string; current_hash: string } | undefined
+
+    const centerHasSameName = centerSkill !== undefined
+    const isConflict = centerHasSameName && centerSkill!.current_hash !== row.hash
+
+    const options: AdoptOption[] = []
+    let conflictReason: string | null = null
+
+    if (isConflict) {
+      // Conflict — only import_to_center with rename, or skip
+      conflictReason = `Center library has a skill with id '${inferredSkillId}' but content differs. Rename or skip to proceed.`
+      options.push('import_to_center')
+    } else {
+      // No conflict — all options available
+      options.push('import_to_center')
+      options.push('replace_with_link')
+      options.push('replace_with_copy')
+    }
+
+    return {
+      agentId,
+      unmanagedId,
+      inferredSkillId,
+      centerHasSameName,
+      centerSkillId: centerSkill?.id ?? null,
+      options,
+      conflictReason,
+    }
+  }
+
+  /**
+   * Execute adopting an unmanaged skill.
+   *
+   * Reference: AgentBro `service.rs` `execute_adopt()`
+   */
+  executeAdopt(
+    agentId: string,
+    unmanagedId: string,
+    option: AdoptOption,
+    renamedId?: string
+  ): void {
+    const row = this.db.conn.prepare(
+      'SELECT id, agent_id, path, inferred_skill_id, hash FROM unmanaged_items WHERE id = ?'
+    ).get(unmanagedId) as UnmanagedRow | undefined
+
+    if (!row) {
+      throw new Error(`Unmanaged item not found: ${unmanagedId}`)
+    }
+
+    const agentRow = this.db.conn.prepare(
+      'SELECT id, skills_dir FROM agents WHERE id = ?'
+    ).get(agentId) as { id: string; skills_dir: string | null } | undefined
+
+    if (!agentRow) {
+      throw new Error(`Agent not found: ${agentId}`)
+    }
+
+    const agentSkillsDir = agentRow.skills_dir ?? ''
+    const sourcePath = row.path
+    const inferredSkillId = row.inferred_skill_id ?? path.basename(sourcePath)
+    const targetSkillId = renamedId ?? inferredSkillId
+    const centerDest = path.join(this.centerPath, targetSkillId)
+
+    if (option === 'import_to_center') {
+      // Copy to center library, keep agent file unchanged
+      if (pathExists(centerDest)) {
+        // If same name exists, need rename
+        if (targetSkillId === inferredSkillId) {
+          throw new Error(`Skill '${targetSkillId}' already exists in center. Use rename.`)
+        }
+      }
+      copyDirRecursive(sourcePath, centerDest)
+      this.recordAdoptedSkill(targetSkillId, centerDest, sourcePath, agentId)
+    } else if (option === 'replace_with_link') {
+      // Copy to center, replace agent file with symlink
+      copyDirRecursive(sourcePath, centerDest)
+      this.recordAdoptedSkill(targetSkillId, centerDest, sourcePath, agentId)
+
+      // Remove agent file and create symlink
+      removePath(sourcePath)
+      const linkResult = createLink(centerDest, sourcePath, this.getSettings().linkFailPolicy)
+
+      // Write target + claim
+      this.writeTargetAndClaim(
+        targetSkillId,
+        agentId,
+        sourcePath,
+        'link',
+        linkResult.actualMode,
+        hashDir(centerDest)
+      )
+    } else if (option === 'replace_with_copy') {
+      // Copy to center, replace agent file with fresh copy
+      copyDirRecursive(sourcePath, centerDest)
+      this.recordAdoptedSkill(targetSkillId, centerDest, sourcePath, agentId)
+
+      // Remove agent file and create copy
+      removePath(sourcePath)
+      copyDirRecursive(centerDest, sourcePath)
+
+      // Write target + claim
+      this.writeTargetAndClaim(
+        targetSkillId,
+        agentId,
+        sourcePath,
+        'copy',
+        'copy',
+        hashDir(centerDest)
+      )
+    }
+
+    // Remove unmanaged item from DB
+    this.db.conn.prepare('DELETE FROM unmanaged_items WHERE id = ?').run(unmanagedId)
+  }
+
+  /** Record a skill that was adopted into the center library. */
+  private recordAdoptedSkill(
+    skillId: string,
+    destPath: string,
+    sourcePath: string,
+    agentId: string
+  ): void {
+    const fm = readFrontmatter(destPath)
+    const name = fm.map.get('name') ?? skillId
+    const description = fm.map.get('description') ?? ''
+    const hash = hashDir(destPath)
+    const frontmatterJson = JSON.stringify(Object.fromEntries(fm.map))
+    const now = nowIso()
+
+    this.db.transaction((tx) => {
+      tx.prepare(`
+        INSERT INTO skills (id, name, description, skill_type, center_path, current_hash, frontmatter_json, created_at, updated_at, last_scanned_at)
+        VALUES (?, ?, ?, 'skill', ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name,
+          description = excluded.description,
+          current_hash = excluded.current_hash,
+          frontmatter_json = excluded.frontmatter_json,
+          updated_at = excluded.updated_at,
+          last_scanned_at = excluded.last_scanned_at
+      `).run(skillId, name, description, destPath, hash, frontmatterJson, now, now, now)
+
+      tx.prepare(`
+        INSERT INTO skill_sources (skill_id, source_type, source_uri, source_ref, imported_from_agent, imported_from_path, installed_via, created_at, updated_at)
+        VALUES (?, 'agent_import', ?, NULL, ?, ?, 'spacecode', ?, ?)
+        ON CONFLICT(skill_id) DO UPDATE SET
+          source_type = excluded.source_type,
+          source_uri = excluded.source_uri,
+          imported_from_agent = excluded.imported_from_agent,
+          imported_from_path = excluded.imported_from_path,
+          updated_at = excluded.updated_at
+      `).run(skillId, sourcePath, agentId, sourcePath, now, now)
+    })
+  }
+
+  /**
+   * Execute batch adoption of multiple unmanaged skills.
+   *
+   * Reference: AgentBro `service.rs` `execute_adopt_batch()`
+   */
+  executeAdoptBatch(items: AdoptBatchItem[]): AdoptBatchResult {
+    const results: AdoptResult[] = []
+    let successCount = 0
+    let failureCount = 0
+
+    for (const item of items) {
+      try {
+        service_executeAdoptSingle(this, item)
+        results.push({
+          unmanagedId: item.unmanagedId,
+          success: true,
+          skillId: item.renamedId ?? null,
+          error: null,
+        })
+        successCount++
+      } catch (e) {
+        results.push({
+          unmanagedId: item.unmanagedId,
+          success: false,
+          skillId: null,
+          error: (e as Error).message,
+        })
+        failureCount++
+      }
+    }
+
+    return { results, successCount, failureCount }
+  }
+}
+
+// Helper function to avoid `this` binding issues in batch loop
+function service_executeAdoptSingle(
+  svc: SkillManagerService,
+  item: AdoptBatchItem
+): void {
+  svc.executeAdopt(item.agentId, item.unmanagedId, item.option, item.renamedId)
 }
 
 // ── Internal row types ─────────────────────────────────────────────

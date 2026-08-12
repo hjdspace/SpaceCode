@@ -957,5 +957,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('skill-manager:preview-add-center-skill', input),
     executeAddCenterSkill: (input: Record<string, unknown>, decisions: Record<string, unknown>[]) =>
       ipcRenderer.invoke('skill-manager:execute-add-center-skill', input, decisions),
+    previewDistribute: (skillIds: string[], targetAgentIds: string[], requestedMode: string) =>
+      ipcRenderer.invoke('skill-manager:preview-distribute', skillIds, targetAgentIds, requestedMode),
+    executeDistribute: (preview: Record<string, unknown>) =>
+      ipcRenderer.invoke('skill-manager:execute-distribute', preview),
+    deleteTarget: (targetId: string) =>
+      ipcRenderer.invoke('skill-manager:delete-target', targetId),
+    scanAgentInventory: (agentId: string) =>
+      ipcRenderer.invoke('skill-manager:scan-agent-inventory', agentId),
+    listUnmanaged: () =>
+      ipcRenderer.invoke('skill-manager:list-unmanaged'),
+    previewAdopt: (agentId: string, unmanagedId: string) =>
+      ipcRenderer.invoke('skill-manager:preview-adopt', agentId, unmanagedId),
+    executeAdopt: (agentId: string, unmanagedId: string, option: string, renamedId?: string) =>
+      ipcRenderer.invoke('skill-manager:execute-adopt', agentId, unmanagedId, option, renamedId),
+    executeAdoptBatch: (items: Record<string, unknown>[]) =>
+      ipcRenderer.invoke('skill-manager:execute-adopt-batch', items),
   },
 })

@@ -353,6 +353,37 @@ export interface UpsertPackInput {
   memberSkillIds: string[]
 }
 
+// ── Adopt Batch ─────────────────────────────────────────────────────
+
+export interface AdoptBatchItem {
+  agentId: string
+  unmanagedId: string
+  option: AdoptOption
+  renamedId?: string
+}
+
+export interface AdoptResult {
+  unmanagedId: string
+  success: boolean
+  skillId: string | null
+  error: string | null
+}
+
+export interface AdoptBatchResult {
+  results: AdoptResult[]
+  successCount: number
+  failureCount: number
+}
+
+// ── Agent Inventory ─────────────────────────────────────────────────
+
+export interface AgentInventoryScanResult {
+  agentId: string
+  managed: SkillTarget[]
+  unmanaged: UnmanagedItemDto[]
+  conflicts: UnmanagedItemDto[]
+}
+
 // ── IPC Channel Names ──────────────────────────────────────────────
 // Channel name constants are defined in electron/skillManagerV2/channels.ts
 // (runtime values cannot live in .d.ts files)

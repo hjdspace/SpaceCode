@@ -37,6 +37,15 @@ AddCenterSkillInput,
 AddCenterSkillPreview,
 AddCenterSkillDecision,
 AddCenterSkillResult,
+InstallMode,
+DistributionPreview,
+DistributionResult,
+AdoptOption,
+AdoptPreview,
+AdoptBatchItem,
+AdoptBatchResult,
+AgentInventoryScanResult,
+UnmanagedItemDto,
 } from '@/types/skillManagerV2'
 
 import type {
@@ -618,6 +627,14 @@ executeDeleteCenterSkill: (skillId: string) => Promise<void>
 openPath: (targetPath: string) => Promise<string>
 previewAddCenterSkill: (input: AddCenterSkillInput) => Promise<AddCenterSkillPreview>
 executeAddCenterSkill: (input: AddCenterSkillInput, decisions: AddCenterSkillDecision[]) => Promise<AddCenterSkillResult>
+previewDistribute: (skillIds: string[], targetAgentIds: string[], requestedMode: InstallMode) => Promise<DistributionPreview>
+executeDistribute: (preview: DistributionPreview) => Promise<DistributionResult>
+deleteTarget: (targetId: string) => Promise<void>
+scanAgentInventory: (agentId: string) => Promise<AgentInventoryScanResult>
+listUnmanaged: () => Promise<UnmanagedItemDto[]>
+previewAdopt: (agentId: string, unmanagedId: string) => Promise<AdoptPreview>
+executeAdopt: (agentId: string, unmanagedId: string, option: AdoptOption, renamedId?: string) => Promise<void>
+executeAdoptBatch: (items: AdoptBatchItem[]) => Promise<AdoptBatchResult>
 }
 }
 
