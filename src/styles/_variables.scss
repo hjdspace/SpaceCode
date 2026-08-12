@@ -114,6 +114,8 @@ $grid-opacity: 0.01;
   --warning-glow: #{$warning-glow};
   --error: #{$error};
   --error-glow: #{$error-glow};
+  --info: #3b82f6;
+  --info-glow: rgba(59, 130, 246, 0.15);
   
   --border-subtle: rgba(24, 25, 31, 0.05);
   --border-default: rgba(24, 25, 31, 0.09);
@@ -215,6 +217,8 @@ $grid-opacity: 0.01;
   --warning-glow: rgba(212, 160, 23, 0.15);
   --error: #c64545;
   --error-glow: rgba(198, 69, 69, 0.15);
+  --info: #60a5fa;
+  --info-glow: rgba(96, 165, 250, 0.15);
 
   /* Border System - Hairline Philosophy */
   --border-subtle: rgba(20, 20, 19, 0.04);
@@ -329,6 +333,8 @@ $grid-opacity: 0.01;
   --warning-glow: rgba(212, 160, 23, 0.18);
   --error: #c64545;
   --error-glow: rgba(198, 69, 69, 0.18);
+  --info: #60a5fa;
+  --info-glow: rgba(96, 165, 250, 0.18);
 
   /* Border System - Subtle on dark */
   --border-subtle: rgba(250, 249, 245, 0.04);
@@ -430,6 +436,8 @@ $grid-opacity: 0.01;
   --warning-glow: rgba(245, 158, 11, 0.2);
   --error: #ef4444;
   --error-glow: rgba(239, 68, 68, 0.2);
+  --info: #60a5fa;
+  --info-glow: rgba(96, 165, 250, 0.2);
   
   --border-subtle: rgba(255, 255, 255, 0.04);
   --border-default: rgba(255, 255, 255, 0.08);

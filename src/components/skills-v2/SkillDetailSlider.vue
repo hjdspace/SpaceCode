@@ -3,10 +3,11 @@
  * Skill Manager V2 — Skill Detail Slider
  *
  * Right-side slide-out panel showing full skill information.
- * Reference: AgentBro `src/components/skills-v2/SkillDetailSlider.tsx`
+ * Used as a fallback overlay when the inline inspector is not enough
+ * (e.g. file tree viewing). The inline inspector lives in SkillLibraryPage.
  */
 
-import { computed, watch } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSkillManagerStore } from '@/stores/skillManagerStore'
 import type { FileTreeNode } from '@/types/skillManagerV2'
@@ -22,7 +23,7 @@ const store = useSkillManagerStore()
 
 // ── Computed ───────────────────────────────────────────────────────
 
-const visible = computed(() => store.selectedSkillId !== null)
+const visible = computed(() => store.selectedSkillId !== null && store.selectedSkillDetail !== null)
 const detail = computed(() => store.selectedSkillDetail)
 const loading = computed(() => store.detailLoading)
 
@@ -53,7 +54,6 @@ async function handleOpenPath(): Promise<void> {
 
 async function handleDelete(): Promise<void> {
   if (!store.selectedSkillId) return
-  // Trigger the preview dialog in SkillLibraryPage
   store.busyAction = 'preview-delete'
 }
 
@@ -77,14 +77,8 @@ const fileTreeText = computed(() => renderFileTree(detail.value?.files ?? null))
 
 <template>
   <Transition name="slide">
-    <div v-if="visible" class="skill-detail-slider">
-      <!-- Loading -->
-      <div v-if="loading" class="sds-loading">
-        {{ t('skillManagerV2.loading') }}
-      </div>
-
-      <!-- Content -->
-      <div v-else-if="detail" class="sds-content">
+    <div v-if="visible && !loading" class="skill-detail-slider">
+      <div class="sds-content" v-if="detail">
         <!-- Header -->
         <header class="sds-header">
           <h2 class="sds-name">{{ detail.name }}</h2>
@@ -188,14 +182,14 @@ const fileTreeText = computed(() => renderFileTree(detail.value?.files ?? null))
   position: fixed;
   top: 0;
   right: 0;
-  width: 420px;
+  width: 400px;
   height: 100vh;
-  background: var(--bg-primary, #1e1e1e);
-  border-left: 1px solid var(--border-color, #333);
+  background: var(--bg-elevated);
+  border-left: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;
   z-index: 100;
-  box-shadow: -4px 0 12px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-lg);
 }
 
 .slide-enter-active,
@@ -208,14 +202,6 @@ const fileTreeText = computed(() => renderFileTree(detail.value?.files ?? null))
   transform: translateX(100%);
 }
 
-.sds-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  opacity: 0.7;
-}
-
 .sds-content {
   display: flex;
   flex-direction: column;
@@ -226,54 +212,65 @@ const fileTreeText = computed(() => renderFileTree(detail.value?.files ?? null))
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color, #333);
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
 }
 
 .sds-name {
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
   margin: 0;
+  font-family: var(--font-display);
 }
 
 .sds-close {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
   background: none;
-  border: none;
-  color: inherit;
-  font-size: 24px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 16px;
   cursor: pointer;
-  padding: 0 4px;
+
+  &:hover {
+    color: var(--text-primary);
+    border-color: var(--border-strong);
+  }
 }
 
 .sds-body {
   flex: 1;
   overflow-y: auto;
-  padding: 16px 20px;
+  padding: 14px 18px;
 }
 
 .sds-section {
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
 .sds-section-title {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
   text-transform: uppercase;
-  opacity: 0.6;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
   margin: 0 0 6px;
 }
 
 .sds-desc {
-  font-size: 14px;
+  font-size: 13px;
   margin: 0 0 8px;
 }
 
 .sds-path,
 .sds-hash {
   font-size: 12px;
-  font-family: monospace;
-  opacity: 0.8;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
   margin: 0;
   word-break: break-all;
 }
@@ -281,17 +278,18 @@ const fileTreeText = computed(() => renderFileTree(detail.value?.files ?? null))
 .sds-frontmatter,
 .sds-file-tree {
   font-size: 12px;
-  font-family: monospace;
-  background: var(--bg-input, #252525);
+  font-family: var(--font-mono);
+  background: var(--surface-soft);
   padding: 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   overflow-x: auto;
   margin: 0;
+  line-height: 1.4;
 }
 
 .sds-empty-list {
   font-size: 13px;
-  opacity: 0.6;
+  color: var(--text-muted);
 }
 
 .sds-target-list,
@@ -306,7 +304,7 @@ const fileTreeText = computed(() => renderFileTree(detail.value?.files ?? null))
   align-items: center;
   gap: 6px;
   padding: 6px 0;
-  border-bottom: 1px solid var(--border-color, #222);
+  border-bottom: 1px solid var(--border-subtle);
   font-size: 12px;
   flex-wrap: wrap;
 }
@@ -316,12 +314,14 @@ const fileTreeText = computed(() => renderFileTree(detail.value?.files ?? null))
 }
 
 .sds-target-mode {
-  opacity: 0.7;
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 .sds-target-path {
-  font-family: monospace;
-  opacity: 0.6;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
   flex-basis: 100%;
 }
 
@@ -337,45 +337,50 @@ const fileTreeText = computed(() => renderFileTree(detail.value?.files ?? null))
 }
 
 .sds-claim-pack {
-  opacity: 0.7;
+  color: var(--text-muted);
 }
 
 .sds-footer {
   display: flex;
   gap: 8px;
-  padding: 12px 20px;
-  border-top: 1px solid var(--border-color, #333);
+  padding: 12px 18px;
+  border-top: 1px solid var(--border-default);
   flex-shrink: 0;
 }
 
 .sds-btn {
   flex: 1;
-  padding: 8px 16px;
-  border: 1px solid var(--border-color, #555);
-  border-radius: 4px;
-  background: transparent;
-  color: inherit;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
   cursor: pointer;
   font-size: 13px;
+  font-weight: 600;
+  transition: all 0.15s;
 
   &:hover {
-    background: var(--bg-hover, #2a2a2a);
+    border-color: var(--border-strong);
+    background: var(--bg-hover);
   }
 }
 
 .sds-btn-danger {
-  border-color: var(--error-color, #f48771);
-  color: var(--error-color, #f48771);
+  border-color: rgba(220, 38, 38, 0.3);
+  color: var(--error);
+  background: rgba(220, 38, 38, 0.06);
 
   &:hover {
-    background: rgba(244, 135, 113, 0.1);
+    background: rgba(220, 38, 38, 0.12);
   }
 }
 
 .sds-status {
   display: inline-block;
   font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 3px;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
 }
 </style>

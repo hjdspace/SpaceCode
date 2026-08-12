@@ -1,11 +1,9 @@
 <script setup lang="ts">
 /**
- * Skill Manager V2 — Install Page (Slice 3)
+ * Skill Manager V2 — Install Page
  *
- * Install page with sub-tabs: Local Import, GitHub, Marketplace.
- * Only Local Import is functional in Slice 3.
- *
- * Reference: AgentBro `src/components/skills-v2/InstallPage.tsx`
+ * Layout: subtab cards (Local / GitHub / Marketplace) + import flow.
+ * The local import flow uses the existing ImportDialog component.
  */
 
 import { ref } from 'vue'
@@ -14,62 +12,66 @@ import ImportDialog from './ImportDialog.vue'
 
 const { t } = useI18n()
 
-type SubTab = 'local' | 'github' | 'marketplace'
+// ── State ─────────────────────────────────────────────────────────
 
-const activeSubTab = ref<SubTab>('local')
+const activeSubtab = ref<'local' | 'github' | 'marketplace'>('local')
 const importDialog = ref<InstanceType<typeof ImportDialog> | null>(null)
 
-const subTabs: Array<{ id: SubTab; labelKey: string }> = [
-  { id: 'local', labelKey: 'skillManagerV2.install.local' },
-  { id: 'github', labelKey: 'skillManagerV2.install.github' },
-  { id: 'marketplace', labelKey: 'skillManagerV2.install.marketplace' },
-]
+// ── Handlers ───────────────────────────────────────────────────────
 
-function openImportDialog(): void {
+function handleImportClick(): void {
   importDialog.value?.open()
 }
 </script>
 
 <template>
-  <div class="install-page">
-    <!-- Sub-tab Navigation -->
-    <div class="install-subtabs">
+  <div class="ipm-page">
+    <!-- Subtabs -->
+    <div class="ipm-subtabs">
       <button
-        v-for="tab in subTabs"
-        :key="tab.id"
-        class="install-subtab"
-        :class="{ active: activeSubTab === tab.id }"
-        @click="activeSubTab = tab.id"
+        :class="{ active: activeSubtab === 'local' }"
+        @click="activeSubtab = 'local'"
       >
-        {{ t(tab.labelKey) }}
+        {{ t('skillManagerV2.install.local') }}
+      </button>
+      <button
+        :class="{ active: activeSubtab === 'github' }"
+        @click="activeSubtab = 'github'"
+      >
+        {{ t('skillManagerV2.install.github') }}
+      </button>
+      <button
+        :class="{ active: activeSubtab === 'marketplace' }"
+        @click="activeSubtab = 'marketplace'"
+      >
+        {{ t('skillManagerV2.install.marketplace') }}
       </button>
     </div>
 
-    <!-- Sub-tab Content -->
-    <div class="install-content">
+    <!-- Content -->
+    <div class="ipm-content">
       <!-- Local Import -->
-      <div v-if="activeSubTab === 'local'" class="install-local">
-        <div class="install-local-intro">
-          <h3>{{ t('skillManagerV2.install.localTitle') }}</h3>
-          <p>{{ t('skillManagerV2.install.localDesc') }}</p>
-          <button class="install-local-btn" @click="openImportDialog">
-            {{ t('skillManagerV2.install.selectAndImport') }}
-          </button>
-        </div>
+      <div v-if="activeSubtab === 'local'" class="ipm-card">
+        <div class="ipm-card-icon">SK</div>
+        <h3 class="ipm-card-title">{{ t('skillManagerV2.install.localTitle') }}</h3>
+        <p class="ipm-card-desc">{{ t('skillManagerV2.install.localDesc') }}</p>
+        <button class="ipm-btn primary" @click="handleImportClick">
+          {{ t('skillManagerV2.actions.importFolder') }}
+        </button>
       </div>
 
-      <!-- GitHub Import (placeholder) -->
-      <div v-else-if="activeSubTab === 'github'" class="install-github">
-        <div class="install-placeholder">
-          {{ t('skillManagerV2.install.githubPlaceholder') }}
-        </div>
+      <!-- GitHub -->
+      <div v-else-if="activeSubtab === 'github'" class="ipm-card">
+        <div class="ipm-card-icon">GH</div>
+        <h3 class="ipm-card-title">{{ t('skillManagerV2.install.github') }}</h3>
+        <p class="ipm-card-desc">{{ t('skillManagerV2.install.githubPlaceholder') }}</p>
       </div>
 
-      <!-- Marketplace (placeholder) -->
-      <div v-else-if="activeSubTab === 'marketplace'" class="install-marketplace">
-        <div class="install-placeholder">
-          {{ t('skillManagerV2.install.marketplacePlaceholder') }}
-        </div>
+      <!-- Marketplace -->
+      <div v-else class="ipm-card">
+        <div class="ipm-card-icon">MP</div>
+        <h3 class="ipm-card-title">{{ t('skillManagerV2.install.marketplace') }}</h3>
+        <p class="ipm-card-desc">{{ t('skillManagerV2.install.marketplacePlaceholder') }}</p>
       </div>
     </div>
 
@@ -79,80 +81,118 @@ function openImportDialog(): void {
 </template>
 
 <style scoped lang="scss">
-.install-page {
+.ipm-page {
+  height: 100%;
+  overflow-y: auto;
+  padding: 16px 20px 24px;
   display: flex;
   flex-direction: column;
-  height: 100%;
+  gap: 16px;
 }
 
-.install-subtabs {
+// ── Subtabs ───────────────────────────────────────────────────────
+
+.ipm-subtabs {
   display: flex;
-  gap: 4px;
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--border-color, #333);
-}
+  gap: 6px;
+  border-bottom: 1px solid var(--border-default);
+  overflow-x: auto;
 
-.install-subtab {
-  padding: 8px 16px;
-  border: none;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font-size: 13px;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-
-  &:hover {
-    opacity: 0.8;
-  }
-
-  &.active {
-    border-bottom-color: var(--accent-color, #007acc);
-    color: var(--accent-color, #007acc);
-  }
-}
-
-.install-content {
-  flex: 1;
-}
-
-.install-local-intro {
-  max-width: 500px;
-
-  h3 {
-    font-size: 16px;
-    font-weight: 600;
-    margin: 0 0 8px;
-  }
-
-  p {
+  button {
+    height: 34px;
+    padding: 0 16px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--text-muted);
     font-size: 13px;
-    opacity: 0.7;
-    margin: 0 0 20px;
-    line-height: 1.5;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: all 0.15s;
+
+    &:hover {
+      color: var(--text-primary);
+    }
+    &.active {
+      color: var(--accent-primary);
+      border-bottom-color: var(--accent-primary);
+    }
   }
 }
 
-.install-local-btn {
-  padding: 10px 24px;
-  border: 1px solid var(--accent-color, #007acc);
-  border-radius: 4px;
-  background: var(--accent-color, #007acc);
-  color: #fff;
+// ── Content ───────────────────────────────────────────────────────
+
+.ipm-content {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 20px;
+}
+
+.ipm-card {
+  max-width: 420px;
+  width: 100%;
+  padding: 28px 24px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  text-align: center;
+}
+
+.ipm-card-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 16px;
+  border-radius: var(--radius-md);
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.ipm-card-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 700;
+  font-family: var(--font-display);
+}
+
+.ipm-card-desc {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.ipm-btn {
+  height: 36px;
+  padding: 0 20px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
-  font-size: 14px;
+  transition: all 0.15s;
 
   &:hover {
-    opacity: 0.9;
+    border-color: var(--border-strong);
+    background: var(--bg-hover);
   }
-}
 
-.install-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 200px;
-  opacity: 0.4;
-  font-size: 14px;
+  &.primary {
+    border-color: var(--accent-primary);
+    background: var(--accent-primary);
+    color: #fff;
+
+    &:hover {
+      background: var(--accent-primary-hover);
+    }
+  }
 }
 </style>

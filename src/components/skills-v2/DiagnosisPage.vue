@@ -2,16 +2,13 @@
 /**
  * Skill Manager V2 — Diagnosis Page
  *
- * Shows diagnosis issues grouped by severity, with one-click safe fixes
- * and per-issue fix actions.
- *
- * Reference: AgentBro `src/components/skills-v2/DiagnosisPage.tsx`
+ * Layout: action bar + diagnostic-card grid.
  */
 
 import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSkillManagerStore } from '@/stores/skillManagerStore'
-import type { DiagnosisIssue, DiagnosisSeverity } from '@/types/skillManagerV2'
+import type { DiagnosisIssue, FixKind } from '@/types/skillManagerV2'
 
 const { t } = useI18n()
 const store = useSkillManagerStore()
@@ -28,24 +25,22 @@ const errorCount = computed(() => issues.value.filter((i) => i.severity === 'err
 const warningCount = computed(() => issues.value.filter((i) => i.severity === 'warning').length)
 const infoCount = computed(() => issues.value.filter((i) => i.severity === 'info').length)
 
-const autoFixableCount = computed(() =>
-  issues.value.filter((i) => i.fixKind === 'auto').length
-)
-
 const hasIssues = computed(() => issues.value.length > 0)
+const loading = computed(() => store.diagnosisLoading)
+const fixing = computed(() => store.busyAction === 'safe-fixes')
+const safeFixResult = computed(() => store.safeFixResult)
 
-// ── Lifecycle ──────────────────────────────────────────────────────
+// ── Lifecycle ─────────────────────────────────────────────────────
 
 onMounted(() => {
-  // Auto-run diagnosis on first visit if no issues loaded yet
-  if (!store.diagnosisIssues.length && !store.diagnosisLoading) {
+  if (issues.value.length === 0 && !loading.value) {
     store.runDiagnosis()
   }
 })
 
 // ── Handlers ───────────────────────────────────────────────────────
 
-async function handleRunDiagnosis(): Promise<void> {
+async function handleRunScan(): Promise<void> {
   await store.runDiagnosis()
 }
 
@@ -53,17 +48,23 @@ async function handleSafeFixes(): Promise<void> {
   await store.executeSafeFixes()
 }
 
-function severityLabel(severity: DiagnosisSeverity): string {
-  const map: Record<DiagnosisSeverity, string> = {
+// ── Helpers ────────────────────────────────────────────────────────
+
+function severityClass(severity: string): string {
+  return severity === 'error' ? 'error' : severity === 'warning' ? 'warning' : 'info'
+}
+
+function severityLabel(severity: string): string {
+  const map: Record<string, string> = {
     error: t('skillManagerV2.diagnosis.severityError'),
     warning: t('skillManagerV2.diagnosis.severityWarning'),
     info: t('skillManagerV2.diagnosis.severityInfo'),
   }
-  return map[severity]
+  return map[severity] ?? severity
 }
 
-function fixKindLabel(fixKind: string): string {
-  const map: Record<string, string> = {
+function fixKindLabel(fixKind: FixKind): string {
+  const map: Record<FixKind, string> = {
     auto: t('skillManagerV2.diagnosis.fixAuto'),
     confirm: t('skillManagerV2.diagnosis.fixConfirm'),
     manual: t('skillManagerV2.diagnosis.fixManual'),
@@ -71,124 +72,197 @@ function fixKindLabel(fixKind: string): string {
   }
   return map[fixKind] ?? fixKind
 }
+
+function fixKindClass(fixKind: FixKind): string {
+  const map: Record<FixKind, string> = {
+    auto: 'auto',
+    confirm: 'confirm',
+    manual: 'manual',
+    info: 'info',
+  }
+  return map[fixKind] ?? 'info'
+}
 </script>
 
 <template>
-  <div class="diagnosis-page">
-    <!-- Header -->
-    <div class="diag-header">
-      <h2 class="diag-title">{{ t('skillManagerV2.diagnosis.title') }}</h2>
-      <div class="diag-actions">
+  <div class="dxp-page">
+    <!-- Action Bar -->
+    <div class="dxp-action-bar">
+      <div class="dxp-summary">
+        <span class="dxp-summary-item error" v-if="errorCount > 0">
+          {{ errorCount }} {{ t('skillManagerV2.diagnosis.severityError') }}
+        </span>
+        <span class="dxp-summary-item warning" v-if="warningCount > 0">
+          {{ warningCount }} {{ t('skillManagerV2.diagnosis.severityWarning') }}
+        </span>
+        <span class="dxp-summary-item info" v-if="infoCount > 0">
+          {{ infoCount }} {{ t('skillManagerV2.diagnosis.severityInfo') }}
+        </span>
+        <span v-if="!hasIssues && !loading" class="dxp-all-clear">
+          {{ t('skillManagerV2.empty.noIssues') }}
+        </span>
+      </div>
+      <div class="dxp-actions">
         <button
-          class="diag-btn"
-          :disabled="store.diagnosisLoading"
-          @click="handleRunDiagnosis"
+          class="dxp-btn"
+          :disabled="loading"
+          @click="handleRunScan"
         >
-          {{ store.diagnosisLoading ? t('common.loading') : t('skillManagerV2.diagnosis.runScan') }}
+          {{ loading ? t('skillManagerV2.diagnosis.scanning') : t('skillManagerV2.diagnosis.runScan') }}
         </button>
         <button
-          v-if="autoFixableCount > 0"
-          class="diag-btn diag-btn-primary"
-          :disabled="store.busyAction === 'safe-fixes'"
+          class="dxp-btn primary"
+          :disabled="fixing || !hasIssues"
           @click="handleSafeFixes"
         >
-          {{ t('skillManagerV2.diagnosis.safeFixes') }} ({{ autoFixableCount }})
+          {{ fixing ? t('common.loading') : t('skillManagerV2.diagnosis.safeFixes') }}
         </button>
       </div>
     </div>
 
-    <!-- Safe fix result -->
-    <div v-if="store.safeFixResult" class="diag-fix-result">
-      <span class="diag-fix-count">
-        {{ t('skillManagerV2.diagnosis.fixedCount', { count: store.safeFixResult.fixedCount }) }}
-      </span>
-      <ul v-if="store.safeFixResult.details.length" class="diag-fix-details">
-        <li v-for="(detail, idx) in store.safeFixResult.details" :key="idx">{{ detail }}</li>
-      </ul>
+    <!-- Safe Fix Result -->
+    <div v-if="safeFixResult" class="dxp-fix-result">
+      {{ t('skillManagerV2.diagnosis.fixedCount', { count: safeFixResult.fixedCount }) }}
     </div>
 
     <!-- Loading -->
-    <div v-if="store.diagnosisLoading" class="diag-loading">
+    <div v-if="loading && !hasIssues" class="dxp-loading">
       {{ t('skillManagerV2.diagnosis.scanning') }}
     </div>
 
-    <!-- Empty state -->
-    <div v-else-if="!hasIssues" class="diag-empty">
-      <p class="diag-empty-title">{{ t('skillManagerV2.empty.noIssues') }}</p>
-      <p class="diag-empty-desc">{{ t('skillManagerV2.empty.noIssuesDesc') }}</p>
+    <!-- Empty State -->
+    <div v-else-if="!hasIssues" class="dxp-empty">
+      <p class="dxp-empty-title">{{ t('skillManagerV2.empty.noIssues') }}</p>
+      <p class="dxp-empty-desc">{{ t('skillManagerV2.empty.noIssuesDesc') }}</p>
     </div>
 
-    <!-- Issue summary -->
-    <div v-else class="diag-summary">
-      <span v-if="errorCount" class="diag-summary-item error">
-        {{ t('skillManagerV2.diagnosis.severityError') }}: {{ errorCount }}
-      </span>
-      <span v-if="warningCount" class="diag-summary-item warning">
-        {{ t('skillManagerV2.diagnosis.severityWarning') }}: {{ warningCount }}
-      </span>
-      <span v-if="infoCount" class="diag-summary-item info">
-        {{ t('skillManagerV2.diagnosis.severityInfo') }}: {{ infoCount }}
-      </span>
-    </div>
-
-    <!-- Issue list -->
-    <div v-if="hasIssues" class="diag-issue-list">
+    <!-- Issue Cards Grid -->
+    <div v-else class="dxp-grid">
       <div
         v-for="issue in issues"
         :key="issue.id"
-        class="diag-issue-card"
-        :class="issue.severity"
+        class="dxp-card"
+        :class="severityClass(issue.severity)"
       >
-        <div class="diag-issue-header">
-          <span class="diag-issue-severity-badge" :class="issue.severity">
+        <div class="dxp-card-head">
+          <span class="dxp-sev-badge" :class="severityClass(issue.severity)">
+            {{ issue.severity === 'error' ? '!' : issue.severity === 'warning' ? 'W' : 'i' }}
+          </span>
+          <h3 class="dxp-card-title">{{ issue.title }}</h3>
+        </div>
+        <p class="dxp-card-detail">{{ issue.detail }}</p>
+        <div class="dxp-card-meta">
+          <span class="dxp-meta-item">
+            <small>{{ t('skillManagerV2.list.status') }}</small>
             {{ severityLabel(issue.severity) }}
           </span>
-          <span class="diag-issue-fix-kind">{{ fixKindLabel(issue.fixKind) }}</span>
+          <span class="dxp-meta-item">
+            <small>{{ t('skillManagerV2.detail.source') }}</small>
+            {{ issue.entityType }}
+          </span>
+          <span class="dxp-meta-item">
+            <small>{{ t('skillManagerV2.detail.manage') }}</small>
+            <span class="dxp-fix-badge" :class="fixKindClass(issue.fixKind)">
+              {{ fixKindLabel(issue.fixKind) }}
+            </span>
+          </span>
         </div>
-        <h3 class="diag-issue-title">{{ issue.title }}</h3>
-        <p class="diag-issue-detail">{{ issue.detail }}</p>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped lang="scss">
-.diagnosis-page {
+.dxp-page {
+  height: 100%;
+  overflow-y: auto;
+  padding: 16px 20px 24px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.diag-header {
+// ── Action Bar ────────────────────────────────────────────────────
+
+.dxp-action-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border-color, #333);
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
-.diag-title {
-  font-size: 16px;
+.dxp-summary {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.dxp-summary-item {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
   font-weight: 600;
-  margin: 0;
+
+  &.error {
+    background: rgba(220, 38, 38, 0.08);
+    color: var(--error);
+  }
+  &.warning {
+    background: rgba(217, 119, 6, 0.08);
+    color: var(--warning);
+  }
+  &.info {
+    background: rgba(59, 130, 246, 0.08);
+    color: var(--info);
+  }
 }
 
-.diag-actions {
+.dxp-all-clear {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: var(--radius-full);
+  background: rgba(5, 150, 105, 0.08);
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dxp-actions {
   display: flex;
   gap: 8px;
 }
 
-.diag-btn {
-  padding: 6px 14px;
-  border: 1px solid var(--border-color, #555);
-  border-radius: 4px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
+.dxp-btn {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
   font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
 
   &:hover:not(:disabled) {
-    background: var(--bg-hover, #2a2a2a);
+    border-color: var(--border-strong);
+    background: var(--bg-hover);
+  }
+  &.primary {
+    border-color: var(--accent-primary);
+    background: var(--accent-primary);
+    color: #fff;
+
+    &:hover:not(:disabled) {
+      background: var(--accent-primary-hover);
+    }
   }
   &:disabled {
     opacity: 0.5;
@@ -196,125 +270,177 @@ function fixKindLabel(fixKind: string): string {
   }
 }
 
-.diag-btn-primary {
-  background: var(--accent-color, #007acc);
-  border-color: var(--accent-color, #007acc);
-  color: #fff;
+// ── Fix Result ────────────────────────────────────────────────────
 
-  &:hover:not(:disabled) {
-    opacity: 0.9;
-    background: var(--accent-color, #007acc);
-  }
-}
-
-.diag-fix-result {
+.dxp-fix-result {
   padding: 10px 14px;
-  border: 1px solid var(--border-color, #333);
-  border-radius: 6px;
-  background: var(--bg-hover, #2a2a2a);
-}
-
-.diag-fix-count {
-  font-weight: 600;
+  border: 1px solid rgba(5, 150, 105, 0.2);
+  border-radius: var(--radius-md);
+  background: rgba(5, 150, 105, 0.06);
+  color: var(--success);
   font-size: 13px;
+  font-weight: 600;
 }
 
-.diag-fix-details {
-  margin: 6px 0 0;
-  padding-left: 20px;
-  font-size: 12px;
-  opacity: 0.8;
+// ── Loading / Empty ───────────────────────────────────────────────
+
+.dxp-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  opacity: 0.5;
 }
 
-.diag-loading,
-.diag-empty {
+.dxp-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 60px 20px;
   text-align: center;
+
+  p { margin: 4px 0; }
 }
 
-.diag-empty-title {
-  font-size: 16px;
+.dxp-empty-title {
+  font-size: 15px;
   font-weight: 600;
-  margin: 0 0 4px;
 }
 
-.diag-empty-desc {
+.dxp-empty-desc {
   font-size: 13px;
-  opacity: 0.6;
-  margin: 0;
+  color: var(--text-muted);
 }
 
-.diag-summary {
+// ── Issue Cards Grid ──────────────────────────────────────────────
+
+.dxp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.dxp-card {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  transition: box-shadow 0.15s;
+
+  &:hover {
+    box-shadow: var(--shadow-sm);
+  }
+
+  &.error {
+    border-left: 3px solid var(--error);
+  }
+  &.warning {
+    border-left: 3px solid var(--warning);
+  }
+  &.info {
+    border-left: 3px solid var(--info);
+  }
+}
+
+.dxp-card-head {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 9px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.dxp-sev-badge {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 800;
+
+  &.error {
+    background: rgba(220, 38, 38, 0.1);
+    color: var(--error);
+  }
+  &.warning {
+    background: rgba(217, 119, 6, 0.1);
+    color: var(--warning);
+  }
+  &.info {
+    background: rgba(59, 130, 246, 0.1);
+    color: var(--info);
+  }
+}
+
+.dxp-card-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dxp-card-detail {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.dxp-card-meta {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
 }
 
-.diag-summary-item {
-  font-size: 12px;
-  padding: 3px 10px;
-  border-radius: 3px;
-
-  &.error { background: rgba(244, 135, 113, 0.2); color: #f48771; }
-  &.warning { background: rgba(204, 167, 0, 0.2); color: #cca700; }
-  &.info { background: rgba(117, 190, 255, 0.2); color: #75beff; }
-}
-
-.diag-issue-list {
+.dxp-meta-item {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-
-.diag-issue-card {
-  padding: 12px 14px;
-  border: 1px solid var(--border-color, #333);
-  border-radius: 6px;
-  border-left: 3px solid transparent;
-
-  &.error { border-left-color: #f48771; }
-  &.warning { border-left-color: #cca700; }
-  &.info { border-left-color: #75beff; }
-}
-
-.diag-issue-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.diag-issue-severity-badge {
-  font-size: 10px;
-  padding: 2px 8px;
-  border-radius: 3px;
-  font-weight: 600;
-  text-transform: uppercase;
-
-  &.error { background: #f48771; color: #fff; }
-  &.warning { background: #cca700; color: #fff; }
-  &.info { background: #75beff; color: #fff; }
-}
-
-.diag-issue-fix-kind {
+  gap: 2px;
   font-size: 11px;
-  opacity: 0.6;
-}
-
-.diag-issue-title {
-  font-size: 14px;
   font-weight: 600;
-  margin: 0 0 4px;
+
+  small {
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
 }
 
-.diag-issue-detail {
-  font-size: 12px;
-  opacity: 0.7;
-  margin: 0;
-  line-height: 1.5;
+.dxp-fix-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: 700;
+
+  &.auto {
+    background: rgba(5, 150, 105, 0.08);
+    color: var(--success);
+  }
+  &.confirm {
+    background: rgba(217, 119, 6, 0.08);
+    color: var(--warning);
+  }
+  &.manual {
+    background: rgba(220, 38, 38, 0.08);
+    color: var(--error);
+  }
+  &.info {
+    background: rgba(59, 130, 246, 0.08);
+    color: var(--info);
+  }
 }
 </style>

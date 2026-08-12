@@ -2,32 +2,26 @@
 /**
  * Skill Manager V2 — Agent Management Page
  *
- * Left: agent list with managed/unmanaged counts.
- * Right: agent detail with skills, unmanaged items, applied packs, health issues.
- *
- * Reference: AgentBro `src/components/skills-v2/AgentManagementPage.tsx`
+ * Layout: side-panel agent list + detail-panel with tabs (Skills, Packs, Diagnostics).
  */
 
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSkillManagerStore } from '@/stores/skillManagerStore'
 import type { SkillTarget, UnmanagedItemDto, DiagnosisIssue } from '@/types/skillManagerV2'
+import { getAgentInitials } from './skillLabels'
 
 const { t } = useI18n()
 const store = useSkillManagerStore()
+
+// ── State ─────────────────────────────────────────────────────────
+
+const activeTab = ref<'skills' | 'packs' | 'diagnostics'>('skills')
 
 // ── Computed ───────────────────────────────────────────────────────
 
 const agents = computed(() => store.agents)
 const selectedAgent = computed(() => store.selectedAgentDetail)
-
-const linkTargets = computed<SkillTarget[]>(() =>
-  selectedAgent.value?.skills.filter((t) => t.actualMode === 'link') ?? []
-)
-
-const copyTargets = computed<SkillTarget[]>(() =>
-  selectedAgent.value?.skills.filter((t) => t.actualMode === 'copy') ?? []
-)
 
 const unmanagedItems = computed<UnmanagedItemDto[]>(() =>
   selectedAgent.value?.unmanaged ?? []
@@ -43,7 +37,14 @@ const healthIssues = computed<DiagnosisIssue[]>(() =>
 
 const hasAgents = computed(() => agents.value.length > 0)
 
-// ── Lifecycle ──────────────────────────────────────────────────────
+// ── Agent status summary ──────────────────────────────────────────
+
+function agentStatusChip(agent: typeof agents.value[0]): { cls: string; label: string } {
+  if (agent.unmanagedCount > 0) return { cls: 'warn', label: t('skillManagerV2.status.unmanaged') }
+  return { cls: 'ok', label: t('skillManagerV2.status.ok') }
+}
+
+// ── Lifecycle ─────────────────────────────────────────────────────
 
 onMounted(() => {
   if (hasAgents.value && !store.selectedAgentId) {
@@ -78,49 +79,98 @@ function statusLabel(status: string): string {
   }
   return map[status] ?? status
 }
+
+function statusPillClass(status: string): string {
+  const map: Record<string, string> = {
+    ok: 'ok',
+    unmanaged: 'unmanaged',
+    conflict: 'conflict',
+    broken_link: 'warn',
+    copy_outdated: 'warn',
+    copy_modified: 'warn',
+    copy_diverged: 'conflict',
+    missing: 'warn',
+  }
+  return map[status] ?? 'ok'
+}
+
+function modePillClass(mode: string): string {
+  return mode === 'link' ? 'link' : 'copy'
+}
+
+function severityClass(severity: string): string {
+  return severity === 'error' ? 'bad' : severity === 'warning' ? 'warn' : 'ok'
+}
+
+function severityLabel(severity: string): string {
+  const map: Record<string, string> = {
+    error: t('skillManagerV2.diagnosis.severityError'),
+    warning: t('skillManagerV2.diagnosis.severityWarning'),
+    info: t('skillManagerV2.diagnosis.severityInfo'),
+  }
+  return map[severity] ?? severity
+}
 </script>
 
 <template>
-  <div class="agent-mgmt-page">
+  <div class="agent-page">
     <!-- Empty state -->
-    <div v-if="!hasAgents" class="amg-empty">
-      <p class="amg-empty-title">{{ t('skillManagerV2.empty.noAgents') }}</p>
+    <div v-if="!hasAgents" class="amp-empty">
+      <p class="amp-empty-title">{{ t('skillManagerV2.empty.noAgents') }}</p>
     </div>
 
     <!-- Two-column layout -->
-    <div v-else class="amg-layout">
+    <div v-else class="amp-layout">
       <!-- Left: Agent List -->
-      <div class="amg-agent-list">
-        <div
-          v-for="agent in agents"
-          :key="agent.id"
-          class="amg-agent-card"
-          :class="{ active: store.selectedAgentId === agent.id }"
-          @click="handleSelectAgent(agent.id)"
-        >
-          <h3 class="amg-agent-name">{{ agent.displayName }}</h3>
-          <p v-if="agent.skillsDir" class="amg-agent-dir">{{ agent.skillsDir }}</p>
-          <div class="amg-agent-stats">
-            <span class="amg-stat">{{ t('skillManagerV2.agent.managed') }}: {{ agent.managedSkillCount }}</span>
-            <span class="amg-stat">{{ t('skillManagerV2.agent.unmanaged') }}: {{ agent.unmanagedCount }}</span>
+      <aside class="amp-side-panel">
+        <header class="amp-side-header">
+          <h3>{{ t('skillManagerV2.tabs.agents') }}</h3>
+          <p>{{ t('skillManagerV2.viewSubtitle.agents') }}</p>
+        </header>
+        <div class="amp-side-body">
+          <div class="amp-list-menu">
+            <button
+              v-for="agent in agents"
+              :key="agent.id"
+              class="amp-list-item"
+              :class="{ active: store.selectedAgentId === agent.id }"
+              @click="handleSelectAgent(agent.id)"
+            >
+              <span>
+                <strong>{{ agent.displayName }}</strong>
+                <small>v{{ agent.version ?? '?' }} · {{ agent.managedSkillCount }} Skills · {{ agent.unmanagedCount }} {{ t('skillManagerV2.agent.unmanaged') }}</small>
+              </span>
+              <span class="amp-chip" :class="agentStatusChip(agent).cls">
+                {{ agentStatusChip(agent).label }}
+              </span>
+            </button>
           </div>
         </div>
-      </div>
+      </aside>
 
       <!-- Right: Agent Detail -->
-      <div class="amg-detail">
+      <section class="amp-detail-panel">
         <!-- Loading -->
-        <div v-if="store.agentDetailLoading" class="amg-loading">
+        <div v-if="store.agentDetailLoading" class="amp-loading">
           {{ t('common.loading') }}
         </div>
 
         <template v-else-if="selectedAgent">
-          <!-- Header -->
-          <div class="amg-detail-header">
-            <h2 class="amg-detail-title">{{ selectedAgent.displayName }}</h2>
-            <div class="amg-detail-actions">
+          <!-- Agent Header -->
+          <div class="amp-agent-header">
+            <div class="amp-agent-title">
+              <span class="amp-glyph">{{ getAgentInitials(selectedAgent.id) }}</span>
+              <div>
+                <h3>{{ selectedAgent.displayName }}</h3>
+                <p>
+                  <span v-if="selectedAgent.skillsDir">{{ selectedAgent.skillsDir }}</span>
+                  <span v-if="selectedAgent.lastScannedAt"> · {{ selectedAgent.lastScannedAt }}</span>
+                </p>
+              </div>
+            </div>
+            <div class="amp-header-actions">
               <button
-                class="amg-btn"
+                class="amp-btn primary"
                 :disabled="store.busyAction === 'scan-agent-detail'"
                 @click="handleScanAgent(selectedAgent.id)"
               >
@@ -128,7 +178,7 @@ function statusLabel(status: string): string {
               </button>
               <button
                 v-if="selectedAgent.skillsDir"
-                class="amg-btn"
+                class="amp-btn"
                 @click="handleOpenDir(selectedAgent.skillsDir)"
               >
                 {{ t('skillManagerV2.actions.openPath') }}
@@ -136,171 +186,297 @@ function statusLabel(status: string): string {
             </div>
           </div>
 
-          <!-- Version info -->
-          <div class="amg-section">
-            <h3 class="amg-section-title">{{ t('skillManagerV2.agent.version') }}</h3>
-            <p class="amg-section-body">
-              <span v-if="selectedAgent.version">{{ selectedAgent.version }}</span>
-              <span v-else class="amg-muted">{{ t('skillManagerV2.agent.versionUnknown') }}</span>
-            </p>
+          <!-- Tabs -->
+          <div class="amp-tabs">
+            <button
+              :class="{ active: activeTab === 'skills' }"
+              @click="activeTab = 'skills'"
+            >
+              {{ t('skillManagerV2.agent.tabs.skills') }}
+            </button>
+            <button
+              :class="{ active: activeTab === 'packs' }"
+              @click="activeTab = 'packs'"
+            >
+              {{ t('skillManagerV2.agent.tabs.packs') }}
+            </button>
+            <button
+              :class="{ active: activeTab === 'diagnostics' }"
+              @click="activeTab = 'diagnostics'"
+            >
+              {{ t('skillManagerV2.agent.tabs.diagnostics') }}
+            </button>
           </div>
 
-          <!-- Skills -->
-          <div class="amg-section">
-            <h3 class="amg-section-title">
-              {{ t('skillManagerV2.agent.installedSkills') }}
-              <span class="amg-section-count">({{ selectedAgent.skills.length }})</span>
-            </h3>
-            <div v-if="selectedAgent.skills.length === 0" class="amg-muted">
-              {{ t('skillManagerV2.agent.noSkills') }}
-            </div>
-            <div v-else class="amg-target-list">
-              <div v-for="target in selectedAgent.skills" :key="target.id" class="amg-target-item">
-                <span class="amg-target-skill">{{ target.skillId }}</span>
-                <span class="amg-target-mode" :class="target.actualMode">{{ target.actualMode }}</span>
-                <span class="amg-target-status" :class="target.status">{{ statusLabel(target.status) }}</span>
+          <!-- Tab Content -->
+          <div class="amp-tab-content">
+            <!-- Skills Tab -->
+            <div v-if="activeTab === 'skills'" class="amp-skills-tab">
+              <!-- Info Grid -->
+              <div class="amp-info-grid">
+                <div class="amp-info-cell">
+                  <strong>{{ selectedAgent.version ?? '?' }}</strong>
+                  <span>{{ t('skillManagerV2.agent.currentVersion') }}</span>
+                </div>
+                <div class="amp-info-cell">
+                  <strong>{{ selectedAgent.skills.length }}</strong>
+                  <span>{{ t('skillManagerV2.agent.totalSkills') }}</span>
+                </div>
+                <div class="amp-info-cell">
+                  <strong>{{ selectedAgent.skills.filter((s: SkillTarget) => s.status === 'ok').length }}</strong>
+                  <span>{{ t('skillManagerV2.agent.managedCount') }}</span>
+                </div>
+                <div class="amp-info-cell">
+                  <strong>{{ selectedAgent.unmanaged.length }}</strong>
+                  <span>{{ t('skillManagerV2.agent.unmanagedCount') }}</span>
+                </div>
+              </div>
+
+              <!-- Skills List -->
+              <div class="amp-data-list" v-if="selectedAgent.skills.length > 0">
+                <div
+                  v-for="target in selectedAgent.skills"
+                  :key="target.id"
+                  class="amp-data-row"
+                >
+                  <span class="amp-glyph sm">{{ target.skillId.slice(0, 2).toUpperCase() }}</span>
+                  <div>
+                    <strong>{{ target.skillId }}</strong>
+                    <span>{{ target.targetPath }}</span>
+                  </div>
+                  <span class="amp-status-pill" :class="modePillClass(target.actualMode)">
+                    {{ target.actualMode === 'link'
+                      ? t('skillManagerV2.settings.modeLink')
+                      : t('skillManagerV2.settings.modeCopy') }}
+                  </span>
+                </div>
+              </div>
+
+              <!-- Unmanaged -->
+              <div v-if="unmanagedItems.length > 0" class="amp-section">
+                <h4 class="amp-section-title">
+                  {{ t('skillManagerV2.agent.unmanagedSkills') }}
+                  <span class="amp-count">({{ unmanagedItems.length }})</span>
+                </h4>
+                <div class="amp-data-list">
+                  <div v-for="item in unmanagedItems" :key="item.id" class="amp-data-row">
+                    <span class="amp-glyph sm">?</span>
+                    <div>
+                      <strong>{{ item.inferredSkillId ?? item.path }}</strong>
+                      <span>{{ item.reason }}</span>
+                    </div>
+                    <span class="amp-status-pill unmanaged">{{ t('skillManagerV2.status.unmanaged') }}</span>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
 
-          <!-- Unmanaged -->
-          <div v-if="unmanagedItems.length > 0" class="amg-section">
-            <h3 class="amg-section-title">
-              {{ t('skillManagerV2.agent.unmanagedSkills') }}
-              <span class="amg-section-count">({{ unmanagedItems.length }})</span>
-            </h3>
-            <div class="amg-unmanaged-list">
-              <div v-for="item in unmanagedItems" :key="item.id" class="amg-unmanaged-item">
-                <span class="amg-unmanaged-name">{{ item.inferredSkillId ?? item.path }}</span>
-                <span class="amg-unmanaged-reason">{{ item.reason }}</span>
+            <!-- Packs Tab -->
+            <div v-if="activeTab === 'packs'" class="amp-packs-tab">
+              <div v-if="appliedPacks.length === 0" class="amp-muted">
+                {{ t('skillManagerV2.empty.noPacks') }}
+              </div>
+              <div v-else class="amp-data-list">
+                <div v-for="pack in appliedPacks" :key="pack.id" class="amp-data-row">
+                  <span class="amp-glyph sm">PK</span>
+                  <div>
+                    <strong>{{ pack.name }}</strong>
+                    <span>{{ pack.memberCount }} skills</span>
+                  </div>
+                  <span class="amp-chip ok">{{ t('skillManagerV2.status.ok') }}</span>
+                </div>
               </div>
             </div>
-          </div>
 
-          <!-- Applied Packs -->
-          <div v-if="appliedPacks.length > 0" class="amg-section">
-            <h3 class="amg-section-title">
-              {{ t('skillManagerV2.agent.appliedPacks') }}
-              <span class="amg-section-count">({{ appliedPacks.length }})</span>
-            </h3>
-            <div class="amg-pack-list">
-              <div v-for="pack in appliedPacks" :key="pack.id" class="amg-pack-item">
-                <span class="amg-pack-name">{{ pack.name }}</span>
-                <span class="amg-pack-members">{{ pack.memberCount }} skills</span>
+            <!-- Diagnostics Tab -->
+            <div v-if="activeTab === 'diagnostics'" class="amp-diag-tab">
+              <div v-if="healthIssues.length === 0" class="amp-muted">
+                {{ t('skillManagerV2.empty.noIssues') }}
               </div>
-            </div>
-          </div>
-
-          <!-- Health Issues -->
-          <div v-if="healthIssues.length > 0" class="amg-section">
-            <h3 class="amg-section-title amg-health-title">
-              {{ t('skillManagerV2.agent.healthIssues') }}
-              <span class="amg-section-count">({{ healthIssues.length }})</span>
-            </h3>
-            <div class="amg-health-list">
-              <div
-                v-for="issue in healthIssues"
-                :key="issue.id"
-                class="amg-health-item"
-                :class="issue.severity"
-              >
-                <span class="amg-health-severity" :class="issue.severity">{{ issue.severity }}</span>
-                <span class="amg-health-title">{{ issue.title }}</span>
-                <span class="amg-health-detail">{{ issue.detail }}</span>
+              <div v-else class="amp-data-list">
+                <div
+                  v-for="issue in healthIssues"
+                  :key="issue.id"
+                  class="amp-data-row"
+                >
+                  <span class="amp-glyph sm" :class="severityClass(issue.severity)">
+                    {{ issue.severity === 'error' ? '!' : issue.severity === 'warning' ? 'W' : 'i' }}
+                  </span>
+                  <div>
+                    <strong>{{ issue.title }}</strong>
+                    <span>{{ issue.detail }}</span>
+                  </div>
+                  <span class="amp-chip" :class="severityClass(issue.severity)">
+                    {{ severityLabel(issue.severity) }}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
         </template>
 
         <!-- No agent selected -->
-        <div v-else class="amg-muted">
+        <div v-else class="amp-muted">
           {{ t('skillManagerV2.agent.selectAgent') }}
         </div>
-      </div>
+      </section>
     </div>
   </div>
 </template>
 
 <style scoped lang="scss">
-.agent-mgmt-page {
+.agent-page {
   height: 100%;
 }
 
-.amg-empty {
+.amp-empty {
   display: flex;
   align-items: center;
   justify-content: center;
   height: 200px;
 }
 
-.amg-empty-title {
-  font-size: 16px;
-  opacity: 0.6;
+.amp-empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-muted);
 }
 
-.amg-layout {
-  display: flex;
-  gap: 16px;
+.amp-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 12px;
   height: 100%;
+  padding: 16px 20px;
 }
 
-.amg-agent-list {
-  width: 240px;
-  flex-shrink: 0;
+// ── Side Panel ────────────────────────────────────────────────────
+
+.amp-side-panel {
+  min-width: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  overflow-y: auto;
 }
 
-.amg-agent-card {
+.amp-side-header {
   padding: 12px;
-  border: 1px solid var(--border-color, #333);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: border-color 0.15s;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-soft);
 
-  &:hover {
-    border-color: var(--accent-color, #007acc);
+  h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 700;
   }
-  &.active {
-    border-color: var(--accent-color, #007acc);
-    background: var(--bg-active, rgba(9, 71, 113, 0.3));
+  p {
+    margin: 4px 0 0;
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.4;
   }
 }
 
-.amg-agent-name {
-  font-size: 14px;
-  font-weight: 600;
-  margin: 0 0 4px;
-}
-
-.amg-agent-dir {
-  font-size: 11px;
-  opacity: 0.5;
-  margin: 0 0 6px;
-  word-break: break-all;
-}
-
-.amg-agent-stats {
-  display: flex;
-  gap: 10px;
-}
-
-.amg-stat {
-  font-size: 11px;
-  opacity: 0.7;
-}
-
-.amg-detail {
+.amp-side-body {
   flex: 1;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  padding: 10px;
 }
 
-.amg-loading {
+.amp-list-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.amp-list-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  text-align: left;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s;
+
+  &:hover {
+    border-color: var(--border-default);
+    background: var(--surface-soft);
+  }
+  &.active {
+    border-color: var(--accent-primary-glow);
+    background: var(--accent-primary-glow);
+  }
+
+  strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  small {
+    display: block;
+    margin-top: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-muted);
+    font-size: 10px;
+  }
+}
+
+.amp-chip {
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+
+  &.ok {
+    border-color: rgba(5, 150, 105, 0.2);
+    background: rgba(5, 150, 105, 0.06);
+    color: var(--success);
+  }
+  &.warn {
+    border-color: rgba(217, 119, 6, 0.25);
+    background: rgba(217, 119, 6, 0.06);
+    color: var(--warning);
+  }
+  &.bad {
+    border-color: rgba(220, 38, 38, 0.25);
+    background: rgba(220, 38, 38, 0.06);
+    color: var(--error);
+  }
+}
+
+// ── Detail Panel ──────────────────────────────────────────────────
+
+.amp-detail-panel {
+  min-width: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.amp-loading {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -308,36 +484,90 @@ function statusLabel(status: string): string {
   opacity: 0.5;
 }
 
-.amg-detail-header {
+.amp-agent-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border-color, #333);
+  gap: 12px;
+  padding: 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-soft);
 }
 
-.amg-detail-title {
-  font-size: 18px;
-  font-weight: 600;
-  margin: 0;
+.amp-agent-title {
+  display: grid;
+  grid-template-columns: 38px 1fr;
+  gap: 11px;
+  align-items: center;
+  min-width: 0;
+
+  h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+  }
+  p {
+    margin: 4px 0 0;
+    color: var(--text-muted);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+  }
 }
 
-.amg-detail-actions {
+.amp-glyph {
+  width: 38px;
+  height: 38px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 800;
+  flex-shrink: 0;
+
+  &.sm {
+    width: 26px;
+    height: 26px;
+    font-size: 10px;
+    border-radius: var(--radius-sm);
+
+    &.warn { background: rgba(217, 119, 6, 0.1); color: var(--warning); }
+    &.bad { background: rgba(220, 38, 38, 0.1); color: var(--error); }
+    &.ok { background: rgba(5, 150, 105, 0.1); color: var(--success); }
+  }
+}
+
+.amp-header-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
-.amg-btn {
-  padding: 5px 12px;
-  border: 1px solid var(--border-color, #555);
-  border-radius: 4px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
+.amp-btn {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
   font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
 
   &:hover:not(:disabled) {
-    background: var(--bg-hover, #2a2a2a);
+    border-color: var(--border-strong);
+    background: var(--bg-hover);
+  }
+  &.primary {
+    border-color: var(--accent-primary);
+    background: var(--accent-primary);
+    color: #fff;
+
+    &:hover:not(:disabled) {
+      background: var(--accent-primary-hover);
+    }
   }
   &:disabled {
     opacity: 0.5;
@@ -345,143 +575,150 @@ function statusLabel(status: string): string {
   }
 }
 
-.amg-section {
+// ── Tabs ──────────────────────────────────────────────────────────
+
+.amp-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px 14px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  overflow-x: auto;
+
+  button {
+    height: 28px;
+    padding: 0 12px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-full);
+    border-bottom: none;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: all 0.15s;
+
+    &.active {
+      border-color: var(--accent-primary);
+      background: var(--accent-primary-glow);
+      color: var(--accent-primary);
+    }
+  }
+}
+
+.amp-tab-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+}
+
+// ── Info Grid ─────────────────────────────────────────────────────
+
+.amp-info-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.amp-info-cell {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+
+  strong {
+    display: block;
+    font-size: 16px;
+    font-weight: 700;
+    font-family: var(--font-display);
+    line-height: 1;
+  }
+  span {
+    display: block;
+    margin-top: 4px;
+    color: var(--text-muted);
+    font-size: 10px;
+  }
+}
+
+// ── Data List ─────────────────────────────────────────────────────
+
+.amp-data-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.amg-section-title {
-  font-size: 13px;
-  font-weight: 600;
-  margin: 0;
-  opacity: 0.9;
+.amp-data-row {
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  gap: 9px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  font-size: 12px;
+
+  strong {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  span {
+    display: block;
+    margin-top: 2px;
+    color: var(--text-muted);
+    font-size: 10px;
+    overflow-wrap: anywhere;
+  }
 }
 
-.amg-section-count {
+.amp-status-pill {
+  min-width: 50px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 7px;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+
+  &.link { color: var(--accent-primary); background: rgba(13, 148, 136, 0.08); }
+  &.copy { color: var(--accent-secondary); background: rgba(99, 102, 241, 0.08); }
+  &.ok { color: var(--success); background: rgba(5, 150, 105, 0.08); }
+  &.warn { color: var(--warning); background: rgba(217, 119, 6, 0.08); }
+  &.bad { color: var(--error); background: rgba(220, 38, 38, 0.08); }
+  &.unmanaged { color: var(--accent-tertiary); background: rgba(124, 58, 237, 0.08); }
+  &.conflict { color: var(--error); background: rgba(220, 38, 38, 0.08); }
+}
+
+.amp-section {
+  margin-top: 14px;
+}
+
+.amp-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  color: var(--text-secondary);
+}
+
+.amp-count {
   font-weight: 400;
-  opacity: 0.6;
+  color: var(--text-muted);
 }
 
-.amg-section-body {
+.amp-muted {
   font-size: 13px;
-  margin: 0;
-}
-
-.amg-muted {
-  font-size: 13px;
-  opacity: 0.5;
-}
-
-.amg-target-list,
-.amg-unmanaged-list,
-.amg-pack-list,
-.amg-health-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.amg-target-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border: 1px solid var(--border-color, #333);
-  border-radius: 4px;
-  font-size: 12px;
-}
-
-.amg-target-skill {
-  flex: 1;
-  font-weight: 500;
-}
-
-.amg-target-mode {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 3px;
-
-  &.link { background: rgba(117, 190, 255, 0.2); color: #75beff; }
-  &.copy { background: rgba(204, 167, 0, 0.2); color: #cca700; }
-}
-
-.amg-target-status {
-  font-size: 10px;
-  opacity: 0.7;
-
-  &.ok { color: #4ec9b0; }
-  &.broken_link { color: #f48771; }
-  &.copy_outdated,
-  &.copy_modified,
-  &.copy_diverged { color: #cca700; }
-  &.missing { color: #f48771; }
-}
-
-.amg-unmanaged-item,
-.amg-pack-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 10px;
-  border: 1px solid var(--border-color, #333);
-  border-radius: 4px;
-  font-size: 12px;
-}
-
-.amg-unmanaged-name {
-  font-weight: 500;
-}
-
-.amg-unmanaged-reason {
-  font-size: 11px;
-  opacity: 0.6;
-}
-
-.amg-pack-name {
-  font-weight: 500;
-}
-
-.amg-pack-members {
-  font-size: 11px;
-  opacity: 0.6;
-}
-
-.amg-health-title {
-  color: #f48771;
-}
-
-.amg-health-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
-  border: 1px solid var(--border-color, #333);
-  border-radius: 4px;
-  border-left: 3px solid transparent;
-  font-size: 12px;
-
-  &.error { border-left-color: #f48771; }
-  &.warning { border-left-color: #cca700; }
-  &.info { border-left-color: #75beff; }
-}
-
-.amg-health-severity {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  width: fit-content;
-  padding: 1px 6px;
-  border-radius: 3px;
-
-  &.error { background: #f48771; color: #fff; }
-  &.warning { background: #cca700; color: #fff; }
-  &.info { background: #75beff; color: #fff; }
-}
-
-.amg-health-detail {
-  font-size: 11px;
-  opacity: 0.6;
+  color: var(--text-muted);
+  padding: 40px 20px;
+  text-align: center;
 }
 </style>
