@@ -12,6 +12,7 @@ import {
   STATUS_FILTER_OPTIONS,
   STATUS_LABEL_KEYS,
   STATUS_CSS_CLASSES,
+  getSkillGlyph,
 } from './skillLabels'
 
 const { t } = useI18n()
@@ -25,13 +26,6 @@ const deletePreviewVisible = computed(() => store.busyAction === 'preview-delete
 const deleteBusy = computed(() => store.busyAction === 'delete-skill')
 const allSelected = computed(() => store.filteredSkills.length > 0 && store.filteredSkills.every((skill) => selectedSkillIds.value.includes(skill.id)))
 const selectedSkills = computed(() => store.skills.filter((skill) => selectedSkillIds.value.includes(skill.id)))
-
-function getSkillGlyph(name: string): string {
-  const parts = name.replace(/[-_]/g, ' ').split(/\s+/)
-  return parts.length >= 2
-    ? `${parts[0][0]}${parts[1][0]}`.toUpperCase()
-    : name.slice(0, 2).toUpperCase()
-}
 
 function handleSearchInput(event: Event): void {
   store.setSearchQuery((event.target as HTMLInputElement).value)

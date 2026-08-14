@@ -57,6 +57,16 @@ export function getAgentInitials(agentId: string): string {
   return AGENT_INITIALS[agentId] ?? agentId.slice(0, 2).toUpperCase()
 }
 
+// ── Skill glyph ────────────────────────────────────────────────────
+
+/** Derive a two-letter glyph from a skill name (word initials, else first two chars). */
+export function getSkillGlyph(name: string): string {
+  const parts = name.replace(/[-_]/g, ' ').split(/\s+/)
+  return parts.length >= 2
+    ? `${parts[0][0]}${parts[1][0]}`.toUpperCase()
+    : name.slice(0, 2).toUpperCase()
+}
+
 // ── Status filter options ──────────────────────────────────────────
 
 export const STATUS_FILTER_OPTIONS: Array<{ value: string; labelKey: string }> = [

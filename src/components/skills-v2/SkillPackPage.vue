@@ -12,11 +12,13 @@ import { useSkillManagerStore } from '@/stores/skillManagerStore'
 import type {
   SkillPackSummary,
   SkillPackDetail,
+  SkillPackMember,
   DeletePackPreview,
   RemovePackFromAgentPreview,
 } from '@/types/skillManagerV2'
 import PackBuilder from './PackBuilder.vue'
 import ApplyPackDialog from './ApplyPackDialog.vue'
+import { getSkillGlyph } from './skillLabels'
 
 const { t } = useI18n()
 const store = useSkillManagerStore()
@@ -37,6 +39,9 @@ const notice = ref<string | null>(null)
 const packs = computed<SkillPackSummary[]>(() => store.packs)
 const selectedPackDetail = computed<SkillPackDetail | null>(() => store.selectedPackDetail)
 const hasPacks = computed(() => packs.value.length > 0)
+const totalMembers = computed(() => packs.value.reduce((sum, pack) => sum + pack.memberCount, 0))
+const totalApplied = computed(() => packs.value.reduce((sum, pack) => sum + pack.appliedAgentCount, 0))
+const isDefaultPack = computed(() => selectedPackDetail.value?.id === 'default')
 
 const filteredPacks = computed(() => {
   const q = packQuery.value.trim().toLowerCase()
@@ -68,6 +73,11 @@ watch(
 function selectPack(packId: string): void {
   builderMode.value = null
   store.loadPackDetail(packId)
+}
+
+function handleMemberClick(member: SkillPackMember): void {
+  if (member.missing) return
+  void store.loadSkillDetail(member.skillId)
 }
 
 function startCreate(): void {
@@ -161,6 +171,25 @@ function clearNotice(): void {
     <!-- Error -->
     <div v-if="store.error" class="spp-error">{{ store.error }}</div>
 
+    <header class="spp-header">
+      <div>
+        <h2>{{ t('skillManagerV2.pack.allPacks') }}</h2>
+        <p>{{ t('skillManagerV2.viewSubtitle.packs') }}</p>
+        <div class="spp-overview" aria-label="技能包概览">
+          <span><strong>{{ packs.length }}</strong> {{ t('skillManagerV2.pack.packCountLabel') }}</span>
+          <span><strong>{{ totalMembers }}</strong> {{ t('skillManagerV2.pack.memberRefsLabel') }}</span>
+          <span><strong>{{ totalApplied }}</strong> {{ t('skillManagerV2.pack.agentAppsLabel') }}</span>
+          <span class="spp-overview-status"><i />{{ t('skillManagerV2.pack.healthySummary') }}</span>
+        </div>
+      </div>
+      <div class="spp-header-actions">
+        <button class="spp-btn primary" @click="startCreate">+ {{ t('skillManagerV2.actions.newPack') }}</button>
+        <button class="spp-btn" :disabled="store.loading" @click="store.loadOverview()">
+          {{ store.loading ? t('skillManagerV2.loading') : t('skillManagerV2.actions.refresh') }}
+        </button>
+      </div>
+    </header>
+
     <!-- Two-column layout -->
     <div class="spp-layout">
       <!-- Left: Pack List -->
@@ -177,12 +206,6 @@ function clearNotice(): void {
           class="spp-search"
           :placeholder="t('skillManagerV2.pack.searchPlaceholder')"
         />
-        <div class="spp-side-actions">
-          <button class="spp-btn primary" @click="startCreate">
-            + {{ t('skillManagerV2.actions.newPack') }}
-          </button>
-        </div>
-
         <!-- Pack List -->
         <div v-if="!hasPacks" class="spp-empty-side">
           <strong>{{ t('skillManagerV2.empty.noPacks') }}</strong>
@@ -202,11 +225,11 @@ function clearNotice(): void {
             :class="{ active: selectedPackDetail?.id === pack.id && !builderMode }"
             @click="selectPack(pack.id)"
           >
-            <span class="spp-pack-emblem">PK</span>
+            <span class="spp-pack-emblem" :class="{ builtIn: pack.id === 'default' }">{{ pack.id === 'default' ? 'ALL' : 'PK' }}</span>
             <span class="spp-pack-body">
               <span class="spp-pack-top">
                 <strong>{{ pack.name }}</strong>
-                <span class="spp-pack-health ok">OK</span>
+                <span class="spp-pack-health ok">{{ pack.id === 'default' ? '内置' : '正常' }}</span>
               </span>
               <span class="spp-pack-desc">{{ pack.description || t('skillManagerV2.pack.customPack') }}</span>
               <span class="spp-pack-meta">
@@ -222,13 +245,16 @@ function clearNotice(): void {
       <!-- Right: Pack Detail / Builder -->
       <main class="spp-canvas">
         <!-- Builder Mode -->
-        <PackBuilder
-          v-if="builderMode"
-          :mode="builderMode"
-          :existing="builderMode === 'edit' ? selectedPackDetail : null"
-          @cancel="builderMode = null"
-          @saved="onSaved"
-        />
+        <div v-if="builderMode" class="spp-overlay spp-builder-overlay" @click.self="builderMode = null">
+          <div class="spp-modal spp-builder-modal" @click.stop>
+            <PackBuilder
+              :mode="builderMode"
+              :existing="builderMode === 'edit' ? selectedPackDetail : null"
+              @cancel="builderMode = null"
+              @saved="onSaved"
+            />
+          </div>
+        </div>
 
         <!-- Detail Mode -->
         <template v-else-if="selectedPackDetail">
@@ -236,9 +262,9 @@ function clearNotice(): void {
             <!-- Header -->
             <header class="spp-detail-header">
               <div class="spp-detail-identity">
-                <span class="spp-detail-emblem">PK</span>
+                <span class="spp-detail-emblem" :class="{ builtIn: isDefaultPack }">{{ isDefaultPack ? 'ALL' : 'PK' }}</span>
                 <div class="spp-detail-main">
-                  <div class="spp-detail-kicker">{{ t('skillManagerV2.pack.customPack') }}</div>
+                  <div class="spp-detail-kicker">{{ isDefaultPack ? t('skillManagerV2.pack.systemPack') : t('skillManagerV2.pack.customPack') }}</div>
                   <h3>{{ selectedPackDetail.name }}</h3>
                   <p>{{ selectedPackDetail.description || t('skillManagerV2.pack.descPlaceholder') }}</p>
                   <div class="spp-detail-tags">
@@ -256,14 +282,19 @@ function clearNotice(): void {
                 >
                   {{ t('skillManagerV2.actions.applyPack') }}
                 </button>
-                <button class="spp-btn" :disabled="busy" @click="startEdit">
+                <button v-if="!isDefaultPack" class="spp-btn" :disabled="busy" @click="startEdit">
                   {{ t('skillManagerV2.pack.edit') }}
                 </button>
-                <button class="spp-btn danger" :disabled="busy" @click="openDelete(selectedPackDetail.id)">
+                <button v-if="!isDefaultPack" class="spp-btn danger" :disabled="busy" @click="openDelete(selectedPackDetail.id)">
                   {{ t('skillManagerV2.pack.delete') }}
                 </button>
               </div>
             </header>
+
+            <div v-if="isDefaultPack" class="spp-system-note">
+              <strong>{{ t('skillManagerV2.pack.systemNoteTitle') }}</strong>
+              <span>{{ t('skillManagerV2.pack.systemNote') }}</span>
+            </div>
 
             <!-- Section Tabs -->
             <div class="spp-section-tabs">
@@ -286,7 +317,7 @@ function clearNotice(): void {
               <div v-if="selectedPackDetail.members.length === 0" class="spp-section-empty">
                 <strong>{{ t('skillManagerV2.pack.emptyMembers') }}</strong>
                 <span>{{ t('skillManagerV2.pack.emptyMembersHint') }}</span>
-                <button class="spp-btn" @click="startEdit">{{ t('skillManagerV2.pack.addSkills') }}</button>
+                <button v-if="!isDefaultPack" class="spp-btn" @click="startEdit">{{ t('skillManagerV2.pack.addSkills') }}</button>
               </div>
               <div v-else class="spp-member-list">
                 <div
@@ -294,8 +325,12 @@ function clearNotice(): void {
                   :key="member.skillId"
                   class="spp-member-row"
                   :class="{ missing: member.missing }"
+                  :role="member.missing ? undefined : 'button'"
+                  :tabindex="member.missing ? undefined : 0"
+                  @click="handleMemberClick(member)"
+                  @keydown.enter="handleMemberClick(member)"
                 >
-                  <span class="spp-member-mark">{{ member.skillName.trim().slice(0, 1).toUpperCase() || 'S' }}</span>
+                  <span class="spp-member-mark" :class="{ missing: member.missing }">{{ getSkillGlyph(member.skillName.trim() || 'S') }}</span>
                   <div class="spp-member-info">
                     <strong>{{ member.skillName }}</strong>
                     <span>{{ member.skillId }}</span>
@@ -433,9 +468,80 @@ function clearNotice(): void {
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px 16px;
+  gap: 12px;
+  padding: 16px 20px 20px;
   overflow: hidden;
+}
+
+.spp-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 0 4px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+
+  h2 {
+    margin: 0;
+    font-size: 21px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+
+  p {
+    margin: 3px 0 0;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+}
+
+.spp-overview {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0;
+  margin-top: 9px;
+  color: var(--text-muted);
+  font-size: 11px;
+
+  > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  > span + span::before {
+    content: '';
+    width: 1px;
+    height: 12px;
+    margin: 0 10px;
+    background: var(--border-default);
+  }
+
+  strong {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.spp-overview-status {
+  color: var(--success);
+  font-weight: 700;
+
+  i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+}
+
+.spp-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 // ── Notice ────────────────────────────────────────────────────────
@@ -622,6 +728,11 @@ function clearNotice(): void {
   font-size: 10px;
   font-weight: 800;
   flex-shrink: 0;
+
+  &.builtIn {
+    background: color-mix(in srgb, var(--accent-primary) 10%, var(--surface-card));
+    color: var(--accent-primary);
+  }
 }
 
 .spp-pack-body {
@@ -766,6 +877,29 @@ function clearNotice(): void {
   font-size: 12px;
   font-weight: 800;
   flex-shrink: 0;
+
+  &.builtIn {
+    background: color-mix(in srgb, var(--success) 12%, var(--surface-card));
+    color: var(--success);
+  }
+}
+
+.spp-system-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 14px 0;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--success) 20%, var(--border-default));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--success) 7%, var(--bg-elevated));
+  color: var(--text-muted);
+  font-size: 11px;
+
+  strong {
+    color: var(--success);
+    white-space: nowrap;
+  }
 }
 
 .spp-detail-main {
@@ -944,8 +1078,8 @@ function clearNotice(): void {
 
 .spp-member-row {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) auto;
-  gap: 9px;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  gap: 10px;
   align-items: center;
   padding: 9px;
   border: 1px solid var(--border-default);
@@ -953,24 +1087,40 @@ function clearNotice(): void {
   background: var(--surface-soft);
   font-size: 12px;
   min-width: 0;
+  cursor: pointer;
+  transition: border-color .18s, background .18s;
+
+  &:hover:not(.missing),
+  &:focus-visible:not(.missing) {
+    border-color: color-mix(in srgb, var(--accent-primary) 48%, var(--border-default));
+    background: var(--bg-hover);
+    outline: none;
+  }
 
   &.missing {
+    cursor: default;
     border-color: rgba(217, 119, 6, 0.25);
     background: rgba(217, 119, 6, 0.04);
   }
 }
 
 .spp-member-mark {
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   display: inline-grid;
   place-items: center;
   border-radius: var(--radius-sm);
-  background: var(--surface-card);
-  color: var(--text-secondary);
-  font-size: 10px;
+  background: var(--text-primary);
+  color: var(--bg-primary);
+  font-size: 11px;
   font-weight: 800;
+  letter-spacing: .02em;
   flex-shrink: 0;
+
+  &.missing {
+    background: var(--surface-card);
+    color: var(--text-muted);
+  }
 }
 
 .spp-member-info {
@@ -1082,6 +1232,21 @@ function clearNotice(): void {
   }
 }
 
+.spp-builder-overlay {
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(5px);
+}
+
+.spp-builder-modal {
+  width: min(1080px, 100%);
+  height: min(760px, 100%);
+  max-height: none;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg, 14px);
+}
+
 .spp-modal-header {
   display: flex;
   align-items: center;
@@ -1176,8 +1341,16 @@ function clearNotice(): void {
   border-top: 1px solid var(--border-default);
 }
 
-// ── Builder (shared styles for PackBuilder child) ────────────────
-// These are re-exported via :deep() since PackBuilder has no scoped styles
+@media (max-width: 820px) {
+  .spp-page { padding: 12px; }
+  .spp-header { align-items: stretch; flex-direction: column; }
+  .spp-header-actions { justify-content: flex-start; }
+  .spp-layout { grid-template-columns: 1fr; overflow-y: auto; }
+  .spp-sidebar { min-height: 220px; }
+  .spp-canvas { min-height: 520px; }
+  .spp-builder-overlay { padding: 0; }
+  .spp-builder-modal { width: 100%; height: 100%; border-radius: 0; }
+}
 
 .spp-detail-actions {
   display: flex;
