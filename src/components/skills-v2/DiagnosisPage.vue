@@ -5,13 +5,15 @@
  * Layout: action bar + diagnostic-card grid.
  */
 
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { CheckCircle2, RefreshCw, Wrench } from 'lucide-vue-next'
 import { useSkillManagerStore } from '@/stores/skillManagerStore'
 import type { DiagnosisIssue, FixKind } from '@/types/skillManagerV2'
 
 const { t } = useI18n()
 const store = useSkillManagerStore()
+const activeFilter = ref<'all' | 'auto' | 'confirm' | 'hint'>('all')
 
 // ── Computed ───────────────────────────────────────────────────────
 
@@ -29,6 +31,15 @@ const hasIssues = computed(() => issues.value.length > 0)
 const loading = computed(() => store.diagnosisLoading)
 const fixing = computed(() => store.busyAction === 'safe-fixes')
 const safeFixResult = computed(() => store.safeFixResult)
+const autoCount = computed(() => issues.value.filter((issue) => issue.fixKind === 'auto').length)
+const confirmCount = computed(() => issues.value.filter((issue) => issue.fixKind === 'confirm').length)
+const hintCount = computed(() => issues.value.filter((issue) => issue.fixKind === 'manual' || issue.fixKind === 'info').length)
+const filteredIssues = computed(() => activeFilter.value === 'all'
+  ? issues.value
+  : activeFilter.value === 'hint'
+    ? issues.value.filter((issue) => issue.fixKind === 'manual' || issue.fixKind === 'info')
+    : issues.value.filter((issue) => issue.fixKind === activeFilter.value)
+)
 
 // ── Lifecycle ─────────────────────────────────────────────────────
 
@@ -86,21 +97,11 @@ function fixKindClass(fixKind: FixKind): string {
 
 <template>
   <div class="dxp-page">
-    <!-- Action Bar -->
-    <div class="dxp-action-bar">
-      <div class="dxp-summary">
-        <span class="dxp-summary-item error" v-if="errorCount > 0">
-          {{ errorCount }} {{ t('skillManagerV2.diagnosis.severityError') }}
-        </span>
-        <span class="dxp-summary-item warning" v-if="warningCount > 0">
-          {{ warningCount }} {{ t('skillManagerV2.diagnosis.severityWarning') }}
-        </span>
-        <span class="dxp-summary-item info" v-if="infoCount > 0">
-          {{ infoCount }} {{ t('skillManagerV2.diagnosis.severityInfo') }}
-        </span>
-        <span v-if="!hasIssues && !loading" class="dxp-all-clear">
-          {{ t('skillManagerV2.empty.noIssues') }}
-        </span>
+    <div class="dxp-health-banner" :class="{ healthy: !hasIssues }">
+      <div class="dxp-health-copy">
+        <span class="dxp-health-status"><CheckCircle2 :size="14" />{{ hasIssues ? t('skillManagerV2.diagnosis.attention') : t('skillManagerV2.diagnosis.healthy') }}</span>
+        <h3>{{ hasIssues ? t('skillManagerV2.diagnosis.issueTitle', { count: issues.length }) : t('skillManagerV2.diagnosis.healthyTitle') }}</h3>
+        <p>{{ hasIssues ? t('skillManagerV2.diagnosis.issueDesc') : t('skillManagerV2.empty.noIssuesDesc') }}</p>
       </div>
       <div class="dxp-actions">
         <button
@@ -108,6 +109,7 @@ function fixKindClass(fixKind: FixKind): string {
           :disabled="loading"
           @click="handleRunScan"
         >
+          <RefreshCw :size="15" :class="{ spin: loading }" />
           {{ loading ? t('skillManagerV2.diagnosis.scanning') : t('skillManagerV2.diagnosis.runScan') }}
         </button>
         <button
@@ -115,9 +117,23 @@ function fixKindClass(fixKind: FixKind): string {
           :disabled="fixing || !hasIssues"
           @click="handleSafeFixes"
         >
+          <Wrench :size="15" />
           {{ fixing ? t('common.loading') : t('skillManagerV2.diagnosis.safeFixes') }}
         </button>
       </div>
+    </div>
+
+    <div class="dxp-stat-grid">
+      <button :class="{ active: activeFilter === 'auto' }" @click="activeFilter = 'auto'"><strong>{{ autoCount }}</strong><span>{{ t('skillManagerV2.diagnosis.fixAuto') }}</span></button>
+      <button :class="{ active: activeFilter === 'confirm' }" @click="activeFilter = 'confirm'"><strong>{{ confirmCount }}</strong><span>{{ t('skillManagerV2.diagnosis.fixConfirm') }}</span></button>
+      <button :class="{ active: activeFilter === 'hint' }" @click="activeFilter = 'hint'"><strong>{{ hintCount }}</strong><span>{{ t('skillManagerV2.diagnosis.fixManual') }}</span></button>
+    </div>
+
+    <div class="dxp-filter-tabs">
+      <button :class="{ active: activeFilter === 'all' }" @click="activeFilter = 'all'">{{ t('skillManagerV2.diagnosis.all') }} ({{ issues.length }})</button>
+      <span v-if="errorCount">{{ errorCount }} {{ t('skillManagerV2.diagnosis.severityError') }}</span>
+      <span v-if="warningCount">{{ warningCount }} {{ t('skillManagerV2.diagnosis.severityWarning') }}</span>
+      <span v-if="infoCount">{{ infoCount }} {{ t('skillManagerV2.diagnosis.severityInfo') }}</span>
     </div>
 
     <!-- Safe Fix Result -->
@@ -139,7 +155,7 @@ function fixKindClass(fixKind: FixKind): string {
     <!-- Issue Cards Grid -->
     <div v-else class="dxp-grid">
       <div
-        v-for="issue in issues"
+        v-for="issue in filteredIssues"
         :key="issue.id"
         class="dxp-card"
         :class="severityClass(issue.severity)"
@@ -180,6 +196,107 @@ function fixKindClass(fixKind: FixKind): string {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.dxp-health-banner {
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 22px;
+  border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--border-default));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--warning) 6%, var(--bg-elevated));
+
+  &.healthy {
+    border-color: color-mix(in srgb, var(--success) 28%, var(--border-default));
+    background: color-mix(in srgb, var(--success) 6%, var(--bg-elevated));
+  }
+}
+
+.dxp-health-copy {
+  h3 {
+    margin: 7px 0 4px;
+    font: 700 22px/1.2 var(--font-display);
+    letter-spacing: 0;
+  }
+
+  p {
+    max-width: 65ch;
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+}
+
+.dxp-health-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--success);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.dxp-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+
+  button {
+    min-height: 76px;
+    padding: 13px 16px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 180ms ease, background 180ms ease;
+
+    &:hover, &.active {
+      border-color: color-mix(in srgb, var(--accent-primary) 42%, var(--border-default));
+      background: var(--accent-primary-glow);
+    }
+  }
+
+  strong {
+    display: block;
+    font: 700 21px/1 var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  span {
+    display: block;
+    margin-top: 7px;
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+}
+
+.dxp-filter-tabs {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-default);
+
+  button {
+    height: 34px;
+    padding: 0 10px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+
+    &.active { border-bottom-color: var(--accent-primary); color: var(--accent-primary); }
+  }
+
+  span { color: var(--text-muted); font-size: 10px; }
 }
 
 // ── Action Bar ────────────────────────────────────────────────────
@@ -237,10 +354,14 @@ function fixKindClass(fixKind: FixKind): string {
 .dxp-actions {
   display: flex;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .dxp-btn {
   height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 0 14px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
@@ -269,6 +390,9 @@ function fixKindClass(fixKind: FixKind): string {
     cursor: not-allowed;
   }
 }
+
+.spin { animation: dxp-spin 900ms linear infinite; }
+@keyframes dxp-spin { to { transform: rotate(360deg); } }
 
 // ── Fix Result ────────────────────────────────────────────────────
 
@@ -319,6 +443,12 @@ function fixKindClass(fixKind: FixKind): string {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 10px;
+}
+
+@media (max-width: 720px) {
+  .dxp-health-banner { align-items: stretch; flex-direction: column; }
+  .dxp-actions .dxp-btn { flex: 1; }
+  .dxp-stat-grid { grid-template-columns: 1fr; }
 }
 
 .dxp-card {

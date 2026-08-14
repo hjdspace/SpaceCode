@@ -6,9 +6,20 @@
  * The rail has glyph icons + counts, grouped into Management / Configuration.
  */
 
-import { onMounted, computed } from 'vue'
+import { onMounted, computed, ref, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft } from 'lucide-vue-next'
+import {
+  Bot,
+  BookOpen,
+  Download,
+  HardDrive,
+  PackageOpen,
+  RefreshCw,
+  Settings,
+  Stethoscope,
+  X,
+} from 'lucide-vue-next'
+import appIcon from '@/assets/app-icon.svg'
 import { useAppStore } from '@/stores/app'
 import { useSkillManagerStore } from '@/stores/skillManagerStore'
 import type { SkillTabId } from '@/types/skillManagerV2'
@@ -23,6 +34,7 @@ import SkillPackPage from './SkillPackPage.vue'
 const { t } = useI18n()
 const store = useSkillManagerStore()
 const appStore = useAppStore()
+const refreshing = ref(false)
 
 function handleClose(): void {
   appStore.showSkillsManager = false
@@ -33,17 +45,17 @@ function handleClose(): void {
 interface TabDef {
   id: SkillTabId
   labelKey: string
-  glyph: string
+  icon: Component
   group: 'management' | 'configuration'
 }
 
 const tabs: TabDef[] = [
-  { id: 'library', labelKey: 'skillManagerV2.tabs.library', glyph: 'SK', group: 'management' },
-  { id: 'install', labelKey: 'skillManagerV2.tabs.install', glyph: 'IN', group: 'management' },
-  { id: 'packs', labelKey: 'skillManagerV2.tabs.packs', glyph: 'PK', group: 'management' },
-  { id: 'agents', labelKey: 'skillManagerV2.tabs.agents', glyph: 'AG', group: 'management' },
-  { id: 'diagnostics', labelKey: 'skillManagerV2.tabs.diagnostics', glyph: 'DX', group: 'management' },
-  { id: 'settings', labelKey: 'skillManagerV2.tabs.settings', glyph: 'ST', group: 'configuration' },
+  { id: 'library', labelKey: 'skillManagerV2.tabs.library', icon: BookOpen, group: 'management' },
+  { id: 'install', labelKey: 'skillManagerV2.tabs.install', icon: Download, group: 'management' },
+  { id: 'packs', labelKey: 'skillManagerV2.tabs.packs', icon: PackageOpen, group: 'management' },
+  { id: 'agents', labelKey: 'skillManagerV2.tabs.agents', icon: Bot, group: 'management' },
+  { id: 'diagnostics', labelKey: 'skillManagerV2.tabs.diagnostics', icon: Stethoscope, group: 'management' },
+  { id: 'settings', labelKey: 'skillManagerV2.tabs.settings', icon: Settings, group: 'configuration' },
 ]
 
 const managementTabs = computed(() => tabs.filter((tab) => tab.group === 'management'))
@@ -83,7 +95,16 @@ function handleTabClick(tabId: SkillTabId): void {
 }
 
 async function handleRefresh(): Promise<void> {
-  await store.refresh()
+  refreshing.value = true
+  try {
+    await store.refresh()
+    for (const agent of store.agents) {
+      if (agent.enabled) await store.scanAgentInventory(agent.id, false)
+    }
+    await store.loadOverview()
+  } finally {
+    refreshing.value = false
+  }
 }
 </script>
 
@@ -92,12 +113,10 @@ async function handleRefresh(): Promise<void> {
     <!-- ── Left Rail ──────────────────────────────────────────── -->
     <aside class="sm2-rail">
       <div class="sm2-rail-header">
-        <button class="sm2-back-btn" @click="handleClose" :title="t('common.close')">
-          <ArrowLeft :size="18" />
-        </button>
+        <div class="sm2-brand-mark"><img :src="appIcon" alt="SpaceCode" /></div>
         <div class="sm2-rail-titles">
           <h1 class="sm2-rail-title">{{ t('skillManagerV2.title') }}</h1>
-          <p class="sm2-rail-subtitle">{{ t('skillManagerV2.nav.management') }}</p>
+          <p class="sm2-rail-subtitle">SpaceCode Skills</p>
         </div>
       </div>
 
@@ -108,9 +127,11 @@ async function handleRefresh(): Promise<void> {
           :key="tab.id"
           class="sm2-nav-item"
           :class="{ active: store.activeTab === tab.id }"
+          :aria-current="store.activeTab === tab.id ? 'page' : undefined"
+          :title="t(tab.labelKey)"
           @click="handleTabClick(tab.id)"
         >
-          <span class="sm2-nav-glyph">{{ tab.glyph }}</span>
+          <span class="sm2-nav-glyph"><component :is="tab.icon" :size="17" /></span>
           <span class="sm2-nav-text">{{ t(tab.labelKey) }}</span>
           <span
             v-if="tabCount(tab.id) !== null && tabCount(tab.id)! > 0"
@@ -126,17 +147,19 @@ async function handleRefresh(): Promise<void> {
           :key="tab.id"
           class="sm2-nav-item"
           :class="{ active: store.activeTab === tab.id }"
+          :aria-current="store.activeTab === tab.id ? 'page' : undefined"
+          :title="t(tab.labelKey)"
           @click="handleTabClick(tab.id)"
         >
-          <span class="sm2-nav-glyph">{{ tab.glyph }}</span>
+          <span class="sm2-nav-glyph"><component :is="tab.icon" :size="17" /></span>
           <span class="sm2-nav-text">{{ t(tab.labelKey) }}</span>
         </button>
       </nav>
 
-      <div class="sm2-rail-footer" v-if="store.settings">
-        <div class="sm2-path-card">
-          <strong>{{ t('skillManagerV2.nav.centerLibrary') }}</strong>
-          <code>{{ store.settings.centerLibraryPath }}</code>
+      <div class="sm2-rail-footer">
+        <div class="sm2-device-card">
+          <span class="sm2-device-icon"><HardDrive :size="17" /></span>
+          <span><strong>{{ t('skillManagerV2.nav.localDevice') }}</strong><small><i />{{ t('skillManagerV2.nav.online') }}</small></span>
         </div>
       </div>
     </aside>
@@ -150,12 +173,19 @@ async function handleRefresh(): Promise<void> {
           <p class="sm2-heading-subtitle">{{ currentSubtitle }}</p>
         </div>
         <div class="sm2-top-actions">
+          <span class="sm2-library-status" v-if="store.metrics">
+            <i />{{ store.metrics.centerSkillCount }} {{ t('skillManagerV2.metrics.centerSkills') }}
+          </span>
           <button
-            class="sm2-btn"
-            :disabled="store.loading"
+            class="sm2-icon-btn"
+            :disabled="refreshing"
             @click="handleRefresh"
+            :title="t('skillManagerV2.actions.refresh')"
           >
-            {{ t('skillManagerV2.actions.refresh') }}
+            <RefreshCw :size="17" :class="{ spin: refreshing }" />
+          </button>
+          <button class="sm2-icon-btn" @click="handleClose" :title="t('common.close')">
+            <X :size="18" />
           </button>
         </div>
       </header>
@@ -163,8 +193,15 @@ async function handleRefresh(): Promise<void> {
       <!-- Content -->
       <section class="sm2-content">
         <!-- Loading State -->
-        <div v-if="store.loading && !store.overview" class="sm2-loading">
-          {{ t('skillManagerV2.loading') }}
+        <div v-if="store.loading && !store.overview" class="sm2-loading" aria-live="polite">
+          <div class="sm2-loading-metrics">
+            <span v-for="index in 4" :key="index" />
+          </div>
+          <div class="sm2-loading-toolbar" />
+          <div class="sm2-loading-grid">
+            <span v-for="index in 6" :key="index" />
+          </div>
+          <p>{{ t('skillManagerV2.loading') }}</p>
         </div>
 
         <!-- Error State -->
@@ -194,7 +231,7 @@ async function handleRefresh(): Promise<void> {
 <style scoped lang="scss">
 .sm2-shell {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 232px minmax(0, 1fr);
   height: 100%;
   overflow: hidden;
   background: var(--bg-primary);
@@ -208,37 +245,33 @@ async function handleRefresh(): Promise<void> {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg-secondary);
+  background: color-mix(in srgb, var(--bg-secondary) 94%, var(--accent-primary) 6%);
   border-right: 1px solid var(--border-default);
 }
 
 .sm2-rail-header {
-  height: 60px;
+  height: 72px;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 14px;
+  padding: 0 16px;
   border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
 }
 
-.sm2-back-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-sm);
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.15s;
+.sm2-brand-mark {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 24%, var(--border-default));
+  border-radius: 10px;
+  background: var(--bg-elevated);
   flex-shrink: 0;
 
-  &:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
+  img {
+    width: 25px;
+    height: 25px;
   }
 }
 
@@ -251,7 +284,7 @@ async function handleRefresh(): Promise<void> {
   font-size: 14px;
   font-weight: 700;
   font-family: var(--font-display);
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -266,7 +299,7 @@ async function handleRefresh(): Promise<void> {
 
 .sm2-nav {
   flex: 1;
-  padding: 10px 8px;
+  padding: 14px 10px;
   overflow-y: auto;
 }
 
@@ -276,18 +309,18 @@ async function handleRefresh(): Promise<void> {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
 }
 
 .sm2-nav-item {
   width: 100%;
   min-width: 0;
-  height: 36px;
+  height: 42px;
   display: grid;
   grid-template-columns: 28px 1fr auto;
   align-items: center;
   gap: 10px;
-  margin: 2px 0;
+  margin: 3px 0;
   padding: 0 10px;
   border: none;
   border-radius: var(--radius-md);
@@ -296,17 +329,18 @@ async function handleRefresh(): Promise<void> {
   text-align: left;
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background 180ms ease, color 180ms ease, transform 180ms ease;
 
   &:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
+    transform: translateX(2px);
   }
 
   &.active {
-    background: var(--bg-elevated);
+    background: color-mix(in srgb, var(--accent-primary) 11%, var(--bg-elevated));
     color: var(--text-primary);
-    box-shadow: inset 3px 0 0 var(--accent-primary), var(--shadow-sm);
+    box-shadow: inset 3px 0 0 var(--accent-primary);
 
     .sm2-nav-glyph {
       background: var(--accent-primary-glow);
@@ -325,7 +359,7 @@ async function handleRefresh(): Promise<void> {
   display: inline-grid;
   place-items: center;
   border-radius: var(--radius-sm);
-  background: var(--surface-card);
+  background: transparent;
   color: var(--text-secondary);
   font-size: 11px;
   font-weight: 800;
@@ -356,26 +390,47 @@ async function handleRefresh(): Promise<void> {
   flex-shrink: 0;
 }
 
-.sm2-path-card {
-  padding: 10px 12px;
-  border: 1px solid var(--accent-primary-glow);
+.sm2-device-card {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 9px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
-  background: var(--accent-primary-glow);
+  background: var(--bg-elevated);
 
   strong {
     display: block;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
-    color: var(--text-secondary);
   }
-  code {
+
+  small {
     display: block;
-    margin-top: 5px;
-    color: var(--accent-primary);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    overflow-wrap: anywhere;
+    margin-top: 3px;
+    color: var(--text-muted);
+    font-size: 10px;
+
+    i {
+      width: 6px;
+      height: 6px;
+      display: inline-block;
+      margin-right: 5px;
+      border-radius: 50%;
+      background: var(--success);
+    }
   }
+}
+
+.sm2-device-icon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
 }
 
 // ── Main Area ────────────────────────────────────────────────────
@@ -383,7 +438,7 @@ async function handleRefresh(): Promise<void> {
 .sm2-main {
   min-width: 0;
   display: grid;
-  grid-template-rows: 60px minmax(0, 1fr);
+  grid-template-rows: 72px minmax(0, 1fr);
   background: var(--bg-primary);
 }
 
@@ -407,7 +462,7 @@ async function handleRefresh(): Promise<void> {
   font-weight: 700;
   font-family: var(--font-display);
   line-height: 1.2;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 .sm2-heading-subtitle {
@@ -428,20 +483,17 @@ async function handleRefresh(): Promise<void> {
 
 // ── Buttons ──────────────────────────────────────────────────────
 
-.sm2-btn {
-  height: 32px;
+.sm2-icon-btn {
+  width: 34px;
+  height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 0 12px;
+  padding: 0;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   background: var(--bg-elevated);
   color: var(--text-primary);
-  white-space: nowrap;
-  font-size: 12px;
-  font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
 
@@ -454,6 +506,30 @@ async function handleRefresh(): Promise<void> {
     cursor: not-allowed;
   }
 }
+
+.sm2-library-status {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+
+  i {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--success);
+  }
+}
+
+.spin { animation: sm2-spin 900ms linear infinite; }
+@keyframes sm2-spin { to { transform: rotate(360deg); } }
 
 // ── Content ──────────────────────────────────────────────────────
 
@@ -471,14 +547,71 @@ async function handleRefresh(): Promise<void> {
 
 .sm2-loading,
 .sm2-error {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 200px;
-  opacity: 0.7;
+  height: 100%;
+}
+
+.sm2-loading {
+  position: relative;
+  padding: 20px;
+  overflow: hidden;
+
+  p {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    transform: translate(-50%, -50%);
+  }
+}
+
+.sm2-loading-metrics,
+.sm2-loading-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.sm2-loading-metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+
+  span { height: 76px; }
+}
+
+.sm2-loading-toolbar {
+  height: 52px;
+  margin: 14px 0;
+}
+
+.sm2-loading-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+
+  span { height: 190px; }
+}
+
+.sm2-loading-metrics span,
+.sm2-loading-toolbar,
+.sm2-loading-grid span {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    90deg,
+    var(--bg-elevated) 25%,
+    var(--bg-hover) 50%,
+    var(--bg-elevated) 75%
+  );
+  background-size: 200% 100%;
+  animation: sm2-skeleton 1.3s ease-in-out infinite;
+}
+
+@keyframes sm2-skeleton {
+  to { background-position: -200% 0; }
 }
 
 .sm2-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--error);
 }
 
@@ -529,5 +662,36 @@ async function handleRefresh(): Promise<void> {
     font-size: 11px;
     color: var(--text-muted);
   }
+}
+
+.sm2-nav-item:focus-visible,
+.sm2-icon-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+@media (max-width: 820px) {
+  .sm2-shell { grid-template-columns: 68px minmax(0, 1fr); }
+  .sm2-rail-header { justify-content: center; padding: 0; }
+  .sm2-rail-titles,
+  .sm2-nav-label,
+  .sm2-nav-text,
+  .sm2-nav-count,
+  .sm2-device-card > span:last-child { display: none; }
+  .sm2-nav { padding-inline: 8px; }
+  .sm2-nav-item {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    padding: 0;
+  }
+  .sm2-nav-item:hover { transform: none; }
+  .sm2-rail-footer { padding: 8px; }
+  .sm2-device-card { grid-template-columns: 1fr; padding: 8px; }
+  .sm2-library-status { display: none; }
+}
+
+@media (max-width: 560px) {
+  .sm2-heading-subtitle { display: none; }
+  .sm2-topbar { padding-inline: 12px; }
 }
 </style>

@@ -203,7 +203,8 @@ export class SkillManagerService {
     const rows = this.db.conn.prepare(`
       SELECT a.id, a.display_name, a.skills_dir, a.config_path, a.mcp_config_path, a.plugin_dir,
              a.version, a.latest_version, a.enabled, a.last_scanned_at,
-             (SELECT COUNT(*) FROM skill_targets t WHERE t.agent_id = a.id) AS managed_count
+             (SELECT COUNT(*) FROM skill_targets t WHERE t.agent_id = a.id) AS managed_count,
+             (SELECT COUNT(*) FROM unmanaged_items u WHERE u.agent_id = a.id) AS unmanaged_count
       FROM agents a
       ORDER BY a.display_name
     `).all() as AgentRow[]
@@ -220,7 +221,7 @@ export class SkillManagerService {
       enabled: r.enabled === 1,
       lastScannedAt: r.last_scanned_at,
       managedSkillCount: r.managed_count,
-      unmanagedCount: 0,
+      unmanagedCount: r.unmanaged_count,
     }))
   }
 
@@ -2355,6 +2356,7 @@ interface AgentRow {
   enabled: number
   last_scanned_at: string | null
   managed_count: number
+  unmanaged_count: number
 }
 
 interface SkillRow {

@@ -388,7 +388,7 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
   // ── Slice 5: Agent Scan & Adopt ────────────────────────────────
 
   /** Scan an agent's skills directory for managed/unmanaged/conflict items. */
-  async function scanAgentInventory(agentId: string): Promise<AgentInventoryScanResult | null> {
+  async function scanAgentInventory(agentId: string, refreshOverview = true): Promise<AgentInventoryScanResult | null> {
     const sm = api.skillManagerV2
     if (!sm) return null
 
@@ -397,7 +397,7 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
 
     try {
       const result = await sm.scanAgentInventory(agentId)
-      await loadOverview()
+      if (refreshOverview) await loadOverview()
       return result
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)

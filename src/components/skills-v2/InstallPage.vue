@@ -10,10 +10,13 @@
 
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Check, FolderOpen, GitBranch, RefreshCw, Search, Sparkles, Store, UsersRound } from 'lucide-vue-next'
 import { useSkillsStore } from '@/stores/skills'
 import { useSkillManagerStore } from '@/stores/skillManagerStore'
 import { api } from '@/services/electronAPI'
 import ImportDialog from './ImportDialog.vue'
+import MigrationWizard from './MigrationWizard.vue'
+import AgentIconBadge from './AgentIconBadge.vue'
 import type { AddCenterSkillInput } from '@/types/skillManagerV2'
 
 const { t } = useI18n()
@@ -22,7 +25,7 @@ const store = useSkillManagerStore()
 
 // ── State ─────────────────────────────────────────────────────────
 
-const activeSubtab = ref<'local' | 'github' | 'marketplace'>('local')
+const activeSubtab = ref<'marketplace' | 'sync' | 'local' | 'github'>('marketplace')
 const importDialog = ref<InstanceType<typeof ImportDialog> | null>(null)
 
 // GitHub state
@@ -43,10 +46,33 @@ const marketplaceError = ref<string | null>(null)
 const installingSkillIds = ref<Set<string>>(new Set())
 const installedSkillIds = ref<Set<string>>(new Set())
 
+// Agent sync state
+const syncLoading = ref(false)
+const syncFilter = ref('')
+const syncAgentFilter = ref('all')
+const syncWizardVisible = ref(false)
+const syncNotice = ref<string | null>(null)
+
 // ── Computed ──────────────────────────────────────────────────────
 
 const marketplaceSkills = computed(() => skillsStore.marketplaceSkills)
 const hasMarketplaceResults = computed(() => marketplaceSkills.value.length > 0)
+const syncItems = computed(() => {
+  const query = syncFilter.value.trim().toLowerCase()
+  return store.unmanaged.filter((item) => {
+    if (syncAgentFilter.value !== 'all' && item.agentId !== syncAgentFilter.value) return false
+    if (!query) return true
+    return `${item.inferredSkillId ?? ''} ${item.path} ${item.reason}`.toLowerCase().includes(query)
+  })
+})
+const syncAgentCounts = computed(() => {
+  const counts = new Map<string, number>()
+  for (const item of store.unmanaged) {
+    if (item.agentId) counts.set(item.agentId, (counts.get(item.agentId) ?? 0) + 1)
+  }
+  return counts
+})
+const syncAgents = computed(() => store.agents.filter((agent) => (syncAgentCounts.value.get(agent.id) ?? 0) > 0))
 
 // ── Handlers ───────────────────────────────────────────────────────
 
@@ -197,6 +223,23 @@ function isInstalling(source: string, skillId: string): boolean {
 function isInstalled(source: string, skillId: string): boolean {
   return installedSkillIds.value.has(`${source}/${skillId}`)
 }
+
+async function scanAllAgents(): Promise<void> {
+  syncLoading.value = true
+  syncNotice.value = null
+  try {
+    const agents = store.agents.filter((agent) => agent.enabled)
+    for (const agent of agents) await store.scanAgentInventory(agent.id, false)
+    await store.loadOverview()
+    syncNotice.value = t('skillManagerV2.install.syncScanned', { count: store.unmanaged.length })
+  } finally {
+    syncLoading.value = false
+  }
+}
+
+function agentBadge(agentId: string, agentName: string): { agentId: string; agentName: string; mode: 'link'; status: 'ok' } {
+  return { agentId, agentName, mode: 'link', status: 'ok' }
+}
 </script>
 
 <template>
@@ -207,18 +250,29 @@ function isInstalled(source: string, skillId: string): boolean {
         :class="{ active: activeSubtab === 'local' }"
         @click="activeSubtab = 'local'"
       >
+        <FolderOpen :size="16" />
         {{ t('skillManagerV2.install.local') }}
+      </button>
+      <button
+        :class="{ active: activeSubtab === 'sync' }"
+        @click="activeSubtab = 'sync'"
+      >
+        <UsersRound :size="16" />
+        {{ t('skillManagerV2.install.sync') }}
+        <span v-if="store.metrics?.unmanagedCount" class="ipm-tab-count">{{ store.metrics.unmanagedCount }}</span>
       </button>
       <button
         :class="{ active: activeSubtab === 'github' }"
         @click="activeSubtab = 'github'"
       >
+        <GitBranch :size="16" />
         {{ t('skillManagerV2.install.github') }}
       </button>
       <button
         :class="{ active: activeSubtab === 'marketplace' }"
         @click="activeSubtab = 'marketplace'"
       >
+        <Store :size="16" />
         {{ t('skillManagerV2.install.marketplace') }}
       </button>
     </div>
@@ -233,6 +287,67 @@ function isInstalled(source: string, skillId: string): boolean {
         <button class="ipm-btn primary" @click="handleImportClick">
           {{ t('skillManagerV2.actions.importFolder') }}
         </button>
+      </div>
+
+      <!-- Agent sync -->
+      <div v-else-if="activeSubtab === 'sync'" class="ipm-sync-panel">
+        <div class="ipm-sync-hero">
+          <div>
+            <span class="ipm-eyebrow"><Sparkles :size="14" /> {{ t('skillManagerV2.install.syncEyebrow') }}</span>
+            <h3>{{ t('skillManagerV2.install.syncTitle') }}</h3>
+            <p>{{ t('skillManagerV2.install.syncDesc') }}</p>
+          </div>
+          <div class="ipm-sync-hero-actions">
+            <button class="ipm-btn" :disabled="syncLoading" @click="scanAllAgents">
+              <RefreshCw :size="15" :class="{ spin: syncLoading }" />
+              {{ syncLoading ? t('skillManagerV2.install.syncScanning') : t('skillManagerV2.install.syncRescan') }}
+            </button>
+            <button class="ipm-btn primary" :disabled="syncItems.length === 0" @click="syncWizardVisible = true">
+              <Check :size="15" />
+              {{ t('skillManagerV2.install.syncOrganize', { count: syncItems.length }) }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="syncNotice" class="ipm-notice">{{ syncNotice }}</div>
+
+        <div class="ipm-sync-summary">
+          <div class="ipm-sync-stat"><strong>{{ syncItems.length }}</strong><span>{{ t('skillManagerV2.install.syncPending') }}</span></div>
+          <div class="ipm-sync-stat"><strong>{{ syncAgents.length }}</strong><span>{{ t('skillManagerV2.install.syncAgentsFound') }}</span></div>
+          <div class="ipm-sync-stat"><strong>{{ store.metrics?.agentTargetCount ?? 0 }}</strong><span>{{ t('skillManagerV2.install.syncManagedHidden') }}</span></div>
+        </div>
+
+        <div class="ipm-agent-strip" v-if="syncAgents.length > 0">
+          <button class="ipm-agent-filter" :class="{ active: syncAgentFilter === 'all' }" @click="syncAgentFilter = 'all'">
+            <span class="ipm-agent-filter-icon">Ag</span>
+            <span><strong>{{ t('skillManagerV2.actions.allAgents') }}</strong><small>{{ store.unmanaged.length }} {{ t('skillManagerV2.install.syncPendingShort') }}</small></span>
+          </button>
+          <button v-for="agent in syncAgents" :key="agent.id" class="ipm-agent-filter" :class="{ active: syncAgentFilter === agent.id }" @click="syncAgentFilter = agent.id">
+            <AgentIconBadge :badge="agentBadge(agent.id, agent.displayName)" :size="30" />
+            <span><strong>{{ agent.displayName }}</strong><small>{{ syncAgentCounts.get(agent.id) }} {{ t('skillManagerV2.install.syncPendingShort') }}</small></span>
+          </button>
+        </div>
+
+        <div class="ipm-sync-toolbar">
+          <label class="ipm-search-wrap"><Search :size="16" /><input v-model="syncFilter" :placeholder="t('skillManagerV2.install.syncSearch')" /></label>
+          <span class="ipm-sync-hint">{{ t('skillManagerV2.install.syncHint') }}</span>
+        </div>
+
+        <div v-if="syncItems.length === 0" class="ipm-sync-empty">
+          <div class="ipm-sync-empty-icon"><Check :size="28" /></div>
+          <strong>{{ t('skillManagerV2.install.syncEmptyTitle') }}</strong>
+          <p>{{ t('skillManagerV2.install.syncEmptyDesc') }}</p>
+        </div>
+        <div v-else class="ipm-sync-grid">
+          <article v-for="item in syncItems" :key="item.id" class="ipm-sync-card">
+            <div class="ipm-sync-card-head">
+              <AgentIconBadge v-if="item.agentId" :badge="agentBadge(item.agentId, store.agents.find((agent) => agent.id === item.agentId)?.displayName ?? item.agentId)" :size="32" />
+              <div><strong>{{ item.inferredSkillId ?? item.id }}</strong><span>{{ store.agents.find((agent) => agent.id === item.agentId)?.displayName ?? item.agentId }}</span></div>
+            </div>
+            <p>{{ item.reason }}</p>
+            <code>{{ item.path }}</code>
+          </article>
+        </div>
       </div>
 
       <!-- GitHub -->
@@ -409,6 +524,7 @@ function isInstalled(source: string, skillId: string): boolean {
 
     <!-- Import Dialog -->
     <ImportDialog ref="importDialog" />
+    <MigrationWizard :visible="syncWizardVisible" @close="syncWizardVisible = false" @completed="syncWizardVisible = false" />
   </div>
 </template>
 
@@ -422,6 +538,17 @@ function isInstalled(source: string, skillId: string): boolean {
   gap: 16px;
 }
 
+.ipm-tab-count {
+  min-width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: var(--warning);
+  font-size: 10px;
+}
+
 // ── Subtabs ───────────────────────────────────────────────────────
 
 .ipm-subtabs {
@@ -433,6 +560,9 @@ function isInstalled(source: string, skillId: string): boolean {
 
   button {
     height: 34px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
     padding: 0 16px;
     border: none;
     border-bottom: 2px solid transparent;
@@ -778,5 +908,262 @@ function isInstalled(source: string, skillId: string): boolean {
     font-size: 12px;
     padding: 0 10px;
   }
+}
+
+// ── Agent Sync ────────────────────────────────────────────────────
+
+.ipm-sync-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ipm-sync-hero {
+  min-height: 112px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 24%, var(--border-default));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent-primary) 5%, var(--bg-elevated));
+
+  h3 {
+    margin: 6px 0 4px;
+    font: 700 20px/1.2 var(--font-display);
+    letter-spacing: 0;
+  }
+
+  p {
+    max-width: 65ch;
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+}
+
+.ipm-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-primary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ipm-sync-hero-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.ipm-notice {
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--success) 28%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--success) 7%, transparent);
+  color: var(--success);
+  font-size: 12px;
+}
+
+.ipm-sync-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.ipm-sync-stat {
+  min-width: 0;
+  padding: 14px 16px;
+  border-right: 1px solid var(--border-default);
+
+  &:last-child { border-right: 0; }
+
+  strong {
+    display: block;
+    font: 700 22px/1 var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  span {
+    display: block;
+    margin-top: 6px;
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+}
+
+.ipm-agent-strip {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  overflow-x: auto;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+
+.ipm-agent-filter {
+  min-width: 148px;
+  height: 54px;
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 9px;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background 180ms ease, border-color 180ms ease;
+
+  &:hover { background: var(--surface-soft); }
+  &.active {
+    border-color: color-mix(in srgb, var(--accent-primary) 42%, var(--border-default));
+    background: var(--accent-primary-glow);
+  }
+
+  strong, small { display: block; }
+  strong { font-size: 12px; }
+  small { margin-top: 3px; color: var(--text-muted); font-size: 10px; }
+}
+
+.ipm-agent-filter-icon {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-elevated));
+  color: var(--accent-primary);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ipm-sync-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ipm-search-wrap {
+  width: min(360px, 100%);
+  height: 34px;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+
+  &:focus-within {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px var(--accent-primary-glow);
+  }
+
+  input {
+    min-width: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 12px;
+  }
+}
+
+.ipm-sync-hint {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.ipm-sync-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.ipm-sync-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+
+  p {
+    min-height: 34px;
+    margin: 10px 0 8px;
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  code {
+    display: block;
+    overflow: hidden;
+    color: var(--text-muted);
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.ipm-sync-card-head {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 10px;
+  align-items: center;
+
+  strong, span { display: block; }
+  strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+  span { margin-top: 2px; color: var(--text-muted); font-size: 10px; }
+}
+
+.ipm-sync-empty {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-md);
+  text-align: center;
+
+  strong { margin-top: 10px; font-size: 14px; }
+  p { margin: 5px 0 0; color: var(--text-muted); font-size: 12px; }
+}
+
+.ipm-sync-empty-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+  color: var(--success);
+}
+
+.spin { animation: ipm-spin 900ms linear infinite; }
+@keyframes ipm-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 760px) {
+  .ipm-sync-hero { align-items: stretch; flex-direction: column; }
+  .ipm-sync-hero-actions { width: 100%; }
+  .ipm-sync-hero-actions .ipm-btn { flex: 1; }
+  .ipm-sync-toolbar { align-items: stretch; flex-direction: column; }
+  .ipm-sync-summary { grid-template-columns: 1fr; }
+  .ipm-sync-stat { border-right: 0; border-bottom: 1px solid var(--border-default); }
+  .ipm-sync-stat:last-child { border-bottom: 0; }
 }
 </style>

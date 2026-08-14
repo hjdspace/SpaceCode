@@ -7,9 +7,11 @@
 
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { FolderOpen, RefreshCw, Sparkles } from 'lucide-vue-next'
 import { useSkillManagerStore } from '@/stores/skillManagerStore'
 import type { SkillTarget, UnmanagedItemDto, DiagnosisIssue } from '@/types/skillManagerV2'
-import { getAgentInitials } from './skillLabels'
+import AdoptDialog from './AdoptDialog.vue'
+import AgentIconBadge from './AgentIconBadge.vue'
 
 const { t } = useI18n()
 const store = useSkillManagerStore()
@@ -17,6 +19,7 @@ const store = useSkillManagerStore()
 // ── State ─────────────────────────────────────────────────────────
 
 const activeTab = ref<'skills' | 'packs' | 'diagnostics'>('skills')
+const adoptItem = ref<UnmanagedItemDto | null>(null)
 
 // ── Computed ───────────────────────────────────────────────────────
 
@@ -64,6 +67,19 @@ async function handleScanAgent(agentId: string): Promise<void> {
 
 async function handleOpenDir(dirPath: string): Promise<void> {
   await store.openPath(dirPath)
+}
+
+function agentBadge(agentId: string, agentName: string): { agentId: string; agentName: string; mode: 'link'; status: 'ok' } {
+  return { agentId, agentName, mode: 'link', status: 'ok' }
+}
+
+function handleAdopt(item: UnmanagedItemDto): void {
+  adoptItem.value = item
+}
+
+async function handleAdopted(): Promise<void> {
+  adoptItem.value = null
+  if (store.selectedAgentId) await store.loadAgentDetail(store.selectedAgentId)
 }
 
 function statusLabel(status: string): string {
@@ -136,6 +152,7 @@ function severityLabel(severity: string): string {
               :class="{ active: store.selectedAgentId === agent.id }"
               @click="handleSelectAgent(agent.id)"
             >
+              <AgentIconBadge :badge="agentBadge(agent.id, agent.displayName)" :size="30" />
               <span>
                 <strong>{{ agent.displayName }}</strong>
                 <small>v{{ agent.version ?? '?' }} · {{ agent.managedSkillCount }} Skills · {{ agent.unmanagedCount }} {{ t('skillManagerV2.agent.unmanaged') }}</small>
@@ -159,7 +176,7 @@ function severityLabel(severity: string): string {
           <!-- Agent Header -->
           <div class="amp-agent-header">
             <div class="amp-agent-title">
-              <span class="amp-glyph">{{ getAgentInitials(selectedAgent.id) }}</span>
+              <AgentIconBadge :badge="agentBadge(selectedAgent.id, selectedAgent.displayName)" :size="38" />
               <div>
                 <h3>{{ selectedAgent.displayName }}</h3>
                 <p>
@@ -174,6 +191,7 @@ function severityLabel(severity: string): string {
                 :disabled="store.busyAction === 'scan-agent-detail'"
                 @click="handleScanAgent(selectedAgent.id)"
               >
+                <RefreshCw :size="15" :class="{ spin: store.busyAction === 'scan-agent-detail' }" />
                 {{ t('skillManagerV2.agent.scan') }}
               </button>
               <button
@@ -181,6 +199,7 @@ function severityLabel(severity: string): string {
                 class="amp-btn"
                 @click="handleOpenDir(selectedAgent.skillsDir)"
               >
+                <FolderOpen :size="15" />
                 {{ t('skillManagerV2.actions.openPath') }}
               </button>
             </div>
@@ -265,7 +284,9 @@ function severityLabel(severity: string): string {
                       <strong>{{ item.inferredSkillId ?? item.path }}</strong>
                       <span>{{ item.reason }}</span>
                     </div>
-                    <span class="amp-status-pill unmanaged">{{ t('skillManagerV2.status.unmanaged') }}</span>
+                    <button class="amp-row-action" @click="handleAdopt(item)">
+                      <Sparkles :size="14" />{{ t('skillManagerV2.agent.adopt') }}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -321,6 +342,14 @@ function severityLabel(severity: string): string {
         </div>
       </section>
     </div>
+    <AdoptDialog
+      v-if="adoptItem && selectedAgent"
+      visible
+      :agent-id="selectedAgent.id"
+      :unmanaged-id="adoptItem.id"
+      @close="adoptItem = null"
+      @adopted="handleAdopted"
+    />
   </div>
 </template>
 
@@ -344,7 +373,7 @@ function severityLabel(severity: string): string {
 
 .amp-layout {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-columns: 280px minmax(0, 1fr);
   gap: 12px;
   height: 100%;
   padding: 16px 20px;
@@ -397,7 +426,7 @@ function severityLabel(severity: string): string {
 
 .amp-list-item {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
   padding: 10px;
@@ -556,6 +585,10 @@ function severityLabel(severity: string): string {
 
 .amp-btn {
   height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 0 12px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
@@ -584,6 +617,26 @@ function severityLabel(severity: string): string {
     cursor: not-allowed;
   }
 }
+
+.amp-row-action {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 35%, var(--border-default));
+  border-radius: var(--radius-sm);
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+
+  &:hover { background: color-mix(in srgb, var(--accent-primary) 15%, transparent); }
+}
+
+.spin { animation: amp-spin 900ms linear infinite; }
+@keyframes amp-spin { to { transform: rotate(360deg); } }
 
 // ── Tabs ──────────────────────────────────────────────────────────
 
@@ -740,5 +793,20 @@ function severityLabel(severity: string): string {
   color: var(--text-muted);
   padding: 40px 20px;
   text-align: center;
+}
+
+@media (max-width: 920px) {
+  .amp-layout { grid-template-columns: 220px minmax(0, 1fr); }
+  .amp-chip { display: none; }
+  .amp-list-item { grid-template-columns: 32px minmax(0, 1fr); }
+}
+
+@media (max-width: 680px) {
+  .amp-layout { display: flex; flex-direction: column; overflow-y: auto; }
+  .amp-side-panel { min-height: 180px; flex: 0 0 180px; }
+  .amp-detail-panel { min-height: 420px; overflow: visible; }
+  .amp-agent-header { align-items: stretch; flex-direction: column; }
+  .amp-header-actions { justify-content: stretch; }
+  .amp-header-actions .amp-btn { flex: 1; }
 }
 </style>

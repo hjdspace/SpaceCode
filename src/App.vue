@@ -3,17 +3,19 @@
     <TitleBar @open-changelog="handleOpenChangelog" />
     <div class="main-content" ref="mainContent">
       <Sidebar
+        v-if="!appStore.showSkillsManager"
         :collapsed="appStore.sidebarCollapsed"
         :style="{ width: appStore.sidebarCollapsed ? '48px' : leftWidth + 'px' }"
       />
       <!-- H5 模式侧边栏遮罩层 — 点击关闭侧边栏
            z-index 层级：遮罩层 150 位于主内容之上，侧边栏 200 之下 -->
       <div
-        v-if="h5Mode && !appStore.sidebarCollapsed"
+        v-if="!appStore.showSkillsManager && h5Mode && !appStore.sidebarCollapsed"
         class="h5-sidebar-overlay"
         @click="appStore.sidebarCollapsed = true"
       ></div>
       <div
+        v-if="!appStore.showSkillsManager"
         class="resize-handle vertical"
         @mousedown="startLeftResize"
         :class="{ active: isLeftResizing }"
@@ -54,13 +56,13 @@
         </div>
       </div>
       <div
-        v-if="appStore.infoPanelVisible"
+        v-if="!appStore.showSkillsManager && appStore.infoPanelVisible"
         class="resize-handle vertical"
         @mousedown="startRightResize"
         :class="{ active: isRightResizing }"
       ></div>
       <InfoPanel
-        v-if="appStore.infoPanelVisible || appStore.infoPanelTabs.length > 0"
+        v-if="!appStore.showSkillsManager && (appStore.infoPanelVisible || appStore.infoPanelTabs.length > 0)"
         v-show="appStore.infoPanelVisible"
         :style="{ width: rightWidth + 'px' }"
       />
@@ -108,7 +110,12 @@ const SettingsPanel = defineAsyncComponent({
   loadingComponent: AsyncLoadingState,
   delay: 0,
 })
-const SkillsManager = defineAsyncComponent(() => import('./components/skills-v2/SkillManagerShell.vue'))
+const loadSkillsManager = () => import('./components/skills-v2/SkillManagerShell.vue')
+const SkillsManager = defineAsyncComponent({
+  loader: loadSkillsManager,
+  loadingComponent: AsyncLoadingState,
+  delay: 0,
+})
 const AgentManager = defineAsyncComponent(() => import('./components/agents/AgentManager.vue'))
 const McpManager = defineAsyncComponent(() => import('./components/mcp/McpManager.vue'))
 const CronManager = defineAsyncComponent(() => import('./components/cron/CronManager.vue'))
@@ -375,6 +382,8 @@ async function initH5MirrorSession() {
 }
 
 onMounted(() => {
+  void loadSkillsManager()
+
   // 宠物窗口是独立功能，不阻塞项目上下文和聊天首屏初始化。
   void petStore.init().catch((err) => {
     console.error('[Pet] Failed to initialize pet store:', err)
