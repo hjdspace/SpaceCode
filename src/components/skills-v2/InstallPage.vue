@@ -91,15 +91,45 @@ const marketplaceSkills = computed(() => {
     ? items.filter((skill) => skill.source.split('/')[0]?.toLowerCase() === publisher)
     : items
   scoped.sort((a, b) => b.installs - a.installs)
-  if (marketBoard.value === 'hot') return scoped.filter((skill) => skill.installs >= 100_000)
+  // 趋势/热门按当前数据分布的动态分位数过滤，保证与全部有明显区分
+  if (marketBoard.value === 'trending' || marketBoard.value === 'hot') {
+    const installsAsc = scoped.map((skill) => skill.installs).sort((a, b) => a - b)
+    const threshold = installsPercentile(installsAsc, marketBoard.value === 'trending' ? 50 : 85)
+    return scoped.filter((skill) => skill.installs >= threshold)
+  }
   return scoped
 })
+
+function installsPercentile(sortedAsc: number[], percentile: number): number {
+  if (sortedAsc.length === 0) return Number.POSITIVE_INFINITY
+  const index = Math.min(sortedAsc.length - 1, Math.floor((percentile / 100) * sortedAsc.length))
+  return sortedAsc[index]
+}
 
 const marketplacePageCount = computed(() => Math.max(1, Math.ceil(marketplaceSkills.value.length / marketPageSize)))
 const marketplacePageSkills = computed(() => {
   const start = (marketplacePage.value - 1) * marketPageSize
   return marketplaceSkills.value.slice(start, start + marketPageSize)
 })
+
+const marketplacePageButtons = computed(() => {
+  const count = marketplacePageCount.value
+  const current = marketplacePage.value
+  if (count <= 7) return Array.from({ length: count }, (_, index) => index + 1)
+  const pages: (number | '…')[] = [1]
+  const rangeStart = Math.max(2, current - 1)
+  const rangeEnd = Math.min(count - 1, current + 1)
+  if (rangeStart > 2) pages.push('…')
+  for (let page = rangeStart; page <= rangeEnd; page += 1) pages.push(page)
+  if (rangeEnd < count - 1) pages.push('…')
+  pages.push(count)
+  return pages
+})
+
+function goToMarketplacePage(page: number | '…'): void {
+  if (page === '…') return
+  marketplacePage.value = Math.min(Math.max(1, page), marketplacePageCount.value)
+}
 
 const recommendedPublishers = computed(() => {
   const publishers = new Map<string, number>()
@@ -517,27 +547,55 @@ function resetGithub(): void {
 
       <div class="market-caption">{{ t('skillManagerV2.install.marketplaceDesc') }}</div>
       <div v-if="marketplaceError" class="inline-error">{{ marketplaceError }}</div>
-      <div v-if="marketplaceSearching" class="loading-state"><Loader2 class="spin" :size="24" />{{ t('skillManagerV2.install.marketplaceSearching') }}</div>
-      <div v-else-if="marketplaceSkills.length === 0" class="empty-state">{{ t('skillManagerV2.install.marketplaceNoResults') }}</div>
-      <div v-else class="market-results" :class="`is-${marketView}`">
-        <article v-for="skill in marketplacePageSkills" :key="skill.id" class="market-card" tabindex="0" @click="openMarketDetail(skill)" @keydown.enter="openMarketDetail(skill)">
-          <span class="skill-avatar">{{ skill.name.slice(0, 2).toUpperCase() }}</span>
-          <div class="market-card-copy">
-            <strong>{{ skill.name }}</strong>
-            <span>{{ skill.source }}</span>
+      <div class="market-body">
+        <div v-if="marketplaceSearching" class="loading-state"><Loader2 class="spin" :size="24" />{{ t('skillManagerV2.install.marketplaceSearching') }}</div>
+        <div v-else-if="marketplaceSkills.length === 0" class="empty-state">{{ t('skillManagerV2.install.marketplaceNoResults') }}</div>
+        <template v-else>
+          <div v-if="marketView === 'cards'" class="market-results is-cards">
+            <article v-for="skill in marketplacePageSkills" :key="skill.id" class="market-card" tabindex="0" @click="openMarketDetail(skill)" @keydown.enter="openMarketDetail(skill)">
+              <div class="market-card-head">
+                <span class="market-glyph">{{ skill.name.slice(0, 2).toUpperCase() }}</span>
+                <div class="market-card-info">
+                  <h3>{{ skill.name }}</h3>
+                  <p v-if="skill.description">{{ skill.description }}</p>
+                </div>
+              </div>
+              <div class="market-card-meta">
+                <span class="market-chip"><Download :size="12" />{{ formatInstallCount(skill.installs) }}</span>
+                <span class="market-chip">{{ skill.source.split('/')[0] }}</span>
+                <span class="market-card-actions">
+                  <button v-if="isInstalled(skill)" class="skill-action installed" disabled @click.stop><Check :size="15" /></button>
+                  <button v-else class="skill-action" :disabled="isInstalling(skill)" :title="t('skillManagerV2.install.marketplaceInstall')" @click.stop="handleMarketplaceInstall(skill)">
+                    <Loader2 v-if="isInstalling(skill)" class="spin" :size="15" /><Plus v-else :size="17" />
+                  </button>
+                </span>
+              </div>
+            </article>
           </div>
-          <span class="install-count"><Download :size="13" />{{ formatInstallCount(skill.installs) }}</span>
-          <button v-if="isInstalled(skill)" class="skill-action installed" disabled @click.stop><Check :size="15" /></button>
-          <button v-else class="skill-action" :disabled="isInstalling(skill)" :title="t('skillManagerV2.install.marketplaceInstall')" @click.stop="handleMarketplaceInstall(skill)">
-            <Loader2 v-if="isInstalling(skill)" class="spin" :size="15" /><Plus v-else :size="17" />
-          </button>
-        </article>
+          <div v-else class="market-results is-list">
+            <article v-for="skill in marketplacePageSkills" :key="skill.id" class="market-row" tabindex="0" @click="openMarketDetail(skill)" @keydown.enter="openMarketDetail(skill)">
+              <span class="market-glyph sm">{{ skill.name.slice(0, 2).toUpperCase() }}</span>
+              <div class="market-row-copy">
+                <strong>{{ skill.name }}</strong>
+                <span>{{ skill.source }}</span>
+              </div>
+              <span class="install-count"><Download :size="13" />{{ formatInstallCount(skill.installs) }}</span>
+              <button v-if="isInstalled(skill)" class="skill-action installed" disabled @click.stop><Check :size="15" /></button>
+              <button v-else class="skill-action" :disabled="isInstalling(skill)" :title="t('skillManagerV2.install.marketplaceInstall')" @click.stop="handleMarketplaceInstall(skill)">
+                <Loader2 v-if="isInstalling(skill)" class="spin" :size="15" /><Plus v-else :size="17" />
+              </button>
+            </article>
+          </div>
+          <nav v-if="marketplacePageCount > 1" class="market-pagination" :aria-label="t('skillManagerV2.install.marketplacePagination')">
+            <button class="page-btn" :disabled="marketplacePage === 1" @click="goToMarketplacePage(marketplacePage - 1)">{{ t('common.previous') }}</button>
+            <template v-for="(page, index) in marketplacePageButtons" :key="`${page}-${index}`">
+              <span v-if="page === '…'" class="page-ellipsis">…</span>
+              <button v-else class="page-btn" :class="{ active: marketplacePage === page }" @click="goToMarketplacePage(page)">{{ page }}</button>
+            </template>
+            <button class="page-btn" :disabled="marketplacePage === marketplacePageCount" @click="goToMarketplacePage(marketplacePage + 1)">{{ t('common.next') }}</button>
+          </nav>
+        </template>
       </div>
-      <nav v-if="marketplacePageCount > 1" class="market-pagination" :aria-label="t('skillManagerV2.install.marketplacePagination')">
-        <button class="btn compact" :disabled="marketplacePage === 1" @click="marketplacePage -= 1">{{ t('common.previous') }}</button>
-        <span>{{ marketplacePage }} / {{ marketplacePageCount }}</span>
-        <button class="btn compact" :disabled="marketplacePage === marketplacePageCount" @click="marketplacePage += 1">{{ t('common.next') }}</button>
-      </nav>
     </section>
 
     <section v-else-if="activeSubtab === 'sync'" class="sync-panel">
@@ -665,13 +723,16 @@ function resetGithub(): void {
 </template>
 
 <style scoped lang="scss">
-.install-page { height: 100%; overflow-y: auto; padding: 0 20px 32px; color: var(--text-primary); }
-.install-tabs { position: sticky; top: 0; z-index: 4; display: flex; gap: 22px; min-height: 48px; border-bottom: 1px solid var(--border-default); background: var(--bg-primary); overflow-x: auto; }
+.install-page { height: 100%; min-height: 0; display: flex; flex-direction: column; padding: 0 20px; color: var(--text-primary); }
+.install-tabs { flex-shrink: 0; display: flex; gap: 22px; min-height: 48px; border-bottom: 1px solid var(--border-default); background: var(--bg-primary); overflow-x: auto; }
 .install-tabs button { position: relative; display: inline-flex; align-items: center; gap: 7px; padding: 0 2px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-muted); font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer; }
 .install-tabs button:hover, .install-tabs button.active { color: var(--accent-primary); }
 .install-tabs button.active { border-bottom-color: var(--accent-primary); }
 .tab-count { min-width: 18px; height: 18px; display: grid; place-items: center; padding: 0 5px; border-radius: 999px; background: var(--accent-primary-glow); font-size: 10px; }
-.market-panel, .sync-panel, .form-panel { padding-top: 20px; }
+.market-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding-top: 20px; }
+.market-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.sync-panel, .form-panel { flex: 1; min-height: 0; overflow-y: auto; padding-top: 20px; padding-bottom: 32px; }
+.market-toolbar, .publisher-row, .market-caption { flex-shrink: 0; }
 .market-toolbar { display: grid; grid-template-columns: auto minmax(220px, 1fr) auto; gap: 14px; align-items: center; padding: 10px 12px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--bg-elevated); }
 .market-board, .view-toggle { display: flex; padding: 3px; border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--surface-soft); }
 .market-board button, .view-toggle button { height: 28px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 10px; border: 0; border-radius: var(--radius-xs); background: transparent; color: var(--text-muted); cursor: pointer; }
@@ -686,23 +747,41 @@ function resetGithub(): void {
 .publisher-row small { color: var(--text-muted); }
 .publisher-row .publisher-clear { width: 28px; display: grid; place-items: center; padding: 0; border-radius: 50%; }
 .market-caption { margin: 15px 2px 10px; color: var(--text-muted); font-size: 12px; }
-.market-results.is-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.market-results { flex-shrink: 0; }
+.market-results.is-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
 .market-results.is-list { display: grid; gap: 6px; }
-.market-card { min-width: 0; display: grid; grid-template-columns: 38px minmax(0, 1fr) auto 32px; gap: 10px; align-items: center; min-height: 82px; padding: 12px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--bg-elevated); cursor: pointer; transition: border-color 160ms ease, transform 160ms ease; }
-.market-card:hover, .market-card:focus-visible { border-color: color-mix(in srgb, var(--accent-primary) 45%, var(--border-default)); outline: 0; transform: translateY(-1px); }
-.market-results.is-list .market-card { min-height: 58px; }
+// ── 卡片视图（对齐技能库 slp-card 视觉语言） ──────────────────
+.market-card { min-width: 0; min-height: 150px; display: flex; flex-direction: column; gap: 14px; padding: 18px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--bg-elevated); cursor: pointer; transition: transform .18s, border-color .18s, box-shadow .18s; }
+.market-card:hover, .market-card:focus-visible { border-color: color-mix(in srgb, var(--accent-primary) 48%, var(--border-default)); box-shadow: 0 12px 28px color-mix(in srgb, var(--accent-primary) 12%, transparent); outline: 0; transform: translateY(-2px); }
+.market-card-head { min-width: 0; display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 12px; align-items: start; }
+.market-glyph { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 11px; background: var(--text-primary); color: var(--bg-primary); font-size: 14px; font-weight: 800; }
+.market-glyph.sm { width: 30px; height: 30px; border-radius: 8px; font-size: 10px; }
+.market-card-info { min-width: 0; }
+.market-card-info h3 { margin: 1px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-display); font-size: 16px; font-weight: 750; }
+.market-card-info p { display: -webkit-box; margin: 7px 0 0; overflow: hidden; color: var(--text-secondary); font-size: 12px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.market-card-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: auto; }
+.market-chip { min-height: 22px; display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border-radius: 999px; background: var(--surface-soft); color: var(--text-muted); font-size: 10px; font-weight: 700; }
+.market-card-actions { margin-left: auto; display: inline-flex; }
+// ── 列表视图（紧凑行） ──────────────────────────────────────
+.market-row { min-width: 0; display: grid; grid-template-columns: 30px minmax(0, 1fr) auto 30px; gap: 10px; align-items: center; min-height: 58px; padding: 8px 14px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--bg-elevated); cursor: pointer; transition: border-color 160ms ease, transform 160ms ease; }
+.market-row:hover, .market-row:focus-visible { border-color: color-mix(in srgb, var(--accent-primary) 45%, var(--border-default)); outline: 0; transform: translateY(-1px); }
+.market-row-copy { min-width: 0; }
+.market-row-copy strong, .market-row-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.market-row-copy strong { font-size: 13px; }
+.market-row-copy span { margin-top: 4px; color: var(--text-muted); font-size: 11px; }
 .skill-avatar { width: 38px; height: 38px; display: grid; place-items: center; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--accent-primary) 10%, var(--surface-card)); color: var(--accent-primary); font-size: 11px; font-weight: 800; }
 .skill-avatar.large { width: 54px; height: 54px; font-size: 15px; }
-.market-card-copy { min-width: 0; }
-.market-card-copy strong, .market-card-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.market-card-copy strong { font-size: 13px; }
-.market-card-copy span { margin-top: 5px; color: var(--success); font-size: 11px; font-weight: 600; }
 .install-count { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .skill-action, .icon-button { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--accent-primary); border-radius: 50%; background: var(--accent-primary); color: var(--text-on-accent, white); cursor: pointer; }
 .skill-action.installed { border-color: color-mix(in srgb, var(--success) 35%, var(--border-default)); background: color-mix(in srgb, var(--success) 10%, transparent); color: var(--success); }
 .skill-action:disabled { cursor: default; }
-.market-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 16px; color: var(--text-muted); font-size: 12px; }
-.loading-state, .empty-state { min-height: 240px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--text-muted); font-size: 13px; }
+.market-pagination { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 16px; padding: 10px 0 2px; border-top: 1px solid var(--border-default); background: var(--bg-primary); }
+.page-btn { min-width: 30px; height: 30px; display: inline-grid; place-items: center; padding: 0 8px; border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--bg-elevated); color: var(--text-secondary); font-size: 12px; font-weight: 700; cursor: pointer; }
+.page-btn:hover:not(:disabled):not(.active) { border-color: var(--accent-primary); color: var(--accent-primary); }
+.page-btn.active { border-color: var(--accent-primary); background: var(--accent-primary); color: var(--text-on-accent, white); }
+.page-btn:disabled { opacity: .45; cursor: not-allowed; }
+.page-ellipsis { color: var(--text-muted); font-size: 12px; }
+.loading-state, .empty-state { flex: 1; min-height: 240px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--text-muted); font-size: 13px; }
 .inline-error { margin: 12px 0; padding: 10px 12px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--error) 9%, transparent); color: var(--error); font-size: 12px; }
 .sync-panel { display: grid; gap: 12px; }
 .sync-summary { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px; border: 1px solid color-mix(in srgb, var(--accent-primary) 22%, var(--border-default)); border-radius: var(--radius-md); background: color-mix(in srgb, var(--accent-primary) 5%, var(--bg-elevated)); }

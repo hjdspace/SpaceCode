@@ -232,6 +232,8 @@ async function handleRefresh(): Promise<void> {
 .sm2-shell {
   display: grid;
   grid-template-columns: 232px minmax(0, 1fr);
+  // 显式约束行高：隐式 auto 行会被内容撑开，导致内部高度链断裂、页面无法滚动
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
   overflow: hidden;
   background: var(--bg-primary);
@@ -437,6 +439,7 @@ async function handleRefresh(): Promise<void> {
 
 .sm2-main {
   min-width: 0;
+  min-height: 0;
   display: grid;
   grid-template-rows: 72px minmax(0, 1fr);
   background: var(--bg-primary);
