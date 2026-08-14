@@ -46,4 +46,5 @@ export const SCHEMA_MANAGER_CHANNELS = {
   LIST_AGENTS: 'skill-manager:list-agents',
   GET_AGENT_DETAIL: 'skill-manager:get-agent-detail',
   SCAN_AGENT_DETAIL: 'skill-manager:scan-agent-detail',
+  EXTRACT_ARCHIVE: 'skill-manager:extract-archive',
 } as const

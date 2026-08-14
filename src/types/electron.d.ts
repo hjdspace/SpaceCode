@@ -671,6 +671,7 @@ exportSnapshot: () => Promise<Record<string, unknown>>
 listAgents: () => Promise<AgentSummary[]>
 getAgentDetail: (agentId: string) => Promise<AgentDetail | null>
 scanAgentDetail: (agentId: string) => Promise<AgentDetail | null>
+extractArchive: (archivePath: string) => Promise<{ success: boolean; localPath?: string; error?: string }>
 // GitHub Clone
 cloneGitHubRepo: (url: string, branch?: string, subPath?: string) => Promise<{ success: boolean; localPath?: string; error?: string }>
 }

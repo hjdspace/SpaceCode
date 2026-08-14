@@ -16,6 +16,7 @@ import { Db, SCHEMA_VERSION } from './db'
 import {
   defaultCenterPath,
   defaultSqlitePath,
+  home,
   hashDir,
   isIgnoredEntry,
   isSkillDir,
@@ -30,7 +31,7 @@ import {
   createLink,
 } from './fsutil'
 import { scanCenterLibrary } from './scanner'
-import { getBuiltInAgents } from './agentRegistry'
+import { getBuiltInAgents, pathsForAgent } from './agentRegistry'
 import { DiagnosisEngine } from './diagnosis'
 import { exportSnapshot, type SkillManagerSnapshot } from './snapshot'
 import type {
@@ -857,8 +858,12 @@ export class SkillManagerService {
       removePath(dest)
     }
 
-    // Copy the skill directory
-    copyDirRecursive(sourceDir, dest)
+    if (input.importMode === 'link' && input.sourceType === 'local_folder') {
+      const linkResult = createLink(sourceDir, dest, this.getSettings().linkFailPolicy)
+      if (linkResult.error) throw new Error(linkResult.error)
+    } else {
+      copyDirRecursive(sourceDir, dest)
+    }
 
     // Record source in DB
     this.recordSourceAfterWrite(skillId, dest, sourceDir, input)
@@ -1297,6 +1302,19 @@ export class SkillManagerService {
     }
 
     const skillsDir = agentRow.skills_dir ?? ''
+    const sharedSkillsDir = path.join(home(), '.agents', 'skills')
+    const registeredRoots = pathsForAgent(agentId)?.skillDirs ?? []
+    const primaryMatchesRegistry = Boolean(
+      skillsDir && registeredRoots[0] && path.resolve(skillsDir) === path.resolve(registeredRoots[0]),
+    )
+    const candidateRoots = primaryMatchesRegistry
+      ? [skillsDir, ...registeredRoots.slice(1)]
+      : [skillsDir]
+    const scanRoots = candidateRoots.filter((value, index, values) => {
+      if (!value || values.indexOf(value) !== index) return false
+      if (isSharedSkillConsumer(agentId) && path.resolve(value) === path.resolve(sharedSkillsDir)) return false
+      return true
+    })
     const managedTargets = this.getAgentManagedTargets(agentId)
     const managedSkillIds = new Set(managedTargets.map((t) => t.skillId))
 
@@ -1306,14 +1324,6 @@ export class SkillManagerService {
     ).all() as Array<{ id: string; current_hash: string }>
     const centerSkillMap = new Map(centerSkills.map((s) => [s.id, s.current_hash]))
 
-    // Scan the agent directory for skill dirs
-    let entries: fs.Dirent[]
-    try {
-      entries = fs.readdirSync(skillsDir, { withFileTypes: true })
-    } catch {
-      entries = []
-    }
-
     const unmanaged: UnmanagedItemDto[] = []
     const conflicts: UnmanagedItemDto[] = []
     const now = nowIso()
@@ -1321,41 +1331,53 @@ export class SkillManagerService {
     // Remove old unmanaged items for this agent
     this.db.conn.prepare('DELETE FROM unmanaged_items WHERE agent_id = ?').run(agentId)
 
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue
-      if (isIgnoredEntry(entry.name)) continue
+    const discoveredPaths = new Set<string>()
+    for (const scanRoot of scanRoots) {
+      for (const skillDirPath of discoverAgentSkillDirs(scanRoot)) {
+        if (discoveredPaths.has(skillDirPath)) continue
+        discoveredPaths.add(skillDirPath)
+        const entryName = path.basename(skillDirPath)
+        const inferredId = entryName
 
-      const skillDirPath = path.join(skillsDir, entry.name)
-      if (!isSkillDir(skillDirPath)) continue
+        // Skip if managed (has a target record)
+        if (managedSkillIds.has(inferredId) || managedSkillIds.has(entryName)) continue
+        const hash = hashDir(skillDirPath)
+        const unmanagedId = `${agentId}__${inferredId}`
 
-      // Skip if managed (has a target record)
-      if (managedSkillIds.has(entry.name)) continue
-
-      // Compute hash and infer skill ID from directory name (matches center library convention)
-      const inferredId = entry.name
-      const hash = hashDir(skillDirPath)
-      const unmanagedId = `${agentId}__${entry.name}`
-
-      // Check if center library has same-name skill
-      const centerHash = centerSkillMap.get(inferredId)
-      if (centerHash) {
-        // Same name exists in center — check if hash matches
-        if (centerHash !== hash) {
-          // Conflict — same name, different content
-          conflicts.push({
-            id: unmanagedId,
-            itemType: 'skill_dir',
-            agentId,
-            path: skillDirPath,
-            inferredSkillId: inferredId,
-            hash,
-            reason: `Same-name skill '${inferredId}' exists in center library but content differs`,
-            firstSeenAt: now,
-            lastSeenAt: now,
-          })
+        // Check if center library has same-name skill
+        const centerHash = centerSkillMap.get(inferredId)
+        if (centerHash) {
+          // Same name exists in center — check if hash matches
+          if (centerHash !== hash) {
+            // Conflict — same name, different content
+            conflicts.push({
+              id: unmanagedId,
+              itemType: 'skill_dir',
+              agentId,
+              path: skillDirPath,
+              inferredSkillId: inferredId,
+              hash,
+              reason: `Same-name skill '${inferredId}' exists in center library but content differs`,
+              firstSeenAt: now,
+              lastSeenAt: now,
+            })
+          } else {
+            // Same name, same hash — effectively managed (might be a copy or link)
+            // Treat as unmanaged but with a note that it matches center
+            unmanaged.push({
+              id: unmanagedId,
+              itemType: 'skill_dir',
+              agentId,
+              path: skillDirPath,
+              inferredSkillId: inferredId,
+              hash,
+              reason: 'Skill matches center library content but has no managed target',
+              firstSeenAt: now,
+              lastSeenAt: now,
+            })
+          }
         } else {
-          // Same name, same hash — effectively managed (might be a copy or link)
-          // Treat as unmanaged but with a note that it matches center
+          // No same-name in center — genuinely unmanaged
           unmanaged.push({
             id: unmanagedId,
             itemType: 'skill_dir',
@@ -1363,24 +1385,11 @@ export class SkillManagerService {
             path: skillDirPath,
             inferredSkillId: inferredId,
             hash,
-            reason: 'Skill matches center library content but has no managed target',
+            reason: 'Skill not found in center library',
             firstSeenAt: now,
             lastSeenAt: now,
           })
         }
-      } else {
-        // No same-name in center — genuinely unmanaged
-        unmanaged.push({
-          id: unmanagedId,
-          itemType: 'skill_dir',
-          agentId,
-          path: skillDirPath,
-          inferredSkillId: inferredId,
-          hash,
-          reason: 'Skill not found in center library',
-          firstSeenAt: now,
-          lastSeenAt: now,
-        })
       }
     }
 
@@ -1462,19 +1471,15 @@ export class SkillManagerService {
 
     const centerHasSameName = centerSkill !== undefined
     const isConflict = centerHasSameName && centerSkill!.current_hash !== row.hash
-
-    const options: AdoptOption[] = []
+    const isShared = agentId === 'agents'
+    const options: AdoptOption[] = isConflict
+      ? ['center_over_agent', 'overwrite_center', 'rename', 'skip']
+      : isShared
+        ? ['import_cleanup']
+        : ['import_keep', 'import_link', 'import_copy', 'import_to_center', 'replace_with_link', 'replace_with_copy']
     let conflictReason: string | null = null
-
     if (isConflict) {
-      // Conflict — only import_to_center with rename, or skip
-      conflictReason = `Center library has a skill with id '${inferredSkillId}' but content differs. Rename or skip to proceed.`
-      options.push('import_to_center')
-    } else {
-      // No conflict — all options available
-      options.push('import_to_center')
-      options.push('replace_with_link')
-      options.push('replace_with_copy')
+      conflictReason = `Center library has a skill with id '${inferredSkillId}' but content differs. Choose how to resolve the conflict.`
     }
 
     return {
@@ -1521,7 +1526,33 @@ export class SkillManagerService {
     const targetSkillId = renamedId ?? inferredSkillId
     const centerDest = path.join(this.centerPath, targetSkillId)
 
-    if (option === 'import_to_center') {
+    if (option === 'skip') {
+      return
+    }
+
+    const normalizedOption = option === 'import_to_center' ? 'import_keep'
+      : option === 'replace_with_link' ? 'import_link'
+        : option === 'replace_with_copy' ? 'import_copy'
+          : option
+
+    if (normalizedOption === 'center_over_agent') {
+      if (!pathExists(centerDest)) throw new Error(`Center skill '${targetSkillId}' does not exist`)
+      removePath(sourcePath)
+      const linkResult = createLink(centerDest, sourcePath, this.getSettings().linkFailPolicy)
+      this.writeTargetAndClaim(targetSkillId, agentId, sourcePath, 'link', linkResult.actualMode, hashDir(centerDest))
+    } else if (normalizedOption === 'overwrite_center') {
+      if (pathExists(centerDest)) removePath(centerDest)
+      copyDirRecursive(sourcePath, centerDest)
+      this.recordAdoptedSkill(targetSkillId, centerDest, sourcePath, agentId)
+    } else if (normalizedOption === 'rename') {
+      if (!renamedId?.trim()) throw new Error('A renamed Skill ID is required')
+      copyDirRecursive(sourcePath, centerDest)
+      this.recordAdoptedSkill(targetSkillId, centerDest, sourcePath, agentId)
+    } else if (normalizedOption === 'import_cleanup') {
+      copyDirRecursive(sourcePath, centerDest)
+      this.recordAdoptedSkill(targetSkillId, centerDest, sourcePath, agentId)
+      removePath(sourcePath)
+    } else if (normalizedOption === 'import_keep') {
       // Copy to center library, keep agent file unchanged
       if (pathExists(centerDest)) {
         // If same name exists, need rename
@@ -1531,7 +1562,7 @@ export class SkillManagerService {
       }
       copyDirRecursive(sourcePath, centerDest)
       this.recordAdoptedSkill(targetSkillId, centerDest, sourcePath, agentId)
-    } else if (option === 'replace_with_link') {
+    } else if (normalizedOption === 'import_link') {
       // Copy to center, replace agent file with symlink
       copyDirRecursive(sourcePath, centerDest)
       this.recordAdoptedSkill(targetSkillId, centerDest, sourcePath, agentId)
@@ -1549,7 +1580,7 @@ export class SkillManagerService {
         linkResult.actualMode,
         hashDir(centerDest)
       )
-    } else if (option === 'replace_with_copy') {
+    } else if (normalizedOption === 'import_copy') {
       // Copy to center, replace agent file with fresh copy
       copyDirRecursive(sourcePath, centerDest)
       this.recordAdoptedSkill(targetSkillId, centerDest, sourcePath, agentId)
@@ -2533,4 +2564,33 @@ function readRelativeFile(baseDir: string, relPath: string): string | null {
   } catch {
     return null
   }
+}
+
+/** Discover direct and nested Skill directories beneath an Agent root. */
+function discoverAgentSkillDirs(root: string, depth = 0): string[] {
+  if (!root || depth > 8) return []
+  try {
+    if (!fs.statSync(root).isDirectory()) return []
+  } catch {
+    return []
+  }
+  if (isSkillDir(root)) return [root]
+
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true })
+  } catch {
+    return []
+  }
+
+  const result: string[] = []
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.isSymbolicLink() || isIgnoredEntry(entry.name)) continue
+    result.push(...discoverAgentSkillDirs(path.join(root, entry.name), depth + 1))
+  }
+  return result
+}
+
+function isSharedSkillConsumer(agentId: string): boolean {
+  return agentId === 'codex' || agentId === 'kimi' || agentId === 'openclaw' || agentId === 'zcode'
 }

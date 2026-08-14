@@ -20,6 +20,11 @@ export interface MarketplaceSkill {
   name: string
   installs: number
   source: string
+  description?: string
+  downloadUrl?: string
+  registryId?: string
+  webUrl?: string
+  syncedAt?: string
   isInstalled?: boolean
   installedAt?: string
 }
@@ -153,7 +158,7 @@ export const useSkillsStore = defineStore('skills', () => {
     }
   }
 
-  async function installMarketplaceSkill(source: string, skillId: string, global: boolean = true, cwd?: string): Promise<{ success: boolean; logs: string[]; error?: string }> {
+  async function installMarketplaceSkill(source: string, skillId: string, global: boolean = true, cwd?: string): Promise<{ success: boolean; logs: string[]; installPath?: string; error?: string }> {
     try {
       const result = await api.skills.installMarketplaceSkill(source, skillId, global, cwd)
       return result

@@ -17,8 +17,15 @@ export const skills = {
     electronAPI?.skills?.installMarketplaceSkill(source, skillId, global, cwd) || Promise.resolve({ success: false }),
   uninstallMarketplaceSkill: (skillName: string, global: boolean, cwd?: string): Promise<void> =>
     electronAPI?.skills?.uninstallMarketplaceSkill(skillName, global, cwd) || Promise.resolve(),
-  fetchMarketplaceReadme: (source: string, skillId: string): Promise<string | null> =>
-    electronAPI?.skills?.fetchMarketplaceReadme(source, skillId) || Promise.resolve(null),
+  fetchMarketplaceReadme: async (source: string, skillId: string): Promise<string | null> => {
+    const result = await (electronAPI?.skills?.fetchMarketplaceReadme(source, skillId) || Promise.resolve(null))
+    if (typeof result === 'string') return result
+    if (result && typeof result === 'object' && 'content' in result) {
+      const content = (result as { content?: unknown }).content
+      return typeof content === 'string' ? content : null
+    }
+    return null
+  },
   scanLocalLibrary: (dirPaths: string[], cwd?: string): Promise<any> =>
     electronAPI?.skills?.scanLocalLibrary(dirPaths, cwd) || Promise.resolve({ skills: [], bundles: [] }),
   installLocal: (skillName: string, scope: string, cwd?: string, skillPath?: string): Promise<void> =>

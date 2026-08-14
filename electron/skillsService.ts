@@ -33,7 +33,30 @@ const SKILL_MARKETPLACE_CACHE_KEY = 'skill_marketplace_cache'
 const SKILL_MARKETPLACE_CACHE_TIME = 1000 * 60 * 60 // 1 hour
 
 // Cache for marketplace skills
-let marketplaceCache: { skills: MarketplaceSkill[]; timestamp: number } | null = null
+const marketplaceCache = new Map<string, { skills: MarketplaceSkill[]; timestamp: number }>()
+
+/** Pick the repository path that contains the requested Skill markdown file. */
+export function selectMarketplaceSkillPath(paths: string[], skillId: string): string | null {
+  const normalizedId = skillId.trim().toLowerCase()
+  if (!normalizedId) return null
+
+  const normalized = paths
+    .map((value) => value.replace(/\\/g, '/').replace(/^\/+|\/+$/g, ''))
+    .filter(Boolean)
+
+  const skillDirectories = normalized.filter((value) => /(?:^|\/)SKILL\.md$/i.test(value))
+  const exactDirectory = skillDirectories.find((value) => {
+    const parts = value.split('/')
+    return parts.length >= 2 && parts[parts.length - 2].toLowerCase() === normalizedId
+  })
+  if (exactDirectory) return exactDirectory
+
+  const exactMarkdown = normalized.find((value) => {
+    const fileName = value.split('/').pop()?.toLowerCase()
+    return fileName === `${normalizedId}.md`
+  })
+  return exactMarkdown ?? null
+}
 
 /**
  * Get the path to global skills directory
@@ -559,15 +582,15 @@ const DEFAULT_MARKETPLACE_SKILLS: MarketplaceSkill[] = [
 /**
  * Fetch marketplace skills from skills.sh API or cache
  */
-async function fetchMarketplaceSkills(query: string = 'claude'): Promise<MarketplaceSkill[]> {
-  // Check cache - use query as part of cache key
-  const cacheKey = `${query}_${MARKETPLACE_API_URL}`
-  if (marketplaceCache && Date.now() - marketplaceCache.timestamp < SKILL_MARKETPLACE_CACHE_TIME) {
-    return marketplaceCache.skills
+async function fetchMarketplaceSkills(query: string = 'skill'): Promise<MarketplaceSkill[]> {
+  const normalizedQuery = query.trim() || 'skill'
+  const cached = marketplaceCache.get(normalizedQuery)
+  if (cached && Date.now() - cached.timestamp < SKILL_MARKETPLACE_CACHE_TIME) {
+    return cached.skills
   }
 
   try {
-    const url = `${MARKETPLACE_API_URL}?q=${encodeURIComponent(query)}&limit=50`
+    const url = `${MARKETPLACE_API_URL}?q=${encodeURIComponent(normalizedQuery)}&limit=200`
     const response = await net.fetch(url, {
       method: 'GET',
       headers: {
@@ -585,10 +608,10 @@ async function fetchMarketplaceSkills(query: string = 'claude'): Promise<Marketp
 
     // The API returns skills in the 'skills' array
     if (data.skills && Array.isArray(data.skills)) {
-      marketplaceCache = {
+      marketplaceCache.set(normalizedQuery, {
         skills: data.skills,
         timestamp: Date.now()
-      }
+      })
       return data.skills
     }
 
@@ -596,11 +619,56 @@ async function fetchMarketplaceSkills(query: string = 'claude'): Promise<Marketp
   } catch (err) {
     console.log('[Skills] Online marketplace not available, using default skills list:', err)
     // Return default skills when online marketplace is not available
-    marketplaceCache = {
+    marketplaceCache.set(normalizedQuery, {
       skills: DEFAULT_MARKETPLACE_SKILLS,
       timestamp: Date.now()
-    }
+    })
     return DEFAULT_MARKETPLACE_SKILLS
+  }
+}
+
+async function resolveMarketplaceSkillUrl(source: string, skillId: string): Promise<string | null> {
+  const headers = { 'User-Agent': 'SpaceCode', 'Accept': 'application/vnd.github+json' }
+  const branches = ['main', 'master']
+  const directPaths = [
+    ...branches.flatMap((branch) => [
+      `${branch}/plugins/plugin-dev/skills/${skillId}/SKILL.md`,
+      `${branch}/plugins/plugin-dev/skills/${skillId}.md`,
+      `${branch}/skills/${skillId}.md`,
+      `${branch}/skills/${skillId}/SKILL.md`,
+      `${branch}/${skillId}.md`,
+      `${branch}/${skillId}/SKILL.md`,
+    ]),
+  ]
+
+  for (const repositoryPath of directPaths) {
+    const url = `https://raw.githubusercontent.com/${source}/${repositoryPath}`
+    try {
+      const response = await net.fetch(url, { method: 'GET', headers })
+      if (response.ok) return url
+    } catch {
+      // Try the repository tree fallback below.
+    }
+  }
+
+  try {
+    const repositoryResponse = await net.fetch(`https://api.github.com/repos/${source}`, { method: 'GET', headers })
+    if (!repositoryResponse.ok) return null
+    const repository = await repositoryResponse.json() as { default_branch?: string }
+    const branch = repository.default_branch || 'main'
+    const treeResponse = await net.fetch(
+      `https://api.github.com/repos/${source}/git/trees/${encodeURIComponent(branch)}?recursive=1`,
+      { method: 'GET', headers },
+    )
+    if (!treeResponse.ok) return null
+    const tree = await treeResponse.json() as { tree?: Array<{ path?: string; type?: string }> }
+    const skillPath = selectMarketplaceSkillPath(
+      (tree.tree ?? []).filter((entry) => entry.type === 'blob' && entry.path).map((entry) => entry.path!),
+      skillId,
+    )
+    return skillPath ? `https://raw.githubusercontent.com/${source}/${branch}/${skillPath}` : null
+  } catch {
+    return null
   }
 }
 
@@ -749,8 +817,8 @@ export function registerSkillsIPCHandlers(): void {
   // Search marketplace skills
   ipcMain.handle('skills:searchMarketplace', async (_event, query: string) => {
     try {
-      // Use the query parameter to fetch from API, default to 'claude' if empty
-      const searchQuery = query && query.trim() ? query.trim() : 'claude'
+      // Use the query parameter to fetch from API, default to the full skill index.
+      const searchQuery = query && query.trim() ? query.trim() : 'skill'
       const marketplaceSkills = await fetchMarketplaceSkills(searchQuery)
       const globalDirs = getGlobalSkillsDirs()
       const globalSkills = globalDirs.flatMap(dir => readSkillsFromDir(dir, 'global'))
@@ -803,53 +871,17 @@ export function registerSkillsIPCHandlers(): void {
         
         logs.push(`Resolving skill file from GitHub: ${source}`)
         
-        // Try common paths for skill files
-        // Different repos organize skills differently:
-        // - anthropics/skills: skills/{skillId}.md
-        // - anthropics/claude-code: plugins/plugin-dev/skills/{skillId}/SKILL.md
-        // - others: {skillId}.md or skills/{skillId}.md
-        const possiblePaths = [
-          // Anthropics claude-code repo structure
-          `https://raw.githubusercontent.com/${source}/main/plugins/plugin-dev/skills/${skillId}/SKILL.md`,
-          `https://raw.githubusercontent.com/${source}/main/plugins/plugin-dev/skills/${skillId}.md`,
-          `https://raw.githubusercontent.com/${source}/master/plugins/plugin-dev/skills/${skillId}/SKILL.md`,
-          `https://raw.githubusercontent.com/${source}/master/plugins/plugin-dev/skills/${skillId}.md`,
-          // Standard skills directory structure
-          `https://raw.githubusercontent.com/${source}/main/skills/${skillId}.md`,
-          `https://raw.githubusercontent.com/${source}/main/skills/${skillId}/SKILL.md`,
-          `https://raw.githubusercontent.com/${source}/master/skills/${skillId}.md`,
-          `https://raw.githubusercontent.com/${source}/master/skills/${skillId}/SKILL.md`,
-          // Root level
-          `https://raw.githubusercontent.com/${source}/main/${skillId}.md`,
-          `https://raw.githubusercontent.com/${source}/main/${skillId}/SKILL.md`,
-          `https://raw.githubusercontent.com/${source}/master/${skillId}.md`,
-          `https://raw.githubusercontent.com/${source}/master/${skillId}/SKILL.md`,
-        ]
-        
-        logs.push(`Searching for skill file in ${possiblePaths.length} possible locations...`)
-        
-        // Try each path until we find the skill
+        logs.push('Searching for skill file in the repository...')
         let content: string | null = null
-        let foundUrl: string | null = null
-        
-        for (const url of possiblePaths) {
-          try {
-            logs.push(`Trying: ${url}`)
-            const response = await net.fetch(url, {
-              method: 'GET',
-              headers: {
-                'User-Agent': 'Claude-Code-Desktop'
-              }
-            })
-            
-            if (response.ok) {
-              content = await response.text()
-              foundUrl = url
-              logs.push(`✓ Found skill file at: ${url}`)
-              break
-            }
-          } catch (e) {
-            // Continue to next path
+        const foundUrl = await resolveMarketplaceSkillUrl(source, skillId)
+        if (foundUrl) {
+          const response = await net.fetch(foundUrl, {
+            method: 'GET',
+            headers: { 'User-Agent': 'SpaceCode' },
+          })
+          if (response.ok) {
+            content = await response.text()
+            logs.push(`✓ Found skill file at: ${foundUrl}`)
           }
         }
         
@@ -858,7 +890,7 @@ export function registerSkillsIPCHandlers(): void {
         }
         
         const scope = global ? 'global' : 'project'
-        const dirPath = global ? getGlobalSkillsDirs()[0] : getProjectSkillsDirs(cwd || process.cwd())[0]
+        const dirPath = global ? getGlobalSkillsDirs()[1] : getProjectSkillsDirs(cwd || process.cwd())[1]
         
         logs.push(`Target directory: ${dirPath}`)
 
@@ -873,7 +905,7 @@ export function registerSkillsIPCHandlers(): void {
         writeFileSync(filePath, content, 'utf-8')
         logs.push(`✓ Successfully installed ${skillId} to ${filePath}`)
 
-        return { success: true, skillName: skillId, logs }
+        return { success: true, skillName: skillId, installPath: dirname(filePath), logs }
       }
 
       // If we have a full URL, fetch it directly
@@ -895,7 +927,7 @@ export function registerSkillsIPCHandlers(): void {
       // Use skillId as the file name
       const skillName = skillId || source.split('/').pop()?.replace('.md', '') || 'unknown'
       const scope = global ? 'global' : 'project'
-      const dirPath = global ? getGlobalSkillsDirs()[0] : getProjectSkillsDirs(cwd || process.cwd())[0]
+      const dirPath = global ? getGlobalSkillsDirs()[1] : getProjectSkillsDirs(cwd || process.cwd())[1]
       
       logs.push(`Target directory: ${dirPath}`)
 
@@ -910,7 +942,7 @@ export function registerSkillsIPCHandlers(): void {
       writeFileSync(filePath, content, 'utf-8')
       logs.push(`✓ Successfully installed ${skillName} to ${filePath}`)
 
-      return { success: true, skillName, logs }
+      return { success: true, skillName, installPath: dirname(filePath), logs }
     } catch (err) {
       console.error('[Skills] Failed to install marketplace skill:', err)
       logs.push(`✗ Error: ${(err as Error).message}`)
@@ -947,52 +979,12 @@ export function registerSkillsIPCHandlers(): void {
         // Full URL provided, convert to raw URL
         readmeUrl = source.replace('github.com', 'raw.githubusercontent.com').replace('/blob/', '/')
       } else {
-        // Path format: owner/repo
-        // Try common paths for skill files
-        // Different repos organize skills differently:
-        // - anthropics/skills: skills/{skillId}.md
-        // - anthropics/claude-code: plugins/plugin-dev/skills/{skillId}/SKILL.md
-        // - others: {skillId}.md or skills/{skillId}.md
-        const possiblePaths = [
-          // Anthropics claude-code repo structure
-          `https://raw.githubusercontent.com/${source}/main/plugins/plugin-dev/skills/${skillId}/SKILL.md`,
-          `https://raw.githubusercontent.com/${source}/main/plugins/plugin-dev/skills/${skillId}.md`,
-          `https://raw.githubusercontent.com/${source}/master/plugins/plugin-dev/skills/${skillId}/SKILL.md`,
-          `https://raw.githubusercontent.com/${source}/master/plugins/plugin-dev/skills/${skillId}.md`,
-          // Standard skills directory structure
-          `https://raw.githubusercontent.com/${source}/main/skills/${skillId}.md`,
-          `https://raw.githubusercontent.com/${source}/main/skills/${skillId}/SKILL.md`,
-          `https://raw.githubusercontent.com/${source}/master/skills/${skillId}.md`,
-          `https://raw.githubusercontent.com/${source}/master/skills/${skillId}/SKILL.md`,
-          // Root level
-          `https://raw.githubusercontent.com/${source}/main/${skillId}.md`,
-          `https://raw.githubusercontent.com/${source}/main/${skillId}/SKILL.md`,
-          `https://raw.githubusercontent.com/${source}/master/${skillId}.md`,
-          `https://raw.githubusercontent.com/${source}/master/${skillId}/SKILL.md`,
-        ]
-        
-        // Try each path until we find the skill
-        for (const url of possiblePaths) {
-          try {
-            const response = await net.fetch(url, {
-              method: 'GET',
-              headers: {
-                'User-Agent': 'Claude-Code-Desktop'
-              }
-            })
-            
-            if (response.ok) {
-              const content = await response.text()
-              return { content }
-            }
-          } catch (e) {
-            // Continue to next path
-          }
+        const resolvedUrl = await resolveMarketplaceSkillUrl(source, skillId)
+        if (!resolvedUrl) {
+          console.error(`[Skills] Could not find readme for ${skillId} in ${source}`)
+          return { content: null }
         }
-        
-        // If none of the paths work, return null
-        console.error(`[Skills] Could not find readme for ${skillId} in ${source}`)
-        return { content: null }
+        readmeUrl = resolvedUrl
       }
 
       // If we have a full URL, fetch it directly

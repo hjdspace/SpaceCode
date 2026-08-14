@@ -26,6 +26,9 @@ const store = useSkillManagerStore()
 
 const visible = ref(false)
 const selectedPath = ref('')
+const sourcePath = ref('')
+const sourceType = ref<'local_folder' | 'archive'>('local_folder')
+const importMode = ref<'copy' | 'link'>('copy')
 const preview = ref<AddCenterSkillPreview | null>(null)
 const loading = ref(false)
 const executing = ref(false)
@@ -57,9 +60,25 @@ const canExecute = computed(() => {
 
 // ── Actions ────────────────────────────────────────────────────────
 
-function open(): void {
+async function open(path = '', type: 'local_folder' | 'archive' = 'local_folder', mode: 'copy' | 'link' = 'copy'): Promise<void> {
   visible.value = true
   reset()
+  if (path) {
+    selectedPath.value = path
+    sourceType.value = type
+    importMode.value = type === 'archive' ? 'copy' : mode
+    if (type === 'archive') {
+      const extracted = await api.skillManagerV2?.extractArchive(path)
+      if (!extracted?.success || !extracted.localPath) {
+        error.value = extracted?.error ?? t('skillManagerV2.import.previewFailed')
+        return
+      }
+      sourcePath.value = extracted.localPath
+    } else {
+      sourcePath.value = path
+    }
+    await doPreview()
+  }
 }
 
 function close(): void {
@@ -69,6 +88,9 @@ function close(): void {
 
 function reset(): void {
   selectedPath.value = ''
+  sourcePath.value = ''
+  sourceType.value = 'local_folder'
+  importMode.value = 'copy'
   preview.value = null
   error.value = null
   blockerDecisions.value = new Map()
@@ -79,6 +101,26 @@ async function selectFolder(): Promise<void> {
   if (result.canceled || result.filePaths.length === 0) return
 
   selectedPath.value = result.filePaths[0]
+  sourcePath.value = selectedPath.value
+  sourceType.value = 'local_folder'
+  await doPreview()
+}
+
+async function selectArchive(): Promise<void> {
+  const result = await api.selectFiles()
+  const archivePath = result.filePaths.find((filePath) => filePath.toLowerCase().endsWith('.zip'))
+  if (result.canceled || !archivePath) return
+
+  const extracted = await api.skillManagerV2?.extractArchive(archivePath)
+  if (!extracted?.success || !extracted.localPath) {
+    error.value = extracted?.error ?? t('skillManagerV2.import.previewFailed')
+    return
+  }
+
+  selectedPath.value = archivePath
+  sourcePath.value = extracted.localPath
+  sourceType.value = 'archive'
+  importMode.value = 'copy'
   await doPreview()
 }
 
@@ -92,9 +134,10 @@ async function doPreview(): Promise<void> {
 
   try {
     const input: AddCenterSkillInput = {
-      sourcePath: selectedPath.value,
-      sourceType: 'local_folder',
+      sourcePath: sourcePath.value || selectedPath.value,
+      sourceType: sourceType.value,
       sourceUri: selectedPath.value,
+      importMode: importMode.value,
     }
     const result = await store.previewAddCenterSkill(input)
     if (result) {
@@ -143,9 +186,10 @@ async function executeImport(): Promise<void> {
 
   try {
     const input: AddCenterSkillInput = {
-      sourcePath: selectedPath.value,
-      sourceType: 'local_folder',
+      sourcePath: sourcePath.value || selectedPath.value,
+      sourceType: sourceType.value,
       sourceUri: selectedPath.value,
+      importMode: importMode.value,
     }
 
     const decisions: AddCenterSkillDecision[] = []
@@ -211,6 +255,17 @@ defineExpose({ open, close })
             >
               {{ t('skillManagerV2.import.browse') }}
             </button>
+            <button
+              class="import-folder-btn"
+              :disabled="loading || executing"
+              @click="selectArchive"
+            >
+              ZIP
+            </button>
+          </div>
+          <div v-if="selectedPath" class="import-source-meta">
+            <span>{{ sourceType === 'archive' ? 'ZIP' : 'DIR' }}</span>
+            <code>{{ selectedPath }}</code>
           </div>
         </div>
 
@@ -404,6 +459,30 @@ defineExpose({ open, close })
 .import-folder-row {
   display: flex;
   gap: 8px;
+}
+
+.import-source-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+
+  span {
+    padding: 2px 6px;
+    border-radius: var(--radius-xs);
+    background: var(--surface-soft);
+    color: var(--accent-primary);
+    font-weight: 700;
+  }
+
+  code {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 .import-folder-input {

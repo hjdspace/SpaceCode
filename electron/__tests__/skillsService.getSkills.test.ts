@@ -18,7 +18,7 @@ vi.mock('electron', () => ({
   net: {},
 }))
 
-import { registerSkillsIPCHandlers } from '../skillsService'
+import { registerSkillsIPCHandlers, selectMarketplaceSkillPath } from '../skillsService'
 
 let homeDir: string
 
@@ -117,5 +117,15 @@ describe('skills:getSkills', () => {
     expect(pluginNames).not.toContain('manifest-plugin:undeclared')
     expect(pluginNames).not.toContain('disabled-plugin:hidden')
     expect(pluginNames).not.toContain('other-project-plugin:other-project')
+  })
+})
+
+describe('selectMarketplaceSkillPath', () => {
+  it('finds skills nested below a repository skills group', () => {
+    expect(selectMarketplaceSkillPath([
+      'README.md',
+      'skills/misc/git-guardrails-claude-code/SKILL.md',
+      'skills/misc/other/SKILL.md',
+    ], 'git-guardrails-claude-code')).toBe('skills/misc/git-guardrails-claude-code/SKILL.md')
   })
 })

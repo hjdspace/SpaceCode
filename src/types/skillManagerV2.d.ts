@@ -268,7 +268,18 @@ export interface DeleteCenterSkillPreview {
 
 // ── Adopt ──────────────────────────────────────────────────────────
 
-export type AdoptOption = 'import_to_center' | 'replace_with_link' | 'replace_with_copy'
+export type AdoptOption =
+  | 'import_to_center'
+  | 'replace_with_link'
+  | 'replace_with_copy'
+  | 'import_keep'
+  | 'import_link'
+  | 'import_copy'
+  | 'import_cleanup'
+  | 'center_over_agent'
+  | 'overwrite_center'
+  | 'rename'
+  | 'skip'
 
 export interface AdoptPreview {
   agentId: string

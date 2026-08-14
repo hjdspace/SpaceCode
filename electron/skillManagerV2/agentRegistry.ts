@@ -31,6 +31,14 @@ export interface BuiltInAgent {
 
 const BUILT_IN_AGENTS: BuiltInAgent[] = [
   {
+    id: 'agents',
+    displayName: '.agents',
+    skillsDir: path.join(home(), '.agents', 'skills'),
+    configPath: null,
+    mcpConfigPath: null,
+    icon: 'agents',
+  },
+  {
     id: 'claude-code',
     displayName: 'Claude Code',
     skillsDir: path.join(home(), '.claude', 'skills'),

@@ -6,7 +6,7 @@
  */
 
 import { ipcMain, shell } from 'electron'
-import { execSync } from 'child_process'
+import { execFileSync } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
@@ -332,6 +332,50 @@ export function registerSkillManagerV2IPCHandlers(): void {
     }
   )
 
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.EXTRACT_ARCHIVE,
+    (_event, archivePath: string): { success: boolean; localPath?: string; error?: string } => {
+      try {
+        if (!archivePath || path.extname(archivePath).toLowerCase() !== '.zip') {
+          return { success: false, error: 'Only .zip archives are supported.' }
+        }
+        if (!fs.existsSync(archivePath) || !fs.statSync(archivePath).isFile()) {
+          return { success: false, error: `Archive not found: ${archivePath}` }
+        }
+
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-mgr-zip-'))
+        const extractedPath = path.join(tmpDir, 'extracted')
+        fs.mkdirSync(extractedPath, { recursive: true })
+
+        if (process.platform === 'win32') {
+          execFileSync('powershell.exe', [
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            '& { param($archive, $dest) Expand-Archive -LiteralPath $archive -DestinationPath $dest -Force }',
+            archivePath,
+            extractedPath,
+          ], { timeout: 60000, stdio: 'pipe' })
+        } else {
+          execFileSync('unzip', ['-q', archivePath, '-d', extractedPath], {
+            timeout: 60000,
+            stdio: 'pipe',
+          })
+        }
+
+        const entries = fs.readdirSync(extractedPath, { withFileTypes: true })
+          .filter((entry) => entry.name !== '__MACOSX')
+        const localPath = entries.length === 1 && entries[0].isDirectory()
+          ? path.join(extractedPath, entries[0].name)
+          : extractedPath
+
+        return { success: true, localPath }
+      } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : String(e) }
+      }
+    }
+  )
+
   // ── GitHub Clone ───────────────────────────────────────────────────
 
   ipcMain.handle(
@@ -339,8 +383,10 @@ export function registerSkillManagerV2IPCHandlers(): void {
     async (_event, url: string, branch?: string, subPath?: string): Promise<{ success: boolean; localPath?: string; error?: string }> => {
       try {
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-mgr-gh-'))
-        const cloneTarget = branch ? `${url} --branch ${branch}` : url
-        execSync(`git clone --depth 1 ${cloneTarget} repo`, {
+        const args = ['clone', '--depth', '1']
+        if (branch) args.push('--branch', branch)
+        args.push('--', url, 'repo')
+        execFileSync('git', args, {
           cwd: tmpDir,
           timeout: 60000,
           stdio: 'pipe',
