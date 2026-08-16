@@ -158,6 +158,27 @@ describe('SkillManagerService — Agent Scan & Adopt', () => {
       const ids = result.unmanaged.map((u) => u.inferredSkillId).sort()
       expect(ids).toEqual(['skill-alpha', 'skill-beta', 'skill-gamma'])
     })
+
+    it('detects a symlinked skill directory', () => {
+      const sourceDir = path.join(externalDir, 'linked-skill')
+      fs.mkdirSync(sourceDir, { recursive: true })
+      fs.writeFileSync(path.join(sourceDir, 'SKILL.md'), '---\nname: linked-skill\n---\n# linked')
+
+      const linkPath = path.join(agentDir, 'linked-skill')
+      fs.symlinkSync(sourceDir, linkPath, 'junction')
+
+      const result = service.scanAgentInventory('test-agent')
+      expect(result.unmanaged.some((item) => item.path === linkPath)).toBe(true)
+    })
+
+    it('deduplicates a skill directory and a symlink to the same directory', () => {
+      const sourceDir = createAgentSkill('shared-skill')
+      const linkPath = path.join(agentDir, 'shared-skill-link')
+      fs.symlinkSync(sourceDir, linkPath, 'junction')
+
+      const result = service.scanAgentInventory('test-agent')
+      expect(result.unmanaged).toHaveLength(1)
+    })
   })
 
   // ── listUnmanaged ───────────────────────────────────────────────

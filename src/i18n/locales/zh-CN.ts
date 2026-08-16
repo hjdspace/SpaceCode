@@ -2825,6 +2825,7 @@ export default {
       unmanagedCount: '未管理, 可接管',
       anomalyCount: '异常文件',
       adopt: '接管',
+      sharedSkillsNotice: '{agent} 默认读取 ~/.agents/skills。这里展示共享目录当前可用的 Skill；它们也可能被其他 Agent 使用。未管理 Skill 接管后会进入中心库，并从共享目录移除。',
       noMcp: '暂无 MCP 服务',
       noPlugins: '暂无插件',
       enabled: '已启用',

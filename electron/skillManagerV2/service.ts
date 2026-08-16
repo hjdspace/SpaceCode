@@ -31,7 +31,7 @@ import {
   createLink,
 } from './fsutil'
 import { scanCenterLibrary } from './scanner'
-import { getBuiltInAgents, pathsForAgent, pluginCachePathForAgent } from './agentRegistry'
+import { getBuiltInAgents, pathsForAgent, pluginCachePathForAgent, sharedSkillsDir } from './agentRegistry'
 import { detectAgentVersion } from './agentVersions'
 import { DiagnosisEngine } from './diagnosis'
 import { exportSnapshot, type SkillManagerSnapshot } from './snapshot'
@@ -1350,7 +1350,6 @@ export class SkillManagerService {
     }
 
     const skillsDir = agentRow.skills_dir ?? ''
-    const sharedSkillsDir = path.join(home(), '.agents', 'skills')
     const registeredRoots = pathsForAgent(agentId)?.skillDirs ?? []
     const primaryMatchesRegistry = Boolean(
       skillsDir && registeredRoots[0] && path.resolve(skillsDir) === path.resolve(registeredRoots[0]),
@@ -1360,7 +1359,6 @@ export class SkillManagerService {
       : [skillsDir]
     const scanRoots = candidateRoots.filter((value, index, values) => {
       if (!value || values.indexOf(value) !== index) return false
-      if (isSharedSkillConsumer(agentId) && path.resolve(value) === path.resolve(sharedSkillsDir)) return false
       return true
     })
     const managedTargets = this.getAgentManagedTargets(agentId)
@@ -1382,8 +1380,14 @@ export class SkillManagerService {
     const discoveredPaths = new Set<string>()
     for (const scanRoot of scanRoots) {
       for (const skillDirPath of discoverAgentSkillDirs(scanRoot)) {
-        if (discoveredPaths.has(skillDirPath)) continue
-        discoveredPaths.add(skillDirPath)
+        let discoveryKey = skillDirPath
+        try {
+          discoveryKey = fs.realpathSync(skillDirPath)
+        } catch {
+          // Keep the lexical path when the target disappears during a scan.
+        }
+        if (discoveredPaths.has(discoveryKey)) continue
+        discoveredPaths.add(discoveryKey)
         const entryName = path.basename(skillDirPath)
         const inferredId = entryName
 
@@ -1519,7 +1523,11 @@ export class SkillManagerService {
 
     const centerHasSameName = centerSkill !== undefined
     const isConflict = centerHasSameName && centerSkill!.current_hash !== row.hash
+    const normalizedSharedRoot = path.resolve(sharedSkillsDir())
+    const normalizedSourcePath = path.resolve(row.path)
     const isShared = agentId === 'agents'
+      || normalizedSourcePath === normalizedSharedRoot
+      || normalizedSourcePath.startsWith(`${normalizedSharedRoot}${path.sep}`)
     const options: AdoptOption[] = isConflict
       ? ['center_over_agent', 'overwrite_center', 'rename', 'skip']
       : isShared
@@ -2747,12 +2755,17 @@ function discoverAgentSkillDirs(root: string, depth = 0): string[] {
 
   const result: string[] = []
   for (const entry of entries) {
-    if (!entry.isDirectory() || entry.isSymbolicLink() || isIgnoredEntry(entry.name)) continue
-    result.push(...discoverAgentSkillDirs(path.join(root, entry.name), depth + 1))
+    if (isIgnoredEntry(entry.name)) continue
+    const childPath = path.join(root, entry.name)
+    if (entry.isSymbolicLink()) {
+      // Agent-managed skill folders are often symlinks into a shared library.
+      // Follow the link only when it is itself a skill directory; do not recurse
+      // through arbitrary links, which could introduce cycles or scan unrelated trees.
+      if (isSkillDir(childPath)) result.push(childPath)
+      continue
+    }
+    if (!entry.isDirectory()) continue
+    result.push(...discoverAgentSkillDirs(childPath, depth + 1))
   }
   return result
-}
-
-function isSharedSkillConsumer(agentId: string): boolean {
-  return agentId === 'codex' || agentId === 'kimi' || agentId === 'openclaw' || agentId === 'zcode'
 }

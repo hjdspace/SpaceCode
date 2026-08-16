@@ -44,6 +44,9 @@ const mcpServers = computed(() => selectedAgent.value?.mcpServers ?? [])
 const plugins = computed(() => selectedAgent.value?.plugins ?? [])
 
 const hasAgents = computed(() => agents.value.length > 0)
+const inheritsSharedSkills = computed(() =>
+  selectedAgent.value?.id === 'codex'
+)
 
 // ── Agent status summary ──────────────────────────────────────────
 
@@ -247,6 +250,10 @@ function severityLabel(severity: string): string {
                 {{ t('skillManagerV2.actions.openPath') }}
               </button>
             </div>
+          </div>
+
+          <div v-if="inheritsSharedSkills" class="amp-shared-notice">
+            {{ t('skillManagerV2.agent.sharedSkillsNotice', { agent: selectedAgent.displayName }) }}
           </div>
 
           <!-- Tabs -->
@@ -653,6 +660,17 @@ function severityLabel(severity: string): string {
   border-bottom: 1px solid var(--border-subtle);
   background: var(--surface-soft);
   flex-shrink: 0;
+}
+
+.amp-shared-notice {
+  margin: 0 16px 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 35%, var(--border-default));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent-primary) 9%, var(--bg-elevated));
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .amp-agent-title {

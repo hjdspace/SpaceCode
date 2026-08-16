@@ -118,8 +118,8 @@ const renameInvalid = computed(
 )
 
 watch(
-  () => props.visible,
-  async (visible) => {
+  () => [props.visible, props.agentId, props.unmanagedId] as const,
+  async ([visible]) => {
     if (!visible) return
     preview.value = null
     selectedOption.value = null
@@ -139,7 +139,8 @@ watch(
     } finally {
       busy.value = false
     }
-  }
+  },
+  { immediate: true }
 )
 
 function displayOptionsFor(options: AdoptOption[]): AdoptOption[] {

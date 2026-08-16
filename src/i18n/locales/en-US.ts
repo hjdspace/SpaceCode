@@ -2827,6 +2827,7 @@ export default {
       unmanagedCount: 'Unmanaged, adoptable',
       anomalyCount: 'Anomaly Files',
       adopt: 'Adopt',
+      sharedSkillsNotice: '{agent} reads ~/.agents/skills by default. Skills available in this shared directory may also be used by other Agents. Adopting an unmanaged Skill moves it into the center library and removes it from the shared directory.',
       noMcp: 'No MCP servers',
       noPlugins: 'No plugins',
       enabled: 'Enabled',
