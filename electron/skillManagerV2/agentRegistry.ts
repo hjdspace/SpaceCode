@@ -27,6 +27,20 @@ export interface BuiltInAgent {
   icon: string
 }
 
+/** Resolve the cache directory used by an agent's installed plugins. */
+export function pluginCachePathForAgent(agentId: string): string | null {
+  const root = home()
+  const paths: Record<string, string> = {
+    'claude-code': path.join(root, '.claude', 'plugins', 'cache'),
+    codex: path.join(root, '.codex', 'plugins', 'cache'),
+    kimi: path.join(root, '.kimi-code', 'plugins', 'managed'),
+    workbuddy: path.join(root, '.workbuddy', 'plugins'),
+    zcode: path.join(root, '.zcode', 'cli', 'plugins', 'cache'),
+    antigravity: path.join(root, '.gemini', 'config', 'plugins'),
+  }
+  return paths[agentId] ?? null
+}
+
 // ── Built-in agents ────────────────────────────────────────────────
 
 const BUILT_IN_AGENTS: BuiltInAgent[] = [

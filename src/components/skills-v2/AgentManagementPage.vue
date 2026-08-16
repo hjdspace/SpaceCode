@@ -7,7 +7,7 @@
 
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { FolderOpen, RefreshCw, Sparkles } from 'lucide-vue-next'
+import { FolderOpen, RefreshCw, Sparkles, PlugZap, Server, Settings2 } from 'lucide-vue-next'
 import { useSkillManagerStore } from '@/stores/skillManagerStore'
 import type { SkillTarget, UnmanagedItemDto, DiagnosisIssue } from '@/types/skillManagerV2'
 import AdoptDialog from './AdoptDialog.vue'
@@ -18,12 +18,14 @@ const store = useSkillManagerStore()
 
 // ── State ─────────────────────────────────────────────────────────
 
-const activeTab = ref<'skills' | 'packs' | 'diagnostics'>('skills')
+const activeTab = ref<'skills' | 'packs' | 'diagnostics' | 'mcp' | 'plugins' | 'config'>('skills')
 const adoptItem = ref<UnmanagedItemDto | null>(null)
 
 // ── Computed ───────────────────────────────────────────────────────
 
-const agents = computed(() => store.agents)
+const agents = computed(() => store.agents.filter((agent) => agent.id !== 'agents'))
+const installedAgents = computed(() => agents.value.filter((agent) => agent.installed))
+const uninstalledAgents = computed(() => agents.value.filter((agent) => !agent.installed))
 const selectedAgent = computed(() => store.selectedAgentDetail)
 
 const unmanagedItems = computed<UnmanagedItemDto[]>(() =>
@@ -37,6 +39,8 @@ const appliedPacks = computed(() =>
 const healthIssues = computed<DiagnosisIssue[]>(() =>
   selectedAgent.value?.healthIssues ?? []
 )
+const mcpServers = computed(() => selectedAgent.value?.mcpServers ?? [])
+const plugins = computed(() => selectedAgent.value?.plugins ?? [])
 
 const hasAgents = computed(() => agents.value.length > 0)
 
@@ -51,14 +55,15 @@ function agentStatusChip(agent: typeof agents.value[0]): { cls: string; label: s
 
 onMounted(() => {
   if (hasAgents.value && !store.selectedAgentId) {
-    store.loadAgentDetail(agents.value[0].id)
+    const first = installedAgents.value[0] ?? agents.value[0]
+    store.scanAgentDetail(first.id)
   }
 })
 
 // ── Handlers ───────────────────────────────────────────────────────
 
 function handleSelectAgent(agentId: string): void {
-  store.loadAgentDetail(agentId)
+  void store.scanAgentDetail(agentId)
 }
 
 async function handleScanAgent(agentId: string): Promise<void> {
@@ -144,9 +149,12 @@ function severityLabel(severity: string): string {
           <p>{{ t('skillManagerV2.viewSubtitle.agents') }}</p>
         </header>
         <div class="amp-side-body">
-          <div class="amp-list-menu">
+          <div v-if="installedAgents.length > 0" class="amp-agent-group">
+            <div class="amp-agent-group-title">
+              <span>{{ t('skillManagerV2.agent.installedAgents') }}</span><b>{{ installedAgents.length }}</b>
+            </div>
             <button
-              v-for="agent in agents"
+              v-for="agent in installedAgents"
               :key="agent.id"
               class="amp-list-item"
               :class="{ active: store.selectedAgentId === agent.id }"
@@ -160,6 +168,25 @@ function severityLabel(severity: string): string {
               <span class="amp-chip" :class="agentStatusChip(agent).cls">
                 {{ agentStatusChip(agent).label }}
               </span>
+            </button>
+          </div>
+          <div v-if="uninstalledAgents.length > 0" class="amp-agent-group">
+            <div class="amp-agent-group-title">
+              <span>{{ t('skillManagerV2.agent.uninstalledAgents') }}</span><b>{{ uninstalledAgents.length }}</b>
+            </div>
+            <button
+              v-for="agent in uninstalledAgents"
+              :key="agent.id"
+              class="amp-list-item"
+              :class="{ active: store.selectedAgentId === agent.id }"
+              @click="handleSelectAgent(agent.id)"
+            >
+              <AgentIconBadge :badge="agentBadge(agent.id, agent.displayName)" :size="30" />
+              <span>
+                <strong>{{ agent.displayName }}</strong>
+                <small>{{ t('skillManagerV2.agent.notInstalled') }}</small>
+              </span>
+              <span class="amp-chip">{{ t('skillManagerV2.agent.notInstalled') }}</span>
             </button>
           </div>
         </div>
@@ -184,6 +211,12 @@ function severityLabel(severity: string): string {
                   <span v-if="selectedAgent.lastScannedAt"> · {{ selectedAgent.lastScannedAt }}</span>
                 </p>
               </div>
+            </div>
+            <div class="amp-header-stats">
+              <span><strong>{{ selectedAgent.skills.length }}</strong>{{ t('skillManagerV2.agent.managedCount') }}</span>
+              <span><strong>{{ selectedAgent.unmanaged.length }}</strong>{{ t('skillManagerV2.agent.unmanagedCount') }}</span>
+              <span><strong>{{ mcpServers.length }}</strong>MCP</span>
+              <span><strong>{{ plugins.length }}</strong>Plugins</span>
             </div>
             <div class="amp-header-actions">
               <button
@@ -224,6 +257,15 @@ function severityLabel(severity: string): string {
               @click="activeTab = 'diagnostics'"
             >
               {{ t('skillManagerV2.agent.tabs.diagnostics') }}
+            </button>
+            <button :class="{ active: activeTab === 'mcp' }" @click="activeTab = 'mcp'">
+              <Server :size="14" /> MCP ({{ mcpServers.length }})
+            </button>
+            <button :class="{ active: activeTab === 'plugins' }" @click="activeTab = 'plugins'">
+              <PlugZap :size="14" /> Plugins ({{ plugins.length }})
+            </button>
+            <button :class="{ active: activeTab === 'config' }" @click="activeTab = 'config'">
+              <Settings2 :size="14" /> {{ t('skillManagerV2.agent.tabs.config') }}
             </button>
           </div>
 
@@ -333,6 +375,34 @@ function severityLabel(severity: string): string {
                 </div>
               </div>
             </div>
+
+            <div v-if="activeTab === 'mcp'" class="amp-mcp-tab">
+              <div v-if="mcpServers.length === 0" class="amp-muted">{{ t('skillManagerV2.agent.noMcp') }}</div>
+              <div v-else class="amp-data-list">
+                <div v-for="server in mcpServers" :key="server.name" class="amp-data-row">
+                  <span class="amp-glyph sm">M</span>
+                  <div><strong>{{ server.name }}</strong><span>{{ server.command || server.message }}</span></div>
+                  <span class="amp-chip" :class="server.valid ? 'ok' : 'bad'">{{ server.valid ? t('skillManagerV2.status.ok') : t('skillManagerV2.status.conflict') }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="activeTab === 'plugins'" class="amp-plugins-tab">
+              <div v-if="plugins.length === 0" class="amp-muted">{{ t('skillManagerV2.agent.noPlugins') }}</div>
+              <div v-else class="amp-data-list">
+                <div v-for="plugin in plugins" :key="plugin.id" class="amp-data-row">
+                  <span class="amp-glyph sm">P</span>
+                  <div><strong>{{ plugin.name }}</strong><span>{{ plugin.source ?? '' }}{{ plugin.version ? ` · v${plugin.version}` : '' }}</span></div>
+                  <span class="amp-chip" :class="plugin.enabled ? 'ok' : 'warn'">{{ plugin.enabled ? t('skillManagerV2.agent.enabled') : t('skillManagerV2.agent.disabled') }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="activeTab === 'config'" class="amp-config-tab">
+              <div class="amp-path-row"><span>Skills</span><code>{{ selectedAgent.skillsDir || '-' }}</code></div>
+              <div class="amp-path-row"><span>Settings</span><code>{{ selectedAgent.configPath || '-' }}</code></div>
+              <div class="amp-path-row"><span>Plugins</span><code>{{ selectedAgent.pluginDir || '-' }}</code></div>
+            </div>
           </div>
         </template>
 
@@ -416,6 +486,33 @@ function severityLabel(severity: string): string {
   flex: 1;
   overflow-y: auto;
   padding: 10px;
+}
+
+.amp-agent-group + .amp-agent-group {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.amp-agent-group-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 7px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+
+  b {
+    min-width: 20px;
+    padding: 2px 6px;
+    border-radius: var(--radius-full);
+    background: var(--surface-soft);
+    text-align: center;
+    font-size: 10px;
+  }
 }
 
 .amp-list-menu {
@@ -549,6 +646,29 @@ function severityLabel(severity: string): string {
     font-size: 11px;
     overflow-wrap: anywhere;
   }
+}
+
+.amp-header-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-wrap: wrap;
+
+  span {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    padding: 5px 8px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-full);
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  strong { color: var(--text-primary); font-size: 13px; }
 }
 
 .amp-glyph {
@@ -795,10 +915,36 @@ function severityLabel(severity: string): string {
   text-align: center;
 }
 
+.amp-config-tab {
+  display: grid;
+  gap: 8px;
+}
+
+.amp-path-row {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  color: var(--text-muted);
+  font-size: 11px;
+
+  code {
+    overflow-wrap: anywhere;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+}
+
 @media (max-width: 920px) {
   .amp-layout { grid-template-columns: 220px minmax(0, 1fr); }
   .amp-chip { display: none; }
   .amp-list-item { grid-template-columns: 32px minmax(0, 1fr); }
+  .amp-header-stats { width: 100%; margin-left: 0; }
 }
 
 @media (max-width: 680px) {

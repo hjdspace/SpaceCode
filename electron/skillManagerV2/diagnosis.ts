@@ -64,6 +64,17 @@ export class DiagnosisEngine {
     const insertStmt = this.db.conn.prepare(`
       INSERT INTO diagnosis_issues (id, issue_type, severity, entity_type, entity_id, title, detail, fix_kind, payload_json, created_at, resolved_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      ON CONFLICT(id) DO UPDATE SET
+        issue_type = excluded.issue_type,
+        severity = excluded.severity,
+        entity_type = excluded.entity_type,
+        entity_id = excluded.entity_id,
+        title = excluded.title,
+        detail = excluded.detail,
+        fix_kind = excluded.fix_kind,
+        payload_json = excluded.payload_json,
+        created_at = excluded.created_at,
+        resolved_at = NULL
     `)
 
     for (const issue of issues) {

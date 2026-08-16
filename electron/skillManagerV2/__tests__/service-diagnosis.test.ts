@@ -54,6 +54,17 @@ describe('SkillManagerService — Diagnosis Engine', () => {
   // ── runDiagnosis ──────────────────────────────────────────────
 
   describe('runDiagnosis', () => {
+    it('can rerun without violating stable issue IDs', () => {
+      createSkillDir(centerPath, 'repeat-orphan', 'Repeat Orphan')
+
+      const first = service.runDiagnosis()
+      const second = service.runDiagnosis()
+
+      expect(first.some((issue) => issue.entityId === 'repeat-orphan')).toBe(true)
+      expect(second.some((issue) => issue.entityId === 'repeat-orphan')).toBe(true)
+      expect(service.listDiagnosisIssues().filter((issue) => issue.entityId === 'repeat-orphan')).toHaveLength(1)
+    })
+
     it('returns empty issues on a clean system', () => {
       createSkillDir(centerPath, 'clean-skill', 'Clean Skill')
       service.refresh()
@@ -394,6 +405,16 @@ describe('SkillManagerService — Agent Detail', () => {
       const detail = service.getAgentDetail('claude-code')
       expect(detail!.unmanaged.length).toBe(1)
       expect(detail!.unmanaged[0].inferredSkillId).toBe('unmanaged')
+    })
+
+    it('keeps nested skills with the same directory name as separate unmanaged items', () => {
+      createSkillDir(path.join(agentDir, 'first'), 'shared-name', 'First')
+      createSkillDir(path.join(agentDir, 'second'), 'shared-name', 'Second')
+
+      const result = service.scanAgentInventory('claude-code')
+
+      expect(result.unmanaged).toHaveLength(2)
+      expect(new Set(result.unmanaged.map((item) => item.id)).size).toBe(2)
     })
 
     it('returns healthIssues filtered for this agent', () => {

@@ -31,7 +31,7 @@ import {
   createLink,
 } from './fsutil'
 import { scanCenterLibrary } from './scanner'
-import { getBuiltInAgents, pathsForAgent } from './agentRegistry'
+import { getBuiltInAgents, pathsForAgent, pluginCachePathForAgent } from './agentRegistry'
 import { DiagnosisEngine } from './diagnosis'
 import { exportSnapshot, type SkillManagerSnapshot } from './snapshot'
 import type {
@@ -80,6 +80,8 @@ import type {
   CopyTargetDiffFile,
   CopySyncStatus,
   AgentDetail,
+  McpServerStatus,
+  PluginStatus,
 } from '@/types/skillManagerV2'
 
 // ── Default settings ───────────────────────────────────────────────
@@ -210,20 +212,36 @@ export class SkillManagerService {
       ORDER BY a.display_name
     `).all() as AgentRow[]
 
-    return rows.map((r) => ({
-      id: r.id,
-      displayName: r.display_name,
-      skillsDir: r.skills_dir,
-      configPath: r.config_path,
-      mcpConfigPath: r.mcp_config_path,
-      pluginDir: r.plugin_dir,
-      version: r.version,
-      latestVersion: r.latest_version,
-      enabled: r.enabled === 1,
-      lastScannedAt: r.last_scanned_at,
-      managedSkillCount: r.managed_count,
-      unmanagedCount: r.unmanaged_count,
-    }))
+    return rows.map((r) => {
+      const installed = this.isAgentInstalled(r)
+      return {
+        id: r.id,
+        displayName: r.display_name,
+        skillsDir: r.skills_dir,
+        configPath: r.config_path,
+        mcpConfigPath: r.mcp_config_path,
+        pluginDir: r.plugin_dir,
+        version: r.version,
+        latestVersion: r.latest_version,
+        enabled: r.enabled === 1,
+        installed,
+        lastScannedAt: r.last_scanned_at,
+        managedSkillCount: r.managed_count,
+        unmanagedCount: r.unmanaged_count,
+      }
+    })
+  }
+
+  private isAgentInstalled(row: AgentRow): boolean {
+    const candidates = [
+      row.skills_dir,
+      row.config_path,
+      row.mcp_config_path,
+      pluginCachePathForAgent(row.id),
+    ].filter((value): value is string => Boolean(value))
+    return candidates.some((candidate) => pathExists(candidate))
+      || row.managed_count > 0
+      || row.unmanaged_count > 0
   }
 
   // ── Skills ──────────────────────────────────────────────────────
@@ -956,7 +974,7 @@ export class SkillManagerService {
    */
   getAgentDetail(agentId: string): AgentDetail | null {
     const row = this.db.conn.prepare(`
-      SELECT id, display_name, skills_dir, config_path, version, last_scanned_at
+      SELECT id, display_name, skills_dir, config_path, mcp_config_path, plugin_dir, version, last_scanned_at
       FROM agents WHERE id = ?
     `).get(agentId) as AgentDetailRow | undefined
 
@@ -966,18 +984,22 @@ export class SkillManagerService {
     const unmanaged = this.getAgentUnmanaged(agentId)
     const appliedPacks = this.getAgentAppliedPacks(agentId)
     const healthIssues = this.getAgentHealthIssues(agentId)
+    const pluginDir = row.plugin_dir ?? pluginCachePathForAgent(agentId)
 
     return {
       id: row.id,
       displayName: row.display_name,
       skillsDir: row.skills_dir,
       configPath: row.config_path,
+      pluginDir,
       version: row.version,
       lastScannedAt: row.last_scanned_at,
       skills,
       unmanaged,
       appliedPacks,
       healthIssues,
+      mcpServers: readMcpServers(agentId),
+      plugins: readPlugins(agentId),
     }
   }
 
@@ -1342,7 +1364,7 @@ export class SkillManagerService {
         // Skip if managed (has a target record)
         if (managedSkillIds.has(inferredId) || managedSkillIds.has(entryName)) continue
         const hash = hashDir(skillDirPath)
-        const unmanagedId = `${agentId}__${inferredId}`
+        const unmanagedId = unmanagedItemId(agentId, skillDirPath)
 
         // Check if center library has same-name skill
         const centerHash = centerSkillMap.get(inferredId)
@@ -2373,6 +2395,116 @@ function uuidShort(): string {
   return crypto.randomBytes(6).toString('hex')
 }
 
+function unmanagedItemId(agentId: string, itemPath: string): string {
+  const digest = crypto.createHash('sha1').update(itemPath).digest('hex').slice(0, 16)
+  return `unm-${agentId}-${digest}`
+}
+
+function readMcpServers(agentId: string): McpServerStatus[] {
+  const configPath = pathsForAgent(agentId)?.mcpConfig
+  if (!configPath || !pathExists(configPath)) return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(fs.readFileSync(configPath, 'utf8'))
+  } catch {
+    return []
+  }
+  const servers = (parsed as { mcpServers?: Record<string, unknown> }).mcpServers
+  if (!servers || typeof servers !== 'object') return []
+  return Object.entries(servers).map(([name, raw]) => {
+    const config = raw as { command?: unknown; url?: unknown; args?: unknown }
+    const command = typeof config.command === 'string'
+      ? config.command
+      : typeof config.url === 'string' ? config.url : ''
+    const args = Array.isArray(config.args)
+      ? config.args.filter((arg): arg is string => typeof arg === 'string')
+      : []
+    return {
+      name,
+      command,
+      args,
+      valid: command.length > 0,
+      message: command.length > 0 ? 'configured' : 'missing command',
+    }
+  })
+}
+
+function readPlugins(agentId: string): PluginStatus[] {
+  if (agentId !== 'claude-code') return []
+  const cache = pluginCachePathForAgent(agentId)
+  if (!cache) return []
+  const enabledPlugins = readEnabledPlugins(path.join(home(), '.claude', 'settings.json'))
+  const manifests = collectPluginManifests(cache, 0)
+  const plugins = new Map<string, PluginStatus>()
+
+  for (const manifestPath of manifests) {
+    let manifest: {
+      name?: unknown
+      displayName?: unknown
+      version?: unknown
+      interface?: { displayName?: unknown }
+    }
+    try {
+      manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as typeof manifest
+    } catch {
+      continue
+    }
+    const name = typeof manifest.name === 'string' ? manifest.name.trim() : ''
+    if (!name) continue
+    const relative = path.relative(cache, manifestPath)
+    const source = relative.split(path.sep)[0] || null
+    const configKey = source ? `${name}@${source}` : name
+    const enabled = enabledPlugins[configKey] ?? enabledPlugins[name] ?? true
+    const plugin: PluginStatus = {
+      id: configKey,
+      name: typeof manifest.interface?.displayName === 'string'
+        ? manifest.interface.displayName
+        : typeof manifest.displayName === 'string' ? manifest.displayName : name,
+      version: typeof manifest.version === 'string' ? manifest.version : null,
+      enabled,
+      source: source ? `claude-plugin:${source}` : 'claude-plugin',
+    }
+    const existing = plugins.get(plugin.id)
+    if (!existing || (plugin.version ?? '') > (existing.version ?? '')) plugins.set(plugin.id, plugin)
+  }
+  return [...plugins.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function collectPluginManifests(dir: string, depth: number): string[] {
+  if (depth > 8) return []
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return []
+  }
+  const result: string[] = []
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const child = path.join(dir, entry.name)
+    const manifest = path.join(child, '.claude-plugin', 'plugin.json')
+    if (pathExists(manifest)) {
+      result.push(manifest)
+      continue
+    }
+    result.push(...collectPluginManifests(child, depth + 1))
+  }
+  return result
+}
+
+function readEnabledPlugins(settingsPath: string): Record<string, boolean> {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) as { enabledPlugins?: unknown }
+    const enabled = parsed.enabledPlugins
+    if (!enabled || typeof enabled !== 'object') return {}
+    return Object.fromEntries(
+      Object.entries(enabled).filter((entry): entry is [string, boolean] => typeof entry[1] === 'boolean'),
+    )
+  } catch {
+    return {}
+  }
+}
+
 // ── Internal row types ─────────────────────────────────────────────
 
 interface AgentRow {
@@ -2388,6 +2520,10 @@ interface AgentRow {
   last_scanned_at: string | null
   managed_count: number
   unmanaged_count: number
+}
+
+interface AgentDetailRow extends AgentRow {
+  mcp_config_path: string | null
 }
 
 interface SkillRow {

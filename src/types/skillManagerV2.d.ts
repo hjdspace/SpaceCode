@@ -144,6 +144,8 @@ export interface AgentSummary {
   version: string | null
   latestVersion: string | null
   enabled: boolean
+  /** Whether the agent has a local installation/configuration detected. */
+  installed: boolean
   lastScannedAt: string | null
   managedSkillCount: number
   unmanagedCount: number
@@ -154,12 +156,31 @@ export interface AgentDetail {
   displayName: string
   skillsDir: string | null
   configPath: string | null
+  pluginDir: string | null
   version: string | null
   lastScannedAt: string | null
   skills: SkillTarget[]
   unmanaged: UnmanagedItemDto[]
   appliedPacks: SkillPackSummary[]
   healthIssues: DiagnosisIssue[]
+  mcpServers: McpServerStatus[]
+  plugins: PluginStatus[]
+}
+
+export interface McpServerStatus {
+  name: string
+  command: string
+  args: string[]
+  valid: boolean
+  message: string
+}
+
+export interface PluginStatus {
+  id: string
+  name: string
+  version: string | null
+  enabled: boolean
+  source: string | null
 }
 
 // ── Skill Pack ─────────────────────────────────────────────────────
