@@ -1,9 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { SkillManagerService } from '../service'
 import type { DiagnosisIssue } from '@/types/skillManagerV2'
+
+// 版本探测会真实 spawn npm/CLI 进程，测试里固定返回值保持确定性
+vi.mock('../agentVersions', () => ({
+  detectAgentVersion: vi.fn(async (agentId: string) =>
+    agentId === 'claude-code' ? '2.1.0' : null
+  ),
+}))
 
 // ── Test helpers ───────────────────────────────────────────────────
 
@@ -452,7 +459,7 @@ describe('SkillManagerService — Agent Detail', () => {
   })
 
   describe('scanAgentDetail', () => {
-    it('refreshes agent state and returns updated detail', () => {
+    it('refreshes agent state and returns updated detail', async () => {
       createSkillDir(centerPath, 'scan-skill', 'Scan Skill')
       service.refresh()
 
@@ -462,16 +469,23 @@ describe('SkillManagerService — Agent Detail', () => {
       // Add an unmanaged skill after initial scan
       createSkillDir(agentDir, 'new-unmanaged', 'New Unmanaged')
 
-      const detail = service.scanAgentDetail('claude-code')
+      const detail = await service.scanAgentDetail('claude-code')
       expect(detail).not.toBeNull()
       expect(detail!.unmanaged.length).toBe(1)
       expect(detail!.unmanaged[0].inferredSkillId).toBe('new-unmanaged')
     })
 
-    it('updates lastScannedAt timestamp', () => {
+    it('detects and persists the agent CLI version', async () => {
+      const detail = await service.scanAgentDetail('claude-code')
+      expect(detail).not.toBeNull()
+      expect(detail!.version).toBe('2.1.0')
+      expect(service.listAgents().find((a) => a.id === 'claude-code')!.version).toBe('2.1.0')
+    })
+
+    it('updates lastScannedAt timestamp', async () => {
       const before = service.getAgentDetail('claude-code')!.lastScannedAt ?? ''
       // Wait a tiny bit to ensure timestamp changes
-      const detail = service.scanAgentDetail('claude-code')
+      const detail = await service.scanAgentDetail('claude-code')
       // lastScannedAt should be set (non-null)
       expect(detail).not.toBeNull()
       // The agent row should have last_scanned_at set

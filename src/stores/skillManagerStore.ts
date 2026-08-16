@@ -142,6 +142,7 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
       await sm.init()
       await loadOverview()
       initialized.value = true
+      refreshAgentVersionsInBackground()
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
     } finally {
@@ -163,6 +164,26 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
     }
   }
 
+  /**
+   * Detect agent CLI versions in the background and patch the overview.
+   * Version probing spawns npm/CLI processes (up to a few seconds), so it
+   * runs after the overview has rendered instead of blocking init/refresh.
+   */
+  function refreshAgentVersionsInBackground(): void {
+    const sm = api.skillManagerV2
+    if (!sm) return
+
+    void sm.refreshAgentVersions()
+      .then((agents) => {
+        if (overview.value) {
+          overview.value = { ...overview.value, agents }
+        }
+      })
+      .catch(() => {
+        // 版本探测失败不影响主流程，列表保持 '?'
+      })
+  }
+
   /** Refresh: trigger a full scan and reload overview. */
   async function refresh(): Promise<void> {
     const sm = api.skillManagerV2
@@ -175,6 +196,7 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
       const data = await sm.refresh()
       overview.value = data
       settings.value = data.settings
+      refreshAgentVersionsInBackground()
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
     } finally {

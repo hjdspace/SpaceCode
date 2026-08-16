@@ -32,6 +32,7 @@ import {
 } from './fsutil'
 import { scanCenterLibrary } from './scanner'
 import { getBuiltInAgents, pathsForAgent, pluginCachePathForAgent } from './agentRegistry'
+import { detectAgentVersion } from './agentVersions'
 import { DiagnosisEngine } from './diagnosis'
 import { exportSnapshot, type SkillManagerSnapshot } from './snapshot'
 import type {
@@ -242,6 +243,28 @@ export class SkillManagerService {
     return candidates.some((candidate) => pathExists(candidate))
       || row.managed_count > 0
       || row.unmanaged_count > 0
+  }
+
+  /**
+   * Detect and persist CLI versions for all installed agents (parallel, best-effort).
+   * Reference: AgentBro `programs.rs` `build_agent_list`.
+   */
+  async refreshAgentVersions(): Promise<void> {
+    const installed = this.listAgents().filter((a) => a.installed && a.id !== 'agents')
+    const entries = await Promise.all(
+      installed.map(async (agent): Promise<[string, string | null]> => [
+        agent.id,
+        await detectAgentVersion(agent.id),
+      ])
+    )
+    for (const [id, version] of entries) {
+      if (version) this.setAgentVersion(id, version)
+    }
+  }
+
+  /** Persist a detected CLI version for an agent. */
+  private setAgentVersion(agentId: string, version: string): void {
+    this.db.conn.prepare('UPDATE agents SET version = ? WHERE id = ?').run(version, agentId)
   }
 
   // ── Skills ──────────────────────────────────────────────────────
@@ -1005,10 +1028,13 @@ export class SkillManagerService {
 
   /**
    * Scan a single agent and return updated detail.
-   * Delegates to scanAgentInventory to refresh the unmanaged items, then returns detail.
+   * Delegates to scanAgentInventory to refresh the unmanaged items,
+   * refreshes the agent CLI version, then returns detail.
    */
-  scanAgentDetail(agentId: string): AgentDetail | null {
+  async scanAgentDetail(agentId: string): Promise<AgentDetail | null> {
     this.scanAgentInventory(agentId)
+    const version = await detectAgentVersion(agentId)
+    if (version) this.setAgentVersion(agentId, version)
     return this.getAgentDetail(agentId)
   }
 

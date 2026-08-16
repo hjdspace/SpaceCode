@@ -67,6 +67,27 @@ export function getSkillGlyph(name: string): string {
     : name.slice(0, 2).toUpperCase()
 }
 
+/** Final path segment, handling both / and \ separators. */
+export function pathBasename(p: string): string {
+  return p.split(/[\\/]+/).filter(Boolean).pop() ?? ''
+}
+
+// ── Unmanaged reason labels ────────────────────────────────────────
+
+const UNMANAGED_REASON_KEYS: Array<{ pattern: RegExp; key: string }> = [
+  { pattern: /^Skill not found in center library$/, key: 'skillManagerV2.agent.reasonNotInCenter' },
+  { pattern: /^Skill matches center library content but has no managed target$/, key: 'skillManagerV2.agent.reasonNoManagedTarget' },
+  { pattern: /^Same-name skill '.*' exists in center library but content differs$/, key: 'skillManagerV2.agent.reasonNameConflict' },
+]
+
+/** Map a backend unmanaged-item reason to an i18n key, or null to show the raw text. */
+export function unmanagedReasonKey(reason: string): string | null {
+  for (const entry of UNMANAGED_REASON_KEYS) {
+    if (entry.pattern.test(reason)) return entry.key
+  }
+  return null
+}
+
 // ── Status filter options ──────────────────────────────────────────
 
 export const STATUS_FILTER_OPTIONS: Array<{ value: string; labelKey: string }> = [

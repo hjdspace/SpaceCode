@@ -65,9 +65,8 @@ export function registerSkillManagerV2IPCHandlers(): void {
     return { success: true }
   })
 
-  ipcMain.handle(SCHEMA_MANAGER_CHANNELS.INIT, () => {
-    const svc = getService()
-    return svc.refresh()
+  ipcMain.handle(SCHEMA_MANAGER_CHANNELS.INIT, (): SkillManagerOverview => {
+    return getService().refresh()
   })
 
   ipcMain.handle(SCHEMA_MANAGER_CHANNELS.OVERVIEW, (): SkillManagerOverview => {
@@ -77,6 +76,16 @@ export function registerSkillManagerV2IPCHandlers(): void {
   ipcMain.handle(SCHEMA_MANAGER_CHANNELS.REFRESH, (): SkillManagerOverview => {
     return getService().refresh()
   })
+
+  // 版本探测需 spawn npm/CLI 进程（最长数秒），独立通道供渲染端后台回填
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.REFRESH_AGENT_VERSIONS,
+    async (): Promise<AgentSummary[]> => {
+      const svc = getService()
+      await svc.refreshAgentVersions()
+      return svc.listAgents()
+    }
+  )
 
   ipcMain.handle(SCHEMA_MANAGER_CHANNELS.SETTINGS, (): SkillManagerSettings => {
     return getService().getSettings()
@@ -327,7 +336,7 @@ export function registerSkillManagerV2IPCHandlers(): void {
 
   ipcMain.handle(
     SCHEMA_MANAGER_CHANNELS.SCAN_AGENT_DETAIL,
-    (_event, agentId: string) => {
+    async (_event, agentId: string): Promise<AgentDetail | null> => {
       return getService().scanAgentDetail(agentId)
     }
   )

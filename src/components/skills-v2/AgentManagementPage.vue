@@ -12,6 +12,7 @@ import { useSkillManagerStore } from '@/stores/skillManagerStore'
 import type { SkillTarget, UnmanagedItemDto, DiagnosisIssue } from '@/types/skillManagerV2'
 import AdoptDialog from './AdoptDialog.vue'
 import AgentIconBadge from './AgentIconBadge.vue'
+import { getSkillGlyph, pathBasename, unmanagedReasonKey } from './skillLabels'
 
 const { t } = useI18n()
 const store = useSkillManagerStore()
@@ -80,6 +81,16 @@ function agentBadge(agentId: string, agentName: string): { agentId: string; agen
 
 function handleAdopt(item: UnmanagedItemDto): void {
   adoptItem.value = item
+}
+
+/** Card display name for an unmanaged item (AgentBro: inferred id, else path basename). */
+function unmanagedName(item: UnmanagedItemDto): string {
+  return item.inferredSkillId || pathBasename(item.path) || item.id
+}
+
+function reasonLabel(reason: string): string {
+  const key = unmanagedReasonKey(reason)
+  return key ? t(key) : reason
 }
 
 async function handleAdopted(): Promise<void> {
@@ -293,24 +304,32 @@ function severityLabel(severity: string): string {
                 </div>
               </div>
 
-              <!-- Skills List -->
-              <div class="amp-data-list" v-if="selectedAgent.skills.length > 0">
-                <div
+              <!-- Skills Cards -->
+              <div v-if="selectedAgent.skills.length > 0" class="amp-skill-grid">
+                <article
                   v-for="target in selectedAgent.skills"
                   :key="target.id"
-                  class="amp-data-row"
+                  class="amp-skill-card"
                 >
-                  <span class="amp-glyph sm">{{ target.skillId.slice(0, 2).toUpperCase() }}</span>
-                  <div>
-                    <strong>{{ target.skillId }}</strong>
-                    <span>{{ target.targetPath }}</span>
+                  <div class="amp-skill-head">
+                    <span class="amp-skill-icon">{{ getSkillGlyph(pathBasename(target.targetPath) || target.skillId) }}</span>
+                    <div class="amp-skill-title">
+                      <strong>{{ pathBasename(target.targetPath) || target.skillId }}</strong>
+                      <span>{{ target.skillId }}</span>
+                    </div>
+                    <span class="amp-status-pill" :class="statusPillClass(target.status)">
+                      {{ statusLabel(target.status) }}
+                    </span>
                   </div>
-                  <span class="amp-status-pill" :class="modePillClass(target.actualMode)">
-                    {{ target.actualMode === 'link'
-                      ? t('skillManagerV2.settings.modeLink')
-                      : t('skillManagerV2.settings.modeCopy') }}
-                  </span>
-                </div>
+                  <div class="amp-skill-meta">
+                    <span class="amp-mode-pill" :class="modePillClass(target.actualMode)">
+                      {{ target.actualMode === 'link'
+                        ? t('skillManagerV2.settings.modeLink')
+                        : t('skillManagerV2.settings.modeCopy') }}
+                    </span>
+                  </div>
+                  <code :title="target.targetPath">{{ target.targetPath }}</code>
+                </article>
               </div>
 
               <!-- Unmanaged -->
@@ -319,17 +338,27 @@ function severityLabel(severity: string): string {
                   {{ t('skillManagerV2.agent.unmanagedSkills') }}
                   <span class="amp-count">({{ unmanagedItems.length }})</span>
                 </h4>
-                <div class="amp-data-list">
-                  <div v-for="item in unmanagedItems" :key="item.id" class="amp-data-row">
-                    <span class="amp-glyph sm">?</span>
-                    <div>
-                      <strong>{{ item.inferredSkillId ?? item.path }}</strong>
-                      <span>{{ item.reason }}</span>
+                <div class="amp-skill-grid">
+                  <article
+                    v-for="item in unmanagedItems"
+                    :key="item.id"
+                    class="amp-skill-card unmanaged"
+                  >
+                    <div class="amp-skill-head">
+                      <span class="amp-skill-icon">{{ getSkillGlyph(unmanagedName(item)) }}</span>
+                      <div class="amp-skill-title">
+                        <strong>{{ unmanagedName(item) }}</strong>
+                        <span>{{ reasonLabel(item.reason) }}</span>
+                      </div>
+                      <span class="amp-status-pill unmanaged">{{ t('skillManagerV2.status.unmanaged') }}</span>
                     </div>
-                    <button class="amp-row-action" @click="handleAdopt(item)">
-                      <Sparkles :size="14" />{{ t('skillManagerV2.agent.adopt') }}
-                    </button>
-                  </div>
+                    <code :title="item.path">{{ item.path }}</code>
+                    <div class="amp-skill-actions">
+                      <button class="amp-row-action" @click="handleAdopt(item)">
+                        <Sparkles :size="14" />{{ t('skillManagerV2.agent.adopt') }}
+                      </button>
+                    </div>
+                  </article>
                 </div>
               </div>
             </div>
@@ -417,6 +446,7 @@ function severityLabel(severity: string): string {
       visible
       :agent-id="selectedAgent.id"
       :unmanaged-id="adoptItem.id"
+      :skill-path="adoptItem.path"
       @close="adoptItem = null"
       @adopted="handleAdopted"
     />
@@ -890,6 +920,112 @@ function severityLabel(severity: string): string {
   &.bad { color: var(--error); background: rgba(220, 38, 38, 0.08); }
   &.unmanaged { color: var(--accent-tertiary); background: rgba(124, 58, 237, 0.08); }
   &.conflict { color: var(--error); background: rgba(220, 38, 38, 0.08); }
+}
+
+// ── Skill Cards ───────────────────────────────────────────────────
+
+.amp-skill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 10px;
+}
+
+.amp-skill-card {
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+  transition: border-color 0.16s, box-shadow 0.16s, transform 0.16s;
+
+  &:hover {
+    border-color: var(--border-strong);
+    box-shadow: 0 8px 20px rgba(5, 10, 20, 0.08);
+    transform: translateY(-1px);
+  }
+
+  &.unmanaged {
+    border-color: rgba(217, 119, 6, 0.25);
+    background: rgba(217, 119, 6, 0.04);
+  }
+
+  code {
+    flex: 1;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+  }
+}
+
+.amp-skill-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.amp-skill-icon {
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.amp-skill-title {
+  min-width: 0;
+  flex: 1;
+
+  strong {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  span {
+    display: block;
+    margin-top: 2px;
+    color: var(--text-muted);
+    font-size: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.amp-skill-meta {
+  display: flex;
+  gap: 6px;
+}
+
+.amp-mode-pill {
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  border-radius: var(--radius-full);
+  font-size: 9px;
+  font-weight: 700;
+
+  &.link { color: var(--accent-primary); background: rgba(13, 148, 136, 0.08); }
+  &.copy { color: var(--accent-secondary); background: rgba(99, 102, 241, 0.08); }
+}
+
+.amp-skill-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .amp-section {

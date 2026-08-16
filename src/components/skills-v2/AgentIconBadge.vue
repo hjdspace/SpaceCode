@@ -10,13 +10,23 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AgentBadge } from '@/types/skillManagerV2'
 import { getAgentInitials, STATUS_CSS_CLASSES } from './skillLabels'
-import anthropicLogo from '@/assets/logos/anthropic.svg'
+import claudeLogo from '@/assets/logos/cli/claude.png'
+import codexLogo from '@/assets/logos/cli/codex.png'
+import cursorLogo from '@/assets/logos/cli/cursor.png'
+import geminiLogo from '@/assets/logos/cli/gemini.png'
+import opencodeLogo from '@/assets/logos/cli/opencode.png'
+import openclawLogo from '@/assets/logos/cli/openclaw.png'
+import copilotLogo from '@/assets/logos/cli/copilot.png'
+import qwenLogo from '@/assets/logos/cli/qwen.png'
+import kimiLogo from '@/assets/logos/cli/kimi.png'
+import doubaoLogo from '@/assets/logos/cli/doubao.svg'
 import deepseekLogo from '@/assets/logos/deepseek.svg'
-import doubaoLogo from '@/assets/logos/doubao.svg'
-import geminiLogo from '@/assets/logos/gemini.svg'
-import kimiLogo from '@/assets/logos/kimi.png'
-import openaiLogo from '@/assets/logos/openai.svg'
-import qwenLogo from '@/assets/logos/qwen.svg'
+import workbuddyLogo from '@/assets/logos/cli/workbuddy.png'
+import zcodeLogo from '@/assets/logos/cli/zcode.svg'
+import hermesLogo from '@/assets/logos/cli/hermes.png'
+import antigravityLogo from '@/assets/logos/cli/antigravity.png'
+import kiroLogo from '@/assets/logos/cli/kiro.png'
+import windsurfLogo from '@/assets/logos/cli/windsurf.png'
 
 const props = defineProps<{
   badge: AgentBadge
@@ -45,15 +55,25 @@ const imageFailed = ref(false)
 
 const agentLogo = computed(() => {
   const logos: Record<string, string> = {
-    'claude-code': anthropicLogo,
-    codex: openaiLogo,
+    'claude-code': claudeLogo,
+    codex: codexLogo,
+    cursor: cursorLogo,
     gemini: geminiLogo,
     'gemini-cli': geminiLogo,
+    opencode: opencodeLogo,
+    openclaw: openclawLogo,
+    copilot: copilotLogo,
     qwen: qwenLogo,
     kimi: kimiLogo,
     'kimi-code-cli': kimiLogo,
     doubao: doubaoLogo,
     deepseek: deepseekLogo,
+    workbuddy: workbuddyLogo,
+    zcode: zcodeLogo,
+    hermes: hermesLogo,
+    antigravity: antigravityLogo,
+    kiro: kiroLogo,
+    windsurf: windsurfLogo,
   }
   return logos[props.badge.agentId] ?? null
 })
