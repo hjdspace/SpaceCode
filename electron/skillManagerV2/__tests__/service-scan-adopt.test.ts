@@ -12,6 +12,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { SkillManagerService } from '../service'
+import { setHomeOverride } from '../fsutil'
 import type { AdoptBatchItem } from '@/types/skillManagerV2'
 
 // ── Test helpers ───────────────────────────────────────────────────
@@ -70,6 +71,7 @@ function createAgentSkill(
 describe('SkillManagerService — Agent Scan & Adopt', () => {
   beforeEach(() => {
     tmpDir = makeTmpDir()
+    setHomeOverride(path.join(tmpDir, 'home'))
     centerPath = path.join(tmpDir, 'skills')
     dbPath = path.join(tmpDir, 'skill-manager', 'test.db')
     externalDir = path.join(tmpDir, 'external')
@@ -89,6 +91,7 @@ describe('SkillManagerService — Agent Scan & Adopt', () => {
   })
 
   afterEach(() => {
+    setHomeOverride(null)
     service.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
@@ -178,6 +181,140 @@ describe('SkillManagerService — Agent Scan & Adopt', () => {
 
       const result = service.scanAgentInventory('test-agent')
       expect(result.unmanaged).toHaveLength(1)
+    })
+
+    it('derives the skill id from frontmatter name over directory name', () => {
+      const dir = path.join(agentDir, 'dir-name')
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: Frontmatter Name\n---\n# skill')
+
+      const result = service.scanAgentInventory('test-agent')
+
+      expect(result.unmanaged.length).toBe(1)
+      expect(result.unmanaged[0].inferredSkillId).toBe('Frontmatter-Name')
+    })
+
+    it('skips skills nested inside hidden directories', () => {
+      const dir = path.join(agentDir, '.codex', 'skills', 'nested-skill')
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: nested-skill\n---\n# skill')
+
+      const result = service.scanAgentInventory('test-agent')
+
+      expect(result.unmanaged.length).toBe(0)
+    })
+
+    it('does not recurse into non-skill subdirectories for regular agents', () => {
+      const dir = path.join(agentDir, 'group', 'nested-skill')
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: nested-skill\n---\n# skill')
+
+      const result = service.scanAgentInventory('test-agent')
+
+      expect(result.unmanaged.length).toBe(0)
+    })
+
+    it('stores AgentBro reason codes on unmanaged rows', () => {
+      createAgentSkill('plain-skill')
+      createAndImportSkill('center-skill', undefined, 'center version')
+      createAgentSkill('center-skill', undefined, '# agent modified')
+
+      service.scanAgentInventory('test-agent')
+      const items = service.listUnmanaged().filter((item) => item.agentId === 'test-agent')
+
+      expect(items.find((item) => item.inferredSkillId === 'plain-skill')?.reason).toBe('not_in_center_library')
+      expect(items.find((item) => item.inferredSkillId === 'center-skill')?.reason).toBe('same_name_as_center_skill')
+    })
+
+    it('classifies a same-name same-content skill as unmanaged (reusable, adoptable)', () => {
+      const importedDir = path.join(externalDir, 'reuse-skill')
+      fs.mkdirSync(importedDir, { recursive: true })
+      fs.writeFileSync(
+        path.join(importedDir, 'SKILL.md'),
+        '---\nname: reuse-skill\ndescription: identical\n---\n# identical body'
+      )
+      service.executeAddCenterSkill(
+        { sourcePath: importedDir, sourceType: 'local_folder', sourceUri: importedDir },
+        []
+      )
+      // Copy the exact same directory into the agent dir — identical content.
+      fs.cpSync(importedDir, path.join(agentDir, 'reuse-skill'), { recursive: true })
+
+      const result = service.scanAgentInventory('test-agent')
+
+      expect(result.unmanaged.length).toBe(1)
+      expect(result.conflicts.length).toBe(0)
+      expect(result.unmanaged[0].inferredSkillId).toBe('reuse-skill')
+    })
+
+    it('refresh() drops unmanaged rows whose directories no longer exist', () => {
+      createAgentSkill('stale-skill')
+      service.scanAgentInventory('test-agent')
+      expect(
+        service.listUnmanaged().some((item) => item.agentId === 'test-agent')
+      ).toBe(true)
+
+      fs.rmSync(path.join(agentDir, 'stale-skill'), { recursive: true, force: true })
+      service.refresh()
+
+      expect(
+        service.listUnmanaged().some((item) => item.agentId === 'test-agent')
+      ).toBe(false)
+    })
+  })
+
+  // ── listAgentSkillInventory ─────────────────────────────────────
+
+  describe('listAgentSkillInventory', () => {
+    it('classifies items as managed / adoptable / reusable / conflict', () => {
+      // Adoptable: not in center
+      createAgentSkill('inv-plain')
+      // Reusable: same id + same content in center
+      const importedDir = path.join(externalDir, 'inv-reuse')
+      fs.mkdirSync(importedDir, { recursive: true })
+      fs.writeFileSync(
+        path.join(importedDir, 'SKILL.md'),
+        '---\nname: inv-reuse\ndescription: identical\n---\n# identical body'
+      )
+      service.executeAddCenterSkill(
+        { sourcePath: importedDir, sourceType: 'local_folder', sourceUri: importedDir },
+        []
+      )
+      fs.cpSync(importedDir, path.join(agentDir, 'inv-reuse'), { recursive: true })
+      // Conflict: same id + different content
+      createAndImportSkill('inv-conflict', undefined, 'center version')
+      createAgentSkill('inv-conflict', undefined, '# agent modified')
+      // Managed: distributed to the agent
+      const managedId = createAndImportSkill('inv-managed')
+      const preview = service.previewDistribute([managedId], ['test-agent'], 'link')
+      service.executeDistribute(preview)
+
+      service.scanAgentInventory('test-agent')
+      const inventory = service.listAgentSkillInventory()
+      const agent = inventory.find((entry) => entry.agentId === 'test-agent')
+
+      expect(agent).toBeDefined()
+      expect(agent!.managedCount).toBe(1)
+      expect(agent!.importableCount).toBe(2)
+      expect(agent!.items.find((item) => item.skillId === 'inv-plain')).toMatchObject({
+        status: 'unmanaged',
+        canImport: true,
+        managed: false,
+      })
+      expect(agent!.items.find((item) => item.skillId === 'inv-reuse')).toMatchObject({
+        status: 'unmanaged_reusable',
+        canImport: true,
+        managed: false,
+      })
+      expect(agent!.items.find((item) => item.skillId === 'inv-conflict')).toMatchObject({
+        status: 'conflict',
+        canImport: false,
+        managed: false,
+      })
+      expect(agent!.items.find((item) => item.skillId === 'inv-managed')).toMatchObject({
+        managed: true,
+        canImport: false,
+      })
     })
   })
 
@@ -284,6 +421,28 @@ describe('SkillManagerService — Agent Scan & Adopt', () => {
       const agentSkillDir = path.join(agentDir, 'import-test')
       const stat = fs.lstatSync(agentSkillDir)
       expect(stat.isSymbolicLink()).toBe(false)
+    })
+
+    it('import_keep: reuses the center copy when content is identical (reusable item)', () => {
+      const importedDir = path.join(externalDir, 'keep-reuse')
+      fs.mkdirSync(importedDir, { recursive: true })
+      fs.writeFileSync(
+        path.join(importedDir, 'SKILL.md'),
+        '---\nname: keep-reuse\ndescription: identical\n---\n# identical body'
+      )
+      service.executeAddCenterSkill(
+        { sourcePath: importedDir, sourceType: 'local_folder', sourceUri: importedDir },
+        []
+      )
+      fs.cpSync(importedDir, path.join(agentDir, 'keep-reuse'), { recursive: true })
+
+      const scanResult = service.scanAgentInventory('test-agent')
+      expect(scanResult.unmanaged).toHaveLength(1)
+      const unmanagedId = scanResult.unmanaged[0].id
+
+      // Same id + same content: import_keep must succeed without a rename.
+      expect(() => service.executeAdopt('test-agent', unmanagedId, 'import_keep')).not.toThrow()
+      expect(service.listUnmanaged()).toHaveLength(0)
     })
 
     it('replace_with_link: replaces agent file with symlink, creates target record', () => {

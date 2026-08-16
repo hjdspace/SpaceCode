@@ -74,18 +74,43 @@ export function pathBasename(p: string): string {
 
 // ── Unmanaged reason labels ────────────────────────────────────────
 
-const UNMANAGED_REASON_KEYS: Array<{ pattern: RegExp; key: string }> = [
-  { pattern: /^Skill not found in center library$/, key: 'skillManagerV2.agent.reasonNotInCenter' },
-  { pattern: /^Skill matches center library content but has no managed target$/, key: 'skillManagerV2.agent.reasonNoManagedTarget' },
-  { pattern: /^Same-name skill '.*' exists in center library but content differs$/, key: 'skillManagerV2.agent.reasonNameConflict' },
-]
+const UNMANAGED_REASON_KEYS: Record<string, string> = {
+  not_in_center_library: 'skillManagerV2.agent.reasonNotInCenter',
+  same_name_as_center_skill: 'skillManagerV2.agent.reasonNameConflict',
+  shared_agents_directory: 'skillManagerV2.agent.reasonSharedDir',
+  agent_builtin_read_only: 'skillManagerV2.agent.reasonReadOnly',
+}
 
-/** Map a backend unmanaged-item reason to an i18n key, or null to show the raw text. */
+/** Map a backend unmanaged-item reason code to an i18n key, or null to show the raw text. */
 export function unmanagedReasonKey(reason: string): string | null {
-  for (const entry of UNMANAGED_REASON_KEYS) {
-    if (entry.pattern.test(reason)) return entry.key
-  }
-  return null
+  return UNMANAGED_REASON_KEYS[reason] ?? null
+}
+
+// ── Agent sync inventory status labels ────────────────────────────
+
+/** Resolution modes for the batch-conflict dialog. Reference: AgentBro `BatchConflictMode`. */
+export type BatchConflictMode = 'center_over_agent' | 'rename' | 'overwrite_center' | 'skip'
+
+/** Install modes for the one-click organize dialog. Reference: AgentBro `OneClickOrganizeMode`. */
+export type OneClickOrganizeMode = 'import_link' | 'import_copy' | 'import_keep'
+
+export const INVENTORY_STATUS_LABEL_KEYS: Record<string, string> = {
+  unmanaged: 'skillManagerV2.agentSync.statusUnmanaged',
+  unmanaged_reusable: 'skillManagerV2.agentSync.statusReusable',
+  conflict: 'skillManagerV2.agentSync.statusConflict',
+  builtin_read_only: 'skillManagerV2.agentSync.statusReadOnly',
+  ok: 'skillManagerV2.status.ok',
+  missing: 'skillManagerV2.status.missing',
+  broken_link: 'skillManagerV2.status.brokenLink',
+  copy_outdated: 'skillManagerV2.status.copyOutdated',
+  copy_modified: 'skillManagerV2.status.copyModified',
+  copy_diverged: 'skillManagerV2.status.copyDiverged',
+}
+
+/** i18n key for an inventory item's status label (managed items show a fixed label). */
+export function inventoryStatusKey(managed: boolean, status: string): string | null {
+  if (managed) return 'skillManagerV2.agentSync.statusManaged'
+  return INVENTORY_STATUS_LABEL_KEYS[status] ?? null
 }
 
 // ── Status filter options ──────────────────────────────────────────

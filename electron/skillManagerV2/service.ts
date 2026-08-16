@@ -18,6 +18,7 @@ import {
   defaultSqlitePath,
   home,
   hashDir,
+  hashDirContents,
   isIgnoredEntry,
   isSkillDir,
   nowIso,
@@ -27,11 +28,21 @@ import {
   copyDirRecursive,
   expandTilde,
   inferSkillId,
+  isSymlink,
   pathExists,
   createLink,
 } from './fsutil'
 import { scanCenterLibrary } from './scanner'
-import { getBuiltInAgents, pathsForAgent, pluginCachePathForAgent, sharedSkillsDir } from './agentRegistry'
+import {
+  agentSkillDirs,
+  getBuiltInAgent,
+  getBuiltInAgents,
+  inheritsSharedAgentsSkills,
+  pathsForAgent,
+  pluginCachePathForAgent,
+  readOnlyAgentSkillDirs,
+  sharedSkillsDir,
+} from './agentRegistry'
 import { detectAgentVersion } from './agentVersions'
 import { DiagnosisEngine } from './diagnosis'
 import { exportSnapshot, type SkillManagerSnapshot } from './snapshot'
@@ -83,6 +94,8 @@ import type {
   AgentDetail,
   McpServerStatus,
   PluginStatus,
+  AgentSkillInventoryAgent,
+  AgentSkillInventoryItem,
 } from '@/types/skillManagerV2'
 
 // ── Default settings ───────────────────────────────────────────────
@@ -415,12 +428,37 @@ export class SkillManagerService {
   // ── Refresh ─────────────────────────────────────────────────────
 
   /**
-   * Full scan: scan center library directory for skills, update DB.
-   * Also clear stale unmanaged items and re-scan agent directories.
+   * Full scan: scan center library directory for skills, update DB,
+   * then re-scan every agent directory so unmanaged rows stay fresh.
+   * Reference: AgentBro `service.rs` `refresh()` = scan_center_into_db + scan_all_agents_into_db.
    */
   refresh(): SkillManagerOverview {
     this.scanCenterLibraryInternal()
+    this.scanAllAgentsIntoDb()
     return this.getOverview()
+  }
+
+  /**
+   * Startup scan: center library only (fast). The full agent scan is heavier
+   * (hashes every discovered skill dir) and runs in the background after init,
+   * mirroring AgentBro's `startupScan` behavior.
+   */
+  initScan(): SkillManagerOverview {
+    this.scanCenterLibraryInternal()
+    return this.getOverview()
+  }
+
+  /**
+   * Re-scan every registered agent's skill directories into the DB.
+   * Each agent scan wipes and rewrites its unmanaged rows.
+   */
+  scanAllAgentsIntoDb(): void {
+    const rows = this.db.conn
+      .prepare('SELECT id FROM agents ORDER BY id')
+      .all() as Array<{ id: string }>
+    for (const row of rows) {
+      this.scanAgentInventory(row.id)
+    }
   }
 
   /**
@@ -1336,11 +1374,29 @@ export class SkillManagerService {
 
   /**
    * Scan an agent's skills directory for managed / unmanaged / conflict items.
-   * Updates the unmanaged_items table with discovered items.
+   * Wipes and rewrites the agent's unmanaged_items rows with fresh discoveries.
    *
-   * Reference: AgentBro `service.rs` `scan_agent_inventory()`
+   * Semantics (Reference: AgentBro `service.rs` `scan_one_agent_into_db`):
+   * - Roots come from the agent registry (multi-root for OpenClaw); the shared
+   *   `~/.agents/skills` root is skipped for agents that inherit it — it is
+   *   scanned separately as the `agents` pseudo-agent.
+   * - Discovery only recurses for `openclaw` and the shared `.agents` root;
+   *   every other agent scans one level. Hidden entries are always skipped.
+   * - Skill id = sanitized frontmatter `name`, else sanitized dir name.
+   * - One item per skill id per agent scan.
+   * - Managed = a skill_targets row exists with this exact target path.
    */
   scanAgentInventory(agentId: string): AgentInventoryScanResult {
+    this.scanOneAgentIntoDb(agentId)
+    // Agents that inherit the shared .agents dir also refresh the pseudo-agent.
+    if (inheritsSharedAgentsSkills(agentId) && agentId !== 'agents') {
+      this.scanOneAgentIntoDb('agents')
+    }
+    return this.buildAgentInventoryScanResult(agentId)
+  }
+
+  /** Scan one agent's roots into the DB without touching related agents. */
+  private scanOneAgentIntoDb(agentId: string): { managed: number; unmanaged: number; readOnly: number } {
     const agentRow = this.db.conn.prepare(
       'SELECT id, display_name, skills_dir FROM agents WHERE id = ?'
     ).get(agentId) as { id: string; display_name: string; skills_dir: string | null } | undefined
@@ -1349,22 +1405,120 @@ export class SkillManagerService {
       throw new Error(`Agent not found: ${agentId}`)
     }
 
+    const registryRoots = agentSkillDirs(agentId)
     const skillsDir = agentRow.skills_dir ?? ''
-    const registeredRoots = pathsForAgent(agentId)?.skillDirs ?? []
+    // Registry roots apply when the DB dir still matches the registry primary;
+    // a diverging DB dir (tests, custom agents) is scanned on its own.
     const primaryMatchesRegistry = Boolean(
-      skillsDir && registeredRoots[0] && path.resolve(skillsDir) === path.resolve(registeredRoots[0]),
+      skillsDir && registryRoots[0] && path.resolve(skillsDir) === path.resolve(registryRoots[0]),
     )
-    const candidateRoots = primaryMatchesRegistry
-      ? [skillsDir, ...registeredRoots.slice(1)]
+    const candidateRoots = registryRoots.length > 0 && primaryMatchesRegistry
+      ? [skillsDir, ...registryRoots.slice(1)]
       : [skillsDir]
     const scanRoots = candidateRoots.filter((value, index, values) => {
       if (!value || values.indexOf(value) !== index) return false
       return true
     })
-    const managedTargets = this.getAgentManagedTargets(agentId)
-    const managedSkillIds = new Set(managedTargets.map((t) => t.skillId))
 
-    // Get center library skill IDs and hashes
+    const sharedRoot = path.resolve(sharedSkillsDir())
+    const recursive = agentId === 'openclaw' || agentId === 'agents'
+    const includeDependencyDirs = agentId === 'agents'
+
+    // Managed targets keyed by exact target path (AgentBro find_target_by_path).
+    const managedTargets = this.getAgentManagedTargets(agentId)
+    const managedByPath = new Set(managedTargets.map((t) => t.targetPath))
+
+    // Center library skill IDs and hashes for classification.
+    const centerSkills = this.db.conn.prepare(
+      'SELECT id, current_hash FROM skills'
+    ).all() as Array<{ id: string; current_hash: string }>
+    const centerSkillMap = new Map(centerSkills.map((s) => [s.id, s.current_hash]))
+
+    const readOnlyRoots = readOnlyAgentSkillDirs(agentId).map((p) => path.resolve(p))
+
+    const now = nowIso()
+    let managed = 0
+    let unmanaged = 0
+    let readOnly = 0
+    const seenSkillIds = new Set<string>()
+    const insertStmt = this.db.conn.prepare(`
+      INSERT OR REPLACE INTO unmanaged_items (id, item_type, agent_id, path, inferred_skill_id, hash, reason, first_seen_at, last_seen_at)
+      VALUES (?, 'agent_skill', ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    // Wipe stale unmanaged rows for this agent, then re-detect.
+    this.db.conn.prepare('DELETE FROM unmanaged_items WHERE agent_id = ?').run(agentId)
+
+    for (const scanRoot of scanRoots) {
+      if (inheritsSharedAgentsSkills(agentId) && path.resolve(scanRoot) === sharedRoot) {
+        continue
+      }
+      try {
+        if (!fs.statSync(scanRoot).isDirectory()) continue
+      } catch {
+        continue
+      }
+
+      for (const skillPath of discoverAgentSkillPaths(scanRoot, recursive, includeDependencyDirs)) {
+        const inferred = inferSkillId(skillPath)
+        if (seenSkillIds.has(inferred)) continue
+        seenSkillIds.add(inferred)
+
+        if (managedByPath.has(skillPath)) {
+          managed += 1
+          continue
+        }
+
+        const centerKnown = centerSkillMap.has(inferred)
+        const resolvedPath = path.resolve(skillPath)
+        const pathIsReadOnly = readOnlyRoots.some(
+          (root) => resolvedPath === root || resolvedPath.startsWith(root + path.sep),
+        )
+        const reason = pathIsReadOnly
+          ? 'agent_builtin_read_only'
+          : resolvedPath === sharedRoot || resolvedPath.startsWith(sharedRoot + path.sep)
+            ? 'shared_agents_directory'
+            : centerKnown
+              ? 'same_name_as_center_skill'
+              : 'not_in_center_library'
+
+        if (pathIsReadOnly) {
+          readOnly += 1
+        } else {
+          unmanaged += 1
+        }
+
+        insertStmt.run(
+          unmanagedItemId(agentId, skillPath),
+          agentId,
+          skillPath,
+          inferred,
+          hashDir(skillPath),
+          reason,
+          now,
+          now
+        )
+      }
+    }
+
+    if (agentId === 'workbuddy') {
+      this.cleanupWorkbuddyMarketplaceUnmanaged()
+    }
+
+    this.db.conn.prepare('UPDATE agents SET last_scanned_at = ? WHERE id = ?').run(now, agentId)
+
+    return { managed, unmanaged, readOnly }
+  }
+
+  /**
+   * Build the legacy scan result (managed targets + unmanaged/conflict items)
+   * from current DB state. Conflicts are classified at read time, matching
+   * AgentBro `list_agent_skill_inventory`: center has the same id and a
+   * different hash.
+   */
+  private buildAgentInventoryScanResult(agentId: string): AgentInventoryScanResult {
+    const managedTargets = this.getAgentManagedTargets(agentId)
+    const rows = this.getAgentUnmanaged(agentId)
     const centerSkills = this.db.conn.prepare(
       'SELECT id, current_hash FROM skills'
     ).all() as Array<{ id: string; current_hash: string }>
@@ -1372,108 +1526,132 @@ export class SkillManagerService {
 
     const unmanaged: UnmanagedItemDto[] = []
     const conflicts: UnmanagedItemDto[] = []
-    const now = nowIso()
-
-    // Remove old unmanaged items for this agent
-    this.db.conn.prepare('DELETE FROM unmanaged_items WHERE agent_id = ?').run(agentId)
-
-    const discoveredPaths = new Set<string>()
-    for (const scanRoot of scanRoots) {
-      for (const skillDirPath of discoverAgentSkillDirs(scanRoot)) {
-        let discoveryKey = skillDirPath
-        try {
-          discoveryKey = fs.realpathSync(skillDirPath)
-        } catch {
-          // Keep the lexical path when the target disappears during a scan.
-        }
-        if (discoveredPaths.has(discoveryKey)) continue
-        discoveredPaths.add(discoveryKey)
-        const entryName = path.basename(skillDirPath)
-        const inferredId = entryName
-
-        // Skip if managed (has a target record)
-        if (managedSkillIds.has(inferredId) || managedSkillIds.has(entryName)) continue
-        const hash = hashDir(skillDirPath)
-        const unmanagedId = unmanagedItemId(agentId, skillDirPath)
-
-        // Check if center library has same-name skill
-        const centerHash = centerSkillMap.get(inferredId)
-        if (centerHash) {
-          // Same name exists in center — check if hash matches
-          if (centerHash !== hash) {
-            // Conflict — same name, different content
-            conflicts.push({
-              id: unmanagedId,
-              itemType: 'skill_dir',
-              agentId,
-              path: skillDirPath,
-              inferredSkillId: inferredId,
-              hash,
-              reason: `Same-name skill '${inferredId}' exists in center library but content differs`,
-              firstSeenAt: now,
-              lastSeenAt: now,
-            })
-          } else {
-            // Same name, same hash — effectively managed (might be a copy or link)
-            // Treat as unmanaged but with a note that it matches center
-            unmanaged.push({
-              id: unmanagedId,
-              itemType: 'skill_dir',
-              agentId,
-              path: skillDirPath,
-              inferredSkillId: inferredId,
-              hash,
-              reason: 'Skill matches center library content but has no managed target',
-              firstSeenAt: now,
-              lastSeenAt: now,
-            })
-          }
-        } else {
-          // No same-name in center — genuinely unmanaged
-          unmanaged.push({
-            id: unmanagedId,
-            itemType: 'skill_dir',
-            agentId,
-            path: skillDirPath,
-            inferredSkillId: inferredId,
-            hash,
-            reason: 'Skill not found in center library',
-            firstSeenAt: now,
-            lastSeenAt: now,
-          })
-        }
+    for (const item of rows) {
+      if (item.reason === 'agent_builtin_read_only') {
+        unmanaged.push(item)
+        continue
+      }
+      const skillId = item.inferredSkillId ?? path.basename(item.path)
+      const centerHash = centerSkillMap.get(skillId)
+      if (centerHash !== undefined && item.hash !== null && centerHash !== item.hash) {
+        conflicts.push(item)
+      } else {
+        unmanaged.push(item)
       }
     }
 
-    // Write unmanaged + conflict items to DB
-    const insertStmt = this.db.conn.prepare(`
-      INSERT OR REPLACE INTO unmanaged_items (id, item_type, agent_id, path, inferred_skill_id, hash, reason, first_seen_at, last_seen_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
+    return { agentId, managed: managedTargets, unmanaged, conflicts }
+  }
 
-    for (const item of [...unmanaged, ...conflicts]) {
-      insertStmt.run(
-        item.id,
-        item.itemType,
-        item.agentId,
-        item.path,
-        item.inferredSkillId,
-        item.hash,
-        item.reason,
-        item.firstSeenAt,
-        item.lastSeenAt
+  /**
+   * Aggregated per-agent inventory for the Agent sync view.
+   * Managed items come from skill_targets; unmanaged rows are classified at
+   * read time against the center library.
+   * Reference: AgentBro `service.rs` `list_agent_skill_inventory`.
+   */
+  listAgentSkillInventory(): AgentSkillInventoryAgent[] {
+    const agents = this.listAgents()
+    const centerSkills = this.db.conn.prepare(
+      'SELECT id, current_hash FROM skills'
+    ).all() as Array<{ id: string; current_hash: string }>
+    const centerHashes = new Map(centerSkills.map((s) => [s.id, s.current_hash]))
+
+    const itemsByAgent = new Map<string, AgentSkillInventoryItem[]>()
+
+    const targetRows = this.db.conn.prepare(`
+      SELECT t.id, t.agent_id, t.skill_id, COALESCE(s.name, t.skill_id) AS name, t.target_path,
+             t.actual_mode, t.status, t.current_hash
+      FROM skill_targets t LEFT JOIN skills s ON s.id = t.skill_id
+      ORDER BY t.agent_id, t.target_path
+    `).all() as Array<{
+      id: string
+      agent_id: string
+      skill_id: string
+      name: string
+      target_path: string
+      actual_mode: string
+      status: string
+      current_hash: string | null
+    }>
+    for (const row of targetRows) {
+      const items = itemsByAgent.get(row.agent_id) ?? []
+      items.push({
+        id: row.id,
+        agentId: row.agent_id,
+        skillId: row.skill_id,
+        name: row.name,
+        path: row.target_path,
+        managed: true,
+        readOnly: false,
+        canImport: false,
+        status: row.status,
+        reason: null,
+        targetId: row.id,
+        actualMode: row.actual_mode as 'link' | 'copy',
+        hash: row.current_hash,
+      })
+      itemsByAgent.set(row.agent_id, items)
+    }
+
+    for (const item of this.listUnmanaged()) {
+      if (!item.agentId) continue
+      if (item.itemType !== 'skill_dir' && item.itemType !== 'agent_skill') continue
+      const skillId = item.inferredSkillId?.trim() || sanitizeBasename(item.path)
+      const centerHash = centerHashes.get(skillId) ?? null
+      const hashMatches = centerHash !== null && item.hash !== null && centerHash === item.hash
+      const isReadOnly = item.reason === 'agent_builtin_read_only'
+      const [status, canImport] = isReadOnly
+        ? ['builtin_read_only', false] as const
+        : centerHash === null
+          ? ['unmanaged', true] as const
+          : hashMatches
+            ? ['unmanaged_reusable', true] as const
+            : ['conflict', false] as const
+
+      const items = itemsByAgent.get(item.agentId) ?? []
+      items.push({
+        id: item.id,
+        agentId: item.agentId,
+        skillId,
+        name: skillId,
+        path: item.path,
+        managed: false,
+        readOnly: isReadOnly,
+        canImport,
+        status,
+        reason: item.reason,
+        targetId: null,
+        actualMode: null,
+        hash: item.hash,
+      })
+      itemsByAgent.set(item.agentId, items)
+    }
+
+    return agents.map((agent) => {
+      const items = itemsByAgent.get(agent.id) ?? []
+      items.sort((a, b) =>
+        Number(a.managed) - Number(b.managed) || a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
       )
-    }
+      return {
+        agentId: agent.id,
+        displayName: agent.displayName,
+        iconKey: getBuiltInAgent(agent.id)?.icon ?? agent.id,
+        skillsDir: agent.skillsDir,
+        installed: agent.installed,
+        managedCount: items.filter((item) => item.managed).length,
+        unmanagedCount: items.filter((item) => !item.managed && !item.readOnly).length,
+        readOnlyCount: items.filter((item) => item.readOnly).length,
+        importableCount: items.filter((item) => item.canImport).length,
+        items,
+      }
+    })
+  }
 
-    // Update agent's last scanned timestamp
-    this.db.conn.prepare('UPDATE agents SET last_scanned_at = ? WHERE id = ?').run(now, agentId)
-
-    return {
-      agentId,
-      managed: managedTargets,
-      unmanaged,
-      conflicts,
-    }
+  /** Purge workbuddy marketplace rows that AgentBro's scan also excludes. */
+  private cleanupWorkbuddyMarketplaceUnmanaged(): void {
+    this.db.conn.prepare(
+      "DELETE FROM unmanaged_items WHERE agent_id = 'workbuddy' AND path LIKE '%/.workbuddy/skills-marketplace/%'"
+    ).run()
   }
 
   /** Get all managed targets for an agent. */
@@ -1609,14 +1787,15 @@ export class SkillManagerService {
       this.recordAdoptedSkill(targetSkillId, centerDest, sourcePath, agentId)
       removePath(sourcePath)
     } else if (normalizedOption === 'import_keep') {
-      // Copy to center library, keep agent file unchanged
-      if (pathExists(centerDest)) {
-        // If same name exists, need rename
-        if (targetSkillId === inferredSkillId) {
+      if (pathExists(centerDest) && targetSkillId === inferredSkillId) {
+        // Same id: reuse the existing center copy when the content matches
+        // (AgentBro `can_quick_adopt`); otherwise require an explicit rename.
+        if (hashDirContents(centerDest) !== hashDirContents(sourcePath)) {
           throw new Error(`Skill '${targetSkillId}' already exists in center. Use rename.`)
         }
+      } else {
+        copyDirRecursive(sourcePath, centerDest)
       }
-      copyDirRecursive(sourcePath, centerDest)
       this.recordAdoptedSkill(targetSkillId, centerDest, sourcePath, agentId)
     } else if (normalizedOption === 'import_link') {
       // Copy to center, replace agent file with symlink
@@ -2736,36 +2915,90 @@ function readRelativeFile(baseDir: string, relPath: string): string | null {
   }
 }
 
-/** Discover direct and nested Skill directories beneath an Agent root. */
-function discoverAgentSkillDirs(root: string, depth = 0): string[] {
-  if (!root || depth > 8) return []
-  try {
-    if (!fs.statSync(root).isDirectory()) return []
-  } catch {
-    return []
-  }
-  if (isSkillDir(root)) return [root]
+/**
+ * Discover skill directories beneath an agent scan root.
+ * Only recurses when `recursive` (OpenClaw + shared .agents root); skill
+ * directories are collected without descending into them. Hidden entries and
+ * ignored names are skipped — except `node_modules`, which the shared root may
+ * traverse when `includeDependencyDirs` is set. Results are sorted with
+ * non-symlinks first, then deduped by canonicalized path.
+ * Reference: AgentBro `service.rs` `discover_agent_skill_paths`.
+ */
+function discoverAgentSkillPaths(
+  root: string,
+  recursive: boolean,
+  includeDependencyDirs: boolean
+): string[] {
+  const out: string[] = []
+  discoverAgentSkillPathsInner(root, recursive, includeDependencyDirs, 0, out)
+  out.sort((a, b) => {
+    const aIsLink = isSymlink(a)
+    const bIsLink = isSymlink(b)
+    return Number(aIsLink) - Number(bIsLink) || a.localeCompare(b)
+  })
+  const seen = new Set<string>()
+  return out.filter((p) => {
+    let canon = p
+    try {
+      canon = fs.realpathSync(p)
+    } catch {
+      // Keep the lexical path when the target disappears during a scan.
+    }
+    if (seen.has(canon)) return false
+    seen.add(canon)
+    return true
+  })
+}
 
+function discoverAgentSkillPathsInner(
+  dir: string,
+  recursive: boolean,
+  includeDependencyDirs: boolean,
+  depth: number,
+  out: string[]
+): void {
+  if (depth > 8) return
   let entries: fs.Dirent[]
   try {
-    entries = fs.readdirSync(root, { withFileTypes: true })
+    entries = fs.readdirSync(dir, { withFileTypes: true })
   } catch {
-    return []
+    return
   }
-
-  const result: string[] = []
   for (const entry of entries) {
-    if (isIgnoredEntry(entry.name)) continue
-    const childPath = path.join(root, entry.name)
-    if (entry.isSymbolicLink()) {
-      // Agent-managed skill folders are often symlinks into a shared library.
-      // Follow the link only when it is itself a skill directory; do not recurse
-      // through arbitrary links, which could introduce cycles or scan unrelated trees.
-      if (isSkillDir(childPath)) result.push(childPath)
+    const name = entry.name
+    const ignored = isIgnoredEntry(name) && !(includeDependencyDirs && name === 'node_modules')
+    if (ignored || name.startsWith('.')) continue
+    const childPath = path.join(dir, name)
+    let isDir: boolean
+    try {
+      isDir = fs.statSync(childPath).isDirectory()
+    } catch {
       continue
     }
-    if (!entry.isDirectory()) continue
-    result.push(...discoverAgentSkillDirs(childPath, depth + 1))
+    if (!isDir) continue
+    if (isSkillDir(childPath)) {
+      out.push(childPath)
+      continue
+    }
+    if (recursive) {
+      discoverAgentSkillPathsInner(childPath, recursive, includeDependencyDirs, depth + 1, out)
+    }
   }
-  return result
+}
+
+/** Sanitized directory name fallback for unmanaged rows without an inferred id. */
+function sanitizeBasename(p: string): string {
+  const base = path.basename(p)
+  let out = ''
+  let prevDash = false
+  for (const ch of base) {
+    if (/[a-zA-Z0-9]/.test(ch) || ch === '-' || ch === '_') {
+      out += ch
+      prevDash = ch === '-'
+    } else if (!prevDash && out.length > 0) {
+      out += '-'
+      prevDash = true
+    }
+  }
+  return out.replace(/^-+|-+$/g, '') || 'skill'
 }

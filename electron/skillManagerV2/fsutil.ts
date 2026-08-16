@@ -35,8 +35,18 @@ export function isIgnoredEntry(name: string): boolean {
 
 // ── Home / paths ───────────────────────────────────────────────────
 
+let homeOverride: string | null = null
+
+/**
+ * Override the home directory (used by tests to keep scans hermetic).
+ * Pass null to restore the real home.
+ */
+export function setHomeOverride(dir: string | null): void {
+  homeOverride = dir
+}
+
 export function home(): string {
-  return os.homedir()
+  return homeOverride ?? os.homedir()
 }
 
 export function spacecodeHome(): string {

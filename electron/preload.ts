@@ -967,6 +967,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('skill-manager:scan-agent-inventory', agentId),
     listUnmanaged: () =>
       ipcRenderer.invoke('skill-manager:list-unmanaged'),
+    listAgentSkillInventory: () =>
+      ipcRenderer.invoke('skill-manager:list-agent-skill-inventory'),
     previewAdopt: (agentId: string, unmanagedId: string) =>
       ipcRenderer.invoke('skill-manager:preview-adopt', agentId, unmanagedId),
     executeAdopt: (agentId: string, unmanagedId: string, option: string, renamedId?: string) =>

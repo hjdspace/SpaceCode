@@ -23,6 +23,7 @@ export const SCHEMA_MANAGER_CHANNELS = {
   EXECUTE_DISTRIBUTE: 'skill-manager:execute-distribute',
   SCAN_AGENT_INVENTORY: 'skill-manager:scan-agent-inventory',
   LIST_UNMANAGED: 'skill-manager:list-unmanaged',
+  LIST_AGENT_SKILL_INVENTORY: 'skill-manager:list-agent-skill-inventory',
   PREVIEW_ADOPT: 'skill-manager:preview-adopt',
   EXECUTE_ADOPT: 'skill-manager:execute-adopt',
   EXECUTE_ADOPT_BATCH: 'skill-manager:execute-adopt-batch',

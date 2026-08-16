@@ -31,6 +31,7 @@ import type {
   AdoptBatchResult,
   AgentInventoryScanResult,
   UnmanagedItemDto,
+  AgentSkillInventoryAgent,
   SkillPackSummary,
   SkillPackDetail,
   UpsertPackInput,
@@ -66,7 +67,7 @@ export function registerSkillManagerV2IPCHandlers(): void {
   })
 
   ipcMain.handle(SCHEMA_MANAGER_CHANNELS.INIT, (): SkillManagerOverview => {
-    return getService().refresh()
+    return getService().initScan()
   })
 
   ipcMain.handle(SCHEMA_MANAGER_CHANNELS.OVERVIEW, (): SkillManagerOverview => {
@@ -174,6 +175,13 @@ export function registerSkillManagerV2IPCHandlers(): void {
     SCHEMA_MANAGER_CHANNELS.LIST_UNMANAGED,
     (): UnmanagedItemDto[] => {
       return getService().listUnmanaged()
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.LIST_AGENT_SKILL_INVENTORY,
+    (): AgentSkillInventoryAgent[] => {
+      return getService().listAgentSkillInventory()
     }
   )
 

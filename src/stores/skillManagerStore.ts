@@ -42,6 +42,7 @@ import type {
   AdoptBatchResult,
   AgentInventoryScanResult,
   AgentDetail,
+  AgentSkillInventoryAgent,
 } from '@/types/skillManagerV2'
 
 // ── Filters ────────────────────────────────────────────────────────
@@ -83,6 +84,8 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
   const diagnosisIssues = ref<DiagnosisIssue[]>([])
   const diagnosisLoading = ref(false)
   const safeFixResult = ref<{ fixedCount: number; details: string[] } | null>(null)
+  const agentInventory = ref<AgentSkillInventoryAgent[]>([])
+  const agentInventoryLoading = ref(false)
 
   // ── Computed ───────────────────────────────────────────────────
 
@@ -143,6 +146,7 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
       await loadOverview()
       initialized.value = true
       refreshAgentVersionsInBackground()
+      refreshAgentInventoryInBackground()
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
     } finally {
@@ -181,6 +185,22 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
       })
       .catch(() => {
         // 版本探测失败不影响主流程，列表保持 '?'
+      })
+  }
+
+  /**
+   * Full agent-directory scan in the background once per session so unmanaged
+   * rows stay fresh without blocking startup (AgentBro `startupScan`).
+   */
+  function refreshAgentInventoryInBackground(): void {
+    const sm = api.skillManagerV2
+    if (!sm) return
+
+    void sm.refresh()
+      .then(() => loadOverview())
+      .then(() => loadAgentInventory())
+      .catch(() => {
+        // 后台扫描失败不影响主流程，可在同步页手动「重新扫描」
       })
   }
 
@@ -426,6 +446,26 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
       return null
     } finally {
       busyAction.value = null
+    }
+  }
+
+  /** Load the aggregated per-agent inventory (managed + unmanaged items). */
+  async function loadAgentInventory(): Promise<AgentSkillInventoryAgent[] | null> {
+    const sm = api.skillManagerV2
+    if (!sm) return null
+
+    agentInventoryLoading.value = true
+    error.value = null
+
+    try {
+      const inventory = await sm.listAgentSkillInventory()
+      agentInventory.value = inventory
+      return inventory
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      return null
+    } finally {
+      agentInventoryLoading.value = false
     }
   }
 
@@ -813,6 +853,8 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
     diagnosisIssues,
     diagnosisLoading,
     safeFixResult,
+    agentInventory,
+    agentInventoryLoading,
 
     // Computed
     skills,
@@ -874,5 +916,8 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
     loadAgentDetail,
     scanAgentDetail,
     clearSelectedAgent,
+
+    // Agent Inventory actions
+    loadAgentInventory,
   }
 })

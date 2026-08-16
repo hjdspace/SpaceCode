@@ -3,6 +3,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { SkillManagerService } from '../service'
+import { setHomeOverride } from '../fsutil'
 import type { DiagnosisIssue } from '@/types/skillManagerV2'
 
 // 版本探测会真实 spawn npm/CLI 进程，测试里固定返回值保持确定性
@@ -39,6 +40,7 @@ function createSkillDir(parentDir: string, name: string, skillName?: string): st
 describe('SkillManagerService — Diagnosis Engine', () => {
   beforeEach(() => {
     tmpDir = makeTmpDir()
+    setHomeOverride(path.join(tmpDir, 'home'))
     centerPath = path.join(tmpDir, 'skills')
     agentDir = path.join(tmpDir, 'claude-skills')
     dbPath = path.join(tmpDir, 'skill-manager', 'test.db')
@@ -54,6 +56,7 @@ describe('SkillManagerService — Diagnosis Engine', () => {
   })
 
   afterEach(() => {
+    setHomeOverride(null)
     service.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
@@ -358,6 +361,7 @@ describe('SkillManagerService — Diagnosis Engine', () => {
 describe('SkillManagerService — Agent Detail', () => {
   beforeEach(() => {
     tmpDir = makeTmpDir()
+    setHomeOverride(path.join(tmpDir, 'home'))
     centerPath = path.join(tmpDir, 'skills')
     agentDir = path.join(tmpDir, 'claude-skills')
     dbPath = path.join(tmpDir, 'skill-manager', 'test.db')
@@ -370,6 +374,7 @@ describe('SkillManagerService — Agent Detail', () => {
   })
 
   afterEach(() => {
+    setHomeOverride(null)
     service.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
@@ -411,14 +416,23 @@ describe('SkillManagerService — Agent Detail', () => {
 
       const detail = service.getAgentDetail('claude-code')
       expect(detail!.unmanaged.length).toBe(1)
-      expect(detail!.unmanaged[0].inferredSkillId).toBe('unmanaged')
+      // inferredSkillId derives from frontmatter name (sanitized), not dir name
+      expect(detail!.unmanaged[0].inferredSkillId).toBe('Unmanaged')
     })
 
     it('keeps nested skills with the same directory name as separate unmanaged items', () => {
-      createSkillDir(path.join(agentDir, 'first'), 'shared-name', 'First')
-      createSkillDir(path.join(agentDir, 'second'), 'shared-name', 'Second')
+      // Use openclaw (a recursive agent) so nested skills are discovered
+      const openclawDir = path.join(tmpDir, 'openclaw-skills')
+      fs.mkdirSync(path.join(openclawDir, 'first'), { recursive: true })
+      fs.mkdirSync(path.join(openclawDir, 'second'), { recursive: true })
+      service.getDb().conn.prepare(
+        'UPDATE agents SET skills_dir = ? WHERE id = ?'
+      ).run(openclawDir, 'openclaw')
 
-      const result = service.scanAgentInventory('claude-code')
+      createSkillDir(path.join(openclawDir, 'first'), 'shared-name', 'First Shared')
+      createSkillDir(path.join(openclawDir, 'second'), 'shared-name', 'Second Shared')
+
+      const result = service.scanAgentInventory('openclaw')
 
       expect(result.unmanaged).toHaveLength(2)
       expect(new Set(result.unmanaged.map((item) => item.id)).size).toBe(2)
@@ -472,7 +486,8 @@ describe('SkillManagerService — Agent Detail', () => {
       const detail = await service.scanAgentDetail('claude-code')
       expect(detail).not.toBeNull()
       expect(detail!.unmanaged.length).toBe(1)
-      expect(detail!.unmanaged[0].inferredSkillId).toBe('new-unmanaged')
+      // inferredSkillId derives from frontmatter name (sanitized)
+      expect(detail!.unmanaged[0].inferredSkillId).toBe('New-Unmanaged')
     })
 
     it('detects and persists the agent CLI version', async () => {

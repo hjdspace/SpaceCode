@@ -3,7 +3,6 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Archive,
-  AlertTriangle,
   Check,
   Download,
   ExternalLink,
@@ -14,7 +13,6 @@ import {
   List,
   Loader2,
   Plus,
-  RefreshCw,
   Search,
   Star,
   TrendingUp,
@@ -24,10 +22,9 @@ import {
 import { api } from '@/services/electronAPI'
 import { useSkillsStore, type MarketplaceSkill } from '@/stores/skills'
 import { useSkillManagerStore } from '@/stores/skillManagerStore'
-import AgentIconBadge from './AgentIconBadge.vue'
+import AgentSyncPanel from './AgentSyncPanel.vue'
 import ImportDialog from './ImportDialog.vue'
-import MigrationWizard from './MigrationWizard.vue'
-import type { AddCenterSkillInput, AdoptOption, AdoptPreview, UnmanagedItemDto } from '@/types/skillManagerV2'
+import type { AddCenterSkillInput } from '@/types/skillManagerV2'
 
 type InstallTab = 'marketplace' | 'sync' | 'local' | 'github'
 type MarketBoard = 'all' | 'trending' | 'hot'
@@ -53,20 +50,6 @@ const installedSkillIds = ref(new Set<string>())
 const selectedMarketSkill = ref<MarketplaceSkill | null>(null)
 const marketReadme = ref('')
 const marketDetailLoading = ref(false)
-
-const syncLoading = ref(false)
-const syncFilter = ref('')
-const syncAgentFilter = ref('all')
-const syncWizardVisible = ref(false)
-const syncNotice = ref<string | null>(null)
-const syncScanned = ref(false)
-const syncDialogItem = ref<UnmanagedItemDto | null>(null)
-const syncDialogPreview = ref<AdoptPreview | null>(null)
-const syncDialogOption = ref<AdoptOption>('import_keep')
-const syncDialogRenamedId = ref('')
-const syncDialogLoading = ref(false)
-const syncDialogBusy = ref(false)
-const syncDialogError = ref<string | null>(null)
 
 const localPath = ref('')
 const localSourceType = ref<'local_folder' | 'archive'>('local_folder')
@@ -140,26 +123,6 @@ const recommendedPublishers = computed(() => {
   return [...publishers.entries()].sort((a, b) => b[1] - a[1]).slice(0, 7)
 })
 
-const syncItems = computed(() => {
-  const query = syncFilter.value.trim().toLowerCase()
-  return store.unmanaged.filter((item) => {
-    if (syncAgentFilter.value !== 'all' && item.agentId !== syncAgentFilter.value) return false
-    if (!query) return true
-    return `${item.inferredSkillId ?? ''} ${item.path} ${item.reason}`.toLowerCase().includes(query)
-  })
-})
-
-const syncAgentCounts = computed(() => {
-  const counts = new Map<string, number>()
-  for (const item of store.unmanaged) {
-    if (item.agentId) counts.set(item.agentId, (counts.get(item.agentId) ?? 0) + 1)
-  }
-  return counts
-})
-
-const syncAgents = computed(() => store.agents.filter((agent) => (syncAgentCounts.value.get(agent.id) ?? 0) > 0))
-const syncConflicts = computed(() => store.unmanaged.filter((item) => item.reason.toLowerCase().includes('differs')).length)
-
 watch([marketBoard, marketplacePublisher, marketplaceQuery], () => {
   marketplacePage.value = 1
 })
@@ -182,10 +145,6 @@ watch(localPath, (value) => {
 
 onMounted(() => {
   void loadMarketplace()
-})
-
-watch(activeSubtab, (tab) => {
-  if (tab === 'sync' && !syncScanned.value) void scanAllAgents()
 })
 
 async function loadMarketplace(query = ''): Promise<void> {
@@ -295,107 +254,6 @@ function formatInstallCount(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`
   if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K`
   return String(value)
-}
-
-async function scanAllAgents(): Promise<void> {
-  syncLoading.value = true
-  syncNotice.value = null
-  try {
-    for (const agent of store.agents.filter((item) => item.enabled)) {
-      await store.scanAgentInventory(agent.id, false)
-    }
-    await store.loadOverview()
-    syncScanned.value = true
-    syncNotice.value = t('skillManagerV2.install.syncScanned', { count: store.unmanaged.length })
-  } finally {
-    syncLoading.value = false
-  }
-}
-
-async function openSyncAdopt(item: UnmanagedItemDto): Promise<void> {
-  if (!item.agentId) return
-  syncDialogItem.value = item
-  syncDialogPreview.value = null
-  syncDialogError.value = null
-  syncDialogLoading.value = true
-  try {
-    const preview = await store.previewAdopt(item.agentId, item.id)
-    if (!preview) {
-      syncDialogError.value = store.error ?? t('skillManagerV2.install.adoptFailed')
-      return
-    }
-    syncDialogPreview.value = preview
-    syncDialogOption.value = preview.options[0] ?? 'skip'
-    syncDialogRenamedId.value = `${preview.inferredSkillId}-import`
-  } catch (e) {
-    syncDialogError.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    syncDialogLoading.value = false
-  }
-}
-
-function closeSyncAdopt(): void {
-  if (syncDialogBusy.value) return
-  syncDialogItem.value = null
-  syncDialogPreview.value = null
-  syncDialogError.value = null
-}
-
-function adoptOptionTitle(option: AdoptOption): string {
-  const keys: Record<AdoptOption, string> = {
-    import_to_center: 'adoptImportKeepTitle',
-    replace_with_link: 'adoptImportLinkTitle',
-    replace_with_copy: 'adoptImportCopyTitle',
-    import_keep: 'adoptImportKeepTitle',
-    import_link: 'adoptImportLinkTitle',
-    import_copy: 'adoptImportCopyTitle',
-    import_cleanup: 'adoptCleanupTitle',
-    center_over_agent: 'adoptCenterOverAgentTitle',
-    overwrite_center: 'adoptOverwriteCenterTitle',
-    rename: 'adoptRenameTitle',
-    skip: 'adoptSkipTitle',
-  }
-  return t(`skillManagerV2.install.${keys[option]}`)
-}
-
-function adoptOptionDescription(option: AdoptOption): string {
-  const keys: Record<AdoptOption, string> = {
-    import_to_center: 'adoptImportKeepDesc',
-    replace_with_link: 'adoptImportLinkDesc',
-    replace_with_copy: 'adoptImportCopyDesc',
-    import_keep: 'adoptImportKeepDesc',
-    import_link: 'adoptImportLinkDesc',
-    import_copy: 'adoptImportCopyDesc',
-    import_cleanup: 'adoptCleanupDesc',
-    center_over_agent: 'adoptCenterOverAgentDesc',
-    overwrite_center: 'adoptOverwriteCenterDesc',
-    rename: 'adoptRenameDesc',
-    skip: 'adoptSkipDesc',
-  }
-  return t(`skillManagerV2.install.${keys[option]}`)
-}
-
-async function executeSyncAdopt(): Promise<void> {
-  const item = syncDialogItem.value
-  const preview = syncDialogPreview.value
-  if (!item?.agentId || !preview || syncDialogOption.value === 'skip') {
-    closeSyncAdopt()
-    return
-  }
-  syncDialogBusy.value = true
-  syncDialogError.value = null
-  try {
-    await store.executeAdopt(item.agentId, item.id, syncDialogOption.value, syncDialogOption.value === 'rename' ? syncDialogRenamedId.value : undefined)
-    closeSyncAdopt()
-  } catch (e) {
-    syncDialogError.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    syncDialogBusy.value = false
-  }
-}
-
-function agentBadge(agentId: string, agentName: string): { agentId: string; agentName: string; mode: 'link'; status: 'ok' } {
-  return { agentId, agentName, mode: 'link', status: 'ok' }
 }
 
 async function chooseLocalFolder(): Promise<void> {
@@ -599,38 +457,7 @@ function resetGithub(): void {
     </section>
 
     <section v-else-if="activeSubtab === 'sync'" class="sync-panel">
-      <div class="sync-summary">
-        <div>
-          <strong>{{ t('skillManagerV2.install.syncTitle') }}</strong>
-          <p>{{ t('skillManagerV2.install.syncDesc') }}</p>
-          <span>{{ syncItems.length }} {{ t('skillManagerV2.install.syncPending') }} · {{ syncConflicts }} {{ t('skillManagerV2.status.conflict') }}</span>
-        </div>
-        <div class="button-row">
-          <button class="btn" :disabled="syncLoading" @click="scanAllAgents"><RefreshCw :class="{ spin: syncLoading }" :size="15" />{{ t('skillManagerV2.install.syncRescan') }}</button>
-          <button class="btn primary" :disabled="store.unmanaged.length === 0" @click="syncWizardVisible = true"><Check :size="15" />{{ t('skillManagerV2.install.syncOrganize', { count: store.unmanaged.length }) }}</button>
-        </div>
-      </div>
-      <div v-if="syncNotice" class="notice">{{ syncNotice }}</div>
-      <div v-if="syncAgents.length" class="agent-strip">
-        <button :class="{ active: syncAgentFilter === 'all' }" @click="syncAgentFilter = 'all'"><span class="agent-glyph">Ag</span><span><strong>{{ t('skillManagerV2.actions.allAgents') }}</strong><small>{{ store.unmanaged.length }} {{ t('skillManagerV2.install.syncPendingShort') }}</small></span></button>
-        <button v-for="agent in syncAgents" :key="agent.id" :class="{ active: syncAgentFilter === agent.id }" @click="syncAgentFilter = agent.id">
-          <AgentIconBadge :badge="agentBadge(agent.id, agent.displayName)" :size="30" />
-          <span><strong>{{ agent.displayName }}</strong><small>{{ syncAgentCounts.get(agent.id) }} {{ t('skillManagerV2.install.syncPendingShort') }}</small></span>
-        </button>
-      </div>
-      <label class="sync-search"><Search :size="16" /><input v-model="syncFilter" :placeholder="t('skillManagerV2.install.syncSearch')" /></label>
-      <div v-if="syncItems.length === 0" class="empty-state"><Check :size="28" /><strong>{{ t('skillManagerV2.install.syncEmptyTitle') }}</strong><span>{{ t('skillManagerV2.install.syncEmptyDesc') }}</span></div>
-      <div v-else class="sync-grid">
-        <article v-for="item in syncItems" :key="item.id">
-          <div class="sync-card-head">
-            <AgentIconBadge v-if="item.agentId" :badge="agentBadge(item.agentId, store.agents.find((agent) => agent.id === item.agentId)?.displayName ?? item.agentId)" :size="34" />
-            <span><strong>{{ item.inferredSkillId ?? item.id }}</strong><small>{{ store.agents.find((agent) => agent.id === item.agentId)?.displayName ?? item.agentId }}</small></span>
-            <button v-if="item.reason.toLowerCase().includes('differs')" class="sync-conflict-button" @click="openSyncAdopt(item)"><AlertTriangle :size="14" />{{ t('skillManagerV2.status.conflict') }}</button>
-            <button v-else class="sync-adopt-button" :title="t('skillManagerV2.install.adoptConfirm')" @click="openSyncAdopt(item)"><Plus :size="18" /></button>
-          </div>
-          <p>{{ item.reason }}</p><code>{{ item.path }}</code>
-        </article>
-      </div>
+      <AgentSyncPanel />
     </section>
 
     <section v-else-if="activeSubtab === 'local'" class="form-panel local-panel">
@@ -686,39 +513,6 @@ function resetGithub(): void {
     </div>
 
     <ImportDialog ref="importDialog" />
-    <MigrationWizard :visible="syncWizardVisible" @close="syncWizardVisible = false" @completed="syncWizardVisible = false" />
-
-    <div v-if="syncDialogItem" class="adopt-backdrop" @click.self="closeSyncAdopt">
-      <section class="adopt-dialog" role="dialog" aria-modal="true" :aria-label="t('skillManagerV2.install.adoptTitle', { skill: syncDialogItem.inferredSkillId ?? syncDialogItem.id })">
-        <header class="adopt-dialog-header">
-          <h2>{{ t('skillManagerV2.install.adoptTitle', { skill: syncDialogItem.inferredSkillId ?? syncDialogItem.id }) }}</h2>
-          <button class="icon-button" :disabled="syncDialogBusy" :title="t('common.close')" @click="closeSyncAdopt"><X :size="20" /></button>
-        </header>
-        <div class="adopt-dialog-body">
-          <div v-if="syncDialogLoading" class="loading-state"><Loader2 class="spin" :size="22" />{{ t('common.loading') }}</div>
-          <template v-else-if="syncDialogPreview">
-            <div class="adopt-summary">
-              <div><span>{{ t('skillManagerV2.install.adoptSkill') }}</span><strong>{{ syncDialogPreview.inferredSkillId }}</strong></div>
-              <div><span>{{ t('skillManagerV2.install.adoptCenterName') }}</span><strong>{{ syncDialogPreview.centerHasSameName ? t('skillManagerV2.install.adoptExists') : t('skillManagerV2.install.adoptNoConflict') }}</strong></div>
-              <div class="adopt-summary-path"><span>{{ t('skillManagerV2.install.adoptAgentPath') }}</span><code>{{ syncDialogItem.path }}</code></div>
-            </div>
-            <div class="adopt-section-head"><h3>{{ t('skillManagerV2.install.adoptMethod') }}</h3><span>{{ syncDialogPreview.centerHasSameName ? t('skillManagerV2.install.adoptNeedsConflict') : t('skillManagerV2.install.adoptCanImport') }}</span></div>
-            <div class="adopt-options" role="radiogroup">
-              <label v-for="option in syncDialogPreview.options" :key="option" class="adopt-option" :class="{ active: syncDialogOption === option, destructive: option === 'center_over_agent' || option === 'overwrite_center' || option === 'import_link' || option === 'import_copy' || option === 'import_cleanup' }">
-                <input v-model="syncDialogOption" type="radio" name="adopt-option" :value="option" />
-                <span class="adopt-radio" />
-                <span><strong>{{ adoptOptionTitle(option) }}</strong><small>{{ adoptOptionDescription(option) }}</small></span>
-                <em v-if="option === syncDialogPreview.options[0] && option !== 'skip'">{{ t('skillManagerV2.install.adoptRecommended') }}</em>
-              </label>
-            </div>
-            <label v-if="syncDialogOption === 'rename'" class="adopt-rename"><span>{{ t('skillManagerV2.install.adoptRenameLabel') }}</span><input v-model="syncDialogRenamedId" :placeholder="t('skillManagerV2.install.adoptRenamePlaceholder', { skill: syncDialogPreview.inferredSkillId })" /></label>
-            <div v-if="syncDialogPreview.conflictReason" class="adopt-impact"><strong>{{ t('skillManagerV2.status.conflict') }}</strong><span>{{ syncDialogPreview.conflictReason }}</span></div>
-          </template>
-          <div v-if="syncDialogError" class="inline-error">{{ syncDialogError }}</div>
-        </div>
-        <footer class="adopt-dialog-footer"><button class="btn" :disabled="syncDialogBusy" @click="closeSyncAdopt">{{ t('common.cancel') }}</button><button class="btn primary" :disabled="syncDialogBusy || syncDialogLoading || (syncDialogOption === 'rename' && !syncDialogRenamedId.trim())" @click="executeSyncAdopt">{{ syncDialogOption === 'skip' ? t('skillManagerV2.install.adoptKeepUnmanaged') : t('skillManagerV2.install.adoptConfirm') }}</button></footer>
-      </section>
-    </div>
   </div>
 </template>
 

@@ -45,6 +45,7 @@ AdoptPreview,
 AdoptBatchItem,
 AdoptBatchResult,
 AgentInventoryScanResult,
+AgentSkillInventoryAgent,
 UnmanagedItemDto,
 SkillPackSummary,
 SkillPackDetail,
@@ -645,6 +646,7 @@ executeDistribute: (preview: DistributionPreview) => Promise<DistributionResult>
 deleteTarget: (targetId: string) => Promise<void>
 scanAgentInventory: (agentId: string) => Promise<AgentInventoryScanResult>
 listUnmanaged: () => Promise<UnmanagedItemDto[]>
+listAgentSkillInventory: () => Promise<AgentSkillInventoryAgent[]>
 previewAdopt: (agentId: string, unmanagedId: string) => Promise<AdoptPreview>
 executeAdopt: (agentId: string, unmanagedId: string, option: AdoptOption, renamedId?: string) => Promise<void>
 executeAdoptBatch: (items: AdoptBatchItem[]) => Promise<AdoptBatchResult>

@@ -190,6 +190,7 @@
     ],
     "win": {
       "icon": "icons/icon.ico",
+      "artifactName": "SpaceCode-Setup-${version}.${ext}",
       "target": [
         {
           "target": "nsis",

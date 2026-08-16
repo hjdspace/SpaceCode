@@ -18,7 +18,7 @@ export type ClaimType = 'direct' | 'pack'
 export type DiagnosisSeverity = 'info' | 'warning' | 'error'
 export type FixKind = 'auto' | 'confirm' | 'manual' | 'info'
 export type EntityType = 'skill' | 'target' | 'pack' | 'agent' | 'snapshot'
-export type UnmanagedItemType = 'skill_dir' | 'skill_file' | 'config_file'
+export type UnmanagedItemType = 'skill_dir' | 'skill_file' | 'config_file' | 'agent_skill'
 export type CopySyncStatus = 'ok' | 'copy_outdated' | 'copy_modified' | 'copy_diverged'
 export type CopySyncAction = 'center_over_agent' | 'agent_over_center' | 'manual'
 
@@ -438,6 +438,39 @@ export interface AgentInventoryScanResult {
   managed: SkillTarget[]
   unmanaged: UnmanagedItemDto[]
   conflicts: UnmanagedItemDto[]
+}
+
+/** One row in the Agent sync inventory: a managed target or an unmanaged skill dir. */
+export interface AgentSkillInventoryItem {
+  /** skill_target id when managed; unmanaged_items id otherwise. */
+  id: string
+  agentId: string
+  skillId: string
+  name: string
+  path: string
+  managed: boolean
+  readOnly: boolean
+  canImport: boolean
+  /** ok | missing | broken_link | copy_* | unmanaged | unmanaged_reusable | conflict | builtin_read_only */
+  status: string
+  reason: string | null
+  targetId: string | null
+  actualMode: 'link' | 'copy' | null
+  hash: string | null
+}
+
+/** Per-agent aggregate returned by listAgentSkillInventory. */
+export interface AgentSkillInventoryAgent {
+  agentId: string
+  displayName: string
+  iconKey: string
+  skillsDir: string | null
+  installed: boolean
+  managedCount: number
+  unmanagedCount: number
+  readOnlyCount: number
+  importableCount: number
+  items: AgentSkillInventoryItem[]
 }
 
 // ── Pack Remove Preview ────────────────────────────────────────────
