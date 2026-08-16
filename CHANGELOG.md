@@ -1,3 +1,30 @@
+## [0.7.3](https://github.com/hjdspace/SpaceCode/compare/v0.7.2...v0.7.3) (2026-08-17)
+
+### Features
+
+* **skill-manager-v2:** 完成 Skill Manager V2 完整重构，实现 Agent 技能同步管理全功能、诊断引擎、快照导出、技能包管理与拷贝同步
+* **skill-manager-v2:** 实现 GitHub 克隆导入和市场功能，增强技能导入与冲突处理能力（hash 冲突检测、预览/执行）
+* **skill-manager-v2:** 增强 Agent 详情展示与诊断稳定性，扩展内置 agent 注册表并优化图标展示
+* **skill-manager-v2:** 实现 Slice 4（分发）和 Slice 5（扫描与采纳），完成技能接管与共享目录扫描
+* **skills-v2:** 重构技能市场页面，优化布局与体验；新增技能包管理功能与国际化文案
+* **chat:** 支持按工作目录加载技能（slash commands）
+* **sessionContext:** 新增右侧面板联动环境卡片显隐的逻辑
+* **assets:** 新增 Kilocode 和 Trae 的 CLI 图标，更新 Copilot 图标
+
+### Bug Fixes
+
+* **skill-manager-v2:** 修复技能接管与共享目录扫描问题
+* **skill-manager-v2:** 修复 Agent 管理页 i18n 缺失、图标与版本号检测
+* **api/pet:** 兼容 electronAPI 不存在的场景，添加安全回退
+* **info-panel:** 优化信息面板显示逻辑并完善终端主题与测试
+
+### Refactor
+
+* **skills:** 替换旧技能管理器为 V2 版本并添加关闭功能
+* **chat:** 移除任务列表卡片组件及关联逻辑
+* **terminal:** 重构终端主题与启动参数逻辑，新增单元测试
+* **skill-manager-v2:** 重命名测试文件从 slice-based 为描述性名称
+
 ## [0.7.2](https://github.com/hjdspace/SpaceCode/compare/v0.7.1...v0.7.2) (2026-08-11)
 
 ### Features
