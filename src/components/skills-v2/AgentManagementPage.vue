@@ -139,6 +139,14 @@ function openSection(tab: AgentDetailTab): void {
   activeTab.value = tab
 }
 
+function handleSkillOpen(target: SkillTarget): void {
+  if (target.skillId) void store.loadSkillDetail(target.skillId)
+}
+
+function handleUnmanagedOpen(item: UnmanagedItemDto): void {
+  if (item.inferredSkillId) void store.loadSkillDetail(item.inferredSkillId)
+}
+
 async function handleApplyPack(packId: string): Promise<void> {
   if (!selectedAgent.value) return
   await store.executeApplyPack(packId, [selectedAgent.value.id], store.settings?.defaultInstallMode ?? 'link')
@@ -455,6 +463,9 @@ function severityLabel(severity: string): string {
                 <div v-if="appliedPacks.length" class="amp-skill-pack-active">
                   <Check :size="16" /><div><strong>{{ appliedPacks[0].name }}</strong><small>{{ t('skillManagerV2.agent.overview.skillCount', { count: appliedPacks[0].memberCount }) }}</small></div><button type="button" @click="handleRevokePack(appliedPacks[0].id)">{{ t('skillManagerV2.agent.skillsPage.cancelApply') }}</button>
                 </div>
+                <div v-else-if="availablePacks.length" class="amp-skill-pack-active amp-skill-pack-available">
+                  <Plus :size="16" /><div><strong>{{ availablePacks[0].name }}</strong><small>{{ t('skillManagerV2.agent.overview.skillCount', { count: availablePacks[0].memberCount }) }}</small></div><button type="button" :disabled="store.busyAction === 'apply-pack' || availablePacks[0].memberCount === 0" @click="handleApplyPack(availablePacks[0].id)">{{ t('skillManagerV2.agent.overview.apply') }} <ArrowUpRight :size="13" /></button>
+                </div>
               </section>
               <div class="amp-skill-switch-row">
                 <div class="amp-segmented"><button type="button" :class="{ active: skillScope === 'agent' }" @click="skillScope = 'agent'">{{ t('skillManagerV2.agent.skillsPage.agentScope', { count: selectedAgent.skills.length - sharedSkills.length }) }}</button><button type="button" :disabled="!inheritsSharedSkills" :class="{ active: skillScope === 'shared' }" @click="skillScope = 'shared'">{{ t('skillManagerV2.agent.skillsPage.sharedScope', { count: sharedSkills.length }) }}</button></div>
@@ -489,7 +500,12 @@ function severityLabel(severity: string): string {
                 <article
                   v-for="target in filteredAgentSkills"
                   :key="target.id"
-                  class="amp-skill-card"
+                  class="amp-skill-card amp-skill-card--clickable"
+                  role="button"
+                  tabindex="0"
+                  @click="handleSkillOpen(target)"
+                  @keydown.enter="handleSkillOpen(target)"
+                  @keydown.space.prevent="handleSkillOpen(target)"
                 >
                   <div class="amp-skill-head">
                     <span class="amp-skill-icon">{{ getSkillGlyph(pathBasename(target.targetPath) || target.skillId) }}</span>
@@ -507,13 +523,17 @@ function severityLabel(severity: string): string {
                         ? t('skillManagerV2.settings.modeLink')
                         : t('skillManagerV2.settings.modeCopy') }}
                     </span>
+                    <span class="amp-source-pill">{{ t('skillManagerV2.agent.directDistribution') }}</span>
                   </div>
                   <code :title="target.targetPath">{{ target.targetPath }}</code>
+                  <div class="amp-skill-actions">
+                    <button type="button" class="amp-row-action" @click.stop="handleOpenDir(target.targetPath)">{{ t('skillManagerV2.actions.openPath') }}</button>
+                  </div>
                 </article>
               </div>
 
               <div v-else-if="skillStatus === 'managed' && filteredAgentSkills.length > 0" class="amp-skill-list-view">
-                <button v-for="target in filteredAgentSkills" :key="target.id" type="button" class="amp-skill-list-row" @click="handleOpenDir(target.targetPath)"><span class="amp-skill-icon">{{ getSkillGlyph(pathBasename(target.targetPath) || target.skillId) }}</span><span><strong>{{ pathBasename(target.targetPath) || target.skillId }}</strong><small>{{ target.targetPath }}</small></span><span class="amp-status-pill" :class="statusPillClass(target.status)">{{ statusLabel(target.status) }}</span></button>
+                <button v-for="target in filteredAgentSkills" :key="target.id" type="button" class="amp-skill-list-row" @click="handleSkillOpen(target)"><span class="amp-skill-icon">{{ getSkillGlyph(pathBasename(target.targetPath) || target.skillId) }}</span><span><strong>{{ pathBasename(target.targetPath) || target.skillId }}</strong><small>{{ target.targetPath }}</small></span><span class="amp-status-pill" :class="statusPillClass(target.status)">{{ statusLabel(target.status) }}</span></button>
               </div>
 
               <!-- Unmanaged -->
@@ -526,7 +546,13 @@ function severityLabel(severity: string): string {
                   <article
                     v-for="item in unmanagedItems"
                     :key="item.id"
-                    class="amp-skill-card unmanaged"
+                    class="amp-skill-card amp-skill-card--clickable unmanaged"
+                    :class="{ 'amp-skill-card--not-found': !item.inferredSkillId }"
+                    role="button"
+                    :tabindex="item.inferredSkillId ? 0 : -1"
+                    @click="handleUnmanagedOpen(item)"
+                    @keydown.enter="handleUnmanagedOpen(item)"
+                    @keydown.space.prevent="handleUnmanagedOpen(item)"
                   >
                     <div class="amp-skill-head">
                       <span class="amp-skill-icon">{{ getSkillGlyph(unmanagedName(item)) }}</span>
@@ -538,7 +564,7 @@ function severityLabel(severity: string): string {
                     </div>
                     <code :title="item.path">{{ item.path }}</code>
                     <div class="amp-skill-actions">
-                      <button class="amp-row-action" @click="handleAdopt(item)">
+                      <button class="amp-row-action" @click.stop="handleAdopt(item)">
                         <Sparkles :size="14" />{{ t('skillManagerV2.agent.adopt') }}
                       </button>
                     </div>
@@ -1342,6 +1368,45 @@ function severityLabel(severity: string): string {
 .amp-all-clear strong, .amp-all-clear small { display: block; }
 .amp-all-clear strong { font-size: 10px; }
 .amp-all-clear small { margin-top: 2px; color: var(--text-muted); font-size: 8px; }
+.amp-skills-tab > .amp-info-grid { display: none; }
+.amp-skills-tab .amp-skill-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.amp-skills-tab .amp-skill-card {
+  position: relative;
+  min-height: 166px;
+  gap: 9px;
+  padding: 12px;
+  border-color: var(--border-default);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  box-shadow: 0 1px 2px rgba(31, 41, 71, 0.04);
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease, background .16s ease;
+}
+.amp-skills-tab .amp-skill-card--clickable { cursor: pointer; }
+.amp-skills-tab .amp-skill-card--clickable:hover,
+.amp-skills-tab .amp-skill-card--clickable:focus-visible {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+  box-shadow: 0 10px 22px rgba(31, 41, 71, .09);
+  outline: none;
+  transform: translateY(-1px);
+}
+.amp-skills-tab .amp-skill-card--clickable:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 24%, transparent), 0 10px 22px rgba(31, 41, 71, .09); }
+.amp-skills-tab .amp-skill-card.unmanaged { border-color: color-mix(in srgb, var(--warning) 24%, var(--border-default)); background: color-mix(in srgb, var(--warning) 5%, var(--bg-elevated)); }
+.amp-skills-tab .amp-skill-card--not-found { cursor: default; }
+.amp-skills-tab .amp-skill-head { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 9px; align-items: center; }
+.amp-skills-tab .amp-skill-icon { width: 38px; height: 38px; border-radius: 10px; background: color-mix(in srgb, var(--accent-primary) 11%, var(--bg-elevated)); color: var(--accent-primary); font-size: 14px; }
+.amp-skills-tab .amp-skill-title { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.amp-skills-tab .amp-skill-title strong { color: var(--text-primary); font-size: 15px; font-weight: 800; }
+.amp-skills-tab .amp-skill-title span { color: var(--text-muted); font-size: 12px; }
+.amp-skills-tab .amp-status-pill { min-width: 50px; height: 22px; }
+.amp-skills-tab .amp-skill-meta { gap: 6px; flex-wrap: wrap; }
+.amp-source-pill { min-height: 20px; display: inline-flex; align-items: center; padding: 0 7px; border-radius: var(--radius-full); background: color-mix(in srgb, var(--success) 10%, transparent); color: var(--success); font-size: 10px; font-weight: 700; }
+.amp-skills-tab .amp-skill-card code { flex: 0 0 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; word-break: normal; font-size: 10px; }
+.amp-skills-tab .amp-skill-actions { align-self: flex-end; }
+.amp-skills-tab .amp-skill-actions .amp-row-action { min-height: 28px; }
+.amp-skill-pack-available { border-color: color-mix(in srgb, var(--accent-primary) 23%, var(--border-default)); background: color-mix(in srgb, var(--accent-primary) 6%, var(--bg-elevated)); color: var(--accent-primary); }
+.amp-skill-pack-available button { display: inline-flex; align-items: center; gap: 4px; border-color: color-mix(in srgb, var(--accent-primary) 25%, var(--border-default)); background: color-mix(in srgb, var(--accent-primary) 8%, transparent); color: var(--accent-primary); }
+.amp-skill-pack-available button:disabled { opacity: .45; cursor: not-allowed; }
 .amp-skill-pack-banner { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; align-items: center; border: 1px solid color-mix(in srgb, var(--accent-primary) 20%, var(--border-default)); border-radius: 12px; padding: 10px 12px; background: linear-gradient(105deg, color-mix(in srgb, var(--accent-primary) 7%, var(--bg-elevated)), var(--bg-elevated)); }
 .amp-skill-pack-banner-icon { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 10px; background: var(--accent-primary-glow); color: var(--accent-primary); }
 .amp-skill-pack-banner h4 { margin: 0; font-size: 14px; }

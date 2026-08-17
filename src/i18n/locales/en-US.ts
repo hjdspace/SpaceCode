@@ -2866,6 +2866,7 @@ export default {
         diagnostics: 'Path & Diagnostics',
         config: 'Paths & Settings',
       },
+      directDistribution: 'Direct distribution',
       overview: {
         status: 'Agent status',
         configErrors: '{count} configuration issue(s)',

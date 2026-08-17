@@ -2864,6 +2864,7 @@ export default {
         diagnostics: '路径与诊断',
         config: '路径与设置',
       },
+      directDistribution: '直接分发',
       overview: {
         status: 'Agent 状态',
         configErrors: '{count} 项配置异常',
