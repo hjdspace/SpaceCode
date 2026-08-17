@@ -247,7 +247,7 @@ async function handleRefresh(): Promise<void> {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: color-mix(in srgb, var(--bg-secondary) 94%, var(--accent-primary) 6%);
+  background: color-mix(in srgb, var(--bg-secondary) 96%, var(--accent-primary) 4%);
   border-right: 1px solid var(--border-default);
 }
 
@@ -325,7 +325,7 @@ async function handleRefresh(): Promise<void> {
   margin: 3px 0;
   padding: 0 10px;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: 10px;
   background: transparent;
   color: var(--text-secondary);
   text-align: left;
@@ -340,17 +340,17 @@ async function handleRefresh(): Promise<void> {
   }
 
   &.active {
-    background: color-mix(in srgb, var(--accent-primary) 11%, var(--bg-elevated));
-    color: var(--text-primary);
-    box-shadow: inset 3px 0 0 var(--accent-primary);
+    background: linear-gradient(110deg, var(--accent-primary), color-mix(in srgb, var(--accent-primary) 68%, var(--accent-secondary)));
+    color: var(--text-on-accent, #fff);
+    box-shadow: 0 9px 22px color-mix(in srgb, var(--accent-primary) 24%, transparent);
 
     .sm2-nav-glyph {
-      background: var(--accent-primary-glow);
-      color: var(--accent-primary);
+      background: rgba(255, 255, 255, 0.18);
+      color: var(--text-on-accent, #fff);
     }
     .sm2-nav-count {
-      background: var(--accent-primary-glow);
-      color: var(--accent-primary);
+      background: rgba(255, 255, 255, 0.18);
+      color: var(--text-on-accent, #fff);
     }
   }
 }
@@ -399,7 +399,7 @@ async function handleRefresh(): Promise<void> {
   align-items: center;
   padding: 10px;
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
+  border-radius: 10px;
   background: var(--bg-elevated);
 
   strong {
@@ -442,7 +442,7 @@ async function handleRefresh(): Promise<void> {
   min-height: 0;
   display: grid;
   grid-template-rows: 72px minmax(0, 1fr);
-  background: var(--bg-primary);
+  background: color-mix(in srgb, var(--bg-primary) 97%, var(--accent-primary) 3%);
 }
 
 .sm2-topbar {
@@ -452,6 +452,8 @@ async function handleRefresh(): Promise<void> {
   gap: 16px;
   padding: 0 20px;
   border-bottom: 1px solid var(--border-default);
+  background: color-mix(in srgb, var(--bg-primary) 94%, transparent);
+  backdrop-filter: blur(14px);
   flex-shrink: 0;
 }
 
@@ -540,6 +542,7 @@ async function handleRefresh(): Promise<void> {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  background: color-mix(in srgb, var(--bg-primary) 98%, var(--accent-primary) 2%);
 }
 
 .sm2-workspace {
