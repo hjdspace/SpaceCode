@@ -90,6 +90,13 @@ function statusTone(item: AgentSkillInventoryItem): 'ok' | 'unmanaged' | 'confli
   return item.managed ? 'ok' : 'unmanaged'
 }
 
+function statusTagClass(item: AgentSkillInventoryItem): string {
+  if (item.status === 'conflict') return 'tag-conflict'
+  if (item.status === 'unmanaged_reusable') return 'tag-reusable'
+  if (item.status === 'builtin_read_only') return 'tag-readonly'
+  return item.managed ? 'tag-ok' : 'tag-unmanaged'
+}
+
 function canOpenAdopt(item: AgentSkillInventoryItem): boolean {
   return !item.managed && (item.canImport || item.status === 'conflict')
 }
@@ -943,7 +950,7 @@ const progressPercent = computed(() => {
           </div>
           <div class="asp-card-meta">
             <span class="asp-source-pill">{{ agent.displayName }}</span>
-            <span class="asp-tag" :class="`tag-${statusTone(item)}`">{{ inventoryStatusLabel(item) }}</span>
+            <span class="asp-tag" :class="statusTagClass(item)">{{ inventoryStatusLabel(item) }}</span>
             <span v-if="item.actualMode" class="asp-tag">
               {{ item.actualMode === 'link' ? t('skillManagerV2.settings.modeLink') : t('skillManagerV2.settings.modeCopy') }}
             </span>
@@ -976,7 +983,7 @@ const progressPercent = computed(() => {
             </div>
             <div class="asp-item-meta">
               <span class="asp-source-pill">{{ agent.displayName }}</span>
-              <span class="asp-tag" :class="`tag-${statusTone(item)}`">{{ inventoryStatusLabel(item) }}</span>
+              <span class="asp-tag" :class="statusTagClass(item)">{{ inventoryStatusLabel(item) }}</span>
               <span v-if="item.actualMode" class="asp-tag">
                 {{ item.actualMode === 'link' ? t('skillManagerV2.settings.modeLink') : t('skillManagerV2.settings.modeCopy') }}
               </span>
@@ -1788,6 +1795,14 @@ const progressPercent = computed(() => {
   &.tag-unmanaged {
     background: rgba(124, 58, 237, 0.09);
     color: var(--accent-tertiary);
+  }
+  &.tag-reusable {
+    background: rgba(100, 116, 139, 0.1);
+    color: var(--text-secondary);
+  }
+  &.tag-readonly {
+    background: rgba(14, 116, 144, 0.1);
+    color: #0e7490;
   }
   &.tag-conflict {
     background: rgba(220, 38, 38, 0.09);

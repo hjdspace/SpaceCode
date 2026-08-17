@@ -1424,9 +1424,21 @@ export class SkillManagerService {
     const recursive = agentId === 'openclaw' || agentId === 'agents'
     const includeDependencyDirs = agentId === 'agents'
 
-    // Managed targets keyed by exact target path (AgentBro find_target_by_path).
+    // Managed targets are keyed by path, but only count while the on-disk
+    // target still has the recorded shape. A link that was replaced by a
+    // copied directory is an unmanaged agent skill and must be reclassified.
     const managedTargets = this.getAgentManagedTargets(agentId)
-    const managedByPath = new Set(managedTargets.map((t) => t.targetPath))
+    const managedByPath = new Set<string>()
+    const staleTargetIds = new Set<string>()
+    for (const target of managedTargets) {
+      if (this.isManagedTargetCurrent(target.skillId, target.targetPath, target.actualMode)) {
+        managedByPath.add(normalizePathKey(target.targetPath))
+      } else if (pathExists(target.targetPath)) {
+        // Keep missing targets for diagnosis; an existing skill directory with
+        // the wrong shape is safe to hand back to the unmanaged pipeline.
+        staleTargetIds.add(target.id)
+      }
+    }
 
     // Center library skill IDs and hashes for classification.
     const centerSkills = this.db.conn.prepare(
@@ -1464,7 +1476,7 @@ export class SkillManagerService {
         if (seenSkillIds.has(inferred)) continue
         seenSkillIds.add(inferred)
 
-        if (managedByPath.has(skillPath)) {
+        if (managedByPath.has(normalizePathKey(skillPath))) {
           managed += 1
           continue
         }
@@ -1505,9 +1517,36 @@ export class SkillManagerService {
       this.cleanupWorkbuddyMarketplaceUnmanaged()
     }
 
+    if (staleTargetIds.size > 0) {
+      const removeStmt = this.db.conn.prepare('DELETE FROM skill_targets WHERE id = ?')
+      for (const targetId of staleTargetIds) removeStmt.run(targetId)
+    }
+
     this.db.conn.prepare('UPDATE agents SET last_scanned_at = ? WHERE id = ?').run(now, agentId)
 
     return { managed, unmanaged, readOnly }
+  }
+
+  /** Check whether a persisted target still matches its recorded install mode. */
+  private isManagedTargetCurrent(skillId: string, targetPath: string, actualMode: string): boolean {
+    if (!pathExists(targetPath) || !isSkillDir(targetPath)) return false
+
+    if (actualMode === 'link') {
+      if (!isSymlink(targetPath)) return false
+      const center = this.db.conn.prepare(
+        'SELECT center_path FROM skills WHERE id = ?'
+      ).get(skillId) as { center_path: string } | undefined
+      if (!center) return false
+      try {
+        return normalizePathKey(fs.realpathSync(targetPath)) === normalizePathKey(fs.realpathSync(center.center_path))
+      } catch {
+        return false
+      }
+    }
+
+    // Copy targets are managed as long as the copied skill directory remains
+    // in place; content drift is handled by the existing copy diagnostics.
+    return actualMode === 'copy' && !isSymlink(targetPath)
   }
 
   /**
@@ -3001,4 +3040,9 @@ function sanitizeBasename(p: string): string {
     }
   }
   return out.replace(/^-+|-+$/g, '') || 'skill'
+}
+
+function normalizePathKey(value: string): string {
+  const normalized = path.normalize(value)
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
 }

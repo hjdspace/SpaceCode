@@ -326,6 +326,42 @@ describe('SkillManagerService — Agent Scan & Adopt', () => {
       expect(items.length).toBe(0)
     })
 
+    it('reclassifies a link target replaced by a copied directory', () => {
+      const skillId = createAndImportSkill('replaced-link')
+      const centerDir = path.join(centerPath, skillId)
+      const targetPath = path.join(agentDir, skillId)
+      fs.cpSync(centerDir, targetPath, { recursive: true })
+      const skill = service.getDb().conn
+        .prepare('SELECT current_hash FROM skills WHERE id = ?')
+        .get(skillId) as { current_hash: string }
+
+      service.getDb().conn.prepare(`
+        INSERT INTO skill_targets
+          (id, skill_id, agent_id, target_path, install_mode, actual_mode, source_hash, current_hash, status, created_at, updated_at)
+        VALUES (?, ?, 'test-agent', ?, 'link', 'link', ?, NULL, 'ok', ?, ?)
+      `).run(
+        `${skillId}__test-agent`,
+        skillId,
+        targetPath,
+        skill.current_hash,
+        new Date().toISOString(),
+        new Date().toISOString(),
+      )
+
+      const result = service.scanAgentInventory('test-agent')
+      const inventory = service.listAgentSkillInventory().find((agent) => agent.agentId === 'test-agent')!
+
+      expect(result.managed).toHaveLength(0)
+      expect(result.unmanaged).toHaveLength(1)
+      expect(inventory.managedCount).toBe(0)
+      expect(inventory.items[0]).toMatchObject({
+        skillId,
+        status: 'unmanaged_reusable',
+        canImport: true,
+        managed: false,
+      })
+    })
+
     it('returns unmanaged items after scanning', () => {
       createAgentSkill('unmanaged-1')
       createAgentSkill('unmanaged-2')
