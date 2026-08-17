@@ -525,7 +525,8 @@ function resetGithub(): void {
 .tab-count { min-width: 18px; height: 18px; display: grid; place-items: center; padding: 0 5px; border-radius: 999px; background: var(--accent-primary-glow); font-size: 10px; }
 .market-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding-top: 20px; }
 .market-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
-.sync-panel, .form-panel { flex: 1; min-height: 0; overflow-y: auto; padding-top: 20px; padding-bottom: 32px; }
+.sync-panel, .form-panel { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding-top: 20px; padding-bottom: 32px; }
+.sync-panel { overflow-x: hidden; }
 .market-toolbar, .publisher-row, .market-caption { flex-shrink: 0; }
 .market-toolbar { display: grid; grid-template-columns: auto minmax(220px, 1fr) auto; gap: 14px; align-items: center; padding: 10px 12px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--bg-elevated); }
 .market-board, .view-toggle { display: flex; padding: 3px; border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--surface-soft); }

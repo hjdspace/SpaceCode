@@ -1037,6 +1037,8 @@ const progressPercent = computed(() => {
 
 <style scoped lang="scss">
 .asp {
+  width: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1127,6 +1129,7 @@ const progressPercent = computed(() => {
 // ── Summary ──────────────────────────────────────────────────────
 
 .asp-summary {
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1143,6 +1146,8 @@ const progressPercent = computed(() => {
 
 .asp-summary-main {
   min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
 
   strong {
     display: block;
@@ -1157,6 +1162,7 @@ const progressPercent = computed(() => {
     color: var(--text-muted);
     font-size: 12px;
     line-height: 1.5;
+    overflow-wrap: anywhere;
   }
 }
 
@@ -1190,17 +1196,20 @@ const progressPercent = computed(() => {
 // ── Agent strip ──────────────────────────────────────────────────
 
 .asp-agent-strip {
+  width: 100%;
+  min-width: 0;
   display: flex;
   gap: 8px;
   padding: 8px;
   overflow-x: auto;
+  flex-wrap: nowrap;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   background: var(--bg-elevated);
 }
 
 .asp-agent-card {
-  min-width: 150px;
+  flex: 0 0 150px;
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr);
   gap: 8px;
@@ -1297,6 +1306,7 @@ const progressPercent = computed(() => {
 // ── Inbox ────────────────────────────────────────────────────────
 
 .asp-inbox {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1312,6 +1322,12 @@ const progressPercent = computed(() => {
   justify-content: space-between;
   gap: 14px;
   flex-wrap: wrap;
+  min-width: 0;
+
+  > :first-child {
+    min-width: 0;
+    flex: 1 1 180px;
+  }
 
   h3 {
     margin: 0;
@@ -1326,16 +1342,20 @@ const progressPercent = computed(() => {
 }
 
 .asp-inbox-tools {
+  flex: 1 1 600px;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .asp-search {
-  flex: 0 1 240px;
-  min-width: 170px;
+  flex: 1 1 180px;
+  min-width: 120px;
+  max-width: 240px;
   height: 32px;
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);
@@ -1363,7 +1383,8 @@ const progressPercent = computed(() => {
 
 .asp-agent-select {
   position: relative;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
 
@@ -1378,7 +1399,7 @@ const progressPercent = computed(() => {
 
   select {
     height: 32px;
-    max-width: 190px;
+    max-width: 160px;
     padding: 0 30px 0 10px;
     border: 1px solid var(--border-default);
     border-radius: var(--radius-md);
@@ -1388,6 +1409,8 @@ const progressPercent = computed(() => {
     outline: none;
     cursor: pointer;
     appearance: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
 
     &:focus {
       border-color: var(--accent-primary);
@@ -1435,6 +1458,7 @@ const progressPercent = computed(() => {
   display: inline-flex;
   gap: 6px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 // ── Notice ───────────────────────────────────────────────────────
@@ -1636,8 +1660,10 @@ const progressPercent = computed(() => {
 // ── Cards ────────────────────────────────────────────────────────
 
 .asp-grid {
+  width: 100%;
+  min-width: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
   gap: 10px;
 }
 
@@ -1828,6 +1854,16 @@ const progressPercent = computed(() => {
   margin-top: 4px;
 }
 
+@media (max-width: 1100px) {
+  .asp-inbox-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .asp-inbox-tools {
+    justify-content: flex-start;
+  }
+}
+
 @media (max-width: 900px) {
   .asp-summary {
     align-items: stretch;
@@ -1836,7 +1872,6 @@ const progressPercent = computed(() => {
   .asp-summary-actions {
     justify-content: flex-start;
   }
-  .asp-inbox-head,
   .asp-inbox-tools {
     flex-direction: column;
     align-items: stretch;
@@ -1846,6 +1881,7 @@ const progressPercent = computed(() => {
   }
   .asp-search {
     flex: 1 1 auto;
+    max-width: none;
   }
 }
 </style>

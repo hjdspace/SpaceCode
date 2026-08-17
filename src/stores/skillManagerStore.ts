@@ -382,7 +382,9 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
     if (!sm) return null
 
     try {
-      return await sm.previewDistribute(skillIds, targetAgentIds, requestedMode)
+      // Electron's structured clone cannot clone Vue reactive arrays.
+      // Copy the IDs before crossing the IPC boundary.
+      return await sm.previewDistribute([...skillIds], [...targetAgentIds], requestedMode)
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
       return null
@@ -398,7 +400,10 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
     error.value = null
 
     try {
-      const result = await sm.executeDistribute(preview)
+      // Strip Vue reactivity proxies before IPC — Electron's structured clone
+      // cannot clone Proxy objects, causing "An object could not be cloned".
+      const plainPreview = JSON.parse(JSON.stringify(preview)) as DistributionPreview
+      const result = await sm.executeDistribute(plainPreview)
       await loadOverview()
       return result
     } catch (e) {
