@@ -1,3 +1,16 @@
+## [0.7.4](https://github.com/hjdspace/SpaceCode/compare/v0.7.3...v0.7.4) (2026-08-17)
+
+### Features
+
+* **agent-management:** 添加技能直接分发 UI 和交互，支持从技能卡片跳转详情并展示可用技能包
+* **skill-manager:** 新增 Agent 概览页签、技能包快速应用及管理视图优化
+* **skills-v2:** 添加技能详情文件浏览器与 Agent 分发管理，支持批量删除和单分发管理
+
+### Bug Fixes
+
+* **skillManagerV2:** 修复链接目标被复制目录替换后的分类与过时目标清理问题
+* **skill-manager:** 修复 Electron IPC 克隆 Vue 响应式对象报错并优化响应式布局
+
 ## [0.7.3](https://github.com/hjdspace/SpaceCode/compare/v0.7.2...v0.7.3) (2026-08-17)
 
 ### Features
