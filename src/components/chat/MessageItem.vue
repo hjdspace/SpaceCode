@@ -662,6 +662,13 @@ function handleUserCopy(e: ClipboardEvent) {
       border-color: color-mix(in srgb, var(--accent-secondary) 50%, transparent);
       color: #6366f1;
     }
+
+    // Goal command chip — target/bullseye theme
+    &.is-goal {
+      background: rgba(239, 68, 68, 0.08);
+      border-color: rgba(239, 68, 68, 0.5);
+      color: #ef4444;
+    }
   }
 }
 

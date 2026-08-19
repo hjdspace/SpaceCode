@@ -225,8 +225,11 @@ export function useContentEditor(options?: {
       project: '📂', plugin: '🧩', mcp: '🔌',
     }
 
+    // Goal command uses a target icon (🎯) instead of the default source icon
+    const commandIcon = cmd.name === 'goal' ? '🎯' : (sourceIcons[source] || '⚡')
+
     const chip = document.createElement('span')
-    chip.className = `command-chip kind-${kind} source-${source}`
+    chip.className = `command-chip kind-${kind} source-${source}${cmd.name === 'goal' ? ' is-goal' : ''}`
     chip.setAttribute('contenteditable', 'false')
     chip.setAttribute('data-command', `/${cmd.name}`)
     chip.setAttribute('data-kind', kind)
@@ -234,7 +237,7 @@ export function useContentEditor(options?: {
 
     const iconSpan = document.createElement('span')
     iconSpan.className = 'chip-source-icon'
-    iconSpan.textContent = sourceIcons[source] || '⚡'
+    iconSpan.textContent = commandIcon
 
     const labelSpan = document.createElement('span')
     labelSpan.className = 'chip-label'

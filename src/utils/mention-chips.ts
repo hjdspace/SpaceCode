@@ -80,8 +80,11 @@ const SOURCE_ICONS: Record<string, string> = {
  * Build the HTML for a single command chip.
  */
 function buildCommandChipHtml(name: string, kind: string, source: string): string {
-  const icon = SOURCE_ICONS[source] || '⚡'
-  const chipClass = `command-chip kind-${kind} source-${source}`
+  // Goal command uses a target icon (🎯) instead of the default source icon
+  const isGoal = name === 'goal'
+  const icon = isGoal ? '🎯' : (SOURCE_ICONS[source] || '⚡')
+  const goalClass = isGoal ? ' is-goal' : ''
+  const chipClass = `command-chip kind-${kind} source-${source}${goalClass}`
   return (
     `<span class="${chipClass}" data-command="/${escapeHtml(name)}" data-kind="${escapeHtml(kind)}" data-source="${escapeHtml(source)}">` +
     `<span class="chip-source-icon">${icon}</span>` +

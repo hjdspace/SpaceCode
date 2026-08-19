@@ -1819,6 +1819,13 @@ watch(pendingFile, (file) => {
         border-color: rgba(245, 158, 11, 0.5);
         color: #f59e0b;
       }
+
+      // Goal command chip — target/bullseye theme
+      &.is-goal {
+        background: rgba(239, 68, 68, 0.08);
+        border-color: rgba(239, 68, 68, 0.5);
+        color: #ef4444;
+      }
     }
   }
 }

@@ -16,7 +16,7 @@ import {
   Zap, HelpCircle, Trash2, Coins, Minimize2, Stethoscope, FilePlus, Layers,
   Terminal, Settings, Code, GitBranch, Bug, Bookmark, Eye, Cpu, MessageSquare,
   FileDiff, Play, FolderPlus, Download, Shield, ListTree, Webhook, FileText,
-  Activity, Palette, Command, Keyboard, RotateCcw, GitCommit
+  Activity, Palette, Command, Keyboard, RotateCcw, GitCommit, Target
 } from 'lucide-vue-next'
 
 export interface SlashCommand {
@@ -88,7 +88,7 @@ export function useSlashCommands(options: { workingDirectory?: () => string } = 
     HelpCircle, Trash2, Coins, Minimize2, Stethoscope, FilePlus, Zap, Layers,
     Terminal, Settings, Code, GitBranch, Bug, Bookmark, Eye, Cpu, MessageSquare,
     FileDiff, Play, FolderPlus, Download, Shield, ListTree, Webhook, FileText,
-    Activity, Palette, Command, Keyboard, RotateCcw, GitCommit
+    Activity, Palette, Command, Keyboard, RotateCcw, GitCommit, Target
   }
 
   // Computed command lists
