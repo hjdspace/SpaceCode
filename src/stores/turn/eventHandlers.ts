@@ -975,8 +975,12 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     endTurn(sessionId, ts)
 
     // ── Play notification sound when a task completes successfully ──
-    if (isSoundOnTaskComplete()) {
-      try { playTaskCompleteSound() } catch { /* non-fatal */ }
+    const soundEnabled = isSoundOnTaskComplete()
+    logger.info('ChatStore', `[${sessionId.slice(0, 8)}] task complete, soundOnTaskComplete=${soundEnabled}`)
+    if (soundEnabled) {
+      try { playTaskCompleteSound() } catch (e) {
+        logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] failed to play task complete sound`, { error: String(e) })
+      }
     }
   }
 
