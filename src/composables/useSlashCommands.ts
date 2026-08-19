@@ -139,6 +139,7 @@ export function useSlashCommands(options: { workingDirectory?: () => string } = 
         kind: cmd.kind,
         immediate: cmd.immediate,
         aliases: cmd.aliases,
+        source: cmd.source,
       }
     })
   })
@@ -166,11 +167,9 @@ export function useSlashCommands(options: { workingDirectory?: () => string } = 
   }
 
   async function triggerSlashMenu(filter: string = ''): Promise<void> {
-    const wasOpen = commandPalette.showMenu.value
     commandPalette.triggerMenu(filter)
-    if (!wasOpen) {
-      await skillsStore.fetchSkills(options.workingDirectory?.() || undefined)
-    }
+    // Refresh on every trigger so newly-created links and skills are visible immediately.
+    await skillsStore.fetchSkills(options.workingDirectory?.() || undefined)
   }
 
   function openSkillsManager() {

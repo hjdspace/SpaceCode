@@ -66,7 +66,17 @@ function buildImageChipHtml(image: ImageAttachment): string {
   )
 }
 
-/** Inline SVG icons for command chip sources (no emoji). width/height set to 12px to match font size. */
+/** Text glyph icons scale with the chip font and stay aligned with its baseline. */
+const SOURCE_ICONS: Record<string, string> = {
+  builtin: '✦',
+  bundled: '◆',
+  global: '◎',
+  project: '▣',
+  plugin: '⌘',
+  mcp: '⌁',
+}
+
+// Legacy SVG definitions retained below for marker compatibility.
 const SVG_ATTRS = 'width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'
 const SOURCE_SVG_ICONS: Record<string, string> = {
   builtin: `<svg ${SVG_ATTRS}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
@@ -77,16 +87,19 @@ const SOURCE_SVG_ICONS: Record<string, string> = {
   mcp: `<svg ${SVG_ATTRS}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`,
 }
 
-/** Goal command target/crosshair SVG icon */
-const GOAL_SVG_ICON = `<svg ${SVG_ATTRS}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>`
+/** Kind-specific icons that override source icons */
+const KIND_SVG_ICONS: Record<string, string> = {
+  agent_skill: `<svg ${SVG_ATTRS}><path d="M12 2l-9 4.5v9L12 20l9-4.5v-9L12 2z"/><polyline points="3 6.5 12 11 21 6.5"/><line x1="12" y1="11" x2="12" y2="20"/></svg>`,
+}
 
+/** Goal command — refined target/bullseye with crosshair */
+const GOAL_SVG_ICON = `<svg ${SVG_ATTRS}><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="3" x2="12" y2="7"/><line x1="12" y1="17" x2="12" y2="21"/><line x1="3" y1="12" x2="7" y2="12"/><line x1="17" y1="12" x2="21" y2="12"/></svg>`
 /**
  * Build the HTML for a single command chip.
  */
 function buildCommandChipHtml(name: string, kind: string, source: string): string {
-  // Goal command uses a target/crosshair SVG icon
   const isGoal = name === 'goal'
-  const icon = isGoal ? GOAL_SVG_ICON : (SOURCE_SVG_ICONS[source] || SOURCE_SVG_ICONS.builtin)
+  const icon = isGoal ? '◎' : (kind === 'agent_skill' ? '✦' : (SOURCE_ICONS[source] || SOURCE_ICONS.builtin))
   const goalClass = isGoal ? ' is-goal' : ''
   const chipClass = `command-chip kind-${kind} source-${source}${goalClass}`
   return (

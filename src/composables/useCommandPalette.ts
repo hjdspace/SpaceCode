@@ -13,15 +13,20 @@ export function useCommandPalette() {
   const searchQuery = ref('')
   const selectedIndex = ref(0)
   const triggerPosition = ref<number>(-1)
+  const registryRevision = ref(0)
 
   // Refresh registry when skills or MCP tools change
   watch(
     () => [skillsStore.skills, mcpStore.allMcpTools] as const,
-    ([skills, mcpTools]) => commandRegistry.refresh(skills, mcpTools),
+    ([skills, mcpTools]) => {
+      commandRegistry.refresh(skills, mcpTools)
+      registryRevision.value += 1
+    },
     { immediate: true },
   )
 
   const allCommands = computed<UnifiedCommand[]>(() => {
+    registryRevision.value
     return commandRegistry.getAllCommands()
   })
 

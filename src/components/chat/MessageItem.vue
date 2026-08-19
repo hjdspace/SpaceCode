@@ -626,15 +626,10 @@ function handleUserCopy(e: ClipboardEvent) {
     font-family: var(--font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace);
 
     .chip-source-icon {
-      font-size: 12px;
+      font-size: 1em;
       line-height: 1;
       display: inline-flex;
       align-items: center;
-
-      svg {
-        width: 12px;
-        height: 12px;
-      }
     }
 
     .chip-label {
@@ -646,36 +641,9 @@ function handleUserCopy(e: ClipboardEvent) {
       opacity: 0.7;
     }
 
-    &.kind-sdk_command {
-      background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.08);
-      border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.5);
-      color: var(--accent-primary);
-    }
-
-    &.kind-codepilot_command {
-      background: rgba(245, 158, 11, 0.08);
-      border-color: rgba(245, 158, 11, 0.5);
-      color: #f59e0b;
-    }
-
-    &.kind-agent_skill {
-      background: rgba(16, 185, 129, 0.08);
-      border-color: rgba(16, 185, 129, 0.5);
-      color: #10b981;
-    }
-
-    &.kind-slash_command {
-      background: var(--accent-secondary-glow);
-      border-color: color-mix(in srgb, var(--accent-secondary) 50%, transparent);
-      color: #6366f1;
-    }
-
-    // Goal command chip — target/bullseye theme
-    &.is-goal {
-      background: rgba(239, 68, 68, 0.08);
-      border-color: rgba(239, 68, 68, 0.5);
-      color: #ef4444;
-    }
+    background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.1);
+    border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.35);
+    color: var(--accent-primary);
   }
 }
 

@@ -33,4 +33,24 @@ describe('useSlashCommands skill loading', () => {
     expect(apiMock.getSkills).toHaveBeenNthCalledWith(1, 'D:\\project')
     expect(apiMock.getSkills).toHaveBeenNthCalledWith(2, 'D:\\project')
   })
+
+  it('exposes fetched skills in the slash command results', async () => {
+    apiMock.getSkills.mockResolvedValue({
+      skills: [{
+        name: 'linked-skill',
+        description: 'A linked skill',
+        content: 'content',
+        source: 'global',
+        filePath: 'C:/Users/test/.claude/skills/linked-skill/SKILL.md',
+      }],
+    })
+    const slashCommands = useSlashCommands()
+
+    await slashCommands.triggerSlashMenu('')
+
+    expect(slashCommands.allSlashCommands.value.some(command => command.name === 'linked-skill')).toBe(true)
+
+    slashCommands.commandPalette.updateSearch('linked')
+    expect(slashCommands.filteredSlashCommands.value.some(command => command.name === 'linked-skill')).toBe(true)
+  })
 })
