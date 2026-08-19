@@ -330,6 +330,7 @@ export function useTurnStore(injectedApi?: any) {
       errorHandler,
       getClaudeCode: () => resolvedApi.claudeCode ?? null,
       getArtifactsApi: () => resolvedApi.artifacts ?? null,
+      isSoundOnTaskComplete: () => !!settingsStore.appearance?.soundOnTaskComplete,
     })
 
     const {

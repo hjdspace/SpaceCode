@@ -664,6 +664,8 @@ export default {
     smoothScrolling: 'Smooth Scrolling',
     smoothScrollingDesc: 'Enable smooth scrolling animation',
     accentColor: 'Accent Color',
+    soundOnTaskComplete: 'Task Complete Sound',
+    soundOnTaskCompleteDesc: 'Play a short notification sound when the AI completes a task',
   },
 
   petSettings: {

@@ -664,6 +664,8 @@ export default {
     smoothScrolling: '平滑滚动',
     smoothScrollingDesc: '启用平滑滚动动画',
     accentColor: '强调颜色',
+    soundOnTaskComplete: '任务完成提示音',
+    soundOnTaskCompleteDesc: '当 AI 完成任务时播放一段简短提示音',
   },
 
   petSettings: {
