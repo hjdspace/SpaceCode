@@ -1,3 +1,22 @@
+## [0.7.5](https://github.com/hjdspace/SpaceCode/compare/v0.7.4...v0.7.5) (2026-08-20)
+
+### Features
+
+* **rtk:** 支持 RTK v0.43+ 新格式并增强安装检测
+* **notification:** 增加会话任务完成提示音
+* **slash-command:** add /goal slash command support with target icon chip rendering
+
+### Bug Fixes
+
+* **notification:** 修复提示音不响问题 - 改用 HTMLAudioElement+WAV data URI 避免 Electron AudioContext autoplay 限制
+* **ui:** set SVG width/height to 12px to match chip font size
+
+### Refactor
+
+* **chips:** 统一 chip 样式并添加删除按钮
+* **ui:** replace emoji icons with inline SVG in command chips
+* **session:** 移除会话标签页管理，由侧边栏统一管理会话列表
+
 ## [0.7.4](https://github.com/hjdspace/SpaceCode/compare/v0.7.3...v0.7.4) (2026-08-17)
 
 ### Features
