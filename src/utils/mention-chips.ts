@@ -66,23 +66,26 @@ function buildImageChipHtml(image: ImageAttachment): string {
   )
 }
 
-/** Source icon mapping */
-const SOURCE_ICONS: Record<string, string> = {
-  builtin: '⚡',
-  bundled: '📦',
-  global: '🌐',
-  project: '📂',
-  plugin: '🧩',
-  mcp: '🔌',
+/** Inline SVG icons for command chip sources (no emoji) */
+const SOURCE_SVG_ICONS: Record<string, string> = {
+  builtin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+  bundled: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>',
+  global: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>',
+  project: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
+  plugin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>',
+  mcp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
 }
+
+/** Goal command target/crosshair SVG icon */
+const GOAL_SVG_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>'
 
 /**
  * Build the HTML for a single command chip.
  */
 function buildCommandChipHtml(name: string, kind: string, source: string): string {
-  // Goal command uses a target icon (🎯) instead of the default source icon
+  // Goal command uses a target/crosshair SVG icon
   const isGoal = name === 'goal'
-  const icon = isGoal ? '🎯' : (SOURCE_ICONS[source] || '⚡')
+  const icon = isGoal ? GOAL_SVG_ICON : (SOURCE_SVG_ICONS[source] || SOURCE_SVG_ICONS.builtin)
   const goalClass = isGoal ? ' is-goal' : ''
   const chipClass = `command-chip kind-${kind} source-${source}${goalClass}`
   return (
