@@ -625,17 +625,17 @@ function handleUserCopy(e: ClipboardEvent) {
     vertical-align: baseline;
     font-family: var(--font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace);
 
-.chip-source-icon {
-font-size: 12px;
-line-height: 1;
-display: inline-flex;
-align-items: center;
+    .chip-source-icon {
+      font-size: 12px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
 
-svg {
-  width: 12px;
-  height: 12px;
-}
-}
+      svg {
+        width: 12px;
+        height: 12px;
+      }
+    }
 
     .chip-label {
       font-weight: 600;
