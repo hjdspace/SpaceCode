@@ -418,6 +418,8 @@ export interface RtkGainStats {
   totalSavedUsd?: number
   saveRate?: number
   daily?: Array<{ date: string; commands: number; savedTokens: number }>
+  weekly?: Array<{ weekStart: string; weekEnd: string; commands: number; savedTokens: number }>
+  monthly?: Array<{ month: string; commands: number; savedTokens: number }>
   byCommand?: Record<string, { commands: number; savedTokens: number }>
 }
 

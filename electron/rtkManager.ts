@@ -41,6 +41,8 @@ export interface RtkGainStats {
   totalSavedUsd?: number
   saveRate?: number
   daily?: Array<{ date: string; commands: number; savedTokens: number }>
+  weekly?: Array<{ weekStart: string; weekEnd: string; commands: number; savedTokens: number }>
+  monthly?: Array<{ month: string; commands: number; savedTokens: number }>
   byCommand?: Record<string, { commands: number; savedTokens: number }>
 }
 
@@ -252,13 +254,26 @@ class RtkManager extends EventEmitter {
     }
 
     // 方法 1：尝试 rtk init --show
+    // RTK --show 输出多行状态，其中 Hook 行和 settings.json 行是关键判断依据。
+    // 格式: [ok] Hook: ... / [--] Hook: not installed
+    // 注意：不能简单匹配 "not found" 因为 OpenCode/Cursor 等可选组件也会输出 "not found"。
     try {
       const output = await this.execRtk(['init', '--show'], { timeout: 10_000 })
-      // 输出中不包含 "not installed|not found|missing" 则认为已安装
-      if (!/not installed|not found|missing/i.test(output)) {
-        return true
+      const hookLine = output.split('\n').find(l => /hook/i.test(l) && /rtk/i.test(l))
+      if (hookLine) {
+        // Hook 行存在且标记为 [ok] 或 [warn]（非 [--] / not installed）
+        const isInstalled = /\[ok\]|\[warn\]/i.test(hookLine) && !/not installed/i.test(hookLine)
+        if (isInstalled) {
+          return true
+        }
+        debug('RtkManager', 'rtk init --show indicates hook not installed', { hookLine: hookLine.slice(0, 200) })
+      } else {
+        // 没有找到 Hook 行，检查 settings.json 行
+        const settingsLine = output.split('\n').find(l => /settings\.json/i.test(l))
+        if (settingsLine && /\[ok\]/i.test(settingsLine)) {
+          return true
+        }
       }
-      debug('RtkManager', 'rtk init --show indicates hook not installed', { output: output.slice(0, 200) })
     } catch (err) {
       debug('RtkManager', 'rtk init --show failed, falling back to settings.json check', { error: String(err) })
     }
@@ -760,32 +775,99 @@ class RtkManager extends EventEmitter {
 
   /**
    * 解析 rtk gain --all --format json 的输出
+   *
+   * RTK v0.43+ JSON 格式:
+   * {
+   *   "summary": { "total_commands", "total_saved", "avg_savings_pct", ... },
+   *   "daily":   [{ "date", "commands", "saved_tokens", ... }],
+   *   "weekly":  [{ "week_start", "week_end", "commands", "saved_tokens", ... }],
+   *   "monthly": [{ "month", "commands", "saved_tokens", ... }]
+   * }
+   *
+   * 旧版扁平格式（兼容）:
+   * { "total_commands", "total_saved_tokens", ... }
    */
   private parseGainStats(data: any): RtkGainStats {
     const stats: RtkGainStats = {}
 
-    // RTK gain JSON 格式可能因版本而异，做兼容处理
-    if (data.total_commands !== undefined) {
-      stats.totalCommands = data.total_commands
+    // ── 新格式：summary 嵌套对象 (v0.43+) ──
+    const summary = data.summary ?? {}
+
+    // totalCommands
+    if (summary.total_commands !== undefined) {
+      stats.totalCommands = summary.total_commands
+    } else if (data.total_commands !== undefined) {
+      stats.totalCommands = data.total_commands // 旧格式兼容
     }
-    if (data.total_saved_tokens !== undefined) {
-      stats.totalSavedTokens = data.total_saved_tokens
+
+    // totalSavedTokens
+    if (summary.total_saved !== undefined) {
+      stats.totalSavedTokens = summary.total_saved
+    } else if (summary.total_saved_tokens !== undefined) {
+      stats.totalSavedTokens = summary.total_saved_tokens
+    } else if (data.total_saved_tokens !== undefined) {
+      stats.totalSavedTokens = data.total_saved_tokens // 旧格式兼容
     } else if (data.tokens_saved !== undefined) {
       stats.totalSavedTokens = data.tokens_saved
     }
-    if (data.total_saved_usd !== undefined) {
+
+    // totalSavedUsd (RTK 不直接输出 USD 节省，从 token 数估算)
+    if (summary.total_saved_usd !== undefined) {
+      stats.totalSavedUsd = summary.total_saved_usd
+    } else if (data.total_saved_usd !== undefined) {
       stats.totalSavedUsd = data.total_saved_usd
     } else if (data.usd_saved !== undefined) {
       stats.totalSavedUsd = data.usd_saved
+    } else if (stats.totalSavedTokens) {
+      // 估算: Claude Sonnet ~$3/M input tokens → $0.003/1K tokens
+      stats.totalSavedUsd = (stats.totalSavedTokens / 1000) * 0.003
     }
-    if (data.save_rate !== undefined) {
+
+    // saveRate: RTK 输出 avg_savings_pct (0-100 范围的百分比)
+    // 前端 formatPercent 期望 0-1 范围的比例值，因此除以 100
+    if (summary.avg_savings_pct !== undefined) {
+      stats.saveRate = summary.avg_savings_pct / 100
+    } else if (data.save_rate !== undefined) {
       stats.saveRate = data.save_rate
+    } else if (summary.total_commands && summary.total_saved !== undefined && summary.total_input !== undefined) {
+      const totalTokens = summary.total_saved + summary.total_input
+      stats.saveRate = totalTokens > 0 ? summary.total_saved / totalTokens : 0
     } else if (data.total_commands && data.total_saved_tokens && data.total_tokens) {
       stats.saveRate = data.total_saved_tokens / (data.total_saved_tokens + data.total_tokens)
     }
-    if (data.daily) {
-      stats.daily = data.daily
+
+    // daily: RTK v0.43+ 使用 saved_tokens (snake_case)，前端期望 savedTokens (camelCase)
+    const dailyRaw = data.daily ?? summary.daily
+    if (Array.isArray(dailyRaw)) {
+      stats.daily = dailyRaw.map((d: any) => ({
+        date: d.date ?? '',
+        commands: d.commands ?? 0,
+        savedTokens: d.saved_tokens ?? d.savedTokens ?? 0,
+      }))
     }
+
+    // weekly
+    const weeklyRaw = data.weekly ?? summary.weekly
+    if (Array.isArray(weeklyRaw)) {
+      stats.weekly = weeklyRaw.map((w: any) => ({
+        weekStart: w.week_start ?? '',
+        weekEnd: w.week_end ?? '',
+        commands: w.commands ?? 0,
+        savedTokens: w.saved_tokens ?? w.savedTokens ?? 0,
+      }))
+    }
+
+    // monthly
+    const monthlyRaw = data.monthly ?? summary.monthly
+    if (Array.isArray(monthlyRaw)) {
+      stats.monthly = monthlyRaw.map((m: any) => ({
+        month: m.month ?? '',
+        commands: m.commands ?? 0,
+        savedTokens: m.saved_tokens ?? m.savedTokens ?? 0,
+      }))
+    }
+
+    // by_command (旧格式兼容)
     if (data.by_command) {
       stats.byCommand = data.by_command
     }
