@@ -173,7 +173,6 @@ function revealChatSession(detail: H5RemoteUserMessageDetail) {
     appStore.setMode(session?.mode === 'work' ? 'work' : 'code')
   }
 
-  appStore.openSessionTab(sessionId, title)
   void sessionStore.selectSession(sessionId)
 
   if (splitLayout.isSingleLeaf) {

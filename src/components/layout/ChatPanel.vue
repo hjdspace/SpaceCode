@@ -1,13 +1,5 @@
 <template>
   <main class="chat-panel">
-    <SessionTabBar
-      :pane-id="paneId"
-      :active-tab-id-override="paneTabId"
-      @new-session="handleNewSession"
-      @switch-session="handleSwitchSession"
-      @close-tab="handleCloseTab"
-    />
-    
     <!-- Terminal Panel: v-show 保持挂载，避免切换标签时终端被销毁 -->
     <div v-if="terminalPanelMounted" v-show="isTerminalTab" class="terminal-wrapper">
       <TerminalPanel />
@@ -278,7 +270,7 @@ interface AllAttachments {
   files: Attachment[]
   images: ImageAttachment[]
 }
-import SessionTabBar from '../chat/SessionTabBar.vue'
+
 import NoProjectHome from './NoProjectHome.vue'
 import ToastNotification from '../common/ToastNotification.vue'
 import { History, ClipboardList } from 'lucide-vue-next'
@@ -1047,7 +1039,6 @@ async function handleSend(content: string, attachments: AllAttachments, options?
           skills: outcome.assistant.skills,
           permission: outcome.assistant.permission,
         })
-        appStore.openSessionTab(session.id, session.title)
       } catch (err) {
         console.error('[ChatPanel] Failed to start routed assistant session:', err)
       }
@@ -1426,42 +1417,13 @@ async function handleNewSession() {
   if (props.paneId) {
     // ── 分屏模式：在当前 pane 中创建新会话 ──
     const session = sessionStore.createSession(t('common.newChat'))
-    appStore.openSessionTab(session.id, session.title)
     const tabId = `session-${session.id}`
     splitLayout.setPaneContent(props.paneId, { kind: 'session', tabId })
     splitLayout.setActivePane(props.paneId)
     return
   }
-  // ── 非分屏模式：原有行为 ──
-  if (sessionStore.currentSessionId && sessionStore.currentSession) {
-    appStore.openSessionTab(sessionStore.currentSessionId, sessionStore.currentSession.title)
-  }
-
-  const session = sessionStore.createSession(t('common.newChat'))
-  appStore.openSessionTab(session.id, session.title)
-}
-
-function handleSwitchSession(sessionId: string) {
-  // 分屏模式下 SessionTabBar 已更新 pane content，
-  // SplitContainer watcher 会同步 active pane → 全局 currentSessionId。
-  // 非分屏模式需要显式 selectSession + 同步工作目录。
-  if (props.paneId) {
-    return
-  }
-  sessionStore.selectSession(sessionId)
-  if (sessionStore.workingDirectory && sessionStore.workingDirectory !== appStore.projectRoot) {
-    appStore.setProjectRoot(sessionStore.workingDirectory)
-    settingsStore.projectRoot = sessionStore.workingDirectory
-    settingsStore.saveSettings()
-  }
-}
-
-function handleCloseTab(tabId: string) {
-  const tab = appStore.centerTabs.find(t => t.id === tabId)
-  if (tab?.sessionId) {
-    sessionStore.deactivateSession(tab.sessionId)
-  }
-  appStore.closeSessionTab(tabId)
+  // ── 非分屏模式：仅创建会话，由左侧 Sidebar 统一管理会话列表 ──
+  sessionStore.createSession(t('common.newChat'))
 }
 
 async function handleRestoreHistorySession(session: any) {
@@ -1474,7 +1436,6 @@ async function handleRestoreHistorySession(session: any) {
     if (existingSession) {
       console.log('[ChatPanel] Reusing existing session:', session.sessionId)
       sessionStore.selectSession(session.sessionId)
-      appStore.openSessionTab(session.sessionId, existingSession.title)
       showHistoryModal.value = false
       await nextTick()
       const reusedProjectPath = existingSession.workingDirectory || session.projectPath
@@ -1511,11 +1472,6 @@ async function handleRestoreHistorySession(session: any) {
     }
 
     showHistoryModal.value = false
-
-    // ── 关键修复：为新恢复的历史会话创建标签页 ──
-    // 此前缺少 openSessionTab 调用，导致恢复的会话没有标签页，
-    // 用户无法切换回之前打开的其他历史会话。
-    appStore.openSessionTab(restoredSession.id, restoredSession.title)
 
     // 分屏模式下：把恢复的会话放入当前 pane
     if (props.paneId) {

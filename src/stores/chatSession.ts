@@ -1073,7 +1073,6 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       if (session.messages.length === 1 && newMessage.role === 'user') {
         const newTitle = newMessage.content.slice(0, 50) + (newMessage.content.length > 50 ? '...' : '')
         session.title = newTitle
-        appStore.updateSessionTabTitle(sessionId, newTitle)
       }
       saveToStorage()
     }

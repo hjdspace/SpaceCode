@@ -1068,11 +1068,6 @@ export default {
     autoCloseHint: '3 秒后自动关闭，连接保持',
   },
 
-  sessionTab: {
-    closeTab: '关闭标签页',
-    newSession: '新会话',
-  },
-
   splitLayout: {
     emptyPaneHint: '拖拽标签页到此处',
     closePane: '关闭分屏',

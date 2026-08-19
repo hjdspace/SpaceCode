@@ -166,7 +166,6 @@ describe('H5 mirror visibility', () => {
     const splitLayout = useSplitLayoutStore()
 
     expect(sessionStore.currentSessionId).toBe('session-new')
-    expect(appStore.activeCenterTab).toBe('session-session-new')
     expect(splitLayout.activePane?.content).toEqual({
       kind: 'session',
       tabId: 'session-session-new',

@@ -83,7 +83,6 @@ vi.mock('@/components/work/WorkAssistantPicker.vue', () => ({ default: component
 vi.mock('@/components/chat/TeamStatusBar.vue', () => ({ default: componentStub }))
 vi.mock('@/components/chat/TeammateTranscriptHeader.vue', () => ({ default: componentStub }))
 vi.mock('@/components/chat/ChatInput.vue', () => ({ default: componentStub }))
-vi.mock('@/components/chat/SessionTabBar.vue', () => ({ default: componentStub }))
 vi.mock('@/components/terminal/TerminalPanel.vue', () => ({ default: componentStub }))
 vi.mock('@/components/layout/NoProjectHome.vue', () => ({ default: componentStub }))
 vi.mock('@/components/common/ToastNotification.vue', () => ({ default: componentStub }))

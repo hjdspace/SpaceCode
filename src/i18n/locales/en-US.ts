@@ -1068,11 +1068,6 @@ export default {
     autoCloseHint: 'Auto-closing in 3 seconds; connection stays active',
   },
 
-  sessionTab: {
-    closeTab: 'Close tab',
-    newSession: 'New session',
-  },
-
   splitLayout: {
     emptyPaneHint: 'Drop a tab here',
     closePane: 'Close pane',
