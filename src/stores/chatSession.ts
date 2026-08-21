@@ -1230,8 +1230,11 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       const claudeCode = api.claudeCode
       if (claudeCode) {
         const desiredEngine = settingsStore.engineType
-        if (session.engineType && session.engineType !== desiredEngine) {
-          logger.info('ChatStore', `activateSession: suspended session uses engine=${session.engineType}, current=${desiredEngine} — restarting fresh | id=${sessionId.slice(0, 8)}`)
+        const desiredEngineSource = settingsStore.engineSource
+        const engineChanged = session.engineType && session.engineType !== desiredEngine
+        const engineSourceChanged = session.engineSource && session.engineSource !== desiredEngineSource
+        if (engineChanged || engineSourceChanged) {
+          logger.info('ChatStore', `activateSession: suspended session uses engine=${session.engineType}/${session.engineSource}, current=${desiredEngine}/${desiredEngineSource} — restarting fresh | id=${sessionId.slice(0, 8)}`)
           try {
             await claudeCode.stop(sessionId)
           } catch {}

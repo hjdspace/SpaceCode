@@ -303,5 +303,10 @@ ipcMain.handle('mcp:checkDependency', async (_, command: string) => {
 }
 
 export function getPool(): { killAll: () => void } | null {
-  return null
+  // Delegate to EngineFactory which manages all engine instances (Claude Code + Pi).
+  // This was previously a null-returning stub — main.ts called getPool().killAll()
+  // on window close / app quit, but the call was dead code because pool was always null.
+  return {
+    killAll: () => EngineFactory.killAll(),
+  }
 }
