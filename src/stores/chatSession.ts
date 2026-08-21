@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed, readonly } from 'vue'
 import type { Session, Message, ToolCall, AgentInfo, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus, ArtifactSummaryEntry, MessageMetadata } from '@/types'
-import type { RewindOption, RewindState } from '@/types/rewind'
+import type { RewindOption } from '@/types/rewind'
+import { useRewindDialog } from '@/composables/useRewindDialog'
 import { useSettingsStore } from './settings'
 import { useAppStore } from './app'
 import { useTaskManager } from '@/composables/useTaskManager'
@@ -385,19 +386,32 @@ export const useChatSessionStore = defineStore('chatSession', () => {
   const turnCardsError = ref<string | null>(null)
   const rewindingTurnId = ref<string | null>(null)
 
-  // ── Rewind 状态 ──
-  const rewindState = ref<RewindState>({
-    showDialog: false,
-    selectedMessageId: null,
-    selectedOption: 'both',
-    summarizeFeedback: '',
-    isRewinding: false,
-    error: null,
-    showCodeConfirm: false,
-    filesToRewind: [],
-  })
+  // ── Rewind 状态（UI 状态机 module，从 store 中提取）──
+  const { rewindState, patchRewindState, resetRewindState } = useRewindDialog()
 
   const pendingInputText = ref<string>('')
+
+  /**
+   * 对账后端 permission mode 与用户偏好：若不一致则下发用户偏好。
+   * 统一了 initClaudeCodeSession / selectSession / activateSession 三处的对账逻辑。
+   */
+  async function syncPermissionMode(
+    sessionId: string,
+    status: { permissionMode?: string | null } | null,
+    callerName: string,
+  ): Promise<void> {
+    if (!status?.permissionMode) return
+    const { usePermissionPolicyStore } = await import('./permissionPolicy')
+    const policyStore = usePermissionPolicyStore()
+    if (status.permissionMode !== policyStore.currentPermissionMode) {
+      try {
+        const claudeCode = api.claudeCode
+        await claudeCode?.setPermissionMode?.(sessionId, policyStore.currentPermissionMode)
+      } catch (e) {
+        logger.warn('ChatStore', `${callerName}: failed to apply preferred mode | id=${sessionId.slice(0, 8)}`, { error: String(e) })
+      }
+    }
+  }
 
   const currentAgent = ref<string>('')
   const availableAgents = ref<AgentInfo[]>([])
@@ -639,16 +653,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       } else {
         logger.info('ChatStore', `initClaudeCodeSession: session already running | id=${sessionId.slice(0, 8)}`)
         // 已在运行的会话：若后端模式与用户偏好不一致，则下发用户偏好
-        // 需要获取 policyStore 的 currentPermissionMode，通过延迟导入避免循环依赖
-        const { usePermissionPolicyStore } = await import('./permissionPolicy')
-        const policyStore = usePermissionPolicyStore()
-        if (status?.permissionMode && status.permissionMode !== policyStore.currentPermissionMode) {
-          try {
-            await claudeCode.setPermissionMode?.(sessionId, policyStore.currentPermissionMode)
-          } catch (e) {
-            logger.warn('ChatStore', `initClaudeCodeSession: failed to apply preferred mode | id=${sessionId.slice(0, 8)}`, { error: String(e) })
-          }
-        }
+        await syncPermissionMode(sessionId, status, 'initClaudeCodeSession')
         return
       }
     }
@@ -1196,16 +1201,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         )
         const status = await Promise.race([statusPromise, timeoutPromise]).catch(() => null)
 
-        if (status?.isRunning && status.permissionMode) {
-          const { usePermissionPolicyStore } = await import('./permissionPolicy')
-          const policyStore = usePermissionPolicyStore()
-          if (status.permissionMode !== policyStore.currentPermissionMode) {
-            try {
-              await claudeCode.setPermissionMode?.(sessionId, policyStore.currentPermissionMode)
-            } catch (e) {
-              logger.warn('ChatStore', `selectSession: failed to apply preferred mode | id=${sessionId.slice(0, 8)}`, { error: String(e) })
-            }
-          }
+        if (status?.isRunning) {
+          await syncPermissionMode(sessionId, status, 'selectSession')
         }
       } catch {
         // 忽略：保留用户偏好不变
@@ -1253,17 +1250,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
           session.processStatus = 'active'
           saveToStorage()
           const status = await claudeCode.getSessionStatus(sessionId)
-          if (status?.permissionMode) {
-            const { usePermissionPolicyStore } = await import('./permissionPolicy')
-            const policyStore = usePermissionPolicyStore()
-            if (status.permissionMode !== policyStore.currentPermissionMode) {
-              try {
-                await claudeCode.setPermissionMode?.(sessionId, policyStore.currentPermissionMode)
-              } catch (e) {
-                logger.warn('ChatStore', `activateSession: failed to apply preferred mode | id=${sessionId.slice(0, 8)}`, { error: String(e) })
-              }
-            }
-          }
+          await syncPermissionMode(sessionId, status, 'activateSession')
         } catch (error) {
           console.error('[ChatStore] Failed to resume session:', error)
           session.processStatus = 'exited'
@@ -1360,47 +1347,36 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     turnCardsError.value = null
   }
 
-  // ── Rewind 状态管理方法 ──
+  // ── Rewind 状态管理 ──
+  // setter 逻辑已提取到 useRewindDialog composable（patchRewindState / resetRewindState）。
+  // 以下薄委托保持 ChatPanel 的现有调用兼容，后续可渐进迁移为直接调用 composable。
 
   function setShowRewindDialog(show: boolean) {
-    rewindState.value.showDialog = show
+    patchRewindState({ showDialog: show })
   }
 
   function setRewindSelectedMessage(messageId: string | null) {
-    rewindState.value.selectedMessageId = messageId
+    patchRewindState({ selectedMessageId: messageId })
   }
 
   function setRewindSelectedOption(option: RewindOption) {
-    rewindState.value.selectedOption = option
+    patchRewindState({ selectedOption: option })
   }
 
   function setRewindSummarizeFeedback(feedback: string) {
-    rewindState.value.summarizeFeedback = feedback
-  }
-
-  function resetRewindState() {
-    rewindState.value = {
-      showDialog: false,
-      selectedMessageId: null,
-      selectedOption: 'both',
-      summarizeFeedback: '',
-      isRewinding: false,
-      error: null,
-      showCodeConfirm: false,
-      filesToRewind: [],
-    }
+    patchRewindState({ summarizeFeedback: feedback })
   }
 
   function setRewindError(error: string | null) {
-    rewindState.value.error = error
+    patchRewindState({ error })
   }
 
   function setShowCodeConfirm(show: boolean) {
-    rewindState.value.showCodeConfirm = show
+    patchRewindState({ showCodeConfirm: show })
   }
 
   function setFilesToRewind(files: string[]) {
-    rewindState.value.filesToRewind = files
+    patchRewindState({ filesToRewind: files })
   }
 
   function setPendingInputText(text: string) {
@@ -1459,7 +1435,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     mode: 'both' | 'conversation' | 'code'
   ): Promise<void> {
     if (!sessionId) {
-      rewindState.value.error = 'Session ID is required'
+      patchRewindState({ error: 'Session ID is required' })
       return
     }
 
@@ -1467,8 +1443,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       return
     }
 
-    rewindState.value.isRewinding = true
-    rewindState.value.error = null
+    patchRewindState({ isRewinding: true, error: null })
 
     let codeError: string | null = null
     let conversationError: string | null = null
@@ -1547,24 +1522,21 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         }
       }
     } catch (err) {
-      rewindState.value.error = err instanceof Error ? err.message : 'Unknown error during rewind'
-      rewindState.value.isRewinding = false
+      const errMsg = err instanceof Error ? err.message : 'Unknown error during rewind'
+      patchRewindState({ error: errMsg, isRewinding: false })
       return
     }
 
-    if (codeError && conversationError) {
-      rewindState.value.error = `Code: ${codeError}\nConversation: ${conversationError}`
-    } else if (codeError) {
-      rewindState.value.error = codeError
-    } else if (conversationError) {
-      rewindState.value.error = conversationError
+    const combinedError = codeError && conversationError
+      ? `Code: ${codeError}\nConversation: ${conversationError}`
+      : codeError || conversationError
+
+    if (combinedError) {
+      patchRewindState({ error: combinedError, isRewinding: false })
+      throw new Error(combinedError)
     }
 
-    rewindState.value.isRewinding = false
-
-    if (codeError || conversationError) {
-      throw new Error(rewindState.value.error || 'Rewind failed')
-    }
+    patchRewindState({ isRewinding: false })
   }
 
   async function summarizeTurn(
@@ -1863,7 +1835,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     undoTurn,
     clearTurnCheckpoints,
     // Rewind
-    rewindState: readonly(rewindState),
+    rewindState,
     pendingInputText: readonly(pendingInputText),
     setShowRewindDialog,
     setRewindSelectedMessage,
