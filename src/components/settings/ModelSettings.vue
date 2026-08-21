@@ -63,6 +63,7 @@
                   v-model="activeConfig.baseUrl"
                   :placeholder="activePlaceholder"
                   class="ms-input mono"
+                  @change="onConfigFieldChange"
                 />
                 <button
                   class="ms-btn-ghost"
@@ -94,6 +95,7 @@
                   v-model="activeConfig.apiKey"
                   :placeholder="activeKeyPlaceholder"
                   class="ms-input mono"
+                  @change="onConfigFieldChange"
                 />
                 <button class="ms-btn-icon" type="button" @click="showApiKey = !showApiKey" :aria-label="$t('auth.apiKey')">
                   <Eye v-if="!showApiKey" :size="14" />
@@ -319,7 +321,9 @@ const config = computed({
 
 const authMethod = computed({
   get: () => config.value.authMethod,
-  set: (val) => config.value.authMethod = val
+  set: (val) => {
+    config.value = { ...config.value, authMethod: val }
+  }
 })
 
 const oauthAccount = computed(() => config.value.oauthAccount)
@@ -361,25 +365,34 @@ const activeKeyPlaceholder = computed(() => {
 const haikuModel = computed({
   get: () => config.value.anthropicConfig.haikuModel,
   set: (val: string) => {
-    config.value.anthropicConfig.haikuModel = val
-    config.value.openaiConfig.haikuModel = val
-    config.value.geminiConfig.haikuModel = val
+    config.value = {
+      ...config.value,
+      anthropicConfig: { ...config.value.anthropicConfig, haikuModel: val },
+      openaiConfig: { ...config.value.openaiConfig, haikuModel: val },
+      geminiConfig: { ...config.value.geminiConfig, haikuModel: val },
+    }
   },
 })
 const sonnetModel = computed({
   get: () => config.value.anthropicConfig.sonnetModel,
   set: (val: string) => {
-    config.value.anthropicConfig.sonnetModel = val
-    config.value.openaiConfig.sonnetModel = val
-    config.value.geminiConfig.sonnetModel = val
+    config.value = {
+      ...config.value,
+      anthropicConfig: { ...config.value.anthropicConfig, sonnetModel: val },
+      openaiConfig: { ...config.value.openaiConfig, sonnetModel: val },
+      geminiConfig: { ...config.value.geminiConfig, sonnetModel: val },
+    }
   },
 })
 const opusModel = computed({
   get: () => config.value.anthropicConfig.opusModel,
   set: (val: string) => {
-    config.value.anthropicConfig.opusModel = val
-    config.value.openaiConfig.opusModel = val
-    config.value.geminiConfig.opusModel = val
+    config.value = {
+      ...config.value,
+      anthropicConfig: { ...config.value.anthropicConfig, opusModel: val },
+      openaiConfig: { ...config.value.openaiConfig, opusModel: val },
+      geminiConfig: { ...config.value.geminiConfig, opusModel: val },
+    }
   },
 })
 
@@ -453,6 +466,11 @@ function setContextWindow(modelId: string, value: string) {
   }
   settingsStore.modelContextWindows = updated
   settingsStore.saveSettings()
+  // Sync to the active profile so the setting persists across profile switches
+  const activeId = settingsStore.activeProfileId
+  if (activeId) {
+    settingsStore.updateProfile(activeId, { modelContextWindows: updated })
+  }
 }
 
 function resetContextWindows() {
@@ -462,6 +480,11 @@ function resetContextWindows() {
   }
   settingsStore.modelContextWindows = updated
   settingsStore.saveSettings()
+  // Sync to the active profile so the reset persists across profile switches
+  const activeId = settingsStore.activeProfileId
+  if (activeId) {
+    settingsStore.updateProfile(activeId, { modelContextWindows: updated })
+  }
 }
 
 function normalizeApiUrl(baseUrl: string, provider: string): string {
@@ -520,6 +543,12 @@ onMounted(() => {
 function selectAuthMethod(method: AuthMethod) {
   authMethod.value = method
   availableModels.value = [...defaultModels.value]
+}
+
+function onConfigFieldChange() {
+  // Emit the current config so parent saves changes to profile
+  emit('update:modelValue', { ...config.value })
+  emit('change')
 }
 
 async function testConnection() {
