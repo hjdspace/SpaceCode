@@ -380,7 +380,7 @@ export class ClaudeCodeProcessPool {
     const handlers = {
       message: (msg: any) => this.routeEvent(sessionId, msg.type, msg),
       log: (data: string) => this.routeEvent(sessionId, 'log', data),
-      exit: (code: number | null) => this.routeEvent(sessionId, 'exit', code),
+      exit: (data: { code: number | null; signal?: string | null; stderr?: string }) => this.routeEvent(sessionId, 'exit', data),
       error: (err: Error) => this.routeEvent(sessionId, 'error', { message: err.message }),
       permissionRequest: (data: any) => this.routeEvent(sessionId, 'permission_request', data),
       permissionRequestCancelled: (data: any) =>
@@ -425,7 +425,7 @@ export class ClaudeCodeProcessPool {
         info('ProcessPool', `[${shortSid}] route → renderer | type=stream_event | subType=message_stop`)
       }
     } else if (eventType === 'exit') {
-      info('ProcessPool', `[${shortSid}] route → renderer | type=${eventType} | code=${data}`)
+      info('ProcessPool', `[${shortSid}] route → renderer | type=${eventType} | code=${data?.code}${data?.stderr ? ` | stderr=${String(data.stderr).slice(0, 100)}` : ''}`)
     } else if (eventType === 'error') {
       error('ProcessPool', `[${shortSid}] route → renderer | type=${eventType}`, data)
     } else if (eventType === 'log') {
