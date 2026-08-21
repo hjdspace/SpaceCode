@@ -29,6 +29,7 @@ export interface TurnStateMachineOptions {
 export interface TurnStateMachine {
   turnStates: Map<string, TurnState>
   resetTimeout: (sessionId: string, ts: TurnState) => void
+  clearTurnTimeout: (sessionId: string, ts: TurnState) => void
   beginTurn: (sessionId: string, opts: { isAutonomous: boolean; resolve?: () => void; reject?: (e: any) => void }) => TurnState
   endTurn: (sessionId: string, ts: TurnState) => void
   ensureTurn: (sessionId: string) => TurnState
@@ -55,6 +56,13 @@ export function createTurnStateMachine(opts: TurnStateMachineOptions): TurnState
       if (!cur || cur !== ts || cur.settled) return
       onTimeout(sessionId, ts)
     }, limit)
+  }
+
+  const clearTurnTimeout = (sessionId: string, ts: TurnState) => {
+    if (ts.timeoutId) {
+      clearTimeout(ts.timeoutId)
+      ts.timeoutId = null
+    }
   }
 
   const beginTurn = (sessionId: string, opts: { isAutonomous: boolean; resolve?: () => void; reject?: (e: any) => void }): TurnState => {
@@ -138,5 +146,5 @@ export function createTurnStateMachine(opts: TurnStateMachineOptions): TurnState
     return beginTurn(sessionId, { isAutonomous: true })
   }
 
-  return { turnStates, resetTimeout, beginTurn, endTurn, ensureTurn }
+  return { turnStates, resetTimeout, clearTurnTimeout, beginTurn, endTurn, ensureTurn }
 }
