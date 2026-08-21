@@ -49,4 +49,5 @@ export const SCHEMA_MANAGER_CHANNELS = {
   SCAN_AGENT_DETAIL: 'skill-manager:scan-agent-detail',
   REFRESH_AGENT_VERSIONS: 'skill-manager:refresh-agent-versions',
   EXTRACT_ARCHIVE: 'skill-manager:extract-archive',
+  CLONE_GITHUB_REPO: 'skill-manager:clone-github-repo',
 } as const

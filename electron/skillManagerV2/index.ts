@@ -396,7 +396,7 @@ export function registerSkillManagerV2IPCHandlers(): void {
   // ── GitHub Clone ───────────────────────────────────────────────────
 
   ipcMain.handle(
-    'skill-manager:clone-github-repo',
+    SCHEMA_MANAGER_CHANNELS.CLONE_GITHUB_REPO,
     async (_event, url: string, branch?: string, subPath?: string): Promise<{ success: boolean; localPath?: string; error?: string }> => {
       try {
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-mgr-gh-'))

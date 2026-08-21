@@ -13,11 +13,6 @@ import type {
   AgentTraceEvent,
   TokenStatsResult,
   ExternalEditor,
-  GitDiffResult,
-  GitFullDiffResult,
-  GitStatus,
-  GitBranch,
-  GitLogEntry,
   CronTask,
   CronRunEntry,
   CliDetectionResult,
@@ -27,6 +22,7 @@ import type {
   ArtifactEntry,
   DesignSystemSummary,
 } from '@/services/electronAPI'
+import type { GitRendererApi } from '@/shared/channels/git'
 import type {
 SkillManagerOverview,
 SkillManagerSettings,
@@ -119,32 +115,7 @@ export interface ElectronTerminalAPI {
   onExit: (callback: (id: string, exitCode: number) => void) => () => void
 }
 
-export interface ElectronGitAPI {
-  isRepo: (cwd: string) => Promise<boolean>
-  getRoot: (cwd: string) => Promise<string | null>
-  getStatus: (cwd: string) => Promise<GitStatus | null>
-  stage: (cwd: string, paths: string[]) => Promise<boolean>
-  unstage: (cwd: string, paths: string[]) => Promise<boolean>
-  stageAll: (cwd: string) => Promise<boolean>
-  unstageAll: (cwd: string) => Promise<boolean>
-  commit: (cwd: string, message: string, amend?: boolean) => Promise<{ success: boolean; hash?: string; error?: string }>
-  getDiff: (cwd: string, path: string, staged?: boolean) => Promise<GitDiffResult | null>
-  getFullDiff: (cwd: string) => Promise<GitFullDiffResult | null>
-  getStagedDiff: (cwd: string) => Promise<string>
-  showFile: (cwd: string, path: string) => Promise<string | null>
-  getBranches: (cwd: string) => Promise<GitBranch[]>
-  checkout: (cwd: string, ref: string) => Promise<{ success: boolean; error?: string }>
-  createBranch: (cwd: string, name: string, checkoutTo?: boolean) => Promise<{ success: boolean; error?: string }>
-  deleteBranch: (cwd: string, name: string, force?: boolean) => Promise<{ success: boolean; error?: string }>
-  getLog: (cwd: string, count?: number) => Promise<GitLogEntry[]>
-  discardChanges: (cwd: string, paths: string[]) => Promise<boolean>
-  pull: (cwd: string) => Promise<{ success: boolean; error?: string }>
-  push: (cwd: string) => Promise<{ success: boolean; error?: string }>
-  stash: (cwd: string) => Promise<{ success: boolean; error?: string }>
-  stashPop: (cwd: string) => Promise<{ success: boolean; error?: string }>
-  fetchAll: (cwd: string) => Promise<{ success: boolean; error?: string }>
-  watchProject: (cwd: string) => Promise<boolean>
-  stopWatch: () => Promise<boolean>
+export interface ElectronGitAPI extends GitRendererApi {
   onStatusChanged: (callback: () => void) => () => void
 }
 
