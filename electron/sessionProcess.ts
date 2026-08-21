@@ -157,6 +157,7 @@ export class SessionProcess extends EventEmitter {
   private readonly controlProtocol: ControlProtocolHandler
 
   private cliRoot: string
+  private stderrBuffer: string = ''
 
   constructor(sessionId: string, config: SessionConfig) {
     super()
@@ -383,19 +384,21 @@ export class SessionProcess extends EventEmitter {
 
     proc.stderr!.on('data', (data) => {
       const dataStr = data.toString()
+      this.stderrBuffer += dataStr
       processRaw(this.sessionId, 'stderr', dataStr)
       this.emit('log', dataStr)
     })
 
     proc.on('exit', (code, signal) => {
-      info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process exited | code=${code} | signal=${signal} | pid=${this.process?.pid}`)
+      const stderrTail = this.stderrBuffer.split(/\r?\n/).filter(Boolean).slice(-5).join('\n')
+      info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process exited | code=${code} | signal=${signal} | pid=${this.process?.pid}${stderrTail ? ` | stderr=${stderrTail.slice(0, 200)}` : ''}`)
       traceEvent({
         sessionId: this.sessionId,
         actor: 'system',
         type: 'process_exit',
         status: code === 0 || code === null ? 'completed' : 'failed',
         title: 'Engine process exited',
-        metadata: { code, signal, pid: this.process?.pid },
+        metadata: { code, signal, pid: this.process?.pid, stderr: stderrTail.slice(0, 500) },
       })
       if (this.status !== 'suspended') {
         this.status = 'exited'
@@ -403,7 +406,7 @@ export class SessionProcess extends EventEmitter {
       // Reject pending outbound control_requests and emit cancellation events
       // for any open inbound permission prompts so the UI can clean up.
       this.controlProtocol.rejectAllPending(`process_exit (code=${code}, signal=${signal})`)
-      this.emit('exit', code)
+      this.emit('exit', { code, signal, stderr: stderrTail })
       this.process = null
     })
   }
