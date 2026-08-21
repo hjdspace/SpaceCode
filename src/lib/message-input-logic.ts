@@ -188,12 +188,22 @@ export function dispatchBadge(
     return { prompt: userContent, displayLabel: userContent }
   }
 
+  // Helper: build a /cmd:"name":kind:source marker for a badge.
+  // The marker is what renderContentWithAttachments() uses to render
+  // an inline command chip inside user message bubbles.
+  function buildCmdMarker(b: CommandBadge): string {
+    const kind = b.kind || 'slash_command'
+    const source = b.source || 'builtin'
+    return `/cmd:"${b.label}":${kind}:${source}`
+  }
+
   // Multi-skill path: combine labels into one prompt, join display labels.
   if (badges.length > 1 && badges.every((b) => b.kind === 'agent_skill')) {
     const skillNames = badges.map((b) => b.label).join(', ')
+    const chipMarkers = badges.map(b => buildCmdMarker(b)).join(' ')
     const displayLabel = userContent
-      ? `${badges.map((b) => `/${b.label}`).join(' ')}\n${userContent}`
-      : badges.map((b) => `/${b.label}`).join(' ')
+      ? `${chipMarkers} ${userContent}`
+      : chipMarkers
     const agentPrompt = userContent
       ? `Use the ${skillNames} skills. User context: ${userContent}`
       : `Please use the ${skillNames} skills.`
@@ -201,8 +211,8 @@ export function dispatchBadge(
   }
 
   const badge = badges[0]
-  const baseLabel = `/${badge.label}`
-  const displayLabel = userContent ? `${baseLabel}\n${userContent}` : baseLabel
+  const chipMarker = buildCmdMarker(badge)
+  const displayLabel = userContent ? `${chipMarker} ${userContent}` : chipMarker
 
   switch (badge.kind) {
     case 'agent_skill': {

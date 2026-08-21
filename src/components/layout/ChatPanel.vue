@@ -1112,11 +1112,13 @@ async function handleStop() {
 }
 
 // 处理斜杠命令
-async function handleSlashCommand(command: string, args: string, attachments: AllAttachments) {
+async function handleSlashCommand(command: string, args: string, attachments: AllAttachments, displayLabel?: string) {
   console.log('[ChatPanel] Slash command:', command, args, attachments)
 
   // 添加用户输入的命令到消息列表
-  const commandText = `/${command}${args ? ' ' + args : ''}`
+  // 如果 displayLabel 包含 /cmd: 标记，使用它（能渲染为 inline chip）；
+  // 否则回退到 /command args 格式。
+  const commandText = displayLabel || `/${command}${args ? ' ' + args : ''}`
   await sessionStore.addMessage({
     role: 'user',
     content: commandText

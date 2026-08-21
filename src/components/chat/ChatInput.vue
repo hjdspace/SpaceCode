@@ -380,7 +380,7 @@ import type { CommandKind } from '@/lib/constants/commands'
 // ── Props & Emits ────────────────────────────────────────────────
 const emit = defineEmits<{
   send: [content: string, attachments: AllAttachments, options?: SendOptions]
-  'slash-command': [command: string, args: string, attachments: AllAttachments]
+  'slash-command': [command: string, args: string, attachments: AllAttachments, displayLabel?: string]
   'update:model': [model: string]
   'update:effort': [effort: string]
   'update:agent': [agent: string]
@@ -1169,16 +1169,20 @@ function handleSend(steerMode = false) {
     if (chips.length === 1 && chips[0].kind === 'sdk_command') {
       const commandName = chips[0].label
       const userContent = content.replace(/\/cmd:"[^"]+":\w+:\w+\s*/g, '').trim()
+      const chipMarker = `/cmd:"${commandName}":${chips[0].kind}:${chips[0].source}`
+      const displayLabel = userContent ? `${chipMarker} ${userContent}` : chipMarker
       cleanupAfterCommand()
-      emit('slash-command', commandName, userContent, allAttachments)
+      emit('slash-command', commandName, userContent, allAttachments, displayLabel)
       return
     }
 
     if (chips.length === 1 && chips[0].kind === 'immediate') {
       const commandName = chips[0].label
       const userContent = content.replace(/\/cmd:"[^"]+":\w+:\w+\s*/g, '').trim()
+      const chipMarker = `/cmd:"${commandName}":${chips[0].kind}:${chips[0].source}`
+      const displayLabel = userContent ? `${chipMarker} ${userContent}` : chipMarker
       cleanupAfterCommand()
-      emit('slash-command', commandName, userContent, allAttachments)
+      emit('slash-command', commandName, userContent, allAttachments, displayLabel)
       return
     }
 
