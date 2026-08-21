@@ -78,7 +78,7 @@ const sessionStore = useChatSessionStore()
 const isActive = computed(() => splitLayout.activePaneId === props.node.id)
 const multiLeaf = computed(() => !splitLayout.isSingleLeaf)
 
-/** 把 'session-<id>' 形式的 tabId 还原为 sessionId（与 app store 的 openSessionTab 约定一致） */
+/** 把 'session-<id>' 形式的 tabId 还原为 sessionId */
 const resolvedSessionId = computed(() => {
   const tabId = props.node.content.tabId || ''
   if (tabId.startsWith('session-')) return tabId.slice('session-'.length)
@@ -95,8 +95,6 @@ function handleNewSession() {
   const session = sessionStore.createSession()
   if (!session) return
   const tabId = `session-${session.id}`
-  // 确认 centerTabs 里有此 tab
-  appStore.openSessionTab(session.id, session.title)
   splitLayout.setPaneContent(props.node.id, { kind: 'session', tabId })
   splitLayout.setActivePane(props.node.id)
   appStore.activeCenterTab = tabId

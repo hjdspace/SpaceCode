@@ -38,7 +38,7 @@ vi.mock('@/components/terminal/TerminalTabBar.vue', () => ({ default: componentS
 vi.mock('@/components/terminal/TerminalPanel.vue', () => ({ default: componentStub }))
 vi.mock('@/components/debug/TraceViewer.vue', () => ({ default: componentStub }))
 vi.mock('@/components/settings/SettingsPanel.vue', () => ({ default: componentStub }))
-vi.mock('@/components/skills/SkillsManager.vue', () => ({ default: componentStub }))
+vi.mock('@/components/skills-v2/SkillManagerShell.vue', () => ({ default: componentStub }))
 vi.mock('@/components/agents/AgentManager.vue', () => ({ default: componentStub }))
 vi.mock('@/components/mcp/McpManager.vue', () => ({ default: componentStub }))
 vi.mock('@/components/cron/CronManager.vue', () => ({ default: componentStub }))
@@ -166,7 +166,6 @@ describe('H5 mirror visibility', () => {
     const splitLayout = useSplitLayoutStore()
 
     expect(sessionStore.currentSessionId).toBe('session-new')
-    expect(appStore.activeCenterTab).toBe('session-session-new')
     expect(splitLayout.activePane?.content).toEqual({
       kind: 'session',
       tabId: 'session-session-new',

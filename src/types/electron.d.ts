@@ -37,6 +37,29 @@ AddCenterSkillInput,
 AddCenterSkillPreview,
 AddCenterSkillDecision,
 AddCenterSkillResult,
+InstallMode,
+DistributionPreview,
+DistributionResult,
+AdoptOption,
+AdoptPreview,
+AdoptBatchItem,
+AdoptBatchResult,
+AgentInventoryScanResult,
+AgentSkillInventoryAgent,
+UnmanagedItemDto,
+SkillPackSummary,
+SkillPackDetail,
+UpsertPackInput,
+DeletePackPreview,
+RemovePackFromAgentPreview,
+RemovePackFromAgentResult,
+CopySyncPreview,
+CopySyncResult,
+CopySyncAction,
+CopyTargetDiffPreview,
+DiagnosisIssue,
+AgentSummary,
+AgentDetail,
 } from '@/types/skillManagerV2'
 
 import type {
@@ -395,6 +418,8 @@ export interface RtkGainStats {
   totalSavedUsd?: number
   saveRate?: number
   daily?: Array<{ date: string; commands: number; savedTokens: number }>
+  weekly?: Array<{ weekStart: string; weekEnd: string; commands: number; savedTokens: number }>
+  monthly?: Array<{ month: string; commands: number; savedTokens: number }>
   byCommand?: Record<string, { commands: number; savedTokens: number }>
 }
 
@@ -618,6 +643,42 @@ executeDeleteCenterSkill: (skillId: string) => Promise<void>
 openPath: (targetPath: string) => Promise<string>
 previewAddCenterSkill: (input: AddCenterSkillInput) => Promise<AddCenterSkillPreview>
 executeAddCenterSkill: (input: AddCenterSkillInput, decisions: AddCenterSkillDecision[]) => Promise<AddCenterSkillResult>
+previewDistribute: (skillIds: string[], targetAgentIds: string[], requestedMode: InstallMode) => Promise<DistributionPreview>
+executeDistribute: (preview: DistributionPreview) => Promise<DistributionResult>
+deleteTarget: (targetId: string) => Promise<void>
+scanAgentInventory: (agentId: string) => Promise<AgentInventoryScanResult>
+listUnmanaged: () => Promise<UnmanagedItemDto[]>
+listAgentSkillInventory: () => Promise<AgentSkillInventoryAgent[]>
+previewAdopt: (agentId: string, unmanagedId: string) => Promise<AdoptPreview>
+executeAdopt: (agentId: string, unmanagedId: string, option: AdoptOption, renamedId?: string) => Promise<void>
+executeAdoptBatch: (items: AdoptBatchItem[]) => Promise<AdoptBatchResult>
+// Skill Packs
+listPacks: () => Promise<SkillPackSummary[]>
+getPackDetail: (packId: string) => Promise<SkillPackDetail | null>
+upsertPack: (input: UpsertPackInput) => Promise<SkillPackDetail>
+previewDeletePack: (packId: string) => Promise<DeletePackPreview>
+deletePack: (packId: string) => Promise<void>
+previewApplyPack: (packId: string, targetAgentIds: string[], requestedMode: InstallMode) => Promise<DistributionPreview>
+executeApplyPack: (packId: string, targetAgentIds: string[], requestedMode: InstallMode) => Promise<DistributionResult>
+previewRemovePackFromAgent: (packId: string, agentId: string) => Promise<RemovePackFromAgentPreview>
+executeRemovePackFromAgent: (packId: string, agentId: string) => Promise<RemovePackFromAgentResult>
+// Copy Sync
+previewSyncCopy: (targetId: string) => Promise<CopySyncPreview>
+executeSyncCopy: (targetId: string, action: CopySyncAction) => Promise<CopySyncResult>
+previewCopyTargetDiff: (targetId: string) => Promise<CopyTargetDiffPreview>
+// Diagnosis
+runDiagnosis: () => Promise<DiagnosisIssue[]>
+listDiagnosisIssues: () => Promise<DiagnosisIssue[]>
+executeSafeFixes: () => Promise<{ fixedCount: number; details: string[] }>
+exportSnapshot: () => Promise<Record<string, unknown>>
+// Agent Management
+listAgents: () => Promise<AgentSummary[]>
+getAgentDetail: (agentId: string) => Promise<AgentDetail | null>
+scanAgentDetail: (agentId: string) => Promise<AgentDetail | null>
+refreshAgentVersions: () => Promise<AgentSummary[]>
+extractArchive: (archivePath: string) => Promise<{ success: boolean; localPath?: string; error?: string }>
+// GitHub Clone
+cloneGitHubRepo: (url: string, branch?: string, subPath?: string) => Promise<{ success: boolean; localPath?: string; error?: string }>
 }
 }
 

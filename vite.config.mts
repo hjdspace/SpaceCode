@@ -3,6 +3,12 @@ import vue from '@vitejs/plugin-vue'
 import electron from 'vite-plugin-electron'
 import { resolve } from 'path'
 
+// Electron-based IDEs (CatPaw, VS Code, etc.) set ELECTRON_RUN_AS_NODE=1 in their
+// integrated terminals. This causes vite-plugin-electron to spawn Electron as plain
+// Node.js, where require("electron") returns a string path instead of the module
+// object — crashing the main process on startup. Remove it so Electron runs normally.
+delete process.env.ELECTRON_RUN_AS_NODE
+
 export default defineConfig({
   define: {
     __INTLIFY_JIT_COMPILATION__: true,
@@ -44,6 +50,7 @@ export default defineConfig({
               external: [
                 'electron',
                 'node-pty',
+                'better-sqlite3',
                 '@mariozechner/pi-coding-agent',
                 '@mariozechner/pi-coding-agent/dist/modes/rpc/rpc-client.js',
                 '@mariozechner/pi-agent',

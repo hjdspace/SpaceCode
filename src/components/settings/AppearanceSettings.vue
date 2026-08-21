@@ -158,6 +158,14 @@
             </div>
             <input type="checkbox" v-model="config.showContextWarningBar" class="s-toggle-switch" />
           </label>
+
+          <label class="s-toggle-item">
+            <div class="s-toggle-info">
+              <span class="s-toggle-label">{{ t('appearanceSettings.soundOnTaskComplete') }}</span>
+              <span class="s-toggle-description">{{ t('appearanceSettings.soundOnTaskCompleteDesc') }}</span>
+            </div>
+            <input type="checkbox" v-model="config.soundOnTaskComplete" class="s-toggle-switch" />
+          </label>
         </div>
       </div>
     </div>
@@ -263,6 +271,7 @@ const defaultConfig: AppearanceConfig = {
   accentColor: 'blue',
   showContextUsage: true,
   showContextWarningBar: true,
+  soundOnTaskComplete: false,
 }
 
 function loadSavedConfig(): Partial<AppearanceConfig> {

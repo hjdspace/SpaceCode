@@ -1,5 +1,11 @@
 <template>
-  <div class="sc-right-panel">
+  <div class="sc-right-panel" :style="{ width: panelWidth + 'px' }">
+    <!-- Resize handle (left edge, drag to adjust width) -->
+    <div
+      class="sc-resize-handle"
+      @mousedown="startPanelResize"
+      :class="{ active: isPanelResizing }"
+    ></div>
     <!-- Tab bar -->
     <div class="sc-tabs">
       <button
@@ -138,10 +144,24 @@ import {
 import { useSessionContext } from '@/stores/sessionContext'
 import { useAppStore } from '@/stores/app'
 import { api } from '@/services/electronAPI'
+import { useResizablePanel } from '@/composables/useResizablePanel'
 
 const { t } = useI18n()
 const sessionContext = useSessionContext()
 const appStore = useAppStore()
+
+// ── 面板宽度拖拽缩放 ──
+const {
+  size: panelWidth,
+  isResizing: isPanelResizing,
+  onMousedown: startPanelResize,
+} = useResizablePanel({
+  initial: 420,
+  min: 300,
+  max: () => Math.max(420, window.innerWidth - 400),
+  direction: 'horizontal',
+  reverse: true,
+})
 
 interface DiffLine {
   type: 'add' | 'remove' | 'context' | 'header'
@@ -268,7 +288,6 @@ watch(() => [sessionContext.rightPanelView, sessionContext.showRightPanel], () =
 
 <style lang="scss" scoped>
 .sc-right-panel {
-  width: 420px;
   flex-shrink: 0;
   background: var(--bg-secondary);
   border-left: 1px solid var(--surface-border);
@@ -276,6 +295,24 @@ watch(() => [sessionContext.rightPanelView, sessionContext.showRightPanel], () =
   flex-direction: column;
   overflow: hidden;
   height: 100%;
+  position: relative;
+}
+
+.sc-resize-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 10;
+  transition: background 0.2s;
+
+  &:hover,
+  &.active {
+    background: var(--accent-primary);
+  }
 }
 
 // Tabs

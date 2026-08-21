@@ -23,6 +23,7 @@ import {
   recordAgentToolCall,
   isAgentLaunchResult,
 } from '@/services/teamTranscriptService'
+import { playTaskCompleteSound } from '@/utils/notificationSound'
 
 // ── 收窄的依赖接口（接口隔离：handler 只看到它需要的子集）──
 
@@ -92,6 +93,8 @@ export interface EventReducerOptions {
   errorHandler: typeof defaultErrorHandler
   getClaudeCode: () => ClaudeCodeApi | null
   getArtifactsApi: () => ArtifactsApi | null
+  /** Returns true if task-complete notification sound is enabled. */
+  isSoundOnTaskComplete: () => boolean
 }
 
 export interface EventReducer {
@@ -176,6 +179,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     errorHandler,
     getClaudeCode,
     getArtifactsApi,
+    isSoundOnTaskComplete,
   } = opts
 
   const { turnStates, resetTimeout, beginTurn, endTurn } = stateMachine
@@ -969,6 +973,15 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
 
     ts.resolve?.()
     endTurn(sessionId, ts)
+
+    // ── Play notification sound when a task completes successfully ──
+    const soundEnabled = isSoundOnTaskComplete()
+    logger.info('ChatStore', `[${sessionId.slice(0, 8)}] task complete, soundOnTaskComplete=${soundEnabled}`)
+    if (soundEnabled) {
+      try { playTaskCompleteSound() } catch (e) {
+        logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] failed to play task complete sound`, { error: String(e) })
+      }
+    }
   }
 
   const handleError = (sessionId: string, ts: TurnState, error: any) => {

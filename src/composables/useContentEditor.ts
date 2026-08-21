@@ -184,8 +184,25 @@ export function useContentEditor(options?: {
     nameSpan.className = 'chip-name'
     nameSpan.textContent = name
 
+    // Delete button — visible on hover
+    const deleteBtn = document.createElement('span')
+    deleteBtn.className = 'chip-delete-btn'
+    deleteBtn.setAttribute('contenteditable', 'false')
+    deleteBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      e.preventDefault()
+      const nextSib = chip.nextSibling
+      if (nextSib && nextSib.nodeType === Node.TEXT_NODE && nextSib.textContent === '\u00A0') {
+        nextSib.remove()
+      }
+      chip.remove()
+      inputText.value = getEditorPlainText()
+    })
+
     chip.appendChild(icon)
     chip.appendChild(nameSpan)
+    chip.appendChild(deleteBtn)
 
     range.deleteContents()
     range.insertNode(chip)
@@ -220,13 +237,30 @@ export function useContentEditor(options?: {
     const kind = cmd.kind || 'slash_command'
     const source = cmd.source || 'builtin'
 
-    const sourceIcons: Record<string, string> = {
-      builtin: '⚡', bundled: '📦', global: '🌐',
-      project: '📂', plugin: '🧩', mcp: '🔌',
+    // Inline SVG icons for command chips (no emoji). width/height set to 14px to match font size.
+    const svgAttrs = 'width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'
+    const sourceSvgIcons: Record<string, string> = {
+      builtin: `<svg ${svgAttrs}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+      bundled: `<svg ${svgAttrs}><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`,
+      global: `<svg ${svgAttrs}><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
+      project: `<svg ${svgAttrs}><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
+      plugin: `<svg ${svgAttrs}><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`,
+      mcp: `<svg ${svgAttrs}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`,
     }
 
+    // Kind-specific icons that override source icons
+    const kindSvgIcons: Record<string, string> = {
+      agent_skill: `<svg ${svgAttrs}><path d="M12 2l-9 4.5v9L12 20l9-4.5v-9L12 2z"/><polyline points="3 6.5 12 11 21 6.5"/><line x1="12" y1="11" x2="12" y2="20"/></svg>`,
+    }
+
+    // Text glyphs keep their size and baseline with the editor font better than fixed-size SVGs.
+    const sourceIcons: Record<string, string> = {
+      builtin: '✦', bundled: '◆', global: '◎', project: '▣', plugin: '⌘', mcp: '⌁',
+    }
+    const commandIcon = cmd.name === 'goal' ? '◎' : (kind === 'agent_skill' ? '✦' : (sourceIcons[source] || sourceIcons.builtin))
+
     const chip = document.createElement('span')
-    chip.className = `command-chip kind-${kind} source-${source}`
+    chip.className = `command-chip kind-${kind} source-${source}${cmd.name === 'goal' ? ' is-goal' : ''}`
     chip.setAttribute('contenteditable', 'false')
     chip.setAttribute('data-command', `/${cmd.name}`)
     chip.setAttribute('data-kind', kind)
@@ -234,7 +268,8 @@ export function useContentEditor(options?: {
 
     const iconSpan = document.createElement('span')
     iconSpan.className = 'chip-source-icon'
-    iconSpan.textContent = sourceIcons[source] || '⚡'
+    iconSpan.textContent = commandIcon
+    iconSpan.setAttribute('aria-hidden', 'true')
 
     const labelSpan = document.createElement('span')
     labelSpan.className = 'chip-label'
@@ -282,8 +317,25 @@ export function useContentEditor(options?: {
     name.className = 'chip-name'
     name.textContent = image.name
 
+    // Delete button — visible on hover
+    const deleteBtn = document.createElement('span')
+    deleteBtn.className = 'chip-delete-btn'
+    deleteBtn.setAttribute('contenteditable', 'false')
+    deleteBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      e.preventDefault()
+      const nextSib = chip.nextSibling
+      if (nextSib && nextSib.nodeType === Node.TEXT_NODE && nextSib.textContent === '\u00A0') {
+        nextSib.remove()
+      }
+      chip.remove()
+      inputText.value = getEditorPlainText()
+    })
+
     chip.appendChild(icon)
     chip.appendChild(name)
+    chip.appendChild(deleteBtn)
 
     const sel = window.getSelection()
     if (sel && sel.rangeCount > 0) {
@@ -448,8 +500,25 @@ export function useContentEditor(options?: {
     nameSpan.className = 'chip-name'
     nameSpan.textContent = isImage ? value : (pathBasename(value) || value)
 
+    // Delete button — visible on hover
+    const deleteBtn = document.createElement('span')
+    deleteBtn.className = 'chip-delete-btn'
+    deleteBtn.setAttribute('contenteditable', 'false')
+    deleteBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      e.preventDefault()
+      const nextSib = chip.nextSibling
+      if (nextSib && nextSib.nodeType === Node.TEXT_NODE && nextSib.textContent === '\u00A0') {
+        nextSib.remove()
+      }
+      chip.remove()
+      inputText.value = getEditorPlainText()
+    })
+
     chip.appendChild(icon)
     chip.appendChild(nameSpan)
+    chip.appendChild(deleteBtn)
     return chip
   }
 

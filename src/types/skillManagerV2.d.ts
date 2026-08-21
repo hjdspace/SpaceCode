@@ -13,12 +13,12 @@ export type InstallMode = 'link' | 'copy'
 export type ActualMode = 'link' | 'copy'
 export type LinkFailPolicy = 'ask' | 'copy'
 export type SkillStatus = 'ok' | 'unmanaged' | 'conflict' | 'broken_link' | 'copy_outdated' | 'copy_modified' | 'copy_diverged' | 'missing'
-export type SourceType = 'local_folder' | 'archive' | 'github' | 'url' | 'agent_import' | 'manual_center' | 'marketplace'
+export type SourceType = 'local_folder' | 'archive' | 'github' | 'url' | 'agent_import' | 'agent_override' | 'manual_center' | 'marketplace'
 export type ClaimType = 'direct' | 'pack'
 export type DiagnosisSeverity = 'info' | 'warning' | 'error'
 export type FixKind = 'auto' | 'confirm' | 'manual' | 'info'
 export type EntityType = 'skill' | 'target' | 'pack' | 'agent' | 'snapshot'
-export type UnmanagedItemType = 'skill_dir' | 'skill_file' | 'config_file'
+export type UnmanagedItemType = 'skill_dir' | 'skill_file' | 'config_file' | 'agent_skill'
 export type CopySyncStatus = 'ok' | 'copy_outdated' | 'copy_modified' | 'copy_diverged'
 export type CopySyncAction = 'center_over_agent' | 'agent_over_center' | 'manual'
 
@@ -144,6 +144,8 @@ export interface AgentSummary {
   version: string | null
   latestVersion: string | null
   enabled: boolean
+  /** Whether the agent has a local installation/configuration detected. */
+  installed: boolean
   lastScannedAt: string | null
   managedSkillCount: number
   unmanagedCount: number
@@ -154,11 +156,31 @@ export interface AgentDetail {
   displayName: string
   skillsDir: string | null
   configPath: string | null
+  pluginDir: string | null
   version: string | null
+  lastScannedAt: string | null
   skills: SkillTarget[]
   unmanaged: UnmanagedItemDto[]
   appliedPacks: SkillPackSummary[]
   healthIssues: DiagnosisIssue[]
+  mcpServers: McpServerStatus[]
+  plugins: PluginStatus[]
+}
+
+export interface McpServerStatus {
+  name: string
+  command: string
+  args: string[]
+  valid: boolean
+  message: string
+}
+
+export interface PluginStatus {
+  id: string
+  name: string
+  version: string | null
+  enabled: boolean
+  source: string | null
 }
 
 // ── Skill Pack ─────────────────────────────────────────────────────
@@ -177,8 +199,10 @@ export interface SkillPackSummary {
 export interface SkillPackMember {
   packId: string
   skillId: string
+  skillName: string
   sortOrder: number
   required: boolean
+  missing: boolean
 }
 
 export interface SkillPackDetail {
@@ -265,7 +289,18 @@ export interface DeleteCenterSkillPreview {
 
 // ── Adopt ──────────────────────────────────────────────────────────
 
-export type AdoptOption = 'import_to_center' | 'replace_with_link' | 'replace_with_copy'
+export type AdoptOption =
+  | 'import_to_center'
+  | 'replace_with_link'
+  | 'replace_with_copy'
+  | 'import_keep'
+  | 'import_link'
+  | 'import_copy'
+  | 'import_cleanup'
+  | 'center_over_agent'
+  | 'overwrite_center'
+  | 'rename'
+  | 'skip'
 
 export interface AdoptPreview {
   agentId: string
@@ -281,15 +316,36 @@ export interface AdoptPreview {
 
 export interface CopySyncPreview {
   targetId: string
-  status: CopySyncStatus
+  skillId: string
+  targetPath: string
+  sourceHash: string
   centerHash: string
   agentHash: string | null
+  status: CopySyncStatus
+  suggested: CopySyncAction | 'none'
 }
 
 export interface CopySyncResult {
   success: boolean
   action: CopySyncAction
   message: string
+  preview: CopySyncPreview | null
+}
+
+export interface CopyTargetDiffFile {
+  path: string
+  changeType: 'modified' | 'copy_removed' | 'copy_added'
+  centerContent: string | null
+  copyContent: string | null
+}
+
+export interface CopyTargetDiffPreview {
+  targetId: string
+  skillId: string
+  targetPath: string
+  centerPath: string
+  status: CopySyncStatus
+  files: CopyTargetDiffFile[]
 }
 
 // ── Add Center Skill ───────────────────────────────────────────────
@@ -351,6 +407,107 @@ export interface UpsertPackInput {
   description?: string
   tags?: string[]
   memberSkillIds: string[]
+}
+
+// ── Adopt Batch ─────────────────────────────────────────────────────
+
+export interface AdoptBatchItem {
+  agentId: string
+  unmanagedId: string
+  option: AdoptOption
+  renamedId?: string
+}
+
+export interface AdoptResult {
+  unmanagedId: string
+  success: boolean
+  skillId: string | null
+  error: string | null
+}
+
+export interface AdoptBatchResult {
+  results: AdoptResult[]
+  successCount: number
+  failureCount: number
+}
+
+// ── Agent Inventory ─────────────────────────────────────────────────
+
+export interface AgentInventoryScanResult {
+  agentId: string
+  managed: SkillTarget[]
+  unmanaged: UnmanagedItemDto[]
+  conflicts: UnmanagedItemDto[]
+}
+
+/** One row in the Agent sync inventory: a managed target or an unmanaged skill dir. */
+export interface AgentSkillInventoryItem {
+  /** skill_target id when managed; unmanaged_items id otherwise. */
+  id: string
+  agentId: string
+  skillId: string
+  name: string
+  path: string
+  managed: boolean
+  readOnly: boolean
+  canImport: boolean
+  /** ok | missing | broken_link | copy_* | unmanaged | unmanaged_reusable | conflict | builtin_read_only */
+  status: string
+  reason: string | null
+  targetId: string | null
+  actualMode: 'link' | 'copy' | null
+  hash: string | null
+}
+
+/** Per-agent aggregate returned by listAgentSkillInventory. */
+export interface AgentSkillInventoryAgent {
+  agentId: string
+  displayName: string
+  iconKey: string
+  skillsDir: string | null
+  installed: boolean
+  managedCount: number
+  unmanagedCount: number
+  readOnlyCount: number
+  importableCount: number
+  items: AgentSkillInventoryItem[]
+}
+
+// ── Pack Remove Preview ────────────────────────────────────────────
+
+export interface PackAffectedTarget {
+  targetId: string
+  agentId: string
+  targetPath: string
+  mode: string
+  claimCount: number
+}
+
+export interface RemovePackFromAgentPreview {
+  packId: string
+  packName: string
+  agentId: string
+  agentName: string
+  affectedTargets: PackAffectedTarget[]
+  willRemoveTargets: number
+  willPreserveTargets: number
+}
+
+export interface RemovePackFromAgentResult {
+  packId: string
+  agentId: string
+  removedClaims: number
+  removedTargets: number
+  preservedTargets: number
+}
+
+export interface DeletePackPreview {
+  packId: string
+  packName: string
+  appliedAgents: string[]
+  affectedTargets: PackAffectedTarget[]
+  removable: boolean
+  warnings: string[]
 }
 
 // ── IPC Channel Names ──────────────────────────────────────────────

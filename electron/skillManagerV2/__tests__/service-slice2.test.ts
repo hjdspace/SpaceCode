@@ -10,6 +10,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { SkillManagerService } from '../service'
+import { setHomeOverride } from '../fsutil'
 
 // ── Test helpers ───────────────────────────────────────────────────
 
@@ -38,12 +39,14 @@ function createSkillDir(parentDir: string, name: string, skillName?: string, des
 describe('SkillManagerService — Slice 2', () => {
   beforeEach(() => {
     tmpDir = makeTmpDir()
+    setHomeOverride(path.join(tmpDir, 'home'))
     centerPath = path.join(tmpDir, 'skills')
     dbPath = path.join(tmpDir, 'skill-manager', 'test.db')
     service = SkillManagerService.bootstrap(dbPath, centerPath)
   })
 
   afterEach(() => {
+    setHomeOverride(null)
     service.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })

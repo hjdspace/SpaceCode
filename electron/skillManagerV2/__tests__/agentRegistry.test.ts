@@ -9,18 +9,22 @@ import {
 
 describe('agentRegistry', () => {
   describe('getBuiltInAgents', () => {
-    it('returns 4 built-in agents', () => {
+    it('returns the built-in agent registry', () => {
       const agents = getBuiltInAgents()
-      expect(agents.length).toBe(4)
+      expect(agents.length).toBeGreaterThanOrEqual(20)
     })
 
-    it('includes Claude Code, Codex, Cursor, Trae', () => {
+    it('includes the major local skill agents', () => {
       const agents = getBuiltInAgents()
       const ids = agents.map((a) => a.id)
       expect(ids).toContain('claude-code')
       expect(ids).toContain('codex')
       expect(ids).toContain('cursor')
       expect(ids).toContain('trae')
+      expect(ids).toContain('gemini')
+      expect(ids).toContain('workbuddy')
+      expect(ids).toContain('zcode')
+      expect(ids).toContain('windsurf')
     })
 
     it('each agent has a non-empty skillsDir', () => {
@@ -33,9 +37,9 @@ describe('agentRegistry', () => {
   })
 
   describe('getBuiltInAgentIds', () => {
-    it('returns 4 agent IDs', () => {
+    it('returns all registered agent IDs', () => {
       const ids = getBuiltInAgentIds()
-      expect(ids.length).toBe(4)
+      expect(ids.length).toBeGreaterThanOrEqual(20)
       expect(ids).toContain('claude-code')
       expect(ids).toContain('codex')
       expect(ids).toContain('cursor')

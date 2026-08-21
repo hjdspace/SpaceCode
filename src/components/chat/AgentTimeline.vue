@@ -75,11 +75,6 @@
             />
           </template>
 
-          <!-- Task list inline card (when not showing global board) -->
-          <template v-else-if="event.type === 'tool_call' && event.taskItems?.length && !shouldShowTaskBoard">
-            <TaskListCard :tasks="event.taskItems" class="event-task-inline" />
-          </template>
-
           <!-- Generic tool call event -->
           <template v-else-if="event.type === 'tool_call'">
             <div class="event-row" @click="toggleEvent(event.id)">
@@ -148,12 +143,6 @@
         @cancel="handleCancelRetry"
       />
 
-      <!-- 全局任务看板 -->
-      <TaskListCard
-        v-if="allTasks.length && shouldShowTaskBoard"
-        :tasks="allTasks"
-        class="timeline-task-board"
-      />
     </div>
 
     <!-- 用时汇总条：复用 TurnSummaryBar 组件 -->
@@ -173,8 +162,6 @@ import type { Component } from 'vue'
 import { computed, markRaw, onMounted, onUnmounted, reactive, watch, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { hasToolComponent, resolveToolComponent } from '@/components/chat/tools/index'
-import TaskListCard, { type TaskListItem } from './TaskListCard.vue'
-import { useTaskManager } from '@/composables/useTaskManager'
 import PermissionRequestCard from './tools/PermissionRequestCard.vue'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
 import ErrorCard from '../common/ErrorCard.vue'
@@ -192,7 +179,6 @@ import {
 
 const EmptyIcon = () => null
 
-const TASK_STATUSES = new Set(['pending', 'in_progress', 'completed'])
 const TASK_LIST_TOOL_NAMES = new Set(['TodoWrite', 'TaskList', 'TaskCreate', 'TaskUpdate'])
 const TASK_LIST_ONLY_TOOL_NAMES = new Set(['TaskList', 'TaskCreate', 'TaskUpdate'])
 // 这些工具的特殊组件本身就是权限交互 UI（emit submit/skip，并把合并后的
@@ -229,7 +215,6 @@ interface TimelineEvent {
   metadata?: MessageMetadata
   specialComponent?: Component
   classifiedError?: ClassifiedError
-  taskItems?: TaskListItem[]
 }
 
 const props = defineProps<{
@@ -248,7 +233,6 @@ const expandedEvents = reactive<Record<string, boolean>>({})
 
 const sessionStore = useChatSessionStore()
 const turnStore = useTurnStore()
-const taskManager = useTaskManager()
 const { t } = useI18n()
 
 function getPendingPermission(toolUseId: string) {
@@ -437,7 +421,6 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
             toolCall: tool,
             messageId: msg.id,
             specialComponent: specialComponents[tool.name] ? markRaw(specialComponents[tool.name]) : undefined,
-            taskItems: getTaskListItems(tool),
           })
           continue
         }
@@ -482,7 +465,6 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
           toolCall: tool,
           messageId: msg.id,
           specialComponent: specialComponents[tool.name] ? markRaw(specialComponents[tool.name]) : undefined,
-          taskItems: getTaskListItems(tool),
         })
       }
     }
@@ -557,28 +539,9 @@ const timelineEvents = computed<TimelineEvent[]>(() => {
 })
 
 const visibleTimelineEvents = computed<TimelineEvent[]>(() => {
-  const events = timelineEvents.value
-  // 找到最后一个有 taskItems 的任务工具事件
-  let latestTaskEventIdx = -1
-  for (let i = events.length - 1; i >= 0; i--) {
-    const e = events[i]
-    if (e.type === 'tool_call' && e.toolCall &&
-        TASK_LIST_TOOL_NAMES.has(e.toolCall.name) && e.taskItems?.length) {
-      latestTaskEventIdx = i
-      break
-    }
-  }
-
-  return events.filter((event, index) => {
+  return timelineEvents.value.filter((event) => {
     if (event.type !== 'tool_call' || !event.toolCall) return true
-    const name = event.toolCall.name
-    if (!TASK_LIST_TOOL_NAMES.has(name)) return true
-    // 没有 taskItems 的任务专用工具（TaskCreate/TaskUpdate/TaskList）隐藏
-    if (!event.taskItems?.length && TASK_LIST_ONLY_TOOL_NAMES.has(name)) return false
-    // 有 taskItems 时只保留最后一个，其余隐藏（避免重复显示）
-    if (event.taskItems?.length) return index === latestTaskEventIdx
-    // TodoWrite 没有 taskItems 时保留（显示为通用行）
-    return true
+    return !TASK_LIST_ONLY_TOOL_NAMES.has(event.toolCall.name)
   })
 })
 
@@ -721,15 +684,7 @@ function getToolContentKey(tool: ToolCall): string {
 
 function getTaskStateContentKey(tool: ToolCall): string {
   if (!TASK_LIST_TOOL_NAMES.has(tool.name)) return ''
-  const input = tool.input || {}
-  const taskId = input.taskId || input.id || ''
-  const existingTask = typeof taskId === 'string' ? taskManager.getTaskById(taskId) : undefined
-  return [
-    existingTask?.content || '',
-    existingTask?.description || '',
-    existingTask?.status || '',
-    input.subject || input.description || input.content || input.title || input.status || '',
-  ].join(':')
+  return JSON.stringify(tool.input || {})
 }
 
 function getSpecialComponentKey(event: TimelineEvent): string {
@@ -780,8 +735,6 @@ function formatOutput(output: string): string {
   return output
 }
 
-// ========== Task list parsing ==========
-
 function hasFinalMetadata(metadata?: MessageMetadata): boolean {
   return !!(metadata?.model || metadata?.inputTokens || metadata?.outputTokens || metadata?.duration)
 }
@@ -794,122 +747,6 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   return ''
 }
 
-const allTasks = computed(() => {
-  return taskManager.getAllTasks().map(task => ({
-    id: task.id,
-    content: task.description || task.content,
-    status: task.status,
-    owner: task.owner,
-    blockedBy: task.blockedBy
-  } as TaskListItem))
-})
-
-/**
- * 当前助手分组是否包含任务相关工具调用（TodoWrite / TaskList / TaskCreate / TaskUpdate）。
- * 全局 taskManager 是跨轮次共享的单例，如果不加此守卫，
- * 后续轮次的 AgentTimeline 也会渲染相同的任务看板，
- * 导致任务看板"漂浮"到最新轮次底部而非绑定到创建它的那一轮。
- */
-const hasTaskToolCalls = computed(() => {
-  return props.messages.some(msg =>
-    msg.toolCalls?.some(tool => TASK_LIST_TOOL_NAMES.has(tool.name))
-  )
-})
-
-const shouldShowTaskBoard = computed(() =>
-  allTasks.value.length > 1 && hasTaskToolCalls.value
-)
-
-function toTaskListItem(task: {
-  id?: string
-  content?: string
-  description?: string
-  status?: string
-  owner?: string
-  blockedBy?: string[]
-}): TaskListItem | null {
-  const status = task.status
-  const content = task.description || task.content
-  if (!content || !status || !TASK_STATUSES.has(status)) return null
-  return {
-    id: task.id,
-    content,
-    status: status as TaskListItem['status'],
-    owner: task.owner,
-    blockedBy: task.blockedBy
-  }
-}
-
-function getTaskDisplayContent(input: Record<string, any>, fallback?: string): string {
-  const value = input.description || input.subject || input.content || input.title || fallback
-  return typeof value === 'string' ? value : ''
-}
-
-function getTaskListItems(toolCall: ToolCall): TaskListItem[] {
-  if (toolCall.name === 'TodoWrite') return parseTodoWriteItems(toolCall.input)
-  if (toolCall.name === 'TaskList') return parseTaskListOutput(toolCall.output)
-  if (toolCall.name === 'TaskCreate') return parseTaskCreateOutput(toolCall.output, toolCall.input)
-  if (toolCall.name === 'TaskUpdate') return parseTaskUpdateOutput(toolCall.output, toolCall.input)
-  return []
-}
-
-function parseTodoWriteItems(input: Record<string, any>): TaskListItem[] {
-  if (!Array.isArray(input.todos)) return []
-  return input.todos
-    .map((todo) => toTaskListItem(todo))
-    .filter((todo): todo is TaskListItem => !!todo)
-}
-
-function parseTaskListOutput(output?: string): TaskListItem[] {
-  if (!output || output === 'No tasks found') return []
-  return output.split('\n').reduce<TaskListItem[]>((items, line) => {
-    const match = line.match(/^#([^\s]+) \[(pending|in_progress|completed)\] (.*?)(?: \(([^)]+)\))?(?: \[blocked by (.+)\])?$/)
-    if (!match) return items
-    items.push({
-      id: match[1],
-      status: match[2] as TaskListItem['status'],
-      content: match[3],
-      owner: match[4],
-      blockedBy: match[5]?.split(', ').filter(Boolean) || []
-    })
-    return items
-  }, [])
-}
-
-function parseTaskCreateOutput(output?: string, input: Record<string, any> = {}): TaskListItem[] {
-  if (!output) return []
-  const match = output.match(/^Task #(\d+) created successfully: (.+)$/)
-  if (!match) return []
-  const content = getTaskDisplayContent(input, match[2])
-  return [{
-    id: match[1],
-    content,
-    status: 'pending'
-  }]
-}
-
-function parseTaskUpdateOutput(output?: string, input: Record<string, any> = {}): TaskListItem[] {
-  const updatedMatch = output?.match(/^Updated task #(\d+)/)
-  const inputTaskId = typeof input.taskId === 'string' ? input.taskId : undefined
-  const taskId = updatedMatch?.[1] || inputTaskId
-  if (!taskId) return []
-
-  const existingTask = taskManager.getTaskById(taskId)
-  const statusChangeMatch = output?.match(/statusChange: (\w+) -> (\w+)/)
-  const inputStatus = typeof input.status === 'string' ? input.status : undefined
-  const status = existingTask?.status || inputStatus || (statusChangeMatch ? statusChangeMatch[2] : undefined)
-  const fallbackContent = existingTask?.description || existingTask?.content
-  const content = getTaskDisplayContent(input, fallbackContent)
-
-  if (!content || !status || !TASK_STATUSES.has(status)) return []
-  return [{
-    id: taskId,
-    content,
-    status: status as TaskListItem['status'],
-    owner: existingTask?.owner,
-    blockedBy: existingTask?.blockedBy
-  }]
-}
 </script>
 
 <style lang="scss" scoped>
@@ -1012,15 +849,6 @@ function parseTaskUpdateOutput(output?: string, input: Record<string, any> = {})
 .timeline-events {
   margin-left: 14px;
   padding-left: 0;
-}
-
-.timeline-task-board {
-  margin-top: 8px;
-  margin-left: 32px;
-}
-
-.event-task-inline {
-  margin: 4px 0;
 }
 
 .timeline-event {

@@ -1,6 +1,6 @@
 {
   "name": "spacecode",
-  "version": "0.7.2",
+  "version": "0.7.5",
   "homepage": "https://github.com/hjdspace/SpaceCode",
   "author": {
     "name": "hjdspace",
@@ -190,6 +190,7 @@
     ],
     "win": {
       "icon": "icons/icon.ico",
+      "artifactName": "SpaceCode-Setup-${version}.${ext}",
       "target": [
         {
           "target": "nsis",

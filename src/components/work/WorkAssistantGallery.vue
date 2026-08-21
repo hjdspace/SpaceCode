@@ -243,7 +243,6 @@ async function handleSelect(a: AgentDef) {
       skillsRequired: a.skillsRequired,
     })
     appStore.showWorkGallery = false
-    appStore.openSessionTab(session.id, session.title)
   } catch (err) {
     console.error('[WorkGallery] Failed to start assistant session:', err)
   } finally {

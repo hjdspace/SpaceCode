@@ -7,10 +7,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, computed, watch } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { useAppStore } from '@/stores/app'
 import { useTerminalStore } from '@/stores/terminal'
+import { getTerminalTheme } from './terminalTheme'
 import '@xterm/xterm/css/xterm.css'
 
 const props = defineProps<{
@@ -26,6 +28,7 @@ const emit = defineEmits<{
   error: [message: string]
 }>()
 
+const appStore = useAppStore()
 const terminalStore = useTerminalStore()
 const containerRef = ref<HTMLElement | null>(null)
 const isReady = ref(false)
@@ -40,55 +43,6 @@ let contextmenuHandler: ((e: Event) => void) | null = null
 const containerStyle = computed(() => ({
   minHeight: `${(props.height || 12) * 20 + 16}px`
 }))
-
-function getTheme() {
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
-  return isDark ? {
-    background: '#0d1117',
-    foreground: '#c9d1d9',
-    cursor: '#c9d1d9',
-    cursorAccent: '#0d1117',
-    selectionBackground: 'rgba(59, 130, 246, 0.3)',
-    black: '#0d1117',
-    red: '#ef4444',
-    green: '#22c55e',
-    yellow: '#f59e0b',
-    blue: '#3b82f6',
-    magenta: '#8b5cf6',
-    cyan: '#06b6d4',
-    white: '#c9d1d9',
-    brightBlack: '#525252',
-    brightRed: '#f87171',
-    brightGreen: '#4ade80',
-    brightYellow: '#fbbf24',
-    brightBlue: '#60a5fa',
-    brightMagenta: '#a78bfa',
-    brightCyan: '#22d3ee',
-    brightWhite: '#c9d1d9',
-  } : {
-    background: '#f6f8fa',
-    foreground: '#1f2328',
-    cursor: '#1f2328',
-    cursorAccent: '#f6f8fa',
-    selectionBackground: 'rgba(37, 99, 235, 0.2)',
-    black: '#1f2328',
-    red: '#dc2626',
-    green: '#16a34a',
-    yellow: '#d97706',
-    blue: '#2563eb',
-    magenta: '#7c3aed',
-    cyan: '#0891b2',
-    white: '#1f2328',
-    brightBlack: '#525252',
-    brightRed: '#ef4444',
-    brightGreen: '#22c55e',
-    brightYellow: '#f59e0b',
-    brightBlue: '#3b82f6',
-    brightMagenta: '#8b5cf6',
-    brightCyan: '#06b6d4',
-    brightWhite: '#1f2328',
-  }
-}
 
 async function initTerminal() {
   if (!containerRef.value) {
@@ -120,7 +74,7 @@ async function initTerminal() {
     terminalStore.setEmbeddedTerminalId(props.toolCallId, terminalId)
 
     terminal = new Terminal({
-      theme: getTheme(),
+      theme: getTerminalTheme(appStore.theme),
       fontSize: 12,
       fontFamily: "'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas, monospace",
       lineHeight: 1.4,
@@ -252,17 +206,13 @@ function write(data: string) {
   }
 }
 
-const themeObserver = new MutationObserver(() => {
+const stopThemeWatch = watch(() => appStore.theme, (theme) => {
   if (terminal) {
-    terminal.options.theme = getTheme()
+    terminal.options.theme = getTerminalTheme(theme)
   }
 })
 
 onMounted(async () => {
-  themeObserver.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ['data-theme']
-  })
   await nextTick()
   await initTerminal()
 })
@@ -271,7 +221,7 @@ onUnmounted(() => {
   terminalStore.destroyEmbeddedInstance(props.toolCallId)
   removeDataListener?.()
   removeExitListener?.()
-  themeObserver.disconnect()
+  stopThemeWatch()
   if (contextmenuHandler && containerRef.value) {
     containerRef.value.removeEventListener('contextmenu', contextmenuHandler)
   }

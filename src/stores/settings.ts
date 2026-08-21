@@ -52,6 +52,8 @@ export interface AppearanceSettings {
   showContextUsage?: boolean
   /** Show warning bar above input when context is low (default: on). */
   showContextWarningBar?: boolean
+  /** Play a notification sound when a chat task completes (default: off). */
+  soundOnTaskComplete?: boolean
 }
 
 export interface AuthSettings {
@@ -289,7 +291,8 @@ export const useSettingsStore = defineStore('settings', () => {
     wordWrap: true,
     showMinimap: false,
     smoothScrolling: true,
-    accentColor: 'blue'
+    accentColor: 'blue',
+    soundOnTaskComplete: false,
   })
   const engineSource = ref<EngineSource>(saved.engineSource || 'bundled')
   const installedCliPath = ref<string | null>(saved.installedCliPath || null)

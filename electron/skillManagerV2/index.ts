@@ -6,6 +6,10 @@
  */
 
 import { ipcMain, shell } from 'electron'
+import { execFileSync } from 'child_process'
+import * as fs from 'fs'
+import * as path from 'path'
+import * as os from 'os'
 import { SkillManagerService } from './service'
 import { SCHEMA_MANAGER_CHANNELS } from './channels'
 import type {
@@ -18,6 +22,29 @@ import type {
   AddCenterSkillPreview,
   AddCenterSkillDecision,
   AddCenterSkillResult,
+  InstallMode,
+  DistributionPreview,
+  DistributionResult,
+  AdoptOption,
+  AdoptPreview,
+  AdoptBatchItem,
+  AdoptBatchResult,
+  AgentInventoryScanResult,
+  UnmanagedItemDto,
+  AgentSkillInventoryAgent,
+  SkillPackSummary,
+  SkillPackDetail,
+  UpsertPackInput,
+  DeletePackPreview,
+  RemovePackFromAgentPreview,
+  RemovePackFromAgentResult,
+  CopySyncPreview,
+  CopySyncResult,
+  CopySyncAction,
+  CopyTargetDiffPreview,
+  DiagnosisIssue,
+  AgentSummary,
+  AgentDetail,
 } from '@/types/skillManagerV2'
 
 let service: SkillManagerService | null = null
@@ -39,9 +66,8 @@ export function registerSkillManagerV2IPCHandlers(): void {
     return { success: true }
   })
 
-  ipcMain.handle(SCHEMA_MANAGER_CHANNELS.INIT, () => {
-    const svc = getService()
-    return svc.refresh()
+  ipcMain.handle(SCHEMA_MANAGER_CHANNELS.INIT, (): SkillManagerOverview => {
+    return getService().initScan()
   })
 
   ipcMain.handle(SCHEMA_MANAGER_CHANNELS.OVERVIEW, (): SkillManagerOverview => {
@@ -51,6 +77,16 @@ export function registerSkillManagerV2IPCHandlers(): void {
   ipcMain.handle(SCHEMA_MANAGER_CHANNELS.REFRESH, (): SkillManagerOverview => {
     return getService().refresh()
   })
+
+  // 版本探测需 spawn npm/CLI 进程（最长数秒），独立通道供渲染端后台回填
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.REFRESH_AGENT_VERSIONS,
+    async (): Promise<AgentSummary[]> => {
+      const svc = getService()
+      await svc.refreshAgentVersions()
+      return svc.listAgents()
+    }
+  )
 
   ipcMain.handle(SCHEMA_MANAGER_CHANNELS.SETTINGS, (): SkillManagerSettings => {
     return getService().getSettings()
@@ -100,6 +136,289 @@ export function registerSkillManagerV2IPCHandlers(): void {
     SCHEMA_MANAGER_CHANNELS.EXECUTE_ADD_CENTER_SKILL,
     (_event, input: AddCenterSkillInput, decisions: AddCenterSkillDecision[]): AddCenterSkillResult => {
       return getService().executeAddCenterSkill(input, decisions)
+    }
+  )
+
+  // ── Distribute (Slice 4) ──────────────────────────────────────────
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.PREVIEW_DISTRIBUTE,
+    (_event, skillIds: string[], targetAgentIds: string[], requestedMode: InstallMode): DistributionPreview => {
+      return getService().previewDistribute(skillIds, targetAgentIds, requestedMode)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.EXECUTE_DISTRIBUTE,
+    (_event, preview: DistributionPreview): DistributionResult => {
+      return getService().executeDistribute(preview)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.DELETE_TARGET,
+    (_event, targetId: string): void => {
+      getService().deleteTarget(targetId)
+    }
+  )
+
+  // ── Agent Scan & Adopt (Slice 5) ─────────────────────────────────
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.SCAN_AGENT_INVENTORY,
+    (_event, agentId: string): AgentInventoryScanResult => {
+      return getService().scanAgentInventory(agentId)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.LIST_UNMANAGED,
+    (): UnmanagedItemDto[] => {
+      return getService().listUnmanaged()
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.LIST_AGENT_SKILL_INVENTORY,
+    (): AgentSkillInventoryAgent[] => {
+      return getService().listAgentSkillInventory()
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.PREVIEW_ADOPT,
+    (_event, agentId: string, unmanagedId: string): AdoptPreview => {
+      return getService().previewAdopt(agentId, unmanagedId)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.EXECUTE_ADOPT,
+    (_event, agentId: string, unmanagedId: string, option: AdoptOption, renamedId?: string): void => {
+      getService().executeAdopt(agentId, unmanagedId, option, renamedId)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.EXECUTE_ADOPT_BATCH,
+    (_event, items: AdoptBatchItem[]): AdoptBatchResult => {
+      return getService().executeAdoptBatch(items)
+    }
+  )
+
+  // ── Skill Packs ───────────────────────────────────────────────────
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.LIST_PACKS,
+    (): SkillPackSummary[] => {
+      return getService().listPacks()
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.GET_PACK_DETAIL,
+    (_event, packId: string): SkillPackDetail | null => {
+      return getService().getPackDetail(packId)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.UPSERT_PACK,
+    (_event, input: UpsertPackInput): SkillPackDetail => {
+      return getService().upsertPack(input)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.PREVIEW_DELETE_PACK,
+    (_event, packId: string): DeletePackPreview => {
+      return getService().previewDeletePack(packId)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.DELETE_PACK,
+    (_event, packId: string): void => {
+      getService().deletePack(packId)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.PREVIEW_APPLY_PACK,
+    (_event, packId: string, targetAgentIds: string[], requestedMode: InstallMode): DistributionPreview => {
+      return getService().previewApplyPack(packId, targetAgentIds, requestedMode)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.EXECUTE_APPLY_PACK,
+    (_event, packId: string, targetAgentIds: string[], requestedMode: InstallMode): DistributionResult => {
+      return getService().executeApplyPack(packId, targetAgentIds, requestedMode)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.PREVIEW_REMOVE_PACK_FROM_AGENT,
+    (_event, packId: string, agentId: string): RemovePackFromAgentPreview => {
+      return getService().previewRemovePackFromAgent(packId, agentId)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.EXECUTE_REMOVE_PACK_FROM_AGENT,
+    (_event, packId: string, agentId: string): RemovePackFromAgentResult => {
+      return getService().removePackFromAgent(packId, agentId)
+    }
+  )
+
+  // ── Copy Sync ─────────────────────────────────────────────────────
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.PREVIEW_SYNC_COPY,
+    (_event, targetId: string): CopySyncPreview => {
+      return getService().previewSyncCopy(targetId)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.EXECUTE_SYNC_COPY,
+    (_event, targetId: string, action: CopySyncAction): CopySyncResult => {
+      return getService().executeSyncCopy(targetId, action)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.PREVIEW_COPY_DIFF,
+    (_event, targetId: string): CopyTargetDiffPreview => {
+      return getService().previewCopyTargetDiff(targetId)
+    }
+  )
+
+  // ── Diagnosis ─────────────────────────────────────────────────────
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.RUN_DIAGNOSIS,
+    (_event): DiagnosisIssue[] => {
+      return getService().runDiagnosis()
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.LIST_DIAGNOSIS_ISSUES,
+    (_event): DiagnosisIssue[] => {
+      return getService().listDiagnosisIssues()
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.EXECUTE_SAFE_FIXES,
+    (_event): { fixedCount: number; details: string[] } => {
+      return getService().executeSafeFixes()
+    }
+  )
+
+  // ── Snapshot Export ───────────────────────────────────────────────
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.EXPORT_SNAPSHOT,
+    (_event): Record<string, unknown> => {
+      return getService().exportSnapshot() as unknown as Record<string, unknown>
+    }
+  )
+
+  // ── Agent Management ──────────────────────────────────────────────
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.LIST_AGENTS,
+    (): AgentSummary[] => {
+      return getService().listAgents()
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.GET_AGENT_DETAIL,
+    (_event, agentId: string) => {
+      return getService().getAgentDetail(agentId)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.SCAN_AGENT_DETAIL,
+    async (_event, agentId: string): Promise<AgentDetail | null> => {
+      return getService().scanAgentDetail(agentId)
+    }
+  )
+
+  ipcMain.handle(
+    SCHEMA_MANAGER_CHANNELS.EXTRACT_ARCHIVE,
+    (_event, archivePath: string): { success: boolean; localPath?: string; error?: string } => {
+      try {
+        if (!archivePath || path.extname(archivePath).toLowerCase() !== '.zip') {
+          return { success: false, error: 'Only .zip archives are supported.' }
+        }
+        if (!fs.existsSync(archivePath) || !fs.statSync(archivePath).isFile()) {
+          return { success: false, error: `Archive not found: ${archivePath}` }
+        }
+
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-mgr-zip-'))
+        const extractedPath = path.join(tmpDir, 'extracted')
+        fs.mkdirSync(extractedPath, { recursive: true })
+
+        if (process.platform === 'win32') {
+          execFileSync('powershell.exe', [
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            '& { param($archive, $dest) Expand-Archive -LiteralPath $archive -DestinationPath $dest -Force }',
+            archivePath,
+            extractedPath,
+          ], { timeout: 60000, stdio: 'pipe' })
+        } else {
+          execFileSync('unzip', ['-q', archivePath, '-d', extractedPath], {
+            timeout: 60000,
+            stdio: 'pipe',
+          })
+        }
+
+        const entries = fs.readdirSync(extractedPath, { withFileTypes: true })
+          .filter((entry) => entry.name !== '__MACOSX')
+        const localPath = entries.length === 1 && entries[0].isDirectory()
+          ? path.join(extractedPath, entries[0].name)
+          : extractedPath
+
+        return { success: true, localPath }
+      } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : String(e) }
+      }
+    }
+  )
+
+  // ── GitHub Clone ───────────────────────────────────────────────────
+
+  ipcMain.handle(
+    'skill-manager:clone-github-repo',
+    async (_event, url: string, branch?: string, subPath?: string): Promise<{ success: boolean; localPath?: string; error?: string }> => {
+      try {
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-mgr-gh-'))
+        const args = ['clone', '--depth', '1']
+        if (branch) args.push('--branch', branch)
+        args.push('--', url, 'repo')
+        execFileSync('git', args, {
+          cwd: tmpDir,
+          timeout: 60000,
+          stdio: 'pipe',
+        })
+        const repoPath = path.join(tmpDir, 'repo')
+        const finalPath = subPath ? path.join(repoPath, subPath) : repoPath
+
+        if (!fs.existsSync(finalPath)) {
+          return { success: false, error: `Path not found: ${subPath}` }
+        }
+
+        return { success: true, localPath: finalPath }
+      } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : String(e) }
+      }
     }
   )
 }

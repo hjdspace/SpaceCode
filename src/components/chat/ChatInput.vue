@@ -427,12 +427,15 @@ const {
 } = modelSelector
 
 // Slash commands
-const slashCommands = useSlashCommands()
+const slashCommands = useSlashCommands({
+  workingDirectory: () => props.workingDirectory || '',
+})
 const {
   slashTriggerPosition, slashMenuPosition,
   filteredSlashCommands, showSlashCommandMenu,
   highlightedSlashCommand,
   navigateSlashCommands, closeSlashCommandMenu, openSkillsManager: openSkillsManagerBase,
+  triggerSlashMenu,
   commandPalette, iconMap,
 } = slashCommands
 
@@ -675,7 +678,7 @@ function checkSlashTrigger() {
 
   if (slashMatch && !showContextMenu.value) {
     slashTriggerPosition.value = lastNewLine + 1
-    commandPalette.triggerMenu(slashMatch[1] || '')
+    void triggerSlashMenu(slashMatch[1] || '')
 
     nextTick(() => {
       updateSlashMenuPosition()
@@ -748,6 +751,7 @@ function handleEditorKeydown(event: KeyboardEvent) {
             kind: editorCmd.kind,
             immediate: editorCmd.immediate,
             aliases: editorCmd.aliases,
+            source: editorCmd.source,
           }
           selectSlashCommand(slashCmd)
         }
@@ -971,6 +975,7 @@ function handleSlashKeydown(event: KeyboardEvent) {
           kind: selectedCmd.kind,
           immediate: selectedCmd.immediate,
           aliases: selectedCmd.aliases,
+          source: selectedCmd.source,
         }
         selectSlashCommand(slashCmd)
       }
@@ -986,6 +991,7 @@ function handleSlashKeydown(event: KeyboardEvent) {
           kind: tabSelectedCmd.kind,
           immediate: tabSelectedCmd.immediate,
           aliases: tabSelectedCmd.aliases,
+          source: tabSelectedCmd.source,
         }
         selectSlashCommand(tabSlashCmd)
       }
@@ -1711,12 +1717,39 @@ watch(pendingFile, (file) => {
       pointer-events: none;
     }
 
+    // Shared delete button styles for chips
+    .chip-delete-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      cursor: pointer;
+      opacity: 0;
+      visibility: hidden;
+      transform: scale(0.85);
+      transition: opacity 0.15s ease, visibility 0.15s ease, transform 0.15s ease, background 0.15s ease;
+      margin-left: 2px;
+      flex-shrink: 0;
+      pointer-events: none;
+
+      svg {
+        width: 10px;
+        height: 10px;
+      }
+
+      &:hover {
+        background: rgba(0, 0, 0, 0.08);
+      }
+    }
+
     // Inline mention chip styles
     .mention-chip {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      padding: 2px 8px;
+      padding: 2px 6px 2px 8px;
       margin: 0 2px;
       background: var(--bg-secondary);
       border: 1px solid var(--surface-border);
@@ -1741,6 +1774,13 @@ watch(pendingFile, (file) => {
         white-space: nowrap;
       }
 
+      &:hover .chip-delete-btn {
+        opacity: 0.6;
+        visibility: visible;
+        transform: scale(1);
+        pointer-events: auto;
+      }
+
       &.is-folder {
         background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.08);
         border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.3);
@@ -1755,11 +1795,11 @@ watch(pendingFile, (file) => {
     }
 
     // Inline command chip styles
-    .command-chip {
+    :deep(.command-chip) {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      padding: 2px 8px;
+      padding: 2px 6px 2px 8px;
       margin: 0 2px;
       border: 1px solid var(--surface-border);
       border-radius: var(--radius-xs);
@@ -1771,9 +1811,11 @@ watch(pendingFile, (file) => {
       font-family: var(--font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace);
 
       .chip-source-icon {
-        font-size: 12px;
+        font-size: 1em;
         line-height: 1;
         flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
       }
 
       .chip-label {
@@ -1786,36 +1828,10 @@ watch(pendingFile, (file) => {
         text-transform: capitalize;
       }
 
-      // Kind-based colors
-      &.kind-sdk_command {
-        background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.08);
-        border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.5);
-        color: var(--accent-primary);
-      }
-
-      &.kind-codepilot_command {
-        background: rgba(245, 158, 11, 0.08);
-        border-color: rgba(245, 158, 11, 0.5);
-        color: #f59e0b;
-      }
-
-      &.kind-agent_skill {
-        background: rgba(16, 185, 129, 0.08);
-        border-color: rgba(16, 185, 129, 0.5);
-        color: #10b981;
-      }
-
-      &.kind-slash_command {
-        background: var(--accent-secondary-glow);
-        border-color: color-mix(in srgb, var(--accent-secondary) 50%, transparent);
-        color: #6366f1;
-      }
-
-      &.kind-mcp_tool {
-        background: rgba(245, 158, 11, 0.08);
-        border-color: rgba(245, 158, 11, 0.5);
-        color: #f59e0b;
-      }
+      // Commands use one blue treatment to distinguish them from user text.
+      background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.1);
+      border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.35);
+      color: var(--accent-primary);
     }
   }
 }

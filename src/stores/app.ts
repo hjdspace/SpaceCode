@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed, markRaw } from 'vue'
+import { ref, computed, markRaw, watch } from 'vue'
 import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch, Package, Palette } from 'lucide-vue-next'
 import { useChatSessionStore } from './chatSession'
 import { useTerminalStore, type CreateTerminalOptions } from './terminal'
@@ -68,7 +68,6 @@ export interface CenterTab {
   label: string
   icon: any
   closable: boolean
-  sessionId?: string
 }
 
 const PROJECT_ROOT_STORAGE_KEY = 'app_project_root'
@@ -331,13 +330,26 @@ export const useAppStore = defineStore('app', () => {
     terminalDockHeight.value = Math.min(Math.max(h, TERMINAL_DOCK_MIN), TERMINAL_DOCK_MAX)
   }
 
+  // 当所有终端标签关闭后，自动收起底部终端面板
+  watch(
+    () => useTerminalStore().tabs.length,
+    (len) => {
+      if (len === 0 && terminalDockVisible.value) {
+        terminalDockVisible.value = false
+        terminalDockMounted.value = false
+      }
+    }
+  )
+
   /** 标题栏面板按钮：切换右侧面板显隐；打开时进入启动器 */
   function toggleInfoPanel() {
     if (infoPanelVisible.value) {
       infoPanelVisible.value = false
     } else {
       infoPanelVisible.value = true
-      panelHome.value = true
+      if (infoPanelTabs.value.length === 0) {
+        panelHome.value = true
+      }
     }
   }
 
@@ -581,70 +593,13 @@ export const useAppStore = defineStore('app', () => {
       }
 
       if (activeCenterTab.value === tabId) {
-        const nextSessionTab = centerTabs.value.find(t => t.sessionId)
-        activeCenterTab.value = nextSessionTab?.id || centerTabs.value[0]?.id || 'chat'
-
-        // 关闭当前激活的会话标签后，需同步 sessionStore.currentSessionId 到新激活的会话，
-        // 否则主内容区仍显示已关闭会话的内容（仅单 leaf 模式需要：分屏模式由
-        // SplitContainer 的 activePane watcher 负责将 pane 内容同步到全局）。
-        const newActiveTab = nextSessionTab || centerTabs.value[0]
-        if (newActiveTab?.sessionId) {
-          try {
-            const splitLayout = useSplitLayoutStore()
-            if (splitLayout.isSingleLeaf) {
-              const sessionStore = useChatSessionStore()
-              if (sessionStore.currentSessionId !== newActiveTab.sessionId) {
-                sessionStore.selectSession(newActiveTab.sessionId)
-              }
-            }
-          } catch { /* defensive */ }
-        }
+        activeCenterTab.value = centerTabs.value[0]?.id || 'chat'
       }
 
       // 分屏联动：清理所有引用该 tab 的 pane（避免悬空显示已关闭的内容）
       try {
         useSplitLayoutStore().clearLeavesForTab(tabId)
       } catch { /* defensive */ }
-    }
-  }
-
-  function openSessionTab(sessionId: string, title: string) {
-    const existingTab = centerTabs.value.find(t => t.sessionId === sessionId)
-    if (existingTab) {
-      activeCenterTab.value = existingTab.id
-      return
-    }
-    const tabId = `session-${sessionId}`
-    centerTabs.value.push({
-      id: tabId,
-      label: title || 'New Chat',
-      icon: markRaw(MessageSquare),
-      closable: true,
-      sessionId
-    })
-    activeCenterTab.value = tabId
-  }
-
-  function closeSessionTab(tabId: string) {
-    closeCenterTab(tabId)
-  }
-
-  function switchToSessionTab(sessionId: string) {
-    const tab = centerTabs.value.find(t => t.sessionId === sessionId)
-    if (tab) {
-      activeCenterTab.value = tab.id
-    } else {
-      const sessionStore = useChatSessionStore()
-      const session = sessionStore.sessions.find(s => s.id === sessionId)
-      const sessionTitle = session?.title || 'New Chat'
-      openSessionTab(sessionId, sessionTitle)
-    }
-  }
-
-  function updateSessionTabTitle(sessionId: string, title: string) {
-    const tab = centerTabs.value.find(t => t.sessionId === sessionId)
-    if (tab) {
-      tab.label = title
     }
   }
 
@@ -957,10 +912,6 @@ export const useAppStore = defineStore('app', () => {
     createTerminalTab,
     openTerminalTab,
     closeCenterTab,
-    openSessionTab,
-    closeSessionTab,
-    switchToSessionTab,
-    updateSessionTabTitle,
     setProjectRoot,
     closeProject,
     openWebview,

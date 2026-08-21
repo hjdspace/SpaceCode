@@ -333,6 +333,16 @@ export const BUILT_IN_COMMANDS: SlashCommand[] = [
     immediate: true,
     source: 'builtin' as const,
   },
+  // ═══════════════════════════════════════
+  // goal — 目标导向任务 (Goal-oriented task)
+  // ═══════════════════════════════════════
+  {
+    name: 'goal',
+    description: 'Start a goal-oriented task that runs until completion',
+    icon: 'Target',
+    kind: 'sdk_command',
+    source: 'builtin' as const,
+  },
 ]
 
 /** Find a command by name (including aliases) */

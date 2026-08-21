@@ -409,9 +409,8 @@ async function handleModeSelect(mode: AppMode) {
   if (modeSessions.length > 0) {
     const targetSessionId = modeSessions[0].id
     await sessionStore.selectSession(targetSessionId)
-    // 同步 activeCenterTab，确保 SplitContainer 的 watcher 能将 pane content
-    // 更新到目标会话（修复切换模式后主面板仍显示旧模式会话的问题）
-    appStore.switchToSessionTab(targetSessionId)
+    // 同步 activeCenterTab（与 handleSelectSession 同理）
+    appStore.activeCenterTab = `session-${targetSessionId}`
     if (isH5Mode()) {
       const selected = sessionStore.sessions.find(s => s.id === targetSessionId)
       appStore.sidebarCollapsed = true
@@ -422,7 +421,8 @@ async function handleModeSelect(mode: AppMode) {
       ? (appStore.workWorkspace || sessionStore.currentProjectRoot || undefined)
       : (sessionStore.currentProjectRoot || undefined)
     const session = sessionStore.createSession(t('common.newChat'), workingDirectory)
-    appStore.openSessionTab(session.id, session.title)
+    // 同步 activeCenterTab（与 handleNewChat 同理）
+    appStore.activeCenterTab = `session-${session.id}`
     if (isH5Mode()) {
       appStore.sidebarCollapsed = true
       h5ApiClient.setMirrorSession(session.id, session.workingDirectory || null).catch(() => {})
@@ -581,23 +581,24 @@ async function handleNewChat() {
       ? (appStore.workWorkspace || sessionStore.currentProjectRoot || undefined)
       : (sessionStore.currentProjectRoot || sessionStore.currentSession?.workingDirectory)
 
-    if (sessionStore.currentSessionId && sessionStore.currentSession) {
-      appStore.openSessionTab(sessionStore.currentSessionId, sessionStore.currentSession.title)
-    }
-
     const session = sessionStore.createSession(t('common.newChat'), workingDirectory)
-    appStore.openSessionTab(session.id, session.title)
     if (isH5Mode()) {
       appStore.sidebarCollapsed = true
       h5ApiClient.setMirrorSession(session.id, session.workingDirectory || null).catch(() => {})
     }
+
+    // 同步 activeCenterTab：关闭分屏后存活的 leaf content kind 可能仍为
+    // 'session'（绑定旧 tabId）。更新 activeCenterTab 可触发 SplitContainer
+    // 的 watch 自动同步 pane content 到新会话。
+    const newTabId = `session-${session.id}`
+    appStore.activeCenterTab = newTabId
 
     // 分屏模式下更新当前 active pane 的内容
     const splitLayout = useSplitLayoutStore()
     if (splitLayout.leafCount > 1 && splitLayout.activePaneId) {
       splitLayout.setPaneContent(splitLayout.activePaneId, {
         kind: 'session',
-        tabId: `session-${session.id}`,
+        tabId: newTabId,
       })
     }
 
@@ -628,7 +629,12 @@ async function handleSelectSession(sessionId: string) {
     // 1. 立即切换UI状态（同步操作，<1ms）
     appStore.showWorkGallery = false
     sessionStore.selectSession(sessionId)
-    appStore.switchToSessionTab(sessionId)
+
+    // 同步 activeCenterTab：关闭分屏后存活的 leaf content kind 可能仍为
+    // 'session'（绑定旧 tabId）。更新 activeCenterTab 可触发 SplitContainer
+    // 的 watch 自动同步 pane content 到新会话。
+    const tabId = `session-${sessionId}`
+    appStore.activeCenterTab = tabId
 
     // 分屏模式：将当前 active pane 的内容指向所选会话，
     // 确保每个 pane 独立控制，不跟随全局标签页。
@@ -636,7 +642,7 @@ async function handleSelectSession(sessionId: string) {
     if (splitLayout.leafCount > 1 && splitLayout.activePaneId) {
       splitLayout.setPaneContent(splitLayout.activePaneId, {
         kind: 'session',
-        tabId: `session-${sessionId}`,
+        tabId,
       })
     }
 
@@ -693,9 +699,6 @@ async function handleDeleteSession(e: MouseEvent, sessionId: string) {
   if (!await showConfirm(t('sidebar.deleteConversation'), { variant: 'danger' })) return
 
   try {
-    const tab = appStore.centerTabs.find(t => t.sessionId === sessionId)
-    if (tab) appStore.closeSessionTab(tab.id)
-
     await sessionStore.deleteSession(sessionId)
   } catch (error) {
     console.error('Failed to delete session:', error)
@@ -709,7 +712,6 @@ async function handleRenameSession(sessionId: string, newTitle: string) {
     if (session) {
       session.title = newTitle
       // Sync tab label with session title
-      appStore.updateSessionTabTitle(sessionId, newTitle)
       // Save to storage (method exists on sessionStore)
       sessionStore.saveToStorage()
 
@@ -727,7 +729,8 @@ function handleCreateSessionInProject(e: MouseEvent, workingDirectory: string) {
   try {
     sessionStore.switchProject(workingDirectory)
     const session = sessionStore.createSession(t('common.newChat'), workingDirectory)
-    appStore.openSessionTab(session.id, session.title)
+    // 同步 activeCenterTab（与 handleNewChat 同理）
+    appStore.activeCenterTab = `session-${session.id}`
     if (isH5Mode()) {
       appStore.sidebarCollapsed = true
       h5ApiClient.setMirrorSession(session.id, workingDirectory).catch(() => {})

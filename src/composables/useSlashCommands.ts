@@ -16,7 +16,7 @@ import {
   Zap, HelpCircle, Trash2, Coins, Minimize2, Stethoscope, FilePlus, Layers,
   Terminal, Settings, Code, GitBranch, Bug, Bookmark, Eye, Cpu, MessageSquare,
   FileDiff, Play, FolderPlus, Download, Shield, ListTree, Webhook, FileText,
-  Activity, Palette, Command, Keyboard, RotateCcw, GitCommit
+  Activity, Palette, Command, Keyboard, RotateCcw, GitCommit, Target
 } from 'lucide-vue-next'
 
 export interface SlashCommand {
@@ -72,7 +72,7 @@ export function removeSlashTriggerText(text: string): { cleaned: string; trigger
 
 // ── Composable ─────────────────────────────────────────────────
 
-export function useSlashCommands() {
+export function useSlashCommands(options: { workingDirectory?: () => string } = {}) {
   const commandPalette = useCommandPalette()
   const skillsStore = useSkillsStore()
   const mcpStore = useMcpStore()
@@ -88,7 +88,7 @@ export function useSlashCommands() {
     HelpCircle, Trash2, Coins, Minimize2, Stethoscope, FilePlus, Zap, Layers,
     Terminal, Settings, Code, GitBranch, Bug, Bookmark, Eye, Cpu, MessageSquare,
     FileDiff, Play, FolderPlus, Download, Shield, ListTree, Webhook, FileText,
-    Activity, Palette, Command, Keyboard, RotateCcw, GitCommit
+    Activity, Palette, Command, Keyboard, RotateCcw, GitCommit, Target
   }
 
   // Computed command lists
@@ -139,6 +139,7 @@ export function useSlashCommands() {
         kind: cmd.kind,
         immediate: cmd.immediate,
         aliases: cmd.aliases,
+        source: cmd.source,
       }
     })
   })
@@ -165,6 +166,12 @@ export function useSlashCommands() {
     slashTriggerPosition.value = -1
   }
 
+  async function triggerSlashMenu(filter: string = ''): Promise<void> {
+    commandPalette.triggerMenu(filter)
+    // Refresh on every trigger so newly-created links and skills are visible immediately.
+    await skillsStore.fetchSkills(options.workingDirectory?.() || undefined)
+  }
+
   function openSkillsManager() {
     commandPalette.closeMenu()
   }
@@ -188,6 +195,7 @@ export function useSlashCommands() {
 
     // Actions
     navigateSlashCommands,
+    triggerSlashMenu,
     closeSlashCommandMenu,
     openSkillsManager,
     commandPalette,
