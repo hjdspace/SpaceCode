@@ -214,6 +214,8 @@ export interface Session {
   engineSessionId?: string
   /** Engine that currently owns the live process for this session (if any). */
   engineType?: SessionEngineType
+  /** Engine source (bundled vs installed) used when starting this session. */
+  engineSource?: 'bundled' | 'installed'
   processStatus: ProcessStatus
   isTabOpen: boolean
   lastActivityAt: number
