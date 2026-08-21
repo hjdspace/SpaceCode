@@ -27,6 +27,12 @@ export type DefaultFactories<N extends ChannelNamespace> = {
 /**
  * 从 channel 定义生成 renderer 端 API。
  *
+ * 返回一个普通对象（非 Proxy），每个方法做 null-check 转发。
+ * 使用普通对象而非 Proxy 的原因：
+ * 当消费者通过 `{ ...invokeApi, onStatusChanged }` spread 合并时，
+ * Proxy 的 [[OwnPropertyKeys]] trap 会返回 target（空对象 {}）的 own keys，
+ * 导致 spread 后丢失所有方法。普通对象的 own keys 可被正确枚举。
+ *
  * @param channels - defineChannels() 返回的定义对象
  * @param namespace - window.electronAPI 上的命名空间名（如 'git'）
  * @param electronAPI - window.electronAPI 引用（可能为 null）
@@ -34,21 +40,21 @@ export type DefaultFactories<N extends ChannelNamespace> = {
  * @returns API 对象，每个方法做 null-check 转发
  */
 export function createRendererApi<N extends ChannelNamespace>(
-  _channels: N,
+  channels: N,
   namespace: string,
   electronAPI: Record<string, Record<string, ((...a: unknown[]) => Promise<unknown>) | undefined> | undefined> | null | undefined,
   defaults: DefaultFactories<N>,
 ): DeriveRendererApi<N> {
-  return new Proxy({} as DeriveRendererApi<N>, {
-    get(_target, prop: string) {
-      return (...args: unknown[]): Promise<unknown> => {
-        const ns = electronAPI?.[namespace]
-        const method = ns?.[prop]
-        if (method) {
-          return method(...args)
-        }
-        return Promise.resolve((defaults as Record<string, () => unknown>)[prop]?.())
+  const api = {} as Record<string, (...args: unknown[]) => Promise<unknown>>
+  for (const methodName of Object.keys(channels)) {
+    api[methodName] = (...args: unknown[]): Promise<unknown> => {
+      const ns = electronAPI?.[namespace]
+      const method = ns?.[methodName]
+      if (method) {
+        return method(...args)
       }
-    },
-  }) as DeriveRendererApi<N>
+      return Promise.resolve((defaults as Record<string, () => unknown>)[methodName]?.())
+    }
+  }
+  return api as DeriveRendererApi<N>
 }
