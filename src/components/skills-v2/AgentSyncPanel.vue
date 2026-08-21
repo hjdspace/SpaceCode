@@ -22,6 +22,13 @@ import AgentIconBadge from './AgentIconBadge.vue'
 import BatchConflictDialog from './BatchConflictDialog.vue'
 import OneClickOrganizeDialog from './OneClickOrganizeDialog.vue'
 import { inventoryStatusKey, type BatchConflictMode, type OneClickOrganizeMode } from './skillLabels'
+import {
+  classifyTone,
+  classifyTagClass,
+  canOpenAdopt as classifierCanOpenAdopt,
+  canBatchAdopt as classifierCanBatchAdopt,
+  countConflicts as classifierCountConflicts,
+} from '@/lib/targetClassifier'
 
 const { t } = useI18n()
 const store = useSkillManagerStore()
@@ -83,30 +90,26 @@ const cleaningShared = ref(false)
 
 let noticeTimer: number | null = null
 
-// ── Item predicates (AgentBro helpers) ────────────────────────────
+// ── Item predicates — delegate to TargetClassifier (single source of truth) ──
 
-function statusTone(item: AgentSkillInventoryItem): 'ok' | 'unmanaged' | 'conflict' {
-  if (item.status === 'conflict') return 'conflict'
-  return item.managed ? 'ok' : 'unmanaged'
+function statusTone(item: AgentSkillInventoryItem): string {
+  return classifyTone(item)
 }
 
 function statusTagClass(item: AgentSkillInventoryItem): string {
-  if (item.status === 'conflict') return 'tag-conflict'
-  if (item.status === 'unmanaged_reusable') return 'tag-reusable'
-  if (item.status === 'builtin_read_only') return 'tag-readonly'
-  return item.managed ? 'tag-ok' : 'tag-unmanaged'
+  return classifyTagClass(item)
 }
 
 function canOpenAdopt(item: AgentSkillInventoryItem): boolean {
-  return !item.managed && (item.canImport || item.status === 'conflict')
+  return classifierCanOpenAdopt(item)
 }
 
 function canBatchAdopt(item: AgentSkillInventoryItem): boolean {
-  return item.canImport && item.status !== 'conflict'
+  return classifierCanBatchAdopt(item)
 }
 
 function agentConflictCount(agent: AgentSkillInventoryAgent): number {
-  return agent.items.filter((item) => !item.managed && item.status === 'conflict').length
+  return classifierCountConflicts(agent.items)
 }
 
 function localSkillCount(agent: AgentSkillInventoryAgent): number {
@@ -1695,6 +1698,12 @@ const progressPercent = computed(() => {
 
   &.tone-unmanaged {
     border-left-color: rgba(16, 185, 129, 0.55);
+  }
+  &.tone-reusable {
+    border-left-color: rgba(59, 130, 246, 0.45);
+  }
+  &.tone-readonly {
+    border-left-color: rgba(100, 116, 139, 0.45);
   }
   &.tone-conflict {
     border-left-color: rgba(220, 38, 38, 0.55);

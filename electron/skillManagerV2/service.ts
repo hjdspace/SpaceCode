@@ -33,6 +33,11 @@ import {
   createLink,
 } from './fsutil'
 import { scanCenterLibrary } from './scanner'
+import { SkillInstaller } from './skillInstaller'
+import {
+  classifyTarget,
+  type ClassifyInput,
+} from '@/lib/targetClassifier'
 import {
   agentSkillDirs,
   getBuiltInAgent,
@@ -113,11 +118,13 @@ const DEFAULT_SETTINGS: SkillManagerSettings = {
 export class SkillManagerService {
   private db: Db
   private centerPath: string
+  private installer: SkillInstaller
 
   private constructor(dbPath?: string, centerPath?: string) {
     const resolvedCenterPath = centerPath ?? defaultCenterPath()
     this.centerPath = resolvedCenterPath
     this.db = Db.open(dbPath ?? defaultSqlitePath())
+    this.installer = new SkillInstaller(() => this.getSettings().linkFailPolicy)
   }
 
   /**
@@ -937,12 +944,9 @@ export class SkillManagerService {
       removePath(dest)
     }
 
-    if (input.importMode === 'link' && input.sourceType === 'local_folder') {
-      const linkResult = createLink(sourceDir, dest, this.getSettings().linkFailPolicy)
-      if (linkResult.error) throw new Error(linkResult.error)
-    } else {
-      copyDirRecursive(sourceDir, dest)
-    }
+    const mode: InstallMode = (input.importMode === 'link' && input.sourceType === 'local_folder') ? 'link' : 'copy'
+    const installResult = this.installer.install(sourceDir, dest, mode)
+    if (installResult.error) throw new Error(installResult.error)
 
     // Record source in DB
     this.recordSourceAfterWrite(skillId, dest, sourceDir, input)
@@ -1245,7 +1249,6 @@ export class SkillManagerService {
    * Reference: AgentBro `service.rs` `execute_distribute()`
    */
   executeDistribute(preview: DistributionPreview): DistributionResult {
-    const settings = this.getSettings()
     let created = 0
     let reused = 0
     let failed = 0
@@ -1270,19 +1273,11 @@ export class SkillManagerService {
           const centerPath = skillRow.center_path
           const targetPath = path.join(agentRow.skills_dir ?? '', change.skillId)
 
-          let actualMode: 'link' | 'copy' = change.mode
-
-          if (change.mode === 'link') {
-            const linkResult = createLink(centerPath, targetPath, settings.linkFailPolicy)
-            actualMode = linkResult.actualMode
-            if (linkResult.error) {
-              errors.push(`${change.skillId} → ${change.agentId}: ${linkResult.error}`)
-              failed++
-              continue
-            }
-          } else {
-            // Copy mode
-            copyDirRecursive(centerPath, targetPath)
+          const installResult = this.installer.installToTarget(centerPath, targetPath, change.mode)
+          if (installResult.error) {
+            errors.push(`${change.skillId} → ${change.agentId}: ${installResult.error}`)
+            failed++
+            continue
           }
 
           // Write target + claim to DB
@@ -1291,7 +1286,7 @@ export class SkillManagerService {
             change.agentId,
             targetPath,
             change.mode,
-            actualMode,
+            installResult.actualMode,
             skillRow.current_hash
           )
 
@@ -1637,15 +1632,15 @@ export class SkillManagerService {
       if (item.itemType !== 'skill_dir' && item.itemType !== 'agent_skill') continue
       const skillId = item.inferredSkillId?.trim() || sanitizeBasename(item.path)
       const centerHash = centerHashes.get(skillId) ?? null
-      const hashMatches = centerHash !== null && item.hash !== null && centerHash === item.hash
       const isReadOnly = item.reason === 'agent_builtin_read_only'
-      const [status, canImport] = isReadOnly
-        ? ['builtin_read_only', false] as const
-        : centerHash === null
-          ? ['unmanaged', true] as const
-          : hashMatches
-            ? ['unmanaged_reusable', true] as const
-            : ['conflict', false] as const
+
+      // Delegate classification to the single-source-of-truth pure function.
+      const classification = classifyTarget({
+        managed: false,
+        readOnly: isReadOnly,
+        centerHash,
+        itemHash: item.hash,
+      })
 
       const items = itemsByAgent.get(item.agentId) ?? []
       items.push({
@@ -1656,8 +1651,8 @@ export class SkillManagerService {
         path: item.path,
         managed: false,
         readOnly: isReadOnly,
-        canImport,
-        status,
+        canImport: classification.canImport,
+        status: classification.status,
         reason: item.reason,
         targetId: null,
         actualMode: null,
@@ -1811,8 +1806,8 @@ export class SkillManagerService {
     if (normalizedOption === 'center_over_agent') {
       if (!pathExists(centerDest)) throw new Error(`Center skill '${targetSkillId}' does not exist`)
       removePath(sourcePath)
-      const linkResult = createLink(centerDest, sourcePath, this.getSettings().linkFailPolicy)
-      this.writeTargetAndClaim(targetSkillId, agentId, sourcePath, 'link', linkResult.actualMode, hashDir(centerDest))
+      const installResult = this.installer.installToTarget(centerDest, sourcePath, 'link')
+      this.writeTargetAndClaim(targetSkillId, agentId, sourcePath, 'link', installResult.actualMode, hashDir(centerDest))
     } else if (normalizedOption === 'overwrite_center') {
       if (pathExists(centerDest)) removePath(centerDest)
       copyDirRecursive(sourcePath, centerDest)
@@ -1843,7 +1838,7 @@ export class SkillManagerService {
 
       // Remove agent file and create symlink
       removePath(sourcePath)
-      const linkResult = createLink(centerDest, sourcePath, this.getSettings().linkFailPolicy)
+      const linkInstallResult = this.installer.installToTarget(centerDest, sourcePath, 'link')
 
       // Write target + claim
       this.writeTargetAndClaim(
@@ -1851,7 +1846,7 @@ export class SkillManagerService {
         agentId,
         sourcePath,
         'link',
-        linkResult.actualMode,
+        linkInstallResult.actualMode,
         hashDir(centerDest)
       )
     } else if (normalizedOption === 'import_copy') {
@@ -2164,7 +2159,6 @@ export class SkillManagerService {
     preview: DistributionPreview,
     packId: string
   ): DistributionResult {
-    const settings = this.getSettings()
     let created = 0
     let reused = 0
     let failed = 0
@@ -2191,18 +2185,11 @@ export class SkillManagerService {
           const centerPath = skillRow.center_path
           const targetPath = path.join(agentRow.skills_dir ?? '', change.skillId)
 
-          let actualMode: 'link' | 'copy' = change.mode
-
-          if (change.mode === 'link') {
-            const linkResult = createLink(centerPath, targetPath, settings.linkFailPolicy)
-            actualMode = linkResult.actualMode
-            if (linkResult.error) {
-              errors.push(`${change.skillId} → ${change.agentId}: ${linkResult.error}`)
-              failed++
-              continue
-            }
-          } else {
-            copyDirRecursive(centerPath, targetPath)
+          const packInstallResult = this.installer.installToTarget(centerPath, targetPath, change.mode)
+          if (packInstallResult.error) {
+            errors.push(`${change.skillId} → ${change.agentId}: ${packInstallResult.error}`)
+            failed++
+            continue
           }
 
           // Write target + pack claim
@@ -2211,7 +2198,7 @@ export class SkillManagerService {
             change.agentId,
             targetPath,
             change.mode,
-            actualMode,
+            packInstallResult.actualMode,
             skillRow.current_hash,
             packId
           )
