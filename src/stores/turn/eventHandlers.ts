@@ -3,7 +3,6 @@
 // 从 index.ts 抽出。通过工厂函数注入所有依赖，handlers 之间可直接互相调用。
 
 import type { Ref } from 'vue'
-import { nextTick } from 'vue'
 import type { SessionSink } from '../turnSink'
 import type { TurnState } from './types'
 import {
@@ -192,6 +191,38 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     addToolTimelineEvent,
   } = timeline
 
+  // Renderer IPC can continue delivering text deltas while the window is hidden.
+  // Coalesce message writes so a burst accumulated during background throttling
+  // does not turn into one reactive update per delta when the window is restored.
+  const pendingContentPatches = new Map<string, { timer: ReturnType<typeof setTimeout>; turn: TurnState }>()
+  const CONTENT_PATCH_INTERVAL_MS = 50
+
+  function flushContentPatch(sessionId: string, ts: TurnState): void {
+    const pending = pendingContentPatches.get(sessionId)
+    if (pending) clearTimeout(pending.timer)
+    pendingContentPatches.delete(sessionId)
+
+    const message = getAssistantMessage(sessionId, ts)
+    if (message && message.content !== ts.accumulatedContent) {
+      sink.patchMessage(sessionId, ts.assistantMessageId, { content: ts.accumulatedContent })
+    }
+  }
+
+  function scheduleContentPatch(sessionId: string, ts: TurnState): void {
+    const pending = pendingContentPatches.get(sessionId)
+    if (pending?.turn === ts) return
+    if (pending) clearTimeout(pending.timer)
+    const timer = setTimeout(() => {
+      pendingContentPatches.delete(sessionId)
+      if (ts.settled) return
+      const message = getAssistantMessage(sessionId, ts)
+      if (message && message.content !== ts.accumulatedContent) {
+        sink.patchMessage(sessionId, ts.assistantMessageId, { content: ts.accumulatedContent })
+      }
+    }, CONTENT_PATCH_INTERVAL_MS)
+    pendingContentPatches.set(sessionId, { timer, turn: ts })
+  }
+
   function handleRemoteUserMessage(sessionId: string, data: any): void {
     if (!sessionId) return
     const content = remoteUserContent(data)
@@ -260,9 +291,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       if (ts.accumulatedContent.length > 0 && !ts.accumulatedContent.endsWith('\n')) {
         ts.accumulatedContent += '\n\n'
         streamingContents.value.set(sessionId, ts.accumulatedContent)
-        nextTick(() => {
-          sink.patchMessage(sessionId, ts.assistantMessageId, { content: ts.accumulatedContent })
-        })
+        scheduleContentPatch(sessionId, ts)
       }
     }
 
@@ -301,9 +330,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
         content: `${textEvent?.content || ''}${ev.delta.text}`,
         status: 'running'
       })
-      nextTick(() => {
-        sink.patchMessage(sessionId, ts.assistantMessageId, { content: ts.accumulatedContent })
-      })
+      scheduleContentPatch(sessionId, ts)
     }
 
     if (ev.type === 'content_block_delta' && ev.delta?.type === 'thinking_delta' && ev.delta?.thinking) {
@@ -802,6 +829,8 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
   const handleResult = (sessionId: string, ts: TurnState, result: any) => {
     if (ts.settled) return
 
+    flushContentPatch(sessionId, ts)
+
     const isError = !!result?.is_error
     const resultText = typeof result?.result === 'string' ? result.result : ''
     const looksLikeApiError = /^API Error:/i.test(resultText)
@@ -986,6 +1015,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
 
   const handleError = (sessionId: string, ts: TurnState, error: any) => {
     if (ts.settled) return
+    flushContentPatch(sessionId, ts)
     const elapsed = Date.now() - ts.sendStartTime
     logger.error('ChatStore', `[${sessionId.slice(0, 8)}] error in message flow | elapsed=${elapsed}ms`, { error: String(error) })
 
