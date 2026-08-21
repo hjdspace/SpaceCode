@@ -708,6 +708,7 @@ export class ControlProtocolHandler extends EventEmitter {
         string,
         unknown
       >,
+      10_000,
     ).then(() => undefined)
   }
 
