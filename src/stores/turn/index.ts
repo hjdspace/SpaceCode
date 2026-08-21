@@ -336,6 +336,7 @@ export function useTurnStore(injectedApi?: any) {
     const {
       turnStates,
       resetTimeout,
+      clearTurnTimeout,
       beginTurn,
       endTurn,
       ensureTurn,
@@ -838,6 +839,11 @@ export function useTurnStore(injectedApi?: any) {
           }
           sessionStore.logger.info('ChatStore', `permission_request | sessionId=${sid.slice(0, 8)} | tool=${req.toolName} | toolUseId=${req.toolUseId.slice(0, 8)} | requestId=${req.requestId.slice(0, 8)}`)
           permissionService.addPermissionRequest(sid, { ...req, sessionId: sid })
+          // 用户可能长时间不回答（提问工具、权限弹窗等），停掉 turn 的 5 分钟
+          // 兜底超时，避免误杀仍在等待用户输入的 turn。后续 stream/assistant/
+          // tool_use/tool_result/user 事件到达时会自动 resetTimeout 重新计时。
+          const ts = turnStates.get(sid)
+          if (ts && !ts.settled) clearTurnTimeout(sid, ts)
         })
       }
       if (typeof (claudeCodeApi as any).onPermissionRequestCancelled === 'function') {
