@@ -674,10 +674,12 @@ function shouldRenderSpecialComponent(event: TimelineEvent): boolean {
 
 function getToolContentKey(tool: ToolCall): string {
   const input = tool.input || {}
+  const questions = (input as { questions?: unknown[] }).questions
   return [
     input.file_path || input.path || '',
     input.old_string ? String(input.old_string).length : 0,
     input.new_string ? String(input.new_string).length : 0,
+    Array.isArray(questions) ? questions.length : 0,
     tool.output ? tool.output.length : 0,
   ].join(':')
 }
