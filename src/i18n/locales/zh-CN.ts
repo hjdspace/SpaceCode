@@ -1514,6 +1514,7 @@ export default {
         Write: '写入文件',
         Read: '读取文件',
         Bash: '执行命令',
+        Skill: '技能调用',
         AskUserQuestion: '询问用户',
         default: '工具调用',
       },
