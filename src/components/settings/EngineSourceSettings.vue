@@ -247,6 +247,27 @@ function selectSource(source: EngineSource) {
     installError.value = null
     installProgress.value = null
   }
+
+  // Stop all active sessions so they restart with the new engine source
+  try {
+    const electronAPI = window.electronAPI
+    const stop = electronAPI?.claudeCode?.stop
+    const getActive = electronAPI?.claudeCode?.getActiveSessions
+    if (stop && getActive) {
+      Promise.resolve(getActive())
+        .then((list: any[]) => {
+          if (!Array.isArray(list)) return
+          for (const s of list) {
+            if (s?.sessionId) {
+              Promise.resolve(stop(s.sessionId)).catch(() => {})
+            }
+          }
+        })
+        .catch(() => {})
+    }
+  } catch {
+    // best-effort; ignored
+  }
 }
 
 async function detectInstalled() {

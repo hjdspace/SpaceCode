@@ -620,11 +620,15 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     }
 
     const desiredEngine = settingsStore.engineType
+    const desiredEngineSource = settingsStore.engineSource
     const status = await claudeCode.getSessionStatus(sessionId)
     if (status?.isRunning) {
       const currentEngine = session.engineType
-      if (currentEngine && currentEngine !== desiredEngine) {
-        logger.info('ChatStore', `initClaudeCodeSession: engine changed (${currentEngine} → ${desiredEngine}), restarting | id=${sessionId.slice(0, 8)}`)
+      const currentEngineSource = session.engineSource
+      const engineChanged = currentEngine && currentEngine !== desiredEngine
+      const engineSourceChanged = currentEngineSource && currentEngineSource !== desiredEngineSource
+      if (engineChanged || engineSourceChanged) {
+        logger.info('ChatStore', `initClaudeCodeSession: engine changed (${currentEngine}/${currentEngineSource} → ${desiredEngine}/${desiredEngineSource}), restarting | id=${sessionId.slice(0, 8)}`)
         const resumeId = (status.engineSessionId as string) || session.engineSessionId
         try {
           await claudeCode.stop(sessionId)
@@ -700,6 +704,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       delete session._resumeSessionId
 
       session.engineType = desiredEngine
+      session.engineSource = settingsStore.engineSource
       // CLI 进程启动成功后会话处于等待输入状态，标记为 idle 而非 starting，
       // 避免新创建的助手会话在用户尚未发送消息时一直显示转圈。
       session.processStatus = 'idle'

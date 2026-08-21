@@ -1514,6 +1514,7 @@ export default {
         Write: 'Write File',
         Read: 'Read File',
         Bash: 'Run Command',
+        Skill: 'Skill',
         AskUserQuestion: 'Ask User',
         default: 'Tool Call',
       },
