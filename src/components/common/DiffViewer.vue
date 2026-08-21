@@ -283,6 +283,8 @@ onMounted(() => {
 .diff-line {
   display: flex;
   align-items: stretch;
+  width: max-content;
+  min-width: 100%;
   min-height: 20px;
 
   .line-number {
@@ -305,10 +307,9 @@ onMounted(() => {
   }
 
   .line-content {
-    flex: 1;
+    flex: 0 0 auto;
     padding: 0 8px;
     white-space: pre;
-    overflow-x: auto;
   }
 
   &.context {
