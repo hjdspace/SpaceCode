@@ -538,11 +538,45 @@ const defaultModels = computed(() => {
 
 onMounted(() => {
   availableModels.value = [...defaultModels.value]
+  // Auto-fetch models from API if API key is configured
+  autoFetchModels()
 })
 
 function selectAuthMethod(method: AuthMethod) {
   authMethod.value = method
   availableModels.value = [...defaultModels.value]
+  // Re-fetch models for the new provider
+  autoFetchModels()
+}
+
+/** Auto-fetch models from API if apiKey is configured.
+ *  This runs on mount and on auth method change so the dropdown
+ *  is populated without the user needing to click "Fetch Models".
+ */
+async function autoFetchModels() {
+  // Only auto-fetch for API key based providers
+  if (authMethod.value === 'claudeai' || authMethod.value === 'console') return
+
+  let apiKey = ''
+  switch (authMethod.value) {
+    case 'anthropic_compatible':
+      apiKey = config.value.anthropicConfig.apiKey
+      break
+    case 'openai_compatible':
+      apiKey = config.value.openaiConfig.apiKey
+      break
+    case 'gemini_api':
+      apiKey = config.value.geminiConfig.apiKey
+      break
+  }
+  if (!apiKey) return
+
+  // Fetch in background — don't block UI
+  try {
+    await fetchModels()
+  } catch {
+    // Silently fail — user can still use default models or type manually
+  }
 }
 
 function onConfigFieldChange() {
