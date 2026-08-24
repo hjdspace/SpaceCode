@@ -490,6 +490,7 @@ export default {
     balanced: 'Balanced',
     powerful: 'Powerful',
     selectModel: 'Select model...',
+    useCustomModel: 'Use custom model',
   },
 
   profile: {
@@ -1130,6 +1131,8 @@ export default {
     noMatchingFiles: 'No matching files or folders found',
     searchModels: 'Search models...',
     noMatchingModels: 'No matching models found',
+    noModelsConfigured: 'No models configured. Please set up Haiku / Sonnet / Opus models in Settings',
+    goToSettings: 'Go to Settings',
     retry: 'Retry',
     configureApiKeyFirst: 'Please configure API Key first',
     httpProxyUnavailable: 'HTTP proxy not available',
