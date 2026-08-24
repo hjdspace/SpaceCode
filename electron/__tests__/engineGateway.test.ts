@@ -402,6 +402,19 @@ describe('engineGateway', () => {
       expect(result).toBeNull()
     })
 
+    it('getContextUsage returns null when engine throws (e.g. control_request timeout)', async () => {
+      const engine = mockState.makeClaudeEngine()
+      engine.getSessionStatus.mockReturnValue({ sessionId: 's1', isRunning: true })
+      engine.getContextUsage = vi.fn(async () => {
+        throw new Error("control_request 'get_context_usage' timed out after 15000ms")
+      })
+      mockState.engines.push(engine)
+
+      const result = await engineGateway.getContextUsage('s1')
+
+      expect(result).toBeNull()
+    })
+
     it('getPendingPermissionRequestIds returns [] when engine lacks it', () => {
       const engine = mockState.makePiEngine()
       engine.getSessionStatus.mockReturnValue({ sessionId: 's1', isRunning: true })

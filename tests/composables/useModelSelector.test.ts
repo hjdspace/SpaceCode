@@ -17,16 +17,34 @@ import type { ModelOption } from '@/composables/useModelSelector'
 // for the full composable.
 
 /**
- * Model list fallback logic (same as in useModelSelector)
+ * Model list resolution logic (updated for issue 2):
+ * Configured models (haiku/sonnet/opus from settings) take priority.
+ * Fetched models from API are no longer the primary source — they are
+ * only used as a supplementary list merged into configured models.
+ * Default models are no longer used as fallback — if no models are
+ * configured, the UI should prompt the user to set them up.
  */
 function resolveAvailableModels(
   fetched: ModelOption[],
   configured: ModelOption[],
-  defaults: ModelOption[]
+  _defaults: ModelOption[]
 ): ModelOption[] {
+  // Configured models always take priority
+  if (configured.length > 0) return [...configured]
+  // If no configured models but fetched models exist, use them (edge case:
+  // user has API access but hasn't configured haiku/sonnet/opus yet)
   if (fetched.length > 0) return [...fetched]
-  if (configured.length > 0) return configured
-  return [...defaults]
+  // No models at all — UI should prompt user to configure
+  return []
+}
+
+/**
+ * Check if the user has configured at least one model in settings.
+ * Used to determine whether to show a "please configure models" prompt.
+ */
+function hasConfiguredModels(config: { haikuModel: string; sonnetModel: string; opusModel: string } | null): boolean {
+  if (!config) return false
+  return !!(config.haikuModel || config.sonnetModel || config.opusModel)
 }
 
 /**
@@ -96,10 +114,25 @@ function getConfiguredModels(config: { haikuModel: string; sonnetModel: string; 
   return result
 }
 
+/**
+ * Map a user-selected model value back to its claude-code alias (haiku/sonnet/opus).
+ * The engine uses aliases internally to resolve ANTHROPIC_DEFAULT_*_MODEL env vars.
+ */
+function getModelAlias(
+  modelValue: string,
+  config: { haikuModel: string; sonnetModel: string; opusModel: string } | null
+): string {
+  if (!config) return modelValue
+  if (config.haikuModel && config.haikuModel === modelValue) return 'haiku'
+  if (config.sonnetModel && config.sonnetModel === modelValue) return 'sonnet'
+  if (config.opusModel && config.opusModel === modelValue) return 'opus'
+  return modelValue
+}
+
 // ── Tests ────────────────────────────────────────────────────────
 
 describe('useModelSelector - pure logic', () => {
-  describe('model list fallback', () => {
+  describe('model list resolution', () => {
     const fetched: ModelOption[] = [
       { label: 'Claude 4', value: 'claude-4' },
       { label: 'Claude 3.5', value: 'claude-3.5' },
@@ -111,20 +144,38 @@ describe('useModelSelector - pure logic', () => {
       { label: 'Claude 3.5 Sonnet', value: 'claude-3-5-sonnet' },
     ]
 
-    it('should use fetched models when available', () => {
-      expect(resolveAvailableModels(fetched, configured, defaults)).toEqual(fetched)
+    it('should use configured models when available (priority over fetched)', () => {
+      expect(resolveAvailableModels(fetched, configured, defaults)).toEqual(configured)
     })
 
-    it('should fall back to configured models when no fetched models', () => {
-      expect(resolveAvailableModels([], configured, defaults)).toEqual(configured)
+    it('should fall back to fetched models when no configured models', () => {
+      expect(resolveAvailableModels(fetched, [], defaults)).toEqual(fetched)
     })
 
-    it('should fall back to default models when no fetched or configured models', () => {
-      expect(resolveAvailableModels([], [], defaults)).toEqual(defaults)
+    it('should return empty when no configured or fetched models (no default fallback)', () => {
+      expect(resolveAvailableModels([], [], defaults)).toEqual([])
     })
 
     it('should return empty when all sources are empty', () => {
       expect(resolveAvailableModels([], [], [])).toEqual([])
+    })
+  })
+
+  describe('hasConfiguredModels', () => {
+    it('should return false for null config', () => {
+      expect(hasConfiguredModels(null)).toBe(false)
+    })
+
+    it('should return false when all models are empty', () => {
+      expect(hasConfiguredModels({ haikuModel: '', sonnetModel: '', opusModel: '' })).toBe(false)
+    })
+
+    it('should return true when at least one model is set', () => {
+      expect(hasConfiguredModels({ haikuModel: '', sonnetModel: 'my-model', opusModel: '' })).toBe(true)
+    })
+
+    it('should return true when all models are set', () => {
+      expect(hasConfiguredModels({ haikuModel: 'haiku', sonnetModel: 'sonnet', opusModel: 'opus' })).toBe(true)
     })
   })
 
@@ -270,6 +321,54 @@ describe('useModelSelector - pure logic', () => {
         opusModel: 'opus',
       })
       expect(result).toHaveLength(3)
+    })
+  })
+
+  describe('getModelAlias', () => {
+    const config = {
+      haikuModel: 'deepseek-v4-flash',
+      sonnetModel: 'deepseek-v4-pro',
+      opusModel: 'glm-5.2',
+    }
+
+    it('should map haiku slot model to "haiku" alias', () => {
+      expect(getModelAlias('deepseek-v4-flash', config)).toBe('haiku')
+    })
+
+    it('should map sonnet slot model to "sonnet" alias', () => {
+      expect(getModelAlias('deepseek-v4-pro', config)).toBe('sonnet')
+    })
+
+    it('should map opus slot model to "opus" alias', () => {
+      expect(getModelAlias('glm-5.2', config)).toBe('opus')
+    })
+
+    it('should return model value as-is when not in any slot', () => {
+      expect(getModelAlias('some-other-model', config)).toBe('some-other-model')
+    })
+
+    it('should return model value as-is when config is null', () => {
+      expect(getModelAlias('any-model', null)).toBe('any-model')
+    })
+
+    it('should return first matching slot when same model in multiple slots', () => {
+      const dupConfig = {
+        haikuModel: 'same-model',
+        sonnetModel: 'same-model',
+        opusModel: 'other-model',
+      }
+      // haiku has precedence over sonnet
+      expect(getModelAlias('same-model', dupConfig)).toBe('haiku')
+    })
+
+    it('should handle empty config strings', () => {
+      const emptyConfig = {
+        haikuModel: '',
+        sonnetModel: 'sonnet-model',
+        opusModel: '',
+      }
+      expect(getModelAlias('sonnet-model', emptyConfig)).toBe('sonnet')
+      expect(getModelAlias('', emptyConfig)).toBe('')
     })
   })
 })

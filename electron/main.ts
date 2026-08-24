@@ -2266,6 +2266,19 @@ function syncApiConfigToSettingsJson(guiSettingsJson: string): void {
       delete existingSettings.modelType
     }
 
+    // ★ 删除残留的 model 字段。
+    // settings.json 中的 "model" 字段会作为引擎的默认模型，覆盖 --model CLI 参数。
+    // 当用户在设置页面配置 haiku/sonnet/opus 槽位为第三方模型时，引擎通过
+    // ANTHROPIC_DEFAULT_*_MODEL 环境变量和别名解析机制（haiku→getDefaultHaikuModel）
+    // 路由到正确的模型。如果 settings.json 中残留 "model": "sonnet[1m]"，
+    // 引擎启动时会始终使用 sonnet 别名，导致用户在输入框切换到 haiku 或 opus 时
+    // 不生效（下一轮对话仍使用 sonnet）。
+    // 删除此字段后，引擎使用 --model 参数（由 initClaudeCodeSession 传入）作为默认模型。
+    if (existingSettings.model) {
+      delete existingSettings.model
+      debug('Settings', `Removed stale "model" field from settings.json to prevent overriding --model CLI arg`)
+    }
+
     ensureClaudeDir()
     writeFileSync(settingsPath, JSON.stringify(existingSettings, null, 2), 'utf-8')
     debug('Settings', `Settings.json updated at ${settingsPath}`)

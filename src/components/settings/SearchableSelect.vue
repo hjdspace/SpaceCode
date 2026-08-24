@@ -34,7 +34,7 @@
 
         <div class="options-list" ref="optionsList">
           <div
-            v-if="filteredOptions.length === 0"
+            v-if="filteredOptions.length === 0 && !searchQuery"
             id="no-results"
             class="no-results"
             role="status"
@@ -53,6 +53,16 @@
             <span class="option-label">{{ option.name || option.id }}</span>
             <Check v-if="modelValue === option.id" :size="14" class="check-icon" />
           </div>
+          <div
+            v-if="searchQuery.trim()"
+            class="option custom-input-option"
+            :class="{ highlighted: highlightedId === '__custom__' }"
+            @click="selectCustomValue"
+            @mouseenter="highlightedId = '__custom__'"
+          >
+            <span class="option-label">{{ t('model.useCustomModel') }}: "{{ searchQuery.trim() }}"</span>
+            <Plus :size="14" class="check-icon" />
+          </div>
         </div>
       </div>
     </Transition>
@@ -62,7 +72,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Search, ChevronDown, Check, X } from 'lucide-vue-next'
+import { Search, ChevronDown, Check, X, Plus } from 'lucide-vue-next'
 import { debounce } from '@/utils/debounce'
 
 const { t } = useI18n()
@@ -122,6 +132,16 @@ function selectOption(id: string) {
   searchQuery.value = ''
 }
 
+/** Allow free-text input: use the typed search query as the model value */
+function selectCustomValue() {
+  const val = searchQuery.value.trim()
+  if (val) {
+    emit('update:modelValue', val)
+    isOpen.value = false
+    searchQuery.value = ''
+  }
+}
+
 // 使用防抖处理点击外部
 const debouncedClickOutside = debounce((event: MouseEvent) => {
   if (selectRef.value && !selectRef.value.contains(event.target as Node)) {
@@ -155,8 +175,13 @@ function handleKeydown(event: KeyboardEvent) {
       break
     case 'Enter':
       event.preventDefault()
-      if (highlightedId.value) {
+      if (highlightedId.value === '__custom__') {
+        selectCustomValue()
+      } else if (highlightedId.value) {
         selectOption(highlightedId.value)
+      } else if (searchQuery.value.trim()) {
+        // Allow free-text input: press Enter with no highlight to use typed value
+        selectCustomValue()
       }
       break
   }
@@ -164,15 +189,20 @@ function handleKeydown(event: KeyboardEvent) {
 
 function navigateOptions(direction: number) {
   const options = filteredOptions.value
-  if (options.length === 0) return
+  const hasCustomOption = searchQuery.value.trim().length > 0
+  if (options.length === 0 && !hasCustomOption) return
 
-  const currentIndex = options.findIndex(o => o.id === highlightedId.value)
+  // Build a combined list of IDs for navigation: filtered options + custom option
+  const allIds: string[] = options.map(o => o.id)
+  if (hasCustomOption) allIds.push('__custom__')
+
+  const currentIndex = allIds.indexOf(highlightedId.value ?? '')
   let newIndex = currentIndex + direction
 
-  if (newIndex < 0) newIndex = options.length - 1
-  if (newIndex >= options.length) newIndex = 0
+  if (newIndex < 0) newIndex = allIds.length - 1
+  if (newIndex >= allIds.length) newIndex = 0
 
-  highlightedId.value = options[newIndex].id
+  highlightedId.value = allIds[newIndex]
 
   // Scroll into view - 使用requestAnimationFrame优化
   requestAnimationFrame(() => {
@@ -323,6 +353,15 @@ watch(isOpen, (open) => {
 
   &.selected {
     background: rgba(var(--accent-primary-rgb), 0.1);
+  }
+}
+
+.custom-input-option {
+  border-top: 1px solid var(--border-default);
+  font-style: italic;
+
+  .option-label {
+    color: var(--accent-primary);
   }
 }
 

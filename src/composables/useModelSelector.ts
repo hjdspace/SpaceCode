@@ -53,18 +53,7 @@ export function useModelSelector(options?: {
 
   /** Get models configured in settings for the current provider */
   function getConfiguredProviderModels(): ModelOption[] {
-    let config: { haikuModel: string; sonnetModel: string; opusModel: string } | null = null
-    switch (settingsStore.authMethod) {
-      case 'anthropic_compatible':
-        config = settingsStore.anthropicConfig
-        break
-      case 'openai_compatible':
-        config = settingsStore.openaiConfig
-        break
-      case 'gemini_api':
-        config = settingsStore.geminiConfig
-        break
-    }
+    const config = getProviderModelConfig()
     if (!config) return []
 
     const result: ModelOption[] = []
@@ -76,6 +65,49 @@ export function useModelSelector(options?: {
       }
     }
     return result
+  }
+
+  /** Get the raw haiku/sonnet/opus config for the current provider */
+  function getProviderModelConfig(): { haikuModel: string; sonnetModel: string; opusModel: string } | null {
+    switch (settingsStore.authMethod) {
+      case 'anthropic_compatible':
+        return settingsStore.anthropicConfig
+      case 'openai_compatible':
+        return settingsStore.openaiConfig
+      case 'gemini_api':
+        return settingsStore.geminiConfig
+      default:
+        return null
+    }
+  }
+
+  /**
+   * Maps a user-selected model value back to its claude-code alias.
+   *
+   * The claude-code engine uses `haiku` / `sonnet` / `opus` aliases internally.
+   * When the user configures `haikuModel=deepseek-v4-flash`, the env var
+   * `ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-v4-flash` is set. Sending the
+   * `haiku` alias via set_model control_request causes the engine to resolve
+   * it through `getDefaultHaikuModel()`, which reads that env var and returns
+   * the correct model. Sending the raw model name (`deepseek-v4-flash`)
+   * bypasses alias resolution entirely and may not work correctly.
+   *
+   * If the same model is configured for multiple slots, the first matching
+   * slot is returned (precedence: haiku > sonnet > opus).
+   *
+   * If no matching slot is found (e.g. a fetched model not in the config),
+   * the raw model value is returned as-is — the engine will use it directly.
+   */
+  function getModelAlias(modelValue: string): string {
+    const config = getProviderModelConfig()
+    if (!config) return modelValue
+
+    if (config.haikuModel && config.haikuModel === modelValue) return 'haiku'
+    if (config.sonnetModel && config.sonnetModel === modelValue) return 'sonnet'
+    if (config.opusModel && config.opusModel === modelValue) return 'opus'
+
+    // Not a configured slot model — return as-is for direct passthrough
+    return modelValue
   }
 
   /** Hardcoded default models as last fallback */
@@ -112,12 +144,29 @@ export function useModelSelector(options?: {
 
   // ── Computed ───────────────────────────────────────────────────
 
-  /** Available models with 3-level fallback */
+  /** Available models — configured models (haiku/sonnet/opus) take priority.
+   *
+   *  Issue 2 fix: Previously, fetched models from API took priority, causing
+   *  a mismatch between the input-box model list and the actual model used
+   *  by the engine. Now configured models always take priority. If no models
+   *  are configured, the list is empty and the UI should prompt the user to
+   *  configure models in the settings page.
+   */
   const availableModels = computed<ModelOption[]>(() => {
-    if (fetchedModels.value.length > 0) return [...fetchedModels.value]
     const configured = getConfiguredProviderModels()
     if (configured.length > 0) return configured
-    return getDefaultModels()
+    // Edge case: user has API access but hasn't configured haiku/sonnet/opus yet.
+    // Show fetched models so they can still pick one.
+    if (fetchedModels.value.length > 0) return [...fetchedModels.value]
+    return []
+  })
+
+  /** Whether the user has configured at least one model in settings.
+   *  Used by the UI to show a "please configure models" prompt.
+   */
+  const hasConfiguredModels = computed(() => {
+    const configured = getConfiguredProviderModels()
+    return configured.length > 0
   })
 
   /** Search-filtered model list */
@@ -354,10 +403,15 @@ export function useModelSelector(options?: {
     }
   }
 
-  /** Initialize with the given or default model value */
+  /** Initialize with the given or default model value.
+   *  If no model is configured, selectedModel stays empty — the UI should
+   *  detect hasConfiguredModels === false and show a prompt.
+   */
   function initialize(modelValue?: string) {
     const config = settingsStore.config
     selectedModel.value = modelValue || config.model || availableModels.value[0]?.value || ''
+    // Still fetch models from API as a background supplement, but configured
+    // models will always take priority in availableModels.
     fetchModelsFromBaseUrl()
   }
 
@@ -410,6 +464,7 @@ export function useModelSelector(options?: {
 
     // Computed
     availableModels,
+    hasConfiguredModels,
     filteredModels,
     canRefreshModels,
     selectedModelLabel,
@@ -433,5 +488,6 @@ export function useModelSelector(options?: {
     initialize,
     getConfiguredProviderModels,
     getDefaultModels,
+    getModelAlias,
   }
 }
