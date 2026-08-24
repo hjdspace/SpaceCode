@@ -8,6 +8,13 @@ import { app } from 'electron'
 import { proxyManager } from './proxyManager'
 import { info, warn, error, debug, processRaw, setSessionLogPath, sdkMessage, traceEvent } from './logger'
 import {
+  killTree as engineKillTree,
+  resolveBunPath as engineResolveBunPath,
+  resolveBunPathForPackagedDesktop as engineResolveBunPathForPackagedDesktop,
+  isProbableBunExecutable as engineIsProbableBunExecutable,
+  resolveCliRoot as engineResolveCliRoot,
+} from './engineChildProcess'
+import {
   ControlProtocolHandler,
   encodeJsonLine,
   type PermissionDecision,
@@ -164,12 +171,7 @@ export class SessionProcess extends EventEmitter {
     this.sessionId = sessionId
     this.config = config
     this.currentPermissionMode = (config.permissionMode as PermissionMode) || 'default'
-    const isPackaged = app.isPackaged
-    if (isPackaged) {
-      this.cliRoot = path.join(process.resourcesPath, 'engine')
-    } else {
-      this.cliRoot = path.resolve(__dirname, '../engine')
-    }
+    this.cliRoot = engineResolveCliRoot()
     debug('SessionProcess', `Constructed | sessionId=${sessionId.slice(0, 8)} | cwd=${config.cwd} | provider=${config.provider} | model=${config.model}`)
 
     this.controlProtocol = new ControlProtocolHandler((message) => this.writeStdin(message))
@@ -738,24 +740,7 @@ export class SessionProcess extends EventEmitter {
 
   kill(): void {
     if (this.process) {
-      const pid = this.process.pid
-      info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Killing process | pid=${pid}`)
-      try {
-        // Windows 上使用 taskkill /F /T 强制终止整个进程树
-        if (process.platform === 'win32' && pid) {
-          try {
-            const { execSync } = require('child_process')
-            execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore', timeout: 5000 })
-            info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process tree killed via taskkill | pid=${pid}`)
-          } catch {
-            // taskkill 失败时回退到默认 kill
-            this.process.kill('SIGKILL')
-          }
-        } else {
-          // Unix/Linux/macOS 使用 SIGKILL
-          this.process.kill('SIGKILL')
-        }
-      } catch {}
+      engineKillTree(this.process, 'SessionProcess')
       this.process = null
     }
     this.status = 'exited'
@@ -1732,112 +1717,20 @@ export class SessionProcess extends EventEmitter {
   /**
    * Reject placeholders / broken copies (existsSync alone is not enough on portable builds).
    * Real bun binaries are multi‑MB; empty or LFS-pointer files cause spawn ENOENT or instant failure.
+   *
+   * Delegates to EngineChildProcess.isProbableBunExecutable for the shared implementation.
    */
   private isProbableBunExecutable(absPath: string): boolean {
-    try {
-      const st = fs.statSync(absPath)
-      const valid = st.isFile() && st.size >= 256 * 1024
-      if (!valid) {
-        warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] isProbableBunExecutable: rejected | path=${absPath} | exists=${st.isFile()} | size=${st.size} | minRequired=${256 * 1024}`)
-      }
-      return valid
-    } catch (e) {
-      warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] isProbableBunExecutable: stat failed | path=${absPath} | error=${String(e)}`)
-      return false
-    }
+    return engineIsProbableBunExecutable(absPath)
   }
 
   /** For dist-desktop: only return bun if the binary looks real; otherwise null so we can fall back to Electron-as-Node. */
   private resolveBunPathForPackagedDesktop(): string | null {
-    const platform = process.platform
-    const arch = process.arch
-    const bunName = platform === 'win32' ? 'bun.exe' : 'bun'
-    const bundledBun = path.join(this.cliRoot, 'bin', bunName)
-    if (this.isProbableBunExecutable(bundledBun)) {
-      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using bundled bun: ${bundledBun}`)
-      return bundledBun
-    }
-
-    const platformSuffix = platform === 'win32' ? 'windows-x64'
-      : platform === 'darwin' ? (arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64')
-      : 'linux-x64'
-    const platformSpecificBun = path.join(this.cliRoot, 'bin', `bun-${platformSuffix}`)
-    if (this.isProbableBunExecutable(platformSpecificBun)) {
-      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using platform-specific bun: ${platformSpecificBun}`)
-      return platformSpecificBun
-    }
-    if (platform === 'win32') {
-      const exe = `${platformSpecificBun}.exe`
-      if (this.isProbableBunExecutable(exe)) {
-        debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using platform-specific bun.exe: ${exe}`)
-        return exe
-      }
-    }
-
-    try {
-      const { execSync } = require('child_process')
-      let globalBun: string | null = null
-      if (platform === 'win32') {
-        globalBun = execSync('where bun', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim().split(/\r\n/)[0]?.trim() || null
-      } else {
-        globalBun = execSync('which bun', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim().split('\n')[0]?.trim() || null
-      }
-      if (globalBun && this.isProbableBunExecutable(globalBun)) {
-        debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using global bun: ${globalBun}`)
-        return globalBun
-      }
-    } catch {}
-
-    return null
+    return engineResolveBunPathForPackagedDesktop(this.cliRoot, `SessionProcess[${this.sessionId.slice(0, 8)}]`)
   }
 
   private resolveBunPath(): string {
-    const platform = process.platform
-    const arch = process.arch
-
-    // 1. Check bundled bun first (instant fs check, no subprocess overhead)
-    const bunName = platform === 'win32' ? 'bun.exe' : 'bun'
-    const bundledBun = path.join(this.cliRoot, 'bin', bunName)
-    if (this.isProbableBunExecutable(bundledBun)) {
-      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using bundled bun: ${bundledBun}`)
-      return bundledBun
-    }
-
-    // 2. Check platform-specific bundled bun
-    const platformSuffix = platform === 'win32' ? 'windows-x64'
-      : platform === 'darwin' ? (arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64')
-      : 'linux-x64'
-    const platformSpecificBun = path.join(this.cliRoot, 'bin', `bun-${platformSuffix}`)
-    if (this.isProbableBunExecutable(platformSpecificBun)) {
-      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using platform-specific bun: ${platformSpecificBun}`)
-      return platformSpecificBun
-    }
-    if (platform === 'win32') {
-      const exe = platformSpecificBun + '.exe'
-      if (this.isProbableBunExecutable(exe)) {
-        debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using platform-specific bun.exe: ${exe}`)
-        return exe
-      }
-    }
-
-    // 3. Fallback: find global bun (slower - spawns subprocess)
-    try {
-      const { execSync } = require('child_process')
-      let globalBun: string | null = null
-      if (platform === 'win32') {
-        // Use 'where' instead of PowerShell for speed (~100ms vs ~2s)
-        globalBun = execSync('where bun', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim().split(/\r\n/)[0]?.trim() || null
-      } else {
-        globalBun = execSync('which bun', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim().split('\n')[0]?.trim() || null
-      }
-      if (globalBun && this.isProbableBunExecutable(globalBun)) {
-        debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Using global bun: ${globalBun}`)
-        return globalBun
-      }
-    } catch {}
-
-    warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] No bun binary found, falling back to PATH`)
-    return 'bun'
+    return engineResolveBunPath(this.cliRoot, `SessionProcess[${this.sessionId.slice(0, 8)}]`)
   }
 
   private getMacroDefines(): string[] {

@@ -1,5 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { ElectronClaudeCodeAPI } from '@/types/electron'
+import { gitChannels } from '@/shared/channels/git'
+import { createPreloadBridge } from '@/shared/preloadBridge'
+import { SCHEMA_MANAGER_CHANNELS } from './skillManagerV2/channels'
 
 export interface FileEntry {
   name: string
@@ -241,64 +244,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
-  // Git/SCM API
+  // Git/SCM API — invoke channels 表驱动注册；onStatusChanged 是事件订阅，保留手写
   git: {
-    isRepo: (cwd: string): Promise<boolean> =>
-      ipcRenderer.invoke('git:isRepo', cwd),
-    getRoot: (cwd: string): Promise<string | null> =>
-      ipcRenderer.invoke('git:getRoot', cwd),
-    getStatus: (cwd: string): Promise<any> =>
-      ipcRenderer.invoke('git:getStatus', cwd),
-    stage: (cwd: string, paths: string[]): Promise<boolean> =>
-      ipcRenderer.invoke('git:stage', cwd, paths),
-    unstage: (cwd: string, paths: string[]): Promise<boolean> =>
-      ipcRenderer.invoke('git:unstage', cwd, paths),
-    stageAll: (cwd: string): Promise<boolean> =>
-      ipcRenderer.invoke('git:stageAll', cwd),
-    unstageAll: (cwd: string): Promise<boolean> =>
-      ipcRenderer.invoke('git:unstageAll', cwd),
-    commit: (cwd: string, message: string, amend?: boolean): Promise<{ success: boolean; hash?: string; error?: string }> =>
-      ipcRenderer.invoke('git:commit', cwd, message, amend),
-    getDiff: (cwd: string, path: string, staged?: boolean): Promise<any> =>
-      ipcRenderer.invoke('git:getDiff', cwd, path, staged),
-    getFullDiff: (cwd: string): Promise<any> =>
-      ipcRenderer.invoke('git:getFullDiff', cwd),
-    getStagedDiff: (cwd: string): Promise<string> =>
-      ipcRenderer.invoke('git:getStagedDiff', cwd),
-    showFile: (cwd: string, path: string): Promise<string | null> =>
-      ipcRenderer.invoke('git:showFile', cwd, path),
-    getBranches: (cwd: string): Promise<any[]> =>
-      ipcRenderer.invoke('git:getBranches', cwd),
-    checkout: (cwd: string, ref: string): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke('git:checkout', cwd, ref),
-    createBranch: (cwd: string, name: string, checkoutTo?: boolean): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke('git:createBranch', cwd, name, checkoutTo),
-    deleteBranch: (cwd: string, name: string, force?: boolean): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke('git:deleteBranch', cwd, name, force),
-    getLog: (cwd: string, count?: number): Promise<any[]> =>
-      ipcRenderer.invoke('git:getLog', cwd, count),
-    discardChanges: (cwd: string, paths: string[]): Promise<boolean> =>
-      ipcRenderer.invoke('git:discardChanges', cwd, paths),
-    pull: (cwd: string): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke('git:pull', cwd),
-    push: (cwd: string): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke('git:push', cwd),
-    stash: (cwd: string): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke('git:stash', cwd),
-    stashPop: (cwd: string): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke('git:stashPop', cwd),
-    fetchAll: (cwd: string): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke('git:fetchAll', cwd),
-    watchProject: (cwd: string): Promise<boolean> =>
-      ipcRenderer.invoke('git:watchProject', cwd),
-    stopWatch: (): Promise<boolean> =>
-      ipcRenderer.invoke('git:stopWatch'),
+    ...createPreloadBridge(gitChannels, ipcRenderer, 'git:'),
     onStatusChanged: (callback: () => void) => {
       const wrapper = () => callback()
       ipcRenderer.on('git:statusChanged', wrapper)
       return () => ipcRenderer.removeListener('git:statusChanged', wrapper)
     },
-  },
+  } satisfies import('@/shared/channels/git').GitRendererApi & { onStatusChanged: (callback: () => void) => () => void },
 
   claudeCode: {
     startSession: (sessionId: string, config: any) =>
@@ -1026,6 +980,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     extractArchive: (archivePath: string) =>
       ipcRenderer.invoke('skill-manager:extract-archive', archivePath),
     cloneGitHubRepo: (url: string, branch?: string, subPath?: string) =>
-      ipcRenderer.invoke('skill-manager:clone-github-repo', url, branch, subPath),
+      ipcRenderer.invoke(SCHEMA_MANAGER_CHANNELS.CLONE_GITHUB_REPO, url, branch, subPath),
   },
 })

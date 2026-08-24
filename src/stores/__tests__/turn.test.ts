@@ -186,6 +186,35 @@ describe('Turn 事件订阅', () => {
     expect(session.messages.some(m => m.role === 'assistant')).toBe(true)
   })
 
+  it('合并后台积压的 text_delta 写回，避免恢复窗口时逐条刷新消息', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('Test', undefined, 'sess-stream-burst')
+    sessionStore.addMessage({ role: 'user', content: 'hello' }, 'sess-stream-burst')
+    const updateMessageSpy = vi.spyOn(sessionStore, 'updateMessage')
+
+    fake._handlers.onStreamEvent({
+      sessionId: 'sess-stream-burst',
+      data: { event: { type: 'content_block_start', content_block: { type: 'text' } } },
+    })
+    for (let i = 0; i < 100; i++) {
+      fake._handlers.onStreamEvent({
+        sessionId: 'sess-stream-burst',
+        data: { event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'x' } } },
+      })
+    }
+
+    vi.advanceTimersByTime(50)
+    await Promise.resolve()
+
+    const session = sessionStore.sessions.find(s => s.id === 'sess-stream-burst')!
+    const assistant = session.messages.find(message => message.role === 'assistant')!
+    expect(assistant.content).toBe('x'.repeat(100))
+    expect(updateMessageSpy).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps the session active when the process exits before the turn result', async () => {
     const fake = makeFakeApi()
     const { useTurnStore } = await import('../turn')

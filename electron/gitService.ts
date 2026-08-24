@@ -12,6 +12,8 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import { ipcMain, BrowserWindow } from 'electron'
 import { debug } from './logger'
+import { gitChannels } from '@/shared/channels/git'
+import { registerHandlers } from '@/shared/handlerRegistry'
 
 const GIT_TIMEOUT = 10000
 const GIT_BINARY = process.platform === 'win32' ? 'git.exe' : 'git'
@@ -69,6 +71,7 @@ export interface GitStatusFile {
   status: 'modified' | 'added' | 'deleted' | 'renamed' | 'copied' | 'untracked' | 'ignored' | 'conflict'
   staged: boolean
   isTracked: boolean
+  [key: string]: unknown
 }
 
 export interface GitBranch {
@@ -78,15 +81,18 @@ export interface GitBranch {
   upstream?: string
   ahead?: number
   behind?: number
+  [key: string]: unknown
 }
 
 export interface GitLogEntry {
   hash: string
   shortHash: string
   subject: string
+  message: string
   author: string
   date: string
   refs: string
+  [key: string]: unknown
 }
 
 export interface GitDiffHunk {
@@ -95,6 +101,7 @@ export interface GitDiffHunk {
   newStart: number
   newLines: number
   content: string
+  [key: string]: unknown
 }
 
 export interface GitDiffResult {
@@ -104,6 +111,7 @@ export interface GitDiffResult {
   additions: number
   deletions: number
   isBinary: boolean
+  [key: string]: unknown
 }
 
 export interface GitFullDiffFileStats {
@@ -113,6 +121,7 @@ export interface GitFullDiffFileStats {
   isBinary: boolean
   isUntracked?: boolean
   isStaged?: boolean
+  [key: string]: unknown
 }
 
 export interface GitFullDiffResult {
@@ -123,6 +132,7 @@ export interface GitFullDiffResult {
   }
   files: GitFullDiffFileStats[]
   hunks: Record<string, GitDiffHunk[]>
+  [key: string]: unknown
 }
 
 export interface GitStatusResult {
@@ -135,6 +145,7 @@ export interface GitStatusResult {
   unstaged: GitStatusFile[]
   untracked: GitStatusFile[]
   conflicted: GitStatusFile[]
+  [key: string]: unknown
 }
 
 // ============================================================================
@@ -1043,6 +1054,7 @@ async function getLog(cwd: string, count: number = 50): Promise<GitLogEntry[]> {
         hash: lines[0],
         shortHash: lines[1],
         subject: lines[2],
+        message: lines[2],
         author: lines[3],
         date: lines[4],
         refs: lines[5] || '',
@@ -1200,114 +1212,48 @@ function stopGitWatcher(): void {
 // ============================================================================
 
 export function registerGitIPCHandlers() {
-  ipcMain.handle('git:isRepo', async (_event, cwd: string) => {
-    return isGitRepo(cwd)
-  })
-
-  ipcMain.handle('git:getRoot', async (_event, cwd: string) => {
-    return getGitRoot(cwd)
-  })
-
-  ipcMain.handle('git:getStatus', async (_event, cwd: string) => {
-    const result = await getStatus(cwd)
-    // Auto-start watcher when we detect a git repo
-    if (result.isRepo) {
+  registerHandlers(ipcMain, gitChannels, 'git:', {
+    isRepo: async (cwd: string) => isGitRepo(cwd),
+    getRoot: async (cwd: string) => getGitRoot(cwd),
+    getStatus: async (cwd: string) => {
+      const result = await getStatus(cwd)
+      // Auto-start watcher when we detect a git repo
+      if (result.isRepo) {
+        startGitWatcher(cwd)
+      }
+      return result
+    },
+    stage: async (cwd: string, paths: string[]) => stageFiles(cwd, paths),
+    unstage: async (cwd: string, paths: string[]) => unstageFiles(cwd, paths),
+    stageAll: async (cwd: string) => stageAll(cwd),
+    unstageAll: async (cwd: string) => unstageAll(cwd),
+    commit: async (cwd: string, message: string, amend?: boolean) => commit(cwd, message, amend),
+    getDiff: async (cwd: string, path: string, staged?: boolean) => getDiff(cwd, path, staged),
+    getStagedDiff: async (cwd: string) => getStagedDiffRaw(cwd),
+    showFile: async (cwd: string, path: string) => showFile(cwd, path),
+    getBranches: async (cwd: string) => getBranches(cwd),
+    checkout: async (cwd: string, ref: string) => checkout(cwd, ref),
+    createBranch: async (cwd: string, name: string, checkoutTo?: boolean) => createBranch(cwd, name, checkoutTo),
+    deleteBranch: async (cwd: string, name: string, force?: boolean) => deleteBranch(cwd, name, force),
+    getLog: async (cwd: string, count?: number) => getLog(cwd, count),
+    discardChanges: async (cwd: string, paths: string[]) => discardChanges(cwd, paths),
+    pull: async (cwd: string) => pull(cwd),
+    push: async (cwd: string) => push(cwd),
+    stash: async (cwd: string) => stash(cwd),
+    stashPop: async (cwd: string) => stashPop(cwd),
+    fetchAll: async (cwd: string) => {
+      const result = await gitExec(['fetch', '--all', '--prune'], cwd)
+      return { success: result.code === 0, error: result.code !== 0 ? result.stderr : undefined }
+    },
+    getFullDiff: async (cwd: string) => getFullDiff(cwd),
+    watchProject: async (cwd: string) => {
       startGitWatcher(cwd)
-    }
-    return result
-  })
-
-  ipcMain.handle('git:stage', async (_event, cwd: string, paths: string[]) => {
-    return stageFiles(cwd, paths)
-  })
-
-  ipcMain.handle('git:unstage', async (_event, cwd: string, paths: string[]) => {
-    return unstageFiles(cwd, paths)
-  })
-
-  ipcMain.handle('git:stageAll', async (_event, cwd: string) => {
-    return stageAll(cwd)
-  })
-
-  ipcMain.handle('git:unstageAll', async (_event, cwd: string) => {
-    return unstageAll(cwd)
-  })
-
-  ipcMain.handle('git:commit', async (_event, cwd: string, message: string, amend?: boolean) => {
-    return commit(cwd, message, amend)
-  })
-
-  ipcMain.handle('git:getDiff', async (_event, cwd: string, path: string, staged?: boolean) => {
-    return getDiff(cwd, path, staged)
-  })
-
-  ipcMain.handle('git:getStagedDiff', async (_event, cwd: string) => {
-    return getStagedDiffRaw(cwd)
-  })
-
-  ipcMain.handle('git:showFile', async (_event, cwd: string, path: string) => {
-    return showFile(cwd, path)
-  })
-
-  ipcMain.handle('git:getBranches', async (_event, cwd: string) => {
-    return getBranches(cwd)
-  })
-
-  ipcMain.handle('git:checkout', async (_event, cwd: string, ref: string) => {
-    return checkout(cwd, ref)
-  })
-
-  ipcMain.handle('git:createBranch', async (_event, cwd: string, name: string, checkoutTo?: boolean) => {
-    return createBranch(cwd, name, checkoutTo)
-  })
-
-  ipcMain.handle('git:deleteBranch', async (_event, cwd: string, name: string, force?: boolean) => {
-    return deleteBranch(cwd, name, force)
-  })
-
-  ipcMain.handle('git:getLog', async (_event, cwd: string, count?: number) => {
-    return getLog(cwd, count)
-  })
-
-  ipcMain.handle('git:discardChanges', async (_event, cwd: string, paths: string[]) => {
-    return discardChanges(cwd, paths)
-  })
-
-  ipcMain.handle('git:pull', async (_event, cwd: string) => {
-    return pull(cwd)
-  })
-
-  ipcMain.handle('git:push', async (_event, cwd: string) => {
-    return push(cwd)
-  })
-
-  ipcMain.handle('git:stash', async (_event, cwd: string) => {
-    return stash(cwd)
-  })
-
-  ipcMain.handle('git:stashPop', async (_event, cwd: string) => {
-    return stashPop(cwd)
-  })
-
-  ipcMain.handle('git:fetchAll', async (_event, cwd: string) => {
-    const result = await gitExec(['fetch', '--all', '--prune'], cwd)
-    return { success: result.code === 0, error: result.code !== 0 ? result.stderr : undefined }
-  })
-
-  ipcMain.handle('git:getFullDiff', async (_event, cwd: string) => {
-    return getFullDiff(cwd)
-  })
-
-  // Watch project for git changes
-  ipcMain.handle('git:watchProject', async (_event, cwd: string) => {
-    startGitWatcher(cwd)
-    return true
-  })
-
-  // Stop watching
-  ipcMain.handle('git:stopWatch', async () => {
-    stopGitWatcher()
-    return true
+      return true
+    },
+    stopWatch: async () => {
+      stopGitWatcher()
+      return true
+    },
   })
 
   debug('GitService', 'IPC handlers registered')

@@ -9,6 +9,10 @@ import { StringDecoder } from 'string_decoder'
 import type { ProcessStatus } from '../sessionProcess'
 import type { EngineSessionConfig, ImageAttachment } from './types'
 import { info, warn, error, debug } from '../logger'
+import {
+  killTree as engineKillTree,
+  isProbableBunExecutable as engineIsProbableBunExecutable,
+} from '../engineChildProcess'
 
 export class PiSessionProcess extends EventEmitter {
   readonly sessionId: string
@@ -329,8 +333,7 @@ export class PiSessionProcess extends EventEmitter {
 
   async kill(): Promise<void> {
     if (this._process) {
-      info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Killing process`)
-      this._process.kill('SIGTERM')
+      engineKillTree(this._process, `PiSessionProcess[${this.sessionId.slice(0, 8)}]`)
       this._process = null
     }
     this.status = 'exited'
@@ -525,14 +528,10 @@ export class PiSessionProcess extends EventEmitter {
 
   /**
    * Check if a file exists and looks like a real bun executable (not a placeholder or LFS pointer).
+   * Delegates to EngineChildProcess.isProbableBunExecutable for the shared implementation.
    */
   private isProbableBunExecutable(absPath: string): boolean {
-    try {
-      const st = fs.statSync(absPath)
-      return st.isFile() && st.size >= 256 * 1024
-    } catch {
-      return false
-    }
+    return engineIsProbableBunExecutable(absPath)
   }
 
   /**

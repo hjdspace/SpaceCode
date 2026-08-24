@@ -1,3 +1,27 @@
+## [0.7.6](https://github.com/hjdspace/SpaceCode/compare/v0.7.5...v0.7.6) (2026-08-22)
+
+### Features
+
+* **chat:** 新增斜杠命令消息的显示标签支持，实现 inline chip 渲染
+* **git:** typed channel map 作为 IPC 通道单一事实来源
+* **electron:** 新增子进程生命周期管理模块及配套测试
+
+### Bug Fixes
+
+* **DiffViewer:** 修复行内容宽度显示异常
+* **rendererApi:** 修复 createRendererApi 返回 Proxy 导致 spread 后丢失方法的问题
+* **csp:** 添加 media-src 指令以支持媒体资源加载
+
+### Performance
+
+* **turn:** 合并后台积压的 text_delta 写回，避免恢复窗口时逐条刷新
+
+### Refactor
+
+* **chatSession:** 提取 syncPermissionMode 与 useRewindDialog 深模块
+* **skillManager:** 统一技能管理的分类与安装逻辑
+* **config:** 重构 config setters 为不可变更新
+
 ## [0.7.5](https://github.com/hjdspace/SpaceCode/compare/v0.7.4...v0.7.5) (2026-08-20)
 
 ### Features

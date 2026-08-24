@@ -63,7 +63,7 @@ vi.mock('../browserUseService', () => ({
 vi.mock('../claudeCodeIPC', () => ({
   registerClaudeCodeIPC: vi.fn(),
   setMainWindow: vi.fn(),
-  getPool: vi.fn(() => null),
+  getPool: vi.fn(() => ({ killAll: vi.fn() })),
 }))
 vi.mock('../autoUpdaterService', () => ({
   initAutoUpdater: vi.fn(),
