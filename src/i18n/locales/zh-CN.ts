@@ -490,6 +490,7 @@ export default {
     balanced: '均衡',
     powerful: '强力',
     selectModel: '选择模型...',
+    useCustomModel: '使用自定义模型',
   },
 
   profile: {
@@ -1130,6 +1131,8 @@ export default {
     noMatchingFiles: '未找到匹配的文件或文件夹',
     searchModels: '搜索模型...',
     noMatchingModels: '未找到匹配的模型',
+    noModelsConfigured: '尚未配置模型，请在设置中配置 Haiku / Sonnet / Opus 模型',
+    goToSettings: '前往设置',
     retry: '重试',
     configureApiKeyFirst: '请先配置 API Key',
     httpProxyUnavailable: 'HTTP 代理不可用',
