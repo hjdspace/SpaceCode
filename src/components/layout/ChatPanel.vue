@@ -282,7 +282,7 @@ import { useScmStore } from '@/stores/scm'
 import { useTaskManager } from '@/composables/useTaskManager'
 import { syncTaskStateFromToolCall } from '@/utils/taskToolSync'
 import { buildMessagesFromHistory } from '@/utils/sessionRestore'
-import { initLLMService, llmState, updateConfig } from '@/services/llm'
+import { initLLMService, llmState } from '@/services/llm'
 import { pathsEqual } from '@/utils/recentProjectRoots'
 import { useChatCommands } from '@/composables/useChatCommands'
 import { useWorkRouter } from '@/composables/useWorkRouter'
@@ -937,37 +937,74 @@ watch(() => settingsStore.config.model, (newModel) => {
   }
 })
 
-// 处理模型变更 - 同步到 Agent 系统并重启 CLI 会话
+/**
+ * 将用户选择的实际模型名映射回 claude-code 的别名 (haiku/sonnet/opus)。
+ *
+ * 用户在设置页面配置 haikuModel/sonnetModel/opusModel 为第三方模型名
+ * (如 deepseek-v4-flash)。这些值通过 ANTHROPIC_DEFAULT_*_MODEL 环境变量
+ * 传递给引擎。引擎的别名解析机制（parseUserSpecifiedModel）会将 `haiku`
+ * 别名解析为 getDefaultHaikuModel() 的返回值，即读取对应的环境变量。
+ *
+ * 如果直接发送实际模型名给 set_model，引擎不会通过别名解析机制处理，
+ * 可能导致模型切换不生效。
+ */
+function resolveModelAlias(modelValue: string): string {
+  const getProviderConfig = (): { haikuModel: string; sonnetModel: string; opusModel: string } | null => {
+    switch (settingsStore.authMethod) {
+      case 'anthropic_compatible': return settingsStore.anthropicConfig
+      case 'openai_compatible': return settingsStore.openaiConfig
+      case 'gemini_api': return settingsStore.geminiConfig
+      default: return null
+    }
+  }
+  const providerConfig = getProviderConfig()
+  if (!providerConfig) return modelValue
+
+  if (providerConfig.haikuModel && providerConfig.haikuModel === modelValue) return 'haiku'
+  if (providerConfig.sonnetModel && providerConfig.sonnetModel === modelValue) return 'sonnet'
+  if (providerConfig.opusModel && providerConfig.opusModel === modelValue) return 'opus'
+
+  return modelValue
+}
+
+// 处理模型变更 - 通过 setModel control_request 发送到引擎
 async function handleModelChange(model: string) {
   currentModel.value = model
-  
-  // 同步到 settings store
-  const config = settingsStore.config
-  switch (settingsStore.authMethod) {
-    case 'anthropic_compatible':
-      settingsStore.anthropicConfig.sonnetModel = model
-      break
-    case 'openai_compatible':
-      settingsStore.openaiConfig.sonnetModel = model
-      break
-    case 'gemini_api':
-      settingsStore.geminiConfig.sonnetModel = model
-      break
+
+  // ★ 不再写入 sonnetModel — 用户在输入框选择的模型只是当前会话的临时选择，
+  // 不应修改全局的 haiku/sonnet/opus 配置。
+  // 全局模型配置只在设置页面修改。
+
+  // ★ 将用户选择的实际模型名映射回 claude-code 的别名 (haiku/sonnet/opus)。
+  // 引擎的 set_model control_request 通过别名解析机制（parseUserSpecifiedModel →
+  // getDefaultHaikuModel/getDefaultSonnetModel/getDefaultOpusModel）读取
+  // ANTHROPIC_DEFAULT_*_MODEL 环境变量，正确路由到用户配置的实际模型。
+  // 直接发送实际模型名（如 deepseek-v4-flash）会绕过别名解析，导致引擎
+  // 无法将其与 haiku/sonnet/opus 槽位关联。
+  const modelAlias = resolveModelAlias(model)
+
+  // 通过 control_request set_model 将模型别名发送到正在运行的引擎
+  const claudeCode = api.claudeCode
+  const sid = sessionStore.currentSessionId
+  if (claudeCode && sid) {
+    try {
+      const status = await claudeCode.getSessionStatus(sid)
+      if (status?.isRunning) {
+        // 引擎在运行：通过 setModel control_request 切换模型（无需重启）
+        await claudeCode.setModel(sid, modelAlias)
+        console.log('[ChatPanel] Model switched via setModel:', modelAlias, '(from', model, ')')
+        return
+      }
+    } catch (error) {
+      console.error('[ChatPanel] setModel failed, falling back to restart:', error)
+    }
   }
-  settingsStore.saveSettings()
-  
-  // 同步到 LLM 服务
-  updateConfig({
-    provider: config.provider as any,
-    apiKey: config.apiKey || '',
-    baseUrl: config.baseUrl,
-    model: model
-  })
-  
-  // 重启 CLI 会话以使新模型生效
-  await sessionStore.switchModel(model)
-  
-  console.log('[ChatPanel] Model changed to:', model)
+
+  // 引擎未运行或 setModel 失败：重启会话时使用用户选择的模型别名
+  // switchModel 会将别名传递给 initClaudeCodeSession 作为 --model 参数
+  await sessionStore.switchModel(modelAlias)
+
+  console.log('[ChatPanel] Model changed to:', modelAlias, '(from', model, ')')
 }
 
 // 处理推理深度变更 - 同步到 settings store 和 ~/.claude/settings.json
