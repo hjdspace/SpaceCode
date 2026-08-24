@@ -662,6 +662,15 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       const config = settingsStore.config
       const cwd = overrides?.cwd || session.workingDirectory || currentProjectRoot.value || await api.getCwd() || '/'
 
+      // ★ 模型别名解析：将实际模型名映射为 claude-code 的 haiku/sonnet/opus 别名。
+      // 引擎的 --model 参数和 set_model control_request 都通过别名解析机制
+      // （parseUserSpecifiedModel → getDefaultHaikuModel/getDefaultSonnetModel/
+      // getDefaultOpusModel）读取 ANTHROPIC_DEFAULT_*_MODEL 环境变量，路由到
+      // 用户配置的实际模型。直接传实际模型名会绕过此机制。
+      // _overrideModelForNextInit 已经是别名（由 ChatPanel.handleModelChange 传入）。
+      // config.model 是 sonnetModel 的实际值（如 deepseek-v4-pro），需要映射回 'sonnet'。
+      const effectiveModel = _overrideModelForNextInit ?? resolveModelAliasFromConfig(config.model)
+
       session.processStatus = 'starting'
       saveToStorage()
 
@@ -669,7 +678,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       const { usePermissionPolicyStore } = await import('./permissionPolicy')
       const policyStore = usePermissionPolicyStore()
 
-      logger.info('ChatStore', `initClaudeCodeSession: starting session | id=${sessionId.slice(0, 8)} | engine=${desiredEngine} | cwd=${cwd} | provider=${config.provider} | model=${config.model} | baseUrl=${config.baseUrl || '(empty)'} | apiKey=${config.apiKey ? '***set' : '(empty)'} | agent=${currentAgent.value || '(none)'}`)
+      logger.info('ChatStore', `initClaudeCodeSession: starting session | id=${sessionId.slice(0, 8)} | engine=${desiredEngine} | cwd=${cwd} | provider=${config.provider} | model=${effectiveModel} | baseUrl=${config.baseUrl || '(empty)'} | apiKey=${config.apiKey ? '***set' : '(empty)'} | agent=${currentAgent.value || '(none)'}`)
       traceEvent({
         sessionId,
         actor: 'system',
@@ -680,7 +689,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
           cwd,
           engineType: desiredEngine,
           provider: config.provider,
-          model: config.model,
+          model: effectiveModel,
           baseUrl: config.baseUrl || '',
           agent: currentAgent.value || '',
         },
@@ -691,7 +700,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         apiKey: config.apiKey,
         baseUrl: config.baseUrl,
         provider: config.provider,
-        model: config.model,
+        model: effectiveModel,
         effortLevel: config.effortLevel,
         permissionMode: policyStore.currentPermissionMode,
         agent: overrides?.agent || currentAgent.value || undefined,
@@ -1603,17 +1612,80 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     console.log('[ChatStore] Agent switched to:', agentType || '(default)')
   }
 
-  async function switchModel(model: string) {
+  /**
+   * 将实际模型名映射回 claude-code 的别名 (haiku/sonnet/opus)。
+   *
+   * config.model 总是 sonnetModel 的值（如 deepseek-v4-pro）。
+   * 引擎的 --model 参数需要别名（如 'sonnet'）才能通过 parseUserSpecifiedModel
+   * 解析到 ANTHROPIC_DEFAULT_SONNET_MODEL 环境变量配置的实际模型。
+   */
+  function resolveModelAliasFromConfig(modelValue: string | undefined): string | undefined {
+    if (!modelValue) return undefined
+    const authMethod = settingsStore.authMethod
+    let providerConfig: { haikuModel: string; sonnetModel: string; opusModel: string } | null = null
+    switch (authMethod) {
+      case 'anthropic_compatible':
+        providerConfig = settingsStore.anthropicConfig
+        break
+      case 'openai_compatible':
+        providerConfig = settingsStore.openaiConfig
+        break
+      case 'gemini_api':
+        providerConfig = settingsStore.geminiConfig
+        break
+    }
+    if (!providerConfig) return modelValue
+
+    if (providerConfig.haikuModel && providerConfig.haikuModel === modelValue) return 'haiku'
+    if (providerConfig.sonnetModel && providerConfig.sonnetModel === modelValue) return 'sonnet'
+    if (providerConfig.opusModel && providerConfig.opusModel === modelValue) return 'opus'
+
+    return modelValue
+  }
+
+  /** Temporary model override for the next initClaudeCodeSession call.
+   *  Set by switchModel() to pass the user's chosen model (from the input-box
+   *  dropdown) to the engine via --model CLI flag, instead of always using
+   *  settingsStore.config.model (which is always sonnetModel).
+   *  Cleared after initClaudeCodeSession completes.
+   */
+  let _overrideModelForNextInit: string | undefined
+
+  async function switchModel(model: string): Promise<void> {
     const sid = currentSessionId.value
     const claudeCode = api.claudeCode
     if (claudeCode && sid) {
       const status = await claudeCode.getSessionStatus(sid)
       if (status?.isRunning) {
-        await claudeCode.stop(sid)
-        await initClaudeCodeSession(sid)
+        // ★ 优先通过 setModel control_request 切换模型（不重启会话）
+        try {
+          await claudeCode.setModel(sid, model)
+          logger.info('ChatStore', `switchModel: setModel control_request sent | id=${sid.slice(0, 8)} | model=${model}`)
+          return
+        } catch (error) {
+          logger.warn('ChatStore', `switchModel: setModel failed, falling back to restart | id=${sid.slice(0, 8)}`, { error: String(error) })
+          // setModel 失败，回退到重启会话
+          await claudeCode.stop(sid)
+          // ★ 临时覆盖 config.model，使 initClaudeCodeSession 使用用户选择的模型
+          // 而非 settingsStore.config.model（总是 sonnetModel）
+          _overrideModelForNextInit = model
+          try {
+            await initClaudeCodeSession(sid)
+          } finally {
+            _overrideModelForNextInit = undefined
+          }
+        }
+      } else {
+        // 引擎未运行：重启会话时使用用户选择的模型
+        _overrideModelForNextInit = model
+        try {
+          await initClaudeCodeSession(sid)
+        } finally {
+          _overrideModelForNextInit = undefined
+        }
       }
     }
-    console.log('[ChatStore] Model switched to:', model)
+    logger.info('ChatStore', `switchModel | id=${sid?.slice(0, 8) || '(none)'} | model=${model}`)
   }
 
   async function startWorkAssistantSession(assistant: {
