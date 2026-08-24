@@ -1,3 +1,33 @@
+## [0.7.7](https://github.com/hjdspace/SpaceCode/compare/v0.7.6...v0.7.7) (2026-08-24)
+
+### Features
+
+* **model-settings:** 新增模型配置提示与认证方式切换时自动获取模型列表
+* **searchable-select:** 增强 SearchableSelect 支持自定义输入选项
+
+### Bug Fixes
+
+* **turn:** 修复完成汇总使用设置模型而非实际响应模型的问题
+
+### Performance
+
+* **context-usage:** 提升 getContextUsage 超时时间与错误处理可靠性
+
+### Refactor
+
+* **settings:** 移除 MCP 服务器设置功能
+* **model-config:** 重构模型配置处理逻辑与别名解析优先级
+* **chat-session:** 更新模型别名解析逻辑
+* **tests:** 重构测试中的模型列表解析逻辑
+
+### Documentation
+
+* **i18n:** 添加模型设置相关本地化字符串
+
+### Chore
+
+* **settings:** 从 settings.json 删除废弃的 model 字段
+
 ## [0.7.6](https://github.com/hjdspace/SpaceCode/compare/v0.7.5...v0.7.6) (2026-08-22)
 
 ### Features
