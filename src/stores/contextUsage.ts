@@ -34,7 +34,7 @@ function parseEngineContextData(raw: Record<string, unknown>): ContextUsageData 
   return data
 }
 
-const CONTEXT_USAGE_FETCH_TIMEOUT_MS = 3_500
+const CONTEXT_USAGE_FETCH_TIMEOUT_MS = 8_000
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | undefined> {
   return new Promise(resolve => {
