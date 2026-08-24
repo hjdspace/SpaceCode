@@ -230,7 +230,19 @@ export const engineGateway = {
   getContextUsage: withLogging('getContextUsage', async (sessionId: string): Promise<Record<string, unknown> | null> => {
     const engine = findEngineForSession(sessionId)
     if (typeof engine.getContextUsage === 'function') {
-      return (await engine.getContextUsage(sessionId)) ?? null
+      try {
+        return (await engine.getContextUsage(sessionId)) ?? null
+      } catch (err) {
+        // getContextUsage performs multiple token-counting API calls inside
+        // the engine (collectContextData → analyzeContextUsage). When the
+        // active model is not Claude (e.g. DeepSeek), the Anthropic
+        // countTokens endpoint may be slow or unsupported, causing the
+        // control_request to time out. Degrade gracefully to null so the
+        // renderer-side withTimeout fallback (client-side estimate) takes over
+        // instead of surfacing an ERROR in the terminal.
+        warn(TAG, `getContextUsage failed, falling back to null | sid=${sessionId.slice(0, 8)}`, { error: String(err) })
+        return null
+      }
     }
     return null
   }),
