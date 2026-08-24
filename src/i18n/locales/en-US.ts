@@ -281,8 +281,6 @@ export default {
     tools: 'Tools',
     computerUse: 'Computer Use',
     browserUse: 'Browser Use',
-    mcp: 'MCP',
-    mcpServers: 'MCP Servers',
     h5Access: 'H5 Remote Access',
     rtk: 'RTK Optimization',
     shortcuts: 'Shortcuts',

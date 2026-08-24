@@ -281,8 +281,6 @@ export default {
     tools: '工具',
     computerUse: '电脑控制',
     browserUse: '浏览器使用',
-    mcp: 'MCP',
-    mcpServers: 'MCP 服务器',
     h5Access: 'H5 远程访问',
     rtk: 'RTK 优化',
     shortcuts: '快捷键',

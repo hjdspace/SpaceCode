@@ -58,10 +58,6 @@
             <ProfileCards
               v-else-if="activeTab === 'model'"
             />
-            <McpSettings
-              v-else-if="activeTab === 'mcp'"
-              @change="onSettingsChange"
-            />
             <ToolsSettings
               v-else-if="activeTab === 'tools'"
               @change="onSettingsChange"
@@ -112,7 +108,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, defineAsyncComponent, type AsyncComponentLoader } from 'vue'
 import {
   ArrowLeft,
-  Settings, Boxes, Palette, Wrench, Keyboard, Bot, BarChart3, Zap, Monitor, Globe, Info, Smartphone, MessageCircle, Cat
+  Settings, Palette, Wrench, Keyboard, Bot, BarChart3, Zap, Monitor, Globe, Info, Smartphone, MessageCircle, Cat
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -129,7 +125,7 @@ const asyncSetting = (loader: AsyncComponentLoader) => defineAsyncComponent({
 const GeneralSettings = asyncSetting(() => import('./GeneralSettings.vue'))
 const ModelSettings = asyncSetting(() => import('./ModelSettings.vue'))
 const ProfileCards = asyncSetting(() => import('./ProfileCards.vue'))
-const McpSettings = asyncSetting(() => import('./McpSettings.vue'))
+
 const AppearanceSettings = asyncSetting(() => import('./AppearanceSettings.vue'))
 const ToolsSettings = asyncSetting(() => import('./ToolsSettings.vue'))
 const ShortcutsSettings = asyncSetting(() => import('./ShortcutsSettings.vue'))
@@ -150,7 +146,6 @@ const { t } = useI18n()
 const settingMenuItems = computed(() => [
   { id: 'general', label: t('settings.general'), icon: Settings },
   { id: 'model', label: t('settings.modelSettings'), icon: Bot },
-  { id: 'mcp', label: t('settings.mcpServers'), icon: Boxes },
   { id: 'tools', label: t('settings.tools'), icon: Wrench },
   { id: 'computer-use', label: t('settings.computerUse'), icon: Monitor },
   { id: 'browser-use', label: t('settings.browserUse'), icon: Globe },
