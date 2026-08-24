@@ -212,7 +212,14 @@
                   </button>
                 </div>
                 <div class="dropdown-list" ref="modelListRef">
-                  <div v-if="isLoadingModels && filteredModels.length === 0" class="dropdown-loading">
+                  <div v-if="!hasConfiguredModels && filteredModels.length === 0" class="dropdown-empty dropdown-config-prompt">
+                    <Settings :size="16" />
+                    <span>{{ t('chatInput.noModelsConfigured') }}</span>
+                    <button class="config-link-btn" @click="openSettingsModels">
+                      {{ t('chatInput.goToSettings') }}
+                    </button>
+                  </div>
+                  <div v-else-if="isLoadingModels && filteredModels.length === 0" class="dropdown-loading">
                     <Loader2 :size="16" class="spin" />
                     <span>{{ t('common.loading') }}</span>
                   </div>
@@ -339,7 +346,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import {
   ArrowUp, Plus, ChevronDown, Check, Square, X,
   Search, Loader2, RefreshCw, AlertCircle, Zap, FolderOpen, Brain,
-  Sparkles, Image, ChevronRight, Archive, Clock, LayoutGrid
+  Sparkles, Image, ChevronRight, Archive, Clock, LayoutGrid, Settings
 } from 'lucide-vue-next'
 import { useSettingsStore } from '@/stores/settings'
 import ChatContextToolbar from './ChatContextToolbar.vue'
@@ -419,7 +426,7 @@ const {
   modelSearchQuery, highlightedModel, isLoadingModels, modelLoadError,
   modelSearchInput, modelSelectorRef, modelListRef, modelSubmenuRef,
   mainDropdownRef, modelTriggerRowRef,
-  availableModels, filteredModels, canRefreshModels, selectedModelLabel, availableModes,
+  availableModels, hasConfiguredModels, filteredModels, canRefreshModels, selectedModelLabel, availableModes,
   selectModel, selectMode, modeLabel, closeModelDropdown, toggleModelDropdown,
   toggleModelSubmenu, onCurrentModelRowLeave, onModelSubmenuEnter,
   onModelSubmenuLeave, closeModelSubmenu, navigateModels, handleModelKeydown,
@@ -1078,6 +1085,14 @@ function clearContextSearch() {
 function openSkillsManager() {
   openSkillsManagerBase()
   emit('open-skills')
+}
+
+/** Open settings panel and navigate to the Model tab */
+function openSettingsModels() {
+  appStore.toggleSettings()
+  nextTick(() => {
+    window.dispatchEvent(new CustomEvent('settings-navigate', { detail: { tab: 'model' } }))
+  })
 }
 
 // ── Prompt optimization ──────────────────────────────────────────
@@ -2188,6 +2203,26 @@ watch(pendingFile, (file) => {
   color: var(--text-muted);
   font-size: 13px;
   text-align: center;
+}
+
+.dropdown-config-prompt {
+  gap: 10px;
+}
+
+.config-link-btn {
+  padding: 6px 16px;
+  background: var(--accent-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+
+  &:hover {
+    opacity: 0.9;
+  }
 }
 
 .dropdown-error {
