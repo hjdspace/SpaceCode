@@ -284,6 +284,10 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
   const handleStreamEvent = (sessionId: string, ts: TurnState, streamEvent: any) => {
     const ev = streamEvent.event || streamEvent
 
+    if (ev.type === 'message_start' && typeof ev.message?.model === 'string' && ev.message.model.trim()) {
+      ts.model = ev.message.model
+    }
+
     if (ev.type === 'content_block_start' && ev.content_block?.type === 'text') {
       logger.debug('ChatStore', `[${sessionId.slice(0, 8)}] stream_event: content_block_start(text) | accLen=${ts.accumulatedContent.length}`)
       ts.currentTextEventId = null
@@ -454,6 +458,10 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
 
   const handleAssistant = (sessionId: string, ts: TurnState, assistant: any) => {
     logger.info('ChatStore', `[${sessionId.slice(0, 8)}] assistant event received`)
+
+    if (typeof assistant.message?.model === 'string' && assistant.message.model.trim()) {
+      ts.model = assistant.message.model
+    }
 
     const apiUsage = assistant.message?.usage
     if (apiUsage) {
@@ -829,6 +837,10 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
   const handleResult = (sessionId: string, ts: TurnState, result: any) => {
     if (ts.settled) return
 
+    if (typeof result?.model === 'string' && result.model.trim()) {
+      ts.model = result.model
+    }
+
     flushContentPatch(sessionId, ts)
 
     const isError = !!result?.is_error
@@ -889,7 +901,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
         const resultUsage = result.usage
         const previousApiCallUsage = msg.metadata?.apiCallUsage
         msg.metadata = {
-          model: getModel(),
+          model: ts.model || getModel(),
           duration: Date.now() - msg.timestamp,
           ...(resultUsage && {
             inputTokens: resultUsage.input_tokens,
@@ -1037,7 +1049,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     const classified = errorHandler.classifyError(error, {
       sessionId,
       provider: getProvider(),
-      model: getModel(),
+      model: ts.model || getModel(),
       baseUrl: getBaseUrl(),
       phase: 'stream',
     })
@@ -1082,7 +1094,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     errorHandler.handleError(error, {
       sessionId,
       provider: getProvider(),
-      model: getModel(),
+      model: ts.model || getModel(),
       baseUrl: getBaseUrl(),
       phase: 'stream',
     })
@@ -1100,7 +1112,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     sink.patchMessage(sessionId, ts.assistantMessageId, {
       content: classified.message,
       metadata: {
-        model: getModel(),
+        model: ts.model || getModel(),
         duration: Date.now() - ts.sendStartTime,
         error: classified,
       }
