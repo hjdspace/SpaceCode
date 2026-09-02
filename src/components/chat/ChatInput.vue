@@ -1220,7 +1220,18 @@ function handleSend(steerMode = false) {
     clearEditor()
     emit('slash-command', commandName, commandArgs, allAttachments)
   } else if (slashResult.action === 'insert_chip' && slashResult.chip) {
-    const result = dispatchCommandChip([slashResult.chip], '')
+    // 直接输入 "/command args" 提交：从原文提取参数，避免 args 丢失
+    const commandName = slashResult.chip.label
+    const commandArgs = content.slice(1 + commandName.length).trim()
+
+    if (slashResult.chip.kind === 'sdk_command') {
+      // sdk 命令与 chip 路径行为一致：作为斜杠命令派发（如 /goal <objective>）
+      cleanupAfterCommand()
+      emit('slash-command', commandName, commandArgs, allAttachments)
+      return
+    }
+
+    const result = dispatchCommandChip([slashResult.chip], commandArgs)
     emit('send', result.prompt, allAttachments, {
       displayLabel: result.displayLabel
     })

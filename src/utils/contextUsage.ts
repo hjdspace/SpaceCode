@@ -468,7 +468,18 @@ export function buildSnapshotFromEngineData(
     cacheReadInputTokens: data.apiUsage?.cache_read_input_tokens ?? 0,
     cacheCreationInputTokens: data.apiUsage?.cache_creation_input_tokens ?? 0,
   }
-  const ctxSize = data.rawMaxTokens || getContextWindowForModel(model, userOverride)
+  const hasUserOverride = userOverride != null && userOverride > 0
+  const ctxSize = hasUserOverride
+    ? getContextWindowForModel(model, userOverride)
+    : data.rawMaxTokens || getContextWindowForModel(model)
+  const effectiveData = hasUserOverride
+    ? {
+        ...data,
+        maxTokens: ctxSize,
+        rawMaxTokens: ctxSize,
+        percentage: Math.min(100, Math.round((data.totalTokens / ctxSize) * 100)),
+      }
+    : data
   const { used, remaining } = calculateContextPercentages(data.apiUsage, ctxSize)
   const { percentLeft, warningLevel, warningMessage } = calculateTokenWarningState(
     data.totalTokens,
@@ -478,8 +489,8 @@ export function buildSnapshotFromEngineData(
   )
 
   return {
-    data,
-    usedPercentage: used ?? data.percentage,
+    data: effectiveData,
+    usedPercentage: used ?? effectiveData.percentage,
     remainingPercentage: remaining,
     warningLevel,
     percentUntilAutocompact: percentLeft,

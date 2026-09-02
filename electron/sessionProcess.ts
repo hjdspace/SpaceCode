@@ -1003,7 +1003,12 @@ export class SessionProcess extends EventEmitter {
     // 代理模式必须使用代理公布的标准路由 ID。否则 Claude Code 会回退到
     // claude-sonnet-4-6，而该 ID 不在代理的 /v1/models 列表中，会在请求前失败。
     if (useProxy) {
-      args.push('--model', PROXY_DEFAULT_MODEL)
+      let modelArg = PROXY_DEFAULT_MODEL
+      const ctxSize = config.model && config.modelContextWindows?.[config.model]
+      // Keep the stable proxy route while opting the engine into its 1M context
+      // mode. The proxy strips this suffix before forwarding upstream.
+      if (ctxSize && ctxSize > 200_000) modelArg += '[1m]'
+      args.push('--model', modelArg)
     } else if (config.model) {
       let modelArg = config.model
       // 用户配置的上下文窗口 > 200K 时，追加 [1m] 后缀以扩展引擎上下文窗口至 1M。

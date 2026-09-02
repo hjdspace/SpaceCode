@@ -169,7 +169,7 @@ export interface MessageMetadata {
   duration?: number
   warning?: string
   error?: ClassifiedError
-  kind?: 'task-notification' | 'teammate-message'
+  kind?: 'task-notification' | 'teammate-message' | 'goal-notice'
   agentTaskId?: string
   agentName?: string
   teamName?: string

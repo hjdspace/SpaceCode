@@ -18,6 +18,10 @@ import { REQUEST_TIMEOUT } from './types'
 import { createTimelineAssembler } from './timelineAssembler'
 import { createTurnStateMachine } from './turnStateMachine'
 import { createEventHandlers, type EventReducer } from './eventHandlers'
+import { useGoalStore } from '../goal'
+import { buildContinuationPrompt, parseGoalMarkers, MAX_GOAL_TURNS } from '@/lib/goalPrompts'
+import { i18n } from '@/i18n'
+import { createUuid } from '@/utils/uuid'
 
 // Re-export — 外部模块通过 @/stores/turn 导入这些符号
 export type { TurnState } from './types'
@@ -331,6 +335,9 @@ export function useTurnStore(injectedApi?: any) {
       getClaudeCode: () => resolvedApi.claudeCode ?? null,
       getArtifactsApi: () => resolvedApi.artifacts ?? null,
       isSoundOnTaskComplete: () => !!settingsStore.appearance?.soundOnTaskComplete,
+      onTurnCompleted: (sessionId: string, finalText: string) => {
+        void handleGoalTurnResult(sessionId, finalText)
+      },
     })
 
     const {
@@ -354,18 +361,26 @@ export function useTurnStore(injectedApi?: any) {
       handleExit,
     } = handlers
 
-    // ── 骨架 stub：本任务只建结构，行为在任务 5/7 实现 ──
     interface MessageAttachments {
       files?: { name: string; path: string; isFolder: boolean }[]
       images?: { id: string; name: string; type: 'image'; mimeType: string; previewUrl: string; data: string }[]
     }
 
-    async function sendMessage(content: string, userMessageContent?: string, attachments?: MessageAttachments): Promise<void> {
-      if (!sessionStore.currentSessionId) {
-        sessionStore.createSession()
-      }
+    interface SendMessageOptions {
+      /** 目标会话 ID（默认 currentSessionId）。显式指定时不自动创建新会话。 */
+      sessionId?: string
+      /** autonomous turn：使用更长超时，且超时按正常结算处理（goal 续跑使用）。 */
+      isAutonomous?: boolean
+      /** 不在消息列表中追加用户消息（内容仍会发送给引擎，用于 goal steering 注入）。 */
+      hideUserMessage?: boolean
+    }
 
-      const targetSessionId = sessionStore.currentSessionId!
+    async function sendMessage(content: string, userMessageContent?: string, attachments?: MessageAttachments, options?: SendMessageOptions): Promise<void> {
+      let targetSessionId = options?.sessionId ?? sessionStore.currentSessionId
+      if (!targetSessionId) {
+        sessionStore.createSession()
+        targetSessionId = sessionStore.currentSessionId!
+      }
       // ★ 清除用户中止标记：用户主动发新消息时恢复正常运行
       userAbortedSessions.delete(targetSessionId)
       autoRetry.removeRetryState(targetSessionId)
@@ -393,12 +408,14 @@ export function useTurnStore(injectedApi?: any) {
         metadata: { contentLength: content.length },
       })
 
-      const userMessage = sink.appendMessage(targetSessionId, {
-        role: 'user',
-        content: userMessageContent ?? content,
-        attachments: attachments?.files,
-        imageAttachments: attachments?.images
-      })
+      const userMessage = options?.hideUserMessage
+        ? { id: createUuid() }
+        : sink.appendMessage(targetSessionId, {
+            role: 'user',
+            content: userMessageContent ?? content,
+            attachments: attachments?.files,
+            imageAttachments: attachments?.images
+          })
 
       if (attachments?.images?.length) {
         for (const img of attachments.images) {
@@ -446,7 +463,7 @@ export function useTurnStore(injectedApi?: any) {
       }
 
       await new Promise<void>((resolve, reject) => {
-        const ts = beginTurn(targetSessionId, { isAutonomous: false, resolve, reject })
+        const ts = beginTurn(targetSessionId, { isAutonomous: options?.isAutonomous ?? false, resolve, reject })
         // beginTurn 已将 turn 写入 turnStates，ensureTurn 后续会直接返回它，
         // 安全清除 sendMessage 进行中标记。
         pendingSendMessages.delete(targetSessionId)
@@ -473,6 +490,85 @@ export function useTurnStore(injectedApi?: any) {
         streamingContents.value.set(targetSessionId, '')
         pendingSendMessages.delete(targetSessionId)
       })
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Goal 续跑编排 — /goal 目标的跨 turn 自动继续。
+    //
+    // 引擎 headless 模式下 local-jsx /goal 命令被过滤，目标生命周期由应用侧
+    // goal store 管理；每轮成功结算后（onTurnCompleted → handleGoalTurnResult）
+    // 解析 <goal-complete>/<goal-blocked> 标记并决定：完成 / 阻塞 / 续跑。
+    // ────────────────────────────────────────────────────────────────────
+    const goalStore = useGoalStore()
+
+    function appendGoalNotice(sessionId: string, content: string): void {
+      sink.appendMessage(sessionId, {
+        id: createUuid(),
+        role: 'assistant',
+        content,
+        metadata: { kind: 'goal-notice' },
+      })
+    }
+
+    /** 发送 goal steering 消息（autonomous turn，不显示原始 steering prompt） */
+    async function sendGoalSteering(sessionId: string, prompt: string, displayLabel: string): Promise<void> {
+      try {
+        await sendMessage(prompt, displayLabel, undefined, {
+          sessionId,
+          isAutonomous: true,
+        })
+      } catch (error) {
+        sessionStore.logger.error('ChatStore', `[${sessionId.slice(0, 8)}] goal steering send failed`, { error: String(error) })
+      }
+    }
+
+    /** 发送续跑提示词（ChatPanel /goal resume|continue 也复用此入口） */
+    async function sendGoalContinuation(sessionId: string): Promise<void> {
+      const goal = goalStore.getGoal(sessionId)
+      if (!goal || goal.status !== 'active') return
+      await sendGoalSteering(
+        sessionId,
+        buildContinuationPrompt({
+          objective: goal.objective,
+          status: goal.status,
+          turnsExecuted: goal.turnsExecuted,
+        }),
+        i18n.global.t('chatPanel.goalContinuationLabel', { current: goal.turnsExecuted + 1, max: MAX_GOAL_TURNS }),
+      )
+    }
+
+    async function handleGoalTurnResult(sessionId: string, finalText: string): Promise<void> {
+      const goal = goalStore.getGoal(sessionId)
+      if (!goal || goal.status !== 'active') return
+
+      const markers = parseGoalMarkers(finalText)
+
+      if (markers.complete) {
+        goalStore.completeGoal(sessionId)
+        appendGoalNotice(sessionId, i18n.global.t('chatPanel.goalCompletedNotice'))
+        return
+      }
+
+      if (markers.blockedReason) {
+        const becameBlocked = goalStore.recordBlockedAttempt(sessionId, markers.blockedReason)
+        if (becameBlocked) {
+          appendGoalNotice(sessionId, i18n.global.t('chatPanel.goalBlockedNotice', { reason: markers.blockedReason }))
+          return
+        }
+      } else {
+        goalStore.resetBlockedAttempts(sessionId)
+      }
+
+      goalStore.incrementTurns(sessionId)
+      const updated = goalStore.getGoal(sessionId)
+      if (!updated || updated.status !== 'active') {
+        if (updated?.status === 'max_turns') {
+          appendGoalNotice(sessionId, i18n.global.t('chatPanel.goalMaxTurnsNotice', { max: MAX_GOAL_TURNS }))
+        }
+        return
+      }
+
+      await sendGoalContinuation(sessionId)
     }
 
     async function abort(): Promise<void> {
@@ -512,6 +608,9 @@ export function useTurnStore(injectedApi?: any) {
             sink.persist(sid)
           }
         }
+
+        // ★ 用户主动中止 → 暂停该会话的 goal，防止结算钩子继续自动续跑
+        goalStore.pauseGoal(sid)
       }
     }
 
@@ -866,6 +965,8 @@ export function useTurnStore(injectedApi?: any) {
       sendMessage,
       abort,
       retryLastMessage,
+      sendGoalSteering,
+      sendGoalContinuation,
       submitToolAnswer,
       skipToolAnswer,
       allowPermission,

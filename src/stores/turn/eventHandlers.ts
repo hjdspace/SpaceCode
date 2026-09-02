@@ -94,6 +94,11 @@ export interface EventReducerOptions {
   getArtifactsApi: () => ArtifactsApi | null
   /** Returns true if task-complete notification sound is enabled. */
   isSoundOnTaskComplete: () => boolean
+  /**
+   * Turn 成功结算后的回调（endTurn 之后触发）。
+   * 用于 goal 续跑等跨 turn 编排 — 传入本轮最终输出文本。
+   */
+  onTurnCompleted?: (sessionId: string, finalText: string) => void
 }
 
 export interface EventReducer {
@@ -179,6 +184,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     getClaudeCode,
     getArtifactsApi,
     isSoundOnTaskComplete,
+    onTurnCompleted,
   } = opts
 
   const { turnStates, resetTimeout, beginTurn, endTurn } = stateMachine
@@ -1014,6 +1020,18 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
 
     ts.resolve?.()
     endTurn(sessionId, ts)
+
+    // ── Goal 续跑等跨 turn 编排钩子（仅成功结算时触发）──
+    // finalText 优先取 result.result，为空时回退到消息累积内容。
+    if (onTurnCompleted) {
+      const s = sink.get(sessionId)
+      const fallbackText = s?.messages.find(m => m.id === ts.assistantMessageId)?.content || ''
+      try {
+        onTurnCompleted(sessionId, resultText || fallbackText)
+      } catch (e) {
+        logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] onTurnCompleted callback failed`, { error: String(e) })
+      }
+    }
 
     // ── Play notification sound when a task completes successfully ──
     const soundEnabled = isSoundOnTaskComplete()
