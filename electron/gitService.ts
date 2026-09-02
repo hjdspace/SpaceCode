@@ -218,7 +218,7 @@ async function getStatus(cwd: string): Promise<GitStatusResult> {
   // Try porcelain v2 first, fall back to v1
   // NOTE: -c core.quotePath=false is a git GLOBAL option, must come BEFORE the subcommand
   const statusResult = await gitExec(
-    ['-c', 'core.quotePath=false', 'status', '--porcelain=v2', '--branch', '--renames'],
+    ['-c', 'core.quotePath=false', 'status', '--porcelain=v2', '--branch', '--renames', '-uall'],
     cwd
   )
 
@@ -400,7 +400,7 @@ async function getStatusPorcelainV1(
   }
 
   const statusResult = await gitExec(
-    ['-c', 'core.quotePath=false', 'status', '--porcelain', '--renames'],
+    ['-c', 'core.quotePath=false', 'status', '--porcelain', '--renames', '-uall'],
     cwd
   )
 
