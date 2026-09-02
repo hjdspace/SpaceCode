@@ -108,6 +108,11 @@ const BROWSER_USE_AVAILABILITY_HINT = [
 'When the user asks to browse a website, search the web, extract web content, fill web forms, or perform any web automation task, use these tools. Do NOT just describe what you would do — actually call the tools.',
 ].join('\n')
 
+// Claude Code validates --model against the proxy's advertised route IDs
+// before sending a request. The proxy maps this stable route to the user's
+// configured upstream model (for example, deepseek-v4-flash).
+const PROXY_DEFAULT_MODEL = 'claude-sonnet-4-20250514'
+
 export interface SessionConfig {
   cwd: string
   model?: string
@@ -995,9 +1000,11 @@ export class SessionProcess extends EventEmitter {
       }
     }
 
-    // 在非代理模式下传递用户配置的模型
-    // 代理模式下不传递 --model，让官网 CLI 使用 ANTHROPIC_DEFAULT_*_MODEL 环境变量
-    if (config.model && !useProxy) {
+    // 代理模式必须使用代理公布的标准路由 ID。否则 Claude Code 会回退到
+    // claude-sonnet-4-6，而该 ID 不在代理的 /v1/models 列表中，会在请求前失败。
+    if (useProxy) {
+      args.push('--model', PROXY_DEFAULT_MODEL)
+    } else if (config.model) {
       let modelArg = config.model
       // 用户配置的上下文窗口 > 200K 时，追加 [1m] 后缀以扩展引擎上下文窗口至 1M。
       // 引擎 getContextWindowForModel() 检测到 [1m] 后缀后返回 1M，
