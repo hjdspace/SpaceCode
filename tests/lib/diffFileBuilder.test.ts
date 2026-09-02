@@ -134,6 +134,32 @@ describe('createDiffViewData', () => {
     expect(data.hunks.length).toBe(2)
   })
 
+  it('prepends the patch header to every hunk (required by @git-diff-view parser)', () => {
+    // The @git-diff-view/core DiffParser only recognizes hunk strings that
+    // carry a full unified-diff header (---/+++ lines); bare hunks starting
+    // with @@ parse to zero hunks and render an empty diff.
+    const data = createDiffViewData(SAMPLE_PATCH, 'src/a.ts')
+    for (const hunk of data.hunks) {
+      expect(hunk.startsWith('diff --git a/src/a.ts b/src/a.ts')).toBe(true)
+      expect(hunk).toContain('--- a/src/a.ts')
+      expect(hunk).toContain('+++ b/src/a.ts')
+      expect(hunk.split('\n').filter(l => l.startsWith('@@')).length).toBe(1)
+    }
+    expect(data.hunks[0]).toContain('@@ -1,3 +1,4 @@')
+    expect(data.hunks[1]).toContain('@@ -20,3 +21,4 @@')
+  })
+
+  it('ends every hunk string with a trailing newline (library line-text parity)', () => {
+    // @git-diff-view/core parses each hunk string independently; without a
+    // trailing newline the hunk's last body line loses its "\n" while the
+    // full-content lines keep it, tripping the dev-only content-mismatch check.
+    const data = createDiffViewData(`${SAMPLE_PATCH}\n`, 'src/a.ts')
+    for (const hunk of data.hunks) {
+      expect(hunk.endsWith('\n')).toBe(true)
+      expect(hunk.endsWith('\n\n')).toBe(false)
+    }
+  })
+
   it('attaches content for untracked files', () => {
     const data = createDiffViewData('', 'new.ts', { newContent: 'line1\nline2' })
     expect(data.newFile.content).toBe('line1\nline2')

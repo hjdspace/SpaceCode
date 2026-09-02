@@ -177,6 +177,10 @@ onUnmounted(() => {
 }
 
 .diff-header {
+  position: relative;
+  /* Own stacking context above .diff-content so the hunk dropdown is not
+     painted over by sticky diff table rows (z-index 1-2 in the library CSS). */
+  z-index: 10;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -219,7 +223,9 @@ onUnmounted(() => {
 }
 
 .dropdown-wrapper {
-  position: relative;
+  // The menu is positioned against .diff-header so long hunk titles cannot
+  // expand it from the button all the way to the panel's left edge.
+  position: static;
 }
 
 .hunk-dropdown-menu {
@@ -231,7 +237,9 @@ onUnmounted(() => {
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
   z-index: 150;
-  min-width: 240px;
+  width: min(460px, calc(100% - 16px));
+  min-width: min(240px, calc(100% - 16px));
+  max-width: calc(100% - 16px);
   max-height: 260px;
   overflow-y: auto;
   padding: 3px;

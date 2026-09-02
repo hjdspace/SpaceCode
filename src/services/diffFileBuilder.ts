@@ -146,6 +146,13 @@ export function getDiffLang(fileName: string): string {
  * component. For untracked/new files pass newContent to render all lines as
  * additions with real content; otherwise leave contents empty and let the
  * view render from hunks only.
+ *
+ * Each hunk string MUST carry the full unified-diff header (`diff --git`,
+ * `---`, `+++`) and end with a trailing newline: the library's DiffParser
+ * scans for the `---`/`+++` lines before reading hunks and silently yields
+ * zero hunks from a bare `@@` block, and it parses each hunk string
+ * independently — a missing trailing newline would desynchronize the hunk's
+ * last line text (no `\n`) from the full-content lines (with `\n`).
  */
 export function createDiffViewData(
   raw: string,
@@ -159,6 +166,9 @@ export function createDiffViewData(
   return {
     oldFile: { fileName: parsed?.oldName || name, fileLang: lang, content: opts?.oldContent ?? '' },
     newFile: { fileName: parsed?.newName || name, fileLang: lang, content: opts?.newContent ?? '' },
-    hunks,
+    // `splitPatch` preserves the raw patch's final newline on the last hunk,
+    // so normalize instead of appending a second one. The parser treats an
+    // extra newline as an empty context line and can report a false mismatch.
+    hunks: hunks.map(h => `${header}\n${h.replace(/\n+$/, '')}\n`),
   }
 }

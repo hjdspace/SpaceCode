@@ -96,15 +96,17 @@ export function useDiffViewerTarget() {
 
       // Best-effort side contents for syntax highlighting. Only exact sources
       // are used — approximations would corrupt the rendered lines.
+      // `git diff` compares index ↔ worktree, `git diff --cached` HEAD ↔ index,
+      // so the old side must come from the index (unstaged) or HEAD (staged).
       oldContent.value = null
       newContent.value = null
       if (rawPatch.value && !isBinary.value && !isUntracked.value && !t.commitHash) {
-        const head = await api.git.showFile(cwd, t.filePath, false)
-        if (head !== null) oldContent.value = head
-        const stagedContent = t.staged
+        const oldSide = await api.git.showFile(cwd, t.filePath, !t.staged)
+        if (oldSide !== null) oldContent.value = oldSide
+        const newSide = t.staged
           ? await api.git.showFile(cwd, t.filePath, true)
           : await api.readFile(cwd.replace(/[/\\]$/, '') + '/' + t.filePath)
-        if (stagedContent !== null) newContent.value = stagedContent
+        if (newSide !== null) newContent.value = newSide
       }
     } catch (e) {
       console.error('[useDiffViewerTarget] Failed to load diff:', e)
