@@ -9,8 +9,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { api } from '@/services/electronAPI'
 import { useAppStore } from './app'
-import { sendMessage as sendLLMMessage, initLLMService, isLLMConfigured } from '@/services/llm'
-import { useSettingsStore } from './settings'
+import { generateAiCommitMessage } from '@/services/aiCommitMessage'
 import { useI18n } from 'vue-i18n'
 
 export interface ScmFile {
@@ -38,6 +37,21 @@ export interface ScmLogEntry {
   author: string
   date: string
   refs: string
+  parents?: string[]
+}
+
+export interface ScmFileStat {
+  additions: number | null
+  deletions: number | null
+}
+
+export interface ScmCommitFileStat {
+  path: string
+  originalPath?: string
+  statusCode: string
+  additions: number | null
+  deletions: number | null
+  isBinary: boolean
 }
 
 export const useScmStore = defineStore('scm', () => {
@@ -62,6 +76,25 @@ export const useScmStore = defineStore('scm', () => {
   // Selected file for diff viewing
   const selectedFile = ref<ScmFile | null>(null)
   const selectedFileStaged = ref(false)
+
+  // Changes list view mode (VSCode SCM: list / tree), persisted in localStorage
+  const VIEW_MODE_STORAGE_KEY = 'scm.viewMode'
+  const storedViewMode = typeof localStorage !== 'undefined' ? localStorage.getItem(VIEW_MODE_STORAGE_KEY) : null
+  const viewMode = ref<'list' | 'tree'>(storedViewMode === 'tree' ? 'tree' : 'list')
+
+  function setViewMode(mode: 'list' | 'tree') {
+    viewMode.value = mode
+    try { localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode) } catch {}
+  }
+
+  // Per-file +/- stats for the changes list (populated from getFullDiff)
+  const fileStats = ref<Record<string, ScmFileStat>>({})
+  const fileStatsLoading = ref(false)
+
+  // Selected commit detail (git graph)
+  const selectedCommit = ref<ScmLogEntry | null>(null)
+  const commitFiles = ref<ScmCommitFileStat[]>([])
+  const commitFilesLoading = ref(false)
 
   const totalChanges = computed(() =>
     staged.value.length + unstaged.value.length + untracked.value.length + conflicted.value.length
@@ -103,6 +136,7 @@ export const useScmStore = defineStore('scm', () => {
       // Start file watcher when we detect a git repo
       if (repoStatus.isRepo) {
         startWatching()
+        scheduleFileStatsRefresh()
       }
     } catch (e: any) {
       console.error('[SCM] refresh failed:', e)
@@ -282,6 +316,100 @@ export const useScmStore = defineStore('scm', () => {
     selectedFileStaged.value = isStaged
   }
 
+  // --- Per-file +/- stats (VSCode-style badges) ---
+
+  let fileStatsTimer: ReturnType<typeof setTimeout> | null = null
+
+  /** Debounced refresh: heavy numstat call, only run when there are changes. */
+  function scheduleFileStatsRefresh(): void {
+    if (fileStatsTimer) clearTimeout(fileStatsTimer)
+    fileStatsTimer = setTimeout(() => {
+      fileStatsTimer = null
+      refreshFileStats()
+    }, 300)
+  }
+
+  async function refreshFileStats(): Promise<void> {
+    const cwd = appStore.projectRoot
+    if (!cwd || !isRepo.value || totalChanges.value === 0) {
+      fileStats.value = {}
+      return
+    }
+    fileStatsLoading.value = true
+    try {
+      const result = await api.git.getFullDiff(cwd)
+      const stats: Record<string, ScmFileStat> = {}
+      if (result?.files) {
+        for (const f of result.files) {
+          stats[f.path] = {
+            additions: f.isBinary ? null : f.linesAdded,
+            deletions: f.isBinary ? null : f.linesRemoved,
+          }
+        }
+      }
+      fileStats.value = stats
+    } catch (e) {
+      console.warn('[SCM] refreshFileStats failed:', e)
+    } finally {
+      fileStatsLoading.value = false
+    }
+  }
+
+  // --- Commit detail (git graph) ---
+
+  async function selectCommit(entry: ScmLogEntry | null): Promise<void> {
+    selectedCommit.value = entry
+    commitFiles.value = []
+    if (!entry) return
+    const cwd = appStore.projectRoot
+    if (!cwd) return
+    commitFilesLoading.value = true
+    try {
+      commitFiles.value = (await api.git.getCommitFiles(cwd, entry.hash)) || []
+    } catch (e) {
+      console.warn('[SCM] getCommitFiles failed:', e)
+    } finally {
+      commitFilesLoading.value = false
+    }
+  }
+
+  async function resetTo(hash: string, mode: 'soft' | 'mixed' | 'hard') {
+    const cwd = appStore.projectRoot
+    if (!cwd) return { success: false, error: 'No project root' }
+    const result = await api.git.reset(cwd, hash, mode)
+    if (result.success) {
+      await refresh()
+      await refreshLog(50)
+    } else {
+      error.value = result.error ?? null
+    }
+    return result
+  }
+
+  // --- Hunk-level staging ---
+
+  async function stageHunks(path: string, patch: string) {
+    const cwd = appStore.projectRoot
+    if (!cwd) return { success: false, error: 'No project root' }
+    const result = await api.git.stageHunks(cwd, path, patch)
+    if (result.success) {
+      await refresh()
+      scheduleFileStatsRefresh()
+    }
+    return result
+  }
+
+  async function unstageHunks(path: string, patch: string) {
+    const cwd = appStore.projectRoot
+    if (!cwd) return { success: false, error: 'No project root' }
+    const result = await api.git.unstageHunks(cwd, path, patch)
+    if (result.success) {
+      await refresh()
+      scheduleFileStatsRefresh()
+    }
+    return result
+  }
+
   // AI commit message generation state
   const isGeneratingCommitMessage = ref(false)
 
@@ -332,6 +460,10 @@ export const useScmStore = defineStore('scm', () => {
       clearTimeout(refreshDebounceTimer)
       refreshDebounceTimer = null
     }
+    if (fileStatsTimer) {
+      clearTimeout(fileStatsTimer)
+      fileStatsTimer = null
+    }
     api.git.stopWatch().catch(() => {})
   }
 
@@ -340,137 +472,9 @@ export const useScmStore = defineStore('scm', () => {
     if (!cwd) throw new Error('No project root')
     if (stagedCount.value === 0) throw new Error('No staged changes to analyze. Please stage your changes first.')
 
-    if (!isLLMConfigured()) {
-      const settingsStore = useSettingsStore()
-      const cfg = settingsStore.config
-      if (cfg.apiKey) {
-        await initLLMService({ provider: cfg.provider, apiKey: cfg.apiKey, baseUrl: cfg.baseUrl, model: cfg.model })
-      } else {
-        const authMethod = settingsStore.authMethod
-        if (authMethod === 'claudeai' || authMethod === 'console') {
-          throw new Error('AI 生成提交消息需要 API Key 认证。当前使用的是 OAuth 认证方式，不支持直接调用 API。请在设置中切换到 Anthropic 兼容协议并填写 API Key。')
-        }
-        throw new Error('LLM not configured. Please set API key in Settings.')
-      }
-    }
-
     isGeneratingCommitMessage.value = true
-
     try {
-      const [diff, logResult] = await Promise.all([
-        api.git.getStagedDiff(cwd),
-        api.git.getLog(cwd, 10),
-      ])
-
-      const logEntries: ScmLogEntry[] = logResult || []
-      const recentCommits = logEntries.map(e => e.subject).join('\n')
-
-      const changedFiles = staged.value
-        .map(f => `  ${f.status.toUpperCase()} ${f.path}`)
-        .join('\n')
-
-      const isZh = locale.value === 'zh-CN'
-
-      const systemPrompt = isZh
-        ? `你是一位专业的 Git 提交信息撰写专家。你需要根据代码变更生成高质量、规范的中文提交信息。
-
-## 输出格式要求
-- 使用 Conventional Commits 规范：type(scope): subject
-- type 包括：feat / fix / refactor / docs / style / test / chore / perf / ci / build
-- scope 为可选，表示影响范围（模块、组件、功能区域等）
-- subject 使用中文，简明扼要描述"做了什么"，不超过 72 个字符
-- 必须在 subject 空一行后添加 body，用编号列表逐条说明关键变更：
-  1. 每条说明一个具体的改动点
-  2. 描述改动的目的和影响
-  3. 条目数量根据实际变更复杂度决定，至少1条
-- 仅输出提交信息本身，不要输出任何解释、分析或额外文字
-
-## 示例
-feat(登录): 新增微信扫码登录功能
-
-1. 实现微信扫码OAuth2.0认证流程
-2. 添加登录页面二维码组件及自动刷新逻辑
-3. 集成后端回调接口完成用户自动绑定
-
-fix(支付): 修复订单金额计算精度丢失的问题
-
-1. 将浮点数运算替换为BigDecimal精确计算
-2. 修复折扣叠加时金额溢出的边界情况
-
-refactor(路由): 将路由配置从硬编码改为动态加载
-
-1. 抽取路由表为独立配置文件，支持按模块拆分
-2. 实现路由守卫的插件化注册机制
-3. 提升路由模块的可维护性，支持插件动态注册路由
-
-chore(deps): 升级 vite 至 5.4 版本
-
-1. 更新vite及相关插件版本至5.4以修复HMR缓存泄漏
-2. 适配vite配置breaking change`
-        : `You are an expert Git commit message writer. Generate high-quality, well-structured commit messages based on code changes.
-
-## Output Format Requirements
-- Use Conventional Commits format: type(scope): subject
-- Types: feat / fix / refactor / docs / style / test / chore / perf / ci / build
-- scope is optional, indicating the affected area (module, component, feature, etc.)
-- subject should concisely describe "what was done", max 72 characters
-- Always add a body after a blank line, using a numbered list to detail key changes:
-  1. Each item describes a specific change
-  2. Explain the purpose and impact of the change
-  3. Number of items depends on change complexity, at least 1
-- Output ONLY the commit message, no explanations or extra text
-
-## Examples
-feat(auth): add WeChat QR code login
-
-1. Implement WeChat OAuth2.0 authentication flow
-2. Add QR code component with auto-refresh logic on login page
-3. Integrate backend callback for automatic user binding
-
-fix(payment): fix order amount precision loss
-
-1. Replace floating-point arithmetic with BigDecimal for precise calculation
-2. Fix edge case of amount overflow when stacking discounts
-
-refactor(router): migrate route config from hardcoded to dynamic loading
-
-1. Extract route table into independent config files with module-level splitting
-2. Implement plugin-based route guard registration mechanism
-3. Improve router maintainability and support dynamic plugin route registration
-
-chore(deps): upgrade vite to v5.4
-
-1. Update vite and related plugins to 5.4 to fix HMR cache leak
-2. Adapt to vite config breaking changes`
-
-      const userPrompt = isZh
-        ? `## 最近的提交记录（用于参考风格）：
-${recentCommits || '（暂无提交记录）'}
-
-## 变更文件列表：
-${changedFiles}
-
-## Git Diff：
-${diff.substring(0, 16000)}${diff.length > 16000 ? '\n... (已截断)' : ''}
-
-请根据以上变更生成提交信息。`
-        : `## Recent commit messages (for style reference):
-${recentCommits || '(none - this may be a new repo)'}
-
-## Changed files:
-${changedFiles}
-
-## Git Diff:
-${diff.substring(0, 16000)}${diff.length > 16000 ? '\n... (truncated)' : ''}
-
-Generate a commit message based on the above changes.`
-
-      const result = await sendLLMMessage(
-        [{ role: 'user', content: userPrompt }],
-        { system: systemPrompt }
-      )
-
-      return result.trim()
+      return await generateAiCommitMessage(cwd, staged.value, locale.value)
     } finally {
       isGeneratingCommitMessage.value = false
     }
@@ -493,6 +497,18 @@ Generate a commit message based on the above changes.`
     error,
     selectedFile,
     selectedFileStaged,
+    viewMode,
+    setViewMode,
+    fileStats,
+    fileStatsLoading,
+    refreshFileStats,
+    selectedCommit,
+    commitFiles,
+    commitFilesLoading,
+    selectCommit,
+    resetTo,
+    stageHunks,
+    unstageHunks,
     totalChanges,
     stagedCount,
     unstagedCount,

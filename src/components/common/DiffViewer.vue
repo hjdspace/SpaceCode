@@ -2,33 +2,70 @@
   <div class="diff-viewer">
     <div class="diff-header">
       <FileDiff :size="14" />
-      <span v-if="diffData?.path">{{ diffData.path }}</span>
-      <span v-else-if="diffTarget">{{ diffTarget.filePath }}</span>
+      <span v-if="target">{{ target.filePath }}</span>
       <span v-else>Code Changes</span>
-      <div class="diff-header-actions" v-if="diffData">
-        <span class="diff-stats" v-if="diffData.additions || diffData.deletions">
-          <span class="stat-additions">+{{ diffData.additions }}</span>
-          <span class="stat-deletions">-{{ diffData.deletions }}</span>
+      <div class="diff-header-actions">
+        <span class="diff-stats" v-if="stats.additions || stats.deletions">
+          <span class="stat-additions">+{{ stats.additions }}</span>
+          <span class="stat-deletions">-{{ stats.deletions }}</span>
         </span>
+        <div class="dropdown-wrapper" v-if="hunkCount > 0 && !target?.commitHash">
+          <button class="tool-btn" @click.stop="showHunkMenu = !showHunkMenu" :title="t('scm.hunks')">
+            <Layers :size="13" />
+            <span>{{ hunkCount }}</span>
+            <ChevronDown :size="11" />
+          </button>
+          <div v-if="showHunkMenu" class="hunk-dropdown-menu" @click.stop>
+            <button
+              v-for="(header, i) in hunkHeaders"
+              :key="i"
+              class="hunk-menu-item"
+              @click="applyHunkAction(i)"
+            >
+              <component :is="target?.staged ? Undo2 : Plus" :size="12" />
+              <span class="hunk-action">{{ target?.staged ? t('scm.unstageHunk') : t('scm.stageHunk') }}</span>
+              <span class="hunk-header-text">{{ header }}</span>
+            </button>
+          </div>
+        </div>
+        <button
+          class="tool-btn"
+          :class="{ active: diffMode === DiffModeEnum.Split }"
+          @click="diffMode = DiffModeEnum.Split"
+          :title="t('scm.diffSplitView')"
+          :aria-label="t('scm.diffSplitView')"
+        >
+          <Columns2 :size="13" />
+        </button>
+        <button
+          class="tool-btn"
+          :class="{ active: diffMode === DiffModeEnum.Unified }"
+          @click="diffMode = DiffModeEnum.Unified"
+          :title="t('scm.diffUnifiedView')"
+          :aria-label="t('scm.diffUnifiedView')"
+        >
+          <Rows3 :size="13" />
+        </button>
       </div>
     </div>
 
-    <div class="diff-content" v-if="diffLines.length > 0">
-      <div
-        v-for="(line, index) in diffLines"
-        :key="index"
-        class="diff-line"
-        :class="line.type"
-      >
-        <span class="line-number old">{{ line.oldNumber || '' }}</span>
-        <span class="line-number new">{{ line.newNumber || '' }}</span>
-        <span class="line-prefix">{{ line.prefix }}</span>
-        <span class="line-content">{{ line.content }}</span>
-      </div>
+    <div class="diff-content" v-if="rawPatch && !isBinary" :key="diffKey">
+      <DiffView
+        :data="diffViewData"
+        :diff-view-mode="diffMode"
+        :diff-view-theme="theme"
+        :diff-view-highlight="true"
+        :diff-view-font-size="12"
+      />
     </div>
 
     <div class="diff-loading" v-else-if="isLoading">
-      <span>Loading diff...</span>
+      <span>{{ t('scm.diffLoading') }}</span>
+    </div>
+
+    <div class="binary-notice" v-else-if="isBinary">
+      <FileWarning :size="16" />
+      <span>{{ t('scm.binaryFile') }}</span>
     </div>
 
     <div class="empty-diff" v-else>
@@ -38,172 +75,73 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
-import { FileDiff } from 'lucide-vue-next'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { ChevronDown, Columns2, FileDiff, FileWarning, Layers, Plus, Rows3, Undo2 } from 'lucide-vue-next'
+import { DiffView, DiffModeEnum } from '@git-diff-view/vue'
+import '@git-diff-view/vue/styles/diff-view.css'
 import { useScmStore } from '@/stores/scm'
-import { useAppStore, type ScmDiffTabData } from '@/stores/app'
-import { api } from '@/services/electronAPI'
-
-interface DiffLine {
-  type: 'add' | 'remove' | 'context' | 'header'
-  content: string
-  oldNumber?: number
-  newNumber?: number
-  prefix: string
-}
+import { useAppStore } from '@/stores/app'
+import { useDiffViewerTarget } from '@/composables/useDiffViewerTarget'
+import { createDiffViewData } from '@/services/diffFileBuilder'
 
 const scmStore = useScmStore()
 const appStore = useAppStore()
+const { t } = useI18n()
 
-const diffData = ref<any>(null)
-const isLoading = ref(false)
+const {
+  target,
+  isBinary,
+  rawPatch,
+  isLoading,
+  oldContent,
+  newContent,
+  stats,
+  hunkHeaders,
+  hunkCount,
+  load,
+  stageHunk,
+  unstageHunk,
+} = useDiffViewerTarget()
 
-// Resolve the diff target from the active diff tab; fall back to the SCM panel
-// selection so the viewer also reacts to clicks in the source control panel.
-const diffTarget = computed<{ filePath: string; staged: boolean } | null>(() => {
-  const tab = appStore.activeInfoTab
-  if (tab && tab.type === 'diff' && tab.data) {
-    const d = tab.data as ScmDiffTabData
-    return { filePath: d.filePath, staged: d.staged }
-  }
-  if (scmStore.selectedFile) {
-    return { filePath: scmStore.selectedFile.path, staged: scmStore.selectedFileStaged }
-  }
-  return null
+const showHunkMenu = ref(false)
+const storedDiffMode = typeof localStorage !== 'undefined' ? localStorage.getItem('scm.diffMode') : null
+const diffMode = ref<number>(
+  Number(storedDiffMode) === DiffModeEnum.Unified ? DiffModeEnum.Unified : DiffModeEnum.Split
+)
+
+watch(diffMode, (mode) => {
+  try { localStorage.setItem('scm.diffMode', String(mode)) } catch {}
 })
+
+const theme = computed<'light' | 'dark'>(() => (appStore.isDark ? 'dark' : 'light'))
+
+const diffViewData = computed(() =>
+  createDiffViewData(rawPatch.value, target.value?.filePath ?? '', {
+    oldContent: oldContent.value ?? undefined,
+    newContent: newContent.value ?? undefined,
+  })
+)
+
+// Force the DiffView to rebuild when the target or view mode changes
+const diffKey = computed(() => `${target.value?.filePath ?? ''}:${target.value?.staged}:${diffMode.value}`)
 
 const emptyMessage = computed(() => {
-  if (!diffTarget.value) return 'Select a file to view changes'
-  if (!scmStore.isRepo) return 'Not a git repository'
-  return 'No changes to display'
+  if (!target.value) return t('scm.diffSelectFile')
+  if (!scmStore.isRepo) return t('scm.diffNotRepo')
+  return t('scm.diffNoChanges')
 })
 
-const diffLines = computed<DiffLine[]>(() => {
-  if (!diffData.value?.hunks) return []
-
-  const lines: DiffLine[] = []
-  let oldLine = 0
-  let newLine = 0
-
-  for (const hunk of diffData.value.hunks) {
-    oldLine = hunk.oldStart
-    newLine = hunk.newStart
-
-    // Hunk header
-    lines.push({
-      type: 'header',
-      content: `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`,
-      prefix: '',
-    })
-
-    if (hunk.content) {
-      const contentLines = hunk.content.split('\n')
-      for (const line of contentLines) {
-        if (line.startsWith('+')) {
-          lines.push({
-            type: 'add',
-            content: line.substring(1),
-            newNumber: newLine++,
-            prefix: '+',
-          })
-        } else if (line.startsWith('-')) {
-          lines.push({
-            type: 'remove',
-            content: line.substring(1),
-            oldNumber: oldLine++,
-            prefix: '-',
-          })
-        } else {
-          lines.push({
-            type: 'context',
-            content: line.startsWith(' ') ? line.substring(1) : line,
-            oldNumber: oldLine++,
-            newNumber: newLine++,
-            prefix: ' ',
-          })
-        }
-      }
-    }
-  }
-
-  return lines
-})
-
-/**
- * Build a synthetic diff result for an untracked file, showing every line as
- * an addition. This mirrors VSCode's SCM behavior for newly created files.
- * Returns null if the file content cannot be read.
- */
-async function buildUntrackedDiff(filePath: string): Promise<any | null> {
-  try {
-    const fullPath = appStore.projectRoot.replace(/[/\\]$/, '') + '/' + filePath
-    const content = await api.readFile(fullPath)
-    if (content === null) return null
-
-    const contentLines = content.split('\n')
-    // Remove trailing empty string from final newline
-    if (contentLines.length > 0 && contentLines[contentLines.length - 1] === '') {
-      contentLines.pop()
-    }
-    if (contentLines.length === 0) return null
-
-    const hunkContent = contentLines.map(line => `+${line}`).join('\n')
-    return {
-      path: filePath,
-      hunks: [{
-        oldStart: 0,
-        oldLines: 0,
-        newStart: 1,
-        newLines: contentLines.length,
-        content: hunkContent,
-      }],
-      additions: contentLines.length,
-      deletions: 0,
-      isBinary: false,
-    }
-  } catch {
-    return null
-  }
+function applyHunkAction(index: number): void {
+  showHunkMenu.value = false
+  if (target.value?.staged) unstageHunk(index)
+  else stageHunk(index)
 }
 
-async function loadDiff() {
-  const target = diffTarget.value
-  if (!target || !appStore.projectRoot) {
-    diffData.value = null
-    return
-  }
-
-  isLoading.value = true
-  try {
-    const result = await api.git.getDiff(
-      appStore.projectRoot,
-      target.filePath,
-      target.staged
-    )
-
-    // If the backend returned no hunks and this is an unstaged file, check
-    // whether the file is untracked. If so, build a synthetic diff from the
-    // file content so the user can see the newly created file (matching
-    // VSCode's SCM behavior).
-    if (!target.staged && (!result || !result.hunks || result.hunks.length === 0)) {
-      const isUntracked =
-        scmStore.selectedFile?.status === 'untracked' ||
-        scmStore.untracked.some(f => f.path === target.filePath)
-      if (isUntracked) {
-        const untrackedDiff = await buildUntrackedDiff(target.filePath)
-        if (untrackedDiff) {
-          diffData.value = untrackedDiff
-          return
-        }
-      }
-    }
-
-    diffData.value = result
-  } catch (e) {
-    console.error('Failed to load diff:', e)
-    diffData.value = null
-  } finally {
-    isLoading.value = false
+function handleClickOutside(e: MouseEvent): void {
+  const el = e.target as HTMLElement
+  if (!el.closest('.hunk-dropdown-menu') && !el.closest('.dropdown-wrapper')) {
+    showHunkMenu.value = false
   }
 }
 
@@ -211,22 +149,23 @@ async function loadDiff() {
 watch(
   () => appStore.activeInfoTabId,
   () => {
-    if (appStore.infoPanelMode === 'diff') {
-      loadDiff()
-    }
+    if (appStore.infoPanelMode === 'diff') load()
   }
 )
 
 // Reload when the SCM panel selection changes (clicking a file in source control)
 watch(
   () => [scmStore.selectedFile, scmStore.selectedFileStaged],
-  () => {
-    loadDiff()
-  }
+  () => load()
 )
 
 onMounted(() => {
-  loadDiff()
+  load()
+  document.addEventListener('click', handleClickOutside)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
 })
 </script>
 
@@ -241,13 +180,13 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--surface-border);
   font-size: 12px;
   font-weight: 500;
   color: var(--text-primary);
 
-  span:first-of-type {
+  > span:first-of-type {
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -257,108 +196,91 @@ onMounted(() => {
   }
 }
 
+.diff-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.tool-btn {
+  @include reset-button;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+
+  &:hover { background: var(--surface-glass-hover); color: var(--text-primary); }
+  &.active { color: var(--accent-primary); background: rgba(var(--accent-primary-rgb, 59,130,246), 0.08); }
+}
+
+.dropdown-wrapper {
+  position: relative;
+}
+
+.hunk-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 150;
+  min-width: 240px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 3px;
+  @include scrollbar-thin;
+}
+
+.hunk-menu-item {
+  @include reset-button;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  color: var(--text-primary);
+  text-align: left;
+
+  &:hover { background: var(--surface-glass-hover); }
+  svg { flex-shrink: 0; color: var(--text-muted); }
+
+  .hunk-action { flex-shrink: 0; }
+
+  .hunk-header-text {
+    flex: 1;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 .diff-stats {
   display: flex;
   gap: 6px;
   font-family: var(--font-mono);
   font-size: 11px;
+  margin-right: 4px;
 
-  .stat-additions {
-    color: var(--success);
-  }
-  .stat-deletions {
-    color: var(--error);
-  }
+  .stat-additions { color: var(--success); }
+  .stat-deletions { color: var(--error); }
 }
 
 .diff-content {
   flex: 1;
   overflow: auto;
   @include scrollbar;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.diff-line {
-  display: flex;
-  align-items: stretch;
-  width: max-content;
-  min-width: 100%;
-  min-height: 20px;
-
-  .line-number {
-    min-width: 40px;
-    padding: 0 8px;
-    text-align: right;
-    color: var(--text-muted);
-    user-select: none;
-    background: var(--bg-secondary, var(--surface-glass));
-    font-size: 11px;
-    flex-shrink: 0;
-  }
-
-  .line-prefix {
-    width: 16px;
-    text-align: center;
-    user-select: none;
-    flex-shrink: 0;
-    font-weight: 700;
-  }
-
-  .line-content {
-    flex: 0 0 auto;
-    padding: 0 8px;
-    white-space: pre;
-  }
-
-  &.context {
-    .line-content {
-      color: var(--text-secondary);
-    }
-  }
-
-  &.add {
-    background: rgba(40, 167, 69, 0.08);
-
-    .line-number {
-      background: rgba(40, 167, 69, 0.12);
-    }
-
-    .line-prefix {
-      color: var(--success);
-    }
-
-    .line-content {
-      color: var(--success);
-    }
-  }
-
-  &.remove {
-    background: rgba(220, 53, 69, 0.08);
-
-    .line-number {
-      background: rgba(220, 53, 69, 0.12);
-    }
-
-    .line-prefix {
-      color: var(--error);
-    }
-
-    .line-content {
-      color: var(--error);
-    }
-  }
-
-  &.header {
-    background: rgba(77, 166, 255, 0.06);
-    color: rgba(77, 166, 255, 0.8);
-    font-size: 11px;
-
-    .line-content {
-      color: rgba(77, 166, 255, 0.8);
-    }
-  }
 }
 
 .diff-loading {
@@ -366,6 +288,17 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.binary-notice {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   color: var(--text-muted);
   font-size: 12px;
 }

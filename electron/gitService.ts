@@ -12,6 +12,7 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import { ipcMain, BrowserWindow } from 'electron'
 import { debug } from './logger'
+import { LOG_FORMAT, parseLogLine, parseNumstatLine, parseNameStatusLine } from './gitParsers'
 import { gitChannels } from '@/shared/channels/git'
 import { registerHandlers } from '@/shared/handlerRegistry'
 
@@ -1036,8 +1037,10 @@ async function deleteBranch(cwd: string, name: string, force?: boolean): Promise
 }
 
 async function getLog(cwd: string, count: number = 50): Promise<GitLogEntry[]> {
+  // Single-line \x1f-separated format (see gitParsers.ts) so subjects containing
+  // `|` or newlines cannot break parsing, and parent hashes enable graph rendering.
   const result = await gitExec(
-    ['log', `--max-count=${count}`, '--pretty=format:%H%n%h%n%s%n%an%n%ai%n%D', '--no-color'],
+    ['log', `--max-count=${count}`, `--pretty=format:${LOG_FORMAT}`, '--no-color'],
     cwd
   )
   if (result.code !== 0) {
@@ -1045,28 +1048,18 @@ async function getLog(cwd: string, count: number = 50): Promise<GitLogEntry[]> {
   }
 
   const entries: GitLogEntry[] = []
-  const blocks = result.stdout.split('\n\n')
-
-  for (const block of blocks) {
-    const lines = block.split('\n')
-    if (lines.length >= 5) {
-      entries.push({
-        hash: lines[0],
-        shortHash: lines[1],
-        subject: lines[2],
-        message: lines[2],
-        author: lines[3],
-        date: lines[4],
-        refs: lines[5] || '',
-      })
+  for (const line of result.stdout.split('\n')) {
+    const parsed = parseLogLine(line)
+    if (parsed) {
+      entries.push(parsed)
     }
   }
-
   return entries
 }
 
-async function showFile(cwd: string, path: string): Promise<string | null> {
-  const result = await gitExec(['show', `HEAD:${path}`], cwd)
+async function showFile(cwd: string, path: string, fromIndex = false): Promise<string | null> {
+  // HEAD: = committed version, `:path` = staged (index) version
+  const result = await gitExec(['show', `${fromIndex ? ':' : 'HEAD:'}${path}`], cwd)
   if (result.code !== 0) {
     return null
   }
@@ -1102,6 +1095,149 @@ async function stash(cwd: string): Promise<{ success: boolean; error?: string }>
 
 async function stashPop(cwd: string): Promise<{ success: boolean; error?: string }> {
   const result = await gitExec(['stash', 'pop'], cwd)
+  return { success: result.code === 0, error: result.code !== 0 ? result.stderr : undefined }
+}
+
+// ============================================================================
+// Raw diff / hunk staging / commit detail (VSCode SCM parity)
+// ============================================================================
+
+export interface GitCommitFileStat {
+  path: string
+  originalPath?: string
+  statusCode: string
+  /** null for binary files */
+  additions: number | null
+  deletions: number | null
+  isBinary: boolean
+  [key: string]: unknown
+}
+
+/** Raw unified diff (includes the `diff --git` header) for one file. */
+async function getRawDiff(cwd: string, path: string, staged?: boolean): Promise<string> {
+  const args = ['-c', 'core.quotePath=false', 'diff', '--no-color', '--unified=3']
+  if (staged) {
+    args.push('--cached')
+  }
+  args.push('--', path)
+  const result = await gitExec(args, cwd)
+  return result.code === 0 ? result.stdout : ''
+}
+
+async function getCommitParents(cwd: string, hash: string): Promise<string[]> {
+  const result = await gitExec(['rev-list', '--parents', '-n', '1', hash], cwd)
+  if (result.code !== 0) return []
+  return result.stdout.trim().split(/\s+/).slice(1).filter(Boolean)
+}
+
+async function runCommitDiffArgs(cwd: string, args: string[]): Promise<string> {
+  const result = await gitExec(args, cwd)
+  return result.code === 0 ? result.stdout : ''
+}
+
+/**
+ * Per-file stats of one commit. Merge commits use first-parent semantics
+ * (diff against the first parent); root commits work via `diff-tree --root`.
+ */
+async function getCommitFiles(cwd: string, hash: string): Promise<GitCommitFileStat[]> {
+  const parents = await getCommitParents(cwd, hash)
+  const isMerge = parents.length > 1
+
+  const numstatArgs = isMerge
+    ? ['-c', 'core.quotePath=false', 'diff', '--numstat', '--no-color', parents[0]!, hash]
+    : ['-c', 'core.quotePath=false', 'diff-tree', '--root', '--no-commit-id', '--numstat', '-r', '--no-color', hash]
+  const nameStatusArgs = isMerge
+    ? ['-c', 'core.quotePath=false', 'diff', '--name-status', '--no-color', parents[0]!, hash]
+    : ['-c', 'core.quotePath=false', 'diff-tree', '--root', '--no-commit-id', '--name-status', '-r', '--no-color', hash]
+
+  const [numstatOut, nameStatusOut] = await Promise.all([
+    runCommitDiffArgs(cwd, numstatArgs),
+    runCommitDiffArgs(cwd, nameStatusArgs),
+  ])
+
+  const numstatByPath = new Map<string, ReturnType<typeof parseNumstatLine>>()
+  for (const line of numstatOut.split('\n')) {
+    const parsed = parseNumstatLine(line)
+    if (parsed) numstatByPath.set(parsed.path, parsed)
+  }
+
+  const statusByPath = new Map<string, ReturnType<typeof parseNameStatusLine>>()
+  for (const line of nameStatusOut.split('\n')) {
+    const parsed = parseNameStatusLine(line)
+    if (parsed) statusByPath.set(parsed.path, parsed)
+  }
+
+  const paths = new Set<string>([...statusByPath.keys(), ...numstatByPath.keys()])
+  const files: GitCommitFileStat[] = []
+  for (const path of paths) {
+    const ns = statusByPath.get(path)
+    const num = numstatByPath.get(path)
+    files.push({
+      path,
+      originalPath: ns?.originalPath ?? num?.originalPath,
+      statusCode: ns?.statusCode ?? 'M',
+      additions: num ? num.additions : null,
+      deletions: num ? num.deletions : null,
+      isBinary: num?.isBinary ?? false,
+    })
+  }
+  return files.sort((a, b) => a.path.localeCompare(b.path))
+}
+
+/** Raw patch of one commit (first-parent for merges), optionally limited to one file. */
+async function getCommitDiff(cwd: string, hash: string, path?: string): Promise<string> {
+  const parents = await getCommitParents(cwd, hash)
+  const args = ['-c', 'core.quotePath=false']
+
+  if (parents.length > 1) {
+    // Merge commit → first-parent diff (git show's combined diff is unreadable)
+    args.push('diff', '--no-color', '--unified=3', parents[0]!, hash)
+  } else {
+    // `git show` handles both normal and root commits (hash^ does not exist for roots)
+    args.push('show', '--format=', '--no-color', '--unified=3', hash)
+  }
+  if (path) {
+    args.push('--', path)
+  }
+  return runCommitDiffArgs(cwd, args)
+}
+
+/**
+ * Apply a partial patch to the index (hunk-level stage/unstage).
+ * Uses a temp file because `git apply` needs a patch source and execFile
+ * has no stdin support.
+ */
+async function applyHunkPatch(cwd: string, patch: string, reverse: boolean): Promise<{ success: boolean; error?: string }> {
+  let tmpDir: string | undefined
+  try {
+    tmpDir = mkdtempSync(join(tmpdir(), 'git-apply-'))
+    const patchFile = join(tmpDir, 'patch.diff')
+    writeFileSync(patchFile, patch, 'utf8')
+
+    const args = ['apply', '--cached', '--whitespace=nowarn']
+    if (reverse) args.push('--reverse')
+    args.push(patchFile)
+
+    const result = await gitExec(args, cwd)
+    if (result.code !== 0) {
+      return { success: false, error: result.stderr || result.stdout || 'git apply failed' }
+    }
+    return { success: true }
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) }
+  } finally {
+    if (tmpDir) {
+      try { unlinkSync(join(tmpDir, 'patch.diff')) } catch {}
+      try { rmdirSync(tmpDir) } catch {}
+    }
+  }
+}
+
+async function resetTo(cwd: string, hash: string, mode: 'soft' | 'mixed' | 'hard'): Promise<{ success: boolean; error?: string }> {
+  if (mode !== 'soft' && mode !== 'mixed' && mode !== 'hard') {
+    return { success: false, error: `Invalid reset mode: ${mode}` }
+  }
+  const result = await gitExec(['reset', `--${mode}`, hash], cwd)
   return { success: result.code === 0, error: result.code !== 0 ? result.stderr : undefined }
 }
 
@@ -1229,8 +1365,14 @@ export function registerGitIPCHandlers() {
     unstageAll: async (cwd: string) => unstageAll(cwd),
     commit: async (cwd: string, message: string, amend?: boolean) => commit(cwd, message, amend),
     getDiff: async (cwd: string, path: string, staged?: boolean) => getDiff(cwd, path, staged),
+    getRawDiff: async (cwd: string, path: string, staged?: boolean) => getRawDiff(cwd, path, staged),
+    stageHunks: async (cwd: string, path: string, patch: string) => applyHunkPatch(cwd, patch, false),
+    unstageHunks: async (cwd: string, path: string, patch: string) => applyHunkPatch(cwd, patch, true),
+    getCommitFiles: async (cwd: string, hash: string) => getCommitFiles(cwd, hash),
+    getCommitDiff: async (cwd: string, hash: string, path?: string) => getCommitDiff(cwd, hash, path),
+    reset: async (cwd: string, hash: string, mode: 'soft' | 'mixed' | 'hard') => resetTo(cwd, hash, mode),
     getStagedDiff: async (cwd: string) => getStagedDiffRaw(cwd),
-    showFile: async (cwd: string, path: string) => showFile(cwd, path),
+    showFile: async (cwd: string, path: string, fromIndex?: boolean) => showFile(cwd, path, fromIndex),
     getBranches: async (cwd: string) => getBranches(cwd),
     checkout: async (cwd: string, ref: string) => checkout(cwd, ref),
     createBranch: async (cwd: string, name: string, checkoutTo?: boolean) => createBranch(cwd, name, checkoutTo),
