@@ -1,866 +1,888 @@
+## [0.7.8](https://github.com/hjdspace/SpaceCode/compare/v0.7.7...v0.7.8) (2026-09-03)
+
+### Features
+
+- **scm:** 实现完整的源代码管理功能模块
+- **chat:** 从Claude历史记录恢复丢失的侧边栏会话
+- **goal:** 新增自动目标执行功能，支持/goal命令及完整生命周期管理
+
+### Bug Fixes
+
+- **sessionProcess:** 修复代理模式下非Anthropic提供商模型ID不被识别的问题
+- **scm:** 修复scm不显示新目录下文件的问题
+- **settings:** 修复模型下拉列表长模型名显示不全的问题
+
+### Performance
+
+- 优化依赖体积，修复diff解析和下拉菜单样式问题
+
+### Tests
+
+- **composables:** 为useDiffViewerTarget添加单元测试
+
 ## [0.7.7](https://github.com/hjdspace/SpaceCode/compare/v0.7.6...v0.7.7) (2026-08-24)
 
 ### Features
 
-* **model-settings:** 新增模型配置提示与认证方式切换时自动获取模型列表
-* **searchable-select:** 增强 SearchableSelect 支持自定义输入选项
+- **model-settings:** 新增模型配置提示与认证方式切换时自动获取模型列表
+- **searchable-select:** 增强 SearchableSelect 支持自定义输入选项
 
 ### Bug Fixes
 
-* **turn:** 修复完成汇总使用设置模型而非实际响应模型的问题
+- **turn:** 修复完成汇总使用设置模型而非实际响应模型的问题
 
 ### Performance
 
-* **context-usage:** 提升 getContextUsage 超时时间与错误处理可靠性
+- **context-usage:** 提升 getContextUsage 超时时间与错误处理可靠性
 
 ### Refactor
 
-* **settings:** 移除 MCP 服务器设置功能
-* **model-config:** 重构模型配置处理逻辑与别名解析优先级
-* **chat-session:** 更新模型别名解析逻辑
-* **tests:** 重构测试中的模型列表解析逻辑
+- **settings:** 移除 MCP 服务器设置功能
+- **model-config:** 重构模型配置处理逻辑与别名解析优先级
+- **chat-session:** 更新模型别名解析逻辑
+- **tests:** 重构测试中的模型列表解析逻辑
 
 ### Documentation
 
-* **i18n:** 添加模型设置相关本地化字符串
+- **i18n:** 添加模型设置相关本地化字符串
 
 ### Chore
 
-* **settings:** 从 settings.json 删除废弃的 model 字段
+- **settings:** 从 settings.json 删除废弃的 model 字段
 
 ## [0.7.6](https://github.com/hjdspace/SpaceCode/compare/v0.7.5...v0.7.6) (2026-08-22)
 
 ### Features
 
-* **chat:** 新增斜杠命令消息的显示标签支持，实现 inline chip 渲染
-* **git:** typed channel map 作为 IPC 通道单一事实来源
-* **electron:** 新增子进程生命周期管理模块及配套测试
+- **chat:** 新增斜杠命令消息的显示标签支持，实现 inline chip 渲染
+- **git:** typed channel map 作为 IPC 通道单一事实来源
+- **electron:** 新增子进程生命周期管理模块及配套测试
 
 ### Bug Fixes
 
-* **DiffViewer:** 修复行内容宽度显示异常
-* **rendererApi:** 修复 createRendererApi 返回 Proxy 导致 spread 后丢失方法的问题
-* **csp:** 添加 media-src 指令以支持媒体资源加载
+- **DiffViewer:** 修复行内容宽度显示异常
+- **rendererApi:** 修复 createRendererApi 返回 Proxy 导致 spread 后丢失方法的问题
+- **csp:** 添加 media-src 指令以支持媒体资源加载
 
 ### Performance
 
-* **turn:** 合并后台积压的 text_delta 写回，避免恢复窗口时逐条刷新
+- **turn:** 合并后台积压的 text\_delta 写回，避免恢复窗口时逐条刷新
 
 ### Refactor
 
-* **chatSession:** 提取 syncPermissionMode 与 useRewindDialog 深模块
-* **skillManager:** 统一技能管理的分类与安装逻辑
-* **config:** 重构 config setters 为不可变更新
+- **chatSession:** 提取 syncPermissionMode 与 useRewindDialog 深模块
+- **skillManager:** 统一技能管理的分类与安装逻辑
+- **config:** 重构 config setters 为不可变更新
 
 ## [0.7.5](https://github.com/hjdspace/SpaceCode/compare/v0.7.4...v0.7.5) (2026-08-20)
 
 ### Features
 
-* **rtk:** 支持 RTK v0.43+ 新格式并增强安装检测
-* **notification:** 增加会话任务完成提示音
-* **slash-command:** add /goal slash command support with target icon chip rendering
+- **rtk:** 支持 RTK v0.43+ 新格式并增强安装检测
+- **notification:** 增加会话任务完成提示音
+- **slash-command:** add /goal slash command support with target icon chip rendering
 
 ### Bug Fixes
 
-* **notification:** 修复提示音不响问题 - 改用 HTMLAudioElement+WAV data URI 避免 Electron AudioContext autoplay 限制
-* **ui:** set SVG width/height to 12px to match chip font size
+- **notification:** 修复提示音不响问题 - 改用 HTMLAudioElement+WAV data URI 避免 Electron AudioContext autoplay 限制
+- **ui:** set SVG width/height to 12px to match chip font size
 
 ### Refactor
 
-* **chips:** 统一 chip 样式并添加删除按钮
-* **ui:** replace emoji icons with inline SVG in command chips
-* **session:** 移除会话标签页管理，由侧边栏统一管理会话列表
+- **chips:** 统一 chip 样式并添加删除按钮
+- **ui:** replace emoji icons with inline SVG in command chips
+- **session:** 移除会话标签页管理，由侧边栏统一管理会话列表
 
 ## [0.7.4](https://github.com/hjdspace/SpaceCode/compare/v0.7.3...v0.7.4) (2026-08-17)
 
 ### Features
 
-* **agent-management:** 添加技能直接分发 UI 和交互，支持从技能卡片跳转详情并展示可用技能包
-* **skill-manager:** 新增 Agent 概览页签、技能包快速应用及管理视图优化
-* **skills-v2:** 添加技能详情文件浏览器与 Agent 分发管理，支持批量删除和单分发管理
+- **agent-management:** 添加技能直接分发 UI 和交互，支持从技能卡片跳转详情并展示可用技能包
+- **skill-manager:** 新增 Agent 概览页签、技能包快速应用及管理视图优化
+- **skills-v2:** 添加技能详情文件浏览器与 Agent 分发管理，支持批量删除和单分发管理
 
 ### Bug Fixes
 
-* **skillManagerV2:** 修复链接目标被复制目录替换后的分类与过时目标清理问题
-* **skill-manager:** 修复 Electron IPC 克隆 Vue 响应式对象报错并优化响应式布局
+- **skillManagerV2:** 修复链接目标被复制目录替换后的分类与过时目标清理问题
+- **skill-manager:** 修复 Electron IPC 克隆 Vue 响应式对象报错并优化响应式布局
 
 ## [0.7.3](https://github.com/hjdspace/SpaceCode/compare/v0.7.2...v0.7.3) (2026-08-17)
 
 ### Features
 
-* **skill-manager-v2:** 完成 Skill Manager V2 完整重构，实现 Agent 技能同步管理全功能、诊断引擎、快照导出、技能包管理与拷贝同步
-* **skill-manager-v2:** 实现 GitHub 克隆导入和市场功能，增强技能导入与冲突处理能力（hash 冲突检测、预览/执行）
-* **skill-manager-v2:** 增强 Agent 详情展示与诊断稳定性，扩展内置 agent 注册表并优化图标展示
-* **skill-manager-v2:** 实现 Slice 4（分发）和 Slice 5（扫描与采纳），完成技能接管与共享目录扫描
-* **skills-v2:** 重构技能市场页面，优化布局与体验；新增技能包管理功能与国际化文案
-* **chat:** 支持按工作目录加载技能（slash commands）
-* **sessionContext:** 新增右侧面板联动环境卡片显隐的逻辑
-* **assets:** 新增 Kilocode 和 Trae 的 CLI 图标，更新 Copilot 图标
+- **skill-manager-v2:** 完成 Skill Manager V2 完整重构，实现 Agent 技能同步管理全功能、诊断引擎、快照导出、技能包管理与拷贝同步
+- **skill-manager-v2:** 实现 GitHub 克隆导入和市场功能，增强技能导入与冲突处理能力（hash 冲突检测、预览/执行）
+- **skill-manager-v2:** 增强 Agent 详情展示与诊断稳定性，扩展内置 agent 注册表并优化图标展示
+- **skill-manager-v2:** 实现 Slice 4（分发）和 Slice 5（扫描与采纳），完成技能接管与共享目录扫描
+- **skills-v2:** 重构技能市场页面，优化布局与体验；新增技能包管理功能与国际化文案
+- **chat:** 支持按工作目录加载技能（slash commands）
+- **sessionContext:** 新增右侧面板联动环境卡片显隐的逻辑
+- **assets:** 新增 Kilocode 和 Trae 的 CLI 图标，更新 Copilot 图标
 
 ### Bug Fixes
 
-* **skill-manager-v2:** 修复技能接管与共享目录扫描问题
-* **skill-manager-v2:** 修复 Agent 管理页 i18n 缺失、图标与版本号检测
-* **api/pet:** 兼容 electronAPI 不存在的场景，添加安全回退
-* **info-panel:** 优化信息面板显示逻辑并完善终端主题与测试
+- **skill-manager-v2:** 修复技能接管与共享目录扫描问题
+- **skill-manager-v2:** 修复 Agent 管理页 i18n 缺失、图标与版本号检测
+- **api/pet:** 兼容 electronAPI 不存在的场景，添加安全回退
+- **info-panel:** 优化信息面板显示逻辑并完善终端主题与测试
 
 ### Refactor
 
-* **skills:** 替换旧技能管理器为 V2 版本并添加关闭功能
-* **chat:** 移除任务列表卡片组件及关联逻辑
-* **terminal:** 重构终端主题与启动参数逻辑，新增单元测试
-* **skill-manager-v2:** 重命名测试文件从 slice-based 为描述性名称
+- **skills:** 替换旧技能管理器为 V2 版本并添加关闭功能
+- **chat:** 移除任务列表卡片组件及关联逻辑
+- **terminal:** 重构终端主题与启动参数逻辑，新增单元测试
+- **skill-manager-v2:** 重命名测试文件从 slice-based 为描述性名称
 
 ## [0.7.2](https://github.com/hjdspace/SpaceCode/compare/v0.7.1...v0.7.2) (2026-08-11)
 
 ### Features
 
-* **electron:** 开发模式下添加启动闪屏窗口
-* **skill-manager-v2:** 实现 Skill Manager V2 核心功能，包括技能库页面、搜索、分页、导入中心库（hash冲突检测、预览/执行）
-* **linux:** 完善Linux平台打包与运行适配
+- **electron:** 开发模式下添加启动闪屏窗口
+- **skill-manager-v2:** 实现 Skill Manager V2 核心功能，包括技能库页面、搜索、分页、导入中心库（hash冲突检测、预览/执行）
+- **linux:** 完善Linux平台打包与运行适配
 
 ### Refactor
 
-* **electron:** 优化窗口显示逻辑和代理健康检查日志
-* **layout:** 将ChatPanel改为同步导入以避免加载延迟
+- **electron:** 优化窗口显示逻辑和代理健康检查日志
+- **layout:** 将ChatPanel改为同步导入以避免加载延迟
 
 ## [0.7.1](https://github.com/hjdspace/SpaceCode/compare/v0.7.0...v0.7.1) (2026-08-09)
 
 ### Features
 
-* **chat:** 新增输入框底部状态栏，展示任务进度与文件改动信息
-* **chat:** 支持通过点击、回车或空格快捷打开文件改动审查面板
+- **chat:** 新增输入框底部状态栏，展示任务进度与文件改动信息
+- **chat:** 支持通过点击、回车或空格快捷打开文件改动审查面板
 
 ### Refactor
 
-* 优化启动流程与缓存逻辑，通过按需加载、延迟挂载和并行请求提升首屏加载速度
+- 优化启动流程与缓存逻辑，通过按需加载、延迟挂载和并行请求提升首屏加载速度
 
 ## [0.7.0](https://github.com/hjdspace/SpaceCode/compare/v0.6.12...v0.7.0) (2026-08-02)
 
 ### Features
 
-* **pet:** 重构桌面宠物系统，采用 Sprite Atlas + CSS background-position 帧动画（PetSpriteAtlas.vue）替代旧版 SVG 实现
-* **pet:** 新增 9 种状态动画 + 16 方向视线追踪（petAnimation.ts），宠物随鼠标位置自然转头
-* **pet:** 实现任务监控映射，petSessionModel 将 chatSession/turn store 映射为 5 状态模型（idle/thinking/acting/waiting/done），经 IPC 推送至宠物窗口
-* **pet:** 新增多只内置宠物独立精神图绘，设置面板（PetSettings.vue）支持 4 只宠物选择与尺寸/动画/任务面板开关
-* **pet:** 实现透明置顶窗口、16ms 光标采样拖拽、面板边缘翻转（24px 滞回区间）与区域穿透（petWindowManager.ts）
-* **mobile:** 新增文件浏览器与代码预览（file_explorer_service.dart / file_explorer_screen.dart / file_preview_screen.dart），目录树展开折叠、文件预览支持代码高亮与 Markdown 渲染，顶部面包屑路径快速跳转
-* **search:** 添加 Tavily 免费代理搜索支持并优化搜索错误展示
+- **pet:** 重构桌面宠物系统，采用 Sprite Atlas + CSS background-position 帧动画（PetSpriteAtlas.vue）替代旧版 SVG 实现
+- **pet:** 新增 9 种状态动画 + 16 方向视线追踪（petAnimation.ts），宠物随鼠标位置自然转头
+- **pet:** 实现任务监控映射，petSessionModel 将 chatSession/turn store 映射为 5 状态模型（idle/thinking/acting/waiting/done），经 IPC 推送至宠物窗口
+- **pet:** 新增多只内置宠物独立精神图绘，设置面板（PetSettings.vue）支持 4 只宠物选择与尺寸/动画/任务面板开关
+- **pet:** 实现透明置顶窗口、16ms 光标采样拖拽、面板边缘翻转（24px 滞回区间）与区域穿透（petWindowManager.ts）
+- **mobile:** 新增文件浏览器与代码预览（file\_explorer\_service.dart / file\_explorer\_screen.dart / file\_preview\_screen.dart），目录树展开折叠、文件预览支持代码高亮与 Markdown 渲染，顶部面包屑路径快速跳转
+- **search:** 添加 Tavily 免费代理搜索支持并优化搜索错误展示
 
 ### Bug Fixes
 
-* **pet:** 修复多宠物状态同步问题
-* **electron:** 优化进程池方法的空进程处理逻辑
+- **pet:** 修复多宠物状态同步问题
+- **electron:** 优化进程池方法的空进程处理逻辑
 
 ### Refactor
 
-* **pet:** 重构桌面宠物系统，移除旧版反应逻辑与冗余代码（清理 42 个旧 SVG/composable/LLM 代理/测试文件）
+- **pet:** 重构桌面宠物系统，移除旧版反应逻辑与冗余代码（清理 42 个旧 SVG/composable/LLM 代理/测试文件）
 
 ## [0.6.12](https://github.com/hjdspace/SpaceCode/compare/v0.6.11...v0.6.12) (2026-07-25)
 
 ### Features
 
-* **agent:** 新增限流重试与无换行SSE事件处理能力
-* **chat:** 实现工具调用流式支持与聊天体验优化
-* **chat:** 重构工具卡片系统，新增多类型工具卡片与国际化支持
-* **android:** 添加前台服务支持，防止LLM任务被系统终止
+- **agent:** 新增限流重试与无换行SSE事件处理能力
+- **chat:** 实现工具调用流式支持与聊天体验优化
+- **chat:** 重构工具卡片系统，新增多类型工具卡片与国际化支持
+- **android:** 添加前台服务支持，防止LLM任务被系统终止
 
 ### Bug Fixes
 
-* **markdown渲染:** 修复流式代码块调试模式下的断言错误
+- **markdown渲染:** 修复流式代码块调试模式下的断言错误
 
 ### Refactor
 
-* **i18n:** 补充多语言文案，优化搜索与Termux相关逻辑
+- **i18n:** 补充多语言文案，优化搜索与Termux相关逻辑
 
 ## [0.6.11](https://github.com/hjdspace/SpaceCode/compare/v0.6.10...v0.6.11) (2026-07-24)
 
 ### Features
 
-* **mobile:** 实现手机端联网搜索能力（WebSearchProvider 接口 + Jina/Tavily/Brave 三种 Provider + 工厂模式，默认 Jina 免 Key）
-* **mobile:** 新增 web_search 与 fetch_url 工具并注册到 Agent（归类为只读权限）
-* **mobile:** MobileConfig 新增 searchProvider/searchApiKey 字段及持久化，设置页新增联网搜索配置卡片
-* **mobile:** 联网搜索 i18n 文案支持中英双语
-* **mobile:** 通过 Termux 桥接实现真 git clone（GitCloneService 分四段执行 + TermuxReadiness 三态检测 + 临时 credential helper 注入）
-* **mobile:** 设置页新增 Termux 环境引导卡片（三态展示 + 配置步骤 + 重新检测）
-* **mobile:** clone 前置二选一弹窗（Termux 未就绪时引导安装或降级 zipball）
-* **mobile:** GitPlugin 对 pull/push/fetch 注入临时 credential helper（token 不持久化）
-* **sessions:** 实现会话列表页面的国际化与项目分组功能
-* **chat/workspace:** 添加上地项目管理功能
-* **chat-tools:** 实现工具调用流式渲染与状态展示
-* **search:** CodeViewer 新增搜索功能与快捷键（Ctrl+P 快速打开、Ctrl+F 查找）
-* **i18n:** 新增文件搜索与代码查看器多语言文案
-* **performance:** 优化分栏面板拖动性能与可调整大小逻辑
-* **officecli:** 实现 OfficeCLI 二进制应用内下载与进度跟踪
+- **mobile:** 实现手机端联网搜索能力（WebSearchProvider 接口 + Jina/Tavily/Brave 三种 Provider + 工厂模式，默认 Jina 免 Key）
+- **mobile:** 新增 web\_search 与 fetch\_url 工具并注册到 Agent（归类为只读权限）
+- **mobile:** MobileConfig 新增 searchProvider/searchApiKey 字段及持久化，设置页新增联网搜索配置卡片
+- **mobile:** 联网搜索 i18n 文案支持中英双语
+- **mobile:** 通过 Termux 桥接实现真 git clone（GitCloneService 分四段执行 + TermuxReadiness 三态检测 + 临时 credential helper 注入）
+- **mobile:** 设置页新增 Termux 环境引导卡片（三态展示 + 配置步骤 + 重新检测）
+- **mobile:** clone 前置二选一弹窗（Termux 未就绪时引导安装或降级 zipball）
+- **mobile:** GitPlugin 对 pull/push/fetch 注入临时 credential helper（token 不持久化）
+- **sessions:** 实现会话列表页面的国际化与项目分组功能
+- **chat/workspace:** 添加上地项目管理功能
+- **chat-tools:** 实现工具调用流式渲染与状态展示
+- **search:** CodeViewer 新增搜索功能与快捷键（Ctrl+P 快速打开、Ctrl+F 查找）
+- **i18n:** 新增文件搜索与代码查看器多语言文案
+- **performance:** 优化分栏面板拖动性能与可调整大小逻辑
+- **officecli:** 实现 OfficeCLI 二进制应用内下载与进度跟踪
 
 ### Bug Fixes
 
-* **sessions:** 修复会话切换时的组件卸载断言错误
-* **mobile:** 修复 MobileConfig.load 未读取搜索配置
-* **mobile:** 修复 Android 语音输入无反应（切换至 Whisper API 方案）
-* **mobile:** shell_plugin 迁移到 termuxReadiness getter（任务1回归修复）
-* **eventhandlers:** 实现 rate limit 错误处理
-* 修复多处异步状态异常与测试适配问题
+- **sessions:** 修复会话切换时的组件卸载断言错误
+- **mobile:** 修复 MobileConfig.load 未读取搜索配置
+- **mobile:** 修复 Android 语音输入无反应（切换至 Whisper API 方案）
+- **mobile:** shell\_plugin 迁移到 termuxReadiness getter（任务1回归修复）
+- **eventhandlers:** 实现 rate limit 错误处理
+- 修复多处异步状态异常与测试适配问题
 
 ### Refactor
 
-* **mobile:** main.dart 启动时用 TermuxReadinessChecker 三态检测替代 checkInstalled
-* **chat:** 合并流式文本组件到 Markdown 渲染器
-* **chat-tools:** 优化工具卡片空值展示逻辑
+- **mobile:** main.dart 启动时用 TermuxReadinessChecker 三态检测替代 checkInstalled
+- **chat:** 合并流式文本组件到 Markdown 渲染器
+- **chat-tools:** 优化工具卡片空值展示逻辑
 
 ## [0.6.10](https://github.com/hjdspace/SpaceCode/compare/v0.6.9...v0.6.10) (2026-07-22)
 
 ### Features
 
-* **mobile:** 实现内置终端与 Shell 命令执行能力，支持工作区内执行命令
-* **mobile:** 实现 GitPlugin 12 个结构化 Git 工具
-* **mobile:** 实现 Python 沙盒与 PythonPlugin，支持 Python 代码执行
-* **mobile:** 新增权限拦截器（CommandClassifier 命令危险等级分类 + PermissionInterceptorPlugin 异步询问流程 + 集成到本地 Agent 与 UI）
-* **mobile:** Android Chaquopy 集成与 git 二进制构建脚本
-* **mobile/chat:** 重写聊天输入框组件，新增模型选择器、@mention 选择浮层、附件选择底部抽屉、附件 Chip 组件
-* **mobile/chat:** 扩展 ChatState / ChatNotifier 支持附件与模型切换，新增 ModelService 与 modelsProvider
-* **mobile/chat:** 使用 CommandMenu 替换 SkillCommandMenu 并支持命令分组
-* **mobile/chat:** 补全聊天输入框 i18n 字典并新增 widget 测试
-* **mobile/config:** 添加 saveModel 方法以支持保存当前模型
-* **mobile:** Agent 续跑能力，maxTurns 提升至 150（参考 claude-code 安全闸），截断时提示并可一键继续上次任务
-* **i18n:** 新增工作区相关多语言文案
+- **mobile:** 实现内置终端与 Shell 命令执行能力，支持工作区内执行命令
+- **mobile:** 实现 GitPlugin 12 个结构化 Git 工具
+- **mobile:** 实现 Python 沙盒与 PythonPlugin，支持 Python 代码执行
+- **mobile:** 新增权限拦截器（CommandClassifier 命令危险等级分类 + PermissionInterceptorPlugin 异步询问流程 + 集成到本地 Agent 与 UI）
+- **mobile:** Android Chaquopy 集成与 git 二进制构建脚本
+- **mobile/chat:** 重写聊天输入框组件，新增模型选择器、@mention 选择浮层、附件选择底部抽屉、附件 Chip 组件
+- **mobile/chat:** 扩展 ChatState / ChatNotifier 支持附件与模型切换，新增 ModelService 与 modelsProvider
+- **mobile/chat:** 使用 CommandMenu 替换 SkillCommandMenu 并支持命令分组
+- **mobile/chat:** 补全聊天输入框 i18n 字典并新增 widget 测试
+- **mobile/config:** 添加 saveModel 方法以支持保存当前模型
+- **mobile:** Agent 续跑能力，maxTurns 提升至 150（参考 claude-code 安全闸），截断时提示并可一键继续上次任务
+- **i18n:** 新增工作区相关多语言文案
 
 ### Bug Fixes
 
-* **mobile:** 聊天输入框 TextField 禁用主题填充，消除浅灰背景
-* **mobile:** 语音输入主动请求麦克风权限，修复点击无反应问题
-* **mobile:** 终端输入框禁用主题填充背景，避免亮色主题下白底白字
-* **mobile/chat:** 恢复 WorkspaceToolbar 至输入框下方
-* **mobile:** 无工作区时回退到 homeDir 确保终端和 Shell 工具可用
-* **mobile:** 暂时禁用 Chaquopy 插件（不兼容 Gradle 9）
-* **chat:** 修复聊天输入栏工具按钮超出屏幕的问题
+- **mobile:** 聊天输入框 TextField 禁用主题填充，消除浅灰背景
+- **mobile:** 语音输入主动请求麦克风权限，修复点击无反应问题
+- **mobile:** 终端输入框禁用主题填充背景，避免亮色主题下白底白字
+- **mobile/chat:** 恢复 WorkspaceToolbar 至输入框下方
+- **mobile:** 无工作区时回退到 homeDir 确保终端和 Shell 工具可用
+- **mobile:** 暂时禁用 Chaquopy 插件（不兼容 Gradle 9）
+- **chat:** 修复聊天输入栏工具按钮超出屏幕的问题
 
 ### Refactor
 
-* **mobile/chat:** 合并工具栏入口到+号、修复语音输入、移除设置按钮
+- **mobile/chat:** 合并工具栏入口到+号、修复语音输入、移除设置按钮
 
 ## [0.6.9](https://github.com/hjdspace/SpaceCode/compare/v0.6.8...v0.6.9) (2026-07-21)
 
 ### Features
 
-* **mobile:** 新增本地技能库系统，SkillsScreen 改造为 TabBar 布局，支持浏览/搜索/分类筛选/详情页/一键安装到用户目录
-* **mobile:** 新增 Clone 进度反馈，cloneRepository 改造为 Stream<CloneProgress>，CloneNotifier 后台 StateNotifier 驱动设置页实时显示进度与完成状态
-* **mobile:** 新增 Agent Timeline 渲染，TimelineEvent/TimelineAssembler 装配器接入 ChatController 与 MessageBubble 双路径渲染
-* **mobile:** 硬编码 GitHub OAuth Client ID 作为 debug 构建默认值，便于开发调试
-* **macos:** 注册 package_info_plus 插件以支持桌面端版本号动态读取
+- **mobile:** 新增本地技能库系统，SkillsScreen 改造为 TabBar 布局，支持浏览/搜索/分类筛选/详情页/一键安装到用户目录
+- **mobile:** 新增 Clone 进度反馈，cloneRepository 改造为 Stream<CloneProgress>，CloneNotifier 后台 StateNotifier 驱动设置页实时显示进度与完成状态
+- **mobile:** 新增 Agent Timeline 渲染，TimelineEvent/TimelineAssembler 装配器接入 ChatController 与 MessageBubble 双路径渲染
+- **mobile:** 硬编码 GitHub OAuth Client ID 作为 debug 构建默认值，便于开发调试
+- **macos:** 注册 package\_info\_plus 插件以支持桌面端版本号动态读取
 
 ### Bug Fixes
 
-* **mobile:** 修复 clone 路径字符串插值 bug 与 Android 11+ 权限问题
-* **mobile:** clone 支持选择系统目录且按仓库名创建子目录，修复目录写入失败和打开目录无反应
-* **mobile:** clone 支持自定义路径且保留项目根目录，删除 Timeline 圆点装饰
-* **mobile:** 修复多轮对话 assembler 残留导致显示历史内容
-* **mobile:** 设置页版本号改为从 package_info_plus 动态读取，避免硬编码
-* **mobile:** 修复本地技能库分类筛选、asset 加载、安装反馈三个 bug
-* **MarkdownRenderer:** 修复本地图片解析和渲染时序问题
+- **mobile:** 修复 clone 路径字符串插值 bug 与 Android 11+ 权限问题
+- **mobile:** clone 支持选择系统目录且按仓库名创建子目录，修复目录写入失败和打开目录无反应
+- **mobile:** clone 支持自定义路径且保留项目根目录，删除 Timeline 圆点装饰
+- **mobile:** 修复多轮对话 assembler 残留导致显示历史内容
+- **mobile:** 设置页版本号改为从 package\_info\_plus 动态读取，避免硬编码
+- **mobile:** 修复本地技能库分类筛选、asset 加载、安装反馈三个 bug
+- **MarkdownRenderer:** 修复本地图片解析和渲染时序问题
 
 ## [0.6.8](https://github.com/hjdspace/SpaceCode/compare/v0.6.7...v0.6.8) (2026-07-20)
 
 ### Features
 
-* **mobile:** 重构本地 Agent，支持 SSE 流式输出与 OpenAI 兼容工具调用循环
-* **mobile:** 新增 GitHub Device Flow 浏览器认证、仓库列表/分支选择、自动 clone 与 PR 创建
-* **mobile:** 聊天工具栏区分本地目录与 Github 仓库入口，支持会话级工作目录切换
-* **mobile:** 设置页支持从 API 拉取模型列表并下拉选择
-* **mobile:** 应用启动时预加载 MobileConfig，避免重启后 API Key 丢失
-* **chat:** 为 Github clone 和 PR 创建添加虚拟 ToolCall 状态推送，实时反馈执行进度
-* **chat:** 新增权限模式设置，支持多会话并行管理
-* **chat:** 实现移动端与桌面端会话同步功能，新增聊天历史本地持久化
+- **mobile:** 重构本地 Agent，支持 SSE 流式输出与 OpenAI 兼容工具调用循环
+- **mobile:** 新增 GitHub Device Flow 浏览器认证、仓库列表/分支选择、自动 clone 与 PR 创建
+- **mobile:** 聊天工具栏区分本地目录与 Github 仓库入口，支持会话级工作目录切换
+- **mobile:** 设置页支持从 API 拉取模型列表并下拉选择
+- **mobile:** 应用启动时预加载 MobileConfig，避免重启后 API Key 丢失
+- **chat:** 为 Github clone 和 PR 创建添加虚拟 ToolCall 状态推送，实时反馈执行进度
+- **chat:** 新增权限模式设置，支持多会话并行管理
+- **chat:** 实现移动端与桌面端会话同步功能，新增聊天历史本地持久化
 
 ### Bug Fixes
 
-* **mobile:** 修复认证完成后 Device Flow 弹窗不自动关闭的问题
-* **mobile:** 修复工作栏第二个 chip 与本地模式重复，无法选择 Github 仓库
-* **mobile:** 移除 system prompt 中 "受 Pi 启发" 等无关品牌内容
-* **chat:** 修复流式聊天消息渲染时序问题
+- **mobile:** 修复认证完成后 Device Flow 弹窗不自动关闭的问题
+- **mobile:** 修复工作栏第二个 chip 与本地模式重复，无法选择 Github 仓库
+- **mobile:** 移除 system prompt 中 "受 Pi 启发" 等无关品牌内容
+- **chat:** 修复流式聊天消息渲染时序问题
 
 ### Build
 
-* **ci:** 新增 build-android job，release APK 自动构建并上传到 GitHub Release
-* **mobile:** 修复 file_picker 8.3.7 与 AGP 9 的 compileSdk 兼容性问题
+- **ci:** 新增 build-android job，release APK 自动构建并上传到 GitHub Release
+- **mobile:** 修复 file\_picker 8.3.7 与 AGP 9 的 compileSdk 兼容性问题
 
 ## [0.6.7](https://github.com/hjdspace/SpaceCode/compare/v0.6.6...v0.6.7) (2026-07-17)
 
 ### Features
 
-* **profiles:** 添加 ModelProfile 和 ProfilesFile 类型定义
-* **profiles:** 主进程新增 profiles:load/save IPC handler
-* **profiles:** preload 和 electronAPI 暴露 profilesLoad/save
-* **profiles:** store 新增 profile state 和 7 个 actions
-* **profiles:** i18n 新增 profile.* 区块
-* **profiles:** 新增 ProfileCards 组件及测试
-* **profiles:** SettingsPanel 集成 ProfileCards 并在启动时加载 profiles
-* **profiles:** apply 切换后显示 Toast 提示
-* **markdown:** 新增本地图片相对路径解析能力，修复预览时图片加载404与CSP限制问题
+- **profiles:** 添加 ModelProfile 和 ProfilesFile 类型定义
+- **profiles:** 主进程新增 profiles:load/save IPC handler
+- **profiles:** preload 和 electronAPI 暴露 profilesLoad/save
+- **profiles:** store 新增 profile state 和 7 个 actions
+- **profiles:** i18n 新增 profile.\* 区块
+- **profiles:** 新增 ProfileCards 组件及测试
+- **profiles:** SettingsPanel 集成 ProfileCards 并在启动时加载 profiles
+- **profiles:** apply 切换后显示 Toast 提示
+- **markdown:** 新增本地图片相对路径解析能力，修复预览时图片加载404与CSP限制问题
 
 ### Bug Fixes
 
-* **profiles:** 修复 applyProfile 回滚崩溃风险并补充边界测试
-* **profiles:** 修复 CSS 变量名、any 类型、可访问性和 i18n 问题
-* **profiles:** 修复 commitName 中遗漏的硬编码中文
-* **profiles:** 无效 activeProfileId 重置后同步应用第一个 Profile 到 gui-settings
-* **profiles:** i18n 去硬编码 + 解析失败备份损坏文件
-* **ProfileCards:** 修复展开设置面板的空值异常和类型定义
+- **profiles:** 修复 applyProfile 回滚崩溃风险并补充边界测试
+- **profiles:** 修复 CSS 变量名、any 类型、可访问性和 i18n 问题
+- **profiles:** 修复 commitName 中遗漏的硬编码中文
+- **profiles:** 无效 activeProfileId 重置后同步应用第一个 Profile 到 gui-settings
+- **profiles:** i18n 去硬编码 + 解析失败备份损坏文件
+- **ProfileCards:** 修复展开设置面板的空值异常和类型定义
 
 ### Refactor
 
-* **profile-cards:** 重构模型配置卡片UI与交互逻辑
-* **ProfileCards:** 重构配置页面布局，优化交互体验
+- **profile-cards:** 重构模型配置卡片UI与交互逻辑
+- **ProfileCards:** 重构配置页面布局，优化交互体验
 
 ### Build
 
-* 升级electron及相关依赖并适配新版本API
+- 升级electron及相关依赖并适配新版本API
 
 ### Documentation
 
-* 添加多套模型配置切换（Profile）设计文档
-* 添加多套模型配置切换（Profile）实现计划
-* 完善开源文档，新增 LICENSE/CONTRIBUTING/SECURITY 与 README 路线图等章节
+- 添加多套模型配置切换（Profile）设计文档
+- 添加多套模型配置切换（Profile）实现计划
+- 完善开源文档，新增 LICENSE/CONTRIBUTING/SECURITY 与 README 路线图等章节
 
 ## [0.6.6](https://github.com/hjdspace/SpaceCode/compare/v0.6.5...v0.6.6) (2026-07-13)
 
 ### Features
 
-* **pet:** 完成桌面宠物系统完整实现（独立窗口、悬浮嵌入双模式）
-* **pet:** 新增 18 种内置宠物物种和精灵 SVG 组件
-* **pet:** 新增 petStore Pinia 状态管理与 API 聚合层
-* **pet:** 新增 petLLMProxy LLM 代理深模块
-* **pet:** 新增独立窗口管理（petWindowManager）及 IPC 集成
-* **pet:** 新增宠物设置面板（Card/PreviewHeader/Gallery/Creator/BehaviorConfig）
-* **pet:** 新增 usePetDrag / usePetReaction composable
-* **pet:** 新增 PetReactionBubble 反应气泡组件
-* **pet:** 新增上下文事件触发宠物反应
-* **chat-tools:** 新增搜索额外工具和执行额外工具功能
+- **pet:** 完成桌面宠物系统完整实现（独立窗口、悬浮嵌入双模式）
+- **pet:** 新增 18 种内置宠物物种和精灵 SVG 组件
+- **pet:** 新增 petStore Pinia 状态管理与 API 聚合层
+- **pet:** 新增 petLLMProxy LLM 代理深模块
+- **pet:** 新增独立窗口管理（petWindowManager）及 IPC 集成
+- **pet:** 新增宠物设置面板（Card/PreviewHeader/Gallery/Creator/BehaviorConfig）
+- **pet:** 新增 usePetDrag / usePetReaction composable
+- **pet:** 新增 PetReactionBubble 反应气泡组件
+- **pet:** 新增上下文事件触发宠物反应
+- **chat-tools:** 新增搜索额外工具和执行额外工具功能
 
 ### Bug Fixes
 
-* **chat/toolCard:** 修复执行额外工具无结果时的显示文本
+- **chat/toolCard:** 修复执行额外工具无结果时的显示文本
 
 ### Refactor
 
-* **pet:** 重构 AI 宠物功能适配多模型配置
-* **pet:** 优化宠物系统多项交互与初始化逻辑
-* **pet sprites:** 重构所有宠物精灵组件，优化视觉表现与交互细节
-* **chat-tools:** 完成所有工具卡片的重设计对齐
+- **pet:** 重构 AI 宠物功能适配多模型配置
+- **pet:** 优化宠物系统多项交互与初始化逻辑
+- **pet sprites:** 重构所有宠物精灵组件，优化视觉表现与交互细节
+- **chat-tools:** 完成所有工具卡片的重设计对齐
 
 ## [0.6.5](https://github.com/hjdspace/SpaceCode/compare/v0.6.4...v0.6.5) (2026-07-13)
 
 ### Features
 
-* **im:** 新增 IM 集成功能，支持多即时通讯平台接入
-* **im:** 实现 IM adapter common layer（Slice 0a + 0b），含 6 个核心模块、8 个支持模块，103 个单元测试全部通过
-* **wechat:** 实现微信扫码绑定登录功能及适配器优化
-* **im-server:** 新增引擎错误处理与配置持久化功能
-* 新增伯克希尔投研框架全量技能与工具
-* **i18n:** 新增投资分类的多语言支持与分类映射
+- **im:** 新增 IM 集成功能，支持多即时通讯平台接入
+- **im:** 实现 IM adapter common layer（Slice 0a + 0b），含 6 个核心模块、8 个支持模块，103 个单元测试全部通过
+- **wechat:** 实现微信扫码绑定登录功能及适配器优化
+- **im-server:** 新增引擎错误处理与配置持久化功能
+- 新增伯克希尔投研框架全量技能与工具
+- **i18n:** 新增投资分类的多语言支持与分类映射
 
 ### Bug Fixes
 
-* **design-system-picker:** 修复测试用例中的函数名和参数不匹配问题
-* **imServer:** 修复流式事件处理中数据获取错误的问题
+- **design-system-picker:** 修复测试用例中的函数名和参数不匹配问题
+- **imServer:** 修复流式事件处理中数据获取错误的问题
 
 ### Refactor
 
-* **arch:** 完成架构审查 #4 #5 #6——electronAPI 按领域拆分、IPC 工厂抽取，并删除 chat.ts 重导出 shim
-* **turn:** 拆分 turn god object 为三个深模块，并强制 ClaudeCodeApi 契约
-* **turn:** 提取 TurnEventReducer 深模块，9 个事件处理函数从 index.ts 抽出
-* 实现 Engine Gateway 并迁移原有 h5EngineService 逻辑
-* 整体优化项目初始化加载与性能表现
-* **chat:** 优化模型二级子菜单定位逻辑
-* **wechat adapter:** 为配对处理函数加载配置，并新增配对测试
-* 重构代理启动逻辑，将 start 改为 ensureRunning
+- **arch:** 完成架构审查 #4 #5 #6——electronAPI 按领域拆分、IPC 工厂抽取，并删除 chat.ts 重导出 shim
+- **turn:** 拆分 turn god object 为三个深模块，并强制 ClaudeCodeApi 契约
+- **turn:** 提取 TurnEventReducer 深模块，9 个事件处理函数从 index.ts 抽出
+- 实现 Engine Gateway 并迁移原有 h5EngineService 逻辑
+- 整体优化项目初始化加载与性能表现
+- **chat:** 优化模型二级子菜单定位逻辑
+- **wechat adapter:** 为配对处理函数加载配置，并新增配对测试
+- 重构代理启动逻辑，将 start 改为 ensureRunning
 
 ### Documentation
 
-* 新增 Agent skills 与项目文档
+- 新增 Agent skills 与项目文档
 
 ### Chore
 
-* 调整开发配置与修复渲染、认证相关问题
-* **i18n:** 修改中文本地化里 catInvestment 的翻译
+- 调整开发配置与修复渲染、认证相关问题
+- **i18n:** 修改中文本地化里 catInvestment 的翻译
 
 ## [0.6.4](https://github.com/hjdspace/SpaceCode/compare/v0.6.3...v0.6.4) (2026-07-09)
 
 ### Features
 
-* **turn:** Turn store 深化——添加骨架与 SessionSink 写回接口，迁移 TurnState 状态机、Engine 事件订阅、消息收发（send/abort/retry/submitToolAnswer/skipToolAnswer）、权限裁决、auto-retry 状态机，显式 bootstrap 初始化顺序（ADR-0003）
-* **permissionPolicy:** 抽出独立的权限模式策略 store
-* **chat:** AskUserQuestion 工具新增问题摘要视图
-* **h5:** 新增 H5 模式适配与引擎事件路由功能
-* **design:** 新增设计预览功能与 DesignFileWorkspace 组件，集成至 InfoPanel
+- **turn:** Turn store 深化——添加骨架与 SessionSink 写回接口，迁移 TurnState 状态机、Engine 事件订阅、消息收发（send/abort/retry/submitToolAnswer/skipToolAnswer）、权限裁决、auto-retry 状态机，显式 bootstrap 初始化顺序（ADR-0003）
+- **permissionPolicy:** 抽出独立的权限模式策略 store
+- **chat:** AskUserQuestion 工具新增问题摘要视图
+- **h5:** 新增 H5 模式适配与引擎事件路由功能
+- **design:** 新增设计预览功能与 DesignFileWorkspace 组件，集成至 InfoPanel
 
 ### Bug Fixes
 
-* 修复会话加载状态异常和进程退出逻辑问题
-* **chat:** 删除残留 Proxy，改为纯 re-export
-* **turn:** 修复测试 fake api 返回值与补回不变量注释
-* **chat:** 避免重复渲染权限请求卡片并修复参数泄露问题
-* **App.vue:** 修复 H5 端会话消息被覆盖的问题
-* 修复生产模式下 designResourcesPath 路径问题
+- 修复会话加载状态异常和进程退出逻辑问题
+- **chat:** 删除残留 Proxy，改为纯 re-export
+- **turn:** 修复测试 fake api 返回值与补回不变量注释
+- **chat:** 避免重复渲染权限请求卡片并修复参数泄露问题
+- **App.vue:** 修复 H5 端会话消息被覆盖的问题
+- 修复生产模式下 designResourcesPath 路径问题
 
 ### Refactor
 
-* **design-panel:** 重构文件监听逻辑，优化组件职责划分
-* **turn:** 删除已废弃的 chatStream.ts 与 chatControl.ts，移除 chat.ts Proxy
-* **turn:** 用 createSettledTurn() 替换不安全的 as TurnState 断言
-* **design:** 简化 DesignPage 布局，删除 DesignSplitView
-* **design:** 优化 TemplatePicker、DesignSystemPicker、PermissionModeSelector 样式
-* **chat:** ChatInput 响应式设计优化
+- **design-panel:** 重构文件监听逻辑，优化组件职责划分
+- **turn:** 删除已废弃的 chatStream.ts 与 chatControl.ts，移除 chat.ts Proxy
+- **turn:** 用 createSettledTurn() 替换不安全的 as TurnState 断言
+- **design:** 简化 DesignPage 布局，删除 DesignSplitView
+- **design:** 优化 TemplatePicker、DesignSystemPicker、PermissionModeSelector 样式
+- **chat:** ChatInput 响应式设计优化
 
 ## [0.6.3](https://github.com/hjdspace/SpaceCode/compare/v0.6.2...v0.6.3) (2026-07-07)
 
 ### Features
 
-* **h5:** 实现 H5 与桌面端跨端消息同步功能
-* **h5:** 完整实现 H5 移动端镜像会话功能
-* **h5:** 新增 H5 远程访问功能，支持手机浏览器连接桌面端
-* **rtk:** 新增 RTK Token 优化功能
-* **composables&rtkManager:** 完善下载状态管理与 RTK 钩子安装校验
-* **skills:** 新增多个 Agent 技能文档
-* **design:** 在工作区会话中新增切换工作目录功能
-* **design:** 新增 TurnSummaryBar 组件用于显示轮次摘要
-* **design:** 新增 DesignBlocks 组件用于渲染 UI 块
-* **design:** 为工具栏和上下文工具栏添加额外插槽
-* **update:** 实现退出时静默安装更新
-* **update:** 实现静默自动下载与重试逻辑
-* **about:** 新增 AboutSettings 关于设置组件
-* **i18n:** 添加更新安装消息中文/英文本地化
-* **settings:** 在设置面板中集成 AboutSettings
-* **timeline:** 增强 AgentTimeline 任务板可见性逻辑
+- **h5:** 实现 H5 与桌面端跨端消息同步功能
+- **h5:** 完整实现 H5 移动端镜像会话功能
+- **h5:** 新增 H5 远程访问功能，支持手机浏览器连接桌面端
+- **rtk:** 新增 RTK Token 优化功能
+- **composables\&rtkManager:** 完善下载状态管理与 RTK 钩子安装校验
+- **skills:** 新增多个 Agent 技能文档
+- **design:** 在工作区会话中新增切换工作目录功能
+- **design:** 新增 TurnSummaryBar 组件用于显示轮次摘要
+- **design:** 新增 DesignBlocks 组件用于渲染 UI 块
+- **design:** 为工具栏和上下文工具栏添加额外插槽
+- **update:** 实现退出时静默安装更新
+- **update:** 实现静默自动下载与重试逻辑
+- **about:** 新增 AboutSettings 关于设置组件
+- **i18n:** 添加更新安装消息中文/英文本地化
+- **settings:** 在设置面板中集成 AboutSettings
+- **timeline:** 增强 AgentTimeline 任务板可见性逻辑
 
 ### Bug Fixes
 
-* **process:** 确保在启动进程前工作目录存在
-* **ui:** 简化 TitleBar 更新按钮逻辑与样式
-* **update:** 移除 UpdateNotification 组件及相关代码
+- **process:** 确保在启动进程前工作目录存在
+- **ui:** 简化 TitleBar 更新按钮逻辑与样式
+- **update:** 移除 UpdateNotification 组件及相关代码
 
 ### Refactor
 
-* **rtk:** 优化 RTK 下载与多平台支持逻辑
-* **design:** 重构 WorkingDirectoryPicker 及相关逻辑
-* **design:** 重构 DesignChatPane 并集成 MessageList
-* **design:** 重构 MessageList 设计模式处理
-* **design:** 重构 MessageItem 渲染逻辑
-* **design:** 将轮次摘要重构为使用 TurnSummaryBar 组件
-* **agent:** 重构任务状态同步逻辑
-* **tests:** 移除 MessageItem 设计模式测试
+- **rtk:** 优化 RTK 下载与多平台支持逻辑
+- **design:** 重构 WorkingDirectoryPicker 及相关逻辑
+- **design:** 重构 DesignChatPane 并集成 MessageList
+- **design:** 重构 MessageList 设计模式处理
+- **design:** 重构 MessageItem 渲染逻辑
+- **design:** 将轮次摘要重构为使用 TurnSummaryBar 组件
+- **agent:** 重构任务状态同步逻辑
+- **tests:** 移除 MessageItem 设计模式测试
 
 ### Documentation
 
-* **app:** 补充 H5 侧边栏遮罩层 z-index 层级注释
-* **docs:** 批量更新并新增工程技能相关文档
-* **docs:** 修改原型 UI 生成目录路径
+- **app:** 补充 H5 侧边栏遮罩层 z-index 层级注释
+- **docs:** 批量更新并新增工程技能相关文档
+- **docs:** 修改原型 UI 生成目录路径
 
 ## [0.6.2](https://github.com/hjdspace/SpaceCode/compare/v0.6.1...v0.6.2) (2026-07-06)
 
 ### Features
 
-* **design:** 完成设计系统与聊天输入框优化
-* **design:** 重构 DesignComposer 布局，模板与 + 按钮内置输入框
-* **design:** 新增 WorkingDirectoryPicker 工作目录选择器
-* **design:** TemplatePicker 支持 inline 紧凑模式
-* **design:** 新增模板与设计系统选择功能，优化预览与会话逻辑
-* **design:** 新增 TemplatePicker 模板选择器
-* **design:** 新增 TemplateScenarioArt SVG 场景艺术图
-* **design:** 新增模板数据与 open-design 映射
-* **design:** 扩展 listSystems 并新增 getSystemPreview IPC
-* **design:** 为设计系统添加官网链接支持
-* **design-system:** 新增色板解析与 Tokens 预览页
-* **design-file-workspace:** 新增文件工作区，含多 tab/预览源码切换/导出
-* **design-chat-pane:** 新增聊天面板 + DesignComposer 输入区 + FileWorkspace 空壳
-* **browser-use:** 新增 Browser Use 浏览器自动化功能支持
-* **browser-use:** 新增 Cloud Browser 支持与 Agent 高级配置
-* **browser-use:** 新增 browser-use MCP 浏览器自动化支持
-* **browser-use:** 新增桌面 LLM 配置复用功能
-* **browser-use:** 新增镜像源加速安装功能
-* **subagent:** 子代理工具卡片改为行内可展开行并支持流式输出
-* **subagent:** 完成子代理工具卡片 UI 重设计全流程实现
-* **subagent:** 添加 useSubagentTranscript composable 用于获取子代理实时转录
-* **tool-card:** 改造为 family ladder 分发器，新增 Bash/Write/Edit/Read 专用卡
-* **message:** 新增 design 模式 buildBlocks 渲染分支
-* **od-card:** 新增结构化设计卡片，支持 brand/direction/artifact/generic 四种类型
-* **build-blocks:** 新增消息分块工具，支持 od-card/question-form/next-steps 解析
-* **next-step-actions:** 新增轮次后建议动作条
-* **mcp:** 新增 MCP 服务管理、设计系统导出及体验优化
-* **work-gallery:** 重构助手画廊 UI，新增悬停详情与能力展示
-* **i18n:** 补全 design 命名空间中英文翻译
-* **agent:** 新增智能体状态持续时间显示
-* **model:** 实现 getModelWith1mSuffix 函数与主模型获取后缀处理
-* **settings:** 新增单模型上下文窗口自定义配置
+- **design:** 完成设计系统与聊天输入框优化
+- **design:** 重构 DesignComposer 布局，模板与 + 按钮内置输入框
+- **design:** 新增 WorkingDirectoryPicker 工作目录选择器
+- **design:** TemplatePicker 支持 inline 紧凑模式
+- **design:** 新增模板与设计系统选择功能，优化预览与会话逻辑
+- **design:** 新增 TemplatePicker 模板选择器
+- **design:** 新增 TemplateScenarioArt SVG 场景艺术图
+- **design:** 新增模板数据与 open-design 映射
+- **design:** 扩展 listSystems 并新增 getSystemPreview IPC
+- **design:** 为设计系统添加官网链接支持
+- **design-system:** 新增色板解析与 Tokens 预览页
+- **design-file-workspace:** 新增文件工作区，含多 tab/预览源码切换/导出
+- **design-chat-pane:** 新增聊天面板 + DesignComposer 输入区 + FileWorkspace 空壳
+- **browser-use:** 新增 Browser Use 浏览器自动化功能支持
+- **browser-use:** 新增 Cloud Browser 支持与 Agent 高级配置
+- **browser-use:** 新增 browser-use MCP 浏览器自动化支持
+- **browser-use:** 新增桌面 LLM 配置复用功能
+- **browser-use:** 新增镜像源加速安装功能
+- **subagent:** 子代理工具卡片改为行内可展开行并支持流式输出
+- **subagent:** 完成子代理工具卡片 UI 重设计全流程实现
+- **subagent:** 添加 useSubagentTranscript composable 用于获取子代理实时转录
+- **tool-card:** 改造为 family ladder 分发器，新增 Bash/Write/Edit/Read 专用卡
+- **message:** 新增 design 模式 buildBlocks 渲染分支
+- **od-card:** 新增结构化设计卡片，支持 brand/direction/artifact/generic 四种类型
+- **build-blocks:** 新增消息分块工具，支持 od-card/question-form/next-steps 解析
+- **next-step-actions:** 新增轮次后建议动作条
+- **mcp:** 新增 MCP 服务管理、设计系统导出及体验优化
+- **work-gallery:** 重构助手画廊 UI，新增悬停详情与能力展示
+- **i18n:** 补全 design 命名空间中英文翻译
+- **agent:** 新增智能体状态持续时间显示
+- **model:** 实现 getModelWith1mSuffix 函数与主模型获取后缀处理
+- **settings:** 新增单模型上下文窗口自定义配置
 
 ### Bug Fixes
 
-* **design:** 优化网站图标获取逻辑并新增设计系统展示页生成
-* **design:** 为 Markdown 预览内容添加 XSS 过滤
-* **WorkingDirectoryPicker:** 修复外部点击关闭面板的事件逻辑
-* **build-blocks:** thinking block startTime 改为必填，修复 MessageItem typecheck 报错
-* **build-blocks:** thinking block 透传 startTime/endTime，避免 design 模式下永远显示思考中动画
-* **DesignChatPane:** 移除 RetryIndicator 引用以修复 typecheck 报错
-* **MessageItem:** design 模式下守卫 ReasoningCard/ToolCallList/MessageMetadata 避免重复渲染
-* **ToolCard:** BashToolCard duration 支持 running 状态
-* **OdCard:** 补 i18n key、修复 title 重复显示、generic 对象渲染
-* **useDesignSession:** 修复 activeSessionId 设置时机
-* **team-transcript:** 优化会话结束状态推断逻辑
-* **chat:** 修复消息角色识别逻辑，兼容更多数据源字段
-* **chat-stream:** 完善 API 错误处理逻辑，增加错误文本匹配检查
-* **resizable-panel:** 卸载组件时重置光标和用户选择样式
-* **bridge.py:** 处理全局浏览器会话 headless 参数变更的情况
-* **chat:** 修复异步子代理状态管理与代理配置逻辑
-* **subagent:** 修复子代理卡片空输出状态与响应式依赖
-* **type:** 从 @vue/reactivity 导入 MaybeRefOrGetter 修复类型报错
+- **design:** 优化网站图标获取逻辑并新增设计系统展示页生成
+- **design:** 为 Markdown 预览内容添加 XSS 过滤
+- **WorkingDirectoryPicker:** 修复外部点击关闭面板的事件逻辑
+- **build-blocks:** thinking block startTime 改为必填，修复 MessageItem typecheck 报错
+- **build-blocks:** thinking block 透传 startTime/endTime，避免 design 模式下永远显示思考中动画
+- **DesignChatPane:** 移除 RetryIndicator 引用以修复 typecheck 报错
+- **MessageItem:** design 模式下守卫 ReasoningCard/ToolCallList/MessageMetadata 避免重复渲染
+- **ToolCard:** BashToolCard duration 支持 running 状态
+- **OdCard:** 补 i18n key、修复 title 重复显示、generic 对象渲染
+- **useDesignSession:** 修复 activeSessionId 设置时机
+- **team-transcript:** 优化会话结束状态推断逻辑
+- **chat:** 修复消息角色识别逻辑，兼容更多数据源字段
+- **chat-stream:** 完善 API 错误处理逻辑，增加错误文本匹配检查
+- **resizable-panel:** 卸载组件时重置光标和用户选择样式
+- **bridge.py:** 处理全局浏览器会话 headless 参数变更的情况
+- **chat:** 修复异步子代理状态管理与代理配置逻辑
+- **subagent:** 修复子代理卡片空输出状态与响应式依赖
+- **type:** 从 @vue/reactivity 导入 MaybeRefOrGetter 修复类型报错
 
 ### Refactor
 
-* **design-preview:** 统一导出相关文案与函数命名
-* **design:** 清理 TemplatePicker inline 模式冗余样式
-* **design:** 对齐 WorkingDirectoryPicker 文案与规格
-* **design:** WorkingDirectoryPicker 增加异常处理与测试覆盖
-* **TemplatePicker:** 统一循环变量命名为 template
-* **useDesignSession:** 改为会话生命周期触发，新增 createDesignSession/switchToolboxSkill
-* **design-store:** 删除 brief 表单 state，新增 tab/usage/nextStepActions/toolbox
-* **chat/transcript:** 抽象复用工具状态判断逻辑，完善会话状态推断
-* **chat:** 重构任务状态同步逻辑，新增任务通知处理
-* **i18n:** 优化错误提示的国际化处理
-* **settings-panel:** 提取并优化外部导航事件监听逻辑
-* **settings/store/service:** 优化 browser-use 安装流程与镜像配置
-* **retry:** 重构自动重试逻辑，拆分重试状态机到独立 composable
-* **panel:** 优化类型安全并重构面板拖拽逻辑
-* **model-context-windows:** 为 Electron IPC 兼容性重构 modelContextWindows
+- **design-preview:** 统一导出相关文案与函数命名
+- **design:** 清理 TemplatePicker inline 模式冗余样式
+- **design:** 对齐 WorkingDirectoryPicker 文案与规格
+- **design:** WorkingDirectoryPicker 增加异常处理与测试覆盖
+- **TemplatePicker:** 统一循环变量命名为 template
+- **useDesignSession:** 改为会话生命周期触发，新增 createDesignSession/switchToolboxSkill
+- **design-store:** 删除 brief 表单 state，新增 tab/usage/nextStepActions/toolbox
+- **chat/transcript:** 抽象复用工具状态判断逻辑，完善会话状态推断
+- **chat:** 重构任务状态同步逻辑，新增任务通知处理
+- **i18n:** 优化错误提示的国际化处理
+- **settings-panel:** 提取并优化外部导航事件监听逻辑
+- **settings/store/service:** 优化 browser-use 安装流程与镜像配置
+- **retry:** 重构自动重试逻辑，拆分重试状态机到独立 composable
+- **panel:** 优化类型安全并重构面板拖拽逻辑
+- **model-context-windows:** 为 Electron IPC 兼容性重构 modelContextWindows
 
 ## [0.6.1](https://github.com/hjdspace/SpaceCode/compare/v0.6.0...v0.6.1) (2026-06-30)
 
 ### Features
 
-* **settings:** 添加单模型上下文窗口自定义配置
-* **chat store:** 在文件工具执行完成后主动刷新SCM和文件树
-* **chat:** 优化任务管理与Git diff展示，新增TodoWrite工具支持
-* **vendor:** 添加厂商预设地址选择功能，新增多厂商图标与多语言配置
+- **settings:** 添加单模型上下文窗口自定义配置
+- **chat store:** 在文件工具执行完成后主动刷新SCM和文件树
+- **chat:** 优化任务管理与Git diff展示，新增TodoWrite工具支持
+- **vendor:** 添加厂商预设地址选择功能，新增多厂商图标与多语言配置
 
 ### Bug Fixes
 
-* **chat store:** 修复内嵌在用户消息中的工具结果未同步任务状态的问题
-* **chatStream:** 修复用户中止会话后仍自动恢复的问题
-* **scm:** 修复未跟踪文件显示问题，新增上下文压缩功能
-* **terminal:** 保持终端面板挂载并设置默认工作目录
-* 修正会话 Git 变更统计
-* 修复回退检查点识别与预览刷新
-* 修复模型配置面板内容溢出被裁剪
+- **chat store:** 修复内嵌在用户消息中的工具结果未同步任务状态的问题
+- **chatStream:** 修复用户中止会话后仍自动恢复的问题
+- **scm:** 修复未跟踪文件显示问题，新增上下文压缩功能
+- **terminal:** 保持终端面板挂载并设置默认工作目录
+- 修正会话 Git 变更统计
+- 修复回退检查点识别与预览刷新
+- 修复模型配置面板内容溢出被裁剪
 
 ### Refactor
 
-* **MarkdownRenderer:** 优化渲染流程避免OOM
-* **chat:** 调整全局任务看板的布局位置和间距
-* **sidebar:** 替换静态logo为svg图标
+- **MarkdownRenderer:** 优化渲染流程避免OOM
+- **chat:** 调整全局任务看板的布局位置和间距
+- **sidebar:** 替换静态logo为svg图标
 
 ## [0.6.0](https://github.com/hjdspace/SpaceCode/compare/v0.5.4...v0.6.0) (2026-06-28)
 
 ### Features
 
-* **terminal:** 添加底部终端面板功能，支持切换和拖拽调整高度
-* **cua-driver:** 新增cua-driver内置安装与进度展示功能
-* **retry:** 新增自动重试功能，支持可恢复错误自动重试并展示进度
-* **ppt-office-assistant:** 新增全流程PPT办公助手技能包
-* **computer-use:** 新增电脑控制功能，集成cua-driver后台桌面控制
-* **skills:** 新增html-slide-to-pptx与ppt-workflow两个技能库
-* **icons:** 新增图标生成脚本与多套图标设计方案
-* **i18n:** 为HTML预览按钮添加对应的国际化文案
-* **InfoPanel:** 优化webview新窗口处理逻辑
-* **CodeViewer:** 新增HTML文件预览按钮
+- **terminal:** 添加底部终端面板功能，支持切换和拖拽调整高度
+- **cua-driver:** 新增cua-driver内置安装与进度展示功能
+- **retry:** 新增自动重试功能，支持可恢复错误自动重试并展示进度
+- **ppt-office-assistant:** 新增全流程PPT办公助手技能包
+- **computer-use:** 新增电脑控制功能，集成cua-driver后台桌面控制
+- **skills:** 新增html-slide-to-pptx与ppt-workflow两个技能库
+- **icons:** 新增图标生成脚本与多套图标设计方案
+- **i18n:** 为HTML预览按钮添加对应的国际化文案
+- **InfoPanel:** 优化webview新窗口处理逻辑
+- **CodeViewer:** 新增HTML文件预览按钮
 
 ### Bug Fixes
 
-* **chat:** 恢复会话产物汇总数据并新增Git变更同步功能
-* **sessionPersistence:** 保存会话时保留图片的contentUrl
-* **sessionRestore:** 修复会话恢复时的重试残留问题
-* **layout:** 修复切换模式后主面板显示旧会话的问题
-* **InfoPanel:** 避免重复注册webview的窗口打开处理函数
-* **electron:** 修复查找系统PATH中可执行文件的逻辑
-* **useAutoUpdate:** 修复下载更新时隐藏通知的状态同步问题
+- **chat:** 恢复会话产物汇总数据并新增Git变更同步功能
+- **sessionPersistence:** 保存会话时保留图片的contentUrl
+- **sessionRestore:** 修复会话恢复时的重试残留问题
+- **layout:** 修复切换模式后主面板显示旧会话的问题
+- **InfoPanel:** 避免重复注册webview的窗口打开处理函数
+- **electron:** 修复查找系统PATH中可执行文件的逻辑
+- **useAutoUpdate:** 修复下载更新时隐藏通知的状态同步问题
 
 ### Refactor
 
-* **prompt-optimizer:** 迁移提示词优化逻辑到前端+主进程
-* **chatStore:** 优化重试机制与消息处理逻辑
-* **InfoPanel:** 优化窗口打开处理器的注册逻辑
-* 清理代码冗余并简化逻辑
+- **prompt-optimizer:** 迁移提示词优化逻辑到前端+主进程
+- **chatStore:** 优化重试机制与消息处理逻辑
+- **InfoPanel:** 优化窗口打开处理器的注册逻辑
+- 清理代码冗余并简化逻辑
 
 ### Performance
 
-* **chat,session:** 优化内存占用，防止OOM
+- **chat,session:** 优化内存占用，防止OOM
 
 ### Build
 
-* 更新cua-driver二进制下载与查找逻辑
+- 更新cua-driver二进制下载与查找逻辑
 
 ### Documentation
 
-* 更新README并新增Computer Use相关文档
-* 更新PPT办公助手文档的输出路径规范
+- 更新README并新增Computer Use相关文档
+- 更新PPT办公助手文档的输出路径规范
 
 ### Chore
 
-* **engine:** 更新gitignore，添加exe文件忽略规则
-* 清理大量废弃的类型桩文件与工具常量文件
-* **icons:** 清理旧图标文件并新增3个新图标
-* 重构README文档
+- **engine:** 更新gitignore，添加exe文件忽略规则
+- 清理大量废弃的类型桩文件与工具常量文件
+- **icons:** 清理旧图标文件并新增3个新图标
+- 重构README文档
 
 ## [0.5.4](https://github.com/hjdspace/SpaceCode/compare/v0.5.3...v0.5.4) (2026-06-27)
 
 ### Features
 
-* **layout:** 实现中央区分屏多会话布局系统，支持拖拽调整与标签页独立管理
-* **work-mode:** 完成工作模式核心功能开发，优化办公模式与办公助手体验
-* **officecli:** 全量接入officecli技能体系，新增多套PPT样式与自定义助手功能
-* **chat:** 新增产物汇总卡片（ArtifactSummaryCard），支持按轮次收集和展示办公产物
-* **mcp:** 新增内置预打包Computer Use MCP服务器并完成迁移适配
-* **mcp:** 新增 Claude Code CLI 加载状态显示与安装进度优化
-* **mcp:** 为sc-computer-use MCP添加系统提示可用性说明
-* **image:** 新增图片转base64能力，优化会话和预览面板体验
-* **auto-update:** 新增下载准备状态与超时处理逻辑
-* **skills:** 新增技能分类过滤与分类统计支持
-* **skills:** 新增分类覆盖映射，优化技能/技能包分类逻辑
-* **i18n:** 新增产物汇总卡片多语言文案
-* **doc:** 为办公模式添加officecli集成文档
+- **layout:** 实现中央区分屏多会话布局系统，支持拖拽调整与标签页独立管理
+- **work-mode:** 完成工作模式核心功能开发，优化办公模式与办公助手体验
+- **officecli:** 全量接入officecli技能体系，新增多套PPT样式与自定义助手功能
+- **chat:** 新增产物汇总卡片（ArtifactSummaryCard），支持按轮次收集和展示办公产物
+- **mcp:** 新增内置预打包Computer Use MCP服务器并完成迁移适配
+- **mcp:** 新增 Claude Code CLI 加载状态显示与安装进度优化
+- **mcp:** 为sc-computer-use MCP添加系统提示可用性说明
+- **image:** 新增图片转base64能力，优化会话和预览面板体验
+- **auto-update:** 新增下载准备状态与超时处理逻辑
+- **skills:** 新增技能分类过滤与分类统计支持
+- **skills:** 新增分类覆盖映射，优化技能/技能包分类逻辑
+- **i18n:** 新增产物汇总卡片多语言文案
+- **doc:** 为办公模式添加officecli集成文档
 
 ### Bug Fixes
 
-* **app-store:** 修复单叶模式下关闭会话标签后内容不同步的问题
-* **useContentEditor:** 重置编辑器高度以修复输入框残留扩展状态
-* **electron:** 修正权限模式启动与恢复逻辑
-* **utils:** 修复hexToRgba不支持3位十六进制颜色的问题
+- **app-store:** 修复单叶模式下关闭会话标签后内容不同步的问题
+- **useContentEditor:** 重置编辑器高度以修复输入框残留扩展状态
+- **electron:** 修正权限模式启动与恢复逻辑
+- **utils:** 修复hexToRgba不支持3位十六进制颜色的问题
 
 ### Refactor
 
-* **terminal:** 重构终端创建逻辑，统一返回终端信息
-* **terminal:** 优化终端面板体验与状态管理
-* **layout:** 重构分栏布局的PaneHeader与样式逻辑
-* **electron:** 优化officecli二进制文件处理逻辑
-* **artifacts:** 抽取共享的iconFor/formatSize工具函数
-* **work-assistant:** 统一替换emoji头像为lucide图标并优化展示
-* **work-mode:** 调整产物面板显示逻辑
-* **session:** 优化权限模式逻辑与会话历史管理
+- **terminal:** 重构终端创建逻辑，统一返回终端信息
+- **terminal:** 优化终端面板体验与状态管理
+- **layout:** 重构分栏布局的PaneHeader与样式逻辑
+- **electron:** 优化officecli二进制文件处理逻辑
+- **artifacts:** 抽取共享的iconFor/formatSize工具函数
+- **work-assistant:** 统一替换emoji头像为lucide图标并优化展示
+- **work-mode:** 调整产物面板显示逻辑
+- **session:** 优化权限模式逻辑与会话历史管理
 
 ### Performance
 
-* **chat:** 优化流式聊天性能，减少不必要的计算和阻塞
+- **chat:** 优化流式聊天性能，减少不必要的计算和阻塞
 
 ### Style
 
-* **UpdateNotification:** 简化下载进度条的 indeterminate 类绑定
+- **UpdateNotification:** 简化下载进度条的 indeterminate 类绑定
 
 ### Build
 
-* **package.json:** 添加copy-mcp-vendor脚本和资源复制配置
+- **package.json:** 添加copy-mcp-vendor脚本和资源复制配置
 
 ### Chore
 
-* 增强 MarkdownRenderer XSS 防护
-* 配置 Python 环境支持 UTF-8 输出
+- 增强 MarkdownRenderer XSS 防护
+- 配置 Python 环境支持 UTF-8 输出
 
 ### Documentation
 
-* **sessionProcess:** 更新桌面控制MCP工具使用提示文档
+- **sessionProcess:** 更新桌面控制MCP工具使用提示文档
 
 ## [0.5.3](https://github.com/hjdspace/SpaceCode/compare/v0.5.2...v0.5.3) (2026-06-23)
 
 ### Features
 
-* **mcp:** 实现 MCP 服务器主动注入与活跃列表查询能力
-* **mcp:** 新增内置 MCP 依赖一键安装与状态检测功能
-* **mcp:** add builtin MCP server management support
-* **workspace:** add workspace toolbar, auto-preview html artifacts & fix link regex
-* **artifacts:** 新增产物面板功能，支持查看和管理工作产出文件
-* **prototype:** 新增三个原型页面，包含Dashboard配置页和终端卡片样式
-* **mode:** 新增工作模式与专业助手生态
-* **hooks:** 新增内置钩子系统与相关功能
-* **hooks:** 新增内置钩子系统与聊天上下文工具栏
+- **mcp:** 实现 MCP 服务器主动注入与活跃列表查询能力
+- **mcp:** 新增内置 MCP 依赖一键安装与状态检测功能
+- **mcp:** add builtin MCP server management support
+- **workspace:** add workspace toolbar, auto-preview html artifacts & fix link regex
+- **artifacts:** 新增产物面板功能，支持查看和管理工作产出文件
+- **prototype:** 新增三个原型页面，包含Dashboard配置页和终端卡片样式
+- **mode:** 新增工作模式与专业助手生态
+- **hooks:** 新增内置钩子系统与相关功能
+- **hooks:** 新增内置钩子系统与聊天上下文工具栏
 
 ### Bug Fixes
 
-* **chat/ReadToolCard:** 修复文件路径未解析的问题
-* **BashToolCard:** 修复BashToolCard中的颜色代码错误和注释翻译
-* **builtinHooks:** improve build command error handling and messages
-* **builtinHooks:** 修正PushPlus通知的请求域名
+- **chat/ReadToolCard:** 修复文件路径未解析的问题
+- **BashToolCard:** 修复BashToolCard中的颜色代码错误和注释翻译
+- **builtinHooks:** improve build command error handling and messages
+- **builtinHooks:** 修正PushPlus通知的请求域名
 
 ### Refactor
 
-* **chat:** 重构Bash工具卡片，移除内嵌终端并新增终端页跳转
-* **utils:** 优化外部链接打开与产物扫描逻辑，新增路径解析工具
-* **modal:** 重构弹窗系统，统一使用组合式API弹窗管理
-* **builtinHooks:** 重构ECC hook实现，新增路径修复功能
-* **i18n:** 全局化多语言支持，替换硬编码文本
-* **skillsService:** 移除多余的调试日志
+- **chat:** 重构Bash工具卡片，移除内嵌终端并新增终端页跳转
+- **utils:** 优化外部链接打开与产物扫描逻辑，新增路径解析工具
+- **modal:** 重构弹窗系统，统一使用组合式API弹窗管理
+- **builtinHooks:** 重构ECC hook实现，新增路径修复功能
+- **i18n:** 全局化多语言支持，替换硬编码文本
+- **skillsService:** 移除多余的调试日志
 
 ### Style
 
-* **chat,composables:** 清理代码并补充注释
+- **chat,composables:** 清理代码并补充注释
 
 ### Chore
 
-* 新增XSS防护并优化代码结构
+- 新增XSS防护并优化代码结构
 
 ### Documentation
 
-* **i18n:** add hook settings description for zh-CN and en-US
+- **i18n:** add hook settings description for zh-CN and en-US
 
 ## [0.5.2](https://github.com/hjdspace/SpaceCode/compare/v0.5.1...v0.5.2) (2026-06-18)
 
 ### Features
 
-* **trace:** 实现完整的链路追踪功能
-* **trace:** 实现完整的trace会话详情与调用详情展示
-* **trace:** 重构TraceListPage和TraceSessionPage组件界面及功能
-* **session-context:** 新增会话上下文面板系统
-* **session-context:** add panel expand mode and fix memory leak
-* **session-context-ui:** 新增创建分支和Git图表面板
-* **scm:** 实现git仓库变更事件驱动刷新，替代轮询
-* **scm:** 启动监听前确保开启项目文件监听
-* **git:** 新增Git推送功能，优化分支获取逻辑与环境面板
-* **electron:** add fs:readFileAsBase64 api to read file as base64
-* **sidechain:** 完善子代理协作与终端体验
-* **skill:** 新增前端代码审查技能及相关参考文档
+- **trace:** 实现完整的链路追踪功能
+- **trace:** 实现完整的trace会话详情与调用详情展示
+- **trace:** 重构TraceListPage和TraceSessionPage组件界面及功能
+- **session-context:** 新增会话上下文面板系统
+- **session-context:** add panel expand mode and fix memory leak
+- **session-context-ui:** 新增创建分支和Git图表面板
+- **scm:** 实现git仓库变更事件驱动刷新，替代轮询
+- **scm:** 启动监听前确保开启项目文件监听
+- **git:** 新增Git推送功能，优化分支获取逻辑与环境面板
+- **electron:** add fs:readFileAsBase64 api to read file as base64
+- **sidechain:** 完善子代理协作与终端体验
+- **skill:** 新增前端代码审查技能及相关参考文档
 
 ### Bug Fixes
 
-* **sessionRestore:** 修复子代理会话重复渲染与错误渲染问题
-* **app-store:** 打开终端前关闭各类全屏面板
-* **trace:** 修复trace相关IPC调用的异步处理问题
+- **sessionRestore:** 修复子代理会话重复渲染与错误渲染问题
+- **app-store:** 打开终端前关闭各类全屏面板
+- **trace:** 修复trace相关IPC调用的异步处理问题
 
 ### Refactor
 
-* **chat-panel:** 优化环境面板适配逻辑，使用ResizeObserver动态调整布局
-* **env-panel:** 替换为玻璃态浮动面板并优化交互
-* **chat:** 优化实时子代理消息的归属与展示逻辑
-* **chat-input:** 抽离聊天输入框相关逻辑为独立组合式函数
-* **chat-input:** 抽离复用逻辑到独立组合式函数与指令
-* **gitService:** 替换console日志为debug日志
-* **sessionRestore:** 同步stripSystemReminders逻辑与引擎行为
-* **sessionRestore:** add stripSystemReminders helper function
-* **useAgentSelector:** add timer cleanup on unmount
-* **会话配置:** 重构会话配置与进程管理代码
+- **chat-panel:** 优化环境面板适配逻辑，使用ResizeObserver动态调整布局
+- **env-panel:** 替换为玻璃态浮动面板并优化交互
+- **chat:** 优化实时子代理消息的归属与展示逻辑
+- **chat-input:** 抽离聊天输入框相关逻辑为独立组合式函数
+- **chat-input:** 抽离复用逻辑到独立组合式函数与指令
+- **gitService:** 替换console日志为debug日志
+- **sessionRestore:** 同步stripSystemReminders逻辑与引擎行为
+- **sessionRestore:** add stripSystemReminders helper function
+- **useAgentSelector:** add timer cleanup on unmount
+- **会话配置:** 重构会话配置与进程管理代码
 
 ### Style
 
-* **chatPanel:** 调整聊天面板宽度阈值及相关注释
-* **traceStatusPill:** 为状态圆点添加减少动画偏好适配
+- **chatPanel:** 调整聊天面板宽度阈值及相关注释
+- **traceStatusPill:** 为状态圆点添加减少动画偏好适配
 
 ### Build
 
-* **Electron:** 精简打包依赖，缩小安装包体积
+- **Electron:** 精简打包依赖，缩小安装包体积
 
 ## [0.5.1](https://github.com/hjdspace/SpaceCode/compare/v0.5.0...v0.5.1) (2026-06-13)
 
 ### Features
 
-* **搜索:** 新增文件快速搜索面板与右侧面板启动器
-* **更新日志:** 新增更新日志功能，支持本地/远程加载和弹窗展示
-* **pi-engine:** 一键安装 Pi SDK 并优化引擎运行时
-* **electron:** 为私有仓库更新添加 GitHub token 支持
-* **skill:** github-release skill 新增 release-notes 生成功能
+- **搜索:** 新增文件快速搜索面板与右侧面板启动器
+- **更新日志:** 新增更新日志功能，支持本地/远程加载和弹窗展示
+- **pi-engine:** 一键安装 Pi SDK 并优化引擎运行时
+- **electron:** 为私有仓库更新添加 GitHub token 支持
+- **skill:** github-release skill 新增 release-notes 生成功能
 
 ### Bug Fixes
 
-* **shortcuts,settings:** 重构快捷键类型定义并修复引擎选择逻辑
-* **electron:** 修复打包后代理子进程无法加载脚本的问题
-* **ci:** 优化 changelog 模板适配 commit 模式
+- **shortcuts,settings:** 重构快捷键类型定义并修复引擎选择逻辑
+- **electron:** 修复打包后代理子进程无法加载脚本的问题
+- **ci:** 优化 changelog 模板适配 commit 模式
 
 ### Refactor
 
-* **字体:** 统一全局字体配置，移除硬编码字体样式
-* **electron:** 移除动态导入改用静态导入fs和path模块
-* **tokenStatsService:** 替换array.at(-1)为更兼容的写法
-* **构建:** 重构Vite配置并优化项目构建流程
-* **ci:** 用手动 release-notes 替换 changelog-builder
+- **字体:** 统一全局字体配置，移除硬编码字体样式
+- **electron:** 移除动态导入改用静态导入fs和path模块
+- **tokenStatsService:** 替换array.at(-1)为更兼容的写法
+- **构建:** 重构Vite配置并优化项目构建流程
+- **ci:** 用手动 release-notes 替换 changelog-builder
 
 ### Style
 
-* 统一替换硬编码字体尺寸为CSS变量，调整部分字体栈为主题变量
-* 统一项目样式规范，优化主题变量与UI细节
+- 统一替换硬编码字体尺寸为CSS变量，调整部分字体栈为主题变量
+- 统一项目样式规范，优化主题变量与UI细节
 
 ## [0.5.0](https://github.com/hjdspace/SpaceCode/compare/v0.4.9...v0.5.0) (2026-06-11)
 
 ### Features
 
-* **cron:** 新增定时任务管理功能
-* **cron:** add cronFileStore with CRUD operations and atomic writes
-* **cron:** add task run logger with persistence and stale cleanup
-* **cron:** add cron expression parser with validation and human-readable description
-* **chat:** 实现全局任务看板和任务列表优化
-* **chatInput:** add model search and clear function
-* **auto-update:** 新增自动状态重置与UI优化
-* **消息队列:** 实现消息队列优先级支持（steering vs queue）
-* **消息队列:** 实现 AI 回复期间消息队列（Pending Messages）功能
-* **快捷键:** 实现 Claude-Code Ctrl+S 功能
-* **更新:** 桌面应用版本更新方案
+- **cron:** 新增定时任务管理功能
+- **cron:** add cronFileStore with CRUD operations and atomic writes
+- **cron:** add task run logger with persistence and stale cleanup
+- **cron:** add cron expression parser with validation and human-readable description
+- **chat:** 实现全局任务看板和任务列表优化
+- **chatInput:** add model search and clear function
+- **auto-update:** 新增自动状态重置与UI优化
+- **消息队列:** 实现消息队列优先级支持（steering vs queue）
+- **消息队列:** 实现 AI 回复期间消息队列（Pending Messages）功能
+- **快捷键:** 实现 Claude-Code Ctrl+S 功能
+- **更新:** 桌面应用版本更新方案
 
 ### Bug Fixes
 
-* **cronParser:** 修复 cronParser 三个 bug 并补充测试覆盖
-* **chatPanel:** 修复待发消息发送队列异常时消息丢失问题
-* **teamTranscript,chatStore:** 修正会话恢复和agent名称显示问题
-* **session:** 修复从JSONL恢复会话时子代理输出未正确归入teammateTranscripts的问题
-* **scm:** 修复中文文件路径乱码及文件名重复显示问题
+- **cronParser:** 修复 cronParser 三个 bug 并补充测试覆盖
+- **chatPanel:** 修复待发消息发送队列异常时消息丢失问题
+- **teamTranscript,chatStore:** 修正会话恢复和agent名称显示问题
+- **session:** 修复从JSONL恢复会话时子代理输出未正确归入teammateTranscripts的问题
+- **scm:** 修复中文文件路径乱码及文件名重复显示问题
 
 ### Refactor
 
-* **chat:** 重构聊天输入框的模型和推理模式选择UI
-* **chat:** 重构智能体选择器为悬浮子菜单形式
-* **chat:** 重构消息发送与暂存逻辑，优化发送流程
+- **chat:** 重构聊天输入框的模型和推理模式选择UI
+- **chat:** 重构智能体选择器为悬浮子菜单形式
+- **chat:** 重构消息发送与暂存逻辑，优化发送流程
 
 ### Style
 
-* 替换硬编码样式为CSS变量，统一主题适配
+- 替换硬编码样式为CSS变量，统一主题适配
 
 ### CI
 
-* **github:** add auto changelog for releases
+- **github:** add auto changelog for releases
 
 ### Chore
 
-* 本地技能库增加多个技能
+- 本地技能库增加多个技能
 
 ## [0.4.9](https://github.com/hjdspace/SpaceCode/compare/v0.4.8...v0.4.9) (2026-06-09)
 
 ### Features
 
-* **会话消息:** 实现会话消息从 JSONL 文件补全和文件链接优化
-* **插件市场:** 新增 marketplace 插件管理相关功能
+- **会话消息:** 实现会话消息从 JSONL 文件补全和文件链接优化
+- **插件市场:** 新增 marketplace 插件管理相关功能
 
 ### Bug Fixes
 
-* **MarkdownRenderer:** 修复行内代码块链接渲染和 Vue 代码高亮问题
-* **sessionPersistence:** 修复解压数据时错误保留匹配标记的问题
-* **skillsService:** 为 readJsonFile 添加异常捕获和错误日志
+- **MarkdownRenderer:** 修复行内代码块链接渲染和 Vue 代码高亮问题
+- **sessionPersistence:** 修复解压数据时错误保留匹配标记的问题
+- **skillsService:** 为 readJsonFile 添加异常捕获和错误日志
 
 ### Refactor
 
-* **electronAPI:** 统一使用 electronAPI 模块，重构多处 window.electronAPI 调用
-* **skillsService:** 重构插件管理系统，适配 Claude Code 新插件规范
-* **主题与会话:** 重构主题和会话数据获取方式，使用全局 API 替代直接 Vue 内部访问
+- **electronAPI:** 统一使用 electronAPI 模块，重构多处 window\.electronAPI 调用
+- **skillsService:** 重构插件管理系统，适配 Claude Code 新插件规范
+- **主题与会话:** 重构主题和会话数据获取方式，使用全局 API 替代直接 Vue 内部访问
 
 ### Build
 
-* **Android:** 添加 Flutter 国内镜像源与 Gradle 优化配置
-* **Android:** 禁用 Kotlin 增量编译以避免 Windows 缓存损坏
-* **Android:** 移除 Flutter 镜像仓库的不安全 HTTP 协议配置
-* **Android:** 配置国内镜像加速构建
+- **Android:** 添加 Flutter 国内镜像源与 Gradle 优化配置
+- **Android:** 禁用 Kotlin 增量编译以避免 Windows 缓存损坏
+- **Android:** 移除 Flutter 镜像仓库的不安全 HTTP 协议配置
+- **Android:** 配置国内镜像加速构建
 
 ### Chore
 
-* 移除未使用的 2 个依赖
+- 移除未使用的 2 个依赖
 
----
+***
 
 ## [0.4.8](https://github.com/hjdspace/SpaceCode/compare/v0.4.7...v0.4.8) (2026-06-08)
 
 ### Features
 
-* **移动端配套应用:** 新增 Flutter 跨平台移动端应用及桌面端手机连接功能
+- **移动端配套应用:** 新增 Flutter 跨平台移动端应用及桌面端手机连接功能
   - 新增完整的 Flutter 移动端项目，支持 Android、iOS、macOS、Linux、Windows、Web 六端
   - 实现移动端聊天功能：消息列表、流式文本、Markdown 渲染、代码块高亮、思考过程展示
   - 实现工具调用卡片与权限请求卡片，支持移动端审批操作
@@ -868,7 +890,7 @@
   - 实现设置页面与主题同步服务
   - 新增 QR 扫码连接页面，支持扫描桌面端二维码快速配对
   - 新增 WebSocket 连接服务与自定义通信协议
-* **桌面端手机连接:** 新增桌面端手机联动功能
+- **桌面端手机连接:** 新增桌面端手机联动功能
   - 新增 MobileServer 模块，提供 WebSocket 服务与二维码生成
   - 新增 ConnectMobileDialog 组件，支持扫码连接与连接状态展示
   - 新增 ThemeSyncBuilder 实现桌面端主题实时同步到移动端
@@ -878,15 +900,15 @@
 
 ### Bug Fixes
 
-* **依赖同步:** 修复 package-lock.json 与 package.json 不同步导致 npm ci 失败的问题
+- **依赖同步:** 修复 package-lock.json 与 package.json 不同步导致 npm ci 失败的问题
 
----
+***
 
 ## [0.4.7](https://github.com/hjdspace/SpaceCode/compare/v0.4.6...v0.4.7) (2026-06-08)
 
 ### Features
 
-* **Agents 智能体系统:** 新增完整的 Agents（代理/智能体）管理与工作流系统
+- **Agents 智能体系统:** 新增完整的 Agents（代理/智能体）管理与工作流系统
   - 新增后端 agents 服务，支持扫描、安装、卸载 IPC 通信
   - 新增前端 agents store，实现库管理、安装与卸载功能
   - 新增 Agent 相关类型定义与 Electron API 扩展
@@ -895,86 +917,86 @@
   - 新增工作流（Workflow）状态管理，支持 CRUD 与导出 IPC 处理
   - 新增 WorkflowRunner 组件，支持执行状态实时展示
   - 将 agents-lib 打包集成到 extraResources
-* **聊天会话:** 新建会话时自动清除旧的 turn checkpoints
-* **文档:** 新增 23 个 agent 工具配置文档
-* **远程控制服务器:** 添加根路径重定向逻辑以避免 404 垃圾请求
+- **聊天会话:** 新建会话时自动清除旧的 turn checkpoints
+- **文档:** 新增 23 个 agent 工具配置文档
+- **远程控制服务器:** 添加根路径重定向逻辑以避免 404 垃圾请求
 
 ### Bug Fixes
 
-* **流式响应:** 修复流式响应中上下文 token 计数始终为 0 的问题
-* **Agents 组件:** 修复代理描述为空时的容错处理
-* **路径校验:** 修复 agentName 路径校验并尊重 frontmatter category 字段
-* **文件操作:** 修复工作流导出时的文件操作异步兼容问题
-* **UI 滚动:** 修复代理库滚动问题并重新设计工作流编辑器
+- **流式响应:** 修复流式响应中上下文 token 计数始终为 0 的问题
+- **Agents 组件:** 修复代理描述为空时的容错处理
+- **路径校验:** 修复 agentName 路径校验并尊重 frontmatter category 字段
+- **文件操作:** 修复工作流导出时的文件操作异步兼容问题
+- **UI 滚动:** 修复代理库滚动问题并重新设计工作流编辑器
 
 ### Refactor
 
-* **工作流编辑器:** 重构工作流编辑器与代理详情页，优化整体编辑体验
-* **组件布局:** 优化组件布局与工作流编辑器事件清理逻辑
-* **文件 API:** 改用异步 fs API 重构工作流文件操作
+- **工作流编辑器:** 重构工作流编辑器与代理详情页，优化整体编辑体验
+- **组件布局:** 优化组件布局与工作流编辑器事件清理逻辑
+- **文件 API:** 改用异步 fs API 重构工作流文件操作
 
 ### Chore
 
-* 在 .gitignore 中添加 .codegraph 目录
+- 在 .gitignore 中添加 .codegraph 目录
 
----
+***
 
 ## [0.4.6](https://github.com/hjdspace/SpaceCode/compare/v0.4.5...v0.4.6) (2026-06-05)
 
 ### Features
 
-* **MCP 工具集成:** 新增完整的 MCP（Model Context Protocol）服务器管理与调用能力
-  - 新增 mcp_tool 命令类型与服务器本地配置持久化、CRUD 操作
+- **MCP 工具集成:** 新增完整的 MCP（Model Context Protocol）服务器管理与调用能力
+  - 新增 mcp\_tool 命令类型与服务器本地配置持久化、CRUD 操作
   - 支持 stdio / SSE / HTTP 三种连接类型的连通性探测
   - 在命令面板展示 MCP 工具并支持快速调用
   - 新增 MCP 服务器管理页面，支持测试连接与工具列表查看
   - 新增服务器运行时详情折叠面板，展示工具列表与加载状态
   - 为 MCP 管理页面补全 zh-CN / en-US 国际化文案
-* **外部编辑器扩展:** 新增多款外部编辑器支持，优化回滚与文件打开体验
+- **外部编辑器扩展:** 新增多款外部编辑器支持，优化回滚与文件打开体验
   - 新增 VS Code、Cursor、Visual Studio、WSL 等多款外部编辑器
   - 重构文件打开菜单，支持一键选择编辑器打开项目
   - 优化对话回滚逻辑，跳过无变更文件并完善日志统计
   - 重构 electron 端编辑器启动逻辑，适配跨平台启动参数
   - 移除冗余的回合检查点清理逻辑，更新多语言文案
-* **/diff 命令:** 新增内置 /diff 命令，支持查看项目 Git 变更详情
+- **/diff 命令:** 新增内置 /diff 命令，支持查看项目 Git 变更详情
   - 新增 getFullDiff API 获取全量工作区 diff 数据
   - 新增 DiffExplorer 组件展示文件变更列表和详情
   - 在聊天面板集成 diff 弹窗 UI，支持暗色主题
   - 支持展示未跟踪文件、二进制文件和普通 diff 内容
-* **命令芯片 (Command Chips):** 用内联命令芯片替换原命令徽章栏，提升输入与消息展示体验
+- **命令芯片 (Command Chips):** 用内联命令芯片替换原命令徽章栏，提升输入与消息展示体验
   - 新增 Source Serif 4 字体与全局样式
   - 为 CommandBadge / SlashCommand 新增 source 字段及对应 i18n 标签
   - 在消息列表中渲染命令芯片
   - 命令芯片支持序列化与反序列化
-* **聊天图片持久化:** 实现聊天图片持久化存储，避免 localStorage 配额溢出
-* **InfoPanel 优化:** 为评论栏新增动态定位
-* **资源扩充:** 补充大量素材、模板、主题与配置文件
-* **i18n 补全:** 新增通用设置描述的 zh-CN / en-US 翻译
+- **聊天图片持久化:** 实现聊天图片持久化存储，避免 localStorage 配额溢出
+- **InfoPanel 优化:** 为评论栏新增动态定位
+- **资源扩充:** 补充大量素材、模板、主题与配置文件
+- **i18n 补全:** 新增通用设置描述的 zh-CN / en-US 翻译
 
 ### Bug Fixes
 
-* **聊天面板:** 移除无效的 diffPanelTrigger 监听器，防止内存泄漏
-* **技能服务:** 技能扫描与安装仅识别 SKILL.md，不再误匹配 README 等普通 markdown
-* **命令注册:** 补全 commandRegistry 缺失的 source 字段并使用 cmd.source
+- **聊天面板:** 移除无效的 diffPanelTrigger 监听器，防止内存泄漏
+- **技能服务:** 技能扫描与安装仅识别 SKILL.md，不再误匹配 README 等普通 markdown
+- **命令注册:** 补全 commandRegistry 缺失的 source 字段并使用 cmd.source
 
 ### Refactor
 
-* **外部编辑器:** 重构外部编辑器合法性校验，移除硬编码列表，依赖 EDITOR_LAUNCHERS 配置
-* **UI:** 将 diff 审查按钮从 ChatInput 移至 TitleBar，使用 store 变量实现组件间通信
-* **命令芯片:** 移除全局字体导入并简化命令芯片 DOM 结构
-* **设置:** 全面重构设置页面布局，统一面板组件风格
+- **外部编辑器:** 重构外部编辑器合法性校验，移除硬编码列表，依赖 EDITOR\_LAUNCHERS 配置
+- **UI:** 将 diff 审查按钮从 ChatInput 移至 TitleBar，使用 store 变量实现组件间通信
+- **命令芯片:** 移除全局字体导入并简化命令芯片 DOM 结构
+- **设置:** 全面重构设置页面布局，统一面板组件风格
 
 ### Chore
 
-* 补充忽略 _temp/ 临时目录，修复 .gitignore 末尾缺少换行符的问题
+- 补充忽略 \_temp/ 临时目录，修复 .gitignore 末尾缺少换行符的问题
 
----
+***
 
 ## [0.4.5](https://github.com/hjdspace/SpaceCode/compare/v0.4.4...v0.4.5) (2026-06-03)
 
 ### Features
 
-* **Mini-Browser 工作台:** 新增内置浏览器工作台与 WebView 检查器支持
+- **Mini-Browser 工作台:** 新增内置浏览器工作台与 WebView 检查器支持
   - 新增 mini-browser-workbench 设计文档，定义工作台架构与交互规范
   - 新增 webviewInspector 工具模块，支持 WebView 内容检查与调试
   - 新增 workbench-targets 目标配置工具与单元测试
@@ -982,13 +1004,13 @@
   - 增强 MarkdownRenderer 与 InfoPanel 渲染能力，适配工作台内容展示
   - 扩展应用状态管理（app store），新增工作台相关状态字段
   - 补充中英文国际化条目（zh-CN / en-US）
-* **技能库增强:** 改进技能安装与检测功能
+- **技能库增强:** 改进技能安装与检测功能
   - 技能卡片新增安装按钮，支持一键安装本地技能包
   - 优化技能包（bundle）检测逻辑，提升识别准确率
 
 ### Refactor
 
-* **UI/UX Pro Max 技能重构:** 全面重构 UI 设计技能库结构
+- **UI/UX Pro Max 技能重构:** 全面重构 UI 设计技能库结构
   - 将单一 ui-ux-pro-max 拆分为 brand、design-system、design、slides、ui-styling 五个子技能域
   - 新增品牌设计系统（颜色管理、Logo 规范、视觉识别等）
   - 新增设计系统技能（组件规格、Token 架构、语义化变量等）
@@ -997,19 +1019,19 @@
   - 新增 UI 样式技能（Canvas 字体系统、Shadcn 组件、Tailwind 定制等）
   - 清理旧版 ui-ux-pro-max 技能文件与数据资源
 
----
+***
 
 ## [0.4.4](https://github.com/hjdspace/SpaceCode/compare/v0.4.3...v0.4.4) (2026-06-01)
 
 ### Features
 
-* **聊天图片预览:** 新增应用内图片灯箱预览功能
+- **聊天图片预览:** 新增应用内图片灯箱预览功能
   - 替换原新窗口打开图片逻辑，支持点击图片在当前页面弹出灯箱预览
   - 支持点击关闭按钮或遮罩层关闭预览
 
 ### Refactor
 
-* **设置页面重构:** 全面重构设置模块，统一组件样式与设计系统
+- **设置页面重构:** 全面重构设置模块，统一组件样式与设计系统
   - 新增基础样式文件 `_settings-base.scss`，统一所有设置页面的组件样式规范
   - 重构设置面板布局，新增侧边导航栏并拆分菜单分组
   - 替换所有硬编码样式为 CSS 变量，统一使用项目设计系统
@@ -1019,27 +1041,27 @@
 
 ### Style
 
-* **全局样式:** 在全局样式中导入基础设置模块
-* **UI 调整:** 调整多个面板宽度限制与消息渲染逻辑
+- **全局样式:** 在全局样式中导入基础设置模块
+- **UI 调整:** 调整多个面板宽度限制与消息渲染逻辑
 
----
+***
 
 ## [0.4.3](https://github.com/hjdspace/SpaceCode/compare/v0.4.2...v0.4.3) (2026-06-01)
 
 ### Features
 
-* **Caveman 压缩Skills:** 新增完整的压缩工具与插件生态
+- **Caveman 压缩Skills:** 新增完整的压缩工具与插件生态
   - 初始化 caveman 项目，添加核心压缩模式、命令与代理服务
   - 支持 Claude Code、OpenCode 等多平台插件集成
   - 实现代码审查、提交信息生成等配套工具
   - 提供完整的文档、测试与安装脚本
   - 配置 CI/CD 与项目基础结构
-* **文件式规划技能套件:** 新增 Manus 风格的文件式规划功能
+- **文件式规划技能套件:** 新增 Manus 风格的文件式规划功能
   - 新增完整的基础配置文件和多 IDE 钩子支持
   - 支持多语言命令文档（阿拉伯语、德语、西班牙语、中文）
   - 兼容 Claude Code、Cursor、GitHub Copilot 等工具
   - 提供测试用例与 CI 流程支持
-* **Hook 管理系统:** 新增自定义会话生命周期钩子功能
+- **Hook 管理系统:** 新增自定义会话生命周期钩子功能
   - 新增 electronAPI 的 hooks 设置持久化方法
   - 添加 Hook 设置面板与编辑弹窗组件
   - 新增 hooks 相关类型定义与 Pinia 状态管理
@@ -1047,33 +1069,33 @@
   - 提供卡片/表格/时间线三种视图展示 Hook 列表
   - 多语言国际化支持 Hook 设置页面
   - 重构代理配置逻辑，改为由 Shadow Home 统一处理第三方提供商配置
-* **UI 技能库扩展:** 新增多套前端 UI 设计技能包
+- **UI 技能库扩展:** 新增多套前端 UI 设计技能包
   - 新增 10 套前端 UI 设计技能包（极简主义、工业粗野主义等风格）
   - 新增 stitch-design-taste 技能，支持生成谷歌 Stitch 专用设计规范文档
   - 新增 skills-lock.json 锁定技能版本与哈希校验
-* **API 代理增强:** 完善 Anthropic 和 OpenAI 消息格式互转逻辑
+- **API 代理增强:** 完善 Anthropic 和 OpenAI 消息格式互转逻辑
   - 新增工具调用转换支持
   - 修复多内容块消息处理
   - 添加空值和类型校验
-* **引擎数据流分析:** 新增 Claude-Code Engine 数据流分析文档
+- **引擎数据流分析:** 新增 Claude-Code Engine 数据流分析文档
 
 ### Bug Fixes
 
-* **引擎切换:** 解决 10 个 Claude Code CLI 引擎切换问题
+- **引擎切换:** 解决 10 个 Claude Code CLI 引擎切换问题
   - **P0 修复：** 将 engineSource/installedCliPath 传递给 startSession（之前这些字段从未被转发，导致引擎源切换完全无效）
   - **P0 修复：** 修复代理自动启动条件，排除 claudeai/console 认证方式
   - **P1 优化：** 新增运行时引擎源切换时的动态代理启停功能
   - **P1 优化：** 替换硬编码代理端口 34567 为自动发现（范围 34567-34667）
-  - **P1 优化：** 将 MAX_HEALTH_RETRIES 从 1 增加到 3，避免临时健康检查失败导致过早重启代理
+  - **P1 优化：** 将 MAX\_HEALTH\_RETRIES 从 1 增加到 3，避免临时健康检查失败导致过早重启代理
   - **P2 优化：** 标记 claudeCodeProcessManager.ts 为 @deprecated（已被 sessionProcess.ts 取代）
   - **P2 优化：** 将代理注入中的静默 catch{} 替换为 warn 级别日志
-  - **P2 优化：** 添加 CLI 版本兼容性检查（MIN_CLI_VERSION = 1.0.0）及版本过旧 UI 警告
+  - **P2 优化：** 添加 CLI 版本兼容性检查（MIN\_CLI\_VERSION = 1.0.0）及版本过旧 UI 警告
   - **P2 优化：** 在引擎切换时保留 engineSessionId 并作为 resumeSessionId 传递以恢复对话上下文
   - **P2 优化：** 添加适配器状态定期刷新（10s 间隔）、停止时的 adapter-hint 文本及新 UI 元素的 i18n 字符串
-* **URL 拼接:** 修复上游代理 URL 重复拼接版本路径的问题
+- **URL 拼接:** 修复上游代理 URL 重复拼接版本路径的问题
   - 针对 OpenAI 兼容的上游代理配置，当基础 URL 已包含版本路径时避免重复拼接
   - 新增 URL 拼接工具函数统一处理 URL 拼接逻辑
-* **Windows 兼容性:** 优化 Windows 平台 CLI 命令查找与执行逻辑
+- **Windows 兼容性:** 优化 Windows 平台 CLI 命令查找与执行逻辑
   - 新增对 Windows .cmd 脚本的优先匹配查找，避免找到非可执行的同名文件
   - 在启动会话进程时，自动为 .cmd 脚本启用 shell 执行模式
   - 修复 Windows 下非 .cmd 命令无法正常执行的问题
@@ -1081,35 +1103,35 @@
 
 ### Refactor
 
-* **代理模式配置:** 优化代理模式下的模型配置逻辑
+- **代理模式配置:** 优化代理模式下的模型配置逻辑
   - 更新代理服务器返回标准 Claude 模型列表
   - 代理模式下不传递 --model 参数，使用官网默认模型选择逻辑
   - 清空代理模式下的默认模型环境变量
   - 简化同步 settings.json 的代理模式逻辑，避免污染全局配置
-* **代理启动流程:** 重构代理启动与 API 配置逻辑
+- **代理启动流程:** 重构代理启动与 API 配置逻辑
   - 新增引擎源切换时自动启动代理的逻辑
   - 新增开机自动启动代理的逻辑
   - 重构 API 配置同步逻辑，适配代理模式下的配置清理与环境变量设置
-* **CLI 检测:** 为 CliDetectionResult 接口新增 versionCompatible 字段
+- **CLI 检测:** 为 CliDetectionResult 接口新增 versionCompatible 字段
 
 ### Style
 
-* **表单组件:** 优化表单样式与清理无用样式
+- **表单组件:** 优化表单样式与清理无用样式
   - 移除 HookSettings.vue 中无用的 .event-group 空样式
   - 将 HookEditModal 的复选框内联样式改为类名样式，并提取为 .accent-checkbox 类
   - 将 v-html 改为普通插值渲染提示文本，避免 XSS 风险
 
 ### Chore
 
-* 清理无用的 ask-user-question-ui-demos.html 文件
+- 清理无用的 ask-user-question-ui-demos.html 文件
 
----
+***
 
 ## [0.4.2](https://github.com/hjdspace/SpaceCode/compare/v0.4.0...v0.4.2) (2026-05-30)
 
 ### Features
 
-* **API 代理模块:** 实现 Anthropic ↔ OpenAI API 转换桥
+- **API 代理模块:** 实现 Anthropic ↔ OpenAI API 转换桥
   - 新增 HTTP 代理服务器，支持流式响应
   - 实现 Anthropic ↔ OpenAI 请求/响应转换器
   - 实现 OpenAI SSE 到 Anthropic SSE 的流式转换器
@@ -1118,91 +1140,91 @@
   - 添加代理模块共享类型定义
   - 实现代理子进程入口点和生命周期管理（ProxyManager）
   - 增强流式转换器状态机逻辑
-* **引擎源配置系统:** 支持可配置的 AI 引擎源
+- **引擎源配置系统:** 支持可配置的 AI 引擎源
   - 新增 AI 引擎源设置 UI 组件（EngineSourceSettings）
   - 实现 CLI 检测器，支持环境检查和自动安装
   - 添加 IPC 处理程序和预加载 API 用于 CLI 检测和代理管理
   - 集成引擎源和代理到 SessionProcess
   - 将引擎源 UI 和代理生命周期集成到应用主流程
   - 设置页面支持恢复 engineSource 和 installedCliPath 字段
-* **斜杠命令系统:** 实现完整斜杠命令功能
+- **斜杠命令系统:** 实现完整斜杠命令功能
   - 实现完整的斜杠命令系统，对齐 TUI 功能
   - 添加斜杠命令支持和优化徽章处理
-* **SCM 面板增强:** 提升版本控制面板交互体验
+- **SCM 面板增强:** 提升版本控制面板交互体验
   - 为 SCM 面板添加可拖拽调整高度功能
 
 ### Bug Fixes
 
-* **会话轮次:** 修复 turnCheckpointService 轮次错位问题
-  - 过滤 tool_result 消息避免轮次计数错误
-* **代理子进程:** 修复代理子进程无法启动的问题
+- **会话轮次:** 修复 turnCheckpointService 轮次错位问题
+  - 过滤 tool\_result 消息避免轮次计数错误
+- **代理子进程:** 修复代理子进程无法启动的问题
   - 添加 tsx 运行时支持
   - 配置 esbuild 构建流程
-* **Windows 兼容性:** 修复 Windows 平台 CLI 版本显示异常
+- **Windows 兼容性:** 修复 Windows 平台 CLI 版本显示异常
   - 解决 .cmd 文件执行失败导致版本显示为 unknown 的问题
 
 ### Refactor
 
-* **Electron 主进程:** 统一追加系统提示词的处理逻辑
-* **聊天输入框:** 提取发送后清理逻辑为复用函数
-* **命令面板:** 重构监听逻辑，替换手动调用为 watch 模式
-* **API 配置:** 统一 SCM、聊天、设置模块的 API URL 规范化逻辑
+- **Electron 主进程:** 统一追加系统提示词的处理逻辑
+- **聊天输入框:** 提取发送后清理逻辑为复用函数
+- **命令面板:** 重构监听逻辑，替换手动调用为 watch 模式
+- **API 配置:** 统一 SCM、聊天、设置模块的 API URL 规范化逻辑
   - 修复环境变量加载顺序问题
   - 添加连接测试功能
-* **SCM 面板:** 调整提交区域与图表区域的 flex 占比
+- **SCM 面板:** 调整提交区域与图表区域的 flex 占比
 
 ### Style
 
-* **全局样式:** 更新全局样式变量，调整主题配色与中性色
+- **全局样式:** 更新全局样式变量，调整主题配色与中性色
 
 ### Documentation
 
-* **设计文档:** 添加官网引擎切换 + API 转换桥实现计划
-* **技术方案:** 添加官网 Claude Code 引擎切换 + API 转换桥设计文档
+- **设计文档:** 添加官网引擎切换 + API 转换桥实现计划
+- **技术方案:** 添加官网 Claude Code 引擎切换 + API 转换桥设计文档
 
 ### Build
 
-* **构建优化:** 移除废弃的 proxy 打包配置并优化相关代码
+- **构建优化:** 移除废弃的 proxy 打包配置并优化相关代码
 
----
+***
 
 ## [0.4.0](https://github.com/hjdspace/SpaceCode/compare/v0.3.10...v0.4.0) (2026-05-28)
 
 ### Features
 
-* **编辑器集成:** 新增通过 VSCode/GVim 打开文件或项目的功能
+- **编辑器集成:** 新增通过 VSCode/GVim 打开文件或项目的功能
   - 新增文件树节点根节点标记属性
   - 实现主进程编辑器调用逻辑，支持 VSCode 和 GVim
   - 添加右键菜单打开文件/项目到编辑器选项
   - 顶部标题栏新增快速打开文件到编辑器的下拉菜单
   - 补充中英文多语言配置项
-* **命令系统:** 将 commit 命令暴露给用户并添加会话回合检查点加载
-  - 将 commit 命令从 INTERNAL_ONLY_COMMANDS 移至 COMMANDS 列表
-  - 在 BUILT_IN_COMMANDS 中注册 commit 命令为 agent_skill 类型
+- **命令系统:** 将 commit 命令暴露给用户并添加会话回合检查点加载
+  - 将 commit 命令从 INTERNAL\_ONLY\_COMMANDS 移至 COMMANDS 列表
+  - 在 BUILT\_IN\_COMMANDS 中注册 commit 命令为 agent\_skill 类型
   - 在保存会话后加载 turn checkpoints 以支持会话恢复功能
-* **Diff 视图:** 优化 diff 生成逻辑并调整 UI 间距
+- **Diff 视图:** 优化 diff 生成逻辑并调整 UI 间距
   - 重构 diff 计算逻辑，引入上下文行处理机制
   - 实现符合 Git diff 格式的 hunk 头部及行号标注
   - 调整 AgentTimeline 组件样式，优化 padding 间距与类名结构
 
 ### Bug Fixes
 
-* **会话存储:** 修复会话存储路径匹配不一致问题
+- **会话存储:** 修复会话存储路径匹配不一致问题
   - 调整 transcriptFileExists 方法匹配引擎的路径解析规则
-  - 优先使用 CLAUDE_CONFIG_DIR 环境变量，不使用 XDG_CONFIG_HOME
+  - 优先使用 CLAUDE\_CONFIG\_DIR 环境变量，不使用 XDG\_CONFIG\_HOME
   - 对工作目录做 realpath 解析，解决 Linux 桌面环境下会话文件检测失败导致的程序崩溃问题
 
 ### Refactor
 
-* **设计系统:** 统一设计系统并修复 diff 渲染问题
+- **设计系统:** 统一设计系统并修复 diff 渲染问题
   - 新增 surface 系列设计 token 并替换全局旧样式变量
   - 为 DiffView 和工具组件添加正确的 key 防止渲染异常
   - 优化时间线缓存和组件样式细节
-* **聊天界面:** 调整回滚按钮位置与消息内容布局
+- **聊天界面:** 调整回滚按钮位置与消息内容布局
   - 修复 diff 计算时获取首行编号的逻辑，改为查找有效条目而非直接取第一个元素
   - 将回滚按钮移入消息内容容器中，调整样式对齐与移动端适配
   - 重构消息内容区域的 DOM 结构与样式，统一管理消息内容与回滚按钮的布局
-* **技能库:** 改进技能库路径查找逻辑并添加调试日志
+- **技能库:** 改进技能库路径查找逻辑并添加调试日志
   - 重构 getSkillsLibRoot 函数，添加 fallback 路径处理以适配不同打包/开发环境
   - 为技能库相关操作添加详细的调试和日志输出
   - 为 tryAsBundle 函数添加异常捕获，避免扫描流程崩溃
@@ -1210,17 +1232,17 @@
 
 ### Style
 
-* **全局样式:** 更新全局样式变量为官方设计规范
+- **全局样式:** 更新全局样式变量为官方设计规范
   - 统一调整圆角尺寸、色彩系统、文本颜色与代码高亮配色
   - 同时优化暗黑模式下的配色与排版注释
-* **主题系统:** 更新 Anthropic 明暗主题的官方配色与变量规范
+- **主题系统:** 更新 Anthropic 明暗主题的官方配色与变量规范
   - 对 anthropic 和 anthropic-dark 主题的所有 CSS 变量进行标准化更新
   - 调整背景色、文字色、边框色等基础配色为官方规范值
   - 统一透明度参数与阴影效果参数
   - 优化代码块语法高亮配色
   - 修正 git diff 视图的配色适配
   - 添加模块化注释说明各系统变量分组
-* **标题栏:** 优化标题栏样式与交互细节
+- **标题栏:** 优化标题栏样式与交互细节
   - 替换玻璃态背景为纯色主背景，移除底部渐变发光效果
   - 调整间距、字体样式与按钮交互状态
   - 为可交互元素添加焦点框样式，优化过渡动画
@@ -1228,243 +1250,244 @@
 
 ### Build
 
-* **技能库:** 新增 superpowers 技能库及相关配置文件
+- **技能库:** 新增 superpowers 技能库及相关配置文件
   - 新增完整的 superpowers 技能库，包含 TDD、调试、协作等开发技能
   - 添加项目配置、文档、测试用例和多平台插件支持
   - 修复 .gitignore 路径问题
 
 ### Chore
 
-* **electron:** 移除技能服务路径查找中的调试日志，简化开发环境下的路径返回逻辑
-* **gitignore:** 移除 .gitignore 中对 superpowers 目录的忽略规则
+- **electron:** 移除技能服务路径查找中的调试日志，简化开发环境下的路径返回逻辑
+- **gitignore:** 移除 .gitignore 中对 superpowers 目录的忽略规则
 
 ### Documentation
 
-* **README:** 补充新增的 /commit 命令文档说明，完善功能列表
+- **README:** 补充新增的 /commit 命令文档说明，完善功能列表
 
----
+***
 
 ## [0.3.10](https://github.com/hjdspace/SpaceCode/compare/v0.3.9...v0.3.10) (2026-05-25)
 
 ### Features
 
-* **Token统计:** 新增token使用量统计与设置页面
+- **Token统计:** 新增token使用量统计与设置页面
   - 添加token使用量追踪功能
   - 新增token统计设置页面
-* **上下文缓存:** 新增上下文缓存token统计与快速加载功能
+- **上下文缓存:** 新增上下文缓存token统计与快速加载功能
   - 优化上下文用量获取逻辑
   - 调整超时设置以提升性能
-* **超时配置:** 为HTTP请求和LLM调用添加超时配置支持
+- **超时配置:** 为HTTP请求和LLM调用添加超时配置支持
   - 支持自定义HTTP请求超时
   - 支持自定义LLM调用超时
 
 ### Bug Fixes
 
-* **MarkdownRenderer:** 修复文件链接无法正确渲染的问题
+- **MarkdownRenderer:** 修复文件链接无法正确渲染的问题
 
 ### Refactor
 
-* **App.vue:** 抽离窗口事件处理函数为单独方法，提升代码可维护性
-* **MCP管理器:** 迁移MCP管理器到全屏面板并重构状态管理
-* **analyzeContext:** 移除全局roughEstimatesOnlyMode，改用参数传递，优化代码结构
-* **electron:** 统一处理skills-lib路径解析逻辑，提升跨平台兼容性
+- **App.vue:** 抽离窗口事件处理函数为单独方法，提升代码可维护性
+- **MCP管理器:** 迁移MCP管理器到全屏面板并重构状态管理
+- **analyzeContext:** 移除全局roughEstimatesOnlyMode，改用参数传递，优化代码结构
+- **electron:** 统一处理skills-lib路径解析逻辑，提升跨平台兼容性
 
 ### Build
 
-* **CI:** 优化多平台原生模块构建与glibc错误提示
+- **CI:** 优化多平台原生模块构建与glibc错误提示
 
----
+***
 
 ## [0.3.9](https://github.com/hjdspace/SpaceCode/compare/v0.3.8...v0.3.9) (2026-05-25)
 
 ### Features
 
-* **上下文管理:** 添加上下文用量可视化与管理功能
+- **上下文管理:** 添加上下文用量可视化与管理功能
   - 新增设置项控制上下文芯片和警告条显示
   - 新增上下文用量模态详情面板
   - 新增侧边栏上下文用量芯片与警告提示条
   - 新增设置页上下文用量预览组件
   - 完善上下文token估算逻辑与存储状态优化
-* **多智能体协作:** 新增多智能体团队协作功能
+- **多智能体协作:** 新增多智能体团队协作功能
   - 新增团队上下文、智能体状态与消息类型定义
   - 实现智能体会话独立查看与切换功能
   - 新增团队状态栏与智能体会话头部组件
   - 优化任务通知消息展示样式
-* **代码回滚:** 完整实现代码回滚功能
+- **代码回滚:** 完整实现代码回滚功能
   - 实现代码回滚预览文件加载功能，支持通过消息ID或索引查找回合检查点
   - 新增代码回滚确认弹窗组件，展示待回滚文件列表
   - 修复ID不匹配问题，新增基于索引的回滚快照查找策略
   - 回滚后自动恢复用户输入到聊天框
   - 修复both模式下代码回滚失败仍执行对话回滚的问题
-* **内置技能:** 新增内置技能支持
+- **内置技能:** 新增内置技能支持
   - 新增内置技能分组，支持展示和只读展示内置技能
   - 添加技能翻译通用组合式函数，重构技能详情页翻译逻辑
   - 限制内置技能的编辑和删除操作
   - 更新多语言文案支持内置技能相关展示
-* **UI/UX Pro Max:** 新增UI/UX Pro Max技能完整实现与CLI工具
+- **UI/UX Pro Max:** 新增UI/UX Pro Max技能完整实现与CLI工具
 
 ### Refactor
 
-* **项目结构:** 整理项目结构并添加多项新功能
+- **项目结构:** 整理项目结构并添加多项新功能
   - 移除全局自定义元素编译配置
   - 添加rewind聊天命令与rewind类型导出
   - 优化技能网格与分类侧边栏样式
   - 添加代码检测与补全辅助脚本
   - 更新gitignore配置与项目依赖
-* **提交信息生成:** 优化自动生成提交信息逻辑
+- **提交信息生成:** 优化自动生成提交信息逻辑
   - 支持系统提示词和暂存区校验
   - 仅当存在暂存变更时才触发生成
   - 采用Conventional Commits规范并支持中文输出
   - 截断diff内容上限提升至16000字符
-* **SCM模块:** 优化提交信息生成与侧边栏布局
+- **SCM模块:** 优化提交信息生成与侧边栏布局
   - 调整侧边栏最小/最大宽度与面板默认宽度
   - 为提交输入框添加自动高度适配功能
   - 实现提交信息生成的多语言适配
   - 新增获取暂存区diff的API接口
-* **UI优化:** 移除推理卡片和时间线中的Brain图标
-* **测试修复:** 新增错误处理器导入并修复测试类型声明
+- **UI优化:** 移除推理卡片和时间线中的Brain图标
+- **测试修复:** 新增错误处理器导入并修复测试类型声明
 
 ### Chore
 
-* **electron:** 强制禁用归因头以提升第三方代理缓存命中率
+- **electron:** 强制禁用归因头以提升第三方代理缓存命中率
 
----
+***
 
 ## [0.3.8](https://github.com/hjdspace/SpaceCode/compare/v0.3.7...v0.3.8) (2026-05-23)
 
 ### Features
 
-* **技能管理:** 重构技能管理模块，实现多语言与功能优化
-* **技能库:** 新增本地技能库功能与反模式检测工具
-* **技能库:** 添加本地技能库目录，添加 Anthropic 开源技能
-* **文件操作:** 新增文件右键菜单与聊天文件添加功能
-* **提示词优化:** 添加提示词优化状态 UI 和国际化翻译
-* **权限模式:** 新增权限模式支持（settings + chat）
+- **技能管理:** 重构技能管理模块，实现多语言与功能优化
+- **技能库:** 新增本地技能库功能与反模式检测工具
+- **技能库:** 添加本地技能库目录，添加 Anthropic 开源技能
+- **文件操作:** 新增文件右键菜单与聊天文件添加功能
+- **提示词优化:** 添加提示词优化状态 UI 和国际化翻译
+- **权限模式:** 新增权限模式支持（settings + chat）
 
 ### Bug Fixes
 
-* **AgentTimeline:** 修复流式更新时界面卡住的问题
-* **MarkdownRenderer:** 修复流式渲染导致的进程崩溃问题
-* **提及芯片:** 修复提及芯片粘贴复制的格式问题
+- **AgentTimeline:** 修复流式更新时界面卡住的问题
+- **MarkdownRenderer:** 修复流式渲染导致的进程崩溃问题
+- **提及芯片:** 修复提及芯片粘贴复制的格式问题
 
 ### Refactor
 
-* **国际化:** 替换所有硬编码文本为国际化翻译
-* **消息列表:** 优化消息列表与提问工具组件
-* **electron:** 添加项目路径的真实路径解析
-* **electron:** 重写 node-pty 加载逻辑，修复错误排查误导问题
-* **工具组件:** 优化工具组件加载与存储性能，更新样式变量
+- **国际化:** 替换所有硬编码文本为国际化翻译
+- **消息列表:** 优化消息列表与提问工具组件
+- **electron:** 添加项目路径的真实路径解析
+- **electron:** 重写 node-pty 加载逻辑，修复错误排查误导问题
+- **工具组件:** 优化工具组件加载与存储性能，更新样式变量
 
----
+***
 
 ## [0.3.7](https://github.com/hjdspace/SpaceCode/compare/v0.3.6...v0.3.7) (2026-05-17)
 
 ### Features
 
-* **轮次变更追踪:** 实现完整的轮次变更追踪功能（任务 1/10 - 10/10）
+- **轮次变更追踪:** 实现完整的轮次变更追踪功能（任务 1/10 - 10/10）
   - 新增 turn checkpoint 类型定义和 IPC 通信层（类型定义 + IPC handlers + preload API + electronAPI wrapper）
   - 新增轮次变更状态管理（turn checkpoint store + 工具函数）
   - 新增 CurrentTurnChangeCard 主组件和工作区差异展示组件（WorkspaceDiffSurface）
   - 集成到 MessageList，支持历史会话轮次变更卡片展示
   - 完整的 i18n 国际化支持（中文/英文）
-* **重构:** 将设置面板移至主内容区并重构展示逻辑
-* **信息面板:** 重构信息面板，添加多标签页支持
-* **技能管理:** 将技能管理器改为内嵌式面板，优化交互体验
-* **工具卡片:** 替换自研 diff 展示为 @git-diff-view 组件，提升差异展示效果
-* **工具调用:** EditTool 支持基于 git 获取原始内容，提升编辑准确性
-* **工具卡片:** 优化工具卡片展开逻辑与会话列表体验
-* **会话列表:** 重写历史会话恢复逻辑，提升稳定性
+- **重构:** 将设置面板移至主内容区并重构展示逻辑
+- **信息面板:** 重构信息面板，添加多标签页支持
+- **技能管理:** 将技能管理器改为内嵌式面板，优化交互体验
+- **工具卡片:** 替换自研 diff 展示为 @git-diff-view 组件，提升差异展示效果
+- **工具调用:** EditTool 支持基于 git 获取原始内容，提升编辑准确性
+- **工具卡片:** 优化工具卡片展开逻辑与会话列表体验
+- **会话列表:** 重写历史会话恢复逻辑，提升稳定性
 
 ### Refactor
 
-* **聊天面板:** 重写历史会话恢复逻辑
-* **会话列表:** 优化会话列表展示和交互体验
+- **聊天面板:** 重写历史会话恢复逻辑
+- **会话列表:** 优化会话列表展示和交互体验
 
----
----
+***
+
+***
 
 ### Features
 
-* **权限控制:** 实现完整的权限控制系统
+- **权限控制:** 实现完整的权限控制系统
   - 新增 4 种权限模式：自动批准、手动批准、始终拒绝、仅建议
   - 添加 PermissionModeSelector 权限模式选择器组件
   - 添加 PermissionRequestCard 权限请求卡片，支持动态渲染
   - 集成权限控制到 ChatInput 工具栏和 AgentTimeline
   - 完整的 i18n 国际化支持（中文/英文）
   - 优雅降级：无活动进程时支持本地状态回退
-* **历史会话:** 实现历史会话管理和恢复功能
+- **历史会话:** 实现历史会话管理和恢复功能
   - 添加历史会话列表展示和搜索/过滤功能
   - 在 ChatPanel 中添加历史会话按钮和模态框
   - 支持使用原始会话 ID 恢复历史会话
   - 重写会话历史管理器，对齐 Claude-Code 引擎源码
-* **设置:** 增强 API 配置管理
+- **设置:** 增强 API 配置管理
   - 新增 API 配置同步到 settings.json 功能
   - 调整 .env 配置加载逻辑，改为回退优先级
 
 ### Bug Fixes
 
-* **权限控制:** 修复权限模式下拉位置、样式和刷新状态同步问题
-* **组件:** 替换 v-click-outside 为原生事件监听器，提升兼容性
-* **文件浏览器:** 移除文件树节点展开时的多余事件发送
-* **会话:** 修复模态透明度和缺失的 getFullSession IPC handler
-* **路径处理:** 修复 sanitizePath 与引擎源码不一致的问题（使用 '-' 替代 '_'）
-* **类型修复:** 解决 formatTime 函数的 TypeScript 类型错误
-* **配置:** 修复配置值首尾空格问题
+- **权限控制:** 修复权限模式下拉位置、样式和刷新状态同步问题
+- **组件:** 替换 v-click-outside 为原生事件监听器，提升兼容性
+- **文件浏览器:** 移除文件树节点展开时的多余事件发送
+- **会话:** 修复模态透明度和缺失的 getFullSession IPC handler
+- **路径处理:** 修复 sanitizePath 与引擎源码不一致的问题（使用 '-' 替代 '\_'）
+- **类型修复:** 解决 formatTime 函数的 TypeScript 类型错误
+- **配置:** 修复配置值首尾空格问题
 
 ### Refactor
 
-* **工具调用:** 重构工具调用流程，支持新版权限控制协议
-* **代码结构:** 优化代码结构与依赖配置
-* **侧边栏:** 移除旧的历史会话相关代码
+- **工具调用:** 重构工具调用流程，支持新版权限控制协议
+- **代码结构:** 优化代码结构与依赖配置
+- **侧边栏:** 移除旧的历史会话相关代码
 
 ### Build
 
-* **electron:** 修复 Electron 原生模块编译和加载问题
+- **electron:** 修复 Electron 原生模块编译和加载问题
 
 ### Chore
 
-* 移除无用的 AskUserQuestionToolCard 说明文档
-* 添加 webview 自定义元素配置
+- 移除无用的 AskUserQuestionToolCard 说明文档
+- 添加 webview 自定义元素配置
 
----
+***
 
 ## [0.3.5](https://github.com/hjdspace/SpaceCode/compare/v0.3.4...v0.3.5) (2026-05-10)
 
 ### Features
 
-* **pi-engine:** 新增教学流程学习笔记生成功能
+- **pi-engine:** 新增教学流程学习笔记生成功能
   - 每个主题自动生成面向学习者的快速参考笔记
   - 优化会话状态管理和提示词长度约束
-* **聊天面板:** 实现文件提及标记的富文本渲染
-* **markdown:** 添加 Markdown 查看器组件并支持预览/源码模式切换
-* **linux:** 为 Linux 系统添加自定义窗口控制功能
-* **prompt-optimizer:** 支持根据项目上下文优化提示词
-* **进程管理:** 改进引擎切换时的进程清理逻辑
-* **engine:** 实现 PiEngine 进程池管理及会话处理优化
+- **聊天面板:** 实现文件提及标记的富文本渲染
+- **markdown:** 添加 Markdown 查看器组件并支持预览/源码模式切换
+- **linux:** 为 Linux 系统添加自定义窗口控制功能
+- **prompt-optimizer:** 支持根据项目上下文优化提示词
+- **进程管理:** 改进引擎切换时的进程清理逻辑
+- **engine:** 实现 PiEngine 进程池管理及会话处理优化
 
 ### Bug Fixes
 
-* **file-edit:** 修复文件编辑/写入流程在缺少前置读取状态时的阻塞问题
-* **thinking:** 保留模型响应中的推理/思考内容，避免丢失
-* **thinking:** 移除自动"清除思考"的锁存行为
+- **file-edit:** 修复文件编辑/写入流程在缺少前置读取状态时的阻塞问题
+- **thinking:** 保留模型响应中的推理/思考内容，避免丢失
+- **thinking:** 移除自动"清除思考"的锁存行为
 
 ### Refactor
 
-* **session:** 简化会话状态和提示词长度约束
+- **session:** 简化会话状态和提示词长度约束
 
 ### Documentation
 
-* 添加详细的笔记生成指南和写作规则
+- 添加详细的笔记生成指南和写作规则
 
 ### Tests
 
-* 更新测试以反映保留推理行为和扩展的模型检测
+- 更新测试以反映保留推理行为和扩展的模型检测
 
 ## [0.3.4](https://github.com/hjdspace/SpaceCode/compare/v0.3.3...v0.3.4) (2026-05-10)
 
 ### Features
 
-* **pi-engine:** 重构 PiEngine 实现进程池和多会话支持
+- **pi-engine:** 重构 PiEngine 实现进程池和多会话支持
   - 新增 PiProcessPool 进程池管理器，支持多会话并发
   - 新增 PiSessionProcess 会话进程管理，实现会话生命周期管理
   - 重构 PiEngine 核心逻辑，支持多模型提供商（OpenAI、Anthropic、Google、DeepSeek 等）
@@ -1473,19 +1496,19 @@
 
 ### Bug Fixes
 
-* **prompt-optimizer:** 修复模块导入问题，使用 createRequire 替代 ESM 动态导入
-* **engine:** 修复桌面构建时 ripgrep 二进制文件未复制的问题
-* **preload:** 修正 onExit 回调类型定义，支持更详细的退出信息
+- **prompt-optimizer:** 修复模块导入问题，使用 createRequire 替代 ESM 动态导入
+- **engine:** 修复桌面构建时 ripgrep 二进制文件未复制的问题
+- **preload:** 修正 onExit 回调类型定义，支持更详细的退出信息
 
 ### Chore
 
-* 更新依赖包（package-lock.json）
+- 更新依赖包（package-lock.json）
 
 ## [0.3.3](https://github.com/hjdspace/SpaceCode/compare/v0.3.2...v0.3.3) (2026-05-06)
 
 ### Features
 
-* **图标:** 改进图标生成和加载逻辑 ([6dc41da](https://github.com/hjdspace/SpaceCode/commit/6dc41da))
+- **图标:** 改进图标生成和加载逻辑 ([6dc41da](https://github.com/hjdspace/SpaceCode/commit/6dc41da))
   - 使用 png-to-ico 替代 sharp 生成兼容性更好的 .ico 文件
   - 添加图标生成脚本作为 electron 构建前置步骤
   - 改进图标加载逻辑，支持 .ico 和 .png 回退机制
@@ -1493,13 +1516,13 @@
 
 ### Styles
 
-* **FileTree:** 调整背景样式为透明和毛玻璃效果 ([6314c54](https://github.com/hjdspace/SpaceCode/commit/6314c54))
+- **FileTree:** 调整背景样式为透明和毛玻璃效果 ([6314c54](https://github.com/hjdspace/SpaceCode/commit/6314c54))
 
 ## [0.3.2](https://github.com/hjdspace/SpaceCode/compare/v0.3.1...v0.3.2) (2026-05-06)
 
 ### Features
 
-* **pi-engine:** 实现 Pi Engine 多引擎架构支持 ([776e8d5](https://github.com/hjdspace/SpaceCode/commit/776e8d5))
+- **pi-engine:** 实现 Pi Engine 多引擎架构支持 ([776e8d5](https://github.com/hjdspace/SpaceCode/commit/776e8d5))
   - 添加 IEngine 接口和统一事件类型定义 ([776e8d5](https://github.com/hjdspace/SpaceCode/commit/776e8d5))
   - 添加 ClaudeCodeEngine 适配器 ([2c23de7](https://github.com/hjdspace/SpaceCode/commit/2c23de7))
   - 添加 EngineFactory 和 PiEngine 占位 ([e3e4f68](https://github.com/hjdspace/SpaceCode/commit/e3e4f68))
@@ -1510,26 +1533,26 @@
   - 更新 preload.ts 支持多引擎 ([e62d68c](https://github.com/hjdspace/SpaceCode/commit/e62d68c))
   - 更新设置 UI 和 chat store 支持引擎选择 ([511eb88](https://github.com/hjdspace/SpaceCode/commit/511eb88))
   - 添加 SDK 可用性检查和优雅降级 ([4e370cc](https://github.com/hjdspace/SpaceCode/commit/4e370cc))
-* **chat:** 实现思考模式功能 ([7ebff5e](https://github.com/hjdspace/SpaceCode/commit/7ebff5e))
+- **chat:** 实现思考模式功能 ([7ebff5e](https://github.com/hjdspace/SpaceCode/commit/7ebff5e))
   - 实现消息流中思考和文本内容的增量处理 ([7ebff5e](https://github.com/hjdspace/SpaceCode/commit/7ebff5e))
   - 添加思考模式切换功能 ([d70a40f](https://github.com/hjdspace/SpaceCode/commit/d70a40f))
   - 改进思考模式交互和样式 ([2d9570b](https://github.com/hjdspace/SpaceCode/commit/2d9570b))
-* **settings:** 实现外观设置的状态管理并优化 PiEngine 模型处理 ([3dce5de](https://github.com/hjdspace/SpaceCode/commit/3dce5de))
+- **settings:** 实现外观设置的状态管理并优化 PiEngine 模型处理 ([3dce5de](https://github.com/hjdspace/SpaceCode/commit/3dce5de))
 
 ### Bug Fixes
 
-* **pi-engine:** 当 Pi SDK 不可用时回退到 claude-code ([015858e](https://github.com/hjdspace/SpaceCode/commit/015858e))
-* **pi-engine:** 使用 ESM 动态导入加载 pi SDK，添加为本地依赖 ([4ae6883](https://github.com/hjdspace/SpaceCode/commit/4ae6883))
+- **pi-engine:** 当 Pi SDK 不可用时回退到 claude-code ([015858e](https://github.com/hjdspace/SpaceCode/commit/015858e))
+- **pi-engine:** 使用 ESM 动态导入加载 pi SDK，添加为本地依赖 ([4ae6883](https://github.com/hjdspace/SpaceCode/commit/4ae6883))
 
 ### Chore
 
-* 将 pi-engine 添加到 gitignore ([3e8514a](https://github.com/hjdspace/SpaceCode/commit/3e8514a))
+- 将 pi-engine 添加到 gitignore ([3e8514a](https://github.com/hjdspace/SpaceCode/commit/3e8514a))
 
 ## [0.3.1](https://github.com/hjdspace/SpaceCode/compare/v0.3.0...v0.3.1) (2026-05-06)
 
 ### Features
 
-* **error-handling:** 添加完整的错误处理体系 ([a5539fe](https://github.com/hjdspace/SpaceCode/commit/a5539fe))
+- **error-handling:** 添加完整的错误处理体系 ([a5539fe](https://github.com/hjdspace/SpaceCode/commit/a5539fe))
   - 集中化错误处理服务 ErrorHandler ([1149d9c](https://github.com/hjdspace/SpaceCode/commit/1149d9c))
   - 错误类型定义和国际化翻译（zh-CN/en-US）([7f66699](https://github.com/hjdspace/SpaceCode/commit/7f66699))
   - ErrorCard 内联错误组件 ([c8f2308](https://github.com/hjdspace/SpaceCode/commit/c8f2308))
@@ -1538,58 +1561,58 @@
   - 集成到 LLM 服务层 ([996d6c9](https://github.com/hjdspace/SpaceCode/commit/996d6c9))
   - 在 AgentTimeline 中渲染错误卡片 ([f0ce6fb](https://github.com/hjdspace/SpaceCode/commit/f0ce6fb))
   - 在 ChatPanel 中挂载通知组件 ([014d523](https://github.com/hjdspace/SpaceCode/commit/014d523))
-* **webview:** 添加网页预览功能及相关导航控制 ([bd281d6](https://github.com/hjdspace/SpaceCode/commit/bd281d6))
-* **主题:** 新增 Anthropic 主题和暗色主题 ([3e58bc5](https://github.com/hjdspace/SpaceCode/commit/3e58bc5))
-* **debug:** 添加调试追踪功能 ([23736c3](https://github.com/hjdspace/SpaceCode/commit/23736c3))
-* **engine:** 添加桌面版构建任务并增强会话进程可靠性 ([69a343a](https://github.com/hjdspace/SpaceCode/commit/69a343a))
+- **webview:** 添加网页预览功能及相关导航控制 ([bd281d6](https://github.com/hjdspace/SpaceCode/commit/bd281d6))
+- **主题:** 新增 Anthropic 主题和暗色主题 ([3e58bc5](https://github.com/hjdspace/SpaceCode/commit/3e58bc5))
+- **debug:** 添加调试追踪功能 ([23736c3](https://github.com/hjdspace/SpaceCode/commit/23736c3))
+- **engine:** 添加桌面版构建任务并增强会话进程可靠性 ([69a343a](https://github.com/hjdspace/SpaceCode/commit/69a343a))
 
 ### Bug Fixes
 
-* **InfoPanel:** 添加 URL 验证并处理无效 URL 情况 ([f1cec94](https://github.com/hjdspace/SpaceCode/commit/f1cec94))
-* **聊天:** 修复 ToastNotification 在终端模式下的显示问题，移至聊天内容区域内 ([f365bd5](https://github.com/hjdspace/SpaceCode/commit/f365bd5))
-* **聊天:** 修复消息流加载状态显示问题 ([50c94c2](https://github.com/hjdspace/SpaceCode/commit/50c94c2))
-* **会话管理:** 同步项目根目录到设置并保存 ([5b8b804](https://github.com/hjdspace/SpaceCode/commit/5b8b804))
+- **InfoPanel:** 添加 URL 验证并处理无效 URL 情况 ([f1cec94](https://github.com/hjdspace/SpaceCode/commit/f1cec94))
+- **聊天:** 修复 ToastNotification 在终端模式下的显示问题，移至聊天内容区域内 ([f365bd5](https://github.com/hjdspace/SpaceCode/commit/f365bd5))
+- **聊天:** 修复消息流加载状态显示问题 ([50c94c2](https://github.com/hjdspace/SpaceCode/commit/50c94c2))
+- **会话管理:** 同步项目根目录到设置并保存 ([5b8b804](https://github.com/hjdspace/SpaceCode/commit/5b8b804))
 
 ### Refactor
 
-* **InfoPanel:** 优化导航 URL 处理逻辑 ([0fb9391](https://github.com/hjdspace/SpaceCode/commit/0fb9391))
-* 将项目名称从 claude-code-gui 统一更改为 SpaceCode ([0c8114a](https://github.com/hjdspace/SpaceCode/commit/0c8114a))
+- **InfoPanel:** 优化导航 URL 处理逻辑 ([0fb9391](https://github.com/hjdspace/SpaceCode/commit/0fb9391))
+- 将项目名称从 claude-code-gui 统一更改为 SpaceCode ([0c8114a](https://github.com/hjdspace/SpaceCode/commit/0c8114a))
 
 ### Documentation
 
-* 添加 LLM Agent 错误处理设计规格 ([550d7b0](https://github.com/hjdspace/SpaceCode/commit/550d7b0))
-* 添加 LLM 错误处理实现计划 ([143f0b9](https://github.com/hjdspace/SpaceCode/commit/143f0b9))
+- 添加 LLM Agent 错误处理设计规格 ([550d7b0](https://github.com/hjdspace/SpaceCode/commit/550d7b0))
+- 添加 LLM 错误处理实现计划 ([143f0b9](https://github.com/hjdspace/SpaceCode/commit/143f0b9))
 
 ## [0.3.0](https://github.com/hjdspace/SpaceCode/compare/v0.2.5...v0.3.0) (2026-05-05)
 
 ### Features
 
-* **terminal:** 添加内嵌终端功能支持交互式命令执行 ([32ccd42](https://github.com/hjdspace/SpaceCode/commit/32ccd42))
+- **terminal:** 添加内嵌终端功能支持交互式命令执行 ([32ccd42](https://github.com/hjdspace/SpaceCode/commit/32ccd42))
   - 重构终端模块，支持多标签页管理 ([092fba0](https://github.com/hjdspace/SpaceCode/commit/092fba0))
   - 缓存调试日志路径以避免重复计算 ([7fc71f7](https://github.com/hjdspace/SpaceCode/commit/7fc71f7))
-* **工具卡片:** 添加在面板中查看功能并实现工具差异查看器 ([0375864](https://github.com/hjdspace/SpaceCode/commit/0375864))
+- **工具卡片:** 添加在面板中查看功能并实现工具差异查看器 ([0375864](https://github.com/hjdspace/SpaceCode/commit/0375864))
   - 为工具卡片添加语法高亮和统一diff视图 ([191044d](https://github.com/hjdspace/SpaceCode/commit/191044d))
   - 添加显示文件内容的API ([745effd](https://github.com/hjdspace/SpaceCode/commit/745effd))
   - 增加工具调用状态显示和警告提示 ([bf29d3c](https://github.com/hjdspace/SpaceCode/commit/bf29d3c))
-* **chat:** 添加消息时间线功能并优化工具卡片状态显示 ([9651f8f](https://github.com/hjdspace/SpaceCode/commit/9651f8f))
-* **项目工作流:** 实现统一的项目打开流程和最近项目记录 ([ffa27c5](https://github.com/hjdspace/SpaceCode/commit/ffa27c5))
+- **chat:** 添加消息时间线功能并优化工具卡片状态显示 ([9651f8f](https://github.com/hjdspace/SpaceCode/commit/9651f8f))
+- **项目工作流:** 实现统一的项目打开流程和最近项目记录 ([ffa27c5](https://github.com/hjdspace/SpaceCode/commit/ffa27c5))
 
 ### Bug Fixes
 
-* **chat:** 修复项目关闭时会话清理不彻底的问题 ([d03e1b9](https://github.com/hjdspace/SpaceCode/commit/d03e1b9))
-* **组件:** 修复工具卡片和差异查看器的条件渲染问题 ([dbee942](https://github.com/hjdspace/SpaceCode/commit/dbee942))
+- **chat:** 修复项目关闭时会话清理不彻底的问题 ([d03e1b9](https://github.com/hjdspace/SpaceCode/commit/d03e1b9))
+- **组件:** 修复工具卡片和差异查看器的条件渲染问题 ([dbee942](https://github.com/hjdspace/SpaceCode/commit/dbee942))
 
 ### Refactor
 
-* **chat:** 将timelineToolCallIds移到循环外部以避免重复创建 ([ec7b4b3](https://github.com/hjdspace/SpaceCode/commit/ec7b4b3))
-* **AgentTimeline:** 优化时间线事件处理逻辑并重命名代理名称 ([8573654](https://github.com/hjdspace/SpaceCode/commit/8573654))
-* **llm:** 移除buildApiUrl函数中的调试日志 ([2406743](https://github.com/hjdspace/SpaceCode/commit/2406743))
+- **chat:** 将timelineToolCallIds移到循环外部以避免重复创建 ([ec7b4b3](https://github.com/hjdspace/SpaceCode/commit/ec7b4b3))
+- **AgentTimeline:** 优化时间线事件处理逻辑并重命名代理名称 ([8573654](https://github.com/hjdspace/SpaceCode/commit/8573654))
+- **llm:** 移除buildApiUrl函数中的调试日志 ([2406743](https://github.com/hjdspace/SpaceCode/commit/2406743))
 
 ## [0.2.5](https://github.com/hjdspace/SpaceCode/compare/v0.2.4...v0.2.5) (2026-05-03)
 
 ### Features
 
-* **i18n:** 添加国际化支持并集成到所有组件 ([be8e496](https://github.com/hjdspace/SpaceCode/commit/be8e496))
+- **i18n:** 添加国际化支持并集成到所有组件 ([be8e496](https://github.com/hjdspace/SpaceCode/commit/be8e496))
   - 实现多语言支持，包含英语和简体中文翻译
   - 添加 vue-i18n 依赖并配置基础设置
   - 修改所有组件使用翻译文本替代硬编码字符串
@@ -1597,14 +1620,14 @@
 
 ### Bug Fixes
 
-* **settings:** 改进设置存储序列化和终端进程终止方式 ([502e795](https://github.com/hjdspace/SpaceCode/commit/502e795))
+- **settings:** 改进设置存储序列化和终端进程终止方式 ([502e795](https://github.com/hjdspace/SpaceCode/commit/502e795))
   - 将设置存储的JSON序列化添加格式化参数，提高可读性
   - 修改Unix/Linux/macOS终端进程终止方式为SIGKILL，确保强制终止
-* **terminal:** 改进 Windows 平台进程终止方式确保彻底清理
+- **terminal:** 改进 Windows 平台进程终止方式确保彻底清理
 
 ### Build
 
-* **installer:** 添加NSIS安装脚本并更新.gitignore ([9ae50db](https://github.com/hjdspace/SpaceCode/commit/9ae50db))
+- **installer:** 添加NSIS安装脚本并更新.gitignore ([9ae50db](https://github.com/hjdspace/SpaceCode/commit/9ae50db))
   - 添加Windows Defender排除项的NSIS安装脚本，提升首次启动速度
   - 从.gitignore中移除build/目录，因现在需要跟踪build目录下的安装脚本
 
@@ -1612,91 +1635,92 @@
 
 ### Features
 
-* **build:** 完善 GitHub Actions 构建配置，添加 bun_target 矩阵变量 ([build-release.yml](https://github.com/hjdspace/SpaceCode/commit/build-release))
-* **build:** 添加 build-time secrets 注入支持 GitHub OAuth 功能
-* **build:** 添加 sync-updates job 自动同步 release 到成都更新服务器
+- **build:** 完善 GitHub Actions 构建配置，添加 bun\_target 矩阵变量 ([build-release.yml](https://github.com/hjdspace/SpaceCode/commit/build-release))
+- **build:** 添加 build-time secrets 注入支持 GitHub OAuth 功能
+- **build:** 添加 sync-updates job 自动同步 release 到成都更新服务器
 
 ### Bug Fixes
 
-* **sessionProcess:** 修复 JSON 解析错误处理缺失异常信息的问题 ([sessionProcess.ts](https://github.com/hjdspace/SpaceCode/commit/sessionProcess))
-* **claudeCodeProcessPool:** 修复会话恢复时事件监听器重复注册导致的内存泄漏风险
+- **sessionProcess:** 修复 JSON 解析错误处理缺失异常信息的问题 ([sessionProcess.ts](https://github.com/hjdspace/SpaceCode/commit/sessionProcess))
+- **claudeCodeProcessPool:** 修复会话恢复时事件监听器重复注册导致的内存泄漏风险
 
 ### Refactor
 
-* **claudeCodeProcessPool:** 重构事件监听器管理机制，使用命名引用精确管理
-* **claudeCodeProcessManager:** 简化 resolveBunPath 逻辑，三级回退更可靠
+- **claudeCodeProcessPool:** 重构事件监听器管理机制，使用命名引用精确管理
+- **claudeCodeProcessManager:** 简化 resolveBunPath 逻辑，三级回退更可靠
 
 ## [0.2.1](https://github.com/hjdspace/SpaceCode/compare/v0.2.0...v0.2.1) (2026-04-28)
 
 ### Features
 
-* **icons:** 添加应用图标及生成脚本 ([1f75d45](https://github.com/hjdspace/SpaceCode/commit/1f75d45))
-* **chat:** 添加点击输入框自动聚焦功能 ([5235696](https://github.com/hjdspace/SpaceCode/commit/5235696))
-* **工具卡片:** 添加多种工具卡片组件及工具注册系统 ([4b3cf7e](https://github.com/hjdspace/SpaceCode/commit/4b3cf7e))
+- **icons:** 添加应用图标及生成脚本 ([1f75d45](https://github.com/hjdspace/SpaceCode/commit/1f75d45))
+- **chat:** 添加点击输入框自动聚焦功能 ([5235696](https://github.com/hjdspace/SpaceCode/commit/5235696))
+- **工具卡片:** 添加多种工具卡片组件及工具注册系统 ([4b3cf7e](https://github.com/hjdspace/SpaceCode/commit/4b3cf7e))
 
 ### Bug Fixes
 
-* 移除对内置代理的系统提示限制 ([a03951f](https://github.com/hjdspace/SpaceCode/commit/a03951f))
+- 移除对内置代理的系统提示限制 ([a03951f](https://github.com/hjdspace/SpaceCode/commit/a03951f))
 
 ### Refactor
 
-* 移除调试日志和未使用的取消功能 ([3a0bde3](https://github.com/hjdspace/SpaceCode/commit/3a0bde3))
+- 移除调试日志和未使用的取消功能 ([3a0bde3](https://github.com/hjdspace/SpaceCode/commit/3a0bde3))
 
 ### Build
 
-* 更新 build-release.yml 构建配置 ([fef3345](https://github.com/hjdspace/SpaceCode/commit/fef3345))
-* 将 node-pty 添加到打包文件和 asarUnpack 配置中 ([bbfc7db](https://github.com/hjdspace/SpaceCode/commit/bbfc7db))
+- 更新 build-release.yml 构建配置 ([fef3345](https://github.com/hjdspace/SpaceCode/commit/fef3345))
+- 将 node-pty 添加到打包文件和 asarUnpack 配置中 ([bbfc7db](https://github.com/hjdspace/SpaceCode/commit/bbfc7db))
 
 ## [0.2.0](https://github.com/hjdspace/SpaceCode/compare/v0.1.1...v0.2.0) (2026-04-26)
 
 ### Features
 
-* 添加任务列表卡片组件和推理深度控制功能 ([b6b60cb](https://github.com/hjdspace/SpaceCode/commit/b6b60cbe0b2191135cdc3320b75c79b940a81284))
-* **agent:** 添加多代理支持及任务管理功能 ([6db5b08](https://github.com/hjdspace/SpaceCode/commit/6db5b0826435d4dc7360d87653c3ec989ddb2136))
-* **chat:** 添加统一差异显示支持并优化文本选择 ([42aad61](https://github.com/hjdspace/SpaceCode/commit/42aad610c27c3e91df8a728187939c3c3de46dc5))
-* **chat:** 重构聊天输入组件，支持内联文件提及和上下文搜索 ([e01e41e](https://github.com/hjdspace/SpaceCode/commit/e01e41e0a1bf31d06f293185723e353ced33eafa))
+- 添加任务列表卡片组件和推理深度控制功能 ([b6b60cb](https://github.com/hjdspace/SpaceCode/commit/b6b60cbe0b2191135cdc3320b75c79b940a81284))
+- **agent:** 添加多代理支持及任务管理功能 ([6db5b08](https://github.com/hjdspace/SpaceCode/commit/6db5b0826435d4dc7360d87653c3ec989ddb2136))
+- **chat:** 添加统一差异显示支持并优化文本选择 ([42aad61](https://github.com/hjdspace/SpaceCode/commit/42aad610c27c3e91df8a728187939c3c3de46dc5))
+- **chat:** 重构聊天输入组件，支持内联文件提及和上下文搜索 ([e01e41e](https://github.com/hjdspace/SpaceCode/commit/e01e41e0a1bf31d06f293185723e353ced33eafa))
 
 ### Bug Fixes
 
-* **chat:** 修复消息样式和错误处理问题 ([f32827f](https://github.com/hjdspace/SpaceCode/commit/f32827f1dd69737da59f7942e95fe17043d99c8d))
+- **chat:** 修复消息样式和错误处理问题 ([f32827f](https://github.com/hjdspace/SpaceCode/commit/f32827f1dd69737da59f7942e95fe17043d99c8d))
 
 ## [0.1.1](https://github.com/hjdspace/SpaceCode/compare/v0.1.0...v0.1.1) (2026-04-25)
 
 ### Features
 
-* 添加 GitHub Actions 多平台打包工作流，支持 Win/Linux/Mac 自动构建和 Release ([4d8bf8e](https://github.com/hjdspace/SpaceCode/commit/4d8bf8e98ecefefeeb9366d9aea0f7a2ac9e4a4a))
+- 添加 GitHub Actions 多平台打包工作流，支持 Win/Linux/Mac 自动构建和 Release ([4d8bf8e](https://github.com/hjdspace/SpaceCode/commit/4d8bf8e98ecefefeeb9366d9aea0f7a2ac9e4a4a))
 
 ### Bug Fixes
 
-* **打包:** 优化Bun下载逻辑并排除测试文件 ([751c4c4](https://github.com/hjdspace/SpaceCode/commit/751c4c4634b53e0793e850a9d2f50e3b0dacfd93))
-* 修复 bun 下载脚本路径冲突问题 ([4b0f8eb](https://github.com/hjdspace/SpaceCode/commit/4b0f8eb950de9cd9bb14ef415f18295d07864aa2))
+- **打包:** 优化Bun下载逻辑并排除测试文件 ([751c4c4](https://github.com/hjdspace/SpaceCode/commit/751c4c4634b53e0793e850a9d2f50e3b0dacfd93))
+- 修复 bun 下载脚本路径冲突问题 ([4b0f8eb](https://github.com/hjdspace/SpaceCode/commit/4b0f8eb950de9cd9bb14ef415f18295d07864aa2))
 
 ## [0.1.0](https://github.com/hjdspace/SpaceCode/compare/317e86a50a4664d368206484f6b1fd9a2aa76dea...v0.1.0) (2026-04-24)
 
 ### Features
 
-* **聊天输入:** 添加文件附件功能并增强输入框交互 ([e0b4757](https://github.com/hjdspace/SpaceCode/commit/e0b47571c622cb2c8c1bf58d0b6b21df33e4a9eb))
-* **命令系统:** 实现完整的斜杠命令功能 ([53dcf46](https://github.com/hjdspace/SpaceCode/commit/53dcf460a50d3604bba39947ba88e3e579e8d9f5))
-* **模型选择:** 添加可搜索的模型选择器并显示当前模型 ([76a004b](https://github.com/hjdspace/SpaceCode/commit/76a004b4113a7c41f7f2c9422051317c039ad0a4))
-* 添加文件夹选择对话框和快捷键功能 ([4fcddf4](https://github.com/hjdspace/SpaceCode/commit/4fcddf4135154b58626e257885421e87220f04f5))
-* 添加Claude Code IPC管理器和重构LLM服务 ([7366468](https://github.com/hjdspace/SpaceCode/commit/736646845e340692743a3fe33beee3d1e59daa56))
-* 新增技能管理功能及相关组件 ([5edcfc2](https://github.com/hjdspace/SpaceCode/commit/5edcfc21aec51b90b82390983ed29deaa7d72626))
-* **chat:** 添加停止功能并重构聊天输入组件 ([2facdab](https://github.com/hjdspace/SpaceCode/commit/2facdab3711d339fef37846dfe8069028aec705d))
-* **chat:** add MessageMetadata component ([db2c67f](https://github.com/hjdspace/SpaceCode/commit/db2c67f3bb78966cf41c72c21aaa334f59e96e9b))
-* **chat:** add ReasoningCard component for displaying thinking process ([37d71d3](https://github.com/hjdspace/SpaceCode/commit/37d71d3a49458ee0478e79a0f24bbc421e3afc05))
-* **chat:** add ToolCallCard component for displaying tool calls ([c11e2b7](https://github.com/hjdspace/SpaceCode/commit/c11e2b777d087a22bcb9a1443d8ac3571dfa2aff))
-* **chat:** add ToolCallList component ([0ae0367](https://github.com/hjdspace/SpaceCode/commit/0ae03672b220b3ca554efe902051dcbe974486dd))
-* **chat:** refactor MessageItem to integrate ReasoningCard, ToolCallList, and MessageMetadata ([424064b](https://github.com/hjdspace/SpaceCode/commit/424064b8146a50b239adeb31ce850d085e877615))
-* **chat:** update chat store to extract and store reasoning and tool call details ([9fede93](https://github.com/hjdspace/SpaceCode/commit/9fede93989ebd46a2ce5728995c924c17ee6b6fc))
-* **git:** 实现Git版本控制功能集成 ([97bacdb](https://github.com/hjdspace/SpaceCode/commit/97bacdb13d900e26f4cb7d41c8ea81d5de849f17))
-* **refactor:** 优化目录架构 ([a060b97](https://github.com/hjdspace/SpaceCode/commit/a060b979329eab3a005fb0a936279bb9476a6df0))
-* **terminal:** 改进CLI模型配置和终端启动机制 ([2c4a4b9](https://github.com/hjdspace/SpaceCode/commit/2c4a4b9064d9e4e124586151aeabaea82e640b78))
-* **terminal:** 支持多终端实例管理 ([0fd969d](https://github.com/hjdspace/SpaceCode/commit/0fd969d4c548ee7651020f86954950b12b6a5ef9))
-* **types:** extend Message type with reasoning, toolCalls, and metadata ([858ee4b](https://github.com/hjdspace/SpaceCode/commit/858ee4b5dda85b36eab02de557b66b886534d9f2))
+- **聊天输入:** 添加文件附件功能并增强输入框交互 ([e0b4757](https://github.com/hjdspace/SpaceCode/commit/e0b47571c622cb2c8c1bf58d0b6b21df33e4a9eb))
+- **命令系统:** 实现完整的斜杠命令功能 ([53dcf46](https://github.com/hjdspace/SpaceCode/commit/53dcf460a50d3604bba39947ba88e3e579e8d9f5))
+- **模型选择:** 添加可搜索的模型选择器并显示当前模型 ([76a004b](https://github.com/hjdspace/SpaceCode/commit/76a004b4113a7c41f7f2c9422051317c039ad0a4))
+- 添加文件夹选择对话框和快捷键功能 ([4fcddf4](https://github.com/hjdspace/SpaceCode/commit/4fcddf4135154b58626e257885421e87220f04f5))
+- 添加Claude Code IPC管理器和重构LLM服务 ([7366468](https://github.com/hjdspace/SpaceCode/commit/736646845e340692743a3fe33beee3d1e59daa56))
+- 新增技能管理功能及相关组件 ([5edcfc2](https://github.com/hjdspace/SpaceCode/commit/5edcfc21aec51b90b82390983ed29deaa7d72626))
+- **chat:** 添加停止功能并重构聊天输入组件 ([2facdab](https://github.com/hjdspace/SpaceCode/commit/2facdab3711d339fef37846dfe8069028aec705d))
+- **chat:** add MessageMetadata component ([db2c67f](https://github.com/hjdspace/SpaceCode/commit/db2c67f3bb78966cf41c72c21aaa334f59e96e9b))
+- **chat:** add ReasoningCard component for displaying thinking process ([37d71d3](https://github.com/hjdspace/SpaceCode/commit/37d71d3a49458ee0478e79a0f24bbc421e3afc05))
+- **chat:** add ToolCallCard component for displaying tool calls ([c11e2b7](https://github.com/hjdspace/SpaceCode/commit/c11e2b777d087a22bcb9a1443d8ac3571dfa2aff))
+- **chat:** add ToolCallList component ([0ae0367](https://github.com/hjdspace/SpaceCode/commit/0ae03672b220b3ca554efe902051dcbe974486dd))
+- **chat:** refactor MessageItem to integrate ReasoningCard, ToolCallList, and MessageMetadata ([424064b](https://github.com/hjdspace/SpaceCode/commit/424064b8146a50b239adeb31ce850d085e877615))
+- **chat:** update chat store to extract and store reasoning and tool call details ([9fede93](https://github.com/hjdspace/SpaceCode/commit/9fede93989ebd46a2ce5728995c924c17ee6b6fc))
+- **git:** 实现Git版本控制功能集成 ([97bacdb](https://github.com/hjdspace/SpaceCode/commit/97bacdb13d900e26f4cb7d41c8ea81d5de849f17))
+- **refactor:** 优化目录架构 ([a060b97](https://github.com/hjdspace/SpaceCode/commit/a060b979329eab3a005fb0a936279bb9476a6df0))
+- **terminal:** 改进CLI模型配置和终端启动机制 ([2c4a4b9](https://github.com/hjdspace/SpaceCode/commit/2c4a4b9064d9e4e124586151aeabaea82e640b78))
+- **terminal:** 支持多终端实例管理 ([0fd969d](https://github.com/hjdspace/SpaceCode/commit/0fd969d4c548ee7651020f86954950b12b6a5ef9))
+- **types:** extend Message type with reasoning, toolCalls, and metadata ([858ee4b](https://github.com/hjdspace/SpaceCode/commit/858ee4b5dda85b36eab02de557b66b886534d9f2))
 
 ### Bug Fixes
 
-* 允许在只有附件没有文本内容时发送消息 ([921271f](https://github.com/hjdspace/SpaceCode/commit/921271fa47814e58d47a97f792a35861698aed0f))
-* **chat:** fix type errors in MessageMetadata component ([f26dd10](https://github.com/hjdspace/SpaceCode/commit/f26dd1008c9d0c4a13184b4af4ea317a787f4148))
-* **gitService:** 修正分支名称匹配的正则表达式 ([e6bb9b6](https://github.com/hjdspace/SpaceCode/commit/e6bb9b66791811eba00867ee7d87849586755d7a))
-* **settings:** 优先使用已保存配置并防止空值覆盖 ([317e86a](https://github.com/hjdspace/SpaceCode/commit/317e86a50a4664d368206484f6b1fd9a2aa76dea))
+- 允许在只有附件没有文本内容时发送消息 ([921271f](https://github.com/hjdspace/SpaceCode/commit/921271fa47814e58d47a97f792a35861698aed0f))
+- **chat:** fix type errors in MessageMetadata component ([f26dd10](https://github.com/hjdspace/SpaceCode/commit/f26dd1008c9d0c4a13184b4af4ea317a787f4148))
+- **gitService:** 修正分支名称匹配的正则表达式 ([e6bb9b6](https://github.com/hjdspace/SpaceCode/commit/e6bb9b66791811eba00867ee7d87849586755d7a))
+- **settings:** 优先使用已保存配置并防止空值覆盖 ([317e86a](https://github.com/hjdspace/SpaceCode/commit/317e86a50a4664d368206484f6b1fd9a2aa76dea))
+
