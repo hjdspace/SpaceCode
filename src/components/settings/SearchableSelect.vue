@@ -9,7 +9,7 @@
       :aria-haspopup="true"
       :aria-label="selectedLabel"
     >
-      <span class="selected-text">{{ selectedLabel }}</span>
+      <span class="selected-text" :title="selectedLabel">{{ selectedLabel }}</span>
       <ChevronDown :size="16" class="chevron" :class="{ open: isOpen }" />
     </div>
 
@@ -50,7 +50,7 @@
             @click="selectOption(option.id)"
             @mouseenter="highlightedId = option.id"
           >
-            <span class="option-label">{{ option.name || option.id }}</span>
+            <span class="option-label" :title="option.name || option.id">{{ option.name || option.id }}</span>
             <Check v-if="modelValue === option.id" :size="14" class="check-icon" />
           </div>
           <div
@@ -258,6 +258,8 @@ watch(isOpen, (open) => {
 }
 
 .selected-text {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   color: var(--text-primary);
   overflow: hidden;
@@ -266,6 +268,7 @@ watch(isOpen, (open) => {
 }
 
 .chevron {
+  flex-shrink: 0;
   color: var(--text-muted);
   transition: transform 0.2s;
 
@@ -366,6 +369,8 @@ watch(isOpen, (open) => {
 }
 
 .option-label {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   color: var(--text-primary);
   overflow: hidden;

@@ -403,7 +403,9 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
 
     if (hasTimeline) {
       for (const event of msg.timelineEvents!) {
-        if (event.type === 'text' && !event.content) continue
+        // 纯空白文本块（LLM 在工具调用间常输出 "\n"）若不过滤，
+        // 会渲染成 min-height:28px 的空白占位行，导致卡片间距异常大。
+        if (event.type === 'text' && !event.content?.trim()) continue
         if (event.type === 'tool_call') {
           const tool = msg.toolCalls?.find(toolCall => toolCall.id === event.toolCallId)
           if (!tool) continue
@@ -488,7 +490,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
 
       if (msg.content) {
         const textContent = props.mode === 'design' ? stripDesignTags(msg.content) : msg.content
-        if (textContent) {
+        if (textContent?.trim()) {
           events.push({
             id: `${msg.id}-text`,
             type: 'text',

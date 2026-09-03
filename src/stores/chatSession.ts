@@ -322,6 +322,21 @@ export const useChatSessionStore = defineStore('chatSession', () => {
 
   const sessions = ref<Session[]>(loadSessionsFromStorage())
 
+  interface SessionHistoryLite {
+    projectPath?: string
+    sessionId?: string
+    title?: string
+    firstUserMessage?: string
+    lastMessageTimestamp?: number
+    metadata?: {
+      customTitle?: string
+      timestamps?: {
+        createdAt?: string
+        lastMessageAt?: string
+      }
+    }
+  }
+
   // Desktop startup stays on an empty, ready-to-send conversation. Historical
   // sessions remain available in the sidebar and are hydrated only when the
   // user explicitly opens one. H5 mirror mode selects its session explicitly.
@@ -554,6 +569,68 @@ export const useChatSessionStore = defineStore('chatSession', () => {
 
   function saveProjects() {
     saveProjectsToStorage(projects.value)
+  }
+
+  /**
+   * Rebuild missing sidebar entries from Claude's durable JSONL history.
+   * The renderer list lives in localStorage, which can be reset by an
+   * uninstall/reinstall even though ~/.claude/projects is still present.
+   */
+  async function recoverSessionsFromHistory(): Promise<number> {
+    const listAllSessions = api.claudeCode?.listAllSessions
+    if (!listAllSessions) return 0
+
+    try {
+      const history = await listAllSessions() as SessionHistoryLite[]
+      if (!Array.isArray(history) || history.length === 0) return 0
+
+      const knownIds = new Set(sessions.value.map(session => session.id))
+      let recovered = 0
+
+      for (const entry of history) {
+        const id = entry?.sessionId
+        if (!id || knownIds.has(id)) continue
+
+        const lastMessageAt = entry.lastMessageTimestamp
+          || (entry.metadata?.timestamps?.lastMessageAt
+            ? Date.parse(entry.metadata.timestamps.lastMessageAt)
+            : undefined)
+        const createdAt = entry.metadata?.timestamps?.createdAt
+          ? Date.parse(entry.metadata.timestamps.createdAt)
+          : undefined
+        const timestamp = Number.isFinite(lastMessageAt) ? lastMessageAt! : Date.now()
+        const title = entry.title || entry.metadata?.customTitle || entry.firstUserMessage || `Chat ${id.slice(0, 8)}`
+
+        sessions.value.push({
+          id,
+          title,
+          messages: [],
+          createdAt: Number.isFinite(createdAt) ? createdAt! : timestamp,
+          updatedAt: timestamp,
+          workingDirectory: entry.projectPath,
+          processStatus: 'none',
+          isTabOpen: false,
+          lastActivityAt: timestamp,
+          mode: 'code',
+        })
+        knownIds.add(id)
+        recovered++
+
+        if (entry.projectPath && !projects.value.includes(entry.projectPath)) {
+          projects.value.push(entry.projectPath)
+        }
+      }
+
+      if (recovered > 0) {
+        sessions.value.sort((a, b) => b.updatedAt - a.updatedAt)
+        saveSessionsToStorage(sessions.value)
+        saveProjects()
+      }
+      return recovered
+    } catch (error) {
+      logger.warn('ChatStore', 'Failed to recover sessions from Claude history', { error: String(error) })
+      return 0
+    }
   }
 
   // 注意：不使用 deep watch 监听 sessions 变化来触发持久化。
@@ -1893,6 +1970,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     removeProject,
     switchProject,
     loadAgents,
+    recoverSessionsFromHistory,
     switchAgent,
     switchModel,
     startWorkAssistantSession,

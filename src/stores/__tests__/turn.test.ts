@@ -525,6 +525,29 @@ describe('Turn 生命周期边界场景', () => {
     expect(map.size).toBe(0)
     expect(typeof turn.cancelRetry).toBe('function')
   })
+
+  it('完成汇总使用本轮流式响应的实际模型，而不是设置中的当前模型', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('Test', undefined, 'sess-model-meta')
+    sessionStore.addMessage({ role: 'user', content: 'which model?' }, 'sess-model-meta')
+
+    // message_start 是引擎报告本轮实际模型的权威事件；随后 result 触发完成汇总。
+    fake._handlers.onStreamEvent({
+      sessionId: 'sess-model-meta',
+      data: { type: 'message_start', message: { model: 'deepseek-v4-flash' } },
+    })
+    fake._handlers.onResult({
+      sessionId: 'sess-model-meta',
+      data: { result: 'I am DeepSeek', usage: { input_tokens: 10, output_tokens: 4 } },
+    })
+
+    const session = sessionStore.sessions.find(s => s.id === 'sess-model-meta')!
+    const assistant = session.messages.find(message => message.role === 'assistant')
+    expect(assistant?.metadata?.model).toBe('deepseek-v4-flash')
+  })
 })
 
 // 用例 7：超时

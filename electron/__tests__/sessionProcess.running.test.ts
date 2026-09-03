@@ -8,6 +8,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { SessionProcess, SessionConfig } from '../sessionProcess'
+import { proxyManager } from '../proxyManager'
 
 vi.mock('electron', () => ({
   app: {
@@ -46,7 +47,38 @@ describe('SessionProcess — running state reflects writable stdin', () => {
   })
 
   afterEach(() => {
+    vi.restoreAllMocks()
     proc.removeAllListeners()
+  })
+
+  it('uses the proxy-supported Claude route for non-Anthropic providers', () => {
+    vi.spyOn(proxyManager, 'getProxyUrl').mockReturnValue('http://127.0.0.1:34567')
+    const proxyProc = new SessionProcess('sess-proxy', makeSessionConfig({
+      provider: 'openai',
+      model: 'sonnet',
+    }))
+
+    const args = (proxyProc as any).buildArgs(proxyProc.config) as string[]
+    const modelIndex = args.indexOf('--model')
+
+    expect(modelIndex).toBeGreaterThanOrEqual(0)
+    expect(args[modelIndex + 1]).toBe('claude-sonnet-4-20250514')
+    proxyProc.removeAllListeners()
+  })
+
+  it('opts the proxy route into 1M context when configured above the default', () => {
+    vi.spyOn(proxyManager, 'getProxyUrl').mockReturnValue('http://127.0.0.1:34567')
+    const proxyProc = new SessionProcess('sess-proxy-1m', makeSessionConfig({
+      provider: 'openai',
+      model: 'deepseek-v4-flash',
+      modelContextWindows: { 'deepseek-v4-flash': 1_000_000 },
+    }))
+
+    const args = (proxyProc as any).buildArgs(proxyProc.config) as string[]
+    const modelIndex = args.indexOf('--model')
+
+    expect(args[modelIndex + 1]).toBe('claude-sonnet-4-20250514[1m]')
+    proxyProc.removeAllListeners()
   })
 
   it('isRunning returns true when process exists and stdin is writable', () => {

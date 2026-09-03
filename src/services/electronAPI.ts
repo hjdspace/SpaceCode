@@ -249,6 +249,19 @@ export interface GitLogEntry {
   author: string
   date: string
   refs: string
+  /** Parent commit hashes (first = mainline); empty for root commits. */
+  parents?: string[]
+  [key: string]: unknown
+}
+
+export interface GitCommitFileStat {
+  path: string
+  originalPath?: string
+  statusCode: string
+  /** null for binary files */
+  additions: number | null
+  deletions: number | null
+  isBinary: boolean
   [key: string]: unknown
 }
 

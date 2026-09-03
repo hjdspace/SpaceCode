@@ -485,6 +485,13 @@ onMounted(() => {
     recordRecentProjectRoot(initialProjectRoot)
   }
 
+  // localStorage may be reset during a Linux uninstall/reinstall while
+  // Claude's durable JSONL transcripts remain under ~/.claude/projects.
+  // Recreate missing sidebar entries from that source on desktop startup.
+  if (!isH5Mode()) {
+    void sessionStore.recoverSessionsFromHistory()
+  }
+
   // 暴露全局 API 供主进程通过 executeJavaScript 调用，避免直接访问 Vue 内部实现
   ;(window as any).__spacecode_api__ = {
     getThemeData: () => ({

@@ -16,6 +16,7 @@ import type {
   GitFullDiffResult,
   GitBranch,
   GitLogEntry,
+  GitCommitFileStat,
 } from '@/services/electronAPI'
 import { defineChannels } from '@/shared/channelMap'
 
@@ -56,6 +57,30 @@ export const gitChannels = defineChannels({
     req: [] as unknown as [cwd: string, path: string, staged?: boolean],
     res: null as unknown as GitDiffResult | null,
   },
+  getRawDiff: {
+    req: [] as unknown as [cwd: string, path: string, staged?: boolean],
+    res: null as unknown as string,
+  },
+  stageHunks: {
+    req: [] as unknown as [cwd: string, path: string, patch: string],
+    res: null as unknown as { success: boolean; error?: string },
+  },
+  unstageHunks: {
+    req: [] as unknown as [cwd: string, path: string, patch: string],
+    res: null as unknown as { success: boolean; error?: string },
+  },
+  getCommitFiles: {
+    req: [] as unknown as [cwd: string, hash: string],
+    res: null as unknown as GitCommitFileStat[],
+  },
+  getCommitDiff: {
+    req: [] as unknown as [cwd: string, hash: string, path?: string],
+    res: null as unknown as string,
+  },
+  reset: {
+    req: [] as unknown as [cwd: string, hash: string, mode: 'soft' | 'mixed' | 'hard'],
+    res: null as unknown as { success: boolean; error?: string },
+  },
   getFullDiff: {
     req: [] as unknown as [cwd: string],
     res: null as unknown as GitFullDiffResult | null,
@@ -65,7 +90,7 @@ export const gitChannels = defineChannels({
     res: null as unknown as string,
   },
   showFile: {
-    req: [] as unknown as [cwd: string, path: string],
+    req: [] as unknown as [cwd: string, path: string, fromIndex?: boolean],
     res: null as unknown as string | null,
   },
   getBranches: {

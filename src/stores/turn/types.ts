@@ -5,6 +5,8 @@
 // 单个会话当前进行中的 turn 状态。turnStates 中无此 sessionId 条目 === 该会话 idle。
 export interface TurnState {
   assistantMessageId: string
+  /** 本轮流式响应实际使用的模型（由 message_start/assistant 事件提供） */
+  model?: string
   accumulatedContent: string
   currentTextEventId: string | null
   currentReasoningEventId: string | null

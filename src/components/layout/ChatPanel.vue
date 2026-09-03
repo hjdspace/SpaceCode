@@ -256,6 +256,8 @@ import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, r
 import { useI18n } from 'vue-i18n'
 import { useTurnStore } from '@/stores/turn'
 import { useChatSessionStore } from '@/stores/chatSession'
+import { useGoalStore, type GoalState } from '@/stores/goal'
+import { buildInitialGoalPrompt, MAX_GOAL_TURNS } from '@/lib/goalPrompts'
 import { useSettingsStore } from '@/stores/settings'
 import { useAppStore } from '@/stores/app'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
@@ -308,6 +310,7 @@ const SessionContextPushDialog = defineAsyncComponent(() => import('../session-c
 
 const turnStore = useTurnStore()
 const sessionStore = useChatSessionStore()
+const goalStore = useGoalStore()
 const settingsStore = useSettingsStore()
 const appStore = useAppStore()
 const splitLayout = useSplitLayoutStore()
@@ -1166,6 +1169,16 @@ async function handleSlashCommand(command: string, args: string, attachments: Al
 
   // 对于 rewind / context / diff 命令，不添加 assistant 回复（UI 直接打开面板）
   const cmd = command.toLowerCase()
+  // goal：设置/续跑类操作由 sendMessage 流程自行展示，仅状态/管理类操作返回文本
+  if (cmd === 'goal') {
+    if (result) {
+      await sessionStore.addMessage({
+        role: 'assistant',
+        content: result
+      })
+    }
+    return
+  }
   if (cmd === 'rewind' || cmd === 'checkpoint') {
     return
   }
@@ -1186,6 +1199,84 @@ async function handleSlashCommand(command: string, args: string, attachments: Al
 
 // 导入新的命令系统
 import { BUILT_IN_COMMANDS, COMMAND_PROMPTS, findCommand, type CommandKind } from '@/lib/constants/commands'
+
+// ── /goal 命令处理 ──────────────────────────────────────────────
+// 引擎 headless 模式下 /goal（local-jsx）被过滤，目标生命周期由应用侧
+// goal store 管理：设置目标 → 发送 steering prompt → 每轮结算后自动续跑。
+// 无参数 / goal status 查看状态；pause / resume / continue / clear 管理生命周期。
+
+function goalStatusLabel(goal: GoalState): string {
+  switch (goal.status) {
+    case 'active':
+      return t('chatPanel.goalStatusActive', { turns: goal.turnsExecuted, max: MAX_GOAL_TURNS })
+    case 'paused':
+      return t('chatPanel.goalStatusPaused')
+    case 'max_turns':
+      return t('chatPanel.goalStatusMaxTurns', { max: MAX_GOAL_TURNS })
+    case 'complete':
+      return t('chatPanel.goalStatusComplete')
+    case 'blocked':
+      return t('chatPanel.goalStatusBlocked')
+  }
+}
+
+function formatGoalStatus(goal: GoalState): string {
+  const blockedReason = goal.blockedReason
+    ? `\n${t('chatPanel.goalBlockedReason', { reason: goal.blockedReason })}`
+    : ''
+  return `## ${t('chatPanel.goalStatusHeader')}\n\n${goal.objective}\n\n${goalStatusLabel(goal)}${blockedReason}`
+}
+
+async function executeGoalCommand(args: string): Promise<string> {
+  const sessionId = paneSessionId.value
+  if (!sessionId) return t('chatPanel.goalNoSession')
+
+  const arg = args.trim()
+  const sub = arg.toLowerCase()
+
+  // 无参数 / status：查看当前目标状态
+  if (!arg || sub === 'status') {
+    const goal = goalStore.getGoal(sessionId)
+    if (!goal) return t('chatPanel.goalUsage')
+    return formatGoalStatus(goal)
+  }
+
+  if (sub === 'pause' || sub === 'stop') {
+    return goalStore.pauseGoal(sessionId)
+      ? t('chatPanel.goalPaused')
+      : t('chatPanel.goalNotActive')
+  }
+
+  if (sub === 'resume') {
+    const goal = goalStore.resumeGoal(sessionId)
+    if (!goal) return t('chatPanel.goalNotPaused')
+    await turnStore.sendGoalContinuation(sessionId)
+    return ''
+  }
+
+  if (sub === 'continue') {
+    const goal = goalStore.continueGoal(sessionId)
+    if (!goal) return t('chatPanel.goalNotMaxTurns')
+    await turnStore.sendGoalContinuation(sessionId)
+    return ''
+  }
+
+  if (sub === 'clear' || sub === 'cancel') {
+    return goalStore.clearGoal(sessionId)
+      ? t('chatPanel.goalCleared')
+      : t('chatPanel.goalNone')
+  }
+
+  // /goal <objective> — 设定目标并立即开始执行（steering prompt 不在消息列表展示）
+  goalStore.setGoal(sessionId, arg)
+  await turnStore.sendMessage(
+    buildInitialGoalPrompt(arg),
+    `/goal ${arg}`,
+    { files: [], images: [] },
+    { sessionId, isAutonomous: true, hideUserMessage: true },
+  )
+  return ''
+}
 
 // 执行斜杠命令
 async function executeSlashCommand(command: string, args: string): Promise<string> {
@@ -1263,6 +1354,9 @@ case 'mcp':
 
     case 'keybindings':
       return generateKeybindingsMessage()
+
+    case 'goal':
+      return await executeGoalCommand(args)
 
     default: {
       const cmdDef = findCommand(command)

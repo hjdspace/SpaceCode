@@ -35,6 +35,8 @@ export interface WebviewTabData {
 export interface ScmDiffTabData {
   filePath: string
   staged: boolean
+  /** Commit context — diff of this file (or the whole commit) in that commit. */
+  commitHash?: string
 }
 
 /** 由工作台(截图/框选)推送到聊天输入框的内容载荷 */
@@ -802,6 +804,25 @@ export const useAppStore = defineStore('app', () => {
     })
   }
 
+  function openCommitDiff(commitHash: string, filePath?: string) {
+    const tabId = filePath ? `diff::commit::${commitHash}::${filePath}` : `diff::commit::${commitHash}`
+    const existing = infoPanelTabs.value.find(t => t.id === tabId)
+    if (existing) {
+      activeInfoTabId.value = existing.id
+      infoPanelVisible.value = true
+      return
+    }
+
+    openInfoTab({
+      id: tabId,
+      type: 'diff',
+      title: filePath ? filePath.split(/[\\/]/).pop() || filePath : commitHash.slice(0, 8),
+      icon: markRaw(FileDiff),
+      data: { filePath: filePath ?? '', staged: false, commitHash } as ScmDiffTabData,
+      closeable: true
+    })
+  }
+
   function getLanguageFromPath(path: string): string {
     const ext = path.split('.').pop()?.toLowerCase() || ''
     const languageMap: Record<string, string> = {
@@ -926,6 +947,7 @@ export const useAppStore = defineStore('app', () => {
     closeInfoTab,
     closeAllInfoTabs,
     openScmDiff,
+    openCommitDiff,
     officePreviewFile,
     officePreviewMode,
     openOfficePreview,
