@@ -841,6 +841,17 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
   }
 
   const handleResult = (sessionId: string, ts: TurnState, result: any) => {
+    const isError = !!result?.is_error
+    const resultText = typeof result?.result === 'string' ? result.result : ''
+    const looksLikeApiError = /^API Error:/i.test(resultText)
+
+    // Engine 内部 retry 可能在旧 turn 已 settled 后才发出成功 result。
+    // 清理必须先于 settled guard，避免晚到事件被丢弃后 RetryIndicator 残留。
+    if (!isError && !looksLikeApiError && autoRetry.retryStates.value.has(sessionId)) {
+      logger.info('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry succeeded, clearing retry state`)
+      autoRetry.clearOnSuccess(sessionId)
+    }
+
     if (ts.settled) return
 
     if (typeof result?.model === 'string' && result.model.trim()) {
@@ -849,9 +860,6 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
 
     flushContentPatch(sessionId, ts)
 
-    const isError = !!result?.is_error
-    const resultText = typeof result?.result === 'string' ? result.result : ''
-    const looksLikeApiError = /^API Error:/i.test(resultText)
     // 429 限流错误：底层 engine 自带重试机制，前端无需感知。
     // 不结算 turn、不显示错误 UI、不触发自动重试，保持 turn 活跃等待 engine 内部重试后的正常 result 事件。
     if ((isError || looksLikeApiError) && /429|rate.?limit/i.test(resultText)) {
@@ -871,11 +879,6 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     logger.info('ChatStore', `[${sessionId.slice(0, 8)}] result event (LLM response complete) | totalElapsed=${elapsed}ms | accContentLen=${ts.accumulatedContent.length} | stopReason=${result.stop_reason || '(none)'}`)
     streamingContents.value.set(sessionId, '')
     loadingSessions.value.set(sessionId, false)
-
-    if (autoRetry.retryStates.value.has(sessionId)) {
-      logger.info('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry succeeded, clearing retry state`)
-      autoRetry.clearOnSuccess(sessionId)
-    }
 
     const s = sink.get(sessionId)
     if (s) {

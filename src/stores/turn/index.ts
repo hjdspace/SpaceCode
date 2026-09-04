@@ -889,6 +889,13 @@ export function useTurnStore(injectedApi?: any) {
         handleUser(event.sessionId, ts, event.data)
       })
       claudeCodeApi.onSystem?.((event: { sessionId: string; data: any }) => {
+        if (event.data?.subtype === 'auto_retry_end') {
+          if (event.data.success === true) {
+            sessionStore.logger.info('ChatStore', `[${event.sessionId.slice(0, 8)}] engine auto-retry succeeded, clearing retry state`)
+            autoRetry.clearOnSuccess(event.sessionId)
+          }
+          return
+        }
         if (event.data?.subtype === 'task_notification') {
           sessionStore.handleTaskNotification(event.data, event.sessionId)
         }

@@ -53,6 +53,82 @@ describe('useTurnStore skeleton', () => {
   })
 })
 
+describe('Turn engine retry lifecycle', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('engine auto_retry_end success clears the retry indicator state', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    const sessionId = 'sess-engine-retry'
+    sessionStore.createSession('Test', undefined, sessionId)
+
+    vi.spyOn(errorHandler, 'classifyError').mockReturnValue({
+      category: ErrorCategory.TIMEOUT,
+      title: '请求超时',
+      message: '请求超时',
+      technicalDetail: 'request timed out',
+      retryable: true,
+      originalError: new Error('request timed out'),
+      timestamp: Date.now(),
+    })
+
+    ;(turn as any).beginTurn(sessionId, { isAutonomous: false })
+    fake._handlers.onError?.({ sessionId, data: { message: 'request timed out' } })
+    await Promise.resolve()
+
+    const retryStates = () => turn.retryStates as unknown as Map<string, unknown>
+    expect(retryStates().has(sessionId)).toBe(true)
+
+    fake._handlers.onSystem?.({
+      sessionId,
+      data: { subtype: 'auto_retry_end', success: true, attempt: 1 },
+    })
+
+    expect(retryStates().has(sessionId)).toBe(false)
+
+    await vi.runAllTimersAsync()
+  })
+
+  it('late successful result clears retry state even when the old turn is settled', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    const sessionId = 'sess-late-result'
+    sessionStore.createSession('Test', undefined, sessionId)
+
+    vi.spyOn(errorHandler, 'classifyError').mockReturnValue({
+      category: ErrorCategory.TIMEOUT,
+      title: '请求超时',
+      message: '请求超时',
+      technicalDetail: 'request timed out',
+      retryable: true,
+      originalError: new Error('request timed out'),
+      timestamp: Date.now(),
+    })
+
+    ;(turn as any).beginTurn(sessionId, { isAutonomous: false })
+    fake._handlers.onError?.({ sessionId, data: { message: 'request timed out' } })
+    await Promise.resolve()
+    expect((turn.retryStates as unknown as Map<string, unknown>).has(sessionId)).toBe(true)
+
+    fake._handlers.onResult?.({ sessionId, data: { result: 'reconnected response' } })
+
+    expect((turn.retryStates as unknown as Map<string, unknown>).has(sessionId)).toBe(false)
+    await vi.runAllTimersAsync()
+  })
+})
+
 describe('TurnState machine', () => {
   beforeEach(() => { setActivePinia(createPinia()) })
 
