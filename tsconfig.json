@@ -15,10 +15,9 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
-      "@electron/*": ["electron/*"]
+      "@/*": ["./src/*"],
+      "@electron/*": ["./electron/*"]
     },
     "types": ["node", "electron"]
   },
