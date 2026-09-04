@@ -123,3 +123,36 @@ export function parseNameStatusLine(line: string): ParsedNameStatusLine | null {
   const originalPath = parts.length >= 3 ? parts[1] : undefined
   return { statusCode, path, originalPath }
 }
+
+/**
+ * Resolve a numstat path field, handling rename forms:
+ * - "old => new" → returns "new"
+ * - "{old => new}/suffix" → returns "old/suffix" (wait — returns "new/suffix")
+ *
+ * This is the same logic as splitNumstatPath but returns only the resolved
+ * path (used by getFullDiff in gitService.ts for numstat line aggregation).
+ */
+export function parseNumstatPath(rawPath: string): string {
+  const arrowIndex = rawPath.indexOf(' => ')
+  if (arrowIndex === -1) return rawPath
+
+  if (rawPath.includes('{') && rawPath.includes('}')) {
+    return rawPath.replace(/\{([^{}]*?) => ([^{}]*?)\}/g, '$2')
+  }
+
+  return rawPath.slice(arrowIndex + 4)
+}
+
+/**
+ * Parse `git for-each-ref` upstream track info, e.g. "ahead 2, behind 1".
+ * Returns an object with optional ahead/behind counts.
+ */
+export function parseTrackInfo(track: string | undefined): { ahead?: number; behind?: number } {
+  if (!track) return {}
+  const aheadMatch = track.match(/ahead (\d+)/)
+  const behindMatch = track.match(/behind (\d+)/)
+  return {
+    ahead: aheadMatch ? parseInt(aheadMatch[1]!, 10) : undefined,
+    behind: behindMatch ? parseInt(behindMatch[1]!, 10) : undefined,
+  }
+}
