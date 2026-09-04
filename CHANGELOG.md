@@ -1,3 +1,18 @@
+## [0.7.9](https://github.com/hjdspace/SpaceCode/compare/v0.7.8...v0.7.9) (2026-09-04)
+
+### Bug Fixes
+
+- **chat:** 修复发送时状态栏透明度异常，优化状态栏背景色与边框视觉层级
+- **turn:** 修复引擎自动重试结束后重试状态残留的问题，新增 auto_retry_end 事件处理
+
+### Tests
+
+- 补充核心 store 与 gitService 测试覆盖，新增 test:coverage 脚本
+
+### Chore
+
+- **deps:** 升级 typescript 至 6.0 并适配 marked 新 API
+
 ## [0.7.8](https://github.com/hjdspace/SpaceCode/compare/v0.7.7...v0.7.8) (2026-09-03)
 
 ### Features
