@@ -1549,7 +1549,9 @@ watch(pendingFile, (file) => {
   }
 
   &.is-sending {
-    opacity: 0.8;
+    > :not(.composer-status-bar) {
+      opacity: 0.8;
+    }
   }
 
   &.is-optimizing {
