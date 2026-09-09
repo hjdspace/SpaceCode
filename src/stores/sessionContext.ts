@@ -94,7 +94,7 @@ export const useSessionContext = defineStore('sessionContext', () => {
 
   function openEnvPanel() {
     showEnvPanel.value = true
-    userOverride.value = false // clear override, let mode take over
+    userOverride.value = true // user explicitly opened, prevent auto-collapse
   }
 
   /** User manually collapses → becomes capsule */
@@ -156,11 +156,9 @@ export const useSessionContext = defineStore('sessionContext', () => {
     if (userOverride.value) return
     if (panelExpandMode.value === 'always-expand') {
       showEnvPanel.value = true
-    } else if (panelExpandMode.value === 'always-collapse') {
-      showEnvPanel.value = false
     } else {
-      // auto: follow activity
-      showEnvPanel.value = hasActivity.value
+      // auto & always-collapse: stay collapsed by default
+      showEnvPanel.value = false
     }
   }
 
@@ -292,13 +290,8 @@ export const useSessionContext = defineStore('sessionContext', () => {
     }
   })
 
-  // === Auto mode watcher: when activity changes, clear user override and re-evaluate ===
-  watch(hasActivity, () => {
-    if (panelExpandMode.value === 'auto') {
-      userOverride.value = false
-      evaluateAutoExpand()
-    }
-  })
+  // === Auto mode: activity changes no longer auto-expand the panel ===
+  // The panel stays collapsed by default; user can manually expand via the capsule.
 
   return {
     // State

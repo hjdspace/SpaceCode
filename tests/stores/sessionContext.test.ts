@@ -56,12 +56,12 @@ describe('sessionContext store — env panel', () => {
     expect(store.userOverride).toBe(true)
   })
 
-  it('openEnvPanel sets visible and clears userOverride', () => {
+  it('openEnvPanel sets visible and sets userOverride', () => {
     const store = useSessionContext()
     store.closeEnvPanel()
     store.openEnvPanel()
     expect(store.showEnvPanel).toBe(true)
-    expect(store.userOverride).toBe(false)
+    expect(store.userOverride).toBe(true)
   })
 
   it('closeEnvPanel hides and sets userOverride', () => {
@@ -135,8 +135,7 @@ describe('sessionContext store — right panel', () => {
     store.openEnvPanel()
     expect(store.showEnvPanel).toBe(true)
 
-    // Wait for Vue watchers to flush (openEnvPanel sets userOverride=false,
-    // but hasActivity watcher may fire evaluateAutoExpand)
+    // openEnvPanel sets userOverride=true, no auto-collapse watcher to interfere
     await nextTick()
 
     store.openRightPanel()
@@ -180,16 +179,15 @@ describe('sessionContext store — panel expand modes', () => {
     expect(store.showEnvPanel).toBe(false)
   })
 
-  it('setPanelExpandMode to auto follows hasActivity', () => {
+  it('setPanelExpandMode to auto stays collapsed even with activity', () => {
     const store = useSessionContext()
     // No activity → hidden
     store.setPanelExpandMode('auto')
     expect(store.showEnvPanel).toBe(false)
 
-    // Add activity
+    // Add activity — panel stays collapsed by default
     store.updateGitStats({ additions: 5, deletions: 1, files: [{ path: 'a.ts', insertions: 5, deletions: 1 }] })
-    // hasActivity watcher should fire and open the panel
-    expect(store.showEnvPanel).toBe(true)
+    expect(store.showEnvPanel).toBe(false)
   })
 
   it('userOverride prevents auto mode from changing visibility', () => {
@@ -324,7 +322,7 @@ describe('sessionContext store — tasks & git stats', () => {
     setActivePinia(createPinia())
   })
 
-  it('updateTasks sets tasks and triggers evaluateAutoExpand', () => {
+  it('updateTasks sets tasks without auto-expanding panel', () => {
     const store = useSessionContext()
     store.setPanelExpandMode('auto')
     const tasks = [
@@ -333,11 +331,11 @@ describe('sessionContext store — tasks & git stats', () => {
     ]
     store.updateTasks(tasks)
     expect(store.tasks).toEqual(tasks)
-    // hasActivity becomes true → auto-expand opens env panel
-    expect(store.showEnvPanel).toBe(true)
+    // Panel stays collapsed in auto mode
+    expect(store.showEnvPanel).toBe(false)
   })
 
-  it('updateGitStats sets stats and triggers evaluateAutoExpand', () => {
+  it('updateGitStats sets stats without auto-expanding panel', () => {
     const store = useSessionContext()
     store.setPanelExpandMode('auto')
     store.updateGitStats({
@@ -349,7 +347,8 @@ describe('sessionContext store — tasks & git stats', () => {
     expect(store.gitDeletions).toBe(5)
     expect(store.changedFiles).toHaveLength(1)
     expect(store.hasActivity).toBe(true)
-    expect(store.showEnvPanel).toBe(true)
+    // Panel stays collapsed in auto mode
+    expect(store.showEnvPanel).toBe(false)
   })
 
   it('hasActivity is true when tasks exist', () => {
