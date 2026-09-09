@@ -2,13 +2,14 @@
   <div class="tool-card" :class="statusClass">
     <!-- 折叠态头部 -->
     <div class="tool-header" :class="{ 'is-expanded': isExpanded }" @click="toggleExpand">
-      <Loader2 v-if="isRunning" :size="14" class="tool-icon status-running" />
+      <Loader2 v-if="isRunning && !isWaiting" :size="14" class="tool-icon status-running" />
+      <Loader2 v-else-if="isWaiting" :size="14" class="tool-icon status-timeout" />
       <X v-else-if="toolCall.status === 'error'" :size="14" class="tool-icon status-error" />
       <FileOutput v-else :size="14" class="tool-icon status-completed" />
       <span class="tool-label">{{ t('toolCards.taskOutput') }}</span>
-      <template v-if="taskIdDisplay">
+      <template v-if="headerTarget">
         <span class="tool-separator">·</span>
-        <span class="tool-target">{{ taskIdDisplay }}</span>
+        <span class="tool-target">{{ headerTarget }}</span>
       </template>
       <span v-if="statusBadge" class="task-status-badge" :class="statusBadgeClass">{{ statusBadge }}</span>
       <span v-if="duration" class="tool-meta">{{ duration }}s</span>
@@ -56,7 +57,7 @@
         </div>
       </div>
 
-      <!-- 等待状态 (timeout / not_ready) -->
+      <!-- 等待状态提示 (timeout / not_ready) — 不短路后续内容渲染 -->
       <div v-if="isWaiting" class="tool-section">
         <div class="tool-section-header">{{ t('toolCards.taskOutputStatus') }}</div>
         <div class="waiting-state">
@@ -66,10 +67,11 @@
         </div>
       </div>
 
-      <!-- 无任务数据 (task 为 null) -->
-      <div v-else-if="!parsedTask" class="tool-section">
+      <!-- 无任务数据 (task 为 null) — 显示原始输出或错误信息 -->
+      <div v-if="!parsedTask" class="tool-section">
         <div class="tool-section-header">{{ t('toolCards.taskOutputStatus') }}</div>
-        <div class="no-task">{{ t('toolCards.taskOutputNoTask') }}</div>
+        <div v-if="rawOutputText" class="raw-output-text">{{ rawOutputText }}</div>
+        <div v-else class="no-task">{{ t('toolCards.taskOutputNoTask') }}</div>
       </div>
 
       <!-- local_bash: 终端窗口渲染 -->
@@ -111,10 +113,10 @@
 
       <!-- local_agent: 提示词 + 结果渲染 -->
       <template v-else-if="parsedTaskType === 'local_agent'">
-        <div v-if="parsedPrompt" class="tool-section">
+        <div v-if="parsedPrompt || parsedDescription" class="tool-section">
           <div class="tool-section-header">{{ t('toolCards.agentDescription') }}</div>
           <div class="tool-section-body">
-            <pre class="prompt-block"><code>{{ parsedPrompt }}</code></pre>
+            <pre class="prompt-block"><code>{{ parsedPrompt || parsedDescription }}</code></pre>
           </div>
         </div>
         <div v-if="parsedOutput || parsedResult" class="tool-section">
@@ -210,10 +212,35 @@ const timeoutInput = computed(() => {
 })
 
 const hasInputParams = computed(() => {
-  return !!(taskIdInput.value || blockInput.value || timeoutInput.value)
+  return !!(taskIdInput.value || timeoutInput.value)
 })
 
 const taskIdDisplay = computed(() => taskIdInput.value || '')
+
+/** 折叠态头部显示的目标 — 优先用 task_type 做可读标签，回退到截断的 task_id */
+const headerTarget = computed(() => {
+  const taskType = parsed.value.taskType
+  if (taskType) {
+    const labelMap: Record<string, string> = {
+      local_bash: 'Bash',
+      local_agent: 'Agent',
+      remote_agent: 'Remote',
+    }
+    return labelMap[taskType] || taskType
+  }
+  // task_type 不可用时，显示截断的 task_id
+  const tid = taskIdInput.value
+  if (tid && tid.length > 16) return tid.slice(0, 8) + '…'
+  return tid || ''
+})
+
+/** parsedTask 为 null 时，检查是否有原始输出文本（如引擎返回的错误消息） */
+const rawOutputText = computed(() => {
+  const out = props.toolCall.output || ''
+  if (!out) return ''
+  // 如果输出不是 XML 格式（如引擎返回的错误消息），直接显示截断后的原始文本
+  return out.length > 500 ? out.slice(0, 500) + '…' : out
+})
 
 // ── XML 输出解析 ──
 interface ParsedTaskData {
@@ -331,38 +358,25 @@ const waitingHint = computed(() => {
 })
 
 // ── 状态徽章 ──
-const statusBadge = computed(() => {
+const statusBadgeInfo = computed(() => {
   const rs = parsed.value.retrievalStatus
   const ts = parsed.value.status || props.toolCall.status
 
-  if (rs === 'timeout') return t('toolCards.taskOutputBadgeTimeout')
-  if (rs === 'not_ready') return t('toolCards.taskOutputBadgeNotReady')
+  if (rs === 'timeout') return { text: t('toolCards.taskOutputBadgeTimeout'), cls: 'badge-timeout' }
+  if (rs === 'not_ready') return { text: t('toolCards.taskOutputBadgeNotReady'), cls: 'badge-not-ready' }
 
   if (ts === 'running' || ts === 'pending' || props.toolCall.status === 'running' || props.toolCall.status === 'pending')
-    return t('toolCards.agentStatusRunning')
+    return { text: t('toolCards.agentStatusRunning'), cls: 'badge-running' }
   if (ts === 'failed' || props.toolCall.status === 'error')
-    return t('toolCards.agentStatusFailed')
+    return { text: t('toolCards.agentStatusFailed'), cls: 'badge-failed' }
   if (ts === 'completed' || ts === 'success' || props.toolCall.status === 'completed')
-    return t('toolCards.agentStatusDone')
+    return { text: t('toolCards.agentStatusDone'), cls: 'badge-done' }
 
-  return ''
+  return { text: '', cls: '' }
 })
 
-const statusBadgeClass = computed(() => {
-  const rs = parsed.value.retrievalStatus
-  if (rs === 'timeout') return 'badge-timeout'
-  if (rs === 'not_ready') return 'badge-not-ready'
-
-  const ts = parsed.value.status || props.toolCall.status
-  if (ts === 'running' || ts === 'pending' || props.toolCall.status === 'running' || props.toolCall.status === 'pending')
-    return 'badge-running'
-  if (ts === 'failed' || props.toolCall.status === 'error')
-    return 'badge-failed'
-  if (ts === 'completed' || ts === 'success' || props.toolCall.status === 'completed')
-    return 'badge-done'
-
-  return ''
-})
+const statusBadge = computed(() => statusBadgeInfo.value.text)
+const statusBadgeClass = computed(() => statusBadgeInfo.value.cls)
 
 // ── 任务类型标签 ──
 const taskTypeTagClass = computed(() => {
@@ -450,7 +464,9 @@ function toggleExpand() {
   gap: 12px;
   padding: 8px 12px;
   background: var(--surface-glass);
-  border-bottom: 1px solid var(--surface-border);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md, 8px);
+  margin-bottom: 8px;
   flex-wrap: wrap;
 }
 
@@ -754,6 +770,21 @@ function toggleExpand() {
   text-align: center;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+/* ── 原始输出文本（parsedTask 为 null 但 output 有内容时） ── */
+.raw-output-text {
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--code-bg, #0d1117);
+  border-radius: 6px;
+  max-height: 300px;
+  overflow-y: auto;
 }
 
 /* ── 错误块 ── */

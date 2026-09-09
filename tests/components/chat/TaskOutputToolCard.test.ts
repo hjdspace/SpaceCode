@@ -27,17 +27,50 @@ function mountCard(toolCall: ToolCall) {
     props: { toolCall },
     global: {
       plugins: [i18n],
-      stubs: ['MarkdownRenderer'],
+      stubs: {
+        MarkdownRenderer: {
+          props: { content: { type: String, default: '' } },
+          template: '<div>{{ content }}</div>',
+        },
+      },
     },
   })
 }
 
 describe('TaskOutputToolCard', () => {
-  it('renders collapsed header with task_id and label', () => {
+  it('renders collapsed header with Task Output label', () => {
     const wrapper = mountCard(makeToolCall())
     expect(wrapper.find('.tool-header').exists()).toBe(true)
     expect(wrapper.text()).toContain('Task Output')
-    expect(wrapper.text()).toContain('task_001')
+  })
+
+  it('shows task_type label (not raw hex task_id) in collapsed header when output is parsed', () => {
+    const output = [
+      '<retrieval_status>success</retrieval_status>',
+      '<task_id>task_abc123def456789</task_id>',
+      '<task_type>local_bash</task_type>',
+      '<status>completed</status>',
+      '<exit_code>0</exit_code>',
+      '<output>Build successful</output>',
+    ].join('\n\n')
+
+    const wrapper = mountCard(makeToolCall({ input: { task_id: 'task_abc123def456789', block: true, timeout: 30000 }, output }))
+    const header = wrapper.find('.tool-header')
+    expect(header.text()).toContain('Bash')
+    // Raw hex task_id should NOT appear in collapsed header
+    expect(header.text()).not.toContain('task_abc123def456789')
+  })
+
+  it('shows truncated task_id in collapsed header when no output parsed', () => {
+    const longTaskId = 'task_0123456789abcdef0123456789abcdef'
+    const wrapper = mountCard(makeToolCall({
+      input: { task_id: longTaskId, block: true, timeout: 30000 },
+    }))
+    const header = wrapper.find('.tool-header')
+    // Long ID should be truncated
+    expect(header.text()).toContain('…')
+    // Full ID should NOT be in header
+    expect(header.text()).not.toContain(longTaskId)
   })
 
   it('shows badge "Done" for completed local_bash task', () => {
@@ -127,7 +160,26 @@ describe('TaskOutputToolCard', () => {
     expect(wrapper.find('.agent-result-content').exists()).toBe(true)
   })
 
-  it('renders waiting spinner for timeout status when expanded', async () => {
+  it('renders agent result from output field when prompt/result tags are absent', async () => {
+    // Engine's mapToolResultToToolResultBlockParam does NOT include <prompt> or <result> tags.
+    // The <output> field contains the agent's response text.
+    const output = [
+      '<retrieval_status>success</retrieval_status>',
+      '<task_id>task_001</task_id>',
+      '<task_type>local_agent</task_type>',
+      '<status>completed</status>',
+      '<output>The agent analysis result text</output>',
+    ].join('\n\n')
+
+    const wrapper = mountCard(makeToolCall({ output }))
+    await wrapper.find('.tool-header').trigger('click')
+    // Should render the output section (agent-result-content uses MarkdownRenderer stub)
+    expect(wrapper.find('.agent-result-content').exists()).toBe(true)
+    // The section header should be the agent result label
+    expect(wrapper.text()).toContain('Sub-agent output')
+  })
+
+  it('renders waiting spinner and terminal output for timeout status when expanded', async () => {
     const output = [
       '<retrieval_status>timeout</retrieval_status>',
       '<task_id>task_001</task_id>',
@@ -140,12 +192,44 @@ describe('TaskOutputToolCard', () => {
     await wrapper.find('.tool-header').trigger('click')
     expect(wrapper.find('.waiting-spinner').exists()).toBe(true)
     expect(wrapper.text()).toContain('Task is still running')
+    // waiting state should NOT short-circuit terminal output
+    expect(wrapper.find('.terminal-window').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Partial')
+  })
+
+  it('renders waiting state and description for not_ready local_agent when expanded', async () => {
+    const output = [
+      '<retrieval_status>not_ready</retrieval_status>',
+      '<task_id>task_001</task_id>',
+      '<task_type>local_agent</task_type>',
+      '<status>running</status>',
+      '<description>Running analysis</description>',
+    ].join('\n\n')
+
+    const wrapper = mountCard(makeToolCall({ status: 'running', output }))
+    await wrapper.find('.tool-header').trigger('click')
+    expect(wrapper.find('.waiting-spinner').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Running analysis')
   })
 
   it('renders no-task message when output is empty', async () => {
     const wrapper = mountCard(makeToolCall({ output: '' }))
     await wrapper.find('.tool-header').trigger('click')
     expect(wrapper.find('.no-task').exists()).toBe(true)
+  })
+
+  it('renders raw output text when parsedTask is null but output has content (evicted task)', async () => {
+    // When the task has been evicted, the engine returns an error message
+    // (not XML format), so parsedTask will be null.
+    const errorOutput = 'Error: No task found with ID: task_001. The task may have been evicted.'
+
+    const wrapper = mountCard(makeToolCall({ status: 'error', output: errorOutput }))
+    await wrapper.find('.tool-header').trigger('click')
+    // Should show the raw error text, not "no task output available"
+    expect(wrapper.find('.raw-output-text').exists()).toBe(true)
+    expect(wrapper.text()).toContain('No task found with ID')
+    // Should NOT show the "no task" message
+    expect(wrapper.find('.no-task').exists()).toBe(false)
   })
 
   it('renders error block when error field is present', async () => {
@@ -174,6 +258,22 @@ describe('TaskOutputToolCard', () => {
     expect(wrapper.text()).toContain('30000ms')
   })
 
+  it('shows full task_id in meta bar when expanded', async () => {
+    const output = [
+      '<retrieval_status>success</retrieval_status>',
+      '<task_id>task_001</task_id>',
+      '<task_type>local_bash</task_type>',
+      '<status>completed</status>',
+      '<exit_code>0</exit_code>',
+      '<output>OK</output>',
+    ].join('\n\n')
+
+    const wrapper = mountCard(makeToolCall({ output }))
+    await wrapper.find('.tool-header').trigger('click')
+    // Full task_id should be visible in the expanded meta bar
+    expect(wrapper.find('.task-meta-bar').text()).toContain('task_001')
+  })
+
   it('renders meta bar with task type tag when expanded', async () => {
     const output = [
       '<retrieval_status>success</retrieval_status>',
@@ -188,6 +288,26 @@ describe('TaskOutputToolCard', () => {
     await wrapper.find('.tool-header').trigger('click')
     expect(wrapper.find('.task-type-tag.type-bash').exists()).toBe(true)
     expect(wrapper.text()).toContain('local_bash')
+  })
+
+  it('shows timeout icon class when retrieval_status is timeout', () => {
+    const output = [
+      '<retrieval_status>timeout</retrieval_status>',
+      '<task_id>task_001</task_id>',
+      '<task_type>local_bash</task_type>',
+      '<status>running</status>',
+      '<output>Partial</output>',
+    ].join('\n\n')
+
+    const wrapper = mountCard(makeToolCall({ status: 'running', output }))
+    expect(wrapper.find('.tool-icon.status-timeout').exists()).toBe(true)
+    expect(wrapper.find('.tool-icon.status-running').exists()).toBe(false)
+  })
+
+  it('hides input params section when no task_id or timeout in input', async () => {
+    const wrapper = mountCard(makeToolCall({ input: { block: false } }))
+    await wrapper.find('.tool-header').trigger('click')
+    expect(wrapper.find('.input-params').exists()).toBe(false)
   })
 
   it('toggles expansion on header click', async () => {

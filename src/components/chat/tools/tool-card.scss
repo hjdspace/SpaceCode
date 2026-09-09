@@ -41,6 +41,11 @@
   &.status-error {
     color: var(--error);
   }
+
+  &.status-timeout {
+    color: var(--warning, #f59e0b);
+    animation: tool-spin 1s linear infinite;
+  }
 }
 
 @keyframes tool-spin {
