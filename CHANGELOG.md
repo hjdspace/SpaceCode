@@ -1,3 +1,19 @@
+## [0.7.10](https://github.com/hjdspace/SpaceCode/compare/v0.7.9...v0.7.10) (2026-09-09)
+
+### Features
+
+- **chat/tool-card:** 优化工具卡片的状态展示与内容渲染
+- 添加任务输出工具卡片并优化超时处理逻辑
+
+### Bug Fixes
+
+- **contextUsage:** 修复模型显示不一致问题
+
+### Refactor
+
+- **sessionContext:** 调整环境面板默认折叠行为并优化自动展开逻辑
+- **chat:** 移除自动重试UI提示组件并调整相关逻辑
+
 ## [0.7.9](https://github.com/hjdspace/SpaceCode/compare/v0.7.8...v0.7.9) (2026-09-04)
 
 ### Bug Fixes
