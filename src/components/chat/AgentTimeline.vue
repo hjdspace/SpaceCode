@@ -131,18 +131,6 @@
         </div>
       </div>
 
-      <!-- 自动重试提示：简洁单行"API Error：xxx... 正在重连（n/m）"；放在时间线事件下方 -->
-      <RetryIndicator
-        v-if="currentRetryState && !currentRetryState.aborted"
-        :attempt="currentRetryState.attempt"
-        :max-retries="currentRetryState.maxRetries"
-        :delay-ms="currentRetryState.delayMs"
-        :error-category="currentRetryState.errorCategory"
-        :error-title="currentRetryState.errorTitle"
-        :error-code="currentRetryState.errorCode"
-        @cancel="handleCancelRetry"
-      />
-
     </div>
 
     <!-- 用时汇总条：复用 TurnSummaryBar 组件 -->
@@ -165,7 +153,6 @@ import { hasToolComponent, resolveToolComponent } from '@/components/chat/tools/
 import PermissionRequestCard from './tools/PermissionRequestCard.vue'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
 import ErrorCard from '../common/ErrorCard.vue'
-import RetryIndicator from './RetryIndicator.vue'
 import TurnSummaryBar from './TurnSummaryBar.vue'
 import { stripDesignTags } from '@/utils/chat/buildBlocks'
 import { errorHandler } from '@/services/errorHandler'
@@ -242,17 +229,6 @@ function getPendingPermission(toolUseId: string) {
 function handleRetry() {
   turnStore.retryLastMessage()
 }
-
-function handleCancelRetry() {
-  turnStore.cancelRetry()
-}
-
-/** 当前会话的重试状态（从响应式 store 中读取） */
-const currentRetryState = computed(() => {
-  const sid = sessionStore.currentSessionId
-  if (!sid) return null
-  return turnStore.retryStates.get(sid) ?? null
-})
 
 function handleDismissError() {
   const sid = sessionStore.currentSessionId

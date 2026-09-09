@@ -846,7 +846,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     const looksLikeApiError = /^API Error:/i.test(resultText)
 
     // Engine 内部 retry 可能在旧 turn 已 settled 后才发出成功 result。
-    // 清理必须先于 settled guard，避免晚到事件被丢弃后 RetryIndicator 残留。
+    // 清理必须先于 settled guard，避免晚到事件被丢弃后重试状态残留。
     if (!isError && !looksLikeApiError && autoRetry.retryStates.value.has(sessionId)) {
       logger.info('ChatStore', `[${sessionId.slice(0, 8)}] auto-retry succeeded, clearing retry state`)
       autoRetry.clearOnSuccess(sessionId)

@@ -3,7 +3,7 @@
  *
  * Tests the automatic retry state machine used by chatStream.ts:
  * - retryable errors increment the attempt counter
- * - success clears the retry state and hides the RetryIndicator
+ * - success clears the retry state
  * - max retries limit is respected
  * - user abort prevents retry
  */

@@ -176,7 +176,7 @@ export interface MessageMetadata {
   status?: TeammateStatus
   /** 办公模式：本回合新生成/修改的产物文件（仅 work 模式会话写入）。 */
   artifacts?: ArtifactSummaryEntry[]
-  /** 自动重试状态：非空时 UI 渲染 RetryIndicator 组件 */
+  /** 自动重试状态：供内部重试流程跟踪，不直接展示给用户 */
   retryState?: RetryState
 }
 
