@@ -628,9 +628,7 @@ describe('Turn 生命周期边界场景', () => {
 
 // 用例 7：超时
 // 验证非自主 turn 在 REQUEST_TIMEOUT 后 settle 并将 loading 置为 false。
-// 完整超时路径会触发 auto-retry（超时错误被 classifyError 归为可重试），
-// 为隔离测试超时本身的 settle 行为，spy classifyError 使超时不可重试，
-// 从而走 handleError 的「不可恢复」终结算路（不进入退避循环）。
+// 超时不再报错（用户可能正在处理其他任务），统一走 handleResult 正常结算。
 describe('Turn 超时', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -641,32 +639,26 @@ describe('Turn 超时', () => {
     vi.restoreAllMocks()
   })
 
-  it('非自主 turn 超时后 settle 并将 loading 置为 false', async () => {
+  it('非自主 turn 超时后正常 settle 并将 loading 置为 false（不报错）', async () => {
     const fake = makeFakeApi()
     const { useTurnStore, REQUEST_TIMEOUT } = await import('../turn')
     const turn = useTurnStore(fake as any)
     const sessionStore = useChatSessionStore()
     sessionStore.createSession('Test', undefined, 'sess-to')
 
-    // 让超时错误不可重试，避免 auto-retry 退避循环干扰 settle 断言
-    vi.spyOn(errorHandler, 'classifyError').mockReturnValue({
-      category: ErrorCategory.UNKNOWN,
-      title: '请求超时',
-      message: '请求超时',
-      technicalDetail: '请求超时（300秒无响应）',
-      retryable: false,
-      originalError: new Error('请求超时（300秒无响应）'),
-      timestamp: Date.now(),
-    })
-
     // 用 beginTurn 直接构造 turn（绕过 sendMessage 的 await new Promise 挂起），
     // beginTurn 已为测试导出，会设置 loading=true 与 REQUEST_TIMEOUT 超时定时器。
     const ts = (turn as any).beginTurn('sess-to', { isAutonomous: false })
     expect(turn.getIsLoading('sess-to')).toBe(true)
 
-    // 快进 REQUEST_TIMEOUT（5 分钟）触发超时回调 → handleError → settle
+    // 快进 REQUEST_TIMEOUT（5 分钟）触发超时回调 → handleResult → settle
     vi.advanceTimersByTime(REQUEST_TIMEOUT)
 
+    // 超时后应正常结算，loading 置为 false，不产生错误
     expect(turn.getIsLoading('sess-to')).toBe(false)
+
+    // 确认 session 状态为 idle（正常结算，非错误）
+    const session = sessionStore.sessions.find(s => s.id === 'sess-to')!
+    expect(session.processStatus).toBe('idle')
   })
 })

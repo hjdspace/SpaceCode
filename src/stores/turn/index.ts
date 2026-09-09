@@ -14,7 +14,6 @@ import {
 } from '@/services/teamTranscriptService'
 import { useAutoRetry } from '@/composables/useAutoRetry'
 import type { TurnState } from './types'
-import { REQUEST_TIMEOUT } from './types'
 import { createTimelineAssembler } from './timelineAssembler'
 import { createTurnStateMachine } from './turnStateMachine'
 import { createEventHandlers, type EventReducer } from './eventHandlers'
@@ -301,11 +300,9 @@ export function useTurnStore(injectedApi?: any) {
       pendingSendMessages,
       userAbortedSessions,
       onTimeout: (sessionId, ts) => {
-        if (ts.isAutonomous) {
-          handlers?.handleResult(sessionId, ts, {})
-        } else {
-          handlers?.handleError(sessionId, ts, new Error(`请求超时（${REQUEST_TIMEOUT / 1000}秒无响应）`))
-        }
+        // 超时不再报错：用户可能正在处理其他任务、忘记交互，
+        // 超时报错反而影响用户体验。统一按正常结算处理。
+        handlers?.handleResult(sessionId, ts, {})
       },
     })
 

@@ -15,6 +15,7 @@ export const TOOL_COMPONENT_MAP: Record<string, () => Promise<any>> = {
   'WebFetch': () => import('./WebFetchToolCard.vue'),
   'WebSearch': () => import('./WebSearchToolCard.vue'),
   'AskUserQuestion': () => import('./AskUserQuestionToolCard.vue'),
+  'TaskOutput': () => import('./TaskOutputToolCard.vue'),
   // Browser-Use tools
   'browser_use': () => import('./BrowserUseToolCard.vue'),
   'browse': () => import('./BrowserUseToolCard.vue'),

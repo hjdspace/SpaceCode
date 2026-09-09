@@ -8,13 +8,13 @@
     <template v-if="isSummary">
       <div class="summary-header" :class="{ 'is-expanded': isSummaryExpanded }" @click="toggleSummary">
         <div class="header-icon">
-          <MessageCircleQuestion :size="20" />
+          <MessageCircleQuestion :size="14" />
         </div>
         <div class="header-text">
           <h3>{{ t('askUser.summaryTitle') }}</h3>
           <span>{{ summaryStatusText }}</span>
         </div>
-        <ChevronDown :size="18" class="summary-chevron" :class="{ 'is-expanded': isSummaryExpanded }" />
+        <ChevronDown :size="14" class="summary-chevron" :class="{ 'is-expanded': isSummaryExpanded }" />
       </div>
       <div v-if="isSummaryExpanded" class="card-body">
         <div v-for="(question, qIndex) in questions" :key="qIndex" class="summary-item">
@@ -23,7 +23,7 @@
             <span class="question-text">{{ question.question }}</span>
           </div>
           <div class="summary-answer">
-            <CheckCircle2 :size="14" class="answer-icon" />
+            <CheckCircle2 :size="12" class="answer-icon" />
             <span>{{ getAnswerForQuestion(question.question) }}</span>
           </div>
         </div>
@@ -34,7 +34,7 @@
     <template v-else>
       <div class="card-header">
         <div class="header-icon">
-          <MessageCircleQuestion :size="20" />
+          <MessageCircleQuestion :size="14" />
         </div>
         <div class="header-text">
           <h3>{{ title }}</h3>
@@ -422,12 +422,12 @@ function handleSubmit() {
 
 <style lang="scss" scoped>
 .ask-user-question-card {
-  background: linear-gradient(180deg, var(--surface-glass) 0%, var(--bg-primary) 100%);
+  background: var(--surface-glass);
   border: 1px solid var(--surface-border);
-  border-radius: 20px;
+  border-radius: 8px;
   overflow: hidden;
-  margin-top: 8px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  margin-top: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 
   &.is-resolved {
     opacity: 0.7;
@@ -437,15 +437,15 @@ function handleSubmit() {
   &.is-summary {
     opacity: 1;
     filter: none;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+    box-shadow: none;
   }
 }
 
 .summary-header {
-  padding: 14px 20px;
+  padding: 8px 12px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   cursor: pointer;
   background: var(--surface-glass);
   transition: background 0.2s ease;
@@ -471,7 +471,7 @@ function handleSubmit() {
 }
 
 .summary-item {
-  padding: 12px 0;
+  padding: 8px 0;
   border-bottom: 1px solid var(--surface-border);
 
   &:last-child {
@@ -481,13 +481,13 @@ function handleSubmit() {
 
 .summary-question {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
   flex-wrap: wrap;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 
   .question-text {
-    font-size: var(--font-size-base);
+    font-size: 13px;
     font-weight: 500;
     color: var(--text-secondary);
   }
@@ -495,39 +495,38 @@ function handleSubmit() {
 
 .summary-answer {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   align-items: flex-start;
   padding-left: 4px;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-primary);
-  line-height: 1.5;
+  line-height: 1.4;
 
   .answer-icon {
     color: var(--accent-primary);
     flex-shrink: 0;
-    margin-top: 2px;
+    margin-top: 1px;
   }
 }
 
 .card-header {
-  padding: 18px 20px;
+  padding: 8px 12px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(139, 92, 246, 0.05) 100%);
+  gap: 8px;
+  background: var(--surface-glass);
   border-bottom: 1px solid var(--surface-border);
 }
 
 .header-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  background: radial-gradient(circle at 30% 30%, var(--accent-primary-light) 0%, var(--accent-primary) 100%);
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
-  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+  color: var(--accent-primary);
   flex-shrink: 0;
 }
 
@@ -535,14 +534,14 @@ function handleSubmit() {
   flex: 1;
   
   h3 {
-    font-size: calc(var(--font-size-base) + 1px);
+    font-size: 13px;
     font-weight: 600;
     color: var(--text-primary);
-    margin-bottom: 2px;
+    margin-bottom: 1px;
   }
   
   span {
-    font-size: 12px;
+    font-size: 11px;
     color: var(--text-muted);
   }
 }
@@ -551,12 +550,12 @@ function handleSubmit() {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 6px;
+  gap: 4px;
   flex-shrink: 0;
 }
 
 .progress-text {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
@@ -564,11 +563,11 @@ function handleSubmit() {
 
 .progress-dots {
   display: flex;
-  gap: 5px;
+  gap: 4px;
 
   .dot {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     background: var(--surface-border);
     transition: all 0.2s ease;
@@ -580,19 +579,19 @@ function handleSubmit() {
 
     &.active {
       background: var(--accent-primary);
-      transform: scale(1.3);
-      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+      transform: scale(1.2);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.18);
     }
   }
 }
 
 .card-body {
-  padding: 16px 20px;
+  padding: 10px 12px;
 }
 
 .multi-hint {
   margin-left: auto;
-  padding: 2px 8px;
+  padding: 1px 6px;
   font-size: 10px;
   font-weight: 600;
   color: var(--accent-primary);
@@ -601,29 +600,29 @@ function handleSubmit() {
 }
 
 .custom-input-wrap {
-  margin-top: 14px;
+  margin-top: 8px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .custom-input-label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
 }
 
 .custom-input {
   width: 100%;
-  padding: 10px 12px;
+  padding: 6px 8px;
   background: var(--surface-glass);
   border: 1px solid var(--surface-border);
-  border-radius: 10px;
+  border-radius: 6px;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 12px;
   font-family: inherit;
-  line-height: 1.5;
+  line-height: 1.4;
   resize: vertical;
-  min-height: 56px;
+  min-height: 36px;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 
   &::placeholder {
@@ -633,7 +632,7 @@ function handleSubmit() {
   &:focus {
     outline: none;
     border-color: var(--accent-primary);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12);
   }
 
   &:disabled {
@@ -647,45 +646,44 @@ function handleSubmit() {
 }
 
 .question-item {
-  margin-bottom: 20px;
+  margin-bottom: 10px;
 }
 
 .question-title {
-  font-size: var(--font-size-base);
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-secondary);
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   display: flex;
-  gap: 10px;
+  gap: 6px;
   align-items: center;
   flex-wrap: wrap;
 }
 
 .chip {
-  padding: 4px 10px;
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(139, 92, 246, 0.15) 100%);
+  padding: 2px 6px;
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
   color: var(--accent-primary);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  border-radius: 6px;
-  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 4px;
   flex-shrink: 0;
 }
 
 .options-grid {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
 }
 
 .option-btn {
   position: relative;
   width: 100%;
   text-align: left;
-  padding: 14px 16px 14px 50px;
+  padding: 8px 10px 8px 32px;
   background: var(--surface-glass);
   border: 1px solid var(--surface-border);
-  border-radius: 12px;
+  border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
   overflow: hidden;
@@ -698,13 +696,13 @@ function handleSubmit() {
   &::before {
     content: '';
     position: absolute;
-    left: 14px;
+    left: 8px;
     top: 50%;
     transform: translateY(-50%);
-    width: 22px;
-    height: 22px;
-    border: 2px solid var(--border-strong);
-    border-radius: 6px;
+    width: 14px;
+    height: 14px;
+    border: 1.5px solid var(--border-strong);
+    border-radius: 4px;
     transition: all 0.2s ease;
     background: transparent;
   }
@@ -712,13 +710,11 @@ function handleSubmit() {
   &:hover {
     border-color: var(--border-strong);
     background: var(--surface-glass-hover);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   }
   
   &.selected {
     border-color: var(--accent-primary);
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(139, 92, 246, 0.1) 100%);
+    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
     
     &::before {
       border-color: var(--accent-primary);
@@ -728,11 +724,11 @@ function handleSubmit() {
     &::after {
       content: '✓';
       position: absolute;
-      left: 19px;
+      left: 12px;
       top: 50%;
       transform: translateY(-50%);
       color: white;
-      font-size: 12px;
+      font-size: 10px;
       font-weight: bold;
     }
   }
@@ -743,31 +739,31 @@ function handleSubmit() {
 }
 
 .option-label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .option-desc {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
-  line-height: 1.4;
+  line-height: 1.3;
 }
 
 .card-footer {
-  padding: 16px 20px 20px;
+  padding: 8px 12px 10px;
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 6px;
   background: var(--surface-glass);
   border-top: 1px solid var(--surface-border);
 }
 
 .footer-btn {
-  padding: 10px 20px;
-  border-radius: 10px;
-  font-size: 13px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -806,90 +802,89 @@ function handleSubmit() {
   }
   
   &.primary {
-    background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary, #8b5cf6) 100%);
+    background: var(--accent-primary);
     border: none;
     color: white;
     font-weight: 600;
     
     &:hover {
-      box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
-      transform: translateY(-1px);
+      opacity: 0.9;
     }
   }
 }
 
 @media (max-width: 768px) {
   .ask-user-question-card {
-    border-radius: 16px;
-    margin-top: 8px;
+    border-radius: 6px;
+    margin-top: 4px;
   }
   
   .card-header {
-    padding: 14px 16px;
+    padding: 6px 10px;
   }
   
   .header-icon {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
   }
   
   .header-text h3 {
-    font-size: var(--font-size-base);
+    font-size: 12px;
   }
   
   .card-body {
-    padding: 12px 16px;
+    padding: 8px 10px;
   }
   
   .question-item {
-    margin-bottom: 16px;
+    margin-bottom: 8px;
   }
   
   .question-title {
-    font-size: 13px;
+    font-size: 12px;
     flex-direction: column;
     align-items: flex-start;
-    gap: 6px;
+    gap: 4px;
   }
   
   .options-grid {
-    gap: 8px;
+    gap: 4px;
   }
   
   .option-btn {
-    padding: 12px 14px 12px 46px;
-    border-radius: 10px;
+    padding: 6px 8px 6px 28px;
+    border-radius: 5px;
     
     &::before {
-      width: 20px;
-      height: 20px;
-      left: 12px;
+      width: 12px;
+      height: 12px;
+      left: 7px;
     }
     
     &.selected::after {
-      left: 17px;
-      font-size: 11px;
+      left: 10px;
+      font-size: 9px;
     }
   }
   
   .option-label {
-    font-size: 13px;
+    font-size: 12px;
   }
   
   .option-desc {
-    font-size: 11px;
+    font-size: 10px;
   }
   
   .card-footer {
-    padding: 14px 16px 18px;
-    gap: 8px;
+    padding: 6px 10px 8px;
+    gap: 4px;
   }
   
   .footer-btn {
-    padding: 8px 16px;
-    border-radius: 8px;
-    font-size: 13px;
+    padding: 4px 10px;
+    border-radius: 5px;
+    font-size: 12px;
   }
 }
 </style>
