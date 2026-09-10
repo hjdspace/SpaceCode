@@ -85,11 +85,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
 import { useAppStore } from '@/stores/app'
 import { useDialog } from '@/composables/useDialog'
+import { clampMenuPosition, MENU_WIDTH } from '@/utils/menuPosition'
 
 const { t } = useI18n()
 const { showAlert, showConfirm } = useDialog()
@@ -119,10 +120,30 @@ const emit = defineEmits<{
 const menuRef = ref<HTMLElement>()
 const appStore = useAppStore()
 
-const menuStyle = computed(() => ({
-  left: `${props.x}px`,
-  top: `${props.y}px`
-}))
+// 渲染前用估算尺寸兜底, 渲染后用实测尺寸修正 (见 watch)
+const measuredSize = ref<{ width: number; height: number } | null>(null)
+
+const menuStyle = computed(() => {
+  const width = measuredSize.value?.width ?? MENU_WIDTH
+  const height = measuredSize.value?.height ?? MENU_WIDTH * 1.8
+  const pos = clampMenuPosition(props.x, props.y, width, height, window.innerWidth, window.innerHeight)
+  return { left: `${pos.left}px`, top: `${pos.top}px` }
+})
+
+// 菜单尺寸随 node 类型变化 (文件/根节点多出 "打开方式" 项), 每次打开后用实测尺寸修正定位
+watch(
+  () => [props.visible, props.node] as const,
+  async ([visible]) => {
+    if (!visible) {
+      measuredSize.value = null
+      return
+    }
+    await nextTick()
+    const el = menuRef.value
+    if (!el) return
+    measuredSize.value = { width: el.offsetWidth, height: el.offsetHeight }
+  }
+)
 
 const canCut = computed(() => props.node !== null)
 const canRename = computed(() => props.node !== null)
