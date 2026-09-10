@@ -308,18 +308,12 @@ function handleAddToChat(node: TreeNode) {
 function handleContextMenu(e: MouseEvent, node: TreeNode) {
   e.preventDefault()
   e.stopPropagation()
-  
-  // Calculate menu position (prevent overflow)
-  const menuWidth = 200
-  const menuHeight = 280
-  const x = Math.min(e.clientX, window.innerWidth - menuWidth - 10)
-  const y = Math.min(e.clientY, window.innerHeight - menuHeight - 10)
-  
-  // Update global state (this will automatically close any previous menu)
+
+  // 坐标直接传给 FileContextMenu, 由它按实测尺寸做视口边界翻转
   contextMenuState.visible = true
   contextMenuState.node = node
-  contextMenuState.x = x
-  contextMenuState.y = y
+  contextMenuState.x = e.clientX
+  contextMenuState.y = e.clientY
 }
 
 function closeContextMenu() {
