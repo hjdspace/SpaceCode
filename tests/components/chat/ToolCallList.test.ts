@@ -67,7 +67,7 @@ describe('AgentTimeline', () => {
       },
       global: {
         plugins: [pinia, i18n],
-        stubs: ['MarkdownRenderer', 'PermissionRequestCard', 'RetryIndicator', 'TurnSummaryBar'],
+        stubs: ['MarkdownRenderer', 'PermissionRequestCard', 'TurnSummaryBar'],
       },
     })
 

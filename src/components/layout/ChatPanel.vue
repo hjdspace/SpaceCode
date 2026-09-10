@@ -635,8 +635,7 @@ watch(
 // taskManager is the single source of truth for all task tools (TodoWrite +
 // TaskCreate/TaskUpdate/TaskList). This watcher propagates changes to the
 // sessionContext store, which drives the floating EnvPanel and right-side
-// TaskPanel. It also triggers evaluateAutoExpand() so the EnvPanel
-// auto-opens when tasks appear.
+// TaskPanel. The panel stays collapsed by default; user can expand via capsule.
 const _allManagerTasks = computed(() => taskManager.getAllTasks())
 watch(
   _allManagerTasks,

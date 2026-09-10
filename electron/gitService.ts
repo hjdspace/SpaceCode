@@ -5,14 +5,14 @@
  * Referenced VSCode SCM architecture: status tracking, staging, committing, branching.
  */
 
-import { execFile } from 'child_process'
+import * as childProcess from 'child_process'
 import { writeFileSync, readFileSync, unlinkSync, mkdtempSync, rmdirSync } from 'fs'
 import { watch, type FSWatcher } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { ipcMain, BrowserWindow } from 'electron'
 import { debug } from './logger'
-import { LOG_FORMAT, parseLogLine, parseNumstatLine, parseNameStatusLine } from './gitParsers'
+import { LOG_FORMAT, parseLogLine, parseNumstatLine, parseNameStatusLine, parseNumstatPath, parseTrackInfo } from './gitParsers'
 import { gitChannels } from '@/shared/channels/git'
 import { registerHandlers } from '@/shared/handlerRegistry'
 
@@ -27,7 +27,7 @@ interface ExecResult {
 
 function gitExec(args: string[], cwd?: string): Promise<ExecResult> {
   return new Promise((resolve) => {
-    execFile(
+    childProcess.execFile(
       GIT_BINARY,
       args,
       {
@@ -879,18 +879,7 @@ async function getFullDiff(cwd: string): Promise<GitFullDiffResult | null> {
   }
 }
 
-function parseNumstatPath(rawPath: string): string {
-  // Rename entries can be emitted as either "old => new" or "{old => new}/file".
-  // Keep the visible/current path aligned with diff headers and SCM status rows.
-  const arrowIndex = rawPath.indexOf(' => ')
-  if (arrowIndex === -1) return rawPath
-
-  if (rawPath.includes('{') && rawPath.includes('}')) {
-    return rawPath.replace(/\{([^{}]*?) => ([^{}]*?)\}/g, '$2')
-  }
-
-  return rawPath.slice(arrowIndex + 4)
-}
+// parseNumstatPath moved to gitParsers.ts (pure function, unit-tested there)
 
 function countFileLines(cwd: string, filePath: string): number {
   try {
@@ -976,15 +965,7 @@ async function getBranches(cwd: string): Promise<GitBranch[]> {
   return branches
 }
 
-function parseTrackInfo(track: string | undefined): { ahead?: number; behind?: number } {
-  if (!track) return {}
-  const aheadMatch = track.match(/ahead (\d+)/)
-  const behindMatch = track.match(/behind (\d+)/)
-  return {
-    ahead: aheadMatch ? parseInt(aheadMatch[1], 10) : undefined,
-    behind: behindMatch ? parseInt(behindMatch[1], 10) : undefined,
-  }
-}
+// parseTrackInfo moved to gitParsers.ts (pure function, unit-tested there)
 
 async function getBranchesFallback(cwd: string): Promise<GitBranch[]> {
   // Minimal fallback: parse `git branch -a --no-color` output without -v so we

@@ -9,6 +9,8 @@ import {
   parseNumstatLine,
   parseNameStatusLine,
   splitNumstatPath,
+  parseNumstatPath,
+  parseTrackInfo,
 } from '../gitParsers'
 
 describe('parseLogLine', () => {
@@ -147,5 +149,51 @@ describe('parseNameStatusLine', () => {
   it('returns null for malformed lines', () => {
     expect(parseNameStatusLine('')).toBeNull()
     expect(parseNameStatusLine('M')).toBeNull()
+  })
+})
+
+describe('parseNumstatPath', () => {
+  it('returns plain path unchanged', () => {
+    expect(parseNumstatPath('src/a.ts')).toBe('src/a.ts')
+  })
+
+  it('handles "old => new" rename form', () => {
+    expect(parseNumstatPath('old.ts => new.ts')).toBe('new.ts')
+  })
+
+  it('handles "{old => new}/suffix" rename form', () => {
+    expect(parseNumstatPath('src/{old => new}/a.ts')).toBe('src/new/a.ts')
+  })
+
+  it('handles path with no rename as-is', () => {
+    expect(parseNumstatPath('plain/path.ts')).toBe('plain/path.ts')
+  })
+})
+
+describe('parseTrackInfo', () => {
+  it('returns empty object for undefined', () => {
+    expect(parseTrackInfo(undefined)).toEqual({})
+  })
+
+  it('returns empty object for empty string', () => {
+    expect(parseTrackInfo('')).toEqual({})
+  })
+
+  it('parses ahead only', () => {
+    expect(parseTrackInfo('ahead 3')).toEqual({ ahead: 3, behind: undefined })
+  })
+
+  it('parses behind only', () => {
+    expect(parseTrackInfo('behind 5')).toEqual({ behind: 5, ahead: undefined })
+  })
+
+  it('parses both ahead and behind', () => {
+    expect(parseTrackInfo('ahead 2, behind 1')).toEqual({ ahead: 2, behind: 1 })
+  })
+
+  it('returns undefined for missing fields', () => {
+    const result = parseTrackInfo('some other info')
+    expect(result.ahead).toBeUndefined()
+    expect(result.behind).toBeUndefined()
   })
 })

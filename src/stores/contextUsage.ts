@@ -120,6 +120,10 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
         const raw = await fetchEngineContextUsage(sid)
         const data = raw ? parseEngineContextData(raw as Record<string, unknown>) : null
         if (data) {
+          // 引擎返回的 model 可能是别名解析后的实际模型名（如 claude-sonnet-4-20250514），
+          // 而用户配置的 model（如 deepseek-v4-flash）才是 UI 应显示的。
+          // 用用户配置的 model 覆盖引擎返回的 model，确保 UI 一致性。
+          data.model = model
           const enriched = enrichContextDataFromClient(data, messages)
           snapshot.value = buildSnapshotFromEngineData(enriched, model, userCtxOverride)
         }

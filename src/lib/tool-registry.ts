@@ -280,7 +280,7 @@ export const TOOL_REGISTRY: ToolDefinition[] = [
     category: 'task',
     description: 'Get output from a completed task',
     availability: 'always',
-    hasSpecialUI: false,
+    hasSpecialUI: true,
   },
 
   // ═══════════════════════════════════════

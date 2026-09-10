@@ -9,7 +9,7 @@
 
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
-import { marked } from 'marked'
+import { marked, type RendererObject, type Tokens } from 'marked'
 import DOMPurify from 'dompurify'
 import hljs from 'highlight.js'
 import { useAppStore } from '@/stores/app'
@@ -216,50 +216,59 @@ function transformFileLinks(html: string): string {
   return container.innerHTML
 }
 
-const renderer = new marked.Renderer()
+const renderer: RendererObject = {
+  code({ text, lang: language }: Tokens.Code) {
+    let lang = language || 'text'
 
-renderer.code = function(code, language) {
-  let lang = language || 'text'
+    if (lang.toLowerCase() === 'mermaid') {
+      const mermaidId = generateMermaidId()
+      return createMermaidContainerHtml(text, mermaidId)
+    }
 
-  if (lang.toLowerCase() === 'mermaid') {
-    const mermaidId = generateMermaidId()
-    return createMermaidContainerHtml(code, mermaidId)
+    // Vue SFC 不在 hljs 默认包中，回退到 xml（template/script/style 标签仍能高亮）
+    if (lang.toLowerCase() === 'vue' && !hljs.getLanguage('vue')) {
+      lang = 'xml'
+    }
+
+    const validLang = hljs.getLanguage(lang) ? lang : 'plaintext'
+    let highlighted: string
+    try {
+      highlighted = hljs.highlight(text, { language: validLang }).value
+    } catch {
+      highlighted = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    }
+    return `<pre class="code-block"><code class="hljs language-${lang}">${highlighted}</code></pre>`
+  },
+
+  heading({ tokens, depth }: Tokens.Heading) {
+    const tag = `h${depth}`
+    const text = this.parser.parseInline(tokens)
+    return `<${tag} class="md-heading md-h${depth}">${text}</${tag}>`
+  },
+
+  list({ items, ordered }: Tokens.List) {
+    const body = items.map(item => this.listitem(item)).join('')
+    const tag = ordered ? 'ol' : 'ul'
+    return `<${tag} class="md-list">${body}</${tag}>`
+  },
+
+  listitem({ tokens }: Tokens.ListItem) {
+    const text = this.parser.parse(tokens)
+    return `<li>${text}</li>`
+  },
+
+  paragraph({ tokens }: Tokens.Paragraph) {
+    const text = this.parser.parseInline(tokens)
+    return `<p class="md-paragraph">${text}</p>`
+  },
+
+  blockquote({ tokens }: Tokens.Blockquote) {
+    const body = this.parser.parse(tokens)
+    return `<blockquote class="md-blockquote">${body}</blockquote>`
   }
-
-  // Vue SFC 不在 hljs 默认包中，回退到 xml（template/script/style 标签仍能高亮）
-  if (lang.toLowerCase() === 'vue' && !hljs.getLanguage('vue')) {
-    lang = 'xml'
-  }
-
-  const validLang = hljs.getLanguage(lang) ? lang : 'plaintext'
-  let highlighted: string
-  try {
-    highlighted = hljs.highlight(code, { language: validLang }).value
-  } catch {
-    highlighted = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  }
-  return `<pre class="code-block"><code class="hljs language-${lang}">${highlighted}</code></pre>`
 }
 
-renderer.heading = function(text, level) {
-  const tag = `h${level}`
-  return `<${tag} class="md-heading md-h${level}">${text}</${tag}>`
-}
-
-renderer.list = function(body, ordered) {
-  const tag = ordered ? 'ol' : 'ul'
-  return `<${tag} class="md-list">${body}</${tag}>`
-}
-
-renderer.paragraph = function(text) {
-  return `<p class="md-paragraph">${text}</p>`
-}
-
-renderer.blockquote = function(quote) {
-  return `<blockquote class="md-blockquote">${quote}</blockquote>`
-}
-
-marked.setOptions({
+marked.use({
   renderer,
   gfm: true,
   breaks: true

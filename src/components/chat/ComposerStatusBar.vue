@@ -282,8 +282,8 @@ onUnmounted(clearTimers)
   gap: 2px;
   padding: 5px 10px;
   border-radius: var(--radius-full, 9999px);
-  background: var(--bg-primary);
-  border: 1px solid var(--surface-border);
+  background: var(--bg-elevated);
+  border: 1px solid var(--surface-border-strong);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
   z-index: 30;
   font-size: 12px;
@@ -372,8 +372,8 @@ onUnmounted(clearTimers)
   min-width: 280px;
   max-width: min(420px, 90vw);
   max-height: 320px;
-  background: var(--bg-primary);
-  border: 1px solid var(--surface-border);
+  background: var(--bg-elevated);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 12px;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.14);
   z-index: 31;

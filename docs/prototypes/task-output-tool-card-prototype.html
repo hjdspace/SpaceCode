@@ -1,0 +1,1227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TaskOutput 工具卡片原型</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'IBM Plex Sans', 'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    background: #1a1d23;
+    padding: 32px 24px;
+    color: #e6edf3;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  h1 { font-size: 18px; margin-bottom: 6px; color: #e6edf3; font-weight: 600; }
+  .desc { font-size: 13px; color: #8b949e; margin-bottom: 32px; line-height: 1.6; max-width: 720px; }
+  .section { margin-bottom: 36px; }
+  .section-title {
+    font-size: 11px; color: #8b949e;
+    text-transform: uppercase; letter-spacing: 0.8px;
+    margin-bottom: 12px; font-weight: 600;
+  }
+
+  /* ═══════════════════════════════════════
+     基础变量（与 SpaceCode 主题对齐）
+     ═══════════════════════════════════════ */
+  :root {
+    --bg-primary: #1a1d23;
+    --bg-secondary: #21252c;
+    --bg-tertiary: #2d323b;
+    --bg-elevated: #282d35;
+
+    --surface-glass: rgba(250, 249, 245, 0.02);
+    --surface-glass-hover: rgba(250, 249, 245, 0.04);
+    --surface-border: rgba(250, 249, 245, 0.06);
+    --surface-border-strong: rgba(250, 249, 245, 0.12);
+
+    --text-primary: #e6edf3;
+    --text-secondary: #a09d96;
+    --text-muted: #6c6a64;
+    --text-disabled: #4d4b46;
+
+    --accent-primary: #0d9488;
+    --accent-tertiary: #7c3aed;
+    --success: #5db872;
+    --success-glow: rgba(93, 184, 114, 0.18);
+    --warning: #d4a017;
+    --warning-glow: rgba(212, 160, 23, 0.15);
+    --error: #c64545;
+    --error-glow: rgba(198, 69, 69, 0.15);
+
+    --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas, monospace;
+    --font-body: 'IBM Plex Sans', system-ui, sans-serif;
+    --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+  }
+
+  /* ═══════════════════════════════════════
+     TaskOutput 卡片基础样式
+     ═══════════════════════════════════════ */
+  .task-output-card {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 720px;
+    font-size: 13px;
+  }
+
+  /* ── 折叠态头部 ── */
+  .task-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    user-select: none;
+    transition: background var(--transition-fast);
+  }
+  .task-header:hover,
+  .task-header.is-expanded {
+    background: var(--surface-glass-hover);
+  }
+
+  .task-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: var(--text-muted);
+  }
+  .task-icon.status-running {
+    color: var(--accent-tertiary);
+    animation: spin 1s linear infinite;
+  }
+  .task-icon.status-completed { color: var(--success); }
+  .task-icon.status-error { color: var(--error); }
+  .task-icon.status-timeout { color: var(--warning); }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .task-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+  }
+
+  .task-separator {
+    font-size: 13px;
+    color: var(--text-disabled);
+    flex-shrink: 0;
+  }
+
+  .task-target {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    flex: 1;
+  }
+
+  /* ── 状态徽章 ── */
+  .task-status-badge {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 10px;
+    line-height: 1.4;
+  }
+  .badge-success {
+    background: color-mix(in srgb, var(--success) 12%, transparent);
+    color: var(--success);
+  }
+  .badge-running {
+    background: color-mix(in srgb, var(--warning) 12%, transparent);
+    color: var(--warning);
+  }
+  .badge-failed {
+    background: color-mix(in srgb, var(--error) 12%, transparent);
+    color: var(--error);
+  }
+  .badge-timeout {
+    background: color-mix(in srgb, var(--warning) 12%, transparent);
+    color: var(--warning);
+  }
+  .badge-not-ready {
+    background: color-mix(in srgb, var(--accent-tertiary) 12%, transparent);
+    color: var(--accent-tertiary);
+  }
+
+  .task-duration {
+    font-size: 11px;
+    color: var(--text-disabled);
+    flex-shrink: 0;
+  }
+
+  .expand-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: var(--text-muted);
+    opacity: 0.5;
+    transition: transform var(--transition-fast), opacity var(--transition-fast);
+  }
+  .expand-icon.is-expanded { transform: rotate(180deg); }
+  .task-header:hover .expand-icon { opacity: 0.8; }
+
+  /* ── 折叠态预览 ── */
+  .task-preview {
+    padding: 2px 8px 4px 28px;
+    max-width: 100%;
+  }
+  .preview-text {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: var(--font-mono);
+  }
+
+  /* ── 展开态详情 ── */
+  .task-details {
+    margin-top: 4px;
+    padding: 0 8px;
+    animation: fade-in 150ms ease-out;
+  }
+
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── 元信息栏 ── */
+  .task-meta-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background: var(--surface-glass);
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius-md);
+    margin-bottom: 8px;
+  }
+  .meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+  .meta-item svg { width: 11px; height: 11px; }
+  .meta-divider {
+    width: 1px;
+    height: 12px;
+    background: var(--surface-border-strong);
+  }
+
+  /* ── 任务类型标签 ── */
+  .task-type-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .type-bash {
+    background: rgba(34, 197, 94, 0.12);
+    color: #4ade80;
+  }
+  .type-agent {
+    background: rgba(139, 92, 246, 0.12);
+    color: #a78bfa;
+  }
+  .type-remote {
+    background: rgba(249, 115, 22, 0.12);
+    color: #fb923c;
+  }
+
+  /* ── 内容区块 ── */
+  .task-section {
+    margin-top: 8px;
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius-md);
+    background: var(--bg-secondary);
+    overflow: hidden;
+  }
+  .task-section:first-child { margin-top: 0; }
+
+  .section-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--surface-glass);
+    border-bottom: 1px solid var(--surface-border);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  /* ── 终端窗口（local_bash 类型） ── */
+  .terminal-window {
+    background: #0d1117;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+    margin: 0;
+  }
+  .terminal-titlebar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: #161b22;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .traffic-lights {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .light {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+  }
+  .light.red { background: #ff5f56; }
+  .light.yellow { background: #ffbd2e; }
+  .light.green { background: #27c93f; }
+  .terminal-title {
+    flex: 1;
+    text-align: center;
+    font-size: 11px;
+    color: #8b949e;
+    font-family: var(--font-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .terminal-status-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+  }
+  .terminal-status-badge.running {
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+  }
+  .terminal-status-badge.completed {
+    background: rgba(34, 197, 94, 0.15);
+    color: #4ade80;
+  }
+  .terminal-status-badge.error {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+  }
+  .terminal-content {
+    padding: 10px 12px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    color: #c9d1d9;
+    max-height: 400px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .terminal-content::-webkit-scrollbar { width: 6px; }
+  .terminal-content::-webkit-scrollbar-track { background: transparent; }
+  .terminal-content::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+
+  .term-exit {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.08);
+    font-size: 11px;
+    color: #6e7681;
+  }
+  .term-exit.error-exit { color: #8b949e; }
+  .truncated-hint { margin-left: 8px; color: #6e7681; }
+
+  /* ── Agent 输出（local_agent 类型） ── */
+  .agent-prompt-block {
+    margin: 0;
+    padding: 12px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-x: auto;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .agent-prompt-block::-webkit-scrollbar { width: 6px; }
+  .agent-prompt-block::-webkit-scrollbar-track { background: transparent; }
+  .agent-prompt-block::-webkit-scrollbar-thumb { background: var(--surface-border-strong); border-radius: 3px; }
+
+  .agent-result-content {
+    padding: 12px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    max-height: 360px;
+    overflow-y: auto;
+  }
+  .agent-result-content::-webkit-scrollbar { width: 6px; }
+  .agent-result-content::-webkit-scrollbar-track { background: transparent; }
+  .agent-result-content::-webkit-scrollbar-thumb { background: var(--surface-border-strong); border-radius: 3px; }
+
+  .agent-error-block {
+    padding: 12px;
+    color: var(--error);
+    font-size: 13px;
+    line-height: 1.6;
+    background: color-mix(in srgb, var(--error) 6%, var(--bg-secondary));
+  }
+
+  /* ── Remote agent 输出 ── */
+  .remote-output {
+    padding: 12px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    max-height: 300px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  /* ── 等待状态（timeout / not_ready） ── */
+  .waiting-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 12px;
+    gap: 8px;
+  }
+  .waiting-spinner {
+    width: 24px;
+    height: 24px;
+    border: 2px solid var(--surface-border-strong);
+    border-top-color: var(--accent-tertiary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  .waiting-text {
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .waiting-hint {
+    font-size: 11px;
+    color: var(--text-disabled);
+  }
+
+  /* ── 空输出 ── */
+  .empty-output {
+    padding: 16px 12px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+
+  /* ── 输入参数区块 ── */
+  .input-params {
+    padding: 10px 12px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+  }
+  .param-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .param-key {
+    color: var(--text-muted);
+    font-weight: 500;
+    flex-shrink: 0;
+    min-width: 80px;
+  }
+  .param-value {
+    color: var(--text-secondary);
+    word-break: break-all;
+  }
+  .param-value.mono { font-family: var(--font-mono); }
+
+  /* ── 无 task 数据（task 为 null） ── */
+  .no-task {
+    padding: 16px 12px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+<h1>TaskOutput 工具卡片原型</h1>
+<p class="desc">
+  TaskOutput 工具用于获取后台任务（Shell/Agent/Remote）的输出。当前桌面端未实现专属 UI 卡片，展开后仍显示原始 JSON 输入和 XML 输出文本。
+  本原型根据引擎端 <code>TaskOutputTool.tsx</code> 的数据结构，设计专属卡片 UI，根据 <code>task_type</code> 和 <code>retrieval_status</code> 渲染不同样式。
+</p>
+
+<!-- ══════════════════════════════════════════════════════════════
+     场景 1: local_bash — 成功完成（终端风格渲染）
+     ══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">场景 1 · local_bash · 成功完成（终端窗口渲染）</div>
+
+  <div class="task-output-card">
+    <!-- 折叠态 -->
+    <div class="task-header is-expanded" onclick="toggleCard(this)">
+      <svg class="task-icon status-completed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="14" y1="13" x2="8" y2="13"/>
+        <line x1="16" y1="17" x2="8" y2="17"/>
+      </svg>
+      <span class="task-label">Task Output</span>
+      <span class="task-separator">·</span>
+      <span class="task-target">task_bash_build_001</span>
+      <span class="task-status-badge badge-success">已完成</span>
+      <span class="task-duration">2.4s</span>
+      <svg class="expand-icon is-expanded" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    </div>
+
+    <!-- 折叠态预览 -->
+    <div class="task-preview">
+      <div class="preview-text">✓ vite build completed in 2.41s
+✓ 1243 modules transformed
+dist/index.js  →  456.78 kB │ gzip: 145.23 kB</div>
+    </div>
+
+    <!-- 展开态 -->
+    <div class="task-details">
+      <!-- 元信息栏 -->
+      <div class="task-meta-bar">
+        <span class="task-type-tag type-bash">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          local_bash
+        </span>
+        <div class="meta-divider"></div>
+        <span class="meta-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          task_bash_build_001
+        </span>
+        <div class="meta-divider"></div>
+        <span class="meta-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V8a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7"/></svg>
+          completed
+        </span>
+        <div class="meta-divider"></div>
+        <span class="meta-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+          exit_code: 0
+        </span>
+      </div>
+
+      <!-- 输入参数 -->
+      <div class="task-section">
+        <div class="section-label">输入参数</div>
+        <div class="input-params">
+          <div class="param-row">
+            <span class="param-key">task_id:</span>
+            <span class="param-value mono">task_bash_build_001</span>
+          </div>
+          <div class="param-row">
+            <span class="param-key">block:</span>
+            <span class="param-value">true</span>
+          </div>
+          <div class="param-row">
+            <span class="param-key">timeout:</span>
+            <span class="param-value">30000ms</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 终端输出 -->
+      <div class="task-section">
+        <div class="section-label">任务输出</div>
+        <div style="padding: 12px;">
+          <div class="terminal-window">
+            <div class="terminal-titlebar">
+              <div class="traffic-lights">
+                <span class="light red"></span>
+                <span class="light yellow"></span>
+                <span class="light green"></span>
+              </div>
+              <span class="terminal-title">task_bash_build_001 — npm run build</span>
+              <span class="terminal-status-badge completed">已完成</span>
+            </div>
+            <div class="terminal-content"><span style="color: #4ade80;">$</span> <span style="color: #60a5fa;">~/spacecode</span> npm run build
+
+<span style="color: #c9d1d9;">> spacecode@0.7.8 build</span>
+<span style="color: #c9d1d9;">> vue-tsc --noEmit && vite build</span>
+
+<span style="color: #4ade80;">✓</span> vite build completed in 2.41s
+<span style="color: #4ade80;">✓</span> 1243 modules transformed
+
+<span style="color: #8b949e;">dist/index.js          </span><span style="color: #4ade80;">  456.78 kB │ gzip: 145.23 kB</span>
+<span style="color: #8b949e;">dist/style.css         </span><span style="color: #4ade80;">   38.12 kB │ gzip:  12.04 kB</span>
+<span style="color: #8b949e;">dist/vendor.js         </span><span style="color: #4ade80;">  892.45 kB │ gzip: 267.81 kB</span>
+
+<span style="color: #4ade80;">✓ built in 2.41s</span>
+<div class="term-exit">退出码 0 <span class="truncated-hint">· 输出已截断，完整输出请查看文件</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     场景 2: local_bash — 错误（退出码非 0）
+     ══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">场景 2 · local_bash · 错误退出（终端红色输出）</div>
+
+  <div class="task-output-card">
+    <div class="task-header" onclick="toggleCard(this)">
+      <svg class="task-icon status-error" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="15" y1="9" x2="9" y2="15"/>
+        <line x1="9" y1="9" x2="15" y2="15"/>
+      </svg>
+      <span class="task-label">Task Output</span>
+      <span class="task-separator">·</span>
+      <span class="task-target">task_bash_test_002</span>
+      <span class="task-status-badge badge-failed">失败</span>
+      <span class="task-duration">5.1s</span>
+      <svg class="expand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     场景 3: local_agent — 成功完成（Agent 风格渲染）
+     ══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">场景 3 · local_agent · 成功完成（提示词+结果渲染）</div>
+
+  <div class="task-output-card">
+    <!-- 折叠态 -->
+    <div class="task-header is-expanded" onclick="toggleCard(this)">
+      <svg class="task-icon status-completed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect width="16" height="20" x="4" y="2" rx="2"/>
+        <path d="M9 22v-4h6v4"/>
+        <path d="M8 6h.01M16 6h.01M12 6h.01M8 10h.01M16 10h.01M12 10h.01M8 14h.01M16 14h.01M12 14h.01"/>
+      </svg>
+      <span class="task-label">Task Output</span>
+      <span class="task-separator">·</span>
+      <span class="task-target">task_agent_review_003</span>
+      <span class="task-status-badge badge-success">已完成</span>
+      <span class="task-duration">12.3s</span>
+      <svg class="expand-icon is-expanded" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    </div>
+
+    <!-- 折叠态预览 -->
+    <div class="task-preview">
+      <div class="preview-text">代码审查完成。发现 3 个潜在问题：1. AuthController 中未验证 token 过期时间 2. UserService 缺少异常处理...</div>
+    </div>
+
+    <!-- 展开态 -->
+    <div class="task-details">
+      <!-- 元信息栏 -->
+      <div class="task-meta-bar">
+        <span class="task-type-tag type-agent">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>
+          local_agent
+        </span>
+        <div class="meta-divider"></div>
+        <span class="meta-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          task_agent_review_003
+        </span>
+        <div class="meta-divider"></div>
+        <span class="meta-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V8a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7"/></svg>
+          completed
+        </span>
+      </div>
+
+      <!-- 输入参数 -->
+      <div class="task-section">
+        <div class="section-label">输入参数</div>
+        <div class="input-params">
+          <div class="param-row">
+            <span class="param-key">task_id:</span>
+            <span class="param-value mono">task_agent_review_003</span>
+          </div>
+          <div class="param-row">
+            <span class="param-key">block:</span>
+            <span class="param-value">true</span>
+          </div>
+          <div class="param-row">
+            <span class="param-key">timeout:</span>
+            <span class="param-value">30000ms</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 子代理提示词 -->
+      <div class="task-section">
+        <div class="section-label">子代理提示词</div>
+        <pre class="agent-prompt-block"><code>请审查 src/services/AuthController.ts 和 src/services/UserService.ts 中的安全问题，重点关注：
+1. Token 验证逻辑
+2. 异常处理覆盖
+3. SQL 注入防护
+
+输出格式：问题列表 + 严重程度 + 修复建议</code></pre>
+      </div>
+
+      <!-- 子代理结果 -->
+      <div class="task-section">
+        <div class="section-label">子代理输出</div>
+        <div class="agent-result-content">
+          <p style="margin-bottom: 8px;">代码审查完成，发现以下问题：</p>
+          <p style="margin-bottom: 4px;"><strong>1. AuthController.ts — Token 过期验证缺失</strong></p>
+          <p style="margin-bottom: 8px; color: var(--text-muted); font-size: 12px;">严重程度：高<br>第 45 行，<code style="font-family: var(--font-mono); font-size: 11px; background: var(--bg-tertiary); padding: 1px 4px; border-radius: 3px;">verifyToken()</code> 未检查 <code style="font-family: var(--font-mono); font-size: 11px; background: var(--bg-tertiary); padding: 1px 4px; border-radius: 3px;">exp</code> 字段，导致过期 token 仍可使用。<br>建议：在 <code style="font-family: var(--font-mono); font-size: 11px; background: var(--bg-tertiary); padding: 1px 4px; border-radius: 3px;">verifyToken()</code> 中添加 <code style="font-family: var(--font-mono); font-size: 11px; background: var(--bg-tertiary); padding: 1px 4px; border-radius: 3px;">exp &gt; Date.now() / 1000</code> 检查。</p>
+          <p style="margin-bottom: 4px;"><strong>2. UserService.ts — 未捕获异常</strong></p>
+          <p style="margin-bottom: 8px; color: var(--text-muted); font-size: 12px;">严重程度：中<br>第 78-92 行的数据库查询未包裹 try-catch，异常会直接传播到路由层。<br>建议：添加 try-catch 并返回结构化错误响应。</p>
+          <p style="margin-bottom: 4px;"><strong>3. AuthController.ts — SQL 拼接</strong></p>
+          <p style="color: var(--text-muted); font-size: 12px;">严重程度：低<br>第 112 行使用字符串拼接构造 SQL，虽然输入有过滤但仍存在风险。<br>建议：改用参数化查询。</p>
+        </div>
+      </div>
+    </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     场景 4: local_agent — 错误（含 error 字段）
+     ══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">场景 4 · local_agent · 错误退出（红色错误块）</div>
+
+  <div class="task-output-card">
+    <div class="task-header" onclick="toggleCard(this)">
+      <svg class="task-icon status-error" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect width="16" height="20" x="4" y="2" rx="2"/>
+        <path d="M9 22v-4h6v4"/>
+        <path d="M8 6h.01M16 6h.01M12 6h.01M8 10h.01M16 10h.01M12 10h.01M8 14h.01M16 14h.01M12 14h.01"/>
+      </svg>
+      <span class="task-label">Task Output</span>
+      <span class="task-separator">·</span>
+      <span class="task-target">task_agent_deploy_004</span>
+      <span class="task-status-badge badge-failed">失败</span>
+      <span class="task-duration">8.7s</span>
+      <svg class="expand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     场景 5: remote_agent — 成功完成
+     ══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">场景 5 · remote_agent · 成功完成</div>
+
+  <div class="task-output-card">
+    <!-- 折叠态 -->
+    <div class="task-header is-expanded" onclick="toggleCard(this)">
+      <svg class="task-icon status-completed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="2" y1="12" x2="22" y2="12"/>
+        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+      </svg>
+      <span class="task-label">Task Output</span>
+      <span class="task-separator">·</span>
+      <span class="task-target">task_remote_deploy_005</span>
+      <span class="task-status-badge badge-success">已完成</span>
+      <span class="task-duration">45.2s</span>
+      <svg class="expand-icon is-expanded" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    </div>
+
+    <!-- 折叠态预览 -->
+    <div class="task-preview">
+      <div class="preview-text">Deploying to production server at 192.168.1.100...
+Connection established.
+Uploading 42 files...
+Deployment complete. URL: https://app.example.com</div>
+    </div>
+
+    <!-- 展开态 -->
+    <div class="task-details">
+      <!-- 元信息栏 -->
+      <div class="task-meta-bar">
+        <span class="task-type-tag type-remote">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+          remote_agent
+        </span>
+        <div class="meta-divider"></div>
+        <span class="meta-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          task_remote_deploy_005
+        </span>
+        <div class="meta-divider"></div>
+        <span class="meta-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V8a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7"/></svg>
+          completed
+        </span>
+      </div>
+
+      <!-- 输入参数 -->
+      <div class="task-section">
+        <div class="section-label">输入参数</div>
+        <div class="input-params">
+          <div class="param-row">
+            <span class="param-key">task_id:</span>
+            <span class="param-value mono">task_remote_deploy_005</span>
+          </div>
+          <div class="param-row">
+            <span class="param-key">block:</span>
+            <span class="param-value">true</span>
+          </div>
+          <div class="param-row">
+            <span class="param-key">timeout:</span>
+            <span class="param-value">60000ms</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 远程命令 -->
+      <div class="task-section">
+        <div class="section-label">远程命令</div>
+        <div class="input-params">
+          <div class="param-row">
+            <span class="param-key">command:</span>
+            <span class="param-value mono">ssh deploy@192.168.1.100 "cd /app && git pull && npm run deploy"</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 远程输出 -->
+      <div class="task-section">
+        <div class="section-label">远程输出</div>
+        <div class="remote-output">Connecting to 192.168.1.100...
+Welcome to Ubuntu 22.04 LTS
+
+deploy@prod-server:~$ cd /app && git pull && npm run deploy
+Updating 4a3b2c1..f5e6d7a
+Fast-forward
+ src/index.js       | 12 +++---
+ src/router.js      |  8 ++--
+ src/api/auth.js    | 24 ++++++++++----
+ 3 files changed, 28 insertions(+), 16 deletions(-)
+
+> app@2.1.0 deploy
+> cross-env NODE_ENV=production node deploy.js
+
+[Deploy] Building assets...
+[Deploy] Uploading 42 files to CDN...
+[Deploy] Invalidating cache...
+[Deploy] Deployment complete in 38.2s
+[Deploy] URL: https://app.example.com
+[Deploy] Health check: OK (200)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     场景 6: timeout — 任务等待超时
+     ══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">场景 6 · timeout · 任务等待超时（等待动画）</div>
+
+  <div class="task-output-card">
+    <!-- 折叠态 -->
+    <div class="task-header is-expanded" onclick="toggleCard(this)">
+      <svg class="task-icon status-timeout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <polyline points="12 6 12 12 16 14"/>
+      </svg>
+      <span class="task-label">Task Output</span>
+      <span class="task-separator">·</span>
+      <span class="task-target">task_long_running_006</span>
+      <span class="task-status-badge badge-timeout">超时</span>
+      <span class="task-duration">30.0s</span>
+      <svg class="expand-icon is-expanded" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    </div>
+
+    <!-- 展开态 -->
+    <div class="task-details">
+      <!-- 元信息栏 -->
+      <div class="task-meta-bar">
+        <span class="task-type-tag type-bash">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          local_bash
+        </span>
+        <div class="meta-divider"></div>
+        <span class="meta-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          task_long_running_006
+        </span>
+        <div class="meta-divider"></div>
+        <span class="meta-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          running
+        </span>
+      </div>
+
+      <!-- 输入参数 -->
+      <div class="task-section">
+        <div class="section-label">输入参数</div>
+        <div class="input-params">
+          <div class="param-row">
+            <span class="param-key">task_id:</span>
+            <span class="param-value mono">task_long_running_006</span>
+          </div>
+          <div class="param-row">
+            <span class="param-key">block:</span>
+            <span class="param-value">true</span>
+          </div>
+          <div class="param-row">
+            <span class="param-key">timeout:</span>
+            <span class="param-value">30000ms</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 等待状态 -->
+      <div class="task-section">
+        <div class="section-label">任务状态</div>
+        <div class="waiting-state">
+          <div class="waiting-spinner"></div>
+          <div class="waiting-text">任务仍在运行中…</div>
+          <div class="waiting-hint">已等待 30s（超时），任务未完成。可再次调用获取最新输出。</div>
+        </div>
+      </div>
+
+      <!-- 已有输出（部分） -->
+      <div class="task-section">
+        <div class="section-label">部分输出</div>
+        <div style="padding: 0 12px 12px;">
+          <div class="terminal-window">
+            <div class="terminal-titlebar">
+              <div class="traffic-lights">
+                <span class="light red"></span>
+                <span class="light yellow"></span>
+                <span class="light green"></span>
+              </div>
+              <span class="terminal-title">npm test — task_long_running_006</span>
+              <span class="terminal-status-badge running">运行中</span>
+            </div>
+            <div class="terminal-content"><span style="color: #4ade80;">$</span> <span style="color: #60a5fa;">~/spacecode</span> npm test
+
+<span style="color: #c9d1d9;">> spacecode@0.7.8 test</span>
+<span style="color: #c9d1d9;">> vitest run</span>
+
+<span style="color: #8b949e;">RUN </span><span style="color: #c9d1d9;">v2.1.0 d:\AI\SpaceCode</span>
+
+ <span style="color: #4ade80;">✓</span> tests/stores/chatSession.test.ts <span style="color: #6e7681;">(8 tests)</span>
+ <span style="color: #4ade80;">✓</span> tests/composables/useAutoRetry.test.ts <span style="color: #6e7681;">(5 tests)</span>
+ <span style="color: #f59e0b;">⚡</span> tests/integration/streaming.test.ts <span style="color: #6e7681;">(running... 3/12)</span>
+
+<span style="color: #6e7681;">waiting for test results...</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     场景 7: not_ready — 非阻塞查询，任务未就绪
+     ══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">场景 7 · not_ready · 非阻塞查询任务未就绪</div>
+
+  <div class="task-output-card">
+    <!-- 折叠态 -->
+    <div class="task-header is-expanded" onclick="toggleCard(this)">
+      <svg class="task-icon status-running" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+      </svg>
+      <span class="task-label">Task Output</span>
+      <span class="task-separator">·</span>
+      <span class="task-target">task_agent_async_007</span>
+      <span class="task-status-badge badge-not-ready">未就绪</span>
+      <span class="task-duration">0.1s</span>
+      <svg class="expand-icon is-expanded" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    </div>
+
+    <!-- 展开态 -->
+    <div class="task-details">
+      <!-- 元信息栏 -->
+      <div class="task-meta-bar">
+        <span class="task-type-tag type-agent">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>
+          local_agent
+        </span>
+        <div class="meta-divider"></div>
+        <span class="meta-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          task_agent_async_007
+        </span>
+        <div class="meta-divider"></div>
+        <span class="meta-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+          running
+        </span>
+      </div>
+
+      <!-- 输入参数 -->
+      <div class="task-section">
+        <div class="section-label">输入参数</div>
+        <div class="input-params">
+          <div class="param-row">
+            <span class="param-key">task_id:</span>
+            <span class="param-value mono">task_agent_async_007</span>
+          </div>
+          <div class="param-row">
+            <span class="param-key">block:</span>
+            <span class="param-value">false <span style="color: var(--text-disabled);">（非阻塞）</span></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 等待状态 -->
+      <div class="task-section">
+        <div class="section-label">任务状态</div>
+        <div class="waiting-state">
+          <div class="waiting-spinner"></div>
+          <div class="waiting-text">任务正在运行中…</div>
+          <div class="waiting-hint">非阻塞查询：任务尚未完成。使用 block=true 可等待完成。</div>
+        </div>
+      </div>
+
+      <!-- 任务描述 -->
+      <div class="task-section">
+        <div class="section-label">任务描述</div>
+        <div class="agent-prompt-block"><code>Analyze codebase for potential performance bottlenecks in the rendering pipeline</code></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     场景 8: task 为 null — 无任务数据
+     ══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">场景 8 · timeout · 任务不存在（task 为 null）</div>
+
+  <div class="task-output-card">
+    <div class="task-header is-expanded" onclick="toggleCard(this)">
+      <svg class="task-icon status-timeout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="15" y1="9" x2="9" y2="15"/>
+        <line x1="9" y1="9" x2="15" y2="15"/>
+      </svg>
+      <span class="task-label">Task Output</span>
+      <span class="task-separator">·</span>
+      <span class="task-target">task_unknown_008</span>
+      <span class="task-status-badge badge-timeout">超时</span>
+      <span class="task-duration">30.0s</span>
+      <svg class="expand-icon is-expanded" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    </div>
+
+    <div class="task-details">
+      <div class="task-meta-bar">
+        <span class="meta-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          task_unknown_008
+        </span>
+        <div class="meta-divider"></div>
+        <span class="meta-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          retrieval_status: timeout
+        </span>
+      </div>
+
+      <div class="task-section">
+        <div class="section-label">任务状态</div>
+        <div class="no-task">无任务输出可用 — 指定的任务 ID 不存在或已被清理</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     场景 9: 折叠态对比 — 多种状态并排展示
+     ══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">场景 9 · 折叠态对比 · 多种状态并排展示</div>
+
+  <!-- 成功 -->
+  <div class="task-output-card" style="margin-bottom: 4px;">
+    <div class="task-header" onclick="toggleCard(this)">
+      <svg class="task-icon status-completed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="14" y1="13" x2="8" y2="13"/>
+        <line x1="16" y1="17" x2="8" y2="17"/>
+      </svg>
+      <span class="task-label">Task Output</span>
+      <span class="task-separator">·</span>
+      <span class="task-target">task_bash_build_001</span>
+      <span class="task-status-badge badge-success">已完成</span>
+      <span class="task-duration">2.4s</span>
+      <svg class="expand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- 运行中 -->
+  <div class="task-output-card" style="margin-bottom: 4px;">
+    <div class="task-header" onclick="toggleCard(this)">
+      <svg class="task-icon status-running" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+      </svg>
+      <span class="task-label">Task Output</span>
+      <span class="task-separator">·</span>
+      <span class="task-target">task_long_running_006</span>
+      <span class="task-status-badge badge-running">运行中</span>
+      <span class="task-duration">30.0s</span>
+      <svg class="expand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- 错误 -->
+  <div class="task-output-card" style="margin-bottom: 4px;">
+    <div class="task-header" onclick="toggleCard(this)">
+      <svg class="task-icon status-error" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="15" y1="9" x2="9" y2="15"/>
+        <line x1="9" y1="9" x2="15" y2="15"/>
+      </svg>
+      <span class="task-label">Task Output</span>
+      <span class="task-separator">·</span>
+      <span class="task-target">task_bash_test_002</span>
+      <span class="task-status-badge badge-failed">失败</span>
+      <span class="task-duration">5.1s</span>
+      <svg class="expand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- 超时 -->
+  <div class="task-output-card" style="margin-bottom: 4px;">
+    <div class="task-header" onclick="toggleCard(this)">
+      <svg class="task-icon status-timeout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <polyline points="12 6 12 12 16 14"/>
+      </svg>
+      <span class="task-label">Task Output</span>
+      <span class="task-separator">·</span>
+      <span class="task-target">task_agent_slow_009</span>
+      <span class="task-status-badge badge-timeout">超时</span>
+      <span class="task-duration">60.0s</span>
+      <svg class="expand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     数据结构参考
+     ══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">附：TaskOutput 输出数据结构（XML 格式）</div>
+  <div class="task-section">
+    <div class="section-label">原始输出文本格式</div>
+    <div style="padding: 12px;">
+      <div class="terminal-window">
+        <div class="terminal-content" style="color: #8b949e;"><span style="color: #6a737d;">&lt;!-- TaskOutput 工具的 output 字段是 XML 标签格式的字符串 --&gt;</span>
+<span style="color: #79c0ff;">&lt;retrieval_status&gt;</span><span style="color: #a5d6ff;">success</span><span style="color: #79c0ff;">&lt;/retrieval_status&gt;</span>
+
+<span style="color: #79c0ff;">&lt;task_id&gt;</span><span style="color: #a5d6ff;">task_bash_build_001</span><span style="color: #79c0ff;">&lt;/task_id&gt;</span>
+<span style="color: #79c0ff;">&lt;task_type&gt;</span><span style="color: #a5d6ff;">local_bash</span><span style="color: #79c0ff;">&lt;/task_type&gt;</span>
+<span style="color: #79c0ff;">&lt;status&gt;</span><span style="color: #a5d6ff;">completed</span><span style="color: #79c0ff;">&lt;/status&gt;</span>
+<span style="color: #79c0ff;">&lt;exit_code&gt;</span><span style="color: #a5d6ff;">0</span><span style="color: #79c0ff;">&lt;/exit_code&gt;</span>
+<span style="color: #79c0ff;">&lt;output&gt;</span>
+<span style="color: #c9d1d9;">$ npm run build
+&gt; vite build
+✓ 1243 modules transformed
+✓ built in 2.41s</span>
+<span style="color: #79c0ff;">&lt;/output&gt;</span>
+
+<span style="color: #6a737d;">&lt;!-- 当有错误时 --&gt;</span>
+<span style="color: #79c0ff;">&lt;error&gt;</span><span style="color: #f87171;">Error: Build failed</span><span style="color: #79c0ff;">&lt;/error&gt;</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleCard(header) {
+  const card = header.closest('.task-output-card');
+  const icon = header.querySelector('.expand-icon');
+  const isExpanded = header.classList.contains('is-expanded');
+
+  if (isExpanded) {
+    header.classList.remove('is-expanded');
+    icon.classList.remove('is-expanded');
+    const details = card.querySelector('.task-details');
+    const preview = card.querySelector('.task-preview');
+    if (details) details.style.display = 'none';
+    if (preview) preview.style.display = 'block';
+  } else {
+    header.classList.add('is-expanded');
+    icon.classList.add('is-expanded');
+    const details = card.querySelector('.task-details');
+    const preview = card.querySelector('.task-preview');
+    if (details) details.style.display = 'block';
+    if (preview) preview.style.display = 'none';
+  }
+}
+</script>
+
+</body>
+</html>
