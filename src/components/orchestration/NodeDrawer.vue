@@ -56,7 +56,7 @@
 
         <!-- 全尺寸 ChatPanel — 可正常发消息聊天，查看完整流式输出 -->
         <div class="node-drawer-content">
-          <ChatPanel :session-id="sessionId" />
+          <ChatPanel :session-id="sessionId" :pane-tab-id="`session-${sessionId}`" />
         </div>
       </div>
     </div>
