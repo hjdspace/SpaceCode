@@ -153,7 +153,7 @@ describe('TurnState machine', () => {
       expect(ts.settled).toBe(false)
       expect(ts.assistantMessageId).toBe(session.messages[0].id)
     } finally {
-      // 清理超时定时器，避免泄漏到后续用例
+      // 清理测试创建的 turn
       ;(turn as any).endTurn('sess-1', ts)
     }
   })
@@ -191,7 +191,6 @@ describe('TurnState machine', () => {
     expect(ts.currentReasoningEventId).toBeNull()
     expect(ts.streamingHandledThinking).toBe(false)
     expect(ts.sendStartTime).not.toBeUndefined()
-    expect(ts.timeoutId).toBeNull()
     expect(ts.isAutonomous).toBe(false)
   })
 
@@ -223,7 +222,7 @@ describe('TurnState machine', () => {
 describe('Turn 事件订阅', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
-    // 用 fake timers 避免 autonomous turn 的 45 分钟超时定时器跨用例泄漏
+    // 控制流式内容批量更新的定时器
     vi.useFakeTimers()
   })
   afterEach(() => {
@@ -626,10 +625,7 @@ describe('Turn 生命周期边界场景', () => {
   })
 })
 
-// 用例 7：超时
-// 验证非自主 turn 在 REQUEST_TIMEOUT 后 settle 并将 loading 置为 false。
-// 超时不再报错（用户可能正在处理其他任务），统一走 handleResult 正常结算。
-describe('Turn 超时', () => {
+describe('Turn 长时间等待', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.useFakeTimers()
@@ -639,26 +635,91 @@ describe('Turn 超时', () => {
     vi.restoreAllMocks()
   })
 
-  it('非自主 turn 超时后正常 settle 并将 loading 置为 false（不报错）', async () => {
+  it.each([false, true])('无事件不会自动结束 turn（isAutonomous=%s）', async (isAutonomous) => {
     const fake = makeFakeApi()
-    const { useTurnStore, REQUEST_TIMEOUT } = await import('../turn')
+    const { useTurnStore } = await import('../turn')
     const turn = useTurnStore(fake as any)
     const sessionStore = useChatSessionStore()
     sessionStore.createSession('Test', undefined, 'sess-to')
 
-    // 用 beginTurn 直接构造 turn（绕过 sendMessage 的 await new Promise 挂起），
-    // beginTurn 已为测试导出，会设置 loading=true 与 REQUEST_TIMEOUT 超时定时器。
-    const ts = (turn as any).beginTurn('sess-to', { isAutonomous: false })
+    const resolve = vi.fn()
+    const ts = turn.beginTurn('sess-to', { isAutonomous, resolve })
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000)
+    expect(ts.settled).toBe(false)
     expect(turn.getIsLoading('sess-to')).toBe(true)
-
-    // 快进 REQUEST_TIMEOUT（5 分钟）触发超时回调 → handleResult → settle
-    vi.advanceTimersByTime(REQUEST_TIMEOUT)
-
-    // 超时后应正常结算，loading 置为 false，不产生错误
-    expect(turn.getIsLoading('sess-to')).toBe(false)
-
-    // 确认 session 状态为 idle（正常结算，非错误）
+    expect(resolve).not.toHaveBeenCalled()
+    expect(fake.claudeCode.abort).not.toHaveBeenCalled()
     const session = sessionStore.sessions.find(s => s.id === 'sess-to')!
+    expect(session.processStatus).toBe('active')
+
+    fake._handlers.onResult({ sessionId: 'sess-to', data: { result: 'done' } })
+    expect(turn.getIsLoading('sess-to')).toBe(false)
+    expect(resolve).toHaveBeenCalledOnce()
     expect(session.processStatus).toBe('idle')
+  })
+
+  it.each([false, true])('提问在后续流事件到达后仍无限等待，回答后继续原轮次（permission=%s）', async (withPermission) => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessions = useChatSessionStore()
+    const sid = 'sess-question-wait'
+    sessions.createSession('Test', undefined, sid)
+    const resolve = vi.fn()
+    const ts = turn.beginTurn(sid, { isAutonomous: false, resolve })
+    const input = { questions: [{ question: 'Which path?', header: 'Path', options: [{ label: 'A', description: 'Path A' }], multiSelect: false }] }
+    fake._handlers.onToolUse({ sessionId: sid, data: { id: 'question-1', name: 'AskUserQuestion', input } })
+    if (withPermission) {
+      fake._handlers.onPermissionRequest({ sessionId: sid, data: { requestId: 'req-wait', toolUseId: 'question-1', toolName: 'AskUserQuestion', input } })
+    }
+    // CLI 可在权限请求后发送剩余流事件，不能因此重新启用自动结算。
+    fake._handlers.onStreamEvent({ sessionId: sid, data: { type: 'message_stop' } })
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000)
+    expect(ts.settled).toBe(false)
+    expect(turn.getIsLoading(sid)).toBe(true)
+    expect(resolve).not.toHaveBeenCalled()
+    const session = sessions.sessions.find(s => s.id === sid)!
+    const message = session.messages.find(m => m.id === ts.assistantMessageId)!
+    expect(message.toolCalls?.find(tc => tc.id === 'question-1')?.status).not.toBe('completed')
+    expect(fake.claudeCode.abort).not.toHaveBeenCalled()
+    expect(fake.claudeCode.skipToolAnswer).not.toHaveBeenCalled()
+
+    const answers = { 'Which path?': 'A' }
+    if (withPermission) {
+      const updatedInput = { ...input, answers }
+      await turn.allowPermission(ts.assistantMessageId, 'question-1', updatedInput, undefined, sid)
+      expect(fake.claudeCode.allowPermission).toHaveBeenCalledWith(sid, 'req-wait', updatedInput, undefined)
+      expect(turn.hasPendingPermissionForToolUse('question-1', sid)).toBe(false)
+    } else {
+      await turn.submitToolAnswer(sid, ts.assistantMessageId, 'question-1', answers)
+      expect(fake.claudeCode.submitToolAnswer).toHaveBeenCalledWith(sid, 'question-1', answers)
+    }
+    expect(ts.settled).toBe(false)
+    fake._handlers.onResult({ sessionId: sid, data: { result: 'continued' } })
+    expect(turn.getIsLoading(sid)).toBe(false)
+    expect(resolve).toHaveBeenCalledOnce()
+    permissionService.consumePermissionFor('question-1', sid)
+  })
+
+  it('长时间等待后仍可主动停止，残留流事件不会重启会话', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessions = useChatSessionStore()
+    const sid = 'sess-wait-abort'
+    sessions.createSession('Test', undefined, sid)
+    sessions.currentSessionId = sid
+    const resolve = vi.fn()
+    const ts = turn.beginTurn(sid, { isAutonomous: false, resolve })
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000)
+    expect(turn.getIsLoading(sid)).toBe(true)
+
+    await turn.abort()
+    expect(fake.claudeCode.abort).toHaveBeenCalledWith(sid)
+    expect(ts.settled).toBe(true)
+    expect(resolve).toHaveBeenCalledOnce()
+    fake._handlers.onStreamEvent({ sessionId: sid, data: { type: 'message_stop' } })
+    expect(turn.getIsLoading(sid)).toBe(false)
+    expect(sessions.sessions.find(s => s.id === sid)?.messages).toHaveLength(1)
   })
 })

@@ -187,7 +187,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     onTurnCompleted,
   } = opts
 
-  const { turnStates, resetTimeout, beginTurn, endTurn } = stateMachine
+  const { turnStates, beginTurn, endTurn } = stateMachine
   const {
     getAssistantMessage,
     addTimelineEvent,
@@ -278,13 +278,11 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
 
     const existing = turnStates.get(sessionId)
     if (existing) {
-      resetTimeout(sessionId, existing)
       return
     }
     if (pendingSendMessages.has(sessionId) || userAbortedSessions.has(sessionId)) return
 
-    const ts = beginTurn(sessionId, { isAutonomous: true })
-    resetTimeout(sessionId, ts)
+    beginTurn(sessionId, { isAutonomous: true })
   }
 
   const handleStreamEvent = (sessionId: string, ts: TurnState, streamEvent: any) => {
