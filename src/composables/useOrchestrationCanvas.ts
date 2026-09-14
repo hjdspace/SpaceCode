@@ -4,6 +4,7 @@
 
 import { ref, watch } from 'vue'
 import { useChatSessionStore } from '@/stores/chatSession'
+import type { NodeStatus } from '@/stores/orchestration/types'
 
 // ── 类型 ──
 
@@ -22,6 +23,10 @@ export interface CanvasTaskNode {
   draft: string
   /** 画布坐标 */
   position: XYPosition
+  /** 上次运行的状态快照 — 重启后用于恢复展示 */
+  runStatus?: NodeStatus
+  /** 上次运行绑定的会话 ID — 可与 sessionId 不同（retry/rerun 后 sessionId 更新） */
+  runSessionId?: string
 }
 
 /** 画布上的 Edge — 节点间的触发依赖连线（target 在 source 完成后启动） */
@@ -57,6 +62,7 @@ function loadNodesFromStorage(): CanvasTaskNode[] {
         typeof (node.position as Record<string, unknown>).x === 'number' &&
         typeof (node.position as Record<string, unknown>).y === 'number'
       )
+      // runStatus / runSessionId 是可选字段，JSON 解析后自动存在于对象上（如有）
     })
   } catch {
     return []

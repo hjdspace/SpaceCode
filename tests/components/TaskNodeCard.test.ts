@@ -177,4 +177,30 @@ describe('TaskNodeCard', () => {
     const wrapper = mountCard({ status: 'running', isRunning: true, hasPendingPermission: false })
     expect(wrapper.find('.task-node-perm-badge').exists()).toBe(false)
   })
+
+  // ── interrupted 状态（重启后恢复） ──
+
+  it('shows interrupted badge when status is interrupted', () => {
+    const wrapper = mountCard({ status: 'interrupted', isRunning: false })
+    expect(wrapper.find('.badge-interrupted').exists()).toBe(true)
+  })
+
+  it('shows retry button when status is interrupted', () => {
+    const wrapper = mountCard({ status: 'interrupted', isRunning: false })
+    expect(wrapper.find('.task-node-retry').exists()).toBe(true)
+  })
+
+  it('emits retryNode event when retry button is clicked from interrupted state', async () => {
+    const wrapper = mountCard({ status: 'interrupted', isRunning: false })
+    await wrapper.find('.task-node-retry').trigger('click')
+    expect(wrapper.emitted('retryNode')).toBeTruthy()
+    expect(wrapper.emitted('retryNode')![0]).toEqual(['test-node'])
+  })
+
+  // ── 整图重跑按钮 ──
+
+  it('does not show rerun button in the card (rerun is a canvas-level action)', () => {
+    const wrapper = mountCard({ status: 'settled', isRunning: false })
+    expect(wrapper.find('.task-node-rerun').exists()).toBe(false)
+  })
 })

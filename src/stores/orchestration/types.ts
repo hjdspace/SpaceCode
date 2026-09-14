@@ -1,8 +1,9 @@
 // src/stores/orchestration/types.ts
 // 编排引擎类型定义 — 术语遵循 CONTEXT.md 的 Session Orchestration 词汇表。
 
-/** 节点状态 — Task Node 在一次 Run 中的生命周期状态 */
-export type NodeStatus = 'pending' | 'running' | 'settled' | 'failed' | 'skipped' | 'queued'
+/** 节点状态 — Task Node 在一次 Run 中的生命周期状态。
+ *  `interrupted` 仅用于重启恢复：上次运行中 app 被强杀，running 节点中断。 */
+export type NodeStatus = 'pending' | 'running' | 'settled' | 'failed' | 'skipped' | 'queued' | 'interrupted'
 
 /** Turn 结局类型 — 区分 settled / failed / aborted 三种结局 */
 export type TurnOutcome = 'settled' | 'failed' | 'aborted'

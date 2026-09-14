@@ -421,3 +421,231 @@ describe('useOrchestrationRun — 权限请求路由', () => {
     await runPromise
   })
 })
+
+// ── Run 状态快照持久化 ──
+
+describe('useOrchestrationRun — 运行状态快照持久化', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    const canvas = useOrchestrationCanvas()
+    canvas._resetState()
+  })
+
+  it('节点 settle 后快照写入 canvasTaskNode.runStatus 和 runSessionId', async () => {
+    setupCanvas([makeNode('A', 'task A')], [])
+    const run = useOrchestrationRun()
+
+    const runPromise = run.startRun()
+    await flushMicrotasks()
+
+    // A running — 快照应记录 running 状态和 sessionId
+    const canvas = useOrchestrationCanvas()
+    const nodeBefore = canvas.taskNodes.value.find(n => n.id === 'A')!
+    expect(nodeBefore.runStatus).toBe('running')
+    expect(nodeBefore.runSessionId).toBe('sess-A')
+
+    signalOutcome('sess-A', 'settled')
+    await flushMicrotasks()
+    await runPromise
+
+    // A settled — 快照应更新为 settled
+    const nodeAfter = canvas.taskNodes.value.find(n => n.id === 'A')!
+    expect(nodeAfter.runStatus).toBe('settled')
+    expect(nodeAfter.runSessionId).toBe('sess-A')
+  })
+
+  it('节点 failed 后快照记录 failed 状态', async () => {
+    setupCanvas([makeNode('A', 'task A')], [])
+    const run = useOrchestrationRun()
+
+    const runPromise = run.startRun()
+    await flushMicrotasks()
+
+    signalOutcome('sess-A', 'failed')
+    await flushMicrotasks()
+    await runPromise
+
+    const canvas = useOrchestrationCanvas()
+    const node = canvas.taskNodes.value.find(n => n.id === 'A')!
+    expect(node.runStatus).toBe('failed')
+    expect(node.runSessionId).toBe('sess-A')
+  })
+
+  it('快照持久化到 localStorage', async () => {
+    setupCanvas([makeNode('A', 'task A')], [])
+    const run = useOrchestrationRun()
+
+    const runPromise = run.startRun()
+    await flushMicrotasks()
+
+    signalOutcome('sess-A', 'settled')
+    await flushMicrotasks()
+    await runPromise
+
+    const stored = JSON.parse(localStorage.getItem('orchestration_nodes') || '[]')
+    expect(stored[0].runStatus).toBe('settled')
+    expect(stored[0].runSessionId).toBe('sess-A')
+  })
+})
+
+// ── 重启后状态恢复 ──
+
+describe('useOrchestrationRun — 重启后状态恢复', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    const canvas = useOrchestrationCanvas()
+    canvas._resetState()
+  })
+
+  it('从 localStorage 恢复节点后 getRestoredNodeStatus 返回上次运行状态', () => {
+    // 模拟上次运行后持久化的数据
+    const nodeData = [
+      {
+        id: 'n1',
+        sessionId: 'old-session-1',
+        draft: 'task 1',
+        position: { x: 0, y: 0 },
+        runStatus: 'settled',
+        runSessionId: 'run-session-1',
+      },
+      {
+        id: 'n2',
+        sessionId: 'old-session-2',
+        draft: 'task 2',
+        position: { x: 100, y: 0 },
+        runStatus: 'failed',
+        runSessionId: 'run-session-2',
+      },
+      {
+        id: 'n3',
+        sessionId: 'old-session-3',
+        draft: 'task 3',
+        position: { x: 200, y: 0 },
+        runStatus: 'running',
+        runSessionId: 'run-session-3',
+      },
+    ]
+    localStorage.setItem('orchestration_nodes', JSON.stringify(nodeData))
+
+    const canvas = useOrchestrationCanvas()
+    canvas.reloadFromStorage()
+    const run = useOrchestrationRun()
+
+    expect(run.getRestoredNodeStatus('n1')).toBe('settled')
+    expect(run.getRestoredNodeStatus('n2')).toBe('failed')
+    // running 在重启后标记为 interrupted
+    expect(run.getRestoredNodeStatus('n3')).toBe('interrupted')
+  })
+
+  it('getRestoredNodeStatus 返回 undefined 当节点无快照', () => {
+    const nodeData = [
+      {
+        id: 'n1',
+        sessionId: 's1',
+        draft: 'task 1',
+        position: { x: 0, y: 0 },
+      },
+    ]
+    localStorage.setItem('orchestration_nodes', JSON.stringify(nodeData))
+
+    const canvas = useOrchestrationCanvas()
+    canvas.reloadFromStorage()
+    const run = useOrchestrationRun()
+
+    expect(run.getRestoredNodeStatus('n1')).toBeUndefined()
+  })
+
+  it('getRestoredNodeSessionId 返回上次运行绑定的 sessionId', () => {
+    const nodeData = [
+      {
+        id: 'n1',
+        sessionId: 'canvas-session-1',
+        draft: 'task 1',
+        position: { x: 0, y: 0 },
+        runStatus: 'settled',
+        runSessionId: 'run-session-1',
+      },
+    ]
+    localStorage.setItem('orchestration_nodes', JSON.stringify(nodeData))
+
+    const canvas = useOrchestrationCanvas()
+    canvas.reloadFromStorage()
+    const run = useOrchestrationRun()
+
+    expect(run.getRestoredNodeSessionId('n1')).toBe('run-session-1')
+  })
+})
+
+// ── 整图重跑 ──
+
+describe('useOrchestrationRun — 整图重跑', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    const canvas = useOrchestrationCanvas()
+    canvas._resetState()
+  })
+
+  it('rerunAll 清除所有节点的快照状态并重新开始运行', async () => {
+    setupCanvas([
+      makeNode('A', 'task A'),
+      makeNode('B', 'task B'),
+    ], [
+      makeEdge('A', 'B'),
+    ])
+    const run = useOrchestrationRun()
+
+    // 第一次运行
+    const runPromise = run.startRun()
+    await flushMicrotasks()
+
+    signalOutcome('sess-A', 'settled')
+    await flushMicrotasks()
+    signalOutcome('sess-B', 'settled')
+    await flushMicrotasks()
+    await runPromise
+
+    // 确认快照已写入
+    const canvas = useOrchestrationCanvas()
+    expect(canvas.taskNodes.value[0].runStatus).toBe('settled')
+
+    // 整图重跑
+    hoisted.mockSessionStore.createSession
+      .mockImplementationOnce(() => ({ id: 'sess-A-rerun' }))
+      .mockImplementationOnce(() => ({ id: 'sess-B-rerun' }))
+
+    const rerunPromise = run.rerunAll()
+    await flushMicrotasks()
+
+    expect(run.getNodeStatus('A')).toBe('running')
+    expect(run.getNodeStatus('B')).toBe('pending')
+
+    // 重跑使用新 session
+    expect(canvas.taskNodes.value.find(n => n.id === 'A')!.sessionId).toBe('sess-A-rerun')
+
+    signalOutcome('sess-A-rerun', 'settled')
+    await flushMicrotasks()
+    signalOutcome('sess-B-rerun', 'settled')
+    await flushMicrotasks()
+    await rerunPromise
+
+    expect(run.getNodeStatus('A')).toBe('settled')
+    expect(run.getNodeStatus('B')).toBe('settled')
+  })
+
+  it('rerunAll 按钮仅在非运行时可用', () => {
+    setupCanvas([makeNode('A', 'task A')], [])
+    const run = useOrchestrationRun()
+
+    expect(run.canRerun.value).toBe(false) // 未运行过，无法重跑
+
+    // 运行一次
+    const runPromise = run.startRun()
+    flushMicrotasks().then(() => {
+      signalOutcome('sess-A', 'settled')
+    })
+
+    return runPromise.then(() => {
+      expect(run.canRerun.value).toBe(true) // 运行过后可以重跑
+    })
+  })
+})

@@ -22,6 +22,9 @@ export function useOrchestrationRun() {
   const runVersion = ref(0)
   let engine: OrchestrationEngine | null = null
 
+  /** sessionId → nodeId 反查表（composable 层维护，供 outcome 回调快照用） */
+  const sessionToNodeMap = new Map<string, string>()
+
   // ── 空草稿校验 ──
 
   const emptyDraftNodeIds = computed(() =>
@@ -53,32 +56,83 @@ export function useOrchestrationRun() {
     return { completed, total: canvas.taskNodes.value.length }
   })
 
-  // ── 节点状态查询 ──
+  // ── 快照持久化 ──
+
+  /** 将引擎运行时状态快照到画布节点（runStatus / runSessionId） */
+  function snapshotRunStateToCanvas(): void {
+    if (!engine) return
+    const runState = engine.getRunState()
+    for (const node of canvas.taskNodes.value) {
+      const nodeState = runState.nodeStates.get(node.id)
+      if (nodeState) {
+        node.runStatus = nodeState.status
+        node.runSessionId = nodeState.sessionId
+      }
+    }
+  }
+
+  /** 将单个节点状态快照到画布 */
+  function snapshotNodeStatus(nodeId: string): void {
+    if (!engine) return
+    const runState = engine.getRunState()
+    const nodeState = runState.nodeStates.get(nodeId)
+    const node = canvas.taskNodes.value.find(n => n.id === nodeId)
+    if (nodeState && node) {
+      node.runStatus = nodeState.status
+      node.runSessionId = nodeState.sessionId
+    }
+  }
+
+  // ── 恢复状态查询 ──
+
+  /** 返回从 localStorage 恢复的节点状态（重启后展示用） */
+  function getRestoredNodeStatus(nodeId: string): NodeStatus | undefined {
+    const node = canvas.taskNodes.value.find(n => n.id === nodeId)
+    if (!node?.runStatus) return undefined
+    // running / queued 在重启后标记为 interrupted（中断/未完成）
+    if (node.runStatus === 'running' || node.runStatus === 'queued') {
+      return 'interrupted'
+    }
+    return node.runStatus
+  }
+
+  /** 返回从 localStorage 恢复的节点上次运行绑定的 sessionId */
+  function getRestoredNodeSessionId(nodeId: string): string | undefined {
+    const node = canvas.taskNodes.value.find(n => n.id === nodeId)
+    return node?.runSessionId
+  }
+
+  // ── 节点状态查询（运行中优先引擎，否则恢复快照） ──
 
   function getNodeStatus(nodeId: string): NodeStatus | undefined {
-    return engine?.getNodeStatus(nodeId)
+    const status = engine?.getNodeStatus(nodeId)
+    if (status) return status
+    // 引擎无状态时尝试恢复快照
+    return getRestoredNodeStatus(nodeId)
   }
 
   // ── 启动运行 ──
 
-  async function startRun(): Promise<void> {
-    if (isRunning.value) return
-    if (!canRun.value) return
-
-    isRunning.value = true
-
-    // 创建编排引擎实例，注入真实依赖
-    engine = createOrchestrationEngine({
+  /** 创建引擎实例并注入真实依赖（startRun / rerunAll 共享） */
+  function createEngineWithWiring(): OrchestrationEngine {
+    return createOrchestrationEngine({
       sessionLauncher: {
         createSession: async (nodeId: string) => {
           const node = canvas.taskNodes.value.find(n => n.id === nodeId)
-          // 为节点创建全新 session（复用已有 sessionId 或创建新的）
           if (node?.sessionId) {
-            // 节点已有 session（画布创建时分配的），复用它
+            sessionToNodeMap.set(node.sessionId, nodeId)
+            // 快照 running 状态和 sessionId 到画布
+            node.runStatus = 'running'
+            node.runSessionId = node.sessionId
             return node.sessionId
           }
           const session = sessionStore.createSession('Task Node')
-          if (node) node.sessionId = session.id
+          if (node) {
+            node.sessionId = session.id
+            sessionToNodeMap.set(session.id, nodeId)
+            node.runStatus = 'running'
+            node.runSessionId = session.id
+          }
           return session.id
         },
         sendDraft: async (sessionId: string, draft: string) => {
@@ -89,29 +143,43 @@ export function useOrchestrationRun() {
         subscribe: (listener) => {
           return turnStore.onTurnOutcome((sessionId, outcome) => {
             listener(sessionId, outcome)
+            const nid = sessionToNodeMap.get(sessionId)
+            if (nid) snapshotNodeStatus(nid)
             runVersion.value++
           })
         },
       },
       sessionAborter: {
         abort: async (sessionId: string) => {
-          // 按 sessionId 中止会话 — 编排引擎需要精确中止特定节点的 session
           await api.claudeCode?.abort(sessionId)
         },
       },
     })
+  }
 
-    // 同步画布数据到引擎
+  /** 同步画布数据到引擎（startRun / rerunAll 共享） */
+  function syncCanvasToEngine(eng: OrchestrationEngine): void {
     for (const node of canvas.taskNodes.value) {
-      engine.addNode({ id: node.id, draft: node.draft })
+      eng.addNode({ id: node.id, draft: node.draft })
     }
     for (const edge of canvas.edges.value) {
-      engine.addEdge({ source: edge.source, target: edge.target })
+      eng.addEdge({ source: edge.source, target: edge.target })
     }
+  }
 
-    // 启动引擎
+  async function startRun(): Promise<void> {
+    if (isRunning.value) return
+    if (!canRun.value) return
+
+    isRunning.value = true
+    sessionToNodeMap.clear()
+
+    engine = createEngineWithWiring()
+    syncCanvasToEngine(engine)
+
     try {
       await engine.run()
+      snapshotRunStateToCanvas()
     } finally {
       isRunning.value = false
     }
@@ -122,6 +190,7 @@ export function useOrchestrationRun() {
   async function stopRun(): Promise<void> {
     if (!engine) return
     await engine.stop()
+    snapshotRunStateToCanvas()
     runVersion.value++
     isRunning.value = false
   }
@@ -131,6 +200,7 @@ export function useOrchestrationRun() {
   async function stopNode(nodeId: string): Promise<void> {
     if (!engine) return
     await engine.stopNode(nodeId)
+    snapshotNodeStatus(nodeId)
     runVersion.value++
   }
 
@@ -146,14 +216,50 @@ export function useOrchestrationRun() {
       // 创建新 session 用于重试
       const newSession = sessionStore.createSession('Task Node (retry)')
       node.sessionId = newSession.id
+      sessionToNodeMap.set(newSession.id, nodeId)
     }
     isRunning.value = true
     try {
       await engine.retryNode(nodeId)
+      snapshotNodeStatus(nodeId)
       runVersion.value++
     } finally {
       // retryNode 启动后引擎可能还在运行，不重置 isRunning
       // isRunning 在 run() promise resolve 时重置
+    }
+  }
+
+  // ── 整图重跑 ──
+
+  /** 是否可以整图重跑 — 非运行中且节点有快照状态 */
+  const canRerun = computed(() => {
+    if (isRunning.value) return false
+    return canvas.taskNodes.value.some(n => n.runStatus !== undefined)
+  })
+
+  /** 整图重跑 — 全部换新 session，清除快照 */
+  async function rerunAll(): Promise<void> {
+    if (isRunning.value) return
+
+    // 为所有节点创建新 session
+    sessionToNodeMap.clear()
+    for (const node of canvas.taskNodes.value) {
+      const newSession = sessionStore.createSession('Task Node (rerun)')
+      node.sessionId = newSession.id
+      node.runStatus = undefined
+      node.runSessionId = undefined
+      sessionToNodeMap.set(newSession.id, node.id)
+    }
+
+    engine = createEngineWithWiring()
+    syncCanvasToEngine(engine)
+
+    isRunning.value = true
+    try {
+      await engine.run()
+      snapshotRunStateToCanvas()
+    } finally {
+      isRunning.value = false
     }
   }
 
@@ -191,14 +297,18 @@ export function useOrchestrationRun() {
   return {
     isRunning,
     canRun,
+    canRerun,
     emptyDraftNodeIds,
     progress,
     getEmptyDraftNodeIds,
     getNodeStatus,
+    getRestoredNodeStatus,
+    getRestoredNodeSessionId,
     startRun,
     stopRun,
     stopNode,
     retryNode,
+    rerunAll,
     addNodeMessage,
     hasPendingPermissionForNode,
   }

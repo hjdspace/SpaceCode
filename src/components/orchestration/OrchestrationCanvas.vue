@@ -45,6 +45,18 @@
         <span>{{ t('orchestration.stop') }}</span>
       </button>
 
+      <!-- 整图重跑按钮 -->
+      <button
+        v-if="canRerun && !isRunning"
+        class="toolbar-btn rerun-btn"
+        :disabled="!canRun"
+        @click="handleRerunAll"
+        :title="t('orchestration.rerunAll')"
+      >
+        <RefreshCw :size="14" />
+        <span>{{ t('orchestration.rerunAll') }}</span>
+      </button>
+
       <!-- 进度条 -->
       <div v-if="isRunning || progress.completed > 0" class="toolbar-progress">
         <span class="progress-text">
@@ -141,7 +153,7 @@ import { useI18n } from 'vue-i18n'
 import { VueFlow, type Node as FlowNode, type Edge as FlowEdge, type Connection, MarkerType } from '@vue-flow/core'
 import { MiniMap } from '@vue-flow/minimap'
 import { Background } from '@vue-flow/background'
-import { Map as MapIcon, Workflow, Plus, Play as PlayIcon, Square as SquareIcon } from 'lucide-vue-next'
+import { Map as MapIcon, Workflow, Plus, Play as PlayIcon, Square as SquareIcon, RefreshCw } from 'lucide-vue-next'
 import { useOrchestrationCanvas } from '@/composables/useOrchestrationCanvas'
 import { useOrchestrationRun } from '@/composables/useOrchestrationRun'
 import TaskNodeCard from './TaskNodeCard.vue'
@@ -170,6 +182,7 @@ const {
 const {
   isRunning,
   canRun,
+  canRerun,
   emptyDraftNodeIds,
   progress,
   getNodeStatus,
@@ -177,6 +190,7 @@ const {
   stopRun,
   stopNode,
   retryNode,
+  rerunAll,
   addNodeMessage,
   hasPendingPermissionForNode,
 } = useOrchestrationRun()
@@ -329,8 +343,10 @@ const drawerSessionId = ref('')
 
 function handleOpenDrawer(nodeId: string) {
   const node = taskNodes.value.find(n => n.id === nodeId)
-  if (node) {
-    drawerSessionId.value = node.sessionId
+  // 优先使用 runSessionId（上次运行绑定的会话），回退到 sessionId
+  const sessionId = node?.runSessionId || node?.sessionId
+  if (sessionId) {
+    drawerSessionId.value = sessionId
   }
 }
 
@@ -354,8 +370,16 @@ async function handleStopNode(nodeId: string) {
 }
 
 // ── 失败节点重试 ──
+
 async function handleRetryNode(nodeId: string) {
   await retryNode(nodeId)
+}
+
+// ── 整图重跑 ──
+
+async function handleRerunAll() {
+  if (!canRun.value || isRunning.value) return
+  await rerunAll()
 }
 
 // ── 运行中节点追加消息 ──
@@ -433,6 +457,16 @@ function handleAddMessage(nodeId: string, content: string) {
 
     &:hover {
       background: #dc2626;
+    }
+  }
+
+  &.rerun-btn {
+    color: #fff;
+    background: var(--accent-primary, #6366f1);
+    border-color: var(--accent-primary, #6366f1);
+
+    &:hover:not(:disabled) {
+      opacity: 0.85;
     }
   }
 }

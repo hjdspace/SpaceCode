@@ -32,9 +32,9 @@
       >
         <SquareIcon :size="12" />
       </button>
-      <!-- 重试按钮（failed 时） -->
+      <!-- 重试按钮（failed / interrupted 时） -->
       <button
-        v-if="status === 'failed'"
+        v-if="status === 'failed' || status === 'interrupted'"
         class="task-node-retry"
         :title="t('orchestration.retryNode')"
         @click.stop="onRetryNode"
@@ -129,7 +129,7 @@ const draft = computed(() => props.data?.draft ?? '')
 /** 运行中或已终态时草稿只读；pending 状态可编辑 */
 const isReadOnly = computed(() => {
   if (!props.status) return false
-  return props.status === 'running' || props.status === 'settled' || props.status === 'failed'
+  return props.status === 'running' || props.status === 'settled' || props.status === 'failed' || props.status === 'interrupted'
 })
 
 const statusClass = computed(() => {
@@ -201,6 +201,11 @@ function onAddMessage() {
     opacity: 0.5;
   }
 
+  &.status-interrupted {
+    border-color: #f59e0b;
+    box-shadow: 0 0 8px color-mix(in srgb, #f59e0b 20%, transparent);
+  }
+
   // 空草稿标红
   &.empty-draft {
     border-color: var(--danger, #ef4444);
@@ -261,6 +266,11 @@ function onAddMessage() {
     color: var(--text-muted, #888);
     background: rgba(128, 128, 128, 0.2);
     text-decoration: line-through;
+  }
+
+  &.badge-interrupted {
+    color: #fff;
+    background: #f59e0b;
   }
 
   &.badge-queued {
