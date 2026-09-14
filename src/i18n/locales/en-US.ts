@@ -449,6 +449,8 @@ export default {
     draftPlaceholder: 'Type task draft (not sent)…',
     drawerTitle: 'Node Session',
     closeDrawer: 'Close drawer',
+    cycleDetected: 'Would create a circular dependency',
+    selfLoopDetected: 'Cannot connect to itself',
   },
 
   auth: {

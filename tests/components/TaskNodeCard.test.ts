@@ -19,6 +19,17 @@ vi.mock('@/components/layout/ChatPanel.vue', () => ({
   },
 }))
 
+// Mock Vue Flow Handle — requires VueFlow provider context, not available in unit tests
+vi.mock('@vue-flow/core', () => ({
+  Handle: {
+    name: 'Handle',
+    props: ['type', 'position'],
+    template: '<div class="vue-flow__handle-stub"></div>',
+  },
+  Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
+  MarkerType: { ArrowClosed: 'arrowclosed' },
+}))
+
 const i18n = createI18n({
   legacy: false,
   locale: 'zh-CN',

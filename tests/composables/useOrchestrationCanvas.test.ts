@@ -1,5 +1,5 @@
 // tests/composables/useOrchestrationCanvas.test.ts
-// 编排画布 composable 测试 — 小地图开关 + 任务节点 CRUD + 草稿 + 坐标 + localStorage 持久化。
+// 编排画布 composable 测试 — 小地图开关 + 任务节点 CRUD + 草稿 + 坐标 + localStorage 持久化 + Edge 连线 + 环预防。
 // Seam: useOrchestrationCanvas 公共接口
 
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -215,5 +215,290 @@ describe('useOrchestrationCanvas — localStorage persistence', () => {
     expect(taskNodes.value[0].id).toBe('test-node-1')
     expect(taskNodes.value[0].draft).toBe('Test draft')
     expect(taskNodes.value[0].position).toEqual({ x: 42, y: 99 })
+  })
+})
+
+// ── Edge CRUD ──
+
+describe('useOrchestrationCanvas — edge lifecycle', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    useOrchestrationCanvas()._resetState()
+  })
+
+  it('starts with no edges', () => {
+    const { edges } = useOrchestrationCanvas()
+    expect(edges.value).toEqual([])
+  })
+
+  it('createEdge adds an edge with source and target', () => {
+    const { createTaskNode, createEdge, edges } = useOrchestrationCanvas()
+
+    const a = createTaskNode()
+    const b = createTaskNode()
+    const edge = createEdge(a.id, b.id)!
+
+    expect(edges.value).toHaveLength(1)
+    expect(edge.id).toBeTruthy()
+    expect(edge.source).toBe(a.id)
+    expect(edge.target).toBe(b.id)
+  })
+
+  it('createEdge supports one-to-many (parallel fork): A→B, A→C', () => {
+    const { createTaskNode, createEdge, edges } = useOrchestrationCanvas()
+
+    const a = createTaskNode()
+    const b = createTaskNode()
+    const c = createTaskNode()
+
+    createEdge(a.id, b.id)
+    createEdge(a.id, c.id)
+
+    expect(edges.value).toHaveLength(2)
+    expect(edges.value.some(e => e.source === a.id && e.target === b.id)).toBe(true)
+    expect(edges.value.some(e => e.source === a.id && e.target === c.id)).toBe(true)
+  })
+
+  it('createEdge supports many-to-one (convergence): A→C, B→C', () => {
+    const { createTaskNode, createEdge, edges } = useOrchestrationCanvas()
+
+    const a = createTaskNode()
+    const b = createTaskNode()
+    const c = createTaskNode()
+
+    createEdge(a.id, c.id)
+    createEdge(b.id, c.id)
+
+    expect(edges.value).toHaveLength(2)
+    expect(edges.value.some(e => e.source === a.id && e.target === c.id)).toBe(true)
+    expect(edges.value.some(e => e.source === b.id && e.target === c.id)).toBe(true)
+  })
+
+  it('removeEdge removes the edge from the list', () => {
+    const { createTaskNode, createEdge, removeEdge, edges } = useOrchestrationCanvas()
+
+    const a = createTaskNode()
+    const b = createTaskNode()
+    const edge = createEdge(a.id, b.id)!
+    expect(edges.value).toHaveLength(1)
+
+    removeEdge(edge.id)
+    expect(edges.value).toHaveLength(0)
+  })
+
+  it('removeEdge on a non-existent id is a no-op', () => {
+    const { removeEdge, edges } = useOrchestrationCanvas()
+
+    removeEdge('nonexistent-id')
+    expect(edges.value).toHaveLength(0)
+  })
+
+  it('removing a node also removes its connected edges', () => {
+    const { createTaskNode, createEdge, removeTaskNode, edges } = useOrchestrationCanvas()
+
+    const a = createTaskNode()
+    const b = createTaskNode()
+    const c = createTaskNode()
+
+    createEdge(a.id, b.id)
+    createEdge(b.id, c.id)
+    expect(edges.value).toHaveLength(2)
+
+    removeTaskNode(b.id)
+    expect(edges.value).toHaveLength(0)
+  })
+})
+
+// ── Self-loop rejection ──
+
+describe('useOrchestrationCanvas — self-loop rejection', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    useOrchestrationCanvas()._resetState()
+  })
+
+  it('createEdge rejects self-loop (source === target)', () => {
+    const { createTaskNode, createEdge, edges } = useOrchestrationCanvas()
+
+    const a = createTaskNode()
+    const result = createEdge(a.id, a.id)
+
+    expect(result).toBeNull()
+    expect(edges.value).toHaveLength(0)
+  })
+})
+
+// ── Cycle prevention ──
+
+describe('useOrchestrationCanvas — cycle prevention', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    useOrchestrationCanvas()._resetState()
+  })
+
+  it('rejects direct cycle: A→B then B→A', () => {
+    const { createTaskNode, createEdge, edges } = useOrchestrationCanvas()
+
+    const a = createTaskNode()
+    const b = createTaskNode()
+
+    expect(createEdge(a.id, b.id)).not.toBeNull()
+    expect(edges.value).toHaveLength(1)
+
+    const result = createEdge(b.id, a.id)
+    expect(result).toBeNull()
+    expect(edges.value).toHaveLength(1)
+  })
+
+  it('rejects indirect cycle: A→B→C then C→A', () => {
+    const { createTaskNode, createEdge, edges } = useOrchestrationCanvas()
+
+    const a = createTaskNode()
+    const b = createTaskNode()
+    const c = createTaskNode()
+
+    createEdge(a.id, b.id)
+    createEdge(b.id, c.id)
+    expect(edges.value).toHaveLength(2)
+
+    const result = createEdge(c.id, a.id)
+    expect(result).toBeNull()
+    expect(edges.value).toHaveLength(2)
+  })
+
+  it('allows parallel branches that do not form a cycle: A→B, A→C, B→D, C→D', () => {
+    const { createTaskNode, createEdge, edges } = useOrchestrationCanvas()
+
+    const a = createTaskNode()
+    const b = createTaskNode()
+    const c = createTaskNode()
+    const d = createTaskNode()
+
+    createEdge(a.id, b.id)
+    createEdge(a.id, c.id)
+    createEdge(b.id, d.id)
+    createEdge(c.id, d.id)
+
+    expect(edges.value).toHaveLength(4)
+  })
+
+  it('rejects cycle in larger graph: A→B→C→D then D→B', () => {
+    const { createTaskNode, createEdge, edges } = useOrchestrationCanvas()
+
+    const a = createTaskNode()
+    const b = createTaskNode()
+    const c = createTaskNode()
+    const d = createTaskNode()
+
+    createEdge(a.id, b.id)
+    createEdge(b.id, c.id)
+    createEdge(c.id, d.id)
+
+    // D→B would create cycle B→C→D→B
+    const result = createEdge(d.id, b.id)
+    expect(result).toBeNull()
+    expect(edges.value).toHaveLength(3)
+  })
+
+  it('canCreateEdge returns true for valid edge', () => {
+    const { createTaskNode, canCreateEdge } = useOrchestrationCanvas()
+
+    const a = createTaskNode()
+    const b = createTaskNode()
+
+    expect(canCreateEdge(a.id, b.id)).toBe(true)
+  })
+
+  it('canCreateEdge returns false for self-loop', () => {
+    const { createTaskNode, canCreateEdge } = useOrchestrationCanvas()
+
+    const a = createTaskNode()
+
+    expect(canCreateEdge(a.id, a.id)).toBe(false)
+  })
+
+  it('canCreateEdge returns false for cycle-forming edge', () => {
+    const { createTaskNode, createEdge, canCreateEdge } = useOrchestrationCanvas()
+
+    const a = createTaskNode()
+    const b = createTaskNode()
+
+    createEdge(a.id, b.id)
+
+    expect(canCreateEdge(b.id, a.id)).toBe(false)
+  })
+})
+
+// ── Edge localStorage persistence ──
+
+describe('useOrchestrationCanvas — edge persistence', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    useOrchestrationCanvas()._resetState()
+  })
+
+  it('persists edges to localStorage on creation', () => {
+    const { createTaskNode, createEdge } = useOrchestrationCanvas()
+
+    const a = createTaskNode()
+    const b = createTaskNode()
+    createEdge(a.id, b.id)
+
+    const stored = JSON.parse(localStorage.getItem('orchestration_edges') || '[]')
+    expect(stored).toHaveLength(1)
+    expect(stored[0].source).toBe(a.id)
+    expect(stored[0].target).toBe(b.id)
+  })
+
+  it('removes edge from localStorage on delete', () => {
+    const { createTaskNode, createEdge, removeEdge } = useOrchestrationCanvas()
+
+    const a = createTaskNode()
+    const b = createTaskNode()
+    const edge = createEdge(a.id, b.id)!
+    removeEdge(edge.id)
+
+    const stored = JSON.parse(localStorage.getItem('orchestration_edges') || '[]')
+    expect(stored).toHaveLength(0)
+  })
+
+  it('restores edges from localStorage via reloadFromStorage', () => {
+    const { reloadFromStorage, edges, taskNodes } = useOrchestrationCanvas()
+
+    // Pre-populate both nodes and edges in localStorage
+    const nodeData = [
+      { id: 'n1', sessionId: 's1', draft: '', position: { x: 0, y: 0 } },
+      { id: 'n2', sessionId: 's2', draft: '', position: { x: 100, y: 0 } },
+    ]
+    const edgeData = [
+      { id: 'e1', source: 'n1', target: 'n2' },
+    ]
+    localStorage.setItem('orchestration_nodes', JSON.stringify(nodeData))
+    localStorage.setItem('orchestration_edges', JSON.stringify(edgeData))
+
+    reloadFromStorage()
+
+    expect(taskNodes.value).toHaveLength(2)
+    expect(edges.value).toHaveLength(1)
+    expect(edges.value[0].id).toBe('e1')
+    expect(edges.value[0].source).toBe('n1')
+    expect(edges.value[0].target).toBe('n2')
+  })
+
+  it('removes edges from localStorage when node is deleted', () => {
+    const { createTaskNode, createEdge, removeTaskNode } = useOrchestrationCanvas()
+
+    const a = createTaskNode()
+    const b = createTaskNode()
+    createEdge(a.id, b.id)
+
+    removeTaskNode(a.id)
+
+    const stored = JSON.parse(localStorage.getItem('orchestration_edges') || '[]')
+    expect(stored).toHaveLength(0)
   })
 })

@@ -3,6 +3,9 @@
     class="task-node-card"
     @dblclick="onDblClick"
   >
+    <!-- 输入端口（左侧 Handle） -->
+    <Handle type="target" :position="Position.Left" />
+
     <!-- 头部 -->
     <div class="task-node-header">
       <span class="task-node-title">{{ t('orchestration.taskNode') }}</span>
@@ -23,6 +26,9 @@
       @input="onDraftInput"
       @dblclick.stop
     ></textarea>
+
+    <!-- 输出端口（右侧 Handle） -->
+    <Handle type="source" :position="Position.Right" />
   </div>
 </template>
 
@@ -30,6 +36,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { X } from 'lucide-vue-next'
+import { Handle, Position } from '@vue-flow/core'
 
 const props = defineProps<{
   id: string

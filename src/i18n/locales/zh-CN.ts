@@ -449,6 +449,8 @@ export default {
     draftPlaceholder: '输入任务草稿（不发送）…',
     drawerTitle: '节点会话',
     closeDrawer: '关闭抽屉',
+    cycleDetected: '会产生循环依赖',
+    selfLoopDetected: '不能连接自己',
   },
 
   auth: {

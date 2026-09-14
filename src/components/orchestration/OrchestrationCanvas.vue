@@ -28,12 +28,15 @@
     >
       <VueFlow
         v-model:nodes="flowNodes"
+        v-model:edges="flowEdges"
         :default-viewport="{ zoom: 1, x: 0, y: 0 }"
         :min-zoom="0.2"
         :max-zoom="4"
-        :delete-key-code="null"
+        :delete-key-code="['Backspace', 'Delete']"
         fit-view-on-init
         @nodes-change="onNodesChange"
+        @edges-change="onEdgesChange"
+        @connect="onConnect"
       >
         <template #node-task="nodeProps">
           <TaskNodeCard
@@ -67,6 +70,13 @@
         :session-id="drawerSessionId"
         @close="handleCloseDrawer"
       />
+
+      <!-- 环预防 / 自环提示 toast -->
+      <Transition name="edge-error-fade">
+        <div v-if="edgeErrorVisible" class="edge-error-toast">
+          {{ edgeError }}
+        </div>
+      </Transition>
     </div>
   </div>
 </template>
@@ -74,7 +84,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { VueFlow, type Node as FlowNode } from '@vue-flow/core'
+import { VueFlow, type Node as FlowNode, type Edge as FlowEdge, type Connection, MarkerType } from '@vue-flow/core'
 import { MiniMap } from '@vue-flow/minimap'
 import { Background } from '@vue-flow/background'
 import { Map as MapIcon, Workflow, Plus } from 'lucide-vue-next'
@@ -91,16 +101,20 @@ const {
   showMinimap,
   toggleMinimap,
   taskNodes,
+  edges,
   createTaskNode,
   removeTaskNode,
   setDraft,
   updateNodePosition,
+  createEdge,
+  removeEdge,
+  canCreateEdge,
   reloadFromStorage,
 } = useOrchestrationCanvas()
 
 const showBackground = ref(true)
 
-// ── 初始加载：从 localStorage 恢复节点 ──
+// ── 初始加载：从 localStorage 恢复节点和连线 ──
 reloadFromStorage()
 
 // ── Vue Flow 节点同步 ──
@@ -128,6 +142,29 @@ watch(
   { deep: true },
 )
 
+// ── Vue Flow Edge 同步 ──
+const flowEdges = ref<FlowEdge[]>(
+  edges.value.map(e => ({
+    id: e.id,
+    source: e.source,
+    target: e.target,
+    markerEnd: MarkerType.ArrowClosed,
+  })),
+)
+
+watch(
+  edges,
+  (eds) => {
+    flowEdges.value = eds.map(e => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      markerEnd: MarkerType.ArrowClosed,
+    }))
+  },
+  { deep: true },
+)
+
 // Vue Flow 位置变更 → composable
 function onNodesChange(changes: any[]) {
   for (const change of changes) {
@@ -135,6 +172,48 @@ function onNodesChange(changes: any[]) {
       updateNodePosition(change.id, { x: change.position.x, y: change.position.y })
     }
   }
+}
+
+// ── Edge 事件处理 ──
+
+// 连线创建 — VueFlow connect 事件
+function onConnect(connection: Connection) {
+  const { source, target } = connection
+  // 自环检测
+  if (source === target) {
+    edgeError.value = t('orchestration.selfLoopDetected')
+    showEdgeError()
+    return
+  }
+  // 环检测
+  if (!canCreateEdge(source, target)) {
+    edgeError.value = t('orchestration.cycleDetected')
+    showEdgeError()
+    return
+  }
+  createEdge(source, target)
+}
+
+// Edge 变更处理 — 删除时同步到 composable
+function onEdgesChange(changes: any[]) {
+  for (const change of changes) {
+    if (change.type === 'remove') {
+      removeEdge(change.id)
+    }
+  }
+}
+
+// ── 环预防提示 toast ──
+const edgeError = ref('')
+const edgeErrorVisible = ref(false)
+let edgeErrorTimer: ReturnType<typeof setTimeout> | null = null
+
+function showEdgeError() {
+  edgeErrorVisible.value = true
+  if (edgeErrorTimer) clearTimeout(edgeErrorTimer)
+  edgeErrorTimer = setTimeout(() => {
+    edgeErrorVisible.value = false
+  }, 3000)
 }
 
 // ── 创建节点 ──
@@ -317,5 +396,34 @@ function handleCloseDrawer() {
       transform: scale(0.98);
     }
   }
+}
+
+// ── Edge error toast ──
+.edge-error-toast {
+  position: absolute;
+  top: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+  background: var(--danger, #ef4444);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  z-index: 50;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.edge-error-fade-enter-active,
+.edge-error-fade-leave-active {
+  transition: all 0.3s ease;
+}
+
+.edge-error-fade-enter-from,
+.edge-error-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-10px);
 }
 </style>
