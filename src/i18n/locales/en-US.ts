@@ -360,6 +360,8 @@ export default {
     turnChangesHistoricalCardLabel: 'Historical turn change tracker',
     turnChangesNoFiles: 'No files changed in this turn',
     rewind: 'Rewind',
+    copyMessage: 'Copy message',
+    copied: 'Copied',
     rewindTitle: 'Rewind Message',
     rewindSubtitle: 'Choose rewind option',
     rewindSelectMessage: 'Select message to rewind to',

@@ -360,6 +360,8 @@ export default {
     turnChangesHistoricalCardLabel: '历史轮次变更追踪',
     turnChangesNoFiles: '本轮次没有文件变更',
     rewind: '回滚',
+    copyMessage: '复制消息',
+    copied: '已复制',
     rewindTitle: '回滚消息',
     rewindSubtitle: '选择回滚方式',
     rewindSelectMessage: '选择要回滚到的消息',

@@ -54,26 +54,39 @@
           @tool-skip="handleToolSkip"
         />
         
-        <!-- 用户消息 + 助手消息：bubble 渲染（含回滚按钮和内容） -->
-        <div class="message-content-wrapper">
+        <!-- 用户消息 + 助手消息：bubble 渲染 -->
+        <div class="message-content" v-if="message.content">
+          <MarkdownRenderer
+            v-if="message.role === 'assistant'"
+            :content="message.content"
+          />
+          <p v-else class="user-text" v-html="renderedUserContent" @copy="handleUserCopy"></p>
+        </div>
+
+        <!-- 用户消息操作栏：回滚 + 复制（始终占据空间，hover 时淡入显示） -->
+        <div
+          v-if="message.role === 'user' && message.content"
+          class="message-action-bar"
+          :class="{ 'is-visible': isHovered }"
+        >
           <button
-            v-if="showRewindButton"
-            class="rewind-button"
+            v-if="canRewind !== false"
+            class="action-button"
             :title="t('chat.rewind')"
             :aria-label="t('chat.rewind')"
             @click="handleRewindClick"
           >
-            <RotateCcw :size="14" />
+            <RotateCcw :size="13" />
           </button>
-
-          <!-- 消息内容 -->
-          <div class="message-content" v-if="message.content">
-            <MarkdownRenderer
-              v-if="message.role === 'assistant'"
-              :content="message.content"
-            />
-            <p v-else class="user-text" v-html="renderedUserContent" @copy="handleUserCopy"></p>
-          </div>
+          <button
+            class="action-button"
+            :title="copied ? t('chat.copied') : t('chat.copyMessage')"
+            :aria-label="t('chat.copyMessage')"
+            @click="handleCopyClick"
+          >
+            <Check v-if="copied" :size="13" />
+            <Copy v-else :size="13" />
+          </button>
         </div>
         
         <!-- 元数据 -->
@@ -118,7 +131,7 @@
 
 <script setup lang="ts">
 import type { Message, ImageAttachment } from '@/types'
-import { User, Bot, RotateCcw, CheckCircle, XCircle, X, Globe, FileText } from 'lucide-vue-next'
+import { User, Bot, RotateCcw, CheckCircle, XCircle, X, Globe, FileText, Copy, Check } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
@@ -145,6 +158,9 @@ const emit = defineEmits<{
 
 const isHovered = ref(false)
 const previewImage = ref<ImageAttachment | null>(null)
+const copied = ref(false)
+
+let copyTimer: ReturnType<typeof setTimeout> | undefined
 
 const isTaskNotification = computed(() => props.message.metadata?.kind === 'task-notification')
 
@@ -161,13 +177,6 @@ function openInWorkbench(target: WorkbenchTarget) {
   }
 }
 
-const showRewindButton = computed(() => {
-  if (!isHovered.value) return false
-  if (props.message.role !== 'user') return false
-  if (props.canRewind === false) return false
-  return true
-})
-
 function handleMouseEnter() {
   isHovered.value = true
 }
@@ -178,6 +187,18 @@ function handleMouseLeave() {
 
 function handleRewindClick() {
   emit('rewind', props.message)
+}
+
+function handleCopyClick() {
+  const text = props.message.content || ''
+  if (!text) return
+  navigator.clipboard.writeText(text).then(() => {
+    copied.value = true
+    if (copyTimer) clearTimeout(copyTimer)
+    copyTimer = setTimeout(() => {
+      copied.value = false
+    }, 2000)
+  })
 }
 
 const renderedUserContent = computed(() =>
@@ -647,14 +668,32 @@ function handleUserCopy(e: ClipboardEvent) {
   }
 }
 
-// 消息内容容器（用于放置回滚按钮和消息内容）
-.message-content-wrapper {
+// 用户消息操作栏（回滚 + 复制）
+// 始终占据空间，默认隐藏，hover 时淡入显示
+.message-action-bar {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  height: 24px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+
+  // 用户消息右对齐
+  .message-item.user & {
+    justify-content: flex-end;
+  }
+
+  &.is-visible {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
 }
 
-.rewind-button {
+.action-button {
   width: 24px;
   height: 24px;
   border-radius: 50%;
@@ -665,22 +704,15 @@ function handleUserCopy(e: ClipboardEvent) {
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
-  transition: opacity 0.2s ease, background-color 0.2s ease, color 0.2s ease;
-  z-index: 1;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
   padding: 0;
   flex-shrink: 0;
-  margin-top: 12px; // 与消息内容的padding对齐
 
   &:hover {
     background: var(--accent-primary);
     color: white;
     border-color: var(--accent-primary);
   }
-}
-
-.message-item:hover .rewind-button {
-  opacity: 1;
 }
 
 .workbench-hint-bar {
@@ -788,10 +820,9 @@ function handleUserCopy(e: ClipboardEvent) {
     }
   }
 
-  .rewind-button {
+  .action-button {
     width: 20px;
     height: 20px;
-    margin-top: 10px; // 调整移动端的margin
   }
 }
 </style>
