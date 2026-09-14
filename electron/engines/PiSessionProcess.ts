@@ -398,6 +398,15 @@ export class PiSessionProcess extends EventEmitter {
   private resolveCliPath(): string {
     const isPackaged = app.isPackaged
 
+    // electron-builder places @mariozechner/pi-coding-agent under
+    // app.asar.unpacked. Electron's virtual asar filesystem can read the
+    // app.asar path, but a child process cannot execute a script from inside
+    // the archive on Windows. Always try the unpacked equivalent first.
+    const unpackedPath = (candidate: string): string =>
+      candidate.includes(`${path.sep}app.asar${path.sep}`)
+        ? candidate.replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`)
+        : candidate.replace(/app\.asar([\\/])/, 'app.asar.unpacked$1')
+
     // Strategy 1: __dirname-relative paths (works in both dev and packaged modes)
     // In dev: __dirname = dist-electron/ → ../../ = project root
     // In packaged: __dirname = app.asar/dist-electron/ → ../../ = app root
@@ -406,9 +415,10 @@ export class PiSessionProcess extends EventEmitter {
       path.resolve(__dirname, '../../../node_modules/@mariozechner/pi-coding-agent/dist/cli.js'),
     ]
     for (const p of devPaths) {
-      if (fs.existsSync(p)) {
-        info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (__dirname-relative): ${p}`)
-        return p
+      const executablePath = unpackedPath(p)
+      if (fs.existsSync(executablePath)) {
+        info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (__dirname-relative): ${executablePath}`)
+        return executablePath
       }
     }
 
