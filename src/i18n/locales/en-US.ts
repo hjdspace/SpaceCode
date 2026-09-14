@@ -460,7 +460,12 @@ export default {
     status_failed: 'Failed',
     status_skipped: 'Skipped',
     status_queued: 'Queued',
-  },
+    stopNode: 'Stop node',
+    retryNode: 'Retry node',
+    addMessage: 'Add message',
+    addMessagePlaceholder: 'Add message…',
+    permissionPending: 'Pending permission',
+    },
 
   auth: {
     anthropicCompatible: 'Anthropic Compatible',

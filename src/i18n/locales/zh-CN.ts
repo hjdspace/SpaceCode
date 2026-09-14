@@ -460,7 +460,12 @@ export default {
     status_failed: '失败',
     status_skipped: '已跳过',
     status_queued: '排队中',
-  },
+    stopNode: '停止节点',
+    retryNode: '重试节点',
+    addMessage: '追加消息',
+    addMessagePlaceholder: '追加消息…',
+    permissionPending: '有待处理权限',
+    },
 
   auth: {
     anthropicCompatible: 'Anthropic 兼容',

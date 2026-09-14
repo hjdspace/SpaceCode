@@ -12,6 +12,8 @@ const hoisted = vi.hoisted(() => {
     cb: null as ((sessionId: string, outcome: 'settled' | 'failed' | 'aborted') => void) | null,
   }
 
+  const mockPendingMessages = new Map<string, any[]>()
+
   const mockTurnStore = {
     onTurnOutcome: vi.fn((cb: (sessionId: string, outcome: 'settled' | 'failed' | 'aborted') => void) => {
       container.cb = cb
@@ -19,6 +21,17 @@ const hoisted = vi.hoisted(() => {
     }),
     sendMessage: vi.fn().mockResolvedValue(undefined),
     abort: vi.fn().mockResolvedValue(undefined),
+    addPendingMessage: vi.fn((sessionId: string, msg: any) => {
+      const queue = mockPendingMessages.get(sessionId) || []
+      queue.push(msg)
+      mockPendingMessages.set(sessionId, queue)
+    }),
+    getPendingMessages: vi.fn((sessionId: string) => mockPendingMessages.get(sessionId) || []),
+    clearPendingMessages: vi.fn((sessionId: string) => { mockPendingMessages.delete(sessionId) }),
+    pendingPermissions: new Map() as any,
+    allowPermission: vi.fn().mockResolvedValue(undefined),
+    denyPermission: vi.fn().mockResolvedValue(undefined),
+    hasPendingPermissionForToolUse: vi.fn().mockReturnValue(false),
   }
 
   const mockSessionStore = {
@@ -31,7 +44,7 @@ const hoisted = vi.hoisted(() => {
     abort: vi.fn().mockResolvedValue(undefined),
   }
 
-  return { mockTurnStore, mockSessionStore, mockClaudeCodeApi, container }
+  return { mockTurnStore, mockSessionStore, mockClaudeCodeApi, container, mockPendingMessages }
 })
 
 vi.mock('@/stores/turn', () => ({
@@ -229,5 +242,182 @@ describe('useOrchestrationRun — 停止运行', () => {
     expect(run.isRunning.value).toBe(false)
     expect(run.getNodeStatus('A')).toBe('failed')
     expect(hoisted.mockClaudeCodeApi.abort).toHaveBeenCalled()
+  })
+})
+
+// ── 单节点停止 ──
+
+describe('useOrchestrationRun — 单节点停止', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    const canvas = useOrchestrationCanvas()
+    canvas._resetState()
+    hoisted.mockClaudeCodeApi.abort.mockClear()
+  })
+
+  it('stopNode 中止指定节点 → failed，下游 skipped，旁支继续', async () => {
+    // A → B → C, D 独立旁支
+    setupCanvas([
+      makeNode('A', 'task A'),
+      makeNode('B', 'task B'),
+      makeNode('C', 'task C'),
+      makeNode('D', 'task D'),
+    ], [
+      makeEdge('A', 'B'),
+      makeEdge('B', 'C'),
+    ])
+    const run = useOrchestrationRun()
+
+    const runPromise = run.startRun()
+    await flushMicrotasks()
+
+    // A running, D running
+    expect(run.getNodeStatus('A')).toBe('running')
+    expect(run.getNodeStatus('D')).toBe('running')
+
+    // A settle → B running
+    signalOutcome('sess-A', 'settled')
+    await flushMicrotasks()
+    expect(run.getNodeStatus('B')).toBe('running')
+
+    // 停掉 B
+    await run.stopNode('B')
+    await flushMicrotasks()
+
+    expect(run.getNodeStatus('B')).toBe('failed')
+    expect(run.getNodeStatus('C')).toBe('skipped')
+    // D 旁支继续
+    expect(run.getNodeStatus('D')).toBe('running')
+    expect(run.isRunning.value).toBe(true)
+
+    // 清理
+    signalOutcome('sess-D', 'settled')
+    await flushMicrotasks()
+    await runPromise
+  })
+})
+
+// ── 失败节点重试 ──
+
+describe('useOrchestrationRun — 失败节点重试', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    const canvas = useOrchestrationCanvas()
+    canvas._resetState()
+  })
+
+  it('retryNode 对 failed 节点重跑，成功后下游续跑', async () => {
+    setupCanvas([
+      makeNode('A', 'task A'),
+      makeNode('B', 'task B'),
+      makeNode('C', 'task C'),
+    ], [
+      makeEdge('A', 'B'),
+      makeEdge('B', 'C'),
+    ])
+    const run = useOrchestrationRun()
+
+    const runPromise = run.startRun()
+    await flushMicrotasks()
+
+    // A settle → B running
+    signalOutcome('sess-A', 'settled')
+    await flushMicrotasks()
+
+    // B failed → C skipped, run 结束
+    signalOutcome('sess-B', 'failed')
+    await flushMicrotasks()
+    await runPromise
+
+    expect(run.getNodeStatus('B')).toBe('failed')
+    expect(run.getNodeStatus('C')).toBe('skipped')
+
+    // 重试 B — 新 session
+    hoisted.mockSessionStore.createSession.mockImplementationOnce(() => ({ id: 'sess-B-retry' }))
+    const retryPromise = run.retryNode('B')
+    await retryPromise
+    await flushMicrotasks()
+
+    expect(run.getNodeStatus('B')).toBe('running')
+
+    // B 重试成功 → C 续跑
+    signalOutcome('sess-B-retry', 'settled')
+    await flushMicrotasks()
+    await flushMicrotasks()
+
+    expect(run.getNodeStatus('B')).toBe('settled')
+    expect(run.getNodeStatus('C')).toBe('running')
+
+    // 清理
+    signalOutcome('sess-C', 'settled')
+    await flushMicrotasks()
+  })
+})
+
+// ── 运行中节点追加消息 ──
+
+describe('useOrchestrationRun — 运行中节点追加消息', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    const canvas = useOrchestrationCanvas()
+    canvas._resetState()
+    hoisted.mockPendingMessages.clear()
+    hoisted.mockTurnStore.addPendingMessage.mockClear()
+  })
+
+  it('addNodeMessage 调用 turnStore.addPendingMessage 传入正确 sessionId', async () => {
+    setupCanvas([makeNode('A', 'task A')], [])
+    const run = useOrchestrationRun()
+
+    const runPromise = run.startRun()
+    await flushMicrotasks()
+
+    run.addNodeMessage('A', 'extra context')
+
+    expect(hoisted.mockTurnStore.addPendingMessage).toHaveBeenCalledWith('sess-A', expect.objectContaining({
+      content: 'extra context',
+    }))
+
+    // 清理
+    signalOutcome('sess-A', 'settled')
+    await flushMicrotasks()
+    await runPromise
+  })
+})
+
+// ── 权限请求按 sessionId 路由 ──
+
+describe('useOrchestrationRun — 权限请求路由', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    const canvas = useOrchestrationCanvas()
+    canvas._resetState()
+    // 重置权限 Map
+    hoisted.mockTurnStore.pendingPermissions = new Map() as any
+  })
+
+  it('hasPendingPermissionForNode 返回节点是否有待处理权限', async () => {
+    setupCanvas([makeNode('A', 'task A'), makeNode('B', 'task B')], [])
+    const run = useOrchestrationRun()
+
+    const runPromise = run.startRun()
+    await flushMicrotasks()
+
+    // 初始无权限
+    expect(run.hasPendingPermissionForNode('A')).toBe(false)
+
+    // 模拟 A 有权限请求 — 在 pendingPermissions Map 中添加 sessionId
+    const perms = hoisted.mockTurnStore.pendingPermissions as any
+    perms.set('sess-A', new Map([['tu1', { toolUseId: 'tu1' }]]))
+    expect(run.hasPendingPermissionForNode('A')).toBe(true)
+
+    // B 无权限请求
+    expect(run.hasPendingPermissionForNode('B')).toBe(false)
+
+    // 清理
+    signalOutcome('sess-A', 'settled')
+    signalOutcome('sess-B', 'settled')
+    await flushMicrotasks()
+    await runPromise
   })
 })

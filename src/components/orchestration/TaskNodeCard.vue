@@ -14,6 +14,33 @@
       <span v-if="status" class="task-node-badge" :class="`badge-${status}`">
         {{ t(`orchestration.status_${status}`) }}
       </span>
+      <!-- 权限徽标 -->
+      <span
+        v-if="hasPendingPermission"
+        class="task-node-perm-badge"
+        :title="t('orchestration.permissionPending')"
+        @click.stop="onDblClick"
+      >
+        <ShieldAlert :size="12" />
+      </span>
+      <!-- 停止按钮（running 时） -->
+      <button
+        v-if="status === 'running'"
+        class="task-node-stop"
+        :title="t('orchestration.stopNode')"
+        @click.stop="onStopNode"
+      >
+        <SquareIcon :size="12" />
+      </button>
+      <!-- 重试按钮（failed 时） -->
+      <button
+        v-if="status === 'failed'"
+        class="task-node-retry"
+        :title="t('orchestration.retryNode')"
+        @click.stop="onRetryNode"
+      >
+        <RotateCcw :size="12" />
+      </button>
       <button
         v-if="!isRunning"
         class="task-node-delete"
@@ -34,15 +61,39 @@
       @dblclick.stop
     ></textarea>
 
+    <!-- 追加消息输入区（running 时） -->
+    <form
+      v-if="status === 'running'"
+      class="task-node-add-msg"
+      @click.stop
+      @dblclick.stop
+      @submit.prevent="onAddMessage"
+    >
+      <input
+        v-model="addMsgInput"
+        class="add-msg-input"
+        :placeholder="t('orchestration.addMessagePlaceholder')"
+        type="text"
+      />
+      <button
+        class="add-msg-btn"
+        type="submit"
+        :disabled="!addMsgInput.trim()"
+        :title="t('orchestration.addMessage')"
+      >
+        <Send :size="12" />
+      </button>
+    </form>
+
     <!-- 输出端口（右侧 Handle） -->
     <Handle type="source" :position="Position.Right" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { X } from 'lucide-vue-next'
+import { X, Square as SquareIcon, RotateCcw, ShieldAlert, Send } from 'lucide-vue-next'
 import { Handle, Position } from '@vue-flow/core'
 import type { NodeStatus } from '@/stores/orchestration/types'
 
@@ -58,12 +109,17 @@ const props = defineProps<{
   isRunning?: boolean
   /** 空草稿标红 */
   isEmptyDraft?: boolean
+  /** 节点有待处理权限请求 */
+  hasPendingPermission?: boolean
 }>()
 
 const emit = defineEmits<{
   remove: [nodeId: string]
   openDrawer: [nodeId: string]
   updateDraft: [nodeId: string, draft: string]
+  stopNode: [nodeId: string]
+  retryNode: [nodeId: string]
+  addMessage: [nodeId: string, content: string]
 }>()
 
 const { t } = useI18n()
@@ -81,6 +137,8 @@ const statusClass = computed(() => {
   return `status-${props.status}`
 })
 
+const addMsgInput = ref('')
+
 function onRemove() {
   emit('remove', props.id)
 }
@@ -92,6 +150,21 @@ function onDblClick() {
 function onDraftInput(e: Event) {
   const value = (e.target as HTMLTextAreaElement).value
   emit('updateDraft', props.id, value)
+}
+
+function onStopNode() {
+  emit('stopNode', props.id)
+}
+
+function onRetryNode() {
+  emit('retryNode', props.id)
+}
+
+function onAddMessage() {
+  const content = addMsgInput.value.trim()
+  if (!content) return
+  emit('addMessage', props.id, content)
+  addMsgInput.value = ''
 }
 </script>
 
@@ -201,6 +274,56 @@ function onDraftInput(e: Event) {
   50% { opacity: 0.6; }
 }
 
+.task-node-perm-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: #f59e0b;
+  background: color-mix(in srgb, #f59e0b 15%, transparent);
+  cursor: pointer;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.task-node-stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--danger, #ef4444);
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background: color-mix(in srgb, var(--danger, #ef4444) 12%, transparent);
+  }
+}
+
+.task-node-retry {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--accent-primary, #6366f1);
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background: color-mix(in srgb, var(--accent-primary, #6366f1) 12%, transparent);
+  }
+}
+
 .task-node-delete {
   display: inline-flex;
   align-items: center;
@@ -240,6 +363,59 @@ function onDraftInput(e: Event) {
 
   &:read-only {
     cursor: default;
+  }
+}
+
+.task-node-add-msg {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px 6px;
+  border-top: 1px solid var(--surface-border, rgba(255, 255, 255, 0.06));
+
+  .add-msg-input {
+    flex: 1;
+    min-width: 0;
+    padding: 3px 6px;
+    border: 1px solid var(--surface-border, rgba(255, 255, 255, 0.1));
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: inherit;
+    color: var(--text-primary, #e0e0e0);
+    background: var(--surface-glass, rgba(30, 30, 46, 0.6));
+    outline: none;
+
+    &::placeholder {
+      color: var(--text-muted, #555);
+    }
+
+    &:focus {
+      border-color: var(--accent-primary, #6366f1);
+    }
+  }
+
+  .add-msg-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    color: var(--accent-primary, #6366f1);
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.15s ease;
+
+    &:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--accent-primary, #6366f1) 12%, transparent);
+    }
+
+    &:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
   }
 }
 </style>

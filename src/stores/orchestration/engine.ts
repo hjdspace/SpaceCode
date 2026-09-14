@@ -311,8 +311,8 @@ export function createOrchestrationEngine(opts: OrchestrationEngineOptions): Orc
     const state = runState.nodeStates.get(nodeId)
     if (!state || state.status !== 'failed') return
 
-    // 如果 Run 已停止，重新设为 running
-    if (runState.status === 'stopped') runState.status = 'running'
+    // 如果 Run 已停止或空闲，重新设为 running
+    if (runState.status !== 'running') runState.status = 'running'
 
     // 重置该节点及其因它 skipped 的下游为 pending
     state.status = 'pending'
@@ -337,6 +337,43 @@ export function createOrchestrationEngine(opts: OrchestrationEngineOptions): Orc
 
     // 尝试启动（该节点可能需要等上游，但 retry 要求上游已 settled）
     await tryStartReadyNodes()
+  }
+
+  async function stopNode(nodeId: string): Promise<void> {
+    const state = runState.nodeStates.get(nodeId)
+    if (!state || state.status !== 'running') return
+
+    // 中止该节点的 session
+    if (state.sessionId) {
+      await sessionAborter.abort(state.sessionId)
+    }
+    // 标记为 failed
+    state.status = 'failed'
+
+    // 传播 skip 到下游传递闭包
+    const toSkip = [nodeId]
+    const visited = new Set<string>()
+    while (toSkip.length > 0) {
+      const current = toSkip.shift()!
+      if (visited.has(current)) continue
+      visited.add(current)
+      for (const ds of getDownstream(current)) {
+        if (visited.has(ds)) continue
+        const dsState = runState.nodeStates.get(ds)
+        if (!dsState) continue
+        // 只 skip 还未到达终态的节点
+        if (dsState.status === 'pending' || dsState.status === 'queued') {
+          dsState.status = 'skipped'
+          toSkip.push(ds)
+        }
+      }
+    }
+
+    // 尝试启动就绪的节点（旁支不受影响）
+    await tryStartReadyNodes()
+
+    // 检查是否所有节点都到达终态
+    checkRunComplete()
   }
 
   async function stop(): Promise<void> {
@@ -375,6 +412,7 @@ export function createOrchestrationEngine(opts: OrchestrationEngineOptions): Orc
     getGraph,
     run,
     retryNode,
+    stopNode,
     stop,
     getRunState,
     getNodeStatus,

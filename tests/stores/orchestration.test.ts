@@ -364,6 +364,91 @@ describe('编排引擎 — 并发闸门', () => {
   })
 })
 
+// ── 单节点停止 ──
+
+describe('编排引擎 — 单节点停止', () => {
+  let fakes: ReturnType<typeof makeFakes>
+  let engine: OrchestrationEngine
+
+  beforeEach(() => {
+    fakes = makeFakes()
+    engine = createOrchestrationEngine(fakes.engineOpts)
+  })
+
+  it('stopNode 中止指定节点 → failed，下游传递闭包 skipped，旁支继续', async () => {
+    // A → (B, C) → D, E 独立旁支
+    engine.addNode({ id: 'A', draft: 'task A' })
+    engine.addNode({ id: 'B', draft: 'task B' })
+    engine.addNode({ id: 'C', draft: 'task C' })
+    engine.addNode({ id: 'D', draft: 'task D' })
+    engine.addNode({ id: 'E', draft: 'task E' })
+    engine.addEdge({ source: 'A', target: 'B' })
+    engine.addEdge({ source: 'A', target: 'C' })
+    engine.addEdge({ source: 'B', target: 'D' })
+    engine.addEdge({ source: 'C', target: 'D' })
+
+    const runPromise = engine.run()
+    await flushMicrotasks()
+
+    // A running, E running
+    expect(engine.getNodeStatus('A')).toBe('running')
+    expect(engine.getNodeStatus('E')).toBe('running')
+
+    // A settle → B, C 启动
+    fakes.signalOutcome('session-A', 'settled')
+    await flushMicrotasks()
+    expect(engine.getNodeStatus('B')).toBe('running')
+    expect(engine.getNodeStatus('C')).toBe('running')
+
+    // 停掉 B → failed，D 的上游 C 仍 running 所以 D 暂时 pending
+    await engine.stopNode('B')
+    await flushMicrotasks()
+
+    expect(engine.getNodeStatus('B')).toBe('failed')
+    expect(fakes.aborter.abort).toHaveBeenCalledWith('session-B')
+    // C 旁支继续 running
+    expect(engine.getNodeStatus('C')).toBe('running')
+    // E 旁支继续 running
+    expect(engine.getNodeStatus('E')).toBe('running')
+
+    // C settle → D 上游有 failed(B) → D skipped
+    fakes.signalOutcome('session-C', 'settled')
+    await flushMicrotasks()
+    expect(engine.getNodeStatus('D')).toBe('skipped')
+
+    // E settle → run 完成
+    fakes.signalOutcome('session-E', 'settled')
+    await flushMicrotasks()
+    await runPromise
+
+    expect(engine.getNodeStatus('E')).toBe('settled')
+    expect(engine.getRunState().status).toBe('idle')
+  })
+
+  it('stopNode 对非 running 节点无操作', async () => {
+    engine.addNode({ id: 'A', draft: 'task A' })
+    engine.addNode({ id: 'B', draft: 'task B' })
+    engine.addEdge({ source: 'A', target: 'B' })
+
+    const runPromise = engine.run()
+    await flushMicrotasks()
+
+    // B 是 pending — stopNode 无效果
+    await engine.stopNode('B')
+    await flushMicrotasks()
+
+    expect(engine.getNodeStatus('B')).toBe('pending')
+    expect(fakes.aborter.abort).not.toHaveBeenCalled()
+
+    // 清理
+    fakes.signalOutcome('session-A', 'settled')
+    await flushMicrotasks()
+    fakes.signalOutcome('session-B', 'settled')
+    await flushMicrotasks()
+    await runPromise
+  })
+})
+
 // ── 运行中锁结构 ──
 
 describe('编排引擎 — 运行中锁结构', () => {

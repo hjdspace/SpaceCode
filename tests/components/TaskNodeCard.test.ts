@@ -106,4 +106,75 @@ describe('TaskNodeCard', () => {
     // ChatPanel should not be rendered inside the card — only a draft input + header
     expect(wrapper.find('[data-testid="chat-panel-mock"]').exists()).toBe(false)
   })
+
+  // ── 单节点停止 ──
+
+  it('shows stop button when status is running', () => {
+    const wrapper = mountCard({ status: 'running', isRunning: true })
+    expect(wrapper.find('.task-node-stop').exists()).toBe(true)
+  })
+
+  it('does not show stop button when status is not running', () => {
+    const wrapper = mountCard({ status: 'pending', isRunning: true })
+    expect(wrapper.find('.task-node-stop').exists()).toBe(false)
+  })
+
+  it('emits stopNode event when stop button is clicked', async () => {
+    const wrapper = mountCard({ status: 'running', isRunning: true })
+    await wrapper.find('.task-node-stop').trigger('click')
+    expect(wrapper.emitted('stopNode')).toBeTruthy()
+    expect(wrapper.emitted('stopNode')![0]).toEqual(['test-node'])
+  })
+
+  // ── 失败节点重试 ──
+
+  it('shows retry button when status is failed', () => {
+    const wrapper = mountCard({ status: 'failed', isRunning: false })
+    expect(wrapper.find('.task-node-retry').exists()).toBe(true)
+  })
+
+  it('does not show retry button when status is not failed', () => {
+    const wrapper = mountCard({ status: 'running', isRunning: true })
+    expect(wrapper.find('.task-node-retry').exists()).toBe(false)
+  })
+
+  it('emits retryNode event when retry button is clicked', async () => {
+    const wrapper = mountCard({ status: 'failed', isRunning: false })
+    await wrapper.find('.task-node-retry').trigger('click')
+    expect(wrapper.emitted('retryNode')).toBeTruthy()
+    expect(wrapper.emitted('retryNode')![0]).toEqual(['test-node'])
+  })
+
+  // ── 运行中节点追加消息 ──
+
+  it('shows add message input when status is running', () => {
+    const wrapper = mountCard({ status: 'running', isRunning: true })
+    expect(wrapper.find('.task-node-add-msg').exists()).toBe(true)
+  })
+
+  it('does not show add message input when status is not running', () => {
+    const wrapper = mountCard({ status: 'pending', isRunning: true })
+    expect(wrapper.find('.task-node-add-msg').exists()).toBe(false)
+  })
+
+  it('emits addMessage event when add message form is submitted', async () => {
+    const wrapper = mountCard({ status: 'running', isRunning: true })
+    const input = wrapper.find('.task-node-add-msg input')
+    await input.setValue('extra context')
+    await wrapper.find('.task-node-add-msg').trigger('submit')
+    expect(wrapper.emitted('addMessage')).toBeTruthy()
+    expect(wrapper.emitted('addMessage')![0]).toEqual(['test-node', 'extra context'])
+  })
+
+  // ── 权限徽标 ──
+
+  it('shows permission badge when hasPendingPermission is true', () => {
+    const wrapper = mountCard({ status: 'running', isRunning: true, hasPendingPermission: true })
+    expect(wrapper.find('.task-node-perm-badge').exists()).toBe(true)
+  })
+
+  it('does not show permission badge when hasPendingPermission is false', () => {
+    const wrapper = mountCard({ status: 'running', isRunning: true, hasPendingPermission: false })
+    expect(wrapper.find('.task-node-perm-badge').exists()).toBe(false)
+  })
 })

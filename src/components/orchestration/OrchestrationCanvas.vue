@@ -92,9 +92,13 @@
             :status="getNodeStatus(nodeProps.id)"
             :is-running="isRunning"
             :is-empty-draft="emptyDraftNodeIds.includes(nodeProps.id)"
+            :has-pending-permission="hasPendingPermissionForNode(nodeProps.id)"
             @remove="handleRemoveNode"
             @open-drawer="handleOpenDrawer"
             @update-draft="handleUpdateDraft"
+            @stop-node="handleStopNode"
+            @retry-node="handleRetryNode"
+            @add-message="handleAddMessage"
           />
         </template>
 
@@ -171,6 +175,10 @@ const {
   getNodeStatus,
   startRun,
   stopRun,
+  stopNode,
+  retryNode,
+  addNodeMessage,
+  hasPendingPermissionForNode,
 } = useOrchestrationRun()
 
 const showBackground = ref(true)
@@ -338,6 +346,21 @@ async function handleRun() {
 
 async function handleStop() {
   await stopRun()
+}
+
+// ── 单节点停止 ──
+async function handleStopNode(nodeId: string) {
+  await stopNode(nodeId)
+}
+
+// ── 失败节点重试 ──
+async function handleRetryNode(nodeId: string) {
+  await retryNode(nodeId)
+}
+
+// ── 运行中节点追加消息 ──
+function handleAddMessage(nodeId: string, content: string) {
+  addNodeMessage(nodeId, content)
 }
 </script>
 

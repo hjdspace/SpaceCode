@@ -10,6 +10,7 @@ import type { OrchestrationEngine, NodeStatus } from '@/stores/orchestration/typ
 import { useTurnStore } from '@/stores/turn'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { api } from '@/services/electronAPI'
+import { createUuid } from '@/utils/uuid'
 
 export function useOrchestrationRun() {
   const canvas = useOrchestrationCanvas()
@@ -125,6 +126,68 @@ export function useOrchestrationRun() {
     isRunning.value = false
   }
 
+  // ── 单节点停止 ──
+
+  async function stopNode(nodeId: string): Promise<void> {
+    if (!engine) return
+    await engine.stopNode(nodeId)
+    runVersion.value++
+  }
+
+  // ── 失败节点重试 ──
+
+  async function retryNode(nodeId: string): Promise<void> {
+    if (!engine) return
+    // retry 时需要新 session — 通过 sessionLauncher 的 createSession 回调实现
+    // 引擎的 retryNode 会调用 createSession，composable 的 createSession 复用已有 sessionId
+    // 但 retry 需要新 session，所以先清除节点的旧 sessionId
+    const node = canvas.taskNodes.value.find(n => n.id === nodeId)
+    if (node) {
+      // 创建新 session 用于重试
+      const newSession = sessionStore.createSession('Task Node (retry)')
+      node.sessionId = newSession.id
+    }
+    isRunning.value = true
+    try {
+      await engine.retryNode(nodeId)
+      runVersion.value++
+    } finally {
+      // retryNode 启动后引擎可能还在运行，不重置 isRunning
+      // isRunning 在 run() promise resolve 时重置
+    }
+  }
+
+  // ── 运行中节点追加消息 ──
+
+  function addNodeMessage(nodeId: string, content: string): void {
+    const node = canvas.taskNodes.value.find(n => n.id === nodeId)
+    if (!node?.sessionId) return
+    turnStore.addPendingMessage(node.sessionId, {
+      id: createUuid(),
+      content,
+      attachments: [],
+      images: [],
+      priority: 'later' as const,
+      createdAt: Date.now(),
+    })
+    runVersion.value++
+  }
+
+  // ── 权限请求按 sessionId 路由 ──
+
+  function hasPendingPermissionForNode(nodeId: string): boolean {
+    const node = canvas.taskNodes.value.find(n => n.id === nodeId)
+    if (!node?.sessionId) return false
+    // 检查该 sessionId 下是否有任意待处理权限
+    // turnStore.pendingPermissions: Pinia store 属性自动解包 → Map<sessionId, Map<toolUseId, PermissionRequest>>
+    const perms = turnStore.pendingPermissions as unknown as Map<string, Map<string, unknown>>
+    if (!perms) return false
+    // 兼容 Ref<Map> 和 Map 两种情况（mock 与真实 store）
+    const map = (perms as any).value ?? perms
+    if (!(map instanceof Map)) return false
+    return map.has(node.sessionId)
+  }
+
   return {
     isRunning,
     canRun,
@@ -134,5 +197,9 @@ export function useOrchestrationRun() {
     getNodeStatus,
     startRun,
     stopRun,
+    stopNode,
+    retryNode,
+    addNodeMessage,
+    hasPendingPermissionForNode,
   }
 }

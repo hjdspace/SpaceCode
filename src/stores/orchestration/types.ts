@@ -90,6 +90,8 @@ export interface OrchestrationEngine {
   run(): Promise<void>
   /** 重试一个 failed 节点 */
   retryNode(nodeId: string): Promise<void>
+  /** 停止单个节点（= failed 语义，下游传递闭包 skipped，旁支继续） */
+  stopNode(nodeId: string): Promise<void>
   /** 停止整个 Run */
   stop(): Promise<void>
 
