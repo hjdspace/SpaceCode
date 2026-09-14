@@ -443,6 +443,12 @@ export default {
     emptyTitle: 'Orchestration Canvas',
     emptyDesc: 'Create task nodes and connect them on this canvas to build multi-session orchestration flows.',
     createFirstNode: 'Create first node',
+    addNode: 'Add node',
+    taskNode: 'Task Node',
+    deleteNode: 'Delete node',
+    draftPlaceholder: 'Type task draft (not sent)…',
+    drawerTitle: 'Node Session',
+    closeDrawer: 'Close drawer',
   },
 
   auth: {

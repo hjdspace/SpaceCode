@@ -1,7 +1,23 @@
-# SpaceCode Domain Model — Skill Manager
+# SpaceCode Domain Model
 
-> This is a glossary. It defines the ubiquitous language for the Skill Manager feature.
+> This is a glossary. It defines the ubiquitous language across SpaceCode features.
 > No implementation details. No specs. Just terms and their definitions.
+
+## Session Orchestration (会话编排)
+
+| Term | Definition |
+| --- | --- |
+| **Orchestration Graph (编排图)** | A user-authored DAG of Task Nodes connected by Edges, run as a one-shot pipeline. _Avoid_: canvas workflow, pipeline plan. |
+| **Task Node (任务节点)** | A canvas card that executes exactly one prompt against a fresh, context-isolated chat session per run. Reuses the ordinary session system (appears in the sidebar). _Avoid_: agent node, job. |
+| **Edge (依赖连线)** | A trigger-only dependency: the target node starts after the source node's turn settles. No data flows across an Edge. |
+| **Draft (节点草稿)** | The prompt text a user types into a node's chat window before the graph runs. Sent as the node's first message only on Run. |
+| **Run (运行)** | One execution of an entire graph. Each Run creates fresh sessions for every node; results are viewable by expanding the node. |
+| **Node Status** | A Task Node's lifecycle state within a Run: `pending` → `running` → `settled`, or `failed` / `skipped`. A node is `settled` when its turn ends normally — regardless of whether the LLM's output reads as success. |
+| **Failure Propagation (失败传播)** | On node failure, downstream nodes become `skipped`; unrelated parallel branches keep running. Retry re-runs the failed node and auto-resumes its skipped descendants. |
+| **Concurrency Gate (并发闸门)** | The orchestration layer's own cap on simultaneously `running` nodes; ready-but-over-cap nodes queue. Independent from the engine process pool's eviction. |
+| **Drawer (节点抽屉)** | The in-canvas expanded view of a Task Node showing the full chat session with streaming output. _Avoid_: modal, popup window. |
+
+## Skill Manager
 
 ## Core Terms
 

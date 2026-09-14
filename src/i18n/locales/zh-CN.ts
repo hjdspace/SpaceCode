@@ -443,6 +443,12 @@ export default {
     emptyTitle: '编排画布',
     emptyDesc: '在此画布上创建任务节点并连接它们，构建多会话编排流程。',
     createFirstNode: '创建第一个节点',
+    addNode: '添加节点',
+    taskNode: '任务节点',
+    deleteNode: '删除节点',
+    draftPlaceholder: '输入任务草稿（不发送）…',
+    drawerTitle: '节点会话',
+    closeDrawer: '关闭抽屉',
   },
 
   auth: {

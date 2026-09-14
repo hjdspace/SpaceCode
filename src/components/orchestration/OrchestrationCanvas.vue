@@ -11,23 +11,46 @@
         <MapIcon :size="16" />
         <span>{{ t('orchestration.minimap') }}</span>
       </button>
+      <button
+        class="toolbar-btn"
+        @click="handleCreateNode"
+        :title="t('orchestration.addNode')"
+      >
+        <Plus :size="16" />
+        <span>{{ t('orchestration.addNode') }}</span>
+      </button>
     </div>
 
     <!-- Vue Flow 画布 -->
-    <div class="orchestration-flow-wrapper">
+    <div
+      class="orchestration-flow-wrapper"
+      @dblclick.self="handleCanvasDblClick"
+    >
       <VueFlow
+        v-model:nodes="flowNodes"
         :default-viewport="{ zoom: 1, x: 0, y: 0 }"
         :min-zoom="0.2"
         :max-zoom="4"
         :delete-key-code="null"
         fit-view-on-init
+        @nodes-change="onNodesChange"
       >
+        <template #node-task="nodeProps">
+          <TaskNodeCard
+            :id="nodeProps.id"
+            :data="nodeProps.data"
+            @remove="handleRemoveNode"
+            @open-drawer="handleOpenDrawer"
+            @update-draft="handleUpdateDraft"
+          />
+        </template>
+
         <Background v-if="showBackground" />
         <MiniMap v-if="showMinimap" pannable zoomable />
       </VueFlow>
 
       <!-- 空画布引导提示 -->
-      <div class="orchestration-empty-guide">
+      <div v-if="taskNodes.length === 0" class="orchestration-empty-guide">
         <div class="empty-guide-icon">
           <Workflow :size="48" />
         </div>
@@ -38,30 +61,131 @@
           {{ t('orchestration.createFirstNode') }}
         </button>
       </div>
+
+      <!-- 节点抽屉 -->
+      <NodeDrawer
+        :session-id="drawerSessionId"
+        @close="handleCloseDrawer"
+      />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { VueFlow } from '@vue-flow/core'
+import { VueFlow, type Node as FlowNode } from '@vue-flow/core'
 import { MiniMap } from '@vue-flow/minimap'
 import { Background } from '@vue-flow/background'
 import { Map as MapIcon, Workflow, Plus } from 'lucide-vue-next'
 import { useOrchestrationCanvas } from '@/composables/useOrchestrationCanvas'
+import TaskNodeCard from './TaskNodeCard.vue'
+import NodeDrawer from './NodeDrawer.vue'
 
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/minimap/dist/style.css'
 
 const { t } = useI18n()
-const { showMinimap, toggleMinimap } = useOrchestrationCanvas()
+const {
+  showMinimap,
+  toggleMinimap,
+  taskNodes,
+  createTaskNode,
+  removeTaskNode,
+  setDraft,
+  updateNodePosition,
+  reloadFromStorage,
+} = useOrchestrationCanvas()
 
 const showBackground = ref(true)
 
+// ── 初始加载：从 localStorage 恢复节点 ──
+reloadFromStorage()
+
+// ── Vue Flow 节点同步 ──
+// 将 composable 的 taskNodes 映射为 Vue Flow 的 Node[] 格式
+const flowNodes = ref<FlowNode[]>(
+  taskNodes.value.map(n => ({
+    id: n.id,
+    type: 'task',
+    position: n.position,
+    data: { sessionId: n.sessionId, draft: n.draft },
+  })),
+)
+
+// composable → Vue Flow 双向同步
+watch(
+  taskNodes,
+  (nodes) => {
+    flowNodes.value = nodes.map(n => ({
+      id: n.id,
+      type: 'task',
+      position: n.position,
+      data: { sessionId: n.sessionId, draft: n.draft },
+    }))
+  },
+  { deep: true },
+)
+
+// Vue Flow 位置变更 → composable
+function onNodesChange(changes: any[]) {
+  for (const change of changes) {
+    if (change.type === 'position' && change.position) {
+      updateNodePosition(change.id, { x: change.position.x, y: change.position.y })
+    }
+  }
+}
+
+// ── 创建节点 ──
+function handleCreateNode() {
+  // 随机偏移避免完全重叠
+  const offsetX = Math.random() * 100
+  const offsetY = Math.random() * 100
+  createTaskNode({ x: 200 + offsetX, y: 150 + offsetY })
+}
+
 function handleCreateFirstNode() {
-  // 本票不含节点创建 — 预留入口
+  createTaskNode({ x: 300, y: 200 })
+}
+
+// 画布空白双击创建节点
+function handleCanvasDblClick(e: MouseEvent) {
+  // 仅在直接双击画布背景时触发（不是节点内部）
+  const target = e.target as HTMLElement
+  if (target.classList.contains('vue-flow__pane') || target.classList.contains('orchestration-flow-wrapper')) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+    createTaskNode({ x, y })
+  }
+}
+
+// ── 删除节点 ──
+function handleRemoveNode(nodeId: string) {
+  removeTaskNode(nodeId)
+}
+
+// ── 草稿更新 ──
+function handleUpdateDraft(nodeId: string, draft: string) {
+  setDraft(nodeId, draft)
+  // 同步到 flowNodes 的 data
+  const node = flowNodes.value.find((n: any) => n.id === nodeId)
+  if (node) (node as any).data = { ...(node as any).data, draft }
+}
+
+// ── 抽屉 ──
+const drawerSessionId = ref('')
+
+function handleOpenDrawer(nodeId: string) {
+  const node = taskNodes.value.find(n => n.id === nodeId)
+  if (node) {
+    drawerSessionId.value = node.sessionId
+  }
+}
+
+function handleCloseDrawer() {
+  drawerSessionId.value = ''
 }
 </script>
 
