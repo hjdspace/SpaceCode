@@ -92,6 +92,7 @@
         :delete-key-code="isRunning ? [] : ['Backspace', 'Delete']"
         :nodes-draggable="!isRunning"
         :edges-updatable="!isRunning"
+        :zoom-on-double-click="false"
         fit-view-on-init
         @nodes-change="onNodesChange"
         @edges-change="onEdgesChange"
@@ -134,7 +135,11 @@
       <!-- 节点抽屉 -->
       <NodeDrawer
         :session-id="drawerSessionId"
+        :node-status="drawerNodeStatus"
+        :has-pending-permission="drawerHasPendingPermission"
         @close="handleCloseDrawer"
+        @stop-node="handleDrawerStopNode"
+        @retry-node="handleDrawerRetryNode"
       />
 
       <!-- 环预防 / 自环提示 toast -->
@@ -340,18 +345,45 @@ function handleUpdateDraft(nodeId: string, draft: string) {
 
 // ── 抽屉 ──
 const drawerSessionId = ref('')
+const drawerNodeId = ref('')
+
+/** 抽屉中展示的节点状态 */
+const drawerNodeStatus = computed(() => {
+  if (!drawerNodeId.value) return undefined
+  return getNodeStatus(drawerNodeId.value)
+})
+
+/** 抽屉中展示的节点是否有待处理权限 */
+const drawerHasPendingPermission = computed(() => {
+  if (!drawerNodeId.value) return false
+  return hasPendingPermissionForNode(drawerNodeId.value)
+})
 
 function handleOpenDrawer(nodeId: string) {
   const node = taskNodes.value.find(n => n.id === nodeId)
   // 优先使用 runSessionId（上次运行绑定的会话），回退到 sessionId
   const sessionId = node?.runSessionId || node?.sessionId
   if (sessionId) {
+    drawerNodeId.value = nodeId
     drawerSessionId.value = sessionId
   }
 }
 
 function handleCloseDrawer() {
+  drawerNodeId.value = ''
   drawerSessionId.value = ''
+}
+
+function handleDrawerStopNode() {
+  if (drawerNodeId.value) {
+    handleStopNode(drawerNodeId.value)
+  }
+}
+
+function handleDrawerRetryNode() {
+  if (drawerNodeId.value) {
+    handleRetryNode(drawerNodeId.value)
+  }
 }
 
 // ── 运行控制 ──

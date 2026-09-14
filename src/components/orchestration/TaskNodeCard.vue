@@ -1,9 +1,9 @@
 <template>
-  <div
-    class="task-node-card"
-    :class="[statusClass, { 'empty-draft': isEmptyDraft }]"
-    @dblclick="onDblClick"
-  >
+    <div
+      class="task-node-card"
+      :class="[statusClass, { 'empty-draft': isEmptyDraft }]"
+      @dblclick.stop="onDblClick"
+    >
     <!-- 输入端口（左侧 Handle） -->
     <Handle type="target" :position="Position.Left" />
 
@@ -51,22 +51,24 @@
       </button>
     </div>
 
-    <!-- 草稿输入区（不发送、不触发引擎） -->
-    <textarea
-      class="task-node-draft-input"
-      :value="draft"
-      :placeholder="t('orchestration.draftPlaceholder')"
-      :readonly="isReadOnly"
-      @input="onDraftInput"
-      @dblclick.stop
-    ></textarea>
+    <!-- 内嵌缩小版聊天界面 -->
+    <div class="task-node-chat" @click.stop @dblclick.stop @mousedown.stop>
+      <MiniChatPanel
+        :session-id="sessionId"
+        :show-input="!isReadOnly"
+        :draft-mode="!isReadOnly"
+        :input-placeholder="t('orchestration.draftPlaceholder')"
+        @draft-save="onDraftSave"
+      />
+    </div>
 
-    <!-- 追加消息输入区（running 时） -->
+    <!-- 追加消息输入区（running 时，在聊天界面下方提供快速追加入口） -->
     <form
       v-if="status === 'running'"
       class="task-node-add-msg"
       @click.stop
       @dblclick.stop
+      @mousedown.stop
       @submit.prevent="onAddMessage"
     >
       <input
@@ -96,6 +98,7 @@ import { useI18n } from 'vue-i18n'
 import { X, Square as SquareIcon, RotateCcw, ShieldAlert, Send } from 'lucide-vue-next'
 import { Handle, Position } from '@vue-flow/core'
 import type { NodeStatus } from '@/stores/orchestration/types'
+import MiniChatPanel from './MiniChatPanel.vue'
 
 const props = defineProps<{
   id: string
@@ -122,11 +125,15 @@ const emit = defineEmits<{
   addMessage: [nodeId: string, content: string]
 }>()
 
+function onDraftSave(content: string) {
+  emit('updateDraft', props.id, content)
+}
+
 const { t } = useI18n()
 
-const draft = computed(() => props.data?.draft ?? '')
+const sessionId = computed(() => props.data?.sessionId ?? '')
 
-/** 运行中或已终态时草稿只读；pending 状态可编辑 */
+/** 运行中或已终态时聊天输入只读；pending 状态可编辑（输入草稿） */
 const isReadOnly = computed(() => {
   if (!props.status) return false
   return props.status === 'running' || props.status === 'settled' || props.status === 'failed' || props.status === 'interrupted'
@@ -147,11 +154,6 @@ function onDblClick() {
   emit('openDrawer', props.id)
 }
 
-function onDraftInput(e: Event) {
-  const value = (e.target as HTMLTextAreaElement).value
-  emit('updateDraft', props.id, value)
-}
-
 function onStopNode() {
   emit('stopNode', props.id)
 }
@@ -170,7 +172,7 @@ function onAddMessage() {
 
 <style lang="scss" scoped>
 .task-node-card {
-  width: 280px;
+  width: 320px;
   background: var(--surface-glass, rgba(30, 30, 46, 0.95));
   border: 1px solid var(--surface-border, rgba(255, 255, 255, 0.08));
   border-radius: 8px;
@@ -354,25 +356,39 @@ function onAddMessage() {
   }
 }
 
-.task-node-draft-input {
-  width: 100%;
-  height: 80px;
-  padding: 8px 10px;
-  border: none;
-  outline: none;
-  resize: none;
-  font-size: 12px;
-  font-family: inherit;
-  color: var(--text-primary, #e0e0e0);
-  background: transparent;
-  line-height: 1.5;
+// ── 内嵌聊天界面 ──
+.task-node-chat {
+  height: 240px;
+  overflow: hidden;
+  background: var(--bg-primary, #1a1a2e);
 
-  &::placeholder {
-    color: var(--text-muted, #555);
+  :deep(.mini-chat-panel) {
+    height: 100%;
   }
 
-  &:read-only {
-    cursor: default;
+  // 缩小消息列表内容以适配节点尺寸
+  :deep(.message-list) {
+    .messages-container {
+      gap: 8px;
+      padding: 6px 8px;
+    }
+  }
+
+  :deep(.empty-state) {
+    padding: 16px 8px;
+
+    svg {
+      width: 28px;
+      height: 28px;
+    }
+
+    p {
+      font-size: 11px;
+    }
+
+    span {
+      font-size: 10px;
+    }
   }
 }
 

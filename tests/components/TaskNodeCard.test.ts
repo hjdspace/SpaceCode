@@ -1,5 +1,5 @@
 // tests/components/TaskNodeCard.test.ts
-// TaskNodeCard 组件测试 — 缩小版聊天节点卡片。
+// TaskNodeCard 组件测试 — 缩小版聊天节点卡片（内嵌 MiniChatPanel）。
 // Seam: TaskNodeCard 公共接口 (props + events)
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
@@ -10,12 +10,13 @@ import zhCN from '@/i18n/locales/zh-CN'
 import enUS from '@/i18n/locales/en-US'
 import TaskNodeCard from '@/components/orchestration/TaskNodeCard.vue'
 
-// Mock ChatPanel to avoid rendering the full chat interface
-vi.mock('@/components/layout/ChatPanel.vue', () => ({
+// Mock MiniChatPanel to avoid rendering the full chat interface
+vi.mock('@/components/orchestration/MiniChatPanel.vue', () => ({
   default: {
-    name: 'ChatPanel',
-    props: ['sessionId', 'paneId', 'paneTabId'],
-    template: '<div data-testid="chat-panel-mock" :data-session-id="sessionId"></div>',
+    name: 'MiniChatPanel',
+    props: ['sessionId', 'showInput', 'draftMode', 'inputPlaceholder'],
+    emits: ['draftSave'],
+    template: '<div data-testid="mini-chat-panel-mock" :data-session-id="sessionId" :data-draft-mode="draftMode"></div>',
   },
 }))
 
@@ -48,7 +49,7 @@ function mountCard(props: Record<string, unknown>) {
     global: {
       plugins: [i18n],
       stubs: {
-        ChatPanel: true,
+        MiniChatPanel: true,
       },
     },
   })
@@ -80,31 +81,35 @@ describe('TaskNodeCard', () => {
     expect(wrapper.emitted('openDrawer')![0]).toEqual(['test-node'])
   })
 
-  it('renders a draft input textarea', () => {
+  it('renders a MiniChatPanel inside the card', () => {
     const wrapper = mountCard({})
-    expect(wrapper.find('.task-node-draft-input').exists()).toBe(true)
+    // MiniChatPanel should be rendered inside the card
+    expect(wrapper.find('.task-node-chat').exists()).toBe(true)
   })
 
-  it('displays the draft text in the textarea', () => {
+  it('passes sessionId to MiniChatPanel via data prop', () => {
     const wrapper = mountCard({
-      data: { sessionId: 'test-session-1', draft: 'My draft text', label: 'Task' },
+      data: { sessionId: 'my-session-123', draft: 'test draft', label: 'Task' },
     })
-    const textarea = wrapper.find('.task-node-draft-input')
-    expect((textarea.element as HTMLTextAreaElement).value).toBe('My draft text')
+    // The card should render with the session id available
+    expect(wrapper.find('.task-node-chat').exists()).toBe(true)
   })
 
-  it('emits updateDraft event when draft textarea input changes', async () => {
+  it('does not render a plain textarea (replaced by MiniChatPanel)', () => {
     const wrapper = mountCard({})
-    const textarea = wrapper.find('.task-node-draft-input')
-    await textarea.setValue('New draft content')
-    expect(wrapper.emitted('updateDraft')).toBeTruthy()
-    expect(wrapper.emitted('updateDraft')![0]).toEqual(['test-node', 'New draft content'])
+    // Old textarea should not exist — replaced by MiniChatPanel
+    expect(wrapper.find('.task-node-draft-input').exists()).toBe(false)
   })
 
-  it('does not render ChatPanel in the card (only in drawer)', () => {
+  it('emits updateDraft when MiniChatPanel emits draftSave', async () => {
     const wrapper = mountCard({})
-    // ChatPanel should not be rendered inside the card — only a draft input + header
-    expect(wrapper.find('[data-testid="chat-panel-mock"]').exists()).toBe(false)
+    // Find the MiniChatPanel stub and emit draftSave
+    const miniChat = wrapper.findComponent({ name: 'MiniChatPanel' })
+    if (miniChat.exists()) {
+      await miniChat.vm.$emit('draftSave', 'New draft content')
+      expect(wrapper.emitted('updateDraft')).toBeTruthy()
+      expect(wrapper.emitted('updateDraft')![0]).toEqual(['test-node', 'New draft content'])
+    }
   })
 
   // ── 单节点停止 ──

@@ -73,7 +73,7 @@ describe('NodeDrawer', () => {
 
   it('does not emit close when drawer body is clicked', async () => {
     const wrapper = mountDrawer({ sessionId: 'test-session-1' })
-    await wrapper.find('.node-drawer-body').trigger('click')
+    await wrapper.find('.node-drawer').trigger('click')
     expect(wrapper.emitted('close')).toBeFalsy()
   })
 
