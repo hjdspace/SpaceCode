@@ -858,6 +858,28 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
 
     flushContentPatch(sessionId, ts)
 
+    // A successful CLI result can still contain no model output when the
+    // upstream API exhausted retries (for example 429/500 responses). Treat
+    // that protocol-level success as a visible failure instead of silently
+    // settling an empty assistant message.
+    const sessionForEmptyCheck = sink.get(sessionId)
+    const assistantMessageForEmptyCheck = sessionForEmptyCheck?.messages.find(m => m.id === ts.assistantMessageId)
+    const hasVisibleOutput = Boolean(
+      resultText.trim() ||
+      ts.accumulatedContent.trim() ||
+      assistantMessageForEmptyCheck?.content?.trim() ||
+      assistantMessageForEmptyCheck?.toolCalls?.length ||
+      assistantMessageForEmptyCheck?.reasoning,
+    )
+    if (!isError && !looksLikeApiError && typeof result?.result === 'string' && !hasVisibleOutput) {
+      const emptyResponseError = new Error(
+        'LLM returned an empty response after the upstream request failed. Please check the API configuration and try again.',
+      )
+      logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] empty successful result treated as error`)
+      handleError(sessionId, ts, emptyResponseError)
+      return
+    }
+
     // 429 限流错误：底层 engine 自带重试机制，前端无需感知。
     // 不结算 turn、不显示错误 UI、不触发自动重试，保持 turn 活跃等待 engine 内部重试后的正常 result 事件。
     if ((isError || looksLikeApiError) && /429|rate.?limit/i.test(resultText)) {
