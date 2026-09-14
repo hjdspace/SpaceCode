@@ -5,7 +5,7 @@ import type { ProcessStatus } from '../sessionProcess'
 import { mapPiEvent } from './PiEventMapper'
 import { info, warn, error, debug } from '../logger'
 
-const MAX_PROCESSES = 3
+export const MAX_PROCESSES = 20
 
 export class PiProcessPool {
   private processes: Map<string, PiSessionProcess> = new Map()

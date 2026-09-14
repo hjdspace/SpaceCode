@@ -13,12 +13,57 @@
       </button>
       <button
         class="toolbar-btn"
+        :disabled="isRunning"
         @click="handleCreateNode"
         :title="t('orchestration.addNode')"
       >
         <Plus :size="16" />
         <span>{{ t('orchestration.addNode') }}</span>
       </button>
+
+      <!-- 运行控制 -->
+      <div class="toolbar-spacer"></div>
+
+      <!-- 运行 / 停止按钮 -->
+      <button
+        v-if="!isRunning"
+        class="toolbar-btn run-btn"
+        :disabled="!canRun"
+        @click="handleRun"
+        :title="t('orchestration.run')"
+      >
+        <PlayIcon :size="16" />
+        <span>{{ t('orchestration.run') }}</span>
+      </button>
+      <button
+        v-else
+        class="toolbar-btn stop-btn"
+        @click="handleStop"
+        :title="t('orchestration.stop')"
+      >
+        <SquareIcon :size="14" />
+        <span>{{ t('orchestration.stop') }}</span>
+      </button>
+
+      <!-- 进度条 -->
+      <div v-if="isRunning || progress.completed > 0" class="toolbar-progress">
+        <span class="progress-text">
+          {{ progress.completed }} / {{ progress.total }}
+        </span>
+        <div class="progress-bar">
+          <div
+            class="progress-bar-fill"
+            :style="{ width: progressPercent + '%' }"
+          ></div>
+        </div>
+      </div>
+
+      <!-- 空草稿提示 -->
+      <Transition name="edge-error-fade">
+        <div v-if="emptyDraftNodeIds.length > 0 && !isRunning" class="empty-draft-hint">
+          {{ t('orchestration.emptyDraftHint') }}
+        </div>
+      </Transition>
     </div>
 
     <!-- Vue Flow 画布 -->
@@ -32,7 +77,9 @@
         :default-viewport="{ zoom: 1, x: 0, y: 0 }"
         :min-zoom="0.2"
         :max-zoom="4"
-        :delete-key-code="['Backspace', 'Delete']"
+        :delete-key-code="isRunning ? [] : ['Backspace', 'Delete']"
+        :nodes-draggable="!isRunning"
+        :edges-updatable="!isRunning"
         fit-view-on-init
         @nodes-change="onNodesChange"
         @edges-change="onEdgesChange"
@@ -42,6 +89,9 @@
           <TaskNodeCard
             :id="nodeProps.id"
             :data="nodeProps.data"
+            :status="getNodeStatus(nodeProps.id)"
+            :is-running="isRunning"
+            :is-empty-draft="emptyDraftNodeIds.includes(nodeProps.id)"
             @remove="handleRemoveNode"
             @open-drawer="handleOpenDrawer"
             @update-draft="handleUpdateDraft"
@@ -82,13 +132,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { VueFlow, type Node as FlowNode, type Edge as FlowEdge, type Connection, MarkerType } from '@vue-flow/core'
 import { MiniMap } from '@vue-flow/minimap'
 import { Background } from '@vue-flow/background'
-import { Map as MapIcon, Workflow, Plus } from 'lucide-vue-next'
+import { Map as MapIcon, Workflow, Plus, Play as PlayIcon, Square as SquareIcon } from 'lucide-vue-next'
 import { useOrchestrationCanvas } from '@/composables/useOrchestrationCanvas'
+import { useOrchestrationRun } from '@/composables/useOrchestrationRun'
 import TaskNodeCard from './TaskNodeCard.vue'
 import NodeDrawer from './NodeDrawer.vue'
 
@@ -112,13 +163,22 @@ const {
   reloadFromStorage,
 } = useOrchestrationCanvas()
 
+const {
+  isRunning,
+  canRun,
+  emptyDraftNodeIds,
+  progress,
+  getNodeStatus,
+  startRun,
+  stopRun,
+} = useOrchestrationRun()
+
 const showBackground = ref(true)
 
-// ── 初始加载：从 localStorage 恢复节点和连线 ──
+// ── 初始加载 ──
 reloadFromStorage()
 
 // ── Vue Flow 节点同步 ──
-// 将 composable 的 taskNodes 映射为 Vue Flow 的 Node[] 格式
 const flowNodes = ref<FlowNode[]>(
   taskNodes.value.map(n => ({
     id: n.id,
@@ -128,7 +188,6 @@ const flowNodes = ref<FlowNode[]>(
   })),
 )
 
-// composable → Vue Flow 双向同步
 watch(
   taskNodes,
   (nodes) => {
@@ -167,6 +226,7 @@ watch(
 
 // Vue Flow 位置变更 → composable
 function onNodesChange(changes: any[]) {
+  if (isRunning.value) return // 运行中锁结构
   for (const change of changes) {
     if (change.type === 'position' && change.position) {
       updateNodePosition(change.id, { x: change.position.x, y: change.position.y })
@@ -176,16 +236,14 @@ function onNodesChange(changes: any[]) {
 
 // ── Edge 事件处理 ──
 
-// 连线创建 — VueFlow connect 事件
 function onConnect(connection: Connection) {
+  if (isRunning.value) return // 运行中锁结构
   const { source, target } = connection
-  // 自环检测
   if (source === target) {
     edgeError.value = t('orchestration.selfLoopDetected')
     showEdgeError()
     return
   }
-  // 环检测
   if (!canCreateEdge(source, target)) {
     edgeError.value = t('orchestration.cycleDetected')
     showEdgeError()
@@ -194,8 +252,8 @@ function onConnect(connection: Connection) {
   createEdge(source, target)
 }
 
-// Edge 变更处理 — 删除时同步到 composable
 function onEdgesChange(changes: any[]) {
+  if (isRunning.value) return // 运行中锁结构
   for (const change of changes) {
     if (change.type === 'remove') {
       removeEdge(change.id)
@@ -216,9 +274,15 @@ function showEdgeError() {
   }, 3000)
 }
 
+// ── 进度百分比 ──
+const progressPercent = computed(() => {
+  if (progress.value.total === 0) return 0
+  return Math.round((progress.value.completed / progress.value.total) * 100)
+})
+
 // ── 创建节点 ──
 function handleCreateNode() {
-  // 随机偏移避免完全重叠
+  if (isRunning.value) return
   const offsetX = Math.random() * 100
   const offsetY = Math.random() * 100
   createTaskNode({ x: 200 + offsetX, y: 150 + offsetY })
@@ -228,9 +292,8 @@ function handleCreateFirstNode() {
   createTaskNode({ x: 300, y: 200 })
 }
 
-// 画布空白双击创建节点
 function handleCanvasDblClick(e: MouseEvent) {
-  // 仅在直接双击画布背景时触发（不是节点内部）
+  if (isRunning.value) return
   const target = e.target as HTMLElement
   if (target.classList.contains('vue-flow__pane') || target.classList.contains('orchestration-flow-wrapper')) {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
@@ -242,13 +305,13 @@ function handleCanvasDblClick(e: MouseEvent) {
 
 // ── 删除节点 ──
 function handleRemoveNode(nodeId: string) {
+  if (isRunning.value) return
   removeTaskNode(nodeId)
 }
 
 // ── 草稿更新 ──
 function handleUpdateDraft(nodeId: string, draft: string) {
   setDraft(nodeId, draft)
-  // 同步到 flowNodes 的 data
   const node = flowNodes.value.find((n: any) => n.id === nodeId)
   if (node) (node as any).data = { ...(node as any).data, draft }
 }
@@ -265,6 +328,16 @@ function handleOpenDrawer(nodeId: string) {
 
 function handleCloseDrawer() {
   drawerSessionId.value = ''
+}
+
+// ── 运行控制 ──
+async function handleRun() {
+  if (!canRun.value || isRunning.value) return
+  await startRun()
+}
+
+async function handleStop() {
+  await stopRun()
 }
 </script>
 
@@ -304,7 +377,7 @@ function handleCloseDrawer() {
   transition: all 0.15s ease;
   font-family: inherit;
 
-  &:hover {
+  &:hover:not(:disabled) {
     color: var(--text-primary);
     background: var(--surface-glass-hover);
   }
@@ -314,6 +387,72 @@ function handleCloseDrawer() {
     border-color: var(--accent-primary);
     background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
   }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  &.run-btn {
+    color: #fff;
+    background: #22c55e;
+    border-color: #22c55e;
+
+    &:hover:not(:disabled) {
+      background: #16a34a;
+    }
+  }
+
+  &.stop-btn {
+    color: #fff;
+    background: var(--danger, #ef4444);
+    border-color: var(--danger, #ef4444);
+
+    &:hover {
+      background: #dc2626;
+    }
+  }
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+.toolbar-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+
+  .progress-text {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  .progress-bar {
+    width: 80px;
+    height: 6px;
+    background: var(--surface-border);
+    border-radius: 3px;
+    overflow: hidden;
+
+    .progress-bar-fill {
+      height: 100%;
+      background: var(--accent-primary, #6366f1);
+      border-radius: 3px;
+      transition: width 0.3s ease;
+    }
+  }
+}
+
+.empty-draft-hint {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--danger, #ef4444);
+  white-space: nowrap;
 }
 
 .orchestration-flow-wrapper {
@@ -322,7 +461,6 @@ function handleCloseDrawer() {
   position: relative;
 }
 
-// Vue Flow 需要明确宽高
 .orchestration-flow-wrapper :deep(.vue-flow) {
   width: 100%;
   height: 100%;

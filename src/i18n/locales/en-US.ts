@@ -451,6 +451,15 @@ export default {
     closeDrawer: 'Close drawer',
     cycleDetected: 'Would create a circular dependency',
     selfLoopDetected: 'Cannot connect to itself',
+    run: 'Run',
+    stop: 'Stop',
+    emptyDraftHint: 'Some nodes have empty drafts. Fill them before running.',
+    status_pending: 'Pending',
+    status_running: 'Running',
+    status_settled: 'Done',
+    status_failed: 'Failed',
+    status_skipped: 'Skipped',
+    status_queued: 'Queued',
   },
 
   auth: {

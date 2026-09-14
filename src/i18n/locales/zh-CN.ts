@@ -451,6 +451,15 @@ export default {
     closeDrawer: '关闭抽屉',
     cycleDetected: '会产生循环依赖',
     selfLoopDetected: '不能连接自己',
+    run: '运行',
+    stop: '停止',
+    emptyDraftHint: '存在空草稿节点，请填写后再运行',
+    status_pending: '等待',
+    status_running: '运行中',
+    status_settled: '已完成',
+    status_failed: '失败',
+    status_skipped: '已跳过',
+    status_queued: '排队中',
   },
 
   auth: {

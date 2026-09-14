@@ -1,6 +1,7 @@
 <template>
   <div
     class="task-node-card"
+    :class="[statusClass, { 'empty-draft': isEmptyDraft }]"
     @dblclick="onDblClick"
   >
     <!-- 输入端口（左侧 Handle） -->
@@ -9,7 +10,12 @@
     <!-- 头部 -->
     <div class="task-node-header">
       <span class="task-node-title">{{ t('orchestration.taskNode') }}</span>
+      <!-- 状态徽标 -->
+      <span v-if="status" class="task-node-badge" :class="`badge-${status}`">
+        {{ t(`orchestration.status_${status}`) }}
+      </span>
       <button
+        v-if="!isRunning"
         class="task-node-delete"
         :title="t('orchestration.deleteNode')"
         @click.stop="onRemove"
@@ -23,6 +29,7 @@
       class="task-node-draft-input"
       :value="draft"
       :placeholder="t('orchestration.draftPlaceholder')"
+      :readonly="isReadOnly"
       @input="onDraftInput"
       @dblclick.stop
     ></textarea>
@@ -37,6 +44,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { X } from 'lucide-vue-next'
 import { Handle, Position } from '@vue-flow/core'
+import type { NodeStatus } from '@/stores/orchestration/types'
 
 const props = defineProps<{
   id: string
@@ -45,6 +53,11 @@ const props = defineProps<{
     draft: string
     label?: string
   }
+  status?: NodeStatus
+  /** 运行中锁结构 — 为 true 时禁止删除节点 */
+  isRunning?: boolean
+  /** 空草稿标红 */
+  isEmptyDraft?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -56,6 +69,17 @@ const emit = defineEmits<{
 const { t } = useI18n()
 
 const draft = computed(() => props.data?.draft ?? '')
+
+/** 运行中或已终态时草稿只读；pending 状态可编辑 */
+const isReadOnly = computed(() => {
+  if (!props.status) return false
+  return props.status === 'running' || props.status === 'settled' || props.status === 'failed'
+})
+
+const statusClass = computed(() => {
+  if (!props.status) return ''
+  return `status-${props.status}`
+})
 
 function onRemove() {
   emit('remove', props.id)
@@ -84,12 +108,38 @@ function onDraftInput(e: Event) {
   &:active {
     cursor: grabbing;
   }
+
+  // 状态样式
+  &.status-running {
+    border-color: var(--accent-primary, #6366f1);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--accent-primary, #6366f1) 30%, transparent);
+  }
+
+  &.status-settled {
+    border-color: color-mix(in srgb, #22c55e 60%, transparent);
+  }
+
+  &.status-failed {
+    border-color: var(--danger, #ef4444);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--danger, #ef4444) 20%, transparent);
+  }
+
+  &.status-skipped {
+    opacity: 0.5;
+  }
+
+  // 空草稿标红
+  &.empty-draft {
+    border-color: var(--danger, #ef4444);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--danger, #ef4444) 20%, transparent);
+  }
 }
 
 .task-node-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 6px;
   padding: 6px 10px;
   background: var(--surface-glass-hover, rgba(255, 255, 255, 0.04));
   border-bottom: 1px solid var(--surface-border, rgba(255, 255, 255, 0.06));
@@ -101,6 +151,54 @@ function onDraftInput(e: Event) {
   color: var(--text-muted, #888);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.task-node-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+
+  &.badge-pending {
+    color: var(--text-muted, #888);
+    background: rgba(128, 128, 128, 0.15);
+  }
+
+  &.badge-running {
+    color: #fff;
+    background: var(--accent-primary, #6366f1);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  &.badge-settled {
+    color: #fff;
+    background: #22c55e;
+  }
+
+  &.badge-failed {
+    color: #fff;
+    background: var(--danger, #ef4444);
+  }
+
+  &.badge-skipped {
+    color: var(--text-muted, #888);
+    background: rgba(128, 128, 128, 0.2);
+    text-decoration: line-through;
+  }
+
+  &.badge-queued {
+    color: #fff;
+    background: #f59e0b;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 
 .task-node-delete {
@@ -138,6 +236,10 @@ function onDraftInput(e: Event) {
 
   &::placeholder {
     color: var(--text-muted, #555);
+  }
+
+  &:read-only {
+    cursor: default;
   }
 }
 </style>
