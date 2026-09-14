@@ -293,6 +293,15 @@ export function useTurnStore(injectedApi?: any) {
       userAbortedSessions,
     })
 
+        // ── Turn 结局订阅点 ──
+    // 编排引擎等外部模块订阅此信号获取 turn 完成事件。
+    const turnOutcomeListeners = new Set<(sessionId: string, outcome: 'settled' | 'failed' | 'aborted') => void>()
+
+    function onTurnOutcome(listener: (sessionId: string, outcome: 'settled' | 'failed' | 'aborted') => void): () => void {
+      turnOutcomeListeners.add(listener)
+      return () => turnOutcomeListeners.delete(listener)
+    }
+
     const handlers = createEventHandlers({
       sink,
       stateMachine,
@@ -321,6 +330,11 @@ export function useTurnStore(injectedApi?: any) {
       isSoundOnTaskComplete: () => !!settingsStore.appearance?.soundOnTaskComplete,
       onTurnCompleted: (sessionId: string, finalText: string) => {
         void handleGoalTurnResult(sessionId, finalText)
+      },
+      onTurnOutcome: (sessionId: string, outcome: 'settled' | 'failed' | 'aborted') => {
+        for (const listener of turnOutcomeListeners) {
+          try { listener(sessionId, outcome) } catch { /* listener 错误不影响 turn 流程 */ }
+        }
       },
     })
 
@@ -588,6 +602,10 @@ export function useTurnStore(injectedApi?: any) {
           if (s) {
             s.processStatus = 'idle'
             sink.persist(sid)
+          }
+          // ── Turn 结局订阅点 — aborted（用户主动中止） ──
+          for (const listener of turnOutcomeListeners) {
+            try { listener(sid, 'aborted') } catch { /* listener 错误不影响 abort 流程 */ }
           }
         }
 
@@ -964,6 +982,8 @@ export function useTurnStore(injectedApi?: any) {
       // auto-retry 状态机（任务 9 迁移）
       retryStates: autoRetry.retryStates,
       cancelRetry,
+      // turn 结局订阅点（编排引擎等外部模块使用）
+      onTurnOutcome,
       // ── 测试用导出：beginTurn/ensureTurn/endTurn 是内部函数，
       // 仅因任务 2 需独立验证状态机而临时暴露；任务 10 删除整个 chatStream.ts
       // 并完成消费方迁移后可移除此导出。 ──

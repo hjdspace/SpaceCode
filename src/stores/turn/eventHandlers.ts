@@ -99,6 +99,11 @@ export interface EventReducerOptions {
    * 用于 goal 续跑等跨 turn 编排 — 传入本轮最终输出文本。
    */
   onTurnCompleted?: (sessionId: string, finalText: string) => void
+  /**
+   * Turn 结局订阅点 — 区分 settled / failed / aborted 三种结局。
+   * 编排引擎订阅此信号作为节点完成信号源。
+   */
+  onTurnOutcome?: (sessionId: string, outcome: 'settled' | 'failed' | 'aborted') => void
 }
 
 export interface EventReducer {
@@ -185,6 +190,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     getArtifactsApi,
     isSoundOnTaskComplete,
     onTurnCompleted,
+    onTurnOutcome,
   } = opts
 
   const { turnStates, beginTurn, endTurn } = stateMachine
@@ -1056,6 +1062,13 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       }
     }
 
+    // ── Turn 结局订阅点 — settled ──
+    if (onTurnOutcome) {
+      try { onTurnOutcome(sessionId, 'settled') } catch (e) {
+        logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] onTurnOutcome(settled) failed`, { error: String(e) })
+      }
+    }
+
     // ── Play notification sound when a task completes successfully ──
     const soundEnabled = isSoundOnTaskComplete()
     logger.info('ChatStore', `[${sessionId.slice(0, 8)}] task complete, soundOnTaskComplete=${soundEnabled}`)
@@ -1084,6 +1097,12 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
         sink.persist(sessionId)
       }
       endTurn(sessionId, ts)
+      // ── Turn 结局订阅点 — aborted ──
+      if (onTurnOutcome) {
+        try { onTurnOutcome(sessionId, 'aborted') } catch (e) {
+          logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] onTurnOutcome(aborted) failed`, { error: String(e) })
+        }
+      }
       return
     }
 
@@ -1167,6 +1186,13 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
 
     ts.reject?.(error)
     endTurn(sessionId, ts)
+
+    // ── Turn 结局订阅点 — failed ──
+    if (onTurnOutcome) {
+      try { onTurnOutcome(sessionId, 'failed') } catch (e) {
+        logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] onTurnOutcome(failed) failed`, { error: String(e) })
+      }
+    }
   }
 
   const handleExit = (sessionId: string, ts: TurnState, data: number | null | { code?: number | null; signal?: string | null; stderr?: string }) => {
