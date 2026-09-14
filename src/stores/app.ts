@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, markRaw, watch } from 'vue'
-import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch, Package, Palette } from 'lucide-vue-next'
+import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch, Package, Palette, Workflow } from 'lucide-vue-next'
 import { useChatSessionStore } from './chatSession'
 import { useTerminalStore, type CreateTerminalOptions } from './terminal'
 import { useSplitLayoutStore } from './splitLayout'
@@ -584,6 +584,32 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  function openOrchestrationTab() {
+    // 关闭所有可能阻塞中央面板的全屏视图
+    showSettings.value = false
+    showSkillsManager.value = false
+    showAgentManager.value = false
+    showMCPManager.value = false
+    showCronManager.value = false
+    showTraceViewer.value = false
+
+    // 如果已有编排 tab，直接激活它（不重复创建）
+    const existing = centerTabs.value.find(t => t.id.startsWith('orchestration-'))
+    if (existing) {
+      activeCenterTab.value = existing.id
+      return
+    }
+
+    const tabId = `orchestration-${Date.now()}`
+    centerTabs.value.push({
+      id: tabId,
+      label: 'Orchestration',
+      icon: markRaw(Workflow),
+      closable: true
+    })
+    activeCenterTab.value = tabId
+  }
+
   function closeCenterTab(tabId: string) {
     const index = centerTabs.value.findIndex(t => t.id === tabId)
     if (index > -1 && centerTabs.value[index].closable) {
@@ -932,6 +958,7 @@ export const useAppStore = defineStore('app', () => {
     getLanguageFromPath,
     createTerminalTab,
     openTerminalTab,
+    openOrchestrationTab,
     closeCenterTab,
     setProjectRoot,
     closeProject,

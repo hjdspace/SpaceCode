@@ -67,6 +67,18 @@
         <span class="icon-label">{{ t('sidebar.terminal') }}</span>
       </button>
 
+      <!-- Orchestration Tab -->
+      <button
+        class="icon-btn"
+        :class="{ active: appStore.activeCenterTab.startsWith('orchestration-') }"
+        @click="handleOrchestrationClick"
+        :title="t('sidebar.orchestration')"
+        :aria-label="t('sidebar.orchestration')"
+      >
+        <Workflow :size="20" />
+        <span class="icon-label">{{ t('sidebar.orchestration') }}</span>
+      </button>
+
       <!-- Debug/Trace Tab -->
       <button
         class="icon-btn"
@@ -338,7 +350,8 @@ import {
   Clock,
   FolderOpen,
   Package,
-  LayoutGrid
+  LayoutGrid,
+  Workflow
 } from 'lucide-vue-next'
 
 // Enhanced Components
@@ -493,6 +506,10 @@ function handleOpenCron() {
 
 function handleTerminalClick() {
   handleTabClick('terminal')
+}
+
+function handleOrchestrationClick() {
+  appStore.openOrchestrationTab()
 }
 
 function handleNewTerminal() {

@@ -434,6 +434,15 @@ export default {
     newTerminal: '新建终端',
     failedCreateConversation: '创建新对话失败，请重试。',
     failedRemoveProject: '移除项目失败，请重试。',
+    orchestration: '编排',
+  },
+
+  orchestration: {
+    minimap: '小地图',
+    toggleMinimap: '切换小地图',
+    emptyTitle: '编排画布',
+    emptyDesc: '在此画布上创建任务节点并连接它们，构建多会话编排流程。',
+    createFirstNode: '创建第一个节点',
   },
 
   auth: {

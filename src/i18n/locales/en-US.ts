@@ -434,6 +434,15 @@ export default {
     newTerminal: 'New terminal',
     failedCreateConversation: 'Failed to create new conversation. Please try again.',
     failedRemoveProject: 'Failed to remove project. Please try again.',
+    orchestration: 'Orchestration',
+  },
+
+  orchestration: {
+    minimap: 'Minimap',
+    toggleMinimap: 'Toggle minimap',
+    emptyTitle: 'Orchestration Canvas',
+    emptyDesc: 'Create task nodes and connect them on this canvas to build multi-session orchestration flows.',
+    createFirstNode: 'Create first node',
   },
 
   auth: {
