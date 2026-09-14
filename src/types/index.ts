@@ -169,11 +169,13 @@ export interface MessageMetadata {
   duration?: number
   warning?: string
   error?: ClassifiedError
-  kind?: 'task-notification' | 'teammate-message' | 'goal-notice'
+  kind?: 'task-notification' | 'teammate-message' | 'goal-notice' | 'skill-invocation'
   agentTaskId?: string
   agentName?: string
   teamName?: string
   status?: TeammateStatus
+  /** 技能调用消息：记录被调用的技能名 */
+  skillName?: string
   /** 办公模式：本回合新生成/修改的产物文件（仅 work 模式会话写入）。 */
   artifacts?: ArtifactSummaryEntry[]
   /** 自动重试状态：供内部重试流程跟踪，不直接展示给用户 */

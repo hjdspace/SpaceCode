@@ -186,12 +186,54 @@ export function buildMessagesFromHistory(
         continue
       }
 
-      // 过滤引擎注入的 XML 标签合成消息，与引擎 VirtualMessageList 行为一致
-      // （computeStickyPromptText：去除 system-reminder 后若以 '<' 开头则不渲染）。
-      // 覆盖 <task-notification>（子代理完成通知）、<bash-stdout>、<command-message>、
-      // <teammate-message>、<local-command-stdout> 等——它们对模型可见，但不是用户真实输入。
-      // 修复：重开会话时子代理输出（<task-notification> 内含 result）被当成用户消息渲染。
-      if (stripSystemReminders(userText).startsWith('<')) {
+      // ── 技能/斜杠命令消息恢复 ──
+      // 引擎在处理技能调用时，将用户消息以 XML 标签格式写入 JSONL：
+      //   <command-message>skill-name</command-message>
+      //   <command-name>/skill-name</command-name>
+      //   <command-args>user message</command-args>
+      // 引擎 UI（UserCommandMessage 组件）将其渲染为 "❯ /skill-name args" 格式。
+      // 实时流期间前端保存的 displayLabel 也是 /cmd:"name":kind:source 格式。
+      // 但 buildMessagesFromHistory 下方以 '<' 开头的过滤会将此消息误判为合成消息而跳过，
+      // 导致重开 GUI 后用户消息气泡消失。此处提取命令名和参数，恢复为可读文本。
+      const strippedText = stripSystemReminders(userText)
+      if (strippedText.startsWith('<')) {
+        // 检查是否是技能/斜杠命令的 metadata 消息
+        const cmdMessageMatch = strippedText.match(/<command-message>([\s\S]*?)<\/command-message>/)
+        const cmdNameMatch = strippedText.match(/<command-name>([\s\S]*?)<\/command-name>/)
+        const cmdArgsMatch = strippedText.match(/<command-args>([\s\S]*?)<\/command-args>/)
+        const isSkillFormat = strippedText.includes('<skill-format>true</skill-format>')
+
+        if (cmdMessageMatch || cmdNameMatch) {
+          // 提取命令名（优先从 command-name 标签，它包含 / 前缀）
+          const commandName = cmdNameMatch
+            ? cmdNameMatch[1].trim()
+            : cmdMessageMatch
+              ? `/${cmdMessageMatch[1].trim()}`
+              : ''
+          const args = cmdArgsMatch ? cmdArgsMatch[1].trim() : ''
+          const reconstructed = [commandName, args].filter(Boolean).join(' ')
+
+          if (reconstructed) {
+            messages.push({
+              id: messageId,
+              role: 'user',
+              content: reconstructed,
+              ...(isSkillFormat
+                ? { metadata: { kind: 'skill-invocation', skillName: cmdMessageMatch?.[1].trim() || '' } }
+                : {}),
+            })
+            lastUserText = reconstructed
+            hadRealAssistantSinceLastUser = false
+            sawApiErrorSinceLastUser = false
+            continue
+          }
+        }
+
+        // 其他以 '<' 开头的合成消息（非用户真实输入），与引擎 VirtualMessageList 行为一致
+        // （computeStickyPromptText：去除 system-reminder 后若以 '<' 开头则不渲染）。
+        // 覆盖 <task-notification>（子代理完成通知）、<bash-stdout>、
+        // <teammate-message>、<local-command-stdout> 等——它们对模型可见，但不是用户真实输入。
+        // 修复：重开会话时子代理输出（<task-notification> 内含 result）被当成用户消息渲染。
         continue
       }
 
