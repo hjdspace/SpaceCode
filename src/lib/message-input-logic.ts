@@ -215,12 +215,9 @@ export function dispatchBadge(
   const displayLabel = userContent ? `${chipMarker} ${userContent}` : chipMarker
 
   switch (badge.kind) {
-    case 'agent_skill': {
-      const agentPrompt = userContent
-        ? `Use the ${badge.label} skill. User context: ${userContent}`
-        : `Please use the ${badge.label} skill.`
-      return { prompt: agentPrompt, displayLabel }
-    }
+    // Preserve explicit user invocation so the engine can load skills with
+    // disable-model-invocation without asking the model to call SkillTool.
+    case 'agent_skill':
     case 'slash_command':
     case 'sdk_command': {
       const slashPrompt = userContent
