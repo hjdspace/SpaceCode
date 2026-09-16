@@ -82,35 +82,43 @@ async function readSessionLite(
   let firstUserMessage: string | undefined
   let lastMessageTimestamp: number | undefined
   let metadata: SessionMetadata | undefined
-  
+  let realProjectPath: string | undefined
+
   try {
     const metadataPath = path.join(
       getProjectDir(projectPath),
       `${sessionId}.metadata.json`
     )
-    
+
     if (fs.existsSync(metadataPath)) {
       try {
         const raw = fs.readFileSync(metadataPath, 'utf8')
         metadata = JSON.parse(raw)
-        
+
         if (metadata?.timestamps?.lastMessageAt) {
           lastMessageTimestamp = new Date(metadata.timestamps.lastMessageAt).getTime()
         }
-        
+
         debug('SessionHistory', `Loaded metadata for session ${sessionId}`)
       } catch (e) {
         warn('SessionHistory', `Failed to parse metadata for ${sessionId}`, { error: String(e) })
       }
     }
-    
+
     const fileContent = fs.readFileSync(sessionPath, 'utf8')
     const lines = fileContent.split('\n').filter(line => line.trim())
-    
+
     for (const line of lines) {
       try {
         const msg = JSON.parse(line)
-        
+
+        // Extract real cwd from first message — sanitizePath is lossy
+        // (. and / both map to -), so decodeSanitizedPath can't round-trip
+        // paths like /pri/home4/jiadong.he2/project.
+        if (!realProjectPath && msg.cwd && typeof msg.cwd === 'string') {
+          realProjectPath = msg.cwd
+        }
+
         if (msg.type === 'user' && !firstUserMessage) {
           const content = msg.message?.content
           
@@ -144,7 +152,7 @@ async function readSessionLite(
   }
   
   return {
-    projectPath,
+    projectPath: realProjectPath || projectPath,
     sessionId,
     metadata,
     firstUserMessage,
