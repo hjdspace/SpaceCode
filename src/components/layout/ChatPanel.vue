@@ -992,43 +992,56 @@ function resolveModelAlias(modelValue: string): string {
 }
 
 // 处理模型变更 - 通过 setModel control_request 发送到引擎
+let _modelChangeInProgress = false
+
 async function handleModelChange(model: string) {
-  currentModel.value = model
-
-  // ★ 不再写入 sonnetModel — 用户在输入框选择的模型只是当前会话的临时选择，
-  // 不应修改全局的 haiku/sonnet/opus 配置。
-  // 全局模型配置只在设置页面修改。
-
-  // ★ 将用户选择的实际模型名映射回 claude-code 的别名 (haiku/sonnet/opus)。
-  // 引擎的 set_model control_request 通过别名解析机制（parseUserSpecifiedModel →
-  // getDefaultHaikuModel/getDefaultSonnetModel/getDefaultOpusModel）读取
-  // ANTHROPIC_DEFAULT_*_MODEL 环境变量，正确路由到用户配置的实际模型。
-  // 直接发送实际模型名（如 deepseek-v4-flash）会绕过别名解析，导致引擎
-  // 无法将其与 haiku/sonnet/opus 槽位关联。
-  const modelAlias = resolveModelAlias(model)
-
-  // 通过 control_request set_model 将模型别名发送到正在运行的引擎
-  const claudeCode = api.claudeCode
-  const sid = sessionStore.currentSessionId
-  if (claudeCode && sid) {
-    try {
-      const status = await claudeCode.getSessionStatus(sid)
-      if (status?.isRunning) {
-        // 引擎在运行：通过 setModel control_request 切换模型（无需重启）
-        await claudeCode.setModel(sid, modelAlias)
-        console.log('[ChatPanel] Model switched via setModel:', modelAlias, '(from', model, ')')
-        return
-      }
-    } catch (error) {
-      console.error('[ChatPanel] setModel failed, falling back to restart:', error)
-    }
+  // 防抖锁：防止用户快速连续切换模型导致并发 setModel 请求
+  if (_modelChangeInProgress) {
+    console.log('[ChatPanel] Model change already in progress, skipping')
+    return
   }
+  _modelChangeInProgress = true
 
-  // 引擎未运行或 setModel 失败：重启会话时使用用户选择的模型别名
-  // switchModel 会将别名传递给 initClaudeCodeSession 作为 --model 参数
-  await sessionStore.switchModel(modelAlias, model)
+  try {
+    currentModel.value = model
 
-  console.log('[ChatPanel] Model changed to:', modelAlias, '(from', model, ')')
+    // ★ 不再写入 sonnetModel — 用户在输入框选择的模型只是当前会话的临时选择，
+    // 不应修改全局的 haiku/sonnet/opus 配置。
+    // 全局模型配置只在设置页面修改。
+
+    // ★ 将用户选择的实际模型名映射回 claude-code 的别名 (haiku/sonnet/opus)。
+    // 引擎的 set_model control_request 通过别名解析机制（parseUserSpecifiedModel →
+    // getDefaultHaikuModel/getDefaultSonnetModel/getDefaultOpusModel）读取
+    // ANTHROPIC_DEFAULT_*_MODEL 环境变量，正确路由到用户配置的实际模型。
+    // 直接发送实际模型名（如 deepseek-v4-flash）会绕过别名解析，导致引擎
+    // 无法将其与 haiku/sonnet/opus 槽位关联。
+    const modelAlias = resolveModelAlias(model)
+
+    // 通过 control_request set_model 将模型别名发送到正在运行的引擎
+    const claudeCode = api.claudeCode
+    const sid = sessionStore.currentSessionId
+    if (claudeCode && sid) {
+      try {
+        const status = await claudeCode.getSessionStatus(sid)
+        if (status?.isRunning) {
+          // 引擎在运行：通过 setModel control_request 切换模型（无需重启）
+          await claudeCode.setModel(sid, modelAlias)
+          console.log('[ChatPanel] Model switched via setModel:', modelAlias, '(from', model, ')')
+          return
+        }
+      } catch (error) {
+        console.error('[ChatPanel] setModel failed, falling back to restart:', error)
+      }
+    }
+
+    // 引擎未运行或 setModel 失败：直接走重启路径
+    // ★ 传 skipSetModel: true 避免 switchModel 内部再次尝试 setModel 导致二次超时
+    await sessionStore.switchModel(modelAlias, model, { skipSetModel: true })
+
+    console.log('[ChatPanel] Model changed to:', modelAlias, '(from', model, ')')
+  } finally {
+    _modelChangeInProgress = false
+  }
 }
 
 // 处理推理深度变更 - 同步到 settings store 和 ~/.claude/settings.json
