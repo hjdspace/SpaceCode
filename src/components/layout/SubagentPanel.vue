@@ -56,6 +56,13 @@
           />
         </div>
 
+        <!-- Running indicator: three bouncing dots, same as main chat -->
+        <div v-if="isRunning && streamMessages.length" class="typing-indicator">
+          <div class="dot"></div>
+          <div class="dot"></div>
+          <div class="dot"></div>
+        </div>
+
         <!-- Final result (when complete and no transcript) -->
         <div v-if="!isRunning && finalOutput && !streamMessages.length" class="result-section">
           <div class="section-header">
@@ -454,6 +461,33 @@ watch(() => appStore.subagentPanelState, (state) => {
 /* Activity section */
 .activity-section {
   margin-top: 12px;
+}
+
+/* Running indicator (three bouncing dots, same as main chat) */
+.typing-indicator {
+  display: flex;
+  gap: 4px;
+  padding: 12px 2px;
+
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-primary);
+    animation: typing-bounce 1.4s infinite ease-in-out both;
+
+    &:nth-child(1) { animation-delay: -0.32s; }
+    &:nth-child(2) { animation-delay: -0.16s; }
+  }
+}
+
+@keyframes typing-bounce {
+  0%, 80%, 100% {
+    transform: scale(0);
+  }
+  40% {
+    transform: scale(1);
+  }
 }
 
 /* Waiting / empty state */
