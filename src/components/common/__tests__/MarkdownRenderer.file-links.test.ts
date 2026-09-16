@@ -3,13 +3,33 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import MarkdownRenderer from '../MarkdownRenderer.vue'
 
+const apiMocks = vi.hoisted(() => ({
+  readFile: vi.fn(),
+  readFileAsBase64: vi.fn(),
+  // 组件链路会实例化 settings/terminal store (app → chatSession → settings),
+  // store 初始化调用这些 api; 缺失会产生 unhandled rejection / stderr 噪音
+  loadGuiSettings: vi.fn(),
+  getEnv: vi.fn(),
+  terminalOnExit: vi.fn(),
+}))
+
 vi.mock('@/services/electronAPI', () => ({
-  api: { readFile: vi.fn().mockResolvedValue('content') },
+  api: {
+    readFile: apiMocks.readFile,
+    readFileAsBase64: apiMocks.readFileAsBase64,
+    loadGuiSettings: apiMocks.loadGuiSettings,
+    getEnv: apiMocks.getEnv,
+    terminal: { onExit: apiMocks.terminalOnExit },
+  },
 }))
 
 describe('MarkdownRenderer file links', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    apiMocks.readFile.mockResolvedValue('content')
+    apiMocks.readFileAsBase64.mockResolvedValue(null)
+    apiMocks.loadGuiSettings.mockResolvedValue({ success: false })
+    apiMocks.getEnv.mockResolvedValue(undefined)
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) =>
       window.setTimeout(() => cb(performance.now()), 0))
   })
@@ -79,6 +99,38 @@ describe('MarkdownRenderer file links', () => {
     await new Promise(r => setTimeout(r, 0))
     expect(wrapper.findAll('.file-link')).toHaveLength(2)
     expect(wrapper.findAll('.file-link .file-link')).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it('validates file links on initial mount without waiting for content changes', async () => {
+    apiMocks.readFile.mockResolvedValueOnce(null)
+    const wrapper = mount(MarkdownRenderer, {
+      props: { content: '参见 src/utils/missing.ts 的说明' },
+      global: { plugins: [createPinia()] },
+    })
+    await new Promise(r => setTimeout(r, 0))
+    await new Promise(r => setTimeout(r, 0))
+    expect(apiMocks.readFile).toHaveBeenCalledWith('src/utils/missing.ts')
+    expect(wrapper.find('.file-link').classes()).toContain('file-link--invalid')
+    wrapper.unmount()
+  })
+
+  it('recovers an invalid link once the file is created later', async () => {
+    apiMocks.readFile.mockResolvedValueOnce(null)
+    const wrapper = mount(MarkdownRenderer, {
+      props: { content: '参见 src/utils/missing.ts 的说明' },
+      global: { plugins: [createPinia()] },
+    })
+    await new Promise(r => setTimeout(r, 0))
+    await new Promise(r => setTimeout(r, 0))
+    expect(wrapper.find('.file-link').classes()).toContain('file-link--invalid')
+
+    // 文件在会话期间被创建: 后续内容变更触发尾随帧重查, 链接应恢复可点击
+    apiMocks.readFile.mockResolvedValue('content')
+    await wrapper.setProps({ content: '参见 src/utils/missing.ts 的说明(已创建)' })
+    // 等待 80ms 节流间隔后的尾随帧完成重渲染与重校验
+    await new Promise(r => setTimeout(r, 120))
+    expect(wrapper.find('.file-link').classes()).not.toContain('file-link--invalid')
     wrapper.unmount()
   })
 })
