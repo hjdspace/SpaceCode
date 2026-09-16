@@ -250,8 +250,10 @@ marked.use({
 //   4. span 通过 DOM API 构建, 文本节点中的字面 '<' 不会被重新解析为 HTML。
 const fileLinkMatchCache = new Map<string, FileLinkMatch[]>()
 const FILE_LINK_CACHE_MAX = 400
-// 已验证不存在的路径: 流式重渲染会重建 span, 重建时直接恢复 invalid 样式,
+// 已验证不存在的路径: 块重渲染重建 span 时直接恢复 invalid 样式,
 // 避免校验结果在"链接蓝→置灰"之间反复闪烁。
+// 仅用于样式恢复; validateFileLinks 对这些路径仍会重查 —— AI 会话中
+// 文件常在被提及后才被创建, 重查让新建文件的链接恢复可点击。
 const knownInvalidPaths = new Set<string>()
 
 const SKIP_TAGS = new Set(['A', 'PRE', 'SCRIPT', 'STYLE'])
@@ -572,36 +574,43 @@ onBeforeUnmount(() => {
   }
 })
 
-// 异步校验 file-link 的文件是否存在，标记无效路径
+// 异步校验 file-link 的文件是否存在，标记无效路径。
+// 已判无效的链接不跳过重查: AI 会话中文件常在被提及后才被创建, 文件
+// 出现后需撤销置灰恢复可点击。校验只在挂载/尾随帧触发(内容稳定后),
+// IPC 频率受节流, 重查开销可忽略。
 async function validateFileLinks() {
   if (!containerRef.value || !api.readFile) return
-  const links = containerRef.value.querySelectorAll('.file-link:not(.file-link--checked)')
+  // 含已置灰的链接: 校验为存在的链接一次后跳过, 无效链接每次重查
+  const links = containerRef.value.querySelectorAll('.file-link')
   for (const link of links) {
     const filePath = link.getAttribute('data-file-path')
     if (!filePath) continue
+    if (link.classList.contains('file-link--checked') && !link.classList.contains('file-link--invalid')) continue
     link.classList.add('file-link--checked')
-    // 已知无效的路径直接复用结论, 避免流式重渲染后重复 IPC 读取
-    if (knownInvalidPaths.has(filePath)) {
-      link.classList.add('file-link--invalid')
-      continue
-    }
     try {
       const content = await api.readFile(filePath)
-      if (content === null) {
+      let exists = content !== null
+      if (!exists) {
         // 尝试拼接项目根路径
         const root = appStore.projectRoot
         if (root && !/^([A-Za-z]:[\\/]|\.?[\\/])/.test(filePath)) {
           const sep = root.includes('\\') && !root.includes('/') ? '\\' : '/'
           const resolved = root.replace(/[\\/]+$/, '') + sep + filePath
-          const content2 = await api.readFile(resolved)
-          if (content2 === null) {
-            knownInvalidPaths.add(filePath)
-            link.classList.add('file-link--invalid')
-          }
-        } else {
-          knownInvalidPaths.add(filePath)
-          link.classList.add('file-link--invalid')
+          exists = (await api.readFile(resolved)) !== null
         }
+      }
+      if (exists) {
+        if (knownInvalidPaths.delete(filePath) && containerRef.value) {
+          // 此前判无效的文件现已存在(会话期间被创建): 撤销同路径所有链接的置灰
+          for (const other of containerRef.value.querySelectorAll('.file-link--invalid')) {
+            if (other.getAttribute('data-file-path') === filePath) {
+              other.classList.remove('file-link--invalid')
+            }
+          }
+        }
+      } else {
+        knownInvalidPaths.add(filePath)
+        link.classList.add('file-link--invalid')
       }
     } catch {
       knownInvalidPaths.add(filePath)
