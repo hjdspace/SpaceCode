@@ -946,7 +946,8 @@ info('Startup', 'CuaDriver IPC handlers registered')
   // Register Auto Updater IPC handlers (always register, but only init in production)
   registerAutoUpdaterIPC()
   if (!isDev) {
-    initAutoUpdater(mainWindow!)
+    const ghToken = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || null
+    initAutoUpdater(mainWindow!, ghToken)
     info('Startup', 'Auto updater initialized')
   } else {
     info('Startup', 'Auto updater skipped (dev mode)')
