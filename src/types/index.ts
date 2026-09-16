@@ -227,6 +227,8 @@ export interface Session {
   mode?: 'work' | 'code' | 'design'
   /** Work 模式下绑定的专业助手 id。 */
   assistantId?: string
+  /** 用户在当前会话中选择的模型（来自输入框下拉框）。 */
+  model?: string
 }
 
 export interface FileNode {

@@ -99,9 +99,9 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
       return
     }
 
-    const model = settingsStore.config.model || 'claude-sonnet-4-6'
-    const userCtxOverride = settingsStore.modelContextWindows[model]
     const session = sessionStore.sessions.find(s => s.id === sid)
+    const model = session?.model || settingsStore.config.model || 'claude-sonnet-4-6'
+    const userCtxOverride = settingsStore.modelContextWindows[model]
     const messages = session?.messages ?? []
 
     if (lastFetchedSessionId.value !== sid) {
@@ -121,8 +121,8 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
         const data = raw ? parseEngineContextData(raw as Record<string, unknown>) : null
         if (data) {
           // 引擎返回的 model 可能是别名解析后的实际模型名（如 claude-sonnet-4-20250514），
-          // 而用户配置的 model（如 deepseek-v4-flash）才是 UI 应显示的。
-          // 用用户配置的 model 覆盖引擎返回的 model，确保 UI 一致性。
+          // 而用户在输入框选择的 model 才是 UI 应显示的。
+          // 用 session.model 覆盖引擎返回的 model，确保 UI 一致性。
           data.model = model
           const enriched = enrichContextDataFromClient(data, messages)
           snapshot.value = buildSnapshotFromEngineData(enriched, model, userCtxOverride)
@@ -161,7 +161,7 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
     if (lastFetchedSessionId.value && lastFetchedSessionId.value !== sid) return
     const session = sessionStore.sessions.find(s => s.id === sid)
     const messages = session?.messages ?? []
-    const model = settingsStore.config.model || 'claude-sonnet-4-6'
+    const model = session?.model || settingsStore.config.model || 'claude-sonnet-4-6'
     const userCtxOverride = settingsStore.modelContextWindows[model]
     snapshot.value = buildFallbackSnapshot(messages, model, userCtxOverride)
     lastFetchedSessionId.value = sid

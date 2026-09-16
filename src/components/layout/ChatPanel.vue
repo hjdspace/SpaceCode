@@ -1026,7 +1026,7 @@ async function handleModelChange(model: string) {
 
   // 引擎未运行或 setModel 失败：重启会话时使用用户选择的模型别名
   // switchModel 会将别名传递给 initClaudeCodeSession 作为 --model 参数
-  await sessionStore.switchModel(modelAlias)
+  await sessionStore.switchModel(modelAlias, model)
 
   console.log('[ChatPanel] Model changed to:', modelAlias, '(from', model, ')')
 }
