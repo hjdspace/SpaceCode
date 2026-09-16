@@ -199,7 +199,13 @@ describe('SkillManagerService — Copy Sync', () => {
       const preview = service.previewDistribute([skillId], ['sync-agent'], 'link')
       service.executeDistribute(preview)
 
+      // On Windows, symlink creation may fall back to copy.
+      // Force actual_mode to 'link' to test the link-target guard.
       const targetId = `${skillId}__sync-agent`
+      service.getDb().conn.prepare(
+        'UPDATE skill_targets SET actual_mode = ? WHERE id = ?'
+      ).run('link', targetId)
+
       expect(() => service.previewSyncCopy(targetId)).toThrow()
     })
   })

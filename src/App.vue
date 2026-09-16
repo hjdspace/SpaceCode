@@ -101,7 +101,14 @@ import { useResizablePanel } from '@/composables/useResizablePanel'
 import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
 
 const DesignPage = defineAsyncComponent(() => import('./components/design/DesignPage.vue'))
-const InfoPanel = defineAsyncComponent(() => import('./components/layout/InfoPanel.vue'))
+// 右侧面板整棵模块树（xterm / @git-diff-view / 各 viewer）随此 chunk 首次加载。
+// 抽出 loader 供启动后空闲预热，避免首次点击 subagent 卡片等入口时现场加载导致数秒卡顿。
+const loadInfoPanel = () => import('./components/layout/InfoPanel.vue')
+const InfoPanel = defineAsyncComponent({
+  loader: loadInfoPanel,
+  loadingComponent: AsyncLoadingState,
+  delay: 0,
+})
 const TerminalTabBar = defineAsyncComponent(() => import('./components/terminal/TerminalTabBar.vue'))
 const TerminalPanel = defineAsyncComponent(() => import('./components/terminal/TerminalPanel.vue'))
 const TraceViewer = defineAsyncComponent(() => import('./components/debug/TraceViewer.vue'))
@@ -382,6 +389,18 @@ async function initH5MirrorSession() {
 
 onMounted(() => {
   void loadSkillsManager()
+
+  // 空闲时预热右侧面板 chunk（xterm / @git-diff-view / 各 viewer），
+  // 使首次打开面板（如点击 subagent 卡片）无需现场加载整棵模块树。
+  // 延迟一拍再交给 requestIdleCallback，避免与首屏渲染抢资源。
+  const warmInfoPanel = () => { void loadInfoPanel() }
+  window.setTimeout(() => {
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(warmInfoPanel, { timeout: 2000 })
+    } else {
+      warmInfoPanel()
+    }
+  }, 800)
 
   // 宠物窗口是独立功能，不阻塞项目上下文和聊天首屏初始化。
   void petStore.init().catch((err) => {

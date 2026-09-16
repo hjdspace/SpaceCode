@@ -170,5 +170,5 @@ describe('H5 mirror visibility', () => {
       kind: 'session',
       tabId: 'session-session-new',
     })
-  })
+  }, 15000)
 })

@@ -127,6 +127,12 @@ describe('SkillManagerService — Diagnosis Engine', () => {
       const preview = service.previewDistribute(['linkable-skill'], ['claude-code'], 'link')
       service.executeDistribute(preview)
 
+      // On Windows, symlink creation may fall back to copy.
+      // Force actual_mode to 'link' so detectBrokenLinks can find the target.
+      service.getDb().conn.prepare(
+        "UPDATE skill_targets SET actual_mode = 'link' WHERE skill_id = ?"
+      ).run('linkable-skill')
+
       // Delete the center library directory to create a broken link
       fs.rmSync(path.join(centerPath, 'linkable-skill'), { recursive: true, force: true })
 
@@ -233,6 +239,12 @@ describe('SkillManagerService — Diagnosis Engine', () => {
 
       const preview = service.previewDistribute(['linkable-skill'], ['claude-code'], 'link')
       service.executeDistribute(preview)
+
+      // On Windows, symlink creation may fall back to copy.
+      // Force actual_mode to 'link' so detectBrokenLinks can find the target.
+      service.getDb().conn.prepare(
+        "UPDATE skill_targets SET actual_mode = 'link' WHERE skill_id = ?"
+      ).run('linkable-skill')
 
       // Delete the center library directory
       fs.rmSync(path.join(centerPath, 'linkable-skill'), { recursive: true, force: true })
@@ -444,6 +456,12 @@ describe('SkillManagerService — Agent Detail', () => {
 
       const preview = service.previewDistribute(['broken-skill'], ['claude-code'], 'link')
       service.executeDistribute(preview)
+
+      // On Windows, symlink creation may fall back to copy.
+      // Force actual_mode to 'link' so detectBrokenLinks can find the target.
+      service.getDb().conn.prepare(
+        "UPDATE skill_targets SET actual_mode = 'link' WHERE skill_id = ?"
+      ).run('broken-skill')
 
       // Delete center lib to create broken link
       fs.rmSync(path.join(centerPath, 'broken-skill'), { recursive: true, force: true })

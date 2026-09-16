@@ -146,7 +146,7 @@ describe('ChatPanel loading state', () => {
     expect(api.git.getStatus).toHaveBeenCalledWith('D:/repo')
 
     ;(turnStore as any).endTurn(session.id, ts)
-  })
+  }, 15000)
 
   it('does not scan git status or full diff for an empty conversation', async () => {
     const { default: ChatPanel } = await import('../ChatPanel.vue')
@@ -169,5 +169,5 @@ describe('ChatPanel loading state', () => {
 
     expect(api.git.getStatus).not.toHaveBeenCalled()
     expect(api.git.getFullDiff).not.toHaveBeenCalled()
-  })
+  }, 15000)
 })

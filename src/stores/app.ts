@@ -109,9 +109,6 @@ export const useAppStore = defineStore('app', () => {
   const infoPanelTabs = ref<InfoPanelTab[]>([])
   const activeInfoTabId = ref<string | null>(null)
   const subagentPanelState = ref<SubagentPanelState | null>(null)
-  // Shadow state to restore InfoPanel after closing subagent view
-  let _previousActiveTabId: string | null = null
-  let _previousPanelHome = false
   const isLoading = ref<boolean>(false)
 
   // 工作台 -> 输入框 的一次性注入载荷(截图/框选元素整合)。
@@ -293,9 +290,6 @@ export const useAppStore = defineStore('app', () => {
 
   function openSubagentPanel(toolCallId: string) {
     const sessionStore = useChatSessionStore()
-    // Save current panel state for restore
-    _previousActiveTabId = activeInfoTabId.value
-    _previousPanelHome = panelHome.value
     subagentPanelState.value = {
       toolCallId,
       sessionId: sessionStore.currentSessionId ?? '',
@@ -309,13 +303,8 @@ export const useAppStore = defineStore('app', () => {
 
   function closeSubagentPanel() {
     subagentPanelState.value = null
-    // Restore previous panel state
-    if (_previousActiveTabId) {
-      activeInfoTabId.value = _previousActiveTabId
-      panelHome.value = _previousPanelHome
-    } else {
-      panelHome.value = true
-    }
+    // 关闭 subagent 页面后直接收起右侧面板，而不是回退到之前的标签/启动器
+    infoPanelVisible.value = false
   }
 
   function showInfoPanel(mode: InfoPanelTabType) {
@@ -401,6 +390,10 @@ export const useAppStore = defineStore('app', () => {
       infoPanelVisible.value = true
       if (infoPanelTabs.value.length === 0) {
         panelHome.value = true
+      } else if (!activeInfoTabId.value) {
+        // 从 subagent 关闭后重开：activeInfoTabId 已被清空，恢复激活最近的标签
+        activeInfoTabId.value = infoPanelTabs.value[infoPanelTabs.value.length - 1].id
+        panelHome.value = false
       }
     }
   }
