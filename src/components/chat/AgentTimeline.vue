@@ -41,7 +41,7 @@
                 {{ t('chat.toolChips.toolCalls', { count: item.events!.length }) }}
               </span>
             </button>
-            <!-- 紧凑 chips -->
+            <!-- 紧凑 chips（带工具图标） -->
             <div class="tool-group__chips">
               <span
                 v-for="(chip, ci) in getGroupChips(item.events!)"
@@ -49,15 +49,17 @@
                 class="tool-group__chip"
                 :class="{ 'tool-group__chip--mono': chip.mono }"
               >
-                {{ chip.text }}
+                <component :is="chip.icon" :size="11" class="tool-group__chip-icon" />
+                <span class="tool-group__chip-text">{{ chip.text }}</span>
               </span>
             </div>
             <!-- diff 统计 chips -->
             <div v-if="getGroupDiffStats(item.events!).length > 0" class="tool-group__diffs">
               <span
-                v-for="diff in getGroupDiffStats(item.events!)"
+                v-for="(diff, di) in getGroupDiffStats(item.events!)"
                 :key="diff.file"
                 class="tool-group__diff-chip"
+                :style="{ '--chip-delay': `${di * 60}ms` }"
               >
                 <span class="tool-group__diff-file">{{ diff.file }}</span>
                 <span class="tool-group__diff-add">+{{ diff.add }}</span>
@@ -86,47 +88,83 @@
             </span>
           </button>
 
-          <!-- 逐行工具事件（展开时显示） -->
-          <div v-if="!isToolGroupCollapsed(item.groupId!)" class="tool-group__events">
-            <div
-              v-for="(event, ei) in item.events!"
-              :key="event.id"
-              class="timeline-event"
-              :class="[`event-${event.type}`, `status-${event.status}`]"
-            >
-              <div class="event-spacer"></div>
-              <div class="event-body">
-                <div class="event-row" @click="toggleEvent(event.id)">
-                  <span class="inline-tool-status" :class="`status-${event.status}`">
-                    <Loader2 v-if="event.status === 'running'" :size="12" class="spin-icon" />
-                    <X v-else-if="event.status === 'error'" :size="12" />
-                    <component v-else :is="event.icon" :size="12" />
-                  </span>
-                  <span class="event-label">{{ event.label }}</span>
-                  <span v-if="event.target" class="event-target">{{ event.target }}</span>
-                  <span v-if="event.duration" class="event-duration">{{ event.duration }}s</span>
-                  <ChevronDown
-                    v-if="event.toolCall?.output || hasDetailContent(event)"
-                    :size="12"
-                    class="event-chevron"
-                    :class="{ expanded: expandedEvents[event.id] }"
+          <!-- 逐行工具事件（展开时显示，带 grid 展开动画） -->
+          <div class="tool-group__expand-panel" :class="{ 'tool-group__expand-panel--open': !isToolGroupCollapsed(item.groupId!) }">
+            <div class="tool-group__expand-clip">
+              <div class="tool-group__events">
+                <div
+                  v-for="event in item.events!"
+                  :key="event.id"
+                  class="tool-row"
+                  :class="[`status-${event.status}`]"
+                >
+                  <button
+                    type="button"
+                    class="tool-row__button"
+                    :aria-expanded="expandedEvents[event.id]"
+                    @click="toggleEvent(event.id)"
+                  >
+                    <span class="tool-row__icon-wrap">
+                      <span class="tool-row__icon" :class="{ 'tool-row__icon--hidden': expandedEvents[event.id] }">
+                        <Loader2 v-if="event.status === 'running'" :size="13" class="spin-icon" />
+                        <X v-else-if="event.status === 'error'" :size="13" />
+                        <component v-else :is="event.icon" :size="13" />
+                      </span>
+                      <svg
+                        class="tool-row__chevron"
+                        :class="{ 'tool-row__chevron--open': expandedEvents[event.id] }"
+                        width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+                      >
+                        <path d="M6 9l6 6 6-6" />
+                      </svg>
+                    </span>
+                    <span class="tool-row__label">{{ event.label }}</span>
+                    <span v-if="event.target" class="tool-row__chip" :class="{ 'tool-row__chip--mono': isMonoTool(event.toolCall?.name) }">
+                      {{ event.target }}
+                    </span>
+                    <span v-if="event.duration" class="tool-row__duration">{{ event.duration }}s</span>
+                  </button>
+
+                  <!-- detail panel with grid animation -->
+                  <div
+                    class="detail-panel"
+                    :class="{ 'detail-panel--open': expandedEvents[event.id] }"
+                  >
+                    <div class="detail-panel__clip">
+                      <div class="detail-lines">
+                        <div v-if="event.toolCall?.input && Object.keys(event.toolCall.input).length" class="detail-line detail-line--code">
+                          <pre class="detail-code"><code>{{ formatInput(event.toolCall) }}</code></pre>
+                        </div>
+                        <div v-if="event.toolCall?.output" class="detail-line detail-line--code">
+                          <pre class="detail-code output"><code>{{ formatOutput(event.toolCall.output) }}</code></pre>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <PermissionRequestCard
+                    v-if="event.toolCall && getPendingPermission(event.toolCall.id)"
+                    :message-id="event.messageId!"
+                    :tool-use-id="event.toolCall.id"
+                    :tool-name="getPendingPermission(event.toolCall.id)!.toolName"
+                    :input="getPendingPermission(event.toolCall.id)!.input"
                   />
                 </div>
-                <div v-if="expandedEvents[event.id]" class="event-detail">
-                  <div v-if="event.toolCall?.input && Object.keys(event.toolCall.input).length" class="detail-section">
-                    <pre class="detail-code"><code>{{ formatInput(event.toolCall) }}</code></pre>
-                  </div>
-                  <div v-if="event.toolCall?.output" class="detail-section">
-                    <pre class="detail-code output"><code>{{ formatOutput(event.toolCall.output) }}</code></pre>
-                  </div>
-                </div>
-                <PermissionRequestCard
-                  v-if="event.toolCall && getPendingPermission(event.toolCall.id)"
-                  :message-id="event.messageId!"
-                  :tool-use-id="event.toolCall.id"
-                  :tool-name="getPendingPermission(event.toolCall.id)!.toolName"
-                  :input="getPendingPermission(event.toolCall.id)!.input"
-                />
+              </div>
+
+              <!-- diff chips（展开时底部显示） -->
+              <div v-if="getGroupDiffStats(item.events!).length > 0" class="tool-group__diff-list">
+                <span
+                  v-for="(diff, di) in getGroupDiffStats(item.events!)"
+                  :key="diff.file"
+                  class="tool-group__diff-chip"
+                  :style="{ '--chip-delay': `${di * 60}ms` }"
+                >
+                  <span class="tool-group__diff-file">{{ diff.file }}</span>
+                  <span class="tool-group__diff-add">+{{ diff.add }}</span>
+                  <span v-if="diff.del > 0" class="tool-group__diff-del">−{{ diff.del }}</span>
+                </span>
               </div>
             </div>
           </div>
@@ -190,37 +228,56 @@
 
             <!-- Generic tool call event (single, not in a group) -->
             <template v-else-if="item.event!.type === 'tool_call'">
-              <div class="event-row" @click="toggleEvent(item.event!.id)">
-                <span class="inline-tool-status" :class="`status-${item.event!.status}`">
-                  <Loader2 v-if="item.event!.status === 'running'" :size="12" class="spin-icon" />
-                  <X v-else-if="item.event!.status === 'error'" :size="12" />
-                  <component v-else :is="item.event!.icon" :size="12" />
-                </span>
-                <span class="event-label">{{ item.event!.label }}</span>
-                <span v-if="item.event!.target" class="event-target">{{ item.event!.target }}</span>
-                <span v-if="item.event!.duration" class="event-duration">{{ item.event!.duration }}s</span>
-                <ChevronDown
-                  v-if="item.event!.toolCall?.output || hasDetailContent(item.event!)"
-                  :size="12"
-                  class="event-chevron"
-                  :class="{ expanded: expandedEvents[item.event!.id] }"
+              <div class="tool-row" :class="[`status-${item.event!.status}`]">
+                <button
+                  type="button"
+                  class="tool-row__button"
+                  :aria-expanded="expandedEvents[item.event!.id]"
+                  @click="toggleEvent(item.event!.id)"
+                >
+                  <span class="tool-row__icon-wrap">
+                    <span class="tool-row__icon" :class="{ 'tool-row__icon--hidden': expandedEvents[item.event!.id] }">
+                      <Loader2 v-if="item.event!.status === 'running'" :size="13" class="spin-icon" />
+                      <X v-else-if="item.event!.status === 'error'" :size="13" />
+                      <component v-else :is="item.event!.icon" :size="13" />
+                    </span>
+                    <svg
+                      class="tool-row__chevron"
+                      :class="{ 'tool-row__chevron--open': expandedEvents[item.event!.id] }"
+                      width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+                    >
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
+                  </span>
+                  <span class="tool-row__label">{{ item.event!.label }}</span>
+                  <span v-if="item.event!.target" class="tool-row__chip" :class="{ 'tool-row__chip--mono': isMonoTool(item.event!.toolCall?.name) }">
+                    {{ item.event!.target }}
+                  </span>
+                  <span v-if="item.event!.duration" class="tool-row__duration">{{ item.event!.duration }}s</span>
+                </button>
+
+                <div class="detail-panel" :class="{ 'detail-panel--open': expandedEvents[item.event!.id] }">
+                  <div class="detail-panel__clip">
+                    <div class="detail-lines">
+                      <div v-if="item.event!.toolCall?.input && Object.keys(item.event!.toolCall.input).length" class="detail-line detail-line--code">
+                        <pre class="detail-code"><code>{{ formatInput(item.event!.toolCall) }}</code></pre>
+                      </div>
+                      <div v-if="item.event!.toolCall?.output" class="detail-line detail-line--code">
+                        <pre class="detail-code output"><code>{{ formatOutput(item.event!.toolCall.output) }}</code></pre>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <PermissionRequestCard
+                  v-if="item.event!.toolCall && getPendingPermission(item.event!.toolCall.id)"
+                  :message-id="item.event!.messageId!"
+                  :tool-use-id="item.event!.toolCall.id"
+                  :tool-name="getPendingPermission(item.event!.toolCall.id)!.toolName"
+                  :input="getPendingPermission(item.event!.toolCall.id)!.input"
                 />
               </div>
-              <div v-if="expandedEvents[item.event!.id]" class="event-detail">
-                <div v-if="item.event!.toolCall?.input && Object.keys(item.event!.toolCall.input).length" class="detail-section">
-                  <pre class="detail-code"><code>{{ formatInput(item.event!.toolCall) }}</code></pre>
-                </div>
-                <div v-if="item.event!.toolCall?.output" class="detail-section">
-                  <pre class="detail-code output"><code>{{ formatOutput(item.event!.toolCall.output) }}</code></pre>
-                </div>
-              </div>
-              <PermissionRequestCard
-                v-if="item.event!.toolCall && getPendingPermission(item.event!.toolCall.id)"
-                :message-id="item.event!.messageId!"
-                :tool-use-id="item.event!.toolCall.id"
-                :tool-name="getPendingPermission(item.event!.toolCall.id)!.toolName"
-                :input="getPendingPermission(item.event!.toolCall.id)!.input"
-              />
             </template>
 
             <!-- Metadata event -->
@@ -701,11 +758,14 @@ function toggleToolGroup(groupId: string) {
 }
 
 // ── 工具组摘要信息 ──
-function getGroupChips(events: TimelineEvent[]): { text: string; mono: boolean }[] {
+function isMonoTool(toolName?: string): boolean {
+  return ['Bash', 'Write', 'FileWrite', 'Edit', 'FileEdit', 'MultiEdit', 'Read', 'FileRead'].includes(toolName || '')
+}
+
+function getGroupChips(events: TimelineEvent[]): { text: string; mono: boolean; icon: Component }[] {
   return events.map(e => {
     const target = e.target || ''
-    const isMono = ['Bash', 'Write', 'FileWrite', 'Edit', 'FileEdit', 'MultiEdit', 'Read', 'FileRead'].includes(e.toolCall?.name || '')
-    return { text: target, mono: isMono }
+    return { text: target, mono: isMonoTool(e.toolCall?.name), icon: e.icon }
   }).filter(c => c.text)
 }
 
@@ -1346,6 +1406,7 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   white-space: nowrap;
 }
 
+/* 折叠摘要行 chips */
 .tool-group__chips {
   display: flex;
   flex-wrap: wrap;
@@ -1358,6 +1419,7 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   height: 22px;
   max-width: 160px;
   align-items: center;
+  gap: 4px;
   padding-inline: 6px;
   overflow: hidden;
   border-radius: var(--radius-xs);
@@ -1368,6 +1430,16 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   text-overflow: ellipsis;
   white-space: nowrap;
   animation: chip-in 250ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.tool-group__chip-icon {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.tool-group__chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tool-group__chip--mono {
@@ -1394,7 +1466,7 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   color: var(--text-secondary);
   font-family: var(--font-mono);
   font-size: 11px;
-  animation: chip-in 250ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  animation: chip-in 250ms cubic-bezier(0.23, 1, 0.32, 1) var(--chip-delay, 0ms) both;
 }
 
 .tool-group__diff-file {
@@ -1414,9 +1486,197 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   font-variant-numeric: tabular-nums;
 }
 
+/* 展开面板（grid 动画） */
+.tool-group__expand-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 300ms cubic-bezier(0.23, 1, 0.32, 1),
+    opacity 300ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.tool-group__expand-panel--open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.tool-group__expand-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
 .tool-group__events {
-  margin-left: 0;
-  padding-top: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 4px;
+}
+
+/* diff 列表（展开时底部） */
+.tool-group__diff-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--surface-border);
+}
+
+/* ── 工具行（compact chip 风格） ── */
+.tool-row {
+  animation: tool-row-in 300ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.tool-row__button {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  align-items: center;
+  gap: 8px;
+  padding-inline: 4px;
+  margin-inline: -4px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 100ms ease;
+
+  &:hover {
+    background: var(--surface-glass-hover);
+  }
+}
+
+.tool-row__icon-wrap {
+  position: relative;
+  display: flex;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+/* 运行状态图标颜色 */
+.tool-row.status-running .tool-row__icon-wrap {
+  color: var(--accent-primary);
+}
+
+.tool-row.status-error .tool-row__icon-wrap {
+  color: var(--error);
+}
+
+.tool-row.status-completed .tool-row__icon-wrap {
+  color: var(--text-muted);
+}
+
+.tool-row__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 100ms ease;
+}
+
+.tool-row__button:hover .tool-row__icon,
+.tool-row__icon--hidden {
+  opacity: 0;
+}
+
+.tool-row__chevron {
+  position: absolute;
+  opacity: 0;
+  transform: rotate(-90deg);
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.tool-row__button:hover .tool-row__chevron,
+.tool-row__chevron--open {
+  opacity: 1;
+}
+
+.tool-row__chevron--open {
+  transform: rotate(0deg);
+}
+
+.tool-row__label {
+  flex-shrink: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.tool-row__chip {
+  display: inline-flex;
+  min-width: 0;
+  height: 22px;
+  flex: 1;
+  align-items: center;
+  padding-inline: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-xs);
+  background: var(--bg-tertiary);
+  box-shadow: 0 0 0 1px var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background-color 100ms ease;
+
+  &:hover {
+    background: var(--bg-hover);
+  }
+}
+
+.tool-row__chip--mono {
+  font-family: var(--font-mono);
+}
+
+.tool-row__duration {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+/* detail panel（grid 展开动画） */
+.detail-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 300ms cubic-bezier(0.23, 1, 0.32, 1),
+    opacity 300ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.detail-panel--open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.detail-panel__clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.detail-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 4px 20px;
+  padding: 2px 0 2px 12px;
+  border-left: 1px solid var(--surface-border);
+}
+
+.detail-line {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.detail-line--code {
+  min-width: 0;
 }
 
 @keyframes chip-in {
@@ -1427,6 +1687,29 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   to {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+@keyframes tool-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-group__expand-panel,
+  .detail-panel,
+  .tool-row,
+  .tool-group__diff-chip,
+  .tool-group__chip {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
   }
 }
 
