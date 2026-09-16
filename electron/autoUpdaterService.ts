@@ -4,9 +4,6 @@ import fs from 'fs/promises'
 import path from 'path'
 import { info, warn, error } from './logger'
 
-// GitHub 私有仓库更新所需的 Token
-const GH_TOKEN = process.env.GH_TOKEN || process.env.GITHUB_TOKEN
-
 let mainWindow: BrowserWindow | null = null
 
 // 定期检查定时器
@@ -29,7 +26,16 @@ function sendToRenderer(channel: string, ...args: any[]) {
   }
 }
 
-export function initAutoUpdater(win: BrowserWindow) {
+export function setUpdateToken(token: string) {
+  if (token) {
+    info('AutoUpdater', 'GitHub token configured for private repo')
+    return token
+  }
+  warn('AutoUpdater', 'No GH_TOKEN provided, update check may fail for private repo')
+  return null
+}
+
+export function initAutoUpdater(win: BrowserWindow, ghToken: string | null) {
   mainWindow = win
 
   // 配置 electron-updater
@@ -37,14 +43,13 @@ export function initAutoUpdater(win: BrowserWindow) {
   autoUpdater.autoInstallOnAppQuit = false // 关闭时由我们自行调用 quitAndInstall 控制行为
 
   // 私有仓库需要通过 token 认证访问 GitHub Releases
-  if (GH_TOKEN) {
+  if (ghToken) {
     autoUpdater.setFeedURL({
       provider: 'github',
       owner: 'hjdspace',
       repo: 'SpaceCode',
-      token: GH_TOKEN,
+      token: ghToken,
     })
-    info('AutoUpdater', 'GitHub token configured for private repo')
   } else {
     warn('AutoUpdater', 'No GH_TOKEN found, update check may fail for private repo')
   }
