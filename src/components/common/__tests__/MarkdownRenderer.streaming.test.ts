@@ -1,5 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { nextTick } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import MarkdownRenderer from '../MarkdownRenderer.vue'
 
@@ -8,6 +9,11 @@ const apiMocks = vi.hoisted(() => ({
   readFileAsBase64: vi.fn(),
   openExternal: vi.fn(),
   openFile: vi.fn(),
+  // 组件链路会实例化 settings/terminal store (app → chatSession → settings),
+  // store 初始化调用这些 api; 缺失会产生 unhandled rejection / stderr 噪音
+  loadGuiSettings: vi.fn(),
+  getEnv: vi.fn(),
+  terminalOnExit: vi.fn(),
 }))
 
 vi.mock('@/services/electronAPI', () => ({
@@ -16,6 +22,9 @@ vi.mock('@/services/electronAPI', () => ({
     readFileAsBase64: apiMocks.readFileAsBase64,
     openExternal: apiMocks.openExternal,
     openFile: apiMocks.openFile,
+    loadGuiSettings: apiMocks.loadGuiSettings,
+    getEnv: apiMocks.getEnv,
+    terminal: { onExit: apiMocks.terminalOnExit },
   },
 }))
 
@@ -24,6 +33,8 @@ describe('MarkdownRenderer streaming updates', () => {
     vi.useFakeTimers()
     apiMocks.readFile.mockResolvedValue(null)
     apiMocks.readFileAsBase64.mockResolvedValue('aW1hZ2U=')
+    apiMocks.loadGuiSettings.mockResolvedValue({ success: false })
+    apiMocks.getEnv.mockResolvedValue(undefined)
     setActivePinia(createPinia())
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
       window.setTimeout(() => callback(performance.now()), 0))
@@ -58,6 +69,30 @@ describe('MarkdownRenderer streaming updates', () => {
     const links = wrapper.findAll('.file-link')
     expect(links).toHaveLength(2)
     expect(links[1].attributes('data-file-path')).toBe('src/file-3.ts')
+    wrapper.unmount()
+  })
+
+  it('keeps DOM nodes of completed blocks stable across streaming updates', async () => {
+    // 注意: 路径正则的边界集合仅含 ASCII 标点, 路径后需跟空格等 ASCII 边界;
+    // attachTo 让组件挂到真实文档上, isConnected 断言才有意义
+    const wrapper = mount(MarkdownRenderer, {
+      props: { content: '第一段提到 src/a.ts 完成。\n\n第二段开始输出' },
+      attachTo: document.body,
+      global: { plugins: [createPinia()] },
+    })
+    // 让挂载渲染的 file-link 就位
+    await nextTick()
+    const linkEl = wrapper.find('.file-link').element
+    expect(linkEl).toBeTruthy()
+
+    await wrapper.setProps({ content: '第一段提到 src/a.ts 完成。\n\n第二段继续输出更多内容 src/b.ts' })
+    await vi.advanceTimersByTimeAsync(100)
+
+    // 完成块的 DOM 节点未被替换(同一元素对象仍在组件树中)
+    // → hover 态/tooltip/校验标记不再因整块重建而闪烁
+    expect(linkEl.isConnected).toBe(true)
+    expect(wrapper.element.contains(linkEl)).toBe(true)
+    expect(wrapper.findAll('.file-link')).toHaveLength(2)
     wrapper.unmount()
   })
 
