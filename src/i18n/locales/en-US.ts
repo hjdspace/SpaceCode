@@ -2186,6 +2186,16 @@ export default {
     taskOutputBadgeTimeout: 'Timeout',
     taskOutputBadgeNotReady: 'Not Ready',
   },
+  subagentPanel: {
+    backToChat: 'Back to chat',
+    notFound: 'Subagent not found',
+    taskDescription: 'Task Description',
+    result: 'Result',
+    waiting: 'Waiting for subagent to start...',
+    running: 'Running',
+    done: 'Done',
+    failed: 'Failed',
+  },
   cronHelper: {
     weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
     everyMinute: 'Every minute',
