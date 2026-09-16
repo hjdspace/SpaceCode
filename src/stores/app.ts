@@ -54,7 +54,7 @@ export interface InputInjectPayload {
   }
 }
 
-export type InfoPanelTabType = 'file' | 'markdown' | 'diff' | 'tool-diff' | 'webview' | 'terminal' | 'artifacts' | 'office-preview' | 'design-preview'
+export type InfoPanelTabType = 'file' | 'markdown' | 'diff' | 'tool-diff' | 'webview' | 'terminal' | 'artifacts' | 'office-preview' | 'design-preview' | 'subagent'
 
 export interface InfoPanelTab {
   id: string
@@ -63,6 +63,11 @@ export interface InfoPanelTab {
   icon: any
   data: FileInfo | ToolDiffData | WebviewTabData | ScmDiffTabData | null
   closeable: boolean
+}
+
+export interface SubagentPanelState {
+  toolCallId: string
+  sessionId: string
 }
 
 export interface CenterTab {
@@ -103,6 +108,10 @@ export const useAppStore = defineStore('app', () => {
 
   const infoPanelTabs = ref<InfoPanelTab[]>([])
   const activeInfoTabId = ref<string | null>(null)
+  const subagentPanelState = ref<SubagentPanelState | null>(null)
+  // Shadow state to restore InfoPanel after closing subagent view
+  let _previousActiveTabId: string | null = null
+  let _previousPanelHome = false
   const isLoading = ref<boolean>(false)
 
   // 工作台 -> 输入框 的一次性注入载荷(截图/框选元素整合)。
@@ -162,6 +171,7 @@ export const useAppStore = defineStore('app', () => {
   })
 
   const infoPanelMode = computed<InfoPanelTabType>(() => {
+    if (subagentPanelState.value) return 'subagent'
     return activeInfoTab.value?.type ?? 'file'
   })
 
@@ -281,6 +291,33 @@ export const useAppStore = defineStore('app', () => {
     infoPanelVisible.value = false
   }
 
+  function openSubagentPanel(toolCallId: string) {
+    const sessionStore = useChatSessionStore()
+    // Save current panel state for restore
+    _previousActiveTabId = activeInfoTabId.value
+    _previousPanelHome = panelHome.value
+    subagentPanelState.value = {
+      toolCallId,
+      sessionId: sessionStore.currentSessionId ?? '',
+    }
+    infoPanelVisible.value = true
+    panelHome.value = false
+    // Clear active tab so dependent computeds (currentFile, toolDiffData, etc.)
+    // return null instead of stale previous-tab values during subagent mode.
+    activeInfoTabId.value = null
+  }
+
+  function closeSubagentPanel() {
+    subagentPanelState.value = null
+    // Restore previous panel state
+    if (_previousActiveTabId) {
+      activeInfoTabId.value = _previousActiveTabId
+      panelHome.value = _previousPanelHome
+    } else {
+      panelHome.value = true
+    }
+  }
+
   function showInfoPanel(mode: InfoPanelTabType) {
     if (activeInfoTab.value && activeInfoTab.value.type === mode) {
       infoPanelVisible.value = true
@@ -343,9 +380,22 @@ export const useAppStore = defineStore('app', () => {
     }
   )
 
+  // 切换 session 时自动关闭子代理面板
+  watch(
+    () => useChatSessionStore().currentSessionId,
+    (newId, oldId) => {
+      if (newId !== oldId && subagentPanelState.value) {
+        closeSubagentPanel()
+      }
+    }
+  )
+
   /** 标题栏面板按钮：切换右侧面板显隐；打开时进入启动器 */
   function toggleInfoPanel() {
     if (infoPanelVisible.value) {
+      if (subagentPanelState.value) {
+        closeSubagentPanel()
+      }
       infoPanelVisible.value = false
     } else {
       infoPanelVisible.value = true
@@ -909,6 +959,7 @@ export const useAppStore = defineStore('app', () => {
     activeCenterTab,
     infoPanelTabs,
     activeInfoTabId,
+    subagentPanelState,
     activeInfoTab,
     projectRoot,
     showHiddenFiles,
@@ -942,6 +993,8 @@ export const useAppStore = defineStore('app', () => {
     toggleShowHiddenFiles,
     toggleSettings,
     showInfoPanel,
+    openSubagentPanel,
+    closeSubagentPanel,
     hideInfoPanel,
     toggleInfoPanel,
     goPanelHome,
