@@ -74,6 +74,6 @@ describe('AgentTimeline', () => {
     expect(wrapper.find('.task-list-card').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Implement the fix')
     expect(wrapper.text()).not.toContain('Run the tests')
-    expect(wrapper.findAll('.timeline-event')).toHaveLength(1)
+    expect(wrapper.findAll('.tool-row')).toHaveLength(1)
   })
 })

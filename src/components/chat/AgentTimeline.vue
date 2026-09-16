@@ -132,14 +132,16 @@
                     :class="{ 'detail-panel--open': expandedEvents[event.id] }"
                   >
                     <div class="detail-panel__clip">
-                      <div class="detail-lines">
-                        <div v-if="event.toolCall?.input && Object.keys(event.toolCall.input).length" class="detail-line detail-line--code">
-                          <pre class="detail-code"><code>{{ formatInput(event.toolCall) }}</code></pre>
+                      <template v-if="expandedEvents[event.id]">
+                        <div class="detail-lines">
+                          <div v-if="event.toolCall?.input && Object.keys(event.toolCall.input).length" class="detail-line detail-line--code">
+                            <pre class="detail-code"><code>{{ formatInput(event.toolCall) }}</code></pre>
+                          </div>
+                          <div v-if="event.toolCall?.output" class="detail-line detail-line--code">
+                            <pre class="detail-code output"><code>{{ formatOutput(event.toolCall.output) }}</code></pre>
+                          </div>
                         </div>
-                        <div v-if="event.toolCall?.output" class="detail-line detail-line--code">
-                          <pre class="detail-code output"><code>{{ formatOutput(event.toolCall.output) }}</code></pre>
-                        </div>
-                      </div>
+                      </template>
                     </div>
                   </div>
 
@@ -259,14 +261,16 @@
 
                 <div class="detail-panel" :class="{ 'detail-panel--open': expandedEvents[item.event!.id] }">
                   <div class="detail-panel__clip">
-                    <div class="detail-lines">
-                      <div v-if="item.event!.toolCall?.input && Object.keys(item.event!.toolCall.input).length" class="detail-line detail-line--code">
-                        <pre class="detail-code"><code>{{ formatInput(item.event!.toolCall) }}</code></pre>
+                    <template v-if="expandedEvents[item.event!.id]">
+                      <div class="detail-lines">
+                        <div v-if="item.event!.toolCall?.input && Object.keys(item.event!.toolCall.input).length" class="detail-line detail-line--code">
+                          <pre class="detail-code"><code>{{ formatInput(item.event!.toolCall) }}</code></pre>
+                        </div>
+                        <div v-if="item.event!.toolCall?.output" class="detail-line detail-line--code">
+                          <pre class="detail-code output"><code>{{ formatOutput(item.event!.toolCall.output) }}</code></pre>
+                        </div>
                       </div>
-                      <div v-if="item.event!.toolCall?.output" class="detail-line detail-line--code">
-                        <pre class="detail-code output"><code>{{ formatOutput(item.event!.toolCall.output) }}</code></pre>
-                      </div>
-                    </div>
+                    </template>
                   </div>
                 </div>
 
