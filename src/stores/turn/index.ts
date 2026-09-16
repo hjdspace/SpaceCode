@@ -142,7 +142,10 @@ export function useTurnStore(injectedApi?: any) {
       sink.patchMessage(sessionId, ts.assistantMessageId, {
         metadata: {
           ...(existingMsg?.metadata || {}),
-          model: settingsStore.config.model,
+          model: (() => {
+            const s = sessionStore.sessions.find(x => x.id === sessionId)
+            return s?.model || settingsStore.config.model
+          })(),
           retryState: { ...state },
         },
       })
@@ -318,7 +321,11 @@ export function useTurnStore(injectedApi?: any) {
       loadTurnCheckpoints: (sid: string, projectPathOverride?: string, force?: boolean) => {
         void sessionStore.loadTurnCheckpoints(sid, projectPathOverride, force)
       },
-      getModel: () => settingsStore.config.model,
+      getModel: () => {
+        const sid = sessionStore.currentSessionId
+        const session = sid ? sessionStore.sessions.find(s => s.id === sid) : undefined
+        return session?.model || settingsStore.config.model
+      },
       getProvider: () => settingsStore.config.provider,
       getBaseUrl: () => settingsStore.config.baseUrl,
       autoRetry,
