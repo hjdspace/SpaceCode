@@ -351,20 +351,24 @@ export function buildMessagesFromHistory(
             })
           }
         } else if (block.type === 'tool_use' && block.id) {
+          // 子代理转录是边写边轮询解析的：尚未等到 tool_result 的 tool_use 可能仍在执行。
+          // subagentMode 下先标记 running，待 tool_result 回填 completed/error；
+          // 否则 AgentTimeline 会在子代理运行期间把该工具渲染成已完成的绿勾。
+          const status = subagentMode ? ('running' as const) : ('completed' as const)
           const tc = {
             id: block.id,
             name: block.name || 'Unknown Tool',
             input: block.input || {},
-            status: 'completed' as const,
+            status,
             startTime: ts,
-            endTime: ts,
+            ...(status === 'completed' ? { endTime: ts } : {}),
           }
           toolCalls.push(tc)
           timelineEvents.push({
             id: `tool-${block.id}`,
             type: 'tool_call',
             timestamp: ts,
-            status: 'completed',
+            status,
             toolCallId: block.id,
           })
         }
