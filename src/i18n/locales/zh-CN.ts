@@ -343,6 +343,14 @@ export default {
     ready: '就绪',
     notConfigured: '未配置',
     thoughtFor: '思考了 {duration}s',
+    thinkingState: {
+      active: '正在思考',
+      reasoningLabel: '推理中',
+      responding: '正在回复',
+    },
+    toolChips: {
+      toolCalls: '{count} 个工具调用',
+    },
     input: '输入',
     output: '输出',
     hiddenLines: '{count} 行已折叠',
@@ -1219,6 +1227,7 @@ export default {
     priorityLater: '排队',
     priorityNow: '插队',
     messageSteered: '消息已注入当前对话',
+    dropImageHint: '拖放图片到此处添加',
   },
 
   composerStatus: {

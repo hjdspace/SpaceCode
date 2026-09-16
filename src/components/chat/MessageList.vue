@@ -52,10 +52,8 @@
           />
       </template>
 
-      <div v-if="props.loading" class="typing-indicator">
-        <div class="dot"></div>
-        <div class="dot"></div>
-        <div class="dot"></div>
+      <div v-if="props.loading && !hasVisibleAssistantContent" class="loading-wrapper">
+        <ThinkingState />
       </div>
     </div>
     </div>
@@ -73,6 +71,7 @@ import DesignBlocks from './DesignBlocks.vue'
 import CurrentTurnChangeCard from './CurrentTurnChangeCard.vue'
 import ArtifactSummaryCard from './ArtifactSummaryCard.vue'
 import ConversationMinimap from './ConversationMinimap.vue'
+import ThinkingState from './ThinkingState.vue'
 import { MessageSquare } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useChatSessionStore } from '@/stores/chatSession'
@@ -191,6 +190,27 @@ function buildMessageGroups(msgs: Message[]): MessageGroup[] {
 
 const messageGroups = computed<MessageGroup[]>(() => {
   return buildMessageGroups(props.messages)
+})
+
+// loading=true 时判断是否已有 assistant 内容可渲染。
+// 当 LLM 首个 token 到达后，assistant 消息会获得 content / reasoning / toolCalls，
+// AgentTimeline 即可接管展示，ThinkingState 占位动画不再需要。
+const hasVisibleAssistantContent = computed(() => {
+  if (!props.loading) return false
+  // 检查最后一个 assistant group 是否已有可见内容
+  for (let i = messageGroups.value.length - 1; i >= 0; i--) {
+    const group = messageGroups.value[i]
+    if (group.type === 'assistant') {
+      return group.messages.some(
+        m => (m.content?.trim() ?? '') !== '' ||
+          (m.reasoning?.content?.trim() ?? '') !== '' ||
+          (m.toolCalls?.length ?? 0) > 0,
+      )
+    }
+    // 遇到 user group 说明前面没有 assistant group
+    break
+  }
+  return false
 })
 
 // 若某助手分组的回合产生了产物（仅办公模式），返回对应的产物卡片项，否则 null
@@ -564,33 +584,13 @@ onUnmounted(() => {
   }
 }
 
-.typing-indicator {
+.loading-wrapper {
   display: flex;
-  gap: 4px;
+  align-items: center;
   padding: 12px 16px;
-
-  .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--accent-primary);
-    animation: bounce 1.4s infinite ease-in-out both;
-
-    &:nth-child(1) { animation-delay: -0.32s; }
-    &:nth-child(2) { animation-delay: -0.16s; }
-  }
 }
 
 .turn-change-card-wrapper {
   margin: 12px 16px;
-}
-
-@keyframes bounce {
-  0%, 80%, 100% {
-    transform: scale(0);
-  }
-  40% {
-    transform: scale(1);
-  }
 }
 </style>

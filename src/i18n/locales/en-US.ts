@@ -343,6 +343,14 @@ export default {
     ready: 'Ready',
     notConfigured: 'Not Configured',
     thoughtFor: 'Thought for {duration}s',
+    thinkingState: {
+      active: 'Thinking',
+      reasoningLabel: 'Reasoning',
+      responding: 'Responding',
+    },
+    toolChips: {
+      toolCalls: '{count} tool calls',
+    },
     input: 'Input',
     output: 'Output',
     hiddenLines: '{count} hidden lines',
@@ -1219,6 +1227,7 @@ export default {
     priorityLater: 'Queue',
     priorityNow: 'Steer',
     messageSteered: 'Message steered into current turn',
+    dropImageHint: 'Drop image here to add',
   },
 
   composerStatus: {

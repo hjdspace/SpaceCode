@@ -19,117 +19,231 @@
 
     <!-- Timeline event list -->
     <div class="timeline-events">
-      <div
-        v-for="(event, index) in visibleTimelineEvents"
-        :key="event.id"
-        class="timeline-event"
-        :class="[`event-${event.type}`, `status-${event.status}`, { 'is-last': index === visibleTimelineEvents.length - 1 }]"
-      >
-        <!-- Timeline connector -->
-        <div v-if="event.type === 'metadata'" class="event-node">
-          <div class="event-dot" :class="`status-${event.status}`">
-            <Loader2 v-if="event.status === 'running'" :size="11" class="spin-icon" />
-            <X v-else-if="event.status === 'error'" :size="11" />
-            <component v-else :is="event.icon" :size="11" />
-          </div>
-          <div v-if="index < visibleTimelineEvents.length - 1" class="event-line"></div>
-        </div>
-        <div v-else class="event-spacer"></div>
-
-        <!-- Event content -->
-        <div class="event-body">
-          <!-- Reasoning event -->
-          <template v-if="event.type === 'reasoning'">
-            <div class="event-row" @click="toggleEvent(event.id)">
-              <span class="event-label">{{ t('timeline.thinking') }}</span>
-              <span v-if="event.duration" class="event-duration">{{ event.duration }}s</span>
-              <ChevronDown v-if="event.content" :size="12" class="event-chevron" :class="{ expanded: expandedEvents[event.id] }" />
-            </div>
-            <div v-if="expandedEvents[event.id] && event.content" class="event-detail">
-              <MarkdownRenderer :content="event.content" />
-            </div>
-          </template>
-
-          <!-- Text event -->
-          <template v-else-if="event.type === 'text'">
-            <div class="event-text-content">
-              <MarkdownRenderer :content="event.content" />
-            </div>
-          </template>
-
-          <!-- Tool call event with special component -->
-          <template v-else-if="event.type === 'tool_call' && shouldRenderSpecialComponent(event)">
-            <component
-              :is="event.specialComponent"
-              :key="getSpecialComponentKey(event)"
-              :tool-call="event.toolCall!"
-              @submit="handleToolSubmit(event.toolCall!.id, $event)"
-              @skip="handleToolSkip(event.toolCall!.id)"
-            />
-            <PermissionRequestCard
-              v-if="!SELF_PERMISSION_TOOL_NAMES.has(event.toolCall!.name) && getPendingPermission(event.toolCall!.id)"
-              :message-id="event.messageId!"
-              :tool-use-id="event.toolCall!.id"
-              :tool-name="getPendingPermission(event.toolCall!.id)!.toolName"
-              :input="getPendingPermission(event.toolCall!.id)!.input"
-            />
-          </template>
-
-          <!-- Generic tool call event -->
-          <template v-else-if="event.type === 'tool_call'">
-            <div class="event-row" @click="toggleEvent(event.id)">
-              <span class="inline-tool-status" :class="`status-${event.status}`">
-                <Loader2 v-if="event.status === 'running'" :size="12" class="spin-icon" />
-                <X v-else-if="event.status === 'error'" :size="12" />
-                <component v-else :is="event.icon" :size="12" />
+      <template v-for="(item, index) in displayItems" :key="item.groupId || item.event?.id || `item-${index}`">
+        <!-- ── 工具调用折叠组 ── -->
+        <div v-if="item.type === 'tool-group'" class="tool-group">
+          <!-- 折叠时：紧凑 chips 摘要行 -->
+          <div v-if="isToolGroupCollapsed(item.groupId!)" class="tool-group__summary">
+            <button
+              type="button"
+              class="tool-group__toggle"
+              :aria-expanded="false"
+              @click="toggleToolGroup(item.groupId!)"
+            >
+              <svg
+                class="tool-group__chevron"
+                width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+              >
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+              <span class="tool-group__count">
+                {{ t('chat.toolChips.toolCalls', { count: item.events!.length }) }}
               </span>
-              <span class="event-label">{{ event.label }}</span>
-              <span v-if="event.target" class="event-target">{{ event.target }}</span>
-              <span v-if="event.duration" class="event-duration">{{ event.duration }}s</span>
-              <ChevronDown
-                v-if="event.toolCall?.output || hasDetailContent(event)"
-                :size="12"
-                class="event-chevron"
-                :class="{ expanded: expandedEvents[event.id] }"
-              />
+            </button>
+            <!-- 紧凑 chips -->
+            <div class="tool-group__chips">
+              <span
+                v-for="(chip, ci) in getGroupChips(item.events!)"
+                :key="ci"
+                class="tool-group__chip"
+                :class="{ 'tool-group__chip--mono': chip.mono }"
+              >
+                {{ chip.text }}
+              </span>
             </div>
-            <div v-if="expandedEvents[event.id]" class="event-detail">
-              <div v-if="event.toolCall?.input && Object.keys(event.toolCall.input).length" class="detail-section">
-                <pre class="detail-code"><code>{{ formatInput(event.toolCall) }}</code></pre>
-              </div>
-              <div v-if="event.toolCall?.output" class="detail-section">
-                <pre class="detail-code output"><code>{{ formatOutput(event.toolCall.output) }}</code></pre>
-              </div>
+            <!-- diff 统计 chips -->
+            <div v-if="getGroupDiffStats(item.events!).length > 0" class="tool-group__diffs">
+              <span
+                v-for="diff in getGroupDiffStats(item.events!)"
+                :key="diff.file"
+                class="tool-group__diff-chip"
+              >
+                <span class="tool-group__diff-file">{{ diff.file }}</span>
+                <span class="tool-group__diff-add">+{{ diff.add }}</span>
+                <span v-if="diff.del > 0" class="tool-group__diff-del">−{{ diff.del }}</span>
+              </span>
             </div>
-            <PermissionRequestCard
-              v-if="event.toolCall && getPendingPermission(event.toolCall.id)"
-              :message-id="event.messageId!"
-              :tool-use-id="event.toolCall.id"
-              :tool-name="getPendingPermission(event.toolCall.id)!.toolName"
-              :input="getPendingPermission(event.toolCall.id)!.input"
-            />
-          </template>
+          </div>
 
-          <!-- Metadata event -->
-          <template v-else-if="event.type === 'metadata'">
-            <div class="event-meta">
-              <span v-if="event.metadata?.model" class="meta-tag">{{ event.metadata.model }}</span>
-              <span v-if="event.metadata?.inputTokens" class="meta-tag">↑{{ event.metadata.inputTokens }}</span>
-              <span v-if="event.metadata?.outputTokens" class="meta-tag">↓{{ event.metadata.outputTokens }}</span>
-              <span v-if="event.metadata?.duration" class="meta-tag">{{ (event.metadata.duration / 1000).toFixed(1) }}s</span>
-            </div>
-          </template>
+          <!-- 展开时：显示折叠按钮 + 逐行工具事件 -->
+          <button
+            v-else
+            type="button"
+            class="tool-group__toggle tool-group__toggle--expanded"
+            :aria-expanded="true"
+            @click="toggleToolGroup(item.groupId!)"
+          >
+            <svg
+              class="tool-group__chevron tool-group__chevron--expanded"
+              width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+            >
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+            <span class="tool-group__count">
+              {{ t('chat.toolChips.toolCalls', { count: item.events!.length }) }}
+            </span>
+          </button>
 
-          <!-- Error event -->
-          <template v-else-if="event.type === 'error' && event.classifiedError">
-            <ErrorCard
-              :error="event.classifiedError"
-              @retry="handleRetry"
-              @dismiss="handleDismissError"
-            />
-          </template>
+          <!-- 逐行工具事件（展开时显示） -->
+          <div v-if="!isToolGroupCollapsed(item.groupId!)" class="tool-group__events">
+            <div
+              v-for="(event, ei) in item.events!"
+              :key="event.id"
+              class="timeline-event"
+              :class="[`event-${event.type}`, `status-${event.status}`]"
+            >
+              <div class="event-spacer"></div>
+              <div class="event-body">
+                <div class="event-row" @click="toggleEvent(event.id)">
+                  <span class="inline-tool-status" :class="`status-${event.status}`">
+                    <Loader2 v-if="event.status === 'running'" :size="12" class="spin-icon" />
+                    <X v-else-if="event.status === 'error'" :size="12" />
+                    <component v-else :is="event.icon" :size="12" />
+                  </span>
+                  <span class="event-label">{{ event.label }}</span>
+                  <span v-if="event.target" class="event-target">{{ event.target }}</span>
+                  <span v-if="event.duration" class="event-duration">{{ event.duration }}s</span>
+                  <ChevronDown
+                    v-if="event.toolCall?.output || hasDetailContent(event)"
+                    :size="12"
+                    class="event-chevron"
+                    :class="{ expanded: expandedEvents[event.id] }"
+                  />
+                </div>
+                <div v-if="expandedEvents[event.id]" class="event-detail">
+                  <div v-if="event.toolCall?.input && Object.keys(event.toolCall.input).length" class="detail-section">
+                    <pre class="detail-code"><code>{{ formatInput(event.toolCall) }}</code></pre>
+                  </div>
+                  <div v-if="event.toolCall?.output" class="detail-section">
+                    <pre class="detail-code output"><code>{{ formatOutput(event.toolCall.output) }}</code></pre>
+                  </div>
+                </div>
+                <PermissionRequestCard
+                  v-if="event.toolCall && getPendingPermission(event.toolCall.id)"
+                  :message-id="event.messageId!"
+                  :tool-use-id="event.toolCall.id"
+                  :tool-name="getPendingPermission(event.toolCall.id)!.toolName"
+                  :input="getPendingPermission(event.toolCall.id)!.input"
+                />
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+
+        <!-- ── 单独事件（reasoning / text / special tool_call / metadata / error）── -->
+        <div
+          v-else
+          class="timeline-event"
+          :class="[`event-${item.event!.type}`, `status-${item.event!.status}`, { 'is-last': index === displayItems.length - 1 }]"
+        >
+          <!-- Timeline connector -->
+          <div v-if="item.event!.type === 'metadata'" class="event-node">
+            <div class="event-dot" :class="`status-${item.event!.status}`">
+              <Loader2 v-if="item.event!.status === 'running'" :size="11" class="spin-icon" />
+              <X v-else-if="item.event!.status === 'error'" :size="11" />
+              <component v-else :is="item.event!.icon" :size="11" />
+            </div>
+            <div v-if="index < displayItems.length - 1" class="event-line"></div>
+          </div>
+          <div v-else class="event-spacer"></div>
+
+          <!-- Event content -->
+          <div class="event-body">
+            <!-- Reasoning event -->
+            <template v-if="item.event!.type === 'reasoning'">
+              <div class="event-row" @click="toggleEvent(item.event!.id)">
+                <span class="event-label">{{ t('timeline.thinking') }}</span>
+                <span v-if="item.event!.duration" class="event-duration">{{ item.event!.duration }}s</span>
+                <ChevronDown v-if="item.event!.content" :size="12" class="event-chevron" :class="{ expanded: expandedEvents[item.event!.id] }" />
+              </div>
+              <div v-if="expandedEvents[item.event!.id] && item.event!.content" class="event-detail">
+                <MarkdownRenderer :content="item.event!.content" />
+              </div>
+            </template>
+
+            <!-- Text event -->
+            <template v-else-if="item.event!.type === 'text'">
+              <div class="event-text-content">
+                <MarkdownRenderer :content="item.event!.content" />
+              </div>
+            </template>
+
+            <!-- Tool call event with special component -->
+            <template v-else-if="item.event!.type === 'tool_call' && shouldRenderSpecialComponent(item.event!)">
+              <component
+                :is="item.event!.specialComponent"
+                :key="getSpecialComponentKey(item.event!)"
+                :tool-call="item.event!.toolCall!"
+                @submit="handleToolSubmit(item.event!.toolCall!.id, $event)"
+                @skip="handleToolSkip(item.event!.toolCall!.id)"
+              />
+              <PermissionRequestCard
+                v-if="!SELF_PERMISSION_TOOL_NAMES.has(item.event!.toolCall!.name) && getPendingPermission(item.event!.toolCall!.id)"
+                :message-id="item.event!.messageId!"
+                :tool-use-id="item.event!.toolCall!.id"
+                :tool-name="getPendingPermission(item.event!.toolCall!.id)!.toolName"
+                :input="getPendingPermission(item.event!.toolCall!.id)!.input"
+              />
+            </template>
+
+            <!-- Generic tool call event (single, not in a group) -->
+            <template v-else-if="item.event!.type === 'tool_call'">
+              <div class="event-row" @click="toggleEvent(item.event!.id)">
+                <span class="inline-tool-status" :class="`status-${item.event!.status}`">
+                  <Loader2 v-if="item.event!.status === 'running'" :size="12" class="spin-icon" />
+                  <X v-else-if="item.event!.status === 'error'" :size="12" />
+                  <component v-else :is="item.event!.icon" :size="12" />
+                </span>
+                <span class="event-label">{{ item.event!.label }}</span>
+                <span v-if="item.event!.target" class="event-target">{{ item.event!.target }}</span>
+                <span v-if="item.event!.duration" class="event-duration">{{ item.event!.duration }}s</span>
+                <ChevronDown
+                  v-if="item.event!.toolCall?.output || hasDetailContent(item.event!)"
+                  :size="12"
+                  class="event-chevron"
+                  :class="{ expanded: expandedEvents[item.event!.id] }"
+                />
+              </div>
+              <div v-if="expandedEvents[item.event!.id]" class="event-detail">
+                <div v-if="item.event!.toolCall?.input && Object.keys(item.event!.toolCall.input).length" class="detail-section">
+                  <pre class="detail-code"><code>{{ formatInput(item.event!.toolCall) }}</code></pre>
+                </div>
+                <div v-if="item.event!.toolCall?.output" class="detail-section">
+                  <pre class="detail-code output"><code>{{ formatOutput(item.event!.toolCall.output) }}</code></pre>
+                </div>
+              </div>
+              <PermissionRequestCard
+                v-if="item.event!.toolCall && getPendingPermission(item.event!.toolCall.id)"
+                :message-id="item.event!.messageId!"
+                :tool-use-id="item.event!.toolCall.id"
+                :tool-name="getPendingPermission(item.event!.toolCall.id)!.toolName"
+                :input="getPendingPermission(item.event!.toolCall.id)!.input"
+              />
+            </template>
+
+            <!-- Metadata event -->
+            <template v-else-if="item.event!.type === 'metadata'">
+              <div class="event-meta">
+                <span v-if="item.event!.metadata?.model" class="meta-tag">{{ item.event!.metadata.model }}</span>
+                <span v-if="item.event!.metadata?.inputTokens" class="meta-tag">↑{{ item.event!.metadata.inputTokens }}</span>
+                <span v-if="item.event!.metadata?.outputTokens" class="meta-tag">↓{{ item.event!.metadata.outputTokens }}</span>
+                <span v-if="item.event!.metadata?.duration" class="meta-tag">{{ (item.event!.metadata.duration / 1000).toFixed(1) }}s</span>
+              </div>
+            </template>
+
+            <!-- Error event -->
+            <template v-else-if="item.event!.type === 'error' && item.event!.classifiedError">
+              <ErrorCard
+                :error="item.event!.classifiedError"
+                @retry="handleRetry"
+                @dismiss="handleDismissError"
+              />
+            </template>
+          </div>
+        </div>
+      </template>
 
     </div>
 
@@ -522,6 +636,117 @@ const visibleTimelineEvents = computed<TimelineEvent[]>(() => {
     return !TASK_LIST_ONLY_TOOL_NAMES.has(event.toolCall.name)
   })
 })
+
+// ── 将连续的 generic tool_call 事件合并为可折叠组 ──
+// 带有特殊组件的 tool_call（如 AskUserQuestion）不参与合并，
+// 它们有自己的交互 UI，需要独立渲染。
+interface DisplayItem {
+  type: 'single' | 'tool-group'
+  event?: TimelineEvent
+  events?: TimelineEvent[]
+  groupId?: string
+}
+
+const displayItems = computed<DisplayItem[]>(() => {
+  const items: DisplayItem[] = []
+  // 第一遍：收集所有 generic tool_call 事件
+  const genericToolEvents = visibleTimelineEvents.value.filter(
+    e => e.type === 'tool_call' && !shouldRenderSpecialComponent(e)
+  )
+
+  if (genericToolEvents.length < 2) {
+    // 不足 2 个，不需要折叠，全部作为 single
+    for (const event of visibleTimelineEvents.value) {
+      items.push({ type: 'single', event })
+    }
+    return items
+  }
+
+  // 有 ≥2 个 generic tool_call → 合并为一个折叠组
+  const groupId = 'tool-group-0'
+  const toolEventIds = new Set(genericToolEvents.map(e => e.id))
+  let groupInserted = false
+
+  for (const event of visibleTimelineEvents.value) {
+    if (toolEventIds.has(event.id)) {
+      // 第一个 generic tool_call 的位置 → 插入折叠组
+      if (!groupInserted) {
+        items.push({ type: 'tool-group', events: genericToolEvents, groupId })
+        groupInserted = true
+      }
+      // 后续的 generic tool_call 跳过（已在组内）
+    } else {
+      // 非 generic tool_call 事件 → 按原位置渲染
+      items.push({ type: 'single', event })
+    }
+  }
+
+  return items
+})
+
+// ── 工具组折叠状态 ──
+const collapsedToolGroups = reactive<Record<string, boolean>>({})
+
+function isToolGroupCollapsed(groupId: string): boolean {
+  // 默认折叠（undefined → true），正在运行的组不折叠
+  const events = displayItems.value.find(item => item.groupId === groupId)?.events
+  if (events?.some(e => e.status === 'running' || e.status === 'pending')) {
+    return false
+  }
+  return collapsedToolGroups[groupId] ?? true
+}
+
+function toggleToolGroup(groupId: string) {
+  collapsedToolGroups[groupId] = !isToolGroupCollapsed(groupId)
+}
+
+// ── 工具组摘要信息 ──
+function getGroupChips(events: TimelineEvent[]): { text: string; mono: boolean }[] {
+  return events.map(e => {
+    const target = e.target || ''
+    const isMono = ['Bash', 'Write', 'FileWrite', 'Edit', 'FileEdit', 'MultiEdit', 'Read', 'FileRead'].includes(e.toolCall?.name || '')
+    return { text: target, mono: isMono }
+  }).filter(c => c.text)
+}
+
+interface DiffStat {
+  file: string
+  add: number
+  del: number
+}
+
+function getGroupDiffStats(events: TimelineEvent[]): DiffStat[] {
+  const stats: DiffStat[] = []
+  for (const e of events) {
+    if (!e.toolCall) continue
+    const input = e.toolCall.input || {}
+    if (!['Edit', 'FileEdit', 'MultiEdit', 'Write', 'FileWrite'].includes(e.toolCall.name)) continue
+    const file = (input.file_path || input.path || '').toString().replace(/\\/g, '/').split('/').pop() || 'unknown'
+    let add = 0
+    let del = 0
+    if (input.old_string && input.new_string) {
+      del = String(input.old_string).split('\n').filter(l => l.trim()).length
+      add = String(input.new_string).split('\n').filter(l => l.trim()).length
+    } else if (input.content) {
+      add = String(input.content).split('\n').filter(l => l.trim()).length
+    } else if (input.edits && Array.isArray(input.edits)) {
+      for (const edit of input.edits as Array<Record<string, unknown>>) {
+        if (edit.old_string && edit.new_string) {
+          del += String(edit.old_string).split('\n').filter((l: string) => l.trim()).length
+          add += String(edit.new_string).split('\n').filter((l: string) => l.trim()).length
+        }
+      }
+    }
+    const existing = stats.find(s => s.file === file)
+    if (existing) {
+      existing.add += add
+      existing.del += del
+    } else {
+      stats.push({ file, add, del })
+    }
+  }
+  return stats.slice(0, 5)
+}
 
 const overallStatus = computed(() => {
   const lastMsg = props.messages[props.messages.length - 1]
@@ -1064,6 +1289,144 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   }
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* ── 工具调用折叠组样式 ── */
+.tool-group {
+  margin-bottom: 2px;
+}
+
+.tool-group__summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 2px 0;
+}
+
+.tool-group__toggle {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 6px;
+  margin-inline: -6px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+
+  &:hover {
+    background: var(--surface-glass-hover);
+  }
+}
+
+.tool-group__toggle--expanded {
+  margin-bottom: 2px;
+}
+
+.tool-group__chevron {
+  flex-shrink: 0;
+  transition: transform 200ms ease;
+}
+
+.tool-group__chevron--expanded {
+  transform: rotate(0deg);
+}
+
+.tool-group__toggle:not(.tool-group__toggle--expanded) .tool-group__chevron {
+  transform: rotate(-90deg);
+}
+
+.tool-group__count {
+  white-space: nowrap;
+}
+
+.tool-group__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tool-group__chip {
+  display: inline-flex;
+  height: 22px;
+  max-width: 160px;
+  align-items: center;
+  padding-inline: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-xs);
+  background: var(--bg-tertiary);
+  box-shadow: 0 0 0 1px var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  animation: chip-in 250ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.tool-group__chip--mono {
+  font-family: var(--font-mono);
+}
+
+.tool-group__diffs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-left: 4px;
+  margin-left: auto;
+}
+
+.tool-group__diff-chip {
+  display: inline-flex;
+  height: 22px;
+  align-items: center;
+  gap: 4px;
+  padding-inline: 6px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-tertiary);
+  box-shadow: 0 0 0 1px var(--border-subtle);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  animation: chip-in 250ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.tool-group__diff-file {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-group__diff-add {
+  color: var(--success);
+  font-variant-numeric: tabular-nums;
+}
+
+.tool-group__diff-del {
+  color: var(--error);
+  font-variant-numeric: tabular-nums;
+}
+
+.tool-group__events {
+  margin-left: 0;
+  padding-top: 2px;
+}
+
+@keyframes chip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
   }
 }
 

@@ -1017,26 +1017,9 @@ async function handleModelChange(model: string) {
     // 无法将其与 haiku/sonnet/opus 槽位关联。
     const modelAlias = resolveModelAlias(model)
 
-    // 通过 control_request set_model 将模型别名发送到正在运行的引擎
-    const claudeCode = api.claudeCode
-    const sid = sessionStore.currentSessionId
-    if (claudeCode && sid) {
-      try {
-        const status = await claudeCode.getSessionStatus(sid)
-        if (status?.isRunning) {
-          // 引擎在运行：通过 setModel control_request 切换模型（无需重启）
-          await claudeCode.setModel(sid, modelAlias)
-          console.log('[ChatPanel] Model switched via setModel:', modelAlias, '(from', model, ')')
-          return
-        }
-      } catch (error) {
-        console.error('[ChatPanel] setModel failed, falling back to restart:', error)
-      }
-    }
-
-    // 引擎未运行或 setModel 失败：直接走重启路径
-    // ★ 传 skipSetModel: true 避免 switchModel 内部再次尝试 setModel 导致二次超时
-    await sessionStore.switchModel(modelAlias, model, { skipSetModel: true })
+    // Store owns both the selected model and the engine update, including
+    // restart fallback. Keep the selection available for subsequent restarts.
+    await sessionStore.switchModel(modelAlias, model)
 
     console.log('[ChatPanel] Model changed to:', modelAlias, '(from', model, ')')
   } finally {
