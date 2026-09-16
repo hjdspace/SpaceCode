@@ -1,3 +1,35 @@
+## [0.8.1](https://github.com/hjdspace/SpaceCode/compare/v0.8.0...v0.8.1) (2026-09-17)
+
+### Features
+
+- **chat:** 重构工具事件展开动画并增强摘要 chips 展示
+- **chat:** 添加工具调用折叠分组与加载/思考状态组件
+- **chat:** 新增会话缩略图（Conversation Minimap）组件及 i18n 支持
+- **chat:** 工具调用状态支持运行中状态展示
+- **subagent:** 新增 SubagentPanel 组件用于子代理交互详细视图
+- **subagent:** InfoPanel 集成子代理面板并实现状态管理
+- **subagent:** 子代理面板添加运行指示器
+- **model:** 增强 switchModel 支持选项参数与 displayModel 显示
+- **model:** 会话接口添加 model 字段，上下文用量逻辑使用会话模型
+- **model:** ChatPanel 模型变更处理增强
+- **info-panel:** InfoPanel 异步组件加载与预加载优化
+- **auto-updater:** 生产环境参数化传递 GitHub token 至 autoUpdater
+- **session:** 从会话消息中提取真实项目路径
+
+### Bug Fixes
+
+- **chat:** 修复 overallStatus 计算属性中 isStreaming 条件判断
+- **chat:** 为 setModel 控制请求添加超时处理
+- **markdown:** 改进 MarkdownRenderer 文件链接验证
+
+### Refactor
+
+- 重构 AgentToolCard 组件
+- 重构 turn store 模型获取逻辑
+- 重构子代理面板状态管理
+- Vite 配置使用 import.meta.dirname
+- 重构 MarkdownRenderer 文件链接增强
+
 ## [0.8.0](https://github.com/hjdspace/SpaceCode/compare/v0.7.10...v0.8.0) (2026-09-14)
 
 ### Features
