@@ -35,22 +35,29 @@ describe('MarkdownRenderer streaming updates', () => {
     vi.unstubAllGlobals()
   })
 
-  it('defers the expensive file-link render until the stream becomes idle', async () => {
+  it('keeps file links rendered across streaming updates (no flicker)', async () => {
     const wrapper = mount(MarkdownRenderer, {
-      props: { content: 'Starting response' },
+      props: { content: 'See src/utils/helper.ts for details.' },
       global: { plugins: [createPinia()] },
     })
 
-    for (let index = 0; index < 6; index++) {
-      await wrapper.setProps({ content: `Streaming chunk ${index} references src/file-${index}.ts` })
-      await vi.advanceTimersByTimeAsync(20)
+    for (let index = 0; index < 4; index++) {
+      await wrapper.setProps({
+        content: `See src/utils/helper.ts for details. Update ${index} touches src/file-${index}.ts too.`,
+      })
+      // 只推进到 rAF 渲染完成(0ms 定时器 + 微任务 flush), 不触发 80ms 后的尾随帧。
+      // 这是旧实现(流式帧跳过 file-link 转换)渲染纯文本的时刻:
+      // 若链接在此刻缺失, 说明存在 link → 纯文本 的闪烁回归。
+      await vi.advanceTimersByTimeAsync(1)
+      expect(wrapper.find('.file-link').exists()).toBe(true)
+      // 推进超过节流间隔, 覆盖尾随帧兜底渲染 + 异步增强后的稳定态。
+      await vi.advanceTimersByTimeAsync(160)
+      expect(wrapper.find('.file-link').exists()).toBe(true)
     }
 
-    expect(wrapper.find('.file-link').exists()).toBe(false)
-
-    await vi.advanceTimersByTimeAsync(80)
-
-    expect(wrapper.find('.file-link').exists()).toBe(true)
+    const links = wrapper.findAll('.file-link')
+    expect(links).toHaveLength(2)
+    expect(links[1].attributes('data-file-path')).toBe('src/file-3.ts')
     wrapper.unmount()
   })
 
