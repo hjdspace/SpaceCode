@@ -1,14 +1,15 @@
 <template>
-  <div 
-    class="markdown-renderer" 
-    v-html="renderedContent" 
+  <div
+    class="markdown-renderer"
     @click="handleLinkClick"
     ref="containerRef"
-  ></div>
+  >
+    <div v-for="(html, index) in blocks" :key="index" v-html="html"></div>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, shallowRef, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { marked, type RendererObject, type Tokens } from 'marked'
 import DOMPurify from 'dompurify'
 import hljs from 'highlight.js'
@@ -74,7 +75,22 @@ function normalizeLineReferences(text: string): string {
   return text
 }
 
-function transformFileLinks(html: string): string {
+/** 单个文件路径匹配结果（相对所在文本节点起始的字符偏移） */
+interface FileLinkMatch {
+  start: number
+  end: number
+  filePath: string
+  startLine?: string
+  endLine?: string
+}
+
+/**
+ * 构建路径匹配正则（组件实例级，只构建一次）。
+ * 返回两个正则，捕获组布局不同：
+ *   filePathRegex:       1=prefix, 2=filePath, 3=startLine, 4=endLine
+ *   inlineCodePathRegex: 1=filePath, 2=startLine, 3=endLine
+ */
+function buildPathRegexes() {
   const fileExtensions = [
     'ts', 'tsx', 'js', 'jsx', 'vue', 'py', 'go', 'rs', 'java', 'c', 'cpp', 'cc', 'cxx',
     'h', 'hpp', 'v', 'sv', 'svh', 'svi', 'md', 'json', 'yaml', 'yml', 'xml', 'html',
@@ -135,85 +151,33 @@ function transformFileLinks(html: string): string {
     'gi'
   )
 
-  // Walk text nodes; 区分 <pre><code>（跳过）和单独 <code>（处理）
-  const container = document.createElement('div')
-  container.innerHTML = html
+  return { filePathRegex, inlineCodePathRegex }
+}
 
-  const SKIP_TAGS = new Set(['A', 'PRE', 'SCRIPT', 'STYLE'])
-  const SKIP_CLASSES = ['mention-chip', 'file-link']
-
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      let parent: HTMLElement | null = node.parentElement
-      let isInInlineCode = false
-      while (parent && parent !== container) {
-        if (SKIP_TAGS.has(parent.tagName)) return NodeFilter.FILTER_REJECT
-        // 单独的 <code>（不在 <pre> 内）允许处理
-        if (parent.tagName === 'CODE') {
-          isInInlineCode = true
-        }
-        for (const cls of SKIP_CLASSES) {
-          if (parent.classList.contains(cls)) return NodeFilter.FILTER_REJECT
-        }
-        parent = parent.parentElement
-      }
-      // 行内代码中的文本节点也接受（使用不同的正则）
-      if (isInInlineCode) return NodeFilter.FILTER_ACCEPT
-      return NodeFilter.FILTER_ACCEPT
-    }
-  })
-
-  const textNodes: Text[] = []
-  let current: Node | null = walker.nextNode()
-  while (current) {
-    textNodes.push(current as Text)
-    current = walker.nextNode()
-  }
-
-  for (const node of textNodes) {
-    const text = node.nodeValue || ''
-    // 判断是否在行内 <code> 中（不在 <pre> 内）
-    let isInInlineCode = false
-    let isInPre = false
-    let parent: HTMLElement | null = node.parentElement
-    while (parent && parent !== container) {
-      if (parent.tagName === 'CODE') isInInlineCode = true
-      if (parent.tagName === 'PRE') isInPre = true
-      parent = parent.parentElement
-    }
-    const inInlineCode = isInInlineCode && !isInPre
-
-    const regex = inInlineCode ? inlineCodePathRegex : filePathRegex
-    if (!regex.test(text)) continue
-    regex.lastIndex = 0
-
-    const replaced = text.replace(
-      regex,
-      (_match, p1: string, p2: string, p3: string | undefined, p4: string | undefined) => {
-        // 行内代码正则无 prefix 捕获组；普通正则第 1 组是 prefix
-        const hasPrefixGroup = !inInlineCode
-        const prefix = hasPrefixGroup ? p1 : ''
-        const filePath = hasPrefixGroup ? p2 : p1
-        const startLine = hasPrefixGroup ? p3 : p2
-        const endLine = hasPrefixGroup ? p4 : p3
-        const displayName = getDisplayName(filePath)
-        const suffix = startLine
-          ? (endLine ? `:${startLine}-${endLine}` : `:${startLine}`)
-          : ''
-        const startAttr = startLine ? ` data-line-number="${startLine}"` : ''
-        const endAttr = endLine ? ` data-end-line-number="${endLine}"` : ''
-        return `${prefix}<span class="file-link" data-file-path="${escapeHtml(filePath)}"${startAttr}${endAttr} title="${escapeHtml(filePath + suffix)}">${escapeHtml(displayName + suffix)}</span>`
-      }
-    )
-
-    if (replaced !== text) {
-      const template = document.createElement('template')
-      template.innerHTML = replaced
-      node.replaceWith(template.content)
+/** 在文本中收集全部文件路径匹配（只读，不修改文本）。 */
+function collectFileLinkMatches(text: string, regex: RegExp, hasPrefixGroup: boolean): FileLinkMatch[] {
+  const matches: FileLinkMatch[] = []
+  for (const m of text.matchAll(regex)) {
+    const index = m.index ?? 0
+    if (hasPrefixGroup) {
+      matches.push({
+        start: index + m[1].length,
+        end: index + m[0].length,
+        filePath: m[2],
+        startLine: m[3],
+        endLine: m[4],
+      })
+    } else {
+      matches.push({
+        start: index,
+        end: index + m[0].length,
+        filePath: m[1],
+        startLine: m[2],
+        endLine: m[3],
+      })
     }
   }
-
-  return container.innerHTML
+  return matches
 }
 
 const renderer: RendererObject = {
@@ -274,46 +238,205 @@ marked.use({
   breaks: true
 })
 
-// ========== 流式渲染节流 ==========
+// ========== 文件链接（DOM 级增强） ==========
+// v-html 只负责注入净化后的 markdown HTML; file-link 在脏块渲染后的
+// nextTick(浏览器绘制前)直接在真实 DOM 上构建。配合块级稳定渲染:
+//   1. 内容未变化的块 DOM 完全保留, 其中的链接/hover 态/tooltip/校验标记
+//      不被销毁重建 → 修复流式期间 hover 链接持续闪烁;
+//   2. 每帧只对新增/变化的脏块做 TreeWalker 遍历与正则匹配, 稳定块零开销,
+//      不回归 OOM 修复(ba229c1d);
+//   3. 匹配结果按"文本节点内容 + 上下文"缓存(LRU), 持续增长的块(如流式中的
+//      列表/表格)内已完成条目 O(1) 命中, 只有尾部新增文本真正执行正则;
+//   4. span 通过 DOM API 构建, 文本节点中的字面 '<' 不会被重新解析为 HTML。
+const fileLinkMatchCache = new Map<string, FileLinkMatch[]>()
+const FILE_LINK_CACHE_MAX = 400
+// 已验证不存在的路径: 流式重渲染会重建 span, 重建时直接恢复 invalid 样式,
+// 避免校验结果在"链接蓝→置灰"之间反复闪烁。
+const knownInvalidPaths = new Set<string>()
+
+const SKIP_TAGS = new Set(['A', 'PRE', 'SCRIPT', 'STYLE'])
+const { filePathRegex, inlineCodePathRegex } = buildPathRegexes()
+
+function getCachedMatches(text: string, inInlineCode: boolean): FileLinkMatch[] {
+  // 上下文(是否行内代码)决定使用哪个正则, 必须参与缓存键
+  const key = (inInlineCode ? 'c\u0000' : 'p\u0000') + text
+  const cached = fileLinkMatchCache.get(key)
+  if (cached) {
+    // LRU: 命中后移到末尾, 淘汰时从最旧的死键(流式尾部的历史版本)开始
+    fileLinkMatchCache.delete(key)
+    fileLinkMatchCache.set(key, cached)
+    return cached
+  }
+  const matches = collectFileLinkMatches(
+    text,
+    inInlineCode ? inlineCodePathRegex : filePathRegex,
+    !inInlineCode
+  )
+  fileLinkMatchCache.set(key, matches)
+  if (fileLinkMatchCache.size > FILE_LINK_CACHE_MAX) {
+    const oldest = fileLinkMatchCache.keys().next().value
+    if (oldest !== undefined) fileLinkMatchCache.delete(oldest)
+  }
+  return matches
+}
+
+function buildFileLinkSpan(match: FileLinkMatch): HTMLSpanElement {
+  const suffix = match.startLine
+    ? (match.endLine ? `:${match.startLine}-${match.endLine}` : `:${match.startLine}`)
+    : ''
+  const span = document.createElement('span')
+  span.className = 'file-link'
+  span.title = match.filePath + suffix
+  span.textContent = getDisplayName(match.filePath) + suffix
+  span.setAttribute('data-file-path', match.filePath)
+  if (match.startLine) span.setAttribute('data-line-number', match.startLine)
+  if (match.endLine) span.setAttribute('data-end-line-number', match.endLine)
+  if (knownInvalidPaths.has(match.filePath)) {
+    span.classList.add('file-link--checked', 'file-link--invalid')
+  }
+  return span
+}
+
+/** 对指定块元素内的文本节点应用 file-link 增强(调用方保证只在脏块上调用)。 */
+function applyFileLinks(root: HTMLElement) {
+  // 收集可处理文本节点: 跳过 <a>/<pre>/<script>/<style>/svg 子树, 以及
+  // mention-chip / file-link 内的文本(否则 file-link 显示名会被嵌套包裹)。
+  // walker 已拒绝 <pre> 子树, 因此被接受的节点只会处于"行内 <code>"或普通文本两种上下文。
+  const textNodes: Text[] = []
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      let parent: HTMLElement | null = node.parentElement
+      while (parent && parent !== root) {
+        const tag = parent.tagName
+        // SVG 元素的 tagName 保留小写; 已渲染的 mermaid 图内文本不处理
+        if (SKIP_TAGS.has(tag) || tag === 'svg') return NodeFilter.FILTER_REJECT
+        if (parent.classList.contains('mention-chip') || parent.classList.contains('file-link')) {
+          return NodeFilter.FILTER_REJECT
+        }
+        parent = parent.parentElement
+      }
+      return NodeFilter.FILTER_ACCEPT
+    }
+  })
+  let current: Node | null = walker.nextNode()
+  while (current) {
+    textNodes.push(current as Text)
+    current = walker.nextNode()
+  }
+
+  for (const node of textNodes) {
+    const text = node.nodeValue || ''
+    if (!text) continue
+
+    let isInInlineCode = false
+    let parent: HTMLElement | null = node.parentElement
+    while (parent && parent !== root) {
+      if (parent.tagName === 'CODE') isInInlineCode = true
+      parent = parent.parentElement
+    }
+
+    const matches = getCachedMatches(text, isInInlineCode)
+    if (matches.length === 0) continue
+
+    const fragment = document.createDocumentFragment()
+    let cursor = 0
+    for (const match of matches) {
+      if (match.start > cursor) {
+        fragment.appendChild(document.createTextNode(text.slice(cursor, match.start)))
+      }
+      fragment.appendChild(buildFileLinkSpan(match))
+      cursor = match.end
+    }
+    if (cursor < text.length) {
+      fragment.appendChild(document.createTextNode(text.slice(cursor)))
+    }
+    node.replaceWith(fragment)
+  }
+}
+
+// ========== 块级稳定渲染 + 流式节流 ==========
 // 背景: 在长任务(尤其 Linux AppImage)中, props.content 在流式输出期间会
-// 被高频更新(每个 text_delta 触发一次). 同步执行 marked.parse + hljs +
-// transformFileLinks(创建 <div>/TreeWalker) 会产生 O(N^2) 的 CPU/内存压力,
-// 触发 V8 OOM, 导致渲染进程崩溃 (Linux exitCode=133 / SIGTRAP).
-// 修复: 通过 rAF + 最小时间间隔节流重渲染, 并将昂贵的文件链接 DOM 遍历
-// 推迟到尾随帧执行, 同时保证最终内容与未节流版本完全一致.
-const renderedContent = ref('')
+// 被高频更新(每个 text_delta 触发一次). 同步执行 marked.parse + hljs 会产生
+// O(N^2) 的 CPU/内存压力, 触发 V8 OOM, 导致渲染进程崩溃 (Linux exitCode=133 / SIGTRAP).
+// 修复: 通过 rAF + 最小时间间隔节流重渲染; 消毒后的 HTML 按顶层块拆分、
+// 逐块 v-html —— 内容未变的块 Vue 跳过 patch(v-html 字符串相等), 其 DOM
+// (含 file-link/hover/tooltip)原样保留, 每帧只有变化中的尾块被重新 parse
+// 与增强; 尾随帧只补充 mermaid/链接校验/图片等异步增强。
+const blocks = shallowRef<string[]>([])
 const STREAM_RENDER_INTERVAL_MS = 80
 let renderScheduled = false
 let lastRenderAt = 0
+let lastRenderedContent = ''
+let pendingDirtyBlocks: number[] = []
 let trailingTimer: number | null = null
 let pendingFinalize = false
 let isUnmounted = false
 
-function renderMarkdown(content: string, withFileLinks: boolean): string {
-  if (!content) return ''
+/**
+ * 将 markdown 渲染为「顶层块 HTML 数组」(供逐块 v-html)。
+ * 使用 DOMPurify 的 RETURN_DOM_FRAGMENT 直接取净化后的 DOM 按顶层节点切分,
+ * 避免为切分引入第二次全量 parse; 顶层空白文本节点不产生盒模型, 直接丢弃。
+ */
+function renderMarkdownBlocks(content: string): string[] {
+  if (!content) return []
   try {
     // 在 Markdown 解析前，将 LLM 输出的各种行号格式统一为 `:lineNumber`
     const normalized = normalizeLineReferences(content)
     const contentWithChips = replaceMentionChipMarkers(normalized)
     const rendered = marked.parse(contentWithChips) as string
-    // XSS 防护: 对 marked 输出进行 HTML 净化，保留文件链接所需的自定义属性
+    // XSS 防护: 对 marked 输出进行 HTML 净化
     // 同时禁止 <s>/<del>/<strike> 删除线标签，避免 LLM 误用 Markdown/HTML 删除线语法导致正常文本被划线
-    const sanitized = DOMPurify.sanitize(rendered, {
-      ADD_ATTR: ['data-file-path', 'data-line-number', 'data-end-line-number'],
+    // (file-link span 在净化后通过 DOM API 注入, 不经过 v-html 字符串)
+    const fragment = DOMPurify.sanitize(rendered, {
+      RETURN_DOM_FRAGMENT: true,
       FORBID_TAGS: ['s', 'del', 'strike']
     })
-    // 仅在尾随/最终渲染时执行 transformFileLinks: 它需要构造完整的临时 DOM
-    // 并遍历所有文本节点, 在流式高频更新中重复执行是渲染进程崩溃的主要诱因.
-    return withFileLinks ? transformFileLinks(sanitized) : sanitized
+    const htmls: string[] = []
+    for (const node of Array.from(fragment.childNodes)) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.nodeValue || ''
+        if (!text.trim()) continue
+        htmls.push(escapeHtml(text))
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        htmls.push((node as Element).outerHTML)
+      }
+    }
+    return htmls
   } catch {
-    return content
+    return [content]
   }
 }
 
-function performRender(withFileLinks: boolean) {
+function performRender() {
   if (isUnmounted) return
   lastRenderAt = Date.now()
-  renderedContent.value = renderMarkdown(props.content, withFileLinks)
+  lastRenderedContent = props.content
+  const htmls = renderMarkdownBlocks(props.content)
+  const prev = blocks.value
+  // 脏块 = 新增或内容变化的顶层块(含中间移位); 其余块的 DOM 原样保留。
+  for (let i = 0; i < htmls.length; i++) {
+    if (prev[i] !== htmls[i]) pendingDirtyBlocks.push(i)
+  }
+  blocks.value = htmls
+  // v-for 的 DOM patch 在 nextTick flush 中完成, 而浏览器绘制发生在微任务
+  // 检查点之后, 因此 file-link 与新内容同帧上屏, 不存在纯文本中间态。
+  nextTick(() => {
+    if (isUnmounted) return
+    enhanceDirtyBlocks()
+  })
+}
+
+/** 只对脏块(本轮新增/变化的顶层块)应用 file-link 增强, 稳定块零遍历。 */
+function enhanceDirtyBlocks() {
+  const root = containerRef.value
+  if (!root || pendingDirtyBlocks.length === 0) return
+  // 容器内仅有 v-for 渲染的块级包装 div, children[i] 与 blocks[i] 一一对应
+  const wrappers = root.children
+  for (const index of pendingDirtyBlocks) {
+    const wrapper = wrappers[index]
+    if (wrapper) applyFileLinks(wrapper as HTMLElement)
+  }
+  pendingDirtyBlocks = []
 }
 
 function scheduleRender() {
@@ -326,17 +449,14 @@ function scheduleRender() {
     // 使用 rAF 把渲染合并到下一帧, 避免 N 次 delta -> N 次 parse.
     requestAnimationFrame(() => {
       renderScheduled = false
-      // 流式期间跳过 transformFileLinks (withFileLinks=false):
-      // 它需要构造完整临时 DOM 并遍历所有文本节点, 高频重复执行是
-      // 渲染进程 OOM 崩溃的主要诱因. file-link 由尾随帧统一处理.
-      performRender(false)
-      // 之后再用一个尾随定时器, 在内容稳定后做一次"完整"渲染(含 file-link).
+      performRender()
+      // 之后再用一个尾随定时器, 在内容稳定后补充异步增强.
       armTrailingFinalize()
     })
     return
   }
 
-  // 在节流窗口内: 仅注册尾随渲染, 不立即执行.
+  // 在节流窗口内: 仅注册尾随增强, 不立即执行.
   armTrailingFinalize()
 }
 
@@ -347,18 +467,21 @@ function armTrailingFinalize() {
   }
   trailingTimer = window.setTimeout(() => {
     trailingTimer = null
-    if (!pendingFinalize) return
+    if (!pendingFinalize || isUnmounted) return
     pendingFinalize = false
-    performRender(true)
-    if (!isUnmounted) {
-      nextTick().then(() => {
-        if (isUnmounted) return
-        // 内容稳定且 DOM 已更新后再处理依赖真实节点的增强逻辑。
-        setTimeout(renderMermaidDiagrams, 0)
-        setTimeout(validateFileLinks, 100)
-        setTimeout(resolveLocalImages, 100)
-      })
+    // 节流窗口内到达的尾部内容在此补渲染(同样含 file-link, 无闪烁);
+    // 内容与上次渲染一致时跳过, 避免重复 parse.
+    if (props.content !== lastRenderedContent) {
+      performRender()
     }
+    // 增强逻辑必须在 DOM patch 与 file-link 就位之后执行;
+    // 若上方触发了渲染, 此 nextTick 排在 applyFileLinks 之后.
+    nextTick().then(() => {
+      if (isUnmounted) return
+      renderMermaidDiagrams()
+      validateFileLinks()
+      resolveLocalImages()
+    })
   }, STREAM_RENDER_INTERVAL_MS)
 }
 
@@ -429,11 +552,13 @@ async function renderMermaidDiagrams() {
 }
 
 onMounted(() => {
-  // 首次挂载: 立即同步渲染一次(含 file-link), 保证初始内容可点击.
-  performRender(true)
+  // 首次挂载: 立即渲染, file-link 在 DOM patch 后的同帧内就位, 初始内容即可点击.
+  performRender()
   nextTick().then(() => {
     if (isUnmounted) return
     renderMermaidDiagrams()
+    // 首屏链接同样需要校验有效性, 不等第一次内容变更触发尾随帧
+    validateFileLinks()
     // 异步解析本地图片相对路径 → base64 data URL
     resolveLocalImages()
   })
@@ -455,6 +580,11 @@ async function validateFileLinks() {
     const filePath = link.getAttribute('data-file-path')
     if (!filePath) continue
     link.classList.add('file-link--checked')
+    // 已知无效的路径直接复用结论, 避免流式重渲染后重复 IPC 读取
+    if (knownInvalidPaths.has(filePath)) {
+      link.classList.add('file-link--invalid')
+      continue
+    }
     try {
       const content = await api.readFile(filePath)
       if (content === null) {
@@ -465,13 +595,16 @@ async function validateFileLinks() {
           const resolved = root.replace(/[\\/]+$/, '') + sep + filePath
           const content2 = await api.readFile(resolved)
           if (content2 === null) {
+            knownInvalidPaths.add(filePath)
             link.classList.add('file-link--invalid')
           }
         } else {
+          knownInvalidPaths.add(filePath)
           link.classList.add('file-link--invalid')
         }
       }
     } catch {
+      knownInvalidPaths.add(filePath)
       link.classList.add('file-link--invalid')
     }
   }
@@ -716,7 +849,8 @@ watch(() => props.content, (newVal, oldVal) => {
     font-size: 0.95em;
     padding: 0 2px;
     border-radius: 2px;
-    transition: all 0.15s ease;
+    // 不加 transition: 流式期间变化中的尾块仍会整块重建, 过渡动画每帧重启
+    // 会造成 hover 色/背景持续脉动闪烁; 即时切换样式在视觉上保持稳定.
 
     &:hover {
       color: var(--accent-secondary);
