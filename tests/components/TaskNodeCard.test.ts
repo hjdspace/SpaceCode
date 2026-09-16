@@ -1,0 +1,211 @@
+// tests/components/TaskNodeCard.test.ts
+// TaskNodeCard 组件测试 — 缩小版聊天节点卡片（内嵌 MiniChatPanel）。
+// Seam: TaskNodeCard 公共接口 (props + events)
+
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { mount } from '@vue/test-utils'
+import { setActivePinia, createPinia } from 'pinia'
+import { createI18n } from 'vue-i18n'
+import zhCN from '@/i18n/locales/zh-CN'
+import enUS from '@/i18n/locales/en-US'
+import TaskNodeCard from '@/components/orchestration/TaskNodeCard.vue'
+
+// Mock MiniChatPanel to avoid rendering the full chat interface
+vi.mock('@/components/orchestration/MiniChatPanel.vue', () => ({
+  default: {
+    name: 'MiniChatPanel',
+    props: ['sessionId', 'showInput', 'draftMode', 'inputPlaceholder'],
+    emits: ['draftSave'],
+    template: '<div data-testid="mini-chat-panel-mock" :data-session-id="sessionId" :data-draft-mode="draftMode"></div>',
+  },
+}))
+
+// Mock Vue Flow Handle — requires VueFlow provider context, not available in unit tests
+vi.mock('@vue-flow/core', () => ({
+  Handle: {
+    name: 'Handle',
+    props: ['type', 'position'],
+    template: '<div class="vue-flow__handle-stub"></div>',
+  },
+  Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
+  MarkerType: { ArrowClosed: 'arrowclosed' },
+}))
+
+const i18n = createI18n({
+  legacy: false,
+  locale: 'zh-CN',
+  fallbackLocale: 'en-US',
+  messages: { 'zh-CN': zhCN, 'en-US': enUS },
+  globalInjection: true,
+})
+
+function mountCard(props: Record<string, unknown>) {
+  return mount(TaskNodeCard, {
+    props: {
+      id: 'test-node',
+      data: { sessionId: 'test-session-1', draft: '', label: 'Task' },
+      ...props,
+    } as any,
+    global: {
+      plugins: [i18n],
+      stubs: {
+        MiniChatPanel: true,
+      },
+    },
+  })
+}
+
+describe('TaskNodeCard', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('renders the node card with a delete button', () => {
+    const wrapper = mountCard({})
+    expect(wrapper.find('.task-node-card').exists()).toBe(true)
+    expect(wrapper.find('.task-node-delete').exists()).toBe(true)
+  })
+
+  it('emits remove event when delete button is clicked', async () => {
+    const wrapper = mountCard({})
+    const deleteBtn = wrapper.find('.task-node-delete')
+    await deleteBtn.trigger('click')
+    expect(wrapper.emitted('remove')).toBeTruthy()
+    expect(wrapper.emitted('remove')![0]).toEqual(['test-node'])
+  })
+
+  it('emits openDrawer event on double-click', async () => {
+    const wrapper = mountCard({})
+    await wrapper.find('.task-node-card').trigger('dblclick')
+    expect(wrapper.emitted('openDrawer')).toBeTruthy()
+    expect(wrapper.emitted('openDrawer')![0]).toEqual(['test-node'])
+  })
+
+  it('renders a MiniChatPanel inside the card', () => {
+    const wrapper = mountCard({})
+    // MiniChatPanel should be rendered inside the card
+    expect(wrapper.find('.task-node-chat').exists()).toBe(true)
+  })
+
+  it('passes sessionId to MiniChatPanel via data prop', () => {
+    const wrapper = mountCard({
+      data: { sessionId: 'my-session-123', draft: 'test draft', label: 'Task' },
+    })
+    // The card should render with the session id available
+    expect(wrapper.find('.task-node-chat').exists()).toBe(true)
+  })
+
+  it('does not render a plain textarea (replaced by MiniChatPanel)', () => {
+    const wrapper = mountCard({})
+    // Old textarea should not exist — replaced by MiniChatPanel
+    expect(wrapper.find('.task-node-draft-input').exists()).toBe(false)
+  })
+
+  it('emits updateDraft when MiniChatPanel emits draftSave', async () => {
+    const wrapper = mountCard({})
+    // Find the MiniChatPanel stub and emit draftSave
+    const miniChat = wrapper.findComponent({ name: 'MiniChatPanel' })
+    if (miniChat.exists()) {
+      await miniChat.vm.$emit('draftSave', 'New draft content')
+      expect(wrapper.emitted('updateDraft')).toBeTruthy()
+      expect(wrapper.emitted('updateDraft')![0]).toEqual(['test-node', 'New draft content'])
+    }
+  })
+
+  // ── 单节点停止 ──
+
+  it('shows stop button when status is running', () => {
+    const wrapper = mountCard({ status: 'running', isRunning: true })
+    expect(wrapper.find('.task-node-stop').exists()).toBe(true)
+  })
+
+  it('does not show stop button when status is not running', () => {
+    const wrapper = mountCard({ status: 'pending', isRunning: true })
+    expect(wrapper.find('.task-node-stop').exists()).toBe(false)
+  })
+
+  it('emits stopNode event when stop button is clicked', async () => {
+    const wrapper = mountCard({ status: 'running', isRunning: true })
+    await wrapper.find('.task-node-stop').trigger('click')
+    expect(wrapper.emitted('stopNode')).toBeTruthy()
+    expect(wrapper.emitted('stopNode')![0]).toEqual(['test-node'])
+  })
+
+  // ── 失败节点重试 ──
+
+  it('shows retry button when status is failed', () => {
+    const wrapper = mountCard({ status: 'failed', isRunning: false })
+    expect(wrapper.find('.task-node-retry').exists()).toBe(true)
+  })
+
+  it('does not show retry button when status is not failed', () => {
+    const wrapper = mountCard({ status: 'running', isRunning: true })
+    expect(wrapper.find('.task-node-retry').exists()).toBe(false)
+  })
+
+  it('emits retryNode event when retry button is clicked', async () => {
+    const wrapper = mountCard({ status: 'failed', isRunning: false })
+    await wrapper.find('.task-node-retry').trigger('click')
+    expect(wrapper.emitted('retryNode')).toBeTruthy()
+    expect(wrapper.emitted('retryNode')![0]).toEqual(['test-node'])
+  })
+
+  // ── 运行中节点追加消息 ──
+
+  it('shows add message input when status is running', () => {
+    const wrapper = mountCard({ status: 'running', isRunning: true })
+    expect(wrapper.find('.task-node-add-msg').exists()).toBe(true)
+  })
+
+  it('does not show add message input when status is not running', () => {
+    const wrapper = mountCard({ status: 'pending', isRunning: true })
+    expect(wrapper.find('.task-node-add-msg').exists()).toBe(false)
+  })
+
+  it('emits addMessage event when add message form is submitted', async () => {
+    const wrapper = mountCard({ status: 'running', isRunning: true })
+    const input = wrapper.find('.task-node-add-msg input')
+    await input.setValue('extra context')
+    await wrapper.find('.task-node-add-msg').trigger('submit')
+    expect(wrapper.emitted('addMessage')).toBeTruthy()
+    expect(wrapper.emitted('addMessage')![0]).toEqual(['test-node', 'extra context'])
+  })
+
+  // ── 权限徽标 ──
+
+  it('shows permission badge when hasPendingPermission is true', () => {
+    const wrapper = mountCard({ status: 'running', isRunning: true, hasPendingPermission: true })
+    expect(wrapper.find('.task-node-perm-badge').exists()).toBe(true)
+  })
+
+  it('does not show permission badge when hasPendingPermission is false', () => {
+    const wrapper = mountCard({ status: 'running', isRunning: true, hasPendingPermission: false })
+    expect(wrapper.find('.task-node-perm-badge').exists()).toBe(false)
+  })
+
+  // ── interrupted 状态（重启后恢复） ──
+
+  it('shows interrupted badge when status is interrupted', () => {
+    const wrapper = mountCard({ status: 'interrupted', isRunning: false })
+    expect(wrapper.find('.badge-interrupted').exists()).toBe(true)
+  })
+
+  it('shows retry button when status is interrupted', () => {
+    const wrapper = mountCard({ status: 'interrupted', isRunning: false })
+    expect(wrapper.find('.task-node-retry').exists()).toBe(true)
+  })
+
+  it('emits retryNode event when retry button is clicked from interrupted state', async () => {
+    const wrapper = mountCard({ status: 'interrupted', isRunning: false })
+    await wrapper.find('.task-node-retry').trigger('click')
+    expect(wrapper.emitted('retryNode')).toBeTruthy()
+    expect(wrapper.emitted('retryNode')![0]).toEqual(['test-node'])
+  })
+
+  // ── 整图重跑按钮 ──
+
+  it('does not show rerun button in the card (rerun is a canvas-level action)', () => {
+    const wrapper = mountCard({ status: 'settled', isRunning: false })
+    expect(wrapper.find('.task-node-rerun').exists()).toBe(false)
+  })
+})

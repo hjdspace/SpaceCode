@@ -10,6 +10,7 @@ const ptyPatch = readFileSync(join(root, 'scripts', 'patch-node-pty.cjs'), 'utf8
 const platformSetup = readFileSync(join(root, 'electron', 'platformSetup.ts'), 'utf8')
 const proxyManager = readFileSync(join(root, 'electron', 'proxyManager.ts'), 'utf8')
 const releaseWorkflow = readFileSync(join(root, '.github', 'workflows', 'build-release.yml'), 'utf8')
+const piSessionProcess = readFileSync(join(root, 'electron', 'engines', 'PiSessionProcess.ts'), 'utf8')
 
 describe('Linux AppImage packaging', () => {
   it('builds node-pty against the CentOS 8 ABI before electron-builder runs', () => {
@@ -30,6 +31,11 @@ describe('Linux AppImage packaging', () => {
     assert.match(ptyPatch, /spacecode-patch-v1/)
     assert.match(ptyPatch, /app\.asar\.unpacked/)
     assert.match(proxyManager, /app\.asar\.unpacked.*dist-electron.*proxy.*index\.js/)
+  })
+
+  it('executes the Pi CLI from app.asar.unpacked when packaged', () => {
+    assert.match(piSessionProcess, /app\.asar\.unpacked/)
+    assert.match(piSessionProcess, /child process cannot execute a script from inside/)
   })
 
   it('sets up Linux IME and D-Bus before creating renderer windows', () => {

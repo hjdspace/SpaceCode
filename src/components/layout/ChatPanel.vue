@@ -4,9 +4,14 @@
     <div v-if="terminalPanelMounted" v-show="isTerminalTab" class="terminal-wrapper">
       <TerminalPanel />
     </div>
-    
+
+    <!-- Orchestration Canvas -->
+    <div v-if="orchestrationMounted" v-show="isOrchestrationTab" class="orchestration-wrapper">
+      <OrchestrationCanvas />
+    </div>
+
     <!-- Chat Content -->
-    <div v-show="!isTerminalTab" class="chat-content-wrapper">
+    <div v-show="!isTerminalTab && !isOrchestrationTab" class="chat-content-wrapper">
       <div class="chat-header">
         <div class="header-left">
           <h2>{{ currentSession?.title || t('common.newConversation') }}</h2>
@@ -295,6 +300,7 @@ import type { Message } from '@/types'
 
 const WorkAssistantPicker = defineAsyncComponent(() => import('../work/WorkAssistantPicker.vue'))
 const TerminalPanel = defineAsyncComponent(() => import('../terminal/TerminalPanel.vue'))
+const OrchestrationCanvas = defineAsyncComponent(() => import('../orchestration/OrchestrationCanvas.vue'))
 const RewindDialog = defineAsyncComponent(() => import('../chat/RewindDialog.vue'))
 const CodeRewindConfirmDialog = defineAsyncComponent(() => import('../chat/CodeRewindConfirmDialog.vue'))
 const MessageSelector = defineAsyncComponent(() => import('../chat/MessageSelector.vue'))
@@ -802,10 +808,24 @@ const isTerminalTab = computed(() => {
   return appStore.activeCenterTab.startsWith('terminal-')
 })
 
+// Check if current tab is an orchestration tab
+const isOrchestrationTab = computed(() => {
+  if (props.paneTabId) {
+    return props.paneTabId.startsWith('orchestration-')
+  }
+  return appStore.activeCenterTab.startsWith('orchestration-')
+})
+
 // Defer xterm and PTY UI until the first terminal visit, then keep it mounted.
 const terminalPanelMounted = ref(isTerminalTab.value)
 watch(isTerminalTab, (active) => {
   if (active) terminalPanelMounted.value = true
+})
+
+// Defer orchestration canvas until first visit, then keep it mounted.
+const orchestrationMounted = ref(isOrchestrationTab.value)
+watch(isOrchestrationTab, (active) => {
+  if (active) orchestrationMounted.value = true
 })
 
 /** At least one conversation is bound to a real folder (sidebar / CLI cwd), not only default chat */
@@ -816,6 +836,7 @@ const hasWorkspaceContext = computed(() =>
 /** No folder context in chat/projects list, or app has not bound a project root yet */
 const showNoProjectWelcome = computed(() => {
   if (isTerminalTab.value) return false
+  if (isOrchestrationTab.value) return false
   // H5 模式下不显示“无项目”欢迎页 — 手机端通过镜像会话访问，
   // 即使桌面端没有打开项目，也应该显示聊天界面让用户能看到消息
   if (isH5Mode()) return false
@@ -828,9 +849,10 @@ watch(
     has: hasWorkspaceContext.value,
     root: (appStore.projectRoot || '').trim(),
     terminal: isTerminalTab.value,
+    orchestration: isOrchestrationTab.value,
   }),
-  ({ has, root, terminal }) => {
-    if (terminal) return
+  ({ has, root, terminal, orchestration }) => {
+    if (terminal || orchestration) return
     // H5 模式下跳过会话清理 — 手机端会话由桌面端管理，不应自动删除
     if (isH5Mode()) return
     if (!has) {
@@ -1647,18 +1669,25 @@ async function handleRestoreHistorySession(session: any) {
 }
 
 .terminal-wrapper {
-flex: 1;
-overflow: hidden;
-display: flex;
-flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.orchestration-wrapper {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .chat-content-wrapper {
-flex: 1;
-display: flex;
-flex-direction: column;
-min-height: 0;
-overflow: hidden;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 // New: flex-row body for chat + side panel

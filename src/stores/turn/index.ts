@@ -16,7 +16,7 @@ import { useAutoRetry } from '@/composables/useAutoRetry'
 import type { TurnState } from './types'
 import { createTimelineAssembler } from './timelineAssembler'
 import { createTurnStateMachine } from './turnStateMachine'
-import { createEventHandlers, type EventReducer } from './eventHandlers'
+import { createEventHandlers } from './eventHandlers'
 import { useGoalStore } from '../goal'
 import { buildContinuationPrompt, parseGoalMarkers, MAX_GOAL_TURNS } from '@/lib/goalPrompts'
 import { i18n } from '@/i18n'
@@ -24,7 +24,7 @@ import { createUuid } from '@/utils/uuid'
 
 // Re-export — 外部模块通过 @/stores/turn 导入这些符号
 export type { TurnState } from './types'
-export { REQUEST_TIMEOUT, AUTONOMOUS_REQUEST_TIMEOUT, MAX_INMEMORY_TOOL_OUTPUT } from './types'
+export { MAX_INMEMORY_TOOL_OUTPUT } from './types'
 
 // ADR-0003: Turn store 必须在 WebSocket 连接前完成订阅注册。
 // 模块级 initialized 标记：store 工厂首次实例化时记录一次初始化日志，
@@ -183,7 +183,6 @@ export function useTurnStore(injectedApi?: any) {
       }
 
       // ⑥ 结束当前 turn（不报错），为重试腾出位置
-      if (ts.timeoutId) { clearTimeout(ts.timeoutId); ts.timeoutId = null }
       turnStates.delete(sessionId)
 
       // ⑦ 确保引擎进程存活：429 等错误会导致子进程退出
@@ -263,7 +262,6 @@ export function useTurnStore(injectedApi?: any) {
       // 清理 turn
       const ts = turnStates.get(sid)
       if (ts && !ts.settled) {
-        if (ts.timeoutId) { clearTimeout(ts.timeoutId); ts.timeoutId = null }
         ts.settled = true
         ts.resolve?.()
         turnStates.delete(sid)
@@ -284,13 +282,7 @@ export function useTurnStore(injectedApi?: any) {
 
     // ────────────────────────────────────────────────────────────────────
     // Turn 深模块编排：状态机 → 事件处理器。
-    // onTimeout 回调通过 handlers 前向引用打破循环依赖：
-    // 状态机先创建（需要 onTimeout），事件处理器后创建（需要 stateMachine）。
-    // 运行时安全：onTimeout 仅由 setTimeout 触发，而 setTimeout 在 beginTurn
-    // 中注册——beginTurn 只在用户交互或事件订阅中被调用，绝不会在同步初始化
-    // 期间执行，故 handlers 在 onTimeout 首次触发前必然已赋值。
     // ────────────────────────────────────────────────────────────────────
-    let handlers: EventReducer | undefined
 
     const stateMachine = createTurnStateMachine({
       sink,
@@ -299,14 +291,18 @@ export function useTurnStore(injectedApi?: any) {
       streamingContents,
       pendingSendMessages,
       userAbortedSessions,
-      onTimeout: (sessionId, ts) => {
-        // 超时不再报错：用户可能正在处理其他任务、忘记交互，
-        // 超时报错反而影响用户体验。统一按正常结算处理。
-        handlers?.handleResult(sessionId, ts, {})
-      },
     })
 
-    handlers = createEventHandlers({
+        // ── Turn 结局订阅点 ──
+    // 编排引擎等外部模块订阅此信号获取 turn 完成事件。
+    const turnOutcomeListeners = new Set<(sessionId: string, outcome: 'settled' | 'failed' | 'aborted') => void>()
+
+    function onTurnOutcome(listener: (sessionId: string, outcome: 'settled' | 'failed' | 'aborted') => void): () => void {
+      turnOutcomeListeners.add(listener)
+      return () => turnOutcomeListeners.delete(listener)
+    }
+
+    const handlers = createEventHandlers({
       sink,
       stateMachine,
       timeline: timelineAssembler,
@@ -335,12 +331,15 @@ export function useTurnStore(injectedApi?: any) {
       onTurnCompleted: (sessionId: string, finalText: string) => {
         void handleGoalTurnResult(sessionId, finalText)
       },
+      onTurnOutcome: (sessionId: string, outcome: 'settled' | 'failed' | 'aborted') => {
+        for (const listener of turnOutcomeListeners) {
+          try { listener(sessionId, outcome) } catch { /* listener 错误不影响 turn 流程 */ }
+        }
+      },
     })
 
     const {
       turnStates,
-      resetTimeout,
-      clearTurnTimeout,
       beginTurn,
       endTurn,
       ensureTurn,
@@ -604,6 +603,10 @@ export function useTurnStore(injectedApi?: any) {
             s.processStatus = 'idle'
             sink.persist(sid)
           }
+          // ── Turn 结局订阅点 — aborted（用户主动中止） ──
+          for (const listener of turnOutcomeListeners) {
+            try { listener(sid, 'aborted') } catch { /* listener 错误不影响 abort 流程 */ }
+          }
         }
 
         // ★ 用户主动中止 → 暂停该会话的 goal，防止结算钩子继续自动续跑
@@ -817,7 +820,6 @@ export function useTurnStore(injectedApi?: any) {
         // 非 LLM 事件，过早清除会导致重试计数永远不递增（无限重试 bug）。
         const ts = ensureTurn(event.sessionId)
         if (ts.settled) return
-        resetTimeout(event.sessionId, ts)
         handleStreamEvent(event.sessionId, ts, event.data)
       })
       claudeCodeApi.onAssistant((event: { sessionId: string; data: any }) => {
@@ -834,7 +836,6 @@ export function useTurnStore(injectedApi?: any) {
 
         const ts = ensureTurn(event.sessionId)
         if (ts.settled) return
-        resetTimeout(event.sessionId, ts)
         handleAssistant(event.sessionId, ts, event.data)
       })
       claudeCodeApi.onToolUse((event: { sessionId: string; data: any }) => {
@@ -850,7 +851,6 @@ export function useTurnStore(injectedApi?: any) {
         // 并不代表整个请求成功完成。重试状态只在 handleResult 成功时清除。
         const ts = ensureTurn(event.sessionId)
         if (ts.settled) return
-        resetTimeout(event.sessionId, ts)
         handleToolUse(event.sessionId, ts, event.data)
       })
       claudeCodeApi.onToolResult((event: { sessionId: string; data: any }) => {
@@ -864,7 +864,6 @@ export function useTurnStore(injectedApi?: any) {
         }
         const ts = turnStates.get(event.sessionId)
         if (!ts || ts.settled) return
-        resetTimeout(event.sessionId, ts)
         handleToolResult(event.sessionId, ts, event.data)
       })
       claudeCodeApi.onUser((event: { sessionId: string; data: any }) => {
@@ -882,7 +881,6 @@ export function useTurnStore(injectedApi?: any) {
         }
         const ts = turnStates.get(event.sessionId)
         if (!ts || ts.settled) return
-        resetTimeout(event.sessionId, ts)
         handleUser(event.sessionId, ts, event.data)
       })
       claudeCodeApi.onSystem?.((event: { sessionId: string; data: any }) => {
@@ -942,11 +940,6 @@ export function useTurnStore(injectedApi?: any) {
           }
           sessionStore.logger.info('ChatStore', `permission_request | sessionId=${sid.slice(0, 8)} | tool=${req.toolName} | toolUseId=${req.toolUseId.slice(0, 8)} | requestId=${req.requestId.slice(0, 8)}`)
           permissionService.addPermissionRequest(sid, { ...req, sessionId: sid })
-          // 用户可能长时间不回答（提问工具、权限弹窗等），停掉 turn 的 5 分钟
-          // 兜底超时，避免误杀仍在等待用户输入的 turn。后续 stream/assistant/
-          // tool_use/tool_result/user 事件到达时会自动 resetTimeout 重新计时。
-          const ts = turnStates.get(sid)
-          if (ts && !ts.settled) clearTurnTimeout(sid, ts)
         })
       }
       if (typeof (claudeCodeApi as any).onPermissionRequestCancelled === 'function') {
@@ -989,6 +982,8 @@ export function useTurnStore(injectedApi?: any) {
       // auto-retry 状态机（任务 9 迁移）
       retryStates: autoRetry.retryStates,
       cancelRetry,
+      // turn 结局订阅点（编排引擎等外部模块使用）
+      onTurnOutcome,
       // ── 测试用导出：beginTurn/ensureTurn/endTurn 是内部函数，
       // 仅因任务 2 需独立验证状态机而临时暴露；任务 10 删除整个 chatStream.ts
       // 并完成消费方迁移后可移除此导出。 ──

@@ -5,7 +5,7 @@ import 'package:spacecode_mobile/features/chat/widgets/tool_call_data.dart';
 void main() {
   group('ToolCallData.editFile 字段提取', () {
     test('old_string/new_string 应正确提取（Claude Code 标准字段名）', () {
-      final call = ToolCall(
+      const call = ToolCall(
         id: 'tc1',
         toolName: 'edit_file',
         input:
@@ -23,7 +23,7 @@ void main() {
     test('old_text/new_text 也应正确提取（本地 Agent 历史字段名兼容）', () {
       // 本地 Agent 的 workspace_plugin 曾用 old_text/new_text，
       // 历史会话持久化数据可能仍是该字段名，UI 必须能渲染。
-      final call = ToolCall(
+      const call = ToolCall(
         id: 'tc2',
         toolName: 'edit_file',
         input:
@@ -40,7 +40,7 @@ void main() {
     });
 
     test('oldString/newString 驼峰命名也应正确提取', () {
-      final call = ToolCall(
+      const call = ToolCall(
         id: 'tc3',
         toolName: 'Edit',
         input:
@@ -57,7 +57,7 @@ void main() {
 
   group('ToolCallData.writeFile 字段提取', () {
     test('file_path 字段应正确提取（Claude Code 标准）', () {
-      final call = ToolCall(
+      const call = ToolCall(
         id: 'tc4',
         toolName: 'write_file',
         input: '{"file_path":"foo.dart","content":"hello"}',
@@ -71,7 +71,7 @@ void main() {
     });
 
     test('path 字段也应正确提取（本地 Agent 历史）', () {
-      final call = ToolCall(
+      const call = ToolCall(
         id: 'tc5',
         toolName: 'Write',
         input: '{"path":"foo.dart","content":"hello"}',
@@ -90,7 +90,7 @@ void main() {
       // 桌面协同模式历史 bug：data['input'] 是 Map，经 .toString() 后
       // 得到 {file_path: foo.dart, old_string: a, new_string: b}（非合法 JSON）。
       // _parseJson 应优雅回退，不应抛异常。
-      final call = ToolCall(
+      const call = ToolCall(
         id: 'tc6',
         toolName: 'edit_file',
         input: '{file_path: foo.dart, old_string: a, new_string: b}',

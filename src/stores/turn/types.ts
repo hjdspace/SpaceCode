@@ -12,7 +12,6 @@ export interface TurnState {
   currentReasoningEventId: string | null
   streamingHandledThinking: boolean
   sendStartTime: number
-  timeoutId: ReturnType<typeof setTimeout> | null
   isAutonomous: boolean
   settled: boolean
   resolve?: () => void
@@ -23,8 +22,6 @@ export interface TurnState {
   streamingToolJson: Map<string, string>
 }
 
-export const REQUEST_TIMEOUT = 5 * 60 * 1000
-export const AUTONOMOUS_REQUEST_TIMEOUT = 45 * 60 * 1000
 export const MAX_INMEMORY_TOOL_OUTPUT = 30_000
 
 export const FILE_TOOLS = new Set(['Write', 'FileWrite', 'Edit', 'FileEdit', 'MultiEdit'])
@@ -44,7 +41,6 @@ export function createSettledTurn(): TurnState {
     currentReasoningEventId: null,
     streamingHandledThinking: false,
     sendStartTime: 0,
-    timeoutId: null,
     isAutonomous: false,
     settled: true,
     currentStreamingToolId: null,

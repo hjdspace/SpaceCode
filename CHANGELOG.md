@@ -1,3 +1,31 @@
+## [0.8.0](https://github.com/hjdspace/SpaceCode/compare/v0.7.10...v0.8.0) (2026-09-14)
+
+### Features
+
+- **orchestration:** 编排引擎核心 — DAG 状态机 + turn 结局订阅点
+- **orchestration:** Canvas Shell — 编排中心 Tab + Vue Flow 无限画布
+- **orchestration:** Task Node + Draft + Drawer — 缩略聊天节点、草稿与放大抽屉
+- **orchestration:** Edge 连线 + 环预防 — 依赖连线编辑与即时成环拒绝
+- **orchestration:** Run Pipeline — 引擎接线、连接池 20、状态徽章与进度展示
+- **orchestration:** Failure & Run Control — 节点停止、重试、追加消息、权限路由
+- **orchestration:** Run 状态恢复 — 运行快照持久化与重启后如实展示
+- **orchestration:** 重构节点卡片与抽屉，新增迷你聊天面板与状态展示
+- **chat/message:** 新增用户消息复制功能并重构操作栏交互
+- **chat:** 右键菜单定位优化，增加视口边界夹紧逻辑
+
+### Bug Fixes
+
+- **chat,nodeDrawer:** 修复弹窗定位和抽屉面板传参问题
+- **sessionRestore:** 修复技能调用消息重开会话丢失的问题
+- **turn:** 处理上游重试耗尽后返回空结果的情况
+- **electron:** 修复打包后 Pi CLI 执行路径问题
+- **message-input:** 修复技能徽章分发丢失原生斜杠调用的问题
+
+### Refactor
+
+- 移除 turn 超时处理逻辑
+- 重构右键菜单位置处理逻辑
+
 ## [0.7.10](https://github.com/hjdspace/SpaceCode/compare/v0.7.9...v0.7.10) (2026-09-09)
 
 ### Features

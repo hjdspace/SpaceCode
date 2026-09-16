@@ -1,11 +1,11 @@
 // src/stores/turn/turnStateMachine.ts
-// Turn 状态机深模块 — 拥有 turnStates Map + beginTurn / ensureTurn / endTurn / resetTimeout。
-// 从 index.ts 抽出。onTimeout 回调打破与 handleResult / handleError 的循环依赖。
+// Turn 状态机深模块 — 拥有 turnStates Map + beginTurn / ensureTurn / endTurn。
+// 静默不代表完成：等待用户输入或长任务时保持 turn，直到引擎结束或用户停止。
 
 import type { Ref } from 'vue'
 import type { SessionSink } from '../turnSink'
 import type { TurnState } from './types'
-import { createSettledTurn, REQUEST_TIMEOUT, AUTONOMOUS_REQUEST_TIMEOUT } from './types'
+import { createSettledTurn } from './types'
 import { createUuid } from '@/utils/uuid'
 
 export interface TurnStateMachineOptions {
@@ -22,14 +22,10 @@ export interface TurnStateMachineOptions {
   streamingContents: Ref<Map<string, string>>
   pendingSendMessages: Set<string>
   userAbortedSessions: Set<string>
-  /** 超时回调 — store 侧决定调用 handleResult（autonomous）还是 handleError */
-  onTimeout: (sessionId: string, ts: TurnState) => void
 }
 
 export interface TurnStateMachine {
   turnStates: Map<string, TurnState>
-  resetTimeout: (sessionId: string, ts: TurnState) => void
-  clearTurnTimeout: (sessionId: string, ts: TurnState) => void
   beginTurn: (sessionId: string, opts: { isAutonomous: boolean; resolve?: () => void; reject?: (e: any) => void }) => TurnState
   endTurn: (sessionId: string, ts: TurnState) => void
   ensureTurn: (sessionId: string) => TurnState
@@ -43,27 +39,9 @@ export function createTurnStateMachine(opts: TurnStateMachineOptions): TurnState
     streamingContents,
     pendingSendMessages,
     userAbortedSessions,
-    onTimeout,
   } = opts
 
   const turnStates = new Map<string, TurnState>()
-
-  const resetTimeout = (sessionId: string, ts: TurnState) => {
-    if (ts.timeoutId) clearTimeout(ts.timeoutId)
-    const limit = ts.isAutonomous ? AUTONOMOUS_REQUEST_TIMEOUT : REQUEST_TIMEOUT
-    ts.timeoutId = setTimeout(() => {
-      const cur = turnStates.get(sessionId)
-      if (!cur || cur !== ts || cur.settled) return
-      onTimeout(sessionId, ts)
-    }, limit)
-  }
-
-  const clearTurnTimeout = (sessionId: string, ts: TurnState) => {
-    if (ts.timeoutId) {
-      clearTimeout(ts.timeoutId)
-      ts.timeoutId = null
-    }
-  }
 
   const beginTurn = (sessionId: string, opts: { isAutonomous: boolean; resolve?: () => void; reject?: (e: any) => void }): TurnState => {
     const assistantMessageId = createUuid()
@@ -74,7 +52,6 @@ export function createTurnStateMachine(opts: TurnStateMachineOptions): TurnState
       currentReasoningEventId: null,
       streamingHandledThinking: false,
       sendStartTime: Date.now(),
-      timeoutId: null,
       isAutonomous: opts.isAutonomous,
       settled: false,
       resolve: opts.resolve,
@@ -104,12 +81,10 @@ export function createTurnStateMachine(opts: TurnStateMachineOptions): TurnState
       content: '',
     })
 
-    resetTimeout(sessionId, ts)
     return ts
   }
 
-  const endTurn = (sessionId: string, ts: TurnState) => {
-    if (ts.timeoutId) { clearTimeout(ts.timeoutId); ts.timeoutId = null }
+  const endTurn = (sessionId: string) => {
     turnStates.delete(sessionId)
     // 注意：绝不退订持久监听器
   }
@@ -146,5 +121,5 @@ export function createTurnStateMachine(opts: TurnStateMachineOptions): TurnState
     return beginTurn(sessionId, { isAutonomous: true })
   }
 
-  return { turnStates, resetTimeout, clearTurnTimeout, beginTurn, endTurn, ensureTurn }
+  return { turnStates, beginTurn, endTurn, ensureTurn }
 }

@@ -57,7 +57,7 @@ vi.mock('@/services/aiCommitMessage', () => ({
   generateAiCommitMessage: vi.fn().mockResolvedValue('ai: feat: new thing'),
 }))
 
-import { useScmStore } from '@/stores/scm'
+import { useScmStore, type ScmFile } from '@/stores/scm'
 
 describe('scm store — refresh', () => {
   beforeEach(() => {
@@ -196,7 +196,7 @@ describe('scm store — commitChanges', () => {
     const result = await store.commitChanges()
 
     expect(apiMocks.git.commit).toHaveBeenCalledWith('/repo', 'feat: new thing', undefined)
-    expect(result.success).toBe(true)
+    expect(result!.success).toBe(true)
     expect(store.commitMessage).toBe('')
     expect(store.error).toBeNull()
   })
@@ -207,7 +207,7 @@ describe('scm store — commitChanges', () => {
     store.commitMessage = 'feat: thing'
     const result = await store.commitChanges('feat: thing')
 
-    expect(result.success).toBe(false)
+    expect(result!.success).toBe(false)
     expect(store.error).toBe('nothing staged')
     expect(store.commitMessage).toBe('feat: thing')
   })
@@ -275,7 +275,7 @@ describe('scm store — branch actions', () => {
     const result = await store.checkoutBranch('dev')
 
     expect(apiMocks.git.checkout).toHaveBeenCalledWith('/repo', 'dev')
-    expect(result.success).toBe(true)
+    expect(result!.success).toBe(true)
     expect(apiMocks.git.getStatus).toHaveBeenCalled()
     expect(apiMocks.git.getBranches).toHaveBeenCalled()
   })
@@ -284,7 +284,7 @@ describe('scm store — branch actions', () => {
     apiMocks.git.checkout.mockResolvedValue({ success: false, error: 'branch not found' })
     const store = useScmStore()
     const result = await store.checkoutBranch('missing')
-    expect(result.success).toBe(false)
+    expect(result!.success).toBe(false)
     expect(store.error).toBe('branch not found')
   })
 
@@ -293,7 +293,7 @@ describe('scm store — branch actions', () => {
     const store = useScmStore()
     const result = await store.createBranch('feature', true)
     expect(apiMocks.git.createBranch).toHaveBeenCalledWith('/repo', 'feature', true)
-    expect(result.success).toBe(true)
+    expect(result!.success).toBe(true)
   })
 
   it('createBranch fails: sets error', async () => {
@@ -308,7 +308,7 @@ describe('scm store — branch actions', () => {
     const store = useScmStore()
     const result = await store.deleteBranch('old-branch', true)
     expect(apiMocks.git.deleteBranch).toHaveBeenCalledWith('/repo', 'old-branch', true)
-    expect(result.success).toBe(true)
+    expect(result!.success).toBe(true)
   })
 })
 
@@ -342,7 +342,7 @@ describe('scm store — discard, pull, push, stash', () => {
     apiMocks.git.pull.mockResolvedValue({ success: true })
     const store = useScmStore()
     const result = await store.pull()
-    expect(result.success).toBe(true)
+    expect(result!.success).toBe(true)
     expect(apiMocks.git.getStatus).toHaveBeenCalled()
   })
 
@@ -350,7 +350,7 @@ describe('scm store — discard, pull, push, stash', () => {
     apiMocks.git.pull.mockResolvedValue({ success: false, error: 'merge conflict' })
     const store = useScmStore()
     const result = await store.pull()
-    expect(result.success).toBe(false)
+    expect(result!.success).toBe(false)
     expect(store.error).toBe('merge conflict')
   })
 
@@ -358,21 +358,21 @@ describe('scm store — discard, pull, push, stash', () => {
     apiMocks.git.push.mockResolvedValue({ success: true })
     const store = useScmStore()
     const result = await store.push()
-    expect(result.success).toBe(true)
+    expect(result!.success).toBe(true)
   })
 
   it('stash succeeds and refreshes', async () => {
     apiMocks.git.stash.mockResolvedValue({ success: true })
     const store = useScmStore()
     const result = await store.stash()
-    expect(result.success).toBe(true)
+    expect(result!.success).toBe(true)
   })
 
   it('stashPop succeeds and refreshes', async () => {
     apiMocks.git.stashPop.mockResolvedValue({ success: true })
     const store = useScmStore()
     const result = await store.stashPop()
-    expect(result.success).toBe(true)
+    expect(result!.success).toBe(true)
   })
 
   it('fetchAll refreshes status, branches, and log', async () => {
@@ -397,7 +397,7 @@ describe('scm store — selectFile', () => {
 
   it('selectFile sets selectedFile and selectedFileStaged', () => {
     const store = useScmStore()
-    const file = { path: 'a.ts', statusCode: 'M', status: 'modified', staged: true, isTracked: true }
+    const file: ScmFile = { path: 'a.ts', statusCode: 'M', status: 'modified', staged: true, isTracked: true }
     store.selectFile(file, true)
     expect(store.selectedFile).toEqual(file)
     expect(store.selectedFileStaged).toBe(true)

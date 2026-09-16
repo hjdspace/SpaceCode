@@ -2,7 +2,7 @@ import { BrowserWindow } from 'electron'
 import { SessionProcess, ProcessStatus, SessionConfig } from './sessionProcess'
 import { info, warn, error, debug } from './logger'
 
-const MAX_PROCESSES = 3
+export const MAX_PROCESSES = 20
 
 export interface SessionStatusInfo {
   sessionId: string

@@ -1,4 +1,5 @@
 <template>
+  <Teleport to="body">
   <Transition name="dropdown">
     <div
       v-if="visible"
@@ -51,6 +52,7 @@
       </button>
     </div>
   </Transition>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
