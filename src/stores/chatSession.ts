@@ -1728,7 +1728,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
    */
   let _overrideModelForNextInit: string | undefined
 
-  async function switchModel(model: string, displayModel?: string): Promise<void> {
+  async function switchModel(model: string, displayModel?: string, options?: { skipSetModel?: boolean }): Promise<void> {
     const sid = currentSessionId.value
 
     // 记录用户选择的模型（显示名）到 session，供 UI 面板使用
@@ -1744,7 +1744,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     const claudeCode = api.claudeCode
     if (claudeCode && sid) {
       const status = await claudeCode.getSessionStatus(sid)
-      if (status?.isRunning) {
+      if (status?.isRunning && !options?.skipSetModel) {
         // ★ 优先通过 setModel control_request 切换模型（不重启会话）
         try {
           await claudeCode.setModel(sid, model)
@@ -1764,7 +1764,10 @@ export const useChatSessionStore = defineStore('chatSession', () => {
           }
         }
       } else {
-        // 引擎未运行：重启会话时使用用户选择的模型
+        // 引擎未运行（或 skipSetModel）：重启会话时使用用户选择的模型
+        if (status?.isRunning) {
+          await claudeCode.stop(sid)
+        }
         _overrideModelForNextInit = model
         try {
           await initClaudeCodeSession(sid)
