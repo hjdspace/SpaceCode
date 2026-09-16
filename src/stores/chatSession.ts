@@ -1728,8 +1728,19 @@ export const useChatSessionStore = defineStore('chatSession', () => {
    */
   let _overrideModelForNextInit: string | undefined
 
-  async function switchModel(model: string): Promise<void> {
+  async function switchModel(model: string, displayModel?: string): Promise<void> {
     const sid = currentSessionId.value
+
+    // 记录用户选择的模型（显示名）到 session，供 UI 面板使用
+    const dm = displayModel ?? model
+    if (sid) {
+      const session = sessions.value.find(s => s.id === sid)
+      if (session) {
+        session.model = dm
+        saveToStorage()
+      }
+    }
+
     const claudeCode = api.claudeCode
     if (claudeCode && sid) {
       const status = await claudeCode.getSessionStatus(sid)
