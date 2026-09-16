@@ -97,9 +97,9 @@ export default defineConfig({
   base: './',
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src'),
+      '@': resolve(import.meta.dirname, 'src'),
       // lowlight 瘦身 shim：@git-diff-view 全量语言注册 → common 子集（见 src/shims/lowlight.ts）
-      lowlight: resolve(__dirname, 'src/shims/lowlight.ts')
+      lowlight: resolve(import.meta.dirname, 'src/shims/lowlight.ts')
     }
   },
   build: {
@@ -108,8 +108,8 @@ export default defineConfig({
     chunkSizeWarningLimit: 600,
     rolldownOptions: {
       input: {
-        main: resolve(__dirname, 'index.html'),
-        'pet-window': resolve(__dirname, 'pet-window.html'),
+        main: resolve(import.meta.dirname, 'index.html'),
+        'pet-window': resolve(import.meta.dirname, 'pet-window.html'),
       },
       external: ['@mariozechner/pi-coding-agent'],
       output: {

@@ -525,8 +525,10 @@ const visibleTimelineEvents = computed<TimelineEvent[]>(() => {
 
 const overallStatus = computed(() => {
   const lastMsg = props.messages[props.messages.length - 1]
-  // Still streaming: no metadata means response hasn't finished yet
-  const isStreaming = props.loading && lastMsg && !lastMsg.metadata
+  // loading 是权威的运行中信号。子代理转录经 JSONL 解析后每条 assistant 消息都带
+  // metadata（model/tokens），不能再用 !lastMsg.metadata 判断是否流式结束，
+  // 否则子代理运行期间会被误判为已完成（面板 hero 显示运行中、时间线却显示完成）。
+  const isStreaming = props.loading && !!lastMsg
   if (isStreaming) return 'running'
   if (timelineEvents.value.some(e => e.status === 'running' || e.status === 'pending')) return 'running'
   if (timelineEvents.value.some(e => e.status === 'error')) return 'error'

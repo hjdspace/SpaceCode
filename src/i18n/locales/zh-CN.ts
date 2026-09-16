@@ -2185,6 +2185,16 @@ export default {
     taskOutputBadgeTimeout: '超时',
     taskOutputBadgeNotReady: '未就绪',
   },
+  subagentPanel: {
+    backToChat: '返回聊天',
+    notFound: '未找到子智能体',
+    taskDescription: '任务描述',
+    result: '结果',
+    waiting: '等待子智能体启动...',
+    running: '运行中',
+    done: '已完成',
+    failed: '失败',
+  },
   cronHelper: {
     weekdays: ['日', '一', '二', '三', '四', '五', '六'],
     everyMinute: '每分钟',
