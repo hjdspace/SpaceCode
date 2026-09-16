@@ -1,0 +1,84 @@
+import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import MarkdownRenderer from '../MarkdownRenderer.vue'
+
+vi.mock('@/services/electronAPI', () => ({
+  api: { readFile: vi.fn().mockResolvedValue('content') },
+}))
+
+describe('MarkdownRenderer file links', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) =>
+      window.setTimeout(() => cb(performance.now()), 0))
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  async function renderAndGetLinks(content: string) {
+    const wrapper = mount(MarkdownRenderer, {
+      props: { content },
+      global: { plugins: [createPinia()] },
+    })
+    await new Promise(r => setTimeout(r, 0))
+    await new Promise(r => setTimeout(r, 0))
+    const links = wrapper.findAll('.file-link').map(l => ({
+      path: l.attributes('data-file-path'),
+      line: l.attributes('data-line-number'),
+      end: l.attributes('data-end-line-number'),
+      text: l.text(),
+    }))
+    wrapper.unmount()
+    return links
+  }
+
+  it('matches line numbers and ranges', async () => {
+    const links = await renderAndGetLinks('修改见 src/stores/app.ts:42 以及 electron/main.ts:10-25 的处理')
+    expect(links).toHaveLength(2)
+    expect(links[0]).toMatchObject({ path: 'src/stores/app.ts', line: '42', text: 'stores/app.ts:42' })
+    expect(links[1]).toMatchObject({ path: 'electron/main.ts', line: '10', end: '25', text: 'electron/main.ts:10-25' })
+  })
+
+  it('matches absolute windows paths', async () => {
+    const links = await renderAndGetLinks('参见 D:\\doc\\AI\\SpaceCode\\package.json 的依赖')
+    expect(links).toHaveLength(1)
+    expect(links[0]).toMatchObject({ path: 'D:\\doc\\AI\\SpaceCode\\package.json', text: 'SpaceCode/package.json' })
+  })
+
+  it('normalizes 第N行 references', async () => {
+    const links = await renderAndGetLinks('问题在 src/utils/helper.ts 第42行')
+    expect(links).toHaveLength(1)
+    expect(links[0]).toMatchObject({ path: 'src/utils/helper.ts', line: '42' })
+  })
+
+  it('matches bare filenames inside inline code (not in plain text)', async () => {
+    const links = await renderAndGetLinks('入口是 `main.ts`，配置在 `./vite.config.ts`')
+    expect(links).toHaveLength(2)
+    expect(links[0]).toMatchObject({ path: 'main.ts' })
+    expect(links[1]).toMatchObject({ path: './vite.config.ts' })
+  })
+
+  it('skips paths inside code blocks', async () => {
+    const links = await renderAndGetLinks('```\nimport x from "src/a.ts"\n```\n\n正文提到 src/b.ts')
+    expect(links).toHaveLength(1)
+    expect(links[0]).toMatchObject({ path: 'src/b.ts' })
+  })
+
+  it('does not double-wrap and is idempotent across re-renders', async () => {
+    const wrapper = mount(MarkdownRenderer, {
+      props: { content: '见 src/a.ts 和 src/b.ts:5' },
+      global: { plugins: [createPinia()] },
+    })
+    await new Promise(r => setTimeout(r, 0))
+    expect(wrapper.findAll('.file-link')).toHaveLength(2)
+    await wrapper.setProps({ content: '见 src/a.ts 和 src/b.ts:5 加一句' })
+    await new Promise(r => setTimeout(r, 0))
+    await new Promise(r => setTimeout(r, 0))
+    expect(wrapper.findAll('.file-link')).toHaveLength(2)
+    expect(wrapper.findAll('.file-link .file-link')).toHaveLength(0)
+    wrapper.unmount()
+  })
+})
