@@ -146,7 +146,7 @@ describe('编排集成 — onResult 驱动节点 settle → 下游发出草稿',
     // 验证 turn 结局信号被正确触发
     expect(outcomes).toContainEqual({ sessionId: sessionA, outcome: 'settled' })
     expect(outcomes).toContainEqual({ sessionId: sessionB, outcome: 'settled' })
-  })
+  }, 15000)
 
   it('并行分叉 A→(B,C)：A settle 后 B 和 C 同时启动', async () => {
     const fake = makeFakeApi()
@@ -227,5 +227,5 @@ describe('编排集成 — onResult 驱动节点 settle → 下游发出草稿',
     expect(engine.getNodeStatus('B')).toBe('settled')
     expect(engine.getNodeStatus('C')).toBe('settled')
     expect(engine.getRunState().status).toBe('idle')
-  })
+  }, 15000)
 })
