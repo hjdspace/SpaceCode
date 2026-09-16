@@ -3,7 +3,8 @@
     <InfoPanelTabBar />
 
     <div class="panel-content">
-      <PanelLauncher v-if="showLauncher" />
+      <SubagentPanel v-if="mode === 'subagent'" />
+      <PanelLauncher v-else-if="showLauncher" />
 
       <!-- Terminal: always mounted to preserve terminal state across panel switches -->
       <TerminalPanel v-show="!showLauncher && mode === 'terminal'" class="info-terminal-panel" />
@@ -178,6 +179,7 @@ import DiffViewer from '../common/DiffViewer.vue'
 import CodeViewer from '../common/CodeViewer.vue'
 import MarkdownViewer from '../common/MarkdownViewer.vue'
 import ToolDiffViewer from '../common/ToolDiffViewer.vue'
+import SubagentPanel from './SubagentPanel.vue'
 import {
   INSPECTOR_SCRIPT,
   INSPECTOR_SELECT_PREFIX,
