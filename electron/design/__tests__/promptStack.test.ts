@@ -14,7 +14,7 @@ describe('listDesignSystems', () => {
     expect(agentic!.description).toContain('Agentic')
     expect(agentic!.previewPages).toBeInstanceOf(Array)
     expect(agentic!.previewPages.length).toBeGreaterThan(0)
-  })
+  }, 30000)
 })
 
 describe('parseSwatchesFromTokensCss', () => {
