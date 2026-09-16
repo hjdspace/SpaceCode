@@ -715,6 +715,7 @@ export class ControlProtocolHandler extends EventEmitter {
   setModel(model: string | undefined, requestId: string = randomUUIDFn()): Promise<void> {
     return this.sendControlRequest(
       buildSetModelRequest(model, requestId) as { request_id: string } & Record<string, unknown>,
+      10_000,
     ).then(() => undefined)
   }
 
