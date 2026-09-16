@@ -1,49 +1,55 @@
 <template>
-  <div class="message-list" ref="listRef" :class="{ 'has-messages': props.messages.length > 0 || props.loading }">
-    <div class="messages-container">
-      <div v-if="props.messages.length === 0 && !props.loading" class="empty-state">
-        <MessageSquare :size="48" />
-        <p>{{ t('chat.startConversation') }}</p>
-        <span>{{ t('chat.startConversationDesc') }}</span>
-      </div>
+  <div class="message-list-wrap">
+    <ConversationMinimap
+      :scroll-ref="listRef"
+      :messages="props.messages"
+    />
+    <div class="message-list" ref="listRef" :class="{ 'has-messages': props.messages.length > 0 || props.loading }">
+      <div class="messages-container">
+        <div v-if="props.messages.length === 0 && !props.loading" class="empty-state">
+          <MessageSquare :size="48" />
+          <p>{{ t('chat.startConversation') }}</p>
+          <span>{{ t('chat.startConversationDesc') }}</span>
+        </div>
 
-      <template v-for="item in displayItems" :key="item.key">
-        <!-- 用户消息：始终用 MessageItem（bubble 渲染） -->
-        <MessageItem
-          v-if="item.type === 'user-group'"
-          :message="item.group!.messages[0]"
-          :can-rewind="mode !== 'design' && item.group!.messages[0].id !== props.messages[props.messages.length - 1]?.id"
-          @tool-submit="(mId, tId, ans) => emit('toolSubmit', mId, tId, ans)"
-          @tool-skip="(mId, tId) => emit('toolSkip', mId, tId)"
-          @rewind="(msg) => emit('rewind', msg)"
-        />
-        <!-- 助手消息：统一用 AgentTimeline（design 模式也复用，仅通过 mode prop 剥离设计专用标签） -->
-        <template v-else-if="item.type === 'assistant-group'">
-          <AgentTimeline
-            :messages="item.group!.messages"
-            :loading="props.loading && item.group!.id === messageGroups[messageGroups.length - 1]?.id"
-            :mode="mode === 'design' ? 'design' : undefined"
-            @tool-submit="(tId, ans) => emit('toolSubmit', item.group!.id, tId, ans)"
-            @tool-skip="(tId) => emit('toolSkip', item.group!.id, tId)"
+        <template v-for="item in displayItems" :key="item.key">
+          <!-- 用户消息：始终用 MessageItem（bubble 渲染） -->
+          <div v-if="item.type === 'user-group'" :data-minimap-id="item.group!.messages[0].id" class="minimap-anchor">
+            <MessageItem
+              :message="item.group!.messages[0]"
+              :can-rewind="mode !== 'design' && item.group!.messages[0].id !== props.messages[props.messages.length - 1]?.id"
+              @tool-submit="(mId, tId, ans) => emit('toolSubmit', mId, tId, ans)"
+              @tool-skip="(mId, tId) => emit('toolSkip', mId, tId)"
+              @rewind="(msg) => emit('rewind', msg)"
+            />
+          </div>
+          <!-- 助手消息：统一用 AgentTimeline（design 模式也复用，仅通过 mode prop 剥离设计专用标签） -->
+          <div v-else-if="item.type === 'assistant-group'" :data-minimap-id="item.group!.messages[0]?.id" class="minimap-anchor">
+            <AgentTimeline
+              :messages="item.group!.messages"
+              :loading="props.loading && item.group!.id === messageGroups[messageGroups.length - 1]?.id"
+              :mode="mode === 'design' ? 'design' : undefined"
+              @tool-submit="(tId, ans) => emit('toolSubmit', item.group!.id, tId, ans)"
+              @tool-skip="(tId) => emit('toolSkip', item.group!.id, tId)"
+            />
+            <!-- design 模式：在 AgentTimeline 之后追加设计专用 block（od-card / question-form / next-steps） -->
+            <DesignBlocks
+              v-if="mode === 'design'"
+              :messages="item.group!.messages"
+              @open-artifact="(path: string) => emit('openArtifact', path)"
+              @submit-form="(answers: Record<string, unknown>) => emit('submitForm', answers)"
+              @select-next="(prompt: string) => emit('selectNext', prompt)"
+            />
+          </div>
+          <CurrentTurnChangeCard
+            v-else-if="mode !== 'design' && item.type === 'turn-card'"
+            :card-data="item.card!"
+            class="turn-change-card-wrapper"
           />
-          <!-- design 模式：在 AgentTimeline 之后追加设计专用 block（od-card / question-form / next-steps） -->
-          <DesignBlocks
-            v-if="mode === 'design'"
-            :messages="item.group!.messages"
-            @open-artifact="(path: string) => emit('openArtifact', path)"
-            @submit-form="(answers: Record<string, unknown>) => emit('submitForm', answers)"
-            @select-next="(prompt: string) => emit('selectNext', prompt)"
+          <ArtifactSummaryCard
+            v-else-if="mode !== 'design' && item.type === 'artifact-card'"
+            :artifacts="item.artifacts!"
           />
-        </template>
-        <CurrentTurnChangeCard
-          v-else-if="mode !== 'design' && item.type === 'turn-card'"
-          :card-data="item.card!"
-          class="turn-change-card-wrapper"
-        />
-        <ArtifactSummaryCard
-          v-else-if="mode !== 'design' && item.type === 'artifact-card'"
-          :artifacts="item.artifacts!"
-        />
       </template>
 
       <div v-if="props.loading" class="typing-indicator">
@@ -51,6 +57,7 @@
         <div class="dot"></div>
         <div class="dot"></div>
       </div>
+    </div>
     </div>
   </div>
 </template>
@@ -65,6 +72,7 @@ import AgentTimeline from './AgentTimeline.vue'
 import DesignBlocks from './DesignBlocks.vue'
 import CurrentTurnChangeCard from './CurrentTurnChangeCard.vue'
 import ArtifactSummaryCard from './ArtifactSummaryCard.vue'
+import ConversationMinimap from './ConversationMinimap.vue'
 import { MessageSquare } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useChatSessionStore } from '@/stores/chatSession'
@@ -500,6 +508,14 @@ onUnmounted(() => {
 </script>
 
 <style lang="scss" scoped>
+.message-list-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .message-list {
   flex: 1;
   min-height: 0;
