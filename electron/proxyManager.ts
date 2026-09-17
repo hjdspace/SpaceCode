@@ -16,6 +16,67 @@ const MAX_HEALTH_RETRIES = 3
 const PROXY_PORT_START = 34567
 const PROXY_PORT_END = 34667
 
+/**
+ * 从 gui-settings.json 的解析结果构建代理配置。
+ *
+ * modelMapping 取各 provider 槽位配置的实际模型名（haikuModel/sonnetModel/
+ * opusModel），代理按子串把引擎请求中的路由 ID（如 claude-sonnet-4-20250514）
+ * 映射到这些实际模型。启动自启、engineSource 切换、设置保存对齐
+ * （main.ts reconcileProxyWithSettings）与 sessionProcess 的按需兜底启动
+ * 共用此函数，保证各路径的映射一致。
+ */
+export function buildProxyConfigFromSettings(guiSettings: Record<string, any>): ProxyConfig | null {
+  const authMethod = guiSettings.authMethod
+  if (!authMethod) return null
+
+  let upstreamProvider: ProxyConfig['upstreamProvider']
+  let upstreamBaseUrl = ''
+  let upstreamApiKey = ''
+  const modelMapping: ProxyConfig['modelMapping'] = {}
+
+  if (authMethod === 'openai_compatible' && guiSettings.openaiConfig) {
+    const cfg = guiSettings.openaiConfig
+    upstreamProvider = 'openai_compatible'
+    upstreamBaseUrl = (cfg.baseUrl || '').trim()
+    upstreamApiKey = (cfg.apiKey || '').trim()
+    if (cfg.haikuModel) modelMapping.haikuModel = cfg.haikuModel.trim()
+    if (cfg.sonnetModel) modelMapping.sonnetModel = cfg.sonnetModel.trim()
+    if (cfg.opusModel) modelMapping.opusModel = cfg.opusModel.trim()
+    if (cfg.sonnetModel) modelMapping.defaultModel = cfg.sonnetModel.trim()
+  } else if (authMethod === 'gemini_api' && guiSettings.geminiConfig) {
+    const cfg = guiSettings.geminiConfig
+    upstreamProvider = 'openai_compatible'
+    upstreamBaseUrl = (cfg.baseUrl || '').trim()
+    upstreamApiKey = (cfg.apiKey || '').trim()
+    if (cfg.haikuModel) modelMapping.haikuModel = cfg.haikuModel.trim()
+    if (cfg.sonnetModel) modelMapping.sonnetModel = cfg.sonnetModel.trim()
+    if (cfg.opusModel) modelMapping.opusModel = cfg.opusModel.trim()
+    if (cfg.sonnetModel) modelMapping.defaultModel = cfg.sonnetModel.trim()
+  } else if ((authMethod === 'anthropic_compatible' || authMethod === 'claudeai' || authMethod === 'console') && guiSettings.anthropicConfig) {
+    const cfg = guiSettings.anthropicConfig
+    upstreamProvider = 'anthropic'
+    upstreamBaseUrl = (cfg.baseUrl || '').trim()
+    upstreamApiKey = (cfg.apiKey || '').trim()
+    if (cfg.haikuModel) modelMapping.haikuModel = cfg.haikuModel.trim()
+    if (cfg.sonnetModel) modelMapping.sonnetModel = cfg.sonnetModel.trim()
+    if (cfg.opusModel) modelMapping.opusModel = cfg.opusModel.trim()
+    if (cfg.sonnetModel) modelMapping.defaultModel = cfg.sonnetModel.trim()
+  } else {
+    return null
+  }
+
+  if (!upstreamBaseUrl || !upstreamApiKey) return null
+
+  return {
+    host: '127.0.0.1',
+    port: 34567,
+    upstreamProvider,
+    upstreamBaseUrl,
+    upstreamApiKey,
+    modelMapping,
+  }
+}
+
 export class ProxyManager extends EventEmitter {
   private process: ChildProcess | null = null
   private proxyUrl: string = ''
@@ -168,6 +229,11 @@ export class ProxyManager extends EventEmitter {
 
   getProxyUrl(): string {
     return this.proxyUrl
+  }
+
+  /** 当前运行中代理的配置快照（未启动时为 null），用于对比配置是否变化 */
+  getConfig(): ProxyConfig | null {
+    return this.config
   }
 
   isRunning(): boolean {

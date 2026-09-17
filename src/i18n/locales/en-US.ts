@@ -350,6 +350,7 @@ export default {
     },
     toolChips: {
       toolCalls: '{count} tool calls',
+      more: '+{count} more',
     },
     input: 'Input',
     output: 'Output',

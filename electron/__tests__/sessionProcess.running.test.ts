@@ -66,12 +66,57 @@ describe('SessionProcess — running state reflects writable stdin', () => {
     proxyProc.removeAllListeners()
   })
 
+  it('maps the opus alias to the proxy opus route so input-box model selection survives restarts', () => {
+    vi.spyOn(proxyManager, 'getProxyUrl').mockReturnValue('http://127.0.0.1:34567')
+    const proxyProc = new SessionProcess('sess-proxy-opus', makeSessionConfig({
+      provider: 'openai',
+      model: 'opus',
+    }))
+
+    const args = (proxyProc as any).buildArgs(proxyProc.config) as string[]
+    const modelIndex = args.indexOf('--model')
+
+    expect(modelIndex).toBeGreaterThanOrEqual(0)
+    expect(args[modelIndex + 1]).toBe('claude-opus-4-8')
+    proxyProc.removeAllListeners()
+  })
+
+  it('maps the haiku alias to the proxy haiku route', () => {
+    vi.spyOn(proxyManager, 'getProxyUrl').mockReturnValue('http://127.0.0.1:34567')
+    const proxyProc = new SessionProcess('sess-proxy-haiku', makeSessionConfig({
+      provider: 'openai',
+      model: 'haiku',
+    }))
+
+    const args = (proxyProc as any).buildArgs(proxyProc.config) as string[]
+    const modelIndex = args.indexOf('--model')
+
+    expect(modelIndex).toBeGreaterThanOrEqual(0)
+    expect(args[modelIndex + 1]).toBe('claude-haiku-4-8')
+    proxyProc.removeAllListeners()
+  })
+
   it('opts the proxy route into 1M context when configured above the default', () => {
     vi.spyOn(proxyManager, 'getProxyUrl').mockReturnValue('http://127.0.0.1:34567')
     const proxyProc = new SessionProcess('sess-proxy-1m', makeSessionConfig({
       provider: 'openai',
       model: 'deepseek-v4-flash',
       modelContextWindows: { 'deepseek-v4-flash': 1_000_000 },
+    }))
+
+    const args = (proxyProc as any).buildArgs(proxyProc.config) as string[]
+    const modelIndex = args.indexOf('--model')
+
+    expect(args[modelIndex + 1]).toBe('claude-sonnet-4-20250514[1m]')
+    proxyProc.removeAllListeners()
+  })
+
+  it('opts the proxy route into 1M context for a slot alias when the real model is configured', () => {
+    vi.spyOn(proxyManager, 'getProxyUrl').mockReturnValue('http://127.0.0.1:34567')
+    const proxyProc = new SessionProcess('sess-proxy-1m-alias', makeSessionConfig({
+      provider: 'openai',
+      model: 'sonnet',
+      modelContextWindows: { 'kimi-k3': 400_000, sonnet: 400_000 },
     }))
 
     const args = (proxyProc as any).buildArgs(proxyProc.config) as string[]

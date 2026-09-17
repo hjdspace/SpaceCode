@@ -350,6 +350,7 @@ export default {
     },
     toolChips: {
       toolCalls: '{count} 个工具调用',
+      more: '+{count} 更多',
     },
     input: '输入',
     output: '输出',
