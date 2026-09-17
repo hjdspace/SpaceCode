@@ -5,7 +5,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import { randomUUID } from 'crypto'
 import { app } from 'electron'
-import { proxyManager } from './proxyManager'
+import { proxyManager, buildProxyConfigFromSettings } from './proxyManager'
 import { info, warn, error, debug, processRaw, setSessionLogPath, sdkMessage, traceEvent } from './logger'
 import {
   killTree as engineKillTree,
@@ -112,6 +112,11 @@ const BROWSER_USE_AVAILABILITY_HINT = [
 // before sending a request. The proxy maps this stable route to the user's
 // configured upstream model (for example, deepseek-v4-flash).
 const PROXY_DEFAULT_MODEL = 'claude-sonnet-4-20250514'
+// opus/haiku 路由必须用 4-8 而非 4-20250514：后者属于引擎的
+// LEGACY_OPUS_FIRSTPARTY 列表，在 firstParty（代理模式 modelType=anthropic）
+// 下会被静默重映射为最新的 opus ID，脱离代理公布的 /v1/models 路由表。
+const PROXY_OPUS_MODEL = 'claude-opus-4-8'
+const PROXY_HAIKU_MODEL = 'claude-haiku-4-8'
 
 export interface SessionConfig {
   cwd: string
@@ -1000,10 +1005,17 @@ export class SessionProcess extends EventEmitter {
       }
     }
 
-    // 代理模式必须使用代理公布的标准路由 ID。否则 Claude Code 会回退到
-    // claude-sonnet-4-6，而该 ID 不在代理的 /v1/models 列表中，会在请求前失败。
+    // 代理模式必须使用代理公布的标准路由 ID（见 proxy/server.ts handleModels）。
+    // 否则 Claude Code 会回退到 claude-sonnet-4-6，而该 ID 不在代理的
+    // /v1/models 列表中，会在请求前失败。
     if (useProxy) {
-      let modelArg = PROXY_DEFAULT_MODEL
+      // config.model 是别名（haiku/sonnet/opus，见 chatSession.resolveModelAliasFromConfig）。
+      // 需映射到对应路由 ID，代理再按子串把路由映射到用户配置的实际模型；
+      // 若固定走 sonnet 路由，用户在输入框选择的 haiku/opus 在会话（重）启动后会失效。
+      const modelAlias = (config.model || '').toLowerCase()
+      let modelArg = modelAlias.includes('opus') ? PROXY_OPUS_MODEL
+        : modelAlias.includes('haiku') ? PROXY_HAIKU_MODEL
+        : PROXY_DEFAULT_MODEL
       const ctxSize = config.model && config.modelContextWindows?.[config.model]
       // Keep the stable proxy route while opting the engine into its 1M context
       // mode. The proxy strips this suffix before forwarding upstream.
@@ -1324,7 +1336,7 @@ export class SessionProcess extends EventEmitter {
       } else {
         warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Proxy not running — attempting to start proxy for non-Anthropic provider`)
         try {
-          const proxyConfig = this.buildProxyConfig(config)
+          const proxyConfig = this.buildProxyConfig()
           if (proxyConfig) {
             await proxyManager.start(proxyConfig)
             const startedUrl = proxyManager.getProxyUrl()
@@ -1436,49 +1448,27 @@ export class SessionProcess extends EventEmitter {
     }
   }
 
-  private buildProxyConfig(config: SessionConfig): import('./proxy/types').ProxyConfig | null {
-    const provider = (config.provider || 'anthropic').toLowerCase()
-    let upstreamProvider: 'openai_compatible' | 'anthropic'
-    let upstreamBaseUrl = ''
-    let upstreamApiKey = ''
-    const modelMapping: import('./proxy/types').ModelMappingConfig = {}
-
-    if (provider === 'openai' || provider === 'gemini') {
-      upstreamProvider = 'openai_compatible'
-      upstreamBaseUrl = (config.baseUrl || '').trim()
-      upstreamApiKey = (config.apiKey || '').trim()
-      if (config.model) {
-        const trimmedModel = config.model.trim()
-        // 将所有 Claude 模型名映射到用户配置的实际模型
-        modelMapping.haikuModel = trimmedModel
-        modelMapping.sonnetModel = trimmedModel
-        modelMapping.opusModel = trimmedModel
-        modelMapping.defaultModel = trimmedModel
-      }
-    } else if (provider === 'anthropic') {
-      upstreamProvider = 'anthropic'
-      upstreamBaseUrl = (config.baseUrl || '').trim()
-      upstreamApiKey = (config.apiKey || '').trim()
-      if (config.model) {
-        const trimmedModel = config.model.trim()
-        modelMapping.haikuModel = trimmedModel
-        modelMapping.sonnetModel = trimmedModel
-        modelMapping.opusModel = trimmedModel
-        modelMapping.defaultModel = trimmedModel
-      }
-    } else {
+  /**
+   * 按需兜底启动代理时的配置来源：~/.claude/gui-settings.json。
+   *
+   * 不能从 SessionConfig 生成：config.model 是别名（haiku/sonnet/opus，见
+   * chatSession.resolveModelAliasFromConfig），直接写进 modelMapping 会把别名
+   * 当实际模型名转发给上游；gui-settings.json 保存了各槽位的实际模型名，
+   * 与 reconcileProxyWithSettings 等主动启动路径共用 buildProxyConfigFromSettings，
+   * 保证兜底启动的代理与正常启动的路由映射一致。
+   */
+  private buildProxyConfig(): import('./proxy/types').ProxyConfig | null {
+    try {
+      const settingsPath = path.join(app.getPath('home'), '.claude', 'gui-settings.json')
+      if (!fs.existsSync(settingsPath)) return null
+      const raw = fs.readFileSync(settingsPath, 'utf-8')
+      if (!raw.trim()) return null
+      const guiSettings = JSON.parse(raw)
+      if (!guiSettings || typeof guiSettings !== 'object') return null
+      return buildProxyConfigFromSettings(guiSettings as Record<string, any>)
+    } catch (err) {
+      warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to read gui-settings.json for proxy config`, { error: String(err) })
       return null
-    }
-
-    if (!upstreamBaseUrl || !upstreamApiKey) return null
-
-    return {
-      host: '127.0.0.1',
-      port: 34567,
-      upstreamProvider,
-      upstreamBaseUrl,
-      upstreamApiKey,
-      modelMapping,
     }
   }
 
