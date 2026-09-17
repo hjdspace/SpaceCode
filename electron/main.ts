@@ -26,7 +26,7 @@ import { registerPromptOptimizerIPC } from './promptOptimizerIPC'
 import { registerDesignIPCHandlers } from './design/designService'
 import { aggregateLocalTokenStats } from './tokenStatsService'
 import { initLogger, info, warn, error, debug, isDebugMode, ipc as logIpc, traceEvent, listDebugFiles, readDebugFile, listTraceSessions, readTraceEvents, getTraceDir } from './logger'
-import { proxyManager } from './proxyManager'
+import { proxyManager, buildProxyConfigFromSettings } from './proxyManager'
 import type { ProxyConfig } from './proxy/types'
 import { rtkManager } from './rtkManager'
 import { getImSidecarManager } from './imSidecarManager'
@@ -2038,55 +2038,70 @@ async function loadGuiSettings(): Promise<Record<string, any> | null> {
   }
 }
 
-function buildProxyConfigFromSettings(guiSettings: Record<string, any>): ProxyConfig | null {
-  const authMethod = guiSettings.authMethod
-  if (!authMethod) return null
+/** 影响代理路由的配置字段是否一致（host/port 不参与比较） */
+function isSameProxyConfig(a: ProxyConfig, b: ProxyConfig): boolean {
+  return a.upstreamProvider === b.upstreamProvider
+    && a.upstreamBaseUrl === b.upstreamBaseUrl
+    && a.upstreamApiKey === b.upstreamApiKey
+    && a.modelMapping.haikuModel === b.modelMapping.haikuModel
+    && a.modelMapping.sonnetModel === b.modelMapping.sonnetModel
+    && a.modelMapping.opusModel === b.modelMapping.opusModel
+    && a.modelMapping.defaultModel === b.modelMapping.defaultModel
+}
 
-  let upstreamProvider: ProxyConfig['upstreamProvider']
-  let upstreamBaseUrl = ''
-  let upstreamApiKey = ''
-  const modelMapping: ProxyConfig['modelMapping'] = {}
+/**
+ * 设置保存后将本地代理与最新 GUI 配置对齐。
+ *
+ * 代理的上游地址、API Key 与 haiku/sonnet/opus 模型映射在启动时快照进
+ * 代理子进程，之后不会自动跟随 gui-settings.json 变化。若用户在设置页
+ * 切换 provider（例如 unisoc_mass → sensenova），运行中的代理仍会把请求
+ * 转发到旧 provider 的旧模型，表现为：gui-settings.json 已更新、回复与
+ * 汇总信息却仍使用旧 provider 的模型。这里在每次保存后对比新旧代理配置，
+ * 发生变化时重启代理；重启复用当前端口，使已运行会话 env 中固化的
+ * ANTHROPIC_BASE_URL 继续有效。
+ */
+async function reconcileProxyWithSettings(guiSettings: Record<string, any>): Promise<void> {
+  const authMethod = guiSettings?.authMethod
+  const needsProxy = !!authMethod && !['anthropic_compatible', 'claudeai', 'console'].includes(authMethod)
 
-  if (authMethod === 'openai_compatible' && guiSettings.openaiConfig) {
-    const cfg = guiSettings.openaiConfig
-    upstreamProvider = 'openai_compatible'
-    upstreamBaseUrl = (cfg.baseUrl || '').trim()
-    upstreamApiKey = (cfg.apiKey || '').trim()
-    if (cfg.haikuModel) modelMapping.haikuModel = cfg.haikuModel.trim()
-    if (cfg.sonnetModel) modelMapping.sonnetModel = cfg.sonnetModel.trim()
-    if (cfg.opusModel) modelMapping.opusModel = cfg.opusModel.trim()
-    if (cfg.sonnetModel) modelMapping.defaultModel = cfg.sonnetModel.trim()
-  } else if (authMethod === 'gemini_api' && guiSettings.geminiConfig) {
-    const cfg = guiSettings.geminiConfig
-    upstreamProvider = 'openai_compatible'
-    upstreamBaseUrl = (cfg.baseUrl || '').trim()
-    upstreamApiKey = (cfg.apiKey || '').trim()
-    if (cfg.haikuModel) modelMapping.haikuModel = cfg.haikuModel.trim()
-    if (cfg.sonnetModel) modelMapping.sonnetModel = cfg.sonnetModel.trim()
-    if (cfg.opusModel) modelMapping.opusModel = cfg.opusModel.trim()
-    if (cfg.sonnetModel) modelMapping.defaultModel = cfg.sonnetModel.trim()
-  } else if ((authMethod === 'anthropic_compatible' || authMethod === 'claudeai' || authMethod === 'console') && guiSettings.anthropicConfig) {
-    const cfg = guiSettings.anthropicConfig
-    upstreamProvider = 'anthropic'
-    upstreamBaseUrl = (cfg.baseUrl || '').trim()
-    upstreamApiKey = (cfg.apiKey || '').trim()
-    if (cfg.haikuModel) modelMapping.haikuModel = cfg.haikuModel.trim()
-    if (cfg.sonnetModel) modelMapping.sonnetModel = cfg.sonnetModel.trim()
-    if (cfg.opusModel) modelMapping.opusModel = cfg.opusModel.trim()
-    if (cfg.sonnetModel) modelMapping.defaultModel = cfg.sonnetModel.trim()
-  } else {
-    return null
+  if (!needsProxy) {
+    if (proxyManager.isRunning()) {
+      try {
+        await proxyManager.stop()
+        info('Settings', 'Proxy stopped after settings save (current provider does not need proxy)')
+      } catch (err) {
+        warn('Settings', 'Failed to stop proxy after settings save', { error: String(err) })
+      }
+    }
+    return
   }
 
-  if (!upstreamBaseUrl || !upstreamApiKey) return null
+  const newConfig = buildProxyConfigFromSettings(guiSettings)
+  if (!newConfig) return
 
-  return {
-    host: '127.0.0.1',
-    port: 34567,
-    upstreamProvider,
-    upstreamBaseUrl,
-    upstreamApiKey,
-    modelMapping,
+  if (!proxyManager.isRunning()) {
+    try {
+      await proxyManager.start(newConfig)
+      info('Settings', 'Proxy started after settings save')
+    } catch (err) {
+      warn('Settings', 'Failed to start proxy after settings save', { error: String(err) })
+    }
+    return
+  }
+
+  const current = proxyManager.getConfig()
+  if (current && isSameProxyConfig(current, newConfig)) return
+
+  // 复用当前端口重启，避免已运行会话的代理 URL 失效
+  newConfig.port = current?.port ?? newConfig.port
+  try {
+    await proxyManager.start(newConfig)
+    info('Settings', 'Proxy restarted after settings save (provider config changed)', {
+      port: newConfig.port,
+      upstreamBaseUrl: newConfig.upstreamBaseUrl,
+    })
+  } catch (err) {
+    warn('Settings', 'Failed to restart proxy after provider config change', { error: String(err) })
   }
 }
 
@@ -2105,6 +2120,15 @@ ipcMain.handle('settings:saveGuiSettings', async (_event, data: string) => {
     debug('Settings', `GUI settings saved to ${settingsPath}`)
 
     syncApiConfigToSettingsJson(data)
+
+    // provider/模型配置可能已变化，对齐本地代理（内部会对比配置，无变化不重启）
+    let parsedGuiSettings: Record<string, any> | null = null
+    try {
+      parsedGuiSettings = JSON.parse(data)
+    } catch {}
+    if (parsedGuiSettings && typeof parsedGuiSettings === 'object') {
+      await reconcileProxyWithSettings(parsedGuiSettings)
+    }
 
     return { success: true }
   } catch (err: any) {
@@ -2199,15 +2223,11 @@ function syncApiConfigToSettingsJson(guiSettingsJson: string): void {
     const authMethod = guiSettings.authMethod
     if (!authMethod) return
 
-    const engineSource = guiSettings.engineSource
-    const useProxy = engineSource === 'installed' && authMethod !== 'anthropic' && authMethod !== 'oauth'
-
-    // 代理模式下，不修改 settings.json，完全通过进程环境变量传递配置
-    // 这样不会污染用户的全局 CLI 配置
-    if (useProxy) {
-      debug('Settings', 'Proxy mode detected - skipping settings.json sync to avoid polluting global CLI config')
-      return
-    }
+    // 代理模式判定与 reconcileProxyWithSettings 的 needsProxy 保持一致：
+    // openai_compatible / gemini_api 始终走本地代理（见 sessionProcess.buildEnv），
+    // 配置通过进程环境变量与临时 --settings 文件传递，provider env 不写入
+    // settings.json，以免污染用户的全局 CLI 配置。
+    const needsProxy = !['anthropic_compatible', 'claudeai', 'console'].includes(authMethod)
 
     const settingsPath = getClaudeSettingsPath()
     let existingSettings: Record<string, any> = {}
@@ -2229,23 +2249,12 @@ function syncApiConfigToSettingsJson(guiSettingsJson: string): void {
     const env: Record<string, string> = {}
     let modelType: string | undefined
 
-    if (authMethod === 'openai_compatible' && guiSettings.openaiConfig) {
-      const config = guiSettings.openaiConfig
-      if (config.baseUrl) env.OPENAI_BASE_URL = config.baseUrl.trim()
-      if (config.apiKey) env.OPENAI_API_KEY = config.apiKey.trim()
-      if (config.haikuModel) env.OPENAI_DEFAULT_HAIKU_MODEL = config.haikuModel.trim()
-      if (config.sonnetModel) env.OPENAI_DEFAULT_SONNET_MODEL = config.sonnetModel.trim()
-      if (config.opusModel) env.OPENAI_DEFAULT_OPUS_MODEL = config.opusModel.trim()
-      modelType = 'openai'
-    } else if (authMethod === 'gemini' && guiSettings.geminiConfig) {
-      const config = guiSettings.geminiConfig
-      if (config.baseUrl) env.GEMINI_BASE_URL = config.baseUrl.trim()
-      if (config.apiKey) env.GEMINI_API_KEY = config.apiKey.trim()
-      if (config.haikuModel) env.GEMINI_DEFAULT_HAIKU_MODEL = config.haikuModel.trim()
-      if (config.sonnetModel) env.GEMINI_DEFAULT_SONNET_MODEL = config.sonnetModel.trim()
-      if (config.opusModel) env.GEMINI_DEFAULT_OPUS_MODEL = config.opusModel.trim()
-      modelType = 'gemini'
-    } else if ((authMethod === 'anthropic' || authMethod === 'oauth') && guiSettings.anthropicConfig) {
+    if (needsProxy) {
+      debug('Settings', 'Proxy mode detected - skipping provider env sync to avoid polluting global CLI config')
+    } else if (authMethod === 'anthropic_compatible' && guiSettings.anthropicConfig) {
+      // claudeai / console 走 OAuth 官方端点，anthropicConfig 中可能残留其他
+      // provider 的旧值，不能同步；anthropic_compatible 直连模式下，
+      // ANTHROPIC_DEFAULT_*_MODEL 是引擎别名解析（sonnet → 实际模型）的唯一来源。
       const config = guiSettings.anthropicConfig
       if (config.baseUrl) env.ANTHROPIC_BASE_URL = config.baseUrl.trim()
       if (config.apiKey) env.ANTHROPIC_API_KEY = config.apiKey.trim()
@@ -2255,16 +2264,24 @@ function syncApiConfigToSettingsJson(guiSettingsJson: string): void {
       modelType = undefined
     }
 
+    let changed = false
+
     if (Object.keys(env).length > 0) {
       existingSettings.env = { ...(existingSettings.env || {}), ...env }
+      changed = true
       debug('Settings', `Synced API config to settings.json | envKeys=[${Object.keys(env).join(',')}]`)
     }
 
     if (modelType) {
-      existingSettings.modelType = modelType
+      if (existingSettings.modelType !== modelType) {
+        existingSettings.modelType = modelType
+        changed = true
+      }
       debug('Settings', `Synced modelType to settings.json | modelType=${modelType}`)
-    } else {
+    } else if (existingSettings.modelType !== undefined) {
       delete existingSettings.modelType
+      changed = true
+      debug('Settings', 'Removed stale modelType from settings.json')
     }
 
     // ★ 删除残留的 model 字段。
@@ -2277,7 +2294,13 @@ function syncApiConfigToSettingsJson(guiSettingsJson: string): void {
     // 删除此字段后，引擎使用 --model 参数（由 initClaudeCodeSession 传入）作为默认模型。
     if (existingSettings.model) {
       delete existingSettings.model
+      changed = true
       debug('Settings', `Removed stale "model" field from settings.json to prevent overriding --model CLI arg`)
+    }
+
+    if (!changed) {
+      debug('Settings', 'settings.json already in sync - skipping write')
+      return
     }
 
     ensureClaudeDir()
