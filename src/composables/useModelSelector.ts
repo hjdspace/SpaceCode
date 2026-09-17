@@ -406,10 +406,12 @@ export function useModelSelector(options?: {
   /** Initialize with the given or default model value.
    *  If no model is configured, selectedModel stays empty — the UI should
    *  detect hasConfiguredModels === false and show a prompt.
+   *  优先级：外部传入值 > lastSelectedModel（输入框最近一次选择，跨重启
+   *  持久化）> config.model（恒为 sonnet 槽位）。
    */
   function initialize(modelValue?: string) {
     const config = settingsStore.config
-    selectedModel.value = modelValue || config.model || availableModels.value[0]?.value || ''
+    selectedModel.value = modelValue || settingsStore.lastSelectedModel || config.model || availableModels.value[0]?.value || ''
     // Still fetch models from API as a background supplement, but configured
     // models will always take priority in availableModels.
     fetchModelsFromBaseUrl()

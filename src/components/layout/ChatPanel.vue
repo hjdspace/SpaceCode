@@ -874,10 +874,12 @@ watch(
 // 当前选中的模型
 const currentModel = ref('')
 
-// 初始化时从 settings 加载模型
+// 初始化时从 settings 加载模型。
+// ★ 优先用 lastSelectedModel（用户在输入框最近一次的选择，跨重启持久化），
+// 否则重启后徽标会回退显示 config.model（恒为 sonnet 槽位）。
 onMounted(async () => {
   await initLLMService()
-  currentModel.value = settingsStore.config.model || ''
+  currentModel.value = settingsStore.lastSelectedModel || settingsStore.config.model || ''
   if (paneSessionId.value) {
     void contextUsageStore.refresh(paneSessionId.value)
   }

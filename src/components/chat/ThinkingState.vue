@@ -1,13 +1,30 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+
+const props = defineProps<{
+  /**
+   * 计时起点（epoch ms）。缺省为挂载时刻。
+   * 传入 turn 发起时间（用户消息 timestamp）后，组件因页面切换
+   * （聊天区被 v-if 卸载再重建）而重新挂载时，计时保持连续不归零。
+   */
+  startTime?: number
+  /**
+   * 指示文案变体：
+   * - thinking：等待 LLM 首 token（默认）
+   * - responding：工具调用结束后等待 LLM 下一轮响应
+   */
+  variant?: 'thinking' | 'responding'
+}>()
 
 const { t } = useI18n()
 
 // ── 真实计时器 ──
-// 组件在 loading=true 且无 assistant 内容时挂载，
-// 挂载时刻即为"等待首个 token"的近似起点。
-const mountTime = ref(Date.now())
+// 起点优先取 startTime（turn 发起时间），保证跨组件重建计时不重置。
+const mountTime = ref(props.startTime && props.startTime > 0 ? props.startTime : Date.now())
+watch(() => props.startTime, (v) => {
+  if (v && v > 0) mountTime.value = v
+})
 const now = ref(Date.now())
 let timerId: ReturnType<typeof setInterval> | null = null
 
@@ -16,7 +33,6 @@ function tick() {
 }
 
 onMounted(() => {
-  mountTime.value = Date.now()
   now.value = Date.now()
   timerId = setInterval(tick, 100)
 })
@@ -29,6 +45,12 @@ onUnmounted(() => {
 })
 
 const elapsedMs = computed(() => Math.max(0, now.value - mountTime.value))
+
+const label = computed(() =>
+  props.variant === 'responding'
+    ? t('chat.thinkingState.responding')
+    : t('chat.thinkingState.active')
+)
 
 const elapsedText = computed(() => {
   const totalSec = Math.floor(elapsedMs.value / 1000)
@@ -43,7 +65,7 @@ const elapsedText = computed(() => {
 </script>
 
 <template>
-  <div class="thinking-state" role="status" :aria-label="t('chat.thinkingState.active')">
+  <div class="thinking-state" role="status" :aria-label="label">
     <svg
       width="16"
       height="16"
@@ -55,7 +77,7 @@ const elapsedText = computed(() => {
       <path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z" />
     </svg>
     <span class="thinking-label" aria-hidden="true">
-      {{ t('chat.thinkingState.active') }}
+      {{ label }}
     </span>
     <span class="thinking-elapsed">{{ elapsedText }}</span>
   </div>

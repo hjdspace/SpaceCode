@@ -752,7 +752,9 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       // _overrideModelForNextInit 已经是别名（由 ChatPanel.handleModelChange 传入）。
       // config.model 是 sonnetModel 的实际值（如 deepseek-v4-pro），需要映射回 'sonnet'。
       // _pendingModelChoice 是无会话时暂存的输入框选择（sendMessage 刚新建了会话）。
-      const selectedModel = session.model || _pendingModelChoice || config.model
+      // settingsStore.lastSelectedModel 是跨重启持久化的输入框最近选择，
+      // 优先级低于显式会话模型，但高于默认的 sonnet 槽位（config.model）。
+      const selectedModel = session.model || _pendingModelChoice || settingsStore.lastSelectedModel || config.model
       const effectiveModel = _overrideModelForNextInit ?? resolveModelAliasFromConfig(selectedModel)
 
       // modelContextWindows 以实际模型名（如 kimi-k3）为键，而 effectiveModel 是别名。
@@ -815,9 +817,10 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       session.provider = config.provider
       session.baseUrl = config.baseUrl || ''
       // 无会话时暂存的模型选择在此落地为新会话的默认模型，
-      // 后续 init 不再依赖暂存值
-      if (_pendingModelChoice && !session.model) {
-        session.model = _pendingModelChoice
+      // 后续 init 不再依赖暂存值；跨重启持久化的 lastSelectedModel 同理
+      if (!session.model) {
+        const landedModel = _pendingModelChoice || settingsStore.lastSelectedModel
+        if (landedModel) session.model = landedModel
       }
       _pendingModelChoice = undefined
       // CLI 进程启动成功后会话处于等待输入状态，标记为 idle 而非 starting，
@@ -1780,6 +1783,11 @@ export const useChatSessionStore = defineStore('chatSession', () => {
 
     // 记录用户选择的模型（显示名）到 session，供 UI 面板使用
     const dm = displayModel ?? model
+    // ★ 持久化到 settings：无会话时（桌面启动态）没有 session.model 可写，
+    // 内存中的 _pendingModelChoice 在 GUI 重启后会丢失，导致模型回退到
+    // sonnet 槽位（config.model）。这里跨重启记住用户的最近选择。
+    settingsStore.lastSelectedModel = dm
+    settingsStore.saveSettings()
     if (!sid) {
       _pendingModelChoice = dm
       logger.info('ChatStore', `switchModel: no active session, stashing model choice | model=${dm}`)

@@ -53,7 +53,7 @@
       </template>
 
       <div v-if="props.loading && !hasVisibleAssistantContent" class="loading-wrapper">
-        <ThinkingState />
+        <ThinkingState :start-time="turnStartTime" />
       </div>
     </div>
     </div>
@@ -211,6 +211,17 @@ const hasVisibleAssistantContent = computed(() => {
     break
   }
   return false
+})
+
+// 当前 turn 的发起时间：最后一条用户消息的 timestamp。
+// ThinkingState 以此为计时起点 —— 组件因页面切换被卸载重建后，
+// 计时仍从消息发送时刻起算，不会归零重计。
+const turnStartTime = computed(() => {
+  const msgs = props.messages
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if (msgs[i].role === 'user') return msgs[i].timestamp || Date.now()
+  }
+  return msgs[msgs.length - 1]?.timestamp || Date.now()
 })
 
 // 若某助手分组的回合产生了产物（仅办公模式），返回对应的产物卡片项，否则 null

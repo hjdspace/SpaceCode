@@ -123,6 +123,51 @@ describe('chat session startup', () => {
     expect(session.model).toBe('agnes-3.0-flash')
   })
 
+  it('persists the input-box model choice across a GUI restart', async () => {
+    const { useSettingsStore } = await import('../settings')
+    const settings = useSettingsStore()
+    settings.authMethod = 'openai_compatible'
+    settings.openaiConfig = { baseUrl: 'https://kimi.example/v1', apiKey: 'test-key', haikuModel: '', sonnetModel: 'glm-5.2', opusModel: 'kimi-k3' }
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+
+    // 用户在输入框选择 opus 槽位模型（无会话状态）
+    await store.switchModel('opus', 'kimi-k3')
+    expect(settings.lastSelectedModel).toBe('kimi-k3')
+
+    // 模拟 GUI 重启：localStorage 中应持久化了用户的选择
+    const saved = JSON.parse(localStorage.getItem('claude_desktop_settings') || '{}')
+    expect(saved.lastSelectedModel).toBe('kimi-k3')
+  })
+
+  it('restores the persisted model choice for a new session after restart', async () => {
+    // 模拟上一次 GUI 会话中用户选择了 kimi-k3
+    localStorage.setItem('claude_desktop_settings', JSON.stringify({
+      authMethod: 'openai_compatible',
+      openaiConfig: { baseUrl: 'https://kimi.example/v1', apiKey: 'test-key', haikuModel: '', sonnetModel: 'glm-5.2', opusModel: 'kimi-k3' },
+      lastSelectedModel: 'kimi-k3',
+    }))
+
+    const { useSettingsStore } = await import('../settings')
+    const settings = useSettingsStore()
+    expect(settings.lastSelectedModel).toBe('kimi-k3')
+
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+    expect(store.currentSessionId).toBeNull()
+
+    // 重启后新建会话，引擎应拿到用户上次选择的模型，而非 sonnet 槽位
+    const session = store.createSession('Test', 'D:/repo', 'after-restart')
+    mocks.getSessionStatus.mockResolvedValue({ isRunning: false })
+
+    await store.initClaudeCodeSession(session.id)
+
+    expect(mocks.startSession).toHaveBeenCalledWith(session.id, expect.objectContaining({
+      model: 'opus',
+    }))
+    expect(session.model).toBe('kimi-k3')
+  })
+
   it('keys modelContextWindows by the alias so slot-model context windows reach the engine', async () => {
     const { useSettingsStore } = await import('../settings')
     const settings = useSettingsStore()
