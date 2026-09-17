@@ -343,6 +343,14 @@ export default {
     ready: 'Ready',
     notConfigured: 'Not Configured',
     thoughtFor: 'Thought for {duration}s',
+    thinkingState: {
+      active: 'Thinking',
+      reasoningLabel: 'Reasoning',
+      responding: 'Responding',
+    },
+    toolChips: {
+      toolCalls: '{count} tool calls',
+    },
     input: 'Input',
     output: 'Output',
     hiddenLines: '{count} hidden lines',
@@ -362,6 +370,12 @@ export default {
     rewind: 'Rewind',
     copyMessage: 'Copy message',
     copied: 'Copied',
+    minimap: 'Session preview',
+    userMessage: 'User message',
+    assistantMessage: 'Assistant message',
+    showEarlierMessages: 'Show earlier messages',
+    loadingEarlierMessages: 'Loading earlier messages...',
+    scrollToBottom: 'Scroll to bottom',
     rewindTitle: 'Rewind Message',
     rewindSubtitle: 'Choose rewind option',
     rewindSelectMessage: 'Select message to rewind to',
@@ -1213,6 +1227,7 @@ export default {
     priorityLater: 'Queue',
     priorityNow: 'Steer',
     messageSteered: 'Message steered into current turn',
+    dropImageHint: 'Drop image here to add',
   },
 
   composerStatus: {

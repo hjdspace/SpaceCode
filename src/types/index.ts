@@ -229,6 +229,9 @@ export interface Session {
   assistantId?: string
   /** 用户在当前会话中选择的模型（来自输入框下拉框）。 */
   model?: string
+  /** Provider/base URL used by the live engine process for this session. */
+  provider?: string
+  baseUrl?: string
 }
 
 export interface FileNode {

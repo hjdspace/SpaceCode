@@ -718,7 +718,12 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       const currentEngineSource = session.engineSource
       const engineChanged = currentEngine && currentEngine !== desiredEngine
       const engineSourceChanged = currentEngineSource && currentEngineSource !== desiredEngineSource
-      if (engineChanged || engineSourceChanged) {
+      const configuredConnection = settingsStore.config
+      // Older persisted sessions have no connection snapshot; restart once so
+      // they cannot continue using an engine started with a different provider.
+      const providerChanged = !session.provider || session.provider !== configuredConnection.provider
+      const baseUrlChanged = (session.baseUrl || '') !== (configuredConnection.baseUrl || '')
+      if (engineChanged || engineSourceChanged || providerChanged || baseUrlChanged) {
         logger.info('ChatStore', `initClaudeCodeSession: engine changed (${currentEngine}/${currentEngineSource} → ${desiredEngine}/${desiredEngineSource}), restarting | id=${sessionId.slice(0, 8)}`)
         const resumeId = (status.engineSessionId as string) || session.engineSessionId
         try {
@@ -746,7 +751,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       // 用户配置的实际模型。直接传实际模型名会绕过此机制。
       // _overrideModelForNextInit 已经是别名（由 ChatPanel.handleModelChange 传入）。
       // config.model 是 sonnetModel 的实际值（如 deepseek-v4-pro），需要映射回 'sonnet'。
-      const effectiveModel = _overrideModelForNextInit ?? resolveModelAliasFromConfig(config.model)
+      const selectedModel = session.model || config.model
+      const effectiveModel = _overrideModelForNextInit ?? resolveModelAliasFromConfig(selectedModel)
 
       session.processStatus = 'starting'
       saveToStorage()
@@ -796,6 +802,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
 
       session.engineType = desiredEngine
       session.engineSource = settingsStore.engineSource
+      session.provider = config.provider
+      session.baseUrl = config.baseUrl || ''
       // CLI 进程启动成功后会话处于等待输入状态，标记为 idle 而非 starting，
       // 避免新创建的助手会话在用户尚未发送消息时一直显示转圈。
       session.processStatus = 'idle'

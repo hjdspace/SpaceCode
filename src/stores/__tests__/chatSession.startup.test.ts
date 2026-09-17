@@ -3,11 +3,14 @@ import { createPinia, setActivePinia } from 'pinia'
 
 const mocks = vi.hoisted(() => ({
   listAllSessions: vi.fn().mockResolvedValue([]),
+  getSessionStatus: vi.fn(),
+  stop: vi.fn().mockResolvedValue(undefined),
+  startSession: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('@/services/electronAPI', () => ({
   api: {
-    claudeCode: { listAllSessions: mocks.listAllSessions },
+    claudeCode: mocks,
     image: null,
     trace: { event: vi.fn() },
     getCwd: vi.fn().mockResolvedValue(''),
@@ -23,6 +26,7 @@ describe('chat session startup', () => {
     localStorage.clear()
     vi.resetModules()
     setActivePinia(createPinia())
+    vi.clearAllMocks()
   })
 
   it('keeps history metadata available without selecting or hydrating a session', async () => {
@@ -67,5 +71,28 @@ describe('chat session startup', () => {
       }),
     ])
     expect(JSON.parse(localStorage.getItem('chat_sessions_v2') || '[]')).toHaveLength(1)
+  })
+
+  it('restarts an existing process with the current provider and selected model', async () => {
+    const { useSettingsStore } = await import('../settings')
+    const settings = useSettingsStore()
+    settings.authMethod = 'openai_compatible'
+    settings.openaiConfig = { baseUrl: 'https://new.example/v1', apiKey: 'test-key', haikuModel: '', sonnetModel: 'default-model', opusModel: '' }
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+    const session = store.createSession('Test', 'D:/repo', 'provider-switch')
+    session.provider = 'anthropic'
+    session.baseUrl = 'https://old.example'
+    session.model = 'kimi-k3'
+    mocks.getSessionStatus.mockResolvedValue({ isRunning: true, engineSessionId: 'engine-id' })
+
+    await store.initClaudeCodeSession(session.id)
+
+    expect(mocks.stop).toHaveBeenCalledWith(session.id)
+    expect(mocks.startSession).toHaveBeenCalledWith(session.id, expect.objectContaining({
+      provider: 'openai', baseUrl: 'https://new.example/v1', apiKey: 'test-key', model: 'kimi-k3', resumeSessionId: 'engine-id',
+    }))
+    expect(session.provider).toBe('openai')
+    expect(session.baseUrl).toBe('https://new.example/v1')
   })
 })

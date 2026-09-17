@@ -334,10 +334,23 @@
       <div v-if="isDragging" class="drag-overlay">
         <div class="drag-content">
           <Image :size="48" />
-          <span>拖放图片到此处添加</span>
+          <span>{{ t('chatInput.dropImageHint') }}</span>
         </div>
       </div>
     </Transition>
+
+    <!-- 图片预览弹窗 -->
+    <Teleport to="body">
+      <Transition name="image-preview">
+        <div v-if="imagePreviewVisible" class="image-preview-overlay" @click="closeImagePreview">
+          <img :src="imagePreviewUrl" :alt="imagePreviewName" class="image-preview-img" @click.stop />
+          <button class="image-preview-close" @click="closeImagePreview">
+            <X :size="20" />
+          </button>
+          <div class="image-preview-name">{{ imagePreviewName }}</div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -535,6 +548,15 @@ const { isOptimizing, optimizePrompt: runOptimizePrompt } = promptOptimizer
 const showSteerHint = ref(false)
 const thinkingEnabled = ref(settingsStore.thinkingEnabled)
 const contextMenuRef = ref<InstanceType<typeof ContextMenu> | null>(null)
+
+// ── Image preview state ─────────────────────────────────────────
+const imagePreviewVisible = ref(false)
+const imagePreviewUrl = ref('')
+const imagePreviewName = ref('')
+
+function closeImagePreview() {
+  imagePreviewVisible.value = false
+}
 
 // ── Computed ─────────────────────────────────────────────────────
 const hasContent = computed(() => editorHasContent(attachedFiles.value, attachedImages.value))
@@ -1346,16 +1368,27 @@ async function handleOpenProjectFolder() {
 }
 
 // ── Lifecycle & Watchers ─────────────────────────────────────────
+function handleChipImagePreview(e: Event) {
+  const detail = (e as CustomEvent).detail as { url: string; name: string }
+  if (detail) {
+    imagePreviewUrl.value = detail.url
+    imagePreviewName.value = detail.name
+    imagePreviewVisible.value = true
+  }
+}
+
 onMounted(() => {
   initializeModelSelector(props.modelValue)
 
   document.addEventListener('keydown', handleModelKeydown)
   window.addEventListener('session-created', focusEditor)
+  window.addEventListener('chip-image-preview', handleChipImagePreview as EventListener)
 })
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleModelKeydown)
   window.removeEventListener('session-created', focusEditor)
+  window.removeEventListener('chip-image-preview', handleChipImagePreview as EventListener)
 })
 
 // Watch external modelValue changes
@@ -1823,6 +1856,17 @@ watch(pendingFile, (file) => {
         background: rgba(34, 197, 94, 0.08);
         border-color: rgba(34, 197, 94, 0.3);
         color: #22c55e;
+        padding: 2px 6px 2px 2px;
+      }
+
+      .chip-thumb {
+        width: 32px;
+        height: 32px;
+        object-fit: cover;
+        border-radius: 3px;
+        flex-shrink: 0;
+        cursor: zoom-in;
+        display: block;
       }
     }
 
@@ -2447,5 +2491,70 @@ watch(pendingFile, (file) => {
   .model-btn .model-mode-pill {
     display: none;
   }
+}
+</style>
+
+<style lang="scss">
+/* 图片预览弹窗（Teleport 到 body，需要非 scoped 样式） */
+.image-preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  cursor: zoom-out;
+  gap: 12px;
+}
+
+.image-preview-img {
+  max-width: 85vw;
+  max-height: 80vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  cursor: default;
+}
+
+.image-preview-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.3);
+  }
+}
+
+.image-preview-name {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 13px;
+  max-width: 60vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-preview-enter-active,
+.image-preview-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.image-preview-enter-from,
+.image-preview-leave-to {
+  opacity: 0;
 }
 </style>

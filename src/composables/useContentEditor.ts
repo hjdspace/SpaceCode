@@ -299,7 +299,7 @@ export function useContentEditor(options?: {
     inputText.value = getEditorPlainText()
   }
 
-  /** Insert image chip */
+  /** Insert image chip with thumbnail preview */
   function insertImageChip(image: ImageAttachment) {
     const editor = editorRef.value
     if (!editor) return
@@ -307,11 +307,15 @@ export function useContentEditor(options?: {
     const chip = document.createElement('span')
     chip.className = 'mention-chip is-image'
     chip.setAttribute('data-image-id', image.id)
+    chip.setAttribute('data-image-url', image.previewUrl || image.data)
     chip.setAttribute('contenteditable', 'false')
 
-    const icon = document.createElement('span')
-    icon.className = 'chip-icon'
-    icon.textContent = '🖼️'
+    // Thumbnail image instead of emoji icon
+    const thumb = document.createElement('img')
+    thumb.className = 'chip-thumb'
+    thumb.src = image.previewUrl || image.data
+    thumb.alt = image.name
+    thumb.draggable = false
 
     const name = document.createElement('span')
     name.className = 'chip-name'
@@ -333,7 +337,16 @@ export function useContentEditor(options?: {
       inputText.value = getEditorPlainText()
     })
 
-    chip.appendChild(icon)
+    // Click on thumbnail to enlarge
+    thumb.addEventListener('click', (e) => {
+      e.stopPropagation()
+      e.preventDefault()
+      window.dispatchEvent(new CustomEvent('chip-image-preview', {
+        detail: { url: image.previewUrl || image.data, name: image.name }
+      }))
+    })
+
+    chip.appendChild(thumb)
     chip.appendChild(name)
     chip.appendChild(deleteBtn)
 
@@ -492,9 +505,27 @@ export function useContentEditor(options?: {
       chip.setAttribute('data-is-folder', String(isFolder))
     }
 
-    const icon = document.createElement('span')
-    icon.className = 'chip-icon'
-    icon.textContent = isImage ? '🖼️' : (isFolder ? '📁' : '📄')
+    // For image chips, render a thumbnail instead of an emoji icon
+    if (isImage) {
+      const thumb = document.createElement('img')
+      thumb.className = 'chip-thumb'
+      thumb.src = value
+      thumb.alt = value
+      thumb.draggable = false
+      thumb.addEventListener('click', (e) => {
+        e.stopPropagation()
+        e.preventDefault()
+        window.dispatchEvent(new CustomEvent('chip-image-preview', {
+          detail: { url: value, name: value }
+        }))
+      })
+      chip.appendChild(thumb)
+    } else {
+      const icon = document.createElement('span')
+      icon.className = 'chip-icon'
+      icon.textContent = isFolder ? '📁' : '📄'
+      chip.appendChild(icon)
+    }
 
     const nameSpan = document.createElement('span')
     nameSpan.className = 'chip-name'
@@ -516,7 +547,6 @@ export function useContentEditor(options?: {
       inputText.value = getEditorPlainText()
     })
 
-    chip.appendChild(icon)
     chip.appendChild(nameSpan)
     chip.appendChild(deleteBtn)
     return chip

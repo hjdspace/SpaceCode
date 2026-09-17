@@ -343,6 +343,14 @@ export default {
     ready: '就绪',
     notConfigured: '未配置',
     thoughtFor: '思考了 {duration}s',
+    thinkingState: {
+      active: '正在思考',
+      reasoningLabel: '推理中',
+      responding: '正在回复',
+    },
+    toolChips: {
+      toolCalls: '{count} 个工具调用',
+    },
     input: '输入',
     output: '输出',
     hiddenLines: '{count} 行已折叠',
@@ -362,6 +370,12 @@ export default {
     rewind: '回滚',
     copyMessage: '复制消息',
     copied: '已复制',
+    minimap: '会话预览',
+    userMessage: '用户消息',
+    assistantMessage: '助手消息',
+    showEarlierMessages: '显示更早的消息',
+    loadingEarlierMessages: '正在加载更早的消息...',
+    scrollToBottom: '滚动到底部',
     rewindTitle: '回滚消息',
     rewindSubtitle: '选择回滚方式',
     rewindSelectMessage: '选择要回滚到的消息',
@@ -1213,6 +1227,7 @@ export default {
     priorityLater: '排队',
     priorityNow: '插队',
     messageSteered: '消息已注入当前对话',
+    dropImageHint: '拖放图片到此处添加',
   },
 
   composerStatus: {
