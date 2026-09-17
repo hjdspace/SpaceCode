@@ -76,6 +76,9 @@ export interface AuthSettings {
   modelContextWindows?: Record<string, number>
   /** 是否启用 RTK (Rust Token Killer) token 优化 */
   rtkEnabled?: boolean
+  /** 用户最近一次在输入框下拉中选择的模型（实际模型名，非别名）。
+   *  持久化以避免 GUI 重启后回退到 sonnet 槽位。 */
+  lastSelectedModel?: string
 }
 
 const SETTINGS_STORAGE_KEY = 'claude_desktop_settings'
@@ -299,6 +302,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const lastViewedChangelogVersion = ref<string | null>(saved.lastViewedChangelogVersion || null)
   const modelContextWindows = ref<Record<string, number>>(saved.modelContextWindows || {})
   const rtkEnabled = ref<boolean>(saved.rtkEnabled ?? false)
+  const lastSelectedModel = ref<string>(saved.lastSelectedModel || '')
 
   // ── Profile 管理（多套模型配置切换）──
   const profiles = ref<ModelProfile[]>([])
@@ -496,7 +500,8 @@ export const useSettingsStore = defineStore('settings', () => {
       installedCliPath: installedCliPath.value ?? undefined,
       lastViewedChangelogVersion: lastViewedChangelogVersion.value ?? undefined,
       modelContextWindows: { ...modelContextWindows.value },
-      rtkEnabled: rtkEnabled.value
+      rtkEnabled: rtkEnabled.value,
+      lastSelectedModel: lastSelectedModel.value || undefined
     }
 
     const serialized = JSON.stringify(data, null, 2)
@@ -836,6 +841,7 @@ export const useSettingsStore = defineStore('settings', () => {
     modelContextWindows,
     getModelWith1mSuffix,
     rtkEnabled,
+    lastSelectedModel,
     // Profile 管理
     profiles,
     activeProfileId,
