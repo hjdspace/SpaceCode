@@ -525,7 +525,7 @@ onUnmounted(() => {
 
 .minimap-popover-role {
   margin-bottom: 4px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 500;
   color: var(--text-muted, #888);
 }
@@ -535,8 +535,8 @@ onUnmounted(() => {
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 5;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
   color: var(--text-secondary, #ccc);
   overflow-wrap: anywhere;
   white-space: pre-wrap;

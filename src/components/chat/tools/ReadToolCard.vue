@@ -134,7 +134,7 @@ async function openInPanel() {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 500;
   text-transform: none;
   letter-spacing: 0;
@@ -142,8 +142,8 @@ async function openInPanel() {
 }
 
 .markdown-content {
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: var(--text-md);
+  line-height: var(--leading-prose);
   color: var(--text-secondary);
 
   :deep(.md-heading) {
@@ -177,8 +177,8 @@ async function openInPanel() {
   margin: 0;
   padding: 0;
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--text-sm);
+  line-height: var(--leading-prose);
   overflow-x: auto;
   white-space: pre;
   tab-size: 2;

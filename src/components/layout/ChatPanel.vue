@@ -1775,7 +1775,7 @@ async function handleRestoreHistorySession(session: any) {
   
   h2 {
     font-family: var(--font-display);
-    font-size: calc(var(--font-size-base) + 1px);
+    font-size: var(--text-base-plus);
     font-weight: 600;
     color: var(--text-primary);
     @include truncate;
@@ -1795,7 +1795,7 @@ async function handleRestoreHistorySession(session: any) {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   padding: 4px 10px;
   border-radius: var(--radius-full);
@@ -1864,7 +1864,7 @@ async function handleRestoreHistorySession(session: any) {
   }
   
   .status-text {
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: 500;
     color: var(--text-muted);
   }
@@ -1946,7 +1946,7 @@ async function handleRestoreHistorySession(session: any) {
   @include flex-between;
 
   h3 {
-    font-size: 16px;
+    font-size: var(--text-lg);
     font-weight: 600;
     color: var(--text-primary);
     margin: 0;
@@ -1960,7 +1960,7 @@ async function handleRestoreHistorySession(session: any) {
   border: none;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 20px;
+  font-size: var(--text-xl);
   cursor: pointer;
   transition: all 0.2s ease;
 
@@ -1983,7 +1983,7 @@ async function handleRestoreHistorySession(session: any) {
   border-radius: var(--radius-md);
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--text-md);
   outline: none;
   transition: all 0.2s ease;
   margin-bottom: 8px;
@@ -2049,7 +2049,7 @@ async function handleRestoreHistorySession(session: any) {
 
   h3 {
     margin: 0;
-    font-size: calc(var(--font-size-base) + 1px);
+    font-size: var(--text-base-plus);
     font-weight: 600;
     color: var(--text-primary);
   }
@@ -2065,7 +2065,7 @@ async function handleRestoreHistorySession(session: any) {
   border-radius: 6px;
   background: transparent;
   color: var(--text-muted);
-  font-size: 18px;
+  font-size: var(--text-lg-plus);
   cursor: pointer;
   transition: all 0.2s;
 
@@ -2089,7 +2089,7 @@ async function handleRestoreHistorySession(session: any) {
   justify-content: center;
   height: 100%;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 
 /* Modal Transition */
@@ -2151,7 +2151,7 @@ async function handleRestoreHistorySession(session: any) {
   border: 1px solid var(--glass-border);
   border-radius: 20px;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--text-sm);
   cursor: pointer;
   transition: all 0.2s ease, right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 15;

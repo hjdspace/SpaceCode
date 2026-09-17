@@ -41,8 +41,8 @@ const tokenText = computed(() => {
   border-radius: var(--radius-md);
   background: rgba(245, 158, 11, 0.08);
   color: #d97706;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
 }
 
 .message-metadata {
@@ -52,7 +52,7 @@ const tokenText = computed(() => {
   gap: 8px;
   margin-top: 6px;
   padding-top: 6px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
   opacity: 0.7;
   transition: opacity var(--transition-fast);

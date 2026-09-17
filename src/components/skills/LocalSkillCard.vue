@@ -146,7 +146,7 @@ const isInstalling = computed(() => props.installing)
 }
 
 .skill-name {
-  font-size: calc(var(--font-size-base) + 1px);
+  font-size: var(--text-base-plus);
   font-weight: 600;
   margin: 0 0 4px 0;
   overflow: hidden;

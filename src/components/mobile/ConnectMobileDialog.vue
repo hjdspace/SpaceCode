@@ -232,7 +232,7 @@ onUnmounted(() => {
 }
 
 .hint {
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   color: var(--text-secondary);
   text-align: center;
   margin: 0;
@@ -321,7 +321,7 @@ onUnmounted(() => {
     border: 1px solid var(--border-default);
     background: var(--bg-secondary);
     color: var(--text-primary);
-    font-size: var(--font-size-base);
+    font-size: var(--text-base);
     cursor: pointer;
 
     &:hover {

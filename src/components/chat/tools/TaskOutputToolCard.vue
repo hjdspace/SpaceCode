@@ -406,11 +406,11 @@ function toggleExpand() {
 /* ── 状态徽章 ── */
 .task-status-badge {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   padding: 1px 6px;
   border-radius: 10px;
-  line-height: 1.4;
+  line-height: var(--leading-normal);
 
   &.badge-running {
     background: color-mix(in srgb, var(--warning, #f59e0b) 12%, transparent);
@@ -445,8 +445,8 @@ function toggleExpand() {
 }
 
 .preview-text {
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
   color: var(--text-tertiary, var(--text-muted));
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -471,7 +471,7 @@ function toggleExpand() {
 }
 
 .meta-item {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 500;
   color: var(--text-muted);
 }
@@ -488,7 +488,7 @@ function toggleExpand() {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.4px;
@@ -516,8 +516,8 @@ function toggleExpand() {
 .input-params {
   padding: 10px 12px;
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--text-sm);
+  line-height: var(--leading-prose);
   color: var(--text-secondary);
 }
 
@@ -579,7 +579,7 @@ function toggleExpand() {
 .terminal-title {
   flex: 1;
   text-align: center;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: #8b949e;
   font-family: var(--font-mono);
   overflow: hidden;
@@ -588,7 +588,7 @@ function toggleExpand() {
 }
 
 .terminal-status-badge {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   padding: 2px 6px;
   border-radius: 4px;
   font-weight: 500;
@@ -615,8 +615,8 @@ function toggleExpand() {
 .terminal-content {
   padding: 10px 12px;
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--text-sm);
+  line-height: var(--leading-prose);
   color: #c9d1d9;
   max-height: 400px;
   overflow-y: auto;
@@ -654,7 +654,7 @@ function toggleExpand() {
   margin-top: 6px;
   padding-top: 6px;
   border-top: 1px dashed rgba(255, 255, 255, 0.08);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: #6e7681;
 
   &.error-exit {
@@ -672,8 +672,8 @@ function toggleExpand() {
   margin: 0;
   padding: 10px 12px;
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
   color: var(--text-secondary);
   background: var(--code-bg, #0d1117);
   border-radius: 6px;
@@ -689,8 +689,8 @@ function toggleExpand() {
 }
 
 .agent-result-content {
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: var(--text-md);
+  line-height: var(--leading-prose);
   color: var(--text-secondary);
   max-height: 360px;
   overflow-y: auto;
@@ -702,7 +702,7 @@ function toggleExpand() {
 
 .output-empty {
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--text-md);
   padding: 4px 0;
 }
 
@@ -711,8 +711,8 @@ function toggleExpand() {
   margin: 0;
   padding: 0;
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--text-sm);
+  line-height: var(--leading-prose);
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-word;
@@ -754,12 +754,12 @@ function toggleExpand() {
 }
 
 .waiting-text {
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-muted);
 }
 
 .waiting-hint {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--text-disabled, var(--text-muted));
   text-align: center;
 }
@@ -769,15 +769,15 @@ function toggleExpand() {
   padding: 16px 12px;
   text-align: center;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 
 /* ── 原始输出文本（parsedTask 为 null 但 output 有内容时） ── */
 .raw-output-text {
   padding: 12px;
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--text-sm);
+  line-height: var(--leading-prose);
   color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-word;
@@ -791,8 +791,8 @@ function toggleExpand() {
 .error-block {
   padding: 12px;
   color: var(--error, #ef4444);
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: var(--text-md);
+  line-height: var(--leading-prose);
   background: color-mix(in srgb, var(--error, #ef4444) 6%, transparent);
 }
 </style>

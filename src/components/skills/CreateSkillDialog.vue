@@ -261,7 +261,7 @@ async function handleCreate() {
 
 .name-prefix {
   color: var(--text-muted);
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
 }
 
 .form-input {
@@ -269,7 +269,7 @@ async function handleCreate() {
   border: none;
   background: transparent;
   color: var(--text-primary);
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   outline: none;
 
   &::placeholder {

@@ -169,8 +169,8 @@ async function openInPanel() {
   background: var(--code-bg, #0d1117);
   color: var(--code-fg, #c9d1d9);
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
   overflow: auto;
   max-height: 300px;
   white-space: pre-wrap;
@@ -191,7 +191,7 @@ async function openInPanel() {
 
 .truncated-notice {
   padding: 8px 0 0;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--text-disabled);
   font-style: italic;
   text-align: center;

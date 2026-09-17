@@ -118,7 +118,7 @@ function escapeHtml(text: string): string {
   }
 
   .file-name {
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-weight: 500;
     color: var(--text-secondary);
     font-family: var(--font-mono);
@@ -130,7 +130,7 @@ function escapeHtml(text: string): string {
   }
 
   .language-badge {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     padding: 2px 6px;
     border-radius: var(--radius-sm);
     background: var(--bg-tertiary);
@@ -159,7 +159,7 @@ function escapeHtml(text: string): string {
     border: none;
     background: transparent;
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: 500;
     border-radius: var(--radius-sm);
     cursor: pointer;
@@ -201,8 +201,8 @@ function escapeHtml(text: string): string {
   padding: 0;
   overflow-x: auto;
   font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: var(--text-md);
+  line-height: var(--leading-prose);
   color: var(--text-primary);
   white-space: pre-wrap;
   word-break: break-word;

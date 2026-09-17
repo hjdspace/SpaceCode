@@ -67,7 +67,7 @@ const tooltip = computed(() => {
   border: 1px solid var(--surface-border);
   background: var(--surface-glass);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--text-sm);
   cursor: pointer;
   transition: all 0.15s ease;
 
@@ -116,7 +116,7 @@ const tooltip = computed(() => {
 
 .chip-tokens {
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
 }
 </style>

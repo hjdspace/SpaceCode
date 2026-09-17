@@ -239,7 +239,7 @@ watch(() => configStore.toolConfigs, () => {
 .category-info { flex: 1; }
 
 .category-name {
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;

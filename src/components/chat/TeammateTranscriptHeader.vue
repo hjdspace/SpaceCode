@@ -50,7 +50,7 @@ defineEmits<{
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--text-sm);
   transition: all var(--transition-fast);
 
   &:hover {
@@ -64,7 +64,7 @@ defineEmits<{
   align-items: center;
   gap: 6px;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .color-dot {
@@ -88,7 +88,7 @@ defineEmits<{
   border-radius: var(--radius-full);
   background: var(--bg-tertiary);
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   text-transform: uppercase;
 
   &.running { color: var(--accent-primary); }

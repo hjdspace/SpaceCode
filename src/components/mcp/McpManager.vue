@@ -747,7 +747,7 @@ onMounted(() => {
 }
 
 .server-count {
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   font-weight: 400;
   color: var(--text-muted);
   margin-left: 8px;
@@ -831,7 +831,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   font-weight: 600;
   color: var(--text-primary);
 
@@ -1190,7 +1190,7 @@ onMounted(() => {
 }
 
 .user-section-title {
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   font-weight: 600;
   color: var(--text-primary);
   margin: 0 0 12px;
@@ -1241,7 +1241,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   font-weight: 500;
   color: var(--text-primary);
 

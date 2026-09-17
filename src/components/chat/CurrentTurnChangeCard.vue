@@ -259,10 +259,10 @@ watch(() => props.cardData.checkpoint, () => {
 
   .title {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 600;
     color: var(--text-primary, #faf9f5);
-    line-height: 1.3;
+    line-height: var(--leading-compact);
   }
 
   .stats {
@@ -274,10 +274,10 @@ watch(() => props.cardData.checkpoint, () => {
     background: var(--surface-glass, rgba(255, 255, 255, 0.04));
     border: 1px solid var(--surface-border, rgba(255, 255, 255, 0.08));
     font-family: var(--font-mono, 'JetBrains Mono', Consolas, monospace);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     font-variant-numeric: tabular-nums;
-    line-height: 1.6;
+    line-height: var(--leading-prose);
 
     .insertions {
       color: var(--gdc-add-text-color, #5c7040);
@@ -295,7 +295,7 @@ watch(() => props.cardData.checkpoint, () => {
   flex-shrink: 0;
 
   .subtitle {
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: 500;
     color: var(--text-muted, rgba(255, 255, 255, 0.5));
   }
@@ -307,7 +307,7 @@ watch(() => props.cardData.checkpoint, () => {
   gap: 6px;
   padding: 5px 10px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 500;
   font-family: inherit;
   color: var(--text-secondary, rgba(255, 255, 255, 0.7));
@@ -396,7 +396,7 @@ watch(() => props.cardData.checkpoint, () => {
     text-overflow: ellipsis;
     white-space: nowrap;
     font-family: var(--font-mono, 'JetBrains Mono', Consolas, monospace);
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--text-primary, #faf9f5);
   }
 
@@ -405,7 +405,7 @@ watch(() => props.cardData.checkpoint, () => {
     align-items: center;
     gap: 8px;
     font-family: var(--font-mono, 'JetBrains Mono', Consolas, monospace);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
@@ -423,7 +423,7 @@ watch(() => props.cardData.checkpoint, () => {
 .diff-error {
   padding: 14px 16px;
   text-align: center;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-muted, rgba(255, 255, 255, 0.5));
   border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.05));
   background: var(--surface-glass, rgba(255, 255, 255, 0.04));
@@ -441,7 +441,7 @@ watch(() => props.cardData.checkpoint, () => {
 .no-files {
   padding: 18px 16px;
   text-align: center;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-muted, rgba(255, 255, 255, 0.5));
 }
 </style>

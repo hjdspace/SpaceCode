@@ -25,9 +25,9 @@ const toggle = () => { expanded.value = !expanded.value }
 
 <style scoped lang="scss">
 .fw-card { border: 1px solid var(--surface-border); border-radius: var(--radius-sm); margin: 4px 0; }
-.fw-header { display: flex; align-items: center; gap: 6px; padding: 6px 10px; cursor: pointer; font-size: 12px; }
+.fw-header { display: flex; align-items: center; gap: 6px; padding: 6px 10px; cursor: pointer; font-size: var(--text-sm); }
 .path { font-family: monospace; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .open-btn { background: none; border: 1px solid var(--surface-border); border-radius: var(--radius-xs); padding: 2px; cursor: pointer; }
 .fw-body { padding: 8px 10px; }
-pre { margin: 0; font-size: 11px; white-space: pre-wrap; max-height: 200px; overflow-y: auto; }
+pre { margin: 0; font-size: var(--text-2xs); white-space: pre-wrap; max-height: 200px; overflow-y: auto; }
 </style>

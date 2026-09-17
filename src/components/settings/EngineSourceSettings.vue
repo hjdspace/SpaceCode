@@ -444,7 +444,7 @@ onUnmounted(() => {
 }
 
 .source-name {
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   font-weight: 600;
   color: var(--text-primary);
 }

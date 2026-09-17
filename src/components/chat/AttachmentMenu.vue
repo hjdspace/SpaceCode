@@ -188,7 +188,7 @@ function getAgentDescription(agentType: string, originalDescription: string): st
   width: 100%;
   padding: 10px 12px;
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-primary);
   background: transparent;
   transition: background var(--transition-fast);
@@ -248,7 +248,7 @@ function getAgentDescription(agentType: string, originalDescription: string): st
 
 .submenu-header {
   padding: 10px 14px 8px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -269,7 +269,7 @@ function getAgentDescription(agentType: string, originalDescription: string): st
   width: 100%;
   padding: 8px 12px;
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-primary);
   background: transparent;
   border: none;
@@ -292,7 +292,7 @@ function getAgentDescription(agentType: string, originalDescription: string): st
   }
 
   .item-desc {
-    font-size: 11px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
     width: 100%;
     overflow: hidden;
@@ -309,7 +309,7 @@ function getAgentDescription(agentType: string, originalDescription: string): st
 
 .submenu-section-label {
   padding: 6px 12px 4px;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;

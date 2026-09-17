@@ -51,8 +51,8 @@ const message = computed(() => {
   padding: 8px 14px;
   margin: 0 12px 8px;
   border-radius: var(--radius-md);
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
 
   &.warn {
     background: rgba(224, 137, 107, 0.1);
@@ -74,7 +74,7 @@ const message = computed(() => {
   border: none;
   background: none;
   color: inherit;
-  font-size: 12px;
+  font-size: var(--text-sm);
   text-decoration: underline;
   cursor: pointer;
   opacity: 0.85;

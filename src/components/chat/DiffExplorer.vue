@@ -227,7 +227,7 @@ const emptyMessage = computed(() => {
   overflow: hidden;
   background: var(--bg-primary);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .diff-explorer-header {
@@ -251,14 +251,14 @@ const emptyMessage = computed(() => {
 .diff-explorer-subtitle {
   color: var(--text-muted);
   font-weight: 400;
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .diff-explorer-stats {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
 }
 
@@ -337,7 +337,7 @@ const emptyMessage = computed(() => {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 11px;
+    font-size: var(--text-2xs);
   }
 
   svg {
@@ -350,20 +350,20 @@ const emptyMessage = computed(() => {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   flex-shrink: 0;
 }
 
 .untracked-label {
   color: var(--text-muted);
   font-style: italic;
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .binary-label {
   color: #eab308;
   font-style: italic;
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 // Diff 详情
@@ -384,7 +384,7 @@ const emptyMessage = computed(() => {
   border-bottom: 1px solid var(--surface-border);
   background: var(--surface-soft);
   font-weight: 500;
-  font-size: 12px;
+  font-size: var(--text-sm);
   flex-shrink: 0;
   color: var(--text-primary);
 }
@@ -405,8 +405,8 @@ const emptyMessage = computed(() => {
   padding: 20px;
   color: var(--text-muted);
   font-style: italic;
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--text-sm);
+  line-height: var(--leading-prose);
 
   code {
     background: var(--surface-hover);
@@ -419,8 +419,8 @@ const emptyMessage = computed(() => {
 
 // Diff 行
 .diff-lines {
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--text-sm);
+  line-height: var(--leading-prose);
   tab-size: 4;
 }
 
@@ -520,8 +520,8 @@ const emptyMessage = computed(() => {
   color: var(--text-muted);
   user-select: none;
   flex-shrink: 0;
-  font-size: 11px;
-  line-height: 1.6;
+  font-size: var(--text-2xs);
+  line-height: var(--leading-prose);
 
   &.old {
     border-right: 1px solid var(--surface-border);
@@ -538,8 +538,8 @@ const emptyMessage = computed(() => {
   color: var(--text-muted);
   user-select: none;
   flex-shrink: 0;
-  font-size: 11px;
-  line-height: 1.6;
+  font-size: var(--text-2xs);
+  line-height: var(--leading-prose);
 }
 
 .line-content {
@@ -550,7 +550,7 @@ const emptyMessage = computed(() => {
   padding: 0 8px;
   min-width: 0;
   color: var(--text-primary);
-  line-height: 1.6;
+  line-height: var(--leading-prose);
 }
 
 .diff-explorer-empty,
@@ -560,6 +560,6 @@ const emptyMessage = computed(() => {
   justify-content: center;
   padding: 40px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 </style>

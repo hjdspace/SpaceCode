@@ -1162,14 +1162,14 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
 }
 
 .timeline-agent-name {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--font-weight-semibold);
   color: var(--text-primary);
 }
 
 .timeline-status-badge {
-  font-size: 11px;
-  font-weight: 500;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-weight-medium);
   padding: 2px 8px;
   border-radius: 10px;
   display: flex;
@@ -1197,9 +1197,9 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-family: var(--font-mono);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   padding: 2px 8px;
   border-radius: 10px;
   transition: all var(--transition-fast);
@@ -1346,8 +1346,8 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
 }
 
 .event-label {
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--font-weight-medium);
   color: var(--text-secondary);
   white-space: nowrap;
   flex-shrink: 0;
@@ -1383,7 +1383,7 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
 .event-target {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-family: var(--font-mono);
   color: var(--text-muted);
   white-space: nowrap;
@@ -1392,7 +1392,7 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
 }
 
 .event-duration {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-family: var(--font-mono);
   color: var(--text-muted);
   opacity: 0.7;
@@ -1427,9 +1427,9 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   margin: 0;
   padding: 8px 10px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-family: var(--font-mono);
-  line-height: 1.5;
+  line-height: var(--leading-relaxed);
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-all;
@@ -1457,7 +1457,7 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
 }
 
 .meta-tag {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-family: var(--font-mono);
   color: var(--text-muted);
   background: var(--bg-tertiary);
@@ -1504,7 +1504,7 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-muted);
-  font-size: 12.5px;
+  font-size: var(--text-sm-plus);
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   transition: background-color var(--transition-fast);
@@ -1557,7 +1557,7 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   background: var(--bg-tertiary);
   box-shadow: 0 0 0 1px var(--border-subtle);
   color: var(--text-secondary);
-  font-size: 11.5px;
+  font-size: var(--text-xs-plus);
   text-overflow: ellipsis;
   white-space: nowrap;
   animation: chip-in 250ms cubic-bezier(0.23, 1, 0.32, 1) both;
@@ -1615,7 +1615,7 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   box-shadow: 0 0 0 1px var(--border-subtle);
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   animation: chip-in 250ms cubic-bezier(0.23, 1, 0.32, 1) var(--chip-delay, 0ms) both;
 }
 
@@ -1647,7 +1647,7 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   background: transparent;
   color: var(--text-muted);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   text-decoration: underline;
   text-decoration-color: transparent;
   text-underline-offset: 2px;
@@ -1783,8 +1783,8 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
 
 .tool-row__label {
   flex-shrink: 0;
-  font-size: 12.5px;
-  font-weight: 500;
+  font-size: var(--text-sm-plus);
+  font-weight: var(--font-weight-medium);
   color: var(--text-secondary);
 }
 
@@ -1800,7 +1800,7 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   background: var(--bg-tertiary);
   box-shadow: 0 0 0 1px var(--border-subtle);
   color: var(--text-muted);
-  font-size: 11.5px;
+  font-size: var(--text-xs-plus);
   text-overflow: ellipsis;
   white-space: nowrap;
   transition: background-color 100ms ease;
@@ -1816,7 +1816,7 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
 
 .tool-row__duration {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-family: var(--font-mono);
   color: var(--text-muted);
   opacity: 0.7;
@@ -1853,8 +1853,8 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
 .detail-line {
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 11.5px;
-  line-height: 1.6;
+  font-size: var(--text-xs-plus);
+  line-height: var(--leading-prose);
 }
 
 .detail-line--code {

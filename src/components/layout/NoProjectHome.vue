@@ -143,7 +143,7 @@ async function onSelectFolder() {
   padding: 10px 16px;
   border: none;
   border-radius: var(--radius-md, 8px);
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;

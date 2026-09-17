@@ -223,10 +223,9 @@ const themes = [
 ]
 
 const fontSizes = [12, 13, 14, 15, 16, 18, 20]
-
 const fontFamilies = [
+  { id: 'inter', name: 'Inter + Noto Sans SC' },
   { id: 'system', name: t('appearanceSettings.fontSystemDefault') },
-  { id: 'inter', name: 'Inter' },
   { id: 'sf-pro', name: 'SF Pro' },
   { id: 'segoe', name: 'Segoe UI' }
 ]

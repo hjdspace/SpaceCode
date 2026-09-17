@@ -362,7 +362,7 @@ onMounted(() => {
 }
 
 .shortcut-name {
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   font-weight: 500;
   color: var(--text-primary);
 }
@@ -393,7 +393,7 @@ onMounted(() => {
 
 .s-kbd-lg {
   height: 32px;
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
 }
 
 .key-capture-overlay {
@@ -425,7 +425,7 @@ onMounted(() => {
   }
 
   p {
-    font-size: var(--font-size-base);
+    font-size: var(--text-base);
     color: var(--text-muted);
     margin: 0;
   }

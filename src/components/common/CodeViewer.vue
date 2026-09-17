@@ -718,7 +718,7 @@ onBeforeUnmount(() => {
   color: var(--text-muted);
 
   p {
-    font-size: var(--font-size-base);
+    font-size: var(--text-base);
   }
 }
 </style>

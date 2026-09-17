@@ -290,20 +290,20 @@ async function handleAlwaysAllow() {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .danger-indicator {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: #f59e0b;
   font-weight: 500;
 }
 
 .card-content {
   margin-bottom: 16px;
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 
 .file-info {
@@ -319,7 +319,7 @@ async function handleAlwaysAllow() {
 
 .file-path {
   font-family: monospace;
-  font-size: 12px;
+  font-size: var(--text-sm);
   word-break: break-all;
 }
 
@@ -333,8 +333,8 @@ async function handleAlwaysAllow() {
 .diff-new {
   display: flex;
   padding: 8px 12px;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
 }
 
 .diff-old {
@@ -373,7 +373,7 @@ async function handleAlwaysAllow() {
 
 .command-text {
   flex: 1;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-primary);
   word-break: break-all;
 }
@@ -389,7 +389,7 @@ async function handleAlwaysAllow() {
 .json-preview {
   margin: 0;
   font-family: monospace;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-word;
@@ -410,7 +410,7 @@ async function handleAlwaysAllow() {
   border-radius: 8px;
   background: var(--surface-glass);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--text-md);
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -453,7 +453,7 @@ async function handleAlwaysAllow() {
   justify-content: center;
   gap: 8px;
   padding: 12px;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-tertiary);
 }
 

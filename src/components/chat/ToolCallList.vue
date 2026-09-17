@@ -311,8 +311,8 @@ function handleToolSkip(toolId: string) {
 
 .timeline-header-text {
   flex: 1;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--font-weight-medium);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -320,7 +320,7 @@ function handleToolSkip(toolId: string) {
 }
 
 .timeline-header-count {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
   padding: 2px 7px;
   border-radius: 10px;
@@ -420,8 +420,8 @@ function handleToolSkip(toolId: string) {
 }
 
 .timeline-tool-name {
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--font-weight-medium);
   color: var(--text-secondary);
   white-space: nowrap;
   flex-shrink: 0;
@@ -430,7 +430,7 @@ function handleToolSkip(toolId: string) {
 .timeline-target {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-family: var(--font-mono);
   color: var(--text-muted);
   white-space: nowrap;
@@ -439,7 +439,7 @@ function handleToolSkip(toolId: string) {
 }
 
 .timeline-duration {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-family: var(--font-mono);
   color: var(--text-muted);
   opacity: 0.7;
@@ -474,9 +474,9 @@ function handleToolSkip(toolId: string) {
   margin: 0;
   padding: 8px 10px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-family: var(--font-mono);
-  line-height: 1.5;
+  line-height: var(--leading-relaxed);
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-all;

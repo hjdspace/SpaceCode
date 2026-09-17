@@ -115,7 +115,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
 }
 
 .result-label {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -123,7 +123,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
 }
 
 .result-value {
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-secondary);
   font-family: var(--font-mono);
 }
@@ -141,7 +141,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
   padding: 4px 8px;
   border-radius: 4px;
   background: var(--surface-glass);
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
 
   &.loaded {

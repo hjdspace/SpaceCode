@@ -14,6 +14,7 @@ import { marked, type RendererObject, type Tokens } from 'marked'
 import DOMPurify from 'dompurify'
 import hljs from 'highlight.js'
 import { useAppStore } from '@/stores/app'
+import { i18n } from '@/i18n'
 import { api } from '@/services/electronAPI'
 import { escapeHtml, replaceMentionChipMarkers } from '@/utils/mention-chips'
 import {
@@ -201,7 +202,18 @@ const renderer: RendererObject = {
     } catch {
       highlighted = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     }
-    return `<pre class="code-block"><code class="hljs language-${lang}">${highlighted}</code></pre>`
+    const langLabel = escapeHtml(lang.toLowerCase())
+    const copyLabel = escapeHtml(i18n.global.t('common.copy'))
+    return (
+      `<div class="code-block">` +
+      `<div class="code-block-head">` +
+      `<span class="code-block-lang">${langLabel}</span>` +
+      `<button type="button" class="code-copy-btn" data-code-copy aria-label="${copyLabel}" title="${copyLabel}">` +
+      `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>` +
+      `</button></div>` +
+      `<pre><code class="hljs language-${langLabel}">${highlighted}</code></pre>` +
+      `</div>`
+    )
   },
 
   heading({ tokens, depth }: Tokens.Heading) {
@@ -389,9 +401,12 @@ function renderMarkdownBlocks(content: string): string[] {
     // XSS 防护: 对 marked 输出进行 HTML 净化
     // 同时禁止 <s>/<del>/<strike> 删除线标签，避免 LLM 误用 Markdown/HTML 删除线语法导致正常文本被划线
     // (file-link span 在净化后通过 DOM API 注入, 不经过 v-html 字符串)
+    // 代码块头部 (button/svg) 由本组件生成的固定标记构成, 白名单放行以保留复制按钮。
     const fragment = DOMPurify.sanitize(rendered, {
       RETURN_DOM_FRAGMENT: true,
-      FORBID_TAGS: ['s', 'del', 'strike']
+      FORBID_TAGS: ['s', 'del', 'strike'],
+      ADD_TAGS: ['button', 'svg', 'path', 'rect'],
+      ADD_ATTR: ['type', 'viewBox', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'data-code-copy', 'aria-label', 'rx', 'ry', 'd', 'x', 'y']
     })
     const htmls: string[] = []
     for (const node of Array.from(fragment.childNodes)) {
@@ -508,7 +523,22 @@ function isExternalURL(url: string): boolean {
 
 function handleLinkClick(event: MouseEvent) {
   const target = event.target as HTMLElement
-  
+
+  // 代码块复制按钮 (与 file-link 同为事件委托, 块重渲染后无需重绑)
+  const copyBtn = target.closest('[data-code-copy]') as HTMLElement
+  if (copyBtn) {
+    event.preventDefault()
+    event.stopPropagation()
+    const pre = copyBtn.closest('.code-block')?.querySelector('pre')
+    const code = pre?.textContent || ''
+    if (!code) return
+    navigator.clipboard.writeText(code).then(() => {
+      copyBtn.classList.add('copied')
+      setTimeout(() => copyBtn.classList.remove('copied'), 1600)
+    })
+    return
+  }
+
   const fileLink = target.closest('.file-link') as HTMLElement
   if (fileLink) {
     event.preventDefault()
@@ -684,113 +714,309 @@ watch(() => props.content, (newVal, oldVal) => {
 </script>
 
 <style lang="scss" scoped>
+/*
+  聊天 Markdown 排版 — 对齐 PI-Desktop prose.css (Codex 桌面规范):
+  所有字号/行高引用全局类型阶梯 token, 无裸 px。
+  层级由字重、间距与色调承担, 结构性边框一律去掉。
+*/
 .markdown-renderer {
-  font-size: var(--font-size-base);
-  line-height: 1.7;
+  font-size: var(--text-base);
+  line-height: var(--leading-prose);
   color: var(--text-primary);
-  word-wrap: break-word;
-  
-  :deep(.md-heading) {
-    margin: 16px 0 8px;
-    font-weight: 600;
-    color: var(--text-primary);
-    
-    &.md-h1 { font-size: 20px; }
-    &.md-h2 { font-size: 18px; }
-    &.md-h3 { font-size: 16px; }
-    &.md-h4 { font-size: 15px; }
-  }
-  
-  :deep(.md-paragraph) {
-    margin: 8px 0;
-  }
-  
-  :deep(.md-list) {
-    padding-left: 20px;
-    margin: 8px 0;
-    
-    li {
-      margin: 4px 0;
-    }
-  }
-  
-  :deep(.md-blockquote) {
-    border-left: 3px solid var(--accent-primary);
-    padding: 8px 12px;
-    margin: 12px 0;
-    background: var(--bg-secondary);
-    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-    color: var(--text-secondary);
-  }
-  
-  :deep(.code-block) {
-    background: var(--code-bg);
-    border: 1px solid var(--surface-border);
-    border-radius: var(--radius-md);
-    padding: 12px 16px;
-    overflow-x: auto;
-    margin: 12px 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  text-wrap: pretty;
+  letter-spacing: 0;
+  user-select: text;
 
-    code {
-      font-family: var(--font-mono);
-      font-size: calc(var(--font-size-base) - 1px);
-      line-height: 1.5;
-      background: transparent;
+  > div > :first-child { margin-top: 0 !important; }
+  > div > :last-child { margin-bottom: 0 !important; }
+
+  // 正文节奏: 段落之间呼吸感来自间距而非行高
+  :deep(.md-paragraph),
+  :deep(p) {
+    margin: 0.65em 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  :deep(p + p) {
+    margin-top: 0.8em;
+  }
+
+  // 标题阶梯: 20/18/16/15/14, 字重 + 收紧字距 + 上方留白承担层级
+  :deep(.md-heading) {
+    margin: 1.25em 0 0.45em;
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+    line-height: var(--leading-tight);
+    text-wrap: balance;
+
+    &.md-h1 {
+      font-size: var(--text-xl);
+      letter-spacing: -0.03em;
+      line-height: var(--leading-tighter);
+    }
+    &.md-h2 { font-size: var(--text-lg-plus); }
+    &.md-h3 { font-size: var(--text-lg); }
+    &.md-h4 {
+      font-size: var(--text-base-plus);
+      font-weight: var(--font-weight-medium-plus);
+    }
+    &.md-h5,
+    &.md-h6 {
+      font-size: var(--text-base);
+      font-weight: var(--font-weight-medium);
+      color: var(--text-secondary);
+      letter-spacing: 0;
     }
   }
-  
-  :deep(p code),
-  :deep(li code) {
-    background: var(--bg-tertiary);
-    padding: 2px 6px;
-    border-radius: 3px;
-    font-size: 13px;
+
+  // 标题后的第一个元素收紧上边距
+  :deep(.md-heading + *) {
+    margin-top: 0.4em;
   }
-  
+
+  :deep(.md-list) {
+    margin: 0.65em 0;
+    padding-left: 1.4em;
+
+    li {
+      margin: 0.28em 0;
+      padding-left: 0.15em;
+
+      &::marker {
+        color: var(--text-muted);
+        font-weight: var(--font-weight-medium);
+      }
+
+      > p {
+        margin: 0.25em 0;
+      }
+    }
+  }
+
+  // 引用块: 软磁贴 + 次级色, 无色条
+  :deep(.md-blockquote),
+  :deep(blockquote) {
+    margin: 0.85em 0;
+    padding: 0.55em 0.9em;
+    border: 0;
+    border-radius: var(--radius-md);
+    background: var(--surface-glass);
+    color: var(--text-secondary);
+
+    > :first-child { margin-top: 0; }
+    > :last-child { margin-bottom: 0; }
+  }
+
+  // 链接: 常驻淡下划线保证可发现性, hover 加深
+  :deep(a) {
+    color: var(--text-primary);
+    text-decoration-line: underline;
+    text-decoration-color: rgba(127, 127, 127, 0.4);
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1px;
+
+    &:hover {
+      color: var(--text-primary);
+      text-decoration-color: currentColor;
+    }
+  }
+
   :deep(strong) {
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--text-primary);
   }
-  
-  :deep(a) {
-    color: var(--accent-primary);
-    text-decoration: underline;
-    
-    &:hover {
-      color: var(--accent-secondary);
-    }
-    
-    &[href^="http"] {
-      position: relative;
-      
-      &::after {
-        content: '↗';
-        font-size: 10px;
-        margin-left: 3px;
-        opacity: 0.6;
-      }
-      
-      &:hover::after {
-        opacity: 1;
-      }
-    }
+
+  :deep(img) {
+    display: block;
+    max-width: min(100%, 560px);
+    margin: 0.65em 0;
+    border-radius: var(--radius-lg);
   }
-  
+
+  // 行内代码: 无边框软底 chip (降低密集技术回答里的视觉噪音)
+  :deep(p code),
+  :deep(li code),
+  :deep(td code),
+  :deep(h1 code),
+  :deep(h2 code),
+  :deep(h3 code),
+  :deep(h4 code) {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm-plus);
+    font-variant-ligatures: none;
+    background: var(--surface-glass-active);
+    border: 0;
+    border-radius: 4px;
+    padding: 0.14em 0.4em;
+    color: var(--text-primary);
+  }
+
+  :deep(td code) {
+    font-size: var(--text-sm);
+  }
+
+  // 表格: 无单元格描边, 表头深磁贴 + 斑马纹
   :deep(table) {
     width: 100%;
+    table-layout: auto;
     border-collapse: collapse;
-    margin: 12px 0;
+    margin: 0.9em 0;
+    font-size: var(--text-md);
+    line-height: var(--leading-normal);
 
     th, td {
-      border: 1px solid var(--surface-border);
-      padding: 8px 12px;
+      border: 0;
+      padding: 9px 14px;
       text-align: left;
+      vertical-align: top;
+      overflow-wrap: anywhere;
     }
 
     th {
-      background: var(--bg-secondary);
-      font-weight: 600;
+      background: var(--surface-strong);
+      font-weight: var(--font-weight-medium);
+      color: var(--text-primary);
+      font-size: var(--text-sm-plus);
+      letter-spacing: 0.02em;
     }
+
+    tbody tr:nth-child(even) td {
+      background: var(--surface-glass);
+    }
+  }
+
+  :deep(hr) {
+    margin: 1.8em 0;
+    border: 0;
+    height: 0;
+    background: none;
+  }
+
+  // 行内 file-link 链接保持 mono 字体
+  :deep(.file-link) {
+    color: var(--accent-primary);
+    text-decoration: underline;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 0.95em;
+    padding: 0 2px;
+    border-radius: 2px;
+    // 不加 transition: 流式期间变化中的尾块仍会整块重建, 过渡动画每帧重启
+    // 会造成 hover 色/背景持续脉动闪烁; 即时切换样式在视觉上保持稳定.
+
+    &:hover {
+      color: var(--accent-secondary);
+      background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.1);
+    }
+
+    &:active {
+      background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.15);
+      transform: scale(0.98);
+    }
+
+    &.file-link--invalid {
+      color: var(--text-secondary);
+      text-decoration: none;
+      cursor: default;
+
+      &:hover {
+        background: none;
+        color: var(--text-secondary);
+      }
+    }
+  }
+
+  // 代码块: 单一编辑器底色卡片 + 语言栏 (对齐 PI-Desktop .code-block)
+  :deep(.code-block) {
+    margin: 0.9em 0;
+    border: 0;
+    border-radius: var(--radius-lg);
+    background: var(--code-bg);
+    overflow: hidden;
+
+    .code-block-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-height: 32px;
+      padding: 3px 6px 3px 14px;
+      background: var(--surface-glass);
+    }
+
+    .code-block-lang {
+      color: var(--text-muted);
+      font-size: var(--text-xs-plus);
+      font-weight: var(--font-weight-medium);
+      letter-spacing: 0.02em;
+      text-transform: lowercase;
+      font-family: var(--font-mono);
+      user-select: none;
+    }
+
+    .code-copy-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border: 0;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      opacity: 0.75;
+      transition: background var(--transition-fast), color var(--transition-fast), opacity var(--transition-fast);
+
+      &:hover,
+      &:focus-visible {
+        opacity: 1;
+        color: var(--text-primary);
+        background: var(--surface-glass-hover);
+      }
+
+      &.copied {
+        opacity: 1;
+        color: var(--success);
+      }
+    }
+
+    pre {
+      margin: 0;
+      padding: 13px 16px 15px;
+      border: 0;
+      border-radius: 0;
+      background: transparent !important;
+      overflow-x: auto;
+
+      code {
+        display: block;
+        width: fit-content;
+        min-width: 100%;
+        font-family: var(--font-mono);
+        font-size: var(--text-sm-plus);
+        line-height: var(--leading-relaxed);
+        background: transparent !important;
+        white-space: pre;
+        tab-size: 2;
+      }
+    }
+  }
+
+  // 兜底: 未包 code-block 的裸 pre
+  :deep(pre:not(.code-block pre)) {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm-plus);
+    line-height: var(--leading-relaxed);
+    background: var(--code-bg);
+    border-radius: var(--radius-lg);
+    padding: 13px 16px;
+    overflow: auto;
+    margin: 0.9em 0;
   }
 
   :deep(.hljs) {
@@ -826,12 +1052,12 @@ watch(() => props.content, (newVal, oldVal) => {
     background: var(--bg-secondary);
     border: 1px solid var(--surface-border);
     border-radius: 4px;
-    font-size: 12px;
-    line-height: 1.4;
+    font-size: var(--text-sm);
+    line-height: var(--leading-normal);
     vertical-align: baseline;
 
     .chip-icon {
-      font-size: 12px;
+      font-size: var(--text-sm);
       line-height: 1;
       flex-shrink: 0;
     }
@@ -850,56 +1076,23 @@ watch(() => props.content, (newVal, oldVal) => {
     }
   }
 
-  :deep(.file-link) {
-    color: var(--accent-primary);
-    text-decoration: underline;
-    cursor: pointer;
-    font-family: var(--font-mono);
-    font-size: 0.95em;
-    padding: 0 2px;
-    border-radius: 2px;
-    // 不加 transition: 流式期间变化中的尾块仍会整块重建, 过渡动画每帧重启
-    // 会造成 hover 色/背景持续脉动闪烁; 即时切换样式在视觉上保持稳定.
-
-    &:hover {
-      color: var(--accent-secondary);
-      background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.1);
-    }
-
-    &:active {
-      background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.15);
-      transform: scale(0.98);
-    }
-
-    &.file-link--invalid {
-      color: var(--text-secondary);
-      text-decoration: none;
-      cursor: default;
-
-      &:hover {
-        background: none;
-        color: var(--text-secondary);
-      }
-    }
-  }
-
   :deep(.mermaid-container) {
     background: var(--code-bg);
     border: 1px solid var(--surface-border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     padding: 16px;
-    margin: 12px 0;
+    margin: 0.9em 0;
     overflow-x: auto;
     font-family: var(--font-mono);
-    font-size: calc(var(--font-size-base) - 1px);
+    font-size: var(--text-sm-plus);
     color: var(--text-primary);
-    
+
     &.rendered {
       background: transparent;
       border: none;
       padding: 8px 0;
       overflow: visible;
-      
+
       svg {
         max-width: 100%;
         height: auto;
@@ -912,11 +1105,11 @@ watch(() => props.content, (newVal, oldVal) => {
   :deep(.mermaid-error) {
     background: rgba(239, 68, 68, 0.1);
     border: 1px solid rgba(239, 68, 68, 0.3);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     padding: 12px;
     color: #ef4444;
-    font-size: calc(var(--font-size-base) - 1px);
-    margin: 12px 0;
+    font-size: var(--text-sm-plus);
+    margin: 0.9em 0;
   }
 }
 </style>

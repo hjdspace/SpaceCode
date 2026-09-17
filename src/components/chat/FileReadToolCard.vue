@@ -21,8 +21,8 @@ const toggle = () => { expanded.value = !expanded.value }
 
 <style scoped lang="scss">
 .fr-card { border: 1px solid var(--surface-border); border-radius: var(--radius-sm); margin: 4px 0; }
-.fr-header { display: flex; align-items: center; gap: 6px; padding: 6px 10px; cursor: pointer; font-size: 12px; }
+.fr-header { display: flex; align-items: center; gap: 6px; padding: 6px 10px; cursor: pointer; font-size: var(--text-sm); }
 .path { font-family: monospace; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fr-body { padding: 8px 10px; max-height: 240px; overflow-y: auto; }
-pre { margin: 0; font-size: 11px; white-space: pre-wrap; }
+pre { margin: 0; font-size: var(--text-2xs); white-space: pre-wrap; }
 </style>

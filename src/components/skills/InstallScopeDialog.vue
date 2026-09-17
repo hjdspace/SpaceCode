@@ -162,7 +162,7 @@ function handleCancel() {
 }
 
 .scope-name {
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   font-weight: 500;
 }
 

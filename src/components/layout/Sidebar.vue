@@ -1354,7 +1354,7 @@ onUnmounted(() => {
   }
 
   h4 {
-    font-size: calc(var(--font-size-base) + 1px);
+    font-size: var(--text-base-plus);
     font-weight: 600;
     color: var(--text-primary);
   }

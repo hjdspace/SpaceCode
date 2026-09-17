@@ -108,14 +108,14 @@ onMounted(() => {
   border-radius: var(--radius-md);
 }
 
-.rp-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
-.rp-hint { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.rp-name { font-size: var(--text-base); font-weight: 600; color: var(--text-primary); }
+.rp-hint { font-size: var(--text-sm); color: var(--text-muted); margin-top: 2px; }
 
 .rp-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .rp-chip {
   padding: 8px 12px;
-  font-size: 12.5px;
+  font-size: var(--text-sm-plus);
   color: var(--text-secondary);
   background: var(--bg-secondary, var(--bg-primary));
   border: 1px solid var(--surface-border);

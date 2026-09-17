@@ -159,7 +159,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .info-label {
@@ -176,7 +176,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
 
 .url-text {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--accent-primary);
 }
 
@@ -187,8 +187,8 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
   background: var(--code-bg, #0d1117);
   color: var(--code-fg, #f0f6fc);
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--text-sm);
+  line-height: var(--leading-prose);
   overflow: auto;
   max-height: 300px;
   white-space: pre-wrap;
@@ -199,7 +199,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
   margin: 0;
   padding: 10px 12px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   background: rgba(239, 68, 68, 0.1);
   color: var(--error);
   border: 1px solid rgba(239, 68, 68, 0.2);

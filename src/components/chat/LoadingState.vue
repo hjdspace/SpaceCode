@@ -129,7 +129,7 @@ const pattern = computed(() => patterns[props.variant])
   background-size: 200% 100%;
   background-clip: text;
   -webkit-background-clip: text;
-  font-size: 13px;
+  font-size: var(--text-md);
   font-weight: 500;
   animation: shimmer-text 1.4s linear infinite;
 }
@@ -137,7 +137,7 @@ const pattern = computed(() => patterns[props.variant])
 .elapsed {
   color: var(--text-muted, var(--ink-3));
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace);
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
 }
 

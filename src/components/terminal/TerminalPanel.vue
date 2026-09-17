@@ -132,7 +132,7 @@ onUnmounted(() => {
   }
 
   .empty-text {
-    font-size: var(--font-size-base);
+    font-size: var(--text-base);
     margin: 0;
   }
 

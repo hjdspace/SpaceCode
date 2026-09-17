@@ -184,7 +184,7 @@ function openInTerminalPage() {
 .terminal-title {
   flex: 1;
   text-align: center;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: #8b949e;
   font-family: var(--font-mono);
   overflow: hidden;
@@ -193,7 +193,7 @@ function openInTerminalPage() {
 }
 
 .terminal-status-badge {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   padding: 2px 6px;
   border-radius: 4px;
   font-weight: 500;
@@ -220,8 +220,8 @@ function openInTerminalPage() {
 .terminal-content {
   padding: 10px 12px;
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--text-sm);
+  line-height: var(--leading-prose);
   color: #c9d1d9;
   max-height: 400px;
   overflow-y: auto;
@@ -287,7 +287,7 @@ function openInTerminalPage() {
   margin-top: 6px;
   padding-top: 6px;
   border-top: 1px dashed rgba(255, 255, 255, 0.08);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: #6e7681;
 
   &.error-exit {

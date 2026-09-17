@@ -487,7 +487,7 @@ function handleSubmit() {
   margin-bottom: 4px;
 
   .question-text {
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 500;
     color: var(--text-secondary);
   }
@@ -498,9 +498,9 @@ function handleSubmit() {
   gap: 4px;
   align-items: flex-start;
   padding-left: 4px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-primary);
-  line-height: 1.4;
+  line-height: var(--leading-normal);
 
   .answer-icon {
     color: var(--accent-primary);
@@ -534,14 +534,14 @@ function handleSubmit() {
   flex: 1;
   
   h3 {
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 600;
     color: var(--text-primary);
     margin-bottom: 1px;
   }
   
   span {
-    font-size: 11px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
   }
 }
@@ -555,7 +555,7 @@ function handleSubmit() {
 }
 
 .progress-text {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
@@ -592,7 +592,7 @@ function handleSubmit() {
 .multi-hint {
   margin-left: auto;
   padding: 1px 6px;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   color: var(--accent-primary);
   background: rgba(59, 130, 246, 0.12);
@@ -607,7 +607,7 @@ function handleSubmit() {
 }
 
 .custom-input-label {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
 }
 
@@ -618,9 +618,9 @@ function handleSubmit() {
   border: 1px solid var(--surface-border);
   border-radius: 6px;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-family: inherit;
-  line-height: 1.4;
+  line-height: var(--leading-normal);
   resize: vertical;
   min-height: 36px;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
@@ -650,7 +650,7 @@ function handleSubmit() {
 }
 
 .question-title {
-  font-size: 13px;
+  font-size: var(--text-md);
   font-weight: 500;
   color: var(--text-secondary);
   margin-bottom: 8px;
@@ -664,7 +664,7 @@ function handleSubmit() {
   padding: 2px 6px;
   background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
   color: var(--accent-primary);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   border-radius: 4px;
   flex-shrink: 0;
@@ -728,7 +728,7 @@ function handleSubmit() {
       top: 50%;
       transform: translateY(-50%);
       color: white;
-      font-size: 10px;
+      font-size: var(--text-2xs);
       font-weight: bold;
     }
   }
@@ -739,16 +739,16 @@ function handleSubmit() {
 }
 
 .option-label {
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 2px;
 }
 
 .option-desc {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
-  line-height: 1.3;
+  line-height: var(--leading-compact);
 }
 
 .card-footer {
@@ -763,7 +763,7 @@ function handleSubmit() {
 .footer-btn {
   padding: 5px 12px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -830,7 +830,7 @@ function handleSubmit() {
   }
   
   .header-text h3 {
-    font-size: 12px;
+    font-size: var(--text-sm);
   }
   
   .card-body {
@@ -842,7 +842,7 @@ function handleSubmit() {
   }
   
   .question-title {
-    font-size: 12px;
+    font-size: var(--text-sm);
     flex-direction: column;
     align-items: flex-start;
     gap: 4px;
@@ -864,16 +864,16 @@ function handleSubmit() {
     
     &.selected::after {
       left: 10px;
-      font-size: 9px;
+      font-size: var(--text-2xs);
     }
   }
   
   .option-label {
-    font-size: 12px;
+    font-size: var(--text-sm);
   }
   
   .option-desc {
-    font-size: 10px;
+    font-size: var(--text-2xs);
   }
   
   .card-footer {
@@ -884,7 +884,7 @@ function handleSubmit() {
   .footer-btn {
     padding: 4px 10px;
     border-radius: 5px;
-    font-size: 12px;
+    font-size: var(--text-sm);
   }
 }
 </style>

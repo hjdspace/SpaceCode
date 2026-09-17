@@ -258,7 +258,7 @@ function handleKeyDown(e: KeyboardEvent) {
 }
 
 .skill-name {
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -425,7 +425,7 @@ function handleKeyDown(e: KeyboardEvent) {
   overflow: auto;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   line-height: 1.6;
 
   :deep(h1), :deep(h2), :deep(h3), :deep(h4), :deep(h5), :deep(h6) {

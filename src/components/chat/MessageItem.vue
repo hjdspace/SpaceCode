@@ -315,7 +315,7 @@ function handleUserCopy(e: ClipboardEvent) {
   border: 1px solid var(--surface-border);
   background: var(--bg-secondary);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--text-sm);
 
   &.completed {
     color: var(--success);
@@ -358,7 +358,7 @@ function handleUserCopy(e: ClipboardEvent) {
   border: 1px solid var(--surface-border);
   background: var(--bg-secondary);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--text-sm);
 
   &.completed {
     color: var(--success);
@@ -435,14 +435,15 @@ function handleUserCopy(e: ClipboardEvent) {
   margin-bottom: 6px;
 
   .role-label {
-    font-size: 13px;
-    font-weight: 600;
+    font-size: var(--text-md);
+    font-weight: var(--font-weight-semibold);
     color: var(--text-primary);
   }
 
   .timestamp {
-    font-size: 11px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
   }
 }
 
@@ -477,7 +478,7 @@ function handleUserCopy(e: ClipboardEvent) {
   }
 
   .image-name {
-    font-size: 11px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
     max-width: 120px;
     overflow: hidden;
@@ -538,8 +539,8 @@ function handleUserCopy(e: ClipboardEvent) {
 }
 
 .message-content {
-  font-size: var(--font-size-base);
-  line-height: 1.6;
+  font-size: var(--text-base);
+  line-height: var(--leading-chat);
   color: var(--text-primary);
   user-select: text;
 
@@ -560,13 +561,13 @@ function handleUserCopy(e: ClipboardEvent) {
     background: var(--bg-secondary);
     border: 1px solid var(--surface-border);
     border-radius: 4px;
-    font-size: 12px;
-    line-height: 1.4;
+    font-size: var(--text-sm);
+    line-height: var(--leading-normal);
     vertical-align: baseline;
     white-space: nowrap;
 
     .chip-icon {
-      font-size: 12px;
+      font-size: var(--text-sm);
       line-height: 1;
       flex-shrink: 0;
     }
@@ -587,8 +588,8 @@ function handleUserCopy(e: ClipboardEvent) {
 }
 
 .message-content {
-  font-size: var(--font-size-base);
-  line-height: 1.6;
+  font-size: var(--text-base);
+  line-height: var(--leading-chat);
   color: var(--text-primary);
   user-select: text;
 
@@ -609,13 +610,13 @@ function handleUserCopy(e: ClipboardEvent) {
     background: var(--bg-secondary);
     border: 1px solid var(--surface-border);
     border-radius: 4px;
-    font-size: 12px;
-    line-height: 1.4;
+    font-size: var(--text-sm);
+    line-height: var(--leading-normal);
     vertical-align: baseline;
     white-space: nowrap;
 
     .chip-icon {
-      font-size: 12px;
+      font-size: var(--text-sm);
       line-height: 1;
       flex-shrink: 0;
     }
@@ -641,8 +642,8 @@ function handleUserCopy(e: ClipboardEvent) {
     padding: 2px 8px;
     border: 1px solid var(--surface-border);
     border-radius: 4px;
-    font-size: 12px;
-    line-height: 1.4;
+    font-size: var(--text-sm);
+    line-height: var(--leading-normal);
     vertical-align: baseline;
     font-family: var(--font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace);
 
@@ -654,11 +655,11 @@ function handleUserCopy(e: ClipboardEvent) {
     }
 
     .chip-label {
-      font-weight: 600;
+      font-weight: var(--font-weight-semibold);
     }
 
     .chip-source-tag {
-      font-size: 10px;
+      font-size: var(--text-2xs);
       opacity: 0.7;
     }
 
@@ -732,7 +733,7 @@ function handleUserCopy(e: ClipboardEvent) {
   border: 1px solid rgba(var(--accent-primary-rgb, 59, 130, 246), 0.3);
   background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.06);
   color: var(--accent-primary);
-  font-size: 12px;
+  font-size: var(--text-sm);
   cursor: pointer;
   transition: background-color 0.15s ease, border-color 0.15s ease;
 
@@ -781,7 +782,7 @@ function handleUserCopy(e: ClipboardEvent) {
   border: 1px solid var(--surface-border);
   background: var(--bg-secondary);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--text-sm);
 
   &.completed {
     color: var(--success);
@@ -805,18 +806,18 @@ function handleUserCopy(e: ClipboardEvent) {
   }
 
   .message-content {
-    font-size: var(--font-size-base);
+    font-size: var(--text-base);
   }
 
   .message-header {
     margin-bottom: 4px;
 
     .role-label {
-      font-size: 12px;
+      font-size: var(--text-sm);
     }
 
     .timestamp {
-      font-size: 10px;
+      font-size: var(--text-2xs);
     }
   }
 

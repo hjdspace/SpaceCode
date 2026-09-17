@@ -122,7 +122,7 @@ defineExpose({ searchInputRef, listRef })
     background: transparent;
     border: none;
     color: var(--text-primary);
-    font-size: var(--font-size-base);
+    font-size: var(--text-base);
     outline: none;
 
     &::placeholder {
@@ -149,7 +149,7 @@ defineExpose({ searchInputRef, listRef })
 
   .ghost-text {
     color: var(--text-muted);
-    font-size: var(--font-size-base);
+    font-size: var(--text-base);
     opacity: 0.5;
     pointer-events: none;
     white-space: nowrap;
@@ -158,7 +158,7 @@ defineExpose({ searchInputRef, listRef })
 
 .dropdown-section-title {
   padding: 8px 16px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -180,7 +180,7 @@ defineExpose({ searchInputRef, listRef })
   gap: 8px;
   padding: 24px 16px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--text-md);
   text-align: center;
 }
 
@@ -198,7 +198,7 @@ defineExpose({ searchInputRef, listRef })
   text-align: left;
   width: 100%;
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-primary);
   background: transparent;
   transition: all var(--transition-fast);
@@ -228,13 +228,13 @@ defineExpose({ searchInputRef, listRef })
   }
 
   .item-description {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--text-muted);
     @include truncate;
   }
 
   .item-badge {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     padding: 1px 6px;
     border-radius: var(--radius-xs);
     font-weight: 600;
@@ -264,7 +264,7 @@ defineExpose({ searchInputRef, listRef })
   align-items: center;
   gap: 10px;
   padding: 10px 16px;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-secondary);
   background: transparent;
   transition: all var(--transition-fast);

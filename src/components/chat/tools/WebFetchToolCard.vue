@@ -85,14 +85,14 @@ function openInPanel() {
 
 .prompt-text {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-secondary);
-  line-height: 1.5;
+  line-height: var(--leading-relaxed);
 }
 
 .fetched-content {
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: var(--text-md);
+  line-height: var(--leading-prose);
   color: var(--text-secondary);
 
   :deep(.md-heading) {

@@ -51,8 +51,8 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
   margin: 0;
   padding: 10px 12px;
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--text-sm);
+  line-height: var(--leading-prose);
   overflow: auto;
   max-height: 350px;
   white-space: pre;

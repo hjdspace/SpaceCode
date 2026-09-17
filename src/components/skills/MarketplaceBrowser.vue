@@ -249,7 +249,7 @@ onMounted(() => {
 }
 
 .no-selection-title {
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   font-weight: 500;
   color: var(--text-primary);
   margin: 0;

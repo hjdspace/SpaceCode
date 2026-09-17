@@ -408,7 +408,7 @@ function getLanguageTag(path: string): string {
   background: transparent;
   overflow: hidden;
   transition: all var(--transition-fast);
-  font-size: 13px;
+  font-size: var(--text-md);
 
   &.is-expanded {
     background: var(--bg-secondary);
@@ -469,7 +469,7 @@ function getLanguageTag(path: string): string {
 
 .tool-name {
   flex: 1;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-secondary);
   font-weight: 450;
   white-space: nowrap;
@@ -478,7 +478,7 @@ function getLanguageTag(path: string): string {
 }
 
 .tool-duration {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
   font-family: var(--font-mono);
   opacity: 0.7;
@@ -513,7 +513,7 @@ function getLanguageTag(path: string): string {
 }
 
 .section-label {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 500;
   color: var(--text-muted);
   margin-bottom: 4px;
@@ -526,14 +526,14 @@ function getLanguageTag(path: string): string {
   border-radius: 4px;
   padding: 8px 10px;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-family: var(--font-mono);
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--text-secondary);
   border: 1px solid var(--surface-border);
-  line-height: 1.5;
+  line-height: var(--leading-relaxed);
 }
 
 .diff-output {
@@ -559,7 +559,7 @@ function getLanguageTag(path: string): string {
 }
 
 .diff-lang {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   line-height: 1;
   padding: 4px 5px;
@@ -573,7 +573,7 @@ function getLanguageTag(path: string): string {
   flex: 1;
   min-width: 0;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-family: var(--font-mono);
   white-space: nowrap;
   overflow: hidden;
@@ -585,7 +585,7 @@ function getLanguageTag(path: string): string {
   align-items: center;
   gap: 6px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .diff-additions {
@@ -600,8 +600,8 @@ function getLanguageTag(path: string): string {
   max-height: 320px;
   overflow: auto;
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
 }
 
 .diff-line {
@@ -649,14 +649,14 @@ function getLanguageTag(path: string): string {
 
   .diff-content {
     color: var(--accent-primary);
-    font-size: 11px;
+    font-size: var(--text-2xs);
   }
 }
 
 .line-meta {
   .diff-content {
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: var(--text-2xs);
   }
 }
 
@@ -668,7 +668,7 @@ function getLanguageTag(path: string): string {
 
 .collapsed-label {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-style: italic;
 }
 </style>

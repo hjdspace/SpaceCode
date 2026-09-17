@@ -235,7 +235,7 @@ function getServerTypeColor(server: MCPServer): string {
   }
 
   .empty-title {
-    font-size: var(--font-size-base);
+    font-size: var(--text-base);
     font-weight: 500;
     color: var(--text-primary);
     margin: 0 0 4px;
@@ -320,7 +320,7 @@ function getServerTypeColor(server: MCPServer): string {
 }
 
 .server-name {
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   font-weight: 600;
   color: var(--text-primary);
 }

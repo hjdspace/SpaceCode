@@ -126,7 +126,7 @@ defineExpose({ searchInputRef, listRef })
     background: transparent;
     border: none;
     color: var(--text-primary);
-    font-size: var(--font-size-base);
+    font-size: var(--text-base);
     outline: none;
 
     &::placeholder {
@@ -154,7 +154,7 @@ defineExpose({ searchInputRef, listRef })
 
 .dropdown-section-title {
   padding: 8px 16px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -176,7 +176,7 @@ defineExpose({ searchInputRef, listRef })
   gap: 8px;
   padding: 24px 16px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--text-md);
   text-align: center;
 }
 
@@ -188,7 +188,7 @@ defineExpose({ searchInputRef, listRef })
   gap: 8px;
   padding: 24px 16px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--text-md);
   text-align: center;
 }
 
@@ -206,7 +206,7 @@ defineExpose({ searchInputRef, listRef })
   text-align: left;
   width: 100%;
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-primary);
   background: transparent;
   transition: all var(--transition-fast);
@@ -240,7 +240,7 @@ defineExpose({ searchInputRef, listRef })
   }
 
   .item-path {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--text-muted);
     @include truncate;
   }
@@ -251,7 +251,7 @@ defineExpose({ searchInputRef, listRef })
   align-items: center;
   gap: 10px;
   padding: 10px 16px;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-secondary);
   background: transparent;
   transition: all var(--transition-fast);

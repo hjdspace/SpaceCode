@@ -277,14 +277,14 @@ watch(() => props.show, (isShow) => {
 }
 
 .rewind-dialog-title {
-  font-size: 18px;
+  font-size: var(--text-lg-plus);
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
 }
 
 .rewind-dialog-subtitle {
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-muted);
   margin: 4px 0 0;
 }
@@ -299,7 +299,7 @@ watch(() => props.show, (isShow) => {
   gap: 4px;
 
   .message-preview-label {
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -307,7 +307,7 @@ watch(() => props.show, (isShow) => {
   }
 
   .message-preview-id {
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--text-primary);
     font-family: var(--font-mono, monospace);
     word-break: break-all;
@@ -325,7 +325,7 @@ watch(() => props.show, (isShow) => {
   }
 
   .diff-stats-title {
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -357,13 +357,13 @@ watch(() => props.show, (isShow) => {
   }
 
   .diff-stat-value {
-    font-size: 16px;
+    font-size: var(--text-lg);
     font-weight: 600;
     color: var(--text-primary);
   }
 
   .diff-stat-label {
-    font-size: 11px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
   }
 }
@@ -414,15 +414,15 @@ watch(() => props.show, (isShow) => {
 }
 
 .rewind-option-name {
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .rewind-option-desc {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-muted);
-  line-height: 1.4;
+  line-height: var(--leading-normal);
 }
 
 .summarize-section {
@@ -433,7 +433,7 @@ watch(() => props.show, (isShow) => {
 }
 
 .summarize-label {
-  font-size: 13px;
+  font-size: var(--text-md);
   font-weight: 500;
   color: var(--text-primary);
 }
@@ -445,8 +445,8 @@ watch(() => props.show, (isShow) => {
   border-radius: var(--radius-md);
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
   resize: vertical;
   font-family: inherit;
   transition: border-color 0.15s ease;
@@ -469,7 +469,7 @@ watch(() => props.show, (isShow) => {
   border-radius: var(--radius-md);
 
   .rewind-error-text {
-    font-size: 13px;
+    font-size: var(--text-md);
     color: #ef4444;
   }
 }
@@ -490,7 +490,7 @@ watch(() => props.show, (isShow) => {
   }
 
   .rewind-loading-text {
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--text-secondary);
   }
 }
@@ -508,7 +508,7 @@ watch(() => props.show, (isShow) => {
   gap: 6px;
   padding: 8px 16px;
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: var(--text-md);
   font-weight: 500;
   border: none;
   cursor: pointer;

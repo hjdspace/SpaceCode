@@ -80,7 +80,7 @@ onUnmounted(() => {
   background: var(--surface-glass);
   border: 1px solid var(--surface-border);
   overflow: hidden;
-  font-size: 13px;
+  font-size: var(--text-sm-plus);
 }
 
 .reasoning-header {
@@ -101,8 +101,8 @@ onUnmounted(() => {
 
 .reasoning-title {
   flex: 1;
-  font-size: 13px;
-  font-weight: 450;
+  font-size: var(--text-sm-plus);
+  font-weight: var(--font-weight-medium);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -130,9 +130,9 @@ onUnmounted(() => {
 
 .reasoning-content {
   padding: 8px 12px 12px 34px;
-  font-size: 13px;
+  font-size: var(--text-sm-plus);
   color: var(--text-muted);
-  line-height: 1.6;
+  line-height: var(--leading-chat);
   border-top: 1px solid var(--surface-border);
   background: var(--bg-secondary);
 

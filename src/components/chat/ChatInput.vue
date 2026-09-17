@@ -1501,7 +1501,7 @@ watch(pendingFile, (file) => {
   background: var(--bg-secondary);
   border: 1px dashed var(--accent-primary);
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-secondary);
   opacity: 0.85;
   transition: opacity 0.2s ease;
@@ -1523,7 +1523,7 @@ watch(pendingFile, (file) => {
   }
 
   .pending-priority-tag {
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     padding: 2px 6px;
     border-radius: var(--radius-xs);
@@ -1649,7 +1649,7 @@ watch(pendingFile, (file) => {
   padding: 4px 12px;
   background: var(--accent-primary);
   color: white;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 500;
   border-radius: var(--radius-md);
   white-space: nowrap;
@@ -1680,7 +1680,7 @@ watch(pendingFile, (file) => {
   padding: 4px 12px;
   background: #f59e0b;
   color: white;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 500;
   border-radius: var(--radius-md);
   white-space: nowrap;
@@ -1697,7 +1697,7 @@ watch(pendingFile, (file) => {
   margin-left: 4px;
   padding: 4px 10px;
   border-radius: var(--radius-full);
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1;
   color: #6366f1;
   background: var(--accent-secondary-glow);
@@ -1768,8 +1768,8 @@ watch(pendingFile, (file) => {
     outline: none;
     background: transparent;
     color: var(--text-primary);
-    font-size: calc(var(--font-size-base) + 1px);
-    line-height: 1.5;
+    font-size: var(--text-base-plus);
+    line-height: var(--leading-relaxed);
     max-height: 200px;
     padding: 0;
     overflow-y: auto;
@@ -1782,35 +1782,42 @@ watch(pendingFile, (file) => {
       pointer-events: none;
     }
 
-    // Shared delete button styles for chips
-    .chip-delete-btn {
+    // Shared delete button styles for chips.
+    // chip 节点由 useContentEditor 动态创建, 无 scoped 属性, 必须 :deep 才能命中
+    :deep(.chip-delete-btn) {
+      position: absolute;
+      top: -1px;
+      right: -1px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 14px;
-      height: 14px;
-      border-radius: 3px;
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
       cursor: pointer;
       opacity: 0;
       visibility: hidden;
       transform: scale(0.85);
       transition: opacity 0.15s ease, visibility 0.15s ease, transform 0.15s ease, background 0.15s ease;
-      margin-left: 2px;
-      flex-shrink: 0;
       pointer-events: none;
+      z-index: 1;
 
       svg {
-        width: 10px;
-        height: 10px;
+        width: 8px;
+        height: 8px;
       }
 
       &:hover {
-        background: rgba(0, 0, 0, 0.08);
+        background: var(--surface-hover);
+        color: var(--text-primary);
       }
     }
 
     // Inline mention chip styles
-    .mention-chip {
+    :deep(.mention-chip) {
+      position: relative;
       display: inline-flex;
       align-items: center;
       gap: 4px;
@@ -1819,15 +1826,15 @@ watch(pendingFile, (file) => {
       background: var(--bg-secondary);
       border: 1px solid var(--surface-border);
       border-radius: var(--radius-xs);
-      font-size: 12px;
-      line-height: 1.4;
+      font-size: var(--text-sm);
+      line-height: var(--leading-normal);
       vertical-align: baseline;
       cursor: default;
       user-select: none;
       font-family: var(--font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace);
 
       .chip-icon {
-        font-size: 12px;
+        font-size: var(--text-sm);
         line-height: 1;
         flex-shrink: 0;
       }
@@ -1840,7 +1847,7 @@ watch(pendingFile, (file) => {
       }
 
       &:hover .chip-delete-btn {
-        opacity: 0.6;
+        opacity: 1;
         visibility: visible;
         transform: scale(1);
         pointer-events: auto;
@@ -1879,8 +1886,8 @@ watch(pendingFile, (file) => {
       margin: 0 2px;
       border: 1px solid var(--surface-border);
       border-radius: var(--radius-xs);
-      font-size: 12px;
-      line-height: 1.4;
+      font-size: var(--text-sm);
+      line-height: var(--leading-normal);
       vertical-align: baseline;
       cursor: default;
       user-select: none;
@@ -1899,7 +1906,7 @@ watch(pendingFile, (file) => {
       }
 
       .chip-source-tag {
-        font-size: 10px;
+        font-size: var(--text-2xs);
         opacity: 0.7;
         text-transform: capitalize;
       }
@@ -1934,7 +1941,7 @@ watch(pendingFile, (file) => {
     align-items: center;
     gap: 12px;
     color: #22c55e;
-    font-size: 16px;
+    font-size: var(--text-lg);
     font-weight: 500;
   }
 }
@@ -1974,7 +1981,7 @@ watch(pendingFile, (file) => {
   gap: 4px;
   padding: 6px 10px;
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-secondary);
   background: transparent;
   transition: all var(--transition-fast);
@@ -1989,7 +1996,7 @@ watch(pendingFile, (file) => {
 .work-context-chip {
   gap: 5px;
   padding: 6px 10px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-md);
   background: var(--surface-glass);
@@ -2046,12 +2053,12 @@ watch(pendingFile, (file) => {
   .model-mode-pill {
     flex-shrink: 0;
     padding: 2px 8px;
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-weight: 500;
     color: var(--text-muted);
     background: var(--bg-tertiary, rgba(0, 0, 0, 0.04));
     border-radius: var(--radius-sm);
-    line-height: 1.4;
+    line-height: var(--leading-normal);
   }
 
   .dropdown-icon {
@@ -2136,7 +2143,7 @@ watch(pendingFile, (file) => {
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px 8px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -2185,7 +2192,7 @@ watch(pendingFile, (file) => {
     background: transparent;
     border: none;
     color: var(--text-primary);
-    font-size: 13px;
+    font-size: var(--text-md);
     outline: none;
 
     &::placeholder {
@@ -2212,7 +2219,7 @@ watch(pendingFile, (file) => {
 
   .ghost-text {
     color: var(--text-muted);
-    font-size: var(--font-size-base);
+    font-size: var(--text-base);
     opacity: 0.5;
     pointer-events: none;
     white-space: nowrap;
@@ -2235,7 +2242,7 @@ watch(pendingFile, (file) => {
 
 .dropdown-section-title {
   padding: 6px 12px 4px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -2258,7 +2265,7 @@ watch(pendingFile, (file) => {
   gap: 8px;
   padding: 24px 16px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--text-md);
   text-align: center;
 }
 
@@ -2272,7 +2279,7 @@ watch(pendingFile, (file) => {
   color: white;
   border: none;
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 500;
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -2291,7 +2298,7 @@ watch(pendingFile, (file) => {
   background: var(--accent-primary);
   color: white;
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 500;
   transition: all var(--transition-fast);
 
@@ -2307,7 +2314,7 @@ watch(pendingFile, (file) => {
   width: 100%;
   padding: 10px 12px;
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-primary);
   background: transparent;
   transition: all var(--transition-fast);
@@ -2445,7 +2452,7 @@ watch(pendingFile, (file) => {
     background: transparent;
     border: none;
     color: var(--text-primary);
-    font-size: var(--font-size-base);
+    font-size: var(--text-base);
     outline: none;
 
     &::placeholder {
@@ -2541,7 +2548,7 @@ watch(pendingFile, (file) => {
 
 .image-preview-name {
   color: rgba(255, 255, 255, 0.8);
-  font-size: 13px;
+  font-size: var(--text-md);
   max-width: 60vw;
   overflow: hidden;
   text-overflow: ellipsis;

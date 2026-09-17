@@ -221,7 +221,7 @@ watch(() => props.skill, () => {
 }
 
 .skill-name {
-  font-size: calc(var(--font-size-base) + 1px);
+  font-size: var(--text-base-plus);
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
@@ -336,7 +336,7 @@ watch(() => props.skill, () => {
 }
 
 .readme-content {
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   line-height: 1.6;
   color: var(--text-primary);
 
@@ -394,7 +394,7 @@ watch(() => props.skill, () => {
   color: var(--text-muted);
 
   p {
-    font-size: var(--font-size-base);
+    font-size: var(--text-base);
     margin: 0;
   }
 }

@@ -139,7 +139,7 @@ function openInPanel() {
   flex-direction: column;
   width: 100%;
   max-width: 100%;
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 
 .agent-header {
@@ -182,26 +182,26 @@ function openInPanel() {
 }
 
 .agent-label {
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-secondary);
   flex-shrink: 0;
 }
 
 .agent-type {
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--accent-tertiary);
   font-weight: 500;
   flex-shrink: 0;
 }
 
 .agent-separator {
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-disabled);
   flex-shrink: 0;
 }
 
 .agent-task {
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -212,11 +212,11 @@ function openInPanel() {
 
 .agent-status-badge {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   padding: 1px 6px;
   border-radius: 10px;
-  line-height: 1.4;
+  line-height: var(--leading-normal);
 
   &.badge-running {
     background: color-mix(in srgb, var(--warning, #f59e0b) 12%, transparent);
@@ -256,8 +256,8 @@ function openInPanel() {
 }
 
 .preview-output {
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
   color: var(--text-tertiary);
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -274,7 +274,7 @@ function openInPanel() {
 }
 
 .activity-item {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--text-tertiary);
   white-space: nowrap;
   overflow: hidden;

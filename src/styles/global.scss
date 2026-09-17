@@ -16,8 +16,8 @@ html, body {
   height: 100%;
   overflow: hidden;
   font-family: var(--font-body);
-  font-size: var(--font-size-base);
-  line-height: 1.6;
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
   color: var(--text-primary);
   background: var(--bg-primary);
   -webkit-font-smoothing: antialiased;
@@ -76,20 +76,20 @@ code {
   font-size: 0.9em;
   background: var(--surface-glass);
   padding: 0.15em 0.4em;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs);
   border: 1px solid var(--border-subtle);
 }
 
 pre {
   font-family: var(--font-mono);
-  font-size: calc(var(--font-size-base) - 1px);
-  line-height: 1.7;
+  font-size: var(--text-sm-plus);
+  line-height: var(--leading-prose);
   background: var(--bg-secondary);
   padding: 16px;
   border-radius: var(--radius-md);
   overflow-x: auto;
   border: 1px solid var(--border-subtle);
-  
+
   code {
     background: none;
     padding: 0;

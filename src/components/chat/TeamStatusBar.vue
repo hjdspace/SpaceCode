@@ -68,7 +68,7 @@ const teammateEntries = computed(() =>
   align-items: center;
   gap: 6px;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--text-sm);
   white-space: nowrap;
 }
 
@@ -100,7 +100,7 @@ const teammateEntries = computed(() =>
   background: var(--bg-secondary);
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--text-sm);
   transition: all var(--transition-fast);
   white-space: nowrap;
 
@@ -131,7 +131,7 @@ const teammateEntries = computed(() =>
   border-radius: var(--radius-full);
   background: var(--bg-tertiary);
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   line-height: 16px;
 }
 

@@ -77,8 +77,8 @@ function openInPanel() {
   margin: 0;
   padding: 10px 12px;
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--text-sm);
+  line-height: var(--leading-prose);
   overflow: auto;
   max-height: 400px;
   white-space: pre;

@@ -434,7 +434,7 @@ async function browseProjectRoot() {
   gap: 12px;
   width: 100%;
   padding: 12px 16px;
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   font-weight: 500;
   color: var(--text-primary);
   background: var(--bg-elevated);

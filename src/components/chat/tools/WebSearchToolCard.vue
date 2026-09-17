@@ -45,8 +45,8 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
 @use './tool-card.scss' as *;
 
 .search-results {
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: var(--text-md);
+  line-height: var(--leading-prose);
   color: var(--text-secondary);
 
   :deep(.md-heading) {

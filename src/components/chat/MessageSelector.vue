@@ -156,7 +156,7 @@ function handleOverlayClick() {
 }
 
 .message-selector-title {
-  font-size: 18px;
+  font-size: var(--text-lg-plus);
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
@@ -196,9 +196,9 @@ function handleOverlayClick() {
 }
 
 .message-preview {
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   color: var(--text-primary);
-  line-height: 1.4;
+  line-height: var(--leading-normal);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -207,7 +207,7 @@ function handleOverlayClick() {
 }
 
 .message-time {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-muted);
   flex-shrink: 0;
 }
@@ -218,7 +218,7 @@ function handleOverlayClick() {
 }
 
 .message-empty-text {
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   color: var(--text-muted);
 }
 
@@ -235,7 +235,7 @@ function handleOverlayClick() {
   gap: 6px;
   padding: 8px 16px;
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: var(--text-md);
   font-weight: 500;
   border: none;
   cursor: pointer;

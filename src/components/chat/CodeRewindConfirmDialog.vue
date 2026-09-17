@@ -128,17 +128,17 @@ function handleCancel() {
 }
 
 .confirm-title {
-  font-size: 18px;
+  font-size: var(--text-lg-plus);
   font-weight: 600;
   color: var(--text-primary, #111827);
   margin: 0;
 }
 
 .confirm-message {
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   color: var(--text-secondary, #6b7280);
   margin: 0 0 16px 0;
-  line-height: 1.5;
+  line-height: var(--leading-relaxed);
 }
 
 .file-list {
@@ -156,7 +156,7 @@ function handleCancel() {
   align-items: center;
   gap: 10px;
   padding: 8px 0;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-primary, #111827);
   font-family: 'Consolas', 'Monaco', monospace;
 }
@@ -175,7 +175,7 @@ function handleCancel() {
 }
 
 .warning-text {
-  font-size: 13px;
+  font-size: var(--text-md);
   color: #f59e0b;
   margin-bottom: 20px;
   text-align: center;
@@ -192,7 +192,7 @@ function handleCancel() {
 .confirm-button {
   padding: 10px 24px;
   border-radius: 8px;
-  font-size: var(--font-size-base);
+  font-size: var(--text-base);
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;

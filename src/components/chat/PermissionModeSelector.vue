@@ -141,7 +141,7 @@ onUnmounted(() => {
   border: 1px solid var(--surface-border);
   border-radius: 8px;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--text-md);
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
@@ -187,7 +187,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   padding: 12px 16px 8px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -212,7 +212,7 @@ onUnmounted(() => {
   transition: all 0.15s ease;
   text-align: left;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 
 .mode-option:hover {
@@ -239,18 +239,18 @@ onUnmounted(() => {
 
 .mode-name {
   display: block;
-  font-size: 13px;
+  font-size: var(--text-md);
   font-weight: 500;
   color: var(--text-primary);
-  line-height: 1.4;
+  line-height: var(--leading-normal);
 }
 
 .mode-desc {
   display: block;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
   margin-top: 2px;
-  line-height: 1.3;
+  line-height: var(--leading-compact);
 }
 
 .check-icon {

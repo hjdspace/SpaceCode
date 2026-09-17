@@ -338,7 +338,7 @@ watch(
   border-bottom: 1px solid var(--surface-border);
 
   h2 {
-    font-size: 18px;
+    font-size: var(--text-lg-plus);
     font-weight: 600;
     margin: 0;
   }
@@ -346,7 +346,7 @@ watch(
 
 .modal-subtitle {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-muted);
   font-family: var(--font-mono, monospace);
 }
@@ -366,7 +366,7 @@ watch(
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
@@ -411,7 +411,7 @@ watch(
   padding: 10px 24px;
   background: rgba(217, 119, 87, 0.08);
   color: var(--accent-primary);
-  font-size: 12px;
+  font-size: var(--text-sm);
   border-bottom: 1px solid var(--surface-border);
 }
 
@@ -463,13 +463,13 @@ watch(
 }
 
 .ring-pct {
-  font-size: 24px;
+  font-size: var(--text-xl);
   font-weight: 700;
   line-height: 1;
 }
 
 .ring-label {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -482,13 +482,13 @@ watch(
 }
 
 .model-name {
-  font-size: calc(var(--font-size-base) + 1px);
+  font-size: var(--text-base-plus);
   font-weight: 600;
   margin-bottom: 6px;
 }
 
 .token-row {
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-secondary);
   font-family: var(--font-mono, monospace);
   margin-bottom: 12px;
@@ -534,7 +534,7 @@ watch(
   flex-wrap: wrap;
   gap: 12px;
   margin-top: 10px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
 
   .dot {
@@ -561,7 +561,7 @@ watch(
   margin-top: 12px;
   padding: 8px 12px;
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: var(--text-sm);
 
   &.warn {
     background: rgba(224, 137, 107, 0.12);
@@ -591,7 +591,7 @@ watch(
   padding: 16px;
 
   h3 {
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 600;
     margin: 0 0 14px;
     color: var(--text-secondary);
@@ -635,7 +635,7 @@ watch(
   align-items: center;
   gap: 8px;
   padding: 4px 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .cat-dot {
@@ -651,11 +651,11 @@ watch(
 .cat-tokens {
   font-family: var(--font-mono, monospace);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .empty-hint {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-muted);
 }
 
@@ -664,7 +664,7 @@ watch(
   justify-content: space-between;
   padding: 8px 0;
   border-bottom: 1px solid var(--surface-border);
-  font-size: 12px;
+  font-size: var(--text-sm);
 
   span:first-child {
     color: var(--text-secondary);
@@ -681,7 +681,7 @@ watch(
 
 .stat-note {
   margin-top: 12px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
 }
 

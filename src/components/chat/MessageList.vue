@@ -583,13 +583,13 @@ onUnmounted(() => {
   min-height: 0;
 
   p {
-    font-size: 18px;
+    font-size: var(--text-lg-plus);
     font-weight: 500;
     color: var(--text-secondary);
   }
 
   span {
-    font-size: 13px;
+    font-size: var(--text-md);
     text-align: center;
     max-width: 280px;
   }

@@ -251,7 +251,7 @@ async function openInPanel() {
   padding: 20px;
   text-align: center;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .code-block {
@@ -259,8 +259,8 @@ async function openInPanel() {
   padding: 10px 12px;
   border-radius: 6px;
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
   overflow-x: auto;
   white-space: pre-wrap;
   max-height: 200px;

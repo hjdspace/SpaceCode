@@ -286,7 +286,7 @@ onUnmounted(clearTimers)
   border: 1px solid var(--surface-border-strong);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
   z-index: 30;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   transition: all 0.2s ease;
 
@@ -341,7 +341,7 @@ onUnmounted(clearTimers)
 
 .status-divider {
   color: var(--text-muted);
-  font-size: 15px;
+  font-size: var(--text-base-plus);
   line-height: 1;
   padding: 0 1px;
   flex-shrink: 0;
@@ -350,7 +350,7 @@ onUnmounted(clearTimers)
 .stat-add,
 .stat-del {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 600;
 }
 
@@ -388,7 +388,7 @@ onUnmounted(clearTimers)
   gap: 8px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--surface-border);
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--text-primary);
   flex-shrink: 0;
@@ -413,8 +413,8 @@ onUnmounted(clearTimers)
   gap: 8px;
   padding: 6px 10px;
   border-radius: 6px;
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
   color: var(--text-secondary);
   transition: background 0.12s ease;
 
@@ -457,7 +457,7 @@ onUnmounted(clearTimers)
   align-items: center;
   gap: 3px;
   color: var(--warning);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   padding: 1px 4px;
   background: var(--warning-bg, rgba(245, 158, 11, 0.1));
   border-radius: 3px;
@@ -474,7 +474,7 @@ onUnmounted(clearTimers)
   border: none;
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--text-sm);
   cursor: pointer;
   text-align: left;
   transition: background 0.12s ease;
@@ -490,13 +490,13 @@ onUnmounted(clearTimers)
 .file-name {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .file-path {
   flex: 1;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;

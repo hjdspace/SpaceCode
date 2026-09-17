@@ -95,14 +95,14 @@ async function reveal(f: ArtifactSummaryEntry) {
 
   .title {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 600;
     color: var(--text-primary, #faf9f5);
-    line-height: 1.3;
+    line-height: var(--leading-compact);
   }
 
   .count {
-    font-size: 11px;
+    font-size: var(--text-2xs);
     color: var(--text-muted, rgba(255, 255, 255, 0.5));
   }
 }
@@ -124,17 +124,17 @@ async function reveal(f: ArtifactSummaryEntry) {
   }
 }
 
-.file-icon { font-size: 20px; flex-shrink: 0; }
+.file-icon { font-size: var(--text-xl); flex-shrink: 0; }
 
 .file-meta { flex: 1; min-width: 0; }
 .file-name {
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-primary, #faf9f5);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.file-sub { font-size: 11px; color: var(--text-muted, rgba(255, 255, 255, 0.5)); margin-top: 2px; }
+.file-sub { font-size: var(--text-2xs); color: var(--text-muted, rgba(255, 255, 255, 0.5)); margin-top: 2px; }
 
 .file-actions { display: flex; gap: 2px; opacity: 0; transition: opacity 150ms ease; }
 

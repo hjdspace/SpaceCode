@@ -329,13 +329,13 @@ onMounted(() => {
   border-radius: 5px;
   background: transparent;
   color: var(--text-muted, #888);
-  font-size: 13px;
+  font-size: var(--text-md);
   font-family: inherit;
   cursor: pointer;
   transition: all 0.12s ease;
   white-space: nowrap;
   max-width: 220px;
-  line-height: 1.4;
+  line-height: var(--leading-normal);
 
   &:hover {
     background: var(--bg-hover, rgba(0, 0, 0, 0.04));
@@ -428,7 +428,7 @@ onMounted(() => {
     border: none;
     background: transparent;
     outline: none;
-    font-size: 13px;
+    font-size: var(--text-md);
     font-family: inherit;
     color: var(--text-primary, #333);
     min-width: 0;
@@ -460,7 +460,7 @@ onMounted(() => {
 
 /* ── Section Label ── */
 .ctx-section-label {
-  font-size: 10.5px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -494,7 +494,7 @@ onMounted(() => {
   border-radius: 7px;
   background: transparent;
   color: var(--text-primary, #333);
-  font-size: 13px;
+  font-size: var(--text-md);
   font-family: inherit;
   cursor: pointer;
   transition: background 0.08s ease;
@@ -529,18 +529,18 @@ onMounted(() => {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 13px;
-    line-height: 1.3;
+    font-size: var(--text-md);
+    line-height: var(--leading-compact);
   }
 
   .ctx-item-sub {
-    font-size: 11.5px;
+    font-size: var(--text-xs-plus);
     color: var(--text-muted, #999);
     font-weight: 400;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    line-height: 1.2;
+    line-height: var(--leading-tighter);
   }
 
   .ctx-item-check {
@@ -552,7 +552,7 @@ onMounted(() => {
 .ctx-empty {
   padding: 14px 8px;
   text-align: center;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-muted, #aaa);
 }
 
@@ -574,7 +574,7 @@ onMounted(() => {
   border-radius: 7px;
   background: transparent;
   color: var(--text-secondary, #666);
-  font-size: 13px;
+  font-size: var(--text-md);
   font-family: inherit;
   cursor: pointer;
   transition: background 0.08s ease, color 0.08s ease;

@@ -93,7 +93,7 @@ const tokenText = computed(() => {
   border-radius: var(--radius-md);
   background: var(--surface-glass);
   border: 1px solid var(--surface-border);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
   flex-wrap: wrap;
 }

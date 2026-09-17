@@ -98,8 +98,8 @@ const elapsedText = computed(() => {
 }
 
 .thinking-label {
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--font-weight-medium);
   white-space: nowrap;
   color: transparent;
   background-image: linear-gradient(
@@ -117,7 +117,7 @@ const elapsedText = computed(() => {
 .thinking-elapsed {
   color: var(--text-muted);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }

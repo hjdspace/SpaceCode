@@ -141,8 +141,8 @@ const showAllLabel = computed(() => t('workspace.showAllLoadedLines'))
 <style lang="scss" scoped>
 .workspace-diff-surface {
   font-family: var(--font-mono, 'Consolas', 'Monaco', monospace);
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: var(--text-sm);
+  line-height: var(--leading-chat);
   color: var(--gdc-text-color, var(--text-primary, #24292f));
   background-color: var(--gdc-bg-color, var(--bg-tertiary, #f5f5f5));
   border-radius: var(--radius-md, 6px);
@@ -193,7 +193,7 @@ const showAllLabel = computed(() => t('workspace.showAllLoadedLines'))
 
 .line-number {
   text-align: right;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--text-muted, #737373);
   user-select: none;
 }
@@ -241,7 +241,7 @@ const showAllLabel = computed(() => t('workspace.showAllLoadedLines'))
   border-top: 1px solid var(--gdc-border-color, var(--border-default, rgba(0, 0, 0, 0.08)));
   background-color: var(--surface-glass, rgba(0, 0, 0, 0.02));
   backdrop-filter: blur(8px);
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-muted, #737373);
 }
 
@@ -249,7 +249,7 @@ const showAllLabel = computed(() => t('workspace.showAllLoadedLines'))
   margin-left: auto;
   padding: 4px 8px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--text-secondary, #525252);
   background: transparent;
