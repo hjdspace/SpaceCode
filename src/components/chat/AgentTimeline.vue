@@ -20,7 +20,7 @@
     <!-- Timeline event list -->
     <div class="timeline-events">
       <template v-for="(item, index) in displayItems" :key="item.groupId || item.event?.id || `item-${index}`">
-        <!-- ── 工具调用折叠组 ── -->
+        <!-- ── 工具调用折叠组 (Tool Chips) ── -->
         <div v-if="item.type === 'tool-group'" class="tool-group">
           <!-- 折叠时：紧凑 chips 摘要行 -->
           <div v-if="isToolGroupCollapsed(item.groupId!)" class="tool-group__summary">
@@ -37,6 +37,16 @@
               >
                 <path d="M6 9l6 6 6-6" />
               </svg>
+              <Loader2
+                v-if="getGroupRunStatus(item.events!) === 'running'"
+                :size="12"
+                class="spin-icon tool-group__status tool-group__status--running"
+              />
+              <AlertCircle
+                v-else-if="getGroupRunStatus(item.events!) === 'error'"
+                :size="12"
+                class="tool-group__status tool-group__status--error"
+              />
               <span class="tool-group__count">
                 {{ t('chat.toolChips.toolCalls', { count: item.events!.length }) }}
               </span>
@@ -44,7 +54,7 @@
             <!-- 紧凑 chips（带工具图标） -->
             <div class="tool-group__chips">
               <span
-                v-for="(chip, ci) in getGroupChips(item.events!)"
+                v-for="(chip, ci) in getGroupChips(item.events!).slice(0, CHIP_CAP)"
                 :key="ci"
                 class="tool-group__chip"
                 :class="{ 'tool-group__chip--mono': chip.mono }"
@@ -52,14 +62,20 @@
                 <component :is="chip.icon" :size="11" class="tool-group__chip-icon" />
                 <span class="tool-group__chip-text">{{ chip.text }}</span>
               </span>
+              <span
+                v-if="getGroupChips(item.events!).length > CHIP_CAP"
+                class="tool-group__chip tool-group__chip--more"
+              >
+                {{ t('chat.toolChips.more', { count: getGroupChips(item.events!).length - CHIP_CAP }) }}
+              </span>
             </div>
             <!-- diff 统计 chips -->
             <div v-if="getGroupDiffStats(item.events!).length > 0" class="tool-group__diffs">
               <span
-                v-for="(diff, di) in getGroupDiffStats(item.events!)"
+                v-for="(diff, di) in getGroupDiffStats(item.events!).slice(0, DIFF_CAP)"
                 :key="diff.file"
                 class="tool-group__diff-chip"
-                :style="{ '--chip-delay': `${di * 60}ms` }"
+                :style="{ '--chip-delay': `${di * 80}ms` }"
               >
                 <span class="tool-group__diff-file">{{ diff.file }}</span>
                 <span class="tool-group__diff-add">+{{ diff.add }}</span>
@@ -83,90 +99,112 @@
             >
               <path d="M6 9l6 6 6-6" />
             </svg>
+            <Loader2
+              v-if="getGroupRunStatus(item.events!) === 'running'"
+              :size="12"
+              class="spin-icon tool-group__status tool-group__status--running"
+            />
+            <AlertCircle
+              v-else-if="getGroupRunStatus(item.events!) === 'error'"
+              :size="12"
+              class="tool-group__status tool-group__status--error"
+            />
             <span class="tool-group__count">
               {{ t('chat.toolChips.toolCalls', { count: item.events!.length }) }}
             </span>
           </button>
 
-          <!-- 逐行工具事件（展开时显示，带 grid 展开动画） -->
+          <!-- 展开面板（grid 动画）：专用卡片 + generic 工具行 + diff chips -->
           <div class="tool-group__expand-panel" :class="{ 'tool-group__expand-panel--open': !isToolGroupCollapsed(item.groupId!) }">
             <div class="tool-group__expand-clip">
               <div class="tool-group__events">
-                <div
-                  v-for="event in item.events!"
-                  :key="event.id"
-                  class="tool-row"
-                  :class="[`status-${event.status}`]"
-                >
-                  <button
-                    type="button"
-                    class="tool-row__button"
-                    :aria-expanded="expandedEvents[event.id]"
-                    @click="toggleEvent(event.id)"
-                  >
-                    <span class="tool-row__icon-wrap">
-                      <span class="tool-row__icon" :class="{ 'tool-row__icon--hidden': expandedEvents[event.id] }">
-                        <Loader2 v-if="event.status === 'running'" :size="13" class="spin-icon" />
-                        <X v-else-if="event.status === 'error'" :size="13" />
-                        <component v-else :is="event.icon" :size="13" />
-                      </span>
-                      <svg
-                        class="tool-row__chevron"
-                        :class="{ 'tool-row__chevron--open': expandedEvents[event.id] }"
-                        width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
-                      >
-                        <path d="M6 9l6 6 6-6" />
-                      </svg>
-                    </span>
-                    <span class="tool-row__label">{{ event.label }}</span>
-                    <span v-if="event.target" class="tool-row__chip" :class="{ 'tool-row__chip--mono': isMonoTool(event.toolCall?.name) }">
-                      {{ event.target }}
-                    </span>
-                    <span v-if="event.duration" class="tool-row__duration">{{ event.duration }}s</span>
-                  </button>
-
-                  <!-- detail panel with grid animation -->
+                <template v-for="event in item.events!" :key="event.id">
+                  <!-- 带专用组件的工具：卡片 UI 原样渲染 -->
                   <div
-                    class="detail-panel"
-                    :class="{ 'detail-panel--open': expandedEvents[event.id] }"
+                    v-if="event.specialComponent"
+                    :key="`card-${getSpecialComponentKey(event)}`"
+                    class="tool-group__card"
                   >
-                    <div class="detail-panel__clip">
-                      <template v-if="expandedEvents[event.id]">
-                        <div class="detail-lines">
-                          <div v-if="event.toolCall?.input && Object.keys(event.toolCall.input).length" class="detail-line detail-line--code">
-                            <pre class="detail-code"><code>{{ formatInput(event.toolCall) }}</code></pre>
-                          </div>
-                          <div v-if="event.toolCall?.output" class="detail-line detail-line--code">
-                            <pre class="detail-code output"><code>{{ formatOutput(event.toolCall.output) }}</code></pre>
-                          </div>
-                        </div>
-                      </template>
-                    </div>
+                    <component
+                      :is="event.specialComponent"
+                      :tool-call="event.toolCall!"
+                      @submit="handleToolSubmit(event.toolCall!.id, $event)"
+                      @skip="handleToolSkip(event.toolCall!.id)"
+                    />
                   </div>
 
-                  <PermissionRequestCard
-                    v-if="event.toolCall && getPendingPermission(event.toolCall.id)"
-                    :message-id="event.messageId!"
-                    :tool-use-id="event.toolCall.id"
-                    :tool-name="getPendingPermission(event.toolCall.id)!.toolName"
-                    :input="getPendingPermission(event.toolCall.id)!.input"
-                  />
-                </div>
+                  <!-- generic 工具行 -->
+                  <div v-else class="tool-row" :class="[`status-${event.status}`]">
+                    <button
+                      type="button"
+                      class="tool-row__button"
+                      :aria-expanded="expandedEvents[event.id]"
+                      @click="toggleEvent(event.id)"
+                    >
+                      <span class="tool-row__icon-wrap">
+                        <span class="tool-row__icon" :class="{ 'tool-row__icon--hidden': expandedEvents[event.id] }">
+                          <Loader2 v-if="event.status === 'running'" :size="13" class="spin-icon" />
+                          <X v-else-if="event.status === 'error'" :size="13" />
+                          <component v-else :is="event.icon" :size="13" />
+                        </span>
+                        <svg
+                          class="tool-row__chevron"
+                          :class="{ 'tool-row__chevron--open': expandedEvents[event.id] }"
+                          width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+                        >
+                          <path d="M6 9l6 6 6-6" />
+                        </svg>
+                      </span>
+                      <span class="tool-row__label">{{ event.label }}</span>
+                      <span v-if="event.target" class="tool-row__chip" :class="{ 'tool-row__chip--mono': isMonoTool(event.toolCall?.name) }">
+                        {{ event.target }}
+                      </span>
+                      <span v-if="event.duration" class="tool-row__duration">{{ event.duration }}s</span>
+                    </button>
+
+                    <!-- detail panel with grid animation -->
+                    <div
+                      class="detail-panel"
+                      :class="{ 'detail-panel--open': expandedEvents[event.id] }"
+                    >
+                      <div class="detail-panel__clip">
+                        <template v-if="expandedEvents[event.id]">
+                          <div class="detail-lines">
+                            <div v-if="event.toolCall?.input && Object.keys(event.toolCall.input).length" class="detail-line detail-line--code">
+                              <pre class="detail-code"><code>{{ formatInput(event.toolCall) }}</code></pre>
+                            </div>
+                            <div v-if="event.toolCall?.output" class="detail-line detail-line--code">
+                              <pre class="detail-code output"><code>{{ formatOutput(event.toolCall.output) }}</code></pre>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+                  </div>
+                </template>
               </div>
 
-              <!-- diff chips（展开时底部显示） -->
+              <!-- diff chips（展开时底部显示，超出上限可展开剩余） -->
               <div v-if="getGroupDiffStats(item.events!).length > 0" class="tool-group__diff-list">
                 <span
-                  v-for="(diff, di) in getGroupDiffStats(item.events!)"
+                  v-for="(diff, di) in visibleGroupDiffs(item.groupId!, item.events!)"
                   :key="diff.file"
                   class="tool-group__diff-chip"
-                  :style="{ '--chip-delay': `${di * 60}ms` }"
+                  :style="{ '--chip-delay': `${Math.min(di, 5) * 80}ms` }"
                 >
                   <span class="tool-group__diff-file">{{ diff.file }}</span>
                   <span class="tool-group__diff-add">+{{ diff.add }}</span>
                   <span v-if="diff.del > 0" class="tool-group__diff-del">−{{ diff.del }}</span>
                 </span>
+                <button
+                  v-if="hasMoreGroupDiffs(item.groupId!, item.events!)"
+                  type="button"
+                  class="tool-group__more-btn"
+                  @click="revealGroupDiffs(item.groupId!)"
+                >
+                  {{ t('chat.toolChips.more', { count: getGroupDiffStats(item.events!).length - visibleGroupDiffs(item.groupId!, item.events!).length }) }}
+                </button>
               </div>
             </div>
           </div>
@@ -698,9 +736,9 @@ const visibleTimelineEvents = computed<TimelineEvent[]>(() => {
   })
 })
 
-// ── 将连续的 generic tool_call 事件合并为可折叠组 ──
-// 带有特殊组件的 tool_call（如 AskUserQuestion）不参与合并，
-// 它们有自己的交互 UI，需要独立渲染。
+// ── 将连续的工具调用 run 合并为可折叠的 Tool Chips 组 ──
+// 专用卡片工具（Bash/Read/Edit 等）同样参与折叠：卡片 UI 原样渲染在组内。
+// 排除两类必须始终可见的工具：交互式问答（自身即权限 UI）与挂起中的权限请求。
 interface DisplayItem {
   type: 'single' | 'tool-group'
   event?: TimelineEvent
@@ -708,57 +746,81 @@ interface DisplayItem {
   groupId?: string
 }
 
+// 折叠摘要行中目标 chips / diff chips 的展示上限
+const CHIP_CAP = 8
+const DIFF_CAP = 4
+
+function isGroupableToolEvent(event: TimelineEvent): boolean {
+  if (event.type !== 'tool_call' || !event.toolCall) return false
+  if (SELF_PERMISSION_TOOL_NAMES.has(event.toolCall.name)) return false
+  return !getPendingPermission(event.toolCall.id)
+}
+
 const displayItems = computed<DisplayItem[]>(() => {
   const items: DisplayItem[] = []
-  // 第一遍：收集所有 generic tool_call 事件
-  const genericToolEvents = visibleTimelineEvents.value.filter(
-    e => e.type === 'tool_call' && !shouldRenderSpecialComponent(e)
-  )
+  let run: TimelineEvent[] = []
 
-  if (genericToolEvents.length < 2) {
-    // 不足 2 个，不需要折叠，全部作为 single
-    for (const event of visibleTimelineEvents.value) {
-      items.push({ type: 'single', event })
+  const flushRun = () => {
+    if (run.length === 0) return
+    // ≥2 个连续工具、或带专用卡片的单个工具 → 折叠组；
+    // 单个 generic 工具保持独立行（行本身就是紧凑形态）
+    if (run.length >= 2 || run.some(e => !!e.specialComponent)) {
+      items.push({ type: 'tool-group', events: run, groupId: `tool-group-${run[0].id}` })
+    } else {
+      for (const event of run) items.push({ type: 'single', event })
     }
-    return items
+    run = []
   }
-
-  // 有 ≥2 个 generic tool_call → 合并为一个折叠组
-  const groupId = 'tool-group-0'
-  const toolEventIds = new Set(genericToolEvents.map(e => e.id))
-  let groupInserted = false
 
   for (const event of visibleTimelineEvents.value) {
-    if (toolEventIds.has(event.id)) {
-      // 第一个 generic tool_call 的位置 → 插入折叠组
-      if (!groupInserted) {
-        items.push({ type: 'tool-group', events: genericToolEvents, groupId })
-        groupInserted = true
-      }
-      // 后续的 generic tool_call 跳过（已在组内）
+    if (isGroupableToolEvent(event)) {
+      run.push(event)
     } else {
-      // 非 generic tool_call 事件 → 按原位置渲染
+      flushRun()
       items.push({ type: 'single', event })
     }
   }
+  flushRun()
 
   return items
 })
 
 // ── 工具组折叠状态 ──
-const collapsedToolGroups = reactive<Record<string, boolean>>({})
+// 手动操作优先；未手动操作时：turn 进行中（loading 或仍有工具运行）保持展开，
+// 全部结束后折叠。loading 判断覆盖工具之间的间隙，避免流式期间组反复闪折。
+const manualToolGroupCollapse = reactive<Record<string, boolean>>({})
+// diff chips 超出 DIFF_CAP 后点击 "+N more" 展开剩余
+const revealedDiffGroups = reactive<Record<string, boolean>>({})
 
 function isToolGroupCollapsed(groupId: string): boolean {
-  // 默认折叠（undefined → true），正在运行的组不折叠
+  if (manualToolGroupCollapse[groupId] !== undefined) return manualToolGroupCollapse[groupId]
+  if (props.loading) return false
   const events = displayItems.value.find(item => item.groupId === groupId)?.events
-  if (events?.some(e => e.status === 'running' || e.status === 'pending')) {
-    return false
-  }
-  return collapsedToolGroups[groupId] ?? true
+  if (events?.some(e => e.status === 'running' || e.status === 'pending')) return false
+  return true
 }
 
 function toggleToolGroup(groupId: string) {
-  collapsedToolGroups[groupId] = !isToolGroupCollapsed(groupId)
+  manualToolGroupCollapse[groupId] = !isToolGroupCollapsed(groupId)
+}
+
+function getGroupRunStatus(events: TimelineEvent[]): 'running' | 'error' | 'completed' {
+  if (events.some(e => e.status === 'running' || e.status === 'pending')) return 'running'
+  if (events.some(e => e.status === 'error')) return 'error'
+  return 'completed'
+}
+
+function visibleGroupDiffs(groupId: string, events: TimelineEvent[]): DiffStat[] {
+  const stats = getGroupDiffStats(events)
+  return revealedDiffGroups[groupId] ? stats : stats.slice(0, DIFF_CAP)
+}
+
+function hasMoreGroupDiffs(groupId: string, events: TimelineEvent[]): boolean {
+  return !revealedDiffGroups[groupId] && getGroupDiffStats(events).length > DIFF_CAP
+}
+
+function revealGroupDiffs(groupId: string) {
+  revealedDiffGroups[groupId] = true
 }
 
 // ── 工具组摘要信息 ──
@@ -809,7 +871,8 @@ function getGroupDiffStats(events: TimelineEvent[]): DiffStat[] {
       stats.push({ file, add, del })
     }
   }
-  return stats.slice(0, 5)
+  // 展示上限由调用方（DIFF_CAP + "+N more" 按钮）控制，这里返回全量
+  return stats
 }
 
 const overallStatus = computed(() => {
@@ -1450,6 +1513,25 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   font-family: var(--font-mono);
 }
 
+/* 摘要行 "+N 更多" 计数 chip */
+.tool-group__chip--more {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* 折叠头状态图标（运行中 spinner / 出错） */
+.tool-group__status {
+  flex-shrink: 0;
+}
+
+.tool-group__status--running {
+  color: var(--accent-primary);
+}
+
+.tool-group__status--error {
+  color: var(--error);
+}
+
 .tool-group__diffs {
   display: flex;
   flex-wrap: wrap;
@@ -1490,6 +1572,30 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   font-variant-numeric: tabular-nums;
 }
 
+/* diff 列表 "+N more" 展开剩余按钮（ToolChips more-button 风格） */
+.tool-group__more-btn {
+  display: inline-flex;
+  height: 22px;
+  align-items: center;
+  padding-inline: 6px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition: color 100ms ease, text-decoration-color 100ms ease;
+
+  &:hover {
+    color: var(--text-secondary);
+    text-decoration-color: currentColor;
+  }
+}
+
 /* 展开面板（grid 动画） */
 .tool-group__expand-panel {
   display: grid;
@@ -1512,8 +1618,13 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
 .tool-group__events {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   padding-top: 4px;
+}
+
+/* 组内专用工具卡片容器：卡片 UI 本身不变，仅负责组内间距 */
+.tool-group__card {
+  margin-block: 3px;
 }
 
 /* diff 列表（展开时底部） */
