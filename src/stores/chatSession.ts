@@ -751,8 +751,18 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       // 用户配置的实际模型。直接传实际模型名会绕过此机制。
       // _overrideModelForNextInit 已经是别名（由 ChatPanel.handleModelChange 传入）。
       // config.model 是 sonnetModel 的实际值（如 deepseek-v4-pro），需要映射回 'sonnet'。
-      const selectedModel = session.model || config.model
+      // _pendingModelChoice 是无会话时暂存的输入框选择（sendMessage 刚新建了会话）。
+      const selectedModel = session.model || _pendingModelChoice || config.model
       const effectiveModel = _overrideModelForNextInit ?? resolveModelAliasFromConfig(selectedModel)
+
+      // modelContextWindows 以实际模型名（如 kimi-k3）为键，而 effectiveModel 是别名。
+      // sessionProcess 用 config.model 查 [1m] 后缀与 CLAUDE_CODE_AUTO_COMPACT_WINDOW，
+      // 别名查不到会导致槽位模型的自定义上下文窗口不生效。这里为别名补一份同值键。
+      const modelContextWindowsForEngine: Record<string, number> = { ...settingsStore.modelContextWindows }
+      const actualModel = actualModelForAlias(effectiveModel)
+      if (effectiveModel && actualModel && modelContextWindowsForEngine[actualModel] !== undefined) {
+        modelContextWindowsForEngine[effectiveModel] = modelContextWindowsForEngine[actualModel]
+      }
 
       session.processStatus = 'starting'
       saveToStorage()
@@ -794,7 +804,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         resumeSessionId: session._resumeSessionId,
         systemPrompt: overrides?.systemPrompt,
         // 展开为普通对象，避免 Vue 响应式 Proxy 无法通过 Electron IPC 结构化克隆
-        modelContextWindows: { ...settingsStore.modelContextWindows },
+        modelContextWindows: modelContextWindowsForEngine,
         rtkEnabled: settingsStore.rtkEnabled,
       })
 
@@ -804,6 +814,12 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       session.engineSource = settingsStore.engineSource
       session.provider = config.provider
       session.baseUrl = config.baseUrl || ''
+      // 无会话时暂存的模型选择在此落地为新会话的默认模型，
+      // 后续 init 不再依赖暂存值
+      if (_pendingModelChoice && !session.model) {
+        session.model = _pendingModelChoice
+      }
+      _pendingModelChoice = undefined
       // CLI 进程启动成功后会话处于等待输入状态，标记为 idle 而非 starting，
       // 避免新创建的助手会话在用户尚未发送消息时一直显示转圈。
       session.processStatus = 'idle'
@@ -1706,19 +1722,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
    */
   function resolveModelAliasFromConfig(modelValue: string | undefined): string | undefined {
     if (!modelValue) return undefined
-    const authMethod = settingsStore.authMethod
-    let providerConfig: { haikuModel: string; sonnetModel: string; opusModel: string } | null = null
-    switch (authMethod) {
-      case 'anthropic_compatible':
-        providerConfig = settingsStore.anthropicConfig
-        break
-      case 'openai_compatible':
-        providerConfig = settingsStore.openaiConfig
-        break
-      case 'gemini_api':
-        providerConfig = settingsStore.geminiConfig
-        break
-    }
+    const providerConfig = getActiveProviderSlotConfig()
     if (!providerConfig) return modelValue
 
     if (providerConfig.haikuModel && providerConfig.haikuModel === modelValue) return 'haiku'
@@ -1726,6 +1730,33 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     if (providerConfig.opusModel && providerConfig.opusModel === modelValue) return 'opus'
 
     return modelValue
+  }
+
+  /** 当前 authMethod 对应的 haiku/sonnet/opus 槽位配置 */
+  function getActiveProviderSlotConfig(): { haikuModel: string; sonnetModel: string; opusModel: string } | null {
+    switch (settingsStore.authMethod) {
+      case 'anthropic_compatible':
+        return settingsStore.anthropicConfig
+      case 'openai_compatible':
+        return settingsStore.openaiConfig
+      case 'gemini_api':
+        return settingsStore.geminiConfig
+    }
+    return null
+  }
+
+  /**
+   * resolveModelAliasFromConfig 的逆映射：别名 → 当前 provider 槽位的实际模型名。
+   * 用于以实际模型名为键的查找（如 modelContextWindows）；非别名入参返回 undefined。
+   */
+  function actualModelForAlias(alias: string | undefined): string | undefined {
+    if (!alias) return undefined
+    const providerConfig = getActiveProviderSlotConfig()
+    if (!providerConfig) return undefined
+    if (alias === 'haiku') return providerConfig.haikuModel || undefined
+    if (alias === 'sonnet') return providerConfig.sonnetModel || undefined
+    if (alias === 'opus') return providerConfig.opusModel || undefined
+    return undefined
   }
 
   /** Temporary model override for the next initClaudeCodeSession call.
@@ -1736,17 +1767,29 @@ export const useChatSessionStore = defineStore('chatSession', () => {
    */
   let _overrideModelForNextInit: string | undefined
 
+  /** 用户在无会话状态下的模型选择（输入框下拉）。
+   *  switchModel() 在 currentSessionId 为空时无处写入 session.model，
+   *  若不暂存，sendMessage 新建的会话会回退到 config.model（恒为
+   *  sonnet 槽位），表现为"输入框切换模型不生效"。
+   *  由 initClaudeCodeSession 消费并写入新会话的 session.model。
+   */
+  let _pendingModelChoice: string | undefined
+
   async function switchModel(model: string, displayModel?: string, options?: { skipSetModel?: boolean }): Promise<void> {
     const sid = currentSessionId.value
 
     // 记录用户选择的模型（显示名）到 session，供 UI 面板使用
     const dm = displayModel ?? model
-    if (sid) {
-      const session = sessions.value.find(s => s.id === sid)
-      if (session) {
-        session.model = dm
-        saveToStorage()
-      }
+    if (!sid) {
+      _pendingModelChoice = dm
+      logger.info('ChatStore', `switchModel: no active session, stashing model choice | model=${dm}`)
+      return
+    }
+    _pendingModelChoice = undefined
+    const session = sessions.value.find(s => s.id === sid)
+    if (session) {
+      session.model = dm
+      saveToStorage()
     }
 
     const claudeCode = api.claudeCode
