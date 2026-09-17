@@ -344,6 +344,14 @@
         </div>
       </template>
 
+      <!-- 等待 LLM 下一轮响应：工具调用结束后的间隙指示（修复2） -->
+      <div v-if="isWaitingForLlm" class="timeline-waiting">
+        <ThinkingState
+          :start-time="turnStartTimestamp"
+          variant="responding"
+        />
+      </div>
+
     </div>
 
     <!-- 用时汇总条：复用 TurnSummaryBar 组件 -->
@@ -367,6 +375,7 @@ import PermissionRequestCard from './tools/PermissionRequestCard.vue'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
 import ErrorCard from '../common/ErrorCard.vue'
 import TurnSummaryBar from './TurnSummaryBar.vue'
+import ThinkingState from './ThinkingState.vue'
 import { stripDesignTags } from '@/utils/chat/buildBlocks'
 import { errorHandler } from '@/services/errorHandler'
 import { useChatSessionStore } from '@/stores/chatSession'
@@ -786,18 +795,28 @@ const displayItems = computed<DisplayItem[]>(() => {
 })
 
 // ── 工具组折叠状态 ──
-// 手动操作优先；未手动操作时：turn 进行中（loading 或仍有工具运行）保持展开，
-// 全部结束后折叠。loading 判断覆盖工具之间的间隙，避免流式期间组反复闪折。
+// 手动操作优先。自动规则（sticky）：组内所有工具结束后折叠，且保持折叠 ——
+// 后续同组追加的新工具由折叠摘要行的 spinner / chips 持续展示进度，
+// 避免组在「工具结束 → 等待 LLM 下一轮 → 新工具开始」间反复展开/折叠闪烁。
+// 新建的组（从未自动折叠过）在有工具运行时保持展开，用户可实时观看进度。
 const manualToolGroupCollapse = reactive<Record<string, boolean>>({})
+const autoCollapsedGroups = reactive<Record<string, boolean>>({})
 // diff chips 超出 DIFF_CAP 后点击 "+N more" 展开剩余
 const revealedDiffGroups = reactive<Record<string, boolean>>({})
 
+watch(displayItems, (items) => {
+  for (const item of items) {
+    if (item.type !== 'tool-group') continue
+    const hasActive = item.events!.some(e => e.status === 'running' || e.status === 'pending')
+    if (!hasActive) autoCollapsedGroups[item.groupId!] = true
+  }
+}, { immediate: true })
+
 function isToolGroupCollapsed(groupId: string): boolean {
   if (manualToolGroupCollapse[groupId] !== undefined) return manualToolGroupCollapse[groupId]
-  if (props.loading) return false
+  if (autoCollapsedGroups[groupId]) return true
   const events = displayItems.value.find(item => item.groupId === groupId)?.events
-  if (events?.some(e => e.status === 'running' || e.status === 'pending')) return false
-  return true
+  return !events?.some(e => e.status === 'running' || e.status === 'pending')
 }
 
 function toggleToolGroup(groupId: string) {
@@ -886,6 +905,40 @@ const overallStatus = computed(() => {
   if (timelineEvents.value.some(e => e.status === 'error')) return 'error'
   return 'completed'
 })
+
+// ── 等待 LLM 下一轮响应检测 ──
+// loading 期间，若本 turn 已有可见内容，但没有任何进行中的活动
+// （工具执行 / 推理 / 非空流式文本），也没有等待用户裁决的权限请求，
+// 则说明工具结果已返回、正在等待 LLM 生成下一段响应（或引擎内部重试）。
+// 该间隙此前完全没有行内指示，用户只能看到静止的已完成工具组。
+const isWaitingForLlm = computed(() => {
+  if (!props.loading) return false
+  const msgs = props.messages
+  if (!msgs.length) return false
+  // 无可见内容时属于"等待首个 token"，由 MessageList 的 ThinkingState 负责
+  const hasContent = msgs.some(m =>
+    (m.content?.trim() ?? '') !== '' ||
+    (m.reasoning?.content?.trim() ?? '') !== '' ||
+    (m.toolCalls?.length ?? 0) > 0,
+  )
+  if (!hasContent) return false
+  for (const m of msgs) {
+    // 运行中/挂起的工具（含等待权限裁决的）已有自身的视觉指示（spinner / 权限卡片），
+    // 不属于空闲等待
+    if (m.toolCalls?.some(tc => tc.status === 'running' || tc.status === 'pending')) return false
+    for (const ev of m.timelineEvents || []) {
+      if (ev.status !== 'running' && ev.status !== 'pending') continue
+      // 纯空白的 text 占位事件不可见（LLM 在工具调用间常输出 "\n"），不算活动
+      if (ev.type === 'text' && !ev.content?.trim()) continue
+      return false
+    }
+  }
+  return true
+})
+
+// 等待指示行的计时起点：本组首条消息（turn 开始时创建的 assistant 占位）
+// 的时间戳，与头部计时器口径一致，跨页面切换重建后计时不归零。
+const turnStartTimestamp = computed(() => props.messages[0]?.timestamp)
 
 // ========== 优化3: 使用更轻量的监听替代deep watch ==========
 // 只监听reasoning事件的状态变化，不监听整个timelineEvents数组
@@ -1185,6 +1238,12 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   padding-left: 0;
 }
 
+/* 等待 LLM 下一轮响应指示行：与工具行/文本列对齐（22px 轴 + 10px 内边距） */
+.timeline-waiting {
+  margin-left: 32px;
+  padding: 2px 0 6px;
+}
+
 .timeline-event {
   display: flex;
   align-items: flex-start;
@@ -1429,7 +1488,10 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  padding: 2px 0;
+  /* 折叠组不经过 .timeline-event 的 22px 轴留白 + 10px 正文内边距（文本列共 32px），
+     而 toggle 内部箭头(12px)+间距(6px)使计数文案右移 18px，补 32-18=14px
+     让 "N 个工具调用" 与消息文本左对齐，箭头留在时间轴槽内 */
+  padding: 2px 0 2px 14px;
 }
 
 .tool-group__toggle {
@@ -1453,6 +1515,8 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
 }
 
 .tool-group__toggle--expanded {
+  /* 覆盖基础 -6px 外边距：与折叠摘要行同列（箭头对齐轴槽，文案对齐文本列） */
+  margin-left: 8px;
   margin-bottom: 2px;
 }
 
@@ -1620,6 +1684,9 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   flex-direction: column;
   gap: 4px;
   padding-top: 4px;
+  /* 对齐单个事件的 event-body 文本列（22px 轴留白 + 10px 内边距），
+     使组内工具行/专用卡片与独立的单工具行渲染位置一致 */
+  padding-left: 32px;
 }
 
 /* 组内专用工具卡片容器：卡片 UI 本身不变，仅负责组内间距 */
@@ -1632,7 +1699,7 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 8px;
+  margin: 8px 0 0 32px;
   padding-top: 8px;
   border-top: 1px solid var(--surface-border);
 }
