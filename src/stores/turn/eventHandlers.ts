@@ -131,8 +131,39 @@ function remoteUserContent(data: any): string {
 }
 
 /**
- * 从部分 JSON 字符串中尝试提取关键工具输入字段（file_path / path / command / query / pattern / url），
- * 让 UI 能在 LLM 流式生成工具参数时就显示工具目标。
+ * 解码部分 JSON 字符串值（值可能尚未传输完毕）。
+ * 优先直接 JSON.parse；仅当值末尾挂着不完整的转义序列（落单的反斜杠、
+ * 未满 4 位的 \uXX）导致解析失败时，剪掉后重试。
+ * Write 工具的代码以 \n 等转义形式传输，必须完整反转义才能按行流式渲染。
+ */
+function decodePartialJsonString(raw: string): string {
+  try {
+    return JSON.parse(`"${raw}"`)
+  } catch {
+    let s = raw
+    let end = s.length
+    while (end > 0 && s[end - 1] === '\\') end--
+    if ((s.length - end) % 2 === 1) {
+      s = s.slice(0, -1)
+    } else {
+      s = s.replace(/\\u[0-9a-fA-F]{0,3}$/, '')
+    }
+    try {
+      return JSON.parse(`"${s}"`)
+    } catch {
+      return s
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, '\\')
+        .replace(/\\n/g, '\n')
+        .replace(/\\t/g, '\t')
+        .replace(/\\r/g, '\r')
+    }
+  }
+}
+
+/**
+ * 从部分 JSON 字符串中尝试提取关键工具输入字段（file_path / path / command / query / pattern / url / content），
+ * 让 UI 能在 LLM 流式生成工具参数时就显示工具目标与流式代码块。
  * 支持两种匹配模式：
  * 1. 完整字符串值（引号已闭合）：`"file_path": "/path/to/file.html"`
  * 2. 部分字符串值（引号尚未闭合）：`"file_path": "/path/to/file.ht`
@@ -141,22 +172,25 @@ function tryExtractEarlyInput(partialJson: string): Record<string, unknown> | nu
   const result: Record<string, unknown> = {}
   let found = false
 
-  const fields = ['file_path', 'path', 'command', 'query', 'pattern', 'url']
+  // content 为 Write/FileWrite 的代码本体，纳入早期提取驱动逐行流式渲染
+  const fields = ['file_path', 'path', 'command', 'query', 'pattern', 'url', 'content']
   for (const field of fields) {
     // 先尝试匹配引号闭合的完整值
     const closedRegex = new RegExp(`"${field}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`)
     const closedMatch = partialJson.match(closedRegex)
     if (closedMatch) {
-      result[field] = closedMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\')
+      result[field] = decodePartialJsonString(closedMatch[1])
       found = true
       continue
     }
 
-    // 再尝试匹配引号尚未闭合的部分值（值正在流式传输中）
-    const partialRegex = new RegExp(`"${field}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)$`)
+    // 再尝试匹配引号尚未闭合的部分值（值正在流式传输中）。
+    // 末尾可选的裸反斜杠容纳「转义序列只传了一半」的瞬间（如 "abc\ ），
+    // 由 decodePartialJsonString 剪掉后解码。
+    const partialRegex = new RegExp(`"${field}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*\\\\?)$`)
     const partialMatch = partialJson.match(partialRegex)
     if (partialMatch) {
-      result[field] = partialMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\')
+      result[field] = decodePartialJsonString(partialMatch[1])
       found = true
     }
   }
@@ -233,6 +267,46 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       }
     }, CONTENT_PATCH_INTERVAL_MS)
     pendingContentPatches.set(sessionId, { timer, turn: ts })
+  }
+
+  // 工具输入早期提取节流：input_json_delta 每秒可达数十次，content 字段的每次
+  // 更新都会触发 WriteToolCard 全量语法高亮，按 ~10Hz 合并刷新避免卡顿。
+  const pendingEarlyInputPatches = new Map<string, { timer: ReturnType<typeof setTimeout>; turn: TurnState; toolId: string }>()
+  const EARLY_INPUT_PATCH_INTERVAL_MS = 100
+
+  function scheduleEarlyInputPatch(sessionId: string, ts: TurnState, toolId: string): void {
+    const pending = pendingEarlyInputPatches.get(sessionId)
+    if (pending) {
+      if (pending.turn === ts) {
+        pending.toolId = toolId
+        return
+      }
+      clearTimeout(pending.timer)
+    }
+    const timer = setTimeout(() => {
+      pendingEarlyInputPatches.delete(sessionId)
+      flushEarlyInputPatch(sessionId, ts, toolId)
+    }, EARLY_INPUT_PATCH_INTERVAL_MS)
+    pendingEarlyInputPatches.set(sessionId, { timer, turn: ts, toolId })
+  }
+
+  function flushEarlyInputPatch(sessionId: string, ts: TurnState, toolId: string): void {
+    // content_block_stop 已整体解析并清空分片，勿用迟到的部分提取覆盖完整 input
+    const accumulated = ts.streamingToolJson.get(toolId)
+    if (accumulated === undefined) return
+    const earlyInput = tryExtractEarlyInput(accumulated)
+    if (!earlyInput) return
+    const s = sink.get(sessionId)
+    const msg = s?.messages.find(m => m.id === ts.assistantMessageId)
+    if (!msg?.toolCalls) return
+    const idx = msg.toolCalls.findIndex(tc => tc.id === toolId)
+    if (idx < 0) return
+    const updatedToolCalls = [...msg.toolCalls]
+    updatedToolCalls[idx] = {
+      ...updatedToolCalls[idx],
+      input: { ...updatedToolCalls[idx].input, ...earlyInput }
+    }
+    msg.toolCalls = updatedToolCalls
   }
 
   function handleRemoteUserMessage(sessionId: string, data: any): void {
@@ -407,29 +481,11 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       const toolId = ts.currentStreamingToolId
       if (toolId) {
         const prev = ts.streamingToolJson.get(toolId) || ''
-        const accumulated = prev + ev.delta.partial_json
-        ts.streamingToolJson.set(toolId, accumulated)
+        ts.streamingToolJson.set(toolId, prev + ev.delta.partial_json)
 
-        // 尝试从部分 JSON 中提取关键信息（file_path / path / command 等），
-        // 让 UI 能尽早显示工具目标
-        const earlyInput = tryExtractEarlyInput(accumulated)
-        if (earlyInput) {
-          const s = sink.get(sessionId)
-          if (s) {
-            const msg = s.messages.find(m => m.id === ts.assistantMessageId)
-            if (msg?.toolCalls) {
-              const idx = msg.toolCalls.findIndex(tc => tc.id === toolId)
-              if (idx >= 0) {
-                const updatedToolCalls = [...msg.toolCalls]
-                updatedToolCalls[idx] = {
-                  ...updatedToolCalls[idx],
-                  input: { ...updatedToolCalls[idx].input, ...earlyInput }
-                }
-                msg.toolCalls = updatedToolCalls
-              }
-            }
-          }
-        }
+        // 节流提取关键信息（file_path / content 等），让 UI 尽早显示工具目标
+        // 并驱动 Write 卡片逐行流式渲染代码
+        scheduleEarlyInputPatch(sessionId, ts, toolId)
       }
     }
 
