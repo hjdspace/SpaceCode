@@ -19,7 +19,11 @@ vi.mock('vue-i18n', () => ({
       t: (key: string) => key,
     },
   }),
-  useI18n: () => ({ t: (key: string) => key }),
+  useI18n: () => ({
+    t: (key: string) => key,
+    locale: { value: 'en-US' },
+    tm: (key: string) => (key === 'chat.defaultTasks' ? [] : undefined),
+  }),
 }))
 
 vi.mock('@/services/electronAPI', () => ({
@@ -78,6 +82,7 @@ vi.mock('@/components/chat/MessageList.vue', () => ({ default: MessageListStub }
 
 const componentStub = { template: '<div />' }
 vi.mock('@/components/chat/RecommendedPrompts.vue', () => ({ default: componentStub }))
+vi.mock('@/components/chat/WelcomeHero.vue', () => ({ default: componentStub }))
 vi.mock('@/components/work/WorkAssistantShortcuts.vue', () => ({ default: componentStub }))
 vi.mock('@/components/work/WorkAssistantPicker.vue', () => ({ default: componentStub }))
 vi.mock('@/components/chat/TeamStatusBar.vue', () => ({ default: componentStub }))
