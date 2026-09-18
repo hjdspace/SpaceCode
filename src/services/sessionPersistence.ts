@@ -1,4 +1,5 @@
 import type { Session } from '@/types'
+import { normalizeAbsolutePath } from '@/utils/normalizePath'
 
 // ============================================================
 // Constants
@@ -383,6 +384,10 @@ export function loadSessionsFromStorage(): Session[] {
         viewingAgentTaskId: s.viewingAgentTaskId,
         teammateTranscripts: s.teammateTranscripts || {},
         teamContext: s.teamContext,
+        // 修正历史坏路径（如 `D:\\AI\SpaceCode`），避免重复项目组与打开文件夹失败
+        ...(typeof s.workingDirectory === 'string' && s.workingDirectory
+          ? { workingDirectory: normalizeAbsolutePath(s.workingDirectory) }
+          : {}),
       }))
     }
   } catch (e) {
@@ -451,7 +456,20 @@ export function loadProjectsFromStorage(): string[] {
   try {
     const saved = localStorage.getItem(PROJECTS_KEY)
     if (saved) {
-      return JSON.parse(saved) || []
+      const list = JSON.parse(saved)
+      if (!Array.isArray(list)) return []
+      // 归一化 + 去重：历史数据里可能混入重复反斜杠的坏路径
+      const seen = new Set<string>()
+      const result: string[] = []
+      for (const p of list) {
+        if (typeof p !== 'string' || !p) continue
+        const normalized = normalizeAbsolutePath(p)
+        const key = normalized.toLowerCase()
+        if (seen.has(key)) continue
+        seen.add(key)
+        result.push(normalized)
+      }
+      return result
     }
   } catch (e) {
     console.error('[ChatStore] Failed to load projects from storage:', e)

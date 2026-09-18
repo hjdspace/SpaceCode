@@ -60,12 +60,42 @@ function decodeSanitizedPath(sanitized: string): string {
     const rest = sanitized.slice(2).replace(/-/g, path.sep)
     return `${driveLetter}:${path.sep}${rest}`
   }
-  
+
   if (sanitized.startsWith('-')) {
     return sanitized.replace(/-/g, path.sep)
   }
-  
+
   return sanitized
+}
+
+/**
+ * 归一化绝对路径：统一分隔符、折叠重复分隔符、去尾部冗余。
+ * 历史 JSONL 的 cwd 字段可能存在 `D:\\AI\SpaceCode` 这类坏格式，
+ * 原样返回给渲染层会导致侧边栏按路径分组时出现重复项目，
+ * 且"打开文件夹"（shell.openPath）失败。
+ * Windows 盘符路径统一为反斜杠（UNC 前导 `\\` 与盘符根 `D:\` 保留）；
+ * POSIX 绝对路径保持正斜杠。
+ * 与渲染层 src/utils/normalizePath.ts 保持逻辑一致（electron 侧无法导入 src）。
+ */
+function normalizeAbsolutePath(input: string): string {
+  if (!input) return input
+  const trimmed = input.trim()
+  if (!trimmed) return trimmed
+
+  const isDrivePath = /^[A-Za-z]:[/\\]/.test(trimmed)
+  if (!isDrivePath && trimmed.startsWith('/')) {
+    return trimmed.replace(/\/{2,}/g, '/').replace(/\/+$/, '') || '/'
+  }
+
+  let p = trimmed.replace(/\//g, '\\')
+  const isUNC = p.startsWith('\\\\')
+  const prefix = isUNC ? '\\\\' : ''
+  const body = isUNC ? p.slice(2) : p
+  p = prefix + body.replace(/\\{2,}/g, '\\')
+  if (p.length > 3 && p.endsWith('\\')) {
+    p = p.slice(0, -1)
+  }
+  return p
 }
 
 async function readSessionLite(
@@ -116,7 +146,7 @@ async function readSessionLite(
         // (. and / both map to -), so decodeSanitizedPath can't round-trip
         // paths like /pri/home4/jiadong.he2/project.
         if (!realProjectPath && msg.cwd && typeof msg.cwd === 'string') {
-          realProjectPath = msg.cwd
+          realProjectPath = normalizeAbsolutePath(msg.cwd)
         }
 
         if (msg.type === 'user' && !firstUserMessage) {

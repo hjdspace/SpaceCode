@@ -1,4 +1,5 @@
 import type { Session } from '@/types'
+import { normalizeAbsolutePath } from '@/utils/normalizePath'
 
 const COLLAPSED_PROJECTS_KEY = 'claude-code:collapsed-projects'
 export const COLLAPSED_INITIALIZED_KEY = 'claude-code:collapsed-initialized-v2'
@@ -32,7 +33,10 @@ export function groupSessionsByProject(sessions: Session[]): ProjectGroup[] {
   const groups = new Map<string, Session[]>()
 
   for (const session of sessions) {
-    const dir = session.workingDirectory || ''
+    // 归一化分组键：历史数据里可能存在 `D:\\AI\SpaceCode` 这类重复反斜杠的
+    // 坏 workingDirectory（来自 JSONL cwd 恢复），按原始字符串分组会出现
+    // 重复项目组，且"打开文件夹"失败。归一化后同一路径只产生一个组。
+    const dir = normalizeAbsolutePath(session.workingDirectory || '')
     if (!groups.has(dir)) {
       groups.set(dir, [])
     }

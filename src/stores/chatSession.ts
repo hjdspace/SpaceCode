@@ -12,6 +12,7 @@ import { api } from '@/services/electronAPI'
 import { errorHandler } from '@/services/errorHandler'
 import { createUuid } from '@/utils/uuid'
 import { buildMessagesFromHistory } from '@/utils/sessionRestore'
+import { normalizeAbsolutePath } from '@/utils/normalizePath'
 import {
   loadSessionsFromStorage,
   saveSessionsToStorage,
@@ -630,6 +631,9 @@ export const useChatSessionStore = defineStore('chatSession', () => {
           : undefined
         const timestamp = Number.isFinite(lastMessageAt) ? lastMessageAt! : Date.now()
         const title = entry.title || entry.metadata?.customTitle || entry.firstUserMessage || `Chat ${id.slice(0, 8)}`
+        // JSONL 里的 cwd 可能带有重复反斜杠等历史坏格式（如 `D:\\AI\SpaceCode`），
+        // 不归一化会导致侧边栏出现重复项目组且"打开文件夹"失败
+        const projectPath = entry.projectPath ? normalizeAbsolutePath(entry.projectPath) : undefined
 
         sessions.value.push({
           id,
@@ -637,7 +641,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
           messages: [],
           createdAt: Number.isFinite(createdAt) ? createdAt! : timestamp,
           updatedAt: timestamp,
-          workingDirectory: entry.projectPath,
+          workingDirectory: projectPath,
           processStatus: 'none',
           isTabOpen: false,
           lastActivityAt: timestamp,
@@ -646,8 +650,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         knownIds.add(id)
         recovered++
 
-        if (entry.projectPath && !projects.value.includes(entry.projectPath)) {
-          projects.value.push(entry.projectPath)
+        if (projectPath && !projects.value.includes(projectPath)) {
+          projects.value.push(projectPath)
         }
       }
 
@@ -670,11 +674,12 @@ export const useChatSessionStore = defineStore('chatSession', () => {
   // 因此这个 deep watch 是冗余的，移除它可消除流式期间最大的性能瓶颈。
 
   function addProject(projectPath: string) {
-    if (!projects.value.includes(projectPath)) {
-      projects.value.push(projectPath)
+    const normalized = normalizeAbsolutePath(projectPath)
+    if (!projects.value.includes(normalized)) {
+      projects.value.push(normalized)
       saveProjects()
     }
-    currentProjectRoot.value = projectPath
+    currentProjectRoot.value = normalized
   }
 
   function removeProject(projectPath: string) {
