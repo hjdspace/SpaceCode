@@ -928,9 +928,9 @@ const welcomeTasks = computed<Array<{ name: string; description?: string }>>(() 
   })
 })
 
-/** 点击欢迎磁贴 → 填入输入框（与 RecommendedPrompts.usePrompt 一致），可编辑后发送 */
+/** 点击欢迎磁贴 → 替换填入输入框（与 RecommendedPrompts.usePrompt 一致），可编辑后发送 */
 function handleWelcomeTaskSelect(prompt: string) {
-  appStore.pushToInput({ text: prompt })
+  appStore.pushToInput({ text: prompt, replace: true })
 }
 
 watch(
