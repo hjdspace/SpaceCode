@@ -10,6 +10,7 @@ import { isAllowedFetchUrl } from './h5FetchUrlValidator'
 import { H5AuthService } from './h5AuthService'
 import { engineGateway } from './engineGateway'
 import { EngineFactory } from './engines/EngineFactory'
+import type { EngineType, PermissionMode } from './engines/types'
 import { SessionHistoryManager } from './sessionHistoryManager'
 import { info, warn, error, debug } from './logger'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
@@ -252,6 +253,15 @@ export class H5Server {
     res.end(body)
   }
 
+  /** 会话级路由统一守卫：sessionId 缺失时回 400（而非让引擎内部抛 TypeError） */
+  private requireSessionId(res: ServerResponse, sessionId: string | undefined): sessionId is string {
+    if (!sessionId) {
+      this.sendJson(res, 400, { error: 'sessionId required' })
+      return false
+    }
+    return true
+  }
+
   // ──────────────────────────────────────────────────
   // API 处理
   // ──────────────────────────────────────────────────
@@ -286,6 +296,7 @@ export class H5Server {
     const displayContent = body.displayContent as string | undefined
     const requestId = body.requestId as string | undefined
     const toolCallId = body.toolCallId as string | undefined
+    const taskId = body.taskId as string | undefined
 
     switch (pathname) {
       case '/api/session/start':
@@ -369,6 +380,105 @@ export class H5Server {
       case '/api/session/tool-skip':
         await engineGateway.skipToolAnswer(sessionId!, toolCallId!)
         this.sendJson(res, 200, { ok: true })
+        return
+
+      // ── 挂起 / 恢复 ──
+      // H5 端与桌面端共用同一进程池：挂起会释放 CLI 进程，恢复会重新拉起。
+      case '/api/session/suspend':
+        if (!this.requireSessionId(res, sessionId)) return
+        engineGateway.suspendSession(sessionId)
+        this.sendJson(res, 200, { ok: true })
+        return
+
+      case '/api/session/resume':
+        if (!this.requireSessionId(res, sessionId)) return
+        this.sendJson(res, 200, { status: await engineGateway.resumeSession(sessionId) })
+        return
+
+      // ── 权限模式 / 模型 / 思考等级 ──
+      case '/api/session/permission-mode':
+        if (!this.requireSessionId(res, sessionId)) return
+        await engineGateway.setPermissionMode(sessionId, body.mode as PermissionMode)
+        this.sendJson(res, 200, { ok: true })
+        return
+
+      case '/api/session/model':
+        if (!this.requireSessionId(res, sessionId)) return
+        await engineGateway.setModel(sessionId, body.model as string | undefined)
+        this.sendJson(res, 200, { ok: true })
+        return
+
+      case '/api/session/thinking-level':
+        if (!this.requireSessionId(res, sessionId)) return
+        await engineGateway.updateThinkingLevel(sessionId, Boolean(body.enabled))
+        this.sendJson(res, 200, { ok: true })
+        return
+
+      // ── 查询 ──
+      case '/api/session/mcp-status':
+        if (!this.requireSessionId(res, sessionId)) return
+        this.sendJson(res, 200, await engineGateway.getMcpStatus(sessionId))
+        return
+
+      case '/api/session/context-usage':
+        if (!this.requireSessionId(res, sessionId)) return
+        this.sendJson(res, 200, await engineGateway.getContextUsage(sessionId))
+        return
+
+      case '/api/session/settings':
+        if (!this.requireSessionId(res, sessionId)) return
+        this.sendJson(res, 200, await engineGateway.getSettings(sessionId))
+        return
+
+      case '/api/session/pending-permissions':
+        if (!this.requireSessionId(res, sessionId)) return
+        this.sendJson(res, 200, engineGateway.getPendingPermissionRequestIds(sessionId))
+        return
+
+      case '/api/session/task-stop':
+        if (!this.requireSessionId(res, sessionId)) return
+        if (!taskId) {
+          this.sendJson(res, 400, { error: 'taskId required' })
+          return
+        }
+        await engineGateway.stopEngineTask(sessionId, taskId)
+        this.sendJson(res, 200, { ok: true })
+        return
+
+      case '/api/session/agent-transcript':
+        if (!this.requireSessionId(res, sessionId)) return
+        if (!body.agentId) {
+          this.sendJson(res, 400, { error: 'agentId required' })
+          return
+        }
+        try {
+          this.sendJson(res, 200, SessionHistoryManager.getAgentTranscriptPath(
+            (body.projectPath as string) || this.mirrorProjectPath || '',
+            sessionId,
+            body.agentId as string,
+          ))
+        } catch (err) {
+          warn('H5Server', `getAgentTranscriptPath failed | sessionId=${sessionId.slice(0, 8)} | error=${err}`)
+          this.sendJson(res, 200, null)
+        }
+        return
+
+      // ── Agent / 引擎能力 ──
+      case '/api/agents/list':
+        this.sendJson(res, 200, await engineGateway.listAgents(
+          body.cwd as string | undefined,
+          body.engineType as EngineType | undefined,
+        ))
+        return
+
+      case '/api/engine/available':
+        if (!body.engineType) {
+          this.sendJson(res, 400, { error: 'engineType required' })
+          return
+        }
+        this.sendJson(res, 200, {
+          available: await EngineFactory.isEngineAvailableAsync(body.engineType as EngineType),
+        })
         return
 
       case '/api/session/status':

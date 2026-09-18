@@ -24,6 +24,7 @@ const mockState = vi.hoisted(() => {
     getSettings?: ReturnType<typeof vi.fn>
     stopEngineTask?: ReturnType<typeof vi.fn>
     getPendingPermissionRequestIds?: ReturnType<typeof vi.fn>
+    updateThinkingLevel?: ReturnType<typeof vi.fn>
   }
 
   const engines: FakeEngine[] = []
@@ -52,6 +53,7 @@ const mockState = vi.hoisted(() => {
       getSettings: vi.fn(async () => ({})),
       stopEngineTask: vi.fn(async () => {}),
       getPendingPermissionRequestIds: vi.fn(() => []),
+      updateThinkingLevel: vi.fn(async () => {}),
       ...overrides,
     }
   }
@@ -193,6 +195,16 @@ describe('engineGateway', () => {
 
       expect(engine.resumeSession).toHaveBeenCalledWith('s1')
       expect(status).toEqual({ sessionId: 's1', isRunning: true, status: 'active' })
+    })
+
+    it('updateThinkingLevel delegates when engine supports it', async () => {
+      const engine = mockState.makeClaudeEngine()
+      engine.getSessionStatus.mockReturnValue({ sessionId: 's1', isRunning: true })
+      mockState.engines.push(engine)
+
+      await engineGateway.updateThinkingLevel('s1', true)
+
+      expect(engine.updateThinkingLevel).toHaveBeenCalledWith('s1', true)
     })
   })
 
@@ -368,6 +380,14 @@ describe('engineGateway', () => {
       await expect(
         engineGateway.stopEngineTask('s1', 'task-1'),
       ).rejects.toThrow(NotImplementedError)
+    })
+
+    it('updateThinkingLevel is a no-op when engine lacks it', async () => {
+      const engine = mockState.makePiEngine()
+      engine.getSessionStatus.mockReturnValue({ sessionId: 's1', isRunning: true })
+      mockState.engines.push(engine)
+
+      await expect(engineGateway.updateThinkingLevel('s1', true)).resolves.toBeUndefined()
     })
   })
 

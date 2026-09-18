@@ -268,4 +268,11 @@ export const engineGateway = {
     }
     return []
   }),
+
+  updateThinkingLevel: withLogging('updateThinkingLevel', async (sessionId: string, enabled: boolean): Promise<void> => {
+    const engine = findEngineForSession(sessionId)
+    if (typeof engine.updateThinkingLevel === 'function') {
+      await engine.updateThinkingLevel(sessionId, enabled)
+    }
+  }),
 }

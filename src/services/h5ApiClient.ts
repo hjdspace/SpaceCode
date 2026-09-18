@@ -119,6 +119,51 @@ export const h5ApiClient = {
       body: { sessionId, requestId, message, options },
     }),
 
+  // ── 挂起 / 恢复（与桌面端共用同一进程池）──
+  suspendSession: (sessionId: string) =>
+    h5Fetch('/api/session/suspend', { method: 'POST', body: { sessionId } }),
+
+  resumeSession: (sessionId: string): Promise<{ status: unknown }> =>
+    h5Fetch('/api/session/resume', { method: 'POST', body: { sessionId } }),
+
+  // ── 会话控制 ──
+  setPermissionMode: (sessionId: string, mode: string) =>
+    h5Fetch('/api/session/permission-mode', { method: 'POST', body: { sessionId, mode } }),
+
+  setModel: (sessionId: string, model: string | undefined) =>
+    h5Fetch('/api/session/model', { method: 'POST', body: { sessionId, model } }),
+
+  updateThinkingLevel: (sessionId: string, enabled: boolean) =>
+    h5Fetch('/api/session/thinking-level', { method: 'POST', body: { sessionId, enabled } }),
+
+  stopEngineTask: (sessionId: string, taskId: string) =>
+    h5Fetch('/api/session/task-stop', { method: 'POST', body: { sessionId, taskId } }),
+
+  // ── 查询 ──
+  getMcpStatus: (sessionId: string) =>
+    h5Fetch('/api/session/mcp-status', { method: 'POST', body: { sessionId } }),
+
+  getContextUsage: (sessionId: string) =>
+    h5Fetch('/api/session/context-usage', { method: 'POST', body: { sessionId } }),
+
+  getSettings: (sessionId: string) =>
+    h5Fetch('/api/session/settings', { method: 'POST', body: { sessionId } }),
+
+  getPendingPermissionRequestIds: (sessionId: string): Promise<string[]> =>
+    h5Fetch('/api/session/pending-permissions', { method: 'POST', body: { sessionId } }),
+
+  resolveAgentTranscriptPath: (projectPath: string, sessionId: string, agentId: string): Promise<string | null> =>
+    h5Fetch('/api/session/agent-transcript', {
+      method: 'POST',
+      body: { projectPath, sessionId, agentId },
+    }),
+
+  listAgents: (cwd?: string, engineType?: string) =>
+    h5Fetch('/api/agents/list', { method: 'POST', body: { cwd, engineType } }),
+
+  isEngineAvailable: (engineType: string): Promise<{ available: boolean }> =>
+    h5Fetch('/api/engine/available', { method: 'POST', body: { engineType } }),
+
   // ── 查询 ──
   getSessionStatus: (sessionId: string) =>
     h5Fetch('/api/session/status', { method: 'POST', body: { sessionId } }),

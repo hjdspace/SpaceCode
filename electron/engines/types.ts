@@ -116,6 +116,8 @@ export interface IEngine {
   getSettings?(sessionId: string): Promise<Record<string, unknown> | undefined>
   stopEngineTask?(sessionId: string, taskId: string): Promise<void>
   getPendingPermissionRequestIds?(sessionId: string): string[]
+  /** 切换思考等级（可选；目前仅 Pi 引擎实现） */
+  updateThinkingLevel?(sessionId: string, enabled: boolean): Promise<void>
 }
 
 export interface AgentInfo {
