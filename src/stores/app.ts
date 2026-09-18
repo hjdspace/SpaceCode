@@ -39,10 +39,12 @@ export interface ScmDiffTabData {
   commitHash?: string
 }
 
-/** 由工作台(截图/框选)推送到聊天输入框的内容载荷 */
+/** 由工作台(截图/框选)或快捷 prompt 磁贴推送到聊天输入框的内容载荷 */
 export interface InputInjectPayload {
-  /** 追加到输入框的文字(如结构化改稿描述) */
+  /** 注入到输入框的文字(如结构化改稿描述) */
   text?: string
+  /** true 时替换输入框已有文本(快捷 prompt 磁贴); 默认 false 追加(工作台注入) */
+  replace?: boolean
   /** 图片附件(复用聊天输入框的 ImageAttachment 结构) */
   image?: {
     id: string
