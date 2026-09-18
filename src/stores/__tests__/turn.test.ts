@@ -317,6 +317,121 @@ describe('Turn 事件订阅', () => {
   })
 })
 
+describe('Turn 工具输入流式提取 (Write 卡片逐行渲染数据源)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /** 模拟一次工具调用的 stream_event（partial_json 为原始 JSON 文本，代码以 \n 转义传输） */
+  function fireToolStreamEvent(
+    fake: ReturnType<typeof makeFakeApi>,
+    sessionId: string,
+    ev: { type: string; content_block?: any; delta?: any },
+  ) {
+    fake._handlers.onStreamEvent({ sessionId, data: { event: ev } })
+  }
+
+  it('input_json_delta 节流提取 content 字段并完整反转义换行，流式期间逐行可见', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('Test', undefined, 'sess-write-stream')
+    sessionStore.addMessage({ role: 'user', content: 'write a file' }, 'sess-write-stream')
+
+    fireToolStreamEvent(fake, 'sess-write-stream', {
+      type: 'content_block_start',
+      content_block: { type: 'tool_use', id: 'tu-w1', name: 'Write' },
+    })
+    fireToolStreamEvent(fake, 'sess-write-stream', {
+      type: 'content_block_delta',
+      delta: { type: 'input_json_delta', partial_json: '{"file_path":"/tmp/a.ts","content":"const a = 1\\nconst b = 2' },
+    })
+
+    const getTool = () => sessionStore.sessions
+      .find(s => s.id === 'sess-write-stream')!
+      .messages.find(m => m.role === 'assistant')!
+      .toolCalls?.find(tc => tc.id === 'tu-w1')
+
+    // 工具卡片在 content_block_start 时即创建
+    expect(getTool()).toBeTruthy()
+    // 节流窗口（100ms）内尚未写入
+    expect(getTool()?.input.content).toBeUndefined()
+
+    vi.advanceTimersByTime(100)
+
+    // content 提取 + \n 反转义（否则整段代码会挤成一行，无法逐行流式渲染）
+    expect(getTool()?.input.file_path).toBe('/tmp/a.ts')
+    expect(getTool()?.input.content).toBe('const a = 1\nconst b = 2')
+  })
+
+  it('content_block_stop 用完整 JSON 覆盖部分提取，迟到的节流刷新不回退完整 input', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('Test', undefined, 'sess-write-stream-2')
+    sessionStore.addMessage({ role: 'user', content: 'write a file' }, 'sess-write-stream-2')
+
+    fireToolStreamEvent(fake, 'sess-write-stream-2', {
+      type: 'content_block_start',
+      content_block: { type: 'tool_use', id: 'tu-w2', name: 'Write' },
+    })
+    fireToolStreamEvent(fake, 'sess-write-stream-2', {
+      type: 'content_block_delta',
+      delta: { type: 'input_json_delta', partial_json: '{"file_path":"/tmp/b.ts","content":"par' },
+    })
+    fireToolStreamEvent(fake, 'sess-write-stream-2', {
+      type: 'content_block_delta',
+      delta: { type: 'input_json_delta', partial_json: 'tial code"}' },
+    })
+    fireToolStreamEvent(fake, 'sess-write-stream-2', { type: 'content_block_stop' })
+
+    const getTool = () => sessionStore.sessions
+      .find(s => s.id === 'sess-write-stream-2')!
+      .messages.find(m => m.role === 'assistant')!
+      .toolCalls?.find(tc => tc.id === 'tu-w2')
+
+    // stop 时整体解析完整 JSON，立即生效
+    expect(getTool()?.input).toEqual({ file_path: '/tmp/b.ts', content: 'partial code' })
+
+    // 已排程的节流 flush 到期后不得用陈旧分片覆盖完整 input
+    vi.advanceTimersByTime(300)
+    expect(getTool()?.input).toEqual({ file_path: '/tmp/b.ts', content: 'partial code' })
+  })
+
+  it('部分值末尾挂着不完整的转义序列时安全解码', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('Test', undefined, 'sess-write-stream-3')
+    sessionStore.addMessage({ role: 'user', content: 'write a file' }, 'sess-write-stream-3')
+
+    fireToolStreamEvent(fake, 'sess-write-stream-3', {
+      type: 'content_block_start',
+      content_block: { type: 'tool_use', id: 'tu-w3', name: 'Write' },
+    })
+    // 值以落单的反斜杠结尾（转义序列尚未传完）
+    fireToolStreamEvent(fake, 'sess-write-stream-3', {
+      type: 'content_block_delta',
+      delta: { type: 'input_json_delta', partial_json: '{"content":"abc\\' },
+    })
+
+    vi.advanceTimersByTime(100)
+
+    const tool = sessionStore.sessions
+      .find(s => s.id === 'sess-write-stream-3')!
+      .messages.find(m => m.role === 'assistant')!
+      .toolCalls?.find(tc => tc.id === 'tu-w3')
+    expect(tool?.input.content).toBe('abc')
+  })
+})
+
 describe('Turn sendMessage', () => {
   beforeEach(() => { setActivePinia(createPinia()) })
 
