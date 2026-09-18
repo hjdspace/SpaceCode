@@ -23,22 +23,13 @@
       </div>
     </div>
 
-    <div v-if="isExpanded" class="tool-body">
-      <div v-if="toolCall.input.content" class="tool-section">
-        <div class="tool-section-header">{{ t('toolCards.writeContentPreview') }}</div>
-        <div class="tool-section-body">
-          <pre class="code-block"><code v-html="highlightedPreview"></code></pre>
-          <div v-if="previewTruncated" class="truncated-notice">
-            {{ t('toolCards.writeTruncated', { total: (toolCall.input.content || '').length }) }}
-          </div>
-        </div>
-      </div>
-      <div v-if="toolCall.output" class="tool-section">
-        <div class="tool-section-header">{{ t('toolCards.writeResult') }}</div>
-        <div class="tool-section-body">
-          <pre class="code-block"><code>{{ toolCall.output }}</code></pre>
-        </div>
-      </div>
+    <div v-if="showBody && toolCall.input.content" class="tool-body">
+      <StreamingCodeBlock
+        :code="toolCall.input.content"
+        :file-path="filePath"
+        :language="fileLanguage"
+        :streaming="isStreaming"
+      />
     </div>
   </div>
 </template>
@@ -50,7 +41,7 @@ import { computed, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
-import hljs from 'highlight.js'
+import StreamingCodeBlock from './StreamingCodeBlock.vue'
 
 const props = defineProps<{ toolCall: ToolCall }>()
 const isExpanded = ref(false)
@@ -65,6 +56,12 @@ const filePath = computed(() => {
   if (props.toolCall.status === 'running') return ''
   return t('toolCards.writeUnknownFile')
 })
+const fileLanguage = computed(() => appStore.getLanguageFromPath(filePath.value || ''))
+const isStreaming = computed(
+  () => props.toolCall.status === 'running' && !!props.toolCall.input?.content,
+)
+// 流式期间自动展开实时代码流; 用户手动展开后保持展开
+const showBody = computed(() => isExpanded.value || isStreaming.value)
 const outputSummary = computed(() => {
   const out = props.toolCall.output || ''
   if (out.includes('successfully')) return t('toolCards.writeSuccess')
@@ -77,41 +74,7 @@ const summaryClass = computed(() => {
   if (out.includes('Error') || out.includes('error')) return 'status-error'
   return ''
 })
-const PREVIEW_MAX = 800
-const rawPreview = computed(() => {
-  const c = props.toolCall.input?.content || ''
-  return c.length > PREVIEW_MAX ? c.slice(0, PREVIEW_MAX) : c
-})
 
-const highlightedPreview = computed(() => {
-  const content = rawPreview.value
-  if (!content) return ''
-
-  const language = appStore.getLanguageFromPath(filePath.value)
-
-  try {
-    if (language && hljs.getLanguage(language)) {
-      return hljs.highlight(content, { language }).value
-    }
-    return hljs.highlightAuto(content).value
-  } catch (error) {
-    console.error('Highlight error:', error)
-    return escapeHtml(content)
-  }
-})
-
-const previewTruncated = computed(() => {
-  const c = props.toolCall.input?.content || ''
-  return c.length > PREVIEW_MAX
-})
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
 function toggleExpand() { isExpanded.value = !isExpanded.value }
 
 async function openInPanel() {
@@ -161,41 +124,6 @@ async function openInPanel() {
 
 <style lang="scss" scoped>
 @use './tool-card.scss' as *;
-
-.code-block {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: 6px;
-  background: var(--code-bg, #0d1117);
-  color: var(--code-fg, #c9d1d9);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  line-height: var(--leading-relaxed);
-  overflow: auto;
-  max-height: 300px;
-  white-space: pre-wrap;
-  word-break: break-word;
-
-  /* highlight.js 主题 */
-  :deep(.hljs) { color: #c9d1d9; background: transparent; }
-  :deep(.hljs-comment), :deep(.hljs-quote) { color: #6a737d; font-style: italic; }
-  :deep(.hljs-keyword), :deep(.hljs-selector-tag) { color: #ff7b72; }
-  :deep(.hljs-string), :deep(.hljs-regexp) { color: #a5d6ff; }
-  :deep(.hljs-title), :deep(.hljs-section), :deep(.hljs-name), :deep(.hljs-selector-id), :deep(.hljs-selector-class) { color: #d2a8ff; }
-  :deep(.hljs-attribute), :deep(.hljs-attr), :deep(.hljs-variable), :deep(.hljs-template-variable), :deep(.hljs-class .hljs-title), :deep(.hljs-type) { color: #79c0ff; }
-  :deep(.hljs-built_in) { color: #ffa657; }
-  :deep(.hljs-literal) { color: #79c0ff; }
-  :deep(.hljs-addition) { color: #aff5b4; }
-  :deep(.hljs-deletion) { color: #ffd8d3; }
-}
-
-.truncated-notice {
-  padding: 8px 0 0;
-  font-size: var(--text-2xs);
-  color: var(--text-disabled);
-  font-style: italic;
-  text-align: center;
-}
 
 .tool-meta {
   &.status-completed { color: var(--success); }
