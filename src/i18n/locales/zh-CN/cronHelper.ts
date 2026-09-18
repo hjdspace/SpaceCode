@@ -1,0 +1,18 @@
+export default {
+  weekdays: ['日', '一', '二', '三', '四', '五', '六'],
+  everyMinute: '每分钟',
+  everyNMinutes: '每 {n} 分钟',
+  hourlyAt: '每小时 :{minute}',
+  dailyAt: '每天 {hour}:{minute}',
+  weekdayAt: '工作日 {hour}:{minute}',
+  everyWeekday: '每{weekday} {hour}:{minute}',
+  weeklyOn: '每周{weekday} {hour}:{minute}',
+  monthlyOn: '每月 {day}日 {hour}:{minute}',
+  yearlyOn: '{month}月{day}日 {hour}:{minute}',
+  upcoming: '即将执行',
+  inNMinutes: '{count} 分钟后',
+  todayAt: '今天 {time}',
+  inNHours: '{count} 小时后',
+  tomorrowAt: '明天 {time}',
+  dateAt: '{month}月{day}日 {time}',
+}

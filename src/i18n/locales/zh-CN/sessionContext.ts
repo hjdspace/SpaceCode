@@ -1,0 +1,102 @@
+export default {
+  // Env Panel
+  environment: '环境',
+  settings: '设置',
+  close: '关闭',
+  collapsePanel: '折叠',
+  changes: '更改',
+  local: '本地',
+  noBranch: '无分支',
+  commitOrPush: '提交或推送',
+  githubCliUnavailable: 'GitHub CLI 不可用',
+  sources: '来源',
+  noSourcesYet: '暂无来源',
+
+  // Task Panel
+  gitTools: 'Git 工具',
+  more: '更多',
+  popOut: '弹出',
+  commit: '提交',
+  progress: '进程 {completed}/{total}',
+  noTasks: '暂无待办任务',
+  completedCount: '已完成 {count} 项',
+  pendingCount: '待处理 {count} 项',
+  continue: '继续',
+  autoExpand: '自动展开',
+  alwaysExpand: '始终展开',
+  alwaysCollapse: '始终收起',
+
+  // Review Panel
+  review: '审查',
+  branch: '分支',
+  createPR: '创建 PR',
+  loadingDiff: '正在加载 diff...',
+  noDiffAvailable: '暂无 diff 数据',
+  noFileChanges: '此会话中没有文件变更',
+  diffUnavailable: 'Diff 不可用',
+  failedToLoadDiff: '加载 diff 失败',
+  noProjectRoot: '无项目根目录',
+
+  // Branch Panel
+  branchManagement: '分支管理',
+  searchBranch: '搜索分支...',
+  branches: '分支',
+  uncommittedChanges: '未提交的更改: {count} 个文件',
+  noMatchingBranches: '未找到匹配的分支',
+  createAndCheckout: '创建并检出新分支...',
+  gitGraph: 'Git 图谱',
+  refreshGraph: '刷新',
+
+  // Create Branch Dialog
+  createBranchTitle: '创建并检出新分支',
+  createBranchDesc: '基于当前 HEAD 创建一个新的本地分支，并在创建成功后立即切换过去。',
+  branchNameLabel: '分支名',
+  branchNamePlaceholder: '例如 feature/git-branch-switcher',
+  createBranchHint: '首版只支持基于当前 HEAD 创建并切换。',
+  createAndSwitch: '创建并切换',
+  createBranchFailed: '创建分支失败',
+  branchNameRequired: '请输入分支名',
+
+  // Git Graph Modal
+  gitGraphTitle: 'Git 图谱',
+  loadingGraph: '加载提交历史中...',
+  noCommits: '暂无提交记录',
+  loadGraphFailed: '加载提交历史失败',
+  commitSubject: '提交说明',
+  commitDate: '日期',
+  commitAuthor: '作者',
+  commitHash: '哈希',
+
+  // Commit Dialog
+  commitChanges: '提交更改',
+  commitDesc: '将当前 workspace 内的未提交更改保存为一次提交。',
+  currentBranch: '当前分支',
+  fileCount: '{count} 个文件',
+  commitMessage: '提交消息',
+  commitMessagePlaceholder: '留空以自动生成提交消息',
+  commitHint: '留空时会使用当前模型生成 Conventional Commit 提交消息。',
+  generateCommitFailed: '生成提交消息失败，请重试或手动填写。',
+  commitFailed: '提交失败，请重试。',
+  cancel: '取消',
+  generating: '生成中...',
+  submitting: '提交中...',
+  generateAndCommit: '生成并提交',
+
+  // Git Ops Menu
+  gitOps: 'Git 操作',
+  push: '推送',
+  createBranch: '创建分支',
+
+  // Push Dialog
+  pushChanges: '推送更改',
+  pushDesc: '将当前分支最新提交推送到远程分支。',
+  remoteBranch: '远程分支',
+  syncStatus: '同步状态',
+  aheadCount: '领先 {count}',
+  behindCount: '落后 {count}',
+  nextStep: '后续步骤',
+  pushAction: '推送',
+  pushing: '推送中...',
+  pushFailed: '推送失败，请重试。',
+  pushSuccess: '推送成功',
+}

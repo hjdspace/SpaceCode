@@ -1,0 +1,15 @@
+export default {
+  title: 'Appearance',
+  description: 'Customize theme, fonts, and display effects',
+  themeSystem: 'System',
+  themeLight: 'Light',
+  themeDark: 'Dark',
+  themeAnthropic: 'Anthropic',
+  themeAnthropicDark: 'Anthropic Dark',
+  fontSystemDefault: 'System Default',
+  smoothScrolling: 'Smooth Scrolling',
+  smoothScrollingDesc: 'Enable smooth scrolling animation',
+  accentColor: 'Accent Color',
+  soundOnTaskComplete: 'Task Complete Sound',
+  soundOnTaskCompleteDesc: 'Play a short notification sound when the AI completes a task',
+}

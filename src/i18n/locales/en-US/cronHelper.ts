@@ -1,0 +1,18 @@
+export default {
+  weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+  everyMinute: 'Every minute',
+  everyNMinutes: 'Every {n} minutes',
+  hourlyAt: 'Hourly at :{minute}',
+  dailyAt: 'Daily at {hour}:{minute}',
+  weekdayAt: 'Weekdays at {hour}:{minute}',
+  everyWeekday: 'Every {weekday} at {hour}:{minute}',
+  weeklyOn: 'Weekly on {weekday} at {hour}:{minute}',
+  monthlyOn: 'Monthly on day {day} at {hour}:{minute}',
+  yearlyOn: '{month}/{day} at {hour}:{minute}',
+  upcoming: 'Upcoming',
+  inNMinutes: 'In {count} minutes',
+  todayAt: 'Today at {time}',
+  inNHours: 'In {count} hours',
+  tomorrowAt: 'Tomorrow at {time}',
+  dateAt: '{month}/{day} at {time}',
+}

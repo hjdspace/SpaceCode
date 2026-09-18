@@ -1,0 +1,102 @@
+export default {
+  // Env Panel
+  environment: 'Environment',
+  settings: 'Settings',
+  close: 'Close',
+  collapsePanel: 'Collapse',
+  changes: 'Changes',
+  local: 'Local',
+  noBranch: 'No branch',
+  commitOrPush: 'Commit or push',
+  githubCliUnavailable: 'GitHub CLI unavailable',
+  sources: 'Sources',
+  noSourcesYet: 'No sources yet',
+
+  // Task Panel
+  gitTools: 'Git Tools',
+  more: 'More',
+  popOut: 'Pop out',
+  commit: 'Commit',
+  progress: 'Progress {completed}/{total}',
+  noTasks: 'No pending tasks',
+  completedCount: 'Completed {count}',
+  pendingCount: 'Pending {count}',
+  continue: 'Continue',
+  autoExpand: 'Auto Expand',
+  alwaysExpand: 'Always Expand',
+  alwaysCollapse: 'Always Collapse',
+
+  // Review Panel
+  review: 'Review',
+  branch: 'Branch',
+  createPR: 'Create PR',
+  loadingDiff: 'Loading diff...',
+  noDiffAvailable: 'No diff available',
+  noFileChanges: 'No file changes in this session',
+  diffUnavailable: 'Diff unavailable',
+  failedToLoadDiff: 'Failed to load diff',
+  noProjectRoot: 'No project root',
+
+  // Branch Panel
+  branchManagement: 'Branch Management',
+  searchBranch: 'Search branches...',
+  branches: 'Branches',
+  uncommittedChanges: 'Uncommitted changes: {count} files',
+  noMatchingBranches: 'No matching branches found',
+  createAndCheckout: 'Create and checkout new branch...',
+  gitGraph: 'Git Graph',
+  refreshGraph: 'Refresh',
+
+  // Create Branch Dialog
+  createBranchTitle: 'Create and Checkout New Branch',
+  createBranchDesc: 'Create a new local branch based on the current HEAD and switch to it immediately.',
+  branchNameLabel: 'Branch Name',
+  branchNamePlaceholder: 'e.g. feature/git-branch-switcher',
+  createBranchHint: 'Only supports creating and switching from current HEAD for now.',
+  createAndSwitch: 'Create & Switch',
+  createBranchFailed: 'Failed to create branch',
+  branchNameRequired: 'Please enter a branch name',
+
+  // Git Graph Modal
+  gitGraphTitle: 'Git Graph',
+  loadingGraph: 'Loading commit history...',
+  noCommits: 'No commits yet',
+  loadGraphFailed: 'Failed to load commit history',
+  commitSubject: 'Subject',
+  commitDate: 'Date',
+  commitAuthor: 'Author',
+  commitHash: 'Hash',
+
+  // Commit Dialog
+  commitChanges: 'Commit Changes',
+  commitDesc: 'Save uncommitted changes in the current workspace as a commit.',
+  currentBranch: 'Current Branch',
+  fileCount: '{count} files',
+  commitMessage: 'Commit Message',
+  commitMessagePlaceholder: 'Leave empty to auto-generate commit message',
+  commitHint: 'When empty, uses the current model to generate a Conventional Commit message.',
+  generateCommitFailed: 'Failed to generate commit message. Please retry or enter manually.',
+  commitFailed: 'Commit failed. Please retry.',
+  cancel: 'Cancel',
+  generating: 'Generating...',
+  submitting: 'Committing...',
+  generateAndCommit: 'Generate & Commit',
+
+  // Git Ops Menu
+  gitOps: 'Git Operations',
+  push: 'Push',
+  createBranch: 'Create Branch',
+
+  // Push Dialog
+  pushChanges: 'Push Changes',
+  pushDesc: 'Push the latest commits from the current branch to the remote branch.',
+  remoteBranch: 'Remote Branch',
+  syncStatus: 'Sync Status',
+  aheadCount: 'Ahead {count}',
+  behindCount: 'Behind {count}',
+  nextStep: 'Next Step',
+  pushAction: 'Push',
+  pushing: 'Pushing...',
+  pushFailed: 'Push failed. Please retry.',
+  pushSuccess: 'Push successful',
+}

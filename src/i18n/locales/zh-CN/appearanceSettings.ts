@@ -1,0 +1,15 @@
+export default {
+  title: '外观',
+  description: '自定义界面主题、字体和显示效果',
+  themeSystem: '跟随系统',
+  themeLight: '浅色',
+  themeDark: '深色',
+  themeAnthropic: 'Anthropic',
+  themeAnthropicDark: 'Anthropic 暗色',
+  fontSystemDefault: '系统默认',
+  smoothScrolling: '平滑滚动',
+  smoothScrollingDesc: '启用平滑滚动动画',
+  accentColor: '强调颜色',
+  soundOnTaskComplete: '任务完成提示音',
+  soundOnTaskCompleteDesc: '当 AI 完成任务时播放一段简短提示音',
+}

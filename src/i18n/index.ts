@@ -1,6 +1,6 @@
 import { createI18n } from 'vue-i18n'
-import zhCN from './locales/zh-CN'
-import enUS from './locales/en-US'
+import zhCN from './locales/zh-CN/index'
+import enUS from './locales/en-US/index'
 
 export type Locale = 'zh-CN' | 'en-US'
 
