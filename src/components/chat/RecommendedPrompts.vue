@@ -66,7 +66,7 @@ const visible = computed(() =>
 )
 
 function usePrompt(p: string) {
-  appStore.pushToInput({ text: p })
+  appStore.pushToInput({ text: p, replace: true })
 }
 
 onMounted(() => {
