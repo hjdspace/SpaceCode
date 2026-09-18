@@ -136,7 +136,7 @@ async function hydrateImageAttachments(sessions: Session[]): Promise<void> {
   }
 }
 
-async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
+async function hydrateSessionsFromJsonl(sessions: Session[], messageIdsAtStart?: Set<string>): Promise<void> {
   const claudeCode = api.claudeCode
   if (!claudeCode?.getFullSession) return
 
@@ -153,6 +153,25 @@ async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
 
       const restoredMessages = buildMessagesFromHistory(fullSession.messages as any[])
       if (restoredMessages.length === 0) continue
+
+      // ★ 竞态保护：hydrate 是 selectSession 中 fire-and-forget 的异步任务，getFullSession
+      // 读取 + 解析 635KB+ JSONL 的耗时窗口内，用户可能已经发送了新消息（turn 启动会同步把
+      // processStatus 置为 'active'/'starting'）。此时本地消息比 JSONL 快照新（快照甚至是在
+      // 引擎写入该用户消息之前读取的），整体覆盖会把刚发送的消息气泡从 UI 抹掉——表现为
+      // "发送的消息变成了历史旧消息"。turn 进行中一律跳过覆盖，保留本地最新状态。
+      if (session.processStatus === 'starting' || session.processStatus === 'active') {
+        continue
+      }
+
+      // ★ 竞态保护 2：hydrate 启动后新追加的消息（非 turn 路径的窄窗口追加）不在快照里，
+      // 从旧数组中挑出来，重建后合并回末尾，避免被覆盖丢失。
+      // 以 role+content 匹配去重：引擎写入的同一条消息与本地消息 UUID 不同（引擎 UUID），
+      // 但若快照已包含该内容则无需重复保留。
+      const appendedDuringHydrate = messageIdsAtStart
+        ? session.messages.filter(m => !m.id || !messageIdsAtStart.has(m.id))
+        : []
+      const restoredKeys = new Set(restoredMessages.map(m => `${m.role}|${m.content}`))
+      const survivors = appendedDuringHydrate.filter(m => !restoredKeys.has(`${m.role}|${m.content}`))
 
       // ── 保留 SpaceCode 前端特有的 metadata 字段 ──
       // JSONL 转录文件由引擎写入，不包含 SpaceCode 前端在运行时计算的字段：
@@ -185,7 +204,10 @@ async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
       session.messages = restoredMessages.map(msg => ({
         ...msg,
         id: msg.id || createUuid(),
-        timestamp: Date.now(),
+        // ★ 保留 JSONL 记录的原始时间戳；缺失时才回退到当前时间。
+        // 此前无条件用 Date.now()，导致历史消息在 UI 上伪装成"刚发送"，
+        // 掩盖了消息被覆盖丢失的问题。
+        timestamp: typeof msg.timestamp === 'number' ? msg.timestamp : Date.now(),
         // 截断从 JSONL 加载的历史工具输出，与流式期间 MAX_INMEMORY_TOOL_OUTPUT 保持一致
         ...(msg.toolCalls?.length ? {
           toolCalls: msg.toolCalls.map(tc => ({
@@ -196,6 +218,11 @@ async function hydrateSessionsFromJsonl(sessions: Session[]): Promise<void> {
           }))
         } : {}),
       })) as Message[]
+
+      // ★ 追加 hydrate 期间用户新发送且快照中不存在的消息
+      if (survivors.length > 0) {
+        session.messages.push(...survivors as Message[])
+      }
 
       // 将旧消息中保存的前端特有 metadata 按助手消息位置合并回重建后的消息
       if (oldExtraMetaByAssistantIdx.size > 0) {
@@ -352,10 +379,13 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     hydratedSessionIds.add(sessionId)
     const session = sessions.value.find((s) => s.id === sessionId)
     if (!session) return
+    // ★ 快照 hydrate 启动时的消息 id 集合。hydrate 期间用户可能发送新消息，
+    // 这些消息不在后续读取的 JSONL 快照里，回写时必须保留（见 hydrateSessionsFromJsonl）。
+    const messageIdsAtStart = new Set(session.messages.map(m => m.id))
     try {
       await Promise.all([
         hydrateImageAttachments([session]),
-        hydrateSessionsFromJsonl([session]),
+        hydrateSessionsFromJsonl([session], messageIdsAtStart),
       ])
     } catch (err) {
       console.error('[ChatStore] hydrateSingleSession failed:', err)
@@ -1299,7 +1329,16 @@ export const useChatSessionStore = defineStore('chatSession', () => {
 
     // 懒加载：首次切换到该会话时从 JSONL 恢复完整历史 + 图片附件。
     // 跳过正在 streaming 的会话，避免覆盖流式写入的最新消息。
-    if (session && !hydratedSessionIds.has(sessionId) && !isSessionLoading(sessionId)) {
+    // 跳过 turn 进行中的会话（processStatus starting/active）——此时引擎侧 JSONL
+    // 可能尚未写入刚发送的用户消息，hydrate 回写会整体覆盖 messages 数组，
+    // 把刚发送的气泡抹掉（遗留会话表现为"发送的消息变成了历史旧消息"）。
+    if (
+      session &&
+      !hydratedSessionIds.has(sessionId) &&
+      !isSessionLoading(sessionId) &&
+      session.processStatus !== 'starting' &&
+      session.processStatus !== 'active'
+    ) {
       void hydrateSingleSession(sessionId)
     }
 
