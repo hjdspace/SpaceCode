@@ -20,9 +20,10 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
-    // jsdom is expensive to construct; building it once per worker instead of
-    // once per test file cut the suite from ~33s to ~13s.
-    pool: 'vmThreads',
+    // `vmThreads` causes segfaults (SIGSEGV) on CI runners due to V8 VM sandbox
+    // threading issues. `threads` uses worker threads without the VM context
+    // isolation, which is stable across all platforms.
+    pool: 'threads',
     // A few tests do genuinely slow work (cold module graph imports, component
     // mounts, filesystem scans) and can exceed the default timeout under load.
     // One retry absorbs that without hiding a deterministic failure.
