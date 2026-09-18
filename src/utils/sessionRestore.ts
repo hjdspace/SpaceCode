@@ -19,7 +19,7 @@ import type { Message } from '@/types'
  * 同一 msgId 的多条 JSONL 记录会被合并为一条 Message（Claude Code 的 JSONL
  * 格式中，一次 assistant 回复可能被拆成多行，如 text 行 + tool_use 行）。
  */
-export type RestoredMessage = Omit<Message, 'id' | 'timestamp'> & { id?: string }
+export type RestoredMessage = Omit<Message, 'id' | 'timestamp'> & { id?: string; timestamp?: number }
 
 export function buildMessagesFromHistory(
   rawMessages: any[],
@@ -218,6 +218,7 @@ export function buildMessagesFromHistory(
               id: messageId,
               role: 'user',
               content: reconstructed,
+              timestamp: ts,
               ...(isSkillFormat
                 ? { metadata: { kind: 'skill-invocation', skillName: cmdMessageMatch?.[1].trim() || '' } }
                 : {}),
@@ -282,6 +283,7 @@ export function buildMessagesFromHistory(
         id: messageId,
         role: 'user',
         content: userText,
+        timestamp: ts,
         ...(attachments.length ? { attachments } : {}),
         ...(imageAttachments.length ? { imageAttachments } : {}),
       })
@@ -422,6 +424,7 @@ export function buildMessagesFromHistory(
           id: msgId,
           role: 'assistant',
           content: textContent,
+          timestamp: ts,
           ...(reasoningContent
             ? {
                 reasoning: {
@@ -473,6 +476,7 @@ export function buildMessagesFromHistory(
         id: messageId,
         role: 'system',
         content: `[${tag}] ${text}`,
+        timestamp: ts,
         metadata: {
           kind: 'teammate-message',
           agentTaskId: teammateId,
