@@ -7,6 +7,8 @@ import { join, dirname, basename, resolve } from 'path'
 import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSync, unlinkSync, cpSync, rmSync } from 'fs'
 import { net } from 'electron'
 
+import { parseYamlFrontMatter } from './frontMatter'
+
 // Types
 export interface Skill {
   name: string
@@ -1142,37 +1144,6 @@ function saveCustomDirsToFile(directories: string[]): void {
   } catch (err) {
     console.error('[LocalLibrary] Failed to save custom directories to file:', err)
     throw err
-  }
-}
-
-function parseYamlFrontMatter(content: string): Record<string, any> | null {
-  const match = content.match(/^---\n([\s\S]*?)\n---/)
-  if (!match) return null
-
-  try {
-    const yaml = match[1]
-    const result: Record<string, any> = {}
-    const lines = yaml.split('\n')
-
-    for (const line of lines) {
-      const colonIndex = line.indexOf(':')
-      if (colonIndex === -1) continue
-
-      const key = line.slice(0, colonIndex).trim()
-      let value: string | string[] = line.slice(colonIndex + 1).trim()
-
-      if (typeof value === 'string' && value.startsWith('[') && value.endsWith(']')) {
-        value = (value as string).slice(1, -1).split(',').map(item => item.trim().replace(/^['"]|['"]$/g, ''))
-      } else if (typeof value === 'string' && (value.startsWith('"') || value.startsWith("'"))) {
-        value = (value as string).slice(1, -1)
-      }
-
-      result[key] = value
-    }
-
-    return result
-  } catch (err) {
-    return null
   }
 }
 
