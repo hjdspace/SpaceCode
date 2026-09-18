@@ -1,3 +1,40 @@
+## [0.8.2](https://github.com/hjdspace/SpaceCode/compare/v0.8.1...v0.8.2) (2026-09-19)
+
+### Features
+
+- **chat:** 新增思考等级切换能力，完善 H5 与桌面端会话控制
+- **chat:** 新增消息编辑重发功能，重构 IPC 通道管理
+- **chat:** 新增 WelcomeHero 欢迎页组件，含默认任务列表与空会话集成
+- **chat:** 新增 StreamingCodeBlock 组件用于实时代码流式展示
+- **chat:** 增强模型选择与持久化，支持 lastSelectedModel 记忆
+- **chat:** 新增思考状态等待指示器与起始时间追踪
+- **i18n:** 命名空间化 locale 文件并新增 key 一致性测试
+- **proxy:** 新增 buildProxyConfigFromSettings 及代理配置同步逻辑
+- **session:** 增强会话 hydration 消息 ID 追踪与时间戳保留
+
+### Bug Fixes
+
+- **session:** 修复路径格式问题导致的重复项目组与打开失败
+- **electron:** 调整权限参数处理逻辑
+
+### Refactor
+
+- **fonts:** 替换全局字体为 Inter 与 Noto Sans SC 并统一排版变量
+- **electron:** 提取 yaml frontmatter 解析逻辑为独立模块
+- 清理 src/ 中的无用代码空间
+- 重构 ReadToolCard 与 EditToolCard 改善文件内容处理与 diff 展示
+
+### Style
+
+- **settings:** 将默认字号从 14 调整为 15 并添加迁移逻辑
+- 更新正文行高与 Markdown 排版间距
+
+### Build
+
+- **tests, ci:** 迁移测试到 Vitest 并配置 CI 流程
+- **tsconfig:** 新增 tests/i18n 目录到编译包含名单
+- 实现桌面端打包体积自动优化脚本与配置
+
 ## [0.8.1](https://github.com/hjdspace/SpaceCode/compare/v0.8.0...v0.8.1) (2026-09-17)
 
 ### Features
