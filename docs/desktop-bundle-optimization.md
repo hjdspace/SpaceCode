@@ -131,11 +131,13 @@ node scripts/gen-bundle-excludes.cjs --dry    # 只打印，不改文件
 
 | 项目 | 优化前 | 优化后 | 变化 |
 | --- | --- | --- | --- |
-| **NSIS 安装包** | **282.5 MB** | **229.8 MB** | **-52.7 MB（-18.7%）** |
-| `resources/app.asar` | 285.5 MB | **75.1 MB** | -210.4 MB |
+| **NSIS 安装包** | **282.5 MB** | **237.4 MB** | **-45.1 MB（-16.0%）** |
+| `resources/app.asar` | 285.5 MB | **82.1 MB** | -203.4 MB |
 | `resources/app.asar.unpacked` | 92.6 MB | **44.3 MB** | -48.3 MB |
 | `locales/` | 46.6 MB | **1.1 MB** | -45.5 MB |
-| **win-unpacked（安装后占用）** | **1040.4 MB** | **736.0 MB** | **-304.4 MB（-29.3%）** |
+| **win-unpacked（安装后占用）** | **1040.4 MB** | **743.1 MB** | **-297.3 MB（-28.6%）** |
+
+> 上表为 `npm run electron:build:win` 完整流水线的实测结果（含 `build:proxy` 产物，故 `app.asar` 略大于纯 `--dir` 打包的 75.1 MB）。
 
 安装包降幅小于解包降幅，是因为被裁掉的内容以 JS 文本为主（LZMA 压缩率约 17%），而 Electron 二进制/DLL 本身已不可再压。
 
