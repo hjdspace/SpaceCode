@@ -65,12 +65,23 @@
                 @back="sessionStore.backToLeaderView"
               />
 
+              <!-- Hero 展示时隐藏 MessageList，避免其空状态提示与 Hero 同时渲染、平分高度 -->
               <MessageList
+                v-show="!showWelcomeHero"
                 :messages="paneMessages"
                 :loading="paneIsLoading"
                 @tool-submit="handleToolSubmit"
                 @tool-skip="handleToolSkip"
                 @rewind="handleMessageRewind"
+              />
+
+              <WelcomeHero
+                v-if="showWelcomeHero"
+                :title="t('chat.welcomeHero.title')"
+                :subtitle="t('chat.welcomeHero.subtitle')"
+                :project-path="paneWorkingDirectory"
+                :tasks="welcomeTasks"
+                @select="handleWelcomeTaskSelect"
               />
 
               <RecommendedPrompts />
@@ -268,6 +279,7 @@ import { useAppStore } from '@/stores/app'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
 import MessageList from '../chat/MessageList.vue'
 import RecommendedPrompts from '../chat/RecommendedPrompts.vue'
+import WelcomeHero from '../chat/WelcomeHero.vue'
 import WorkAssistantShortcuts from '../work/WorkAssistantShortcuts.vue'
 import TeamStatusBar from '../chat/TeamStatusBar.vue'
 import TeammateTranscriptHeader from '../chat/TeammateTranscriptHeader.vue'
@@ -293,7 +305,7 @@ import { initLLMService, llmState } from '@/services/llm'
 import { pathsEqual } from '@/utils/recentProjectRoots'
 import { useChatCommands } from '@/composables/useChatCommands'
 import { useWorkRouter } from '@/composables/useWorkRouter'
-import type { AgentDef } from '@/stores/agents'
+import { useAgentsStore, type AgentDef } from '@/stores/agents'
 import { api } from '@/services/electronAPI'
 import { isH5Mode } from '@/services/h5ApiClient'
 import type { Message } from '@/types'
@@ -320,7 +332,8 @@ const goalStore = useGoalStore()
 const settingsStore = useSettingsStore()
 const appStore = useAppStore()
 const splitLayout = useSplitLayoutStore()
-const { t } = useI18n()
+const agentsStore = useAgentsStore()
+const { t, locale, tm } = useI18n()
 
 // ── Pane props（分屏多 pane 时由 SplitContainer 传入；未传入 = 单屏，行为
 //    与改造前完全一致：所有 pane-scoped 计算回退到全局 current*） ──
@@ -843,6 +856,82 @@ const showNoProjectWelcome = computed(() => {
   if (!hasWorkspaceContext.value) return true
   return !(appStore.projectRoot || '').trim()
 })
+
+// ── 空会话欢迎层三选一竞享 ─────────────────────────────────────
+// 三层共用「空会话」判定，同一时刻只显示一个：
+//   1. work 模式 + 未选助手 → WorkAssistantShortcuts（选人卡）
+//   2. work 模式 + 已选助手 + 有推荐 prompt → RecommendedPrompts（推荐任务卡）
+//   3. 其余空会话 → WelcomeHero（兜底欢迎层）
+
+/** 空会话且当前无历史消息（pane-scoped，分屏时跟随所在 pane 的会话） */
+const isEmptyChat = computed(() => paneMessages.value.length === 0)
+
+/** 当前会话绑定的 work 助手（assistantId 或 currentAgent 回退） */
+const currentWorkAssistant = computed<AgentDef | undefined>(() => {
+  const id = paneSession.value?.assistantId || sessionStore.currentAgent
+  if (!id) return undefined
+  return agentsStore.libraryAgents.find((a) => a.name === id && a.mode === 'work')
+})
+
+const isZhLocale = computed(() => String(locale.value).toLowerCase().startsWith('zh'))
+
+/** 已选助手的本地化推荐 prompt */
+const welcomePromptList = computed<string[]>(() => {
+  const a = currentWorkAssistant.value
+  if (!a) return []
+  const zh = a.recommendedPromptsZh
+  return (isZhLocale.value && zh && zh.length ? zh : a.recommendedPrompts) || []
+})
+
+/** work 模式 + 空会话 + 已选助手且已有推荐 prompt → 显示 RecommendedPrompts */
+const showRecommendedPrompts = computed(
+  () =>
+    appStore.mode === 'work' &&
+    paneSession.value?.mode === 'work' &&
+    isEmptyChat.value &&
+    welcomePromptList.value.length > 0,
+)
+
+/** work 模式 + 空会话 + 未选助手 → 显示选人卡 */
+const showWorkAssistantShortcuts = computed(
+  () =>
+    appStore.mode === 'work' &&
+    paneSession.value?.mode === 'work' &&
+    isEmptyChat.value &&
+    !paneSession.value?.assistantId,
+)
+
+/** 兜底欢迎 Hero：空会话 且 不满足上述两层 */
+const showWelcomeHero = computed(
+  () =>
+    !showNoProjectWelcome.value &&
+    isEmptyChat.value &&
+    !showRecommendedPrompts.value &&
+    !showWorkAssistantShortcuts.value,
+)
+
+/** Hero 磁贴：已选助手用其推荐 prompt，否则用内置通用任务（i18n） */
+const welcomeTasks = computed<Array<{ name: string; description?: string }>>(() => {
+  if (welcomePromptList.value.length > 0) {
+    return welcomePromptList.value.map((p) => ({ name: p }))
+  }
+  // vue-i18n 的消息 schema 推断会让 tm() 产生过深的递归类型，这里显式放宽读取
+  const readMessages = tm as unknown as (key: string) => unknown
+  const defaults = readMessages('chat.defaultTasks')
+  if (!Array.isArray(defaults)) return []
+  return defaults.map((entry) => {
+    const record = entry as Record<string, unknown>
+    return {
+      name: typeof record.name === 'string' ? record.name : '',
+      description: typeof record.description === 'string' ? record.description : undefined,
+    }
+  })
+})
+
+/** 点击欢迎磁贴 → 填入输入框（与 RecommendedPrompts.usePrompt 一致），可编辑后发送 */
+function handleWelcomeTaskSelect(prompt: string) {
+  appStore.pushToInput({ text: prompt })
+}
 
 watch(
   () => ({
