@@ -4,6 +4,9 @@ import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSy
 import { spawn } from 'child_process'
 import { config } from 'dotenv'
 import { TerminalManager } from './terminalManager'
+import { terminalNamespace } from '@/shared/channels/terminal'
+import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
+import { channelNames } from '@/shared/channelMap'
 import { registerGitIPCHandlers } from './gitService'
 import { registerSkillsIPCHandlers, registerLocalLibraryIPCHandlers } from './skillsService'
 import { registerSkillManagerV2IPCHandlers } from './skillManagerV2'
@@ -34,6 +37,9 @@ import { PetFileService } from './petFileService'
 import { PetWindowController } from './petWindowManager'
 import { registerPetIpcHandlers } from './petIpcHandlers'
 import { setupLinuxPlatform } from './platformSetup'
+
+// claudeCode handler channel 名从表派生 — main.ts 侧仅 engineSourceChanged 一个 handler
+const CLAUDE_CODE_CHANNELS = channelNames(claudeCodeNamespace.channels, 'claude-code:')
 
 // ============================================================
 // App Startup
@@ -905,7 +911,7 @@ info('Startup', 'CuaDriver IPC handlers registered')
   // Mobile server
   registerMobileIPCHandlers()
 
-  ipcMain.handle('claude-code:engineSourceChanged', async (_, source: string) => {
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.notifyEngineSourceChanged, async (_, source: string) => {
     info('EngineSource', `Engine source changed to: ${source}`)
     // ★ 非 Anthropic 提供商始终需要代理（无论 bundled 还是 installed），
     // 因为内置引擎的 OpenAI/Gemini 直连路径没有 withRetry 重试机制。
@@ -1882,8 +1888,9 @@ ipcMain.handle('dialog:selectFiles', async () => {
 // Terminal IPC Handlers
 // ============================================================================
 const terminalManager = new TerminalManager()
+const TERMINAL_CHANNELS = channelNames(terminalNamespace.channels, 'terminal:')
 
-ipcMain.handle('terminal:create', async (_event, options?: { cwd?: string; command?: string; env?: Record<string, string> }) => {
+ipcMain.handle(TERMINAL_CHANNELS.create, async (_event, options?: { cwd?: string; command?: string; env?: Record<string, string> }) => {
   try {
     const cwd = options?.cwd || process.cwd()
     const result = terminalManager.create(cwd, options?.command, options?.env)
@@ -1895,20 +1902,20 @@ ipcMain.handle('terminal:create', async (_event, options?: { cwd?: string; comma
   }
 })
 
-ipcMain.on('terminal:write', (_event, id: string, data: string) => {
+ipcMain.on(TERMINAL_CHANNELS.write, (_event, id: string, data: string) => {
   terminalManager.write(id, data)
 })
 
-ipcMain.on('terminal:resize', (_event, id: string, cols: number, rows: number) => {
+ipcMain.on(TERMINAL_CHANNELS.resize, (_event, id: string, cols: number, rows: number) => {
   terminalManager.resize(id, cols, rows)
 })
 
-ipcMain.on('terminal:kill', (_event, id: string) => {
+ipcMain.on(TERMINAL_CHANNELS.kill, (_event, id: string) => {
   debug('Terminal', `Kill terminal: ${id}`)
   terminalManager.kill(id)
 })
 
-ipcMain.on('terminal:runCommand', (_event, id: string, command: string) => {
+ipcMain.on(TERMINAL_CHANNELS.runCommand, (_event, id: string, command: string) => {
   debug('Terminal', `Run command in ${id}: ${command.slice(0, 100)}`)
   terminalManager.write(id, command + '\r')
 })

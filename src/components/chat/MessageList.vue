@@ -21,6 +21,7 @@
               @tool-submit="(mId, tId, ans) => emit('toolSubmit', mId, tId, ans)"
               @tool-skip="(mId, tId) => emit('toolSkip', mId, tId)"
               @rewind="(msg) => emit('rewind', msg)"
+              @edit-resend="(msg, newContent) => emit('editResend', msg.id, newContent)"
             />
           </div>
           <!-- 助手消息：统一用 AgentTimeline（design 模式也复用，仅通过 mode prop 剥离设计专用标签） -->
@@ -87,6 +88,7 @@ const emit = defineEmits<{
   toolSubmit: [messageId: string, toolId: string, updatedInput: Record<string, unknown>]
   toolSkip: [messageId: string, toolId: string]
   rewind: [message: Message]
+  editResend: [messageId: string, newContent: string]
   // design 模式专用事件
   openArtifact: [path: string]
   submitForm: [answers: Record<string, unknown>]

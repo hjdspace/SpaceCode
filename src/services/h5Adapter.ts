@@ -7,12 +7,23 @@ import type { ElectronClaudeCodeAPI } from '@/types/electron'
 
 type EventCallback = (data: { sessionId: string; data: any }) => void
 
+/** 显式拒绝：调用方有 catch（UI 回滚/toast/降级路径）的功能，让错误路径生效 */
+function h5Unsupported(feature: string): never {
+  throw new Error(`该功能暂不支持 H5 模式：${feature}`)
+}
+
+/** 显式提示但不中断：调用方无 catch（fire-and-forget）的功能，throw 会变成 unhandled rejection */
+function h5Noop(feature: string): Promise<void> {
+  console.warn(`该功能暂不支持 H5 模式（调用已忽略）：${feature}`)
+  return Promise.resolve()
+}
+
 /**
  * 创建 H5 适配器对象，结构与 preload.ts 中的 claudeCode 一致。
  * Stores 通过 api.claudeCode.xxx() 调用这些方法，
  * 在 H5 模式下会被替换为此适配器。
  */
-export function createH5Adapter() {
+export function createH5Adapter(): ElectronClaudeCodeAPI {
   return {
     // ── 会话生命周期 ──
     startSession: (sessionId: string, config: any) =>
@@ -32,9 +43,9 @@ export function createH5Adapter() {
     stop: (sessionId: string) =>
       h5ApiClient.stop(sessionId),
 
-    // H5 MVP: 挂起/恢复不常用，提供 stub
-    suspendSession: (_sessionId: string) => Promise.resolve(),
-    resumeSession: (_sessionId: string) => Promise.resolve(),
+    // H5: 挂起/恢复为 no-op（调用方无 catch，且恢复路径依赖服务端真实状态查询）
+    suspendSession: (_sessionId: string) => h5Noop('suspendSession'),
+    resumeSession: (_sessionId: string) => h5Noop('resumeSession'),
 
     // ── 查询 ──
     getSessionStatus: (sessionId: string) =>
@@ -98,15 +109,15 @@ export function createH5Adapter() {
       }
     },
 
-    // H5 MVP: 权限模式切换暂不支持
-    setPermissionMode: (_sessionId: string, _mode: any) => Promise.resolve(),
-    setModel: (_sessionId: string, _model: string | undefined) => Promise.resolve(),
+    // H5: 权限模式/模型切换显式拒绝 — 调用方（permissionPolicy/chatSession）有回滚与降级路径
+    setPermissionMode: async (_sessionId: string, _mode: any) => h5Unsupported('setPermissionMode'),
+    setModel: async (_sessionId: string, _model: string | undefined) => h5Unsupported('setModel'),
 
-    // H5 MVP: MCP/Context 查询暂不支持
+    // H5: 查询型 stub 返回诚实降级值（无数据，而非假成功）
     getMcpStatus: (_sessionId: string) => Promise.resolve(undefined),
     getContextUsage: (_sessionId: string) => Promise.resolve(undefined),
     getSettings: (_sessionId: string) => Promise.resolve(undefined),
-    stopEngineTask: (_sessionId: string, _taskId: string) => Promise.resolve(),
+    stopEngineTask: (_sessionId: string, _taskId: string) => h5Noop('stopEngineTask'),
     getPendingPermissionRequestIds: (_sessionId: string) => Promise.resolve([]),
 
     // ── 会话历史 ──
@@ -122,11 +133,11 @@ export function createH5Adapter() {
     restoreSession: (sessionId: string, projectPath: string) =>
       h5ApiClient.restoreSession(sessionId, projectPath),
 
-    // H5 MVP: Agent 相关 stub
+    // H5: Agent 相关 stub
     listAgents: (_cwd?: string, _engineType?: string) => Promise.resolve([]),
     isEngineAvailable: (_engineType: string) => Promise.resolve(true),
-    installPiSdk: () => Promise.resolve({ success: false, error: 'Not supported in H5 mode' }),
-    updateThinkingLevel: (_sessionId: string, _enabled: boolean) => Promise.resolve(),
+    installPiSdk: () => Promise.resolve({ success: false, error: '该功能暂不支持 H5 模式：installPiSdk' }),
+    updateThinkingLevel: (_sessionId: string, _enabled: boolean) => h5Noop('updateThinkingLevel'),
 
     // H5 MVP: CLI 相关 stub
     detectInstalledCli: () => Promise.resolve(null),
@@ -134,10 +145,10 @@ export function createH5Adapter() {
     installCli: () => Promise.resolve(null),
     onInstallProgress: (_callback: (progress: any) => void) => () => {},
 
-    // H5 MVP: 代理相关 stub
+    // H5: 代理/引擎来源 stub
     getProxyStatus: () => Promise.resolve(null),
     isProxyRunning: () => Promise.resolve(false),
-    notifyEngineSourceChanged: (_source: string) => Promise.resolve(),
+    notifyEngineSourceChanged: (_source: string) => h5Noop('notifyEngineSourceChanged'),
 
     // H5 MVP: Agent transcript 暂不支持
     resolveAgentTranscriptPath: (_projectPath: string, _sessionId: string, _agentId: string) =>

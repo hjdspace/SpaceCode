@@ -16,6 +16,13 @@ import {
 } from './mcpConfigResolver'
 import { installPiSdk } from './piInstaller'
 import { engineGateway, findEngineForSession } from './engineGateway'
+import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
+import { channelNames, eventChannels } from '@/shared/channelMap'
+
+// channel 名从 claudeCode 表派生 — 与 preload bridge / renderer 类型共享同一真相源，
+// 拼写漂移在编译期暴露。
+const CLAUDE_CODE_CHANNELS = channelNames(claudeCodeNamespace.channels, 'claude-code:')
+const CLAUDE_CODE_EVENTS = eventChannels(claudeCodeNamespace.events, 'claude-code:')
 
 let mainWindow: BrowserWindow | null = null
 
@@ -27,30 +34,27 @@ export function setMainWindow(window: BrowserWindow) {
 export function registerClaudeCodeIPC() {
   info('ClaudeCodeIPC', 'Initializing with EngineFactory')
 
-  ipcMain.handle('claude-code:startSession', async (_, sessionId: string, config: EngineSessionConfig) => engineGateway.startSession(sessionId, config))
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.startSession, async (_, sessionId: string, config: EngineSessionConfig) => engineGateway.startSession(sessionId, config))
 
-  ipcMain.handle('claude-code:sendMessage', async (_, sessionId: string, content: string, images?: any[]) => engineGateway.sendMessage(sessionId, content, images))
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.sendMessage, async (_, sessionId: string, content: string, images?: any[]) => engineGateway.sendMessage(sessionId, content, images))
 
-  ipcMain.handle('claude-code:abort', async (_, sessionId: string) => engineGateway.abort(sessionId))
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.abort, async (_, sessionId: string) => engineGateway.abort(sessionId))
 
-  ipcMain.handle('claude-code:stop', async (_, sessionId: string) => engineGateway.stop(sessionId))
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.stop, async (_, sessionId: string) => engineGateway.stop(sessionId))
 
-  ipcMain.handle('claude-code:suspendSession', async (_, sessionId: string) => engineGateway.suspendSession(sessionId))
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.suspendSession, async (_, sessionId: string) => engineGateway.suspendSession(sessionId))
 
-  ipcMain.handle('claude-code:resumeSession', async (_, sessionId: string) => engineGateway.resumeSession(sessionId))
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.resumeSession, async (_, sessionId: string) => engineGateway.resumeSession(sessionId))
 
-  ipcMain.handle('claude-code:getSessionStatus', async (_, sessionId: string) => engineGateway.getSessionStatus(sessionId))
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.getSessionStatus, async (_, sessionId: string) => engineGateway.getSessionStatus(sessionId))
 
-  ipcMain.handle('claude-code:getActiveSessions', async () => engineGateway.getActiveSessions())
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.getActiveSessions, async () => engineGateway.getActiveSessions())
 
-  ipcMain.handle('claude-code:isSessionActive', async (_, sessionId?: string) => engineGateway.isSessionActive(sessionId))
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.isSessionActive, async (_, sessionId?: string) => engineGateway.isSessionActive(sessionId))
 
-  ipcMain.handle('claude-code:log', async () => {
-  })
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.listAgents, async (_, cwd?: string, engineType?: string) => engineGateway.listAgents(cwd, engineType as any))
 
-  ipcMain.handle('claude-code:listAgents', async (_, cwd?: string, engineType?: string) => engineGateway.listAgents(cwd, engineType as any))
-
-  ipcMain.handle('claude-code:updateThinkingLevel', async (_, sessionId: string, enabled: boolean) => {
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.updateThinkingLevel, async (_, sessionId: string, enabled: boolean) => {
     info('ClaudeCodeIPC', `→ updateThinkingLevel | sessionId=${sessionId.slice(0, 8)} | enabled=${enabled}`)
     try {
       const engine = findEngineForSession(sessionId)
@@ -62,20 +66,20 @@ export function registerClaudeCodeIPC() {
     }
   })
 
-  ipcMain.handle('claude-code:isEngineAvailable', async (_, engineType: string) => {
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.isEngineAvailable, async (_, engineType: string) => {
     debug('ClaudeCodeIPC', `→ isEngineAvailable | engine=${engineType}`)
     return EngineFactory.isEngineAvailableAsync(engineType as any)
   })
 
-  ipcMain.handle('claude-code:installPiSdk', async () => {
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.installPiSdk, async () => {
     info('ClaudeCodeIPC', '→ installPiSdk')
     return installPiSdk()
   })
 
-  ipcMain.handle('claude-code:submitToolAnswer', async (_, sessionId: string, toolCallId: string, answers: Record<string, string>) => engineGateway.submitToolAnswer(sessionId, toolCallId, answers))
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.submitToolAnswer, async (_, sessionId: string, toolCallId: string, answers: Record<string, string>) => engineGateway.submitToolAnswer(sessionId, toolCallId, answers))
 
   // ==================== 会话历史管理 ====================
-  ipcMain.handle('claude-code:listProjectSessions', async (_, cwd: string) => {
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.listProjectSessions, async (_, cwd: string) => {
     info('ClaudeCodeIPC', `→ listProjectSessions | cwd=${cwd}`)
     try {
       const sessions = await SessionHistoryManager.listProjectSessions(cwd)
@@ -90,47 +94,47 @@ export function registerClaudeCodeIPC() {
     }
   })
 
-  ipcMain.handle('claude-code:skipToolAnswer', async (_, sessionId: string, toolCallId: string) => engineGateway.skipToolAnswer(sessionId, toolCallId))
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.skipToolAnswer, async (_, sessionId: string, toolCallId: string) => engineGateway.skipToolAnswer(sessionId, toolCallId))
 
   // ──────────────────── can_use_tool / control_request ────────────────────
 
   ipcMain.handle(
-    'claude-code:allowPermission',
+    CLAUDE_CODE_CHANNELS.allowPermission,
     async (_, sessionId: string, requestId: string, updatedInput?: Record<string, unknown>, decisionClassification?: 'user_temporary' | 'user_permanent') =>
       engineGateway.allowPermission(sessionId, requestId, updatedInput, decisionClassification),
   )
 
   ipcMain.handle(
-    'claude-code:denyPermission',
+    CLAUDE_CODE_CHANNELS.denyPermission,
     async (_, sessionId: string, requestId: string, message?: string, options?: { interrupt?: boolean }) =>
       engineGateway.denyPermission(sessionId, requestId, message, options),
   )
 
   ipcMain.handle(
-    'claude-code:respondPermission',
+    CLAUDE_CODE_CHANNELS.respondPermission,
     async (_, sessionId: string, requestId: string, decision: any) =>
       engineGateway.respondPermission(sessionId, requestId, decision),
   )
 
   ipcMain.handle(
-    'claude-code:setPermissionMode',
+    CLAUDE_CODE_CHANNELS.setPermissionMode,
     async (_, sessionId: string, mode: 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions') =>
       engineGateway.setPermissionMode(sessionId, mode),
   )
 
-  ipcMain.handle('claude-code:setModel', async (_, sessionId: string, model: string | undefined) => engineGateway.setModel(sessionId, model))
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.setModel, async (_, sessionId: string, model: string | undefined) => engineGateway.setModel(sessionId, model))
 
-  ipcMain.handle('claude-code:getMcpStatus', async (_, sessionId: string) => engineGateway.getMcpStatus(sessionId))
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.getMcpStatus, async (_, sessionId: string) => engineGateway.getMcpStatus(sessionId))
 
-  ipcMain.handle('claude-code:getContextUsage', async (_, sessionId: string) => engineGateway.getContextUsage(sessionId))
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.getContextUsage, async (_, sessionId: string) => engineGateway.getContextUsage(sessionId))
 
-  ipcMain.handle('claude-code:getSettings', async (_, sessionId: string) => engineGateway.getSettings(sessionId))
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.getSettings, async (_, sessionId: string) => engineGateway.getSettings(sessionId))
 
-  ipcMain.handle('claude-code:stopEngineTask', async (_, sessionId: string, taskId: string) => engineGateway.stopEngineTask(sessionId, taskId))
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.stopEngineTask, async (_, sessionId: string, taskId: string) => engineGateway.stopEngineTask(sessionId, taskId))
 
-  ipcMain.handle('claude-code:getPendingPermissionRequestIds', async (_, sessionId: string) => engineGateway.getPendingPermissionRequestIds(sessionId))
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.getPendingPermissionRequestIds, async (_, sessionId: string) => engineGateway.getPendingPermissionRequestIds(sessionId))
 
-  ipcMain.handle('claude-code:listAllSessions', async () => {
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.listAllSessions, async () => {
     info('ClaudeCodeIPC', '→ listAllSessions')
     try {
       const sessions = await SessionHistoryManager.listAllSessions()
@@ -145,7 +149,7 @@ export function registerClaudeCodeIPC() {
     }
   })
 
-  ipcMain.handle('claude-code:getFullSession', async (_, projectPath: string, sessionId: string) => {
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.getFullSession, async (_, projectPath: string, sessionId: string) => {
     info('ClaudeCodeIPC', `→ getFullSession | projectPath=${projectPath} | sessionId=${sessionId.slice(0, 8)}`)
     try {
       const fullSession = await SessionHistoryManager.getFullSession(projectPath, sessionId)
@@ -156,7 +160,7 @@ export function registerClaudeCodeIPC() {
     }
   })
 
-  ipcMain.handle('claude-code:resolveAgentTranscriptPath', async (_, projectPath: string, sessionId: string, agentId: string) => {
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.resolveAgentTranscriptPath, async (_, projectPath: string, sessionId: string, agentId: string) => {
     try {
       return SessionHistoryManager.getAgentTranscriptPath(projectPath, sessionId, agentId)
     } catch (err) {
@@ -165,7 +169,7 @@ export function registerClaudeCodeIPC() {
     }
   })
 
-  ipcMain.handle('claude-code:restoreSession', async (_, sessionId: string, projectPath: string) => {
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.restoreSession, async (_, sessionId: string, projectPath: string) => {
     info('ClaudeCodeIPC', `→ restoreSession | sessionId=${sessionId.slice(0, 8)} | projectPath=${projectPath}`)
     try {
       const fullSession = await SessionHistoryManager.getFullSession(projectPath, sessionId)
@@ -176,26 +180,26 @@ export function registerClaudeCodeIPC() {
     }
   })
 
-  ipcMain.handle('claude-code:detectInstalledCli', async () => {
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.detectInstalledCli, async () => {
     return detectInstalledCli()
   })
 
-  ipcMain.handle('claude-code:checkEnvironment', async () => {
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.checkEnvironment, async () => {
     return checkEnvironment()
   })
 
-  ipcMain.handle('claude-code:installCli', async (event) => {
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.installCli, async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     return installCli(win, (progress) => {
-      win?.webContents.send('claude-code:installProgress', progress)
+      win?.webContents.send(CLAUDE_CODE_EVENTS.onInstallProgress, progress)
     })
   })
 
-  ipcMain.handle('claude-code:getProxyStatus', async () => {
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.getProxyStatus, async () => {
     return proxyManager.getStatus()
   })
 
-  ipcMain.handle('claude-code:isProxyRunning', async () => {
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.isProxyRunning, async () => {
     return proxyManager.isRunning()
   })
 

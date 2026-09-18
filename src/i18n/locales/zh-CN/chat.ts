@@ -55,6 +55,8 @@ export default {
   rewind: '回滚',
   copyMessage: '复制消息',
   copied: '已复制',
+  editMessage: '编辑消息',
+  resend: '重新发送',
   minimap: '会话预览',
   userMessage: '用户消息',
   assistantMessage: '助手消息',

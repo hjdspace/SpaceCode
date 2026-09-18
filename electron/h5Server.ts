@@ -12,6 +12,8 @@ import { engineGateway } from './engineGateway'
 import { EngineFactory } from './engines/EngineFactory'
 import { SessionHistoryManager } from './sessionHistoryManager'
 import { info, warn, error, debug } from './logger'
+import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
+import { eventChannels } from '@/shared/channelMap'
 import type {
   H5ServerStatus,
   H5PushMessage,
@@ -19,6 +21,9 @@ import type {
   H5SessionChangedPayload,
   H5RemoteUserMessagePayload,
 } from './h5Types'
+
+// 桌面渲染进程的引擎事件 channel 名与 preload bridge 共享同一真相源
+const CLAUDE_CODE_EVENTS = eventChannels(claudeCodeNamespace.events, 'claude-code:')
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -676,7 +681,7 @@ export class H5Server {
     // 同步给桌面渲染进程；桌面 chatStream 会将其作为远端用户消息处理。
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) {
-        win.webContents.send('claude-code:user', { sessionId, data: payload })
+        win.webContents.send(CLAUDE_CODE_EVENTS.onUser, { sessionId, data: payload })
       }
     }
   }
@@ -689,7 +694,7 @@ export class H5Server {
 
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) {
-        win.webContents.send('claude-code:error', { sessionId, data: payload })
+        win.webContents.send(CLAUDE_CODE_EVENTS.onError, { sessionId, data: payload })
       }
     }
   }

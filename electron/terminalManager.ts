@@ -10,6 +10,10 @@ import { BrowserWindow, app } from 'electron'
 import { randomUUID } from 'crypto'
 import * as path from 'path'
 import * as fs from 'fs'
+import { terminalNamespace } from '@/shared/channels/terminal'
+import { eventChannels } from '@/shared/channelMap'
+
+const TERMINAL_EVENTS = eventChannels(terminalNamespace.events, 'terminal:')
 
 /**
  * 加载 node-pty 原生模块
@@ -244,7 +248,7 @@ export class TerminalManager {
         const win = BrowserWindow.getAllWindows()[0]
         if (win && !win.isDestroyed()) {
           try {
-            win.webContents.send('terminal:data', id, data)
+            win.webContents.send(TERMINAL_EVENTS.onData, id, data)
           } catch (error) {
             console.error('[Terminal] Failed to send data:', error)
           }
@@ -256,7 +260,7 @@ export class TerminalManager {
         const win = BrowserWindow.getAllWindows()[0]
         if (win && !win.isDestroyed()) {
           try {
-            win.webContents.send('terminal:exit', id, exitCode)
+            win.webContents.send(TERMINAL_EVENTS.onExit, id, exitCode)
           } catch (error) {
             console.error('[Terminal] Failed to send exit event:', error)
           }

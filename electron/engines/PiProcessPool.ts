@@ -4,6 +4,11 @@ import type { EngineSessionConfig, EngineSessionStatus, ImageAttachment } from '
 import type { ProcessStatus } from '../sessionProcess'
 import { mapPiEvent } from './PiEventMapper'
 import { info, warn, error, debug } from '../logger'
+import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
+import { eventChannelsBySuffix } from '@/shared/channelMap'
+
+// 引擎事件按类型动态派发：后缀 → 完整 channel 名，与 renderer 端订阅共享同一真相源
+const CLAUDE_CODE_EVENT_BY_SUFFIX = eventChannelsBySuffix(claudeCodeNamespace.events, 'claude-code:')
 
 export const MAX_PROCESSES = 20
 
@@ -240,10 +245,12 @@ export class PiProcessPool {
     }
 
     if (windowAvailable) {
-      this.mainWindow!.webContents.send(
-        `claude-code:${unifiedEvent.type}`,
-        { sessionId, data: unifiedEvent.data }
-      )
+      const channel = CLAUDE_CODE_EVENT_BY_SUFFIX[unifiedEvent.type]
+      if (!channel) {
+        warn('PiProcessPool', `[${shortSid}] Event type not in channel table, dropped: ${unifiedEvent.type}`)
+      } else {
+        this.mainWindow!.webContents.send(channel, { sessionId, data: unifiedEvent.data })
+      }
     } else {
       warn('PiProcessPool', `[${shortSid}] Cannot route event to renderer | windowAvailable=${windowAvailable} | type=${unifiedEvent.type}`)
     }

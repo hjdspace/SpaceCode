@@ -1,7 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { ElectronClaudeCodeAPI } from '@/types/electron'
 import { gitChannels } from '@/shared/channels/git'
-import { createPreloadBridge } from '@/shared/preloadBridge'
+import { terminalNamespace } from '@/shared/channels/terminal'
+import { updateNamespace } from '@/shared/channels/update'
+import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
+import { createPreloadBridge, createEventBridge } from '@/shared/preloadBridge'
 import { SCHEMA_MANAGER_CHANNELS } from './skillManagerV2/channels'
 
 export interface FileEntry {
@@ -220,29 +222,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getTokenUsageStats: () =>
     ipcRenderer.invoke('stats:getTokenUsage'),
 
-  // Terminal API
+  // Terminal API — invoke/send channels 与事件订阅均表驱动注册
   terminal: {
-    create: (options?: { cwd?: string; command?: string; env?: Record<string, string> }): Promise<{ id: string | null; shell?: string; error?: string }> =>
-      ipcRenderer.invoke('terminal:create', options),
-    write: (id: string, data: string) =>
-      ipcRenderer.send('terminal:write', id, data),
-    resize: (id: string, cols: number, rows: number) =>
-      ipcRenderer.send('terminal:resize', id, cols, rows),
-    kill: (id: string) =>
-      ipcRenderer.send('terminal:kill', id),
-    runCommand: (id: string, command: string) =>
-      ipcRenderer.send('terminal:runCommand', id, command),
-    onData: (callback: (id: string, data: string) => void) => {
-      const wrapper = (_: any, id: string, data: string) => callback(id, data)
-      ipcRenderer.on('terminal:data', wrapper)
-      return () => ipcRenderer.removeListener('terminal:data', wrapper)
-    },
-    onExit: (callback: (id: string, exitCode: number) => void) => {
-      const wrapper = (_: any, id: string, exitCode: number) => callback(id, exitCode)
-      ipcRenderer.on('terminal:exit', wrapper)
-      return () => ipcRenderer.removeListener('terminal:exit', wrapper)
-    },
-  },
+    ...createPreloadBridge(terminalNamespace.channels, ipcRenderer, 'terminal:'),
+    ...createEventBridge(terminalNamespace.events, ipcRenderer, 'terminal:'),
+  } satisfies import('@/shared/channels/terminal').TerminalRendererApi
+    & import('@/shared/channels/terminal').TerminalEventApi,
 
   // Git/SCM API — invoke channels 表驱动注册；onStatusChanged 是事件订阅，保留手写
   git: {
@@ -254,178 +239,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   } satisfies import('@/shared/channels/git').GitRendererApi & { onStatusChanged: (callback: () => void) => () => void },
 
+  // ClaudeCode Engine API — invoke channels 与事件订阅均表驱动注册
   claudeCode: {
-    startSession: (sessionId: string, config: any) =>
-      ipcRenderer.invoke('claude-code:startSession', sessionId, config),
-    sendMessage: (sessionId: string, content: string, images?: any[]) =>
-      ipcRenderer.invoke('claude-code:sendMessage', sessionId, content, images),
-    abort: (sessionId: string) =>
-      ipcRenderer.invoke('claude-code:abort', sessionId),
-    stop: (sessionId: string) =>
-      ipcRenderer.invoke('claude-code:stop', sessionId),
-    suspendSession: (sessionId: string) =>
-      ipcRenderer.invoke('claude-code:suspendSession', sessionId),
-    resumeSession: (sessionId: string) =>
-      ipcRenderer.invoke('claude-code:resumeSession', sessionId),
-    getSessionStatus: (sessionId: string) =>
-      ipcRenderer.invoke('claude-code:getSessionStatus', sessionId),
-    getActiveSessions: () =>
-      ipcRenderer.invoke('claude-code:getActiveSessions'),
-    isSessionActive: (sessionId?: string) =>
-      ipcRenderer.invoke('claude-code:isSessionActive', sessionId),
-    listAgents: (cwd?: string, engineType?: string) =>
-      ipcRenderer.invoke('claude-code:listAgents', cwd, engineType),
-    isEngineAvailable: (engineType: string) =>
-      ipcRenderer.invoke('claude-code:isEngineAvailable', engineType),
-    installPiSdk: () =>
-      ipcRenderer.invoke('claude-code:installPiSdk'),
-    updateThinkingLevel: (sessionId: string, enabled: boolean) =>
-      ipcRenderer.invoke('claude-code:updateThinkingLevel', sessionId, enabled),
-    // 会话历史相关
-    listProjectSessions: (cwd: string) =>
-      ipcRenderer.invoke('claude-code:listProjectSessions', cwd),
-    listAllSessions: () =>
-      ipcRenderer.invoke('claude-code:listAllSessions'),
-    getFullSession: (projectPath: string, sessionId: string) =>
-      ipcRenderer.invoke('claude-code:getFullSession', projectPath, sessionId),
-    resolveAgentTranscriptPath: (projectPath: string, sessionId: string, agentId: string) =>
-      ipcRenderer.invoke('claude-code:resolveAgentTranscriptPath', projectPath, sessionId, agentId),
-    restoreSession: (sessionId: string, projectPath: string) =>
-      ipcRenderer.invoke('claude-code:restoreSession', sessionId, projectPath),
-    onAssistant: (callback: (data: { sessionId: string; data: any }) => void) => {
-      const wrapper = (_: any, data: any) => callback(data)
-      ipcRenderer.on('claude-code:assistant', wrapper)
-      return () => ipcRenderer.removeListener('claude-code:assistant', wrapper)
-    },
-    onUser: (callback: (data: { sessionId: string; data: any }) => void) => {
-      const wrapper = (_: any, data: any) => callback(data)
-      ipcRenderer.on('claude-code:user', wrapper)
-      return () => ipcRenderer.removeListener('claude-code:user', wrapper)
-    },
-    onSystem: (callback: (data: { sessionId: string; data: any }) => void) => {
-      const wrapper = (_: any, data: any) => callback(data)
-      ipcRenderer.on('claude-code:system', wrapper)
-      return () => ipcRenderer.removeListener('claude-code:system', wrapper)
-    },
-    onToolUse: (callback: (data: { sessionId: string; data: any }) => void) => {
-      const wrapper = (_: any, data: any) => callback(data)
-      ipcRenderer.on('claude-code:tool_use', wrapper)
-      return () => ipcRenderer.removeListener('claude-code:tool_use', wrapper)
-    },
-    onToolResult: (callback: (data: { sessionId: string; data: any }) => void) => {
-      const wrapper = (_: any, data: any) => callback(data)
-      ipcRenderer.on('claude-code:tool_result', wrapper)
-      return () => ipcRenderer.removeListener('claude-code:tool_result', wrapper)
-    },
-    onResult: (callback: (data: { sessionId: string; data: any }) => void) => {
-      const wrapper = (_: any, data: any) => callback(data)
-      ipcRenderer.on('claude-code:result', wrapper)
-      return () => ipcRenderer.removeListener('claude-code:result', wrapper)
-    },
-    onStreamEvent: (callback: (data: { sessionId: string; data: any }) => void) => {
-      const wrapper = (_: any, data: any) => callback(data)
-      ipcRenderer.on('claude-code:stream_event', wrapper)
-      return () => ipcRenderer.removeListener('claude-code:stream_event', wrapper)
-    },
-    onLog: (callback: (data: { sessionId: string; data: string }) => void) => {
-      const wrapper = (_: any, data: any) => callback(data)
-      ipcRenderer.on('claude-code:log', wrapper)
-      return () => ipcRenderer.removeListener('claude-code:log', wrapper)
-    },
-    onExit: (callback: (data: { sessionId: string; data: number | null | { code?: number | null; signal?: string | null; stderr?: string } }) => void) => {
-      const wrapper = (_: any, data: any) => callback(data)
-      ipcRenderer.on('claude-code:exit', wrapper)
-      return () => ipcRenderer.removeListener('claude-code:exit', wrapper)
-    },
-    onError: (callback: (data: { sessionId: string; data: any }) => void) => {
-      const wrapper = (_: any, data: any) => callback(data)
-      ipcRenderer.on('claude-code:error', wrapper)
-      return () => ipcRenderer.removeListener('claude-code:error', wrapper)
-    },
-    onSuspended: (callback: (data: { sessionId: string; data: { reason: string } }) => void) => {
-      const wrapper = (_: any, data: any) => callback(data)
-      ipcRenderer.on('claude-code:suspended', wrapper)
-      return () => ipcRenderer.removeListener('claude-code:suspended', wrapper)
-    },
-    onEvictionBlocked: (callback: (data: { sessionId: string; data: { reason: string; pendingTools: number } }) => void) => {
-      const wrapper = (_: any, data: any) => callback(data)
-      ipcRenderer.on('claude-code:eviction_blocked', wrapper)
-      return () => ipcRenderer.removeListener('claude-code:eviction_blocked', wrapper)
-    },
-    submitToolAnswer: (sessionId: string, toolCallId: string, answers: Record<string, string>) =>
-      ipcRenderer.invoke('claude-code:submitToolAnswer', sessionId, toolCallId, answers),
-    skipToolAnswer: (sessionId: string, toolCallId: string) =>
-      ipcRenderer.invoke('claude-code:skipToolAnswer', sessionId, toolCallId),
-
-    // ── can_use_tool / control_request 协议 ──
-    allowPermission: (
-      sessionId: string,
-      requestId: string,
-      updatedInput?: Record<string, unknown>,
-      decisionClassification?: 'user_temporary' | 'user_permanent',
-    ) =>
-      ipcRenderer.invoke(
-        'claude-code:allowPermission',
-        sessionId,
-        requestId,
-        updatedInput,
-        decisionClassification,
-      ),
-    denyPermission: (
-      sessionId: string,
-      requestId: string,
-      message?: string,
-      options?: { interrupt?: boolean },
-    ) => ipcRenderer.invoke('claude-code:denyPermission', sessionId, requestId, message, options),
-    respondPermission: (sessionId: string, requestId: string, decision: any) =>
-      ipcRenderer.invoke('claude-code:respondPermission', sessionId, requestId, decision),
-    setPermissionMode: (
-      sessionId: string,
-      mode: 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions',
-    ) => ipcRenderer.invoke('claude-code:setPermissionMode', sessionId, mode),
-    setModel: (sessionId: string, model: string | undefined) =>
-      ipcRenderer.invoke('claude-code:setModel', sessionId, model),
-    getMcpStatus: (sessionId: string) => ipcRenderer.invoke('claude-code:getMcpStatus', sessionId),
-    getContextUsage: (sessionId: string) =>
-      ipcRenderer.invoke('claude-code:getContextUsage', sessionId),
-    getSettings: (sessionId: string) => ipcRenderer.invoke('claude-code:getSettings', sessionId),
-    stopEngineTask: (sessionId: string, taskId: string) =>
-      ipcRenderer.invoke('claude-code:stopEngineTask', sessionId, taskId),
-    getPendingPermissionRequestIds: (sessionId: string) =>
-      ipcRenderer.invoke('claude-code:getPendingPermissionRequestIds', sessionId),
-    onPermissionRequest: (callback: (data: { sessionId: string; data: any }) => void) => {
-      const wrapper = (_: any, data: any) => callback(data)
-      ipcRenderer.on('claude-code:permission_request', wrapper)
-      return () => ipcRenderer.removeListener('claude-code:permission_request', wrapper)
-    },
-    onPermissionRequestCancelled: (callback: (data: { sessionId: string; data: any }) => void) => {
-      const wrapper = (_: any, data: any) => callback(data)
-      ipcRenderer.on('claude-code:permission_request_cancelled', wrapper)
-      return () => ipcRenderer.removeListener('claude-code:permission_request_cancelled', wrapper)
-    },
-    onElicitationRequest: (callback: (data: { sessionId: string; data: any }) => void) => {
-      const wrapper = (_: any, data: any) => callback(data)
-      ipcRenderer.on('claude-code:elicitation_request', wrapper)
-      return () => ipcRenderer.removeListener('claude-code:elicitation_request', wrapper)
-    },
-    detectInstalledCli: () =>
-      ipcRenderer.invoke('claude-code:detectInstalledCli'),
-    checkEnvironment: () =>
-      ipcRenderer.invoke('claude-code:checkEnvironment'),
-    installCli: () =>
-      ipcRenderer.invoke('claude-code:installCli'),
-    onInstallProgress: (callback: (progress: any) => void) => {
-      const wrapper = (_: any, data: any) => callback(data)
-      ipcRenderer.on('claude-code:installProgress', wrapper)
-      return () => ipcRenderer.removeListener('claude-code:installProgress', wrapper)
-    },
-    getProxyStatus: () =>
-      ipcRenderer.invoke('claude-code:getProxyStatus'),
-    isProxyRunning: () =>
-      ipcRenderer.invoke('claude-code:isProxyRunning'),
-    notifyEngineSourceChanged: (source: string) =>
-      ipcRenderer.invoke('claude-code:engineSourceChanged', source),
-  } satisfies ElectronClaudeCodeAPI,
+    ...createPreloadBridge(claudeCodeNamespace.channels, ipcRenderer, 'claude-code:'),
+    ...createEventBridge(claudeCodeNamespace.events, ipcRenderer, 'claude-code:'),
+  } satisfies import('@/shared/channels/claudeCode').ClaudeCodeRendererApi
+    & import('@/shared/channels/claudeCode').ClaudeCodeEventApi,
 
   // Folder selection dialog
   selectFolder: (): Promise<{ canceled: boolean; filePaths: string[] }> =>
@@ -727,40 +546,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
-  // Auto Update API
+  // Auto Update API — invoke channels 与事件订阅均表驱动注册
   update: {
-    check: (): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke('update:check'),
-    download: (): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke('update:download'),
-    installAndRestart: () =>
-      ipcRenderer.invoke('update:installAndRestart'),
-    onAvailable: (callback: (info: { version: string; releaseDate: string; releaseNotes: any; releaseName?: string }) => void) => {
-      const wrapper = (_: any, info: any) => callback(info)
-      ipcRenderer.on('update:available', wrapper)
-      return () => ipcRenderer.removeListener('update:available', wrapper)
-    },
-    onNotAvailable: (callback: () => void) => {
-      const wrapper = () => callback()
-      ipcRenderer.on('update:not-available', wrapper)
-      return () => ipcRenderer.removeListener('update:not-available', wrapper)
-    },
-    onDownloadProgress: (callback: (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void) => {
-      const wrapper = (_: any, progress: any) => callback(progress)
-      ipcRenderer.on('update:download-progress', wrapper)
-      return () => ipcRenderer.removeListener('update:download-progress', wrapper)
-    },
-    onDownloaded: (callback: (info: { version: string }) => void) => {
-      const wrapper = (_: any, info: any) => callback(info)
-      ipcRenderer.on('update:downloaded', wrapper)
-      return () => ipcRenderer.removeListener('update:downloaded', wrapper)
-    },
-    onError: (callback: (error: string) => void) => {
-      const wrapper = (_: any, error: string) => callback(error)
-      ipcRenderer.on('update:error', wrapper)
-      return () => ipcRenderer.removeListener('update:error', wrapper)
-    },
-  },
+    ...createPreloadBridge(updateNamespace.channels, ipcRenderer, 'update:'),
+    ...createEventBridge(updateNamespace.events, ipcRenderer, 'update:'),
+  } satisfies import('@/shared/channels/update').UpdateRendererApi
+    & import('@/shared/channels/update').UpdateEventApi,
 
   // App paths API
   app: {

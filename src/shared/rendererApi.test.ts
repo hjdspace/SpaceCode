@@ -8,9 +8,9 @@
  *
  * See: git.ts line 50 — `export const git: GitApi = { ...invokeApi, onStatusChanged }`
  */
-import { describe, it, expect } from 'vitest'
-import { defineChannels } from './channelMap'
-import { createRendererApi } from './rendererApi'
+import { describe, it, expect, vi } from 'vitest'
+import { defineChannels, defineNamespace } from './channelMap'
+import { createRendererApi, createEventApi } from './rendererApi'
 import type { ChannelNamespace } from './channelMap'
 
 // ── Test fixture: minimal channel map mirroring gitChannels ──────────────
@@ -176,5 +176,44 @@ describe('createRendererApi', () => {
       await expect(api.getStatus('/test')).resolves.toBeNull()
       await expect(api.getBranches('/test')).resolves.toEqual([])
     })
+  })
+})
+
+describe('createEventApi', () => {
+  const { events } = defineNamespace({
+    channels: {},
+    events: {
+      onData: { channel: 'data', args: [] as unknown as [id: string, data: string] },
+    },
+  })
+
+  it('delegates to electronAPI[namespace][eventName] and returns its unsubscribe', () => {
+    const off = () => {}
+    const subscribed = vi.fn()
+    const mockElectronAPI = {
+      terminal: {
+        onData: (cb: unknown) => {
+          subscribed(cb)
+          return off
+        },
+      },
+    }
+    const api = createEventApi(events, 'terminal', mockElectronAPI as unknown as Record<string, Record<string, ((...a: unknown[]) => Promise<unknown>) | undefined> | undefined>)
+    const cb = () => {}
+    expect(api.onData(cb)).toBe(off)
+    expect(subscribed).toHaveBeenCalledWith(cb)
+  })
+
+  it('returns a noop unsubscribe when electronAPI is null', () => {
+    const api = createEventApi(events, 'terminal', null)
+    const off = api.onData(() => {})
+    expect(typeof off).toBe('function')
+    expect(() => off()).not.toThrow()
+  })
+
+  it('returns a noop unsubscribe when the event method is missing', () => {
+    const api = createEventApi(events, 'terminal', { terminal: {} } as unknown as Record<string, Record<string, ((...a: unknown[]) => Promise<unknown>) | undefined> | undefined>)
+    const off = api.onData(() => {})
+    expect(() => off()).not.toThrow()
   })
 })

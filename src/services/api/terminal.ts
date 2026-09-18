@@ -1,26 +1,29 @@
+/**
+ * Terminal renderer API — invoke/send channels 与事件订阅均从 channel 定义
+ * 表驱动生成，取代逐个手写 null-check 转发的模式。
+ */
+import { terminalNamespace } from '@/shared/channels/terminal'
+import type { TerminalRendererApi, TerminalEventApi } from '@/shared/channels/terminal'
+import { createRendererApi, createEventApi } from '@/shared/rendererApi'
+import type { AnyElectronAPI } from '@/shared/rendererApi'
 import { electronAPI } from './_context'
 
-export const terminal = {
-  create: (options?: { cwd?: string; command?: string; env?: Record<string, string> }): Promise<{ id: string | null; shell?: string; error?: string }> => {
-    if (electronAPI?.terminal) {
-      return electronAPI.terminal.create(options)
-    }
-    return Promise.resolve({ id: null, error: 'Terminal API not available' })
+const invokeApi = createRendererApi(
+  terminalNamespace.channels,
+  'terminal',
+  electronAPI as unknown as AnyElectronAPI,
+  {
+    create: () => ({ id: null, error: 'Terminal API not available' }),
+    write: () => undefined,
+    resize: () => undefined,
+    kill: () => undefined,
+    runCommand: () => undefined,
   },
-  write: (id: string, data: string) => electronAPI?.terminal?.write(id, data),
-  resize: (id: string, cols: number, rows: number) => electronAPI?.terminal?.resize(id, cols, rows),
-  kill: (id: string) => electronAPI?.terminal?.kill(id),
-  runCommand: (id: string, command: string) => electronAPI?.terminal?.runCommand(id, command),
-  onData: (callback: (id: string, data: string) => void): (() => void) => {
-    if (electronAPI?.terminal) {
-      return electronAPI.terminal.onData(callback)
-    }
-    return () => {}
-  },
-  onExit: (callback: (id: string, exitCode: number) => void): (() => void) => {
-    if (electronAPI?.terminal) {
-      return electronAPI.terminal.onExit(callback)
-    }
-    return () => {}
-  },
+)
+
+const eventApi = createEventApi(terminalNamespace.events, 'terminal', electronAPI as unknown as AnyElectronAPI)
+
+export const terminal: TerminalRendererApi & TerminalEventApi = {
+  ...invokeApi,
+  ...eventApi,
 }

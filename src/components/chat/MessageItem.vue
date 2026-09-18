@@ -55,7 +55,7 @@
         />
         
         <!-- 用户消息 + 助手消息：bubble 渲染 -->
-        <div class="message-content" v-if="message.content">
+        <div class="message-content" v-if="message.content && !isEditing">
           <MarkdownRenderer
             v-if="message.role === 'assistant'"
             :content="message.content"
@@ -63,9 +63,38 @@
           <p v-else class="user-text" v-html="renderedUserContent" @copy="handleUserCopy"></p>
         </div>
 
-        <!-- 用户消息操作栏：回滚 + 复制（始终占据空间，hover 时淡入显示） -->
+        <!-- 用户消息编辑模式 -->
+        <div v-if="isEditing" class="message-edit-area">
+          <textarea
+            ref="editTextareaRef"
+            v-model="editContent"
+            class="edit-textarea"
+            rows="3"
+            @keydown="handleEditKeydown"
+          ></textarea>
+          <div class="edit-actions">
+            <button
+              class="edit-cancel-btn"
+              :title="t('common.cancel')"
+              @click="handleEditCancel"
+            >
+              {{ t('common.cancel') }}
+            </button>
+            <button
+              class="edit-send-btn"
+              :disabled="!editContent.trim()"
+              :title="t('chat.resend')"
+              @click="handleEditSend"
+            >
+              <SendHorizontal :size="14" />
+              <span>{{ t('chat.resend') }}</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 用户消息操作栏：回滚 + 编辑 + 复制（始终占据空间，hover 时淡入显示） -->
         <div
-          v-if="message.role === 'user' && message.content"
+          v-if="message.role === 'user' && message.content && !isEditing"
           class="message-action-bar"
           :class="{ 'is-visible': isHovered }"
         >
@@ -77,6 +106,14 @@
             @click="handleRewindClick"
           >
             <RotateCcw :size="13" />
+          </button>
+          <button
+            class="action-button"
+            :title="t('chat.editMessage')"
+            :aria-label="t('chat.editMessage')"
+            @click="handleEditClick"
+          >
+            <Pencil :size="13" />
           </button>
           <button
             class="action-button"
@@ -131,8 +168,8 @@
 
 <script setup lang="ts">
 import type { Message, ImageAttachment } from '@/types'
-import { User, Bot, RotateCcw, CheckCircle, XCircle, X, Globe, FileText, Copy, Check } from 'lucide-vue-next'
-import { computed, ref } from 'vue'
+import { User, Bot, RotateCcw, CheckCircle, XCircle, X, Globe, FileText, Copy, Check, Pencil, SendHorizontal } from 'lucide-vue-next'
+import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
 import ReasoningCard from './ReasoningCard.vue'
@@ -154,11 +191,15 @@ const emit = defineEmits<{
   toolSubmit: [messageId: string, toolId: string, updatedInput: Record<string, unknown>]
   toolSkip: [messageId: string, toolId: string]
   rewind: [message: Message]
+  editResend: [message: Message, newContent: string]
 }>()
 
 const isHovered = ref(false)
 const previewImage = ref<ImageAttachment | null>(null)
 const copied = ref(false)
+const isEditing = ref(false)
+const editContent = ref('')
+const editTextareaRef = ref<HTMLTextAreaElement | null>(null)
 
 let copyTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -187,6 +228,38 @@ function handleMouseLeave() {
 
 function handleRewindClick() {
   emit('rewind', props.message)
+}
+
+function handleEditClick() {
+  editContent.value = props.message.content || ''
+  isEditing.value = true
+  nextTick(() => {
+    editTextareaRef.value?.focus()
+    editTextareaRef.value?.setSelectionRange(editContent.value.length, editContent.value.length)
+  })
+}
+
+function handleEditCancel() {
+  isEditing.value = false
+  editContent.value = ''
+}
+
+function handleEditSend() {
+  const trimmed = editContent.value.trim()
+  if (!trimmed) return
+  isEditing.value = false
+  emit('editResend', props.message, trimmed)
+}
+
+function handleEditKeydown(e: KeyboardEvent) {
+  // Enter 发送，Shift+Enter 换行
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    handleEditSend()
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    handleEditCancel()
+  }
 }
 
 function handleCopyClick() {
@@ -824,6 +897,83 @@ function handleUserCopy(e: ClipboardEvent) {
   .action-button {
     width: 20px;
     height: 20px;
+  }
+}
+
+// 用户消息编辑模式
+.message-edit-area {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-lg);
+}
+
+.edit-textarea {
+  width: 100%;
+  min-height: 60px;
+  max-height: 300px;
+  resize: vertical;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-base);
+  font-family: inherit;
+  line-height: var(--leading-chat);
+  outline: none;
+  padding: 0;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.edit-cancel-btn {
+  padding: 4px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--surface-border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+
+  &:hover {
+    background: var(--surface-glass-hover);
+    color: var(--text-primary);
+  }
+}
+
+.edit-send-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--accent-primary);
+  color: white;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+
+  &:hover:not(:disabled) {
+    opacity: 0.9;
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 }
 </style>

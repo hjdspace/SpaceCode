@@ -3,6 +3,11 @@ import { app, ipcMain, BrowserWindow } from 'electron'
 import fs from 'fs/promises'
 import path from 'path'
 import { info, warn, error } from './logger'
+import { updateNamespace } from '@/shared/channels/update'
+import { channelNames, eventChannels } from '@/shared/channelMap'
+
+const UPDATE_CHANNELS = channelNames(updateNamespace.channels, 'update:')
+const UPDATE_EVENTS = eventChannels(updateNamespace.events, 'update:')
 
 let mainWindow: BrowserWindow | null = null
 
@@ -57,13 +62,13 @@ export function initAutoUpdater(win: BrowserWindow, ghToken: string | null) {
   // 检查更新失败
   autoUpdater.on('error', (err) => {
     error('AutoUpdater', 'Update error', err)
-    sendToRenderer('update:error', err?.message || String(err))
+    sendToRenderer(UPDATE_EVENTS.onError, err?.message || String(err))
   })
 
   // 发现新版本 → 自动静默下载
   autoUpdater.on('update-available', (updateInfo) => {
     info('AutoUpdater', `Update available: ${updateInfo.version}`)
-    sendToRenderer('update:available', {
+    sendToRenderer(UPDATE_EVENTS.onAvailable, {
       version: updateInfo.version,
       releaseDate: updateInfo.releaseDate,
       releaseNotes: updateInfo.releaseNotes,
@@ -76,13 +81,13 @@ export function initAutoUpdater(win: BrowserWindow, ghToken: string | null) {
   // 当前已是最新
   autoUpdater.on('update-not-available', () => {
     info('AutoUpdater', 'App is up to date')
-    sendToRenderer('update:not-available')
+    sendToRenderer(UPDATE_EVENTS.onNotAvailable)
   })
 
   // 下载进度
   autoUpdater.on('download-progress', (progress) => {
     info('AutoUpdater', `Download progress: ${progress.percent.toFixed(1)}% (${progress.transferred}/${progress.total} bytes, ${progress.bytesPerSecond} B/s)`)
-    sendToRenderer('update:download-progress', {
+    sendToRenderer(UPDATE_EVENTS.onDownloadProgress, {
       bytesPerSecond: progress.bytesPerSecond,
       percent: progress.percent,
       transferred: progress.transferred,
@@ -95,7 +100,7 @@ export function initAutoUpdater(win: BrowserWindow, ghToken: string | null) {
     info('AutoUpdater', `Update downloaded: ${updateInfo.version}`)
     updateDownloaded = true
     isAutoDownloading = false
-    sendToRenderer('update:downloaded', {
+    sendToRenderer(UPDATE_EVENTS.onDownloaded, {
       version: updateInfo.version,
     })
   })
@@ -169,7 +174,7 @@ async function attemptDownload() {
       // 所有重试均失败
       isAutoDownloading = false
       error('AutoUpdater', `All ${MAX_DOWNLOAD_ATTEMPTS} download attempts failed`)
-      sendToRenderer('update:error', `Download failed after ${MAX_DOWNLOAD_ATTEMPTS} attempts`)
+      sendToRenderer(UPDATE_EVENTS.onError, `Download failed after ${MAX_DOWNLOAD_ATTEMPTS} attempts`)
     }
   }
 }
@@ -177,7 +182,7 @@ async function attemptDownload() {
 // IPC Handlers
 export function registerAutoUpdaterIPC() {
   // 手动检查更新（关于页面使用）
-  ipcMain.handle('update:check', async () => {
+  ipcMain.handle(UPDATE_CHANNELS.check, async () => {
     if (!app.isPackaged) {
       return { success: false, error: 'Updates not available in development mode' }
     }
@@ -191,7 +196,7 @@ export function registerAutoUpdaterIPC() {
   })
 
   // 手动下载更新（关于页面使用，如果自动下载已在进行中则直接返回成功）
-  ipcMain.handle('update:download', async () => {
+  ipcMain.handle(UPDATE_CHANNELS.download, async () => {
     if (!app.isPackaged) {
       return { success: false, error: 'Updates not available in development mode' }
     }
@@ -217,7 +222,7 @@ export function registerAutoUpdaterIPC() {
   })
 
   // 安装更新并重启（标题栏绿色"更新"按钮 / 关于页面使用）
-  ipcMain.handle('update:installAndRestart', () => {
+  ipcMain.handle(UPDATE_CHANNELS.installAndRestart, () => {
     if (!app.isPackaged) return
     if (isInstalling) return
     isInstalling = true

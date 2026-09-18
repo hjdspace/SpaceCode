@@ -1,6 +1,11 @@
 import { BrowserWindow } from 'electron'
 import { SessionProcess, ProcessStatus, SessionConfig } from './sessionProcess'
 import { info, warn, error, debug } from './logger'
+import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
+import { eventChannelsBySuffix } from '@/shared/channelMap'
+
+// 引擎事件按类型动态派发：后缀 → 完整 channel 名，与 renderer 端订阅共享同一真相源
+const CLAUDE_CODE_EVENT_BY_SUFFIX = eventChannelsBySuffix(claudeCodeNamespace.events, 'claude-code:')
 
 export const MAX_PROCESSES = 20
 
@@ -436,7 +441,12 @@ export class ClaudeCodeProcessPool {
     }
 
     if (windowAvailable) {
-      this.mainWindow!.webContents.send(`claude-code:${eventType}`, { sessionId, data })
+      const channel = CLAUDE_CODE_EVENT_BY_SUFFIX[eventType]
+      if (!channel) {
+        warn('ProcessPool', `[${shortSid}] Event type not in channel table, dropped: ${eventType}`)
+      } else {
+        this.mainWindow!.webContents.send(channel, { sessionId, data })
+      }
     } else {
       warn('ProcessPool', `[${shortSid}] Cannot route event to renderer | windowAvailable=${windowAvailable} | type=${eventType}`)
     }

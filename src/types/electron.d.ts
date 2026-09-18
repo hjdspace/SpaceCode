@@ -23,6 +23,9 @@ import type {
   DesignSystemSummary,
 } from '@/services/electronAPI'
 import type { GitRendererApi } from '@/shared/channels/git'
+import type { TerminalRendererApi, TerminalEventApi } from '@/shared/channels/terminal'
+import type { UpdateRendererApi, UpdateEventApi } from '@/shared/channels/update'
+import type { ClaudeCodeRendererApi, ClaudeCodeEventApi } from '@/shared/channels/claudeCode'
 import type {
 SkillManagerOverview,
 SkillManagerSettings,
@@ -104,77 +107,14 @@ export interface ElectronWindowAPI {
   onMaximizeChanged: (callback: (maximized: boolean) => void) => () => void
 }
 
-export interface ElectronTerminalAPI {
-  create: (options?: { cwd?: string; command?: string; env?: Record<string, string> }) =>
-    Promise<{ id: string | null; shell?: string; error?: string }>
-  write: (id: string, data: string) => void
-  resize: (id: string, cols: number, rows: number) => void
-  kill: (id: string) => void
-  runCommand: (id: string, command: string) => void
-  onData: (callback: (id: string, data: string) => void) => () => void
-  onExit: (callback: (id: string, exitCode: number) => void) => () => void
-}
+export interface ElectronTerminalAPI extends TerminalRendererApi, TerminalEventApi {}
 
 export interface ElectronGitAPI extends GitRendererApi {
   onStatusChanged: (callback: () => void) => () => void
 }
 
-export interface ElectronClaudeCodeAPI {
-  startSession: (sessionId: string, config: unknown) => Promise<unknown>
-  sendMessage: (sessionId: string, content: string, images?: unknown[]) => Promise<unknown>
-  abort: (sessionId: string) => Promise<unknown>
-  stop: (sessionId: string) => Promise<unknown>
-  suspendSession: (sessionId: string) => Promise<unknown>
-  resumeSession: (sessionId: string) => Promise<unknown>
-  getSessionStatus: (sessionId: string) => Promise<Record<string, unknown>>
-  getActiveSessions: () => Promise<Array<{ sessionId: string }>>
-  isSessionActive: (sessionId?: string) => Promise<boolean>
-  listAgents: (cwd?: string, engineType?: string) => Promise<Array<{ agentType: string; description: string; source: string; model?: string; color?: string }>>
-  isEngineAvailable: (engineType: string) => Promise<boolean>
-  installPiSdk: () => Promise<{ success: boolean; error?: string }>
-  updateThinkingLevel: (sessionId: string, enabled: boolean) => Promise<void>
-  listProjectSessions: (cwd: string) => Promise<unknown[]>
-  listAllSessions: () => Promise<unknown[]>
-  getFullSession: (projectPath: string, sessionId: string) => Promise<Record<string, unknown>>
-  resolveAgentTranscriptPath: (projectPath: string, sessionId: string, agentId: string) => Promise<unknown>
-  restoreSession: (sessionId: string, projectPath: string) => Promise<Record<string, unknown>>
-  // 事件回调的 data 字段使用 any，与 preload.ts 保持一致；
-  // 因 TypeScript 逆变限制，具体类型（如 PermissionRequest）无法赋值给 unknown/Record<string, unknown>。
-  onAssistant: (callback: (data: { sessionId: string; data: any }) => void) => () => void
-  onUser: (callback: (data: { sessionId: string; data: any }) => void) => () => void
-  onSystem: (callback: (data: { sessionId: string; data: any }) => void) => () => void
-  onToolUse: (callback: (data: { sessionId: string; data: any }) => void) => () => void
-  onToolResult: (callback: (data: { sessionId: string; data: any }) => void) => () => void
-  onResult: (callback: (data: { sessionId: string; data: any }) => void) => () => void
-  onStreamEvent: (callback: (data: { sessionId: string; data: any }) => void) => () => void
-  onLog: (callback: (data: { sessionId: string; data: string }) => void) => () => void
-  onExit: (callback: (data: { sessionId: string; data: number | null | { code?: number | null; signal?: string | null; stderr?: string } }) => void) => () => void
-  onError?: (callback: (data: { sessionId: string; data: any }) => void) => () => void
-  onSuspended: (callback: (data: { sessionId: string; data: { reason: string } }) => void) => () => void
-  onEvictionBlocked: (callback: (data: { sessionId: string; data: { reason: string; pendingTools: number } }) => void) => () => void
-  submitToolAnswer: (sessionId: string, toolCallId: string, answers: Record<string, string>) => Promise<unknown>
-  skipToolAnswer: (sessionId: string, toolCallId: string) => Promise<unknown>
-  allowPermission: (sessionId: string, requestId: string, updatedInput?: Record<string, unknown>, decisionClassification?: 'user_temporary' | 'user_permanent') => Promise<unknown>
-  denyPermission: (sessionId: string, requestId: string, message?: string, options?: { interrupt?: boolean }) => Promise<unknown>
-  respondPermission: (sessionId: string, requestId: string, decision: unknown) => Promise<unknown>
-  setPermissionMode: (sessionId: string, mode: 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions') => Promise<unknown>
-  setModel: (sessionId: string, model: string | undefined) => Promise<unknown>
-  getMcpStatus: (sessionId: string) => Promise<unknown>
-  getContextUsage: (sessionId: string) => Promise<Record<string, unknown> | undefined>
-  getSettings: (sessionId: string) => Promise<unknown>
-  stopEngineTask: (sessionId: string, taskId: string) => Promise<unknown>
-  getPendingPermissionRequestIds: (sessionId: string) => Promise<unknown>
-  onPermissionRequest: (callback: (data: { sessionId: string; data: any }) => void) => () => void
-  onPermissionRequestCancelled: (callback: (data: { sessionId: string; data: any }) => void) => () => void
-  onElicitationRequest: (callback: (data: { sessionId: string; data: any }) => void) => () => void
-  detectInstalledCli: () => Promise<CliDetectionResult | null>
-  checkEnvironment: () => Promise<EnvironmentCheckResult | null>
-  installCli: () => Promise<{ success: boolean; error?: string } | null>
-  onInstallProgress: (callback: (progress: InstallProgress) => void) => () => void
-  getProxyStatus: () => Promise<ProxyStatus | null>
-  isProxyRunning: () => Promise<boolean>
-  notifyEngineSourceChanged: (source: string) => Promise<void>
-}
+// claudeCode 面从 channel 定义表派生（onError 由此变为必选，落实 ADR-0005）
+export interface ElectronClaudeCodeAPI extends ClaudeCodeRendererApi, ClaudeCodeEventApi {}
 
 export interface ElectronArtifactsAPI {
   list: (workingDir: string) => Promise<{ artifacts: ArtifactEntry[] }>
@@ -411,16 +351,7 @@ export interface ElectronRtkAPI {
   onDownloadProgress: (callback: (progress: { downloaded: number; total: number; percent: number }) => void) => () => void
 }
 
-export interface ElectronUpdateAPI {
-  check: () => Promise<{ success: boolean; error?: string }>
-  download: () => Promise<{ success: boolean; error?: string }>
-  installAndRestart: () => void
-  onAvailable: (callback: (info: { version: string; releaseDate: string; releaseNotes: string; releaseName?: string }) => void) => () => void
-  onNotAvailable: (callback: () => void) => () => void
-  onDownloadProgress: (callback: (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void) => () => void
-  onDownloaded: (callback: (info: { version: string }) => void) => () => void
-  onError: (callback: (error: string) => void) => () => void
-}
+export interface ElectronUpdateAPI extends UpdateRendererApi, UpdateEventApi {}
 
 export interface ElectronImWechatAPI {
   startQrLogin: () => Promise<{ qrcodeUrl: string; qrcodeId: string }>

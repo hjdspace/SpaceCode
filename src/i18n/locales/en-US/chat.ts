@@ -55,6 +55,8 @@ export default {
   rewind: 'Rewind',
   copyMessage: 'Copy message',
   copied: 'Copied',
+  editMessage: 'Edit message',
+  resend: 'Resend',
   minimap: 'Session preview',
   userMessage: 'User message',
   assistantMessage: 'Assistant message',

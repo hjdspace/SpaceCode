@@ -73,6 +73,7 @@
                 @tool-submit="handleToolSubmit"
                 @tool-skip="handleToolSkip"
                 @rewind="handleMessageRewind"
+                @edit-resend="handleEditResend"
               />
 
               <WelcomeHero
@@ -795,6 +796,30 @@ function handleOpenRewind() {
 function handleMessageRewind(message: Message) {
   sessionStore.setRewindSelectedMessage(message.id)
   sessionStore.setShowRewindDialog(true)
+}
+
+async function handleEditResend(messageId: string, newContent: string) {
+  const sid = paneSessionId.value
+  if (!sid) return
+
+  // 中断当前正在进行的请求（如果有）
+  if (paneIsLoading.value) {
+    await turnStore.abort()
+  }
+
+  // 裁剪会话消息到目标用户消息之前（仅裁剪对话，不回退代码）
+  // 直接操作 session.messages 避免 rewindSession 的 pendingInputText 副作用
+  const session = sessionStore.getSession(sid)
+  if (session) {
+    const targetIndex = session.messages.findIndex(m => m.id === messageId)
+    if (targetIndex >= 0) {
+      session.messages = session.messages.slice(0, targetIndex)
+      sessionStore.saveToStorage()
+    }
+  }
+
+  // 用修改后的文本重新发送
+  await handleSend(newContent, { files: [], images: [] })
 }
 
 const chatCommands = useChatCommands({
