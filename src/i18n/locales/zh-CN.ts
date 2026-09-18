@@ -339,6 +339,17 @@ export default {
     claude: 'Claude',
     startConversation: '开始对话',
     startConversationDesc: '输入消息开始与 Claude Code 协作',
+    welcomeHero: {
+      eyebrow: '开始你的项目',
+      title: '你好，我能帮你做点什么？',
+      subtitle: '直接描述你的需求，或从下方选择一个快捷任务开始。你可以随时中断、追问，我会基于项目上下文工作。',
+    },
+    defaultTasks: [
+      { name: '梳理项目架构', description: '快速理解模块与数据流' },
+      { name: '修复编译错误', description: '定位并修复报错与失败用例' },
+      { name: '补全测试', description: '为现有模块补齐单测' },
+      { name: '审查代码改动', description: '检查工作区未提交的变更' },
+    ],
     askAnything: "提问任何问题，{'@'} 添加文件，/ 使用命令",
     ready: '就绪',
     notConfigured: '未配置',
