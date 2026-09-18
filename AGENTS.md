@@ -46,6 +46,14 @@ CI: `.github/workflows/test.yml` 在 PR 与 push 到 `main` 时运行 `npm test`
 - 原型 HTML UI 生成在 `docs/prototypes/`
 - 所有实现考虑 i18n (`src/i18n/locales/zh-CN.ts`, `en-US.ts`)
 
+### `src/` 目录分类规则
+
+- **`lib/`** — 领域逻辑: 有状态的、与业务概念耦合的模块 (e.g. `targetClassifier.ts`, `tool-registry.ts`, `design/templates.ts`)
+- **`utils/`** — 纯工具函数: 无状态、无副作用、可独立测试 (e.g. `debounce.ts`, `uuid.ts`, `normalizePath.ts`)
+- **`shared/`** — 跨 main/renderer 共享的基础设施: IPC channel 定义、类型桥接 (e.g. `channelMap.ts`, `preloadBridge.ts`)
+- **`types/`** — 类型声明文件 (`.d.ts`) 和纯类型导出
+- **`components/common/`** — 跨特性共享的 Vue 组件和指令
+
 ## Guardrails
 
 - `engine/` 为独立子项目, 视为只读

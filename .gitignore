@@ -33,6 +33,12 @@ Desktop.ini
 # Misc
 *.log
 
+# Agent scratch artifacts (planning files, not source)
+findings.md
+progress.md
+task_plan.md
+pet-window.html
+
 .claude-code-memory/
 .claude/
 

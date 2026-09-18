@@ -64,7 +64,7 @@
 import { ref } from 'vue'
 import { Search, X, Loader2, FileText, Folder, FolderOpen } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
-import { vClickOutside } from '@/directives/vClickOutside'
+import { vClickOutside } from '@/components/common/vClickOutside'
 import type { ContextItem } from '@/composables/useContextMenu'
 
 defineProps<{

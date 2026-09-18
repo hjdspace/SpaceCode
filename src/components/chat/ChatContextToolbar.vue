@@ -124,7 +124,7 @@ import {
   Folder, FolderPlus, FolderMinus, GitBranch, ChevronDown, ChevronRight,
   Search, Check, Plus, X
 } from 'lucide-vue-next'
-import { vClickOutside } from '@/directives/vClickOutside'
+import { vClickOutside } from '@/components/common/vClickOutside'
 import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useScmStore, type ScmBranch } from '@/stores/scm'

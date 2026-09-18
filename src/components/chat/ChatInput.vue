@@ -388,7 +388,7 @@ import { useAgentSelector } from '@/composables/useAgentSelector'
 import { useFileAttachments } from '@/composables/useFileAttachments'
 import { usePromptOptimizer } from '@/composables/usePromptOptimizer'
 import type { ImageAttachment, Attachment, AllAttachments, SendOptions } from '@/composables/types'
-import { vClickOutside } from '@/directives/vClickOutside'
+import { vClickOutside } from '@/components/common/vClickOutside'
 
 // Re-export types for backward compatibility (other components import from ChatInput)
 export type { ImageAttachment, Attachment, AllAttachments, SendOptions } from '@/composables/types'

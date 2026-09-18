@@ -107,7 +107,7 @@ SpaceCode/
 │   ├── test_query_engine.py            # 查询引擎集成测试
 │   └── test_tool_system.py             # 工具系统整体测试
 │
-└── src/__tests__/unit/                 # Desktop Vue 组件单元测试（如有）
+└── src/**/*.test.ts                    # 与源码同处的单元测试
 ```
 
 ---

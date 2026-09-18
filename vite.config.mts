@@ -98,8 +98,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(import.meta.dirname, 'src'),
-      // lowlight 瘦身 shim：@git-diff-view 全量语言注册 → common 子集（见 src/shims/lowlight.ts）
-      lowlight: resolve(import.meta.dirname, 'src/shims/lowlight.ts')
+      // lowlight 瘦身 shim：@git-diff-view 全量语言注册 → common 子集（见 src/lib/lowlight.ts）
+      lowlight: resolve(import.meta.dirname, 'src/lib/lowlight.ts')
     }
   },
   build: {

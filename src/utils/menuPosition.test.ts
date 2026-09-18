@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clampMenuPosition, MENU_WIDTH, VIEWPORT_MARGIN } from '../utils/menuPosition'
+import { clampMenuPosition, MENU_WIDTH, VIEWPORT_MARGIN } from './menuPosition'
 
 describe('clampMenuPosition', () => {
   const VW = 1920

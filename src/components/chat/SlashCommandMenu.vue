@@ -59,7 +59,7 @@
 import { ref } from 'vue'
 import { Search, X, Zap } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
-import { vClickOutside } from '@/directives/vClickOutside'
+import { vClickOutside } from '@/components/common/vClickOutside'
 import type { SlashCommand } from '@/composables/useSlashCommands'
 
 defineProps<{
