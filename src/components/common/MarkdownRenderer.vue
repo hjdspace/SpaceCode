@@ -729,13 +729,16 @@ watch(() => props.content, (newVal, oldVal) => {
   letter-spacing: 0;
   user-select: text;
 
-  > div > :first-child { margin-top: 0 !important; }
-  > div > :last-child { margin-bottom: 0 !important; }
+  // 首末块贴边裁剪: 只命中整个渲染器的第一个/最后一个块。
+  // 必须用 :deep() —— v-html 注入的元素没有 scoped data-v 属性,
+  // 不加 :deep 时选择器永远匹配不到(死规则)。
+  > div:first-child > :deep(:first-child) { margin-top: 0 !important; }
+  > div:last-child > :deep(:last-child) { margin-bottom: 0 !important; }
 
   // 正文节奏: 段落之间呼吸感来自间距而非行高
   :deep(.md-paragraph),
   :deep(p) {
-    margin: 0.65em 0;
+    margin: 0.75em 0;
     white-space: pre-wrap;
     word-break: break-word;
   }
@@ -744,9 +747,11 @@ watch(() => props.content, (newVal, oldVal) => {
     margin-top: 0.8em;
   }
 
-  // 标题阶梯: 20/18/16/15/14, 字重 + 收紧字距 + 上方留白承担层级
+  // 标题阶梯: 20/18/16/15/14, 字重 + 收紧字距 + 上方留白承担层级。
+  // 上边距基于正文字号取固定基准(约 27px), 不随标题字号缩小 ——
+  // 若按自身 em 计算, h3/h4 的顶距会小于正文行高, 标题会"贴"住上文。
   :deep(.md-heading) {
-    margin: 1.25em 0 0.45em;
+    margin: calc(1.9 * var(--text-base)) 0 0.5em;
     font-weight: var(--font-weight-semibold);
     color: var(--text-primary);
     letter-spacing: -0.02em;
@@ -779,7 +784,7 @@ watch(() => props.content, (newVal, oldVal) => {
   }
 
   :deep(.md-list) {
-    margin: 0.65em 0;
+    margin: 0.75em 0;
     padding-left: 1.4em;
 
     li {
@@ -833,7 +838,7 @@ watch(() => props.content, (newVal, oldVal) => {
   :deep(img) {
     display: block;
     max-width: min(100%, 560px);
-    margin: 0.65em 0;
+    margin: 0.75em 0;
     border-radius: var(--radius-lg);
   }
 
