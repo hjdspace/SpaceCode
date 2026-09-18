@@ -33,6 +33,7 @@
     "tests/lib/**/*.ts",
     "tests/stores/**/*.ts",
     "tests/im/**/*.ts",
+    "tests/i18n/**/*.ts",
     "tests/integration/**/*.ts"
   ],
   "exclude": [
