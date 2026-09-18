@@ -936,9 +936,22 @@ const isWaitingForLlm = computed(() => {
   return true
 })
 
-// 等待指示行的计时起点：本组首条消息（turn 开始时创建的 assistant 占位）
-// 的时间戳，与头部计时器口径一致，跨页面切换重建后计时不归零。
-const turnStartTimestamp = computed(() => props.messages[0]?.timestamp)
+// 等待指示行的计时起点：本组内最近一次活动的结束时刻 ——
+// 取工具结果返回时间（toolCalls.endTime）与最后一个时间线事件创建时间的最大值，
+// 即当前这轮"等待 LLM 响应"间隙的开始，每轮等待各自从 0 计时、不累加此前轮次。
+// 使用持久化在消息上的时间戳而非组件挂载时刻，跨页面/会话切换重建后计时不归零。
+const turnStartTimestamp = computed(() => {
+  let latest = props.messages[0]?.timestamp || 0
+  for (const m of props.messages) {
+    for (const tc of m.toolCalls || []) {
+      if (tc.endTime && tc.endTime > latest) latest = tc.endTime
+    }
+    for (const ev of m.timelineEvents || []) {
+      if (ev.timestamp > latest) latest = ev.timestamp
+    }
+  }
+  return latest
+})
 
 // ========== 优化3: 使用更轻量的监听替代deep watch ==========
 // 只监听reasoning事件的状态变化，不监听整个timelineEvents数组
