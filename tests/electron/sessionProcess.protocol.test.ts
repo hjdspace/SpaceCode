@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * Behavioral tests for the ControlProtocolHandler — the testable extraction
  * of the control-protocol logic that SessionProcess delegates to. These
@@ -7,7 +8,7 @@
  * Run with:
  *   node --experimental-strip-types --test tests/electron/*.test.ts
  */
-import { describe, it } from 'node:test'
+import { describe, it } from 'vitest'
 import assert from 'node:assert/strict'
 
 import {

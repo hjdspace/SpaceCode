@@ -1,9 +1,7 @@
 /**
  * Tests for workbench-link detection and selection-message composition.
- * Run with:
- *   node --experimental-strip-types --test tests/utils/workbenchTargets.test.ts
  */
-import { describe, it } from 'node:test'
+import { describe, it } from 'vitest'
 import assert from 'node:assert/strict'
 import { detectWorkbenchTargets } from '../../src/utils/workbench-targets.ts'
 import { buildSelectionMessage, type InspectorSelection } from '../../src/utils/webviewInspector.ts'

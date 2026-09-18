@@ -1,8 +1,7 @@
+// @vitest-environment node
 /**
  * Tests for the pure control-protocol helpers shared between SessionProcess
- * and any future SDK callers. Run with:
- *
- *   node --experimental-strip-types --test tests/electron/*.test.ts
+ * and any future SDK callers.
  *
  * These tests cover:
  *  - Inbound classification (control_request can_use_tool / elicitation /
@@ -14,7 +13,7 @@
  *    engine/src/entrypoints/sdk/controlSchemas.ts.
  *  - JSONL line splitter handles partial fragments and ignores blank lines.
  */
-import { describe, it } from 'node:test'
+import { describe, it } from 'vitest'
 import assert from 'node:assert/strict'
 
 import {

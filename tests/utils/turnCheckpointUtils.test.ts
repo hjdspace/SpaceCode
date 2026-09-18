@@ -1,8 +1,7 @@
 /**
- * turnCheckpointUtils tests - run with:
- *   node --experimental-strip-types --test tests/utils/turnCheckpointUtils.test.ts
+ * turnCheckpointUtils tests.
  */
-import { describe, it } from 'node:test'
+import { describe, it } from 'vitest'
 import assert from 'node:assert/strict'
 import {
   findTurnCheckpointForMessage,

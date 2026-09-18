@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * Regression tests for the proxy's OpenAI→Anthropic streaming transformer usage
  * handling. Run with:
@@ -11,7 +12,7 @@
  * the context-usage indicator stuck at 0. The transformer now seeds message_start
  * with a request-body estimate, overridden by the real value when it arrives.
  */
-import { describe, it } from 'node:test'
+import { describe, it } from 'vitest'
 import assert from 'node:assert/strict'
 
 import { OpenAIToAnthropicStreamTransformer } from '../../electron/proxy/streamingTransformer.ts'

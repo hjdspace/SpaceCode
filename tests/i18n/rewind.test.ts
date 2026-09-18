@@ -1,13 +1,15 @@
 /**
- * Rewind i18n tests - run with:
- *   node --experimental-strip-types --test tests/i18n/rewind.test.ts
+ * Rewind i18n coverage.
  *
- * These tests verify all rewind-related translation keys exist in both zh-CN and en-US.
+ * Asserts against the real locale objects the app consumes, rather than parsing
+ * the locale source text. Checks that both locales carry the full rewind key set
+ * as non-empty strings, and that the two key sets agree.
  */
-import { describe, it } from 'node:test'
+import { describe, it } from 'vitest'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+
+import zhCN from '@/i18n/locales/zh-CN'
+import enUS from '@/i18n/locales/en-US'
 
 /** All rewind-related translation keys expected in chat namespace */
 const REWIND_KEYS = [
@@ -35,79 +37,52 @@ const REWIND_KEYS = [
   'rewindInProgress',
   'rewindError',
   'rewindSuccess',
-]
+] as const
 
-function extractChatKeys(filePath: string): Set<string> {
-  const content = readFileSync(filePath, 'utf-8')
-  const keys = new Set<string>()
+function chatNamespace(locale: unknown): Record<string, unknown> {
+  const chat = (locale as { chat?: unknown } | null | undefined)?.chat
+  return chat && typeof chat === 'object' ? (chat as Record<string, unknown>) : {}
+}
 
-  // Match patterns like: keyName: 'value' or keyName: "value"
-  const regex = /(\w+):\s*['"`]/g
-  let match: RegExpExecArray | null
+function assertRewindKeysPresent(name: string, locale: unknown): void {
+  const chat = chatNamespace(locale)
 
-  // Find the chat object section
-  const chatMatch = content.match(/chat:\s*\{/)
-  if (!chatMatch) {
-    return keys
+  const missing = REWIND_KEYS.filter((key) => !(key in chat))
+  assert.deepEqual(
+    missing,
+    [],
+    `${name} is missing rewind keys in the chat namespace: ${missing.join(', ')}`,
+  )
+
+  for (const key of REWIND_KEYS) {
+    const value = chat[key]
+    assert.equal(typeof value, 'string', `${name} chat.${key} should be a string`)
+    assert.ok(
+      (value as string).trim().length > 0,
+      `${name} chat.${key} should not be blank`,
+    )
   }
+}
 
-  // Extract all keys within the chat object (simple approach)
-  const lines = content.split('\n')
-  let inChat = false
-  let braceDepth = 0
-
-  for (const line of lines) {
-    const trimmed = line.trim()
-
-    if (trimmed.startsWith('chat:')) {
-      inChat = true
-      braceDepth = 0
-    }
-
-    if (inChat) {
-      // Count braces to track depth
-      for (const char of trimmed) {
-        if (char === '{') braceDepth++
-        if (char === '}') braceDepth--
-      }
-
-      // Match key at the start of a line (before colon)
-      const keyMatch = trimmed.match(/^(\w+):/)
-      if (keyMatch && braceDepth > 0) {
-        keys.add(keyMatch[1])
-      }
-
-      // Exit chat object when braces close
-      if (braceDepth <= 0 && trimmed.includes('}')) {
-        inChat = false
-      }
-    }
-  }
-
-  return keys
+function rewindKeysOf(locale: unknown): string[] {
+  const chat = chatNamespace(locale)
+  return REWIND_KEYS.filter((key) => key in chat).slice().sort()
 }
 
 describe('Rewind i18n keys', () => {
-  const zhCNPath = resolve(process.cwd(), 'src/i18n/locales/zh-CN.ts')
-  const enUSPath = resolve(process.cwd(), 'src/i18n/locales/en-US.ts')
-
-  it('zh-CN should have all rewind keys in chat namespace', () => {
-    const chatKeys = extractChatKeys(zhCNPath)
-
-    for (const key of REWIND_KEYS) {
-      assert(chatKeys.has(key), `zh-CN chat.${key} should exist`)
-    }
+  it('zh-CN provides every rewind key as a non-empty string', () => {
+    assertRewindKeysPresent('zh-CN', zhCN)
   })
 
-  it('en-US should have all rewind keys in chat namespace', () => {
-    const chatKeys = extractChatKeys(enUSPath)
-
-    for (const key of REWIND_KEYS) {
-      assert(chatKeys.has(key), `en-US chat.${key} should exist`)
-    }
+  it('en-US provides every rewind key as a non-empty string', () => {
+    assertRewindKeysPresent('en-US', enUS)
   })
 
-  it('should have exactly 24 rewind keys', () => {
-    assert.strictEqual(REWIND_KEYS.length, 24)
+  it('zh-CN and en-US expose the same rewind key set', () => {
+    assert.deepEqual(
+      rewindKeysOf(zhCN),
+      rewindKeysOf(enUS),
+      'zh-CN and en-US rewind key sets have diverged',
+    )
   })
 })

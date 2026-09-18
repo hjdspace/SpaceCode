@@ -1,7 +1,8 @@
+// @vitest-environment node
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, it } from 'node:test'
+import { describe, it } from 'vitest'
 
 const root = process.cwd()
 const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))

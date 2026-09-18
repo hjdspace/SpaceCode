@@ -20,32 +20,20 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // jsdom is expensive to construct; building it once per worker instead of
+    // once per test file cut the suite from ~33s to ~13s.
+    pool: 'vmThreads',
+    // A few tests do genuinely slow work (cold module graph imports, component
+    // mounts, filesystem scans) and can exceed the default timeout under load.
+    // One retry absorbs that without hiding a deterministic failure.
+    retry: 1,
+    // Keep these patterns broad. Enumerating individual subdirectories is how
+    // the previous config silently stopped running 22 test files — a new
+    // `tests/<dir>/` or `electron/<dir>/__tests__/` must never fall through.
     include: [
-      'electron/__tests__/**/*.test.ts',
-      'electron/design/__tests__/**/*.test.ts',
-      'electron/im/**/__tests__/**/*.test.ts',
-      'electron/skillManagerV2/__tests__/**/*.test.ts',
-      'tests/composables/**/*.test.ts',
-      'tests/components/**/*.test.ts',
-      'tests/lib/**/*.test.ts',
-      'tests/stores/**/*.test.ts',
-      'tests/im/**/*.test.ts',
-      'tests/integration/**/*.test.ts',
+      'tests/**/*.test.ts',
       'src/**/*.test.ts',
-    ],
-    exclude: [
-      '**/node_modules/**',
-      '**/dist/**',
-      // Old tests using Node.js native test runner (not vitest compatible)
-      'tests/composables/useChatCommands.rewind.test.ts',
-      'tests/stores/chat.rewind.test.ts',
-      'tests/integration/code-rewind-confirm-flow.test.ts',
-      'tests/integration/rewind-flow.test.ts',
-      'tests/integration/rewind-input-restoration.test.ts',
-      'tests/components/chat/CodeRewindConfirmDialog.test.ts',
-      'tests/components/chat/MessageItem.rewind.test.ts',
-      'tests/components/chat/MessageSelector.test.ts',
-      'tests/components/chat/RewindDialog.test.ts',
+      'electron/**/__tests__/**/*.test.ts',
     ],
   },
 })

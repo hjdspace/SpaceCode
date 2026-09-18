@@ -40,8 +40,6 @@
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:electron": "node --experimental-strip-types --test tests/electron/*.test.ts",
-    "test:electron:ci": "node --experimental-strip-types --test --test-reporter=spec tests/electron/*.test.ts",
     "changelog": "conventional-changelog -p conventionalcommits -i CHANGELOG.md -s",
     "changelog:all": "conventional-changelog -p conventionalcommits -i CHANGELOG.md -s -r 0",
     "version": "npm run changelog && git add CHANGELOG.md",

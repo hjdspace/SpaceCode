@@ -29,11 +29,17 @@
 
 ## Testing
 
-两个 test runner, 权威划分见 `vitest.config.ts` 的 `include` / `exclude`:
+单一 runner: **Vitest** (`npm run test`). 权威划分见 `vitest.config.ts` 的 `include`:
 
-- **Vitest** (`npm run test`): `electron/__tests__/`, `tests/composables/`, `tests/components/`, `tests/stores/`, `tests/im/`, `tests/integration/`, `tests/lib/`, `src/**/*.test.ts`
-- **Node test runner** (`npm run test:electron`): `tests/electron/*.test.ts`
-- **Python** (`pytest`): `tests/test_*.py`
+- `tests/**/*.test.ts` — 单元与集成测试
+- `src/**/*.test.ts` — 与源码同处的单元测试
+- `electron/**/__tests__/**/*.test.ts` — 主进程测试
+
+主进程测试在文件首行声明 `// @vitest-environment node`。
+
+**规则**: 测试文件必须 import 它被测的模块。若某模块在测试里 import 不进来, 就修那个缝 (注入依赖、把模块级读取挪到 getter 之后), 不要把手抄的实现放进测试里 —— 那种测试对模块是否可用零敏感。详见 `docs/adr/0011-tests-must-cross-the-seam.md`。
+
+CI: `.github/workflows/test.yml` 在 PR 与 push 到 `main` 时运行 `npm test`。
 
 ## Rules
 
