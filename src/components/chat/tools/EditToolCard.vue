@@ -23,33 +23,20 @@
     </div>
 
     <div v-if="isExpanded" class="tool-body">
-      <div class="tool-section">
-        <div class="tool-section-header">{{ t('toolCards.fileContent') }}</div>
-        <div class="tool-section-body diff-section-body">
-          <!-- 专业 Diff 展示 -->
-          <div v-if="diffFile" class="git-diff-wrapper">
-            <DiffView
-              :key="diffViewKey"
-              :diff-file="diffFile"
-              :diff-view-mode="DiffModeEnum.Unified"
-              :diff-view-highlight="true"
-              class="git-diff-container"
-            />
-          </div>
-
-          <!-- 无 diff 数据时的回退显示 -->
-          <div v-else class="empty-diff">
-            <span>{{ t('toolCards.editNoChanges') }}</span>
-          </div>
-        </div>
+      <!-- 专业 Diff 展示 -->
+      <div v-if="diffFile" class="git-diff-wrapper">
+        <DiffView
+          :key="diffViewKey"
+          :diff-file="diffFile"
+          :diff-view-mode="DiffModeEnum.Unified"
+          :diff-view-highlight="true"
+          class="git-diff-container"
+        />
       </div>
 
-      <!-- Result 输出 -->
-      <div v-if="toolCall.output" class="tool-section">
-        <div class="tool-section-header">{{ t('toolCards.editResult') }}</div>
-        <div class="tool-section-body">
-          <pre class="code-block result-text"><code>{{ toolCall.output }}</code></pre>
-        </div>
+      <!-- 无 diff 数据时的回退显示 -->
+      <div v-else class="empty-diff">
+        <span>{{ t('toolCards.editNoChanges') }}</span>
       </div>
     </div>
   </div>
@@ -119,24 +106,6 @@ const diffFile = computed(() => {
   return file
 })
 
-const diffStats = computed(() => {
-  const oldLines = oldString.value.split('\n').length
-  const newLines = newString.value.split('\n').length
-  return {
-    additions: Math.max(0, newLines - oldLines),
-    deletions: Math.max(0, oldLines - newLines)
-  }
-})
-
-// HTML 转义（XSS 防护）
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
 async function openInPanel() {
   const rawFp = props.toolCall.input?.file_path || props.toolCall.input?.path
   if (!rawFp) return
@@ -195,10 +164,6 @@ async function openInPanel() {
 <style lang="scss" scoped>
 @use './tool-card.scss' as *;
 
-.diff-section-body {
-  padding: 0;
-}
-
 /* Git Diff View 容器 */
 .git-diff-wrapper {
   border-radius: 6px;
@@ -252,23 +217,5 @@ async function openInPanel() {
   text-align: center;
   color: var(--text-muted);
   font-size: var(--text-sm);
-}
-
-.code-block {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: 6px;
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  line-height: var(--leading-relaxed);
-  overflow-x: auto;
-  white-space: pre-wrap;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.result-text {
-  background: var(--code-bg, #0d1117);
-  color: var(--code-fg, #c9d1d9);
 }
 </style>
