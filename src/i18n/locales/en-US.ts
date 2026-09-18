@@ -339,6 +339,17 @@ export default {
     claude: 'Claude',
     startConversation: 'Start a conversation',
     startConversationDesc: 'Type a message to begin working with Claude Code',
+    welcomeHero: {
+      eyebrow: 'Start your project',
+      title: 'Hello, what can I help you with?',
+      subtitle: 'Describe what you need, or pick a quick task below to begin. You can interrupt and follow up anytime; I work in the context of your project.',
+    },
+    defaultTasks: [
+      { name: 'Explain project architecture', description: 'Understand modules and data flow fast' },
+      { name: 'Fix build errors', description: 'Locate and fix errors and failing tests' },
+      { name: 'Add tests', description: 'Add unit tests for existing modules' },
+      { name: 'Review code changes', description: 'Review uncommitted changes in the workspace' },
+    ],
     askAnything: "Ask anything, {'@'} to add files, / for commands",
     ready: 'Ready',
     notConfigured: 'Not Configured',
