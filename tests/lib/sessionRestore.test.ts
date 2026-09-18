@@ -201,3 +201,28 @@ describe('buildMessagesFromHistory — skill/slash command message restoration',
     expect(messages[2].content).toBe('Now push the changes')
   })
 })
+
+describe('buildMessagesFromHistory — timestamp preservation', () => {
+  it('carries the raw JSONL timestamp into restored messages', () => {
+    const rawMessages = [
+      {
+        type: 'user',
+        uuid: 'ts-user-1',
+        timestamp: '2026-08-20T11:33:53.117Z',
+        message: { role: 'user', content: '你好' },
+      },
+      {
+        type: 'assistant',
+        uuid: 'ts-assistant-1',
+        timestamp: '2026-08-20T11:36:22.870Z',
+        message: { role: 'assistant', content: [{ type: 'text', text: '回复' }] },
+      },
+    ]
+
+    const messages = buildMessagesFromHistory(rawMessages)
+
+    expect(messages).toHaveLength(2)
+    expect(messages[0].timestamp).toBe(Date.parse('2026-08-20T11:33:53.117Z'))
+    expect(messages[1].timestamp).toBe(Date.parse('2026-08-20T11:36:22.870Z'))
+  })
+})
