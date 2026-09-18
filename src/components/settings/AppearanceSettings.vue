@@ -259,7 +259,7 @@ const accentColors = [
 // Default config
 const defaultConfig: AppearanceConfig = {
   theme: 'system',
-  fontSize: 14,
+  fontSize: 15,
   fontFamily: 'system',
   codeFontFamily: 'jetbrains',
   density: 'default',

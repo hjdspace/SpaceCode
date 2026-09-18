@@ -286,7 +286,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const permissionMode = ref<PermissionMode>(saved.permissionMode || 'default')
   const appearance = ref<AppearanceSettings>(saved.appearance || {
     theme: 'system',
-    fontSize: 14,
+    fontSize: 15,
     fontFamily: 'system',
     codeFontFamily: 'jetbrains',
     density: 'default',
@@ -804,8 +804,26 @@ export const useSettingsStore = defineStore('settings', () => {
     saveSettings()
   }
 
+  /**
+   * 一次性迁移: 默认字号 14 → 15。
+   * 仅当当前值仍停留在旧默认 14 时提升, 显式选择过其他字号的用户不受影响;
+   * 标记只写一次, 用户随后改回 14 也不会被再次顶掉。
+   * 在异步配置加载(gui-settings.json / .env)完成后执行, 避免被源数据覆盖。
+   */
+  function migrateFontSizeDefault() {
+    const KEY = 'spacecode.settings.fontSizeDefault15Migrated'
+    if (localStorage.getItem(KEY)) return
+    localStorage.setItem(KEY, '1')
+    if (appearance.value.fontSize === 14) {
+      appearance.value = { ...appearance.value, fontSize: 15 }
+      saveSettings()
+    }
+  }
+
   // Priority: gui-settings.json (highest) > localStorage > .env (fallback) > defaults
-  loadFromGuiSettingsFile().finally(() => loadFromEnv())
+  loadFromGuiSettingsFile()
+    .finally(() => loadFromEnv())
+    .finally(() => migrateFontSizeDefault())
 
   return {
     authMethod,
