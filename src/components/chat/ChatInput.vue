@@ -366,7 +366,7 @@ import ChatContextToolbar from './ChatContextToolbar.vue'
 import SlashCommandMenu from './SlashCommandMenu.vue'
 import ContextMenu from './ContextMenu.vue'
 import AttachmentMenu from './AttachmentMenu.vue'
-import { useAppStore } from '@/stores/app'
+import { useAppStore, type InputInjectPayload } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
 import { api } from '@/services/electronAPI'
@@ -640,7 +640,7 @@ function toggleThinking() {
 }
 
 // ── Workbench injection ──────────────────────────────────────────
-function injectFromWorkbench(payload: { text?: string; image?: ImageAttachment }) {
+function injectFromWorkbench(payload: InputInjectPayload) {
   if (payload.image) {
     const img: ImageAttachment = { ...payload.image, type: 'image' }
     attachedImages.value.push(img)
@@ -651,9 +651,17 @@ function injectFromWorkbench(payload: { text?: string; image?: ImageAttachment }
     const editorEl = editorRef.value
     if (editorEl) {
       editorEl.focus()
-      const prefix = editorEl.textContent && !editorEl.textContent.endsWith('\n') ? '\n' : ''
-      editorEl.appendChild(document.createTextNode(prefix + payload.text))
+      if (payload.replace) {
+        // 快捷 prompt 磁贴语义: 替换输入框已有文本, 避免多次点击内容叠加
+        clearEditor()
+      } else {
+        const prefix = editorEl.textContent && !editorEl.textContent.endsWith('\n') ? '\n' : ''
+        editorEl.appendChild(document.createTextNode(prefix))
+      }
+      editorEl.appendChild(document.createTextNode(payload.text))
       inputText.value = getEditorPlainText()
+      setCursorToEnd()
+      autoResize()
     }
   }
 }
