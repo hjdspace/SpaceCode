@@ -48,13 +48,21 @@
           </div>
         </details>
 
-        <!-- Activity timeline: reuse AgentTimeline -->
-        <div v-if="streamMessages.length" class="activity-section">
-          <AgentTimeline
-            :messages="streamMessages"
-            :loading="isRunning"
-          />
-        </div>
+        <!-- 转录按时间顺序渲染：主 Agent 下发的任务输入（user 角色）用右侧气泡呈现，
+             连续的子代理输出交给 AgentTimeline -->
+        <template v-for="segment in panelSegments" :key="segment.id">
+          <div v-if="segment.kind === 'user'" class="user-bubble-row">
+            <div class="user-bubble">
+              <p class="user-bubble-text">{{ segment.content }}</p>
+            </div>
+          </div>
+          <div v-else class="activity-section">
+            <AgentTimeline
+              :messages="segment.messages"
+              :loading="isRunning"
+            />
+          </div>
+        </template>
 
         <!-- Running indicator: three bouncing dots, same as main chat -->
         <div v-if="isRunning && streamMessages.length" class="typing-indicator">
@@ -86,6 +94,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, onUnmounted } from 'vue'
+import type { Message } from '@/types'
 import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useSubagentTranscript } from '@/composables/useSubagentTranscript'
@@ -119,6 +128,38 @@ const toolCall = computed(() => {
 // Subagent transcript (reactive, live-updating)
 const toolCallId = computed(() => panelState.value?.toolCallId ?? '')
 const { messages: streamMessages } = useSubagentTranscript(toolCallId)
+
+// 主 Agent 下发给子代理的任务输入（transcript 中 role='user' 的消息）
+// 是子代理的“输入”而非“答复”，必须以用户消息气泡右对齐呈现，
+// 不能混入 AgentTimeline 渲染成子代理回复。
+type PanelSegment =
+  | { kind: 'user'; id: string; content: string }
+  | { kind: 'timeline'; id: string; messages: Message[] }
+
+const panelSegments = computed<PanelSegment[]>(() => {
+  const segments: PanelSegment[] = []
+  let timelineGroup: Message[] | null = null
+
+  const flushTimeline = () => {
+    if (timelineGroup && timelineGroup.length) {
+      segments.push({ kind: 'timeline', id: `timeline-${timelineGroup[0].id}`, messages: timelineGroup })
+    }
+    timelineGroup = null
+  }
+
+  for (const msg of streamMessages.value) {
+    if (msg.role === 'user' && msg.content?.trim()) {
+      flushTimeline()
+      segments.push({ kind: 'user', id: msg.id, content: msg.content })
+    } else {
+      if (!timelineGroup) timelineGroup = []
+      timelineGroup.push(msg)
+    }
+  }
+  flushTimeline()
+
+  return segments
+})
 
 // Derived state
 const isRunning = computed(() => {
@@ -461,6 +502,31 @@ watch(() => appStore.subagentPanelState, (state) => {
 /* Activity section */
 .activity-section {
   margin-top: 12px;
+}
+
+/* 主 Agent 任务输入：右对齐用户消息气泡（与主聊天 MessageItem 用户样式一致） */
+.user-bubble-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.user-bubble {
+  max-width: 85%;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-radius: var(--radius-lg);
+  padding: 10px 14px;
+  border: 1px solid var(--surface-border);
+
+  .user-bubble-text {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
 }
 
 /* Running indicator (three bouncing dots, same as main chat) */
