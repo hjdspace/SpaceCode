@@ -32,7 +32,7 @@ import {
   buildInitializeRequest,
   encodeJsonLine,
   takeCompleteLines,
-} from '../../electron/session/controlProtocol.ts'
+} from '../../../electron/session/controlProtocol.ts'
 
 describe('classifyInboundMessage', () => {
   it('parses can_use_tool with all optional fields', () => {

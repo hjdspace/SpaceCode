@@ -3,7 +3,7 @@
  * Regression tests for the proxy's OpenAI→Anthropic streaming transformer usage
  * handling. Run with:
  *
- *   node --experimental-strip-types --test tests/electron/*.test.ts
+ *   node --experimental-strip-types --test tests/electron/infra/*.test.ts
  *
  * Background: the official Claude CLI (used in "官网" mode) reads input_tokens and
  * cache fields ONLY from message_start; message_delta only updates output_tokens.
@@ -15,8 +15,8 @@
 import { describe, it } from 'vitest'
 import assert from 'node:assert/strict'
 
-import { OpenAIToAnthropicStreamTransformer } from '../../electron/proxy/streamingTransformer.ts'
-import { estimateInputTokens } from '../../electron/proxy/transformer.ts'
+import { OpenAIToAnthropicStreamTransformer } from '../../../electron/proxy/streamingTransformer.ts'
+import { estimateInputTokens } from '../../../electron/proxy/transformer.ts'
 
 function collect(events: { data: string }[], estimate = 0) {
   const t = new OpenAIToAnthropicStreamTransformer(estimate)

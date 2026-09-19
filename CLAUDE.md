@@ -31,8 +31,8 @@
 
 两个 test runner, 权威划分见 `vitest.config.ts` 的 `include` / `exclude`:
 
-- **Vitest** (`npm run test`): `electron/__tests__/`, `tests/composables/`, `tests/components/`, `tests/stores/`, `tests/im/`, `tests/integration/`, `tests/lib/`, `src/**/*.test.ts`
-- **Node test runner** (`npm run test:electron`): `tests/electron/*.test.ts`
+- **Vitest** (`npm run test`): `electron/__tests__/`, `tests/composables/`, `tests/components/`, `tests/stores/`, `tests/im/`, `tests/integration/`, `tests/lib/`, `tests/electron/`, `src/**/*.test.ts`
+- **Node test runner** (`npm run test:electron`): `tests/electron/**/*.test.ts`
 - **Python** (`pytest`): `tests/test_*.py`
 
 ## Rules

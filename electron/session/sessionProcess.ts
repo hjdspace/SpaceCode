@@ -22,6 +22,7 @@ import {
   type CanUseToolRequest,
   type ElicitationRequest,
 } from './controlProtocol'
+import { shouldAutoApprovePermission } from './permissionAutoApprove'
 import { buildEnabledMcpConfig } from '../tools/mcpConfigStore'
 import { getOfficeCliBinaryPath, getOfficeCliInstalledBinary, getOfficeCliInstallDir } from '../tools/officeCliService'
 import { rtkManager } from '../tools/rtkManager'
@@ -187,6 +188,52 @@ export class SessionProcess extends EventEmitter {
     this.controlProtocol = new ControlProtocolHandler((message) => this.writeStdin(message))
     this.controlProtocol.on('sdk_message', (msg: any) => this.handleSDKMessage(msg))
     this.controlProtocol.on('permission_request', (req: CanUseToolRequest) => {
+      // ── 主机侧 bypass 闸门 ──
+      // 完全信任模式下，引擎仍会对模式切换类工具（ExitPlanMode）发 ask——那是引擎
+      // 刻意的 bypass 免疫分支（permissions.ts step 1e 先于 step 2a）。此处按**用户
+      // 选定模式**裁决：直接 allow，不向渲染层发事件、不弹审批卡。
+      // 判定刻意读 currentPermissionMode（用户意图）而非引擎当前模式：模型自主进入
+      // plan 后引擎模式为 'plan'，但用户意图仍是完全信任。
+      if (shouldAutoApprovePermission(this.currentPermissionMode, req.toolName)) {
+        info(
+          'SessionProcess',
+          `[${this.sessionId.slice(0, 8)}] bypass auto-approve | tool=${req.toolName} | requestId=${req.requestId.slice(0, 8)}`,
+        )
+        traceEvent({
+          sessionId: this.sessionId,
+          engineSessionId: this.engineSessionId || undefined,
+          actor: 'system',
+          type: 'permission_request',
+          status: 'completed',
+          title: `Permission auto-approved (bypassPermissions): ${req.toolName}`,
+          input: { tool_name: req.toolName, input: req.input, tool_use_id: req.toolUseId },
+          metadata: {
+            requestId: req.requestId,
+            autoApproved: true,
+            mode: this.currentPermissionMode,
+          },
+        })
+        this.lastActivityAt = Date.now()
+        try {
+          // 两个可选参数都刻意省略：
+          //  - updatedInput 省略 → ControlProtocolHandler 回填原始 input（引擎侧
+          //    updatedInput 是 full-replace，省略比回传 {} 更直白）。
+          //  - updatedPermissions 省略 → 让引擎自己的 plan 退出事务完整执行。若这里
+          //    塞 { type: 'setMode', mode: 'bypassPermissions' }，模式会先被改写，
+          //    导致 ExitPlanModeV2Tool.call() 因 mode 已不是 'plan' 而直接 return prev，
+          //    hasExitedPlanMode / plan-exit attachment / prePlanMode 清理全部丢失。
+          //    模式恢复交给引擎事务（prePlanMode 已在进入 plan 时正确 stash）。
+          this.controlProtocol.allowPermission(req.requestId, undefined, 'user_permanent')
+        } catch (e) {
+          warn(
+            'SessionProcess',
+            `[${this.sessionId.slice(0, 8)}] bypass auto-approve failed | tool=${req.toolName} | requestId=${req.requestId.slice(0, 8)}`,
+            { error: String(e) },
+          )
+        }
+        return
+      }
+
       info(
         'SessionProcess',
         `[${this.sessionId.slice(0, 8)}] control_request: can_use_tool | requestId=${req.requestId.slice(0, 8)} | tool=${req.toolName} | toolUseId=${req.toolUseId.slice(0, 8)}`,

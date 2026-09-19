@@ -6,7 +6,7 @@
  * matching, fragmentation handling, and process-exit cleanup.
  *
  * Run with:
- *   node --experimental-strip-types --test tests/electron/*.test.ts
+ *   node --experimental-strip-types --test tests/electron/protocol/*.test.ts
  */
 import { describe, it } from 'vitest'
 import assert from 'node:assert/strict'
@@ -15,7 +15,7 @@ import {
   ControlProtocolHandler,
   encodeJsonLine,
   buildSetPermissionModeRequest,
-} from '../../electron/session/controlProtocol.ts'
+} from '../../../electron/session/controlProtocol.ts'
 
 function makeHandler() {
   const written: any[] = []

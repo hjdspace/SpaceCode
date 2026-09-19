@@ -32,14 +32,17 @@ const project = (id: string, isCurrent = false): MemoryProject => ({
   isCurrent,
 })
 
-const file = (path: string): MemoryFile => ({
-  path,
-  name: path.split('/')[path.split('/').length - 1] ?? path,
-  bytes: 12,
-  updatedAt: '2026-07-24T00:00:00.000Z',
-  title: path,
-  isIndex: path === 'MEMORY.md',
-})
+const file = (path: string): MemoryFile => {
+  const parts = path.split('/')
+  return {
+    path,
+    name: parts[parts.length - 1] ?? path,
+    bytes: 12,
+    updatedAt: '2026-07-24T00:00:00.000Z',
+    title: path,
+    isIndex: path === 'MEMORY.md',
+  }
+}
 
 function detail(path: string, content: string): MemoryFileDetail {
   return { path, content, updatedAt: '2026-07-24T00:00:00.000Z', bytes: 12 }
