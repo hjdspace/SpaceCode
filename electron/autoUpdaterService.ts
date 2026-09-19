@@ -1,4 +1,4 @@
-import { autoUpdater } from 'electron-updater'
+import { autoUpdater, CancellationToken } from 'electron-updater'
 import { app, ipcMain, BrowserWindow } from 'electron'
 import fs from 'fs/promises'
 import path from 'path'
@@ -14,11 +14,16 @@ let mainWindow: BrowserWindow | null = null
 // 定期检查定时器
 let checkInterval: ReturnType<typeof setInterval> | null = null
 
-// ── 自动静默下载状态 ──
-let isAutoDownloading = false
-let downloadAttempts = 0
+// ── 下载链路（自动静默下载与手动下载共用） ──
+// 差量下载走 blockmap 多 range 请求时不产生 download-progress 事件，
+// 且对 GitHub CDN 的大量小 range 请求 RTT-bound、国内网络下极易停滞，
+// 表现为"转圈无进度"，因此强制完整下载（参考 cc-haha 的 updater 实现）。
 const MAX_DOWNLOAD_ATTEMPTS = 3
 const RETRY_DELAY_MS = 30_000 // 重试间隔 30 秒
+const DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000 // 单次尝试 5 分钟超时
+
+// 进行中的下载链路；自动与手动下载共享同一条链，失败向调用方传播
+let downloadChain: Promise<void> | null = null
 
 // ── 安装状态 ──
 let updateDownloaded = false
@@ -46,6 +51,7 @@ export function initAutoUpdater(win: BrowserWindow, ghToken: string | null) {
   // 配置 electron-updater
   autoUpdater.autoDownload = false        // 不由 electron-updater 自动下载，我们自行管理重试逻辑
   autoUpdater.autoInstallOnAppQuit = false // 关闭时由我们自行调用 quitAndInstall 控制行为
+  autoUpdater.disableDifferentialDownload = true // 差量下载无进度事件且易停滞，强制完整下载
 
   // 私有仓库需要通过 token 认证访问 GitHub Releases
   if (ghToken) {
@@ -74,8 +80,8 @@ export function initAutoUpdater(win: BrowserWindow, ghToken: string | null) {
       releaseNotes: updateInfo.releaseNotes,
       releaseName: updateInfo.releaseName,
     })
-    // 自动开始静默下载（带重试）
-    autoDownloadUpdate()
+    // 自动开始静默下载（带重试）；失败已通过 onError 事件通知渲染端
+    startDownloadChain().catch(() => {})
   })
 
   // 当前已是最新
@@ -99,7 +105,6 @@ export function initAutoUpdater(win: BrowserWindow, ghToken: string | null) {
   autoUpdater.on('update-downloaded', (updateInfo) => {
     info('AutoUpdater', `Update downloaded: ${updateInfo.version}`)
     updateDownloaded = true
-    isAutoDownloading = false
     sendToRenderer(UPDATE_EVENTS.onDownloaded, {
       version: updateInfo.version,
     })
@@ -146,37 +151,62 @@ async function checkForUpdates() {
 }
 
 /**
- * 自动静默下载更新，失败后自动重试（最多 MAX_DOWNLOAD_ATTEMPTS 次）。
+ * 启动（或复用进行中的）下载链路。
+ *
+ * 自动静默下载（update-available 触发）与手动下载（update:download IPC）
+ * 共用同一条链：单次尝试带超时并取消停滞请求，失败自动重试；
+ * 最终失败时向渲染端发 onError 并向调用方抛出（手动调用据此返回
+ * { success: false }，渲染端的超时保护不会被假成功短路）。
+ * 下载成功由 electron-updater 的 update-downloaded 事件通知渲染端。
  */
-async function autoDownloadUpdate() {
-  if (isAutoDownloading) return
-  isAutoDownloading = true
-  downloadAttempts = 0
-  await attemptDownload()
+function startDownloadChain(): Promise<void> {
+  if (downloadChain) return downloadChain
+  downloadChain = runDownloadChain().finally(() => {
+    downloadChain = null
+  })
+  return downloadChain
 }
 
-async function attemptDownload() {
-  downloadAttempts++
-  try {
-    info('AutoUpdater', `Auto-download attempt ${downloadAttempts}/${MAX_DOWNLOAD_ATTEMPTS}`)
-    await autoUpdater.downloadUpdate()
-    // 下载成功 → update-downloaded 事件会触发
-  } catch (err) {
-    error('AutoUpdater', `Download attempt ${downloadAttempts}/${MAX_DOWNLOAD_ATTEMPTS} failed`, err)
-    if (downloadAttempts < MAX_DOWNLOAD_ATTEMPTS) {
-      // 等待后重试
-      setTimeout(() => {
-        if (isAutoDownloading) {
-          attemptDownload()
-        }
-      }, RETRY_DELAY_MS)
-    } else {
-      // 所有重试均失败
-      isAutoDownloading = false
-      error('AutoUpdater', `All ${MAX_DOWNLOAD_ATTEMPTS} download attempts failed`)
-      sendToRenderer(UPDATE_EVENTS.onError, `Download failed after ${MAX_DOWNLOAD_ATTEMPTS} attempts`)
+async function runDownloadChain(): Promise<void> {
+  for (let attempt = 1; attempt <= MAX_DOWNLOAD_ATTEMPTS; attempt++) {
+    const token = new CancellationToken()
+    try {
+      info('AutoUpdater', `Download attempt ${attempt}/${MAX_DOWNLOAD_ATTEMPTS}`)
+      await withTimeout(autoUpdater.downloadUpdate(token), DOWNLOAD_TIMEOUT_MS, token)
+      return // 下载成功 → update-downloaded 事件已触发
+    } catch (err: any) {
+      token.cancel() // 中断停滞的请求，让 electron-updater 释放内部 downloadPromise
+      error('AutoUpdater', `Download attempt ${attempt}/${MAX_DOWNLOAD_ATTEMPTS} failed`, err)
+      if (attempt === MAX_DOWNLOAD_ATTEMPTS) {
+        sendToRenderer(UPDATE_EVENTS.onError, `Download failed: ${err?.message || String(err)}`)
+        throw err
+      }
+      await sleep(RETRY_DELAY_MS)
     }
   }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, token: CancellationToken): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      token.cancel()
+      reject(new Error(`Download timeout after ${Math.round(ms / 1000)} seconds`))
+    }, ms)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (err) => {
+        clearTimeout(timer)
+        reject(err)
+      },
+    )
+  })
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 // IPC Handlers
@@ -195,29 +225,20 @@ export function registerAutoUpdaterIPC() {
     }
   })
 
-  // 手动下载更新（关于页面使用，如果自动下载已在进行中则直接返回成功）
+  // 手动下载更新（关于页面使用）— 与自动下载共用同一条链：
+  // 已在下载中则等待其结果，不再假成功（假成功会让渲染端取消超时保护后无限转圈）
   ipcMain.handle(UPDATE_CHANNELS.download, async () => {
     if (!app.isPackaged) {
       return { success: false, error: 'Updates not available in development mode' }
     }
-    // 自动下载已在进行中，无需重复
-    if (isAutoDownloading) {
-      return { success: true }
-    }
     try {
-      info('AutoUpdater', 'User requested download, starting...')
-      // 设置 5 分钟下载超时，防止网络问题导致永久挂起
-      const downloadPromise = autoUpdater.downloadUpdate()
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Download timeout after 5 minutes')),
-        5 * 60 * 1000)
-      })
-      await Promise.race([downloadPromise, timeoutPromise])
+      info('AutoUpdater', 'User requested download')
+      await startDownloadChain()
       info('AutoUpdater', 'Download completed successfully')
       return { success: true }
     } catch (err: any) {
       error('AutoUpdater', 'Download failed', err)
-      return { success: false, error: err.message }
+      return { success: false, error: err?.message || String(err) }
     }
   })
 
