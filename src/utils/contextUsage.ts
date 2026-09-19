@@ -328,12 +328,22 @@ export function getMaxOutputTokensForModel(model: string): number {
 }
 
 export function getEffectiveContextWindowSize(model: string, userOverride?: number): number {
-  const reserved = Math.min(getMaxOutputTokensForModel(model), MAX_OUTPUT_RESERVE)
-  return getContextWindowForModel(model, userOverride) - reserved
+  const window = getContextWindowForModel(model, userOverride)
+  // Mirror cc-haha autoCompact: the output reserve never exceeds 25% of the
+  // window, so small user-configured windows keep a usable threshold.
+  const reserved = Math.min(
+    getMaxOutputTokensForModel(model),
+    MAX_OUTPUT_RESERVE,
+    Math.floor(window * 0.25),
+  )
+  return window - reserved
 }
 
 export function getAutoCompactThreshold(model: string, userOverride?: number): number {
-  return getEffectiveContextWindowSize(model, userOverride) - AUTOCOMPACT_BUFFER
+  const effective = getEffectiveContextWindowSize(model, userOverride)
+  // Mirror cc-haha autoCompact: the autocompact buffer shrinks to a third of
+  // the effective window on small contexts.
+  return effective - Math.min(AUTOCOMPACT_BUFFER, Math.floor(effective / 3))
 }
 
 export function getWarningThreshold(model: string, userOverride?: number): number {
@@ -366,17 +376,22 @@ export function calculateCacheHitRate(totals: {
   return Math.round((totals.cacheReadInputTokens / promptTokens) * 10000) / 100
 }
 
-/** Status-line / engine analyzeContext formula: input + cache only (no output). */
+/**
+ * Context fill formula (mirrors cc-haha getUsageTokenTotal, includeOutput=true):
+ * input + cache_creation + cache_read + output. Output must be included —
+ * it becomes part of the next request's context, so omitting it makes the
+ * usage dip right after the model finishes responding, then jump back up.
+ */
 export function getContextFillFromApiUsage(usage: ContextApiUsage | null | undefined): number {
   if (!usage) return 0
   return (
     usage.input_tokens +
     (usage.cache_creation_input_tokens ?? 0) +
-    (usage.cache_read_input_tokens ?? 0)
+    (usage.cache_read_input_tokens ?? 0) +
+    (usage.output_tokens ?? 0)
   )
 }
 
-/** StatusLine formula: input + cache only. */
 export function calculateContextPercentages(
   usage: ContextApiUsage | null,
   contextWindowSize: number,

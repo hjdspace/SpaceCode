@@ -74,7 +74,7 @@ export type ContextWarningLevel = 'ok' | 'warn' | 'error' | 'blocking'
 export interface ContextUsageSnapshot {
   /** Engine-analyzed context fill (totalTokens / rawMaxTokens). */
   data: ContextUsageData | null
-  /** Status-line style: input+cache only vs rawMaxTokens. */
+  /** Context fill vs rawMaxTokens: input + cache_creation + cache_read + output. */
   usedPercentage: number | null
   remainingPercentage: number | null
   /** Autocompact-style threshold against effective window. */

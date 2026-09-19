@@ -159,7 +159,7 @@ export interface MessageMetadata {
   // Per-API-call usage from the LAST `assistant` event of the turn. This
   // mirrors what claude-code's `getCurrentUsage` returns and is the
   // authoritative source for context-fill calculation
-  // (input + cache_creation + cache_read).
+  // (input + cache_creation + cache_read + output).
   apiCallUsage?: {
     input_tokens: number
     output_tokens: number
