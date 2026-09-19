@@ -1,3 +1,23 @@
+## [0.8.3](https://github.com/hjdspace/SpaceCode/compare/v0.8.2...v0.8.3) (2026-09-19)
+
+### Features
+
+- **编排画布:** 实现会话编排核心功能与视觉优化
+- **session:** 实现完全信任模式下 ExitPlanMode 自动放行逻辑
+- **chat:** 为默认快捷任务添加预设 prompt 并支持传递 prompt 触发对话
+- **memory:** 新增项目记忆功能模块
+- **markdown/code-viewer:** 优化行内链接识别与代码行定位高亮
+- **宠物窗口:** 新增宠物窗口页面，优化聊天 markdown 排版
+
+### Bug Fixes
+
+- 修复上下文占用计算遗漏 output tokens 的问题
+
+### Refactor
+
+- 重构项目文件路径，统一整理 electron 目录结构
+- 抽取并新增多个 Electron 业务模块代码
+
 ## [0.8.2](https://github.com/hjdspace/SpaceCode/compare/v0.8.1...v0.8.2) (2026-09-19)
 
 ### Features
