@@ -27,8 +27,8 @@ vi.mock('../proxyManager', () => ({
   },
 }))
 
-import { MAX_PROCESSES as ClaudeCodeMaxProcesses } from '../claudeCodeProcessPool'
-import { MAX_PROCESSES as PiMaxProcesses } from '../engines/PiProcessPool'
+import { MAX_PROCESSES as ClaudeCodeMaxProcesses } from '../engine/claudeCodeProcessPool'
+import { MAX_PROCESSES as PiMaxProcesses } from '../engine/engines/PiProcessPool'
 
 describe('Process pool MAX_PROCESSES — ADR-0010 (20)', () => {
   it('ClaudeCodeProcessPool MAX_PROCESSES = 20', () => {

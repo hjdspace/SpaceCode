@@ -485,11 +485,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   mobile: {
-    startServer: (): Promise<import('./mobileServerTypes').QRCodeData> =>
+    startServer: (): Promise<import('./h5/mobileServerTypes').QRCodeData> =>
       ipcRenderer.invoke('mobile:startServer'),
     stopServer: (): Promise<void> =>
       ipcRenderer.invoke('mobile:stopServer'),
-    getStatus: (): Promise<import('./mobileServerTypes').ServerStatus> =>
+    getStatus: (): Promise<import('./h5/mobileServerTypes').ServerStatus> =>
       ipcRenderer.invoke('mobile:getStatus'),
     onConnected: (callback: (clientInfo: string) => void) => {
       const handler = (_event: any, clientInfo: string) => callback(clientInfo)
@@ -505,17 +505,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // H5 WebUI Access API
   h5Access: {
-    enable: (): Promise<{ status: import('./h5Types').H5ServerStatus; token: string }> =>
+    enable: (): Promise<{ status: import('./h5/h5Types').H5ServerStatus; token: string }> =>
       ipcRenderer.invoke('h5:enable'),
     disable: (): Promise<void> =>
       ipcRenderer.invoke('h5:disable'),
-    regenerateToken: (): Promise<{ status: import('./h5Types').H5ServerStatus; token: string }> =>
+    regenerateToken: (): Promise<{ status: import('./h5/h5Types').H5ServerStatus; token: string }> =>
       ipcRenderer.invoke('h5:regenerateToken'),
-    getStatus: (): Promise<import('./h5Types').H5ServerStatus> =>
+    getStatus: (): Promise<import('./h5/h5Types').H5ServerStatus> =>
       ipcRenderer.invoke('h5:getStatus'),
-    getSettings: (): Promise<import('./h5Types').H5AccessSettings> =>
+    getSettings: (): Promise<import('./h5/h5Types').H5AccessSettings> =>
       ipcRenderer.invoke('h5:getSettings'),
-    updateSettings: (input: Partial<Pick<import('./h5Types').H5AccessSettings, 'publicBaseUrl' | 'fixedPort'>>) =>
+    updateSettings: (input: Partial<Pick<import('./h5/h5Types').H5AccessSettings, 'publicBaseUrl' | 'fixedPort'>>) =>
       ipcRenderer.invoke('h5:updateSettings', input),
     setMirrorSession: (sessionId: string | null, projectPath: string | null) =>
       ipcRenderer.invoke('h5:setMirrorSession', sessionId, projectPath),
@@ -525,17 +525,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // RTK (Rust Token Killer) API
   rtk: {
-    getStatus: (): Promise<import('./rtkManager').RtkStatus> =>
+    getStatus: (): Promise<import('./tools/rtkManager').RtkStatus> =>
       ipcRenderer.invoke('rtk:getStatus'),
-    enable: (): Promise<{ success: boolean; error?: string; status: import('./rtkManager').RtkStatus }> =>
+    enable: (): Promise<{ success: boolean; error?: string; status: import('./tools/rtkManager').RtkStatus }> =>
       ipcRenderer.invoke('rtk:enable'),
-    disable: (): Promise<{ success: boolean; error?: string; status: import('./rtkManager').RtkStatus }> =>
+    disable: (): Promise<{ success: boolean; error?: string; status: import('./tools/rtkManager').RtkStatus }> =>
       ipcRenderer.invoke('rtk:disable'),
-    downloadBinary: (): Promise<{ success: boolean; error?: string; status?: import('./rtkManager').RtkStatus }> =>
+    downloadBinary: (): Promise<{ success: boolean; error?: string; status?: import('./tools/rtkManager').RtkStatus }> =>
       ipcRenderer.invoke('rtk:downloadBinary'),
-    getStats: (): Promise<import('./rtkManager').RtkGainStats | null> =>
+    getStats: (): Promise<import('./tools/rtkManager').RtkGainStats | null> =>
       ipcRenderer.invoke('rtk:getStats'),
-    checkUpdate: (): Promise<import('./rtkManager').RtkUpdateInfo | null> =>
+    checkUpdate: (): Promise<import('./tools/rtkManager').RtkUpdateInfo | null> =>
       ipcRenderer.invoke('rtk:checkUpdate'),
     getBinaryPath: (): Promise<string> =>
       ipcRenderer.invoke('rtk:getBinaryPath'),

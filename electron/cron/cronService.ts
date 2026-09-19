@@ -8,7 +8,7 @@ import { getRecentRuns, getTaskRuns } from './taskRunLogger'
 import { isValidCron, cronToHuman } from './cronParser'
 import type { CronTask } from './cronFileStore'
 import type { TaskRun } from './taskRunLogger'
-import { info, warn, error } from './logger'
+import { info, warn, error } from '../infra/logger'
 
 let scheduler: CronScheduler | null = null
 

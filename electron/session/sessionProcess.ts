@@ -5,8 +5,8 @@ import * as fs from 'fs'
 import * as os from 'os'
 import { randomUUID } from 'crypto'
 import { app } from 'electron'
-import { proxyManager, buildProxyConfigFromSettings } from './proxyManager'
-import { info, warn, error, debug, processRaw, setSessionLogPath, sdkMessage, traceEvent } from './logger'
+import { proxyManager, buildProxyConfigFromSettings } from '../infra/proxyManager'
+import { info, warn, error, debug, processRaw, setSessionLogPath, sdkMessage, traceEvent } from '../infra/logger'
 import {
   killTree as engineKillTree,
   resolveBunPath as engineResolveBunPath,
@@ -22,9 +22,9 @@ import {
   type CanUseToolRequest,
   type ElicitationRequest,
 } from './controlProtocol'
-import { buildEnabledMcpConfig } from './mcpConfigStore'
-import { getOfficeCliBinaryPath, getOfficeCliInstalledBinary, getOfficeCliInstallDir } from './officeCliService'
-import { rtkManager } from './rtkManager'
+import { buildEnabledMcpConfig } from '../tools/mcpConfigStore'
+import { getOfficeCliBinaryPath, getOfficeCliInstalledBinary, getOfficeCliInstallDir } from '../tools/officeCliService'
+import { rtkManager } from '../tools/rtkManager'
 
 /**
 * 当 sc-computer-use MCP 启用时追加到 system prompt 的可用性提示。
@@ -1457,7 +1457,7 @@ export class SessionProcess extends EventEmitter {
    * 与 reconcileProxyWithSettings 等主动启动路径共用 buildProxyConfigFromSettings，
    * 保证兜底启动的代理与正常启动的路由映射一致。
    */
-  private buildProxyConfig(): import('./proxy/types').ProxyConfig | null {
+  private buildProxyConfig(): import('../proxy/types').ProxyConfig | null {
     try {
       const settingsPath = path.join(app.getPath('home'), '.claude', 'gui-settings.json')
       if (!fs.existsSync(settingsPath)) return null

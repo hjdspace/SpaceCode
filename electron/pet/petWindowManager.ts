@@ -11,14 +11,14 @@ import {
   type BrowserWindowConstructorOptions,
 } from 'electron'
 import { join } from 'path'
-import { info, warn } from './logger'
+import { info, warn } from '../infra/logger'
 import type {
   PetConfig,
   PetMainWindowEvent,
   PetPreferences,
   PetSyncPayload,
   PetInteractiveRegion,
-} from '../src/types/pet'
+} from '../../src/types/pet'
 
 // ── 常量（对齐 cc-haha） ──
 

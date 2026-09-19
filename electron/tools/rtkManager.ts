@@ -7,7 +7,7 @@ import * as os from 'os'
 import * as https from 'https'
 import { createWriteStream, createReadStream, existsSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'fs'
 import { pipeline } from 'stream/promises'
-import { info, warn, error, debug } from './logger'
+import { info, warn, error, debug } from '../infra/logger'
 
 const RTK_GITHUB_REPO = 'rtk-ai/rtk'
 const RTK_API_URL = `https://api.github.com/repos/${RTK_GITHUB_REPO}/releases/latest`

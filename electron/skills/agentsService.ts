@@ -7,7 +7,7 @@ import { join, basename } from 'path'
 import { readFileSync, readdirSync, existsSync, writeFileSync, mkdirSync, unlinkSync } from 'fs'
 import { promises as fsp } from 'fs'
 
-import { parseYamlFrontMatter } from './frontMatter'
+import { parseYamlFrontMatter } from '../infra/frontMatter'
 
 // Types
 export interface AgentDef {

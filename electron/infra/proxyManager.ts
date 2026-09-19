@@ -6,7 +6,7 @@ import * as fs from 'fs'
 import * as http from 'http'
 import * as net from 'net'
 import { pathToFileURL } from 'url'
-import type { ProxyConfig, AdapterStatus } from './proxy/types'
+import type { ProxyConfig, AdapterStatus } from '../proxy/types'
 import { info, warn, error, debug } from './logger'
 
 const STARTUP_TIMEOUT_MS = 10000

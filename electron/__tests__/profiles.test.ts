@@ -27,8 +27,8 @@ vi.mock('electron', () => ({
 }))
 
 // Mock 其他 main.ts 启动依赖，避免副作用
-vi.mock('../terminalManager', () => ({ TerminalManager: class {} }))
-vi.mock('../logger', () => ({
+vi.mock('../infra/terminalManager', () => ({ TerminalManager: class {} }))
+vi.mock('../infra/logger', () => ({
   debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(),
   initLogger: vi.fn(), isDebugMode: vi.fn(() => false),
   ipc: {}, traceEvent: vi.fn(), listDebugFiles: vi.fn(() => []),
@@ -36,54 +36,54 @@ vi.mock('../logger', () => ({
   readTraceEvents: vi.fn(() => []), getTraceDir: vi.fn(),
 }))
 vi.mock('dotenv', () => ({ config: vi.fn() }))
-vi.mock('../gitService', () => ({ registerGitIPCHandlers: vi.fn() }))
-vi.mock('../skillsService', () => ({
+vi.mock('../git/gitService', () => ({ registerGitIPCHandlers: vi.fn() }))
+vi.mock('../skills/skillsService', () => ({
   registerSkillsIPCHandlers: vi.fn(),
   registerLocalLibraryIPCHandlers: vi.fn(),
 }))
-vi.mock('../agentsService', () => ({ registerAgentsIPCHandlers: vi.fn() }))
-vi.mock('../artifactsService', () => ({
+vi.mock('../skills/agentsService', () => ({ registerAgentsIPCHandlers: vi.fn() }))
+vi.mock('../skills/artifactsService', () => ({
   registerArtifactsIPCHandlers: vi.fn(),
   stopArtifactsWatch: vi.fn(),
 }))
-vi.mock('../cronService', () => ({ registerCronIPCHandlers: vi.fn() }))
-vi.mock('../officeCliService', () => ({
+vi.mock('../cron/cronService', () => ({ registerCronIPCHandlers: vi.fn() }))
+vi.mock('../tools/officeCliService', () => ({
   registerOfficeCliIPCHandlers: vi.fn(),
   cleanupOfficeCli: vi.fn(),
   ensureOfficeCliInstalled: vi.fn(),
 }))
-vi.mock('../cuaDriverService', () => ({
+vi.mock('../tools/cuaDriverService', () => ({
   registerCuaDriverIPCHandlers: vi.fn(),
   cleanupCuaDriverMcp: vi.fn(),
 }))
-vi.mock('../browserUseService', () => ({
+vi.mock('../tools/browserUseService', () => ({
   registerBrowserUseIPCHandlers: vi.fn(),
   cleanupBrowserUseMcp: vi.fn(),
 }))
-vi.mock('../claudeCodeIPC', () => ({
+vi.mock('../engine/claudeCodeIPC', () => ({
   registerClaudeCodeIPC: vi.fn(),
   setMainWindow: vi.fn(),
   getPool: vi.fn(() => ({ killAll: vi.fn() })),
 }))
-vi.mock('../autoUpdaterService', () => ({
+vi.mock('../infra/autoUpdaterService', () => ({
   initAutoUpdater: vi.fn(),
   registerAutoUpdaterIPC: vi.fn(),
   destroyAutoUpdater: vi.fn(),
   installUpdateOnQuit: vi.fn(),
 }))
-vi.mock('../mobileServer', () => ({ MobileServer: class {} }))
-vi.mock('../h5Server', () => ({ H5Server: class {} }))
-vi.mock('../h5AuthService', () => ({ H5AuthService: class {} }))
-vi.mock('../themeSyncBuilder', () => ({ buildThemeSyncData: vi.fn() }))
-vi.mock('../promptOptimizerIPC', () => ({ registerPromptOptimizerIPC: vi.fn() }))
+vi.mock('../h5/mobileServer', () => ({ MobileServer: class {} }))
+vi.mock('../h5/h5Server', () => ({ H5Server: class {} }))
+vi.mock('../h5/h5AuthService', () => ({ H5AuthService: class {} }))
+vi.mock('../h5/themeSyncBuilder', () => ({ buildThemeSyncData: vi.fn() }))
+vi.mock('../skills/promptOptimizerIPC', () => ({ registerPromptOptimizerIPC: vi.fn() }))
 vi.mock('../design/designService', () => ({ registerDesignIPCHandlers: vi.fn() }))
-vi.mock('../tokenStatsService', () => ({ aggregateLocalTokenStats: vi.fn() }))
-vi.mock('../proxyManager', () => ({ proxyManager: { stop: vi.fn() } }))
-vi.mock('../rtkManager', () => ({ rtkManager: {} }))
-vi.mock('../imSidecarManager', () => ({ getImSidecarManager: vi.fn() }))
-vi.mock('../petFileService', () => ({ PetFileService: class {} }))
-vi.mock('../petWindowManager', () => ({ PetWindowManager: class {} }))
-vi.mock('../petIpcHandlers', () => ({ registerPetIpcHandlers: vi.fn() }))
+vi.mock('../session/tokenStatsService', () => ({ aggregateLocalTokenStats: vi.fn() }))
+vi.mock('../infra/proxyManager', () => ({ proxyManager: { stop: vi.fn() } }))
+vi.mock('../tools/rtkManager', () => ({ rtkManager: {} }))
+vi.mock('../imServer/imSidecarManager', () => ({ getImSidecarManager: vi.fn() }))
+vi.mock('../pet/petFileService', () => ({ PetFileService: class {} }))
+vi.mock('../pet/petWindowManager', () => ({ PetWindowManager: class {} }))
+vi.mock('../pet/petIpcHandlers', () => ({ registerPetIpcHandlers: vi.fn() }))
 
 import { app, ipcMain } from 'electron'
 

@@ -13,7 +13,7 @@ import { existsSync, copyFileSync, mkdirSync, chmodSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { spawn, execFile } from 'child_process'
-import { info, warn, error as logError } from './logger'
+import { info, warn, error as logError } from '../infra/logger'
 import { CuaDriverMcpClient } from './cuaDriverMcpClient'
 import type {
   CuaDriverStatus,
@@ -21,7 +21,7 @@ import type {
   McpToolResult,
   CuaDriverUpdateInfo,
   CuaDriverPermissions,
-} from '../src/types/computerUse'
+} from '../../src/types/computerUse'
 
 /** cua-driver 二进制名称（Windows 带后缀） */
 const CUA_DRIVER_BIN = process.platform === 'win32' ? 'cua-driver.exe' : 'cua-driver'

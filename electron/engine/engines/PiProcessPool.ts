@@ -1,9 +1,9 @@
 import { BrowserWindow } from 'electron'
 import { PiSessionProcess } from './PiSessionProcess'
 import type { EngineSessionConfig, EngineSessionStatus, ImageAttachment } from './types'
-import type { ProcessStatus } from '../sessionProcess'
+import type { ProcessStatus } from '../../session/sessionProcess'
 import { mapPiEvent } from './PiEventMapper'
-import { info, warn, error, debug } from '../logger'
+import { info, warn, error, debug } from '../../infra/logger'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { eventChannelsBySuffix } from '@/shared/channelMap'
 

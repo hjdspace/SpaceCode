@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { getImSidecarManager, ImSidecarManager } from '@electron/imSidecarManager'
+import { getImSidecarManager, ImSidecarManager } from '@electron/imServer/imSidecarManager'
 import { loadConfig, saveConfig } from '@electron/im/adapters/common/config'
 
 // Mock ImServer to avoid starting a real server
@@ -31,7 +31,7 @@ vi.mock('@electron/im/adapters/common/config', () => ({
 }))
 
 // Mock logger
-vi.mock('@electron/logger', () => ({
+vi.mock('@electron/infra/logger', () => ({
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),

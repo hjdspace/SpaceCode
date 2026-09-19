@@ -17,9 +17,9 @@ import { randomUUID } from 'crypto'
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { WebSocketServer, WebSocket } from 'ws'
-import { info, warn, error as logError } from '../logger'
-import { engineGateway } from '../engineGateway'
-import { EngineFactory } from '../engines/EngineFactory'
+import { info, warn, error as logError } from '../infra/logger'
+import { engineGateway } from '../engine/engineGateway'
+import { EngineFactory } from '../engine/engines/EngineFactory'
 import { translateEngineEvent } from './engineTranslator'
 import {
   loadConfig,
@@ -29,7 +29,7 @@ import {
 } from '../im/adapters/common/config'
 import type { AdapterConfig } from '../im/adapters/common/config'
 import type { ClientMessage, ServerMessage } from '../im/adapters/common/types'
-import type { EngineSessionConfig, UnifiedEngineEvent } from '../engines/types'
+import type { EngineSessionConfig, UnifiedEngineEvent } from '../engine/engines/types'
 
 // ──────────────────────────────────────────────────────────────────────────
 // Types

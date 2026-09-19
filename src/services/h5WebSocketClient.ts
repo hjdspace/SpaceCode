@@ -2,7 +2,7 @@
 // H5 WebSocket 客户端 — 接收引擎事件推送，替代 Electron ipcRenderer.on
 
 import { getH5Config } from './h5ApiClient'
-import type { H5PushMessage } from '../../electron/h5Types'
+import type { H5PushMessage } from '../../electron/h5/h5Types'
 
 type EventCallback = (data: { sessionId: string; data: any }) => void
 

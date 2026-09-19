@@ -2,8 +2,8 @@
 import { app } from 'electron'
 import { join } from 'path'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, unlinkSync, renameSync } from 'fs'
-import { info, warn } from './logger'
-import { createDefaultPetConfig, type PetConfig } from '../src/types/pet'
+import { info, warn } from '../infra/logger'
+import { createDefaultPetConfig, type PetConfig } from '../../src/types/pet'
 
 const CONFIG_FILENAME = 'buddy-pets.json'
 const ASSETS_DIRNAME = 'buddy-pets-assets'

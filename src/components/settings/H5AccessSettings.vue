@@ -111,7 +111,7 @@ import { useI18n } from 'vue-i18n'
 import { AlertTriangle, RefreshCw } from 'lucide-vue-next'
 import QRCode from 'qrcode'
 import { api } from '@/services/electronAPI'
-import type { H5ServerStatus } from '../../../electron/h5Types'
+import type { H5ServerStatus } from '../../../electron/h5/h5Types'
 
 const { t } = useI18n()
 

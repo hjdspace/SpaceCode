@@ -7,7 +7,7 @@
 
 import { spawn, ChildProcess } from 'child_process'
 import { isAbsolute } from 'path'
-import { info, warn } from './logger'
+import { info, warn } from '../infra/logger'
 
 export interface McpProbeConfig {
   type: 'stdio' | 'sse' | 'http'

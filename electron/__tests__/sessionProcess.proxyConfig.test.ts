@@ -38,7 +38,7 @@ vi.mock('electron', () => ({
   },
 }))
 
-import { SessionProcess, SessionConfig } from '../sessionProcess'
+import { SessionProcess, SessionConfig } from '../session/sessionProcess'
 
 function makeSessionConfig(overrides: Partial<SessionConfig> = {}): SessionConfig {
   return {

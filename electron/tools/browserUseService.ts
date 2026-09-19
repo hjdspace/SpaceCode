@@ -14,7 +14,7 @@ import { app, ipcMain, BrowserWindow } from 'electron'
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { spawn, execFile } from 'child_process'
-import { info, warn, error as logError } from './logger'
+import { info, warn, error as logError } from '../infra/logger'
 import { BrowserUseMcpClient } from './browserUseMcpClient'
 import type {
   BrowserUseStatus,
@@ -25,7 +25,7 @@ import type {
   BrowserUseInstallOptions,
   BrowserUseLiveSnapshot,
   BrowserUseAgentConfig,
-} from '../src/types/browserUse'
+} from '../../src/types/browserUse'
 
 // ── Constants ──────────────────────────────────────────────────
 

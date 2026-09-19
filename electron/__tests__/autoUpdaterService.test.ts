@@ -44,7 +44,7 @@ vi.mock('../logger', () => ({
   initLogger: vi.fn(),
 }))
 
-import { initAutoUpdater, registerAutoUpdaterIPC } from '../autoUpdaterService'
+import { initAutoUpdater, registerAutoUpdaterIPC } from '../infra/autoUpdaterService'
 
 function createWindowMock() {
   return {

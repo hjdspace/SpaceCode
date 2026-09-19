@@ -9,7 +9,7 @@
 import { spawn } from 'child_process'
 import { existsSync } from 'fs'
 import { join } from 'path'
-import { info } from './logger'
+import { info } from '../infra/logger'
 
 export interface InstallResult {
   success: boolean

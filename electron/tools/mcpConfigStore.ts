@@ -12,7 +12,7 @@
 import { app } from 'electron'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { warn, error as logError } from './logger'
+import { warn, error as logError } from '../infra/logger'
 import { builtinNameFromServerKey, resolveBuiltinMcp } from './mcpConfigResolver'
 
 /** 内置 MCP 服务器的来源标记，与渲染层 BUILTIN_MCP_SOURCE 保持一致 */

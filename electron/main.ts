@@ -3,40 +3,40 @@ import { join, resolve, extname, dirname, basename } from 'path'
 import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSync, copyFileSync, renameSync, unlinkSync, rmSync, chmodSync } from 'fs'
 import { spawn } from 'child_process'
 import { config } from 'dotenv'
-import { TerminalManager } from './terminalManager'
+import { TerminalManager } from './infra/terminalManager'
 import { terminalNamespace } from '@/shared/channels/terminal'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { channelNames } from '@/shared/channelMap'
-import { registerGitIPCHandlers } from './gitService'
-import { registerSkillsIPCHandlers, registerLocalLibraryIPCHandlers } from './skillsService'
+import { registerGitIPCHandlers } from './git/gitService'
+import { registerSkillsIPCHandlers, registerLocalLibraryIPCHandlers } from './skills/skillsService'
 import { registerSkillManagerV2IPCHandlers } from './skillManagerV2'
-import { registerAgentsIPCHandlers } from './agentsService'
-import { registerArtifactsIPCHandlers, stopArtifactsWatch } from './artifactsService'
-import { registerCronIPCHandlers } from './cronService'
-import { registerOfficeCliIPCHandlers, cleanupOfficeCli, ensureOfficeCliInstalled } from './officeCliService'
-import { registerCuaDriverIPCHandlers, cleanupCuaDriverMcp } from './cuaDriverService'
-import { registerBrowserUseIPCHandlers, cleanupBrowserUseMcp } from './browserUseService'
-import { registerClaudeCodeIPC, setMainWindow, getPool } from './claudeCodeIPC'
-import { initAutoUpdater, registerAutoUpdaterIPC, destroyAutoUpdater, installUpdateOnQuit } from './autoUpdaterService'
-import { MobileServer } from './mobileServer'
-import type { QRCodeData, ServerStatus } from './mobileServerTypes'
-import { H5Server } from './h5Server'
-import { H5AuthService } from './h5AuthService'
-import { buildThemeSyncData } from './themeSyncBuilder'
-import { engineGateway } from './engineGateway'
-import { EngineFactory } from './engines/EngineFactory'
-import { registerPromptOptimizerIPC } from './promptOptimizerIPC'
+import { registerAgentsIPCHandlers } from './skills/agentsService'
+import { registerArtifactsIPCHandlers, stopArtifactsWatch } from './skills/artifactsService'
+import { registerCronIPCHandlers } from './cron/cronService'
+import { registerOfficeCliIPCHandlers, cleanupOfficeCli, ensureOfficeCliInstalled } from './tools/officeCliService'
+import { registerCuaDriverIPCHandlers, cleanupCuaDriverMcp } from './tools/cuaDriverService'
+import { registerBrowserUseIPCHandlers, cleanupBrowserUseMcp } from './tools/browserUseService'
+import { registerClaudeCodeIPC, setMainWindow, getPool } from './engine/claudeCodeIPC'
+import { initAutoUpdater, registerAutoUpdaterIPC, destroyAutoUpdater, installUpdateOnQuit } from './infra/autoUpdaterService'
+import { MobileServer } from './h5/mobileServer'
+import type { QRCodeData, ServerStatus } from './h5/mobileServerTypes'
+import { H5Server } from './h5/h5Server'
+import { H5AuthService } from './h5/h5AuthService'
+import { buildThemeSyncData } from './h5/themeSyncBuilder'
+import { engineGateway } from './engine/engineGateway'
+import { EngineFactory } from './engine/engines/EngineFactory'
+import { registerPromptOptimizerIPC } from './skills/promptOptimizerIPC'
 import { registerDesignIPCHandlers } from './design/designService'
-import { aggregateLocalTokenStats } from './tokenStatsService'
-import { initLogger, info, warn, error, debug, isDebugMode, ipc as logIpc, traceEvent, listDebugFiles, readDebugFile, listTraceSessions, readTraceEvents, getTraceDir } from './logger'
-import { proxyManager, buildProxyConfigFromSettings } from './proxyManager'
+import { aggregateLocalTokenStats } from './session/tokenStatsService'
+import { initLogger, info, warn, error, debug, isDebugMode, ipc as logIpc, traceEvent, listDebugFiles, readDebugFile, listTraceSessions, readTraceEvents, getTraceDir } from './infra/logger'
+import { proxyManager, buildProxyConfigFromSettings } from './infra/proxyManager'
 import type { ProxyConfig } from './proxy/types'
-import { rtkManager } from './rtkManager'
-import { getImSidecarManager } from './imSidecarManager'
-import { PetFileService } from './petFileService'
-import { PetWindowController } from './petWindowManager'
-import { registerPetIpcHandlers } from './petIpcHandlers'
-import { setupLinuxPlatform } from './platformSetup'
+import { rtkManager } from './tools/rtkManager'
+import { getImSidecarManager } from './imServer/imSidecarManager'
+import { PetFileService } from './pet/petFileService'
+import { PetWindowController } from './pet/petWindowManager'
+import { registerPetIpcHandlers } from './pet/petIpcHandlers'
+import { setupLinuxPlatform } from './infra/platformSetup'
 
 // claudeCode handler channel 名从表派生 — main.ts 侧仅 engineSourceChanged 一个 handler
 const CLAUDE_CODE_CHANNELS = channelNames(claudeCodeNamespace.channels, 'claude-code:')
@@ -1077,7 +1077,7 @@ let h5Server: H5Server | null = null
 const h5AuthService = new H5AuthService()
 
 function registerH5AccessIPCHandlers(): void {
-  ipcMain.handle('h5:enable', async (): Promise<{ status: import('./h5Types').H5ServerStatus; token: string }> => {
+  ipcMain.handle('h5:enable', async (): Promise<{ status: import('./h5/h5Types').H5ServerStatus; token: string }> => {
     const { settings, token } = h5AuthService.enable()
     if (!h5Server) {
       h5Server = new H5Server(h5AuthService)
@@ -1095,7 +1095,7 @@ function registerH5AccessIPCHandlers(): void {
     info('H5Access', 'H5 server disabled')
   })
 
-  ipcMain.handle('h5:regenerateToken', async (): Promise<{ status: import('./h5Types').H5ServerStatus; token: string }> => {
+  ipcMain.handle('h5:regenerateToken', async (): Promise<{ status: import('./h5/h5Types').H5ServerStatus; token: string }> => {
     const { settings, token } = h5AuthService.regenerateToken()
     // 重启服务器以应用新 token
     if (h5Server) {
@@ -1110,16 +1110,16 @@ function registerH5AccessIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle('h5:getStatus', (): import('./h5Types').H5ServerStatus => {
+  ipcMain.handle('h5:getStatus', (): import('./h5/h5Types').H5ServerStatus => {
     if (h5Server) return h5Server.getStatus()
     return { running: false, port: 0, ip: '', publicUrl: null, connectedClients: 0 }
   })
 
-  ipcMain.handle('h5:getSettings', (): import('./h5Types').H5AccessSettings => {
+  ipcMain.handle('h5:getSettings', (): import('./h5/h5Types').H5AccessSettings => {
     return h5AuthService.getSettings()
   })
 
-  ipcMain.handle('h5:updateSettings', async (_, input: Partial<Pick<import('./h5Types').H5AccessSettings, 'publicBaseUrl' | 'fixedPort'>>) => {
+  ipcMain.handle('h5:updateSettings', async (_, input: Partial<Pick<import('./h5/h5Types').H5AccessSettings, 'publicBaseUrl' | 'fixedPort'>>) => {
     return h5AuthService.updateSettings(input)
   })
 
@@ -2762,7 +2762,7 @@ ipcMain.handle('image:load', async (_event, id: string) => {
 
 ipcMain.handle('session:getTurnCheckpoints', async (_event, sessionId: string, projectPath?: string) => {
   try {
-    const { listSessionTurnCheckpoints } = await import('./turnCheckpointService')
+    const { listSessionTurnCheckpoints } = await import('./session/turnCheckpointService')
     const resolvedProjectPath = projectPath || _event.sender?.getURL?.() || ''
     
     if (!resolvedProjectPath && !projectPath) {
@@ -2794,7 +2794,7 @@ ipcMain.handle('session:getTurnRewindPreviewFiles', async (
   projectPath?: string
 ) => {
   try {
-    const { getTurnRewindPreviewFiles } = await import('./turnCheckpointService')
+    const { getTurnRewindPreviewFiles } = await import('./session/turnCheckpointService')
     return await getTurnRewindPreviewFiles(
       sessionId,
       projectPath || '',
@@ -2819,7 +2819,7 @@ ipcMain.handle('session:getTurnCheckpointDiff', async (
   projectPath?: string
 ) => {
   try {
-    const { getTurnCheckpointDiff } = await import('./turnCheckpointService')
+    const { getTurnCheckpointDiff } = await import('./session/turnCheckpointService')
     return await getTurnCheckpointDiff(
       sessionId,
       projectPath || '',
@@ -2844,7 +2844,7 @@ ipcMain.handle('session:rewindTurn', async (
   projectPath?: string
 ) => {
   try {
-    const { rewindTurn } = await import('./turnCheckpointService')
+    const { rewindTurn } = await import('./session/turnCheckpointService')
     return await rewindTurn(
       sessionId,
       projectPath || '',

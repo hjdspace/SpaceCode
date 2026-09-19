@@ -7,7 +7,7 @@ import { join, dirname, basename, resolve } from 'path'
 import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSync, unlinkSync, cpSync, rmSync } from 'fs'
 import { net } from 'electron'
 
-import { parseYamlFrontMatter } from './frontMatter'
+import { parseYamlFrontMatter } from '../infra/frontMatter'
 
 // Types
 export interface Skill {

@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Electron 目录架构优化分析</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --bg-card: #161b22;
+  --border: #30363d;
+  --text: #c9d1d9;
+  --text-muted: #8b949e;
+  --accent: #58a6ff;
+  --accent-dim: #1f6feb;
+  --green: #3fb950;
+  --yellow: #d29922;
+  --red: #f85149;
+  --orange: #db6d28;
+  --purple: #bc8cff;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, 'Segoe UI', sans-serif; line-height: 1.6; padding: 24px; max-width: 1200px; margin: 0 auto; }
+h1 { font-size: 2em; margin-bottom: 8px; }
+h2 { font-size: 1.5em; margin: 32px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 1.2em; margin: 20px 0 12px; color: var(--accent); }
+.subtitle { color: var(--text-muted); margin-bottom: 32px; }
+.card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+.card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.8em; font-weight: 600; }
+.badge-red { background: rgba(248,81,73,0.15); color: var(--red); border: 1px solid rgba(248,81,73,0.3); }
+.badge-yellow { background: rgba(210,153,34,0.15); color: var(--yellow); border: 1px solid rgba(210,153,34,0.3); }
+.badge-green { background: rgba(63,185,80,0.15); color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
+.badge-blue { background: rgba(88,166,255,0.15); color: var(--accent); border: 1px solid rgba(88,166,255,0.3); }
+.badge-purple { background: rgba(188,140,255,0.15); color: var(--purple); border: 1px solid rgba(188,140,255,0.3); }
+.badge-orange { background: rgba(219,109,40,0.15); color: var(--orange); border: 1px solid rgba(219,109,40,0.3); }
+table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 0.9em; }
+th { color: var(--accent); font-weight: 600; }
+td.lines { text-align: right; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+td.file { font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.85em; }
+.tree { font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.85em; line-height: 1.5; }
+.tree .dir { color: var(--accent); font-weight: 600; }
+.tree .file { color: var(--text); }
+.tree .desc { color: var(--text-muted); }
+.tree .new { color: var(--green); }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 24px; }
+.stat { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }
+.stat-num { font-size: 2em; font-weight: 700; color: var(--accent); }
+.stat-label { color: var(--text-muted); font-size: 0.85em; margin-top: 4px; }
+.arrow { color: var(--text-muted); margin: 0 8px; }
+.moved-from { color: var(--red); text-decoration: line-through; opacity: 0.6; }
+.moved-to { color: var(--green); }
+.principle { background: var(--bg-card); border-left: 3px solid var(--accent); padding: 16px 20px; margin: 12px 0; border-radius: 0 8px 8px 0; }
+.code-block { background: #010409; border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; font-family: 'Cascadia Code', monospace; font-size: 0.85em; overflow-x: auto; margin: 12px 0; color: var(--text); }
+.summary-box { background: linear-gradient(135deg, rgba(31,111,235,0.1), rgba(63,185,80,0.1)); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin: 24px 0; }
+</style>
+</head>
+<body>
+
+<h1>Electron 目录架构优化分析</h1>
+<p class="subtitle">基于 codebase-design 深度模块原则 · 50 个根级 .ts 文件 → 9 个领域子目录</p>
+
+<div class="stat-grid">
+  <div class="stat"><div class="stat-num">50</div><div class="stat-label">根级 .ts 文件（平铺）</div></div>
+  <div class="stat"><div class="stat-num">9</div><div class="stat-label">领域子目录（重构后）</div></div>
+  <div class="stat"><div class="stat-num">25</div><div class="stat-label">非根级 .ts 文件（已在子目录）</div></div>
+  <div class="stat"><div class="stat-num">3</div><div class="stat-label">入口文件（保留根级）</div></div>
+</div>
+
+<h2>一、当前问题诊断</h2>
+
+<div class="card">
+  <div class="card-header"><span class="badge badge-red">核心问题</span></div>
+  <p>当前 <code>electron/</code> 目录有 <strong>50 个 .ts 文件</strong>直接平铺在根级，涵盖从 CLI 进程管理到桌面宠物、从 Git 操作到 H5 服务器等完全不同的领域。这导致：</p>
+  <table>
+    <tr><th>症状</th><th>影响</th></tr>
+    <tr><td>文件清单不可扫览</td><td>开发者/AI 需要逐一打开文件才能确定职责</td></tr>
+    <tr><td>领域边界模糊</td><td><code>h5Server.ts</code> 依赖 <code>engineGateway.ts</code> 依赖 <code>engines/</code>，但三者平级</td></tr>
+    <tr><td>命名前缀化成为事实分组</td><td><code>h5*</code>、<code>cron*</code>、<code>mcp*</code>、<code>pet*</code> 前缀已暗示分组，但缺少目录边界</td></tr>
+    <tr><td>测试路径脆弱</td><td><code>../sessionProcess</code> 等相对引用在文件移动后全部需要更新</td></tr>
+  </table>
+</div>
+
+<h2>二、文件分类矩阵</h2>
+
+<table>
+  <tr><th>文件</th><th>行数</th><th>领域</th><th>模块角色</th></tr>
+  <tr><td class="file">main.ts</td><td class="lines">2554</td><td>— 入口 —</td><td>入口文件，保留根级</td></tr>
+  <tr><td class="file">preload.ts</td><td class="lines">716</td><td>— 入口 —</td><td>入口文件，保留根级</td></tr>
+  <tr><td class="file">petPreload.ts</td><td class="lines">37</td><td>— 入口 —</td><td>入口文件，保留根级</td></tr>
+  <tr><td class="file">logger.ts</td><td class="lines">369</td><td>infra</td><td>基础设施工具</td></tr>
+  <tr><td class="file">platformSetup.ts</td><td class="lines">122</td><td>infra</td><td>平台启动钩子</td></tr>
+  <tr><td class="file">proxyManager.ts</td><td class="lines">432</td><td>infra</td><td>代理配置</td></tr>
+  <tr><td class="file">frontMatter.ts</td><td class="lines">66</td><td>infra</td><td>纯函数工具</td></tr>
+  <tr><td class="file">autoUpdaterService.ts</td><td class="lines">280</td><td>infra</td><td>自动更新</td></tr>
+  <tr><td class="file">tokenStatsService.ts</td><td class="lines">205</td><td>stats</td><td>token 统计</td></tr>
+  <tr><td class="file">taskRunLogger.ts</td><td class="lines">95</td><td>stats</td><td>任务运行日志</td></tr>
+  <tr><td class="file">turnCheckpointService.ts</td><td class="lines">663</td><td>stats</td><td>轮次检查点</td></tr>
+  <tr><td class="file">sessionHistoryManager.ts</td><td class="lines">333</td><td>session</td><td>会话历史</td></tr>
+  <tr><td class="file">sessionProcess.ts</td><td class="lines">1640</td><td>session</td><td>会话子进程</td></tr>
+  <tr><td class="file">controlProtocol.ts</td><td class="lines">689</td><td>session</td><td>控制协议</td></tr>
+  <tr><td class="file">engineChildProcess.ts</td><td class="lines">286</td><td>session</td><td>引擎子进程工具</td></tr>
+  <tr><td class="file">claudeCodeIPC.ts</td><td class="lines">264</td><td>engine</td><td>ClaudeCode IPC 适配器</td></tr>
+  <tr><td class="file">claudeCodeProcessPool.ts</td><td class="lines">410</td><td>engine</td><td>ClaudeCode 进程池</td></tr>
+  <tr><td class="file">engineGateway.ts</td><td class="lines">247</td><td>engine</td><td>引擎网关</td></tr>
+  <tr><td class="file">cliDetector.ts</td><td class="lines">510</td><td>engine</td><td>CLI 检测</td></tr>
+  <tr><td class="file">piInstaller.ts</td><td class="lines">138</td><td>engine</td><td>Pi SDK 安装</td></tr>
+  <tr><td class="file">gitService.ts</td><td class="lines">1220</td><td>git</td><td>Git IPC 服务</td></tr>
+  <tr><td class="file">gitParsers.ts</td><td class="lines">141</td><td>git</td><td>Git 输出解析</td></tr>
+  <tr><td class="file">h5Server.ts</td><td class="lines">794</td><td>h5</td><td>H5 WebUI 服务器</td></tr>
+  <tr><td class="file">h5AuthService.ts</td><td class="lines">121</td><td>h5</td><td>H5 认证</td></tr>
+  <tr><td class="file">h5FetchUrlValidator.ts</td><td class="lines">73</td><td>h5</td><td>H5 URL 验证</td></tr>
+  <tr><td class="file">h5Types.ts</td><td class="lines">55</td><td>h5</td><td>H5 类型</td></tr>
+  <tr><td class="file">mobileServer.ts</td><td class="lines">304</td><td>h5</td><td>移动端服务器</td></tr>
+  <tr><td class="file">mobileServerTypes.ts</td><td class="lines">44</td><td>h5</td><td>移动端类型</td></tr>
+  <tr><td class="file">themeSyncBuilder.ts</td><td class="lines">76</td><td>h5</td><td>主题同步</td></tr>
+  <tr><td class="file">cronService.ts</td><td class="lines">169</td><td>cron</td><td>定时任务服务</td></tr>
+  <tr><td class="file">cronParser.ts</td><td class="lines">214</td><td>cron</td><td>Cron 表达式解析</td></tr>
+  <tr><td class="file">cronScheduler.ts</td><td class="lines">128</td><td>cron</td><td>Cron 调度器</td></tr>
+  <tr><td class="file">cronFileStore.ts</td><td class="lines">98</td><td>cron</td><td>Cron 文件存储</td></tr>
+  <tr><td class="file">officeCliService.ts</td><td class="lines">583</td><td>tools</td><td>OfficeCLI 服务</td></tr>
+  <tr><td class="file">cuaDriverService.ts</td><td class="lines">664</td><td>tools</td><td>CUA Driver 服务</td></tr>
+  <tr><td class="file">cuaDriverMcpClient.ts</td><td class="lines">375</td><td>tools</td><td>CUA Driver MCP 客户端</td></tr>
+  <tr><td class="file">browserUseService.ts</td><td class="lines">1034</td><td>tools</td><td>Browser-Use 服务</td></tr>
+  <tr><td class="file">browserUseMcpClient.ts</td><td class="lines">319</td><td>tools</td><td>Browser-Use MCP 客户端</td></tr>
+  <tr><td class="file">mcpConfigStore.ts</td><td class="lines">212</td><td>tools</td><td>MCP 配置存储</td></tr>
+  <tr><td class="file">mcpConfigResolver.ts</td><td class="lines">124</td><td>tools</td><td>MCP 配置解析</td></tr>
+  <tr><td class="file">mcpProbe.ts</td><td class="lines">356</td><td>tools</td><td>MCP 探测器</td></tr>
+  <tr><td class="file">rtkManager.ts</td><td class="lines">792</td><td>tools</td><td>RTK 管理</td></tr>
+  <tr><td class="file">skillsService.ts</td><td class="lines">1647</td><td>skills</td><td>Skills IPC 服务</td></tr>
+  <tr><td class="file">agentsService.ts</td><td class="lines">435</td><td>skills</td><td>Agents IPC 服务</td></tr>
+  <tr><td class="file">promptOptimizerIPC.ts</td><td class="lines">442</td><td>skills</td><td>Prompt 优化器</td></tr>
+  <tr><td class="file">artifactsService.ts</td><td class="lines">205</td><td>skills</td><td>Artifacts 服务</td></tr>
+  <tr><td class="file">petFileService.ts</td><td class="lines">91</td><td>pet</td><td>宠物文件服务</td></tr>
+  <tr><td class="file">petIpcHandlers.ts</td><td class="lines">154</td><td>pet</td><td>宠物 IPC 处理</td></tr>
+  <tr><td class="file">petWindowManager.ts</td><td class="lines">558</td><td>pet</td><td>宠物窗口管理</td></tr>
+  <tr><td class="file">imSidecarManager.ts</td><td class="lines">504</td><td>im</td><td>IM 边车管理</td></tr>
+</table>
+
+<h2>三、目标目录结构</h2>
+
+<div class="principle">
+  <strong>设计原则</strong>：用 codebase-design 的深度模块语言——每个子目录是一个<strong>模块</strong>，其 <code>index.ts</code> 是<strong>接口</strong>（小表面），内部文件是<strong>实现</strong>（大隐藏）。子目录边界即<strong>接缝</strong>，跨模块引用通过 index.ts 导出而非深路径。保留 <code>engines/</code>、<code>design/</code>、<code>im/</code>、<code>imServer/</code>、<code>proxy/</code>、<code>skillManagerV2/</code> 等已有子目录不变。
+</div>
+
+<div class="tree card">
+<span class="dir">electron/</span>
+├── <span class="file">main.ts</span> <span class="desc"># 入口 — 保留根级</span>
+├── <span class="file">preload.ts</span> <span class="desc"># 预加载入口 — 保留根级</span>
+├── <span class="file">petPreload.ts</span> <span class="desc"># 宠物预加载 — 保留根级</span>
+├── <span class="dir">infra/</span> <span class="new"># 基础设施</span>
+│   ├── <span class="file">logger.ts</span> <span class="desc"># ← 从根级移入</span>
+│   ├── <span class="file">platformSetup.ts</span>
+│   ├── <span class="file">proxyManager.ts</span>
+│   ├── <span class="file">frontMatter.ts</span>
+│   └── <span class="file">autoUpdaterService.ts</span>
+├── <span class="dir">session/</span> <span class="new"># 会话生命周期</span>
+│   ├── <span class="file">sessionProcess.ts</span>
+│   ├── <span class="file">sessionHistoryManager.ts</span>
+│   ├── <span class="file">controlProtocol.ts</span>
+│   └── <span class="file">engineChildProcess.ts</span>
+├── <span class="dir">engine/</span> <span class="new"># 引擎适配层</span>
+│   ├── <span class="file">engineGateway.ts</span> <span class="desc"># 深模块 — 统一引擎入口</span>
+│   ├── <span class="file">claudeCodeIPC.ts</span> <span class="desc"># ClaudeCode 适配器</span>
+│   ├── <span class="file">claudeCodeProcessPool.ts</span>
+│   ├── <span class="file">cliDetector.ts</span>
+│   ├── <span class="file">piInstaller.ts</span>
+│   └── <span class="dir">engines/</span> <span class="desc"># 已有 — 引擎工厂</span>
+├── <span class="dir">git/</span> <span class="new"># Git/SCM</span>
+│   ├── <span class="file">gitService.ts</span>
+│   └── <span class="file">gitParsers.ts</span>
+├── <span class="dir">h5/</span> <span class="new"># H5 WebUI + 移动端</span>
+│   ├── <span class="file">h5Server.ts</span>
+│   ├── <span class="file">h5AuthService.ts</span>
+│   ├── <span class="file">h5FetchUrlValidator.ts</span>
+│   ├── <span class="file">h5Types.ts</span>
+│   ├── <span class="file">mobileServer.ts</span>
+│   ├── <span class="file">mobileServerTypes.ts</span>
+│   └── <span class="file">themeSyncBuilder.ts</span>
+├── <span class="dir">cron/</span> <span class="new"># 定时任务</span>
+│   ├── <span class="file">cronService.ts</span>
+│   ├── <span class="file">cronParser.ts</span>
+│   ├── <span class="file">cronScheduler.ts</span>
+│   └── <span class="file">cronFileStore.ts</span>
+├── <span class="dir">tools/</span> <span class="new"># 外部工具集成</span>
+│   ├── <span class="file">officeCliService.ts</span>
+│   ├── <span class="file">cuaDriverService.ts</span>
+│   ├── <span class="file">cuaDriverMcpClient.ts</span>
+│   ├── <span class="file">browserUseService.ts</span>
+│   ├── <span class="file">browserUseMcpClient.ts</span>
+│   ├── <span class="file">mcpConfigStore.ts</span>
+│   ├── <span class="file">mcpConfigResolver.ts</span>
+│   ├── <span class="file">mcpProbe.ts</span>
+│   └── <span class="file">rtkManager.ts</span>
+├── <span class="dir">skills/</span> <span class="new"># Skills/Agents/Prompt/Artifacts</span>
+│   ├── <span class="file">skillsService.ts</span>
+│   ├── <span class="file">agentsService.ts</span>
+│   ├── <span class="file">promptOptimizerIPC.ts</span>
+│   └── <span class="file">artifactsService.ts</span>
+├── <span class="dir">pet/</span> <span class="new"># 桌面宠物</span>
+│   ├── <span class="file">petFileService.ts</span>
+│   ├── <span class="file">petIpcHandlers.ts</span>
+│   └── <span class="file">petWindowManager.ts</span>
+├── <span class="dir">im/</span> <span class="desc"># 已有 — IM 适配器</span>
+├── <span class="dir">imServer/</span> <span class="desc"># 已有 — IM 服务器</span>
+├── <span class="dir">proxy/</span> <span class="desc"># 已有 — 代理服务器</span>
+├── <span class="dir">design/</span> <span class="desc"># 已有 — 设计系统</span>
+├── <span class="dir">skillManagerV2/</span> <span class="desc"># 已有 — 技能管理 V2</span>
+├── <span class="dir">types/</span> <span class="desc"># 已有 — 类型声明</span>
+└── <span class="dir">__tests__/</span> <span class="desc"># 已有 — 主进程测试</span>
+</div>
+
+<h2>四、迁移影响面评估</h2>
+
+<div class="card">
+  <div class="card-header"><span class="badge badge-yellow">影响面</span></div>
+  <table>
+    <tr><th>影响类型</th><th>文件数</th><th>说明</th></tr>
+    <tr><td>被移动的文件</td><td>47</td><td>50 个根级文件中减去 3 个入口文件</td></tr>
+    <tr><td>需更新 import 的 electron 内部文件</td><td>~20</td><td>使用 <code>./logger</code> 等相对路径的文件</td></tr>
+    <tr><td>需更新 import 的测试文件</td><td>~18</td><td>electron/__tests__/ 下用 <code>../</code> 引用</td></tr>
+    <tr><td>需更新 import 的外部测试</td><td>~4</td><td>tests/electron/ 下用 <code>../../electron/</code> 引用</td></tr>
+    <tr><td>外部引用 (src/)</td><td>1</td><td>h5Types 被前端引用</td></tr>
+    <tr><td>外部引用 (tests/im/)</td><td>~35</td><td>使用 <code>@electron/im/...</code> alias（不受影响）</td></tr>
+    <tr><td>配置文件</td><td>0</td><td>vite.config.mts entry 路径不变（main.ts/preload.ts 保留）</td></tr>
+    <tr><td>tsconfig.json</td><td>0</td><td><code>@electron/*</code> alias 通配符天然支持子目录</td></tr>
+  </table>
+</div>
+
+<h2>五、深度模块分析（codebase-design 视角）</h2>
+
+<div class="card">
+  <h3>session/ — 会话生命周期模块</h3>
+  <p><strong>接口</strong>：通过 <code>sessionProcess.ts</code> 暴露 <code>SessionProcess</code> 类，<code>controlProtocol.ts</code> 暴露协议编解码函数。</p>
+  <p><strong>实现</strong>：隐藏了子进程管理、协议解析、Bun 路径解析、MCP 配置注入等复杂度。</p>
+  <p><strong>删除测试</strong>：删除此模块 → sessionProcess、controlProtocol、engineChildProcess 复杂度散布到 claudeCodeIPC/h5Server/imServer。通过。</p>
+  <p><strong>接缝</strong>：内部 <code>./controlProtocol</code> → <code>./engineChildProcess</code> 是内部接缝；外部通过 <code>../session/sessionProcess</code> 访问。</p>
+</div>
+
+<div class="card">
+  <h3>engine/ — 引擎适配层模块</h3>
+  <p><strong>接口</strong>：<code>engineGateway.ts</code> 是统一深模块入口，<code>engines/</code> 子目录是引擎工厂。</p>
+  <p><strong>实现</strong>：隐藏了 ClaudeCode/Pi 引擎选择、进程池、CLI 检测、SDK 安装等。</p>
+  <p><strong>依赖类别</strong>：In-process（EngineFactory）+ Local-substitutable（进程池可 mock）。</p>
+</div>
+
+<div class="card">
+  <h3>infra/ — 基础设施模块</h3>
+  <p><strong>角色</strong>：被所有其他模块依赖的横切关注点。</p>
+  <p><strong>内容</strong>：logger、platform setup、proxy manager、front-matter parser、auto-updater。</p>
+  <p><strong>注意</strong>：logger 被 ~15 个文件引用，是依赖密度最高的模块。移入 <code>infra/</code> 后，引用从 <code>./logger</code> → <code>../infra/logger</code>。</p>
+</div>
+
+<div class="card">
+  <h3>tools/ — 外部工具集成模块</h3>
+  <p><strong>角色</strong>：各种外部二进制工具的安装、探测、MCP 调用。</p>
+  <p><strong>内容</strong>：OfficeCLI、CUA Driver、Browser-Use、MCP 配置/探测、RTK。</p>
+  <p><strong>删除测试</strong>：删除后 → 9 个文件的安装/探测/管理逻辑散布到 main.ts。通过。</p>
+</div>
+
+<h2>六、实施计划</h2>
+
+<div class="summary-box">
+  <h3>执行顺序</h3>
+  <ol style="padding-left: 20px; line-height: 2;">
+    <li><strong>创建子目录</strong>：infra/ session/ engine/ git/ h5/ cron/ tools/ skills/ pet/</li>
+    <li><strong>git mv 移动文件</strong>：用 git mv 保留历史</li>
+    <li><strong>更新 electron 内部 import</strong>：相对路径 <code>./logger</code> → <code>../infra/logger</code> 等</li>
+    <li><strong>更新测试 import</strong>：electron/__tests__/ 和 tests/electron/ 下的引用</li>
+    <li><strong>更新外部引用</strong>：src/services/h5WebSocketClient.ts → h5Types.ts 路径</li>
+    <li><strong>更新 main.ts/preload.ts imports</strong>：根入口文件的 import 路径</li>
+    <li><strong>运行 build + test 验证</strong></li>
+  </ol>
+</div>
+
+<h2>七、不移动的已有子目录</h2>
+
+<table>
+  <tr><th>目录</th><th>状态</th><th>原因</th></tr>
+  <tr><td class="file">engines/</td><td><span class="badge badge-green">保留</span></td><td>已良好封装，将被 engine/ 包裹</td></tr>
+  <tr><td class="file">im/adapters/</td><td><span class="badge badge-green">保留</span></td><td>已有良好分层</td></tr>
+  <tr><td class="file">imServer/</td><td><span class="badge badge-green">保留</span></td><td>已有独立子目录</td></tr>
+  <tr><td class="file">proxy/</td><td><span class="badge badge-green">保留</span></td><td>已有独立子目录</td></tr>
+  <tr><td class="file">design/</td><td><span class="badge badge-green">保留</span></td><td>已有独立子目录</td></tr>
+  <tr><td class="file">skillManagerV2/</td><td><span class="badge badge-green">保留</span></td><td>已有独立子目录</td></tr>
+  <tr><td class="file">types/</td><td><span class="badge badge-green">保留</span></td><td>已有独立子目录</td></tr>
+  <tr><td class="file">__tests__/</td><td><span class="badge badge-green">保留</span></td><td>测试目录不动</td></tr>
+</table>
+
+</body>
+</html>

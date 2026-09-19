@@ -1,7 +1,7 @@
 // electron/petIpcHandlers.ts
 // 宠物 IPC handlers。对齐 cc-haha 通道命名风格，移除旧的 LLM 反应/资源管理通道。
 import { ipcMain, BrowserWindow } from 'electron'
-import { info, warn } from './logger'
+import { info, warn } from '../infra/logger'
 import { PetFileService } from './petFileService'
 import { PetWindowController } from './petWindowManager'
 import type {
@@ -9,7 +9,7 @@ import type {
   PetPreferences,
   PetSyncPayload,
   PetWindowEvent,
-} from '../src/types/pet'
+} from '../../src/types/pet'
 
 export interface PetIpcDeps {
   petFileService: PetFileService

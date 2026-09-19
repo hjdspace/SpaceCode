@@ -6,7 +6,7 @@
  */
 
 import type { ServerMessage, TokenUsage } from '../im/adapters/common/types'
-import type { UnifiedEngineEvent } from '../engines/types'
+import type { UnifiedEngineEvent } from '../engine/engines/types'
 
 /**
  * Translate a UnifiedEngineEvent into zero or more ServerMessages.

@@ -5,7 +5,7 @@ vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
 }))
 
-import { TerminalManager } from '../terminalManager'
+import { TerminalManager } from '../infra/terminalManager'
 
 describe('TerminalManager shell startup', () => {
   const originalPlatform = process.platform

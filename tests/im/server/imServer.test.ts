@@ -7,7 +7,7 @@ import { WebSocket } from 'ws'
 import type { ServerMessage } from '@electron/im/adapters/common/types'
 
 // Mock engineGateway to avoid Electron dependency
-vi.mock('@electron/engineGateway', () => ({
+vi.mock('@electron/engine/engineGateway', () => ({
   engineGateway: {
     startSession: vi.fn().mockResolvedValue(undefined),
     sendMessage: vi.fn().mockResolvedValue(undefined),
@@ -19,14 +19,14 @@ vi.mock('@electron/engineGateway', () => ({
 }))
 
 // Mock EngineFactory.onRouteEvent to avoid Electron dependency
-vi.mock('@electron/engines/EngineFactory', () => ({
+vi.mock('@electron/engine/engines/EngineFactory', () => ({
   EngineFactory: {
     onRouteEvent: vi.fn().mockReturnValue(() => {}),
   },
 }))
 
 // Mock logger to avoid Electron dependency
-vi.mock('@electron/logger', () => ({
+vi.mock('@electron/infra/logger', () => ({
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
@@ -34,7 +34,7 @@ vi.mock('@electron/logger', () => ({
 }))
 
 import { ImServer } from '@electron/imServer/imServer'
-import { engineGateway } from '@electron/engineGateway'
+import { engineGateway } from '@electron/engine/engineGateway'
 
 describe('ImServer', () => {
   const configDir = mkdtempSync(join(tmpdir(), 'spacecode-im-settings-'))
@@ -279,7 +279,7 @@ describe('ImServer', () => {
       await new Promise((r) => setTimeout(r, 100))
 
       // The mock engineGateway.sendMessage should have been called
-      const { engineGateway: eg } = await import('@electron/engineGateway')
+      const { engineGateway: eg } = await import('@electron/engine/engineGateway')
       expect(eg.sendMessage).toHaveBeenCalledWith(sessionId, 'hello')
 
       ws.close()

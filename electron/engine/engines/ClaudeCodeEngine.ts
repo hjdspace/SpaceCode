@@ -1,10 +1,10 @@
 import type { BrowserWindow } from 'electron'
 import { ClaudeCodeProcessPool } from '../claudeCodeProcessPool'
-import { SessionConfig } from '../sessionProcess'
+import { SessionConfig } from '../../session/sessionProcess'
 import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment, PermissionDecision, PermissionMode } from './types'
 import * as fs from 'fs'
 import * as path from 'path'
-import { info } from '../logger'
+import { info } from '../../infra/logger'
 
 const BUILTIN_AGENTS: AgentInfo[] = [
   {

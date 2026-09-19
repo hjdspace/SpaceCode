@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { translateEngineEvent } from '@electron/imServer/engineTranslator'
-import type { UnifiedEngineEvent } from '@electron/engines/types'
+import type { UnifiedEngineEvent } from '@electron/engine/engines/types'
 
 describe('translateEngineEvent', () => {
   it('should expose text from routed stream events before completion usage', () => {

@@ -6,13 +6,13 @@ import { randomUUID } from 'crypto'
 import { app } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import { StringDecoder } from 'string_decoder'
-import type { ProcessStatus } from '../sessionProcess'
+import type { ProcessStatus } from '../../session/sessionProcess'
 import type { EngineSessionConfig, ImageAttachment } from './types'
-import { info, warn, error, debug } from '../logger'
+import { info, warn, error, debug } from '../../infra/logger'
 import {
   killTree as engineKillTree,
   isProbableBunExecutable as engineIsProbableBunExecutable,
-} from '../engineChildProcess'
+} from '../../session/engineChildProcess'
 
 export class PiSessionProcess extends EventEmitter {
   readonly sessionId: string

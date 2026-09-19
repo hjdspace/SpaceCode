@@ -81,7 +81,7 @@ const mockState = vi.hoisted(() => {
   }
 })
 
-vi.mock('../engines/EngineFactory', () => ({
+vi.mock('../engine/engines/EngineFactory', () => ({
   EngineFactory: {
     getAllEngines: () => mockState.engines,
     getEngine: vi.fn((type: string) => {
@@ -94,7 +94,7 @@ vi.mock('../engines/EngineFactory', () => ({
   },
 }))
 
-vi.mock('../logger', () => ({
+vi.mock('../infra/logger', () => ({
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
@@ -102,19 +102,19 @@ vi.mock('../logger', () => ({
 }))
 
 describe('engineGateway', () => {
-  let engineGateway: typeof import('../engineGateway').engineGateway
-  let NotImplementedError: typeof import('../engineGateway').NotImplementedError
-  let info: typeof import('../logger').info
-  let error: typeof import('../logger').error
+  let engineGateway: typeof import('../engine/engineGateway').engineGateway
+  let NotImplementedError: typeof import('../engine/engineGateway').NotImplementedError
+  let info: typeof import('../infra/logger').info
+  let error: typeof import('../infra/logger').error
 
   beforeEach(async () => {
     vi.clearAllMocks()
     mockState.reset()
     vi.resetModules()
-    const mod = await import('../engineGateway')
+    const mod = await import('../engine/engineGateway')
     engineGateway = mod.engineGateway
     NotImplementedError = mod.NotImplementedError
-    const logger = await import('../logger')
+    const logger = await import('../infra/logger')
     info = logger.info
     error = logger.error
   })
@@ -221,7 +221,7 @@ describe('engineGateway', () => {
     })
 
     it('falls back to claude-code when requested engine not available', async () => {
-      const { EngineFactory } = await import('../engines/EngineFactory')
+      const { EngineFactory } = await import('../engine/engines/EngineFactory')
       ;(EngineFactory.isEngineAvailableAsync as any).mockResolvedValue(false)
 
       const claudeEngine = mockState.makeClaudeEngine()

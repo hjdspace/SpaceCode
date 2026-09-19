@@ -19,7 +19,7 @@
 import type { McpProbeConfig } from './mcpProbe'
 import { findCuaDriverBinary } from './cuaDriverService'
 import { getBrowserUseMcpServerConfig } from './browserUseService'
-import { debug } from './logger'
+import { debug } from '../infra/logger'
 
 /** 内置 MCP 服务器的规范名称 */
 export type BuiltinMcpName = 'cua-driver' | 'browser-use'

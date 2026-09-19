@@ -4,7 +4,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment } from './types'
 import { PiProcessPool } from './PiProcessPool'
-import { info, warn, error } from '../logger'
+import { info, warn, error } from '../../infra/logger'
 
 export class PiEngine implements IEngine {
   readonly type: EngineType = 'pi'

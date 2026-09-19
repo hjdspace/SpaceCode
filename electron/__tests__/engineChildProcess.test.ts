@@ -6,7 +6,7 @@
  * SessionProcess and PiSessionProcess now delegate to.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { StderrTailBuffer, killTree, isProbableBunExecutable, _resetBunCacheForTesting } from '../engineChildProcess'
+import { StderrTailBuffer, killTree, isProbableBunExecutable, _resetBunCacheForTesting } from '../session/engineChildProcess'
 import type { ChildProcess } from 'child_process'
 
 // Mock electron
@@ -151,7 +151,7 @@ describe('EngineChildProcess — bun path caching', () => {
   })
 
   it('resolveBunPath returns "bun" fallback when no bun found', async () => {
-    const { resolveBunPath } = await import('../engineChildProcess')
+    const { resolveBunPath } = await import('../session/engineChildProcess')
     // In test environment, no real bun binary exists at the expected paths
     const result = resolveBunPath('/nonexistent/engine-root', 'TestTag')
     // Should return 'bun' as PATH fallback (or a global bun if one exists)
@@ -160,7 +160,7 @@ describe('EngineChildProcess — bun path caching', () => {
   })
 
   it('resolveBunPath caches result across calls', async () => {
-    const { resolveBunPath } = await import('../engineChildProcess')
+    const { resolveBunPath } = await import('../session/engineChildProcess')
     const result1 = resolveBunPath('/nonexistent/engine-root', 'TestTag')
     const result2 = resolveBunPath('/nonexistent/engine-root', 'TestTag')
     expect(result1).toBe(result2)

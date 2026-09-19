@@ -1,7 +1,7 @@
 import { app, ipcMain, net } from 'electron'
 import { existsSync, readFileSync, readdirSync, statSync } from 'fs'
 import { basename, join } from 'path'
-import { debug, error, info, warn } from './logger'
+import { debug, error, info, warn } from '../infra/logger'
 
 // ============================================================
 // Prompt Optimizer — Self-contained main-process implementation

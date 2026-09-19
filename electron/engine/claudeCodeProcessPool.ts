@@ -1,6 +1,6 @@
 import { BrowserWindow } from 'electron'
-import { SessionProcess, ProcessStatus, SessionConfig } from './sessionProcess'
-import { info, warn, error, debug } from './logger'
+import { SessionProcess, ProcessStatus, SessionConfig } from '../session/sessionProcess'
+import { info, warn, error, debug } from '../infra/logger'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { eventChannelsBySuffix } from '@/shared/channelMap'
 
@@ -187,7 +187,7 @@ export class ClaudeCodeProcessPool {
   respondPermission(
     sessionId: string,
     requestId: string,
-    decision: import('./controlProtocol').PermissionDecision,
+    decision: import('../session/controlProtocol').PermissionDecision,
   ): void {
     const proc = this.requireRunning(sessionId, 'respondPermission')
     proc.respondPermission(requestId, decision)
@@ -215,7 +215,7 @@ export class ClaudeCodeProcessPool {
 
   setPermissionMode(
     sessionId: string,
-    mode: import('./controlProtocol').PermissionMode,
+    mode: import('../session/controlProtocol').PermissionMode,
   ): Promise<void> {
     const proc = this.processes.get(sessionId)
     if (!proc || !proc.isRunning()) {

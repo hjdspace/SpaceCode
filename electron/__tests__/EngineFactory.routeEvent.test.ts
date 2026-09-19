@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { IEngine, EngineType } from '../engines/types'
+import type { IEngine, EngineType } from '../engine/engines/types'
 
 type RouteListener = (sessionId: string, eventType: string, data: any) => void
 
@@ -47,7 +47,7 @@ const mockState = vi.hoisted(() => {
   }
 })
 
-vi.mock('../engines/ClaudeCodeEngine', () => ({
+vi.mock('../engine/engines/ClaudeCodeEngine', () => ({
   ClaudeCodeEngine: class {
     constructor() {
       return mockState.makeAndStore('claude-code')
@@ -55,7 +55,7 @@ vi.mock('../engines/ClaudeCodeEngine', () => ({
   },
 }))
 
-vi.mock('../engines/PiEngine', () => ({
+vi.mock('../engine/engines/PiEngine', () => ({
   PiEngine: class {
     constructor() {
       return mockState.makeAndStore('pi')
@@ -70,7 +70,7 @@ describe('EngineFactory.onRouteEvent', () => {
   })
 
   it('forwards route events from engines created after subscription', async () => {
-    const { EngineFactory } = await import('../engines/EngineFactory')
+    const { EngineFactory } = await import('../engine/engines/EngineFactory')
     const received: Array<{ sessionId: string; eventType: string; data: any }> = []
 
     const unsubscribe = EngineFactory.onRouteEvent((sessionId, eventType, data) => {
@@ -94,7 +94,7 @@ describe('EngineFactory.onRouteEvent', () => {
   })
 
   it('forwards route events from engines that already existed at subscription time', async () => {
-    const { EngineFactory } = await import('../engines/EngineFactory')
+    const { EngineFactory } = await import('../engine/engines/EngineFactory')
 
     // Create engine BEFORE subscribing
     EngineFactory.getEngine('claude-code')
@@ -115,7 +115,7 @@ describe('EngineFactory.onRouteEvent', () => {
   })
 
   it('does not double-subscribe the same engine', async () => {
-    const { EngineFactory } = await import('../engines/EngineFactory')
+    const { EngineFactory } = await import('../engine/engines/EngineFactory')
 
     EngineFactory.getEngine('claude-code')
     const mockEngine = mockState.getEngine('claude-code')

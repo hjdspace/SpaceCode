@@ -1,6 +1,6 @@
 // electron/__tests__/h5Server.fetch.test.ts
 import { describe, it, expect } from 'vitest'
-import { isAllowedFetchUrl } from '../h5FetchUrlValidator'
+import { isAllowedFetchUrl } from '../h5/h5FetchUrlValidator'
 
 describe('h5Server proxyHttpFetch URL validation', () => {
   it('allows public http and https URLs', () => {

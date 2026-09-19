@@ -1,7 +1,7 @@
 import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
-import { info, warn, error, debug } from './logger'
+import { info, warn, error, debug } from '../infra/logger'
 
 export interface SessionLite {
   projectPath: string

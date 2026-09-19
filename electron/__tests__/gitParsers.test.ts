@@ -11,7 +11,7 @@ import {
   splitNumstatPath,
   parseNumstatPath,
   parseTrackInfo,
-} from '../gitParsers'
+} from '../git/gitParsers'
 
 describe('parseLogLine', () => {
   const sep = LOG_FIELD_SEP

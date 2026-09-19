@@ -15,7 +15,7 @@ import {
   ControlProtocolHandler,
   encodeJsonLine,
   buildSetPermissionModeRequest,
-} from '../../electron/controlProtocol.ts'
+} from '../../electron/session/controlProtocol.ts'
 
 function makeHandler() {
   const written: any[] = []

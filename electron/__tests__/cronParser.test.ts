@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseCronExpression, isValidCron, cronMatches, computeNextCronRun, cronToHuman, frequencyToCron } from '../cronParser'
+import { parseCronExpression, isValidCron, cronMatches, computeNextCronRun, cronToHuman, frequencyToCron } from '../cron/cronParser'
 
 describe('parseCronExpression', () => {
   it('parses standard 5-field cron', () => {

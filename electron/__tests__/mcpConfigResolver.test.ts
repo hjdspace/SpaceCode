@@ -1,13 +1,13 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 // Mock the dependencies that do filesystem/system lookups
-vi.mock('../cuaDriverService', () => ({
+vi.mock('../tools/cuaDriverService', () => ({
   findCuaDriverBinary: vi.fn(() => null),
 }))
-vi.mock('../browserUseService', () => ({
+vi.mock('../tools/browserUseService', () => ({
   getBrowserUseMcpServerConfig: vi.fn(() => null),
 }))
-vi.mock('../logger', () => ({
+vi.mock('../infra/logger', () => ({
   debug: vi.fn(),
   info: vi.fn(),
   warn: vi.fn(),
@@ -18,9 +18,9 @@ import {
   detectBuiltinFromConfig,
   builtinNameFromServerKey,
   resolveBuiltinMcp,
-} from '../mcpConfigResolver'
-import { findCuaDriverBinary } from '../cuaDriverService'
-import { getBrowserUseMcpServerConfig } from '../browserUseService'
+} from '../tools/mcpConfigResolver'
+import { findCuaDriverBinary } from '../tools/cuaDriverService'
+import { getBrowserUseMcpServerConfig } from '../tools/browserUseService'
 
 describe('mcpConfigResolver', () => {
   beforeEach(() => {

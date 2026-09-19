@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { readCronTasks, addCronTask, updateCronTask, deleteCronTask, updateLastFired } from '../cronFileStore'
+import { readCronTasks, addCronTask, updateCronTask, deleteCronTask, updateLastFired } from '../cron/cronFileStore'
 
 describe('cronFileStore', () => {
   let tempDir: string

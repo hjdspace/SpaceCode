@@ -18,7 +18,7 @@ vi.mock('electron', () => ({
   net: {},
 }))
 
-import { registerSkillsIPCHandlers, selectMarketplaceSkillPath } from '../skillsService'
+import { registerSkillsIPCHandlers, selectMarketplaceSkillPath } from '../skills/skillsService'
 
 let homeDir: string
 

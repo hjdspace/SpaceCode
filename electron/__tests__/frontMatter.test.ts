@@ -13,7 +13,7 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { parseYamlFrontMatter } from '../frontMatter'
+import { parseYamlFrontMatter } from '../infra/frontMatter'
 
 describe('parseYamlFrontMatter', () => {
   it('parses LF front matter', () => {

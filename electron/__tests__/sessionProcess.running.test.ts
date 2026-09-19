@@ -7,8 +7,8 @@
  * "No active process", and user messages were written to a closed stream.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { SessionProcess, SessionConfig } from '../sessionProcess'
-import { proxyManager } from '../proxyManager'
+import { SessionProcess, SessionConfig } from '../session/sessionProcess'
+import { proxyManager } from '../infra/proxyManager'
 
 vi.mock('electron', () => ({
   app: {

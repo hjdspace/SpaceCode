@@ -13,22 +13,22 @@
  */
 
 import * as net from 'net'
-import { ImServer } from './imServer/imServer'
-import { loadConfig, saveConfig, desensitizeConfig } from './im/adapters/common/config'
-import type { PlatformName, AdapterConfig } from './im/adapters/common/config'
-import { info, warn, error as logError } from './logger'
+import { ImServer } from './imServer'
+import { loadConfig, saveConfig, desensitizeConfig } from '../im/adapters/common/config'
+import type { PlatformName, AdapterConfig } from '../im/adapters/common/config'
+import { info, warn, error as logError } from '../infra/logger'
 
 // Adapter & Bot imports (in-process)
-import { TelegramBot } from './im/adapters/telegram/telegramBot'
-import { TelegramAdapter } from './im/adapters/telegram/telegramAdapter'
-import { FeishuBot } from './im/adapters/feishu/feishuBot'
-import { FeishuAdapter } from './im/adapters/feishu/feishuAdapter'
-import { DingtalkBot } from './im/adapters/dingtalk/dingtalkBot'
-import { DingtalkAdapter } from './im/adapters/dingtalk/dingtalkAdapter'
-import { WechatBot } from './im/adapters/wechat/wechatBot'
-import { WechatAdapter } from './im/adapters/wechat/wechatAdapter'
-import { WhatsappBot } from './im/adapters/whatsapp/whatsappBot'
-import { WhatsappAdapter } from './im/adapters/whatsapp/whatsappAdapter'
+import { TelegramBot } from '../im/adapters/telegram/telegramBot'
+import { TelegramAdapter } from '../im/adapters/telegram/telegramAdapter'
+import { FeishuBot } from '../im/adapters/feishu/feishuBot'
+import { FeishuAdapter } from '../im/adapters/feishu/feishuAdapter'
+import { DingtalkBot } from '../im/adapters/dingtalk/dingtalkBot'
+import { DingtalkAdapter } from '../im/adapters/dingtalk/dingtalkAdapter'
+import { WechatBot } from '../im/adapters/wechat/wechatBot'
+import { WechatAdapter } from '../im/adapters/wechat/wechatAdapter'
+import { WhatsappBot } from '../im/adapters/whatsapp/whatsappBot'
+import { WhatsappAdapter } from '../im/adapters/whatsapp/whatsappAdapter'
 
 // ──────────────────────────────────────────────────────────────────────────
 // Types

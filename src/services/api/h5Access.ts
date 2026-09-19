@@ -2,7 +2,7 @@ import { electronAPI } from './_context'
 import type {
   H5ServerStatus,
   H5AccessSettings,
-} from '../../../electron/h5Types'
+} from '../../../electron/h5/h5Types'
 
 export const h5Access = {
   enable: (): Promise<{ status: H5ServerStatus; token: string }> =>

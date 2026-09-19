@@ -3,7 +3,7 @@ import type {
   RtkStatus,
   RtkGainStats,
   RtkUpdateInfo,
-} from '../../../electron/rtkManager'
+} from '../../../electron/tools/rtkManager'
 
 export const rtk = {
   getStatus: (): Promise<RtkStatus> =>

@@ -14,7 +14,7 @@ import type {
   AgentInfo,
   EngineType,
 } from './engines/types'
-import { info, warn, error } from './logger'
+import { info, warn, error } from '../infra/logger'
 
 const TAG = 'EngineGateway'
 

@@ -8,10 +8,10 @@ const root = process.cwd()
 const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const ptyBuild = readFileSync(join(root, 'scripts', 'build-linux-pty.mjs'), 'utf8')
 const ptyPatch = readFileSync(join(root, 'scripts', 'patch-node-pty.cjs'), 'utf8')
-const platformSetup = readFileSync(join(root, 'electron', 'platformSetup.ts'), 'utf8')
-const proxyManager = readFileSync(join(root, 'electron', 'proxyManager.ts'), 'utf8')
+const platformSetup = readFileSync(join(root, 'electron', 'infra', 'platformSetup.ts'), 'utf8')
+const proxyManager = readFileSync(join(root, 'electron', 'infra', 'proxyManager.ts'), 'utf8')
 const releaseWorkflow = readFileSync(join(root, '.github', 'workflows', 'build-release.yml'), 'utf8')
-const piSessionProcess = readFileSync(join(root, 'electron', 'engines', 'PiSessionProcess.ts'), 'utf8')
+const piSessionProcess = readFileSync(join(root, 'electron', 'engine', 'engines', 'PiSessionProcess.ts'), 'utf8')
 
 describe('Linux AppImage packaging', () => {
   it('builds node-pty against the CentOS 8 ABI before electron-builder runs', () => {

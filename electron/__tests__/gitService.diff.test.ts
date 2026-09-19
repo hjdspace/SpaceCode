@@ -76,7 +76,7 @@ vi.mock('@/shared/handlerRegistry', () => ({
 import * as cp from 'child_process'
 
 // Import after all mocks are set up
-import { registerGitIPCHandlers } from '../gitService'
+import { registerGitIPCHandlers } from '../git/gitService'
 
 // ── Helpers ─────────────────────────────────────────────────────────
 

@@ -7,8 +7,8 @@
  * 生命周期：start() → callTool() × N → stop()
  */
 import { spawn, type ChildProcess } from 'child_process'
-import { info, warn, error as logError } from './logger'
-import type { McpToolResult } from '../src/types/computerUse'
+import { info, warn, error as logError } from '../infra/logger'
+import type { McpToolResult } from '../../src/types/computerUse'
 
 /** JSON-RPC 2.0 请求/响应类型 */
 interface JsonRpcRequest {
