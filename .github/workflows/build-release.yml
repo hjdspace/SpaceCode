@@ -135,9 +135,11 @@ jobs:
 
       - name: Rebuild native modules (macOS / Windows)
         if: matrix.platform != 'linux'
+        timeout-minutes: 15
         shell: bash
         run: |
-          npx --yes @electron/rebuild@^3 -f -w node-pty
+          # Use the locally installed @electron/rebuild (v4) instead of npx downloading v3
+          npx electron-rebuild -f -w node-pty
 
           echo "=== Verifying node-pty native binary ==="
           NODE_PTY_DIR="node_modules/node-pty"

@@ -109,7 +109,7 @@ export default defineConfig({
     rolldownOptions: {
       input: {
         main: resolve(import.meta.dirname, 'index.html'),
-        'pet-window': resolve(import.meta.dirname, 'pet-window.html'),
+        'pet-window': resolve(import.meta.dirname, 'src/pet-window/index.html'),
       },
       external: ['@mariozechner/pi-coding-agent'],
       output: {

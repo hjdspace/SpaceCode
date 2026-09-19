@@ -265,9 +265,9 @@ export class PetWindowController {
     try {
       this.configureWindow(window)
       if (this.options.isDev) {
-        await window.loadURL('http://127.0.0.1:5173/pet-window.html')
+        await window.loadURL('http://127.0.0.1:5173/src/pet-window/index.html')
       } else {
-        await window.loadFile(join(__dirname, '../dist/pet-window.html'))
+        await window.loadFile(join(__dirname, '../dist/src/pet-window/index.html'))
       }
       window.showInactive()
       window.setAlwaysOnTop(true)
