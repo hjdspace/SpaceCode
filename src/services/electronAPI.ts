@@ -348,6 +348,7 @@ import { design } from './api/design'
 import { git } from './api/git'
 import { h5Access } from './api/h5Access'
 import { mcp } from './api/mcp'
+import { memory } from './api/memory'
 import { mobile } from './api/mobile'
 import { officecli } from './api/officecli'
 import { petApi } from './api/pet'
@@ -696,6 +697,7 @@ export const api = {
   git,
   h5Access,
   mcp,
+  memory,
   mobile,
   officecli,
   pet: petApi,

@@ -8,6 +8,7 @@ import { terminalNamespace } from '@/shared/channels/terminal'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { channelNames } from '@/shared/channelMap'
 import { registerGitIPCHandlers } from './git/gitService'
+import { registerMemoryIPCHandlers } from './memory/memoryService'
 import { registerSkillsIPCHandlers, registerLocalLibraryIPCHandlers } from './skills/skillsService'
 import { registerSkillManagerV2IPCHandlers } from './skillManagerV2'
 import { registerAgentsIPCHandlers } from './skills/agentsService'
@@ -793,6 +794,10 @@ app.whenReady().then(() => {
   // Register Git IPC handlers
   registerGitIPCHandlers()
   info('Startup', 'Git IPC handlers registered')
+
+  // Register Memory IPC handlers
+  registerMemoryIPCHandlers()
+  info('Startup', 'Memory IPC handlers registered')
 
   // Register Skills IPC handlers
   registerSkillsIPCHandlers()

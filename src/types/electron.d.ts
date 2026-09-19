@@ -26,6 +26,7 @@ import type { GitRendererApi } from '@/shared/channels/git'
 import type { TerminalRendererApi, TerminalEventApi } from '@/shared/channels/terminal'
 import type { UpdateRendererApi, UpdateEventApi } from '@/shared/channels/update'
 import type { ClaudeCodeRendererApi, ClaudeCodeEventApi } from '@/shared/channels/claudeCode'
+import type { MemoryRendererApi } from '@/shared/channels/memory'
 import type {
 SkillManagerOverview,
 SkillManagerSettings,
@@ -112,6 +113,9 @@ export interface ElectronTerminalAPI extends TerminalRendererApi, TerminalEventA
 export interface ElectronGitAPI extends GitRendererApi {
   onStatusChanged: (callback: () => void) => () => void
 }
+
+// memory 面从 channel 定义表派生
+export interface ElectronMemoryAPI extends MemoryRendererApi {}
 
 // claudeCode 面从 channel 定义表派生（onError 由此变为必选，落实 ADR-0005）
 export interface ElectronClaudeCodeAPI extends ClaudeCodeRendererApi, ClaudeCodeEventApi {}
@@ -462,6 +466,7 @@ export interface ElectronAPI {
 
   terminal: ElectronTerminalAPI
   git: ElectronGitAPI
+  memory: ElectronMemoryAPI
   claudeCode: ElectronClaudeCodeAPI
   artifacts: ElectronArtifactsAPI
   officecli: ElectronOfficeCLIAPI

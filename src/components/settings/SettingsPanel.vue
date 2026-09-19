@@ -48,7 +48,7 @@
       </aside>
 
       <main class="settings-content">
-        <div class="content-scroll">
+        <div class="content-scroll" :class="{ 'content-scroll--flush': activeTab === 'memory' }">
           <KeepAlive :include="cachedTabs">
             <GeneralSettings
               v-if="activeTab === 'general'"
@@ -94,6 +94,9 @@
             <ImSettings
               v-else-if="activeTab === 'im'"
             />
+            <MemorySettings
+              v-else-if="activeTab === 'memory'"
+            />
             <AboutSettings
               v-else-if="activeTab === 'about'"
             />
@@ -108,11 +111,12 @@
 import { ref, computed, watch, onMounted, onUnmounted, defineAsyncComponent, type AsyncComponentLoader } from 'vue'
 import {
   ArrowLeft,
-  Settings, Palette, Wrench, Keyboard, Bot, BarChart3, Zap, Monitor, Globe, Info, Smartphone, MessageCircle, Cat
+  Settings, Palette, Wrench, Keyboard, Bot, BarChart3, Zap, Monitor, Globe, Info, Smartphone, MessageCircle, Cat, BookOpenText
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore, type AuthSettings, type AuthMethod, type OAuthAccountInfo, type EngineType } from '@/stores/settings'
+import { useMemoryStore } from '@/stores/memory'
 import appIcon from '@/assets/app-icon.svg'
 import AsyncLoadingState from '../common/AsyncLoadingState.vue'
 
@@ -138,6 +142,7 @@ const RtkSettings = asyncSetting(() => import('./RtkSettings.vue'))
 const ImSettings = asyncSetting(() => import('./ImSettings.vue'))
 const PetSettings = asyncSetting(() => import('./pet/PetSettings.vue'))
 const AboutSettings = asyncSetting(() => import('./AboutSettings.vue'))
+const MemorySettings = asyncSetting(() => import('./MemorySettings.vue'))
 
 const appStore = useAppStore()
 const settingsStore = useSettingsStore()
@@ -152,6 +157,7 @@ const settingMenuItems = computed(() => [
   { id: 'h5-access', label: t('settings.h5Access'), icon: Smartphone },
   { id: 'rtk', label: t('settings.rtk'), icon: Zap },
   { id: 'im', label: t('im.title'), icon: MessageCircle },
+  { id: 'memory', label: t('settings.memory'), icon: BookOpenText },
 ])
 
 const personalMenuItems = computed(() => [
@@ -183,12 +189,18 @@ function switchTab(tabId: string) {
   visitedTabs.value.add(tabId)
 }
 
-// 接受来自外部（如斜杠命令 /browser-use）的标签页导航事件
+// 接受来自外部的标签页导航事件（如斜杠命令 /browser-use）。
+// detail.memoryPath 表示「打开记忆页并定位到该记忆文件」，路径为绝对路径。
 const navigateHandler = (event: CustomEvent) => {
-  const tab = event.detail?.tab
-  if (tab && settingMenuItems.value.find(m => m.id === tab)) {
-    switchTab(tab)
+  const detail = event.detail || {}
+  const tab = detail.tab as string | undefined
+  const isKnownTab =
+    settingMenuItems.value.some(m => m.id === tab) || personalMenuItems.value.some(m => m.id === tab)
+  if (!tab || !isKnownTab) return
+  if (typeof detail.memoryPath === 'string' && detail.memoryPath) {
+    useMemoryStore().setPendingOpenPath(detail.memoryPath)
   }
+  switchTab(tab)
 }
 
 onMounted(() => {
@@ -384,6 +396,12 @@ function handleBack() {
   overflow-y: auto;
   padding: 40px 48px;
   @include scrollbar;
+
+  // 自管理滚动的整页视图（如记忆页）：不要外层内边距与滚动条
+  &--flush {
+    overflow: hidden;
+    padding: 0;
+  }
 }
 
 @media (max-width: 1024px) {

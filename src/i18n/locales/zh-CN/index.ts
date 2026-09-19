@@ -64,6 +64,7 @@ import h5Access from './h5Access'
 import rtk from './rtk'
 import im from './im'
 import skillManagerV2 from './skillManagerV2'
+import memorySettings from './memorySettings'
 
 export default {
   common,
@@ -132,4 +133,5 @@ export default {
   rtk,
   im,
   skillManagerV2,
+  memorySettings,
 }

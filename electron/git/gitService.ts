@@ -158,7 +158,7 @@ async function isGitRepo(cwd: string): Promise<boolean> {
   return result.code === 0 && result.stdout.trim() === 'true'
 }
 
-async function getGitRoot(cwd: string): Promise<string | null> {
+export async function getGitRoot(cwd: string): Promise<string | null> {
   const result = await gitExec(['rev-parse', '--show-toplevel'], cwd)
   return result.code === 0 ? result.stdout.trim() : null
 }

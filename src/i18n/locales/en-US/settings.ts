@@ -9,6 +9,7 @@ export default {
   computerUse: 'Computer Use',
   browserUse: 'Browser Use',
   h5Access: 'H5 Remote Access',
+  memory: 'Memory',
   rtk: 'RTK Optimization',
   shortcuts: 'Shortcuts',
   pet: 'Pet',

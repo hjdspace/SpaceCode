@@ -3,6 +3,7 @@ import { gitChannels } from '@/shared/channels/git'
 import { terminalNamespace } from '@/shared/channels/terminal'
 import { updateNamespace } from '@/shared/channels/update'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
+import { memoryChannels } from '@/shared/channels/memory'
 import { createPreloadBridge, createEventBridge } from '@/shared/preloadBridge'
 import { SCHEMA_MANAGER_CHANNELS } from './skillManagerV2/channels'
 
@@ -238,6 +239,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('git:statusChanged', wrapper)
     },
   } satisfies import('@/shared/channels/git').GitRendererApi & { onStatusChanged: (callback: () => void) => () => void },
+
+  // Memory API — 项目记忆文件的读取与编辑
+  memory: {
+    ...createPreloadBridge(memoryChannels, ipcRenderer, 'memory:'),
+  } satisfies import('@/shared/channels/memory').MemoryRendererApi,
 
   // ClaudeCode Engine API — invoke channels 与事件订阅均表驱动注册
   claudeCode: {

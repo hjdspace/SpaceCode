@@ -18,6 +18,16 @@ export default defineConfig({
       '@electron': resolve(__dirname, 'electron'),
     },
   },
+  css: {
+    // 与 vite.config.mts 保持一致：SFC 的 <style lang="scss"> 依赖全局注入的
+    // variables/mixins（如 @include scrollbar-thin），缺少注入时挂载组件会编译失败。
+    preprocessorOptions: {
+      scss: {
+        silenceDeprecations: ['legacy-js-api'],
+        additionalData: '@use "@/styles/variables" as *; @use "@/styles/mixins" as *;',
+      },
+    },
+  },
   test: {
     environment: 'jsdom',
     // `vmThreads` and `threads` both cause segfaults (SIGSEGV) on CI runners
