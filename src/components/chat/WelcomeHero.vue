@@ -17,7 +17,7 @@
         class="task-tile"
         data-test="task-tile"
         type="button"
-        @click="emit('select', task.name)"
+        @click="emit('select', task.prompt || task.name)"
       >
         <span class="task-name">{{ task.name }}</span>
         <span v-if="task.description" class="task-desc">{{ task.description }}</span>
@@ -33,6 +33,7 @@ import { useI18n } from 'vue-i18n'
 interface WelcomeTask {
   name: string
   description?: string
+  prompt?: string
 }
 
 defineProps<{

@@ -936,7 +936,7 @@ const showWelcomeHero = computed(
 )
 
 /** Hero 磁贴：已选助手用其推荐 prompt，否则用内置通用任务（i18n） */
-const welcomeTasks = computed<Array<{ name: string; description?: string }>>(() => {
+const welcomeTasks = computed<Array<{ name: string; description?: string; prompt?: string }>>(() => {
   if (welcomePromptList.value.length > 0) {
     return welcomePromptList.value.map((p) => ({ name: p }))
   }
@@ -949,6 +949,7 @@ const welcomeTasks = computed<Array<{ name: string; description?: string }>>(() 
     return {
       name: typeof record.name === 'string' ? record.name : '',
       description: typeof record.description === 'string' ? record.description : undefined,
+      prompt: typeof record.prompt === 'string' ? record.prompt : undefined,
     }
   })
 })

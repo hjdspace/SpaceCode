@@ -18,10 +18,26 @@ export default {
     subtitle: 'Describe what you need, or pick a quick task below to begin. You can interrupt and follow up anytime; I work in the context of your project.',
   },
   defaultTasks: [
-    { name: 'Explain project architecture', description: 'Understand modules and data flow fast' },
-    { name: 'Fix build errors', description: 'Locate and fix errors and failing tests' },
-    { name: 'Add tests', description: 'Add unit tests for existing modules' },
-    { name: 'Review code changes', description: 'Review uncommitted changes in the workspace' },
+    {
+      name: 'Explain project architecture',
+      description: 'Understand modules and data flow fast',
+      prompt: 'Please help me understand the overall architecture of this project, including: 1) the main directory structure and responsibilities of each module; 2) the core data flow and call relationships; 3) the key tech stack and dependencies used. Start by browsing the project root and config files, then provide a clear architecture overview.',
+    },
+    {
+      name: 'Fix build errors',
+      description: 'Locate and fix errors and failing tests',
+      prompt: 'Please help me check if the project currently has any compilation errors or test failures. First run type checking and tests, summarize all errors and failing cases, then analyze and fix them one by one. Re-verify after each fix to ensure no new issues are introduced.',
+    },
+    {
+      name: 'Add tests',
+      description: 'Add unit tests for existing modules',
+      prompt: 'Please help me analyze modules with low test coverage in the project, pick the 1-2 most critical modules, and add unit tests for them. Requirements: 1) cover main branches and edge cases; 2) follow the project\'s existing test conventions and directory structure; 3) run all tests after adding to ensure they pass.',
+    },
+    {
+      name: 'Review code changes',
+      description: 'Review uncommitted changes in the workspace',
+      prompt: 'Please help me review all uncommitted code changes in the current workspace (git diff). Check each from these dimensions: 1) code correctness and potential bugs; 2) compliance with project coding standards; 3) security or performance concerns; 4) whether tests need to be added. Finally, provide a review summary and improvement suggestions.',
+    },
   ],
   askAnything: "Ask anything, {'@'} to add files, / for commands",
   ready: 'Ready',
