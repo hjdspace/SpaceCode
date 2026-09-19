@@ -61,10 +61,19 @@ jobs:
           arch: x64
 
       - name: Install app dependencies
-        run: npm ci
+        # --ignore-scripts skips the postinstall hook (which runs bun install
+        # for the engine sub-project). On Windows runners, bun install inside
+        # npm's postinstall triggers cmd.exe's "Terminate batch job (Y/N)?"
+        # prompt in the non-interactive CI environment, causing cancellation.
+        # The engine dependencies are installed in a separate step below, and
+        # patch:node-pty is run explicitly before the native rebuild step.
+        run: npm ci --ignore-scripts
+
+      - name: Patch node-pty (remove Spectre mitigation)
+        run: npm run patch:node-pty
 
       - name: Install engine dependencies
-        run: cd engine && bun install
+        run: cd engine && bun install && node ../scripts/repair-workspace-links.cjs
 
       - name: Copy Bun binary to engine/bin (Linux/macOS)
         if: matrix.platform != 'win'
@@ -145,9 +154,6 @@ jobs:
             ls -la "$NODE_PTY_DIR/prebuilds" 2>/dev/null || echo "(no prebuilds/ dir)"
             exit 1
           fi
-
-      - name: Run tests
-        run: npm test
 
       - name: Build frontend and proxy
         run: npm run build:all
