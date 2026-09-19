@@ -717,11 +717,11 @@ watch(() => props.content, (newVal, oldVal) => {
 /*
   聊天 Markdown 排版 — 对齐 PI-Desktop prose.css (Codex 桌面规范):
   所有字号/行高引用全局类型阶梯 token, 无裸 px。
-  层级由字重、间距与色调承担, 结构性边框一律去掉。
+  层级由字重、间距与色调承担; 仅两处结构性线条: h2 底边与 hr 分隔线。
 */
 .markdown-renderer {
   font-size: var(--text-base);
-  line-height: var(--leading-prose);
+  line-height: var(--leading-prose-loose);
   color: var(--text-primary);
   overflow-wrap: break-word;
   word-break: break-word;
@@ -748,10 +748,11 @@ watch(() => props.content, (newVal, oldVal) => {
   }
 
   // 标题阶梯: 20/18/16/15/14, 字重 + 收紧字距 + 上方留白承担层级。
-  // 上边距基于正文字号取固定基准(约 27px), 不随标题字号缩小 ——
-  // 若按自身 em 计算, h3/h4 的顶距会小于正文行高, 标题会"贴"住上文。
+  // 上边距按级别递减(对齐 cc-haha document 排版): 级别越高与上文分隔感越强,
+  // 且不随标题字号缩小 —— 若按自身 em 计算, h3/h4 的顶距会小于正文行高,
+  // 标题会"贴"住上文。
   :deep(.md-heading) {
-    margin: calc(1.9 * var(--text-base)) 0 0.5em;
+    margin: calc(1.7 * var(--text-base)) 0 0.6em;
     font-weight: var(--font-weight-semibold);
     color: var(--text-primary);
     letter-spacing: -0.02em;
@@ -762,12 +763,22 @@ watch(() => props.content, (newVal, oldVal) => {
       font-size: var(--text-xl);
       letter-spacing: -0.03em;
       line-height: var(--leading-tighter);
+      margin-top: calc(2.1 * var(--text-base));
+      margin-bottom: 1em;
     }
-    &.md-h2 { font-size: var(--text-lg-plus); }
+    // h2 下方细分隔线: 长回答里承担"章节分隔"的视觉锚点
+    &.md-h2 {
+      font-size: var(--text-lg-plus);
+      margin-top: calc(2.3 * var(--text-base));
+      margin-bottom: 0.85em;
+      padding-bottom: 0.45em;
+      border-bottom: 1px solid var(--surface-border-strong);
+    }
     &.md-h3 { font-size: var(--text-lg); }
     &.md-h4 {
       font-size: var(--text-base-plus);
       font-weight: var(--font-weight-medium-plus);
+      margin-top: calc(1.45 * var(--text-base));
     }
     &.md-h5,
     &.md-h6 {
@@ -775,6 +786,7 @@ watch(() => props.content, (newVal, oldVal) => {
       font-weight: var(--font-weight-medium);
       color: var(--text-secondary);
       letter-spacing: 0;
+      margin-top: calc(1.2 * var(--text-base));
     }
   }
 
@@ -788,7 +800,7 @@ watch(() => props.content, (newVal, oldVal) => {
     padding-left: 1.4em;
 
     li {
-      margin: 0.28em 0;
+      margin: 0.45em 0;
       padding-left: 0.15em;
 
       &::marker {
@@ -894,11 +906,12 @@ watch(() => props.content, (newVal, oldVal) => {
     }
   }
 
+  // 分隔线: markdown `---` 渲染为 1px 实线, 承担章节分隔(此前 height:0 完全不可见)
   :deep(hr) {
-    margin: 1.8em 0;
+    margin: 2em 0;
     border: 0;
-    height: 0;
-    background: none;
+    height: 1px;
+    background: var(--surface-border-strong);
   }
 
   // 行内 file-link 链接保持 mono 字体

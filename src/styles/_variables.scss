@@ -79,7 +79,7 @@ $grid-opacity: 0.01;
   --font-weight-medium-plus: 520;
   --font-weight-semibold: 600;
 
-  /* 行高阶梯: 标题 1.25 / 紧凑行 1.3 / 常规 UI 1.4 / 代码 1.5 / 聊天气泡 1.55 / 正文 1.7 */
+  /* 行高阶梯: 标题 1.25 / 紧凑行 1.3 / 常规 UI 1.4 / 代码 1.5 / 聊天气泡 1.55 / 正文 1.7 / 长文阅读 1.8 */
   --leading-tighter: 1.2;
   --leading-tight: 1.25;
   --leading-compact: 1.3;
@@ -88,6 +88,7 @@ $grid-opacity: 0.01;
   --leading-relaxed: 1.5;
   --leading-chat: 1.55;
   --leading-prose: 1.7;
+  --leading-prose-loose: 1.8;
 
   --transition-fast: #{$transition-fast};
   --transition-normal: #{$transition-normal};
