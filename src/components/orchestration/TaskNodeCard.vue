@@ -178,11 +178,8 @@ function onAddMessage() {
   border-radius: 8px;
   overflow: hidden;
   font-family: inherit;
-  cursor: grab;
-
-  &:active {
-    cursor: grabbing;
-  }
+  // 卡片主体是聊天区（内嵌可滚动 + 可选中文本），拖动入口在头部
+  cursor: default;
 
   // 状态样式
   &.status-running {
@@ -223,6 +220,13 @@ function onAddMessage() {
   padding: 6px 10px;
   background: var(--surface-glass-hover, rgba(255, 255, 255, 0.04));
   border-bottom: 1px solid var(--surface-border, rgba(255, 255, 255, 0.06));
+  // 头部是拖动手柄 — 运行中同样可拖动重排布局
+  cursor: grab;
+  user-select: none;
+
+  &:active {
+    cursor: grabbing;
+  }
 }
 
 .task-node-title {

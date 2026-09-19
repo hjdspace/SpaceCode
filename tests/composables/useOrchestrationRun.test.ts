@@ -352,6 +352,46 @@ describe('useOrchestrationRun — 失败节点重试', () => {
     signalOutcome('sess-C', 'settled')
     await flushMicrotasks()
   })
+
+  it('retry 的续跑闭包全部结束后 isRunning 复位（不留下悬空锁）', async () => {
+    setupCanvas([
+      makeNode('A', 'task A'),
+      makeNode('B', 'task B'),
+      makeNode('C', 'task C'),
+    ], [
+      makeEdge('A', 'B'),
+      makeEdge('B', 'C'),
+    ])
+    const run = useOrchestrationRun()
+
+    const runPromise = run.startRun()
+    await flushMicrotasks()
+    signalOutcome('sess-A', 'settled')
+    await flushMicrotasks()
+    signalOutcome('sess-B', 'failed')
+    await flushMicrotasks()
+    await runPromise
+
+    expect(run.isRunning.value).toBe(false)
+
+    // 重试 B — 引擎把 Run 切回 running，锁随之重新生效
+    hoisted.mockSessionStore.createSession.mockImplementationOnce(() => ({ id: 'sess-B-retry' }))
+    await run.retryNode('B')
+    await flushMicrotasks()
+
+    expect(run.isRunning.value).toBe(true)
+
+    // B 续跑成功 → C 接力
+    signalOutcome('sess-B-retry', 'settled')
+    await flushMicrotasks()
+    expect(run.isRunning.value).toBe(true)
+
+    // C 结束 → 整个续跑闭包跑完，锁必须释放
+    signalOutcome('sess-C', 'settled')
+    await flushMicrotasks()
+
+    expect(run.isRunning.value).toBe(false)
+  })
 })
 
 // ── 运行中节点追加消息 ──

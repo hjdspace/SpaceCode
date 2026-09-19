@@ -2,6 +2,10 @@
 // 编排运行链路 composable — 引擎接线、空草稿校验、运行中锁结构、进度追踪。
 // 将画布数据同步到 createOrchestrationEngine，接线到真实 turn store / chatSession store。
 // 术语遵循 CONTEXT.md 的 Session Orchestration 词汇表。
+//
+// 锁结构语义（PRD 用户故事 31）：一次 Run 进行中禁止增删节点与连线，
+// 但节点位置/布局不在锁的范围内 —— 拖拽排布随时可用。
+// isRunning 由引擎真实运行态推导（见下），保证 retry / rerun 等二次启动路径不会留下悬空锁。
 
 import { ref, computed } from 'vue'
 import { useOrchestrationCanvas } from './useOrchestrationCanvas'
@@ -17,13 +21,45 @@ export function useOrchestrationRun() {
   const turnStore = useTurnStore()
   const sessionStore = useChatSessionStore()
 
-  const isRunning = ref(false)
-  /** 响应式版本号 — 每次 outcome 信号到达时递增，触发 computed 重新计算 */
-  const runVersion = ref(0)
+  /** 响应式版本号 — 引擎是普通对象（非 Pinia/非响应式），靠版本号触发 computed 重新计算 */
+  const statusVersion = ref(0)
   let engine: OrchestrationEngine | null = null
 
   /** sessionId → nodeId 反查表（composable 层维护，供 outcome 回调快照用） */
   const sessionToNodeMap = new Map<string, string>()
+
+  /** 读取版本号以建立响应式依赖（引擎状态不响应式，需显式 track） */
+  function trackRunState(): void {
+    void statusVersion.value
+  }
+
+  /** 引擎里是否还有未达终态的节点（pending / running / queued） */
+  function hasUnfinishedNodes(): boolean {
+    if (!engine) return false
+    const runState = engine.getRunState()
+    if (runState.status !== 'running') return false
+    for (const nodeState of runState.nodeStates.values()) {
+      if (
+        nodeState.status === 'pending' ||
+        nodeState.status === 'running' ||
+        nodeState.status === 'queued'
+      ) {
+        return true
+      }
+    }
+    return false
+  }
+
+  /**
+   * 是否正在进行一次 Run。
+   *
+   * 由引擎真实运行态推导，而不是手工维护的布尔量 —— 手工维护时 retry 这类
+   * "二次启动"路径容易漏掉复位，把画布永久锁在运行中（拖不动、删不掉）。
+   */
+  const isRunning = computed(() => {
+    trackRunState()
+    return hasUnfinishedNodes()
+  })
 
   // ── 空草稿校验 ──
 
@@ -42,8 +78,8 @@ export function useOrchestrationRun() {
   // ── 进度 ──
 
   const progress = computed(() => {
-    // 依赖 runVersion 触发重新计算
-    runVersion.value
+    // 依赖版本号触发重新计算
+    trackRunState()
     if (!engine) return { completed: 0, total: canvas.taskNodes.value.length }
 
     const runState = engine.getRunState()
@@ -145,7 +181,7 @@ export function useOrchestrationRun() {
             listener(sessionId, outcome)
             const nid = sessionToNodeMap.get(sessionId)
             if (nid) snapshotNodeStatus(nid)
-            runVersion.value++
+            statusVersion.value++
           })
         },
       },
@@ -171,17 +207,21 @@ export function useOrchestrationRun() {
     if (isRunning.value) return
     if (!canRun.value) return
 
-    isRunning.value = true
     sessionToNodeMap.clear()
 
     engine = createEngineWithWiring()
     syncCanvasToEngine(engine)
 
+    // 引擎 run() 同步完成图初始化并置 runState=running（首个 await 之前），
+    // 因此这里先 bump 版本号，让"运行中"锁立刻生效
+    const runPromise = engine.run()
+    statusVersion.value++
+
     try {
-      await engine.run()
+      await runPromise
       snapshotRunStateToCanvas()
     } finally {
-      isRunning.value = false
+      statusVersion.value++
     }
   }
 
@@ -191,8 +231,7 @@ export function useOrchestrationRun() {
     if (!engine) return
     await engine.stop()
     snapshotRunStateToCanvas()
-    runVersion.value++
-    isRunning.value = false
+    statusVersion.value++
   }
 
   // ── 单节点停止 ──
@@ -201,16 +240,15 @@ export function useOrchestrationRun() {
     if (!engine) return
     await engine.stopNode(nodeId)
     snapshotNodeStatus(nodeId)
-    runVersion.value++
+    statusVersion.value++
   }
 
   // ── 失败节点重试 ──
 
   async function retryNode(nodeId: string): Promise<void> {
     if (!engine) return
-    // retry 时需要新 session — 通过 sessionLauncher 的 createSession 回调实现
-    // 引擎的 retryNode 会调用 createSession，composable 的 createSession 复用已有 sessionId
-    // 但 retry 需要新 session，所以先清除节点的旧 sessionId
+    // retry 时需要新 session — 引擎的 retryNode 会调用 createSession，
+    // 而 composable 的 createSession 复用已有 sessionId，所以先清除节点的旧 sessionId
     const node = canvas.taskNodes.value.find(n => n.id === nodeId)
     if (node) {
       // 创建新 session 用于重试
@@ -218,14 +256,17 @@ export function useOrchestrationRun() {
       node.sessionId = newSession.id
       sessionToNodeMap.set(newSession.id, nodeId)
     }
-    isRunning.value = true
+
+    // 引擎 retryNode 把 Run 切回 running，isRunning 随之回到 true，
+    // 待重试的传递闭包跑完后由 outcome 信号复位
+    const retryPromise = engine.retryNode(nodeId)
+    statusVersion.value++
+
     try {
-      await engine.retryNode(nodeId)
+      await retryPromise
       snapshotNodeStatus(nodeId)
-      runVersion.value++
     } finally {
-      // retryNode 启动后引擎可能还在运行，不重置 isRunning
-      // isRunning 在 run() promise resolve 时重置
+      statusVersion.value++
     }
   }
 
@@ -254,12 +295,14 @@ export function useOrchestrationRun() {
     engine = createEngineWithWiring()
     syncCanvasToEngine(engine)
 
-    isRunning.value = true
+    const runPromise = engine.run()
+    statusVersion.value++
+
     try {
-      await engine.run()
+      await runPromise
       snapshotRunStateToCanvas()
     } finally {
-      isRunning.value = false
+      statusVersion.value++
     }
   }
 
@@ -276,7 +319,7 @@ export function useOrchestrationRun() {
       priority: 'later' as const,
       createdAt: Date.now(),
     })
-    runVersion.value++
+    statusVersion.value++
   }
 
   // ── 权限请求按 sessionId 路由 ──
@@ -296,6 +339,7 @@ export function useOrchestrationRun() {
 
   return {
     isRunning,
+    statusVersion,
     canRun,
     canRerun,
     emptyDraftNodeIds,

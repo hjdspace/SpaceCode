@@ -307,6 +307,10 @@ function handleRewind(_message: Message) {
 }
 
 .mini-chat-messages {
+  // 必须是 flex 容器：MessageList 内部靠 flex:1 + min-height:0 建立滚动高度链，
+  // 父级若是普通块盒，滚动容器会退化成"内容有多高就多高"而被外层裁掉 —— 表现为无法滚动。
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   overflow: hidden;

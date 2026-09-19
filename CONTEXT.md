@@ -15,6 +15,7 @@
 | **Node Status** | A Task Node's lifecycle state within a Run: `pending` → `running` → `settled`, or `failed` / `skipped`. A node is `settled` when its turn ends normally — regardless of whether the LLM's output reads as success. |
 | **Failure Propagation (失败传播)** | On node failure, downstream nodes become `skipped`; unrelated parallel branches keep running. Retry re-runs the failed node and auto-resumes its skipped descendants. |
 | **Concurrency Gate (并发闸门)** | The orchestration layer's own cap on simultaneously `running` nodes; ready-but-over-cap nodes queue. Independent from the engine process pool's eviction. |
+| **Structure Lock (结构锁)** | While a Run is in progress the graph's structure is frozen: no Task Node or Edge may be added or removed, and Drafts of not-yet-started nodes stay editable. Layout is *not* part of the lock — a Task Node can be dragged and re-arranged at any time. |
 | **Drawer (节点抽屉)** | The in-canvas expanded view of a Task Node showing the full chat session with streaming output. _Avoid_: modal, popup window. |
 
 ## Skill Manager

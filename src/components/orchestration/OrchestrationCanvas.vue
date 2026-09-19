@@ -90,7 +90,6 @@
         :min-zoom="0.2"
         :max-zoom="4"
         :delete-key-code="isRunning ? [] : ['Backspace', 'Delete']"
-        :nodes-draggable="!isRunning"
         :edges-updatable="!isRunning"
         :zoom-on-double-click="false"
         fit-view-on-init
@@ -98,6 +97,11 @@
         @edges-change="onEdgesChange"
         @connect="onConnect"
       >
+        <!--
+          这里刻意不绑定 nodes-draggable：节点拖拽（layout）不在"运行中锁结构"的范围内 ——
+          移动节点不改变 DAG 结构，运行中同样允许拖动与重新布局
+          （PRD 用户故事 31 只禁止运行中增删节点与连线）。
+        -->
         <template #node-task="nodeProps">
           <TaskNodeCard
             :id="nodeProps.id"
@@ -113,6 +117,11 @@
             @retry-node="handleRetryNode"
             @add-message="handleAddMessage"
           />
+        </template>
+
+        <!-- 自定义连线：按上游状态着色 + 流动动效 -->
+        <template #edge-flow="edgeProps">
+          <OrchestrationEdge v-bind="edgeProps" />
         </template>
 
         <Background v-if="showBackground" />
@@ -155,14 +164,16 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { VueFlow, type Node as FlowNode, type Edge as FlowEdge, type Connection, MarkerType } from '@vue-flow/core'
+import { VueFlow, type Node as FlowNode, type Edge as FlowEdge, type Connection } from '@vue-flow/core'
 import { MiniMap } from '@vue-flow/minimap'
 import { Background } from '@vue-flow/background'
 import { Map as MapIcon, Workflow, Plus, Play as PlayIcon, Square as SquareIcon, RefreshCw } from 'lucide-vue-next'
 import { useOrchestrationCanvas } from '@/composables/useOrchestrationCanvas'
 import { useOrchestrationRun } from '@/composables/useOrchestrationRun'
+import { toEdgeVisualState, toFlowEdge } from './edgeVisuals'
 import TaskNodeCard from './TaskNodeCard.vue'
 import NodeDrawer from './NodeDrawer.vue'
+import OrchestrationEdge from './OrchestrationEdge.vue'
 
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
@@ -186,6 +197,7 @@ const {
 
 const {
   isRunning,
+  statusVersion,
   canRun,
   canRerun,
   emptyDraftNodeIds,
@@ -229,31 +241,26 @@ watch(
 )
 
 // ── Vue Flow Edge 同步 ──
-const flowEdges = ref<FlowEdge[]>(
-  edges.value.map(e => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    markerEnd: MarkerType.ArrowClosed,
-  })),
-)
 
+/** 由画布 Edge 构建渲染用 Edge — 按上游节点状态着色，并交给自定义连线做流动动效 */
+function buildFlowEdges(): FlowEdge[] {
+  return edges.value.map(e => toFlowEdge(e, toEdgeVisualState(getNodeStatus(e.source))))
+}
+
+const flowEdges = ref<FlowEdge[]>(buildFlowEdges())
+
+// 结构变更（增删连线）与上游节点状态变更（运行进度）都要重建连线
 watch(
-  edges,
-  (eds) => {
-    flowEdges.value = eds.map(e => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      markerEnd: MarkerType.ArrowClosed,
-    }))
+  [edges, statusVersion],
+  () => {
+    flowEdges.value = buildFlowEdges()
   },
   { deep: true },
 )
 
 // Vue Flow 位置变更 → composable
+// 位置变更始终落盘：运行中移动节点只改变布局、不改变 DAG 结构，不属于"锁结构"范围。
 function onNodesChange(changes: any[]) {
-  if (isRunning.value) return // 运行中锁结构
   for (const change of changes) {
     if (change.type === 'position' && change.position) {
       updateNodePosition(change.id, { x: change.position.x, y: change.position.y })
