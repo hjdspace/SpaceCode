@@ -12,6 +12,7 @@ dist-electron/
 # Node
 node_modules/
 dist-pi-sdk/
+.vitest/
 
 # Environment
 .env
