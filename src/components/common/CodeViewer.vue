@@ -224,13 +224,49 @@ function scrollToLine(lineNumber: number) {
   })
 }
 
-watch(
-  () => [appStore.currentFile?.path, appStore.currentLine],
-  ([, line]) => {
-    if ((line as number) > 0) {
-      scrollToLine(line as number)
+// ── 目标行定位与闪烁 ──────────────────────────────────────────────
+
+const LINE_FLASH_MS = 1600
+let flashTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * 目标行(区间)短暂闪烁, 给"定位到此"一个明确的视觉落点。
+ * 经 nextTick 等 lineRefs 注册完成(首开面板时 watch 在挂载前触发)。
+ */
+function flashLines(start: number, end: number) {
+  nextTick(() => {
+    // 清除上一轮闪烁, 文件切换/连续点击时不残留
+    if (flashTimer) clearTimeout(flashTimer)
+    lineRefs.forEach(el => el.classList.remove('line-flash'))
+    const flashed: HTMLElement[] = []
+    for (let n = start; n <= end; n++) {
+      const el = lineRefs.get(n)
+      if (el) {
+        el.classList.add('line-flash')
+        flashed.push(el)
+      }
     }
-  }
+    if (flashed.length === 0) return
+    flashTimer = setTimeout(() => {
+      flashed.forEach(el => el.classList.remove('line-flash'))
+      flashTimer = null
+    }, LINE_FLASH_MS)
+  })
+}
+
+watch(
+  () => [appStore.currentFile?.path, appStore.currentLine, appStore.currentEndLine],
+  ([, line, endLine]) => {
+    const start = line as number
+    if (start > 0) {
+      scrollToLine(start)
+      const end = (endLine as number) >= start ? (endLine as number) : start
+      flashLines(start, end)
+    }
+  },
+  // immediate: 点击链接首开面板时 currentLine 在挂载前已设置,
+  // 不加 immediate 则 watch 永不触发 → 首开不滚动不定位。
+  { immediate: true }
 )
 
 // ── 代码搜索逻辑 ──────────────────────────────────────────────────
@@ -459,6 +495,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onGlobalKeydown, true)
   if (searchDebounce) clearTimeout(searchDebounce)
+  if (flashTimer) clearTimeout(flashTimer)
 })
 </script>
 
@@ -690,6 +727,25 @@ onBeforeUnmount(() => {
       margin: 0 -12px;
       padding: 0 12px;
     }
+
+    // 点击链接定位到行时的短暂闪烁(动画期间覆盖 current-line 的静态背景)
+    &.line-flash {
+      animation: line-flash-kf 1.5s ease-out;
+      margin: 0 -12px;
+      padding: 0 12px;
+    }
+  }
+}
+
+@keyframes line-flash-kf {
+  0% {
+    background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.38);
+  }
+  60% {
+    background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.16);
+  }
+  100% {
+    background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.08);
   }
 }
 

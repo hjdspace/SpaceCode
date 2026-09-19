@@ -74,11 +74,30 @@ describe('MarkdownRenderer file links', () => {
     expect(links[0]).toMatchObject({ path: 'src/utils/helper.ts', line: '42' })
   })
 
-  it('matches bare filenames inside inline code (not in plain text)', async () => {
-    const links = await renderAndGetLinks('入口是 `main.ts`，配置在 `./vite.config.ts`')
+  it('links path-shaped references inside inline code', async () => {
+    const links = await renderAndGetLinks('配置在 `./vite.config.ts`，实现在 `src/a/b.ts:1-2`')
     expect(links).toHaveLength(2)
-    expect(links[0]).toMatchObject({ path: 'main.ts' })
-    expect(links[1]).toMatchObject({ path: './vite.config.ts' })
+    expect(links[0]).toMatchObject({ path: './vite.config.ts' })
+    expect(links[1]).toMatchObject({ path: 'src/a/b.ts', line: '1', end: '2' })
+  })
+
+  it('does not link bare library names or pseudo-paths inside inline code', async () => {
+    // 无目录段且不在白名单的裸名更像库名/属性访问而非文件
+    const links = await renderAndGetLinks('用 `three.js` 与 `phaser.js`，读取 `process.env`，入口 `main.ts`')
+    expect(links).toHaveLength(0)
+  })
+
+  it('does not link bare names in inline code as partial matches of longer tokens', async () => {
+    const links = await renderAndGetLinks('配置在 `vite-package.json` 里，参见 `package.jsonx` 文档')
+    expect(links).toHaveLength(0)
+  })
+
+  it('links well-known root config files by bare name inside inline code', async () => {
+    const links = await renderAndGetLinks('依赖声明在 `package.json`，类型配置在 `tsconfig.json`，见 `README.md:10-20`')
+    expect(links).toHaveLength(3)
+    expect(links[0]).toMatchObject({ path: 'package.json' })
+    expect(links[1]).toMatchObject({ path: 'tsconfig.json' })
+    expect(links[2]).toMatchObject({ path: 'README.md', line: '10', end: '20' })
   })
 
   it('skips paths inside code blocks', async () => {

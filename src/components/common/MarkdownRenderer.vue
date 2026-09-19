@@ -50,6 +50,15 @@ const EXTENSIONLESS_FILES = new Set([
   '.tsconfig', '.mocharc', '.nycrc', '.lock', '.gitmodules'
 ])
 
+// 允许以"裸文件名"(无目录段)建链的常见项目根配置文件。
+// 其余裸名(如 three.js / process.env / main.ts)更像库名或属性访问而非文件
+// —— filePathBoundary 的形态要求: 无目录段且不在白名单的一律不建链。
+const ROOT_CONFIG_FILES = new Set([
+  'package.json', 'package-lock.json', 'tsconfig.json', 'jsconfig.json',
+  'vite.config.ts', 'vite.config.js', 'vitest.config.ts', 'README.md',
+  'Cargo.toml', 'go.mod', 'pyproject.toml', 'requirements.txt'
+])
+
 function getDisplayName(filePath: string): string {
   const segments = filePath.split(/[\\/]/)
   // 当 basename 可能有歧义时（如 index.ts），显示最后 2 段
@@ -96,9 +105,11 @@ function buildPathRegexes() {
     'ts', 'tsx', 'js', 'jsx', 'vue', 'py', 'go', 'rs', 'java', 'c', 'cpp', 'cc', 'cxx',
     'h', 'hpp', 'v', 'sv', 'svh', 'svi', 'md', 'json', 'yaml', 'yml', 'xml', 'html',
     'css', 'scss', 'less', 'sh', 'bash', 'sql', 'rb', 'php', 'swift', 'kt', 'txt',
-    'toml', 'ini', 'cfg', 'conf', 'log', 'gitignore', 'env', 'dockerfile', 'makefile',
+    'toml', 'ini', 'cfg', 'conf', 'log', 'gitignore', 'dockerfile', 'makefile',
     'd.ts', 'd.mts', 'mts', 'mjs', 'cjs', 'cts'
   ]
+  // 注: 不收录 'env' —— `process.env` 是属性访问而非文件; `.env` 已由
+  // EXTENSIONLESS_FILES 以 dotfile 形式覆盖
 
   // 按长度降序排列，确保正则交替优先匹配更长的扩展名（如 html 先于 h、d.ts 先于 ts），
   // 否则 'interactive.html' 会被截断为 'interactive.h'
@@ -109,6 +120,14 @@ function buildPathRegexes() {
 
   // 无扩展名文件正则片段
   const extlessNames = Array.from(EXTENSIONLESS_FILES)
+    .map(n => n.replace(/\./g, '\\.'))
+    .join('|')
+
+  // 常见项目根配置文件(裸名白名单)正则片段。
+  // 前后用 lookaround 卡边界: 固定字面量无法像路径段那样向前延伸,
+  // 否则 `vite-package.json` 会被部分链接成 `package.json`。
+  const rootConfigNames = Array.from(ROOT_CONFIG_FILES)
+    .sort((a, b) => b.length - a.length)
     .map(n => n.replace(/\./g, '\\.'))
     .join('|')
 
@@ -137,16 +156,26 @@ function buildPathRegexes() {
     'gi'
   )
 
-  // 行内代码路径正则（简化版，用于 <code> 标签内文本）
+  // 行内代码路径正则（用于 <code> 标签内文本）。
+  // 形态要求与明文正则一致:
+  // 裸文件名(无目录段/前缀)不建链 —— `three.js` 更像库名、`process.env` 是
+  // 属性访问; 仅放行 1)有前缀或≥1目录段的路径 2)常见项目根配置文件白名单。
+  // 捕获组布局: 1=filePath, 2=startLine, 3=endLine
   const inlineCodePathRegex = new RegExp(
     '(' +
-      // 有前缀或裸相对路径
-      '(?:(?:[A-Za-z]:[\\\\/]|\\.{1,2}[\\\\/]|[\\\\/])?(?:[\\w.\\-\\@]+[\\\\/])*' +
+      // 组A: 有前缀的路径(绝对 / ./ ../) + ≥1 目录段
+      '(?:(?:[A-Za-z]:[\\\\/]|\\.{1,2}[\\\\/]|[\\\\/])' +
+      '(?:[\\w.\\-\\@]+[\\\\/])+' +
       '[\\w.\\-\\@]+\\.(?:' + extPattern + '))' +
       '|' +
+      // 组B: 裸相对路径(至少 1 个目录段, `./x.ts` 的 `./` 也算目录段)
       '(?:(?:[\\w.\\-\\@]+[\\\\/]){1,}[\\w.\\-\\@]+\\.(?:' + extPattern + '))' +
       '|' +
+      // 组C: 有目录段的无扩展名文件
       '(?:(?:[\\w.\\-\\@]+[\\\\/])+(?:' + extlessNames + '))' +
+      '|' +
+      // 组D: 常见项目根配置文件(裸名白名单, lookaround 卡前后边界)
+      '(?<![\\w.\\-\\@])(?:' + rootConfigNames + ')(?![\\w.\\-\\@])' +
     ')' +
     '(?::(\\d+)(?:-(\\d+))?)?',
     'gi'
@@ -748,7 +777,7 @@ watch(() => props.content, (newVal, oldVal) => {
   }
 
   // 标题阶梯: 20/18/16/15/14, 字重 + 收紧字距 + 上方留白承担层级。
-  // 上边距按级别递减(对齐 cc-haha document 排版): 级别越高与上文分隔感越强,
+  // 上边距按级别递减: 级别越高与上文分隔感越强,
   // 且不随标题字号缩小 —— 若按自身 em 计算, h3/h4 的顶距会小于正文行高,
   // 标题会"贴"住上文。
   :deep(.md-heading) {
