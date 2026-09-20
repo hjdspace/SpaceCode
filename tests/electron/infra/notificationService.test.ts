@@ -94,6 +94,11 @@ describe('notificationService', () => {
 
   describe('resolveNotificationIconPath', () => {
     it('returns the ico path when it loads as a valid image', () => {
+      // Linux 上候选顺序为 [png, ico]；确保只有 .ico 能加载为有效图片，
+      // 这样无论运行平台如何，都应返回 .ico 路径。
+      electronMock.nativeImage.createFromPath.mockImplementation((p: string) =>
+        p.endsWith('.ico') ? { isEmpty: () => false } : { isEmpty: () => true }
+      )
       expect(resolveNotificationIconPath()).toBe(getNotificationIconPath())
     })
 
