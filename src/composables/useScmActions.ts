@@ -33,6 +33,8 @@ export function useScmActions() {
   }
 
   async function discardFile(file: ScmFile): Promise<void> {
+    const fileName = file.path.split('/').pop() ?? file.path
+    if (!await showConfirm(t('scm.confirmDiscardFile', { name: fileName }), { variant: 'danger' })) return
     await scmStore.discardFileChanges([file.path])
   }
 
