@@ -90,6 +90,20 @@ export default defineConfig({
             outDir: 'dist-electron'
           }
         }
+      },
+      {
+        // Proxy server as a separate entry — compiled to dist-electron/proxy/index.js
+        // so that ProxyManager.resolveProxyScript() finds it in dev mode without
+        // needing tsx loader (which can time out under ELECTRON_RUN_AS_NODE).
+        entry: 'electron/proxy/index.ts',
+        vite: {
+          build: {
+            outDir: 'dist-electron/proxy',
+            rolldownOptions: {
+              external: ['electron']
+            }
+          }
+        }
       }
     ])
   ],
