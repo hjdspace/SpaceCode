@@ -39,6 +39,7 @@
       :selected-path="scmStore.selectedFile?.path ?? null"
       @select="onSelect"
       @stage="actions.stageFile"
+      @discard="actions.discardFile"
       @copy-path="actions.copyPath"
       @contextmenu="emit('contextmenu', $event)"
     />
@@ -65,6 +66,8 @@
         :stats="scmStore.fileStats[file.path] ?? null"
         @select="onSelect($event, false)"
         @stage="actions.stageFile"
+        @discard="actions.discardFile"
+        @copy-path="actions.copyPath"
         @contextmenu="emit('contextmenu', $event)"
       />
     </template>
