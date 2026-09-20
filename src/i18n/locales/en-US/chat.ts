@@ -10,6 +10,8 @@ export default {
   applyCode: 'Apply Code',
   you: 'You',
   claude: 'Claude',
+  taskCompleteNotificationTitle: 'SpaceCode · {session}',
+  taskCompleteNotificationBody: 'Task completed, click to view the result',
   startConversation: 'Start a conversation',
   startConversationDesc: 'Type a message to begin working with Claude Code',
   welcomeHero: {
