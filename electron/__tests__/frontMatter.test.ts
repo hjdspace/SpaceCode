@@ -4,7 +4,7 @@
  *
  * The parser was extracted from diverged copies in `skillsService.ts` and
  * `agentsService.ts`. Only the `agentsService` copy tolerated CRLF, and 106 of
- * the 138 front-matter files in `skills-lib/` use CRLF — so the skills scan path
+ * the 138 front-matter files in `resources/skills-lib/` use CRLF — so the skills scan path
  * silently saw `null` for the majority of its own library. The last block below
  * asserts the property that was broken.
  */
@@ -169,7 +169,7 @@ describe('parseYamlFrontMatter', () => {
     }
 
     it('parses front matter for every document in skills-lib', () => {
-      const docs = frontMatterDocs(join(process.cwd(), 'skills-lib'))
+      const docs = frontMatterDocs(join(process.cwd(), 'resources', 'skills-lib'))
 
       expect(docs.length).toBeGreaterThan(0)
 
@@ -178,7 +178,7 @@ describe('parseYamlFrontMatter', () => {
     })
 
     it('parses front matter for every document in agents-lib', () => {
-      const docs = frontMatterDocs(join(process.cwd(), 'agents-lib'))
+      const docs = frontMatterDocs(join(process.cwd(), 'resources', 'agents-lib'))
 
       expect(docs.length).toBeGreaterThan(0)
 
@@ -187,7 +187,7 @@ describe('parseYamlFrontMatter', () => {
     })
 
     it('resolves a name for every skill definition in skills-lib', () => {
-      const docs = frontMatterDocs(join(process.cwd(), 'skills-lib'), 'SKILL.md')
+      const docs = frontMatterDocs(join(process.cwd(), 'resources', 'skills-lib'), 'SKILL.md')
 
       expect(docs.length).toBeGreaterThan(0)
 

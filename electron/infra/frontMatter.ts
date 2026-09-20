@@ -3,7 +3,7 @@
  *
  * Handles the shapes the bundled libraries actually use:
  *  - LF **and** CRLF line endings. This is load-bearing: 106 of the 138
- *    front-matter files under `skills-lib/` use CRLF, and a `\n`-only matcher
+ *    front-matter files under `resources/skills-lib/` use CRLF, and a `\n`-only matcher
  *    silently returns null for every one of them.
  *  - `key: value`
  *  - `key: [a, b]` inline arrays (quotes unwrapped, blank items dropped)

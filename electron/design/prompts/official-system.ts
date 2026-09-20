@@ -1,6 +1,6 @@
 /**
  * OFFICIAL_DESIGNER_PROMPT 身份章程及 anti-AI-slop 规则
- * 本地化参考：skills-lib/huashu-design/SKILL.md
+ * 本地化参考：resources/skills-lib/huashu-design/SKILL.md
  */
 
 export const OFFICIAL_DESIGNER_PROMPT = `[OFFICIAL DESIGNER CHARTER & IDENTITY]

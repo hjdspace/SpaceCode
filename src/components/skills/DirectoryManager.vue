@@ -15,7 +15,7 @@
               <Lock :size="14" />
               {{ t('skills.directoryManager.builtinDir') }}
             </h3>
-            <div class="builtin-path">skills-lib/</div>
+            <div class="builtin-path">resources/skills-lib/</div>
           </div>
 
           <div class="section">

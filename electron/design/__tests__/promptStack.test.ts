@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { listDesignSystems, getSystemPreviewHtml, getSystemShowcaseHtml, parseSwatchesFromTokensCss } from '../promptStack'
 import * as path from 'path'
 
-const extraResourcesPath = path.resolve(__dirname, '../../../')
+const extraResourcesPath = path.resolve(__dirname, '../../../resources/')
 
 describe('listDesignSystems', () => {
   it('返回 agentic 系统并包含 description 和 previewPages', async () => {

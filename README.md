@@ -183,7 +183,7 @@ SpaceCode 的核心是 **编码模式**、**办公模式** 和 **设计模式** 
 **推荐用法：先拆任务，再编排**
 
 直接把一整块模糊需求丢进单个会话，往往跑出一堆半成品。建议先用 Matt Pocock 技能集里的
-[`to-issues`](./skills-lib/to-issues/SKILL.md) 技能把计划 / PRD 拆成一串可独立验证的垂直切片，
+[`to-issues`](./resources/skills-lib/to-issues/SKILL.md) 技能把计划 / PRD 拆成一串可独立验证的垂直切片，
 一个切片对应一个节点，再按依赖关系连成图 —— 每个节点的 prompt 更小、更聚焦，编排才真正跑得动。
 
 **典型用法：**
@@ -446,8 +446,8 @@ SpaceCode/
 │
 ├── engine/                     # CLI 核心引擎（Bun 独立子项目）
 ├── mobile-app/                 # Flutter 移动端配套应用
-├── skills-lib/                 # 内置技能库（50+ 技能）
-├── agents-lib/                 # 内置智能体库（70+ Agent）
+├── resources/skills-lib/         # 内置技能库（50+ 技能）
+├── resources/agents-lib/         # 内置智能体库（70+ Agent）
 ├── docs/                       # 设计文档与原型
 ├── tests/                      # 测试套件
 └── package.json                # Desktop 项目配置

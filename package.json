@@ -404,11 +404,11 @@
         "to": "engine/dist-desktop"
       },
       {
-        "from": "skills-lib",
+        "from": "resources/skills-lib",
         "to": "skills-lib"
       },
       {
-        "from": "agents-lib",
+        "from": "resources/agents-lib",
         "to": "agents-lib"
       },
       {
@@ -442,7 +442,7 @@
         ]
       },
       {
-        "from": "design-systems-lib",
+        "from": "resources/design-systems-lib",
         "to": "design-systems-lib"
       }
     ],

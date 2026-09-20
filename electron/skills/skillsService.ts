@@ -472,7 +472,7 @@ function getSkillsLibRoot(): string {
 
     const fallbackPaths = [
       primaryPath,
-      join(__dirname, '../skills-lib'),
+      join(__dirname, '../resources/skills-lib'),
       join(app.getAppPath(), '..', 'resources', 'skills-lib'),
     ]
 
@@ -483,17 +483,21 @@ function getSkillsLibRoot(): string {
     }
 
     // If none exist, still return primary path (will fail later with clear error)
-    console.warn(`[LocalLibrary] No skills-lib found, using primary: ${primaryPath}`)
+    console.warn(`[LocalLibrary] No resources/skills-lib found, using primary: ${primaryPath}`)
     return primaryPath
   }
 
-  return join(__dirname, '../skills-lib')
+  return join(__dirname, '../resources/skills-lib')
 }
 
 function resolveLocalLibPath(dirPath: string): string {
-  if (dirPath.startsWith('skills-lib')) {
-    const suffix = dirPath === 'skills-lib' ? '' : dirPath.slice('skills-lib'.length).replace(/^\//, '')
-    return suffix ? join(getSkillsLibRoot(), suffix) : getSkillsLibRoot()
+  // Support both 'resources/skills-lib' (new) and 'skills-lib' (legacy) prefixes
+  const BUILTIN_PREFIXES = ['resources/skills-lib', 'skills-lib']
+  for (const prefix of BUILTIN_PREFIXES) {
+    if (dirPath.startsWith(prefix)) {
+      const suffix = dirPath === prefix ? '' : dirPath.slice(prefix.length).replace(/^\//, '')
+      return suffix ? join(getSkillsLibRoot(), suffix) : getSkillsLibRoot()
+    }
   }
   return dirPath
 }
@@ -1708,7 +1712,7 @@ async function handleInstallLocalSkill(
 
     let sourceSkillPath = skillPath
     if (!sourceSkillPath || !existsSync(sourceSkillPath)) {
-      const allDirPaths = ['skills-lib']
+      const allDirPaths = ['resources/skills-lib']
       const customDirs = loadCustomDirsFromFile()
       allDirPaths.push(...customDirs)
 

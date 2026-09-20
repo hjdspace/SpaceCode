@@ -56,7 +56,7 @@ export const CATEGORIES: Category[] = [
   { id: 'other', icon: 'Package', labelKey: 'skills.categories.other', color: '#6b7280', count: 0 }
 ]
 
-const BUILTIN_DIR = 'skills-lib'
+const BUILTIN_DIR = 'resources/skills-lib'
 
 export const useLocalSkillsStore = defineStore('localSkills', () => {
   const skills = ref<LocalSkill[]>([])

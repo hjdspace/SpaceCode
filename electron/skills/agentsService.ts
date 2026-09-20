@@ -49,21 +49,21 @@ export interface AgentDef {
 }
 
 // Constants
-const AGENTS_LIB_DIR = 'agents-lib'
+const AGENTS_LIB_DIR = 'agents-lib' // packed to resources/agents-lib via extraResources
 
 function getAgentsLibRoot(): string {
   if (app.isPackaged) {
     const primaryPath = join(process.resourcesPath, AGENTS_LIB_DIR)
     const fallbackPaths = [
       primaryPath,
-      join(__dirname, '..', AGENTS_LIB_DIR),
+      join(__dirname, '..', 'resources', AGENTS_LIB_DIR),
     ]
     for (const candidate of fallbackPaths) {
       if (existsSync(candidate)) return candidate
     }
     return primaryPath
   }
-  return join(__dirname, '..', AGENTS_LIB_DIR)
+  return join(__dirname, '..', 'resources', AGENTS_LIB_DIR)
 }
 
 function getGlobalAgentsDir(): string {
