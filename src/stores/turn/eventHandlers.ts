@@ -23,6 +23,8 @@ import {
   isAgentLaunchResult,
 } from '@/services/teamTranscriptService'
 import { playTaskCompleteSound } from '@/utils/notificationSound'
+import { api } from '@/services/electronAPI'
+import { i18n } from '@/i18n'
 
 // ── 收窄的依赖接口（接口隔离：handler 只看到它需要的子集）──
 
@@ -94,6 +96,10 @@ export interface EventReducerOptions {
   getArtifactsApi: () => ArtifactsApi | null
   /** Returns true if task-complete notification sound is enabled. */
   isSoundOnTaskComplete: () => boolean
+  /** Returns true if desktop system notification on task-complete is enabled. */
+  isDesktopNotifyOnTaskComplete: () => boolean
+  /** Returns the display title of a session (used in desktop notifications). */
+  getSessionTitle: (sessionId: string) => string
   /**
    * Turn 成功结算后的回调（endTurn 之后触发）。
    * 用于 goal 续跑等跨 turn 编排 — 传入本轮最终输出文本。
@@ -223,6 +229,8 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     getClaudeCode,
     getArtifactsApi,
     isSoundOnTaskComplete,
+    isDesktopNotifyOnTaskComplete,
+    getSessionTitle,
     onTurnCompleted,
     onTurnOutcome,
   } = opts
@@ -1131,6 +1139,19 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     if (soundEnabled) {
       try { playTaskCompleteSound() } catch (e) {
         logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] failed to play task complete sound`, { error: String(e) })
+      }
+    }
+
+    // ── Show desktop system notification when a task completes successfully ──
+    const desktopNotifyEnabled = isDesktopNotifyOnTaskComplete()
+    if (desktopNotifyEnabled) {
+      try {
+        api.showNotification({
+          title: i18n.global.t('chat.taskCompleteNotificationTitle', { session: getSessionTitle(sessionId) }) as string,
+          message: i18n.global.t('chat.taskCompleteNotificationBody') as string,
+        })
+      } catch (e) {
+        logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] failed to show task complete notification`, { error: String(e) })
       }
     }
   }
