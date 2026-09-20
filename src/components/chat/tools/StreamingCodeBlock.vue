@@ -107,6 +107,7 @@ function splitHighlightedLines(html: string): string[] {
         buf += html.slice(i)
         i = html.length
       } else if (html[next] === '\n') {
+        buf += html.slice(i, next)
         lines.push(buf + stack.slice().reverse().map(() => '</span>').join(''))
         buf = stack.join('')
         i = next + 1
