@@ -10,6 +10,8 @@ export default {
   applyCode: '应用代码',
   you: '你',
   claude: 'Claude',
+  taskCompleteNotificationTitle: 'SpaceCode · {session}',
+  taskCompleteNotificationBody: '任务已完成，点击查看结果',
   startConversation: '开始对话',
   startConversationDesc: '输入消息开始与 Claude Code 协作',
   welcomeHero: {
