@@ -25,6 +25,27 @@ vi.mock('@/stores/settings', () => ({
   useSettingsStore: () => ({ projectRoot: '' }),
 }))
 
+// MarkdownRenderer 拉入 marked / dompurify / highlight.js / mermaid 等重型依赖，
+// 测试中用 stub 组件替换，避免冷启动模块图加载耗时导致超时。
+vi.mock('@/components/common/MarkdownRenderer.vue', () => ({
+  default: defineComponent({
+    name: 'MarkdownRenderer',
+    props: {
+      content: { type: String, default: '' },
+      filePath: { type: String, default: '' },
+    },
+    computed: {
+      href(): string {
+        const match = /\[[^\]]+\]\(([^)]+)\)/.exec(this.content)
+        return match ? match[1] : ''
+      },
+    },
+    template:
+      '<div data-test="markdown-preview"><span>{{ content }}</span>' +
+      '<a v-if="href" :href="href">linked</a></div>',
+  }),
+}))
+
 // i18n 按仓库既有约定替换成 key 断言，避免测试与文案耦合。
 // 带参数的 key 追加上参数值，便于断言 aria-label。
 // createI18n 仍需可用：@/i18n 在被间接 import 时会实例化一次。
@@ -72,23 +93,6 @@ const MANUAL_FILE: MemoryFile = {
   isIndex: false,
 }
 
-const MarkdownRendererStub = defineComponent({
-  name: 'MarkdownRenderer',
-  props: {
-    content: { type: String, default: '' },
-    filePath: { type: String, default: '' },
-  },
-  computed: {
-    href(): string {
-      const match = /\[[^\]]+\]\(([^)]+)\)/.exec(this.content)
-      return match ? match[1] : ''
-    },
-  },
-  template:
-    '<div data-test="markdown-preview"><span>{{ content }}</span>' +
-    '<a v-if="href" :href="href">linked</a></div>',
-})
-
 async function settle() {
   await flushPromises()
   await nextTick()
@@ -104,7 +108,6 @@ async function mountPage(): Promise<VueWrapper<unknown>> {
   const wrapper = mount(MemorySettings, {
     global: {
       plugins: [activePinia],
-      stubs: { MarkdownRenderer: MarkdownRendererStub },
     },
   })
   await settle()
