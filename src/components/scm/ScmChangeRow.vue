@@ -18,7 +18,7 @@
     <div class="file-actions">
       <button class="file-action-btn" @click.stop="$emit('copyPath', file)" :title="t('scm.copyPath')" :aria-label="t('scm.copyPathAria')"><Copy :size="12" /></button>
       <button
-        v-if="!isStaged && file.status !== 'untracked'"
+        v-if="!isStaged"
         class="file-action-btn discard"
         @click.stop="$emit('discard', file)"
         :title="t('scm.discardChanges')"
@@ -169,6 +169,7 @@ const badgeClass = computed(() => (props.isStaged ? 'staged' : props.file.status
   display: flex;
   gap: 1px;
   opacity: 0;
+  flex-shrink: 0;
   transition: opacity var(--transition-fast);
 
   .change-file-row:hover & { opacity: 1; }
