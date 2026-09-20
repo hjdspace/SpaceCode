@@ -335,6 +335,12 @@ export function useTurnStore(injectedApi?: any) {
       getClaudeCode: () => resolvedApi.claudeCode ?? null,
       getArtifactsApi: () => resolvedApi.artifacts ?? null,
       isSoundOnTaskComplete: () => !!settingsStore.appearance?.soundOnTaskComplete,
+      // 旧存档 appearance 无此键 → 视为默认开启（与 UI 默认值一致），仅显式 false 才关闭
+      isDesktopNotifyOnTaskComplete: () => settingsStore.appearance?.desktopNotifyOnTaskComplete !== false,
+      getSessionTitle: (sessionId: string) => {
+        const s = sessionStore.sessions.find(s => s.id === sessionId)
+        return s?.title?.trim() || sessionId.slice(0, 8)
+      },
       onTurnCompleted: (sessionId: string, finalText: string) => {
         void handleGoalTurnResult(sessionId, finalText)
       },
