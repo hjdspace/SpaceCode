@@ -54,6 +54,8 @@ export interface AppearanceSettings {
   showContextWarningBar?: boolean
   /** Play a notification sound when a chat task completes (default: off). */
   soundOnTaskComplete?: boolean
+  /** Show a desktop system notification when a chat task completes (default: on). */
+  desktopNotifyOnTaskComplete?: boolean
 }
 
 export interface AuthSettings {
@@ -296,6 +298,7 @@ export const useSettingsStore = defineStore('settings', () => {
     smoothScrolling: true,
     accentColor: 'blue',
     soundOnTaskComplete: false,
+    desktopNotifyOnTaskComplete: true,
   })
   const engineSource = ref<EngineSource>(saved.engineSource || 'bundled')
   const installedCliPath = ref<string | null>(saved.installedCliPath || null)
