@@ -166,6 +166,14 @@
             </div>
             <input type="checkbox" v-model="config.soundOnTaskComplete" class="s-toggle-switch" />
           </label>
+
+          <label class="s-toggle-item">
+            <div class="s-toggle-info">
+              <span class="s-toggle-label">{{ t('appearanceSettings.desktopNotifyOnTaskComplete') }}</span>
+              <span class="s-toggle-description">{{ t('appearanceSettings.desktopNotifyOnTaskCompleteDesc') }}</span>
+            </div>
+            <input type="checkbox" v-model="config.desktopNotifyOnTaskComplete" class="s-toggle-switch" />
+          </label>
         </div>
       </div>
     </div>
@@ -271,6 +279,7 @@ const defaultConfig: AppearanceConfig = {
   showContextUsage: true,
   showContextWarningBar: true,
   soundOnTaskComplete: false,
+  desktopNotifyOnTaskComplete: true,
 }
 
 function loadSavedConfig(): Partial<AppearanceConfig> {
