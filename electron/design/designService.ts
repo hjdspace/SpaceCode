@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, Notification, shell } from 'electron';
+import { ipcMain, BrowserWindow, shell } from 'electron';
 import { app } from 'electron';
 import * as path from 'path';
 import { startDesignFileWatcher, stopDesignFileWatcher } from './fileWatcher';
@@ -47,15 +47,5 @@ export function registerDesignIPCHandlers(
   // App 路径
   ipcMain.handle('app:getPath', async (_event, name: string) => {
     return app.getPath(name as any);
-  });
-
-  // 系统通知
-  ipcMain.on('app:showNotification', (_event, options: { title: string; message: string }) => {
-    if (Notification.isSupported()) {
-      new Notification({
-        title: options.title,
-        body: options.message,
-      }).show();
-    }
   });
 }
