@@ -1,3 +1,20 @@
+## [0.8.4](https://github.com/hjdspace/SpaceCode/compare/v0.8.3...v0.8.4) (2026-09-20)
+
+### Features
+
+- **skill-manager:** 新增技能管理器 V2 版本，拆分新旧技能面板
+- **notification:** 实现桌面通知服务，支持任务完成通知与通知开关设置
+- **scm:** 新增文件变更丢弃确认对话框，支持单文件丢弃操作
+
+### Bug Fixes
+
+- 修复 StreamingCodeBlock 组件缓冲处理问题
+
+### Refactor
+
+- 将 skill-lib、design-systems-lib、agents-lib 移动到 resources 目录
+- 重构文件操作按钮可见性条件
+
 ## [0.8.3](https://github.com/hjdspace/SpaceCode/compare/v0.8.2...v0.8.3) (2026-09-19)
 
 ### Features
