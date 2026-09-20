@@ -456,6 +456,19 @@ function createWindow() {
 
   mainWindow = new BrowserWindow(windowOptions)
 
+  // Explicitly set the window icon as a NativeImage.
+  // On Windows & Linux, passing a file-path string to the BrowserWindow constructor's
+  // `icon` option does not reliably set the taskbar icon (the OS may fall back to the
+  // process icon — i.e. the default Electron logo in dev, or the .exe icon in prod).
+  // Calling setIcon() with a NativeImage forces the taskbar to use our icon.
+  const windowIcon = loadIconImage()
+  if (!windowIcon.isEmpty()) {
+    mainWindow.setIcon(windowIcon)
+    debug('Icon', 'Window icon set via setIcon()')
+  } else {
+    warn('Icon', 'Window icon is empty — taskbar will show default icon')
+  }
+
   // Notify renderer when window maximize state changes (for custom controls)
   mainWindow.on('maximize', () => {
     mainWindow?.webContents.send('window:maximizeChanged', true)
