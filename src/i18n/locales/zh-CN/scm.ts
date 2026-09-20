@@ -55,6 +55,7 @@ export default {
   branchNamePlaceholder: '分支名称',
   createAndSwitch: '创建并切换',
   confirmDiscard: '确定要丢弃 {count} 个文件的更改吗？此操作不可恢复。',
+  confirmDiscardFile: '确定要丢弃 "{name}" 的更改吗？此操作不可恢复。',
   graph: '图形',
   viewModeList: '以列表查看',
   viewModeTree: '以树查看',
