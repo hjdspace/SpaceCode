@@ -12,4 +12,6 @@ export default {
   accentColor: 'Accent Color',
   soundOnTaskComplete: 'Task Complete Sound',
   soundOnTaskCompleteDesc: 'Play a short notification sound when the AI completes a task',
+  desktopNotifyOnTaskComplete: 'Task Complete Desktop Notification',
+  desktopNotifyOnTaskCompleteDesc: 'Show a system notification when the AI completes a task (Windows toast / Linux desktop notification)',
 }
