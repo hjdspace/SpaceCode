@@ -28,6 +28,7 @@ import { engineGateway } from './engine/engineGateway'
 import { EngineFactory } from './engine/engines/EngineFactory'
 import { registerPromptOptimizerIPC } from './skills/promptOptimizerIPC'
 import { registerDesignIPCHandlers } from './design/designService'
+import { registerNotificationIPCHandlers } from './infra/notificationService'
 import { aggregateLocalTokenStats } from './session/tokenStatsService'
 import { initLogger, info, warn, error, debug, isDebugMode, ipc as logIpc, traceEvent, listDebugFiles, readDebugFile, listTraceSessions, readTraceEvents, getTraceDir } from './infra/logger'
 import { proxyManager, buildProxyConfigFromSettings } from './infra/proxyManager'
@@ -912,6 +913,9 @@ info('Startup', 'CuaDriver IPC handlers registered')
     : resolve(__dirname, '..')
   registerDesignIPCHandlers(mainWindow!, designResourcesPath)
   info('Startup', 'Design IPC handlers registered')
+
+  // 系统通知（app:showNotification — 任务完成等场景的桌面弹窗通知）
+  registerNotificationIPCHandlers(() => mainWindow)
 
   // Mobile server
   registerMobileIPCHandlers()
