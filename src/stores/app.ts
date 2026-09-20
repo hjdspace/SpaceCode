@@ -150,6 +150,7 @@ export const useAppStore = defineStore('app', () => {
   const workWorkspaceConfirmed = ref<boolean>(_initialWorkConfirmed)
 
   const showSkillsManager = ref(false)
+  const showOldSkills = ref(false)
   const showTraceViewer = ref(false)
   const showSettings = ref(false)
   const showMCPManager = ref(false)
@@ -608,6 +609,7 @@ export const useAppStore = defineStore('app', () => {
     // 关闭所有可能阻塞中央面板的全屏视图，确保终端能被用户看到
     showSettings.value = false
     showSkillsManager.value = false
+    showOldSkills.value = false
     showAgentManager.value = false
     showMCPManager.value = false
     showCronManager.value = false
@@ -633,6 +635,7 @@ export const useAppStore = defineStore('app', () => {
     // 关闭所有可能阻塞中央面板的全屏视图
     showSettings.value = false
     showSkillsManager.value = false
+    showOldSkills.value = false
     showAgentManager.value = false
     showMCPManager.value = false
     showCronManager.value = false
@@ -965,6 +968,7 @@ export const useAppStore = defineStore('app', () => {
     setWorkWorkspace,
     clearWorkWorkspace,
     showSkillsManager,
+    showOldSkills,
     showTraceViewer,
     showSettings,
     showMCPManager,

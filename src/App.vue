@@ -2,20 +2,20 @@
   <div class="app-container" :data-theme="appStore.theme">
     <TitleBar @open-changelog="handleOpenChangelog" />
     <div class="main-content" ref="mainContent">
-      <Sidebar
-        v-if="!appStore.showSkillsManager"
-        :collapsed="appStore.sidebarCollapsed"
-        :style="{ width: appStore.sidebarCollapsed ? '48px' : leftWidth + 'px' }"
-      />
+    <Sidebar
+      v-if="!appStore.showSkillsManager && !appStore.showOldSkills"
+      :collapsed="appStore.sidebarCollapsed"
+      :style="{ width: appStore.sidebarCollapsed ? '48px' : leftWidth + 'px' }"
+    />
       <!-- H5 模式侧边栏遮罩层 — 点击关闭侧边栏
            z-index 层级：遮罩层 150 位于主内容之上，侧边栏 200 之下 -->
       <div
-        v-if="!appStore.showSkillsManager && h5Mode && !appStore.sidebarCollapsed"
+        v-if="!appStore.showSkillsManager && !appStore.showOldSkills && h5Mode && !appStore.sidebarCollapsed"
         class="h5-sidebar-overlay"
         @click="appStore.sidebarCollapsed = true"
       ></div>
       <div
-        v-if="!appStore.showSkillsManager"
+        v-if="!appStore.showSkillsManager && !appStore.showOldSkills"
         class="resize-handle vertical"
         @mousedown="startLeftResize"
         :class="{ active: isLeftResizing }"
@@ -27,6 +27,7 @@
             <SettingsPanel />
           </KeepAlive>
           <SkillsManager v-else-if="appStore.showSkillsManager" />
+          <OldSkillsManager v-else-if="appStore.showOldSkills" />
           <AgentManager v-else-if="appStore.showAgentManager" />
           <McpManager v-else-if="appStore.showMCPManager" />
           <CronManager v-else-if="appStore.showCronManager" />
@@ -56,13 +57,13 @@
         </div>
       </div>
       <div
-        v-if="!appStore.showSkillsManager && appStore.infoPanelVisible"
+        v-if="!appStore.showSkillsManager && !appStore.showOldSkills && appStore.infoPanelVisible"
         class="resize-handle vertical"
         @mousedown="startRightResize"
         :class="{ active: isRightResizing }"
       ></div>
       <InfoPanel
-        v-if="!appStore.showSkillsManager && (appStore.infoPanelVisible || appStore.infoPanelTabs.length > 0)"
+        v-if="!appStore.showSkillsManager && !appStore.showOldSkills && (appStore.infoPanelVisible || appStore.infoPanelTabs.length > 0)"
         v-show="appStore.infoPanelVisible"
         :style="{ width: rightWidth + 'px' }"
       />
@@ -117,9 +118,15 @@ const SettingsPanel = defineAsyncComponent({
   loadingComponent: AsyncLoadingState,
   delay: 0,
 })
-const loadSkillsManager = () => import('./components/skills-v2/SkillManagerShell.vue')
+const loadSkillsManager = () => import('./components/skill_manager/SkillManagerShell.vue')
 const SkillsManager = defineAsyncComponent({
   loader: loadSkillsManager,
+  loadingComponent: AsyncLoadingState,
+  delay: 0,
+})
+const loadOldSkills = () => import('./components/skills/SkillsManager.vue')
+const OldSkillsManager = defineAsyncComponent({
+  loader: loadOldSkills,
   loadingComponent: AsyncLoadingState,
   delay: 0,
 })
@@ -151,6 +158,10 @@ const handleOpenSkillsManager = () => {
   appStore.showSkillsManager = true
 }
 
+const handleOpenOldSkills = () => {
+  appStore.showOldSkills = true
+}
+
 const handleOpenMCPManager = () => {
   appStore.showMCPManager = true
 }
@@ -171,6 +182,7 @@ function revealChatSession(detail: H5RemoteUserMessageDetail) {
 
   appStore.showSettings = false
   appStore.showSkillsManager = false
+  appStore.showOldSkills = false
   appStore.showAgentManager = false
   appStore.showMCPManager = false
   appStore.showCronManager = false
@@ -550,6 +562,7 @@ onMounted(() => {
 
   // 监听打开技能管理器事件
   window.addEventListener('open-skills-manager', handleOpenSkillsManager)
+  window.addEventListener('open-old-skills', handleOpenOldSkills)
 
   // 监听打开 MCP 管理器事件
   window.addEventListener('open-mcp-manager', handleOpenMCPManager)
@@ -585,6 +598,7 @@ async function handleOpenChangelog() {
 
 onUnmounted(() => {
   window.removeEventListener('open-skills-manager', handleOpenSkillsManager)
+  window.removeEventListener('open-old-skills', handleOpenOldSkills)
   window.removeEventListener('open-mcp-manager', handleOpenMCPManager)
   window.removeEventListener('h5-remote-user-message', revealRemoteChatSession)
   document.removeEventListener('keydown', onGlobalKeydown, true)

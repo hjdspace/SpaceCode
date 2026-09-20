@@ -181,7 +181,7 @@ const appStore = useAppStore()
 const { showAlert, showConfirm } = useDialog()
 
 function handleClose() {
-  appStore.showSkillsManager = false
+  appStore.showOldSkills = false
 }
 
 const search = ref('')

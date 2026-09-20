@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import zhCN from '@/i18n/locales/zh-CN'
-import AdoptDialog from '@/components/skills-v2/AdoptDialog.vue'
+import AdoptDialog from '@/components/skill_manager/AdoptDialog.vue'
 
 const storeMocks = vi.hoisted(() => ({
   previewAdopt: vi.fn(),

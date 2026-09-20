@@ -14,7 +14,7 @@ vi.mock('@/stores/skillManagerStore', () => ({
 
 vi.mock('@/services/electronAPI', () => ({ api: apiMocks }))
 
-import SkillDetailSlider from '@/components/skills-v2/SkillDetailSlider.vue'
+import SkillDetailSlider from '@/components/skill_manager/SkillDetailSlider.vue'
 
 const i18n = createI18n({
   legacy: false,

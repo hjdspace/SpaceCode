@@ -61,6 +61,26 @@
         <Smartphone :size="15" />
       </button>
 
+      <!-- Skills (v1) -->
+      <button
+        class="titlebar-btn"
+        :class="{ 'is-active': appStore.showOldSkills }"
+        @click="handleToggleOldSkills"
+        :title="t('sidebar.skills')"
+      >
+        <Wrench :size="15" />
+      </button>
+
+      <!-- Skills Manager (v2) -->
+      <button
+        class="titlebar-btn"
+        :class="{ 'is-active': appStore.showSkillsManager }"
+        @click="handleToggleSkillsManager"
+        :title="t('sidebar.skillsManager')"
+      >
+        <Zap :size="15" />
+      </button>
+
       <!-- Update ready button (仅下载完成后显示) -->
       <button
         v-if="showUpdateButton"
@@ -135,7 +155,7 @@ import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
 import { useI18n } from 'vue-i18n'
-import { Menu, Minus, Square, Copy, X, ChevronDown, Smartphone, PanelRight, PanelBottom, Columns2, Rows2, Download } from 'lucide-vue-next'
+import { Menu, Minus, Square, Copy, X, ChevronDown, Smartphone, PanelRight, PanelBottom, Columns2, Rows2, Download, Zap, Wrench } from 'lucide-vue-next'
 import { computed, h, onMounted, onBeforeUnmount, ref } from 'vue'
 import { api, type ExternalEditor } from '@/services/electronAPI'
 import { useAutoUpdate } from '@/composables/useAutoUpdate'
@@ -194,6 +214,24 @@ function onTitleBarSplit(position: 'right' | 'bottom') {
 
 function handleUpdateInstall() {
   installAndRestart()
+}
+
+function handleToggleOldSkills() {
+  if (appStore.showOldSkills) {
+    appStore.showOldSkills = false
+  } else {
+    appStore.showSkillsManager = false
+    appStore.showOldSkills = true
+  }
+}
+
+function handleToggleSkillsManager() {
+  if (appStore.showSkillsManager) {
+    appStore.showSkillsManager = false
+  } else {
+    appStore.showOldSkills = false
+    appStore.showSkillsManager = true
+  }
 }
 
 const platform = typeof window !== 'undefined' && window.electronAPI?.platform

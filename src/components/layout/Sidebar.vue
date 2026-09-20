@@ -155,9 +155,17 @@
             <button
               class="feature-nav-item"
               :class="{ active: appStore.showSkillsManager }"
-              @click="handleOpenSkills"
+              @click="handleOpenSkillsManager"
             >
               <Zap :size="14" />
+              <span>{{ t('sidebar.skillsManager') }}</span>
+            </button>
+            <button
+              class="feature-nav-item"
+              :class="{ active: appStore.showOldSkills }"
+              @click="handleOpenOldSkills"
+            >
+              <Wrench :size="14" />
               <span>{{ t('sidebar.skills') }}</span>
             </button>
             <button
@@ -351,7 +359,8 @@ import {
   FolderOpen,
   Package,
   LayoutGrid,
-  Workflow
+  Workflow,
+  Wrench
 } from 'lucide-vue-next'
 
 // Enhanced Components
@@ -488,8 +497,14 @@ function toggleTraceViewer() {
   appStore.showTraceViewer = !appStore.showTraceViewer
 }
 
-function handleOpenSkills() {
+function handleOpenSkillsManager() {
+  appStore.showOldSkills = false
   appStore.showSkillsManager = true
+}
+
+function handleOpenOldSkills() {
+  appStore.showSkillsManager = false
+  appStore.showOldSkills = true
 }
 
 function handleOpenAgents() {
