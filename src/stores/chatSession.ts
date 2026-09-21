@@ -420,6 +420,40 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     return sessionStash.value.has(sessionId)
   }
 
+  // ── Per-session input drafts ──
+  // 未发送的输入框草稿（自动保存），与 sessionStash（Ctrl+S 暂存）分离：
+  // stash 会在回合结束后被自动发送，草稿绝不能被自动发送。
+  const sessionDrafts = ref<Map<string, PromptStashData>>(new Map())
+
+  function saveDraft(sessionId: string, data: PromptStashData) {
+    sessionDrafts.value.set(sessionId, data)
+  }
+
+  function getDraft(sessionId: string): PromptStashData | undefined {
+    return sessionDrafts.value.get(sessionId)
+  }
+
+  function clearDraft(sessionId: string) {
+    sessionDrafts.value.delete(sessionId)
+  }
+
+  // ── New-chat draft mirror ──
+  // "新对话"每次点击都生成新 session id，per-session 草稿无法再被找回。
+  // mirror 记录草稿及其归属会话，供后续新建/切回空会话时恢复。
+  const newChatDraft = ref<{ ownerSessionId: string | null; data: PromptStashData } | null>(null)
+
+  function setNewChatDraft(ownerSessionId: string | null, data: PromptStashData) {
+    newChatDraft.value = { ownerSessionId, data }
+  }
+
+  function getNewChatDraft() {
+    return newChatDraft.value
+  }
+
+  function clearNewChatDraft() {
+    newChatDraft.value = null
+  }
+
   // Diff 面板触发
   const diffPanelTrigger = ref(0)
   function triggerDiffPanel() {
@@ -1443,6 +1477,10 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         currentSessionId.value = sessions.value[0]?.id || null
       }
       clearSessionToolUseMappings(sessionId)
+      sessionDrafts.value.delete(sessionId)
+      if (newChatDraft.value?.ownerSessionId === sessionId) {
+        newChatDraft.value = null
+      }
       saveToStorage()
     }
   }
@@ -2132,6 +2170,14 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     getStash,
     clearStash,
     hasStash,
+    // Input drafts
+    saveDraft,
+    getDraft,
+    clearDraft,
+    newChatDraft: readonly(newChatDraft),
+    setNewChatDraft,
+    getNewChatDraft,
+    clearNewChatDraft,
     // Expose for sub-stores
     logger,
     traceEvent,
