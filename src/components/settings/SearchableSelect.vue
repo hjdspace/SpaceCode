@@ -13,8 +13,9 @@
       <ChevronDown :size="16" class="chevron" :class="{ open: isOpen }" />
     </div>
 
+    <Teleport to="body">
     <Transition name="dropdown">
-      <div v-if="isOpen" class="select-dropdown">
+      <div v-if="isOpen" class="select-dropdown" :style="dropdownStyle">
         <div class="search-box">
           <Search :size="14" />
           <input
@@ -66,6 +67,7 @@
         </div>
       </div>
     </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -97,6 +99,30 @@ const highlightedId = ref<string | null>(null)
 const selectRef = ref<HTMLElement | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
 const optionsList = ref<HTMLElement | null>(null)
+
+// Dropdown position style — with <Teleport to="body>, position: fixed is
+// relative to the viewport, so getBoundingClientRect() values can be used
+// directly. Ensures the dropdown is never clipped by ancestor overflow.
+const dropdownStyle = computed<Record<string, string>>(() => {
+  if (!isOpen.value) return {}
+  const trigger = selectRef.value
+  const style: Record<string, string> = {}
+  if (!trigger) return style
+
+  const rect = trigger.getBoundingClientRect()
+  const viewportWidth = window.innerWidth
+
+  style.position = 'fixed'
+  style.top = `${rect.bottom + 4}px`
+  style.left = `${rect.left}px`
+  // Width auto-adjusts to content, clamped between trigger width and
+  // the available viewport space on the right.
+  style.minWidth = `${rect.width}px`
+  const maxAvailable = viewportWidth - rect.left - 8
+  style.maxWidth = `${Math.min(maxAvailable, 400)}px`
+
+  return style
+})
 
 // 使用computed缓存选中标签
 const selectedLabel = computed(() => {
@@ -144,10 +170,14 @@ function selectCustomValue() {
 
 // 使用防抖处理点击外部
 const debouncedClickOutside = debounce((event: MouseEvent) => {
-  if (selectRef.value && !selectRef.value.contains(event.target as Node)) {
-    isOpen.value = false
-    searchQuery.value = ''
-  }
+  const target = event.target as Node
+  // Check if click is inside the trigger element
+  if (selectRef.value && selectRef.value.contains(target)) return
+  // Check if click is inside the teleported dropdown
+  const dropdown = document.querySelector('.select-dropdown')
+  if (dropdown && dropdown.contains(target)) return
+  isOpen.value = false
+  searchQuery.value = ''
 }, 10)
 
 function handleKeydown(event: KeyboardEvent) {
@@ -278,10 +308,7 @@ watch(isOpen, (open) => {
 }
 
 .select-dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
+  position: fixed;
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
   border-radius: 8px;
@@ -373,8 +400,6 @@ watch(isOpen, (open) => {
   min-width: 0;
   font-size: 13px;
   color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
