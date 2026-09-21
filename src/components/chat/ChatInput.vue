@@ -355,7 +355,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch, nextTick } from 'vue'
 import {
   ArrowUp, Plus, ChevronDown, Check, Square, X,
   Search, Loader2, RefreshCw, AlertCircle, Zap, FolderOpen, Brain,
@@ -381,7 +381,7 @@ import { useModelSelector, type ModelOption } from '@/composables/useModelSelect
 import { useSlashCommands, type SlashCommand } from '@/composables/useSlashCommands'
 import { useContextMenu, type ContextItem } from '@/composables/useContextMenu'
 import { useContentEditor, getMimeTypeFromFileName } from '@/composables/useContentEditor'
-import { usePromptStash } from '@/composables/usePromptStash'
+import { usePromptStash, resolveDraftSave, resolveDraftLoad, isMirrorValid } from '@/composables/usePromptStash'
 import { useDragDrop } from '@/composables/useDragDrop'
 import { useImageHandler } from '@/composables/useImageHandler'
 import { useAgentSelector } from '@/composables/useAgentSelector'
@@ -415,6 +415,8 @@ const props = defineProps<{
   modelValue?: string
   workingDirectory?: string
   showOpenProjectAction?: boolean
+  /** 本输入框绑定的会话 id；未传时回退全局 currentSessionId */
+  sessionId?: string
 }>()
 
 // ── Stores ───────────────────────────────────────────────────────
@@ -488,6 +490,95 @@ const {
 // Prompt stash
 const promptStash = usePromptStash()
 const { showStashHint } = promptStash
+
+// ── Per-session draft persistence ───────────────────────────────
+// 编辑器内容是组件本地 DOM 状态。会话切换 / 页面切换（设置页等会卸载本组件的
+// 视图）时必须按「内容归属的会话」保存草稿，而不是全局 currentSessionId——
+// 切换会话时 store 已经指向新会话，用 current 做 key 会把草稿存错会话。
+// 归属会话由 ChatPanel 通过 props.sessionId 传入（分屏时每个 pane 独立）。
+const editorSessionId = ref<string | null>(null)
+
+function buildDraftFromEditor() {
+  return {
+    text: getEditorPlainText().trim(),
+    attachments: attachedFiles.value.map(f => ({ ...f })),
+    images: attachedImages.value.map(img => ({ ...img })),
+    editorHtml: editorRef.value?.innerHTML || '',
+  }
+}
+
+/** 把编辑器当前内容保存为 sid 的草稿；空内容时清掉对应草稿 */
+function saveDraftForSession(sid: string | null) {
+  const draft = buildDraftFromEditor()
+  const hasDraft = draft.text.length > 0 || draft.attachments.length > 0 || draft.images.length > 0
+  const existingMirror = sessionStore.getNewChatDraft()
+  const messageCount = sid ? (sessionStore.getSession(sid)?.messages.length ?? null) : null
+
+  const decision = resolveDraftSave(hasDraft, sid, messageCount, existingMirror?.ownerSessionId)
+
+  if (sid) {
+    if (decision.saveDraft) {
+      sessionStore.saveDraft(sid, draft)
+    } else {
+      sessionStore.clearDraft(sid)
+    }
+  }
+  if (decision.clearMirror) {
+    sessionStore.clearNewChatDraft()
+  }
+  if (decision.saveMirror) {
+    sessionStore.setNewChatDraft(sid, draft)
+  }
+}
+
+/** 恢复 sid 的草稿到编辑器；无草稿时清空编辑器（避免上一会话内容串台） */
+function loadDraftForSession(sid: string | null) {
+  const draft = sid ? sessionStore.getDraft(sid) : undefined
+  const stash = sid ? sessionStore.getStash(sid) : undefined
+  const mirror = sessionStore.getNewChatDraft()
+
+  let mirrorUsable = false
+  if (mirror) {
+    const ownerCount = mirror.ownerSessionId
+      ? (sessionStore.getSession(mirror.ownerSessionId)?.messages.length ?? null)
+      : null
+    const isFreshSession = !sid || (sessionStore.getSession(sid)?.messages.length ?? 0) === 0
+    mirrorUsable = isMirrorValid(mirror.ownerSessionId, ownerCount) && isFreshSession
+  }
+
+  const action = resolveDraftLoad(!!draft, !!stash, mirrorUsable)
+
+  if (action === 'draft' && draft) {
+    restoreStashData(draft)
+    return
+  }
+  if (action === 'stash' && stash) {
+    restoreStashData(stash)
+    return
+  }
+  if (action === 'mirror' && mirror) {
+    restoreStashData(mirror.data)
+    return
+  }
+
+  clearEditor()
+  attachedFiles.value = []
+  clearImages()
+  inputText.value = ''
+}
+
+function restoreStashData(stash: { text: string; attachments: { name: string; path: string; isFolder: boolean }[]; images: any[]; editorHtml: string }) {
+  if (editorRef.value && stash.editorHtml) {
+    editorRef.value.innerHTML = stash.editorHtml
+  }
+  attachedFiles.value = stash.attachments.map(f => ({ ...f }))
+  attachedImages.value = stash.images.map(img => ({ ...img }))
+  inputText.value = stash.text
+  nextTick(() => {
+    autoResize()
+    focusEditor()
+  })
+}
 
 // Drag & drop
 const dragDrop = useDragDrop()
@@ -1391,12 +1482,24 @@ onMounted(() => {
   document.addEventListener('keydown', handleModelKeydown)
   window.addEventListener('session-created', focusEditor)
   window.addEventListener('chip-image-preview', handleChipImagePreview as EventListener)
+
+  // 挂载即恢复本会话草稿（例如从设置页返回时组件被重新挂载）
+  editorSessionId.value = props.sessionId ?? sessionStore.currentSessionId
+  nextTick(() => loadDraftForSession(editorSessionId.value))
 })
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleModelKeydown)
   window.removeEventListener('session-created', focusEditor)
   window.removeEventListener('chip-image-preview', handleChipImagePreview as EventListener)
+})
+
+// Before the DOM is torn down (e.g. when navigating to settings), stash the
+// editor content under the session it belongs to (NOT the global current —
+// that may already point elsewhere). onBeforeUnmount runs while the DOM is
+// still intact, so editorRef.value and its innerHTML are still available.
+onBeforeUnmount(() => {
+  saveDraftForSession(editorSessionId.value)
 })
 
 // Watch external modelValue changes
@@ -1427,13 +1530,16 @@ watch(() => sessionStore.pendingInputText, (newText) => {
   }
 })
 
-// Watch session changes
-watch(() => sessionStore.currentSessionId, () => {
+// Watch session changes: save the outgoing session's draft, then load the
+// incoming session's draft (or clear the editor so content never leaks
+// across sessions). Component is NOT remounted on session switch in
+// single-pane mode, so this watcher is the only save/restore point.
+watch(() => props.sessionId ?? sessionStore.currentSessionId, (newSid) => {
+  if ((newSid ?? null) === (editorSessionId.value ?? null)) return
+  saveDraftForSession(editorSessionId.value)
+  editorSessionId.value = newSid ?? null
   focusEditor()
-  const sid = sessionStore.currentSessionId
-  if (sid && sessionStore.hasStash(sid)) {
-    nextTick(() => restoreStashLocal())
-  }
+  nextTick(() => loadDraftForSession(editorSessionId.value))
 })
 
 // Watch disabled/isSending to toggle contenteditable
